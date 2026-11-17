@@ -1,6 +1,7 @@
 //! The bytecode loop. Every instruction calls the helpers of its operation (`ops`, `Session::read`, `write`, ...).
 
 use super::*;
+use crate::temp_blob_share::SiteCheck;
 use crate::{Frame, Session};
 use al_builtins::describe::Describe;
 use al_builtins::native::Signal;
@@ -68,6 +69,34 @@ fn release(f: &mut Frame, r: u16, nl: u16) {
 }
 
 impl Session {
+    /// `Op::StorePlace`: `v` written to place `p`.
+    fn store_place(&mut self, chunk: &Chunk, p: u32, v: Value, f: &mut Frame) -> Result<(), Signal> {
+        mark_assigned_stream(&v);
+        self.write(&chunk.places[p as usize], v, f)
+    }
+
+    /// The record, RecordRef or Blob `Op::StoreLocal` stores into local place `p`: a record goes to
+    /// `Session::store_variant_copy` when the assignment is a `variant_copy.rs` site, every value else to `write`.
+    #[inline(never)]
+    fn store_local_held(&mut self, chunk: &Chunk, p: u32, v: Value, f: &mut Frame) -> Result<(), Signal> {
+        mark_assigned_stream(&v);
+        match chunk.variant_copies.iter().find(|site| site.at == p) {
+            Some(site) if matches!(v, Value::Record(_)) => self.store_variant_copy(site, v, f),
+            _ => self.write(&chunk.places[p as usize], v, f),
+        }
+    }
+
+    /// `Op::StoreVariantCopy` (a target that is no local), out of the instruction loop: inlined, it made every other
+    /// instruction of the loop slower. Only a record needs `Session::store_variant_copy`.
+    #[inline(never)]
+    fn variant_copy_op(&mut self, chunk: &Chunk, s: u32, a: u16, f: &mut Frame) -> Result<(), Signal> {
+        let site = &chunk.variant_copies[s as usize];
+        match take(f, a, chunk.nlocals) {
+            v @ Value::Record(_) => self.store_variant_copy(site, v, f),
+            v => self.write(&site.place, v, f),
+        }
+    }
+
     /// Runs `chunk` on frame `f`. The frame's locals already hold the temporaries.
     pub(crate) fn run_chunk(&mut self, chunk: &Chunk, f: &mut Frame) -> Result<(), Signal> {
         self.run_range::<false>(chunk, f, 0, chunk.code.len()).map(|_| ())
@@ -159,22 +188,21 @@ impl Session {
                     set(&mut f.locals[d as usize], v);
                 }
                 Op::SingleWrite { i, kind } => self.single_write_op(i as usize, kind, f),
-                Op::ReadPlace { d, p } => {
-                    let v = self.read(&chunk.places[p as usize], f)?;
+                Op::ReadPlace { d, p, value } => {
+                    let v = self.read_place(&chunk.places[p as usize], value, f)?;
                     set(&mut f.locals[d as usize], v);
                 }
                 Op::StoreLocal { i, a, p } => {
                     let v = take(f, a, nl);
-                    if matches!(v, Value::Record(_) | Value::Library(..)) {
-                        self.write(&chunk.places[p as usize], v, f)?;
+                    // A Blob goes through `write` too: a Variant takes a copy (`blob_transfer::moved`).
+                    if matches!(v, Value::Record(_) | Value::Library(..) | Value::Blob(_)) {
+                        self.store_local_held(chunk, p, v, f)?;
                     } else {
                         set(&mut f.locals[i as usize], v);
                     }
                 }
-                Op::StorePlace { p, a } => {
-                    let v = take(f, a, nl);
-                    self.write(&chunk.places[p as usize], v, f)?;
-                }
+                Op::StorePlace { p, a } => self.store_place(chunk, p, take(f, a, nl), f)?,
+                Op::StoreVariantCopy { s, a } => self.variant_copy_op(chunk, s, a, f)?,
                 Op::Bin { op, d, a, b } => {
                     let v = Self::binary_op(op, &f.locals[a as usize], &f.locals[b as usize])?;
                     release(f, a, nl);
@@ -380,6 +408,7 @@ impl Session {
                     set(&mut f.locals[d as usize], v);
                 }
                 Op::CharAt { d, a, b } => self.op_char_at(f, d, a, b, nl)?,
+                Op::BlobFieldRead { r, read } => self.op_blob_field_read(f, r, read)?,
                 Op::AppendText { s, old, a } => self.op_append(&chunk.appends[s as usize], f, old, a, nl)?,
                 Op::JumpEq { a, b, t } => {
                     if ops::compare(&f.locals[a as usize], &f.locals[b as usize])? == std::cmp::Ordering::Equal {
@@ -440,7 +469,7 @@ impl Session {
             Err(Signal::Error(mut e)) => {
                 self.cap_stmt_truncate(open);
                 self.add_top_frame(&mut e);
-                self.last_error = *e;
+                self.catch_error(*e)?;
                 set(&mut f.locals[d as usize], Value::Boolean(false));
                 Ok(stop + 1)
             }
@@ -467,7 +496,7 @@ impl Session {
                 // The statements the error left open are closed.
                 self.cap_stmt_truncate(open);
                 self.add_top_frame(&mut e);
-                self.last_error = *e;
+                self.catch_error(*e)?;
                 // Temporaries of the body that the error left behind hold nothing alive.
                 for r in from.max(nl) as usize..f.locals.len() {
                     f.locals[r] = Value::Null;
@@ -635,6 +664,7 @@ impl Session {
         if let Some(r) = site.cap_loop {
             self.cap_loop_pass(cap_id(f, r));
         }
+        let item = self.rendered_into_place(&site.var, item, f)?;
         self.write(&site.var, item, f)?;
         if site.cap_loop.is_some() {
             self.cap_loop_var(&site.var, f);
@@ -707,7 +737,7 @@ impl Session {
             // A field read off what a procedure returns is the field of the returned copy (corpus record/
             // lt-record-conversion-assumptions/RecordResultField.al).
             AuxSite::FieldOf { pos } => self.read_record_field(v, *pos)?,
-            AuxSite::QueryColumn { column } => self.query_column(v, *column)?,
+            AuxSite::QueryColumn { column, global } => self.query_column(v, *column, global.map(|g| (f.object, g)))?,
             AuxSite::Fit { max, why } => match &v {
                 Value::Text(s) | Value::Code(s) if Value::text_len(s) > *max as usize => {
                     return Err(Signal::unsupported(why.clone()));
@@ -875,6 +905,9 @@ impl Session {
         for &r in &site.arg_regs {
             values.push(take(f, r, nl));
         }
+        if !site.field_reads.is_empty() {
+            self.call_field_reads(site, &mut values, f)?;
+        }
         self.call_site(
             site.object,
             site.routine,
@@ -884,6 +917,37 @@ impl Session {
             site.try_call,
             f,
         )
+    }
+
+    /// `Op::BlobFieldRead`: the value in register `r` moves as `Session::field_read_into_variant` says.
+    #[cold]
+    #[inline(never)]
+    fn op_blob_field_read(
+        &mut self,
+        f: &mut Frame,
+        r: u16,
+        read: crate::blob_transfer::FieldRead,
+    ) -> Result<(), Signal> {
+        let v = std::mem::replace(&mut f.locals[r as usize], Value::Null);
+        f.locals[r as usize] = self.field_read_into_variant(v, read, &f.locals)?;
+        Ok(())
+    }
+
+    /// Moves the Blobs among the field reads handed to `site`'s callee (`CallSite::field_reads`) where
+    /// `blob_transfer::FieldRead::handed_to` names the parameter.
+    #[cold]
+    #[inline(never)]
+    fn call_field_reads(&mut self, site: &CallSite, values: &mut [Value], f: &Frame) -> Result<(), Signal> {
+        let engine = self.engine.clone();
+        let callee = &engine.program.objects[site.object].routines[site.routine];
+        for &(arg, read) in site.field_reads.iter() {
+            let arg = usize::from(arg);
+            if crate::blob_transfer::FieldRead::handed_to(callee, site.instance.is_none(), arg) {
+                let v = std::mem::replace(&mut values[arg], Value::Null);
+                values[arg] = self.field_read_into_variant(v, read, &f.locals)?;
+            }
+        }
+        Ok(())
     }
 
     #[inline(never)]
@@ -904,8 +968,17 @@ impl Session {
         if al_builtins::placeholder_output::sizes_made() {
             al_builtins::placeholder_output::size_guard("a DotNet member", None, &values)?;
         }
+        let rendered = if al_builtins::rendered_text::active() {
+            self.rendered_dotnet_guard(site.ty, &recv, &site.op, &values)?
+        } else {
+            None
+        };
         self.dotnet.result_ty = site.result_ty;
         let r = self.dotnet_apply_closing_entry_streams(site.ty, recv, values, places, &site.op, f);
+        let r = match rendered {
+            Some(input) => Self::rendered_dotnet_answer(&input, r),
+            None => r,
+        };
         if let (Err(Signal::Error(_)), Some(p)) = (&r, site.header_pos) {
             self.at_line_of(p);
         }
@@ -933,11 +1006,20 @@ impl Session {
             values.push(take(f, r, nl));
         }
         crate::assigned_audit::own_read_end_for_operands(site.id, &values);
+        crate::blob_transfer::records_into_builtin(self.blob_sources, site.id, recv.as_ref(), &values);
+        // No operand is by reference, and `temp_blob_share_guard` checks a Blob field only through one: only the OutStreams
+        // the call takes are checked.
+        if site.temp_blob != SiteCheck::Never && crate::temp_blob_share::streams_kept() {
+            self.check_temp_out_streams(site.id, recv.as_ref(), &values)?;
+        }
         if self.sql.active {
             crate::sqlcount::guard(site.id, recv.as_ref(), &values)?;
         }
         if al_builtins::placeholder_output::sizes_made() {
             al_builtins::placeholder_output::size_guard(site.id.name(), recv.as_ref(), &values)?;
+        }
+        if al_builtins::rendered_text::active() {
+            al_builtins::rendered_text::guard(site.id.name(), recv.as_ref(), &values, site.ret_used)?;
         }
         if self.without_client()
             && let Some(answer) = self.clientless_guard(site.id, &values)?
@@ -1021,6 +1103,42 @@ impl Session {
         Ok(())
     }
 
+    /// `Media.ImportStream` and `MediaSet.ImportStream` from an InStream never created, on a field of a record: hands the record that
+    /// holds the field to the owner of the measured cell (`al_builtins::stream_cleared::import_from_uncreated`). `None` to go on.
+    fn media_import_from_uncreated(
+        &mut self,
+        site: &BuiltinSite,
+        recv: Option<&Value>,
+        values: &[Value],
+        f: &mut Frame,
+    ) -> Result<Option<Value>, Signal> {
+        use al_builtins::builtin_id::ids;
+        let set = match site.id {
+            ids::MEDIA_IMPORTSTREAM_1 | ids::MEDIA_IMPORTSTREAM_2 => false,
+            ids::MEDIASET_IMPORTSTREAM_1 => true,
+            _ => return Ok(None),
+        };
+        let uncreated = matches!(values.first(), Some(Value::Library(_, h))
+            if matches!(&*h.borrow(), al_builtins::value::LibraryValue::Empty));
+        let Some(ir::Arg::Ref(ir::Place::Field(rec, _))) = &site.receiver_arg else {
+            return Ok(None);
+        };
+        if !uncreated {
+            return Ok(None);
+        }
+        let Value::Record(r) = self.read(rec, f)? else {
+            return Ok(None);
+        };
+        let blank = matches!(recv, Some(Value::Guid(g)) if *g == [0; 16]);
+        Ok(al_builtins::stream_cleared::import_from_uncreated(
+            site.ret_used,
+            set,
+            blank,
+            &mut r.borrow_mut(),
+            values,
+        ))
+    }
+
     /// A media imported into a field of a Media Resources row: BC keeps no Tenant Media row for it once the row is
     /// inserted (metadata/platform-tables/PtCloudTables.al:352 'tenant media' = 'no tenant media row'); before the
     /// Insert it is not pinned. So the runtime's Tenant Media row of that media is refused (`MediaStore::outside_tenant`).
@@ -1069,7 +1187,7 @@ impl Session {
     }
 
     fn run_builtin(&mut self, site: &BuiltinSite, f: &mut Frame, nl: u16) -> Result<Value, Signal> {
-        let recv = site.receiver.map(|r| take(f, r, nl));
+        let mut recv = site.receiver.map(|r| take(f, r, nl));
         let mut values = if site.arg_regs.is_empty() {
             Vec::new()
         } else {
@@ -1079,11 +1197,20 @@ impl Session {
             values.push(take(f, r, nl));
         }
         crate::assigned_audit::own_read_end_for_operands(site.id, &values);
+        crate::blob_transfer::records_into_builtin(self.blob_sources, site.id, recv.as_ref(), &values);
+        let open = match site.temp_blob {
+            SiteCheck::Never => None,
+            SiteCheck::StreamsKept if !crate::temp_blob_share::streams_kept() => None,
+            _ => self.temp_blob_share_guard(site, nl, &mut recv, &values, f)?,
+        };
         if self.sql.active {
             crate::sqlcount::guard(site.id, recv.as_ref(), &values)?;
         }
         if al_builtins::placeholder_output::sizes_made() {
             al_builtins::placeholder_output::size_guard(site.id.name(), recv.as_ref(), &values)?;
+        }
+        if al_builtins::rendered_text::active() {
+            al_builtins::rendered_text::guard(site.id.name(), recv.as_ref(), &values, site.ret_used)?;
         }
         if self.without_client()
             && let Some(answer) = self.clientless_guard(site.id, &values)?
@@ -1115,6 +1242,11 @@ impl Session {
             al_builtins::builtin_id::ids::MEDIA_IMPORTSTREAM_1 | al_builtins::builtin_id::ids::MEDIA_IMPORTSTREAM_2
         ) {
             self.refuse_media_import_from_own_blob(site, &values, f)?;
+        }
+        if open.is_none()
+            && let Some(answer) = self.media_import_from_uncreated(site, recv.as_ref(), &values, f)?
+        {
+            return Ok(answer);
         }
         if site.id == al_builtins::builtin_id::ids::SYSTEM_CLEAR_1 {
             // `Clear` of a Variant empties it, whatever it holds (types/lt-variant/VaTIs*.al:Is_Empty_Variant `V := 5; Clear(V)`
@@ -1213,6 +1345,12 @@ impl Session {
             site.ret_used,
             f,
         );
+        if let (Some(open), Ok(_)) = (open, &result) {
+            self.temp_blob_attach_open(*open);
+        }
+        if result.is_ok() {
+            self.note_temp_blob_impl_field(site.id, site.receiver_arg.as_ref(), f);
+        }
         if let (Some(row), Some(ir::Arg::Ref(p)), Ok(_)) = (copy_array_row_back, site.args.first(), &result) {
             self.write(p, row, f)?;
         }
@@ -1224,5 +1362,16 @@ impl Session {
         }
         // Name the builtin whose argument was not the text it takes.
         result.map_err(|e| Self::name_builtin_refusal(site, e))
+    }
+}
+
+/// `:=` (`Op::StoreLocal`, `Op::StorePlace`) of an InStream shares the stream with the target; the stream keeps that a
+/// variable assignment shared it (`al_builtins::stream_line_breaks`).
+#[inline]
+fn mark_assigned_stream(v: &Value) {
+    if let Value::Library(al_builtins::library_kind::LibraryKind::InStream, h) = v
+        && let al_builtins::value::LibraryValue::InStream(s) = &mut *h.borrow_mut()
+    {
+        s.shared_by_assign = true;
     }
 }

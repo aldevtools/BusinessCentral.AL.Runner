@@ -56,17 +56,27 @@ pub(super) fn list_get(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) 
 
 /// A Variant holding an `XmlNode` reports the kind of the node it holds, never `XmlNode` itself (types/variant/
 /// LTP89IsXmlNodes.al:Node_FromEachKind, NodeVsSpecific_Casting: `IsXmlDocument` for a document node, `IsXmlNode` No).
-pub(super) fn variant_has(v: &Value, tag: &str) -> bool {
-    match v {
+/// The XmlNode that AsXmlNode of an unassigned XmlElement returned is refused: not measured in a Variant
+/// (`unassigned_element.rs`).
+pub(super) fn variant_has(v: &Value, tag: &str) -> Result<bool, Signal> {
+    Ok(match v {
         Value::Library(n, h) if n.eq_ignore_ascii_case("XmlNode") && is_xml(h) => tag != "XmlNode" && kind(h) == tag,
+        v if unassigned_element::is_node_of_unassigned_element(v) => {
+            return unsupported(format!(
+                "Variant.Is{tag} of the XmlNode that AsXmlNode of an unassigned XmlElement returned (not measured)"
+            ));
+        }
         v => v.is(tag),
-    }
+    })
 }
 
 macro_rules! variant_is {
     ($($fname:ident => $tag:literal),* $(,)?) => {
         $(pub(super) fn $fname(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
-            Ok(Value::Boolean(r.is_some_and(|v| variant_has(v, $tag))))
+            Ok(Value::Boolean(match r {
+                Some(v) => variant_has(v, $tag)?,
+                None => false,
+            }))
         })*
 
         pub(super) fn variant_is_fn(method: &str) -> Option<NativeFn> {

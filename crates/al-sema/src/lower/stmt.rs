@@ -34,6 +34,7 @@ impl Lowerer<'_> {
             None => ir::NO_POS,
         };
         self.locals.clear();
+        self.set_char_option_byte_locals(r.local_var_decls());
         self.local_labels.clear();
         self.local_label_xliff.clear();
         self.local_textconsts.clear();
@@ -281,6 +282,7 @@ impl Lowerer<'_> {
             begin_pos,
             expr_tys,
             reads_var_max_len: self.reads_var_max_len,
+            local: r.is_local(),
         }
     }
 
@@ -510,8 +512,9 @@ impl Lowerer<'_> {
             })
     }
 
-    /// Why `Format`, StrSubstNo, Message or Error of the Decimal table field `arg` is not pinned: the field declares
-    /// `DecimalPlaces` and an AutoFormat beside it. Only `DecimalPlaces` with `AutoFormatType = 1` and a blank
+    /// Why `Format`, StrSubstNo, Message or Error of the Decimal table field `arg` is not pinned: its AutoFormatType is not
+    /// modelled (`pagefmt::unmodelled_auto_format_type`), or the field declares `DecimalPlaces` and an AutoFormat beside it.
+    /// Only `DecimalPlaces` with `AutoFormatType = 1` and a blank
     /// `AutoFormatExpression` is pinned (the AutoFormat wins: text/text-methods/RwDecimalFieldPlaces.al:83
     /// `Dp33Amt1` gives `70.00`). `AutoFormatType = 0` is the default and keeps the places.
     pub(crate) fn decimal_field_format_unpinned(&mut self, arg: &SyntaxNode) -> Option<String> {
@@ -528,6 +531,10 @@ impl Lowerer<'_> {
                 .find(|(k, _)| k.eq_ignore_ascii_case(n))
                 .map(|(_, v)| v.trim().to_string())
         };
+        // An AutoFormatType the runtime does not model, with or without DecimalPlaces or an expression beside it.
+        if let Some(why) = prop("AutoFormatType").and_then(|k| al_builtins::pagefmt::unmodelled_auto_format_type(&k)) {
+            return Some(format!("Format of Decimal field {}: {why}", f.name));
+        }
         prop("DecimalPlaces")?;
         let (aft, expr) = (prop("AutoFormatType"), prop("AutoFormatExpression"));
         match (aft.as_deref(), expr.as_deref()) {
@@ -549,6 +556,40 @@ impl Lowerer<'_> {
                 f.name
             )),
         }
+    }
+
+    /// `lowered` (the `Format` of the Decimal table field `arg`, or its StrSubstNo, Message or Error substitution) behind the check
+    /// that no subscriber could write the AutoFormat result (al-vm `auto_format_writer`), for a field of AutoFormatType 1, 2, 4, 5, 10
+    /// or 11 (`pagefmt::resolved_auto_format_type`): the check runs first, the Format only after it. Any other argument as it is.
+    pub(crate) fn auto_format_writer_guard(&mut self, arg: &SyntaxNode, lowered: ir::Expr) -> Result<ir::Expr, String> {
+        let Some(Res::Field { table, id: field }) = self.res(arg).cloned() else {
+            return Ok(lowered);
+        };
+        let Some(f) = self.members[table].fields.iter().find(|f| f.id == field) else {
+            return Ok(lowered);
+        };
+        let kind = f
+            .properties
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case("AutoFormatType"))
+            .map(|(_, v)| v.trim().to_string())
+            .filter(|k| al_builtins::pagefmt::resolved_auto_format_type(k));
+        let (Ty::Decimal, Some(kind)) = (&f.ty, kind) else {
+            return Ok(lowered);
+        };
+        let guard = ir::Expr::Builtin {
+            id: super::call::builtin_id("System.AutoFormatWriterGuard#1")?,
+            receiver: None,
+            args: vec![ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(
+                kind.parse().expect("a resolved type is a number"),
+            )))],
+            ret_used: true,
+        };
+        Ok(ir::Expr::Ternary(
+            Box::new(guard),
+            Box::new(lowered),
+            Box::new(ir::Expr::Const(ir::Const::Text(String::new()))),
+        ))
     }
 
     /// The places `min:max` a Decimal table field declares for `Format`: its `DecimalPlaces`, else the precision of its
@@ -710,8 +751,31 @@ impl Lowerer<'_> {
                             .collect()
                     })
                     .unwrap_or_default(),
+                publisher: self.subscriber_publisher(&a),
             })
             .collect()
+    }
+
+    /// What `[EventSubscriber(ObjectType::<Kind>, <publisher>, ...)]` names as its publisher, resolved in this file
+    /// (`Workspace::subscriber_publisher`); [`ir::PublisherRef::NotSubscriber`] for every other attribute. A publisher argument
+    /// of another form than [`subscriber_publisher_parts`] reads is [`ir::PublisherRef::Unread`].
+    fn subscriber_publisher(&self, a: &al_syntax::ast::Attribute) -> ir::PublisherRef {
+        if !a.name().eq_ignore_ascii_case("EventSubscriber") {
+            return ir::PublisherRef::NotSubscriber;
+        }
+        let args: Vec<String> = a
+            .args()
+            .map(|l| l.children().map(|e| e.text().to_string()).collect())
+            .unwrap_or_default();
+        let (Some(kind), Some(publisher)) = (args.first(), args.get(1)) else {
+            return ir::PublisherRef::Unread;
+        };
+        // The kind as the scan of a dependency file reads it (`Workspace::subscribers_of`): `ObjectType::Table` names a table.
+        let kind = ObjKind::from_keyword(kind.rsplit("::").next().unwrap_or_default().trim().trim_matches('"'));
+        match subscriber_publisher_parts(publisher) {
+            Some(parts) => self.ws.subscriber_publisher(self.file, kind, &parts),
+            None => ir::PublisherRef::Unread,
+        }
     }
 
     /// `Codeunit::"Name"` as an attribute argument: the object's id. `[TestDataSource(Codeunit::"Name", 'Set')]` and
@@ -754,6 +818,7 @@ impl Lowerer<'_> {
             begin_pos: ir::NO_POS,
             expr_tys: Vec::new(),
             reads_var_max_len: false,
+            local: r.is_local(),
         }
     }
 
@@ -1463,10 +1528,7 @@ impl Lowerer<'_> {
             if let Some(sig) = sig.filter(|_| member || implicit) {
                 // A test page control's setter form is run by the test client, not a native builtin.
                 if al_builtins::native::lookup(&id).is_none() && !id.starts_with("TestField.") {
-                    return Err(match al_builtins::native::refusal(&id) {
-                        Some(why) => format!("builtin {id}: {why} (docs/probes-needed.md)"),
-                        None => format!("builtin {id} is not implemented"),
-                    });
+                    return Err(format!("builtin {id} is not implemented"));
                 }
                 if super::is_compound_assign(n) {
                     return Err("compound assignment to a setter-form builtin is not lowered yet".into());
@@ -1902,7 +1964,8 @@ impl Lowerer<'_> {
     /// Why a use of the variable `name` is refused for an attribute of its declaration: `[RunOnClient]` (BC raises
     /// DotNetFromAlNotSupported, al-language-onprem-dotnet/dotnet/ac/AcDnAttributes.al:145-146) and `[WithEvents]` (the
     /// `trigger Variable::Event` handlers run when the object raises the event, AcDnAttributes.al:50, :86) are not
-    /// implemented, and running the variable without them would be silently wrong.
+    /// implemented, and running the variable without them would be silently wrong. The WithEvents variables `with_events::marker`
+    /// accepts (a Timer, an AzureML variable of a codeunit with no trigger for it) are not refused here.
     pub(crate) fn var_attr_refusal(&self, name: &str, local: bool) -> Option<String> {
         let attrs = if local {
             self.local_var_attrs.get(name)
@@ -1953,6 +2016,36 @@ impl Lowerer<'_> {
                     self.run_refusals.insert(why.clone());
                     Err(why)
                 }
+                // A WithEvents Timer whose one trigger is Elapsed (`with_events::marker`): only the uses the probe made.
+                Some(Res::Global(name))
+                    if !self.in_request_page
+                        && self
+                            .global_var_attrs
+                            .get(name)
+                            .is_some_and(|a| a.iter().any(|a| a == super::with_events::WITH_EVENTS_TIMER_ELAPSED)) =>
+                {
+                    let name = name.clone();
+                    self.with_events_timer_use(n, &name)?;
+                    self.globals
+                        .get(&name)
+                        .map(|i| ir::Place::Global(*i))
+                        .ok_or_else(|| format!("implicit variable `{name}` is not lowered yet"))
+                }
+                // An AzureML WithEvents variable with no trigger (`with_events::marker`): only the uses codeunit 2001 makes.
+                Some(Res::Global(name))
+                    if !self.in_request_page
+                        && self
+                            .global_var_attrs
+                            .get(name)
+                            .is_some_and(|a| a.iter().any(|a| a == super::with_events::WITH_EVENTS_NO_TRIGGER)) =>
+                {
+                    let name = name.clone();
+                    self.with_events_no_trigger_use(n, &name)?;
+                    self.globals
+                        .get(&name)
+                        .map(|i| ir::Place::Global(*i))
+                        .ok_or_else(|| format!("implicit variable `{name}` is not lowered yet"))
+                }
                 // The request page's Rec in OnInitReport: reading it raises (reports/request-page/YRequestPageTests.al:551,
                 // RS_RequestPageRec_ReadInOnInitReport_Raises; report 88566 in RsRequestPageRec.al:224). xRec is not pinned.
                 Some(Res::Global(name))
@@ -1981,6 +2074,7 @@ impl Lowerer<'_> {
                     .ok_or_else(|| format!("local `{name}`")),
                 // An extension variable named like a base variable is its own (corpus
                 // pages/extensions/TestPageExtensionBaseAccessContracts.al:20, Shadow).
+                Some(Res::Global(name)) if name == "rec" && self.declared_rec_slot.is_some() => self.declared_rec_place(n),
                 Some(Res::Global(name)) => self
                     .in_request_page
                     .then(|| self.request_page_globals.get(name))
@@ -2339,4 +2433,19 @@ fn variant_into_text_guard(src_place: &ir::Place, target_ty: &Ty) -> L<(ir::Expr
         );
         (cond, "NavText")
     })
+}
+
+/// The publisher argument of an `[EventSubscriber]` as the name parts `Workspace::subscriber_publisher` takes, in exactly two
+/// forms: `<Kind>::<name>` with the name plain or qualified (`Codeunit::"Name"`, `Codeunit::Ns."Name"`), and a bare object id
+/// (`ObjectType::Table, 483`, the form 17 subscribers of Microsoft's apps write; one part, the digits, found by id as before
+/// al-runner issue 8171). `None` for any other text.
+fn subscriber_publisher_parts(text: &str) -> Option<Vec<String>> {
+    let text = text.trim();
+    if let Some((kind, name)) = text.split_once("::") {
+        let kind = kind.trim();
+        let is_ident = !kind.is_empty() && kind.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+        let parts = crate::members::name_parts(name.trim());
+        return (is_ident && parts.iter().all(|p| !p.is_empty())).then_some(parts);
+    }
+    (text.bytes().all(|b| b.is_ascii_digit()) && text.parse::<u32>().is_ok()).then(|| vec![text.to_string()])
 }

@@ -84,6 +84,9 @@ pub struct Manifest {
     /// The top-level keys of the app's own app.json; empty for a package. With `target` and `runtime`, what the AL
     /// compiler's checks of the app's context need (`al_sema::alcodes::AppContext`).
     pub app_json_keys: Vec<String>,
+    /// For the platform package, the modules its manifest's `InternalsVisibleTo` names
+    /// (`al_deps::load::DependencyApp::platform_internals_visible_to`); empty for every other app.
+    pub platform_internals_visible_to: Vec<al_deps::package::InternalsGrant>,
 }
 
 /// The components of `path` made absolute, with `.` and `..` resolved without touching the file system.
@@ -221,6 +224,8 @@ pub fn load_manifest(dir: &std::path::Path) -> Result<Manifest, String> {
             .as_object()
             .map(|o| o.keys().cloned().collect())
             .unwrap_or_default(),
+        // An app folder is never the platform package here: its `internalsVisibleTo` is not read.
+        platform_internals_visible_to: Vec::new(),
     })
 }
 
@@ -434,6 +439,12 @@ pub struct Phases {
     pub decoded_on_touch: Option<usize>,
     /// Building the engine from the lowered program.
     pub engine: std::time::Duration,
+    /// How many times the install code of the apps under test ran for the test codeunits, when no install baseline ran it
+    /// (`install_once.rs`): once per run and texts of the resource files it read; once per codeunit in a run that notes
+    /// the code it runs; and once per codeunit when it left state a new session does not start from
+    /// (`Session::install_left`), the run that found that out being the first codeunit's. A run on files of a real folder
+    /// (`--files-dir`) also runs it once per codeunit.
+    pub install_runs: usize,
     /// The install baseline did not run because no selected test can observe it (`observe.rs`).
     pub baseline_skipped: bool,
     /// Why the baseline ran although the rule was tried: the first construct a selected test
@@ -660,6 +671,8 @@ pub(crate) struct Unit {
     /// This unit runs BcContainerHelper's discovery pass over these test codeunits instead of its tests
     /// (`discovery::run_pass`).
     discovery: Option<Arc<Vec<usize>>>,
+    /// See `Scratch::installs`.
+    installs: Arc<install_once::RunInstalls>,
 }
 
 /// What a scratch run or a capture leaves besides outcomes, per test.
@@ -714,6 +727,8 @@ pub(crate) struct Scratch {
     on_run_rows: OnRunRows,
     /// See `session_flags.rs`.
     flags: session_flags::SessionFlags,
+    /// What the install code left for the codeunits of the run that start from no install baseline (`install_once.rs`).
+    installs: Arc<install_once::RunInstalls>,
     /// See `RunOptions::report_unpinned_errors`.
     report_unpinned_errors: bool,
     /// See `RunOptions::skip_after_timeout`.
@@ -893,6 +908,7 @@ fn run_unit(
             runner: u.runner,
             watch: u.watch,
             singles_past_stop: u.singles_past_stop,
+            installs: u.installs.clone(),
             ..Default::default()
         };
         if u.coverage {
@@ -925,22 +941,24 @@ fn run_unit(
     if crate::events::wants_events() {
         let have = crate::events::reported();
         let name = lowered.program.objects[u.oi].name.clone();
-        let event = |test: &str, outcome: Outcome, call_stack: String, time, coverage| crate::events::TestEvent {
-            codeunit: u.id,
-            codeunit_name: name.clone(),
-            test: test.to_string(),
-            outcome,
-            call_stack,
-            time,
-            coverage,
-            captured: None,
-            stubs: Vec::new(),
-            ui_answered: Vec::new(),
-            entry: None,
-            slept_ms: 0,
-        };
+        let event =
+            |test: &str, outcome: Outcome, call_stack: String, time, coverage, assumptions| crate::events::TestEvent {
+                codeunit: u.id,
+                codeunit_name: name.clone(),
+                test: test.to_string(),
+                outcome,
+                call_stack,
+                time,
+                coverage,
+                captured: None,
+                stubs: Vec::new(),
+                ui_answered: Vec::new(),
+                entry: None,
+                slept_ms: 0,
+                assumptions,
+            };
         match &result {
-            Ok((done, stacks, times, _, covs, _)) => {
+            Ok((done, stacks, times, hits, covs, _)) => {
                 for (test, outcome) in done.iter().filter(|(t, _)| !have.contains(t)) {
                     let stack = stacks.iter().find(|(n, _)| n == test).map(|(_, s)| s.clone());
                     let time = times
@@ -952,7 +970,15 @@ fn run_unit(
                         .find(|(n, _)| n == test)
                         .map(|(_, c)| c.clone())
                         .unwrap_or_default();
-                    crate::events::report(event(test, outcome.clone(), stack.unwrap_or_default(), time, cov));
+                    let marks = hits.iter().find(|(n, _)| n == test).map(|(_, h)| h.clone());
+                    crate::events::report(event(
+                        test,
+                        outcome.clone(),
+                        stack.unwrap_or_default(),
+                        time,
+                        cov,
+                        marks.unwrap_or_default(),
+                    ));
                 }
             }
             Err(msg) => {
@@ -963,6 +989,7 @@ fn run_unit(
                         why,
                         String::new(),
                         std::time::Duration::ZERO,
+                        Vec::new(),
                         Vec::new(),
                     ));
                 }
@@ -1022,6 +1049,7 @@ fn scratch_unit(
         singles_past_stop: false,
         driver: opts.test_driver,
         discovery: None,
+        installs: Default::default(),
     }
 }
 
@@ -1128,9 +1156,13 @@ impl<T: Send + 'static> Drop for Retiring<T> {
     }
 }
 
+#[cfg(test)]
+mod absent_publisher_tests;
 mod al_runner;
 #[cfg(test)]
 mod al_runner_tests;
+#[cfg(test)]
+mod app_outcomes_tests;
 mod apply_manifests;
 mod baseline_key;
 mod blocked;
@@ -1142,10 +1174,18 @@ mod compile_halt;
 mod compiled;
 mod corpus;
 mod data_driven;
+#[cfg(test)]
+mod diagnostics_tests;
 mod discovery;
+#[cfg(test)]
+mod group1_sessions_tests;
 mod grow;
 mod handlers;
+mod install_once;
 mod install_snapshot;
+#[cfg(test)]
+mod install_unknown_tests;
+mod internals_grant;
 mod lane_starts;
 #[cfg(test)]
 mod login_tests;
@@ -1156,6 +1196,8 @@ pub(crate) mod narrowing;
 mod not_run_link;
 mod numbers_taken;
 mod order_hint;
+#[cfg(test)]
+mod partner_login_tests;
 mod run;
 #[cfg(test)]
 mod run_on_client_reach_tests;

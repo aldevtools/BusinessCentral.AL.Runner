@@ -95,6 +95,11 @@ impl Session {
         let object = st.borrow().object as usize;
         let variable_run = !modal && self.frames.last() != Some(&object);
         st.borrow_mut().run_by_currpage = !modal && !variable_run;
+        if variable_run {
+            self.note_page_run(st, crate::pages::PageRunCall::of_variable(st));
+        } else {
+            st.borrow_mut().page_run = None;
+        }
         let r = self.run_page_ui(st, record, modal)?;
         if variable_run {
             self.empty_temp_rec_after_variable_run(st)?;

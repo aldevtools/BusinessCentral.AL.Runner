@@ -3,6 +3,7 @@
 //! `TableCaption`, `TableName`.
 
 use crate::Session;
+use crate::blob_transfer::BlobMove;
 use al_builtins::describe::Describe;
 use al_builtins::native::{AlError, Signal, unsupported};
 use al_builtins::ops;
@@ -131,7 +132,11 @@ impl Session {
     /// pins it (docs/probes-needed.md).
     pub(crate) fn format_composite_value(&mut self, v: &Value) -> Option<Result<String, Signal>> {
         let (rec, only) = match v {
-            Value::Record(r) => (r.clone(), None),
+            // Format(Rec) reads every field of the buffer: refused on the marks a field read refuses.
+            Value::Record(r) => match crate::records::buffer_read_refused(r) {
+                Some(why) => return Some(Err(Signal::unsupported(format!("Format of a record: {why}")))),
+                None => (r.clone(), None),
+            },
             Value::Library(_, l) => match &*l.borrow() {
                 al_builtins::value::LibraryValue::RecordRef(r) => (r.clone(), None),
                 al_builtins::value::LibraryValue::FieldRef(r, p)
@@ -244,7 +249,15 @@ impl Session {
                     ExprCaption::FieldCaption => Ok(self.field_caption(t, pos)),
                     ExprCaption::Text(c) => self.expression_text_caption(&class, c),
                     ExprCaption::Translate => self.caption_class_translate(&class),
-                    ExprCaption::Plain => self.expression_plain_caption(&t.fields[pos].name, &class),
+                    // A subscriber that resolves the text to the empty caption leaves the field's Caption on a table read
+                    // (record/captions/CaptionClassOwnArea.al:375 FieldCaption, :416 FieldRef.Caption, :477 `fc` after the Card;
+                    // a control shows the empty text, :477 `cap1`).
+                    ExprCaption::Plain => {
+                        match self.expression_plain_caption(&t.fields[pos].name, &class, |_| Ok(true))? {
+                            caption if caption.is_empty() && class.contains(',') => Ok(self.field_caption(t, pos)),
+                            caption => Ok(caption),
+                        }
+                    }
                 }
             }
         }
@@ -323,7 +336,9 @@ impl Session {
                 expr.trim()
             ));
         };
-        match self.call_on_record(object, routine, rec.clone(), None, Vec::new())?.0 {
+        let class = self.call_on_record(object, routine, rec.clone(), None, Vec::new())?.0;
+        Self::refuse_rendered_caption_class(&class)?;
+        match class {
             Value::Text(c) | Value::Code(c) => Ok(c.into_string()),
             other => unsupported(format!(
                 "the CaptionClass expression of field {} gave a {}",
@@ -992,68 +1007,80 @@ impl Session {
                 Ok(Value::Null)
             }
             RecordOp::CopyFilters => Self::copy_filters(rec, args),
-            // Doc (Record.Copy) and corpus record/TestCopyOntoTemporaryRecord.al:66-110: the buffer, filters,
-            // key and direction come over; a temporary target keeps its own rows and stays temporary.
-            RecordOp::Copy => {
-                let Some(Value::Record(src)) = args.first() else {
-                    return unsupported(format!("Copy from {}", args.first().describe()));
-                };
-                let share = match args.get(1) {
-                    Some(v) => ops::truthy(v)?,
-                    None => false,
-                };
-                if Rc::ptr_eq(src, rec) {
-                    return Ok(Value::Null);
-                }
-                if crate::records::media_key_marked(src) {
-                    return unsupported(format!("Copy of a record {}", crate::records::MEDIA_KEY));
-                }
-                let s = src.borrow().clone();
-                // Copy takes the fields, filters and key but does not move the target to the source's company
-                // (record/TestChangeCompanyFiltersCopyDeleteContracts.al:117-121).
-                let mut d = rec.borrow_mut();
-                // shareTable needs both records temporary; a plain Copy of a temporary record onto
-                // a normal one copies values and filters only
-                // (record/TestRecordViewCopyMarkContracts.al:89, Copy_ShareTable_RequiresBothRecordsToBeTemporary).
-                if share && !(s.temporary && d.temporary) {
-                    return Err(error(
-                        "The COPY function can only be used with the shareTable argument set to true if both records are temporary.".into(),
-                        "Argument",
-                    ));
-                }
-                // The row version the buffer got comes over with the fields, and where it came from (record/crud/
-                // Y76StaleBuffers.al Y76_Part1_Copy_TransferFromRecord, `copy/*`).
-                (d.fields, d.row_origin) = (s.fields, s.row_origin);
-                d.filters = s.filters;
-                d.filter_group = s.filter_group;
-                d.key = s.key;
-                d.adhoc = s.adhoc;
-                d.ascending = s.ascending;
-                d.field_descending = s.field_descending;
-                d.position = s.position;
-                // ReadIsolation comes over with Copy (record/CvReadIsolationState.al:49-51, :61); SecurityFiltering stays the
-                // target's (al-language/reports/runtime/ACAttributes.al:385-387).
-                d.read_isolation = s.read_isolation;
-                // The marks come over with Copy, not with an assignment (record/crud/RcAMisc.al:
-                // Mark_Separate_Variables_Do_Not_Share `copied`).
-                d.marks = s.marks;
-                d.marked_only = s.marked_only;
-                // The SetAutoCalcFields set comes over (record/crud/RcBFlowFields.al:SetAutoCalcFields_AfterInsertRead
-                // `copy keeps autocalc`).
-                d.auto_calc = s.auto_calc;
-                // SetLoadFields comes over with Copy (record/crud/RcAMisc.al:SetLoadFields_Copy_And_Assignment).
-                d.load.request = s.load.request;
-                d.load.buffer = s.load.buffer;
-                d.load.partial = s.load.partial;
-                if share && s.temporary {
-                    d.temp_id = s.temp_id.clone();
-                }
-                Ok(Value::Null)
-            }
+            RecordOp::Copy => self.record_copy(rec, args),
             RecordOp::TestField => self.test_field(rec, t, args),
             RecordOp::FieldError => self.field_error(rec, t, args),
             other => unsupported(format!("Record.{other}")),
         }
+    }
+
+    /// `Record.Copy(Source [, ShareTable])`. Doc (Record.Copy) and corpus record/TestCopyOntoTemporaryRecord.al:66-110: the
+    /// buffer, filters, key and direction come over; a temporary target keeps its own rows and stays temporary.
+    fn record_copy(&self, rec: &Rec, args: &[Value]) -> Result<Value, Signal> {
+        let Some(Value::Record(src)) = args.first() else {
+            return unsupported(format!("Copy from {}", args.first().describe()));
+        };
+        let share = match args.get(1) {
+            Some(v) => ops::truthy(v)?,
+            None => false,
+        };
+        if Rc::ptr_eq(src, rec) {
+            return Ok(Value::Null);
+        }
+        if crate::records::media_key_marked(src) {
+            return unsupported(format!("Copy of a record {}", crate::records::MEDIA_KEY));
+        }
+        let (s, holder) = {
+            let src = src.borrow();
+            (src.clone(), self.holder(&src))
+        };
+        // Copy takes the fields, filters and key but does not move the target to the source's company
+        // (record/TestChangeCompanyFiltersCopyDeleteContracts.al:117-121).
+        let mut d = rec.borrow_mut();
+        // shareTable needs both records temporary; a plain Copy of a temporary record onto
+        // a normal one copies values and filters only
+        // (record/TestRecordViewCopyMarkContracts.al:89, Copy_ShareTable_RequiresBothRecordsToBeTemporary).
+        if share && !(s.temporary && d.temporary) {
+            return Err(error(
+                "The COPY function can only be used with the shareTable argument set to true if both records are temporary.".into(),
+                "Argument",
+            ));
+        }
+        // The row version the buffer got comes over with the fields, and where it came from (record/crud/
+        // Y76StaleBuffers.al Y76_Part1_Copy_TransferFromRecord, `copy/*`).
+        (d.fields, d.row_origin) = (s.fields, s.row_origin);
+        // The Blobs move as `BlobMove::RecordCopy` says.
+        let table = d.table as usize;
+        let how = BlobMove::RecordCopy {
+            source_temporary: s.temporary,
+            target_temporary: d.temporary,
+        };
+        self.move_blobs(table, &mut d.fields, None, how, holder)?;
+        d.filters = s.filters;
+        d.filter_group = s.filter_group;
+        d.key = s.key;
+        d.adhoc = s.adhoc;
+        d.ascending = s.ascending;
+        d.field_descending = s.field_descending;
+        d.position = s.position;
+        // ReadIsolation comes over with Copy (record/CvReadIsolationState.al:49-51, :61); SecurityFiltering stays the
+        // target's (al-language/reports/runtime/ACAttributes.al:385-387).
+        d.read_isolation = s.read_isolation;
+        // The marks come over with Copy, not with an assignment (record/crud/RcAMisc.al:
+        // Mark_Separate_Variables_Do_Not_Share `copied`).
+        d.marks = s.marks;
+        d.marked_only = s.marked_only;
+        // The SetAutoCalcFields set comes over (record/crud/RcBFlowFields.al:SetAutoCalcFields_AfterInsertRead
+        // `copy keeps autocalc`).
+        d.auto_calc = s.auto_calc;
+        // SetLoadFields comes over with Copy (record/crud/RcAMisc.al:SetLoadFields_Copy_And_Assignment).
+        d.load.request = s.load.request;
+        d.load.buffer = s.load.buffer;
+        d.load.partial = s.load.partial;
+        if share && s.temporary {
+            d.temp_id = s.temp_id.clone();
+        }
+        Ok(Value::Null)
     }
 
     /// `TestField(Field [, Value])`. The "must have a value" text is pinned by the corpus
@@ -1458,9 +1485,9 @@ impl Session {
         if Rc::ptr_eq(src, rec) {
             return Ok(Value::Null);
         }
-        let (src_table, src_fields) = {
+        let (src_table, src_fields, holder) = {
             let s = src.borrow();
-            (s.table as usize, s.fields.clone())
+            (s.table as usize, s.fields.clone(), self.holder(&s))
         };
         let from = self.engine.tables[src_table]
             .clone()
@@ -1618,18 +1645,21 @@ impl Session {
                 return Err(self.transfer_too_small(rec, t, &from, (dp, sp), updates));
             }
             tdd_fits(&schema.fields[dp], &src_fields[sp])?;
-            // A Blob of a row read without CalcFields moves as an empty one: the target has no value, and inserting it stores
-            // none (record/crud/RcBTransfer.al:486-493, Transfer_Blob_Field_BQ `withoutCalcFields`); a written or
-            // calculated one moves its content (`fromInsertedVariable`, `withCalcFields`).
-            if let Value::Blob(b) = &src_fields[sp] {
-                let unread = {
-                    let b = b.borrow();
-                    !b.loaded && !b.written
+            // A Blob moves as `blob_transfer::moved` says.
+            if let Value::Blob(_) = &src_fields[sp] {
+                let cur = rec.borrow().fields[dp].clone();
+                let how = BlobMove::TransferFields(crate::blob_transfer::TransferCall::of(
+                    args,
+                    src.borrow().temporary,
+                    rec.borrow().temporary,
+                ));
+                let kind = || {
+                    self.blob_field_kind(src_table, sp)
+                        .with(self.blob_field_kind(t.object as usize, dp))
                 };
-                if unread {
-                    updates.push((dp, Value::Blob(al_builtins::stream::new_blob())));
-                    continue;
-                }
+                let v = crate::blob_transfer::moved(Some(&cur), src_fields[sp].clone(), how, holder, kind)?;
+                updates.push((dp, ops::convert(v, &df.ty)?));
+                continue;
             }
             updates.push((dp, ops::convert(src_fields[sp].clone(), &df.ty)?));
         }
@@ -1880,7 +1910,7 @@ impl Session {
                 group: 0,
             }];
             let cx = self.cx.clone();
-            self.store_for(rec)
+            self.store_for(rec)?
                 .next(
                     &cx,
                     t,
@@ -1910,8 +1940,9 @@ impl Session {
                 self.install_unknown(t.object).unwrap_or_default()
             )),
             None if self.is_unseeded(t) && !rec.borrow().temporary => unsupported(format!(
-                "{} row not found by GetBySystemId: the rows a dependency app's install and Company-Initialize create could not be created (ADR-013 decision 5)",
-                t.name
+                "{} row not found by GetBySystemId: the rows a dependency app's install and Company-Initialize create could not be created (ADR-013 decision 5){}",
+                t.name,
+                self.unseeded_cause(t)
             )),
             None if self.ret_used => Ok(Value::Boolean(false)),
             // "The PX Row does not exist. Identification fields and values: {x}" / DB:RecordNotFound
@@ -1939,14 +1970,15 @@ impl Session {
     /// the call starts, gets the value through `Modify(RunTrigger)`; the buffer is left alone
     /// (corpus record/TestRecordModify.al:87-170, TestTriggerContracts.al:123-146).
     fn modify_all(&mut self, rec: &Rec, t: &TableDef, args: &[Value]) -> Result<Value, Signal> {
+        let of_al = self.take_write_of_al(crate::state::WriteOfAl::ModifyAll);
         let at = self.note_bulk_write(rec, t, crate::state::TxWriteKind::ModifyAll);
-        let r = self.modify_all_noted(rec, t, args);
+        let r = self.modify_all_noted(rec, t, args, of_al);
         self.note_bulk_end(at);
         r
     }
 
     /// `modify_all` inside its notes for the stale-buffer rule.
-    fn modify_all_noted(&mut self, rec: &Rec, t: &TableDef, args: &[Value]) -> Result<Value, Signal> {
+    fn modify_all_noted(&mut self, rec: &Rec, t: &TableDef, args: &[Value], of_al: bool) -> Result<Value, Signal> {
         let pos = arg_pos(args, 0)?;
         if t.fields[pos].id == 2_000_000_000 {
             // Wording after the pinned fragment: record/TestRecordSystemId.al:230-262, docs/probes-needed.md.
@@ -2006,8 +2038,10 @@ impl Session {
             && !declared("onbeforemodifyevent")
             && !declared("onaftermodifyevent")
             && !self.global_enabled(t, crate::globaltriggers::GlobalOp::Modify)?;
+        self.modify_all_sql_range(rec, t, pos, &value, (of_al, bulk, rows.is_empty()))?;
         let outer = std::mem::replace(&mut self.bulk_modify, bulk);
-        let r = self.modify_all_rows(rec, rows, pos, &value, run_trigger, shared);
+        let row_of_al = of_al && run_trigger;
+        let r = self.modify_all_rows(rec, rows, pos, &value, (run_trigger, row_of_al), shared);
         self.bulk_modify = outer;
         r
     }
@@ -2018,7 +2052,7 @@ impl Session {
         rows: Vec<Vec<Value>>,
         pos: usize,
         value: &Value,
-        run_trigger: bool,
+        (run_trigger, row_of_al): (bool, bool),
         shared: al_builtins::value::TableGlobals,
     ) -> Result<Value, Signal> {
         for mut row in rows {
@@ -2037,6 +2071,7 @@ impl Session {
                     failed_insert: None,
                     row_origin: None,
                     own_read: Default::default(),
+                    probed_source: Default::default(),
                     globals: shared.share(),
                     // The scanned row is whole: a partial load of the variable is not the copy's (al-runner issue 6654).
                     load: Default::default(),
@@ -2044,7 +2079,13 @@ impl Session {
                 }
             };
             let copy = Rc::new(RefCell::new(copy));
-            self.record_op(RecordOp::Modify, &copy, &mut [Value::Boolean(run_trigger)])?;
+            // ModifyAll(.., true) of AL code on a Record variable modifies each row as its own Modify (`records/sql_range.rs`).
+            if row_of_al {
+                self.tx.write_of_al = Some(crate::state::WriteOfAl::ModifyAllRow);
+            }
+            let r = self.record_op(RecordOp::Modify, &copy, &mut [Value::Boolean(run_trigger)]);
+            self.tx.write_of_al = None;
+            r?;
         }
         Ok(Value::Null)
     }

@@ -113,7 +113,11 @@ pub struct ObjectHash {
 /// calls: a test page drives every routine of its page, the page's extensions and its parts.
 #[derive(Clone)]
 pub(crate) struct DrivenCtx {
+    /// Per page, and per report for its request page: the extensions in the order they apply.
     page_extensions: HashMap<usize, Vec<usize>>,
+    /// Per report whose request page `ext_request_page` admits with triggers on its extensions' request pages: the order it
+    /// gave, which the linked page keeps (`join_order`). Every other page: `ext_order::page_extension_key`.
+    request_page_order: HashMap<usize, Vec<usize>>,
     page_parts: Vec<Vec<usize>>,
     page_runs: Vec<Vec<usize>>,
     /// Per object: an xmlport or report, whose triggers Import, Export and Run call.
@@ -229,6 +233,9 @@ pub(crate) type L<T> = Result<T, String>;
 pub(crate) struct Lowerer<'a> {
     /// Global slot of the implicit `Rec` of the current object.
     rec_slot: Option<usize>,
+    /// Global slot of a variable `Rec` that a codeunit with TableNo declares, when procedures read it apart from the
+    /// implicit Rec (`table_no_rec::declared_rec_refusal`).
+    declared_rec_slot: Option<usize>,
     table_of: &'a [Option<usize>],
     ws: &'a Workspace,
     members: &'a MemberTable<'a>,
@@ -246,6 +253,9 @@ pub(crate) struct Lowerer<'a> {
     /// that names `Rec` raises ReportRequestPageNotInitialized when it runs (`run_failures`).
     in_report_init_with_rec: Option<i64>,
     locals: HashMap<String, usize>,
+    /// The local variables of the routine whose declaration writes `Char`, `Byte`, or `Option` with named members, by
+    /// lowercase name (`char_option_byte_get`). A parameter, a return value and a platform option type are not among them.
+    local_char_option_byte_vars: std::collections::HashSet<String>,
     /// Declared text of Label variables, by lowercase name; reads lower to that constant.
     global_labels: HashMap<String, String>,
     local_labels: HashMap<String, String>,
@@ -576,6 +586,11 @@ pub(crate) fn is_assign_call(receiver: &str, name: &str) -> bool {
             | ("Dialog", "HideSubsequentDialogs")
             // `Sleep := 1` is `Sleep(1)` (record/ProbePropertyAssignmentForms.al:564 Y29_Collections_Text_Sleep_AssignForms).
             | ("System", "Sleep")
+            // `currXMLport.Filename := 'probe.txt'` in OnPreXmlPort and `Xp.Filename := 'var.txt'` on an XmlPort variable are
+            // `Filename(v)` (codeunits/procedures/AssignIsCallRule.al:902-934 AssignCall_XmlPortFilename_ExportToStream, :938
+            // AssignCall_XmlPortFilename_Variable; xmlports/shapes-properties/XpRootTableNestedVariants.al:1114 RTV_Filename_OnPre_*;
+            // al-runner issue 7714).
+            | ("Xmlport", "Filename")
     )
 }
 
@@ -606,6 +621,7 @@ mod dotnet;
 mod dotnet_arg;
 mod expr;
 mod ext_order;
+mod ext_request_page;
 mod extend;
 
 #[cfg(test)]
@@ -619,11 +635,13 @@ mod request_procs;
 mod routine_lists;
 mod shared;
 mod stmt;
+mod table_no_rec;
 mod tables;
 mod test_handlers;
 #[cfg(test)]
 mod tests;
 mod tys;
+mod with_events;
 
 /// What the lowering does with a `CreateInStream` call that creates a handed-back InStream on a local of the routine.
 #[derive(Clone)]

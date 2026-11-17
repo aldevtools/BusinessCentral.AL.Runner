@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 /// The protocol version the sidecar must speak.
-pub const PROTOCOL: u64 = 5;
+pub const PROTOCOL: u64 = 6;
 
 /// Where the sidecar and .NET are found and how a call is bounded.
 #[derive(Debug, Clone)]
@@ -38,9 +38,12 @@ pub struct SidecarConfig {
     /// `--dotnet-allow-roll-forward`: when the .NET major the BC version needs is not installed, run on the lowest
     /// newer one, with a warning (`crate::dotnet_runtime`).
     pub allow_roll_forward: bool,
-    /// The BC major in use: it picks the .NET major the sidecar runs on (`dotnet_runtime::runtime_major_for_bc`;
-    /// al-runner issues 6924 and 5590). `None`: .NET 8.
+    /// The BC major in use: without `service_runtime` it picks the .NET major the sidecar runs on
+    /// (`dotnet_runtime::runtime_major_for_bc`; al-runner issues 6924 and 5590). `None`: .NET 8.
     pub bc_major: Option<u32>,
+    /// The service tier the DotNet types load from, which names the .NET major the sidecar runs on
+    /// (`dotnet_runtime::ServiceRuntime`). `None`: the run has none, and `bc_major` decides.
+    pub service_runtime: Option<crate::dotnet_runtime::ServiceRuntime>,
     /// Where each process gets its working folders; default: `run/` under the helper's cache ([`work_root`]).
     pub work_root: Option<PathBuf>,
     /// Deadline of one call; on expiry the process is killed (ADR-014 section 10).
@@ -77,6 +80,7 @@ impl Default for SidecarConfig {
             assembly_dirs: Vec::new(),
             allow_roll_forward: false,
             bc_major: None,
+            service_runtime: None,
             work_root: None,
             timeout: Duration::from_secs(60),
             reuse: None,
@@ -87,13 +91,13 @@ impl Default for SidecarConfig {
 
 /// What `availability` found out, once.
 #[derive(Debug, Clone)]
-struct Resolved {
+pub(crate) struct Resolved {
     dotnet: PathBuf,
     sidecar: PathBuf,
     /// The `Microsoft.NETCore.App` versions `dotnet` reported.
     versions: Vec<String>,
     /// The one of them the sidecar runs on (`--fx-version`).
-    runtime: crate::dotnet_runtime::RuntimeChoice,
+    pub(crate) runtime: crate::dotnet_runtime::RuntimeChoice,
 }
 
 /// What the sidecars of one host cost, so start-up is reported apart from the calls
@@ -170,13 +174,16 @@ pub const STANDBY_SIDECARS: usize = 2;
 /// started, not in the core (ADR-006). On Windows .NET has GDI+, so every System.Drawing type and member goes to
 /// .NET (ADR-027 row 14, amended by the owner 2026-10-29): the policy lifts its `deny-type-off-windows` rules and the
 /// registry claims no System.Drawing type. Elsewhere the ADR-044 registry serves its members and the policy refuses
-/// the rest with the reason in `policy.txt`.
+/// the rest with the reason in `policy.txt`. The same flag lifts the `members-off-windows` rules, and with them the
+/// checks of `al-vm` `dotnet/zone_rules.rs`: on Windows .NET reads the Windows time zone data BC reads (issue 8012).
 pub fn sidecar_config(host: std::sync::Arc<dyn DotNetHost>) -> al_vm::dotnet::DotNetConfig {
     let windows = cfg!(windows);
     al_vm::dotnet::DotNetConfig {
         host,
         registry: std::sync::Arc::new(al_vm::dotnet::registry::Registry::builtin_for(windows)),
         policy: std::sync::Arc::new(al_vm::dotnet::policy::Policy::builtin_for(windows)),
+        renderer: std::sync::Arc::new(al_host::render::NoRenderer),
+        require_renderer: false,
     }
 }
 
@@ -256,24 +263,7 @@ impl Shared {
 /// where `<NNN>` is derived from what is on disk (270, 280, 290), never fixed. `None` when the
 /// artifact is not extracted locally. Only the top level is searched, as BC does.
 pub fn default_probe_dir(sandbox: &Path, build: Option<&str>, major: u32) -> Option<PathBuf> {
-    let service_of = |build_dir: &Path| -> Option<PathBuf> {
-        let nav = build_dir.join("platform/ServiceTier/PFiles64/Microsoft Dynamics NAV");
-        let mut found: Vec<(u32, PathBuf)> = std::fs::read_dir(nav)
-            .ok()?
-            .filter_map(|e| e.ok())
-            .filter_map(|e| {
-                let n: u32 = e.file_name().to_string_lossy().parse().ok()?;
-                let svc = e.path().join("Service");
-                svc.is_dir().then_some((n, svc))
-            })
-            .collect();
-        found.sort();
-        found.pop().map(|(_, p)| p)
-    };
-    if let Some(dir) = build
-        .filter(|b| !b.contains(['/', '\\']))
-        .and_then(|b| service_of(&sandbox.join(b)))
-    {
+    if let Some(dir) = build.and_then(|b| own_build_probe_dir(sandbox, b)) {
         return Some(dir);
     }
     let mut builds: Vec<(Vec<u64>, PathBuf)> = std::fs::read_dir(sandbox)
@@ -286,13 +276,53 @@ pub fn default_probe_dir(sandbox: &Path, build: Option<&str>, major: u32) -> Opt
         })
         .collect();
     builds.sort();
-    builds.iter().rev().find_map(|(_, p)| service_of(p))
+    builds.iter().rev().find_map(|(_, p)| service_folder(p))
+}
+
+/// The service-tier folder of build `build` itself in `sandbox`, when that build is extracted there (the first step of
+/// [`default_probe_dir`], without its fall back to another build of the major).
+pub fn own_build_probe_dir(sandbox: &Path, build: &str) -> Option<PathBuf> {
+    if build.contains(['/', '\\']) {
+        return None;
+    }
+    service_folder(&sandbox.join(build))
+}
+
+/// The service folder of the extracted build in `build_dir`, `<NNN>` taken from what is on disk.
+fn service_folder(build_dir: &Path) -> Option<PathBuf> {
+    let nav = build_dir.join("platform/ServiceTier/PFiles64/Microsoft Dynamics NAV");
+    let mut found: Vec<(u32, PathBuf)> = std::fs::read_dir(nav)
+        .ok()?
+        .filter_map(|e| e.ok())
+        .filter_map(|e| {
+            let n: u32 = e.file_name().to_string_lossy().parse().ok()?;
+            let svc = e.path().join("Service");
+            svc.is_dir().then_some((n, svc))
+        })
+        .collect();
+    found.sort();
+    found.pop().map(|(_, p)| p)
+}
+
+/// The folders the report renderer loads BC's merger and converter from (ADR-040 amendment 2026-11-15): the user's
+/// folders, then the extracted folder of the chosen `build` itself, never another build of the major. The flag says whether
+/// the renderer must fetch the sets of `build` (no extracted folder of it).
+pub fn renderer_probe_dirs(user: &[PathBuf], sandbox: Option<&Path>, build: Option<&str>) -> (Vec<PathBuf>, bool) {
+    let own = sandbox.zip(build).and_then(|(s, b)| own_build_probe_dir(s, b));
+    let fetch = own.is_none();
+    let mut dirs = user.to_vec();
+    if let Some(d) = own
+        && !dirs.contains(&d)
+    {
+        dirs.push(d);
+    }
+    (dirs, fetch)
 }
 
 /// The probe folders as the sidecar takes them. A service-tier folder is followed by its `Add-ins` folder, searched
 /// recursively, when there is one (ADR-014 section 3, step 1): BC's own add-ins, such as the QR code provider in
 /// `Add-ins/ElectronicInvoice`, load from there. The top level comes first, so it wins for a name in both.
-fn wire_probe_dirs(dirs: &[PathBuf]) -> Vec<Value> {
+pub(crate) fn wire_probe_dirs(dirs: &[PathBuf]) -> Vec<Value> {
     let mut out = Vec::new();
     for d in dirs {
         let abs = |p: &Path| {
@@ -628,16 +658,17 @@ fn runtimes(dotnet: &Path) -> Vec<String> {
         .collect()
 }
 
-fn major(v: &str) -> Option<u32> {
+pub(crate) fn major(v: &str) -> Option<u32> {
     v.split('.').next()?.parse().ok()
 }
 
-fn resolve(cfg: &SidecarConfig) -> Result<Resolved, String> {
+pub(crate) fn resolve(cfg: &SidecarConfig) -> Result<Resolved, String> {
+    let need = crate::dotnet_runtime::need(cfg.service_runtime.as_ref(), cfg.bc_major)?;
+    let needed = need.major;
     if let Some(p) = &cfg.dotnet {
         if !p.is_file() {
             return Err(format!(
-                "needs the .NET {} runtime; 'dotnet' not found ({} does not exist)",
-                crate::dotnet_runtime::runtime_major_for_bc(cfg.bc_major),
+                "needs the .NET {needed} runtime; 'dotnet' not found ({} does not exist)",
                 p.display()
             ));
         }
@@ -646,13 +677,11 @@ fn resolve(cfg: &SidecarConfig) -> Result<Resolved, String> {
     let explicit = cfg.dotnet.clone().map(|p| std::path::absolute(&p).unwrap_or(p));
     let Some(dotnet) = explicit.or_else(locate_dotnet) else {
         return Err(format!(
-            "needs the .NET {} runtime; 'dotnet' not found (looked in DOTNET_ROOT, PATH, /usr/share/dotnet, /usr/lib/dotnet, ~/.dotnet)",
-            crate::dotnet_runtime::runtime_major_for_bc(cfg.bc_major)
+            "needs the .NET {needed} runtime; 'dotnet' not found (looked in DOTNET_ROOT, PATH, /usr/share/dotnet, /usr/lib/dotnet, ~/.dotnet)"
         ));
     };
     let versions = runtimes(&dotnet);
-    let needed = crate::dotnet_runtime::runtime_major_for_bc(cfg.bc_major);
-    let runtime = crate::dotnet_runtime::pick_runtime(&versions, needed, cfg.bc_major, cfg.allow_roll_forward)?;
+    let runtime = crate::dotnet_runtime::pick_runtime(&versions, &need, cfg.allow_roll_forward)?;
     if runtime.rolled_forward {
         eprintln!(
             "warning: running the .NET sidecar on {} instead of {needed}.x (--dotnet-allow-roll-forward); BCL behaviour can differ",
@@ -679,6 +708,7 @@ const EMBEDDED: &[(&str, &str)] = &[
     ("Dispatch.cs", include_str!("../../../tools/dotnet-sidecar/Dispatch.cs")),
     ("Marshal.cs", include_str!("../../../tools/dotnet-sidecar/Marshal.cs")),
     ("Program.cs", include_str!("../../../tools/dotnet-sidecar/Program.cs")),
+    ("Render.cs", include_str!("../../../tools/dotnet-sidecar/Render.cs")),
     ("Resolver.cs", include_str!("../../../tools/dotnet-sidecar/Resolver.cs")),
     ("Reuse.cs", include_str!("../../../tools/dotnet-sidecar/Reuse.cs")),
     ("global.json", include_str!("../../../tools/dotnet-sidecar/global.json")),
@@ -826,8 +856,8 @@ fn find_sidecar(cfg: &SidecarConfig, dotnet: &Path) -> Result<PathBuf, String> {
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
         .unwrap_or_default();
-    if !sdks.lines().any(|l| l.trim_start().starts_with("8.")) {
-        return Err(format!("{NOT_BUILT} (no .NET 8 SDK found to build it)"));
+    if !can_build_sidecar(&sdks) {
+        return Err(format!("{NOT_BUILT} (no .NET SDK 8 or newer found to build it)"));
     }
     eprintln!("building the .NET sidecar into {} (once)", dir.display());
     let tmp = cache.join(format!(".build-{hash:016x}-{}", std::process::id()));
@@ -883,6 +913,20 @@ fn find_sidecar(cfg: &SidecarConfig, dotnet: &Path) -> Result<PathBuf, String> {
     }
 }
 
+/// Whether `dotnet --list-sdks` lists an SDK that builds the sidecar: it targets net8.0, which SDK 8 and every newer major
+/// builds (`global.json` takes SDK 8 when it is installed and rolls forward to a newer major when not; al-runner issue 8081).
+fn can_build_sidecar(list_sdks: &str) -> bool {
+    /// The oldest .NET SDK that builds the net8.0 target.
+    const OLDEST_SDK: u32 = 8;
+    list_sdks.lines().any(|l| {
+        l.trim_start()
+            .split('.')
+            .next()
+            .and_then(|first| first.parse::<u32>().ok())
+            .is_some_and(|sdk| sdk >= OLDEST_SDK)
+    })
+}
+
 /// `dotnet publish` of the sidecar's sources `src` into `out`, ReadyToRun when `ready_to_run`.
 fn publish(dotnet: &Path, src: &Path, out: &Path, ready_to_run: bool) -> std::io::Result<std::process::Output> {
     Command::new(dotnet)
@@ -899,6 +943,73 @@ fn publish(dotnet: &Path, src: &Path, out: &Path, ready_to_run: bool) -> std::io
         .output()
 }
 
+/// Starts the helper in `r` with `args`, in a cleared environment and a working folder `folder` of its own under the
+/// work root (ADR-014 section 9). Used by the session sidecar and by the render process (`crate::report_render`).
+pub(crate) fn spawn_helper(cfg: &SidecarConfig, r: &Resolved, folder: &str, args: &[&str]) -> Result<Proc, String> {
+    let env_cache = (cfg.work_root.is_none() && cfg.cache_dir.is_none()).then(|| sidecar_cache_dir_from_env(None));
+    let workdir = work_root(cfg, env_cache.flatten()).join(folder);
+    let (cwd, home, tmp) = (workdir.join("cwd"), workdir.join("home"), workdir.join("tmp"));
+    for d in [&cwd, &home, &tmp] {
+        std::fs::create_dir_all(d).map_err(|e| format!("cannot create {}: {e}", d.display()))?;
+    }
+    // A cleared environment, UTC, an empty working directory (ADR-014 section 9).
+    let mut cmd = Command::new(&r.dotnet);
+    // The runtime the BC version needs (crate::dotnet_runtime): the sidecar is built for net8.0, and its
+    // runtimeconfig alone would keep it on .NET 8 whenever .NET 8 is installed.
+    cmd.arg("exec")
+        .arg("--fx-version")
+        .arg(&r.runtime.version)
+        .arg(&r.sidecar)
+        .args(args)
+        .env_clear();
+    for (k, v) in crate::dotnet_env::fixed(&home, &tmp) {
+        cmd.env(k, v);
+    }
+    cmd.current_dir(&cwd)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    // Windows only: the OS variables the .NET runtime needs (crate::dotnet_env).
+    for (k, v) in crate::dotnet_env::host_passthrough() {
+        cmd.env(k, v);
+    }
+    if let Some(root) = r.dotnet.parent() {
+        cmd.env("DOTNET_ROOT", root);
+    }
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("cannot start {}: {e}", r.dotnet.display()))?;
+    let stdin = child.stdin.take().expect("piped");
+    let mut stdout = child.stdout.take().expect("piped");
+    let stderr = child.stderr.take().expect("piped");
+    let last_stderr = Arc::new(Mutex::new(String::new()));
+    let sink = last_stderr.clone();
+    let stderr_thread = std::thread::spawn(move || {
+        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+            if !line.trim().is_empty() {
+                *sink.lock().unwrap() = line;
+            }
+        }
+    });
+    let (tx, rx) = channel();
+    std::thread::spawn(move || {
+        while let Some(frame) = read_frame(&mut stdout) {
+            if tx.send(Some(frame)).is_err() {
+                return;
+            }
+        }
+        let _ = tx.send(None);
+    });
+    Ok(Proc {
+        child,
+        stdin,
+        replies: rx,
+        last_stderr,
+        stderr_thread: Some(stderr_thread),
+        workdir,
+    })
+}
+
 // ---- one sidecar process per VM session ---------------------------------------------------
 
 impl Drop for Proc {
@@ -909,15 +1020,15 @@ impl Drop for Proc {
     }
 }
 
-struct Proc {
-    child: Child,
-    stdin: ChildStdin,
-    replies: Receiver<Option<Vec<u8>>>,
-    last_stderr: Arc<Mutex<String>>,
+pub(crate) struct Proc {
+    pub(crate) child: Child,
+    pub(crate) stdin: ChildStdin,
+    pub(crate) replies: Receiver<Option<Vec<u8>>>,
+    pub(crate) last_stderr: Arc<Mutex<String>>,
     /// Drains stderr into `last_stderr`; ends when the process does.
-    stderr_thread: Option<std::thread::JoinHandle<()>>,
+    pub(crate) stderr_thread: Option<std::thread::JoinHandle<()>>,
     /// Holds `cwd` (the working directory, empty), `home` and `tmp`; removed with the session.
-    workdir: PathBuf,
+    pub(crate) workdir: PathBuf,
 }
 
 struct SidecarSession {
@@ -932,6 +1043,55 @@ struct SidecarSession {
     /// Ids of `release` requests sent without waiting. The sidecar answers in order, so their replies come first and are
     /// dropped by the next request that waits for its own.
     unacked: std::collections::VecDeque<u64>,
+}
+
+impl Proc {
+    /// Writes one request frame (length, then the JSON body).
+    pub(crate) fn send(&mut self, req: &Value) -> std::io::Result<()> {
+        let body = req.to_string().into_bytes();
+        let mut frame = (body.len() as u32).to_le_bytes().to_vec();
+        frame.extend_from_slice(&body);
+        self.stdin.write_all(&frame)?;
+        self.stdin.flush()
+    }
+
+    /// How a process that is gone ended: ` (<exit status>; last stderr: <line>)`. Waits for it.
+    pub(crate) fn exit_detail(&mut self) -> String {
+        let status = self.child.wait().ok().map(|s| s.to_string()).unwrap_or_default();
+        // The process is gone, so its stderr is at its end: let the reader take the last line.
+        if let Some(t) = self.stderr_thread.take() {
+            let _ = t.join();
+        }
+        let last = lock(&self.last_stderr).clone();
+        format!(" ({status}; last stderr: {last})")
+    }
+}
+
+/// Checks the `hello` answer of a helper started from `r`: the protocol version, and the runtime major it was started on.
+/// `mode` is the helper's mode when it was started with one (`render`).
+pub(crate) fn check_hello(v: &Value, r: &Resolved, what: &str, mode: Option<&str>) -> Result<(), String> {
+    let mode_ok = mode.is_none_or(|m| v["mode"] == m);
+    if v["protocol"].as_u64() != Some(PROTOCOL) || v["compatible"] != json!(true) || !mode_ok {
+        return Err(match mode {
+            Some(m) => format!(
+                "protocol mismatch: the {what} speaks version {} in mode {}, the host version {PROTOCOL} in mode {m}",
+                v["protocol"], v["mode"]
+            ),
+            None => format!(
+                "protocol mismatch: the {what} speaks version {}, the host version {PROTOCOL}",
+                v["protocol"]
+            ),
+        });
+    }
+    let chosen = u64::from(major(&r.runtime.version).unwrap_or(r.runtime.needed));
+    if v["major"].as_u64() != Some(chosen) {
+        return Err(format!(
+            "the {what} runs on {}; it was started on Microsoft.NETCore.App {}",
+            v["runtime"].as_str().unwrap_or("an unknown runtime"),
+            r.runtime.version
+        ));
+    }
+    Ok(())
 }
 
 fn read_frame(r: &mut impl Read) -> Option<Vec<u8>> {
@@ -1008,72 +1168,8 @@ impl SidecarSession {
     fn start_process(&mut self) -> Result<(), String> {
         let began = std::time::Instant::now();
         let r = self.resolved.clone()?;
-        let cfg = &self.shared.cfg;
-        let env_cache = (cfg.work_root.is_none() && cfg.cache_dir.is_none()).then(|| sidecar_cache_dir_from_env(None));
-        let workdir = work_root(cfg, env_cache.flatten()).join(format!(
-            "al-runtime-dotnet-{}-{}",
-            std::process::id(),
-            self.number
-        ));
-        let (cwd, home, tmp) = (workdir.join("cwd"), workdir.join("home"), workdir.join("tmp"));
-        for d in [&cwd, &home, &tmp] {
-            std::fs::create_dir_all(d).map_err(|e| format!("cannot create {}: {e}", d.display()))?;
-        }
-        // A cleared environment, UTC, an empty working directory (ADR-014 section 9).
-        let mut cmd = Command::new(&r.dotnet);
-        // The runtime the BC version needs (crate::dotnet_runtime): the sidecar is built for net8.0, and its
-        // runtimeconfig alone would keep it on .NET 8 whenever .NET 8 is installed.
-        cmd.arg("exec")
-            .arg("--fx-version")
-            .arg(&r.runtime.version)
-            .arg(&r.sidecar)
-            .env_clear();
-        for (k, v) in crate::dotnet_env::fixed(&home, &tmp) {
-            cmd.env(k, v);
-        }
-        cmd.current_dir(&cwd)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        // Windows only: the OS variables the .NET runtime needs (crate::dotnet_env).
-        for (k, v) in crate::dotnet_env::host_passthrough() {
-            cmd.env(k, v);
-        }
-        if let Some(root) = r.dotnet.parent() {
-            cmd.env("DOTNET_ROOT", root);
-        }
-        let mut child = cmd
-            .spawn()
-            .map_err(|e| format!("cannot start {}: {e}", r.dotnet.display()))?;
-        let stdin = child.stdin.take().expect("piped");
-        let mut stdout = child.stdout.take().expect("piped");
-        let stderr = child.stderr.take().expect("piped");
-        let last_stderr = Arc::new(Mutex::new(String::new()));
-        let sink = last_stderr.clone();
-        let stderr_thread = std::thread::spawn(move || {
-            for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-                if !line.trim().is_empty() {
-                    *sink.lock().unwrap() = line;
-                }
-            }
-        });
-        let (tx, rx) = channel();
-        std::thread::spawn(move || {
-            while let Some(frame) = read_frame(&mut stdout) {
-                if tx.send(Some(frame)).is_err() {
-                    return;
-                }
-            }
-            let _ = tx.send(None);
-        });
-        self.proc = Some(Proc {
-            child,
-            stdin,
-            replies: rx,
-            last_stderr,
-            stderr_thread: Some(stderr_thread),
-            workdir,
-        });
+        let folder = format!("al-runtime-dotnet-{}-{}", std::process::id(), self.number);
+        self.proc = Some(spawn_helper(&self.shared.cfg, &r, &folder, &[])?);
         // The first message checks the protocol version and the runtime.
         // Starting a process is not a call: it gets at least 30 s however short the call deadline.
         let start_deadline = self.shared.cfg.timeout.max(Duration::from_secs(30));
@@ -1083,21 +1179,7 @@ impl SidecarSession {
                 DotNetFailure::Refused(s) => s,
                 DotNetFailure::Exception(e) => e.to_string(),
             })?;
-        let v = &hello["value"];
-        if v["protocol"].as_u64() != Some(PROTOCOL) || v["compatible"] != json!(true) {
-            return Err(format!(
-                "protocol mismatch: the sidecar speaks version {}, the host version {PROTOCOL}",
-                v["protocol"]
-            ));
-        }
-        let chosen = u64::from(major(&r.runtime.version).unwrap_or(r.runtime.needed));
-        if v["major"].as_u64() != Some(chosen) {
-            return Err(format!(
-                "the sidecar runs on {}; it was started on Microsoft.NETCore.App {}",
-                v["runtime"].as_str().unwrap_or("an unknown runtime"),
-                r.runtime.version
-            ));
-        }
+        check_hello(&hello["value"], &r, "sidecar", None)?;
         // Where assemblies other than the standard library come from (ADR-014 section 3).
         if !self.shared.cfg.assembly_dirs.is_empty() {
             let dirs = wire_probe_dirs(&self.shared.cfg.assembly_dirs);
@@ -1122,11 +1204,8 @@ impl SidecarSession {
         let id = self.next_id;
         self.next_id += 1;
         req["id"] = json!(id);
-        let body = req.to_string().into_bytes();
         let p = self.proc.as_mut().expect("started");
-        let mut frame = (body.len() as u32).to_le_bytes().to_vec();
-        frame.extend_from_slice(&body);
-        if p.stdin.write_all(&frame).and_then(|_| p.stdin.flush()).is_err() {
+        if p.send(&req).is_err() {
             return Err(self.died("the pipe to the sidecar is closed"));
         }
         let p = self.proc.as_mut().expect("started");
@@ -1174,6 +1253,8 @@ impl SidecarSession {
                                     .collect()
                             })
                             .unwrap_or_default(),
+                        bound: v["bound"].as_str().unwrap_or("").to_string(),
+                        folded: v["folded"].as_bool().unwrap_or(false),
                     }));
                 }
                 Err(DotNetFailure::Refused(
@@ -1234,13 +1315,7 @@ impl SidecarSession {
     fn died(&mut self, what: &str) -> DotNetFailure {
         let mut detail = String::new();
         if let Some(mut p) = self.proc.take() {
-            let status = p.child.wait().ok().map(|s| s.to_string()).unwrap_or_default();
-            // The process is gone, so its stderr is at its end: let the reader take the last line.
-            if let Some(t) = p.stderr_thread.take() {
-                let _ = t.join();
-            }
-            let last = p.last_stderr.lock().unwrap().clone();
-            detail = format!(" ({status}; last stderr: {last})");
+            detail = p.exit_detail();
             let _ = std::fs::remove_dir_all(&p.workdir);
         }
         let why = format!("{what}{detail}");
@@ -1398,10 +1473,7 @@ impl DotNetSession for SidecarSession {
         let id = self.next_id;
         self.next_id += 1;
         req["id"] = json!(id);
-        let body = req.to_string().into_bytes();
-        let mut frame = (body.len() as u32).to_le_bytes().to_vec();
-        frame.extend_from_slice(&body);
-        if p.stdin.write_all(&frame).and_then(|_| p.stdin.flush()).is_ok() {
+        if p.send(&req).is_ok() {
             self.unacked.push_back(id);
             lock(&self.shared.stats).calls += 1;
         }
@@ -1653,6 +1725,26 @@ mod tests {
             probe_dirs(std::slice::from_ref(&fetched), None, None, 27, Some(&fetched)),
             vec![fetched]
         );
+    }
+
+    /// M5 of the review of draft PR 8140: the renderer never loads the merger and converter of another build of the major,
+    /// while the .NET sidecar's default folder falls back to the newest extracted build of that major.
+    #[test]
+    fn the_renderer_takes_only_the_chosen_builds_own_extracted_folder() {
+        let t = tempfile::tempdir().unwrap();
+        let other = fake_artifact(t.path(), "27.5.1.1", "270");
+        let mine = PathBuf::from("/my/dlls");
+        assert_eq!(default_probe_dir(t.path(), Some("27.5.2.2"), 27), Some(other.clone()));
+        assert_eq!(
+            renderer_probe_dirs(std::slice::from_ref(&mine), Some(t.path()), Some("27.5.2.2")),
+            (vec![mine.clone()], true)
+        );
+        let own = fake_artifact(t.path(), "27.5.2.2", "270");
+        assert_eq!(
+            renderer_probe_dirs(std::slice::from_ref(&mine), Some(t.path()), Some("27.5.2.2")),
+            (vec![mine.clone(), own], false)
+        );
+        assert_eq!(renderer_probe_dirs(&[], Some(t.path()), None), (vec![], true));
     }
 
     #[test]
@@ -1925,5 +2017,21 @@ mod pool {
         // The start fails: the first session stops waiting and starts its own.
         pool.deposit(Err("test".into()));
         assert!(!first.join().unwrap(), "nothing was deposited");
+    }
+}
+
+#[cfg(test)]
+mod sdk {
+    use super::*;
+
+    /// al-runner issue 8081: the sidecar targets net8.0, which the .NET 8 SDK and every newer one build (the reporter built
+    /// it with SDK 10.0.202); an older SDK or none cannot.
+    #[test]
+    fn an_sdk_of_major_8_or_newer_builds_the_sidecar() {
+        assert!(can_build_sidecar("8.0.132 [/usr/share/dotnet/sdk]\n"));
+        assert!(can_build_sidecar("10.0.202 [C:\\Program Files\\dotnet\\sdk]\n"));
+        assert!(can_build_sidecar("6.0.400 [/sdk]\n9.0.313 [/sdk]\n"));
+        assert!(!can_build_sidecar("6.0.400 [/sdk]\n7.0.100 [/sdk]\n"));
+        assert!(!can_build_sidecar(""));
     }
 }

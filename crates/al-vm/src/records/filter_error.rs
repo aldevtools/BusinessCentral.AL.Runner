@@ -1,0 +1,36 @@
+//! The English Filter:CSide error of a filter text `Record.SetFilter` rejects: one sentence that names the filter, the field and the
+//! table, then the reason.
+
+use super::*;
+
+impl Session {
+    /// `The filter "<shown>" is not valid for the <field> field on the <table> table. <reason>` with code Filter:CSide (the
+    /// reasons and their pins are at the callers in `op_inner.rs` and `setfilter_empty_or_side.rs`).
+    pub(crate) fn filter_error(&self, t: &TableDef, pos: usize, shown: &str, reason: &str) -> Signal {
+        Signal::Error(Box::new(AlError {
+            message: format!(
+                "The filter \"{shown}\" is not valid for the {} field on the {} table. {reason}",
+                self.field_caption(t, pos),
+                self.caption(t)
+            ),
+            code: "Filter:CSide".into(),
+            call_stack: String::new(),
+            ..Default::default()
+        }))
+    }
+
+    /// The error of a Text filter text `Record.SetFilter` and `FieldRef.SetFilter` reject in an English session
+    /// (`al_builtins::filter::set_filter_text_error`, record/crud/RcAFilters.al:654-658).
+    pub(crate) fn check_set_filter_text(
+        &self,
+        t: &TableDef,
+        pos: usize,
+        text: &str,
+        ty: &RtType,
+    ) -> Result<(), Signal> {
+        match al_builtins::filter::set_filter_text_error(text, ty) {
+            Some(reason) if self.global_language == 1033 => Err(self.filter_error(t, pos, text, reason)),
+            _ => Ok(()),
+        }
+    }
+}

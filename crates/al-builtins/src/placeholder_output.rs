@@ -73,9 +73,20 @@ pub fn refusal(mark: &str) -> Signal {
 /// '1.4') are not BC's and stay refused.
 pub const PDF_PREFIX: &[u8] = b"%PDF-";
 
+/// The Html placeholder's bytes: a minimal valid html page (reports/layouts-saveas/AMReportOutputTests.al:205 `kind` markup: it
+/// starts with `<`). A whole text read of a buffer that holds exactly these bytes gives the rendered content's mark
+/// (`rendered_text::read_whole`).
+pub const HTML: &[u8] =
+    b"<!DOCTYPE html>\n<html><head><meta charset=\"utf-8\"><title></title></head><body></body></html>\n";
+
 /// Whether a mark is the PDF placeholder's.
 pub fn is_pdf(mark: &str) -> bool {
     mark.strip_prefix(PREFIX).is_some_and(|m| m.starts_with("Pdf "))
+}
+
+/// Whether `mark` is the mark of a placeholder Html.
+pub fn is_html(mark: &str) -> bool {
+    mark.strip_prefix(PREFIX).is_some_and(|m| m.starts_with("Html "))
 }
 
 /// A read of a stream that [`pdf_read`] can answer inside [`PDF_PREFIX`].

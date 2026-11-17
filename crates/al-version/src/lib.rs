@@ -3,8 +3,10 @@
 //! A leaf crate: no dependencies, no OS access (ADR-006). Everything that
 //! depends on the Business Central version is a function of a [`Target`].
 
+mod awaited;
 mod choose;
 mod gates;
+pub use awaited::{journal_temp_part_reads_after_refresh, web_service_session_measured};
 pub use choose::{AppVersions, Chosen, TargetError, choose_target};
 pub use gates::{
     Evidence, FeatureKeyRows, Gate, dev_endpoint_answers_unhandled_ui, feature_key_rows, has as gate_on,
@@ -226,13 +228,32 @@ fn numbers(s: &str, max: usize) -> Result<Vec<u16>, VersionError> {
 /// where the artifact has it): 27.5.46862.48827 and 28.1.49838.50621 target `net8.0`; 29.0.54011.56307's
 /// `Microsoft.Dynamics.Nav.OpenXml.dll` and `System.Drawing.Common.dll` target `.NETCoreApp,Version=v10.0` and reference
 /// `System.Runtime 10.0.0.0` (al-runner issues 6924 and 5590). A newer major than the table knows gets the newest major
-/// it names: the .NET helper then says which assembly did not load, and the table gets its row.
+/// it names: the .NET helper then says which assembly did not load, and the table gets its row. Used only by a run with no
+/// service tier to ask: BC 27 and 28 builds published from 2026-11-17 run on .NET 10, which their service tier's runtime
+/// configuration says (`al_deps::service_runtime`).
 pub fn dotnet_major_for_bc(major: u16) -> u32 {
     match major {
         ..=28 => 8,
         _ => 10,
     }
 }
+
+/// The builds whose service-tier runtime configuration was measured (`al_deps::service_runtime`, 2026-11-17), with the
+/// `Microsoft.NETCore.App` major their runtime configuration names. A test of `al-test-cli` requires every `bc_build` of `oracle/oracle.toml` here, with the major the corpus sidecar's table
+/// gives its BC major (the corpus sidecar asks no service tier).
+pub const MEASURED_SERVICE_RUNTIMES: &[(&str, u32)] = &[
+    ("26.5.38752.58303", 8),
+    ("27.5.46862.56249", 8),
+    ("27.5.46862.58057", 8),
+    ("27.5.46862.58294", 8),
+    ("28.5.54151.56267", 8),
+    ("28.5.54151.58194", 8),
+    ("27.0.54905.58351", 10),
+    ("27.5.54899.58349", 10),
+    ("28.5.54976.58348", 10),
+    ("29.0.54011.56262", 10),
+    ("29.0.54011.58356", 10),
+];
 
 #[cfg(test)]
 mod tests {

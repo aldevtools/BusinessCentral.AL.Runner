@@ -157,8 +157,10 @@ impl<'a> Seq<'a> {
     pub(crate) fn report(&self, oi: usize) -> Option<&crate::reports::Layout> {
         self.report[oi]
             .get_or_init(|| {
-                (self.ws.objects[oi].kind == ObjKind::Report && self.active[oi])
-                    .then(|| crate::reports::layout(&self.ws.object_ast(oi)))
+                (self.ws.objects[oi].kind == ObjKind::Report && self.active[oi]).then(|| {
+                    let timer_trigger = super::with_events::timer_elapsed_trigger(self.ws, oi);
+                    crate::reports::layout(&self.ws.object_ast(oi), timer_trigger.as_deref())
+                })
             })
             .as_ref()
     }
@@ -178,6 +180,7 @@ impl<'a> Seq<'a> {
 pub(crate) fn make_lowerer<'a>(sh: &'a Shared<'a>, tl: &'a Local<'a>, seq: &'a Seq<'a>, oi: usize) -> Lowerer<'a> {
     Lowerer {
         rec_slot: None,
+        declared_rec_slot: None,
         table_of: &sh.table_of,
         ws: sh.ws,
         members: sh.members,
@@ -191,6 +194,7 @@ pub(crate) fn make_lowerer<'a>(sh: &'a Shared<'a>, tl: &'a Local<'a>, seq: &'a S
         in_request_page: false,
         in_report_init_with_rec: None,
         locals: Default::default(),
+        local_char_option_byte_vars: Default::default(),
         global_labels: HashMap::default(),
         local_labels: HashMap::default(),
         global_label_xliff: HashMap::default(),
@@ -335,6 +339,7 @@ pub(crate) fn lower_object<'a>(
                         properties: l.properties.clone(),
                     })
                     .collect(),
+                modified_fields: Vec::new(),
             },
             positions: Vec::new(),
             unsupported: Vec::new(),
@@ -493,8 +498,13 @@ pub(crate) fn lower_object<'a>(
         });
         for n in v.names() {
             if !attrs.is_empty() {
-                lw.global_var_attrs
-                    .insert(n.to_lowercase(), attrs_left(&attrs, &declared));
+                let mut left = attrs_left(&attrs, &declared);
+                if let Some(marker) = super::with_events::marker(lw.ws, lw.file, o.kind, &ty, &obj, &n) {
+                    for a in left.iter_mut().filter(|a| *a == "withevents") {
+                        *a = marker.into();
+                    }
+                }
+                lw.global_var_attrs.insert(n.to_lowercase(), left);
             }
             if let Some(Err(e)) = &declared {
                 global_reasons.push(format!("global `{n}`: {e}"));
@@ -534,6 +544,7 @@ pub(crate) fn lower_object<'a>(
     }
     let (mut rec_slot, mut xrec_slot) = (None, None);
     if let Some(t) = table_of[oi] {
+        global_reasons.extend(super::table_no_rec::declared_rec_refusal(&mut lw, o.kind, &obj, t));
         for (name, slot) in [("Rec", &mut rec_slot), ("xRec", &mut xrec_slot)] {
             // A codeunit has no xRec.
             if name == "xRec" && o.kind == ObjKind::Codeunit {
@@ -747,6 +758,7 @@ pub(crate) fn lower_object<'a>(
             Vec::new()
         },
         query: checked.queries[oi].as_ref().map(|q| q.query.clone()),
+        modified_fields: modified_fields(ws, oi),
     };
     let positions = std::mem::take(&mut lw.positions);
     // Itself, whatever the lowering read about the extensions and implementers of others, and
@@ -1484,4 +1496,16 @@ pub(crate) fn enum_own(m: &crate::members::Members) -> super::localize::EnumOwn 
         enum_pairs(&m.enum_captions),
         enum_pairs(&m.enum_captions_ml),
     )
+}
+
+/// The `modify` blocks of table extension `oi` as the field name and the names of the properties each sets
+/// (`ir::Object::modified_fields`); none for another kind of object.
+fn modified_fields(ws: &Workspace, oi: usize) -> Vec<(String, Vec<String>)> {
+    if ws.objects[oi].kind != ObjKind::TableExtension {
+        return Vec::new();
+    }
+    crate::members::modify_properties(ws, oi)
+        .into_iter()
+        .map(|(field, props)| (field, props.into_iter().map(|(k, _)| k).collect()))
+        .collect()
 }

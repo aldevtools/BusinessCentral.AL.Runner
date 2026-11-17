@@ -18,11 +18,14 @@ use crate::Engine;
 use al_ir::{Arg, Expr, ObjKind, Place, SetElem, Stmt};
 use std::collections::HashSet;
 
+mod open_risk;
+
 /// The builtins without a receiver that read their arguments and the clock or the session settings, and write only a
 /// `var` argument (which the call site checks like any other write).
 const PLAIN_SYSTEM: &[&str] = &[
     "Abs",
     "ArrayLen",
+    "AutoFormatWriterGuard",
     "CalcDate",
     "Clear",
     "ClosingDate",
@@ -117,6 +120,8 @@ fn plain_builtin(id: al_builtins::builtin_id::BuiltinId) -> bool {
         "System" => PLAIN_SYSTEM.contains(&method),
         "Record" => PLAIN_RECORD.contains(&method),
         "Text" | "Label" | "TextConst" => true,
+        // The session's user, a value (record/captions/CaptionClassStateFreeCalls.al:160 in CueCc; captions at :606, :655).
+        "Database" => method == "UserSecurityId",
         _ => false,
     }
 }
@@ -127,6 +132,11 @@ struct Walk<'a> {
     seen: HashSet<(usize, usize, Inst)>,
     /// The first write to a variable of a SingleInstance codeunit, which is kept (see [`Effect::Kept`]).
     kept: Option<String>,
+    /// The walk of [`Engine::caption_open_risk`]: what can raise an error counts too, and only locals may be written
+    /// (`open_risk.rs`). False for [`Engine::lasting_effect`], whose walk it leaves as it is.
+    strict: bool,
+    /// The routines on the current call path, kept by the strict walk only (a call back into one of them is a recursion).
+    path: Vec<(usize, usize)>,
 }
 
 /// The instance code runs on, for what its writes to the instance's variables do.
@@ -169,6 +179,8 @@ impl Engine {
             engine: self,
             seen: HashSet::new(),
             kept: None,
+            strict: false,
+            path: Vec::new(),
         };
         let found = match w.routine(object, routine, Inst::Transient) {
             Err(why) => Some(Effect::Refused(why)),
@@ -198,6 +210,16 @@ impl Walk<'_> {
     }
 
     fn routine(&mut self, object: usize, routine: usize, inst: Inst) -> Found {
+        if !self.strict {
+            return self.enter(object, routine, inst);
+        }
+        self.strict_enter((object, routine))?;
+        let found = self.enter(object, routine, inst);
+        self.path.pop();
+        found
+    }
+
+    fn enter(&mut self, object: usize, routine: usize, inst: Inst) -> Found {
         if !self.seen.insert((object, routine, inst)) {
             return Ok(());
         }
@@ -218,8 +240,7 @@ impl Walk<'_> {
         // An event publisher also runs its subscribers, each on its own instance: the session's one instance of a
         // SingleInstance codeunit, the bound one of a manual subscriber, else a fresh one.
         if let Some(p) = self.engine.events.publishers.get(&at) {
-            let key = (p.object, p.event.clone());
-            if let Some(subs) = self.engine.events.subscribers.get(&key) {
+            if let Some(subs) = self.engine.events.subscribers_at(p.object, &p.event) {
                 for s in subs.clone() {
                     let on = if self.single_instance(s.object) {
                         Inst::Single
@@ -238,6 +259,9 @@ impl Walk<'_> {
     /// A write to `place` dies with the call: a local, or a variable of a transient instance; a variable of a SingleInstance
     /// codeunit is noted as kept.
     fn place(&mut self, place: &Place, at: (usize, usize), inst: Inst) -> Found {
+        if self.strict {
+            return self.strict_place(place, at);
+        }
         match place {
             Place::Local(_) => Ok(()),
             Place::Global(slot) => {
@@ -306,6 +330,9 @@ impl Walk<'_> {
     }
 
     fn stmt(&mut self, s: &Stmt, at: (usize, usize), inst: Inst) -> Found {
+        if self.strict {
+            self.strict_stmt(s, at)?;
+        }
         match s {
             Stmt::Assign(p, e) => {
                 self.place(p, at, inst)?;
@@ -371,6 +398,9 @@ impl Walk<'_> {
     }
 
     fn expr(&mut self, e: &Expr, at: (usize, usize), inst: Inst) -> Found {
+        if self.strict && self.strict_expr(e, at, inst)? {
+            return Ok(());
+        }
         match e {
             // Code the runtime refuses or fails when it runs: the run ends there, with every number of runs.
             Expr::Const(_)
@@ -455,7 +485,9 @@ impl Walk<'_> {
             } => {
                 if !plain_builtin(*id)
                     && !self.on_confined_collection(*id, receiver.as_deref(), at)
-                    && !self.as_integer_in_table(*id, at)
+                    && !self.as_integer_in_table_or_codeunit(*id, at)
+                    && !get_table_on_local(*id, receiver.as_deref())
+                    && !dialog_checked_at_run_time(*id)
                 {
                     return Err(format!("calls {}", id.name().split('#').next().unwrap_or(id.name())));
                 }
@@ -474,6 +506,32 @@ impl Walk<'_> {
     }
 }
 
+/// `RecordRef.GetTable` on a RecordRef local of the routine: it writes only that local, which dies with the call
+/// (record/captions/CaptionClassStateFreeCalls.al:203 and :332, `RecRef.GetTable(Rec)` in RefCopyCc and in a table extension's
+/// expression; the Card and part captions at :658, :750, :753; al-runner issue 7467).
+fn get_table_on_local(id: al_builtins::builtin_id::BuiltinId, receiver: Option<&Arg>) -> bool {
+    id.name() == "RecordRef.GetTable#1" && receiver.and_then(local_slot).is_some()
+}
+
+/// Message, Confirm and Error with a text: whether a run raises one is a fact of the run, so the walk lets them through
+/// (record/captions/CaptionClassStateFreeCalls.al:168-181 NotTakenCc, not taken with the empty record, :640-701; al-runner issue
+/// 7391). On a page whose empty-record runs have no pinned number, each of them refuses when any CaptionClass run of the page
+/// raises it (`pages::CaptionDialogs::Refused`, set by `Session::run_caption_empty_unpinned` and kept for the page's later row
+/// runs by `Session::fill_field_captions_with_row`).
+fn dialog_checked_at_run_time(id: al_builtins::builtin_id::BuiltinId) -> bool {
+    let name = id.name();
+    // Error with a text (not with an ErrorInfo, which can be collected instead of raised).
+    matches!(
+        name,
+        "Dialog.Message#1"
+            | "Dialog.Confirm#1"
+            | "Dialog.Error#2"
+            | "Dialog.ErrorComputed#1"
+            | "Dialog.ErrorConstant#1"
+            | "Dialog.ErrorNotLiteral#1"
+    )
+}
+
 /// The local slot `arg` names, when it is a plain local (a receiver written as a place or as a load).
 fn local_slot(arg: &Arg) -> Option<usize> {
     match arg {
@@ -486,9 +544,10 @@ impl Walk<'_> {
     /// `Enum.AsInteger` in a procedure of the table itself reads a value and leaves nothing behind: a Card and a List over a
     /// table whose CaptionClass expression calls it open as any other (corpus record/captions/CaptionExpressionPlainText.al:296
     /// CardControlCaptions_PlainExpressions_KindResource, :344 ListControlCaptions_PlainExpressions_KindResource, :368
-    /// CountCard_AsIntegerExpression_RunsAtOpen; BC 27.5, 28.5 and 29.0; al-runner issue 7379). The call inside a codeunit the
-    /// expression calls is not pinned yet (corpus pull request 1289, CaptionClassStateFreeCalls.al): refused as before.
-    fn as_integer_in_table(&self, id: al_builtins::builtin_id::BuiltinId, at: (usize, usize)) -> bool {
+    /// CountCard_AsIntegerExpression_RunsAtOpen; BC 27.5, 28.5 and 29.0; al-runner issue 7379). So does the call inside a
+    /// procedure of a codeunit the expression calls (record/captions/CaptionClassStateFreeCalls.al:111-114 KindNumber, called by
+    /// HelperCc at :188; the Card, List and part captions at :657, :726, :752).
+    fn as_integer_in_table_or_codeunit(&self, id: al_builtins::builtin_id::BuiltinId, at: (usize, usize)) -> bool {
         let name = id.name();
         name.split('#').next() == Some("Enum.AsInteger")
             && self
@@ -496,7 +555,7 @@ impl Walk<'_> {
                 .program
                 .objects
                 .get(at.0)
-                .is_some_and(|o| o.kind == ObjKind::Table)
+                .is_some_and(|o| matches!(o.kind, ObjKind::Table | ObjKind::Codeunit))
     }
 
     /// A method of List or Dictionary called on a collection the routine `at` made itself and never shares: what it writes dies
@@ -559,7 +618,7 @@ impl Walk<'_> {
 }
 
 /// No statement of `body` assigns the local `is_slot` names or loops over it.
-fn stmts_keep_local(body: &[Stmt], is_slot: &dyn Fn(&Place) -> bool) -> bool {
+pub(crate) fn stmts_keep_local(body: &[Stmt], is_slot: &dyn Fn(&Place) -> bool) -> bool {
     body.iter().all(|s| match s {
         Stmt::Assign(p, _) => !is_slot(p),
         Stmt::For { var, body, .. } | Stmt::Foreach { var, body, .. } => {

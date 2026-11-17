@@ -209,7 +209,7 @@ fn gzip_dispose(_: &mut Session, this: Option<&Rc<DotNetObject>>, _: &[Value]) -
         let Value::Library(_, h) = &target else {
             return unsupported("GZipStream over a stream that is not an OutStream");
         };
-        let LibraryValue::OutStream(blob, _) = &*h.borrow() else {
+        let LibraryValue::OutStream(blob, ..) = &*h.borrow() else {
             return unsupported("GZipStream over a stream that is not an OutStream");
         };
         al_builtins::stream::mark_carried(blob, mark);

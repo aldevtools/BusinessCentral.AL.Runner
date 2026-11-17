@@ -42,6 +42,9 @@ impl Session {
                 n.name
             ));
         }
+        if !first_of_node {
+            self.xp_after_assign_second_row(inst, schema, node, elem)?;
+        }
         let rec = self.xp_record(inst, n)?;
         let table = rec.borrow().table as usize;
         let mut fresh = self.initial_fields(table);
@@ -549,7 +552,7 @@ impl Session {
         let cx = self.cx.clone();
         let pk = t.primary_key(&rec.borrow().fields);
         let stored = self
-            .store_for(&rec)
+            .store_for(&rec)?
             .get(&cx, &t, &pk)
             .map_err(|e| Signal::unsupported(format!("{e}")))?;
         if again && stored.is_none() {

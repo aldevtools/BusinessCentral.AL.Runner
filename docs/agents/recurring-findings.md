@@ -1,110 +1,31 @@
 # Recurring review findings
 
-The findings review raised again and again (34 review hand-backs of runtime pull requests, up to
-2026-11-12). The count is the number of hand-backs that had the finding. The implementer checks its own diff
-against this list before it hands back. The reviewer checks this list first, then looks for the rest.
+What review raised again and again; the count is hand-backs with the finding, of 34 up to 2026-11-12. The implementer
+checks its diff against this list before hand-back; the reviewer checks it first. Examples and full lists, same
+numbers: `recurring-findings-examples.md`. Read an item's examples when your change touches it. A finding seen in two
+or more pull requests gets an item here and there, in the change that fixes it.
 
-A new finding that shows up in two or more pull requests gets a row here, in the same change that fixes it.
-
-## 1. A new rule runs on shapes no case pins (29 of 34)
-
-The gate of a new path is wider than the cells the corpus or the probe measured. Each round of review then
-finds the next neighbor shape. Write the gate in allowlist form:
-
-- One predicate next to the owner of the behavior. It requires every pinned fact **positively, by equality**.
-  Never "the new path minus listed exceptions". Never a subset check ("has at least these properties").
-- Each fact in the predicate cites its pin (file:line).
-- Facts that were missed most often:
-  - open mode: OpenEdit, OpenView and OpenNew are three exact flags (`mode != New` lets OpenView in);
-  - page type, host type, part kind, linked or unlinked part;
-  - page properties (Editable, InsertAllowed, AutoSplitKey, DelayedInsert, SourceTableTemporary);
-  - triggers declared by extensions (page, table and report extensions) and event subscribers;
-  - what the trigger bodies do, not only which triggers exist;
-  - the exact test call sequence (what comes before and after the pinned call);
-  - data type, length, sign, position in a filter or expression;
-  - record state: temporary, stored, dirty, saved by which call;
-  - BC version: a gate that one major measured is not a gate for the others;
-  - "the test assigned X" read from "the buffer differs from the stored row": a copied or stale buffer also
-    differs. Require first that the buffer is the stored row's own image (SystemRowVersion, SystemId, how it
-    was read).
-  - a stored origin or state compared with a value built from that same state (`o == f(o)`): the copied
-    fields are never checked. Compare with the session's current value (commit count, transaction).
-- Probe the neighbors yourself: flip one fact at a time and check that the path refuses or keeps main's
-  result.
-
-## 2. A shape main answered now refuses or answers differently (13 of 34)
-
-A neighbor shape outside the new rule must keep main's result: main's answer, or main's refusal. A new
-refusal on a shape main ran is a regression, often in Base App code that partner tests reach.
-
-- Add Rust tests that out-of-scope shapes keep main's outcome. Compare with a main binary.
-- Keep a refusal only as wide as its reason. Check its order: look the fact up first, refuse only when it
-  matters.
-
-## 3. Text that does not match the code or CI (comments 13, pull request body or ADR 9)
-
-- Code comments that overstate what is pinned ("all eight", "never stored"), name a moved function, or sit
-  on the wrong item after a splice.
-- PR body claims that the code does not do ("outside shapes keep the old path", "stays refused"), a refused
-  cells list that misses cells, file names that changed, "green on 27.5 and 28.5" when that CI failed.
-- Before hand-back, read the PR body and the area table against the final diff and the actual CI result.
-
-## 4. More than one owner (10 of 34)
-
-- A rule placed in a shared helper with many callers (a truth test, every list, every listing) changes
-  callers nobody measured. Put it at the one site the pin covers.
-- A second copy of a check or a text beside its owner. Call the owner.
-- Matching by the wrong key: error text instead of the raise site, source text instead of the IR, a short
-  name with first match instead of the resolver, trigger names instead of trigger kinds.
-- State in a session slot instead of the run or page it belongs to.
-
-## 5. New refusals without a Rust test (10 of 34)
-
-Every new refusal gets a Rust test that reaches it, unless a corpus case reaches it.
-
-## 6. Assumption registry and probe rows (registry or row 7, flag lost 5)
-
-- A path without a pin runs only through an assumption entry (CLAUDE.md rule 3). The entry text matches what
-  the code does (for example "no subscriber" when the code checks none).
-- Regenerate `docs/probes-needed.md` (`--assumptions-doc`) when an entry changes. Do not delete a row while
-  unprobed shapes remain.
-- The flag must be raised on every pass through the assumed path, at the place the path runs, not at a later
-  sync point that a test can skip (close, test end, an undo).
-- A mark or flag on a value must survive every copy path: a second stream on the same buffer, `push_str`,
-  a copy into another variable. Clear it only when the content is gone.
-- A mark on a record variable that its own methods follow must also end where another object writes the
-  variable's buffer (RecordRef.SetTable, Page.GetRecord). The call that starts the mark is checked as strictly
-  as the call that reads it: its arguments, its triggers and subscribers, and the variable's state.
-
-## 7. State that outlives its shape (6 of 34)
-
-A flag set for the pinned shape must be cleared on every move, close, host change and exit. A value tied to
-one run or session must use that run's or session's id, not a shared slot or a per-session counter.
-
-## 8. Citations (6 of 34)
-
-- Cite `file:line`, not only a test name.
-- A citation to a probe that is not in the pinned corpus yet is an assumption entry that cites the open
-  probe PR, not a plain citation. "Probe queued" is true only when the spec is written down.
-
-## 9. Caps, budgets and ratchets (5 of 34)
-
-Never raise a cap, budget or allowance. Measure best of 3 and state the noise. An allowance only goes down.
-A perf cost on a hot path (a check on every write) is measured before and after.
-
-## 10. Checks run on one major only, or on an old binary (4 of 34)
-
-Run `--baseline-diff` on BC 27, 28 and 29. Rerun Microsoft suite comparisons with the head binary, not the
-first commit. A rule gated to BC 28 must still answer the BC 27 cells the corpus measures.
-
-## 11. The answer says more than the pin (4 of 34)
-
-- An exact length or byte count where only the sign (`> 0`, `<> 0`, `= 0`) is pinned.
-- A return value that depends on the content, used where only the statement form is pinned.
-- Bytes beyond the prefix that the corpus pins.
-- An error text composed from parts, or a shown text that is not in the corpus.
-
-## 12. Unknown reach counted as safe (3 of 34)
-
-A check that proves "nothing else can see this" fails when its reach analysis has unknown entries (RecordRef
-with a run-time id, dynamic object ids), unless the owner named that kind of unknown as safe.
+1. **A new rule runs on shapes no case pins** (29). One allowlist predicate at the owner: every pinned fact by equality, each cited. Flip one fact at a time.
+2. **A shape main answered now refuses or answers differently** (13). Neighbors keep main's result (Rust tests). A refusal is only as wide as its reason.
+3. **Text that does not match the code or CI** (comments 13, PR body or ADR 9). Read comments, PR body and area table against the final diff and the real CI run.
+4. **More than one owner** (10). Put a rule at the one site its pin covers. Call the owner. Match by kind or raise site, not text.
+5. **New refusals without a Rust test** (10). A Rust test or a corpus case reaches every new refusal.
+6. **Assumption registry and probe rows** (registry or row 7, flag lost 5). Each entry clause has a gate line. Flag every pass. Marks survive every copy.
+7. **State that outlives its shape** (6). Clear a flag on every move, close, host change and exit. Key values by their run or session.
+7a. **A value stamped at a measured landing outlives the landing.** Keep it off the record except while the measured read runs.
+8. **Citations** (6). `file:line` in the pinned corpus, same move and kinds. An unpinned probe is an assumption entry.
+9. **Caps, budgets and ratchets** (5). Never raise one. Measure a hot-path cost before and after.
+10. **Checks run on one major only, or on an old binary** (4). `--baseline-diff` on BC 27, 28 and 29 with the head binary.
+11. **The answer says more than the pin** (4). No exact value where only the sign is pinned. No composed error text.
+12. **Unknown reach counted as safe** (3). Unknown entries in a reach analysis fail a "nothing else sees this" check.
+13. **Microsoft text in fixtures.** Write stand-ins from the pinned behavior. Only signatures may match the source.
+14. **A shape the checker now lets compile, followed only to the checker.** Follow it into lowering and run it.
+15. **"X members are pinned" while the gate takes the whole type.** Name the measured values and gate on them.
+16. **A restore applied because code stopped.** Require the set-back in the stopped routine, or refuse the readers.
+17. **A gate inside a trigger, checked by the frame stack only.** Require the starting method, RunTrigger and temporary state.
+18. **Session state set by a routine the runner stopped.** Give it the new rule only when the routine returns Ok.
+19. **An outside report's shape differs in several facts, and the gate reads one.** Require every differing fact.
+20. **Rows the runner does not know have more readers than the test.** Refuse every kind of reader, in one owner.
+21. **A mark set on the first read only.** Mark the first reader and every later test. A keeping write is a read.
+22. **Code moved to a session of its own.** One predicate names every `Session` field (no `..`). Probe each.
+23. **A workflow or action change without the Rust tests that read workflow text.** Grep `crates/al-test-cli/tests/suite/ci_*.rs` for the changed step text; run `cargo test -p al-test-cli --test suite ci_`.

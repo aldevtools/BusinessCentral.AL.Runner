@@ -135,21 +135,11 @@ fn table_of<'a>(c: &'a Catalog, i: usize) -> Option<(&'a Object, &'a al_ir::Tabl
     o.table.as_ref().map(|t| (o, t))
 }
 
-/// A `Get` of a Field row of a table of the app under test gives null App Package ID and App Runtime Package ID; a `Get` of a
-/// Base Application table, and FindFirst and Next of either, give the AllObj ones
-/// (metadata/platform-tables/PlatformMetadataColumnValues.al:287-311). The app under test is the app whose two
-/// ids are equal (`ids::runtime_package_id`).
-pub(super) fn field_get(t: &TableDef, mut r: al_data::Row) -> al_data::Row {
-    let col = |name: &str| t.fields.iter().position(|x| x.name == name);
-    if let (Some(p), Some(rt)) = (col("App Package ID"), col("App Runtime Package ID")) {
-        if let (Value::Guid(a), Value::Guid(b)) = (&r[p], &r[rt]) {
-            if a == b {
-                r[p] = Value::Guid([0; 16]);
-                r[rt] = Value::Guid([0; 16]);
-            }
-        }
-    }
-    r
+/// The table extension that declares field `f`, when one does (`al_ir::Field::declared_in`).
+pub(super) fn declaring_extension<'a>(c: &Catalog<'a>, table: &Object, f: &Field) -> Option<&'a Object> {
+    c.objects
+        .get(f.declared_in? as usize)
+        .filter(|o| o.kind == al_ir::ObjKind::TableExtension && o.app != table.app)
 }
 
 pub(super) fn field_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
@@ -228,7 +218,8 @@ fn table_entries(
         }));
         return;
     };
-    // The package columns are the table's: worked out once per table, not per field.
+    // The package columns are the table's: worked out once per table, not per field. A field a table extension adds has
+    // the extension's (`extension_packages`).
     let packages = package_columns(c, o, t);
     for f in &schema.fields {
         if only.is_some_and(|n| n != f.id as i32) {
@@ -264,7 +255,9 @@ fn table_entries(
             let in_key = idx.is_some_and(|i| schema.keys.first().is_some_and(|k| k.contains(&i)));
             r[col] = Value::Boolean(in_key);
         }
-        match field_row(c, o, f, t, blank, &packages, &mut r) {
+        let extension = extension_packages(c, o, f, t);
+        let row_packages = extension.as_deref().unwrap_or(&packages[..]);
+        match field_row(c, o, f, t, blank, row_packages, &mut r) {
             Ok(()) => out.push(Entry::ok(r)),
             Err(why) => {
                 let mut k = blank.row();
@@ -304,6 +297,45 @@ fn package_columns(c: &Catalog, table: &Object, t: &TableDef) -> Vec<(usize, Val
         }
     }
     out
+}
+
+/// App Package ID and App Runtime Package ID of the Field row of field `f` of `table` when a table extension adds it: the
+/// extension's AllObj ones, not the table's, after Get, FindFirst on the key and in a scan, and a filter on App Package ID <> the
+/// table's keeps only such fields (al-runner issue 8051; tests/al-language/metadata/platform-tables/
+/// PlatformMetadataColumnValues.al:360-376 FieldTable_AppPackageIds_OfTableExtensionField_AreTheExtensionApps and :388-405
+/// FieldTable_FilterAppPackageIdNotTheTables_KeepsOnlyExtensionFields), in the measured shape: an extension of an app under
+/// test on a table of an app under test or of Base Application. Any other extension (of a dependency app, on another
+/// dependency app's table or on a platform table) leaves both columns unknown. `None` for a field the table declares itself,
+/// and for a system field. An extension in the table's own app has the app's ids, which are the table's.
+fn extension_packages(c: &Catalog, table: &Object, f: &Field, t: &TableDef) -> Option<Vec<(usize, Value)>> {
+    let ext = declaring_extension(c, table, f)?;
+
+    let from_package = |o: &Object| c.apps.get(o.app as usize).is_some_and(|a| a.dependency);
+    let base_application = c
+        .apps
+        .get(table.app as usize)
+        .is_some_and(|a| a.id.eq_ignore_ascii_case(al_ir::BASE_APPLICATION_APP_ID));
+    let measured =
+        !from_package(ext) && !super::objects::platform_object(table) && (!from_package(table) || base_application);
+    let ids = measured.then(|| super::objects::package_ids(c, ext));
+    let mut out = Vec::new();
+    for (name, which) in [("App Package ID", 0), ("App Runtime Package ID", 1)] {
+        if let Some(col) = t.fields.iter().position(|x| x.name == name) {
+            let v = match ids {
+                Some(ids) => Value::Guid(if which == 0 { ids.0 } else { ids.1 }),
+                None => super::unknown(
+                    t,
+                    t.fields[col].id,
+                    &format!(
+                        "field '{}' of table '{}', which table extension '{}' adds (measured only for an extension of an app under test on a table of an app under test or of Base Application)",
+                        f.name, table.name, ext.name
+                    ),
+                ),
+            };
+            out.push((col, v));
+        }
+    }
+    Some(out)
 }
 
 /// The Field row of the rowversion: No. 0, FieldName `timestamp`, Type BigInteger, Class Normal, Len 8, Enabled. Only a
@@ -539,7 +571,8 @@ fn field_row(
     } else {
         f.name.chars().take(30).collect::<String>().into()
     });
-    // App Package ID and App Runtime Package ID: the table's ([`package_columns`]).
+    // App Package ID and App Runtime Package ID: the table's ([`package_columns`]), or the extension's that adds the field
+    // ([`extension_packages`]).
     for (col, v) in packages {
         r[*col] = v.clone();
     }

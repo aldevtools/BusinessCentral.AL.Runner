@@ -12,15 +12,13 @@ use al_builtins::native::{Signal, unsupported};
 use al_builtins::ops;
 use al_builtins::value::Value;
 use al_data::{AccessContext, Store, TableDef};
+use al_ir::BASE_APPLICATION_APP_ID;
 
 /// The object id of the platform's Company table.
 pub(crate) const COMPANY_TABLE: u32 = 2_000_000_006;
 
 /// The company of the corpus CI database other than the session company (record/BfInstallTests.al:47-64).
 const CORPUS_OTHER_COMPANY: &str = "My Company";
-
-/// Base Application's app id.
-const BASE_APPLICATION_APP_ID: &str = "437dbf0e-84ff-417a-965d-ed2bb9650972";
 
 /// Base Application's Company Information table.
 const COMPANY_INFORMATION: u32 = 79;
@@ -117,7 +115,7 @@ impl Session {
             }
             if r.company.is_some()
                 && self.companies.iter().any(|c| c == company)
-                && !self.engine.unseeded.contains(&(t.object as usize))
+                && !self.engine.unseeded.contains_key(&(t.object as usize))
             {
                 return Ok(AccessContext {
                     company: company.into(),
@@ -136,7 +134,7 @@ impl Session {
         let full_copy = self.full_copies.contains(company.as_str());
         if t.per_company
             && !r.temporary
-            && (self.engine.unseeded.contains(&(t.object as usize))
+            && (self.engine.unseeded.contains_key(&(t.object as usize))
                 || ((self.baseline_rows.contains(&t.object) || self.backs_rows(t.object))
                     && !full_copy
                     && !self.starts_empty_in_made(company, t)))

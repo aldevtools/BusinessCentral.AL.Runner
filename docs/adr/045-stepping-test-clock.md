@@ -134,3 +134,24 @@ every read, and by n milliseconds on `Sleep(n)`.
 8. **Tests.** `crates/al-vm/tests/store/hostvalues.rs`: the reporter's repro (20 samples; at least one Time and one DateTime
    come back changed) and 3000 reads right after a write with a fixed seed (share off the grid between 62 and 71 %, the same
    values for the same seed, other values for another seed).
+
+## Amendment: the run clock starts at 12:34:56.789 UTC of the day (2026-11-15)
+
+### Status: Accepted (owner, 2026-11-15)
+
+1. **The host instant is 12:34:56.789 UTC of the UTC day the run first reads the clock**, not 12:00:00.000 (item 1 of the
+   2026-10-19 amendment). One constant owns it: `RUN_CLOCK_TIME_OF_DAY` in `al-testrun/src/host.rs`, read by
+   `run_clock_start` and by the stability mode's `clock.timeOfDay` default (ADR-058). Everything else of the 2026-10-19
+   amendment holds: the date stays the wall clock's, the time of day is the same in every run, a kept install baseline
+   starts where its run started, and `ALRUNNER_REAL_CLOCK=1` is unchanged. Stepping (1 ms per read, n ms per `Sleep(n)`)
+   and the catch-up rules of the later amendments do not change.
+2. **Why.** Noon is a value test authors write as a constant. A test that compares `Time` with `120000T` passed in every
+   run here, while on BC it passes only when the test runs at noon (al-runner issue 8161, found by mutation testing). A
+   time with odd seconds and milliseconds is one no test writes by chance, so such a test now fails here as it does on BC
+   nearly every time.
+3. **Time zones.** A local time of day from this start keeps the UTC date for offsets from UTC-12:34 to UTC+11:25
+   (noon kept it from UTC-12:00 to UTC+11:59). An offset from UTC+11:30 to UTC+11:59 now reads the next day where noon read
+   the same day. The deterministic host of the unit tests (`al-host`, 2024-01-15T12:00:00Z) is a separate value and is not
+   changed.
+4. **What does not match BC.** The same as before: BC's `Time` is the wall clock. No corpus case depends on the start
+   (the corpus harness starts each oracle codeunit's clock at its suite timestamp).

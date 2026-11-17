@@ -277,6 +277,9 @@ impl Session {
     /// the `AutoRollback` refusal (record/TestTransactionModelAutoRollback.al:Test07); the
     /// `AutoRollback` refusal outranks `[CommitBehavior(Error)]` (:Test08).
     pub(crate) fn commit_builtin(&mut self) -> Result<(), Signal> {
+        if let Some(tally) = self.pages.action_tally.as_mut() {
+            tally.note_commit();
+        }
         self.bg_refuse_transaction_call("Commit")?;
         if self.tx.commit_behavior == CommitBehavior::Ignore {
             return Ok(());
@@ -424,14 +427,20 @@ impl Session {
 
     /// Whether routine `r` of object `o` is a `[Test]` method of a test codeunit.
     fn is_test_method(&self, o: usize, r: usize) -> bool {
-        let obj = &self.engine.program.objects[o];
-        obj.properties
-            .iter()
-            .any(|(k, v)| k.eq_ignore_ascii_case("Subtype") && v.trim().eq_ignore_ascii_case("Test"))
-            && obj.routines[r]
+        self.declared_subtype(o).is_some_and(|s| s.eq_ignore_ascii_case("Test"))
+            && self.engine.program.objects[o].routines[r]
                 .attributes
                 .iter()
                 .any(|a| a.name.eq_ignore_ascii_case("Test"))
+    }
+
+    /// The `Subtype` object `o` declares, trimmed; `None` when it declares none.
+    pub(crate) fn declared_subtype(&self, o: usize) -> Option<&str> {
+        self.engine.program.objects[o]
+            .properties
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case("Subtype"))
+            .map(|(_, v)| v.trim())
     }
 
     pub(crate) fn leave_used_try(&mut self) {
@@ -681,6 +690,9 @@ impl Session {
         args: &[Value],
         guarded: bool,
     ) -> Result<Value, Signal> {
+        if let Some(tally) = self.pages.action_tally.as_mut() {
+            tally.note_codeunit_run();
+        }
         // Only the guarded form is pinned inside a page background worker
         // (testpage/TestPageBgTaskTx_Tests.al:RunPageBackgroundTask_WorkerIsOutsideCallersWriteTransaction).
         if !guarded {
@@ -910,7 +922,7 @@ impl Session {
                         self.rollback_transaction();
                     }
                     self.error_finals = None;
-                    self.last_error = *e;
+                    self.catch_error(*e)?;
                     if let Some(c) = caller_rec.take() {
                     c.restore();
                 }
@@ -952,7 +964,7 @@ impl Session {
                     self.guarded_run_rollback(&e, body)?;
                 }
                 self.error_finals = None;
-                self.last_error = *e;
+                self.catch_error(*e)?;
                 if let Some(c) = caller_rec.take() {
                     c.restore();
                 }

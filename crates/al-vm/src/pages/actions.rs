@@ -199,6 +199,7 @@ impl Session {
             (method == PageMethod::DrillDown && self.has_source(st)).then(|| self.page_rec(st).borrow().fields.clone());
         let rec_before = (method == PageMethod::AssistEdit && self.has_source(st))
             .then(|| (self.page_rec(st).borrow().fields.clone(), st.borrow().dirty));
+        let linked_key = self.seed_empty_card_part_assist_edit(st, idx, method)?;
         let result = if method == PageMethod::Lookup {
             self.on_lookup_trigger(st, idx, owner, routine)
         } else {
@@ -214,9 +215,7 @@ impl Session {
                 other => other,
             }
         };
-        if result.is_err() {
-            st.borrow_mut().refresh = false;
-        }
+        self.finish_empty_card_part_assist_edit(st, linked_key, result.is_ok())?;
         let v = result?;
         let pk_shown = self.drilldown_marked_only_refresh(st, method, marked_only_before, shown_before);
         // The client refreshes the page after an AssistEdit trigger: OnAfterGetRecord runs again
@@ -257,7 +256,7 @@ impl Session {
             self.torn_down_on_error(st, r)?;
             self.sync_parts(st)?;
         }
-        self.run_refresh(st)?;
+        self.refresh_after_field_trigger(st, method, rec_before.as_ref())?;
         // After the refresh a marking drilldown in the primary key leaves the row the page showed in Rec, and keeps Rec's for the
         // next call (`drilldown_marked_only_refresh`).
         if let Some(shown) = pk_shown {
@@ -824,6 +823,7 @@ impl Session {
             Ok(v) => self.settle_rows_after_action(st, view_before).map(|()| v),
             e => e,
         };
+        let r = self.journal_part_after_action_refresh(st, r);
         let held = {
             let mut s = st.borrow_mut();
             s.in_action = was_in_action;
@@ -866,7 +866,7 @@ impl Session {
                     e.code = own.to_string();
                 }
                 self.error_finals = None;
-                self.last_error = *e;
+                self.hold_error(*e)?;
                 Ok(Value::Null)
             }
             other => other,
@@ -981,8 +981,7 @@ impl Session {
         // its re-read above).
         // A list that serves its rows from OnFindRecord and OnNextRecord does the same (testpage/W2FindRecordUpdate.al: during_action
         // `AGR(20);ActionBegin;ActionEnd;`).
-        // (testpage/W2FindRecordUpdate.al for a list; pages/currpage/UpdateOnFindRecord.al for a card and a list that
-        // declare OnAfterGetCurrRecord: `AGR:2;act:Update(false)` first.)
+        // A card and a list that declare OnAfterGetCurrRecord: pages/currpage/UpdateOnFindRecord.al `AGR:2;act:Update(false)` first.
         let find_list =
             self.declares(st, "onfindrecord") && (self.is_list(st) || self.declares(st, "onaftergetcurrrecord"));
         // A card with OnFindRecord and no OnNextRecord reads its row before the action, again after it, then asks `=` and reads
@@ -1165,7 +1164,9 @@ impl Session {
                 };
                 std::mem::replace(&mut st.borrow_mut().action_shown_row, shown)
             };
+            let outer_tally = self.begin_action_tally(empty == Some(EmptyShape::EditList));
             let r = self.run_action_body(st, idx, r, &element, &before_ext, &after, shown_outer, no_edit);
+            let tally = self.end_action_tally(outer_tally);
             // An error an action raises comes out of the test page's Invoke with the test framework's prefix on its code.
             let r = match r {
                 Err(Signal::Error(mut e)) => {
@@ -1193,7 +1194,7 @@ impl Session {
                 return Ok(Value::Null);
             }
             if let Some(shape) = empty {
-                if self.empty_page_after_action(st, shape)? {
+                if self.empty_page_after_action(st, shape, tally.as_ref())? {
                     return Ok(Value::Null);
                 }
             }
@@ -1547,69 +1548,6 @@ impl Session {
         }
     }
 
-    /// A list opened for view that shows no row (its view was empty), with or without OnFindRecord and OnNextRecord.
-    fn empty_list_view(&mut self, st: &St) -> Result<bool, Signal> {
-        let shape = {
-            let s = st.borrow();
-            s.open
-                && s.host.is_none()
-                && s.parts.is_empty()
-                && s.window.is_empty()
-                && !s.dirty
-                && s.cursor == Cursor::None
-                && s.mode == PageMode::View
-        };
-        Ok(shape && self.is_list(st) && self.has_source(st) && !self.is_request_page(st))
-    }
-
-    /// After an action on a list opened for view that showed no row, which changed the filters so the view has rows and
-    /// called `CurrPage.Update(false)`, while Rec stands on no row of the view: the client fills the page as when it opens,
-    /// from the first row of the new view, which becomes current; a page with OnFindRecord asks `=><` and then `=`
-    /// (pages/list-order/AiListOrderTests.al QP_EmptyView_UpdateFalse_ShowAll_Nav, _ShowFromThree_Nav, _ShowAll_Plain,
-    /// _ShowFromThree_Plain; pages 87158, 87159 in QpUpdateEmptyList.al; the traces equal the open traces of :105 and :265).
-    /// Pinned for views of 4 and 6 rows that the window holds. A view of one row is `empty_page_after_action`'s; Update(true),
-    /// no Update, or Rec on a row of the view go on as before. On the blank row an earlier action left (`empty_after_action`)
-    /// Update(true) fills the page the same way, read as at open from the first row (pages/actions/ActionFilterEmptyView.al
-    /// Action_NoRowsLeft_ThenCleared_UpdateTrue `cleared` `[1|1]:a0;u0;R1;R2;R3;R4;R1;R1;C1`, as _UpdateFalse).
-    fn update_on_empty_list_view(&mut self, st: &St) -> Result<bool, Signal> {
-        {
-            let s = st.borrow();
-            if !(s.open
-                && s.refresh
-                && s.refresh_by_update
-                && (s.refresh_update_false || s.empty_after_action)
-                && !s.dirty
-                && s.cursor == Cursor::None)
-            {
-                return Ok(false);
-            }
-        }
-        let n = self.view_row_count(st)?;
-        if n < 2 {
-            return Ok(false);
-        }
-        let rec = self.page_rec(st);
-        let row = self.stored_row(&rec)?;
-        let on_row = al_builtins::filter::passing(&rec.borrow().filters, row)?.is_some();
-        if on_row {
-            return Ok(false);
-        }
-        if n > 6 {
-            return unsupported(
-                "CurrPage.Update(false) after an action on a list opened for view that showed no row, whose new view has more than 6 rows (the fill is pinned for 4 and 6)",
-            );
-        }
-        {
-            let mut s = st.borrow_mut();
-            s.refresh = false;
-            s.refresh_by_update = false;
-            s.refresh_update_false = false;
-            s.empty_after_action = false;
-        }
-        self.page_first_row(st)?;
-        Ok(true)
-    }
-
     /// After an action on a list opened for view that stands on the draft row New() started, untouched: the client drops the
     /// draft and stores nothing.
     /// - `CurrPage.Update(false)`: it goes back to the row New() was started from, which it reads as when it opens
@@ -1656,7 +1594,7 @@ impl Session {
             s.refresh_update_false = false;
             s.draft = false;
             s.new_by_call = false;
-            s.after_new = None;
+            s.take_after_new();
             if let Some(c) = cursor {
                 s.cursor = c;
             }
@@ -1715,17 +1653,6 @@ impl Session {
         Ok(true)
     }
 
-    /// The rows of the page's view, counted on a copy of its record.
-    pub(super) fn view_row_count(&mut self, st: &St) -> Result<i32, Signal> {
-        let rec = self.page_rec(st);
-        let probe = Rc::new(RefCell::new(rec.borrow().clone()));
-        self.ret_used = true;
-        Ok(match self.record_op(RecordOp::Count, &probe, &mut [])? {
-            Value::Integer(n) => n,
-            _ => 0,
-        })
-    }
-
     /// Before the action's trigger. A list opened for view over an empty table reads its blank record once when the test stored
     /// a row of the view since (testpage/PnGShowRow.al:459 QG_ViewEmptyList_RowStoredByTest_ThenReads `action_log`
     /// `List.AGR(,);ReadTable(,No);...`), and nothing when the view is still empty (:364 QG_ViewEmptyList_InsertViaRec_StepLog).
@@ -1782,13 +1709,20 @@ impl Session {
     /// BnrBlankPart.al:491 NoRow_Action_TempListTwoInsertsAndFindLast_ShowsTheLastRow) and an empty view of a page with row triggers
     /// opened for view (testpage/ApTestPageTests.al:602 Ap10_SetSelectionFilter_FilterHidesAll_TestPageFilter) are pinned
     /// there.
-    fn empty_page_after_action(&mut self, st: &St, shape: EmptyShape) -> Result<bool, Signal> {
+    fn empty_page_after_action(
+        &mut self,
+        st: &St,
+        shape: EmptyShape,
+        tally: Option<&super::action_tally::ActionTally>,
+    ) -> Result<bool, Signal> {
         if !st.borrow().open {
             return Ok(false);
         }
         let n = self.view_row_count(st)?;
         let rec = self.page_rec(st);
         let table = rec.borrow().table as usize;
+        // Before the refresh flags are reset below: whether the action did what the one-row pin's action did.
+        let report_insert = tally.is_some_and(|t| t.is_one_report_insert(table)) && !st.borrow().refresh;
         if n > 1 {
             // A Worksheet with the new-row line opened for edit on an empty view whose action stored rows through another record
             // variable: the client reads the rows of the view once each, then the first one twice, runs OnAfterGetCurrRecord on
@@ -1843,7 +1777,7 @@ impl Session {
             self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
             self.page_event(st, "onaftergetcurrrecordevent", None, None)?;
             self.land_on_new_line(st)?;
-            st.borrow_mut().empty_list_row_behind = true;
+            st.borrow_mut().set_row_behind(true, Vec::new(), false);
             return Ok(true);
         }
         if n == 0 {
@@ -1855,7 +1789,7 @@ impl Session {
             st.borrow_mut().refresh = false;
             st.borrow_mut().save_record_called = false;
             // No row is behind the line any more (RmWorksheetGoneRow.al SH_WsWithNew_EmptyOpen_FillThenDeleteAllUpdate `first` No).
-            st.borrow_mut().empty_list_row_behind = false;
+            st.borrow_mut().set_row_behind(false, Vec::new(), false);
             self.land_on_new_line(st)?;
             self.land_on_new_line(st)?;
             return Ok(true);
@@ -1874,7 +1808,8 @@ impl Session {
                 found.fields.clone()
             }
         };
-        rec.borrow_mut().fields = fields.clone();
+        let fields_found = fields.clone();
+        let left = std::mem::replace(&mut rec.borrow_mut().fields, fields.clone());
         {
             let mut s = st.borrow_mut();
             s.cursor = Cursor::Row;
@@ -1915,74 +1850,10 @@ impl Session {
         self.page_event(st, "onaftergetcurrrecordevent", None, None)?;
         if back_to_new_line {
             self.land_on_new_line(st)?;
-            st.borrow_mut().empty_list_row_behind = true;
+            let pinned = report_insert && self.one_row_action_pinned(st, &fields_found)?;
+            st.borrow_mut().set_row_behind(true, left, pinned);
         }
         Ok(true)
-    }
-
-    /// First on a list that went back to its new-row line with one row behind it (see `pageops.rs`): the row is read twice, then
-    /// OnAfterGetCurrRecord with xRec on it.
-    pub(super) fn first_after_empty_list_action(&mut self, st: &St) -> Result<Value, Signal> {
-        let rec = self.page_rec(st);
-        let probe = Rc::new(RefCell::new(rec.borrow().clone()));
-        self.ret_used = true;
-        if !matches!(
-            self.record_op(RecordOp::FindFirst, &probe, &mut [])?,
-            Value::Boolean(true)
-        ) {
-            return unsupported("First after the row behind the new-row line of an empty list is gone (not pinned)");
-        }
-        let fields = probe.borrow().fields.clone();
-        rec.borrow_mut().fields = fields.clone();
-        {
-            let mut s = st.borrow_mut();
-            s.cursor = Cursor::Row;
-            s.draft = false;
-            s.dirty = false;
-        }
-        // The other rows of the view, which the client read after the action (`empty_page_after_action` with two rows or more).
-        let mut rest = Vec::new();
-        loop {
-            self.ret_used = true;
-            if !matches!(self.record_op(RecordOp::Next, &probe, &mut [Value::Integer(1)])?, Value::Integer(n) if n != 0)
-            {
-                break;
-            }
-            let f = probe.borrow().fields.clone();
-            rest.push(crate::pages::WindowRow {
-                key: self.table(&probe)?.primary_key(&f),
-                stored: f.clone(),
-                shown: f,
-            });
-            if rest.len() >= Self::WINDOW {
-                return unsupported(
-                    "First after an action stored more rows than a window behind the new-row line of an empty list (not pinned)",
-                );
-            }
-        }
-        self.populate_current(st)?;
-        self.populate_current(st)?;
-        let key = self.row_key(&rec)?;
-        {
-            let shown = rec.borrow().fields.clone();
-            let mut s = st.borrow_mut();
-            s.window = vec![crate::pages::WindowRow {
-                key,
-                stored: fields,
-                shown,
-            }];
-            s.window_from_start = true;
-            // With more rows the client holds them all and walks them as on a list it opened, then onto its new-row line
-            // (RmWorksheetGoneRow.al SH_WsWithNew_EmptyOpen_FillThenWalk `walk log = R:10000;R:10000;C:10000;R:20000;R:20000;
-            // C:20000;N:0;C:0;`; registered assumption `empty-worksheet-filled-by-action`).
-            if !rest.is_empty() {
-                s.window.extend(rest);
-                s.view_read_to_end = true;
-            }
-        }
-        self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
-        self.page_event(st, "onaftergetcurrrecordevent", None, None)?;
-        Ok(Value::Boolean(true))
     }
 
     /// The new row of an open card over a table, not a part, without DelayedInsert, extensions or a view of its own: the shape
@@ -3098,6 +2969,9 @@ impl Session {
         }
         if self.declares(st, "onfindrecord") {
             return self.settle_gone_row_with_find(st, &rec);
+        }
+        if self.settle_gone_row_of_temp_list(st, &rec)? {
+            return Ok(());
         }
         self.ret_used = true;
         let moved = matches!(

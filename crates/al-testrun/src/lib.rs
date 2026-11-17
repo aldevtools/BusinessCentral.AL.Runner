@@ -35,12 +35,16 @@ pub mod junit;
 pub mod license;
 mod login;
 pub mod observe;
+mod partner_login;
 pub mod profiling;
 pub mod reach;
 pub mod refusals;
+pub mod report_render;
+pub mod report_render_pieces;
 pub mod runtime;
 pub mod seed;
 pub mod stability;
+mod stopped_state;
 pub mod target;
 pub mod test_suites;
 

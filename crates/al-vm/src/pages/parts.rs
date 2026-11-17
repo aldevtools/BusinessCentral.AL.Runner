@@ -46,6 +46,9 @@ impl Session {
     pub(super) fn mark_closed(&mut self, st: &St) {
         st.borrow_mut().open = false;
         st.borrow_mut().closed_by = Some(ClosedBy::Other);
+        st.borrow_mut().page_run = None;
+        st.borrow_mut().test_filters = Vec::new();
+        st.borrow_mut().ws_trigger_order = None;
         self.prune_page_held();
         let parts = std::mem::take(&mut st.borrow_mut().parts);
         let hidden = st.borrow().hidden_parts.clone();
@@ -1308,6 +1311,7 @@ impl Session {
             let table = self.table(&rec)?;
             let mut fresh: Vec<FieldFilter> = Vec::new();
             let mut fields = Vec::new();
+            let mut no_row_chain = false;
             // Pinned by testpage/UjSubPageLink.al (was assumption `subpagelink-const-qualified-enum-value`).
             for entry in link.entries.iter() {
                 match entry {
@@ -1328,16 +1332,19 @@ impl Session {
                             p.host.is_none() && p.draft && !p.draft_stored
                         };
                         // A Provider that shows no row: on BC the linked part shows no row, also where a row holds the blank
-                        // link value (ProviderPartOutsideFactBoxes.al `h2`, `next-host`: `detail=` with a `Line Ref` 0 row in the
-                        // table; corpus pull request 1324). The runner links to the blank value instead, so on the chains that
-                        // probe admits beyond the pinned ones the read is refused.
-                        if link.provider.is_some()
+                        // link value (ProviderPartOutsideFactBoxes.al:419 `h2`, :421 `next-host`: `detail=` with a `Line Ref` 0
+                        // row stored at :273). The runner links to the blank value instead, so on the chains that probe admits
+                        // beyond the pinned ones the link is refused here, before any value is built, except in the cells
+                        // `provider_no_row.rs` admits (their stored rows are checked once the link is built, below).
+                        if !no_row_chain
+                            && link.provider.is_some()
                             && src_page.borrow().cursor == Cursor::None
                             && self.chain_outside_pinned_areas(host)
                         {
-                            return unsupported(
-                                "a part linked through a Provider part that shows no row, on a Provider chain declared in the base page's FactBoxes or added by a page extension outside FactBoxes (BC shows no row; not modelled)",
-                            );
+                            if !self.provider_no_row_shape(host, control, child, src_page)? {
+                                return unsupported(super::provider_no_row::NO_ROW_CHAIN_REFUSAL);
+                            }
+                            no_row_chain = true;
                         }
                         let value = if src_page.borrow().cursor == Cursor::None || unsaved_host {
                             let host_ty = engine.program.objects[*src_table]
@@ -1401,6 +1408,9 @@ impl Session {
                         });
                     }
                 }
+            }
+            if no_row_chain && !self.provider_no_row_rows(host, child, &fresh)? {
+                return unsupported(super::provider_no_row::NO_ROW_CHAIN_REFUSAL);
             }
             let keeps_link = self.part_sync_keeps_same_link.take();
             if keeps_link.is_some() && !child.borrow().dirty {

@@ -23,10 +23,10 @@ fn run_named(apps: &[(&str, &[usize])], names: &[String]) -> Vec<(String, Outcom
 }
 
 /// The unprobed assumptions each test passed through, by test name.
-type Hits = Vec<(String, Vec<Assumption>)>;
+pub(crate) type Hits = Vec<(String, Vec<Assumption>)>;
 
 /// [`run_named`] that also returns the unprobed assumptions each test passed through.
-fn run_marked(apps: &[(&str, &[usize])], names: &[String]) -> (Vec<(String, Outcome)>, Hits) {
+pub(crate) fn run_marked(apps: &[(&str, &[usize])], names: &[String]) -> (Vec<(String, Outcome)>, Hits) {
     let ids: Vec<String> = (0..apps.len()).map(|i| format!("app{i}")).collect();
     let sources = apps
         .iter()

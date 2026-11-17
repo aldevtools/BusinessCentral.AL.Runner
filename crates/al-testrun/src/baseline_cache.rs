@@ -15,7 +15,7 @@ use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
 /// The first bytes of a file: what it is and which layout it has.
-const MAGIC: &[u8; 8] = b"ALBRUN\0\x04";
+const MAGIC: &[u8; 8] = b"ALBRUN\0\x06";
 
 /// The extension of the entry files (the layers have `alcc`, the source index `alci`).
 pub const EXTENSION: &str = "albr";
@@ -78,8 +78,9 @@ pub fn encode(run: &BaselineRun, started_at: i64) -> Option<Vec<u8>> {
     let mut out = MAGIC.to_vec();
     put_i64(&mut out, started_at);
     put_u32(&mut out, run.unseeded.len() as u32);
-    for t in &run.unseeded {
+    for (t, cause) in &run.unseeded {
         put_u32(&mut out, *t);
+        put_str(&mut out, cause);
     }
     put_u32(&mut out, run.filled as u32);
     put_u32(&mut out, run.ran as u32);
@@ -123,9 +124,10 @@ pub fn encode(run: &BaselineRun, started_at: i64) -> Option<Vec<u8>> {
 pub fn decode(bytes: &[u8]) -> Option<(BaselineRun, i64)> {
     let mut r = Reader::new(bytes.strip_prefix(&MAGIC[..])?);
     let started_at = r.i64()?;
-    let mut unseeded = std::collections::BTreeSet::new();
+    let mut unseeded = std::collections::BTreeMap::new();
     for _ in 0..r.u32()? {
-        unseeded.insert(r.u32()?);
+        let t = r.u32()?;
+        unseeded.insert(t, r.str()?);
     }
     let filled = r.u32()? as usize;
     let ran = r.u32()? as usize;
@@ -368,7 +370,12 @@ mod tests {
         let mut session = al_vm::Session::new(engine);
         BaselineRun {
             baseline: session.capture_baseline(),
-            unseeded: [7u32, 9].into_iter().collect(),
+            unseeded: [
+                (7u32, "A.OnRun stopped: x".to_string()),
+                (9, "B.OnRun was not run: y".into()),
+            ]
+            .into_iter()
+            .collect(),
             filled: 3,
             notes: vec!["Company-Initialize.OnRun did not run to its end: why".into()],
             ran: 17,

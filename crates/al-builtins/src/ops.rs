@@ -3,7 +3,7 @@
 
 use crate::describe::Describe;
 use crate::native::raise;
-use crate::native::{Signal, unsupported};
+use crate::native::{Signal, date_invalid, unsupported};
 use crate::value::{LibraryValue, RtType, Value};
 use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
@@ -51,22 +51,25 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
     if let Value::PlaceholderSize(_) = &v {
         return crate::placeholder_output::size_convert(v, t);
     }
-    // A counter value stays tainted in a Variant and in a number slot, with the slot's type (`sqlcount`, SqlCounters.al
-    // P6924_Counters_StoredInInteger_NotNegative, P6924_Counters_StoredInDecimal_NotNegativeAndWhole); any other type would
-    // show its number.
     if let Value::SqlCount(c) = &v {
-        use crate::value::SqlType;
-        return match t {
-            T::Variant => Ok(v),
-            T::BigInteger => Ok(crate::sqlcount::into_number(*c, SqlType::BigInteger)),
-            T::Integer => Ok(crate::sqlcount::into_number(*c, SqlType::Integer)),
-            T::Decimal => Ok(crate::sqlcount::into_number(*c, SqlType::Decimal)),
-            _ => Err(crate::sqlcount::refusal("a conversion to another type")),
-        };
+        return crate::sqlcount::convert(*c, v, t);
     }
     // A Text or Code into a Text or Code, the most common conversion (an assignment or a parameter of text), straight to
     // the arm the general match below would reach: no earlier arm takes a text source into a text target, and a text
     // that carries the call stack marker moves unread into a Text (`native::text_of`).
+    // Rendered content converts only to an unbounded Text and a Variant: its length is not known, so neither "raises" nor
+    // "fits" is known for a `Text[N]`, a `Code` changes case, and any other type parses the characters (ADR-040 amendment
+    // 2026-11-12, A5, loss mode L3).
+    if let Value::Text(s) | Value::Code(s) = &v
+        && s.has_marker()
+        && crate::rendered_text::holds(s.as_str())
+        && !matches!(t, T::Text(None) | T::Variant)
+    {
+        return Err(crate::rendered_text::refusal(
+            s.as_str(),
+            "a conversion to a Text of a declared length or another type",
+        ));
+    }
     match (&v, t) {
         (Value::Text(s), T::Text(_)) if s.has_marker() => return Ok(v),
         (Value::Text(s) | Value::Code(s), T::Text(max)) if !s.has_marker() => return into_text(s.clone(), *max),
@@ -97,6 +100,16 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
         return r;
     }
     Ok(match (v, t) {
+        // A Variant holds the value itself; an HttpContent or HttpRequestMessage put into one is marked as used by value,
+        // which only keeps refusals of `HttpContent.ReadAs(SecretText)` (`http::content_handed_on`, `http::request_handed_on`).
+        (Value::Library(n, cell), T::Variant) if n == "HttpContent" => {
+            crate::http::content_handed_on(&cell);
+            Value::Library(n, cell)
+        }
+        (Value::Library(n, cell), T::Variant) if n == "HttpRequestMessage" => {
+            crate::http::request_handed_on(&cell);
+            Value::Library(n, cell)
+        }
         (v, T::Variant) => v,
         // A number into its own type is the number (what the general arm below gives, without the round trip through a
         // Decimal; the scale of a Decimal is kept).
@@ -150,13 +163,33 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
         // An HttpContent is a value: assignment and a by-value parameter copy its body and headers
         // (json/W4XmlJsonHttp.al:RequestContent_IsCopyOrReference).
         (Value::Library(n, cell), T::Library(_))
-            if n == "HttpContent" && matches!(&*cell.borrow(), LibraryValue::HttpContent(_)) =>
+            if n == "HttpContent" && !crate::http::content_unused(&cell.borrow()) =>
         {
-            let copy = match &*cell.borrow() {
+            let copy = match &mut *cell.borrow_mut() {
                 LibraryValue::HttpContent(c) => LibraryValue::HttpContent(c.deep_copy()),
                 _ => LibraryValue::Empty,
             };
             Value::Library(n, Rc::new(RefCell::new(copy)))
+        }
+        // An HttpContent no method was called on and an HttpRequestMessage stay shared, as before; they are marked as used by
+        // value, which only keeps refusals of `HttpContent.ReadAs(SecretText)` (`http::content_handed_on`,
+        // `http::request_handed_on`).
+        (Value::Library(n, cell), T::Library(_)) if n == "HttpContent" => {
+            crate::http::content_handed_on(&cell);
+            Value::Library(n, cell)
+        }
+        (Value::Library(n, cell), T::Library(_)) if n == "HttpRequestMessage" => {
+            crate::http::request_handed_on(&cell);
+            Value::Library(n, cell)
+        }
+        // The XmlNode that AsXmlNode of an unassigned XmlElement returned (`xml::is_node_of_unassigned_element`), held by a
+        // Variant and assigned to an XmlElement: not measured, refused.
+        (v @ Value::Library(..), T::Library(crate::library_kind::LibraryKind::XmlElement))
+            if crate::xml::is_node_of_unassigned_element(&v) =>
+        {
+            return unsupported(
+                "a Variant holding the XmlNode that AsXmlNode of an unassigned XmlElement returned, into an XmlElement (not measured)",
+            );
         }
         (v @ Value::Codeunit(_), T::Codeunit(_) | T::Interface(_)) | (v @ Value::Library(..), T::Library(_)) => v,
         (v @ Value::Record(_), T::Record(..)) => v,
@@ -660,7 +693,7 @@ fn convert_rare(v: Value, t: &RtType) -> Result<Value, Signal> {
         {
             LibraryValue::RecordRef(rec) if rec.borrow().table == *table => record_ref_into_record(&rec.borrow()),
             LibraryValue::RecordRef(_) => raise("The requested operation is not supported.", "NotSupportedOperation"),
-            LibraryValue::Empty => raise(RECORD_REF_NOT_OPEN, "Conversion"),
+            l if crate::recordref_closed::not_open(l) => raise(RECORD_REF_NOT_OPEN, "Conversion"),
             _ => unsupported(format!("conversion of {} to {t}", v.describe(), t = t.describe())),
         },
         // A Record into a RecordRef variable or by-value parameter: see `record_into_recordref`.
@@ -1338,10 +1371,6 @@ fn datetime_moved(moved: Option<i64>, ms: Option<i64>) -> Result<Value, Signal> 
 /// The largest DateTime, 9999-12-31 23:59:59.999, as the runtime counts it (`datefns::create_datetime`).
 const MAX_DATETIME: i64 = 3_652_059 * 86_400_000;
 
-fn date_invalid<T>() -> Result<T, Signal> {
-    raise("The date is not valid.", "DateInvalid")
-}
-
 /// `=` on two values in AL code: as [`compare_operator`]. A Guid compared with a Text that is no Guid leaves its text under
 /// GetLastErrorText(true) (errors/last-error/LastErrorFlagRuntimeCodes.al DateAndConversionSites_ExcludeFlag `guidtext_true`,
 /// `G = 'not a guid'`; corpus pull request 1327). `<>`, the order operators, a Code and the text on the left are not measured.
@@ -1408,6 +1437,11 @@ pub fn compare_operator(l: &Value, r: &Value, ordered: bool) -> Result<Ordering,
 /// Ordering for `<`, `<=`, `>` and `>=`: as [`compare`], except that text follows the culture order
 /// (types/TestFormatEvaluateTextContracts.al:Operators_TextComparison_IsCultureOrderAndCaseSensitiveEquality).
 pub fn compare_order(l: &Value, r: &Value) -> Result<Ordering, Signal> {
+    // A marker stands for characters that are not known, and the culture order of a text can depend on any of its characters,
+    // so neither the known characters before it nor "not empty" decide the order (ADR-040 amendment 2026-11-12, A5).
+    if let Some(m) = [l, r].into_iter().find_map(marked_text) {
+        return Err(ordered_refusal(m));
+    }
     // Two Codes of digits only (leading zeros and the empty Code included) are ordered by length first, then as text: `'9' < '10'`, `'0010'
     // > '10'`, `'9' < '0010'`, `'0009' > '10'`, `'' < '0'` (types/text-code-char/P145CodeCompare.al:P145_CodeVars_DigitsOnly,
     // P145_CodeVars_NumberSeriesPair; text/text-methods/TextCompare.Codeunit.al:CodeComparison `tenlt`). A Text on either side, and a Code
@@ -1423,6 +1457,26 @@ pub fn compare_order(l: &Value, r: &Value) -> Result<Ordering, Signal> {
         }
     }
     compare(l, r)
+}
+
+/// The refusal of `<`, `>`, `<=`, `>=` or a range end on the marked text `_t`.
+fn ordered_refusal(t: &str) -> Signal {
+    if crate::rendered_text::holds(t) {
+        return crate::rendered_text::refusal(t, "an ordered comparison (<, >, <=, >= or a range)");
+    }
+    Signal::unsupported(
+        "an ordered comparison (<, >, <=, >= or a range) of a text that holds characters this runtime does not know \
+         (BC orders text by culture, so the known characters do not decide it)"
+            .to_string(),
+    )
+}
+
+/// The text of a Text or Code value that holds a marker.
+fn marked_text(v: &Value) -> Option<&str> {
+    match v {
+        Value::Text(t) | Value::Code(t) if t.has_marker() => Some(t.as_str()),
+        _ => None,
+    }
 }
 
 /// The order a range end of `in [a .. z]` or `case` uses. A Code or a Text on either side follows the order of `<` (the culture order, so
@@ -1453,63 +1507,7 @@ fn digit_code_order(a: &str, b: &str) -> Option<Ordering> {
     }
 }
 
-/// The order of two text key values: trailing blanks do not count, the letters compare without regard to their case first
-/// (collation order), and two texts that differ only in case are ordered by it (`a` before `A`), so they are two keys. A
-/// character the collation has no weight for falls back to the code point order of the trimmed texts
-/// (record/crud/RcAGetFind.al:Get_Text_Key, Find_Text_Key_Case_Insensitive).
-pub fn text_key_order(a: &str, b: &str) -> Ordering {
-    // The common case first, without trimming or copying: byte-equal texts are equal, and two texts that first differ
-    // at an upper-case letter or a digit are ordered by that byte (the collation agrees with the code points there), or,
-    // when one is the start of the other, by what the longer one adds besides blanks.
-    let (ab, bb) = (a.as_bytes(), b.as_bytes());
-    let n = ab.iter().zip(bb).take_while(|(x, y)| x == y).count();
-    if n == ab.len() && n == bb.len() {
-        return Ordering::Equal;
-    }
-    let plain = |c: u8| c.is_ascii_uppercase() || c.is_ascii_digit();
-    if n < ab.len() && n < bb.len() && plain(ab[n]) && plain(bb[n]) {
-        return ab[n].cmp(&bb[n]);
-    }
-    if n == ab.len() || n == bb.len() {
-        let tail = if n == ab.len() { &bb[n..] } else { &ab[n..] };
-        if tail.iter().all(|c| *c == b' ') {
-            return Ordering::Equal;
-        }
-        if tail.iter().all(|c| c.is_ascii_graphic() || *c == b' ') && tail.iter().any(|c| *c != b' ') {
-            return if n == ab.len() {
-                Ordering::Less
-            } else {
-                Ordering::Greater
-            };
-        }
-    }
-    let (a, b) = (a.trim_end_matches(' '), b.trim_end_matches(' '));
-    if a == b {
-        return Ordering::Equal;
-    }
-    // Letters and digits only: the case-folded byte order is the collation's, and the first difference in case decides a tie.
-    let plain = |t: &str| t.bytes().all(|c| c.is_ascii_alphanumeric());
-    if plain(a) && plain(b) {
-        let folded = a
-            .bytes()
-            .map(|c| c.to_ascii_uppercase())
-            .cmp(b.bytes().map(|c| c.to_ascii_uppercase()));
-        if folded != Ordering::Equal {
-            return folded;
-        }
-        for (x, y) in a.bytes().zip(b.bytes()) {
-            if x != y {
-                return if x.is_ascii_lowercase() {
-                    Ordering::Less
-                } else {
-                    Ordering::Greater
-                };
-            }
-        }
-        return Ordering::Equal;
-    }
-    crate::collation::compare_key(a, b)
-}
+use crate::collation::text_key_order;
 
 /// The order a filter applies to two texts when one starts with a hyphen and both are letters and digits besides it: the key order,
 /// in which the hyphen does not count first (`'-5'` is above `'3'` and below `'9'`; types/text-code-char/
@@ -1552,15 +1550,15 @@ pub fn code_key_order(a: &str, b: &str) -> Ordering {
     text_key_order(a, b)
 }
 
-/// [`compare`] for the values of a key: text follows [`text_key_order`].
+/// [`compare`] for the values of a key: text follows [`crate::collation::text_value_key_order`].
 #[inline]
 pub fn compare_key_value(l: &Value, r: &Value) -> Result<Ordering, Signal> {
     match (l, r) {
         (Value::Integer(a), Value::Integer(b)) => Ok(a.cmp(b)),
         (Value::Code(a), Value::Code(b)) if !a.has_marker() && !b.has_marker() => Ok(code_key_order(a, b)),
-        (Value::Text(a) | Value::Code(a), Value::Text(b) | Value::Code(b)) if !a.has_marker() && !b.has_marker() => {
-            Ok(text_key_order(a, b))
-        }
+        (Value::Text(a) | Value::Code(a), Value::Text(b) | Value::Code(b)) if !a.has_marker() && !b.has_marker() => Ok(
+            crate::collation::text_value_key_order(a, b, matches!((l, r), (Value::Text(_), Value::Text(_)))),
+        ),
         _ => compare(l, r),
     }
 }
@@ -1623,21 +1621,25 @@ pub fn compare(l: &Value, r: &Value) -> Result<Ordering, Signal> {
             if let Some(o) = known_prefix_order(a.as_str(), b.as_str()) {
                 return Ok(o);
             }
+            // Equality of rendered content with anything but '' or a text whose known characters differ depends on the
+            // characters (ADR-040 amendment 2026-11-12, A3b).
+            if let Some(m) = [a, b].into_iter().find(|t| crate::rendered_text::holds(t.as_str())) {
+                return Err(crate::rendered_text::refusal(
+                    m.as_str(),
+                    "a comparison with a text that is not ''",
+                ));
+            }
         }
         _ => {}
     }
     compare_general(l, r)
 }
 
-/// The order of two texts that may hold a marker (`CALL_STACK_MARK`, `CARRIED_TEXT_MARK`), when the text before the first
+/// The order of two texts that may hold a marker (`native::TEXT_MARKS`), when the text before the first
 /// marker of either decides it: the first character that differs there, or a text without a marker that ends while the
 /// other still has known characters. `None` when the texts agree up to a marker.
 fn known_prefix_order(a: &str, b: &str) -> Option<Ordering> {
-    let marker = |c: char| {
-        c == crate::native::CALL_STACK_MARK
-            || c == crate::native::CARRIED_TEXT_MARK
-            || c == crate::native::SQL_COUNT_TEXT_MARK
-    };
+    let marker = |c: char| crate::native::TEXT_MARKS.contains(&c);
     let (mut x, mut y) = (a.chars(), b.chars());
     loop {
         match (x.next(), y.next()) {
@@ -2812,6 +2814,12 @@ mod tests {
     fn key_orders_are_total_over_punctuation_accents_and_unweighted_characters() {
         check_total_order("text_key_order(exotic)", &exotic_texts(), &|a, b| text_key_order(a, b));
         check_total_order("code_key_order(exotic)", &exotic_texts(), &|a, b| code_key_order(a, b));
+        // The capital Æ of a Text key sorts as AE (assumption `text-key-ae-sorts-as-ae`); the order stays total next to the
+        // letters it expands to, the small æ and an unweighted letter.
+        let ae = texts_over(&["", " ", "-", "A", "E", "e", "Æ", "æ", "ø"]);
+        check_total_order("text_value_key_order(Æ)", &ae, &|a, b| {
+            crate::collation::text_value_key_order(a, b, true)
+        });
     }
 
     #[test]

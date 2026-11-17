@@ -1,10 +1,114 @@
 //! The caption a CaptionClass text stands for (moved out of rows.rs).
 
+use super::pinned_shape::TestCall;
 use super::*;
+use al_builtins::page_op::PageMethod;
 
 const BASE_APPLICATION_APP_ID: &str = "437dbf0e-84ff-417a-965d-ed2bb9650972";
 
 impl Session {
+    /// The value a CaptionClass expression gave (a page control's, `populate_expressions`, `control_caption`,
+    /// `refresh_caption_classes`; a table field's, `recmeta::field_caption_class_value`): rendered content refuses. A class text
+    /// is parsed by its characters (the area before the first comma decides the resolver and the event), and the characters
+    /// of rendered content are not known; table A3 of ADR-040 amendment 2026-11-12 has no CaptionClass row (loss mode L22).
+    pub(crate) fn refuse_rendered_caption_class(v: &Value) -> Result<(), Signal> {
+        match v {
+            Value::Text(t) | Value::Code(t) if t.has_marker() && al_builtins::rendered_text::holds(t.audited_str()) => {
+                Err(al_builtins::rendered_text::refusal(
+                    t.audited_str(),
+                    "a CaptionClass text (its area is read from its characters)",
+                ))
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// `Caption()` of control `index` whose field CaptionClass `class` raises OnResolveCaptionClass. The first read resolves it
+    /// (XTablePropsTests.al:483-487). A second read gives the same caption without raising the event again only in the
+    /// measured sequences (record/captions/TestLiteralFieldCaptionResolution.al:14-37): two reads in a row, or a read after
+    /// a SetValue on another control of the page bound to a page variable with no OnValidate (`field(EditValue; EditValue)`
+    /// of TestLiteralFieldCaptionResolution1Fixture*.al; no page extension or subscriber), with the same class text, the same language and the same bound
+    /// subscriptions. Every other call between the reads keeps the refusal.
+    pub(super) fn read_literal_field_caption(
+        &mut self,
+        st: &St,
+        index: usize,
+        class: String,
+    ) -> Result<String, Signal> {
+        let revision = self.events.caption_context_revision;
+        let subscriptions = self.bound_subscriptions();
+        let calls = Self::tree_root(st).0.borrow().tree_calls.len();
+        let prior = st
+            .borrow()
+            .control_captions
+            .iter()
+            .find(|(i, _, _)| *i == index)
+            .cloned();
+        if let Some((_, prior_class, caption)) = prior {
+            let context = st
+                .borrow()
+                .literal_field_caption_contexts
+                .iter()
+                .find(|(i, _, _, _)| *i == index)
+                .cloned();
+            let reused = prior_class == class
+                && self.unextended_unsubscribed(st)
+                && context.is_some_and(|(_, saved_revision, saved_subscriptions, saved_calls)| {
+                    saved_revision == revision
+                        && saved_subscriptions == subscriptions
+                        && self.only_caption_reads_or_other_writes(st, index, saved_calls)
+                });
+            if !reused {
+                return unsupported(
+                    "a second Caption() of a field CaptionClass that raises OnResolveCaptionClass (whether BC raises it again is not pinned)",
+                );
+            }
+            if let Some(c) = st
+                .borrow_mut()
+                .literal_field_caption_contexts
+                .iter_mut()
+                .find(|c| c.0 == index)
+            {
+                c.3 = calls;
+            }
+            return Ok(caption);
+        }
+        let caption = self.caption_class_text(st, &class)?;
+        let mut state = st.borrow_mut();
+        state.control_captions.push((index, class, caption.clone()));
+        state
+            .literal_field_caption_contexts
+            .push((index, revision, subscriptions, calls));
+        Ok(caption)
+    }
+
+    /// Whether every test call on the page tree of `st` from position `from` of its call log is a `Caption()` or a value
+    /// typed into a control of `st` other than `index`, and none of them failed. False when the log does not tell
+    /// (`PageState::tree_calls_unknown`).
+    fn only_caption_reads_or_other_writes(&self, st: &St, index: usize, from: usize) -> bool {
+        let engine = self.engine();
+        let page = page_of(&engine, st);
+        let plain_var_control = |j: usize| {
+            page.controls.get(j).is_some_and(|c| {
+                matches!(c.binding, ir::Binding::Var(_)) && c.triggers.is_empty() && c.ext_triggers.is_empty()
+            })
+        };
+        let (root, part) = Self::tree_root(st);
+        let r = root.borrow();
+        !r.tree_calls_unknown
+            && r.tree_calls.get(from..).is_some_and(|calls| {
+                calls.iter().all(|c| {
+                    c.part == part
+                        && !c.failed
+                        && match c.call {
+                            TestCall::Other(PageMethod::Caption) => true,
+                            TestCall::Write(j) => j != index && plain_var_control(j),
+                            _ => false,
+                        }
+                })
+            })
+    }
+
     /// The caption a CaptionClass text stands for. Area 3 is the literal text. Other numeric areas
     /// go to the platform's translation (`caption_class_translate`). An area that is not a number, or no
     /// area at all, goes to no built-in resolver: the System Application's Caption Class codeunit
@@ -91,7 +195,9 @@ impl Session {
             return Ok((rest.to_string(), None));
         }
         let (area, expr) = text.split_once(',').unwrap_or(("", text));
-        // An empty area before the comma is not resolved either (P84Captions.al: c14 ',x', no event call).
+        // An empty area before the comma goes to the translation too, which raises OnResolveCaptionClass with the empty area
+        // (record/captions/CaptionClassOwnArea.al:377, :443, :490 `(|ccao# noarea|s)`; P84Captions.al c14 `,x` raises nothing
+        // only because the session translated it before).
         if text.contains(',') && (area.trim().parse::<u32>().is_ok() || area.is_empty()) {
             // A numeric area other than 3 (dimension, VAT, county, currency captions of Base Application) goes to the platform's
             // translation as FieldCaption does: Base Application's subscribers resolve it (record/captions/
@@ -119,6 +225,18 @@ impl Session {
         }
     }
 
+    /// Whether `caption_class_translate` of `text`, a text `format::raises_resolve` holds for, would refuse before it raises an
+    /// event: a subscriber of UI Helper Triggers' CaptionClassTranslate (`refuse_caption_class_translate`), or a translation of
+    /// `text` the session made under another language (`caption_class_translate_unrefused`). Its other refusal is for a numeric
+    /// area (`setup_caption_refusal`).
+    pub(super) fn caption_class_translate_refuses_now(&self, text: &str) -> bool {
+        self.refuse_caption_class_translate().is_err()
+            || self
+                .caption_translations
+                .iter()
+                .any(|(t, language, _)| t == text && *language != self.global_language)
+    }
+
     /// `caption_class_translate` with the refusal of `setup_caption_refusal` returned beside the caption.
     pub(crate) fn caption_class_translate_deferring(&mut self, text: &str) -> Result<(String, Option<String>), Signal> {
         self.refuse_caption_class_translate()?;
@@ -137,9 +255,6 @@ impl Session {
         };
         if area == "3" && !after {
             return Ok((expr.to_string(), None));
-        }
-        if area.is_empty() && after {
-            return self.raise_unclaimed_after_resolve(text);
         }
         // An area 3 text is kept per language: a language that has not translated it yet raises the event again
         // (Y71CaptionClassEvents.al CaptionClass_LanguageChangedBetweenOpens: `lang_1036_second|log`, `lang_1031_third|log` empty).
@@ -179,12 +294,12 @@ impl Session {
         Ok((caption, why))
     }
 
-    /// A table field's CaptionClass with no comma, or with an empty area, while a subscriber listens to OnAfterCaptionClassResolve:
-    /// the first read raises the event once with the expression as both the expression and the caption, and the caption is
-    /// what the subscribers leave (corpus record/captions/WcExtFieldAfterResolve.al WcExtField_NoComma_FieldCaption `WCNOCOMMA`,
-    /// WcExtField_EmptyArea_FieldCaption `,WC empty area`; BC 27.5, 28.5, 29.0). OnResolveCaptionClass is not raised for an
-    /// empty area (pages/triggers/P84Captions.al c14 `,x`); for no comma the probe cannot tell (its OnResolve subscribers
-    /// claim only their own areas), so none is raised there either.
+    /// A table field's CaptionClass with no comma while a subscriber listens to OnAfterCaptionClassResolve: the first read raises
+    /// the event once with the expression as both the expression and the caption, and the caption is what the subscribers leave
+    /// (corpus record/captions/WcExtFieldAfterResolve.al WcExtField_NoComma_FieldCaption `WCNOCOMMA`; BC 27.5, 28.5, 29.0).
+    /// OnResolveCaptionClass is not raised for it (record/captions/CaptionClassOwnArea.al:374 `CCAOCA` ev=none, with the static
+    /// OnAfterCaptionClassResolve subscriber of WcExtFieldAfterResolve.al in the same run). An empty area raises both events
+    /// (`caption_class_translate_unrefused`).
     fn raise_unclaimed_after_resolve(&mut self, text: &str) -> Result<(String, Option<String>), Signal> {
         if text.is_empty() {
             // The empty text comes back unchanged (types/PSCaptionClass.al:5-8); that it raises no event is an assumption
@@ -302,14 +417,25 @@ impl Session {
 
     /// The caption a page control over field `field` shows for the text `class` its CaptionClass expression gave: an empty
     /// text and `3,` read as the empty text (QdCaptionClassAreas.al Page_ControlCaptions `exprEmpty`, `expr3`), the rest as on a
-    /// table read (`recmeta::ExprCaption`).
-    pub(super) fn control_expression_caption(&mut self, field: &str, class: &str) -> Result<String, Signal> {
+    /// table read (`recmeta::ExprCaption`). The flag: the caption is a subscriber's for an own area, shown only on the pages
+    /// `own_area_control_caption_pinned` names, and `Caption()` reads it only while that still holds.
+    pub(super) fn control_expression_caption(
+        &mut self,
+        st: &St,
+        field: &str,
+        class: &str,
+    ) -> Result<(String, bool), Signal> {
         use crate::recmeta::ExprCaption;
         match crate::recmeta::expression_class(class) {
-            ExprCaption::FieldCaption => Ok(String::new()),
-            ExprCaption::Text(c) => self.expression_text_caption(class, c),
-            ExprCaption::Translate => self.caption_class_translate(class),
-            ExprCaption::Plain => self.expression_plain_caption(field, class),
+            ExprCaption::FieldCaption => Ok((String::new(), false)),
+            ExprCaption::Text(c) => Ok((self.expression_text_caption(class, c)?, false)),
+            ExprCaption::Translate => Ok((self.caption_class_translate(class)?, false)),
+            ExprCaption::Plain => {
+                let caption =
+                    self.expression_plain_caption(field, class, |this| this.own_area_control_caption_pinned(st))?;
+                let own_area = caption != class;
+                Ok((caption, own_area))
+            }
         }
     }
 
@@ -322,14 +448,22 @@ impl Session {
     /// (types/PSCaptionClass.al:5-8), or OnAfterCaptionClassResolve once per session while a subscriber listens
     /// (record/captions/WcExtFieldAfterResolve.al WcExtField_NoComma_FieldCaption; the corpus run that pins the captions above
     /// has that static subscriber, WcExtFieldAfterResolve.al:248); an area that is not a number raises OnResolveCaptionClass
-    /// (record/captions/R6985FieldCaptionArea.al:88-151, with the static subscriber at :61). That an expression result raises
-    /// them as a literal does only a subscriber's log can tell (docs/probes-needed.md). A caption a subscriber changed is not
-    /// pinned for an expression (al-runner issue 7431): refused.
-    pub(crate) fn expression_plain_caption(&mut self, field: &str, class: &str) -> Result<String, Signal> {
+    /// once per session and text (record/captions/R6985FieldCaptionArea.al:88-151, with the static subscriber at :61).
+    /// For a text with an area before a comma, the caption the translation gives (a subscriber's) is the caption when
+    /// `pinned_reader` holds: a table read (record/captions/CaptionClassOwnArea.al:359-422 FieldCaption and FieldRef.Caption of 14
+    /// text forms, :518-541 al-runner issue 7431's StrSubstNo over a label) or a control of the pages
+    /// `own_area_control_caption_pinned` names: the expression's text is translated as the literal (the same events, :359-516).
+    /// Elsewhere, and for a text with no comma that a subscriber changed, it is refused.
+    pub(crate) fn expression_plain_caption(
+        &mut self,
+        field: &str,
+        class: &str,
+        pinned_reader: impl FnOnce(&mut Self) -> Result<bool, Signal>,
+    ) -> Result<String, Signal> {
         let caption = self.caption_class_translate(class)?;
-        if caption != class {
+        if caption != class && !(class.contains(',') && pinned_reader(self)?) {
             return unsupported(format!(
-                "the caption of field {field} whose CaptionClass expression gives `{class}`, a text with no comma or with an area that is not a number, which a subscriber resolves (not pinned for an expression, al-runner issue 7431)"
+                "the caption of field {field} whose CaptionClass expression gives `{class}`, a text with no comma or with an area that is not a number, which a subscriber resolves (not pinned for an expression on this page, al-runner issue 7431)"
             ));
         }
         Ok(caption)
