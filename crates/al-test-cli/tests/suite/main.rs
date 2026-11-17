@@ -78,6 +78,7 @@ mod fixes2;
 mod fixpages;
 mod flowfield_view_find;
 mod global_filter_group_page;
+mod go_to_key_read_up_rows;
 mod gone_card_modal_close_action;
 mod gone_card_no_query_modal;
 mod held_page_part_after_close;

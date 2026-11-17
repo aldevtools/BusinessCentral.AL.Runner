@@ -1812,10 +1812,11 @@ impl Session {
     }
 
     /// Whether `row` passes the record's filters (every group), its FlowField filters and
-    /// MarkedOnly.
+    /// MarkedOnly. A filter answer that rests on the letters `Æ` or `É` is measured only for the rows of the database.
     fn row_passes(&mut self, rec: &Rec, t: &TableDef, row: &[Value]) -> Result<bool, Signal> {
         let (filters, flow_field_filters) = self.split_filters(rec);
-        if !al_builtins::filter::all_match(&filters, row)? {
+        let normal_record = self.store_of(rec).0.holds_normal_records();
+        if !al_builtins::filter::all_match_on(&filters, row, normal_record)? {
             return Ok(false);
         }
         if rec.borrow().marked_only && !Self::is_marked(rec, t, row)? {

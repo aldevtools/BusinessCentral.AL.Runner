@@ -6,8 +6,10 @@
 //! comes next (`a` before `ä`); the case comes last (`a` before `A`). Equality is not decided here:
 //! two texts are equal only when they are the same characters.
 //!
-//! Only ASCII and the accented Latin-1 letters have weights. Anything else is refused, never ordered
-//! by a guess. The order of two different accents on the same letter is not pinned either.
+//! Only ASCII and the accented Latin-1 letters have weights. `compare` refuses anything else; the total order of keys
+//! (`compare_total`) puts it after every weighted letter, by code point, and a read whose answer rests on `Æ` or `æ`
+//! there refuses unless it is the assumed shape (`ae_order_measured`). The order of two different accents on the same letter
+//! is not pinned either.
 
 use std::cmp::Ordering;
 
@@ -129,6 +131,118 @@ pub fn compare_key(a: &str, b: &str) -> Ordering {
         .then_with(|| a.cmp(b))
 }
 
+/// [`compare_key`] for a Text key whose values hold the capital `Æ`: it sorts as `AE`, and two texts that tie that way keep
+/// the order of [`compare_key`] on the texts as written (assumption `text-key-ae-sorts-as-ae`, al-runner issue 8195: `Ærø`
+/// between `a*b?` and `Alpha`). The small `æ` keeps its place after every weighted letter.
+pub fn compare_text_key_expanded(a: &str, b: &str) -> Ordering {
+    let expanded = |t: &str| t.replace('Æ', "AE");
+    compare_key(&expanded(a), &expanded(b)).then_with(|| compare_key(a, b))
+}
+
+/// Whether a text holds the letter `Æ` or `æ`: outside the Text key order of assumption `text-key-ae-sorts-as-ae` their order is
+/// not measured, and the code point order main gave is shown wrong for a Text field (al-runner issue 8195).
+pub fn holds_ae(t: &str) -> bool {
+    t.contains(['Æ', 'æ'])
+}
+
+/// Whether the order of `t` among other texts is measured where it holds `Æ` or `æ`: only the capital `Æ` in a Text value of
+/// a normal record, compared with another Text value (assumption `text-key-ae-sorts-as-ae`, al-runner issue 8195, measured on
+/// a normal table). The small `æ`, a Code value and a temporary record are not measured: the order main gives them is
+/// shown wrong for a Text field by the same issue. A read of rows the store wrote refuses where its answer rests on such an
+/// order ([`ae_decides_order`], al-data memory/held_cols.rs). Rows of a virtual table or of a restored database are not
+/// noted by the store and not checked: they keep this order.
+pub fn ae_order_measured(t: &str, text_value: bool, normal_record: bool) -> bool {
+    !holds_ae(t) || (text_value && normal_record && t.chars().filter(|c| matches!(c, 'Æ' | 'æ')).all(|c| c == 'Æ'))
+}
+
+/// Whether the key order of the text values `a` and `b` ([`text_value_key_order`]) rests on a letter `Æ` or `æ` whose order
+/// is not measured ([`ae_order_measured`]), so BC's order of the two may differ from it. The order is decided at the first place
+/// where the first-level weights of the two texts differ (`compare_key`: trailing blanks, the hyphen and the apostrophe do not
+/// count there; a Text key reads the capital `Æ` as `AE`). It rests on such a letter when, at that place or before it, a letter
+/// `Æ` or `æ` of a text outside the measured shape stands against another letter of the other. Where both texts hold the same letters up to that place,
+/// BC weighs them alike, whatever their weight: the answer is the one main gives.
+pub fn ae_decides_order(a: &str, b: &str, both_text: bool, normal_record: bool) -> bool {
+    if !holds_ae(a) && !holds_ae(b) {
+        return false;
+    }
+    let measured = |t: &str| ae_order_measured(t, both_text, normal_record);
+    if measured(a) && measured(b) {
+        return false;
+    }
+    let expand = both_text && (a.contains('Æ') || b.contains('Æ'));
+    // Each letter the first level compares, with the letter `Æ` or `æ` it comes from when the order of that letter in this text
+    // is not measured (the capital `Æ` of a text in the measured shape is the assumed `AE`).
+    let letters = |t: &str| {
+        let open = !measured(t);
+        let mut out: Vec<(char, Option<char>)> = Vec::with_capacity(t.len());
+        for c in t.trim_end_matches(' ').chars().filter(|c| !matches!(c, '-' | '\'')) {
+            match c {
+                'Æ' if expand => out.extend([('A', open.then_some(c)), ('E', open.then_some(c))]),
+                'Æ' | 'æ' => out.push((c, Some(c))),
+                _ => out.push((c, None)),
+            }
+        }
+        out
+    };
+    let primary = |c: char| weight(c, true).map_or(u32::MAX, |w| w.primary);
+    for (x, y) in letters(a).iter().zip(&letters(b)) {
+        if x.1 != y.1 {
+            return true;
+        }
+        if primary(x.0) != primary(y.0) {
+            return false;
+        }
+    }
+    false
+}
+
+/// Whether two texts that main holds different could be equal to BC: they differ only where a letter `Æ` or `æ` stands against
+/// `AE` or `ae`, or in the case of these letters. Their equality is not measured (al-runner issue 8195 measures an order).
+/// Texts without these letters keep main's exact equality.
+pub fn ae_equality_open(a: &str, b: &str) -> bool {
+    let (a, b) = (a.trim_end_matches(' '), b.trim_end_matches(' '));
+    if a == b || (!holds_ae(a) && !holds_ae(b)) {
+        return false;
+    }
+    ae_fold(a) == ae_fold(b)
+}
+
+/// `t` as [`ae_equality_open`] compares it: without trailing blanks, `Æ` and `æ` written `ae`, in lower case.
+pub fn ae_fold(t: &str) -> String {
+    t.trim_end_matches(' ').replace(['Æ', 'æ'], "ae").to_lowercase()
+}
+
+/// Whether some text makes [`ae_equality_open`] true against `x`: `x` holds `Æ` or `æ`, or `ae` in any case. Every other value
+/// keeps main's equality against every text.
+pub fn ae_equality_reachable(x: &str) -> bool {
+    holds_ae(x) || x.to_lowercase().contains("ae")
+}
+
+/// `t` with each accented letter of [`ACCENTED`] replaced by its base letter, in its case: the text as a filter that ignores
+/// accents reads it (al-runner issue 8196, title: BC ignores accents under `@`).
+pub fn fold_accents(t: &str) -> String {
+    t.chars()
+        .map(|c| {
+            let lower = c.to_lowercase().next().unwrap_or(c);
+            match ACCENTED.iter().find(|(set, _)| set.contains(lower)) {
+                Some((_, base)) if c == lower => *base,
+                Some((_, base)) => base.to_ascii_uppercase(),
+                None => c,
+            }
+        })
+        .collect()
+}
+
+/// The key order of two text values: [`text_field_key_order`] when both are Text values, [`text_key_order`] when either is a
+/// Code value (the one place that decides it, for the store's key order and for a filter's ranges and comparisons).
+pub fn text_value_key_order(a: &str, b: &str, both_text: bool) -> Ordering {
+    if both_text {
+        text_field_key_order(a, b)
+    } else {
+        text_key_order(a, b)
+    }
+}
+
 /// The primary weight and the upper-case flag of an ASCII character, `None` for one without a weight.
 type AsciiWeight = Option<(u32, bool)>;
 
@@ -207,6 +321,79 @@ fn compare_general(a: &str, b: &str, total: bool) -> Result<Ordering, String> {
         }
     }
     Ok(a.cmp(b))
+}
+
+/// The order of two text key values: trailing blanks do not count, the letters compare without regard to their case first
+/// (collation order), and two texts that differ only in case are ordered by it (`a` before `A`), so they are two keys. A
+/// character the collation has no weight for falls back to the code point order of the trimmed texts
+/// (record/crud/RcAGetFind.al:Get_Text_Key, Find_Text_Key_Case_Insensitive).
+pub fn text_key_order(a: &str, b: &str) -> Ordering {
+    // The common case first, without trimming or copying: byte-equal texts are equal, and two texts that first differ
+    // at an upper-case letter or a digit are ordered by that byte (the collation agrees with the code points there), or,
+    // when one is the start of the other, by what the longer one adds besides blanks.
+    let (ab, bb) = (a.as_bytes(), b.as_bytes());
+    let n = ab.iter().zip(bb).take_while(|(x, y)| x == y).count();
+    if n == ab.len() && n == bb.len() {
+        return Ordering::Equal;
+    }
+    let plain = |c: u8| c.is_ascii_uppercase() || c.is_ascii_digit();
+    if n < ab.len() && n < bb.len() && plain(ab[n]) && plain(bb[n]) {
+        return ab[n].cmp(&bb[n]);
+    }
+    if n == ab.len() || n == bb.len() {
+        let tail = if n == ab.len() { &bb[n..] } else { &ab[n..] };
+        if tail.iter().all(|c| *c == b' ') {
+            return Ordering::Equal;
+        }
+        if tail.iter().all(|c| c.is_ascii_graphic() || *c == b' ') && tail.iter().any(|c| *c != b' ') {
+            return if n == ab.len() {
+                Ordering::Less
+            } else {
+                Ordering::Greater
+            };
+        }
+    }
+    let (a, b) = (a.trim_end_matches(' '), b.trim_end_matches(' '));
+    if a == b {
+        return Ordering::Equal;
+    }
+    // Letters and digits only: the case-folded byte order is the collation's, and the first difference in case decides a tie.
+    let plain = |t: &str| t.bytes().all(|c| c.is_ascii_alphanumeric());
+    if plain(a) && plain(b) {
+        let folded = a
+            .bytes()
+            .map(|c| c.to_ascii_uppercase())
+            .cmp(b.bytes().map(|c| c.to_ascii_uppercase()));
+        if folded != Ordering::Equal {
+            return folded;
+        }
+        for (x, y) in a.bytes().zip(b.bytes()) {
+            if x != y {
+                return if x.is_ascii_lowercase() {
+                    Ordering::Less
+                } else {
+                    Ordering::Greater
+                };
+            }
+        }
+        return Ordering::Equal;
+    }
+    compare_key(a, b)
+}
+
+/// The key order of two values of a Text field: [`text_key_order`], except that a capital `Æ` sorts as `AE`
+/// ([`compare_text_key_expanded`], assumption `text-key-ae-sorts-as-ae`, al-runner issue 8195). A Code key
+/// and a Text value against a Code value keep [`text_key_order`].
+fn text_field_key_order(a: &str, b: &str) -> Ordering {
+    if a.contains('Æ') || b.contains('Æ') {
+        let (a, b) = (a.trim_end_matches(' '), b.trim_end_matches(' '));
+        if a == b {
+            return Ordering::Equal;
+        }
+        crate::assumptions::assume(crate::assumptions::Assumption::TextKeyAeSortsAsAe);
+        return compare_text_key_expanded(a, b);
+    }
+    text_key_order(a, b)
 }
 
 #[cfg(test)]
@@ -288,12 +475,39 @@ mod tests {
         ];
         for list in lists {
             let want: Vec<&str> = list.split('¦').collect();
-            for order in [crate::ops::text_key_order, crate::ops::code_key_order] {
+            for order in [super::text_key_order, crate::ops::code_key_order] {
                 let mut got = want.clone();
                 got.reverse();
                 got.sort_by(|a, b| order(a, b));
                 assert_eq!(got, want);
             }
         }
+    }
+
+    /// al-runner issue 8195 (assumption `text-key-ae-sorts-as-ae`): the measured key order of a Text field on BC 28.4 W1, `Ærø`
+    /// as `AErø`. A Code key keeps main's order (`Æ` after every weighted letter), and so does the small `æ`.
+    #[test]
+    fn a_text_key_sorts_the_capital_ae_as_ae() {
+        let want = ["", "a*b?", "Ærø", "Alpha", "alpha two", "Bravo", "Émile", "Zebra"];
+        let mut got = want.to_vec();
+        got.reverse();
+        crate::assumptions::clear_hits();
+        got.sort_by(|a, b| super::text_field_key_order(a, b));
+        assert_eq!(got, want);
+        assert!(crate::assumptions::take_hits().contains(&crate::assumptions::Assumption::TextKeyAeSortsAsAe));
+        // Neighbors that keep main's order.
+        assert_eq!(crate::ops::code_key_order("ÆRØ", "ZEBRA"), Greater);
+        assert_eq!(super::text_field_key_order("ærø", "Zebra"), Greater);
+        assert_eq!(
+            super::text_field_key_order("ærø", "Zebra"),
+            super::text_key_order("ærø", "Zebra")
+        );
+        // A tie once expanded keeps main's order, and trailing blanks still do not count.
+        assert_eq!(super::text_field_key_order("AE", "Æ"), super::compare_key("AE", "Æ"));
+        assert_eq!(super::text_field_key_order("Ærø ", "Ærø"), std::cmp::Ordering::Equal);
+        // Texts without the letter take the same path as before, unmarked.
+        crate::assumptions::clear_hits();
+        assert_eq!(super::text_field_key_order("Alpha", "Bravo"), Less);
+        assert!(crate::assumptions::take_hits().is_empty());
     }
 }

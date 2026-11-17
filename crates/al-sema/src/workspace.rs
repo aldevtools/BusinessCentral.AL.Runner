@@ -8,6 +8,19 @@ use std::collections::BTreeSet;
 use std::sync::OnceLock;
 
 mod moved_tables;
+mod subscriber_publisher;
+
+/// Which tiers of a bare name's search `Workspace::resolve_in_scope` takes.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Tiers {
+    /// The compiler's: the file's namespace, its usings, the global namespace, then a unique match in any namespace.
+    Compiler,
+    /// Only those no absent app could shadow (`Workspace::resolve_ref_certain`).
+    Certain,
+    /// The compiler's, without the match in any namespace for a file that has a namespace
+    /// (`Workspace::resolve_relation_target`).
+    Relation,
+}
 
 pub use al_ir::ObjKind;
 
@@ -211,9 +224,12 @@ pub struct Workspace {
     ext_target: Vec<Option<usize>>,
     /// For an extended object, its extensions in object order.
     ext_of: HashMap<usize, Vec<usize>>,
-    /// Event subscribers of scanned objects by publisher: (kind, lower-case name or id) to
-    /// (subscriber object, index in its `subscribers`).
+    /// Event subscribers of scanned objects by the publisher name as written: (kind, lower-case name or id, namespace and name
+    /// when written) to (subscriber object, index in its `subscribers`). The platform codeunits, which no app need declare, are
+    /// found here (`codeunit_subscribers`).
     subscribers_of: HashMap<(ObjKind, String), Vec<(usize, usize)>>,
+    /// Event subscribers of scanned objects by the publisher object their name names (`subscribers_of`).
+    subscribers_by_publisher: HashMap<usize, Vec<(usize, usize)>>,
     /// Scanned objects that implement an interface, by lower-case interface name.
     implementers_of: HashMap<String, Vec<usize>>,
     /// For an interface that `extends` another, the interface it extends.
@@ -341,6 +357,7 @@ impl Workspace {
             ext_target: Vec::new(),
             ext_of: HashMap::default(),
             subscribers_of: HashMap::default(),
+            subscribers_by_publisher: HashMap::default(),
             implementers_of: HashMap::default(),
             iface_base: HashMap::default(),
             iface_derived: HashMap::default(),
@@ -465,6 +482,10 @@ impl Workspace {
         self.subscribers_of.retain(|_, v| {
             v.retain(|&(o, _)| o < n_obj);
             !v.is_empty()
+        });
+        self.subscribers_by_publisher.retain(|&k, v| {
+            v.retain(|&(o, _)| o < n_obj);
+            k < n_obj && !v.is_empty()
         });
         self.loaded_files = self.files.len();
         self.compiled = OnceLock::new();
@@ -715,7 +736,7 @@ impl Workspace {
             if let (Some(kind), Some(parts)) = (o.kind.extended(), &o.extends) {
                 // Not `resolve_ref`: that would parse the target's file, and an index of
                 // thousands of extensions must not parse their targets.
-                if let Resolution::Found(t) = self.resolve_in_scope(o.file, kind, parts, false, false) {
+                if let Resolution::Found(t) = self.resolve_in_scope(o.file, kind, parts, Tiers::Compiler, false) {
                     self.ext_target[i] = Some(t);
                     self.ext_of.entry(t).or_default().push(i);
                 }
@@ -725,15 +746,21 @@ impl Workspace {
             let o = &self.objects[i];
             if let (ObjKind::Interface, Some(parts)) = (o.kind, &o.extends) {
                 // Like the extension targets above: no parse of the base interface's file.
-                if let Resolution::Found(b) = self.resolve_in_scope(o.file, ObjKind::Interface, parts, false, false) {
+                if let Resolution::Found(b) =
+                    self.resolve_in_scope(o.file, ObjKind::Interface, parts, Tiers::Compiler, false)
+                {
                     self.iface_base.insert(i, b);
                     self.iface_derived.entry(b).or_default().push(i);
                 }
             }
         }
-        for (i, o) in self.objects.iter().enumerate().skip(first) {
+        for i in first..self.objects.len() {
+            let o = &self.objects[i];
             for (si, sub) in o.subscribers.iter().enumerate() {
                 let kind = ObjKind::from_keyword(&sub.publisher_kind);
+                for p in self.scanned_subscriber_publishers(o.file, kind, &sub.publisher) {
+                    self.subscribers_by_publisher.entry(p).or_default().push((i, si));
+                }
                 let name = sub.publisher.join(".").to_lowercase();
                 self.subscribers_of.entry((kind, name)).or_default().push((i, si));
             }
@@ -786,21 +813,13 @@ impl Workspace {
         self.ext_of.get(&i).map_or(&[], Vec::as_slice)
     }
 
-    /// Subscribers (object, index in its `subscribers`) of scanned objects that name `publisher`
-    /// as their publisher, by name or by id.
+    /// Subscribers (object, index in its `subscribers`) of scanned objects that name `publisher` as their publisher (see
+    /// `scanned_subscriber_publishers`).
     pub fn subscribers_of(&self, publisher: usize) -> Vec<(usize, usize)> {
-        let o = &self.objects[publisher];
-        let mut keys = vec![o.name.to_lowercase()];
-        if let Some(id) = o.id {
-            keys.push(id.to_string());
-        }
-        // `Codeunit::Microsoft.Foo."Name"` writes the namespace; the index key is the written text.
-        if let Some(ns) = &o.namespace {
-            keys.push(format!("{ns}.{}", o.name).to_lowercase());
-        }
-        keys.into_iter()
-            .flat_map(|k| self.subscribers_of.get(&(o.kind, k)).into_iter().flatten().copied())
-            .collect()
+        self.subscribers_by_publisher
+            .get(&publisher)
+            .cloned()
+            .unwrap_or_default()
     }
 
     /// Subscribers (object, index in its `subscribers`) of scanned objects to the platform codeunit
@@ -1226,7 +1245,7 @@ impl Workspace {
     /// unique match in any namespace (corpus evidence: files with neither
     /// namespace nor `using` reference namespaced Base App tables and compile).
     pub fn resolve_ref(&self, file: usize, kind: ObjKind, parts: &[String]) -> Resolution {
-        self.resolve_in_scope(file, kind, parts, false, true)
+        self.resolve_in_scope(file, kind, parts, Tiers::Compiler, true)
     }
 
     /// Whether any object of `kind` that `file` can see has the name (or id) `parts` says, whether or not
@@ -1238,12 +1257,18 @@ impl Workspace {
     /// app (see `visible_from`), so the same holds while it is not loaded (corpus must-not-compile
     /// 0740-subscribe-internal-event-get-role-center-banner.al:5 names its codeunit "System Action Triggers").
     pub fn names_object(&self, file: usize, kind: ObjKind, parts: &[String]) -> bool {
-        self.has_unloaded_dependency(self.files[file].app)
-            || !self.apps.iter().any(|a| a.id.eq_ignore_ascii_case(PLATFORM_APP_ID))
+        !self.no_app_absent(self.files[file].app)
             || !matches!(
-                self.resolve_in_scope(file, kind, parts, false, false),
+                self.resolve_in_scope(file, kind, parts, Tiers::Compiler, false),
                 Resolution::Missing
             )
+    }
+
+    /// Whether every app `app` could see is loaded: no dependency that `app` or an app it sees declares is missing
+    /// ([`has_unloaded_dependency`](Self::has_unloaded_dependency)), and the platform app System, an implicit dependency of
+    /// every app, is loaded. Only then is the absence of a name known.
+    pub fn no_app_absent(&self, app: usize) -> bool {
+        self.apps.iter().any(|a| a.id.eq_ignore_ascii_case(PLATFORM_APP_ID)) && !self.has_unloaded_dependency(app)
     }
 
     /// Whether an object of `kind` named `name` (bare) is among the objects `file` searches before the any-namespace
@@ -1300,7 +1325,7 @@ impl Workspace {
     /// The id of the platform table `parts` names when nothing provides rows for it. The id is
     /// a constant of its declaration, so `Database::"X"` can name it.
     pub fn unprovided_platform_table_id(&self, file: usize, parts: &[String]) -> Option<i32> {
-        match self.resolve_in_scope(file, ObjKind::Table, parts, false, false) {
+        match self.resolve_in_scope(file, ObjKind::Table, parts, Tiers::Compiler, false) {
             Resolution::Found(i) if self.platform_table_without_provider(i) => self.objects[i].id.map(|id| id as i32),
             _ => None,
         }
@@ -1314,7 +1339,7 @@ impl Workspace {
     /// TestRelationTargetNamespaceScope.al and TestRelationOwnNamespaceDependency.al: an
     /// imported or global workspace table must not stand in for a Base Application one).
     pub fn resolve_ref_certain(&self, file: usize, kind: ObjKind, parts: &[String]) -> Resolution {
-        self.resolve_in_scope(file, kind, parts, true, true)
+        self.resolve_in_scope(file, kind, parts, Tiers::Certain, true)
     }
 
     /// Whether Microsoft's Base Application is among the apps `app` sees. Then no app is absent that
@@ -1327,11 +1352,19 @@ impl Workspace {
 
     /// A `TableRelation` target. The file of a dependency app resolves it among the apps that app
     /// saw (`visible`), as BC fixed it when the app compiled: a same-named table of a dependent app
-    /// is not a candidate (corpus recordref-fieldref/fieldref/TestRelationTargetNameCollision.al). The file of the
-    /// workspace resolves it as `resolve_ref_certain` does, unless it sees Base Application.
+    /// is not a candidate (corpus recordref-fieldref/fieldref/TestRelationTargetNameCollision.al). The file of a
+    /// workspace app resolves it the same way when no app it could see is absent: when it sees Base Application, or
+    /// when every app it could see is loaded ([`no_app_absent`](Self::no_app_absent)). The name then means what it
+    /// means to the compiler: its own namespace, its usings (TestRelationTargetNamespaceScope.al:235, a table of the app
+    /// reached through a using), the global namespace, and a unique match in any namespace only from a file without a
+    /// namespace (types/PZMisc.al:27, :31 `Field."No."` and metadata/CmInstallObjects.al:217 `AllObj."Object ID"`, a
+    /// platform table named from a file without namespace or using). A file with a namespace does not reach a table of
+    /// another namespace without a using (must-not-compile 2081-namespace-record-integer-without-using.al, AL0185).
+    /// Otherwise it resolves as `resolve_ref_certain` does.
     pub fn resolve_relation_target(&self, file: usize, kind: ObjKind, parts: &[String]) -> Resolution {
-        if self.kinds[self.files[file].app] == AppKind::Dependency || self.sees_base_application(self.files[file].app) {
-            self.resolve_ref(file, kind, parts)
+        let app = self.files[file].app;
+        if self.kinds[app] == AppKind::Dependency || self.sees_base_application(app) || self.no_app_absent(app) {
+            self.resolve_in_scope(file, kind, parts, Tiers::Relation, true)
         } else {
             self.resolve_ref_certain(file, kind, parts)
         }
@@ -1344,9 +1377,10 @@ impl Workspace {
         file: usize,
         kind: ObjKind,
         parts: &[String],
-        certain_only: bool,
+        tiers: Tiers,
         check_usable: bool,
     ) -> Resolution {
+        let certain_only = tiers == Tiers::Certain;
         let f = &self.files[file];
         let visible = |i: &usize| {
             self.visible[f.app].contains(&self.objects[*i].app)
@@ -1408,7 +1442,11 @@ impl Workspace {
             } else {
                 in_ns(&None)
             },
-            if certain_only { Vec::new() } else { cands.clone() },
+            if certain_only || (tiers == Tiers::Relation && !no_ns) {
+                Vec::new()
+            } else {
+                cands.clone()
+            },
         ];
         for tier in tiers {
             if !tier.is_empty() {
@@ -1430,6 +1468,12 @@ impl Workspace {
     /// no namespace and no `using`, `TableRelation = "Dimension Set Entry"`: Base Application's table and Power BI
     /// Report embeddings' removed table 36950 of that name).
     fn pick_real(&self, tier: Vec<usize>) -> Resolution {
+        pick(self.without_moved_stubs(tier))
+    }
+
+    /// The candidates of `tier` without the stubs that give way (see [`Self::pick_real`]): unchanged when it holds one candidate
+    /// or only stubs.
+    fn without_moved_stubs(&self, tier: Vec<usize>) -> Vec<usize> {
         let moved = |i: &usize| {
             self.objects[*i].scanned_properties.iter().any(|(n, v)| {
                 n.eq_ignore_ascii_case("ObsoleteState")
@@ -1440,9 +1484,9 @@ impl Workspace {
         // (`moved_table_of_dependency`, assumption `moved-table-stub-of-dependency`).
         let moved = |i: &usize| moved(i) || self.moved_table_of_dependency(*i).is_some();
         if tier.len() > 1 && tier.iter().any(|i| !moved(i)) {
-            return pick(tier.into_iter().filter(|i| !moved(i)).collect());
+            return tier.into_iter().filter(|i| !moved(i)).collect();
         }
-        pick(tier)
+        tier
     }
 
     /// Looks an object up by kind and name (case-insensitive) or by numeric id text.
@@ -1925,124 +1969,7 @@ mod tests {
         }
     }
 
-    #[test]
-    fn run_time_resolution_only_trusts_tiers_no_absent_app_could_shadow() {
-        // corpus recordref-fieldref/fieldref/TestRelationOwnNamespaceDependency.al, TestRelationTargetNamespaceScope.al:
-        // a workspace table must not stand in for a Base Application one that is not here.
-        let ws = load(vec![app(
-            "a",
-            &[],
-            &[
-                ("t.al", "namespace Imported; table 50900 \"Agent\" { }"),
-                ("g.al", "table 50901 \"Global Agent\" { }"),
-                ("own.al", "namespace Own; table 50902 \"Own Agent\" { }"),
-                ("c1.al", "namespace Own; using Imported; codeunit 60100 C1 { }"),
-                ("c2.al", "using Imported; codeunit 60101 C2 { }"),
-                ("c3.al", "codeunit 60102 C3 { }"),
-                ("c4.al", "namespace Other; codeunit 60103 C4 { }"),
-            ],
-        )]);
-        let file = |name: &str| ws.objects.iter().find(|o| o.name == name).unwrap().file;
-        let found = |r: Resolution| matches!(r, Resolution::Found(_));
-        let one = |n: &str| vec![n.to_string()];
-        // The ordinary compile-time resolution finds each of them.
-        assert!(found(ws.resolve_ref(file("C1"), ObjKind::Table, &one("Agent"))));
-        // Own namespace: certain.
-        assert!(found(ws.resolve_ref_certain(
-            file("C1"),
-            ObjKind::Table,
-            &one("Own Agent")
-        )));
-        // A `using` hit under a namespaced file could be shadowed by a Base Application table of the
-        // file's own namespace: not certain. Without a namespace of its own it is.
-        assert!(!found(ws.resolve_ref_certain(
-            file("C1"),
-            ObjKind::Table,
-            &one("Agent")
-        )));
-        assert!(found(ws.resolve_ref_certain(file("C2"), ObjKind::Table, &one("Agent"))));
-        // A global table is only certain for a file with neither namespace nor usings.
-        assert!(!found(ws.resolve_ref_certain(
-            file("C2"),
-            ObjKind::Table,
-            &one("Global Agent")
-        )));
-        assert!(found(ws.resolve_ref_certain(
-            file("C3"),
-            ObjKind::Table,
-            &one("Global Agent")
-        )));
-        assert!(!found(ws.resolve_ref_certain(
-            file("C4"),
-            ObjKind::Table,
-            &one("Global Agent")
-        )));
-        // Qualified names are exact.
-        assert!(found(ws.resolve_ref_certain(
-            file("C4"),
-            ObjKind::Table,
-            &["Imported".to_string(), "Agent".to_string()]
-        )));
-    }
-
-    #[test]
-    fn with_base_application_loaded_a_using_resolves_a_relation_target() {
-        // corpus recordref-fieldref/fieldref/TestRelationTargetNamespaceScope.al RelationScope_Usings_*: a table in a
-        // file with a namespace, naming "Shipping Agent" with `using Microsoft.Foundation.Shipping`,
-        // relates to Base Application's table 291. Base Application is here, so the tiers above the
-        // using can be told to hold nothing (the same holds for the name written in Base
-        // Application's own files, which resolve among the apps they saw).
-        let base = app(
-            "Base Application",
-            &[],
-            &[(
-                "sa.al",
-                "namespace Microsoft.Foundation.Shipping; table 291 \"Shipping Agent\" { }",
-            )],
-        );
-        let mine = app(
-            "mine",
-            &["Base Application"],
-            &[(
-                "c.al",
-                "namespace Mine.Scope; using Microsoft.Foundation.Shipping; codeunit 60100 C1 { }",
-            )],
-        );
-        let ws = Workspace::load_apps(
-            vec![base, mine],
-            vec![AppKind::Dependency, AppKind::Workspace],
-            &al_version::corpus_symbols(27),
-        );
-        let file = ws.objects.iter().find(|o| o.name == "C1").unwrap().file;
-        let name = vec!["Shipping Agent".to_string()];
-        assert!(matches!(
-            ws.resolve_relation_target(file, ObjKind::Table, &name),
-            Resolution::Found(_)
-        ));
-        // Without Base Application a hit under a using stays uncertain (the test above).
-        let alone = Workspace::load(
-            vec![app(
-                "mine",
-                &[],
-                &[
-                    (
-                        "t.al",
-                        "namespace Microsoft.Foundation.Shipping; table 291 \"Shipping Agent\" { }",
-                    ),
-                    (
-                        "c.al",
-                        "namespace Mine.Scope; using Microsoft.Foundation.Shipping; codeunit 60100 C1 { }",
-                    ),
-                ],
-            )],
-            &al_version::corpus_symbols(27),
-        );
-        let file = alone.objects.iter().find(|o| o.name == "C1").unwrap().file;
-        assert!(!matches!(
-            alone.resolve_relation_target(file, ObjKind::Table, &name),
-            Resolution::Found(_)
-        ));
-    }
+    mod relation_target;
 
     /// Issue 15: one eager run of Microsoft's apps reported a parse error in a report that parsed fine in every
     /// other run (a stray token next to a synthetic column routine). A parse is a function of the text, so

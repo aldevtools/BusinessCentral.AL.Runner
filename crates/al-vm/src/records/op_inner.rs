@@ -1469,6 +1469,7 @@ impl Session {
                     r.filters.retain(|f| !(f.field == pos && f.group == group));
                     return Ok(Value::Null);
                 }
+                self.check_set_filter_text(&t, pos, &text, &ty)?;
                 let enums = self.enum_members_fn();
                 let date_ctx = self.date_filter_context_for(&text);
                 let parse = |text: &str| {
@@ -1477,12 +1478,11 @@ impl Session {
                     })
                 };
                 // A RecordId text (`Format(RecordId)`, alone or after `<>`): see `record_id_filter_text`.
-                let record_id = if matches!(ty, RtType::Library(al_builtins::library_kind::LibraryKind::RecordId))
-                    && args.len() <= 2
-                {
-                    self.record_id_filter_text(text.trim())?
-                } else {
-                    None
+                let record_id = match ty {
+                    RtType::Library(al_builtins::library_kind::LibraryKind::RecordId) if args.len() <= 2 => {
+                        self.record_id_filter_text(text.trim())?
+                    }
+                    _ => None,
                 };
                 let mut parsed = match record_id {
                     Some(p) => p,

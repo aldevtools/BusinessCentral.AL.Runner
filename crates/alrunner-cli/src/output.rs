@@ -490,12 +490,15 @@ pub fn json_row(
 
 /// The clock that stopped a test the time limit stopped (issue 5793): `virtual` when the time its `Sleep` calls asked
 /// for passed the limit (`Sleep` does not wait, so the stop took less real time than the limit names), `cpu` when its
-/// CPU time did. `None` for any other test. `durationMs` stays the real time in both cases.
+/// CPU time did, `wall` when the wall clock did (the backstop of 10 times the limit, or the limit where no CPU clock can be
+/// read; issue 8168). `None` for any other test. `durationMs` stays the real time in every case.
 fn stopped_by_clock(why: &str) -> Option<&'static str> {
     let rest = why.strip_prefix("the test used more than the time limit of ")?;
     let (_, unit) = rest.split_once(' ')?;
     if unit.starts_with("s of CPU time") {
         Some("cpu")
+    } else if unit.starts_with("s of wall time") {
+        Some("wall")
     } else if unit.starts_with("s and was stopped") && why.contains("its Sleep calls asked to wait") {
         Some("virtual")
     } else {
@@ -918,6 +921,38 @@ pub(crate) mod tests {
         assert_eq!(t["message"], "Test exceeded 3s timeout.");
         assert_eq!(t["clock"], "virtual");
         assert_eq!(t["durationMs"], 7);
+    }
+
+    /// Issue 8168: a test the wall clock stopped (the backstop, or no CPU clock) has the same message as one the CPU limit
+    /// stopped, and `clock: "wall"`; in a test method and in the codeunit's OnRun.
+    #[test]
+    fn json_marks_a_test_the_wall_clock_stopped_as_stopped_on_the_wall_clock() {
+        let rs = [
+            r(
+                1,
+                "A",
+                "Waits",
+                Outcome::NotRun(
+                    "the test used more than the time limit of 4 s of wall time and was stopped (--test-timeout-secs); BC may have ended it differently or not at all"
+                        .into(),
+                ),
+            ),
+            r(
+                1,
+                "A",
+                "OnRunWaits",
+                Outcome::NotRun(
+                    "the test used more than the time limit of 4 s of wall time and was stopped (--test-timeout-secs) in the test codeunit's OnRun trigger, before its tests; BC may have ended it differently or not at all"
+                        .into(),
+                ),
+            ),
+        ];
+        let refs: Vec<&TestResult> = rs.iter().collect();
+        let v: serde_json::Value = serde_json::from_str(&json(&refs, 7, 0.1)).unwrap();
+        for t in v["tests"].as_array().unwrap() {
+            assert_eq!(t["message"], "Test exceeded 4s timeout.");
+            assert_eq!(t["clock"], "wall");
+        }
     }
 
     #[test]
