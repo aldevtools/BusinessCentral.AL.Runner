@@ -36,6 +36,7 @@ mod ci_compile_cache;
 mod clear_trapping_test_page;
 mod close_save_error;
 mod codemap;
+mod consistent_guarded_run;
 mod control_add_in_calls;
 mod conversions;
 mod corpus_bump_bot;

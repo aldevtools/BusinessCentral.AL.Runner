@@ -19,6 +19,7 @@ mod bgsession;
 mod blob_copy;
 mod blob_transfer;
 mod clientless;
+mod consistent_marks;
 mod get_key_value;
 mod package_data;
 mod partial_gone;

@@ -99,7 +99,7 @@ pub(crate) struct TxState {
     /// Modify are not writes of the try (xmlports/shapes-properties/YXmlPortProps.al:861); other writes there are refused.
     pub(crate) xp_export_try_world: Option<usize>,
     /// The tables (object indexes) `Consistent(false)` marked in the open transaction: `Commit` fails while one is marked.
-    pub(crate) inconsistent: Vec<u32>,
+    pub(crate) inconsistent: Vec<crate::consistent_marks::ConsistentMark>,
     /// A lock started the open write transaction: `LockTable` on a database table, `ReadIsolation := UpdLock`, or a FindFirst
     /// under RepeatableRead or UpdLock (codeunits/TestCodeunitRunWriteTransaction.al:211-278). A Commit ends it.
     pub(crate) lock_tx: bool,
