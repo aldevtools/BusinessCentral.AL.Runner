@@ -253,19 +253,15 @@ pub const REGISTRY: &[(&str, NativeFn)] = &[
     }),
     ("Dictionary.Get#1", |_, r, a| {
         with_dict(r, |d| {
-            find_key(d, &a[0], "Get")?
-                .map(|i| d[i].1.clone())
-                .map_or_else(
-                    // GetLastErrorText(true): LastErrorFlagRuntimeCodes.al:210, :215. The `Get(Key, var Value)` form is not measured.
-                    || crate::native::with_origin(key_not_found(), not_classified()),
-                    Ok,
-                )
+            find_key(d, &a[0], "Get")?.map(|i| d[i].1.clone()).map_or_else(
+                // GetLastErrorText(true): LastErrorFlagRuntimeCodes.al:210, :215. The `Get(Key, var Value)` form is not measured.
+                || crate::native::with_origin(key_not_found(), not_classified()),
+                Ok,
+            )
         })
     }),
     ("Dictionary.Get#2", |c, r, a| {
-        let got = with_dict(r, |d| {
-            Ok(find_key(d, &a[0], "Get")?.map(|i| d[i].1.clone()))
-        })?;
+        let got = with_dict(r, |d| Ok(find_key(d, &a[0], "Get")?.map(|i| d[i].1.clone())))?;
         match got {
             Some(v) => {
                 a[1] = v;
@@ -319,15 +315,13 @@ pub const REGISTRY: &[(&str, NativeFn)] = &[
     ("Dictionary.Set#2", |c, r, a| {
         refuse_result(c.ret_used(), "Dictionary.Set(Key, Value, var OldValue)")?;
         let old = with_dict(r, |d| {
-            Ok(
-                match find_key(d, &a[0], "Set")? {
-                    Some(i) => Some(std::mem::replace(&mut d[i].1, a[1].clone())),
-                    None => {
-                        dict_insert(d, a[0].clone(), a[1].clone());
-                        None
-                    }
-                },
-            )
+            Ok(match find_key(d, &a[0], "Set")? {
+                Some(i) => Some(std::mem::replace(&mut d[i].1, a[1].clone())),
+                None => {
+                    dict_insert(d, a[0].clone(), a[1].clone());
+                    None
+                }
+            })
         })?;
         if let Some(old) = old {
             a[2] = old;

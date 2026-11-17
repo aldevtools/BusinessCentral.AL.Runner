@@ -74,9 +74,19 @@ fn refused(routine: &str, member: i32) -> String {
 
 #[test]
 fn a_dictionary_key_of_an_xml_handle_refuses_when_it_is_compared() {
-    for (member, name) in [(1, "Add"), (2, "ContainsKey"), (3, "Get"), (4, "Get"), (5, "Remove"), (6, "Set")] {
+    for (member, name) in [
+        (1, "Add"),
+        (2, "ContainsKey"),
+        (3, "Get"),
+        (4, "Get"),
+        (5, "Remove"),
+        (6, "Set"),
+    ] {
         let why = refused("XmlKey", member);
-        assert!(why.contains(&format!("Dictionary.{name}")) && why.contains("XML"), "{member}: {why}");
+        assert!(
+            why.contains(&format!("Dictionary.{name}")) && why.contains("XML"),
+            "{member}: {why}"
+        );
     }
 }
 
@@ -89,7 +99,10 @@ fn a_dictionary_of_xml_keys_that_compares_nothing_keeps_its_answer() {
 fn a_search_of_a_list_of_json_tokens_refuses() {
     for (member, name) in [(1, "Contains"), (2, "IndexOf"), (3, "LastIndexOf"), (4, "Remove")] {
         let why = refused("TokenList", member);
-        assert!(why.contains(&format!("List.{name}")) && why.contains("JsonToken"), "{member}: {why}");
+        assert!(
+            why.contains(&format!("List.{name}")) && why.contains("JsonToken"),
+            "{member}: {why}"
+        );
     }
 }
 
