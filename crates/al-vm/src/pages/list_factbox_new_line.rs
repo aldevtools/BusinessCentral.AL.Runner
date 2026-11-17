@@ -1,6 +1,6 @@
 //! A top-level List page's CardPart FactBox, linked to the list's key, around the list's new line (al-runner issue 8188).
 //!
-//! Corpus pull request 1426 (open, not pinned yet), tests/al-language/pages/parts/ListHostFactBoxNewLine.al, measured on
+//! Corpus pull request 1426 (merged, not pinned yet), tests/al-language/pages/parts/ListHostFactBoxNewLine.al, measured on
 //! Business Central 29.1 and green on every supported major in its CI, runs only through the assumption `list-factbox-new-line`.
 //! On its List page (:28-62) with one CardPart FactBox (:64-90), BC:
 //! - opens an empty view with the part's OnAfterGetCurrRecord on the blank record (:162 `open=F.AGCR();`);
@@ -12,7 +12,7 @@
 //! - on the `Next()` after it, onto the new line, runs the part's OnAfterGetCurrRecord on the blank record (:183
 //!   `next2log=F.AGCR();`).
 //!
-//! Corpus pull request 1425 (open), tests/al-language/pages/currpage/ListNewLineCodeInsertUpdate.al, shows the same at the
+//! Corpus pull request 1425 (merged, not pinned yet), tests/al-language/pages/currpage/ListNewLineCodeInsertUpdate.al, shows the same at the
 //! open, `New()` and these moves on another host (two CardPart FactBoxes on a two-field key, AutoSplitKey, a control's
 //! OnValidate; :713-740 `open=F.AGCR();`, `newparts=A/`, `nextlog=F.AGR(X);F.AGCR(X);`, `nextlog=T.M(X/V);F.AGCR();`), which
 //! this module does not admit.

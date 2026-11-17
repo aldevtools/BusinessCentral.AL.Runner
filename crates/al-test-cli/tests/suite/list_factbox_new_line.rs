@@ -1,5 +1,5 @@
 //! al-runner issue 8188: a List page's CardPart FactBox, linked to the row's key, around the new line. The corpus probe (corpus pull
-//! request 1426, open: tests/al-language/pages/parts/ListHostFactBoxNewLine.al, green on every supported major in its CI) with a
+//! request 1426, merged, not pinned yet: tests/al-language/pages/parts/ListHostFactBoxNewLine.al, green on every supported major in its CI) with a
 //! stand-in for the corpus's Assert, and the reporter's repro (green on Business Central 29.1); the neighbors of the probe's page
 //! keep what main (al-runner 1bd640629) reads. When the probe is pinned, delete the probe's test and read the objects from the
 //! corpus file.

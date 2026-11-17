@@ -18,6 +18,7 @@ pub mod package;
 pub mod remote;
 pub mod render_set;
 pub mod select;
+pub mod service_runtime;
 pub mod service_tier;
 pub mod test_apps;
 pub mod version;

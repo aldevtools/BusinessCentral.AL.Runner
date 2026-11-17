@@ -318,6 +318,7 @@ mod card_part_new_host;
 mod empty_part_rec;
 mod empty_part_rec_list;
 mod empty_part_rec_list_triggers;
+mod go_to_key_read_up;
 mod hidden_part_journal;
 mod hidden_part_journal_code;
 mod list_card_action;
