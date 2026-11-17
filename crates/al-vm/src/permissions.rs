@@ -1359,6 +1359,9 @@ impl Session {
                     if self.system_flowfield_reads_unchecked(rec, table, stack) {
                         return Ok(());
                     }
+                    if self.published_app_calc_denied(table, stack) {
+                        return Err(self.denial_error(access, "IndirectRead", "Read", by));
+                    }
                     return Err(Signal::unsupported(unpinned_denial(
                         access,
                         "a FlowField over a system table",

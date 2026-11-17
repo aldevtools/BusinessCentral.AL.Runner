@@ -1,8 +1,10 @@
 //! The read that a system table's own FlowField makes of an internal table when the session's permission sets do not grant
 //! that table (ADR-062). Only "Published Application"."Tenant Visible" over "NAV App Extra", in the two shapes Microsoft's
 //! Guided Experience tests reach under `Guided Exp Edit`, runs (al-runner issue 8038): shape 1 as
-//! permissions/SysFlowFieldPermFilter.al pins it, shape 2 as permissions/SysFlowFieldPerm.al pins it. Every other shape
-//! keeps the refusal of `Session::permission_gate_flowfield_decided`.
+//! permissions/SysFlowFieldPermFilter.al pins it, shape 2 as permissions/SysFlowFieldPerm.al pins it. When the sets grant
+//! nothing on Published Application, the CalcFields of shape 2's FlowFields raises the `IndirectRead` denial of Published
+//! Application (`Session::published_app_calc_denied`). Every other shape keeps the refusal of
+//! `Session::permission_gate_flowfield_decided`.
 
 use std::rc::Rc;
 
@@ -170,18 +172,58 @@ impl Session {
         let [outer, inner] = stack else {
             return false;
         };
+        let formula = matches!(self.published_app_formula(outer, inner.table), Some((_, true)));
+        outer.asked == Asked::CalcFields && !outer.temporary && inner.asked == Asked::SourceRow && formula
+    }
+
+    /// Whether the denied read of Published Application (`table`, object index) for the FlowField alone on `stack` raises the
+    /// `IndirectRead` denial (permissions/SysFlowFieldPerm.al:221-340, NoPA_Found_CalcNamePublisher, NoPA_Found_CalcExistCount,
+    /// NoPA_NotFound_CalcNamePublisher, NoPA_NotFound_CalcExistCount; row found or not): the AL call `Record.CalcFields` of one
+    /// FlowField of an app table by codeunit code, on a record that is not temporary, the session level blank on Published
+    /// Application and on NAV App Extra (the set `SFP NO PA`), and the FlowField one of the probe's
+    /// ([`Self::published_app_formula`]): a Lookup of Name with or without the "Tenant Visible" condition, a Lookup of
+    /// Publisher with it (`calc_publisher_visible`), an Exist or a Count with or without it.
+    pub(crate) fn published_app_calc_denied(&self, table: usize, stack: &[CalcFrame]) -> bool {
+        let [outer] = stack else {
+            return false;
+        };
+        let Some(eff) = self.permissions.as_ref() else {
+            return false;
+        };
+        let read = |id: u32| {
+            eff.level(Access {
+                kind: 0,
+                id,
+                op: Op::Read,
+            })
+        };
+        let measured = match self.published_app_formula(outer, table) {
+            Some((PaFormula::LookupPublisher, visible)) => visible,
+            Some((PaFormula::LookupName | PaFormula::Exist | PaFormula::Count, _)) => true,
+            None => false,
+        };
+        self.engine.program.objects.heads()[table].id == Some(PUBLISHED_APPLICATION)
+            && read(PUBLISHED_APPLICATION) == 0
+            && read(NAV_APP_EXTRA) == 0
+            && outer.asked == Asked::CalcFields
+            && !outer.temporary
+            && measured
+    }
+
+    /// The formula of the FlowField `outer`, of an app table (id below 2000000000), over Published Application (`pa`, object
+    /// index), when it has the probe's form: not negated, the condition ID = field(F) with F a stored Guid field of the outer
+    /// table, and either no other condition or "Tenant Visible" = const(true) (the bool); a Lookup of Name or Publisher, an
+    /// Exist or a Count (SysFlowFieldPerm.al:22-66, table "SFP Item").
+    fn published_app_formula(&self, outer: &CalcFrame, pa: usize) -> Option<(PaFormula, bool)> {
         let outer_is_app_table = self.engine.program.objects.heads()[outer.table]
             .id
             .is_some_and(|id| id < SYSTEM_TABLES);
-        let Some(calc) = self.engine.program.objects[outer.table]
+        let calc = self.engine.program.objects[outer.table]
             .table
             .as_ref()
             .and_then(|d| d.fields.get(outer.field))
-            .and_then(|f| f.calc.as_ref())
-        else {
-            return false;
-        };
-        let cond_is = |c: &ir::CalcCond, id: u32| self.field_id(inner.table, c.field) == Some(id);
+            .and_then(|f| f.calc.as_ref())?;
+        let cond_is = |c: &ir::CalcCond, id: u32| self.field_id(pa, c.field) == Some(id);
         // The ID condition compares with a stored (normal) Guid field of the outer table, as the probe's and the issue's table do.
         let stored_guid = |pos: usize| {
             self.engine.program.objects[outer.table]
@@ -195,25 +237,20 @@ impl Session {
         let visible_cond = |c: &ir::CalcCond| {
             cond_is(c, PA_TENANT_VISIBLE) && c.value == ir::CalcValue::Const(ir::Const::Boolean(true))
         };
-        let conds = match calc.conds.as_slice() {
-            [a, b] => (id_cond(a) && visible_cond(b)) || (visible_cond(a) && id_cond(b)),
-            _ => false,
+        let visible = match calc.conds.as_slice() {
+            [a] if id_cond(a) => false,
+            [a, b] if (id_cond(a) && visible_cond(b)) || (visible_cond(a) && id_cond(b)) => true,
+            _ => return None,
         };
-        let looked_up = calc.field.and_then(|f| self.field_id(inner.table, f));
-        let method = match calc.method {
-            ir::CalcMethod::Lookup => looked_up == Some(PA_NAME) || looked_up == Some(PA_PUBLISHER),
-            ir::CalcMethod::Exist | ir::CalcMethod::Count => calc.field.is_none(),
-            _ => false,
+        let looked_up = calc.field.and_then(|f| self.field_id(pa, f));
+        let formula = match calc.method {
+            ir::CalcMethod::Lookup if looked_up == Some(PA_NAME) => PaFormula::LookupName,
+            ir::CalcMethod::Lookup if looked_up == Some(PA_PUBLISHER) => PaFormula::LookupPublisher,
+            ir::CalcMethod::Exist if calc.field.is_none() => PaFormula::Exist,
+            ir::CalcMethod::Count if calc.field.is_none() => PaFormula::Count,
+            _ => return None,
         };
-        let plain = !calc.negate;
-        outer.asked == Asked::CalcFields
-            && !outer.temporary
-            && inner.asked == Asked::SourceRow
-            && outer_is_app_table
-            && method
-            && plain
-            && calc.table == inner.table
-            && conds
+        (outer_is_app_table && !calc.negate && calc.table == pa).then_some((formula, visible))
     }
 
     /// The field number of the field at `pos` of table `t` (object index).
@@ -224,4 +261,13 @@ impl Session {
             .and_then(|d| d.fields.get(pos))
             .map(|f| f.id)
     }
+}
+
+/// What a FlowField over Published Application computes, of the forms the probe measured ([`Session::published_app_formula`]).
+#[derive(Clone, Copy)]
+enum PaFormula {
+    LookupName,
+    LookupPublisher,
+    Exist,
+    Count,
 }
