@@ -201,6 +201,9 @@ pub(crate) fn make_lowerer<'a>(sh: &'a Shared<'a>, tl: &'a Local<'a>, seq: &'a S
         local_label_xliff: HashMap::default(),
         global_textconsts: Default::default(),
         local_textconsts: Default::default(),
+        global_plain_text_constants: Default::default(),
+        local_plain_text_constants: Default::default(),
+        local_variant_vars: Default::default(),
         global_textconst_languages: HashMap::default(),
         local_textconst_languages: HashMap::default(),
         global_locked_labels: Default::default(),
@@ -269,6 +272,9 @@ fn note_global_label_facts(lw: &mut Lowerer<'_>, v: &ast::VarDecl, n: &str, labe
     }
     if v.type_ref().as_ref().is_some_and(label_locked) {
         lw.global_locked_labels.insert(key.clone());
+    }
+    if v.type_ref().as_ref().is_some_and(plain_text_constant) {
+        lw.global_plain_text_constants.insert(key.clone());
     }
     if v.type_ref().as_ref().is_some_and(label_maxlength) {
         lw.global_maxlength_labels.insert(key);
@@ -1190,6 +1196,27 @@ pub(crate) fn label_maxlength(t: &ast::TypeRef) -> bool {
         .collect();
     toks.windows(2)
         .any(|w| w[0].text().eq_ignore_ascii_case("maxlength") && w[1].kind() == SyntaxKind::Eq)
+}
+
+/// Whether a declaration is a Label with its text and no property (`Label 'text'`) or a TextConst with one text, in ENU: the
+/// forms the corpus puts into a Variant as a TextConstant (`Lowerer::text_constant_into_variant`).
+pub(crate) fn plain_text_constant(t: &ast::TypeRef) -> bool {
+    let toks: Vec<_> = t
+        .syntax()
+        .descendants_with_tokens()
+        .filter_map(|e| e.into_token())
+        .filter(|k| !k.kind().is_trivia())
+        .collect();
+    match toks.as_slice() {
+        [kw, text] => kw.text().eq_ignore_ascii_case("label") && text.kind() == SyntaxKind::StringLit,
+        [kw, lang, eq, text] => {
+            kw.text().eq_ignore_ascii_case("textconst")
+                && lang.text().eq_ignore_ascii_case("enu")
+                && eq.kind() == SyntaxKind::Eq
+                && text.kind() == SyntaxKind::StringLit
+        }
+        _ => false,
+    }
 }
 
 /// Whether a declaration is of type `TextConst`.

@@ -567,36 +567,59 @@ fn the_stored_length_of_a_blob_is_given_only_for_the_pinned_sizes() {
 }
 
 #[test]
-fn a_textconst_going_into_a_variant_is_refused() {
-    // types/variant/VaTTextConst.al:144-151 (TextConst_In_Variant): the Variant then answers no Is... test while Format reads the
-    // text. That value kind is not built, so the conversion is refused. A Label goes into a Variant as a Text, as before.
+fn a_text_constant_goes_into_a_variant_only_at_the_pinned_sites() {
+    // Pinned (types/variant/VaTTextConst.al:137-149, :280-289): a plain Label or ENU TextConst assigned to a local Variant, and a
+    // global TextConst handed to a bare `local procedure` with a by-value Variant parameter, make the Variant a TextConstant.
+    // Every other site keeps the earlier answer: a Label is a Text there, a TextConst is refused.
     let src = |decl: &str, body: &str| {
         format!(
-            "codeunit 50200 C {{ var Simple: {decl}; procedure Take(V: Variant): Text begin exit(Format(V)); end; \
+            "codeunit 50200 C {{ var Simple: {decl}; G: Variant; \
+             local procedure Take(V: Variant): Text begin exit(Shape(V)); end; \
+             procedure TakePublic(V: Variant): Text begin exit(Shape(V)); end; \
              procedure Give(): Variant begin exit(Simple); end; \
+             local procedure Shape(V: Variant): Text begin if V.IsTextConstant() then exit('TC:' + Format(V)); \
+             if V.IsText() then exit('T:' + Format(V)); exit('?'); end; \
              procedure F(): Text var V: Variant; begin {body} end; }}"
         )
     };
+    let run = |decl: &str, body: &str| out(al_testkit::run_in(&src(decl, body), "C", "F"));
+    // The pinned shapes.
+    for decl in ["TextConst ENU = 'Hello'", "Label 'Hello'"] {
+        assert_eq!(run(decl, "V := Simple; exit(Shape(V));"), "TC:Hello", "{decl}");
+    }
+    assert_eq!(run("TextConst ENU = 'Hello'", "exit(Take(Simple));"), "TC:Hello");
+    // A Label at an unpinned site stays a Text.
     for body in [
-        "V := Simple; exit(Format(V));",
         "exit(Take(Simple));",
-        "V := Give(); exit(Format(V));",
+        "exit(TakePublic(Simple));",
+        "V := Give(); exit(Shape(V));",
+        "G := Simple; exit(Shape(G));",
     ] {
-        let r = out(al_testkit::run_in(&src("TextConst ENU = 'Hello'", body), "C", "F"));
-        assert!(r.starts_with("refused:") && r.contains("TextConst"), "{body}: {r}");
-        assert_eq!(
-            out(al_testkit::run_in(&src("Label 'Hello'", body), "C", "F")),
-            "Hello",
-            "{body}"
+        assert_eq!(run("Label 'Hello'", body), "T:Hello", "{body}");
+    }
+    for decl in [
+        "Label 'Hello', Locked = true",
+        "Label 'Hello', Comment = 'c'",
+        "Label 'Hello', MaxLength = 10",
+    ] {
+        assert_eq!(run(decl, "V := Simple; exit(Shape(V));"), "T:Hello", "{decl}");
+    }
+    // A TextConst at an unpinned site or of an unpinned form is refused.
+    for (decl, body) in [
+        ("TextConst ENU = 'Hello'", "exit(TakePublic(Simple));"),
+        ("TextConst ENU = 'Hello'", "V := Give(); exit(Shape(V));"),
+        ("TextConst ENU = 'Hello'", "G := Simple; exit(Shape(G));"),
+        ("TextConst ENU = 'Hello', DEU = 'Hallo'", "V := Simple; exit(Shape(V));"),
+        ("TextConst ENU = 'Hello', Comment = 'c'", "V := Simple; exit(Shape(V));"),
+    ] {
+        let r = run(decl, body);
+        assert!(
+            r.starts_with("refused:") && r.contains("TextConst"),
+            "{decl} {body}: {r}"
         );
     }
     // A TextConst read as a text stays supported.
-    let r = out(al_testkit::run_in(
-        &src("TextConst ENU = 'Hello'", "exit(Simple);"),
-        "C",
-        "F",
-    ));
-    assert_eq!(r, "Hello");
+    assert_eq!(run("TextConst ENU = 'Hello'", "exit(Simple);"), "Hello");
 }
 
 const MEDIA_OWN_BLOB: &str = r#"

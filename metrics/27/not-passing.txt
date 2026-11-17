@@ -23,7 +23,6 @@
 60136 NavApp_IsEntitled_IsCallable
 60186 BN_ForLoop_BoundConvertedToControlType
 60193 QW_Ternary_EnumOptionPairs
-60193 QW_Ternary_LabelIntoVariant
 60199 SetFilter_UnquotedParenthesis_Throws
 60205 Query_SaveAsJson_StaticOutStream_ExportsDataset
 60233 AfterHostGotoKey_FirstNextLandsOnTheGLLine
@@ -678,8 +677,6 @@
 71033 Param_Variant_Into_Integer_Text
 71033 TextVariant_To_Record_RecordRef_Codeunit_List
 71035 Evaluate_Into_Variant_Is_Rejected_Or_Typed
-71037 PW_TextConst_In_Variant_OtherIsTests
-71037 TextConst_In_Variant
 71043 BN3_EnumAgainstIntegers
 71100 ValuesNeedingQuotes_Numbers
 71100 ValuesNeedingQuotes_Range
@@ -780,7 +777,6 @@
 71903 Quit_ThenUseRequestPageFalseRunModal
 71903 Quit_ThenVarRunRequestPage
 71903 Quit_ThenVarSaveAs
-71906 Simple_Kinds
 71908 Integer_SubstitutedEmptyTerm
 71923 SaveAs_NoRows_RawBytes
 71944 Excel_ProcessingOnly

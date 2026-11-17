@@ -116,8 +116,8 @@ impl super::Lowerer<'_> {
 
     /// `V := B ? x : y` into a Variant with a Label branch and one of another type: in BC the Variant holds the branch taken
     /// with its own type, a Label answering no Is... test and a Code staying a Code (types/operators-expressions/
-    /// Y31ConvCd.al, LT Y31 Cd Label `Label_Text`, `Label_Code10`: `|abc` and `Code|A`). A Label is a Text in a Variant here
-    /// (`refuse_textconst_into_variant`), so the shape is refused.
+    /// Y31ConvCd.al, LT Y31 Cd Label `Label_Text`, `Label_Code10`: `|abc` and `Code|A`). That Variant kind is not built
+    /// (a plain Label goes in as a TextConstant only where `text_constant_into_variant` says), so the shape is refused.
     pub(super) fn refuse_label_ternary_into_variant(
         &mut self,
         target: &Ty,
@@ -151,10 +151,16 @@ impl super::Lowerer<'_> {
 }
 
 impl super::Lowerer<'_> {
-    /// The shapes refused for an argument handed to a Variant parameter.
-    pub(super) fn refuse_variant_argument(&self, target: &Ty, node: &al_syntax::SyntaxNode) -> super::L<()> {
+    /// The shapes refused for an argument handed to a Variant parameter; `Ok(true)` when the argument goes in as a
+    /// TextConstant (`text_constant_into_variant`).
+    pub(super) fn refuse_variant_argument(
+        &self,
+        target: &Ty,
+        node: &al_syntax::SyntaxNode,
+        site: super::convert::TextConstantSite,
+    ) -> super::L<bool> {
         self.refuse_session_ending_ternary(target, node)?;
-        self.refuse_textconst_into_variant(target, node)
+        self.text_constant_into_variant(target, node, site)
     }
 
     /// `Cond ? Label : 'literal'` (a Label before the colon, a text literal after it) as the exit value of a Variant function
