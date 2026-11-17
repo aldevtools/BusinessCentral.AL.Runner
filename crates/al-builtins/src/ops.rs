@@ -1,6 +1,7 @@
 //! Value operations: conversion to a slot type, arithmetic, comparison
 //! (ADR-010: conversions live next to the value model).
 
+use crate::date_difference::{closing_date_minus, datetime_difference, undefined_date_difference};
 use crate::describe::Describe;
 use crate::native::raise;
 use crate::native::{Signal, date_invalid, unsupported};
@@ -1099,6 +1100,9 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
             return Ok(V::Integer((a - b) as i32));
         }
         (V::DateTime(a), V::DateTime(b)) if op == Arith::Sub => return datetime_difference(*a, *b),
+        (V::Date(a, ca), V::Date(b, cb)) if op == Arith::Sub && (*ca || *cb) => {
+            return closing_date_minus((*a, *ca), (*b, *cb));
+        }
         // An undefined date has no difference, and the whole range is too wide a difference (types/date-time/
         // Arithmetic.al:Date_Plus_Minus_Integer `af30`, `af32`, `af34`).
         (V::Date(a, _), V::Date(b, _)) if op == Arith::Sub => {
@@ -1309,14 +1313,6 @@ fn int_of(v: &Value) -> Option<i64> {
     }
 }
 
-/// 0D - 0D is 0 (types/decimal-integer/Y65UndefinedArith.al Y65_UndefinedDate_Arithmetic); one undefined side or too wide a difference raises DateInvalid.
-fn undefined_date_difference(a: i32, b: i32) -> Result<Value, Signal> {
-    if a == 0 && b == 0 {
-        return Ok(Value::Integer(0));
-    }
-    date_invalid()
-}
-
 /// Duration +/- Duration as a BigInteger of milliseconds (see the caller); an overflow is not pinned.
 fn duration_sum(op: Arith, a: i64, b: i64) -> Result<Value, Signal> {
     let n = if op == Arith::Add {
@@ -1335,19 +1331,6 @@ fn moves_undefined_datetime(op: Arith, n: &Value) -> bool {
 }
 
 fn undefined_datetime_moved() -> Result<Value, Signal> {
-    date_invalid()
-}
-
-/// DateTime - DateTime is a Duration in milliseconds (session-system/TestDateTimeContracts.al:52-90). 0DT - 0DT is a 0 Duration;
-/// one undefined side raises DateInvalid (types/date-time/Y62UndefinedDate.al: DateTimeSub_BothUndefined,
-/// DateTimeSub_OneUndefined_AndDefinedPair, :166-203).
-fn datetime_difference(a: i64, b: i64) -> Result<Value, Signal> {
-    if a > 0 && b > 0 {
-        return Ok(Value::Duration(a - b));
-    }
-    if a == 0 && b == 0 {
-        return Ok(Value::Duration(0));
-    }
     date_invalid()
 }
 
