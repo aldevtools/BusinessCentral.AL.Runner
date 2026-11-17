@@ -33,6 +33,9 @@ pub struct RenderPieces {
     pub skia: Option<PathBuf>,
     /// What could not be fetched, one line each (reported once on stderr; the probe then names the missing piece).
     pub notes: Vec<String>,
+    /// A fetch failed while downloading was on (a feed or network error, not a fact of the build): the cache then lacks
+    /// a piece a later fetch can still get. `--fetch-render-pieces` fails on it, so CI does not save that cache entry.
+    pub fetch_failed: bool,
 }
 
 /// Fetches or finds the pieces; called once, on the first call that needs the process.

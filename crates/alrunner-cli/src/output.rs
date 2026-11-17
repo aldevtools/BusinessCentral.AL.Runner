@@ -135,9 +135,9 @@ pub fn baseline_warning(ran: usize, total: usize) -> Option<String> {
 pub fn dotnet_warning(c: &Counts, why: &str) -> Option<String> {
     (c.dotnet_unavailable > 0).then(|| {
         format!(
-            "WARNING: DotNet unavailable: {} test(s) not run because the .NET helper could not be used ({}). Pass --dotnet-sidecar PATH/AlDotNetSidecar.dll or set ALRT_DOTNET_SIDECAR; the pass count of this run is not comparable with one that had the helper.",
+            "WARNING: DotNet unavailable: {} test(s) not run because the .NET helper could not be used ({}). The pass count of this run is not comparable with one that had the helper.",
             c.dotnet_unavailable,
-            first_line(why.trim_start_matches(al_vm::dotnet::UNAVAILABLE).trim_start_matches(':').trim(), 160)
+            first_line(why.trim_start_matches(al_vm::dotnet::UNAVAILABLE).trim_start_matches(':').trim(), usize::MAX)
         )
     })
 }
@@ -960,10 +960,14 @@ pub(crate) mod tests {
             "--allow-not-run is the user's word that not run is fine"
         );
         let w = dotnet_warning(&c, "dotnet-unavailable: DotNet 'System.Convert' sidecar not built").unwrap();
-        assert!(
-            w.contains("DotNet unavailable: 1 test(s)") && w.contains("ALRT_DOTNET_SIDECAR"),
-            "{w}"
+        assert!(w.contains("DotNet unavailable: 1 test(s)"), "{w}");
+        // The reason names its own remedy; the warning adds no advice that fits only one cause, and keeps the whole reason.
+        assert!(!w.contains("--dotnet-sidecar"), "{w}");
+        let long = format!(
+            "dotnet-unavailable: DotNet 'System.Convert' {} downloading is off",
+            "x".repeat(200)
         );
+        assert!(dotnet_warning(&c, &long).unwrap().contains("downloading is off"));
         assert!(
             w.contains("sidecar not built") && !w.contains("dotnet-unavailable"),
             "{w}"
