@@ -98,7 +98,10 @@ impl FilterExpr {
         // regard to case first (record/filters/UcQuotedValues.al SetView_FilterGreaterB `view_txt_plain_ids`,
         // PageAndQuery_FilterGreaterB `page_txt_ids`: `>B` keeps neither a>b nor a>). Equality stays exact.
         let ord = |x: &Value| match (v, x) {
-            (Value::Text(a), Value::Text(b) | Value::Code(b)) if !a.has_marker() && !b.has_marker() => {
+            (Value::Text(a), Value::Text(b)) if !a.has_marker() && !b.has_marker() => {
+                Some(crate::ops::text_field_key_order(a, b))
+            }
+            (Value::Text(a), Value::Code(b)) if !a.has_marker() && !b.has_marker() => {
                 Some(crate::ops::text_key_order(a, b))
             }
             _ => cmp(x),
@@ -205,23 +208,49 @@ fn blank_if_spaces(v: &Value) -> std::borrow::Cow<'_, Value> {
 }
 
 fn like(text: &str, pattern: &str, ci: bool) -> bool {
-    let (t, p): (Vec<char>, Vec<char>) = if ci {
+    // Each character of the text, and whether it is a capital `É` of the value under `@`.
+    let (t, p): (Vec<(char, bool)>, Vec<char>) = if ci && text.contains('É') {
+        (at_letters_with_e_acute(text), pattern.to_lowercase().chars().collect())
+    } else if ci {
         (
-            text.to_lowercase().chars().collect(),
+            text.to_lowercase().chars().map(|c| (c, false)).collect(),
             pattern.to_lowercase().chars().collect(),
         )
     } else {
-        (text.chars().collect(), pattern.chars().collect())
+        (text.chars().map(|c| (c, false)).collect(), pattern.chars().collect())
     };
-    fn go(t: &[char], p: &[char]) -> bool {
+    fn go(t: &[(char, bool)], p: &[char]) -> bool {
         match p.first() {
             None => t.is_empty(),
             Some('*') => (0..=t.len()).any(|i| go(&t[i..], &p[1..])),
             Some('?') => !t.is_empty() && go(&t[1..], &p[1..]),
-            Some(c) => t.first() == Some(c) && go(&t[1..], &p[1..]),
+            Some(c) => {
+                t.first()
+                    .is_some_and(|&(tc, e_acute)| tc == *c || (e_acute && *c == 'e' && e_acute_hit()))
+                    && go(&t[1..], &p[1..])
+            }
         }
     }
     go(&t, &p)
+}
+
+/// The lower-cased characters of a value with a capital `É` under `@`, each `É` marked: the letter `e` of the filter matches it
+/// (assumption `at-filter-e-matches-e-acute`, al-runner issue 8196: `@emile` finds `Émile`). The text between two `É` is
+/// lower-cased as a whole, as main lower-cases the value.
+fn at_letters_with_e_acute(text: &str) -> Vec<(char, bool)> {
+    let mut out = Vec::with_capacity(text.len());
+    for (k, part) in text.split('É').enumerate() {
+        if k > 0 {
+            out.push(('é', true));
+        }
+        out.extend(part.to_lowercase().chars().map(|c| (c, false)));
+    }
+    out
+}
+
+/// Marks the assumption of [`at_letters_with_e_acute`] at a match it decides.
+fn e_acute_hit() -> bool {
+    crate::assumptions::hit(crate::assumptions::Assumption::AtFilterEMatchesEAcute)
 }
 
 /// Parses a `SetFilter` expression for a field of type `ty`. `%1`.. take the
@@ -1113,6 +1142,12 @@ impl Parser<'_> {
         matches!(self.ty, crate::value::RtType::Date)
     }
 
+    /// A Text field, whose filter errors record/crud/RcAFilters.al:640-660 (SetFilter_Text_Invalid) pins for the whole texts
+    /// `a&`, `>` and `..`.
+    fn text_field(&self) -> bool {
+        matches!(self.ty, crate::value::RtType::Text(_))
+    }
+
     fn or(&mut self) -> Result<FilterExpr, String> {
         if self.date() && self.peek_op() == Some("|") {
             return Err(format!("{FILTER_SYNTAX}{LEFT_OF_OR_EMPTY}"));
@@ -1141,6 +1176,12 @@ impl Parser<'_> {
         let mut xs = vec![self.term()?];
         while self.peek_op() == Some("&") {
             self.i += 1;
+            // `a&` on a Text field (RcAFilters.al:642, :654 `trailingAnd`).
+            if self.text_field() && self.toks.len() == 2 && self.i == 2 && matches!(self.toks[0], Tok::Raw(_)) {
+                return Err(format!(
+                    "{FILTER_SYNTAX}The right side of '&' operators cannot be empty."
+                ));
+            }
             xs.push(self.term()?);
         }
         Ok(if xs.len() == 1 {
@@ -1563,6 +1604,10 @@ impl Parser<'_> {
                 let before = self.written_wildcard;
                 let v = match self.value() {
                     Some(v) => self.typed(v)?,
+                    // `>` alone on a Text field (RcAFilters.al:644, :656 `opOnly`).
+                    None if op == ">" && self.text_field() && self.toks.len() == 1 => {
+                        return Err(format!("{FILTER_SYNTAX}A value is expected after the '>'."));
+                    }
                     None if matches!(self.ty, crate::value::RtType::Text(_) | crate::value::RtType::Code(_)) => {
                         Value::Text(String::new().into())
                     }
@@ -1599,7 +1644,8 @@ impl Parser<'_> {
             }
             Some("..") => {
                 self.i += 1;
-                if self.date() && self.i == self.toks.len() && self.i == 1 {
+                // `..` alone on a Date (P81DateFilters.al:149) or a Text field (RcAFilters.al:646, :658 `dotsOnly`).
+                if (self.date() || self.text_field()) && self.i == self.toks.len() && self.i == 1 {
                     return Err(format!(
                         "{FILTER_SYNTAX}Both sides of the range ('..') cannot be empty."
                     ));
@@ -2600,5 +2646,69 @@ mod compare_error_tests {
         ]);
         assert!(f.compare_error(&Value::Code("C".into())).is_none());
         assert!(f.compare_error(&Value::Code("".into())).is_none());
+    }
+
+    /// al-runner issue 8195: `SetRange(Name, 'A', 'B')` on a Text field finds `Ærø` (assumption `text-key-ae-sorts-as-ae`); on a
+    /// Code field the range keeps main's answer.
+    #[test]
+    fn a_text_range_holds_the_capital_ae_as_ae() {
+        let t = |s: &str| Value::Text(s.to_string().into());
+        let c = |s: &str| Value::Code(s.to_string().into());
+        let range = FilterExpr::Range(Some(t("A")), Some(t("B")));
+        assert!(range.matches_checked(&t("Ærø")));
+        assert!(range.matches_checked(&t("Alpha")));
+        assert!(!range.matches_checked(&t("Bravo")));
+        assert!(!range.matches_checked(&t("ærø")));
+        assert!(!FilterExpr::Range(Some(c("A")), Some(c("B"))).matches_checked(&c("ÆRØ")));
+    }
+
+    /// al-runner issue 8196 (assumption `at-filter-e-matches-e-acute`): `@emile` finds `Émile`. Every neighbor keeps main's
+    /// answer: without `@`, a small `é` in the value, another accent, and `é` in the filter against `e` in the value.
+    #[test]
+    fn an_at_filter_matches_the_capital_e_acute_with_e() {
+        crate::assumptions::clear_hits();
+        assert!(super::like("Émile", "emile", true));
+        assert!(super::like("Émile", "EMILE*", true));
+        assert!(crate::assumptions::take_hits().contains(&crate::assumptions::Assumption::AtFilterEMatchesEAcute));
+        assert!(super::like("Émile", "émile", true));
+        assert!(!super::like("Émile", "emile", false));
+        assert!(!super::like("émile", "emile", true));
+        assert!(!super::like("Èmile", "emile", true));
+        assert!(!super::like("Emile", "émile", true));
+        assert!(super::like("Alpha", "alpha*", true));
+    }
+
+    /// The filter errors of a Text field pinned by record/crud/RcAFilters.al:640-660 (SetFilter_Text_Invalid): `..`, `>` and
+    /// `a&` alone. A Code field, other operators and longer texts keep main's answers.
+    #[test]
+    fn the_pinned_errors_of_a_text_field_and_their_neighbors() {
+        use crate::value::RtType;
+        let text = RtType::Text(Some(50));
+        let code = RtType::Code(Some(20));
+        let syntax = |t: &str, ty: &RtType| super::parse_filter(t, &[], ty).err().unwrap_or_default();
+        assert_eq!(
+            syntax("..", &text),
+            format!(
+                "{}Both sides of the range ('..') cannot be empty.",
+                super::FILTER_SYNTAX
+            )
+        );
+        assert_eq!(
+            syntax(">", &text),
+            format!("{}A value is expected after the '>'.", super::FILTER_SYNTAX)
+        );
+        assert_eq!(
+            syntax("a&", &text),
+            format!(
+                "{}The right side of '&' operators cannot be empty.",
+                super::FILTER_SYNTAX
+            )
+        );
+        // Main's answers.
+        assert_eq!(syntax("..", &code), "value expected after ..");
+        assert!(super::parse_filter(">", &[], &code).is_ok());
+        assert!(super::parse_filter("<", &[], &text).is_ok());
+        assert!(!syntax("a&", &code).starts_with(super::FILTER_SYNTAX));
+        assert!(!syntax("a&b&", &text).starts_with(super::FILTER_SYNTAX));
     }
 }

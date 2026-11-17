@@ -72,7 +72,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 ### al-builtins
 
 - `catalog.rs` (432): Generating the signature catalog from the docs scrape (ADR-008). Entry: `Catalog` 54, `load` 65, `for_target` 72, `generate` 219.
-- `collation.rs` (135): Text order for `<`, `>`, `<=` and `>=`. Entry: `compare` 74.
+- `collation.rs` (~450): Text order for `<`, `>`, `<=` and `>=` (`compare`), and the key order of text values (`compare_key`, `text_key_order`, `text_field_key_order`: a Text key, where `Æ` sorts as `AE`, assumption `text-key-ae-sorts-as-ae`). `ops` re-exports the two key orders. Entry: `compare`, `text_key_order`.
 - `collections.rs` (286): List and Dictionary methods.
 - `describe.rs` (330): How a value or type reads in a refusal reason or internal error (AL type and a short value, never a debug dump). Entry: `Describe` 12.
 - `refusal.rs` (490): Typed refusals (ADR-071): `Refusal` (a key and a text, the size of a `String`; free text converts with the key `legacy` and reads, prints and stores as the `String` did), `refuse!` (arguments through `Describe`, positional or `name = value`; a name read from the scope does not compile), `Shown`, `Probe`, `AREAS`, and `refusal_keys!`, which turns this crate's list `src/refusals/<key>.rs` (one file per key, collected by `build.rs`) into `keys` and `ALL`. Entry: `Refusal`, `refuse!`, `refusal_keys!`, `placeholders_passed`.

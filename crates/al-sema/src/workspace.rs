@@ -1327,10 +1327,16 @@ impl Workspace {
 
     /// A `TableRelation` target. The file of a dependency app resolves it among the apps that app
     /// saw (`visible`), as BC fixed it when the app compiled: a same-named table of a dependent app
-    /// is not a candidate (corpus recordref-fieldref/fieldref/TestRelationTargetNameCollision.al). The file of the
-    /// workspace resolves it as `resolve_ref_certain` does, unless it sees Base Application.
+    /// is not a candidate (corpus recordref-fieldref/fieldref/TestRelationTargetNameCollision.al). The file of a
+    /// workspace app resolves it the same way when no app it could see is absent: when it sees Base Application, or
+    /// when every dependency it and the apps it sees declare is loaded (`has_unloaded_dependency`), so no absent app
+    /// can hold a same-named object; the name then means what it means to the compiler, its own namespace first, then
+    /// its usings (TestRelationTargetNamespaceScope.al:235 `RelationScope_Third_RelationAnswersTheLocalTableThroughUsing`,
+    /// a table of the app reached through a using). Otherwise it resolves as `resolve_ref_certain` does.
     pub fn resolve_relation_target(&self, file: usize, kind: ObjKind, parts: &[String]) -> Resolution {
-        if self.kinds[self.files[file].app] == AppKind::Dependency || self.sees_base_application(self.files[file].app) {
+        let app = self.files[file].app;
+        let every_dependency_loaded = !self.has_unloaded_dependency(app);
+        if self.kinds[app] == AppKind::Dependency || self.sees_base_application(app) || every_dependency_loaded {
             self.resolve_ref(file, kind, parts)
         } else {
             self.resolve_ref_certain(file, kind, parts)
@@ -2019,11 +2025,12 @@ mod tests {
             ws.resolve_relation_target(file, ObjKind::Table, &name),
             Resolution::Found(_)
         ));
-        // Without Base Application a hit under a using stays uncertain (the test above).
+        // Without Base Application, and with a dependency that is not loaded, a hit under a using stays uncertain (the
+        // test above): the absent app could hold a same-named table.
         let alone = Workspace::load(
             vec![app(
                 "mine",
-                &[],
+                &["437dbf0e-84ff-417a-965d-ed2bb9650972"],
                 &[
                     (
                         "t.al",
@@ -2042,6 +2049,47 @@ mod tests {
             alone.resolve_relation_target(file, ObjKind::Table, &name),
             Resolution::Found(_)
         ));
+    }
+
+    #[test]
+    fn with_every_dependency_loaded_a_using_resolves_a_relation_target() {
+        // al-runner issues 8191 and 8181: an app with no dependency names a table of its own in another namespace through a
+        // using, and a table of another namespace from a file with neither namespace nor using (the "Table Metadata" shape). No app is absent, so the name means what it means to
+        // the compiler (TestRelationTargetNamespaceScope.al:235, a table of the app reached through a using).
+        let ws = load(vec![app(
+            "mine",
+            &[],
+            &[
+                ("g.al", "namespace Repro.Setup; table 51690 \"Repro Posting Group\" { }"),
+                (
+                    "h.al",
+                    "namespace Repro.Assets; using Repro.Setup; codeunit 60100 C1 { }",
+                ),
+                (
+                    "m.al",
+                    "namespace System.Reflection; table 50999 \"Repro Metadata\" { }",
+                ),
+                ("p.al", "codeunit 60101 C2 { }"),
+            ],
+        )]);
+        let file = |name: &str| ws.objects.iter().find(|o| o.name == name).unwrap().file;
+        let found = |r: Resolution| matches!(r, Resolution::Found(_));
+        assert!(found(ws.resolve_relation_target(
+            file("C1"),
+            ObjKind::Table,
+            &["Repro Posting Group".to_string()]
+        )));
+        assert!(found(ws.resolve_relation_target(
+            file("C2"),
+            ObjKind::Table,
+            &["Repro Metadata".to_string()]
+        )));
+        // The certain resolution itself is unchanged: an absent app is what it guards against.
+        assert!(!found(ws.resolve_ref_certain(
+            file("C1"),
+            ObjKind::Table,
+            &["Repro Posting Group".to_string()]
+        )));
     }
 
     /// Issue 15: one eager run of Microsoft's apps reported a parse error in a report that parsed fine in every
