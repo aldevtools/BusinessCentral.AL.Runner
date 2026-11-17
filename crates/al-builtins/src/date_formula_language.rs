@@ -218,7 +218,7 @@ pub(crate) fn calcdate_text(formula: &str, language: i32, unit_error: bool) -> O
     }
     if formula != "1D" {
         return Some(unsupported(format!(
-            "CalcDate of `{formula}` without angle brackets under GlobalLanguage {language}: it reads the language's letters (not measured for this text)"
+            "CalcDate of `{formula}` without angle brackets under GlobalLanguage {language} (not measured for this text)"
         )));
     }
     assume();

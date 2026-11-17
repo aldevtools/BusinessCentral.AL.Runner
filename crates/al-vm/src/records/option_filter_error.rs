@@ -3,16 +3,14 @@
 use super::*;
 
 impl Session {
-    /// `SetFilter` on field `pos` with `text` and `arg_count` arguments, whose parse gave `e` (`filter::OPTION_NOT_MEMBER` and
-    /// the word). Only the shape the reporter measured raises BC's error (assumption `option-filter-non-member-error`); every other
-    /// text, caller, field and language keeps main's refusal.
+    /// `SetFilter` on field `pos`, whose parse gave `e` (`filter::OPTION_NOT_MEMBER` and the word); `shape`: the call is the
+    /// measured Record.SetFilter shape. Only the shape the reporter measured raises BC's error (assumption
+    /// `option-filter-non-member-error`); every other text, caller, field and language keeps main's refusal.
     pub(crate) fn option_non_member_error(
         &self,
-        from_al: bool,
+        shape: Option<&super::measured_setfilter::MeasuredSetFilter>,
         t: &TableDef,
         pos: usize,
-        text: &str,
-        arg_count: usize,
         e: &str,
     ) -> Signal {
         let word = &e[al_builtins::filter::OPTION_NOT_MEMBER.len()..];
@@ -20,14 +18,17 @@ impl Session {
         let RtType::Option(members) = &t.fields[pos].ty else {
             return refused();
         };
-        // The measured shape: Record.SetFilter in AL code, no placeholder argument, the filter text as written is the word alone
-        // (letters only), an Option field whose members are all non-blank and that has no OptionCaption or OptionCaptionML,
-        // GlobalLanguage 1033.
-        let measured = from_al
-            && arg_count == 2
-            && text == word
-            && word.bytes().all(|b| b.is_ascii_alphabetic())
+        // The measured shape (`MeasuredSetFilter`), the filter text as written is the word alone (letters only), an Option field
+        // whose members are all non-blank and that has no OptionCaption or OptionCaptionML, GlobalLanguage 1033. The measured words
+        // are no prefix of a member; whether BC reads a prefix as the member is not measured.
+        let Some(text) = shape.map(|s| s.text).filter(|text| *text == word) else {
+            return refused();
+        };
+        let measured = word.bytes().all(|b| b.is_ascii_alphabetic())
             && members.iter().all(|m| !m.trim().is_empty())
+            && !members
+                .iter()
+                .any(|m| m.to_lowercase().starts_with(&word.to_lowercase()))
             && self.field_property(t, pos, "OptionCaption").is_none()
             && self.field_property(t, pos, "OptionCaptionML").is_none()
             && self.global_language == 1033;

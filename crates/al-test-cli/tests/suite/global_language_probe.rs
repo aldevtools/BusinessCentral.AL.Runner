@@ -2,7 +2,7 @@
 //! refused: the closing-date letter of the readers, the localized Date filter error, CalcDate's letters. Each measured cell
 //! runs through its assumption entry (a flagged pass); each neighbor keeps main's answer or refuses.
 
-use super::global_language_reported::{FILTER_OBJECTS, refused, reports, run, tests};
+use super::global_language_reported::{FILTER_OBJECTS, get, refused, reports, run, tests};
 use al_builtins::assumptions::Assumption;
 
 /// `Evaluate(D, text)` with the result used under `lang`: ok flag, the normal date, whether it is a closing date.
@@ -203,9 +203,9 @@ fn date_filter_closing_neighbors_keep_mains_answer_or_refuse() {
         &[
             // English is pinned: the closing date of C, no entry.
             ("EnglishC", 1033, "C12/31/23"),
-            // Two values: the error of a filter with an alternative is not measured.
+            // Two values: not the measured shape, main's reading of the English letter.
             ("DanishAlternative", 1030, "C12/31/23|12/31/23"),
-            // A language the probe did not measure keeps main's refusal of a date filter text.
+            // A language the probe did not measure keeps main's reading of the English letter.
             ("DutchC", 1043, "C12/31/23"),
             // A lower-case letter in a filter, and the letter of the language before a text that is no date: not measured.
             ("DanishLowerU", 1030, "u12/31/23"),
@@ -214,12 +214,15 @@ fn date_filter_closing_neighbors_keep_mains_answer_or_refuse() {
         extra,
     );
     reports(&o, "EnglishC", "ok|B002,", None);
-    refused(&o, "DanishAlternative");
-    refused(&o, "DutchC");
+    reports(&o, "DutchC", "ok|B002,", None);
+    reports(&o, "DanishAlternative", "ok|B001,B002,", None);
     refused(&o, "DanishLowerU");
     refused(&o, "DanishNoDate");
-    refused(&o, "DanishFieldRef");
-    refused(&o, "DanishPlaceholder");
+    // FieldRef.SetFilter and a placeholder are not the measured shape: main's reading of the English letter, no error.
+    for n in ["DanishFieldRef", "DanishPlaceholder"] {
+        let (out, hits) = get(&o, n);
+        assert!(out == "Pass" && hits.is_empty(), "{n}: {out} {hits:?}");
+    }
 }
 
 /// CalcDate of `formula` from 2024-03-15 under `lang`: the date, or the error and its code.

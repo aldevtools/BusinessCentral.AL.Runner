@@ -5,8 +5,32 @@ use al_builtins::assumptions::Assumption;
 use al_testkit::{blocked, compile};
 use al_testrun::isolation::TestIsolation;
 
-/// Each test of codeunit `T` in `src`: its outcome (debug form) and the assumptions it ran through.
+/// Each test of codeunit `T` in `src`: its outcome (debug form) and the assumptions it ran through. Each `[Test]` procedure
+/// runs in a codeunit of its own (the procedures before the first test are kept for each): a test refused while it runs makes
+/// the next test of its codeunit NotRun, so a refusal of a later test would be asserted for another reason.
 pub(super) fn run(src: &str) -> Vec<(String, String, Vec<Assumption>)> {
+    let starts: Vec<usize> = src
+        .match_indices("[Test]")
+        .map(|(i, _)| src[..i].rfind('\n').map_or(0, |n| n + 1))
+        .collect();
+    let Some(&first) = starts.first() else {
+        return run_codeunit(src);
+    };
+    let end = src.trim_end().rfind('}').expect("the end of codeunit T");
+    let mut out = Vec::new();
+    for (k, &start) in starts.iter().enumerate() {
+        let stop = starts.get(k + 1).copied().unwrap_or(end);
+        out.extend(run_codeunit(&format!(
+            "{}{}{}",
+            &src[..first],
+            &src[start..stop],
+            &src[end..]
+        )));
+    }
+    out
+}
+
+fn run_codeunit(src: &str) -> Vec<(String, String, Vec<Assumption>)> {
     let l = compile(src);
     let b = blocked(&l);
     let engine = al_vm::Engine::new(l.program.clone(), b);
@@ -71,9 +95,13 @@ pub(super) fn reports(o: &[(String, String, Vec<Assumption>)], name: &str, value
     }
 }
 
+/// The test was refused by the runtime itself, not because an earlier test of its codeunit was.
 pub(super) fn refused(o: &[(String, String, Vec<Assumption>)], name: &str) {
     let (out, _) = get(o, name);
-    assert!(out.starts_with("NotRun"), "{name}: {out}");
+    assert!(
+        out.starts_with("NotRun") && !out.contains("earlier test of this codeunit"),
+        "{name}: {out}"
+    );
 }
 
 const CLOSING: &str = "Format(ClosingDate(DMY2Date(31, 12, 2023)))";

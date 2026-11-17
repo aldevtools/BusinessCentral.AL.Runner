@@ -1484,9 +1484,10 @@ impl Session {
                     }
                     _ => None,
                 };
+                let shape = super::measured_setfilter::MeasuredSetFilter::of(from_al, &rec.borrow(), &text, args.len());
                 let mut parsed = match record_id {
                     Some(p) => p,
-                    None => match self.danish_boolean_filter(from_al, &t, pos, &text, args.len())? {
+                    None => match self.measured_language_filter(shape.as_ref(), &t, pos)? {
                         Some(expr) => Ok(expr),
                         None => parse(&text),
                     },
@@ -1594,13 +1595,9 @@ impl Session {
                         };
                         return Err(self.filter_error(&t, pos, shown, inner));
                     }
-                    Err(e) if e.starts_with(al_builtins::filter::INVALID_DATE) && self.global_language == 1031 => {
-                        let bad = &e[al_builtins::filter::INVALID_DATE.len()..];
-                        return Err(self.german_date_filter_error(&t, pos, text.trim(), bad));
-                    }
                     Err(e) if e.starts_with(al_builtins::filter::INVALID_DATE) => {
                         let bad = &e[al_builtins::filter::INVALID_DATE.len()..];
-                        return Err(self.date_filter_error_by_language(from_al, &t, pos, &text, bad, args.len()));
+                        return Err(self.german_date_filter_error(&t, pos, text.trim(), bad));
                     }
                     // record/TestFilterTextBooleanFindContracts.al:130 (SetFilter_BooleanField_UnknownWord_Throws).
                     // A leading blank stays in the quoted filter (format-evaluate/EvalLastError.al:501-539,
@@ -1621,7 +1618,7 @@ impl Session {
                             .unwrap_or_else(|| Signal::unsupported(format!("SetFilter: {e}"))));
                     }
                     Err(e) if e.starts_with(al_builtins::filter::OPTION_NOT_MEMBER) => {
-                        return Err(self.option_non_member_error(from_al, &t, pos, &text, args.len(), &e));
+                        return Err(self.option_non_member_error(shape.as_ref(), &t, pos, &e));
                     }
                     Err(e) => return Err(Signal::unsupported(format!("SetFilter: {e}"))),
                 };

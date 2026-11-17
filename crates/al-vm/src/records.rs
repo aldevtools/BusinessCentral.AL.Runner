@@ -26,6 +26,7 @@ mod empty_find_origin;
 mod filter_error;
 mod flowfield_key;
 mod insert_buffer;
+mod measured_setfilter;
 mod option_filter_error;
 mod setfilter_empty_or_side;
 mod setrange_filter;

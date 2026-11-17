@@ -565,9 +565,9 @@ fn boolean(text: &str, number: i64) -> Result<Parsed, Signal> {
 /// A Boolean text under a language other than English (see [`crate::filter_boolean_words::evaluate_boolean_word`]).
 /// German texts that are no word of the table are pinned too (xmlports/shapes-properties/Y83XpMiscTests.al:Boolean_VT_German,
 /// Boolean_XML_German: `TRUE` reads as in English). Other texts are not pinned and are refused.
-fn language_boolean(language: i32, text: &str) -> Option<Result<Parsed, Signal>> {
+fn language_boolean(language: i32, text: &str, ret_used: bool) -> Option<Result<Parsed, Signal>> {
     use crate::filter_boolean_words::{EvaluateWord, evaluate_boolean_word};
-    Some(match evaluate_boolean_word(language, text)? {
+    Some(match evaluate_boolean_word(language, text, ret_used)? {
         EvaluateWord::Value(b) => Ok(Parsed::Value(Value::Boolean(b))),
         EvaluateWord::Rejected => Ok(Parsed::Rejected),
         EvaluateWord::NotPinned => unsupported(format!(
@@ -576,9 +576,13 @@ fn language_boolean(language: i32, text: &str) -> Option<Result<Parsed, Signal>>
     })
 }
 
-/// [`boolean`] with the words of the session language when it has pinned ones (number 0 only).
-fn boolean_in_language(language: Option<i32>, text: &str, number: i64) -> Result<Parsed, Signal> {
-    match language.filter(|_| number == 0).and_then(|l| language_boolean(l, text)) {
+/// [`boolean`] with the words of the session language when it has pinned ones (number 0 only); `ret_used`: the call's result is
+/// used.
+fn boolean_in_language(language: Option<i32>, text: &str, number: i64, ret_used: bool) -> Result<Parsed, Signal> {
+    match language
+        .filter(|_| number == 0)
+        .and_then(|l| language_boolean(l, text, ret_used))
+    {
         Some(r) => r,
         None => boolean(text, number),
     }
@@ -1422,15 +1426,15 @@ pub fn read_text(ty: &crate::value::RtType, text: &str) -> Option<Value> {
     }
 }
 
-/// `Evaluate(Date, Text)` of a text that starts with a closing-date letter under a language whose letter is measured
-/// ([`crate::format::closing_letter`], corpus PR 1428 GlobalLanguageClosingDate.al:145-249): `Some(Ok(Some(date)))` for the
-/// language's letter, `Some(Ok(None))` (false, the variable unchanged) for another language's letter. Measured only without a
-/// format number and with the result used; the statement form, a number, a case not measured and a date part that does not
-/// read refuse. `None`: the reader's own rule.
-fn closing_in_language(c: &dyn Ctx, text: &str, no_number: bool) -> Option<Result<Option<Value>, Signal>> {
-    use crate::format::ClosingLetter;
-    let read = crate::format::closing_letter(text, c.language(), true);
-    if read == ClosingLetter::ReaderRule {
+/// `Evaluate(Date, Text)` of a closing-date text of [`crate::format::closing_letter_text`] (the letter and mm/dd/yy) under a
+/// language whose letter is measured, `number` the format number when one is given. Measured (assumption
+/// `closing-date-letter-by-language`, corpus PR 1428 GlobalLanguageClosingDate.al:39-42 TryEvaluate, :123-284 at 04e1fa0a):
+/// without a format number, with the result used, C and U in either case and upper-case S: `Some(Ok(Some(date)))` for the
+/// language's letter, `Some(Ok(None))` (false, the variable unchanged) for another language's letter. Format number 9 keeps its
+/// own rule (`None`); the statement form, another number, a lower-case s and a date part that does not read refuse.
+fn closing_in_language(c: &dyn Ctx, text: &str, number: Option<i64>) -> Option<Result<Option<Value>, Signal>> {
+    let (own, letter, rest) = crate::format::closing_letter_text(text, c.language())?;
+    if number == Some(9) {
         return None;
     }
     let refused = |why: &str| {
@@ -1439,17 +1443,17 @@ fn closing_in_language(c: &dyn Ctx, text: &str, no_number: bool) -> Option<Resul
             c.language()
         )))
     };
-    if !no_number || !c.ret_used() {
+    if number.is_some() || !c.ret_used() {
         return refused("a format number or the statement form");
     }
-    match read {
-        ClosingLetter::Closing(rest) => match date(rest, 0, c.today_day(), c.work_date_day(), true) {
-            Ok(Parsed::Value(Value::Date(d, false))) if d > 0 => Some(Ok(Some(Value::Date(d, true)))),
-            _ => refused("a closing date whose date part does not read"),
-        },
-        ClosingLetter::OtherLanguage => Some(Ok(None)),
-        _ => refused("this case of the letter"),
+    if letter == 's' {
+        return refused("a lower-case s");
     }
+    let Ok(Parsed::Value(Value::Date(d, false))) = date(rest, 0, c.today_day(), c.work_date_day(), true) else {
+        return refused("a closing date whose date part does not read");
+    };
+    crate::assumptions::assume(crate::assumptions::Assumption::ClosingDateLetterByLanguage);
+    Some(Ok(own.then_some(Value::Date(d, true))))
 }
 
 /// A text of ASCII letters, digits and `-./` with letters, read with number 0, 9 or none: its failed Evaluate statement into a
@@ -2266,7 +2270,7 @@ fn evaluate_with_max(
         return crate::json::evaluate_array(c, &mut a[0], &text);
     }
     if matches!(&a[0], Value::Date(..))
-        && let Some(read) = closing_in_language(c, &text, a.len() == 2)
+        && let Some(read) = closing_in_language(c, &text, (a.len() > 2).then_some(number))
     {
         return read.map(|v| match v {
             Some(d) => {
@@ -2282,7 +2286,7 @@ fn evaluate_with_max(
         Value::BigInteger(_) => big_integer(&text, number)?,
         Value::Decimal(_) => decimal(&text, number)?,
         Value::Duration(_) => duration(&text, number, c.language())?,
-        Value::Boolean(_) => boolean_in_language(c.session_locale().map(|l| l.0), &text, number)?,
+        Value::Boolean(_) => boolean_in_language(c.session_locale().map(|l| l.0), &text, number, c.ret_used())?,
         Value::Guid(_) => guid(&text)?,
         // A Char reads one character, any (a blank, `?`, NUL, `é`, `¶`, `€`), with format 0 and 9 alike, in English and German; the
         // empty text, two characters and more (`AB`, `65`, `256`, `-1`, `a b`, `1D`) are rejected (format-evaluate/format-matrix/

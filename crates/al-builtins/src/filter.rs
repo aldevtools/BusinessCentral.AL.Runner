@@ -1956,29 +1956,6 @@ fn date_filter_value(t: &str) -> Result<Value, String> {
     let english = ctx.is_some_and(|c| c.language == 1033);
     let needs_session =
         || format!("text filter value `{t}` for Date: the session's dates are not known here (not pinned)");
-    // A closing-date letter under a language whose letter is measured (`format::closing_letter`, corpus PR 1428
-    // FilterGlobalLanguageDateBool.al:229-370): the letter of the language reads the date after it, another language's letter
-    // raises the date error.
-    if let Some(c) = ctx {
-        use crate::format::ClosingLetter;
-        match crate::format::closing_letter(t, c.language, false) {
-            ClosingLetter::Closing(rest) => {
-                return match date_filter_value(rest)? {
-                    Value::Date(d, false) if d > 0 => Ok(Value::Date(d, true)),
-                    _ => Err(format!(
-                        "text filter value `{t}` for Date: a closing date of this date (not measured)"
-                    )),
-                };
-            }
-            ClosingLetter::OtherLanguage => return Err(format!("{INVALID_DATE}{t}")),
-            ClosingLetter::NotMeasured => {
-                return Err(format!(
-                    "text filter value `{t}` for Date: this case of the closing letter (not measured)"
-                ));
-            }
-            ClosingLetter::ReaderRule => {}
-        }
-    }
     match t {
         "T" | "t" => return ctx.map(|c| Value::Date(c.today, false)).ok_or_else(needs_session),
         "W" | "w" => return ctx.map(|c| Value::Date(c.work_date, false)).ok_or_else(needs_session),

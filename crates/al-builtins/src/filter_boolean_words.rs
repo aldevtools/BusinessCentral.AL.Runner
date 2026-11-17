@@ -60,13 +60,19 @@ pub(crate) enum EvaluateWord {
 }
 
 /// `Evaluate(Boolean, Text)` under GlobalLanguage 1030, 1031, 1036, 1043 or 2067 (`None` for another language), with blanks
-/// around the text dropped and any case; 1044 and 1053 only as measured ([`norwegian_swedish_word`]) (format-evaluate/EvalLanguageBoolean.al EL_Words_*, EL_Errors_*, the same on the
+/// around the text dropped and any case; 1044 and 1053 only as measured, with the result used (`ret_used`,
+/// [`norwegian_swedish_word`]) (format-evaluate/EvalLanguageBoolean.al EL_Words_*, EL_Errors_*, the same on the
 /// three supported majors). The language's own words are `Ja`/`Nein` (1031), `Oui`/`Non` and `No` (1036), `Ja`/`Nej` (1030)
 /// and `Ja`/`Nee` (1043, 2067); `true`, `false`, `1`, `0` and `N` (false) read in all of them. `Y`, `Yes`, and the words of
 /// the other languages are rejected, except `No`, which French reads as false. Texts outside that list are not pinned,
 /// except the German ones errors/WcUnpinnedSingles.al:79-113 pins (`vielleicht`, `Wahr`, `Falsch`, `x`).
-pub(crate) fn evaluate_boolean_word(language: i32, text: &str) -> Option<EvaluateWord> {
+pub(crate) fn evaluate_boolean_word(language: i32, text: &str, ret_used: bool) -> Option<EvaluateWord> {
     if matches!(language, 1044 | 1053) {
+        // The statement form is not measured: `Yes`, which the measured form rejects, refuses; every other text keeps the English
+        // reading, and its error under these languages refuses (evaluate.rs).
+        if !ret_used {
+            return (text == "Yes").then_some(EvaluateWord::NotPinned);
+        }
         return Some(norwegian_swedish_word(language, text));
     }
     let (yes, no): (&[&str], &[&str]) = match language {
@@ -158,7 +164,11 @@ mod tests {
         assert!(w(Some(1030), "Ja").is_err());
     }
 
-    use super::{EvaluateWord::*, evaluate_boolean_word as e};
+    use super::EvaluateWord::*;
+
+    fn e(language: i32, text: &str) -> Option<super::EvaluateWord> {
+        super::evaluate_boolean_word(language, text, true)
+    }
 
     #[test]
     fn evaluate_words_by_language() {
