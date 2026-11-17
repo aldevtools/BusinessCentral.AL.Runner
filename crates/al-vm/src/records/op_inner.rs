@@ -1594,9 +1594,13 @@ impl Session {
                         };
                         return Err(self.filter_error(&t, pos, shown, inner));
                     }
-                    Err(e) if e.starts_with(al_builtins::filter::INVALID_DATE) => {
+                    Err(e) if e.starts_with(al_builtins::filter::INVALID_DATE) && self.global_language == 1031 => {
                         let bad = &e[al_builtins::filter::INVALID_DATE.len()..];
                         return Err(self.german_date_filter_error(&t, pos, text.trim(), bad));
+                    }
+                    Err(e) if e.starts_with(al_builtins::filter::INVALID_DATE) => {
+                        let bad = &e[al_builtins::filter::INVALID_DATE.len()..];
+                        return Err(self.date_filter_error_by_language(from_al, &t, pos, &text, bad, args.len()));
                     }
                     // record/TestFilterTextBooleanFindContracts.al:130 (SetFilter_BooleanField_UnknownWord_Throws).
                     // A leading blank stays in the quoted filter (format-evaluate/EvalLastError.al:501-539,

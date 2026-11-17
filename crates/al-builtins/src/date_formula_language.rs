@@ -2,6 +2,9 @@
 //! Evaluate reads a formula without angle brackets in them (format-evaluate/Y62DateFormulaFormat.al, codeunit
 //! 93262, writer Y62; the same on the BC Linux legs and the SaaS sandbox).
 
+use crate::native::{Signal, raise, unsupported};
+use crate::value::Value;
+
 /// The English letter of a unit and its letter in a language, for the languages and letters measured: Danish (1030) `U` for W,
 /// `Å` for Y, `L` for C, D and M unchanged (DateFormulaFormat_Std1And2_Danish: `-1U`, `-1Å`, `LM+1D`, `+LÅ-24M`); German (1031)
 /// `J` for Y, `L` for C, `T` for D, W and M unchanged (DateFormulaFormat_Std1_German: `-1W`, `-1M`, `-1J`, `LM+1T`).
@@ -174,6 +177,66 @@ pub(crate) fn evaluate(
         Ok(None) => crate::datefns::evaluate_formula(text),
         Ok(Some(english)) => crate::datefns::evaluate_formula(&english),
         Err(why) => Err(crate::native::Signal::unsupported(why)),
+    }
+}
+
+/// `CalcDate(Text, Date)` under GlobalLanguage 1030, 1031, 1036, 1044 or 1053 (assumption `calcdate-letters-by-language`,
+/// corpus PR 1428 GlobalLanguageDateFormula.al:540-702): the answer the language gives before or instead of the English
+/// reading, or `None` to keep it. `unit_error`: the English reading raised the should-include-a-time-unit error. Measured: a
+/// formula `<1X>` with X one of U, K, Å, T, J, Z raises the language's text that lists the English units; the text `1D` without
+/// brackets reads the language's letters, the next day under 1030, 1044 and 1053, the language's text that lists its own units
+/// under 1031 and 1036. Every other text without brackets that has a letter refuses; a bracketed formula keeps the English reading.
+pub(crate) fn calcdate_text(formula: &str, language: i32, unit_error: bool) -> Option<Result<Value, Signal>> {
+    if !matches!(language, 1030 | 1031 | 1036 | 1044 | 1053) || !formula.chars().any(char::is_alphabetic) {
+        return None;
+    }
+    let assume = || crate::assumptions::assume(crate::assumptions::Assumption::CalcdateLettersByLanguage);
+    if let Some(f) = formula.strip_prefix('<').and_then(|f| f.strip_suffix('>')) {
+        let measured = matches!(f, "1U" | "1K" | "1Å" | "1T" | "1J" | "1Z");
+        if !(unit_error && measured) {
+            return None;
+        }
+        assume();
+        let message = match language {
+            1030 => format!(
+                "Der skal indgå en tidsenhed i datoformlen '{f}'.\\\\Tidsenheder kan være: D,WD,W,M,Q eller Y.\\C betyder den aktuelle tidsenhed baseret på dato, kan specificeres som et præfiks for tidsenheden."
+            ),
+            1031 => format!(
+                "Die Datumsformel \u{201e}{f}\u{201c} muss eine Zeiteinheit enthalten.\\\\Mögliche Zeiteinheiten: D,WD,W,M,Q oder Y.\\C, die laufende Zeiteinheit basierend auf dem Datum, kann als Präfix der Zeiteinheit angegeben werden."
+            ),
+            1036 => format!(
+                "La formule de date \u{ab}\u{a0}{f}\u{a0}\u{bb} devrait inclure une unité de temps.\\\\Les unités de temps peuvent être\u{a0}: D,WD,W,M,Q ou Y.\\C, signifiant unité de temps actuelle basée sur la date, peut être spécifié comme préfixe de l\u{2019}unité de temps."
+            ),
+            1044 => format!(
+                "Datoformelen {f} må inneholde en tidsenhet.\\\\Tidsenheter kan være: D,WD,W,M,Q eller Y.\\C, som betyr nåværende tidsenhet basert på dato, kan angis som et prefiks til tidsenheten."
+            ),
+            _ => format!(
+                "Datumformeln '{f}' ska inkludera en tidsenhet.\\\\Tidsenheter kan vara: D,WD,W,M,Q eller Y.\\C, avser aktuell tidsenhet baserad på datum och kan anges som ett prefix till tidsenheten."
+            ),
+        };
+        return Some(raise(message, "Evaluate"));
+    }
+    if formula != "1D" {
+        return Some(unsupported(format!(
+            "CalcDate of `{formula}` without angle brackets under GlobalLanguage {language}: it reads the language's letters (not measured for this text)"
+        )));
+    }
+    assume();
+    let f = formula;
+    match language {
+        1031 => Some(raise(
+            format!(
+                "Die Datumsformel \u{201e}{f}\u{201c} muss eine Zeiteinheit enthalten.\\\\Mögliche Zeiteinheiten: T,WT,W,M,Q oder J.\\L, die laufende Zeiteinheit basierend auf dem Datum, kann als Präfix der Zeiteinheit angegeben werden."
+            ),
+            "Evaluate",
+        )),
+        1036 => Some(raise(
+            format!(
+                "La formule de date \u{ab}\u{a0}{f}\u{a0}\u{bb} devrait inclure une unité de temps.\\\\Les unités de temps peuvent être\u{a0}: J,JS,S,M,T ou A.\\F, signifiant unité de temps actuelle basée sur la date, peut être spécifié comme préfixe de l\u{2019}unité de temps."
+            ),
+            "Evaluate",
+        )),
+        _ => None,
     }
 }
 

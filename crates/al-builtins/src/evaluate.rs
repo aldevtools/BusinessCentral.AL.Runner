@@ -1422,6 +1422,36 @@ pub fn read_text(ty: &crate::value::RtType, text: &str) -> Option<Value> {
     }
 }
 
+/// `Evaluate(Date, Text)` of a text that starts with a closing-date letter under a language whose letter is measured
+/// ([`crate::format::closing_letter`], corpus PR 1428 GlobalLanguageClosingDate.al:145-249): `Some(Ok(Some(date)))` for the
+/// language's letter, `Some(Ok(None))` (false, the variable unchanged) for another language's letter. Measured only without a
+/// format number and with the result used; the statement form, a number, a case not measured and a date part that does not
+/// read refuse. `None`: the reader's own rule.
+fn closing_in_language(c: &dyn Ctx, text: &str, no_number: bool) -> Option<Result<Option<Value>, Signal>> {
+    use crate::format::ClosingLetter;
+    let read = crate::format::closing_letter(text, c.language(), true);
+    if read == ClosingLetter::ReaderRule {
+        return None;
+    }
+    let refused = |why: &str| {
+        Some(unsupported(format!(
+            "Evaluate of `{text}` into a Date under GlobalLanguage {}: {why} (not measured)",
+            c.language()
+        )))
+    };
+    if !no_number || !c.ret_used() {
+        return refused("a format number or the statement form");
+    }
+    match read {
+        ClosingLetter::Closing(rest) => match date(rest, 0, c.today_day(), c.work_date_day(), true) {
+            Ok(Parsed::Value(Value::Date(d, false))) if d > 0 => Some(Ok(Some(Value::Date(d, true)))),
+            _ => refused("a closing date whose date part does not read"),
+        },
+        ClosingLetter::OtherLanguage => Some(Ok(None)),
+        _ => refused("this case of the letter"),
+    }
+}
+
 /// A text of ASCII letters, digits and `-./` with letters, read with number 0, 9 or none: its failed Evaluate statement into a
 /// Date raises the Date-format error (types/date-time/Evaluate.al:188-197 Date_Evaluate_Raises `abc` with no number;
 /// types/P130EvaluateDate.al UN_Evaluate_Statement_NotADate_ByTarget on writer UN's corpus branch,
@@ -2234,6 +2264,17 @@ fn evaluate_with_max(
             return unsupported("Evaluate into a JsonArray with a format number (not pinned)");
         }
         return crate::json::evaluate_array(c, &mut a[0], &text);
+    }
+    if matches!(&a[0], Value::Date(..))
+        && let Some(read) = closing_in_language(c, &text, a.len() == 2)
+    {
+        return read.map(|v| match v {
+            Some(d) => {
+                a[0] = d;
+                Value::Boolean(true)
+            }
+            None => Value::Boolean(false),
+        });
     }
     let parsed = match &a[0] {
         Value::Text(_) | Value::Code(_) => text_or_code(c, &a[0], &text, number, max)?,

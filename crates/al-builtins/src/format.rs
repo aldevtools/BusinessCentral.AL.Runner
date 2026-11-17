@@ -1345,6 +1345,50 @@ pub(crate) fn closing_mark(standard: Option<i32>, lang: i32) -> Result<&'static 
     Ok(letter)
 }
 
+/// How a reader of a date text (`Evaluate` into a Date, a Date filter of `Record.SetFilter`) takes a leading closing-date letter.
+#[derive(Debug, PartialEq)]
+pub(crate) enum ClosingLetter<'a> {
+    /// The text starts with the letter of the language and a digit: the closing date of the date `rest` gives.
+    Closing(&'a str),
+    /// The text starts with the letter of another measured language and a digit: no date.
+    OtherLanguage,
+    /// The text starts with a letter and a digit in a case the probe did not measure.
+    NotMeasured,
+    /// No leading letter and digit, or a language whose reading was not measured: the reader keeps its own rule.
+    ReaderRule,
+}
+
+/// The closing-date letter a reader takes under GlobalLanguage `lang`, the letter [`closing_mark`] writes. Measured
+/// (assumption `closing-date-letter-by-language`, corpus PR 1428 GlobalLanguageClosingDate.al:145-249 for Evaluate,
+/// FilterGlobalLanguageDateBool.al:229-370 for a Date filter): under 1030, 1031, 1036, 1044 and 1053 only the letter of the
+/// language reads, C, U or S of another language does not. Evaluate measured upper and lower case C and U and upper case S
+/// (`lower_case` true); a filter measured upper case only. English (pinned, types/date-time/P143Date_FieldRef.al:89-113) and
+/// every other language keep the reader's rule.
+pub(crate) fn closing_letter(text: &str, lang: i32, lower_case: bool) -> ClosingLetter<'_> {
+    let own = match lang {
+        1030 | 1031 | 1044 => 'U',
+        1053 => 'S',
+        1036 => 'C',
+        _ => return ClosingLetter::ReaderRule,
+    };
+    let mut chars = text.chars();
+    let (Some(first), Some(second)) = (chars.next(), chars.next()) else {
+        return ClosingLetter::ReaderRule;
+    };
+    if !second.is_ascii_digit() || !matches!(first.to_ascii_uppercase(), 'C' | 'U' | 'S') {
+        return ClosingLetter::ReaderRule;
+    }
+    if first.is_ascii_lowercase() && !(lower_case && matches!(first, 'c' | 'u')) {
+        return ClosingLetter::NotMeasured;
+    }
+    crate::assumptions::assume(crate::assumptions::Assumption::ClosingDateLetterByLanguage);
+    if first.to_ascii_uppercase() == own {
+        ClosingLetter::Closing(&text[1..])
+    } else {
+        ClosingLetter::OtherLanguage
+    }
+}
+
 /// The standard formats of a Date, en-US (types/TestFormatEvaluateTextContracts.al:Format_Date_StandardFormats):
 /// 0 and 1 `mm/dd/yy`, 2 `mmddyyD`, 3 `yy/mm/dd`, 4 `March 5, 2024`, 5 `mmddyy`, 6 `yymmdd`,
 /// 7 `Mar 5, 2024`, 9 `yyyy-mm-dd`. Number 8 does not exist

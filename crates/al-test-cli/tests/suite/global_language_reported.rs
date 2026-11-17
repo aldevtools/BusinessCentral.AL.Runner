@@ -6,7 +6,7 @@ use al_testkit::{blocked, compile};
 use al_testrun::isolation::TestIsolation;
 
 /// Each test of codeunit `T` in `src`: its outcome (debug form) and the assumptions it ran through.
-fn run(src: &str) -> Vec<(String, String, Vec<Assumption>)> {
+pub(super) fn run(src: &str) -> Vec<(String, String, Vec<Assumption>)> {
     let l = compile(src);
     let b = blocked(&l);
     let engine = al_vm::Engine::new(l.program.clone(), b);
@@ -42,7 +42,7 @@ fn run(src: &str) -> Vec<(String, String, Vec<Assumption>)> {
 }
 
 /// One test body per procedure, in a test codeunit named T.
-fn tests(bodies: &[(&str, &str)]) -> Vec<(String, String, Vec<Assumption>)> {
+pub(super) fn tests(bodies: &[(&str, &str)]) -> Vec<(String, String, Vec<Assumption>)> {
     let mut src = String::from("codeunit 51700 T\n{\n    Subtype = Test;\n");
     for (name, body) in bodies {
         src += &format!("    [Test]\n    procedure {name}()\n    {body}\n");
@@ -51,7 +51,7 @@ fn tests(bodies: &[(&str, &str)]) -> Vec<(String, String, Vec<Assumption>)> {
     run(&src)
 }
 
-fn get<'a>(o: &'a [(String, String, Vec<Assumption>)], name: &str) -> (&'a str, &'a [Assumption]) {
+pub(super) fn get<'a>(o: &'a [(String, String, Vec<Assumption>)], name: &str) -> (&'a str, &'a [Assumption]) {
     o.iter()
         .find(|(n, ..)| n == name)
         .map(|(_, o, h)| (o.as_str(), h.as_slice()))
@@ -59,7 +59,7 @@ fn get<'a>(o: &'a [(String, String, Vec<Assumption>)], name: &str) -> (&'a str, 
 }
 
 /// The test failed with exactly the reporter's `V:[...]` text and ran through `flag` (or through no entry).
-fn reports(o: &[(String, String, Vec<Assumption>)], name: &str, value: &str, flag: Option<Assumption>) {
+pub(super) fn reports(o: &[(String, String, Vec<Assumption>)], name: &str, value: &str, flag: Option<Assumption>) {
     let (out, hits) = get(o, name);
     assert!(
         out.starts_with("Fail") && out.contains(format!("{:?}", format!("V:[{value}]")).trim_matches('"')),
@@ -71,7 +71,7 @@ fn reports(o: &[(String, String, Vec<Assumption>)], name: &str, value: &str, fla
     }
 }
 
-fn refused(o: &[(String, String, Vec<Assumption>)], name: &str) {
+pub(super) fn refused(o: &[(String, String, Vec<Assumption>)], name: &str) {
     let (out, _) = get(o, name);
     assert!(out.starts_with("NotRun"), "{name}: {out}");
 }
@@ -295,11 +295,13 @@ fn date_formula_letters_measured_by_the_reporter() {
     ];
     let mut bodies: Vec<(&str, &str)> = cells.iter().map(|(n, b, _)| (*n, b.as_str())).collect();
     let (n1, n2) = (ev(1031, "LM+1T"), ev(1030, "2K+1D"));
-    let n3 = "var D: Date; begin GlobalLanguage(1030); D := CalcDate('<1U>', DMY2Date(15, 3, 2024)); end;".to_string();
+    // A single local letter in brackets is measured since (global_language_probe.rs); two terms are not.
+    let n3 =
+        "var D: Date; begin GlobalLanguage(1030); D := CalcDate('<1U+1K>', DMY2Date(15, 3, 2024)); end;".to_string();
     bodies.extend([
         ("OtherGermanText", n1.as_str()),
         ("OtherDanishText", n2.as_str()),
-        ("DanishCalcDateError", n3.as_str()),
+        ("DanishCalcDateTwoTerms", n3.as_str()),
     ]);
     let o = tests(&bodies);
     for (n, _, v) in &cells {
@@ -307,11 +309,11 @@ fn date_formula_letters_measured_by_the_reporter() {
     }
     refused(&o, "OtherGermanText");
     refused(&o, "OtherDanishText");
-    refused(&o, "DanishCalcDateError");
+    refused(&o, "DanishCalcDateTwoTerms");
 }
 
 // al-runner issue 8197: the reporter's repro, its objects unchanged; the Danish date filter text and the Enum shape stay refused.
-const FILTER_OBJECTS: &str = r#"
+pub(super) const FILTER_OBJECTS: &str = r#"
 enum 58320 "Ref Color" { value(0; Red) { } value(1; Green) { } value(2; Blue) { } }
 
 table 58320 "Ref Row"

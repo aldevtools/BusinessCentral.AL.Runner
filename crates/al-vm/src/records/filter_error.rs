@@ -34,6 +34,50 @@ impl Session {
         }))
     }
 
+    /// The date-format error of `Record.SetFilter` on field `pos` with `text` and `arg_count` arguments, whose value `bad` no Date
+    /// filter reads, under GlobalLanguage 1030, 1036, 1044 or 1053 (assumption `date-filter-error-by-language`, corpus PR 1428
+    /// FilterGlobalLanguageDateBool.al:169-370, texts as measured). Measured: Record.SetFilter in AL code, no placeholder
+    /// argument, the value alone or followed by `..`. Every other caller, shape and language refuses.
+    pub(crate) fn date_filter_error_by_language(
+        &self,
+        from_al: bool,
+        t: &TableDef,
+        pos: usize,
+        text: &str,
+        bad: &str,
+        arg_count: usize,
+    ) -> Signal {
+        let shown = text.trim();
+        let measured_shape = from_al && arg_count == 2 && (shown == bad || shown.strip_suffix("..") == Some(bad));
+        let (field, table) = (self.field_caption(t, pos), self.caption(t));
+        let message = match self.global_language {
+            1030 if measured_shape => format!(
+                "Filteret \"{shown}\" er ikke gyldigt for feltet {field} i tabellen {table}. Formatet for Date '{bad}' stemmer ikke overens med enhedens datoindstillinger.\\\\Kontroller, at dagen, måneden og året er i den rigtige rækkefølge, og brug den korrekte separator (f.eks. - eller /). Du kan også altid bruge formatet 'åååå-mm-dd'."
+            ),
+            1036 if measured_shape => format!(
+                "Le filtre \u{ab}\u{a0}{shown}\u{a0}\u{bb} n'est pas valide pour le champ {field} de la table {table}. Le format de Date \u{ab}\u{a0}{bad}\u{a0}\u{bb} ne correspond pas aux paramètres de date de votre appareil.\\\\Assurez-vous que le jour, le mois et l'année sont dans le bon ordre et utilisez le séparateur correct (par exemple, - ou /). Sinon, vous pouvez également utiliser le format \u{ab}\u{a0}aaaa-mm-jj\u{a0}\u{bb}."
+            ),
+            1044 if measured_shape => format!(
+                "Filteret {shown} er ikke gyldig for feltet {field} i tabellen {table}. Formatet på Date {bad} samsvarer ikke med enhetens datoinnstillinger.\\\\Kontroller at dagen, måneden og året er i riktig rekkefølge, og at du bruker riktig skilletegn (for eksempel - eller /). Alternativt kan du alltids bruke formatet åååå-mm-dd."
+            ),
+            1053 if measured_shape => format!(
+                "Filtret {shown} är inte giltigt för fältet {field} i tabellen {table}. Formatet på Date \"{bad}\" stämmer inte överens med enhetens datuminställningar.\\\\Kontrollera att dag, månad och år är i rätt ordning och har rätt avgränsare (som \u{2013} eller /). Alternativt kan du alltid använda formatet \"åååå\u{2013}mm\u{2013}dd\"."
+            ),
+            lang => {
+                return Signal::unsupported(format!(
+                    "SetFilter: the Date filter error for `{shown}` under GlobalLanguage {lang} (not measured for this shape or language)"
+                ));
+            }
+        };
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DateFilterErrorByLanguage);
+        Signal::Error(Box::new(AlError {
+            message,
+            code: "Filter:CSide".into(),
+            call_stack: String::new(),
+            ..Default::default()
+        }))
+    }
+
     /// The error of a Text filter text `Record.SetFilter` and `FieldRef.SetFilter` reject in an English session
     /// (`al_builtins::filter::set_filter_text_error`, record/crud/RcAFilters.al:654-658).
     pub(crate) fn check_set_filter_text(
