@@ -4,6 +4,8 @@ use super::written::{
     self, ReachFacts, ReachIndex, reach_facts, remainder_reach_facts, settled_flags, unfinished_reach_facts,
 };
 use super::*;
+// What a reader of a table a skipped install holds on assumption gets (`blocked.rs` `Assumed`).
+use super::Assumed::{Marked, Refused};
 
 /// Outcomes of every `[Test]` procedure of test codeunit `object`, in order.
 pub fn run_codeunit(engine: &Arc<Engine>, lowered: &Lowered, object: usize) -> Vec<(String, Outcome)> {
@@ -588,7 +590,7 @@ fn run_codeunit_inner(
             let hits = session.store_mut().watch_hits();
             scratch.leak_hit |= !leak.is_disjoint(&hits);
             session.store_mut().watch(Default::default());
-            if let Some((_, why)) = skipped_install_hit(&skipped_installs, &hits, Assumed::Refused) {
+            if let Some((_, why)) = skipped_install_hit(&skipped_installs, &hits, Refused) {
                 return Err(on_run_refused(format!("OnRun: {why}")));
             }
             (partner.after_on_run(&hits, lowered)).map_err(|why| on_run_refused(format!("OnRun: {why}")))?;
@@ -625,9 +627,7 @@ fn run_codeunit_inner(
                         ))));
                     }
                     // The error may come from install data this run does not have: it is not trusted.
-                    if let Some(why) =
-                        skipped_install_touching(&skipped_installs, lowered, object, on_run, Assumed::Refused)
-                    {
+                    if let Some(why) = skipped_install_touching(&skipped_installs, lowered, object, on_run, Refused) {
                         return Err(on_run_refused(format!(
                             "OnRun failed after install code that did not run: {why}"
                         )));
@@ -773,9 +773,7 @@ fn run_codeunit_inner(
             } else if let Some(b) = blocked_site(lowered, object, r) {
                 refused_in = Some((b.object, b.routine));
                 Outcome::NotRun(b.text)
-            } else if let Some(reason) =
-                skipped_install_touching(&skipped_installs, lowered, object, r, Assumed::Marked)
-            {
+            } else if let Some(reason) = skipped_install_touching(&skipped_installs, lowered, object, r, Marked) {
                 Outcome::NotRun(reason.clone())
             } else if let Some(reason) = company_open_refuses(r) {
                 Outcome::NotRun(reason)
@@ -1098,7 +1096,7 @@ fn run_codeunit_inner(
             // variables do not show (a RecordRef): not run, as the static check does for a record variable (al-runner
             // issue 8115, scenario s03b).
             let skipped_hit = began
-                .then(|| skipped_install_hit(&skipped_installs, &touched, Assumed::Marked))
+                .then(|| skipped_install_hit(&skipped_installs, &touched, Marked))
                 .flatten();
             let outcome = match (hit.and_then(|t| company_open.touched(t, lowered)))
                 .or_else(|| skipped_hit.map(|(_, why)| why.clone()))
