@@ -226,7 +226,7 @@ pub(crate) fn raise(
             "{who} ran before the first test and changed {what}, which this test codeunit can read and which is not a row the run can watch: what BC leaves there is not pinned"
         ));
     }
-    if let Some(what) = unmeasured_single(lowered, step, &change.singles) {
+    if let Some(what) = unmeasured_single(lowered, session, step, &change.singles) {
         return Err(format!(
             "{who} ran before the first test and changed {what}: what BC leaves there is not pinned"
         ));
@@ -236,10 +236,18 @@ pub(crate) fn raise(
     Ok(())
 }
 
-/// Of the SingleInstance codeunits whose state the step changed (`singles`), the first one outside the measured shape, for
-/// a reason text. The pin (PlXaLoginSingles.al:12-27, the subscriber at :56-62): the step has one subscriber, it changes one
-/// SingleInstance codeunit of its own app, and that codeunit's globals are two Integers, one List of [Text] and one Text.
-fn unmeasured_single(lowered: &Lowered, step: &Step, singles: &std::collections::BTreeSet<usize>) -> Option<String> {
+/// Of the SingleInstance codeunits whose state the step changed (`singles`), the first one outside the measured shape that
+/// the session's test codeunit can read, for a reason text. The pin (PlXaLoginSingles.al:12-27, the subscriber at :56-62):
+/// the step has one subscriber, it changes one SingleInstance codeunit of its own app, and that codeunit's globals are two
+/// Integers, one List of [Text] and one Text. A codeunit outside that shape that no global read of the test codeunit's
+/// static reach reaches cannot change what its tests see, so it does not refuse the codeunit (al-runner issue 8239):
+/// [`unmeasured_seen`].
+fn unmeasured_single(
+    lowered: &Lowered,
+    session: &Session,
+    step: &Step,
+    singles: &std::collections::BTreeSet<usize>,
+) -> Option<String> {
     use al_builtins::value::RtType;
     let objs = &lowered.program.objects;
     let measured = |o: usize| {
@@ -254,11 +262,28 @@ fn unmeasured_single(lowered: &Lowered, step: &Step, singles: &std::collections:
             && singles.len() == 1
             && shape == (4, 2, 1, 1)
     };
-    let o = singles.iter().copied().find(|&o| !measured(o))?;
+    let unmeasured: Vec<usize> = singles.iter().copied().filter(|&o| !measured(o)).collect();
+    let o = unmeasured_seen(lowered, session, &unmeasured)?;
     Some(format!(
         "SingleInstance codeunit {}, which is not the one codeunit of the one subscriber's app with the measured globals (two Integer, a List of [Text], a Text)",
         objs[o].name
     ))
+}
+
+/// Of `unmeasured`, the first SingleInstance codeunit a global read of the session's test codeunit's static reach reaches
+/// (`JoinedReach::reads_a_global_of`). Every one counts when part of that reach is not known or the session has no test
+/// codeunit, as in [`seen_by_test`].
+fn unmeasured_seen(lowered: &Lowered, session: &Session, unmeasured: &[usize]) -> Option<usize> {
+    let first = *unmeasured.first()?;
+    let Some(test) = session.test_object else {
+        return Some(first);
+    };
+    crate::login::ask_test_reach(&session.engine, lowered, test, |mine| {
+        if mine.unknown().is_some() {
+            return Some(first);
+        }
+        unmeasured.iter().copied().find(|&o| mine.reads_a_global_of(o))
+    })
 }
 
 /// One kind of session state other than rows that the partner subscribers changed ([`seen_by_test`]).
