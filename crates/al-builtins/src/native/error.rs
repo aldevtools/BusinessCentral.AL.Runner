@@ -116,6 +116,15 @@ pub(crate) fn date_invalid<T>() -> Result<T, Signal> {
     raise("The date is not valid.", "DateInvalid")
 }
 
+/// Raises "The operation cannot be performed on a closing date value." (code ClosingDateOperation; the text and code of a
+/// for loop over a closing date, language/ControlFlow.al:607). Each caller cites the pin of its raise site.
+pub fn closing_date_operation<T>() -> Result<T, Signal> {
+    raise(
+        "The operation cannot be performed on a closing date value.",
+        "ClosingDateOperation",
+    )
+}
+
 /// Raises an AL error with a pinned text and code.
 pub fn raise<T>(message: impl Into<String>, code: &str) -> Result<T, Signal> {
     // A division by zero carries no customer content: the flag leaves its text (P86LastError.al:RuntimeError_Other `div_excl`).

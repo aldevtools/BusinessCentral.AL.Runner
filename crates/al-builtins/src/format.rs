@@ -1318,6 +1318,28 @@ const MONTHS_ES_SHORT: [&str; 12] = [
     "ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sept", "oct", "nov", "dic",
 ];
 
+/// The letter that marks a closing date in standard formats 0, 1 and 2 (format 9 shows none). English `C` is pinned
+/// (types/date-time/Format.al:172-175). Under another language only standard format 0 is measured: `U` under 1030, 1031 and
+/// 1044, `S` under 1053, `C` under 1036 (assumption `closing-date-letter-by-language`, al-runner issue 8178); every other
+/// language and format refuses.
+fn closing_mark(standard: i32, lang: i32) -> Result<&'static str, FormatFail> {
+    if lang == 1033 || standard == 9 {
+        return Ok("C");
+    }
+    let letter = match lang {
+        1030 | 1031 | 1044 if standard == 0 => "U",
+        1053 if standard == 0 => "S",
+        1036 if standard == 0 => "C",
+        _ => {
+            return Err(FormatFail::Unsupported(format!(
+                "Format of a closing date with standard format {standard} under GlobalLanguage {lang} (the letter is not measured)"
+            )));
+        }
+    };
+    crate::assumptions::assume(crate::assumptions::Assumption::ClosingDateLetterByLanguage);
+    Ok(letter)
+}
+
 /// The standard formats of a Date, en-US (types/TestFormatEvaluateTextContracts.al:Format_Date_StandardFormats):
 /// 0 and 1 `mm/dd/yy`, 2 `mmddyyD`, 3 `yy/mm/dd`, 4 `March 5, 2024`, 5 `mmddyy`, 6 `yymmdd`,
 /// 7 `Mar 5, 2024`, 9 `yyyy-mm-dd`. Number 8 does not exist
@@ -1326,10 +1348,10 @@ const MONTHS_ES_SHORT: [&str; 12] = [
 fn format_date(day: i32, closing: bool, standard: i32, lang: i32) -> Result<String, FormatFail> {
     let (y, m, d) = civil_from_day(day);
     let yy = y.rem_euclid(100);
-    let c = if closing { "C" } else { "" };
     if closing && !matches!(standard, 0 | 1 | 2 | 9) {
         return Err(format!("Format of a closing date with standard format {standard} (not pinned)").into());
     }
+    let c = if closing { closing_mark(standard, lang)? } else { "" };
     // The month names of formats 4 and 7 follow the language: English, German, French and Spanish are pinned for every month
     // (format-evaluate/AxLanguageFormats.al:52-132; P142ToTextLang.al:109,117). Another language is refused.
     let month = match (lang, standard) {

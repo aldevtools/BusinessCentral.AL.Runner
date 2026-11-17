@@ -1221,6 +1221,16 @@ fn apply(terms: &[Term], from: i32) -> Result<Applied, Signal> {
 }
 
 fn calcdate(ctx: &dyn Ctx, formula: &str, base: Option<&Value>, overload: range::Overload) -> Out {
+    // BC raises the time-unit error in the session language (al-runner issue 8200: Danish and German texts measured); only the
+    // English text is pinned, and the line breaks of the others are not, so it refuses under another language.
+    if ctx.language() != 1033
+        && let Some(english) = time_unit_error(formula)
+    {
+        return unsupported(format!(
+            "CalcDate's error under GlobalLanguage {}: {english} (the text of that language is not pinned)",
+            ctx.language()
+        ));
+    }
     let terms = parse_formula(formula)?;
     // Without a date the calculation counts from TODAY, not from WorkDate (types/
     // TestDateTimeIntegerCalcDateContracts.al:CalcDateWithoutADate_UsesToday_NotWorkDate).

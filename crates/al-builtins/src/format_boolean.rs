@@ -25,6 +25,17 @@ pub(crate) fn boolean_text(b: bool, standard: i32, language: i32) -> Result<Stri
                 "Format of false under GlobalLanguage 1034 (only the word for true is pinned)".into(),
             ));
         }
+        // Norwegian and Swedish true is `Ja`; their word for false is not measured (assumption
+        // `boolean-words-norwegian-swedish`, al-runner issue 8182).
+        (_, true) if matches!(language, 1044 | 1053) => {
+            crate::assumptions::assume(crate::assumptions::Assumption::BooleanWordsNorwegianSwedish);
+            "Ja".into()
+        }
+        (_, false) if matches!(language, 1044 | 1053) => {
+            return Err(FormatFail::Unsupported(format!(
+                "Format of false under GlobalLanguage {language} (only the word for true is measured)"
+            )));
+        }
         (_, true) if language == 1036 => "Oui".into(),
         (_, false) if language == 1036 => "Non".into(),
         (_, true) => "Yes".into(),

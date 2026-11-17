@@ -1,0 +1,11 @@
+BooleanWordsNorwegianSwedish => {
+    id: "boolean-words-norwegian-swedish",
+    assumed: "Under GlobalLanguage 1044 and 1053, Format(true) with standard format 0 or 1 gives Ja; Evaluate(Boolean, Text) reads Ja, true and 1 as true, false and Nei (1044) or Nej (1053) as false (any case, blanks around dropped), and rejects Yes. Format(false) and every other text refuse.",
+    tests: "Outside reporter's measurement on BC 28.4 W1, en-US region (al-runner issue 8182): Format(true) and Format(true, 6) give Ja / `Ja    `; Evaluate of Ja, Nei (1044), Nej (1053) succeeds; Evaluate of Yes fails; true, false and 1 read in all five measured languages.",
+    probe: "Corpus probe branch al-runtime-rs-staging-globallanguage-1117 (TODO: probe PR number): Format(true), Format(false), Evaluate of Ja, Nei, Nej, Yes, No, true, false, 1, 0, N, Y under 1044 and 1053.",
+    awaiting: Awaiting {
+        issues: &[8182],
+        files: &[],
+        since: "2026-11-17",
+    },
+}

@@ -3,7 +3,7 @@
 
 use crate::describe::Describe;
 use crate::native::raise;
-use crate::native::{Signal, date_invalid, unsupported};
+use crate::native::{Signal, closing_date_operation, date_invalid, unsupported};
 use crate::value::{LibraryValue, RtType, Value};
 use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
@@ -1101,6 +1101,17 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
         (V::DateTime(a), V::DateTime(b)) if op == Arith::Sub => return datetime_difference(*a, *b),
         // An undefined date has no difference, and the whole range is too wide a difference (types/date-time/
         // Arithmetic.al:Date_Plus_Minus_Integer `af30`, `af32`, `af34`).
+        // A closing date minus a defined, non-closing date raises (assumption `closing-date-minus-date-raises`, al-runner issue
+        // 8199); the other subtractions with a closing date are not measured.
+        (V::Date(a, true), V::Date(b, false)) if op == Arith::Sub && *a > 0 && *b > 0 => {
+            crate::assumptions::assume(crate::assumptions::Assumption::ClosingDateMinusDateRaises);
+            return closing_date_operation();
+        }
+        (V::Date(_, ca), V::Date(_, cb)) if op == Arith::Sub && (*ca || *cb) => {
+            return Err(Signal::unsupported(
+                "a subtraction of Dates with a closing date other than a closing date minus a defined date (not measured)",
+            ));
+        }
         (V::Date(a, _), V::Date(b, _)) if op == Arith::Sub => {
             if *a == 0 || *b == 0 || (a - b).abs() >= 3_652_058 {
                 return undefined_date_difference(*a, *b);

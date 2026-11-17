@@ -45,13 +45,17 @@ pub(crate) enum EvaluateWord {
     NotPinned,
 }
 
-/// `Evaluate(Boolean, Text)` under GlobalLanguage 1030, 1031, 1036, 1043 or 2067 (`None` for another language), with blanks
+/// `Evaluate(Boolean, Text)` under GlobalLanguage 1030, 1031, 1036, 1043 or 2067, and 1044 or 1053 as measured
+/// ([`norwegian_swedish_word`]) (`None` for another language), with blanks
 /// around the text dropped and any case (format-evaluate/EvalLanguageBoolean.al EL_Words_*, EL_Errors_*, the same on the
 /// three supported majors). The language's own words are `Ja`/`Nein` (1031), `Oui`/`Non` and `No` (1036), `Ja`/`Nej` (1030)
 /// and `Ja`/`Nee` (1043, 2067); `true`, `false`, `1`, `0` and `N` (false) read in all of them. `Y`, `Yes`, and the words of
 /// the other languages are rejected, except `No`, which French reads as false. Texts outside that list are not pinned,
 /// except the German ones errors/WcUnpinnedSingles.al:79-113 pins (`vielleicht`, `Wahr`, `Falsch`, `x`).
 pub(crate) fn evaluate_boolean_word(language: i32, text: &str) -> Option<EvaluateWord> {
+    if matches!(language, 1044 | 1053) {
+        return Some(norwegian_swedish_word(language, text));
+    }
     let (yes, no): (&[&str], &[&str]) = match language {
         1031 => (&["ja"], &["nein"]),
         1036 => (&["oui"], &["non", "no"]),
@@ -74,6 +78,26 @@ pub(crate) fn evaluate_boolean_word(language: i32, text: &str) -> Option<Evaluat
     } else {
         EvaluateWord::NotPinned
     })
+}
+
+/// `Evaluate(Boolean, Text)` under 1044 and 1053: only the texts the reporter of al-runner issue 8182 measured (assumption
+/// `boolean-words-norwegian-swedish`): `Ja`, `true` and `1` are true, `false` and the language's own `Nei` (1044) or `Nej` (1053)
+/// false, `Yes` is rejected. Every other text is not measured.
+fn norwegian_swedish_word(language: i32, text: &str) -> EvaluateWord {
+    let word = text.trim_matches(' ').to_lowercase();
+    let no = if language == 1044 { "nei" } else { "nej" };
+    let w = word.as_str();
+    let read = if matches!(w, "ja" | "true" | "1") {
+        EvaluateWord::Value(true)
+    } else if w == "false" || w == no {
+        EvaluateWord::Value(false)
+    } else if w == "yes" {
+        EvaluateWord::Rejected
+    } else {
+        return EvaluateWord::NotPinned;
+    };
+    crate::assumptions::assume(crate::assumptions::Assumption::BooleanWordsNorwegianSwedish);
+    read
 }
 
 #[cfg(test)]

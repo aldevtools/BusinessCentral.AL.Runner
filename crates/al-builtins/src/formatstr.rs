@@ -1145,6 +1145,12 @@ fn code(v: &Value, code: &str, numeric: Option<&Numeric>, ctx: &dyn FormatCtx) -
     }
     if code == "Closing" {
         return match day_no {
+            // English `C` (types/date-time/Format.al:172-175); the letter of another language is measured for standard format 0
+            // only (`format::closing_mark`), not for this code.
+            Some(_) if closing && ctx.language() != 1033 => Err(format!(
+                "code `<Closing>` of a closing date under GlobalLanguage {} (the letter is not measured)",
+                ctx.language()
+            )),
             Some(_) => Ok(if closing { "C".into() } else { String::new() }),
             None => Err(format!("code `<Closing>` on {}", v.describe())),
         };
@@ -1168,6 +1174,17 @@ fn code(v: &Value, code: &str, numeric: Option<&Numeric>, ctx: &dyn FormatCtx) -
                 // reports/runtime/ReportLanguageNotRunFormats.al:242).
                 if ctx.language() == 2067 {
                     return Err(format!("{base},{w} in the language 2067 (not pinned)"));
+                }
+                let weekday = (day_no.unwrap_or(1) - 1).rem_euclid(7);
+                if date
+                    .and_then(|(_, m, _)| reported_name(base, m, weekday, ctx.language()))
+                    .is_some()
+                    && !reported_width(base, w)
+                {
+                    return Err(format!(
+                        "{base},{w} in the language {} (the width is not measured)",
+                        ctx.language()
+                    ));
                 }
                 let name = code_name(base, date, day_no, ctx.language(), ctx.dutch_report_language())?;
                 if w == 0 {
@@ -1474,6 +1491,31 @@ fn iso_week(day: i32) -> i32 {
     (thursday - crate::format::day_from_civil(y, 1, 1)) / 7 + 1
 }
 
+/// The month and weekday names the reporter of al-runner issue 8183 measured (assumption `month-weekday-names-by-language`):
+/// March and August under 1030, 1036, 1044 and 1053, Friday and Tuesday under those and 1031. `weekday` counts from Monday = 0.
+fn reported_name(base: &str, month: u32, weekday: i32, language: i32) -> Option<&'static str> {
+    Some(match (base, language, month, weekday) {
+        ("Month Text", 1030, 3, _) => "marts",
+        ("Month Text", 1036 | 1044 | 1053, 3, _) => "mars",
+        ("Month Text", 1030 | 1044, 8, _) => "august",
+        ("Month Text", 1036, 8, _) => "août",
+        ("Month Text", 1053, 8, _) => "augusti",
+        ("Weekday Text", 1030 | 1044 | 1053, _, 4) => "fredag",
+        ("Weekday Text", 1036, _, 4) => "vendredi",
+        ("Weekday Text", 1031, _, 4) => "Freitag",
+        ("Weekday Text", 1030 | 1044, _, 1) => "tirsdag",
+        ("Weekday Text", 1053, _, 1) => "tisdag",
+        ("Weekday Text", 1036, _, 1) => "mardi",
+        ("Weekday Text", 1031, _, 1) => "Dienstag",
+        _ => return None,
+    })
+}
+
+/// The widths measured for [`reported_name`]: none (or 0), 3 for a month, 2 for a weekday.
+fn reported_width(base: &str, width: usize) -> bool {
+    width == 0 || width == if base == "Month Text" { 3 } else { 2 }
+}
+
 /// The name `<Month Text>` or `<Weekday Text>` shows.
 /// `dutch`: the language 2067 was set by `CurrReport.Language` in a running report (`FormatCtx::dutch_report_language`).
 fn code_name(
@@ -1483,12 +1525,16 @@ fn code_name(
     language: i32,
     dutch: bool,
 ) -> Result<String, String> {
+    let weekday = (day_no.unwrap_or(1) - 1).rem_euclid(7);
+    if let Some(name) = date.and_then(|(_, m, _)| reported_name(base, m, weekday, language)) {
+        crate::assumptions::assume(crate::assumptions::Assumption::MonthWeekdayNamesByLanguage);
+        return Ok(name.to_string());
+    }
     // The month names follow `GlobalLanguage`: German is pinned (metadata/platform-tables/PlTSession.al:
     // GlobalLanguage_SetAndRestore, `März`); Dutch only as a report's language (below); another language is not.
     if !(matches!(language, 1033 | 1031) || language == 2067 && dutch) {
         return Err(format!("{base} in the language {language} (not pinned)"));
     }
-    let weekday = (day_no.unwrap_or(1) - 1).rem_euclid(7);
     Ok(match (base, date) {
         // Dutch (Belgium): December `december` and Wednesday `woensdag` are pinned (reports/runtime/
         // ReportLanguageNotRunFormats.al:242 `mw=december woensdag`); the other months and days are not.

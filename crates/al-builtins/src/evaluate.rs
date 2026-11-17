@@ -2311,19 +2311,21 @@ fn evaluate_with_max(
         // false (format-evaluate/Y71EvaluateDashedDates.al FilterTokens_MakeDateFilter_OperatorTexts, corpus PR 1247; System
         // Application Filter Tokens Impl.ResolveDateFilterToken). The statement form is not pinned.
         Value::DateFormula(_) if c.ret_used() && date_forms::operator_before_slashed_date(&text) => Parsed::Rejected,
-        Value::DateFormula(_) => match crate::date_formula_language::evaluate(&text, c.language())? {
-            crate::datefns::Evaluated::Stored(f) => Parsed::Value(Value::DateFormula(f)),
-            // A statement form raises the formula's error (types/date-time/DateFormulaEdges.al:SignsAndDigits_ErrorTexts).
-            crate::datefns::Evaluated::Rejected(Some(m)) if !c.ret_used() => {
-                return crate::native::raise(m, "Evaluate");
+        Value::DateFormula(_) => {
+            match crate::date_formula_language::evaluate(&text, c.language(), number, c.ret_used())? {
+                crate::datefns::Evaluated::Stored(f) => Parsed::Value(Value::DateFormula(f)),
+                // A statement form raises the formula's error (types/date-time/DateFormulaEdges.al:SignsAndDigits_ErrorTexts).
+                crate::datefns::Evaluated::Rejected(Some(m)) if !c.ret_used() => {
+                    return crate::native::raise(m, "Evaluate");
+                }
+                crate::datefns::Evaluated::Rejected(_) => Parsed::Rejected,
+                crate::datefns::Evaluated::Failed(m) if !c.ret_used() => return crate::native::raise(m, "Evaluate"),
+                // With the result used, both errors of this kind answer false and leave the value
+                // (types/date-time/P128CalcDateForms.al:154-169: date texts, "should include a
+                // time unit"; types/date-time/P131CalcDate.al:140,152: `<1D>+`, "should include a number").
+                crate::datefns::Evaluated::Failed(_) => Parsed::Rejected,
             }
-            crate::datefns::Evaluated::Rejected(_) => Parsed::Rejected,
-            crate::datefns::Evaluated::Failed(m) if !c.ret_used() => return crate::native::raise(m, "Evaluate"),
-            // With the result used, both errors of this kind answer false and leave the value
-            // (types/date-time/P128CalcDateForms.al:154-169: date texts, "should include a
-            // time unit"; types/date-time/P131CalcDate.al:140,152: `<1D>+`, "should include a number").
-            crate::datefns::Evaluated::Failed(_) => Parsed::Rejected,
-        },
+        }
         other => return unsupported(format!("Evaluate into {} (not pinned by the corpus)", other.describe())),
     };
     match parsed {
