@@ -56,6 +56,16 @@ pub(crate) enum ValidateSite {
 }
 
 impl Session {
+    /// The xRec handle a Validate hands its triggers and validate events: `xrec_handle` of the before-image's values, with the
+    /// image's `unpinned_buffer` reason when it has one (so a read of a running call's xRec refuses).
+    pub(crate) fn validate_xrec_handle(rec: &Rec, before: &BeforeImage) -> Rec {
+        let xrec = Self::xrec_handle(rec, before.0.clone());
+        if before.1.is_some() {
+            xrec.borrow_mut().unpinned_buffer = before.1;
+        }
+        xrec
+    }
+
     /// Validates a field of `rec` (`args`: the field's position, then the value if one is given) from the call site `site`.
     /// The site is handed to the Validate this call starts and to no other (`take_validate_site`).
     pub(crate) fn validate_at(&mut self, site: ValidateSite, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {

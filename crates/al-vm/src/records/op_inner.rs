@@ -1920,12 +1920,8 @@ impl Session {
                 if let Some(v) = new_value {
                     rec.borrow_mut().fields[pos] = v;
                 }
-                let (before, mark) = before;
-                let xrec = Self::xrec_handle(rec, before.clone());
-                if mark.is_some() {
-                    xrec.borrow_mut().unpinned_buffer = mark;
-                }
-                let outermost = outer.is_none().then_some((before, mark));
+                let xrec = Self::validate_xrec_handle(rec, &before);
+                let outermost = outer.is_none().then_some(before);
                 self.while_validating(entry, outermost, |s| s.validate_hooks(&t, rec, &xrec, field, snapshot))?;
                 if sum_flowfield {
                     self.finish_flowfield_validate(rec, &t, pos, flowfield_error, args.get(1).cloned(), old_value)?;
