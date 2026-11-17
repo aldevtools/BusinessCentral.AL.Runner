@@ -15,7 +15,6 @@
 //! replace the ones this login made (`Session::adopt_single_instances`; PlLoginSingleTests.al:109-128).
 
 use crate::login::OwnEvent;
-use al_builtins::native::Signal;
 use al_sema::lower::Lowered;
 use al_vm::Session;
 use std::collections::BTreeSet;
@@ -196,17 +195,8 @@ pub(crate) fn raise(
     let before = session.left_stamp();
     let since = session.store_mut().change_counter();
     let (po, pr) = step.publisher;
-    match session.raise_to(po, pr, &step.subscribers) {
-        Ok(()) => {}
-        Err(Signal::Unsupported(why)) => return Err(format!("{who} before the first test: {why}")),
-        Err(Signal::Error(e)) => {
-            return Err(format!(
-                "{who} failed before the first test (behaviour not pinned): {}",
-                e.message
-            ));
-        }
-        Err(_) => return Err(format!("{who} stopped before the first test (not pinned)")),
-    }
+    let ended = session.raise_to(po, pr, &step.subscribers);
+    crate::install::not_ended_before_first_test(lowered, session, who, ended)?;
     let store = session.store_mut();
     if store.virtual_write_pending() {
         return Err(format!(

@@ -189,6 +189,8 @@ fn open_company(
         return Ok(Default::default());
     };
     al_builtins::assumptions::clear_hits();
+    // A refusal of this code names where it left from (`install::not_ended_before_first_test`), not an earlier one.
+    session.clear_fault_site();
     // Base Application's login code sets WorkDate when the session opens the company (`install::login_work_date`).
     // It runs before the workspace's own Company Triggers subscribers: the order of the two is not pinned
     // (docs/probes-needed.md, WorkDate row).
@@ -202,6 +204,29 @@ fn open_company(
         session.set_work_date(shift.apply_day(day));
     }
     Ok((wrote, al_builtins::assumptions::take_hit_bits()))
+}
+
+/// `--explain` for the tests `routines` of `obj` when the code that opens the company refused the codeunit: each test shows
+/// where that code left from (`session`'s fault site), as a test refused while it ran does (al-runner issue 8142).
+fn observe_not_run<'a>(
+    observe: Option<&mut Observer>,
+    session: &Session,
+    obj: &al_ir::Object,
+    routines: impl Iterator<Item = &'a usize>,
+    why: &str,
+) {
+    let Some(observe) = observe else {
+        return;
+    };
+    let seen = Observed {
+        session,
+        error: None,
+        refused_in: None,
+    };
+    let outcome = Outcome::NotRun(why.to_string());
+    for &r in routines {
+        observe(&obj.routines[r].name, &outcome, &seen);
+    }
 }
 
 /// The tables `watched` and those of `skipped_installs` (`skipped_install_tables`), for the store's watch.
@@ -440,7 +465,16 @@ fn run_codeunit_inner(
     let opened = open_company(engine, lowered, &mut session, mode, &skipped_installs, &perturb);
     let (company_open, company_open_marks) = match opened {
         Ok(opened) => opened,
-        Err(why) => return all(Outcome::NotRun(why)),
+        Err(why) => {
+            observe_not_run(
+                observe.as_deref_mut(),
+                &session,
+                obj,
+                tests.iter().chain(&data_driven),
+                &why,
+            );
+            return all(Outcome::NotRun(why));
+        }
     };
     // SingleInstance state an earlier test codeunit left (ADR-066 amendment 2): notes from here on, and in the lane the
     // single instances of the codeunit before are moved in.

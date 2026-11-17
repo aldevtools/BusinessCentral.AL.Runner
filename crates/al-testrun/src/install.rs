@@ -1331,17 +1331,8 @@ fn open_test_session_company(
         // code it did not run (a routine refused at lowering, a run by an id known only at run time, behind a branch that
         // is not taken) wrote nothing (al-runner issue 5641). Code it ran that is not supported raises `Unsupported`.
         let since = session.store_mut().change_counter();
-        match session.call_parameterless_subscriber(o, r) {
-            Ok(()) => {}
-            Err(Signal::Unsupported(why)) => return Err(format!("{who} before the first test: {why}")),
-            Err(Signal::Error(e)) => {
-                return Err(format!(
-                    "{who} failed before the first test (behaviour not pinned): {}",
-                    e.message
-                ));
-            }
-            Err(_) => return Err(format!("{who} stopped before the first test (not pinned)")),
-        }
+        let ended = session.call_parameterless_subscriber(o, r);
+        not_ended_before_first_test(lowered, session, &who, ended)?;
         let store = session.store_mut();
         // A change to a computed (platform) table is not a stored row the watch can follow.
         if store.virtual_write_pending() {
@@ -1367,6 +1358,29 @@ fn open_test_session_company(
         None => wrote.own_login = own_wrote,
     }
     Ok(wrote)
+}
+
+/// Why the codeunit is not run when code that runs as the test session opens the company (`who`) did not end: refused by
+/// the runner, failed with an AL error, or stopped another way. A refusal's reason ends with the routine and statement it
+/// left from (`explain::site_suffix`, al-runner issue 8142); the site is recorded for a refusal only, with tracing off too.
+pub(crate) fn not_ended_before_first_test(
+    lowered: &Lowered,
+    session: &Session,
+    who: &str,
+    ended: Result<(), Signal>,
+) -> Result<(), String> {
+    match ended {
+        Ok(()) => Ok(()),
+        Err(Signal::Unsupported(why)) => Err(format!(
+            "{who} before the first test: {why}{}",
+            crate::explain::site_suffix(&lowered.program, session.refusal_site().unwrap_or_default())
+        )),
+        Err(Signal::Error(e)) => Err(format!(
+            "{who} failed before the first test (behaviour not pinned): {}",
+            e.message
+        )),
+        Err(_) => Err(format!("{who} stopped before the first test (not pinned)")),
+    }
 }
 
 /// The login events raised to the apps under test's own subscribers only (`login::Login::Own`), through the event code
@@ -1403,17 +1417,8 @@ fn own_login(
             "{} raised to the login subscribers of the apps under test",
             lowered.program.objects[po].routines[pr].name
         );
-        match session.raise_to(po, pr, &step.subscribers) {
-            Ok(()) => {}
-            Err(Signal::Unsupported(why)) => return Err(format!("{what} before the first test: {why}")),
-            Err(Signal::Error(err)) => {
-                return Err(format!(
-                    "{what} failed before the first test (behaviour not pinned): {}",
-                    err.message
-                ));
-            }
-            Err(_) => return Err(format!("{what} stopped before the first test (not pinned)")),
-        }
+        let ended = session.raise_to(po, pr, &step.subscribers);
+        not_ended_before_first_test(lowered, session, &what, ended)?;
         // On BC the registration events are raised inside Base Application's "Checklist Events" subscriber of the
         // isolated OnAfterLogin, whose own transaction commits before the app's OnAfterLogin subscribers run; an isolated
         // event isolates a subscriber only when nothing is pending (codeunits/TestIsolatedEventSubscriberError.al:5-11,

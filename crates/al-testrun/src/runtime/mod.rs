@@ -1188,6 +1188,8 @@ mod install_unknown_tests;
 mod internals_grant;
 mod lane_starts;
 #[cfg(test)]
+mod login_explain_tests;
+#[cfg(test)]
 mod login_tests;
 pub mod memory;
 #[cfg(test)]
