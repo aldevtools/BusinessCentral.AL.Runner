@@ -49,21 +49,7 @@ const COMPANY_READS: [&str; 8] = [
 /// The object id of the platform table Company (TiCompanyReadEventTests.al:26).
 const COMPANY: u32 = 2_000_000_006;
 
-/// The ten table events a write raises (lower case, as `events::Registry::subscribers` keys them).
-const TABLE_EVENTS: [&str; 10] = [
-    "onbeforeinsertevent",
-    "onafterinsertevent",
-    "onbeforemodifyevent",
-    "onaftermodifyevent",
-    "onbeforedeleteevent",
-    "onafterdeleteevent",
-    "onbeforerenameevent",
-    "onafterrenameevent",
-    "onbeforevalidateevent",
-    "onaftervalidateevent",
-];
-
-/// Of each table object, the subscribers of its events other than the ten table events (`TABLE_EVENTS`), cached on the
+/// Of each table object, the subscribers of its events other than the ten table events (`impact_trace::TABLE_EVENTS`), cached on the
 /// engine (`Engine::derived`).
 struct OtherSubscribers(std::collections::HashMap<usize, Vec<(usize, usize)>>);
 
@@ -73,7 +59,7 @@ pub(crate) fn non_table_event_subscribers(engine: &al_vm::Engine, t: usize) -> V
     let index = engine.derived(|| {
         let mut index: std::collections::HashMap<usize, Vec<(usize, usize)>> = Default::default();
         for ((p, event), list) in &engine.events.subscribers {
-            if !TABLE_EVENTS.contains(&event.as_str()) {
+            if !crate::impact_trace::TABLE_EVENTS.contains(&event.as_str()) {
                 (index.entry(*p).or_default()).extend(list.iter().map(|s| (s.object, s.routine)));
             }
         }
