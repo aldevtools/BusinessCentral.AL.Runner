@@ -526,8 +526,9 @@ impl Session {
     }
 
     /// Whether the record argument `v` of a five-argument service form is a pinned shape (GetUrlServiceClientRecord.al:
-    /// 166-182): a Record or an open RecordRef that is not temporary, with a codeunit the app compiled (:176), or with a
-    /// List page whose source table is the record's table (page "SS UrlSvc List", :36-38). A RecordRef that is not open is
+    /// 166-182): a stored Record with a codeunit the app compiled (:177), or a stored Record or open RecordRef with a
+    /// List page whose source table is the record's table (page "SS UrlSvc List", :36-38, :172-176, :181-183). A
+    /// codeunit with a RecordRef is not measured and refuses. A RecordRef that is not open is
     /// refused: its error is pinned for ClientType::Web only (PGetUrl.al:198-209).
     fn service_record_pinned(
         &mut self,
@@ -552,7 +553,9 @@ impl Session {
                 .filter(|&p| !program.objects[p].uncompiled)
         };
         if object == Some("Codeunit") {
-            return Ok(stored && compiled(al_ir::ObjKind::Codeunit).is_some());
+            // The codeunit is measured with a Record only (GetUrlServiceClientRecord.al:177); a RecordRef refuses.
+            let is_record = matches!(v, Some(Value::Record(..)));
+            return Ok(is_record && stored && compiled(al_ir::ObjKind::Codeunit).is_some());
         }
         let list_page = compiled(al_ir::ObjKind::Page)
             .filter(|&p| self.engine.object_facts[p].page_type == Some(al_ir::PageType::List));

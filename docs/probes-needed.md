@@ -814,7 +814,7 @@ No probe is written yet, so every shape below is REFUSED.
   (session-system/session/GetUrlServiceClientRecord.al:36-38, :176; al-language-onprem
   session-system/server-system-functions/PGetUrl.al:198-209): a List page whose
   source table is the record's table, and a compiled codeunit. Cells: ClientType::Api and ODataV4 for an API page;
-  a Card page; an unknown codeunit id; a RecordRef that is not open, for each service client type; the same with 4
+  a Card page; an unknown codeunit id; a RecordRef that is not open, for each service client type; a codeunit with an open RecordRef (the corpus runs the codeunit with a Record only, :177); the same with 4
   and 6 arguments.
 - **Guarded Codeunit.Run with a record argument that leaves a mark: REFUSED, probe wanted.** Pinned
   (errors/ConsistentGuardedRun.al): `Codeunit.Run(Id)` without a record. Cells: `Codeunit.Run(Id, Rec)`

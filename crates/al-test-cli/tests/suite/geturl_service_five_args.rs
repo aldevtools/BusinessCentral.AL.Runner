@@ -32,6 +32,12 @@ codeunit 50000 T { Subtype = Test;
     if GetUrl(ClientType::ODataV4, CompanyName(), ObjectType::Page, Page::"U Api", Row) <> '' then Error('not empty'); end;
   [Test] procedure CardPage() var Row: Record "U Row"; begin
     if GetUrl(ClientType::ODataV4, CompanyName(), ObjectType::Page, Page::"U Card", Row) <> '' then Error('not empty'); end;
+  [Test] procedure CodeunitRecordRef() var Row: Record "U Row"; RR: RecordRef; begin
+    RR.Open(Database::"U Row");
+    if GetUrl(ClientType::ODataV4, CompanyName(), ObjectType::Codeunit, Codeunit::"U Cu", RR) <> '' then Error('not empty'); end;
+  [Test] procedure ListPageRecordRef() var RR: RecordRef; begin
+    RR.Open(Database::"U Row");
+    if GetUrl(ClientType::ODataV4, CompanyName(), ObjectType::Page, Page::"U List", RR) <> '' then Error('not empty'); end;
   [Test] procedure UnknownCodeunit() var Row: Record "U Row"; begin
     if GetUrl(ClientType::ODataV4, CompanyName(), ObjectType::Codeunit, 99998, Row) <> '' then Error('not empty'); end;
   [Test] procedure ClosedRecordRef() var RR: RecordRef; begin
@@ -53,6 +59,8 @@ fn five_argument_service_forms() {
     };
     assert_eq!(get("Pinned"), Outcome::Pass);
     assert_eq!(get("CodeunitObject"), Outcome::Pass);
+    // A List page with an open RecordRef is measured (GetUrlServiceClientRecord.al:181-183).
+    assert_eq!(get("ListPageRecordRef"), Outcome::Pass);
     // An API page or a Card page, and a codeunit id no app has: not measured (GetUrlServiceClientRecord.al:36-38 is a List
     // page, :176 an existing codeunit).
     for name in [
@@ -63,6 +71,8 @@ fn five_argument_service_forms() {
         "ApiPageODataV4",
         "CardPage",
         "UnknownCodeunit",
+        // A codeunit is measured with a Record only (GetUrlServiceClientRecord.al:177), not with a RecordRef.
+        "CodeunitRecordRef",
     ] {
         match get(name) {
             Outcome::NotRun(why) => assert!(why.contains("this object type or argument list"), "{name}: {why}"),
