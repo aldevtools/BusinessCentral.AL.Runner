@@ -284,6 +284,7 @@ mod held_page_part;
 mod host_follows;
 mod inserted_rows;
 mod leave_new_line;
+mod list_factbox_new_line;
 mod list_refresh;
 mod list_view_switch;
 mod long_view;
