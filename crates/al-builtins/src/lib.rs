@@ -2,6 +2,7 @@
 //! ADR-008) and, later, the value model and native implementations.
 
 mod conv_undefined;
+mod date_difference;
 pub mod date_filter_forms;
 mod date_formula_language;
 mod format_boolean;
@@ -49,7 +50,7 @@ pub mod fieldref_variant_cells;
 pub mod file;
 pub mod filter;
 pub mod filter_blob;
-mod filter_boolean_words;
+pub mod filter_boolean_words;
 pub mod format;
 mod format_json;
 mod format_textbuilder;

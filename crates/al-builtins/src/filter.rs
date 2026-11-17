@@ -236,6 +236,10 @@ pub fn parse_filter(text: &str, args: &[crate::value::Value], ty: &crate::value:
 pub const INVALID_BOOLEAN: &str = "invalid Boolean filter value: ";
 /// The prefix of the error for a text no Guid filter reads (types/date-time/P143Guid_Filters.al:P143_GuidInvalid).
 pub const INVALID_GUID: &str = "invalid Guid filter value: ";
+/// The prefix of the error for a word of ASCII letters that is no member of an Option field; the word as the token holds it
+/// follows. The caller decides whether the text is a shape it answers (al-vm `option_non_member_error`); every other caller
+/// refuses it.
+pub const OPTION_NOT_MEMBER: &str = "Option filter word that is no member: ";
 /// The prefix of the error for a date text no Date filter reads; the failing value follows (types/date-time/
 /// P143Date_DePlain.al: `Das Format Date „17.01.27“ ...`).
 pub const INVALID_DATE: &str = "invalid Date filter value: ";
@@ -1279,14 +1283,9 @@ impl Parser<'_> {
                 None => Value::Option(
                     text.parse().map_err(|_| {
                         let word = text.trim();
-                        // A word of letters that is no member (assumption `option-filter-non-member-error`, al-runner issue 8197).
-                        let reported = !word.is_empty()
-                            && word.bytes().all(|b| b.is_ascii_alphabetic())
-                            && m.iter().all(|x| !x.is_empty());
-                        if reported {
-                            crate::assumptions::assume(crate::assumptions::Assumption::OptionFilterNonMemberError);
-                        }
-                        if reported || matches!(word, "\" \"" | "\"\"") {
+                        if !word.is_empty() && word.bytes().all(|b| b.is_ascii_alphabetic()) {
+                            format!("{OPTION_NOT_MEMBER}{text}")
+                        } else if matches!(word, "\" \"" | "\"\"") {
                             format!(
                                 "{FILTER_SYNTAX}'{}' is not an option. The existing options are: {}",
                                 text.trim(),

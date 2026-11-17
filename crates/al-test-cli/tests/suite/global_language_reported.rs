@@ -447,3 +447,230 @@ codeunit 58321 T
     refused(&o, "OptionWordWithDigit");
     refused(&o, "EnumNotAMember");
 }
+
+// Round-2 review neighbors of al-runner issue 8197 shape 1: only Record.SetFilter with the whole filter text equal to one word,
+// no placeholder, an Option without captions or blank members, under 1033 runs; each other shape keeps main's refusal.
+const OPTION_NEIGHBOR_OBJECTS: &str = r#"
+table 58322 "Ref Capt"
+{
+    fields
+    {
+        field(1; "Code"; Code[20]) { }
+        field(2; Capt; Option) { OptionMembers = Alpha,Beta,Gamma; OptionCaption = 'First,Second,Third'; }
+        field(3; Blk; Option) { OptionMembers = " ",A,B; }
+    }
+    keys { key(PK; "Code") { Clustered = true; } }
+}
+"#;
+
+#[test]
+fn option_non_member_neighbors_keep_mains_refusal() {
+    let rec = |stmt: &str| format!("var R: Record \"Ref Row\"; C: Record \"Ref Capt\"; begin {stmt} end;");
+    let bodies = [
+        ("Alternatives", rec("asserterror R.SetFilter(Kind, 'Alpha|Delta');")),
+        ("NotEqual", rec("asserterror R.SetFilter(Kind, '<>Delta');")),
+        ("LeadingBlank", rec("asserterror R.SetFilter(Kind, ' Delta');")),
+        ("TrailingBlank", rec("asserterror R.SetFilter(Kind, 'Delta ');")),
+        ("Placeholder", rec("asserterror R.SetFilter(Kind, '%1', 'Delta');")),
+        ("Caption", rec("asserterror C.SetFilter(Capt, 'First');")),
+        ("BlankMember", rec("asserterror C.SetFilter(Blk, 'Delta');")),
+        ("Danish", rec("GlobalLanguage(1030); asserterror R.SetFilter(Kind, 'Delta');")),
+        (
+            "FieldRef",
+            "var RR: RecordRef; FR: FieldRef; begin RR.Open(58320); FR := RR.Field(2); asserterror FR.SetFilter('Delta'); end;"
+                .to_string(),
+        ),
+    ];
+    let mut src = format!("{FILTER_OBJECTS}{OPTION_NEIGHBOR_OBJECTS}codeunit 51700 T\n{{\n    Subtype = Test;\n");
+    for (name, body) in &bodies {
+        src += &format!("    [Test]\n    procedure {name}()\n    {body}\n");
+    }
+    src += "}\n";
+    let o = run(&src);
+    for (name, _) in &bodies {
+        refused(&o, name);
+    }
+}
+
+// Round-2 review neighbors of al-runner issue 8197 shape 3: only Record.SetFilter with the whole text Ja, Nej or Yes as written.
+#[test]
+fn danish_boolean_filter_neighbors_refuse() {
+    let rec = |stmt: &str| format!("var R: Record \"Ref Row\"; begin GlobalLanguage(1030); {stmt} end;");
+    let bodies = [
+        ("Alternatives", rec("R.SetFilter(Active, 'Ja|Nej');")),
+        ("NotEqual", rec("R.SetFilter(Active, '<>Ja');")),
+        ("LeadingBlank", rec("R.SetFilter(Active, ' Ja');")),
+        ("UpperCase", rec("R.SetFilter(Active, 'JA');")),
+        ("LowerCase", rec("R.SetFilter(Active, 'nej');")),
+        ("WithYes", rec("asserterror R.SetFilter(Active, 'Ja|Yes');")),
+        ("NotYes", rec("asserterror R.SetFilter(Active, '<>Yes');")),
+        ("Placeholder", rec("R.SetFilter(Active, '%1', 'Ja');")),
+        ("SetView", rec("R.SetView('WHERE(Active=FILTER(Ja))');")),
+        (
+            "FieldRef",
+            "var RR: RecordRef; FR: FieldRef; begin GlobalLanguage(1030); RR.Open(58320); FR := RR.Field(5); FR.SetFilter('Ja'); end;"
+                .to_string(),
+        ),
+    ];
+    let mut src = format!("{FILTER_OBJECTS}codeunit 51700 T\n{{\n    Subtype = Test;\n");
+    for (name, body) in &bodies {
+        src += &format!("    [Test]\n    procedure {name}()\n    {body}\n");
+    }
+    src += "}\n";
+    let o = run(&src);
+    for (name, _) in &bodies {
+        refused(&o, name);
+    }
+}
+
+// Round-2 review neighbors of al-runner issue 8200: only the measured texts, numbers and forms.
+#[test]
+fn date_formula_neighbors_refuse_or_keep_mains_answer() {
+    let used = |l: i32, t: &str, n: &str| {
+        format!(
+            "var DF: DateFormula; Ok: Boolean; begin GlobalLanguage({l}); Ok := Evaluate(DF, '{t}'{n}); Error('V:[%1|%2]', Format(Ok, 0, 9), Format(DF, 0, 9)); end;"
+        )
+    };
+    let fm = |l: i32, t: &str| {
+        format!(
+            "var DF: DateFormula; begin Evaluate(DF, '{t}', 9); GlobalLanguage({l}); Error('V:[%1]', Format(DF)); end;"
+        )
+    };
+    let (k9, t9, w9, k12, t0) = (
+        used(1030, "1K", ", 9"),
+        used(1031, "1T", ", 9"),
+        "var DF: DateFormula; begin GlobalLanguage(1030); asserterror Evaluate(DF, 'W', 9); end;".to_string(),
+        used(1030, "12K", ""),
+        used(1031, "0T", ""),
+    );
+    let (cq, cq31, m31, d9, k_stmt) = (
+        fm(1030, "CQ+1D"),
+        fm(1031, "CQ"),
+        fm(1031, "1M"),
+        used(1030, "1D", ", 9"),
+        "var DF: DateFormula; begin GlobalLanguage(1030); Evaluate(DF, '1K'); end;".to_string(),
+    );
+    let o = tests(&[
+        ("DanishQuarterNumberNine", &k9),
+        ("GermanDayNumberNine", &t9),
+        ("DanishNoNumberNine", &w9),
+        ("DanishTwelveQuarters", &k12),
+        ("GermanZeroDays", &t0),
+        ("DanishFormatCurrentQuarter", &cq),
+        ("GermanFormatCurrentQuarter", &cq31),
+        ("GermanFormatMonth", &m31),
+        ("DanishDayNumberNine", &d9),
+        ("DanishQuarterStatement", &k_stmt),
+    ]);
+    for n in [
+        "DanishQuarterNumberNine",
+        "GermanDayNumberNine",
+        "DanishNoNumberNine",
+        "DanishTwelveQuarters",
+        "GermanZeroDays",
+        "DanishFormatCurrentQuarter",
+        "GermanFormatCurrentQuarter",
+        "DanishQuarterStatement",
+    ] {
+        refused(&o, n);
+    }
+    reports(&o, "GermanFormatMonth", "1M", None);
+    reports(&o, "DanishDayNumberNine", "true|1D", None);
+}
+
+// Round-2 review: a closing date only minus a plain date of the same day, under 1033; the filter texts of a closing date under
+// another language; the <Closing> code under French.
+#[test]
+fn closing_date_neighbors_of_round_two_refuse() {
+    let minus = |l: i32, e: &str| format!("var N: Integer; begin GlobalLanguage({l}); asserterror N := {e}; end;");
+    let cd = "ClosingDate(DMY2Date(31, 12, 2023))";
+    let (other_day, danish, german) = (
+        minus(1033, &format!("{cd} - DMY2Date(30, 12, 2023)")),
+        minus(1030, &format!("{cd} - DMY2Date(31, 12, 2023)")),
+        minus(1031, &format!("{cd} - DMY2Date(31, 12, 2023)")),
+    );
+    let (two, zero, zero_first) = (
+        minus(1033, &format!("{cd} - {cd}")),
+        minus(1033, &format!("{cd} - 0D")),
+        minus(1033, &format!("0D - {cd}")),
+    );
+    let filter = |read: &str| {
+        format!(
+            "var R: Record \"Ref Row\"; begin GlobalLanguage(1030); R.SetRange(\"Doc Date\", {cd}); Error('V:[%1]', {read}); end;"
+        )
+    };
+    let (gf, gfs, gv) = (
+        filter("R.GetFilter(\"Doc Date\")"),
+        filter("R.GetFilters()"),
+        filter("R.GetView()"),
+    );
+    let french_code = format!("begin GlobalLanguage(1036); Error('V:[%1]', Format({cd}, 0, '<Closing><Day>')); end;");
+    let bodies: [(&str, &str); 10] = [
+        ("OtherDay", &other_day),
+        ("Danish", &danish),
+        ("German", &german),
+        ("ClosingMinusClosing", &two),
+        ("ClosingMinusUndefined", &zero),
+        ("UndefinedMinusClosing", &zero_first),
+        ("GetFilterDanish", &gf),
+        ("GetFiltersDanish", &gfs),
+        ("GetViewDanish", &gv),
+        ("FrenchClosingCode", &french_code),
+    ];
+    let mut src = format!("{FILTER_OBJECTS}codeunit 51700 T\n{{\n    Subtype = Test;\n");
+    for (name, body) in &bodies {
+        src += &format!("    [Test]\n    procedure {name}()\n    {body}\n");
+    }
+    src += "}\n";
+    let o = run(&src);
+    for (name, _) in &bodies {
+        refused(&o, name);
+    }
+}
+
+// Round-2 review neighbors of al-runner issues 8182 and 8183.
+#[test]
+fn boolean_and_name_neighbors_of_round_two_refuse_or_stay_clean() {
+    let f =
+        |l: i32, v: &str, p: &str| format!("begin GlobalLanguage({l}); Error('V:[%1]', Format({v}, 0, '{p}')); end;");
+    let (dt, closing, width0) = (
+        f(1030, "CreateDateTime(DMY2Date(15, 3, 2024), 120000T)", "<Month Text>"),
+        f(1030, "ClosingDate(DMY2Date(15, 3, 2024))", "<Month Text>"),
+        f(1030, "DMY2Date(15, 3, 2024)", "<Month Text,0>"),
+    );
+    let undefined = f(1031, "0D", "<Weekday Text>");
+    let eval = |l: i32, t: &str| {
+        format!(
+            "var B: Boolean; Ok: Boolean; begin GlobalLanguage({l}); Ok := Evaluate(B, '{t}'); Error('V:[%1]', Ok); end;"
+        )
+    };
+    let (upper, blanks) = (eval(1044, "JA"), eval(1044, " ja "));
+    let o = tests(&[
+        ("NameOfDateTime", &dt),
+        ("NameOfClosingDate", &closing),
+        ("NameWidthZero", &width0),
+        ("NameOfUndefinedDate", &undefined),
+        (
+            "FormatTrueNumberOne",
+            "begin GlobalLanguage(1044); Error('V:[%1]', Format(true, 0, 1)); end;",
+        ),
+        ("EvaluateUpperCase", &upper),
+        ("EvaluateBlanks", &blanks),
+        (
+            "EvaluateYesStatement",
+            "var B: Boolean; begin GlobalLanguage(1053); asserterror Evaluate(B, 'Yes'); end;",
+        ),
+    ]);
+    for n in [
+        "NameOfDateTime",
+        "NameOfClosingDate",
+        "NameWidthZero",
+        "FormatTrueNumberOne",
+        "EvaluateUpperCase",
+        "EvaluateBlanks",
+        "EvaluateYesStatement",
+    ] {
+        refused(&o, n);
+    }
+    reports(&o, "NameOfUndefinedDate", "", None);
+}

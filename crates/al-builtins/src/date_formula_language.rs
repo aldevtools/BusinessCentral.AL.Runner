@@ -13,47 +13,23 @@ fn letters(language: i32) -> Option<&'static [(char, char)]> {
     }
 }
 
-/// The letters the reporter of al-runner issue 8200 measured for format 0 on top of [`letters`] (assumption
-/// `date-formula-letters-danish-german`): Danish `K` for Q and `UD` for WD, German `Q` for Q and `WT` for WD.
-fn reported_letters(language: i32) -> Option<(char, &'static str)> {
-    match language {
-        1030 => Some(('K', "UD")),
-        1031 => Some(('Q', "WT")),
-        _ => None,
-    }
-}
-
-/// Format 0 of `text` under 1030 or 1031 with the letters of [`reported_letters`]: `None` for another language, the empty
-/// formula, and a Danish formula without Q or WD (pinned: format 0 is format 1 in Danish).
-fn format_zero_reported(text: &str, language: i32) -> Option<Result<String, String>> {
-    let (q, wd) = reported_letters(language)?;
-    if text.is_empty() || language == 1030 && !text.contains('Q') && !text.contains("WD") {
-        return None;
-    }
-    crate::assumptions::assume(crate::assumptions::Assumption::DateFormulaLettersDanishGerman);
-    let map = letters(language)?;
-    let mut out = String::with_capacity(text.len());
-    let mut rest = text;
-    while let Some(c) = rest.chars().next() {
-        if let Some(after) = rest.strip_prefix("WD") {
-            out.push_str(wd);
-            rest = after;
-            continue;
-        }
-        rest = &rest[c.len_utf8()..];
-        if !c.is_ascii_alphabetic() {
-            out.push(c);
-        } else if c == 'Q' {
-            out.push(q);
-        } else if let Some((_, own)) = map.iter().find(|(en, _)| *en == c) {
-            out.push(*own);
-        } else {
-            return Some(Err(format!(
-                "Format of the date formula `{text}` in the language {language}: the letter for {c} is not measured"
-            )));
-        }
-    }
-    Some(Ok(out))
+/// Format 0 of the stored formulas the reporter of al-runner issue 8200 measured that no pinned rule answers (assumption
+/// `date-formula-letters-danish-german`): `Format(DF)` after `Evaluate(DF, '1K')` under 1030 and after `Evaluate(DF, text, 9)` or the
+/// Evaluate cells under 1031. Danish `K` is Q and `UD` WD; German `T` is D, `J` Y, `L` C and `WT` WD. `None` for every other text.
+fn reported_format_zero(text: &str, language: i32) -> Option<&'static str> {
+    Some(match (language, text) {
+        (1030, "1Q") => "1K",
+        (1030, "WD1") => "UD1",
+        (1031, "1D") => "1T",
+        (1031, "1Y") => "1J",
+        (1031, "1Q") => "1Q",
+        (1031, "-1D") => "-1T",
+        (1031, "CM+1D") => "LM+1T",
+        (1031, "1Y+1M+1D") => "1J+1M+1T",
+        (1031, "-CW") => "-LW",
+        (1031, "WD1") => "WT1",
+        _ => return None,
+    })
 }
 
 /// The formula `text` (English letters, no brackets) in the letters of `language`, as format 1 prints it. Format 1 in English
@@ -90,10 +66,7 @@ pub(crate) fn format_one(text: &str, language: i32) -> Result<String, String> {
 /// Format 0 is format 1 in English and in Danish (DateFormulaFormat_Std0And9_English, _Std1And2_Danish). In another language it is
 /// pinned only where every reading gives the same text: a formula with no letter that a language may change.
 pub(crate) fn format_zero(text: &str, language: i32) -> Result<String, String> {
-    if let Some(r) = format_zero_reported(text, language) {
-        return r;
-    }
-    if language == 1033 || language == 1030 || text.is_empty() {
+    if language == 1033 || text.is_empty() || language == 1030 && !text.contains('Q') && !text.contains("WD") {
         return format_one(text, language);
     }
     if letters(language).is_some_and(|map| {
@@ -101,6 +74,10 @@ pub(crate) fn format_zero(text: &str, language: i32) -> Result<String, String> {
             .all(|c| !c.is_ascii_alphabetic() || map.iter().any(|(en, own)| *en == c && *own == c))
     }) {
         return Ok(text.to_string());
+    }
+    if let Some(shown) = reported_format_zero(text, language) {
+        crate::assumptions::assume(crate::assumptions::Assumption::DateFormulaLettersDanishGerman);
+        return Ok(shown.to_string());
     }
     Err(format!(
         "Format of a DateFormula with standard format 0 in the language {language} (not pinned)"
@@ -138,38 +115,32 @@ pub(crate) fn evaluate_text(text: &str, language: i32) -> Result<Option<String>,
     Ok(Some(out))
 }
 
-/// The Evaluate cells the reporter of al-runner issue 8200 measured, with the result used (assumption
-/// `date-formula-letters-danish-german`): `Some(Some(english))` for a text read, `Some(None)` for a text rejected. Danish: one
-/// number and `K` is Q; `1W`, `1Q`, `1Y`, `NU`, `CW` and `AM` are rejected. German: one number and `T`, `W`, `M`, `J` or `Q`
-/// (`T` is D, `J` is Y); `1D`, `1Y`, `AJ` and `CW` are rejected.
-fn reported_evaluate(text: &str, language: i32) -> Option<Option<String>> {
-    let (rejected, units): (&[&str], &[(char, char)]) = match language {
-        1030 => (&["1W", "1Q", "1Y", "NU", "CW", "AM"], &[('K', 'Q')]),
-        1031 => (
-            &["1D", "1Y", "AJ", "CW"],
-            &[('T', 'D'), ('W', 'W'), ('M', 'M'), ('J', 'Y'), ('Q', 'Q')],
-        ),
+/// The Evaluate cells without a format number the reporter of al-runner issue 8200 measured, with the result used (assumption
+/// `date-formula-letters-danish-german`): `Some(Some(english))` for a text read, `Some(None)` for a text rejected, `None` for every
+/// other text.
+fn reported_evaluate(text: &str, language: i32) -> Option<Option<&'static str>> {
+    Some(match (language, text) {
+        (1030, "1K") => Some("1Q"),
+        (1030, "1W" | "1Q" | "1Y" | "NU" | "CW" | "AM") => None,
+        (1031, "1T") => Some("1D"),
+        (1031, "1W") => Some("1W"),
+        (1031, "1M") => Some("1M"),
+        (1031, "1J") => Some("1Y"),
+        (1031, "1Q") => Some("1Q"),
+        (1031, "1D" | "1Y" | "AJ" | "CW") => None,
         _ => return None,
-    };
-    if rejected.contains(&text) {
-        return Some(None);
-    }
-    let unit = text.chars().last()?;
-    let number = &text[..text.len() - unit.len_utf8()];
-    let (_, english) = units.iter().find(|(own, _)| *own == unit)?;
-    (!number.is_empty() && number.bytes().all(|b| b.is_ascii_digit())).then(|| Some(format!("{number}{english}")))
+    })
 }
 
-/// Format number 9 reads the English letters under 1030 and 1031: the reporter of al-runner issue 8200 measured `CM+1D`,
-/// `1Y+1M+1D`, `-CW`, `WD1`, `1M` and `-1D` (assumption `date-formula-letters-danish-german`), so only the letters C, D, W, M
-/// and Y (WD among them) without brackets take this path.
-fn english_by_number_nine(text: &str, language: i32, number: i64) -> bool {
-    number == 9
-        && matches!(language, 1030 | 1031)
-        && !text.trim().starts_with('<')
-        && text
-            .chars()
-            .all(|c| !c.is_alphabetic() || matches!(c, 'C' | 'D' | 'W' | 'M' | 'Y'))
+/// The texts the reporter of al-runner issue 8200 measured with `Evaluate(DF, text, 9)` under 1030 and 1031, which read the
+/// English letters (assumption `date-formula-letters-danish-german`). Under 1030 `1D`, `1M` and the empty text are pinned and take
+/// the path of [`evaluate_text`].
+fn reported_number_nine(text: &str, language: i32) -> bool {
+    match language {
+        1030 => matches!(text, "CM+1D" | "1Y+1M+1D" | "-CW" | "WD1"),
+        1031 => matches!(text, "1M" | "-1D" | "CM+1D" | "1Y+1M+1D" | "-CW" | "WD1"),
+        _ => false,
+    }
 }
 
 /// `Evaluate` of a DateFormula text in `language` (see [`evaluate_text`]) with format `number`; `ret_used`: the call's result
@@ -180,11 +151,11 @@ pub(crate) fn evaluate(
     number: i64,
     ret_used: bool,
 ) -> Result<crate::datefns::Evaluated, crate::native::Signal> {
-    if english_by_number_nine(text, language, number) {
+    if number == 9 && reported_number_nine(text, language) {
         crate::assumptions::assume(crate::assumptions::Assumption::DateFormulaLettersDanishGerman);
         return crate::datefns::evaluate_formula(text);
     }
-    if let Some(read) = reported_evaluate(text, language) {
+    if let Some(read) = reported_evaluate(text, language).filter(|_| number == 0) {
         if !ret_used {
             return Err(crate::native::Signal::unsupported(format!(
                 "Evaluate of the date formula `{text}` under language {language} as a statement (only the result is measured)"
@@ -192,7 +163,7 @@ pub(crate) fn evaluate(
         }
         crate::assumptions::assume(crate::assumptions::Assumption::DateFormulaLettersDanishGerman);
         return match read {
-            Some(english) => crate::datefns::evaluate_formula(&english),
+            Some(english) => crate::datefns::evaluate_formula(english),
             None => Ok(crate::datefns::Evaluated::Rejected(None)),
         };
     }

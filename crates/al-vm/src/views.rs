@@ -193,6 +193,17 @@ impl Session {
                 return unsupported("the filter text of a DateTime with seconds and no milliseconds (not pinned)");
             }
         }
+        // A closing date under another language than English: Format marks it with the letter of the language (assumption
+        // `closing-date-letter-by-language`), the filter readers keep the English `C`; what GetFilter, GetFilters and GetView show
+        // there is not measured.
+        if let Value::Date(_, true) = v
+            && self.global_language != 1033
+        {
+            return unsupported(format!(
+                "the filter text of a closing date under GlobalLanguage {} (not measured)",
+                self.global_language
+            ));
+        }
         let text = self.message_value(v)?;
         // A value that is only blank space is shown in single quotes (corpus
         // record/TestRecordRuntimeTextsAndViews.al:Record_GetView_And_GetFilters_Texts, the blank

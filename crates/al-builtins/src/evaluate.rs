@@ -2391,6 +2391,11 @@ fn evaluate_with_max(
                 // format-evaluate/EvalLanguageBoolean.al EL_Errors_NLB_2067, _NLD_1043, _FRA_1036, _DAN_1030 (the quotes of the
                 // French text are « and » with a no-break space inside).
                 (Some(n @ (1030 | 1036 | 1043 | 2067)), "Boolean") => raise_boolean_error(n, &text),
+                // Under 1044 and 1053 only the form with the result used is measured (assumption
+                // `boolean-words-norwegian-swedish`); the error text of the statement form is not.
+                (Some(n @ (1044 | 1053)), "Boolean") if number == 0 => unsupported(format!(
+                    "the error of Evaluate into a Boolean under GlobalLanguage {n} (not measured)"
+                )),
                 // The flag hides the text (errors/last-error/P70_02LastErrFlag.al:Flag_EvaluateAndOverflow
                 // `eval_int|true`, `eval_int_var|true`); for the other types it is not pinned.
                 (_, "Integer") => crate::native::raise_redacted(

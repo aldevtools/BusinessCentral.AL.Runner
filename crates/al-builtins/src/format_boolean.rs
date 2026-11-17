@@ -7,7 +7,8 @@ use crate::format::FormatFail;
 /// ObjectId_WithAnotherGlobalLanguage `set 1031 ok = Ja`, P142_Date_Language); French after GlobalLanguage(1036) `Oui` / `Non`
 /// (types/operators-expressions/P142ToTextLang.al:153); Danish after GlobalLanguage(1030) `Ja` for true
 /// (format-evaluate/Y62DateFormulaFormat.al:DateFormulaFormat_Std1_Danish_EvaluateBack `da:Ja`), false `Nej`; Dutch (1043, 2067)
-/// `Ja` / `Nee` (format-evaluate/EvalLanguageBoolean.al EL_Errors_*). The words of other languages are English, as before.
+/// `Ja` / `Nee` (format-evaluate/EvalLanguageBoolean.al EL_Errors_*). Norwegian and Swedish (1044, 1053) as measured (below); the
+/// words of the other languages are English, as before.
 pub(crate) fn boolean_text(b: bool, standard: i32, language: i32) -> Result<String, FormatFail> {
     Ok(match (standard, b) {
         (2, true) => "1".into(),
@@ -25,15 +26,15 @@ pub(crate) fn boolean_text(b: bool, standard: i32, language: i32) -> Result<Stri
                 "Format of false under GlobalLanguage 1034 (only the word for true is pinned)".into(),
             ));
         }
-        // Norwegian and Swedish true is `Ja`; their word for false is not measured (assumption
-        // `boolean-words-norwegian-swedish`, al-runner issue 8182).
-        (_, true) if matches!(language, 1044 | 1053) => {
+        // Norwegian and Swedish true in standard format 0 is `Ja` (assumption `boolean-words-norwegian-swedish`, al-runner issue
+        // 8182: `Format(true)`, `Format(true, 6)`); false and standard format 1 are not measured.
+        (0, true) if matches!(language, 1044 | 1053) => {
             crate::assumptions::assume(crate::assumptions::Assumption::BooleanWordsNorwegianSwedish);
             "Ja".into()
         }
-        (_, false) if matches!(language, 1044 | 1053) => {
+        (_, _) if matches!(language, 1044 | 1053) => {
             return Err(FormatFail::Unsupported(format!(
-                "Format of false under GlobalLanguage {language} (only the word for true is measured)"
+                "Format of {b} with standard format {standard} under GlobalLanguage {language} (only Format(true) with standard format 0 is measured)"
             )));
         }
         (_, true) if language == 1036 => "Oui".into(),
