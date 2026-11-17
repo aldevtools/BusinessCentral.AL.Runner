@@ -33,7 +33,7 @@ mod sql_range_code;
 pub(crate) use insert_buffer::{InsertKind, InsertQueue};
 use sql_range::InsertShape;
 mod nested_validate;
-pub(crate) use nested_validate::{ProcXrec, ValidateSite, XREC_OF_RUNNING_CALL};
+pub(crate) use nested_validate::{BeforeImage, ProcXrec, ValidateSite, XREC_OF_RUNNING_CALL};
 mod by_value_view;
 pub(crate) use by_value_view::BY_VALUE_VIEW;
 mod op_inner;
@@ -2269,9 +2269,6 @@ impl Session {
         }
         if why == RUN_PAGE_LINK_VARIANT {
             return unsupported(format!("Record.{}(): {RUN_PAGE_LINK_VARIANT}", method.name()));
-        }
-        if why == BY_VALUE_VIEW {
-            return self.by_value_view_op(method, rec, args);
         }
         if why == HELD_PART_XREC {
             return unsupported(format!("Record.{}(): {HELD_PART_XREC}", method.name()));

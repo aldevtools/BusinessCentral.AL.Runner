@@ -148,7 +148,10 @@ impl Session {
                         (table as u32, rec)
                     }
                     ids::FILTERPAGEBUILDER_ADDRECORD_1 => match args.get(1) {
-                        Some(Value::Record(r)) => (r.borrow().table, Rc::new(RefCell::new(r.borrow().clone()))),
+                        Some(Value::Record(r)) => {
+                            Self::by_value_view_handed(r, || "FilterPageBuilder.AddRecord of a record".into())?;
+                            (r.borrow().table, Rc::new(RefCell::new(r.borrow().clone())))
+                        }
                         other => return unsupported(format!("FilterPageBuilder.AddRecord with {}", other.describe())),
                     },
                     _ => match args.get(1) {

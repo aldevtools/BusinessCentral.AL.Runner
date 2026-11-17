@@ -424,6 +424,13 @@ table 50120 "XN Item"
         }
         field(3; Seen; Integer) { }
         field(4; Mode; Integer) { }
+        field(5; Other; Integer)
+        {
+            trigger OnValidate()
+            begin
+                Rec.Seen := xRec.Value;
+            end;
+        }
     }
     keys { key(PK; "No.") { Clustered = true; } }
     var
@@ -431,8 +438,10 @@ table 50120 "XN Item"
 
     trigger OnModify()
     begin
-        if Mode = 5 then
-            Mover.ValidateSelf(Rec);
+        case Mode of
+            5: Mover.ValidateSelf(Rec);
+            7: Mover.ValidateOther(Rec);
+        end;
     end;
 
     procedure ReadXRec()
@@ -448,6 +457,11 @@ table 50120 "XN Item"
     procedure ValidateSelf()
     begin
         Rec.Validate(Seen, 1);
+    end;
+
+    procedure ValidateOther()
+    begin
+        Rec.Validate(Other, 1);
     end;
 
     procedure CopyXRec()
@@ -483,6 +497,11 @@ codeunit 50121 "XN Mover"
     procedure ValidateSelf(var Item: Record "XN Item")
     begin
         Item.ValidateSelf();
+    end;
+
+    procedure ValidateOther(var Item: Record "XN Item")
+    begin
+        Item.ValidateOther();
     end;
 
     procedure CopyXRec(var Item: Record "XN Item")
@@ -524,13 +543,45 @@ codeunit 50122 "XN Test"
     end;
 
     [Test]
-    procedure OnModify_ValidateInProc_Refused()
+    procedure OnModify_ValidateInProc_Runs()
     var
         Item: Record "XN Item";
     begin
         Stored(Item, 5);
         Item.Value := 15;
         Item.Modify(true);
+        if Item.Seen <> 1 then
+            Error('Seen %1', Item.Seen);
+    end;
+
+    [Test]
+    procedure OnModify_ValidateInProc_TriggerReadsXRec_Refused()
+    var
+        Item: Record "XN Item";
+    begin
+        Stored(Item, 7);
+        Item.Value := 15;
+        Item.Modify(true);
+    end;
+
+    [Test]
+    procedure MeasuredChain_ReadByFindFirst_Refused()
+    var
+        Item: Record "XN Item";
+        Found: Record "XN Item";
+    begin
+        Stored(Item, 3);
+        Found.FindFirst();
+        Found.Validate(Value, 15);
+    end;
+
+    [Test]
+    procedure MeasuredChain_Temporary_Refused()
+    var
+        Item: Record "XN Item" temporary;
+    begin
+        Stored(Item, 3);
+        Item.Validate(Value, 15);
     end;
 
     [Test]
@@ -593,24 +644,222 @@ codeunit 50122 "XN Test"
 fn issue_8189_neighbors_refuse_a_read_of_xrec_or_keep_main() {
     let o = run(XREC_NEIGHBORS, "XN Test");
     let want = [
-        ("DirectFromTrigger_ReadsXRec_Refused", "NotRun", false),
-        ("DirectFromTrigger_NoXRecRead_Runs", "Pass", false),
-        ("OnModify_ValidateInProc_Refused", "NotRun", false),
-        ("DirectFromTrigger_CopyOfXRec_Refused", "NotRun", false),
-        ("MeasuredChain_FreshRecord_Refused", "NotRun", false),
-        ("MeasuredChain_FieldRefValidate_Refused", "NotRun", false),
+        ("DirectFromTrigger_ReadsXRec_Refused", XREC_REFUSED, false),
+        ("DirectFromTrigger_NoXRecRead_Runs", PASS, false),
+        // The Validate runs; only a read of the xRec it hands on refuses.
+        ("OnModify_ValidateInProc_Runs", PASS, false),
+        ("OnModify_ValidateInProc_TriggerReadsXRec_Refused", XREC_REFUSED, false),
+        ("DirectFromTrigger_CopyOfXRec_Refused", XREC_REFUSED, false),
+        ("MeasuredChain_FreshRecord_Refused", XREC_REFUSED, false),
+        ("MeasuredChain_FieldRefValidate_Refused", XREC_REFUSED, false),
+        // The reporter measured a record read by Get or inserted by itself, both stored.
+        ("MeasuredChain_ReadByFindFirst_Refused", XREC_REFUSED, false),
+        ("MeasuredChain_Temporary_Refused", XREC_REFUSED, false),
         // The measured chain hands the trigger's xRec on whether the procedure reads it or not: flagged.
-        ("MeasuredChain_NoXRecRead_Runs", "Pass", true),
-        ("NoRunningCall_PlainCall_BlankXRec", "Pass", false),
+        ("MeasuredChain_NoXRecRead_Runs", PASS, true),
+        ("NoRunningCall_PlainCall_BlankXRec", PASS, false),
     ];
-    for (name, outcome, flagged) in want {
+    check(&o, &want);
+}
+
+/// A test outcome that passes, and the start of each refusal reason the neighbor tests expect.
+const PASS: &str = "Pass";
+const XREC_REFUSED: &str = "xRec in a table procedure called through other code";
+const VIEW_REFUSED: &str = "a record handed by value whose caller had filters outside filter group 0";
+
+/// Asserts each `(name, outcome, flagged)` of `want` on the outcomes `o` of `run`: [`PASS`] is a pass, a refusal reason is
+/// `NotRun` with a text that names it.
+fn check(o: &[(String, String, bool)], want: &[(&str, &str, bool)]) {
+    for &(name, outcome, flagged) in want {
         let got = o
             .iter()
             .find(|(n, ..)| n == name)
             .unwrap_or_else(|| panic!("no test {name}"));
-        assert!(got.1.starts_with(outcome), "{name}: {}", got.1);
+        let ok = if outcome == PASS {
+            got.1.starts_with(PASS)
+        } else {
+            got.1.starts_with("NotRun") && got.1.contains(outcome)
+        };
+        assert!(ok, "{name}: {}", got.1);
         assert_eq!(got.2, flagged, "{name}");
     }
+}
+
+/// The table's own OnInsert, OnModify and OnDelete call `Rec.Proc()` (Base Application's Sales Header OnInsert calls
+/// Rec.SetSellToCustomerFromFilter, which validates a field): a plain call, whose xRec is blank, as on main.
+const XREC_OWN_TRIGGERS: &str = r##"
+table 50140 "XT Item"
+{
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(2; Value; Integer) { }
+        field(3; Seen; Integer) { }
+        field(4; Mode; Integer) { }
+        field(5; Other; Integer)
+        {
+            trigger OnValidate()
+            begin
+                Rec.Seen := xRec.Value + 100;
+            end;
+        }
+    }
+    keys { key(PK; "No.") { Clustered = true; } }
+
+    trigger OnInsert()
+    begin
+        Dispatch();
+    end;
+
+    trigger OnModify()
+    begin
+        Dispatch();
+    end;
+
+    trigger OnDelete()
+    begin
+        Dispatch();
+        Log.Note(Rec.Seen);
+    end;
+
+    var
+        Log: Codeunit "XT Log";
+
+    local procedure Dispatch()
+    begin
+        case Mode of
+            1: Rec.ReadXRec();
+            2: Rec.ValidateOther();
+        end;
+    end;
+
+    procedure ReadXRec()
+    begin
+        Rec.Seen := xRec.Value + 100;
+    end;
+
+    procedure ValidateOther()
+    begin
+        Rec.Validate(Other, 5);
+    end;
+}
+
+codeunit 50141 "XT Log"
+{
+    SingleInstance = true;
+    var
+        Last: Integer;
+
+    procedure Note(Seen: Integer)
+    begin
+        Last := Seen;
+    end;
+
+    procedure Seen(): Integer
+    begin
+        exit(Last);
+    end;
+}
+
+codeunit 50142 "XT Test"
+{
+    Subtype = Test;
+
+    local procedure Stored(var Item: Record "XT Item"; Mode: Integer)
+    begin
+        Item."No." := 'A';
+        Item.Value := 10;
+        Item.Insert(false);
+        Item.Mode := Mode;
+        Item.Value := 15;
+    end;
+
+    local procedure Expect(Seen: Integer)
+    begin
+        if Seen <> 100 then
+            Error('Seen %1', Seen);
+    end;
+
+    [Test]
+    procedure OnInsert_RecProc_ReadsXRec()
+    var
+        Item: Record "XT Item";
+    begin
+        Item."No." := 'A';
+        Item.Value := 10;
+        Item.Mode := 1;
+        Item.Insert(true);
+        Expect(Item.Seen);
+    end;
+
+    [Test]
+    procedure OnInsert_RecProc_Validate()
+    var
+        Item: Record "XT Item";
+    begin
+        Item."No." := 'A';
+        Item.Value := 10;
+        Item.Mode := 2;
+        Item.Insert(true);
+        Expect(Item.Seen);
+    end;
+
+    [Test]
+    procedure OnModify_RecProc_ReadsXRec()
+    var
+        Item: Record "XT Item";
+    begin
+        Stored(Item, 1);
+        Item.Modify(true);
+        Expect(Item.Seen);
+    end;
+
+    [Test]
+    procedure OnModify_RecProc_Validate()
+    var
+        Item: Record "XT Item";
+    begin
+        Stored(Item, 2);
+        Item.Modify(true);
+        Expect(Item.Seen);
+    end;
+
+    [Test]
+    procedure OnDelete_RecProc_ReadsXRec()
+    var
+        Item: Record "XT Item";
+        Log: Codeunit "XT Log";
+    begin
+        Stored(Item, 1);
+        Item.Delete(true);
+        Expect(Log.Seen());
+    end;
+
+    [Test]
+    procedure OnDelete_RecProc_Validate()
+    var
+        Item: Record "XT Item";
+        Log: Codeunit "XT Log";
+    begin
+        Stored(Item, 2);
+        Item.Delete(true);
+        Expect(Log.Seen());
+    end;
+}
+"##;
+
+#[test]
+fn a_tables_own_triggers_calling_rec_proc_keep_the_plain_xrec() {
+    let o = run(XREC_OWN_TRIGGERS, "XT Test");
+    let want = [
+        ("OnInsert_RecProc_ReadsXRec", PASS, false),
+        ("OnInsert_RecProc_Validate", PASS, false),
+        ("OnModify_RecProc_ReadsXRec", PASS, false),
+        ("OnModify_RecProc_Validate", PASS, false),
+        ("OnDelete_RecProc_ReadsXRec", PASS, false),
+        ("OnDelete_RecProc_Validate", PASS, false),
+    ];
+    check(&o, &want);
 }
 
 /// Neighbors of the shape of issue 8185, one fact flipped each.
@@ -622,8 +871,35 @@ table 50130 "BN Row"
         field(1; "Code"; Code[10]) { }
         field(2; Status; Option) { OptionMembers = Open,Posted; }
         field(3; Name; Text[30]) { }
+        field(4; NameFilter; Text[30]) { FieldClass = FlowFilter; }
+        field(5; Named; Integer) { FieldClass = FlowField; CalcFormula = count("BN Row" where(Name = field(NameFilter))); }
+        field(6; SameName; Integer) { FieldClass = FlowField; CalcFormula = count("BN Row" where(Name = field(Name))); }
     }
     keys { key(PK; "Code") { Clustered = true; } key(ByName; Name) { } }
+}
+
+codeunit 50132 "BN Holder"
+{
+    SingleInstance = true;
+    var
+        Kept: Record "BN Row";
+
+    procedure Keep(Line: Record "BN Row")
+    begin
+        Kept.Copy(Line);
+    end;
+
+    procedure KeptFilters(): Text
+    begin
+        exit(Kept.GetFilters());
+    end;
+}
+
+page 50133 "BN Rows"
+{
+    PageType = List;
+    SourceTable = "BN Row";
+    layout { area(Content) { repeater(R) { field(Code; Rec.Code) { } } } }
 }
 
 codeunit 50131 "BN Test"
@@ -649,6 +925,12 @@ codeunit 50131 "BN Test"
     local procedure Key(Line: Record "BN Row"): Text
     begin
         exit(Line.CurrentKey());
+    end;
+
+    local procedure KeyAndFirst(Line: Record "BN Row"): Text
+    begin
+        Line.FindFirst();
+        exit(Line.CurrentKey() + ' ' + Line.Code);
     end;
 
     local procedure FieldOnly(Line: Record "BN Row"): Text
@@ -682,15 +964,249 @@ codeunit 50131 "BN Test"
         exit(Line.GetFilters());
     end;
 
+    local procedure NoViewMethods(Line: Record "BN Row"): Text
+    var
+        Id: RecordId;
+    begin
+        Id := Line.RecordId();
+        Line.SetLoadFields(Name);
+        Line.Get('A');
+        Line.Rename('C');
+        exit(Format(Id) + Line.FieldCaption(Name) + Line.Code);
+    end;
+
+    local procedure NamedCount(Line: Record "BN Row"): Integer
+    begin
+        Line.CalcFields(Named);
+        exit(Line.Named);
+    end;
+
+    local procedure CopyFrom(Line: Record "BN Row"): Integer
+    var
+        Other: Record "BN Row";
+    begin
+        Other.Copy(Line);
+        exit(Other.Count());
+    end;
+
+    local procedure CopyThenModify(Line: Record "BN Row"): Boolean
+    var
+        Other: Record "BN Row";
+    begin
+        Other.Copy(Line);
+        Other.Name := 'q';
+        exit(Other.Modify());
+    end;
+
+    local procedure CopyFiltersFrom(Line: Record "BN Row"): Text
+    var
+        Other: Record "BN Row";
+    begin
+        Other.CopyFilters(Line);
+        exit(Other.GetFilters());
+    end;
+
+    local procedure TransferFrom(Line: Record "BN Row"): Text
+    var
+        Other: Record "BN Row";
+    begin
+        Other.TransferFields(Line);
+        exit(Other.Code);
+    end;
+
+    local procedure GetTableFilters(Line: Record "BN Row"): Text
+    var
+        RecRef: RecordRef;
+    begin
+        RecRef.GetTable(Line);
+        exit(RecRef.GetFilters());
+    end;
+
+    local procedure RunPage(Line: Record "BN Row"): Boolean
+    var
+        Rows: TestPage "BN Rows";
+    begin
+        Rows.Trap();
+        Page.Run(Page::"BN Rows", Line);
+        exit(Rows.First());
+    end;
+
     [Test]
-    procedure NoFilter_KeyOnName_PrimaryKey()
+    procedure NoFilter_AdHocKey_PrimaryKey()
+    var
+        Line: Record "BN Row";
+    begin
+        Seed(Line);
+        Line.SetCurrentKey(Status);
+        if Key(Line) <> 'Code' then
+            Error('key %1', Key(Line));
+    end;
+
+    [Test]
+    procedure NoFilter_RowDependentFlowFieldKey_PrimaryKey()
+    var
+        Line: Record "BN Row";
+    begin
+        Seed(Line);
+        Line.SetCurrentKey(SameName);
+        if KeyAndFirst(Line) <> 'Code A' then
+            Error('%1', KeyAndFirst(Line));
+    end;
+
+    [Test]
+    procedure NoFilter_DeclaredKey_KeepsMainKey()
     var
         Line: Record "BN Row";
     begin
         Seed(Line);
         Line.SetCurrentKey(Name);
-        if Key(Line) <> 'Code' then
+        if Key(Line) <> 'Name' then
             Error('key %1', Key(Line));
+    end;
+
+    [Test]
+    procedure FilterGroupTwo_MethodsThatReadNoView_Run()
+    var
+        Line: Record "BN Row";
+    begin
+        Seed(Line);
+        Line.FilterGroup(2);
+        Line.SetRange(Status, Line.Status::Open);
+        Line.FilterGroup(0);
+        Line.Get('B');
+        if NoViewMethods(Line) <> 'BN Row: BNameC' then
+            Error('%1', NoViewMethods(Line));
+    end;
+
+    [Test]
+    procedure FilterGroupTwo_CalcFields_NoFlowFilter_Runs()
+    var
+        Line: Record "BN Row";
+    begin
+        Seed(Line);
+        Line.FilterGroup(2);
+        Line.SetRange(Status, Line.Status::Open);
+        Line.FilterGroup(0);
+        if NamedCount(Line) <> 2 then
+            Error('%1', NamedCount(Line));
+    end;
+
+    [Test]
+    procedure FilterGroupTwo_CalcFields_FlowFilter_Refused()
+    var
+        Line: Record "BN Row";
+    begin
+        Seed(Line);
+        Line.SetFilter(NameFilter, 'z');
+        Line.FilterGroup(2);
+        Line.SetRange(Status, Line.Status::Open);
+        Line.FilterGroup(0);
+        Error('%1', NamedCount(Line));
+    end;
+
+    [Test]
+    procedure FilterGroupTwo_CopyFrom_Refused()
+    var
+        Line: Record "BN Row";
+    begin
+        Seed(Line);
+        Line.FilterGroup(2);
+        Line.SetRange(Code, 'A');
+        Line.FilterGroup(0);
+        Error('%1', CopyFrom(Line));
+    end;
+
+    [Test]
+    procedure FilterGroupTwo_CopyThenModify_Runs()
+    var
+        Line: Record "BN Row";
+    begin
+        Seed(Line);
+        Line.FilterGroup(2);
+        Line.SetRange(Code, 'A');
+        Line.FilterGroup(0);
+        if not CopyThenModify(Line) then
+            Error('not modified');
+    end;
+
+    [Test]
+    procedure FilterGroupTwo_CopyFiltersFrom_Refused()
+    var
+        Line: Record "BN Row";
+    begin
+        Seed(Line);
+        Line.FilterGroup(2);
+        Line.SetRange(Code, 'A');
+        Line.FilterGroup(0);
+        Error('%1', CopyFiltersFrom(Line));
+    end;
+
+    [Test]
+    procedure FilterGroupTwo_TransferFieldsFrom_Runs()
+    var
+        Line: Record "BN Row";
+    begin
+        Seed(Line);
+        Line.FilterGroup(2);
+        Line.SetRange(Code, 'A');
+        Line.FilterGroup(0);
+        if TransferFrom(Line) <> 'B' then
+            Error('%1', TransferFrom(Line));
+    end;
+
+    [Test]
+    procedure FilterGroupTwo_GetTable_Refused()
+    var
+        Line: Record "BN Row";
+    begin
+        Seed(Line);
+        Line.FilterGroup(2);
+        Line.SetRange(Code, 'A');
+        Line.FilterGroup(0);
+        Error('%1', GetTableFilters(Line));
+    end;
+
+    [Test]
+    procedure FilterGroupTwo_PageRun_Refused()
+    var
+        Line: Record "BN Row";
+    begin
+        Seed(Line);
+        Line.FilterGroup(2);
+        Line.SetRange(Code, 'A');
+        Line.FilterGroup(0);
+        RunPage(Line);
+    end;
+
+    [Test]
+    procedure GroupZero_PageRun_Flagged()
+    var
+        Line: Record "BN Row";
+    begin
+        Seed(Line);
+        Line.SetRange(Code, 'Z');
+        if not RunPage(Line) then
+            Error('no row');
+    end;
+
+    [Test]
+    procedure GroupZero_CopyKept_Flagged()
+    var
+        Line: Record "BN Row";
+        Holder: Codeunit "BN Holder";
+    begin
+        Seed(Line);
+        Line.SetRange(Code, 'A');
+        Holder.Keep(Line);
+    end;
+
+    [Test]
+    procedure GroupZero_CopyKept_LaterRead_Flagged()
+    var
+        Holder: Codeunit "BN Holder";
+    begin
+        if Holder.KeptFilters() <> '' then
+            Error('%1', Holder.KeptFilters());
     end;
 
     [Test]
@@ -792,25 +1308,38 @@ codeunit 50131 "BN Test"
 fn issue_8185_neighbors_refuse_a_read_of_the_view_or_keep_main() {
     let o = run(BY_VALUE_NEIGHBORS, "BN Test");
     let want = [
-        ("NoFilter_KeyOnName_PrimaryKey", "Pass", false),
+        ("NoFilter_AdHocKey_PrimaryKey", PASS, false),
+        // The copy does not take the FlowField key's mark (record/keys-sorting/PwFlowFieldKeyRule.al:249).
+        ("NoFilter_RowDependentFlowFieldKey_PrimaryKey", PASS, false),
+        // A declared secondary key is not measured: main's view.
+        ("NoFilter_DeclaredKey_KeepsMainKey", PASS, false),
         // Only a read of the view marks the assumption, also on a copy handed on.
-        ("GroupZero_FieldRead_NotFlagged", "Pass", false),
-        ("GroupZero_PassedOn_FindFirst_Flagged", "Pass", true),
-        ("FilterGroupTwo_GetFilters_Refused", "NotRun", false),
-        ("FilterGroupTwo_FieldRead_Runs", "Pass", false),
-        ("FilterGroupTwo_ResetThenCount_Runs", "Pass", false),
-        ("Descending_GetFilters_Refused", "NotRun", false),
-        ("ByVar_KeepsFilters", "Pass", false),
-        ("Temporary_KeepsMainFilters", "Pass", false),
+        ("GroupZero_FieldRead_NotFlagged", PASS, false),
+        ("GroupZero_PassedOn_FindFirst_Flagged", PASS, true),
+        ("FilterGroupTwo_GetFilters_Refused", VIEW_REFUSED, false),
+        ("FilterGroupTwo_FieldRead_Runs", PASS, false),
+        ("FilterGroupTwo_ResetThenCount_Runs", PASS, false),
+        ("FilterGroupTwo_MethodsThatReadNoView_Run", PASS, false),
+        ("FilterGroupTwo_CalcFields_NoFlowFilter_Runs", PASS, false),
+        ("FilterGroupTwo_CalcFields_FlowFilter_Refused", VIEW_REFUSED, false),
+        // A hand-off of the copy to code that reads its view refuses; TransferFields reads its fields only.
+        // Copy hands the copy's mark on: a read of the target's view refuses, its Modify runs (pages/link-filter/
+        // LinkCopyRecordMethods.al:105-107 copies a by-value Rec and modifies the copy).
+        ("FilterGroupTwo_CopyFrom_Refused", VIEW_REFUSED, false),
+        ("FilterGroupTwo_CopyThenModify_Runs", PASS, false),
+        ("FilterGroupTwo_CopyFiltersFrom_Refused", VIEW_REFUSED, false),
+        ("FilterGroupTwo_TransferFieldsFrom_Runs", PASS, false),
+        ("FilterGroupTwo_GetTable_Refused", VIEW_REFUSED, false),
+        ("FilterGroupTwo_PageRun_Refused", VIEW_REFUSED, false),
+        ("GroupZero_PageRun_Flagged", PASS, true),
+        // Copy hands the assumed view on: a later test that reads the kept copy is flagged too.
+        ("GroupZero_CopyKept_Flagged", PASS, true),
+        ("GroupZero_CopyKept_LaterRead_Flagged", PASS, true),
+        ("Descending_GetFilters_Refused", VIEW_REFUSED, false),
+        ("ByVar_KeepsFilters", PASS, false),
+        ("Temporary_KeepsMainFilters", PASS, false),
     ];
-    for (name, outcome, flagged) in want {
-        let got = o
-            .iter()
-            .find(|(n, ..)| n == name)
-            .unwrap_or_else(|| panic!("no test {name}"));
-        assert!(got.1.starts_with(outcome), "{name}: {}", got.1);
-        assert_eq!(got.2, flagged, "{name}");
-    }
+    check(&o, &want);
 }
 
 /// al-runner issue 7935, the reporter's repro as written: on BC row 1 keeps 'alpha'.

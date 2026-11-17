@@ -956,8 +956,8 @@ pub struct Session {
     pub(crate) truncate_undo: std::collections::HashMap<(String, u32), i64>,
     /// Records inside an OnValidate (by handle) with the field values from before the outermost
     /// Validate, which nested Validates of the same record see as xRec (corpus
-    /// record/TestXRecContracts.al:133).
-    pub(crate) validating: Vec<(usize, Vec<Value>)>,
+    /// record/TestXRecContracts.al:133), and the mark that xRec gets (`records::BeforeImage`).
+    pub(crate) validating: Vec<(usize, crate::records::BeforeImage)>,
     /// The records (by handle) whose `validating` entry a part's link stamp pushed (`stamp_from_filters_seen_as`): the
     /// platform validates the link value, so the entry holds whatever code runs at that moment.
     pub(crate) stamp_validating: Vec<usize>,

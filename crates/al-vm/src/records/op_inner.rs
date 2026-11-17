@@ -6,7 +6,7 @@ use crate::state::WriteOfAl;
 impl Session {
     pub(crate) fn record_op_inner(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
         self.connection_check(rec)?;
-        if rec.borrow().unpinned_buffer.is_some() {
+        if rec.borrow().unpinned_buffer.is_some() && !self.by_value_view_runs(method, rec)? {
             return self.unpinned_buffer_op(method, rec, args);
         }
         Self::view_and_source_marks(method, rec, args)?;
@@ -1920,8 +1920,12 @@ impl Session {
                 if let Some(v) = new_value {
                     rec.borrow_mut().fields[pos] = v;
                 }
+                let (before, mark) = before;
                 let xrec = Self::xrec_handle(rec, before.clone());
-                let outermost = outer.is_none().then_some(before);
+                if mark.is_some() {
+                    xrec.borrow_mut().unpinned_buffer = mark;
+                }
+                let outermost = outer.is_none().then_some((before, mark));
                 self.while_validating(entry, outermost, |s| s.validate_hooks(&t, rec, &xrec, field, snapshot))?;
                 if sum_flowfield {
                     self.finish_flowfield_validate(rec, &t, pos, flowfield_error, args.get(1).cloned(), old_value)?;
@@ -2298,17 +2302,12 @@ fn valid_find_direction(which: &str) -> bool {
 }
 
 impl Session {
-    /// The marks `record_op_inner` checks before a method runs: a read of the view of a by-value copy whose filters were dropped
-    /// on an assumption (`records/by_value_view.rs`), on `rec` or on its source argument; and Copy, CopyFilters, TransferFields
-    /// and the like from a record `copy_refused_mark` names, which would carry its unpinned view or buffer over.
+    /// The marks `record_op_inner` checks before a method runs: the view of a by-value copy (`records/by_value_view.rs`
+    /// `by_value_view_marks`); and Copy, CopyFilters, TransferFields and the like from a record `copy_refused_mark` names, which
+    /// would carry its unpinned view or buffer over.
     fn view_and_source_marks(method: RecordOp, rec: &Rec, args: &[Value]) -> Result<(), Signal> {
-        if rec.borrow().view_assumption {
-            Self::by_value_view_read(method, rec, true);
-        }
+        Self::by_value_view_marks(method, rec, args)?;
         if let Some(Value::Record(src)) = args.first() {
-            if src.borrow().view_assumption {
-                Self::by_value_view_read(method, src, false);
-            }
             if let Some(why) = copy_refused_mark(src) {
                 return unsupported(format!("Record.{}() from a record: {why}", method.name()));
             }

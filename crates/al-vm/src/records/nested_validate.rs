@@ -9,7 +9,7 @@ use crate::{Frame, Session};
 use al_builtins::assumptions::{self, Assumption};
 use al_builtins::native::Signal;
 use al_builtins::record_op::RecordOp;
-use al_builtins::value::Value;
+use al_builtins::value::{RecordState, Value};
 use al_ir::ObjKind;
 use std::rc::Rc;
 
@@ -17,6 +17,10 @@ use std::rc::Rc;
 /// trigger or procedure of the same record runs with an xRec that is not blank (`Session::running_call_xrec`): BC hands that
 /// call's xRec on in the shape al-runner issue 8189 measured; here a read of it refuses.
 pub(crate) const XREC_OF_RUNNING_CALL: &str = "xRec in a table procedure called through other code on a record whose trigger or procedure runs: real BC hands it the running call's xRec in the shape al-runner issue 8189 measured, this shape is not pinned";
+
+/// The before-image a Validate hands its triggers as xRec: the field values, and the `RecordState::unpinned_buffer` reason
+/// the xRec gets (`Some(XREC_OF_RUNNING_CALL)` when the values stand for a running call's xRec, `validate_before_image`).
+pub(crate) type BeforeImage = (Vec<Value>, Option<&'static str>);
 
 /// The xRec a table procedure called on a record value runs with ([`Session::table_proc_xrec`]).
 pub(crate) enum ProcXrec {
@@ -90,7 +94,7 @@ impl Session {
     pub(crate) fn while_validating<T>(
         &mut self,
         entry: (usize, Option<ValidateSite>),
-        outermost: Option<Vec<Value>>,
+        outermost: Option<BeforeImage>,
         hooks: impl FnOnce(&mut Self) -> Result<T, Signal>,
     ) -> Result<T, Signal> {
         let pushed = outermost.is_some();
@@ -135,9 +139,9 @@ impl Session {
     ///   `xrec-table-proc-from-field-validate` (al-runner issue 7785), and only when that xRec holds other values than the blank
     ///   record a plain call gets (else the two read the same).
     ///
-    /// Every other call from a trigger keeps the blank xRec of a plain call, unprobed (OnInsert, OnModify, OnDelete, OnRename,
-    /// OnBeforeValidate, another record variable, a table extension's own procedure, a table extension's trigger at a call site
-    /// that is not measured).
+    /// Every other call from the table's or a table extension's own code keeps the blank xRec of a plain call, unprobed (OnInsert,
+    /// OnModify, OnDelete, OnRename, OnBeforeValidate, another record variable, a table extension's own procedure, a table
+    /// extension's trigger at a call site that is not measured). A call from other code: [`Session::running_call_xrec`].
     pub(crate) fn table_proc_xrec(&mut self, object: usize, rc: &Rec, f: &Frame) -> ProcXrec {
         match self.frame_xrec(object, rc, f) {
             Some(x) => ProcXrec::Shared(x),
@@ -168,11 +172,7 @@ impl Session {
             // The table's own field OnValidate.
             let own =
                 o.kind == ObjKind::Table && f.object == object && fi.object as usize == object && field_on_validate;
-            // The table itself or one of its table extensions.
-            let owner = |x: usize| {
-                x == object
-                    || (objects[x].kind == ObjKind::TableExtension && objects[x].extends_id == objects[object].id)
-            };
+            let owner = |x: usize| self.table_or_its_extension(x, object);
             let modify = trigger.container.as_ref().is_some_and(|(sec, _)| sec == "modify");
             let measured = from_al_validate
                 && objects[object].kind == ObjKind::Table
@@ -192,15 +192,26 @@ impl Session {
         (differs && assumptions::hit(Assumption::XrecTableProcFromFieldValidate)).then_some(caller_xrec)
     }
 
-    /// A procedure of table `object` called on `rc` by code that holds no xRec of it (frame `f`, no case of `frame_xrec`), while
-    /// a trigger or procedure on the same record runs further up: the table's instance of the record variable (ADR-021) holds `rc`
-    /// as Rec and that call's xRec (`running_xrec`).
+    /// Whether object `x` is table `object` itself or one of its table extensions.
+    fn table_or_its_extension(&self, x: usize, object: usize) -> bool {
+        let objects = &self.engine.program.objects;
+        x == object || (objects[x].kind == ObjKind::TableExtension && objects[x].extends_id == objects[object].id)
+    }
+
+    /// A procedure of table `object` called on `rc` by code that holds no xRec of it (frame `f`, no case of `frame_xrec`).
+    /// - Called from the table's or a table extension's own code (a trigger or procedure of either): a plain call, as
+    ///   `table_proc_xrec` lists (record/PWTableGlobals.al:196-260; al-test-cli suite `xrec_proc_call_scope.rs`).
+    /// - Called from other code while a trigger or procedure on the same record runs further up: the table's instance of the
+    ///   record variable (ADR-021) holds `rc` as Rec and that call's xRec (`running_xrec`).
     /// - The shape al-runner issue 8189 measured (`through_codeunit_measured`): the running call's xRec, shared, on assumption
     ///   `xrec-table-proc-through-codeunit` (the reporter's repro passes on real BC).
     /// - Any other shape, when that xRec holds other values than the blank record a plain call gets: the blank xRec marked
     ///   [`XREC_OF_RUNNING_CALL`], so a read of it refuses.
     /// - Else, and when no call on the record runs: a plain call (record/PWTableGlobals.al:196-260 XRecPlainProc_*).
     fn running_call_xrec(&mut self, object: usize, rc: &Rec, f: &Frame) -> ProcXrec {
+        if self.table_or_its_extension(f.object, object) {
+            return ProcXrec::Plain;
+        }
         let Some(running) = self.running_xrec(object, rc) else {
             return ProcXrec::Plain;
         };
@@ -233,7 +244,8 @@ impl Session {
     /// - the three innermost frames are, from the inside out: that codeunit procedure, a procedure of table `object` that is no
     ///   trigger, and the field OnValidate trigger of table `object`;
     /// - the Validate is the one `Record.Validate` AL code called on the record (`sole_validate_from_al`);
-    /// - the record's buffer came from its own Insert or a Get (`RecordState::row_origin`).
+    /// - the record is stored and its buffer came from its own Insert or from a Get of the row the open transaction wrote
+    ///   (`measured_buffer`).
     fn through_codeunit_measured(&self, object: usize, rc: &Rec, f: &Frame) -> bool {
         let objects = &self.engine.program.objects;
         let n = self.frames.len();
@@ -262,7 +274,24 @@ impl Session {
             && trigger.field.is_some()
             && trigger.name.eq_ignore_ascii_case("OnValidate")
             && self.sole_validate_from_al(Rc::as_ptr(rc) as usize)
-            && rc.borrow().row_origin.is_some()
+            && Self::measured_buffer(&rc.borrow())
+    }
+
+    /// The two buffers al-runner issue 8189 measured (the reporter's `PrepareAfterInsert` and `PrepareAfterGet`): a record that is
+    /// not temporary, whose buffer came from its own `Insert` (no Modify, Rename or read after it), or from a `Get` of the row
+    /// that its own transaction inserted. A Find, a GetBySystemId, a Get of a committed row or a TransferFields refuse.
+    fn measured_buffer(r: &RecordState) -> bool {
+        let Some(o) = r.row_origin else {
+            return false;
+        };
+        let own_insert = !o.read_in_write_tx && !o.by_get;
+        let get_of_own_write = o.read_in_write_tx && o.by_get;
+        !r.temporary
+            && o.own_write
+            && !o.own_modified
+            && !o.lock_only
+            && !o.from_find
+            && (own_insert || get_of_own_write)
     }
 
     /// The before-image of the innermost running Validate of the record at `handle`, when the Validate about to start is
@@ -274,13 +303,12 @@ impl Session {
     /// OnValidate_CodeunitValidatesSameFieldAgain `B(rec=INNER,x=BLUE)`; al-runner issue 6924 item 3.9).
     /// A part's link stamp is the platform's own Validate: it sees the blank line it pushed whatever code runs
     /// (pages/parts/QjPartPropagation.al:3954 QT_ValPartSplit_Empty_New_ThenType `T.Doc.V(H1 x= ln=0)`).
-    pub(crate) fn outer_validate_before(&self, handle: usize, table_object: usize) -> Option<Vec<Value>> {
+    pub(crate) fn outer_validate_before(&self, handle: usize, table_object: usize) -> Option<BeforeImage> {
         let (_, before) = self.validating.iter().rev().find(|(h, _)| *h == handle)?;
-        let objects = &self.engine.program.objects;
-        let own = self.frames.last().is_some_and(|&o| {
-            o == table_object
-                || (objects[o].kind == ObjKind::TableExtension && objects[o].extends_id == objects[table_object].id)
-        });
+        let own = self
+            .frames
+            .last()
+            .is_some_and(|&o| self.table_or_its_extension(o, table_object));
         (own || self.stamp_validating.contains(&handle)).then(|| before.clone())
     }
 
@@ -292,13 +320,16 @@ impl Session {
     /// Qty := 3 sees old=0, and `this.Qty := 7; this.Validate(this.Qty)` sees old=0). In the page's OnModifyRecord a Validate
     /// of the page's Rec passes the page's xRec or is refused (`pages/modify_record_xrec.rs`). Called from other code, the xRec is the record
     /// before the call (record/TestXRecContracts.al:190, record/TestTableEventSequenceContracts.al).
+    /// The blank xRec of a call [`Session::running_call_xrec`] marked stands for the running call's xRec: the before-image keeps
+    /// the mark, so the triggers' and validate events' read of xRec refuses, and a Validate nested in them by the table's code
+    /// gets it again (`outer`).
     pub(crate) fn validate_before_image(
         &self,
         handle: usize,
-        outer: Option<Vec<Value>>,
+        outer: Option<BeforeImage>,
         rec: &Rec,
         with_value: bool,
-    ) -> Result<Vec<Value>, Signal> {
+    ) -> Result<BeforeImage, Signal> {
         if let Some(b) = outer {
             return Ok(b);
         }
@@ -308,15 +339,14 @@ impl Session {
             .last()
             .filter(|(h, d, _)| *h == handle && *d == depth)
         {
-            // The marked blank xRec stands for the running call's xRec, which this Validate would hand on (`running_call_xrec`).
-            if x.2.borrow().unpinned_buffer == Some(XREC_OF_RUNNING_CALL) {
-                return Err(Signal::unsupported(XREC_OF_RUNNING_CALL));
-            }
-            return Ok(x.2.borrow().fields.clone());
+            let x = x.2.borrow();
+            let mark = (x.unpinned_buffer == Some(XREC_OF_RUNNING_CALL)).then_some(XREC_OF_RUNNING_CALL);
+            return Ok((x.fields.clone(), mark));
         }
         let before = rec.borrow().fields.clone();
-        Ok(self
+        let image = self
             .modify_record_validate_xrec(handle, &before, with_value)?
-            .unwrap_or(before))
+            .unwrap_or(before);
+        Ok((image, None))
     }
 }

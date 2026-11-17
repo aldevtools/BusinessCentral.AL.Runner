@@ -2204,9 +2204,7 @@ pub(crate) fn gettable_record_copy(src: &Rc<RefCell<RecordState>>) -> Result<Rec
     if let Some(why) = crate::records::copy_refused_mark(src) {
         return unsupported(format!("RecordRef.GetTable of a record: {why}"));
     }
-    if src.borrow().view_assumption {
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ByValueRecordNoFilters);
-    }
+    crate::Session::by_value_view_handed(src, || "RecordRef.GetTable of a record".into())?;
     Ok(al_builtins::record_into_recordref::recordref_copy(&src.borrow()))
 }
 

@@ -1353,6 +1353,7 @@ impl Session {
             },
             other => return unsupported(format!("a table view of {}", other.describe())),
         };
+        Self::by_value_view_handed(&view, || "a report's table view of a record".into())?;
         let table = view.borrow().table;
         let items: Vec<&ir::ReportItem> = schema
             .report()
