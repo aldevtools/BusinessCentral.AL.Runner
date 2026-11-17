@@ -152,82 +152,6 @@ impl FilterExpr {
 }
 
 impl FilterExpr {
-    /// Why the answer of this filter for the text value `v` rests on an order or a match of letters no measurement covers
-    /// (review of al-runner PR 8220): an ordered comparison where either text holds `Æ` or `æ` outside
-    /// [`crate::collation::ae_order_measured`], or an `@` filter whose answer changes when the accents are ignored
-    /// ([`at_refusal`]). `normal_record`: the value is of a normal record, the only kind either measurement covers.
-    pub fn collation_refusal(&self, v: &Value, normal_record: bool) -> Option<String> {
-        let v = &*blank_if_spaces(v);
-        let (Value::Text(t) | Value::Code(t)) = v else {
-            return None;
-        };
-        let ordered = |x: &Value| {
-            let (Value::Text(b) | Value::Code(b)) = x else {
-                return None;
-            };
-            let both_text = matches!((v, x), (Value::Text(_), Value::Text(_)));
-            let measured = |s: &str| crate::collation::ae_order_measured(s, both_text, normal_record);
-            (!(measured(t) && measured(b))).then(|| {
-                format!(
-                    "the order of '{}' and '{}' in a filter (the letters Æ and æ are measured only in two Text values of a normal record, the capital Æ)",
-                    t.as_str(),
-                    b.as_str()
-                )
-            })
-        };
-        match self {
-            FilterExpr::Range(lo, hi) => lo.iter().chain(hi.iter()).find_map(ordered),
-            FilterExpr::Lt(x) | FilterExpr::Le(x) | FilterExpr::Gt(x) | FilterExpr::Ge(x) => ordered(x),
-            FilterExpr::Like(p, true) | FilterExpr::NotLike(p, true) => {
-                at_refusal(t, p, matches!(v, Value::Text(_)), normal_record)
-            }
-            FilterExpr::Or(xs) | FilterExpr::And(xs) => xs.iter().find_map(|x| x.collation_refusal(v, normal_record)),
-            FilterExpr::NumCode(inner) | FilterExpr::UnpinnedText(inner) => inner.collation_refusal(v, normal_record),
-            _ => None,
-        }
-    }
-
-    /// Whether a value or a pattern of this filter holds a letter outside ASCII: a store checks its rows with
-    /// [`FilterExpr::collation_refusal`] then, whatever letters they hold.
-    pub fn holds_non_ascii(&self) -> bool {
-        let non_ascii = |x: &Value| matches!(x, Value::Text(s) | Value::Code(s) if !s.is_ascii());
-        match self {
-            FilterExpr::Range(lo, hi) => lo.iter().chain(hi.iter()).any(non_ascii),
-            FilterExpr::Lt(x) | FilterExpr::Le(x) | FilterExpr::Gt(x) | FilterExpr::Ge(x) => non_ascii(x),
-            FilterExpr::Like(p, _) | FilterExpr::NotLike(p, _) => !p.is_ascii(),
-            FilterExpr::Or(xs) | FilterExpr::And(xs) => xs.iter().any(FilterExpr::holds_non_ascii),
-            FilterExpr::NumCode(inner) | FilterExpr::UnpinnedText(inner) => inner.holds_non_ascii(),
-            _ => false,
-        }
-    }
-}
-
-/// Why an `@` filter's answer for `text` is not measured: on a temporary record, a Text value with the capital `É` the
-/// assumption `at-filter-e-matches-e-acute` reads (measured on a normal table, al-runner issue 8196); on any record, an
-/// accented letter in the text or the pattern where the answer with the accents ignored differs (issue 8196: BC ignores
-/// accents; only `É` in a Text value against `e` is measured).
-fn at_refusal(text: &str, pattern: &str, text_value: bool, normal_record: bool) -> Option<String> {
-    if text.is_ascii() && pattern.is_ascii() {
-        return None;
-    }
-    if text_value && !normal_record && text.contains('É') {
-        return Some(format!(
-            "the filter '@{pattern}' on '{text}' of a temporary record (É under @ is measured on a normal record only)"
-        ));
-    }
-    let folded = |s: &str| crate::collation::fold_accents(s);
-    (like(text, pattern, true, text_value) != like(&folded(text), &folded(pattern), true, false))
-        .then(|| format!("the filter '@{pattern}' on '{text}': whether @ ignores these accents is not measured"))
-}
-
-/// The first filter of `filters` whose answer for `row` is not measured ([`FilterExpr::collation_refusal`]).
-pub fn row_collation_refusal(row: &[Value], filters: &[FieldFilter], normal_record: bool) -> Option<String> {
-    filters
-        .iter()
-        .find_map(|f| f.expr.collation_refusal(&row[f.field], normal_record))
-}
-
-impl FilterExpr {
     /// The first comparison of `v` with a value of the filter that cannot be answered. [`FilterExpr::matches`] counts such a
     /// value as not passing; a caller that must not guess (a TableRelation condition, hard rule 4) refuses on it instead.
     pub fn compare_error(&self, v: &Value) -> Option<Signal> {
@@ -268,7 +192,7 @@ impl FilterExpr {
 }
 
 /// The value, or the blank text when it is spaces only; borrowed (no clone) in the usual case.
-fn blank_if_spaces(v: &Value) -> std::borrow::Cow<'_, Value> {
+pub(crate) fn blank_if_spaces(v: &Value) -> std::borrow::Cow<'_, Value> {
     use std::borrow::Cow;
     match v {
         Value::Text(s) if !s.is_empty() && s.bytes().all(|c| c == b' ') => {
@@ -287,7 +211,7 @@ fn blank_if_spaces(v: &Value) -> std::borrow::Cow<'_, Value> {
 
 /// Whether `text` matches the wildcard `pattern`, without regard to case under `@` (`ci`). `text_value`: the value is of a Text
 /// field, the only type the measurement of `at_letters_with_e_acute` covers.
-fn like(text: &str, pattern: &str, ci: bool, text_value: bool) -> bool {
+pub(crate) fn like(text: &str, pattern: &str, ci: bool, text_value: bool) -> bool {
     // Each character of the text, and whether it is a capital `É` of a Text value under `@`.
     let (t, p): (Vec<(char, bool)>, Vec<char>) = if ci && text_value && text.contains('É') {
         (at_letters_with_e_acute(text), pattern.to_lowercase().chars().collect())
@@ -1877,15 +1801,13 @@ pub fn row_passes(row: &[Value], filters: &[FieldFilter]) -> Result<bool, Signal
     Ok(row_passes_checked(row, filters))
 }
 
-/// Whether every filter matches its field of `row`, whatever its group; a filter whose matching is not pinned refuses.
+/// Whether every filter matches its field of `row`, whatever its group, for a reader that does not know whether the record is a
+/// normal one ([`all_match_on`]).
 pub fn all_match(filters: &[FieldFilter], row: &[Value]) -> Result<bool, Signal> {
-    for f in filters {
-        if !f.expr.matches(&row[f.field])? {
-            return Ok(false);
-        }
-    }
-    Ok(true)
+    all_match_on(filters, row, false)
 }
+
+pub use crate::filter_collation::{all_match_on, row_passes_collation};
 
 /// `row` when every filter matches it ([`all_match`]), else `None`.
 pub fn passing(filters: &[FieldFilter], row: Option<Vec<Value>>) -> Result<Option<Vec<Value>>, Signal> {

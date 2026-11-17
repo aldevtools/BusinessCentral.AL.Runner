@@ -40,55 +40,241 @@ impl MemStore {
         Ok(())
     }
 
-    /// A read whose answer rests on an order or a match of letters no measurement covers is refused (review of al-runner
-    /// PR 8220): a filter of `filters` whose answer for a row is not measured (`FilterExpr::collation_refusal`), and, among two
-    /// rows or more, an order by a column holding `Æ` or `æ` outside `collation::ae_order_measured`. The rows are checked
-    /// only when a filtered or ordered column ever held a text outside ASCII, or a filter's value or pattern holds one.
-    /// Rows a backing serves are not noted. A store that is not the database holds a temporary record's rows.
+    /// A read whose answer rests on an order or a match of letters no measurement covers is refused (al-runner issues 8195 and
+    /// 8196, review of al-runner PR 8220): a row whose passing rests on such a filter answer
+    /// ([`al_builtins::filter::row_passes_collation`]), unless a filter with a measured answer keeps it out; and, among the rows that
+    /// pass, two neighbours in the order of `key` (`None`: a read in no order) whose order rests on `Æ` or `æ`
+    /// ([`al_builtins::collation::ae_decides_order`]). The rows are looked at only when a filter that can refuse
+    /// ([`al_builtins::filter::FilterExpr::collation_open`]) reads a column a written row noted or holds a letter outside ASCII
+    /// itself, or the key orders by a noted column that no equality filter holds to one text. Rows a backing or a virtual table
+    /// serves are not noted. A store that is not the database (a temporary record's, a CRM connection's) holds no normal records.
+    ///
+    /// The answer is decided once per read: it is kept per table, key and filters ([`Verdict`]) and holds while the table is
+    /// the same, or only Modifies changed it that wrote no column the read looks at ([`ModifyRun`]).
     pub(super) fn collation_read(
         &self,
         cx: &AccessContext,
         t: &TableDef,
         filters: &[FieldFilter],
-        order: &[usize],
+        key: Option<usize>,
     ) -> Result<(), StoreError> {
         let held = self.accent_cols.get(&t.object).map_or(&[][..], Vec::as_slice);
-        let checked: Vec<&FieldFilter> = filters
+        let checked = filters
             .iter()
-            .filter(|f| held.contains(&f.field) || f.expr.holds_non_ascii())
-            .collect();
-        let ordered: Vec<usize> = order.iter().copied().filter(|c| held.contains(c)).collect();
-        if checked.is_empty() && ordered.is_empty() {
+            .any(|f| (held.contains(&f.field) || f.expr.holds_non_ascii()) && f.expr.collation_open());
+        let key_fields = |k: usize| t.keys[k].iter().chain(&t.keys[0]).copied();
+        // Rows that pass an equality filter hold the same text in its field, so that field never decides their order.
+        let one_text = |c: usize| {
+            filters
+                .iter()
+                .any(|f| f.field == c && f.group != al_builtins::filter::OR_GROUP && f.expr.text_equality().is_some())
+        };
+        let ordered = key.is_some_and(|k| key_fields(k).any(|c| held.contains(&c) && !one_text(c)));
+        if !checked && !ordered {
             return Ok(());
         }
-        let Some(table) = self.table(cx, t) else {
-            return Ok(());
-        };
-        // The order of one row is not observable.
-        let ordered = if table.len() >= 2 { ordered } else { Vec::new() };
-        let normal_record = self.database;
-        for row in table.values() {
-            if let Some(why) = checked
-                .iter()
-                .find_map(|f| f.expr.collation_refusal(&row[f.field], normal_record))
-            {
-                return Err(StoreError::Refused(why));
+        let slot = slot(cx, t);
+        // Equalities alone, in no order that rests on these letters: only the rows that tie with an equality's text can be open.
+        let ties: Option<Vec<(usize, &str)>> = filters
+            .iter()
+            .filter(|f| !ordered && (held.contains(&f.field) || f.expr.holds_non_ascii()) && f.expr.collation_open())
+            .map(|f| f.expr.tie_text().map(|x| (f.field, x)))
+            .collect();
+        if let Some(ties) = ties.filter(|_| !ordered) {
+            return self
+                .tie_read(cx, t, &slot, filters, &ties)
+                .map_or(Ok(()), |why| Err(StoreError::Refused(why)));
+        }
+        let filter_text = format!("{filters:?}");
+        let cols: Vec<usize> = filters
+            .iter()
+            .map(|f| f.field)
+            .chain(key.into_iter().flat_map(key_fields))
+            .collect();
+        let refusal = match self.kept_verdict(&slot, key, &filter_text, &cols) {
+            Some(refusal) => refusal,
+            None => {
+                let Some(table) = self.table(cx, t) else {
+                    return Ok(());
+                };
+                let order: Vec<usize> = match key {
+                    Some(k) if ordered => key_fields(k).filter(|&c| held.contains(&c) && !one_text(c)).collect(),
+                    _ => Vec::new(),
+                };
+                let refusal = self.collation_verdict(t, &table, filters, key, &order);
+                self.keep_verdict(slot, key, filter_text, refusal.clone());
+                refusal
             }
-            for &c in &ordered {
-                if let Value::Text(s) | Value::Code(s) = &row[c] {
-                    let text_value = matches!(row[c], Value::Text(_));
-                    if !al_builtins::collation::ae_order_measured(s, text_value, normal_record) {
-                        return Err(StoreError::Refused(format!(
-                            "an order by the field {} of table {}, which holds '{}' (the letters Æ and æ are measured only in a Text field of a normal record, the capital Æ)",
-                            t.fields[c].name,
-                            t.name,
-                            s.as_str()
-                        )));
-                    }
+        };
+        refusal.map_or(Ok(()), |why| Err(StoreError::Refused(why)))
+    }
+
+    /// The refusal of [`MemStore::collation_read`] for the rows of `table` as they are; `order`: the noted key fields that can
+    /// decide the order of two rows that pass.
+    fn collation_verdict(
+        &self,
+        t: &TableDef,
+        table: &Table,
+        filters: &[FieldFilter],
+        key: Option<usize>,
+        order: &[usize],
+    ) -> Option<String> {
+        let normal_record = self.holds_normal_records();
+        let mut passing: Vec<&Row> = Vec::new();
+        let mut holds_ae = false;
+        for row in table.values() {
+            #[cfg(test)]
+            COLLATION_ROWS.with(|n| n.set(n.get() + 1));
+            match al_builtins::filter::row_passes_collation(row, filters, normal_record) {
+                Err(why) => return Some(why),
+                Ok(false) => continue,
+                Ok(true) => {}
+            }
+            if !order.is_empty() {
+                holds_ae |= order.iter().any(
+                    |&c| matches!(&row[c], Value::Text(s) | Value::Code(s) if al_builtins::collation::holds_ae(s)),
+                );
+                passing.push(row);
+            }
+        }
+        let key = key.filter(|_| holds_ae && passing.len() >= 2)?;
+        passing.sort_by(|a, b| cmp_rows(t, key, a, b));
+        passing
+            .windows(2)
+            .find_map(|w| order_refusal(t, key, w[0], w[1], normal_record))
+    }
+
+    /// The refusal of [`MemStore::collation_read`] for a read whose open filters are the equalities `ties` (field, text): the rows
+    /// whose text ties with one ([`al_builtins::collation::ae_fold`], found in [`MemStore::fold_index`]) are checked.
+    fn tie_read(
+        &self,
+        cx: &AccessContext,
+        t: &TableDef,
+        slot: &Slot,
+        filters: &[FieldFilter],
+        ties: &[(usize, &str)],
+    ) -> Option<String> {
+        let table = self.table(cx, t)?;
+        for &(c, x) in ties {
+            let index = self.fold_index(slot, c, &table);
+            for k in index.get(&al_builtins::collation::ae_fold(x)).into_iter().flatten() {
+                let row = table.get(k)?;
+                if let Err(why) = al_builtins::filter::row_passes_collation(row, filters, self.holds_normal_records()) {
+                    return Some(why);
                 }
             }
         }
-        Ok(())
+        None
+    }
+
+    /// The rows of `table` whose text in column `c` holds `Æ`, `æ` or `ae` ([`al_builtins::collation::ae_equality_reachable`]), by
+    /// that text folded ([`al_builtins::collation::ae_fold`]); kept like a verdict, for the column alone.
+    fn fold_index(&self, slot: &Slot, c: usize, table: &Table) -> std::rc::Rc<FoldIndex> {
+        let ck = (slot.clone(), c);
+        if let Some((at, index)) = self.fold_indexes.borrow().get(&ck)
+            && self.still_holds(slot, at, &[c])
+        {
+            return index.clone();
+        }
+        let mut index = FoldIndex::new();
+        for (k, row) in table.iter() {
+            #[cfg(test)]
+            COLLATION_ROWS.with(|n| n.set(n.get() + 1));
+            if let Value::Text(s) | Value::Code(s) = &row[c]
+                && al_builtins::collation::ae_equality_reachable(s)
+            {
+                index
+                    .entry(al_builtins::collation::ae_fold(s))
+                    .or_default()
+                    .push(k.clone());
+            }
+        }
+        let index = std::rc::Rc::new(index);
+        self.fold_indexes
+            .borrow_mut()
+            .insert(ck, (self.kept_at(slot), index.clone()));
+        index
+    }
+
+    /// The version of `slot` now and the Modify run that ended there, to keep an answer computed now ([`KeptAt`]).
+    fn kept_at(&self, slot: &Slot) -> KeptAt {
+        let version = self.versions.get(slot).copied().unwrap_or(0);
+        let run = self.modify_runs.get(slot).filter(|r| r.to == version).map(|r| r.id);
+        KeptAt { version, run }
+    }
+
+    /// Whether an answer kept at `at` still holds for the rows of `slot` as far as the columns `cols` go: the table is at the same
+    /// version, or only Modifies ran since (in the same run, or a run that started there) and none changed one of `cols`.
+    fn still_holds(&self, slot: &Slot, at: &KeptAt, cols: &[usize]) -> bool {
+        let now = self.versions.get(slot).copied().unwrap_or(0);
+        at.version == now
+            || self.modify_runs.get(slot).filter(|r| r.to == now).is_some_and(|r| {
+                (at.version == r.from || at.run == Some(r.id))
+                    && r.changed.iter().all(|(c, v)| *v <= at.version || !cols.contains(c))
+            })
+    }
+
+    /// The verdict kept for a read of `slot` in `key` through the filters `filter_text` that still holds: kept at the table's
+    /// version now, or at a version since which only Modifies ran that changed none of `cols`.
+    fn kept_verdict(
+        &self,
+        slot: &Slot,
+        key: Option<usize>,
+        filter_text: &str,
+        cols: &[usize],
+    ) -> Option<Option<String>> {
+        let mut cache = self.collation_verdicts.borrow_mut();
+        let kept = cache.get_mut(slot)?;
+        let i = kept
+            .iter()
+            .position(|v| v.key == key && v.filters == filter_text && self.still_holds(slot, &v.at, cols))?;
+        kept[..=i].rotate_right(1);
+        Some(kept[0].refusal.clone())
+    }
+
+    fn keep_verdict(&self, slot: Slot, key: Option<usize>, filters: String, refusal: Option<String>) {
+        let at = self.kept_at(&slot);
+        let mut cache = self.collation_verdicts.borrow_mut();
+        let kept = cache.entry(slot).or_default();
+        kept.retain(|v| !(v.key == key && v.filters == filters));
+        kept.insert(
+            0,
+            Verdict {
+                at,
+                key,
+                filters,
+                refusal,
+            },
+        );
+        kept.truncate(VERDICTS_PER_TABLE);
+    }
+
+    /// Writes down a Modify of a table with noted columns (see [`ModifyRun`]): `before` is the table's version before it,
+    /// `changed` the columns whose value it changed.
+    pub(super) fn note_modify(&mut self, slot: &Slot, before: u64, changed: Vec<usize>) {
+        let to = self.versions.get(slot).copied().unwrap_or(0);
+        let run = self.modify_runs.entry(slot.clone()).or_default();
+        if run.to != before {
+            *run = ModifyRun {
+                id: run.id + 1,
+                from: before,
+                to,
+                changed: Vec::new(),
+            };
+        }
+        run.to = to;
+        for c in changed {
+            match run.changed.iter_mut().find(|(i, _)| *i == c) {
+                Some(e) => e.1 = to,
+                None => run.changed.push((c, to)),
+            }
+        }
+    }
+
+    /// Whether this store holds the rows of normal records (the database), the only records the measurements of the letters
+    /// `Æ` and `É` cover (al-runner issues 8195 and 8196).
+    pub fn holds_normal_records(&self) -> bool {
+        self.database
     }
 
     /// Writes down the columns of `row` that hold an unknown value (see `unknown_cols`) or a text outside ASCII (see
@@ -106,4 +292,66 @@ impl MemStore {
             }
         }
     }
+}
+
+/// The refusal of an order of two rows next to each other in the order of `key`: the first key field where they differ is a text
+/// whose order rests on `Æ` or `æ` ([`al_builtins::collation::ae_decides_order`]).
+fn order_refusal(t: &TableDef, key: usize, a: &[Value], b: &[Value], normal_record: bool) -> Option<String> {
+    let i = t.keys[key]
+        .iter()
+        .chain(&t.keys[0])
+        .copied()
+        .find(|&i| t.cmp_key_field(i, &a[i], &b[i]) != Ordering::Equal)?;
+    let (Value::Text(x) | Value::Code(x), Value::Text(y) | Value::Code(y)) = (&a[i], &b[i]) else {
+        return None;
+    };
+    let both_text = matches!((&a[i], &b[i]), (Value::Text(_), Value::Text(_)));
+    al_builtins::collation::ae_decides_order(x, y, both_text, normal_record).then(|| {
+        format!(
+            "an order by the field {} of table {} between '{}' and '{}' (the letters Æ and æ are measured only in a Text field of a normal record, the capital Æ)",
+            t.fields[i].name,
+            t.name,
+            x.as_str(),
+            y.as_str()
+        )
+    })
+}
+
+/// How many verdicts of [`MemStore::collation_read`] one table keeps, the one used last first.
+const VERDICTS_PER_TABLE: usize = 8;
+
+/// When an answer of [`MemStore::collation_read`] was kept: the table's version, and the Modify run that ended there.
+#[derive(Clone)]
+pub(super) struct KeptAt {
+    version: u64,
+    run: Option<u64>,
+}
+
+/// Per folded text, the primary keys of the rows that hold it ([`MemStore::fold_index`]).
+pub(super) type FoldIndex = std::collections::HashMap<String, Vec<Key>>;
+
+/// One answer of [`MemStore::collation_read`]: for a table as of `at`, read in `key` through `filters` (their debug text).
+#[derive(Clone)]
+pub(super) struct Verdict {
+    at: KeptAt,
+    key: Option<usize>,
+    filters: String,
+    refusal: Option<String>,
+}
+
+/// The Modifies of one table since its last other write: the table's version before the first (`from`) and after the last
+/// (`to`), and per column the version after the last Modify that changed it. A rollback or any other write starts a new run
+/// (`id`): a version inside an earlier run may name rows a rollback undid.
+#[derive(Clone, Default)]
+pub(super) struct ModifyRun {
+    id: u64,
+    from: u64,
+    to: u64,
+    changed: Vec<(usize, u64)>,
+}
+
+#[cfg(test)]
+thread_local! {
+    /// How many rows [`MemStore::collation_read`] looked at on this thread.
+    pub(super) static COLLATION_ROWS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }

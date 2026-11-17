@@ -169,6 +169,150 @@ fn a_temporary_record_refuses_the_assumed_e_acute_under_at() {
     )));
 }
 
+/// The rows of `names` 0..n, each `Bæk <i>` with the tag `T<i>`, in a store of normal records.
+fn many(n: usize) -> MemStore {
+    let rows: Vec<(String, String)> = (0..n).map(|i| (format!("Bæk {i:05}"), format!("T{i:05}"))).collect();
+    let refs: Vec<(&str, &str)> = rows.iter().map(|(a, b)| (a.as_str(), b.as_str())).collect();
+    store(&refs, true)
+}
+
+/// Steps through every row in `key` through `filters`, as a FindSet/Next loop does; `each` runs after each step.
+fn walk(s: &mut MemStore, key: usize, filters: &[FieldFilter], mut each: impl FnMut(&mut MemStore, &Row)) -> usize {
+    let (mut n, mut after) = (0, None::<Vec<Value>>);
+    loop {
+        let scan = Scan {
+            key,
+            filters,
+            ascending: true,
+            after: after.as_deref(),
+        };
+        let Some(row) = s.next(&cx("C"), &names(), &scan).unwrap() else {
+            return n;
+        };
+        n += 1;
+        after = Some(
+            names().keys[key]
+                .iter()
+                .chain(&names().keys[0])
+                .map(|&i| row[i].clone())
+                .collect(),
+        );
+        each(s, &row);
+    }
+}
+
+fn rows_looked_at() -> u64 {
+    held_cols::COLLATION_ROWS.with(|n| n.get())
+}
+
+#[test]
+fn a_find_set_loop_decides_the_read_once() {
+    // Review of PR 8220 round 2 (HIGH-1, probe perf-de): the check ran in every step and looked at the whole table.
+    let n = 2_000;
+    let mut s = many(n);
+    let range = filter(0, FilterExpr::Range(Some(text("A")), Some(text("C"))));
+    let before = rows_looked_at();
+    assert_eq!(walk(&mut s, 0, std::slice::from_ref(&range), |_, _| {}), n);
+    let looked = rows_looked_at() - before;
+    assert!(looked <= 2 * n as u64, "looked at {looked} rows for {n}");
+}
+
+#[test]
+fn a_modify_loop_keeps_the_answer_until_a_read_column_changes() {
+    let n = 2_000;
+    let mut s = many(n);
+    let range = filter(0, FilterExpr::Range(Some(text("A")), Some(text("C"))));
+    let before = rows_looked_at();
+    // Each step changes the tag, a column the read in the order of Name does not look at.
+    let steps = walk(&mut s, 0, std::slice::from_ref(&range), |s, row| {
+        let mut row = row.clone();
+        row[1] = Value::Code(format!("U{}", al_builtins::native::text_of(&row[1]).unwrap_or_default()).into());
+        s.modify(&cx("C"), &names(), row).unwrap();
+    });
+    assert_eq!(steps, n);
+    let looked = rows_looked_at() - before;
+    assert!(looked <= 2 * n as u64, "looked at {looked} rows for {n}");
+    // A Modify of a column the read filters on is seen: the tag brings `Bak` next to `Bæk`, whose order rests on `æ`.
+    let mut s = store(&[("Bæk", "A"), ("Bak", "B")], true);
+    let tag = filter(1, FilterExpr::Eq(Value::Code("A".into())));
+    assert_eq!(name(&first(&s, 0, std::slice::from_ref(&tag)).unwrap().unwrap()), "Bæk");
+    let mut bak = first(&s, 0, &[filter(1, FilterExpr::Eq(Value::Code("B".into())))])
+        .unwrap()
+        .unwrap();
+    bak[1] = Value::Code("A".into());
+    assert!(matches!(
+        s.modify(&cx("C"), &names(), bak).unwrap(),
+        crate::WriteOutcome::Done
+    ));
+    assert!(refused(first(&s, 0, &[tag])));
+}
+
+#[test]
+fn a_lookup_by_an_equality_looks_at_the_table_once() {
+    // A loop that reads one row by name per step, the names holding `æ`: only rows that tie with the name are checked.
+    let n = 2_000;
+    let s = many(n);
+    let before = rows_looked_at();
+    for i in 0..n {
+        let v = text(&format!("Bæk {i:05}"));
+        let same = filter(0, FilterExpr::Range(Some(v.clone()), Some(v)));
+        assert_eq!(s.count(&cx("C"), &names(), std::slice::from_ref(&same)).unwrap(), 1);
+        assert!(first(&s, 1, &[same]).unwrap().is_some());
+    }
+    let looked = rows_looked_at() - before;
+    assert!(looked <= 2 * n as u64, "looked at {looked} rows for {n}");
+}
+
+#[test]
+fn an_equality_keeps_mains_answer_unless_the_texts_tie_without_ae() {
+    // Review of PR 8220 round 2, partner T12 and T13: another row holding `æ` made SetRange(Name, 'Adatum A/S') refuse.
+    let s = store(&[("Adatum A/S", "A"), ("Bæk", "B"), ("Kjær", "C")], true);
+    let same = |v: &str| filter(0, FilterExpr::Range(Some(text(v)), Some(text(v))));
+    assert_eq!(s.count(&cx("C"), &names(), &[same("Adatum A/S")]).unwrap(), 1);
+    assert_eq!(s.count(&cx("C"), &names(), &[same("Bæk")]).unwrap(), 1);
+    assert_eq!(
+        first(&s, 1, &[same("Kjær")]).unwrap().map(|r| name(&r)),
+        Some("Kjær".into())
+    );
+    // `Baek` and `Bæk` may be equal to BC: not measured.
+    assert!(refused(s.count(&cx("C"), &names(), &[same("Baek")])));
+    assert!(refused(s.count(
+        &cx("C"),
+        &names(),
+        &[filter(0, FilterExpr::Eq(text("BAEK")))]
+    )));
+}
+
+#[test]
+fn an_order_refuses_only_where_ae_decides_it() {
+    // Partner T07 and T14: a filter that leaves one row needs no order.
+    let s = store(&[("Alpha", "A"), ("ærø", "B"), ("Bravo", "C")], true);
+    let one = filter(1, FilterExpr::Eq(Value::Code("B".into())));
+    assert_eq!(name(&first(&s, 0, &[one]).unwrap().unwrap()), "ærø");
+    // Two names that differ after the same `Bæk`: main's order.
+    let s = store(&[("Bæk 2", "A"), ("Alpha", "B"), ("Bæk 1", "C"), ("Cæsar", "D")], true);
+    assert_eq!(name(&first(&s, 0, &[]).unwrap().unwrap()), "Alpha");
+    let names_in_order: Vec<String> = {
+        let mut s = s.clone();
+        let mut out = Vec::new();
+        walk(&mut s, 0, &[], |_, r| out.push(name(r)));
+        out
+    };
+    assert_eq!(names_in_order, ["Alpha", "Bæk 1", "Bæk 2", "Cæsar"]);
+    // `Bak` against `Bæk`: the order rests on `æ`.
+    let s = store(&[("Bæk", "A"), ("Bak", "B")], true);
+    assert!(refused(first(&s, 0, &[])));
+}
+
+#[test]
+fn a_row_a_measured_filter_keeps_out_does_not_refuse() {
+    let s = store(&[("Alpha", "A"), ("ærø", "X")], true);
+    let range = filter(0, FilterExpr::Range(Some(text("A")), Some(text("B"))));
+    let tag = filter(1, FilterExpr::Eq(Value::Code("A".into())));
+    assert_eq!(s.count(&cx("C"), &names(), &[range.clone(), tag]).unwrap(), 1);
+    assert!(refused(s.count(&cx("C"), &names(), &[range])));
+}
+
 #[test]
 fn other_accents_in_a_key_keep_mains_order() {
     let s = store(&[("Bravo", "A"), ("émile", "B")], false);

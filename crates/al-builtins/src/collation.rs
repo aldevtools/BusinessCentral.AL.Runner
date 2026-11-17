@@ -148,9 +148,74 @@ pub fn holds_ae(t: &str) -> bool {
 /// Whether the order of `t` among other texts is measured where it holds `Æ` or `æ`: only the capital `Æ` in a Text value of
 /// a normal record, compared with another Text value (assumption `text-key-ae-sorts-as-ae`, al-runner issue 8195, measured on
 /// a normal table). The small `æ`, a Code value and a temporary record are not measured: the order main gives them is
-/// shown wrong for a Text field by the same issue, so a read whose answer rests on it refuses (al-data memory/held_cols.rs).
+/// shown wrong for a Text field by the same issue. A read of rows the store wrote refuses where its answer rests on such an
+/// order ([`ae_decides_order`], al-data memory/held_cols.rs). Rows of a virtual table or of a restored database are not
+/// noted by the store and not checked: they keep this order.
 pub fn ae_order_measured(t: &str, text_value: bool, normal_record: bool) -> bool {
     !holds_ae(t) || (text_value && normal_record && t.chars().filter(|c| matches!(c, 'Æ' | 'æ')).all(|c| c == 'Æ'))
+}
+
+/// Whether the key order of the text values `a` and `b` ([`text_value_key_order`]) rests on a letter `Æ` or `æ` whose order
+/// is not measured ([`ae_order_measured`]), so BC's order of the two may differ from it. The order is decided at the first place
+/// where the first-level weights of the two texts differ (`compare_key`: trailing blanks, the hyphen and the apostrophe do not
+/// count there; a Text key reads the capital `Æ` as `AE`). It rests on such a letter when, at that place or before it, a letter
+/// `Æ` or `æ` of a text outside the measured shape stands against another letter of the other. Where both texts hold the same letters up to that place,
+/// BC weighs them alike, whatever their weight: the answer is the one main gives.
+pub fn ae_decides_order(a: &str, b: &str, both_text: bool, normal_record: bool) -> bool {
+    if !holds_ae(a) && !holds_ae(b) {
+        return false;
+    }
+    let measured = |t: &str| ae_order_measured(t, both_text, normal_record);
+    if measured(a) && measured(b) {
+        return false;
+    }
+    let expand = both_text && (a.contains('Æ') || b.contains('Æ'));
+    // Each letter the first level compares, with the letter `Æ` or `æ` it comes from when the order of that letter in this text
+    // is not measured (the capital `Æ` of a text in the measured shape is the assumed `AE`).
+    let letters = |t: &str| {
+        let open = !measured(t);
+        let mut out: Vec<(char, Option<char>)> = Vec::with_capacity(t.len());
+        for c in t.trim_end_matches(' ').chars().filter(|c| !matches!(c, '-' | '\'')) {
+            match c {
+                'Æ' if expand => out.extend([('A', open.then_some(c)), ('E', open.then_some(c))]),
+                'Æ' | 'æ' => out.push((c, Some(c))),
+                _ => out.push((c, None)),
+            }
+        }
+        out
+    };
+    let primary = |c: char| weight(c, true).map_or(u32::MAX, |w| w.primary);
+    for (x, y) in letters(a).iter().zip(&letters(b)) {
+        if x.1 != y.1 {
+            return true;
+        }
+        if primary(x.0) != primary(y.0) {
+            return false;
+        }
+    }
+    false
+}
+
+/// Whether two texts that main holds different could be equal to BC: they differ only where a letter `Æ` or `æ` stands against
+/// `AE` or `ae`, or in the case of these letters. Their equality is not measured (al-runner issue 8195 measures an order).
+/// Texts without these letters keep main's exact equality.
+pub fn ae_equality_open(a: &str, b: &str) -> bool {
+    let (a, b) = (a.trim_end_matches(' '), b.trim_end_matches(' '));
+    if a == b || (!holds_ae(a) && !holds_ae(b)) {
+        return false;
+    }
+    ae_fold(a) == ae_fold(b)
+}
+
+/// `t` as [`ae_equality_open`] compares it: without trailing blanks, `Æ` and `æ` written `ae`, in lower case.
+pub fn ae_fold(t: &str) -> String {
+    t.trim_end_matches(' ').replace(['Æ', 'æ'], "ae").to_lowercase()
+}
+
+/// Whether some text makes [`ae_equality_open`] true against `x`: `x` holds `Æ` or `æ`, or `ae` in any case. Every other value
+/// keeps main's equality against every text.
+pub fn ae_equality_reachable(x: &str) -> bool {
+    holds_ae(x) || x.to_lowercase().contains("ae")
 }
 
 /// `t` with each accented letter of [`ACCENTED`] replaced by its base letter, in its case: the text as a filter that ignores
