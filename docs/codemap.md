@@ -390,7 +390,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `awaited.rs`: Behavior that differs between BC versions in an open corpus probe, before a bump pins its guard (not a `Gate`; `tests/gate_completeness.rs` fails at the bump until it becomes one). Entry: `journal_temp_part_reads_after_refresh`.
 - `choose.rs` (238): How the target of a run is chosen (ADR-015 3.2, 3.8). Entry: `AppVersions` 10, `TargetError` 58, `Chosen` 84, `choose_target` 98.
 - `gates.rs` (115): Behaviour that differs between BC versions, as named facts in one table (ADR-015 3.4). Entry: `Evidence` 12, `Gate` 18, `has` 69.
-- `lib.rs` (291): BC versions and the run target (ADR-015). Entry: `VersionError` 21, `BcVersion` 42, `Runtime` 50, `Target` 56.
+- `lib.rs` (~330): BC versions and the run target (ADR-015). `BcVersion::resolved_to` makes the target the build the Microsoft apps came from (minor and build string; both CLIs call it, al-runner issue 8209). Entry: `VersionError` 21, `BcVersion` 42, `Runtime` 50, `Target` 56.
 
 ### al-vm
 

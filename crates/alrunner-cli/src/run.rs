@@ -1375,18 +1375,16 @@ fn test_inner(
     }
     let mut bc_build = None;
     if let Some(u) = &dependencies.build {
-        chosen.target.bc.build = Some(u.build.to_string());
+        // The target is the build the Microsoft apps come from (`BcVersion::resolved_to`).
+        chosen.target.bc.resolved_to(&u.build.to_string());
         bc_build = Some(u.build.to_string());
         if from_packages && Some(&u.build) != preferred_build.as_ref() {
             // The build the packages come from is neither cached nor published: the usual rules chose
-            // another one of the same major, and the target follows what the apps really are.
+            // another one of the same major.
             build_rule.push_str(&format!(
                 "; that build is not cached, on disk or published, so BC {} was used",
                 u.build
             ));
-            if u.build.major() == u32::from(chosen.target.bc.major) {
-                chosen.target.bc.minor = u.build.minor() as u16;
-            }
         }
     }
     // ADR-060 decision 2: `--license FILE`, else the license of the BC artifacts of the build, else none. A file that
