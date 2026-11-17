@@ -1064,8 +1064,6 @@ pub struct Session {
     pub(crate) permission_caller: Option<usize>,
     /// The xmlport whose export runs: the reads the runtime makes for it (not AL code) are decided as that object's.
     pub(crate) permission_run_object: Option<usize>,
-    /// The query whose method runs (the object index), for the read check of `query_rows`.
-    pub(crate) query_object: usize,
     /// The global variable (object index of the routine, slot) a query method is called on, from `run_native` to `query_op`.
     pub(crate) query_receiver: Option<(usize, usize)>,
     /// The KeyRef method that runs was called on a declared local variable of a codeunit procedure, from `run_native` to
@@ -1454,7 +1452,6 @@ impl Session {
             report_refusal_after_denial: None,
             permission_caller: None,
             permission_run_object: None,
-            query_object: 0,
             query_receiver: None,
             keyref_receiver_local: false,
             permissions: None,

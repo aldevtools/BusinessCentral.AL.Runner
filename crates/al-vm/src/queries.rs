@@ -174,7 +174,6 @@ impl Session {
         };
         let engine = self.engine.clone();
         let object = qs.borrow().object as usize;
-        self.query_object = object;
         let def = engine.program.objects[object].query.as_ref().expect("a query object");
         for a in &def.assumes {
             al_builtins::assumptions::assume(*a);
@@ -422,7 +421,7 @@ impl Session {
             "SaveAsCsv" => {
                 let filters = qs.borrow().filters.clone();
                 let top = qs.borrow().top.unwrap_or(def.top);
-                self.query_save_csv(def, &filters, top, args)
+                self.query_save_csv(object, def, &filters, top, args)
             }
             other => unsupported(format!("Query.{other}")),
         }
@@ -434,11 +433,13 @@ impl Session {
     fn query_save_as(&mut self, def: &ir::Query, qs: &Qs, method: &str, args: &[Value]) -> Result<Value, Signal> {
         let filters = qs.borrow().filters.clone();
         let top = qs.borrow().top.unwrap_or(def.top);
-        self.query_save_as_with(def, &filters, top, method, args.first())
+        let object = qs.borrow().object as usize;
+        self.query_save_as_with(object, def, &filters, top, method, args.first())
     }
 
     fn query_save_as_with(
         &mut self,
+        object: usize,
         def: &ir::Query,
         filters: &[(usize, FilterExpr)],
         top: i32,
@@ -459,7 +460,7 @@ impl Session {
             .iter()
             .map(|&c| (def.columns[c].name.as_str(), &def.columns[c].ty))
             .collect();
-        let (rows, _) = self.query_rows(def, filters)?;
+        let (rows, _) = self.query_rows(object, def, filters)?;
         let rows: Vec<Vec<&Value>> = rows
             .iter()
             .take(if top > 0 { top as usize } else { usize::MAX })
@@ -470,56 +471,48 @@ impl Session {
         Ok(Value::Boolean(true))
     }
 
-    /// `Query.SaveAsXml(Number, OutStream)` of an id no query has: No, and nothing raises
-    /// (reports/request-page/P105QryXml.al:163-177). With the answer dropped it raises MetadataNotFound
-    /// (queries/CgQueryLeads.al:656-690), which is not built: refused.
-    fn query_save_xml_static_op(&mut self, args: &[Value]) -> Result<Value, Signal> {
-        let known = match args.first() {
-            Some(Value::Integer(id)) => self
-                .engine
-                .program
-                .objects
-                .heads()
-                .iter()
-                .any(|o| o.is_kind(al_ir::ObjKind::Query) && o.id == u32::try_from(*id).ok()),
-            _ => return unsupported("Query.SaveAsXml with an id that is not an integer"),
-        };
-        // Of a query: the file of the instance call with no filters, and Yes
-        // (reports/request-page/P105QryXmlContentSM.al:115-131 SaveAsXml_Static_Content).
-        if known {
-            return self.query_save_xml_static(args);
+    /// The query object of a static `Query.SaveAsXml` or `Query.SaveAsCsv` with the id `id`: `Some` for a compiled query,
+    /// `None` for an id no loaded app declares. A query of a dependency app that was not compiled, and an id that may belong
+    /// to a dependency app the run skipped, are refused: BC finds that query, writes its file and answers Yes.
+    fn query_static_object(&self, method: &str, id: i64) -> Result<Option<usize>, Signal> {
+        let heads = self.engine.program.objects.heads();
+        let want = u32::try_from(id).ok();
+        if let Some(object) = heads.iter().position(|o| o.is_kind(al_ir::ObjKind::Query) && o.id == want) {
+            return Ok(Some(object));
         }
-        if !self.ret_used {
-            return unsupported(
-                "Query.SaveAsXml(Number, OutStream) of an unknown id with the answer dropped (not pinned)",
-            );
+        if heads.iter().any(|o| o.is_shell_of(al_ir::ObjKind::Query) && o.id == want) {
+            return unsupported(format!(
+                "Query.{method} of query {id}, which belongs to a dependency app and was not compiled (no code the workspace reaches uses it)"
+            ));
         }
-        if let Some(Value::Integer(id)) = args.first()
-            && let Some(why) = self.missing_may_be_skipped("Query", i64::from(*id))
-        {
+        if let Some(why) = self.missing_may_be_skipped("Query", id) {
             return unsupported(why);
         }
-        Ok(Value::Boolean(false))
+        Ok(None)
     }
 
-    /// `Query.SaveAsXml(Number, OutStream)` of a query object.
-    fn query_save_xml_static(&mut self, args: &[Value]) -> Result<Value, Signal> {
+    /// `Query.SaveAsXml(Number, OutStream)`. Of a query: the file of the instance call with no filters, and Yes
+    /// (reports/request-page/P105QryXmlContentSM.al:115-131 SaveAsXml_Static_Content). Of an id no query has: No, and
+    /// nothing raises (reports/request-page/P105QryXml.al:163-177). With the answer dropped that raises MetadataNotFound
+    /// (queries/CgQueryLeads.al:656-690), which is not built: refused.
+    fn query_save_xml_static_op(&mut self, args: &[Value]) -> Result<Value, Signal> {
         let Some(Value::Integer(id)) = args.first() else {
             return unsupported("Query.SaveAsXml with an id that is not an integer");
         };
+        let Some(object) = self.query_static_object("SaveAsXml", i64::from(*id))? else {
+            if !self.ret_used {
+                return unsupported(
+                    "Query.SaveAsXml(Number, OutStream) of an unknown id with the answer dropped (not pinned)",
+                );
+            }
+            return Ok(Value::Boolean(false));
+        };
         let engine = self.engine.clone();
-        let def = engine
-            .program
-            .objects
-            .heads()
-            .iter()
-            .position(|o| o.is_kind(al_ir::ObjKind::Query) && o.id == u32::try_from(*id).ok())
-            .and_then(|o| engine.program.objects[o].query.as_ref())
-            .expect("a known query");
+        let def = engine.program.objects[object].query.as_ref().expect("a query object");
         for a in &def.assumes {
             al_builtins::assumptions::assume(*a);
         }
-        self.query_save_as_with(def, &[], def.top, "SaveAsXml", args.get(1))
+        self.query_save_as_with(object, def, &[], def.top, "SaveAsXml", args.get(1))
     }
 
     /// `Query.SaveAsCsv(Number, OutStream)`: the query of that id with no filters. An id no query has writes nothing and
@@ -529,21 +522,15 @@ impl Session {
             Some(Value::Integer(n)) => *n,
             other => return unsupported(format!("Query.SaveAsCsv with {}", other.describe())),
         };
-        let engine = self.engine.clone();
-        let Some(object) = engine
-            .program
-            .objects
-            .heads()
-            .iter()
-            .position(|o| o.is_kind(al_ir::ObjKind::Query) && o.id == u32::try_from(id).ok())
-        else {
+        let Some(object) = self.query_static_object("SaveAsCsv", i64::from(id))? else {
             return Ok(Value::Boolean(false));
         };
+        let engine = self.engine.clone();
         let def = engine.program.objects[object].query.as_ref().expect("a query object");
         for a in &def.assumes {
             al_builtins::assumptions::assume(*a);
         }
-        self.query_save_csv(def, &[], def.top, &args[1..])
+        self.query_save_csv(object, def, &[], def.top, &args[1..])
     }
 
     /// The rows of a query as CSV: the column names, then a row per line, each line ended by a line feed. A text with a comma or a
@@ -551,6 +538,7 @@ impl Session {
     /// Other column types are not pinned.
     fn query_save_csv(
         &mut self,
+        object: usize,
         def: &ir::Query,
         filters: &[(usize, FilterExpr)],
         top: i32,
@@ -598,7 +586,7 @@ impl Session {
                 ));
             }
         }
-        let (rows, _) = self.query_rows(def, filters)?;
+        let (rows, _) = self.query_rows(object, def, filters)?;
         // The file of queries/W7QueryLifecycle.al:SaveAsCsv_NonIntegerColumns (a Date column and a text with an accent) is 83 bytes
         // where this writes 81; which of the two accounts for the difference is not pinned, so neither is written.
         if rows.iter().any(|r| {
@@ -889,7 +877,7 @@ impl Session {
         }
         if !qs.borrow().run.as_ref().expect("open").started {
             let filters = qs.borrow().filters.clone();
-            let (rows, stamps) = self.query_rows(def, &filters)?;
+            let (rows, stamps) = self.query_rows(qs.borrow().object as usize, def, &filters)?;
             let mut q = qs.borrow_mut();
             let run = q.run.as_mut().expect("open");
             run.rows = rows;
@@ -905,7 +893,7 @@ impl Session {
                 return unsupported("a write to a table an open aggregated query reads (the re-read is not pinned)");
             }
             let filters = qs.borrow().filters.clone();
-            let (mut rows, stamps) = self.query_rows(def, &filters)?;
+            let (mut rows, stamps) = self.query_rows(qs.borrow().object as usize, def, &filters)?;
             let dirs: Vec<bool> = def.order_by.iter().map(|(_, asc)| *asc).collect();
             let mut q = qs.borrow_mut();
             let run = q.run.as_mut().expect("open");
@@ -1000,14 +988,16 @@ impl Session {
     }
 
     /// Runs the query: its rows in order, and the table versions they were read at.
+    /// `object`: the query object, whose Execute permission and table reads are checked.
     fn query_rows(
         &mut self,
+        object: usize,
         def: &ir::Query,
         runtime: &[(usize, FilterExpr)],
     ) -> Result<(Vec<QueryRow>, Stamps), Signal> {
         if self.permission_checks() {
             let tables: Vec<usize> = def.items.iter().map(|i| i.table).collect();
-            self.permission_gate_object_read(self.query_object, &tables)?;
+            self.permission_gate_object_read(object, &tables)?;
         }
         let stamps = self.query_stamps(def);
         for (table, _) in &stamps {

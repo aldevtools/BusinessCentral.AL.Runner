@@ -231,6 +231,7 @@ mod sub_page_link_quoted_option_member;
 mod subpagelink_field_filter;
 mod system_flowfield_permission;
 mod system_table_permission_answer;
+mod query_static_save_permission;
 mod temp_list_key_open;
 mod tenant_permission_set_delete;
 mod test_framework_refusals;
