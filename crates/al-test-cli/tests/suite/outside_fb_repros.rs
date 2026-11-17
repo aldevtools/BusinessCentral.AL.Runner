@@ -247,3 +247,108 @@ fn issue_8186_unmeasured_neighbors_stay_refused() {
         assert!(split.is_empty(), "{what}: {split:#?}");
     }
 }
+
+const ISSUE_8186_NEIGHBORS: &str = include_str!("../fixtures/outside-fb/Issue8186Neighbors.al");
+
+/// The outcome and marks of each test of `codeunits` in Issue8186Neighbors.al (with the probe's objects), by test name.
+fn issue_8186_neighbor_outcomes(
+    codeunits: &[&str],
+) -> Vec<(String, Outcome, Vec<al_builtins::assumptions::Assumption>)> {
+    let src = format!("{ISSUE_8186_PROBE}\n{ISSUE_8186_NEIGHBORS}");
+    codeunits.iter().flat_map(|c| issue_8186_outcomes(&src, c)).collect()
+}
+
+/// The refusal main gives the neighbors it refuses: the new path does not take them.
+const MAIN_8186_REFUSAL: &str = "CurrPage.Update on a page that shows no row";
+
+/// An OnValidate that fails after `CurrPage.Update()` or `CurrPage.Update(false)` moved the page onto the row (the error rolls the
+/// insert back; `asserterror` around the SetValue): not measured, refused at the end of the validation.
+#[test]
+fn issue_8186_error_after_the_landing_is_refused() {
+    let o = issue_8186_neighbor_outcomes(&["LT NI Neighbor Tests"]);
+    for name in ["ErrorAfterUpdate_Update", "ErrorAfterUpdate_UpdateFalse"] {
+        let (_, r, _) = o.iter().find(|(n, _, _)| n == name).expect("the test");
+        assert!(
+            matches!(r, Outcome::NotRun(why) if why.contains("an error ended the validation")),
+            "{name}: {r:?}"
+        );
+    }
+}
+
+/// Shapes next to the measured cells keep main's refusal and carry no mark: a filter that leaves the inserted row out (the test's
+/// `Filter.SetFilter`, a RunModal record filtered on another field), two rows before the line, a row after it, the control's
+/// OnValidate inserting Rec itself, Trap and `Page.Run`, a read before the SetValue. `Update(false)` on the page without AutoSplitKey
+/// keeps main's answer.
+#[test]
+fn issue_8186_unmeasured_views_and_opens_keep_main_refusal() {
+    use al_builtins::assumptions::Assumption::ListNewLineCodeInsertUpdate;
+    let o = issue_8186_neighbor_outcomes(&["LT NI Neighbor Tests", "LT NI Neighbor Tests 2"]);
+    for name in [
+        "FilterExcludesTheLine",
+        "RunModalFilterExcludesTheLine",
+        "TwoRowsBefore",
+        "RowAfter",
+        "ControlValidateInserts",
+        "TrapAndPageRun",
+        "ReadBeforeTheSetValue",
+    ] {
+        let (_, r, marks) = o.iter().find(|(n, _, _)| n == name).expect("the test");
+        assert!(
+            matches!(r, Outcome::NotRun(why) if why.contains(MAIN_8186_REFUSAL))
+                && !marks.contains(&ListNewLineCodeInsertUpdate),
+            "{name}: {r:?} {marks:?}"
+        );
+    }
+    // Main answers `Update(false)` on the page without AutoSplitKey: the close inserts the line a second time.
+    let (_, r, marks) = o
+        .iter()
+        .find(|(n, _, _)| n == "NoAutoSplitKey_UpdateFalse")
+        .expect("the test");
+    assert!(
+        matches!(r, Outcome::Fail(why) if why.contains("already exists"))
+            && !marks.contains(&ListNewLineCodeInsertUpdate),
+        "{r:?} {marks:?}"
+    );
+}
+
+/// Page and table facts the probe does not vary keep main's refusal on every page of the probe: ModifyAllowed = false, a
+/// descending SourceTableView, a primary key of the AutoIncrement field alone.
+#[test]
+fn issue_8186_unmeasured_page_and_key_keep_main_refusal() {
+    use al_builtins::assumptions::Assumption::ListNewLineCodeInsertUpdate;
+    for (what, src) in [
+        (
+            "ModifyAllowed",
+            ISSUE_8186_PROBE.replace("PageType = List;", "PageType = List;\n    ModifyAllowed = false;"),
+        ),
+        (
+            "SourceTableView",
+            ISSUE_8186_PROBE.replace(
+                "SourceTable = \"LT NI Line\";",
+                "SourceTable = \"LT NI Line\";\n    SourceTableView = order(descending);",
+            ),
+        ),
+        (
+            "AutoIncrement key",
+            ISSUE_8186_PROBE.replace("key(PK; \"Group Code\", \"Entry No.\")", "key(PK; \"Entry No.\")"),
+        ),
+    ] {
+        let bad: Vec<_> = issue_8186_outcomes(&src, "LT NI Tests")
+            .into_iter()
+            .filter(|(_, r, marks)| !matches!(r, Outcome::NotRun(_)) || marks.contains(&ListNewLineCodeInsertUpdate))
+            .collect();
+        assert!(bad.is_empty(), "{what}: {bad:#?}");
+    }
+}
+
+/// The landing is forgotten when the page closes: the second OpenEdit of the same TestPage variable stands on the row the first
+/// open's line became, and `Previous()` there saves the Value typed, as on a plain list.
+#[test]
+fn issue_8186_reopen_forgets_the_landing() {
+    let o = issue_8186_neighbor_outcomes(&["LT NI Neighbor Tests"]);
+    let (_, r, _) = o
+        .iter()
+        .find(|(n, _, _)| n == "ReopenAfterTheLanding_PreviousSaves")
+        .expect("the test");
+    assert_eq!(*r, Outcome::Pass);
+}

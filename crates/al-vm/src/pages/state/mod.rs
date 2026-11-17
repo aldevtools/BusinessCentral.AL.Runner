@@ -906,6 +906,9 @@ pub struct PageState {
     /// The key of the row that refresh landed on and the number of test calls then, until the next move
     /// (`code_inserted_new_line.rs`).
     pub code_inserted_row: Option<(Vec<Value>, usize)>,
+    /// The store's write mark (`Session::write_mark`) when the page control's own OnValidate began, while it runs
+    /// (`code_inserted_new_line.rs` `run_control_onvalidate`).
+    pub control_onvalidate_writes: Option<(i64, u64)>,
     /// The filters of the page's record when a control's OnValidate began, for the refresh a `CurrPage.Update` in it asks for
     /// (`al-vm` `refresh_after_validate_filter`).
     pub filters_before_validate: Option<Vec<al_builtins::filter::FieldFilter>>,
@@ -1072,6 +1075,14 @@ impl PageState {
         self.temp_ws_edit = None;
         self.temp_ws_preloaded = false;
         self.journal_stayed = false;
+        self.forget_code_inserted_line();
+    }
+
+    /// What `code_inserted_new_line.rs` noted when the page landed on the row its new line became is gone: the page opens or
+    /// closes, or the validation that landed ended with an error.
+    pub(crate) fn forget_code_inserted_line(&mut self) {
+        self.refresh_from_code_inserted_line = false;
+        self.code_inserted_row = None;
     }
 
     /// The page opens: the captions its controls and fields resolved on the last run are gone.
