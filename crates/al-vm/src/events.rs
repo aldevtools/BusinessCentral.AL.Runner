@@ -150,6 +150,8 @@ pub enum MissingWhy {
     NotCompiled,
     /// The publisher name as written: several objects have it, and the subscriber's file does not pick one.
     PublisherNotPicked(String),
+    /// The publisher argument as written: neither `<Kind>::<name>` nor an object id (`ir::PublisherRef::Unread`).
+    PublisherNotRead(String),
 }
 
 impl Missing {
@@ -163,6 +165,11 @@ impl Missing {
             MissingWhy::PublisherNotPicked(name) => format!(
                 "event {event}: {} subscribes to {name}, a name more than one object has, and its file's namespace and `using`s \
                  do not pick one by a measured rule (al-runner issue 8171)",
+                self.subscriber
+            ),
+            MissingWhy::PublisherNotRead(written) => format!(
+                "event {event}: {} subscribes to the publisher {written}, an argument that is neither `<Kind>::<name>` nor an \
+                 object id, so which object it names is not known",
                 self.subscriber
             ),
         }
@@ -376,7 +383,7 @@ impl Registry {
                             // The platform codeunits below are found by the name as written, namespace left out.
                             let (target, _) = publisher_name(args[1].rsplit("::").next().unwrap_or(""));
                             let event = unquote(&args[2]).to_lowercase();
-                            let Some(found) = reg.publisher_of(heads, oi, r, a, &event, args.get(3)) else {
+                            let Some(found) = reg.publisher_of(heads, (oi, kind), r, a, &event, args.get(3)) else {
                                 continue;
                             };
                             // The runtime raises (or refuses where BC raises) this event without the publisher object.
@@ -674,50 +681,58 @@ impl Registry {
         }
     }
 
-    /// The publisher object that subscriber attribute `a` of routine `r` of object `oi` is bound to, for `event`: the object
-    /// the compile resolved its publisher name to in the subscriber's file (`ir::PublisherRef`, al-sema
-    /// `Workspace::subscriber_publisher`), a shell never. `Some(None)`: no object of the program. `None`: several objects have the
-    /// name and the file picks none; each of them refuses `event` (`MissingWhy::PublisherNotPicked`).
+    /// The publisher object that subscriber attribute `a` of routine `r` of object `oi` (kind `kind` named in its first argument)
+    /// is bound to, for `event`: the object the compile resolved its publisher name to in the subscriber's file (`ir::PublisherRef`,
+    /// al-sema `Workspace::subscriber_publisher`), a shell never. `Some(None)`: no object of the program. `None`: the subscriber is
+    /// bound to no object and `event` is refused for each object it may name: the twins of a name the file picks none of
+    /// (`MissingWhy::PublisherNotPicked`), every object of `kind` for a publisher argument the compile did not read
+    /// (`MissingWhy::PublisherNotRead`).
     fn publisher_of(
         &mut self,
         heads: &[ir::ObjectHead],
-        oi: usize,
+        (oi, kind): (usize, ObjKind),
         r: &ir::EventRoutine,
         a: &ir::Attribute,
         event: &str,
         element: Option<&String>,
     ) -> Option<Option<usize>> {
         let compiled = |t: u32| Some(t as usize).filter(|&t| heads.get(t).is_some_and(|h| !h.uncompiled));
-        match &a.publisher {
-            ir::PublisherRef::None => Some(None),
-            ir::PublisherRef::Only(t) => Some(compiled(*t)),
+        let written = || split_args(&a.text).get(1).cloned().unwrap_or_default();
+        let (targets, why): (Vec<usize>, MissingWhy) = match &a.publisher {
+            ir::PublisherRef::NotSubscriber | ir::PublisherRef::NotVisible => return Some(None),
+            ir::PublisherRef::Only(t) => return Some(compiled(*t)),
             ir::PublisherRef::Picked { object, twins } => {
                 for &t in twins {
                     self.scope_assumed.insert((t as usize, event.to_string()));
                 }
-                Some(compiled(*object))
+                return Some(compiled(*object));
             }
             ir::PublisherRef::Unpicked(twins) => {
-                let o = &heads[oi];
-                let written = split_args(&a.text).get(1).map_or_else(String::new, |n| {
-                    n.split_once("::")
-                        .map_or(n.as_str(), |(_, name)| name)
-                        .trim()
-                        .to_string()
-                });
-                for &t in twins {
-                    self.missing
-                        .entry((t as usize, event.to_string()))
-                        .or_default()
-                        .push(Missing {
-                            element: element.map(|e| unquote(e)).unwrap_or_default(),
-                            subscriber: format!("{} \"{}\".{}", o.kind, o.name, r.name),
-                            why: MissingWhy::PublisherNotPicked(written.clone()),
-                        });
-                }
-                None
+                let w = written();
+                let name = w
+                    .split_once("::")
+                    .map_or(w.as_str(), |(_, name)| name)
+                    .trim()
+                    .to_string();
+                (
+                    twins.iter().map(|&t| t as usize).collect(),
+                    MissingWhy::PublisherNotPicked(name),
+                )
             }
+            ir::PublisherRef::Unread => (
+                (0..heads.len()).filter(|&t| heads[t].kind == kind).collect(),
+                MissingWhy::PublisherNotRead(written()),
+            ),
+        };
+        let o = &heads[oi];
+        for t in targets {
+            self.missing.entry((t, event.to_string())).or_default().push(Missing {
+                element: element.map(|e| unquote(e)).unwrap_or_default(),
+                subscriber: format!("{} \"{}\".{}", o.kind, o.name, r.name),
+                why: why.clone(),
+            });
         }
+        None
     }
 
     /// The first subscriber of `event` of `object` that is declared but not compiled and that an
@@ -1028,7 +1043,7 @@ mod tests {
     #[test]
     fn a_qualified_name_two_objects_share_attaches_to_the_one_of_that_namespace() {
         // Two codeunits `Pub` in two namespaces of two apps (one app may not declare both, AL0197): the qualified name names
-        // the one of namespace A (al-runner issue 8171; corpus PR 1423, SnUsingTests.al).
+        // the one of namespace A, from a file with a namespace (al-runner issue 8171; corpus PR 1423, SnUsingTests.al).
         let app = |id: &str, deps: &[&str], src: &str| al_sema::workspace::AppSource {
             id: id.into(),
             name: id.into(),
@@ -1042,7 +1057,7 @@ mod tests {
                 app(
                     "s",
                     &["a", "b"],
-                    "codeunit 50202 Sub { [EventSubscriber(ObjectType::Codeunit, Codeunit::A.Pub, 'OnX', '', false, false)] local procedure H() begin end; }",
+                    "namespace S;\ncodeunit 50202 Sub { [EventSubscriber(ObjectType::Codeunit, Codeunit::A.Pub, 'OnX', '', false, false)] local procedure H() begin end; }",
                 ),
             ],
             &Default::default(),

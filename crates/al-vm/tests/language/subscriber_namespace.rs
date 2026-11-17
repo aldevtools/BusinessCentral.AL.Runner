@@ -178,3 +178,95 @@ fn a_subscriber_binds_only_to_an_object_its_app_sees() {
     assert!(!al_testkit::boolean(run(apps(), "PingMain").0));
     assert!(al_testkit::boolean(run(apps(), "PingDep").0));
 }
+
+/// One codeunit and one table, no namespace, and subscribers that name each by its bare id
+/// (`[EventSubscriber(ObjectType::Codeunit, 51650, ...)]`, the form Microsoft's ERM Change Global Dimensions writes as
+/// `ObjectType::Table, 483`): found by id, as main found it, unmarked.
+fn single_app_by_id(publisher_arg: &str) -> Vec<AppSource> {
+    let src = format!(
+        "codeunit 51650 \"Only Pub\"\n{{\n    procedure Ping() begin OnPing(); end;\n    \
+         [IntegrationEvent(false, false)]\n    local procedure OnPing() begin end;\n}}\n\
+         table 51651 \"Only Tab\" {{ fields {{ field(1; K; Integer) {{ }} }} keys {{ key(PK; K) {{ }} }} }}\n\
+         codeunit 51660 \"Ns Tests\"\n{{\n    EventSubscriberInstance = Manual;\n    var Ran: Boolean; Inserted: Boolean;\n    \
+         procedure Ping(): Boolean var P: Codeunit \"Only Pub\"; begin BindSubscription(this); P.Ping(); UnbindSubscription(this); exit(Ran); end;\n    \
+         procedure Insert(): Boolean var T: Record \"Only Tab\"; begin BindSubscription(this); T.K := 1; T.Insert(); UnbindSubscription(this); exit(Inserted); end;\n    \
+         [EventSubscriber(ObjectType::Codeunit, {publisher_arg}, 'OnPing', '', false, false)]\n    \
+         local procedure HandlePing() begin Ran := true; end;\n    \
+         [EventSubscriber(ObjectType::Table, 51651, 'OnAfterInsertEvent', '', false, false)]\n    \
+         local procedure HandleInsert(var Rec: Record \"Only Tab\") begin Inserted := true; end;\n}}\n"
+    );
+    vec![app("tests", &[], &src)]
+}
+
+#[test]
+fn a_bare_id_names_the_object_of_that_id() {
+    let (r, hits) = run(single_app_by_id("51650"), "Ping");
+    assert!(al_testkit::boolean(r), "the codeunit subscriber by id runs");
+    assert!(!hits.contains(&Assumption::SubscriberPublisherNamespaceScope));
+    let (r, hits) = run(single_app_by_id("51650"), "Insert");
+    assert!(al_testkit::boolean(r), "the table subscriber by id runs");
+    assert!(!hits.contains(&Assumption::SubscriberPublisherNamespaceScope));
+}
+
+/// A second argument that is neither `<Kind>::<name>` nor a bare id is not read: raising the event refuses instead of skipping
+/// the subscriber.
+#[test]
+fn a_publisher_argument_of_another_form_refuses_the_event() {
+    let why = refused(run(single_app_by_id("'Only Pub'"), "Ping").0);
+    assert!(why.contains("'Only Pub'"), "{why}");
+    // The table subscriber of the same codeunit is read and runs.
+    assert!(al_testkit::boolean(run(single_app_by_id("'Only Pub'"), "Insert").0));
+}
+
+/// A twin without a namespace against a namespaced one is not measured: the subscriber is bound to neither and each event refuses
+/// (also through a `using` of the namespaced twin).
+#[test]
+fn a_twin_without_a_namespace_is_not_picked() {
+    let mut apps = repro(USING_COPY, "\"Shared Name\"");
+    apps[0].files[0].1 = shared("Repro.Base", 51650).replace("namespace Repro.Base;\n", "");
+    apps[2].files[0].1 = apps[2].files[0]
+        .1
+        .replace("Codeunit Repro.Base.\"Shared Name\"", "Codeunit 51650");
+    let why = refused(run(apps, "PingCopy").0);
+    assert!(why.contains("Shared Name"), "{why}");
+}
+
+/// Table and page twins are not measured: a subscriber to a table or page name two namespaces have is bound to neither, also
+/// through a `using` of one of them, and the event of each twin refuses.
+#[test]
+fn table_and_page_twins_are_not_picked() {
+    let object = |kind: &str, ns: &str, id: u32| match kind {
+        "table" => format!(
+            "namespace {ns};\ntable {id} \"Shared Name\" {{ fields {{ field(1; K; Integer) {{ }} }} keys {{ key(PK; K) {{ }} }} }}\n"
+        ),
+        _ => format!("namespace {ns};\npage {id} \"Shared Name\" {{ layout {{ area(Content) {{ }} }} }}\n"),
+    };
+    let tests = |kind: &str| {
+        let (sub, raise, var) = match kind {
+            "table" => (
+                "ObjectType::Table, Database::\"Shared Name\", 'OnAfterInsertEvent'",
+                "T.K := 1; T.Insert();",
+                "T: Record Repro.Copy.\"Shared Name\"",
+            ),
+            _ => (
+                "ObjectType::Page, Page::\"Shared Name\", 'OnOpenPageEvent'",
+                "T.OpenView(); T.Close();",
+                "T: TestPage Repro.Copy.\"Shared Name\"",
+            ),
+        };
+        format!(
+            "{USING_COPY}\ncodeunit 51660 \"Ns Tests\"\n{{\n    EventSubscriberInstance = Manual;\n    var Ran: Boolean;\n    \
+             procedure Raise(): Boolean var {var}; begin BindSubscription(this); {raise} UnbindSubscription(this); exit(Ran); end;\n    \
+             [EventSubscriber({sub}, '', false, false)]\n    local procedure H() begin Ran := true; end;\n}}\n"
+        )
+    };
+    for kind in ["table", "page"] {
+        let apps = vec![
+            app("base", &[], &object(kind, "Repro.Base", 51650)),
+            app("copy", &["base"], &object(kind, "Repro.Copy", 51655)),
+            app("tests", &["base", "copy"], &tests(kind)),
+        ];
+        let why = refused(run(apps, "Raise").0);
+        assert!(why.contains("Shared Name"), "{kind}: {why}");
+    }
+}

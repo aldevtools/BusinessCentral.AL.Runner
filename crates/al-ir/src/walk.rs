@@ -321,7 +321,7 @@ fn walk_routine<V: RefVisitor>(r: &mut Routine, v: &mut V) {
             walk_const(c, v);
         }
         match publisher {
-            PublisherRef::None => {}
+            PublisherRef::NotSubscriber | PublisherRef::Unread | PublisherRef::NotVisible => {}
             PublisherRef::Only(o) => object32(v, o),
             PublisherRef::Picked { object, twins } => {
                 object32(v, object);
