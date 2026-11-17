@@ -203,7 +203,8 @@ impl Session {
 
     /// The step ended with `result`: on success see `validate_step_end`; after an error nothing of the step stays, and the page
     /// holds its xRec again (so a later save or Close still writes an earlier unsaved edit, as before this rule; a row a save
-    /// of the step stored becomes xRec in `after_validate_rows`).
+    /// of the step stored becomes xRec in `after_validate_rows`). An error after the page left its new line for the row the table
+    /// field inserted is refused (`refuse_error_after_landing`).
     pub(super) fn validate_step_close(
         &mut self,
         st: &St,
@@ -216,7 +217,7 @@ impl Session {
                 if let Some(step) = step.filter(|s| s.pinned) {
                     self.set_xrec_fields(st, step.held);
                 }
-                Err(e)
+                Err(self.refuse_error_after_landing(st, e))
             }
         }
     }
