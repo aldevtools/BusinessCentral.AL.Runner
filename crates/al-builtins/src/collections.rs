@@ -230,7 +230,7 @@ pub const REGISTRY: &[(&str, NativeFn)] = &[
     ("Dictionary.Add#1", |c, r, a| {
         let ret_used = c.ret_used();
         with_dict(r, |d| {
-            if live(d).any(|(_, (k, _))| eq(k, &a[0])) {
+            if find_key(d, &a[0], "Add")?.is_some() {
                 return if ret_used {
                     Ok(Value::Boolean(false))
                 } else {
@@ -246,16 +246,15 @@ pub const REGISTRY: &[(&str, NativeFn)] = &[
         })
     }),
     ("Dictionary.ContainsKey#1", |_, r, a| {
-        with_dict(r, |d| Ok(Value::Boolean(live(d).any(|(_, (k, _))| eq(k, &a[0])))))
+        with_dict(r, |d| Ok(Value::Boolean(find_key(d, &a[0], "ContainsKey")?.is_some())))
     }),
     ("Dictionary.Count#1", |_, r, _| {
         with_dict(r, |d| Ok(Value::Integer(live(d).count() as i32)))
     }),
     ("Dictionary.Get#1", |_, r, a| {
         with_dict(r, |d| {
-            live(d)
-                .find(|(_, (k, _))| eq(k, &a[0]))
-                .map(|(_, (_, v))| v.clone())
+            find_key(d, &a[0], "Get")?
+                .map(|i| d[i].1.clone())
                 .map_or_else(
                     // GetLastErrorText(true): LastErrorFlagRuntimeCodes.al:210, :215. The `Get(Key, var Value)` form is not measured.
                     || crate::native::with_origin(key_not_found(), not_classified()),
@@ -265,7 +264,7 @@ pub const REGISTRY: &[(&str, NativeFn)] = &[
     }),
     ("Dictionary.Get#2", |c, r, a| {
         let got = with_dict(r, |d| {
-            Ok(live(d).find(|(_, (k, _))| eq(k, &a[0])).map(|(_, (_, v))| v.clone()))
+            Ok(find_key(d, &a[0], "Get")?.map(|i| d[i].1.clone()))
         })?;
         match got {
             Some(v) => {
@@ -292,7 +291,7 @@ pub const REGISTRY: &[(&str, NativeFn)] = &[
     }),
     ("Dictionary.Remove#1", |_, r, a| {
         with_dict(r, |d| {
-            let found = live(d).find(|(_, (k, _))| eq(k, &a[0])).map(|(i, _)| i);
+            let found = find_key(d, &a[0], "Remove")?;
             Ok(Value::Boolean(match found {
                 Some(p) => {
                     // The slot is freed, not closed up: a key added next takes the slot freed last (.NET Dictionary; collections/
@@ -307,8 +306,8 @@ pub const REGISTRY: &[(&str, NativeFn)] = &[
     }),
     ("Dictionary.Set#1", |_, r, a| {
         with_dict(r, |d| {
-            match d.iter_mut().find(|(k, _)| !matches!(k, Value::Null) && eq(k, &a[0])) {
-                Some((_, v)) => *v = a[1].clone(),
+            match find_key(d, &a[0], "Set")? {
+                Some(i) => d[i].1 = a[1].clone(),
                 None => dict_insert(d, a[0].clone(), a[1].clone()),
             }
             Ok(Value::Null)
@@ -321,8 +320,8 @@ pub const REGISTRY: &[(&str, NativeFn)] = &[
         refuse_result(c.ret_used(), "Dictionary.Set(Key, Value, var OldValue)")?;
         let old = with_dict(r, |d| {
             Ok(
-                match d.iter_mut().find(|(k, _)| !matches!(k, Value::Null) && eq(k, &a[0])) {
-                    Some((_, v)) => Some(std::mem::replace(v, a[1].clone())),
+                match find_key(d, &a[0], "Set")? {
+                    Some(i) => Some(std::mem::replace(&mut d[i].1, a[1].clone())),
                     None => {
                         dict_insert(d, a[0].clone(), a[1].clone());
                         None
@@ -359,6 +358,23 @@ fn live(d: &[(Value, Value)]) -> impl Iterator<Item = (usize, &(Value, Value))> 
     d.iter().enumerate().filter(|(_, e)| tombstone(e).is_none())
 }
 
+/// The slot of the live entry whose key equals `key`. A key of a type whose comparison no corpus case measures
+/// ([`unmeasured_compare`]) refuses when it is compared with an entry (al-runner issue 8173); an empty dictionary compares
+/// nothing.
+fn find_key(d: &[(Value, Value)], key: &Value, member: &str) -> Result<Option<usize>, Signal> {
+    for (i, (k, _)) in live(d) {
+        if let Some(kind) = unmeasured_compare(key).or_else(|| unmeasured_compare(k)) {
+            return Err(Signal::unsupported(format!(
+                "Dictionary.{member} with a key of {kind}: how BC compares them is not measured"
+            )));
+        }
+        if eq(k, key) {
+            return Ok(Some(i));
+        }
+    }
+    Ok(None)
+}
+
 /// A new entry goes into the slot freed last, else after the last one.
 fn dict_insert(d: &mut Vec<(Value, Value)>, k: Value, v: Value) {
     let free = d
@@ -373,18 +389,27 @@ fn dict_insert(d: &mut Vec<(Value, Value)>, k: Value, v: Value) {
     }
 }
 
-/// `Contains`, `IndexOf`, `LastIndexOf` and `Remove` refuse when the searched value or an element of the list is an XML
-/// handle: no corpus case measures how BC compares two of them (al-runner issue 8165), and `eq` would answer "not equal".
+/// `Contains`, `IndexOf`, `LastIndexOf` and `Remove` refuse when the searched value or an element of the list is of a type
+/// whose comparison no corpus case measures ([`unmeasured_compare`]).
 /// This includes the XmlNode that AsXmlNode of an unassigned XmlElement returned (al-builtins `xml/unassigned_element.rs`).
 /// A list holds values of one AL type (a list of Variant does not compile: must-not-compile/cases/2770-list-of-variant.al:1,
 /// 1747-collection-of-variant.al:1), so the searched value and the first element decide.
 fn refuse_unmeasured_search(l: &[Value], v: &Value, member: &str) -> Result<(), Signal> {
-    if is_xml_handle(v) || l.first().is_some_and(is_xml_handle) {
+    if let Some(kind) = unmeasured_compare(v).or_else(|| l.first().and_then(unmeasured_compare)) {
         return Err(Signal::unsupported(format!(
-            "List.{member} on a list of XML handles: how BC compares them is not measured"
+            "List.{member} on a list of {kind}: how BC compares them is not measured"
         )));
     }
     Ok(())
+}
+
+/// The kinds of value whose comparison no corpus case measures, named for the refusal, where `eq` would answer "not equal":
+/// an XML handle (al-runner issue 8165) and a JsonToken (issue 8173; the token of an object against itself).
+fn unmeasured_compare(v: &Value) -> Option<&'static str> {
+    if is_xml_handle(v) {
+        return Some("XML handles");
+    }
+    matches!(v, Value::Library(crate::library_kind::LibraryKind::JsonToken, _)).then_some("JsonToken values")
 }
 
 /// A value of an XML handle type: a node or document, a node list, an attribute collection, a name table or a namespace

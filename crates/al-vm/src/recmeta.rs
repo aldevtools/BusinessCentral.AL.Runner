@@ -2366,25 +2366,36 @@ impl Session {
                 self.caption(t)
             ),
         };
+        let mut info_collectible = None;
         if let Some(info) = info {
             if let Some(copy) = al_builtins::errorinfo::copy_of(&info) {
                 let collectible = al_builtins::errorinfo::set_message_of(&copy, &full);
                 if collectible && self.collect_error(&copy) {
                     return Ok(Value::Null);
                 }
+                info_collectible = Some(collectible);
             }
         }
         // The flag: P86LastError.al:270, :276, :282 (no text); "You must specify" of a blank Text, Code or Date field
         // (errors/last-error/FieldErrorTextVariable.al:106, :112, :121); a text written as a literal,
         // a local Text or Code variable or a concatenation (P86LastError.al:273, :279, FieldErrorTextVariable.al:65-82,
         // :142-150); a global Label or TextConst (lt-last-error-text-exclude/LastErrorTextExcludeLabel.al:246,
-        // FieldErrorTextConst.al:51, :54). A blank DateTime, a text of another form and an ErrorInfo are not pinned.
+        // FieldErrorTextConst.al:51, :54); a blank DateTime with no text (errors/last-error/SnLastErrorTextMoreForms.al:167).
+        // An ErrorInfo is pinned only on a Text field that holds a value (SnLastErrorTextMoreForms.al:121-133): with a
+        // message and not collectible (`ErrorInfo.Create('ErrorInfo message')`, :161), and with no message, collectible and
+        // raised outside a collecting scope (`ErrorInfo.Create()`, :164). The message there is a literal; this site does not
+        // see how the ErrorInfo's message was written. A text of another form and any other ErrorInfo are not pinned.
         use al_builtins::native::ErrorTextForm;
         let field = format!("{}.{}", self.caption(t), self.field_caption(t, pos));
+        let filled_text = matches!(row[pos], Value::Text(_)) && !is_blank(&row[pos])?;
         let redacted = match (given_text, blank_value, info_given) {
             (false, false, false) => Some(format!("FieldError for incorrect value of {field}")),
-            (false, true, false) if !matches!(row[pos], Value::DateTime(_)) => {
-                Some(format!("FieldError for unspecified value of {field}"))
+            (false, true, false) => Some(format!("FieldError for unspecified value of {field}")),
+            (true, false, true) if filled_text && info_collectible == Some(false) => {
+                Some(format!("FieldError on field {field}"))
+            }
+            (false, false, true) if filled_text && info_collectible == Some(true) => {
+                Some(format!("FieldError for incorrect value of {field}"))
             }
             (true, _, false) => match (form, args.get(1).and_then(al_builtins::native::text_of)) {
                 (ErrorTextForm::Literal | ErrorTextForm::Computed, _) => Some(format!(

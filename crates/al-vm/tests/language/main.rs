@@ -162,6 +162,7 @@ mod last_error_origin;
 mod lazy_objects;
 mod list_read_in_foreach;
 mod list_search_xml;
+mod unmeasured_compare;
 mod marked_text_char_write;
 mod max_str_len_var_hops;
 mod moved_fields;

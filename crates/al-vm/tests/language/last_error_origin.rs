@@ -57,6 +57,30 @@ codeunit 69871 "LO C"
         exit(GetLastErrorText(true));
     end;
 
+    procedure FieldErrInfoOption(): Text
+    var R: Record "LO Row";
+    begin
+        R.Id := 1; R.Kind := R.Kind::One;
+        asserterror R.FieldError(Kind, ErrorInfo.Create('not allowed'));
+        exit(GetLastErrorText(true));
+    end;
+
+    procedure FieldErrInfoCollectible(): Text
+    var R: Record "LO Row";
+    begin
+        R.Id := 1; R.Name := 'Jane';
+        asserterror R.FieldError(Name, ErrorInfo.Create('not allowed', true));
+        exit(GetLastErrorText(true));
+    end;
+
+    procedure FieldErrInfoBlankText(): Text
+    var R: Record "LO Row";
+    begin
+        R.Id := 1;
+        asserterror R.FieldError(Name, ErrorInfo.Create('not allowed'));
+        exit(GetLastErrorText(true));
+    end;
+
     procedure FieldErrGlobalText(): Text
     var R: Record "LO Row";
     begin
@@ -225,7 +249,16 @@ fn the_text_forms_of_error_and_fielderror_answer_the_pinned_texts() {
 
 #[test]
 fn an_error_text_of_an_unpinned_form_is_refused() {
-    for routine in ["FromGlobalText", "FieldErrGlobalText"] {
+    // FieldError(Field, ErrorInfo) is pinned only on a Text field that holds a value, with a message that is not collectible
+    // or with no message (errors/last-error/SnLastErrorTextMoreForms.al:121-133, :161, :164): an Option field, a collectible
+    // ErrorInfo with a message and a blank Text field keep the refusal.
+    for routine in [
+        "FromGlobalText",
+        "FieldErrGlobalText",
+        "FieldErrInfoOption",
+        "FieldErrInfoCollectible",
+        "FieldErrInfoBlankText",
+    ] {
         match run_in(SRC, "LO C", routine) {
             Err(Signal::Unsupported(m)) => assert!(m.contains("does not pin"), "{routine}: {m}"),
             other => panic!("{routine}: {other:?}"),
