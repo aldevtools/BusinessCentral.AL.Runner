@@ -112,6 +112,14 @@ fn name_at(src: &str, at: usize) -> Option<&str> {
     (end > 0).then(|| &rest[..end])
 }
 
+/// Whether bracket word `w` is `name` (lower case) once its spaces are dropped: `[ Test ]` is `[test]`.
+fn attribute_is(w: &str, name: &str) -> bool {
+    w.chars()
+        .filter(|c| !matches!(c, ' ' | '\t'))
+        .map(|c| c.to_ascii_lowercase())
+        .eq(name.chars())
+}
+
 /// Returns `(codeunit id, [Test] procedure names)` for every test codeunit in `src`.
 fn scan(original: &str) -> Vec<Scanned> {
     let stripped = strip_comments(original);
@@ -121,7 +129,10 @@ fn scan(original: &str) -> Vec<Scanned> {
     let mut spans: Vec<(usize, &str)> = Vec::new();
     let mut start = None;
     for (i, c) in src.char_indices() {
-        let word = c.is_alphanumeric() || c == '_' || c == '[' || c == ']';
+        // A word that starts with `[` runs on over spaces up to its `]`, so `[ Test ]` is one word: the scan must find
+        // every test the full run executes (review of al-runner PR 8237, probe 8237b).
+        let in_brackets = start.is_some_and(|s| src.as_bytes()[s] == b'[') && matches!(c, ' ' | '\t');
+        let word = c.is_alphanumeric() || c == '_' || c == '[' || c == ']' || in_brackets;
         match (word, start) {
             (true, None) => start = Some(i),
             (false, Some(s)) => {
@@ -169,7 +180,7 @@ fn scan(original: &str) -> Vec<Scanned> {
                 if let Some(v) = words.get(i + 1) {
                     cur.3.get_or_insert_with(|| v.to_string());
                 }
-            } else if w.eq_ignore_ascii_case("[test]") || w.eq_ignore_ascii_case("[testdatasource") {
+            } else if attribute_is(w, "[test]") || attribute_is(w, "[testdatasource") {
                 // A data-driven procedure carries `[TestDataSource(...)]` and no `[Test]` (al-runner issue 7180; corpus
                 // al-language-testlibraries/test-framework/data-driven-tests-and-handlers/BiTestHandlerDefault.al:12, :257-291).
                 if let Some(pos) = words[i + 1..].iter().position(|w| w.eq_ignore_ascii_case("procedure")) {
@@ -208,6 +219,38 @@ mod tests {
         let src = "codeunit 50100 \"Scan Gap Tests\"\n{\n    Subtype = Test;\n    [Test]\n    procedure Alpha()\n    begin end;\n    [Test][HandlerFunctions('MsgHandler')]\n    procedure Beta()\n    begin end;\n    [Test] procedure Gamma()\n    begin end;\n    [MessageHandler]\n    procedure MsgHandler(Msg: Text[1024])\n    begin end;\n}\n";
         let names = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
         assert_eq!(test_codeunits(src), vec![(50100, names(&["Alpha", "Beta", "Gamma"]))]);
+    }
+
+    // Review of PR 8237, probe 8237b: spaces inside the brackets still mark a test; the full run executes these tests.
+    #[test]
+    fn a_test_attribute_with_spaces_inside_its_brackets_is_found() {
+        let src = "codeunit 50150 \"Spaces\"\n{\n    Subtype = Test;\n    [Test]\n    procedure Plain()\n    begin end;\n    [ Test ]\n    procedure SpacesInside()\n    begin end;\n    [Test ]\n    procedure SpaceBeforeClose()\n    begin end;\n    [ Test]\n    procedure SpaceAfterOpen()\n    begin end;\n    [\tTEST\t]\n    procedure Tabs()\n    begin end;\n    [ TestDataSource(Codeunit::\"S\", 'v')]\n    procedure Data(C: Interface ITestContext)\n    begin end;\n}\n";
+        let names = [
+            "Plain",
+            "SpacesInside",
+            "SpaceBeforeClose",
+            "SpaceAfterOpen",
+            "Tabs",
+            "Data",
+        ]
+        .map(String::from)
+        .to_vec();
+        assert_eq!(test_codeunits(src), vec![(50150, names)]);
+    }
+
+    // Neighbors: an index or a length in brackets is not the attribute, with or without spaces.
+    #[test]
+    fn an_index_or_a_length_in_brackets_is_not_a_test_attribute() {
+        let src = "codeunit 50151 \"Not Tests\"\n{\n    Subtype = Test;\n    procedure Helper(T: Text[30])\n    var Arr: array[2] of Integer; Test: Integer;\n    begin Arr[Test] := 1; Arr[ Test ] := 2; end;\n    procedure NotATest()\n    begin end;\n}\n";
+        assert_eq!(test_codeunits(src), vec![(50151, vec![])]);
+    }
+
+    // The shapes the "]" rule of issue 8207 added: another attribute first, no space before `procedure`, three on a line.
+    #[test]
+    fn a_test_attribute_among_other_attributes_on_its_line_is_found() {
+        let src = "codeunit 50152 \"Shapes\"\n{\n    Subtype = Test;\n    [HandlerFunctions('H')][Test]\n    procedure HandlerFirst()\n    begin end;\n    [Test]procedure Glued()\n    begin end;\n    [Test][HandlerFunctions('H')][TransactionModel(TransactionModel::AutoRollback)]\n    procedure Three()\n    begin end;\n    [Test][HandlerFunctions('H')] procedure OneLine()\n    begin end;\n}\n";
+        let names = ["HandlerFirst", "Glued", "Three", "OneLine"].map(String::from).to_vec();
+        assert_eq!(test_codeunits(src), vec![(50152, names)]);
     }
 
     #[test]
