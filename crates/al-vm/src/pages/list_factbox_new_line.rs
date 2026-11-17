@@ -18,9 +18,10 @@
 //! this module does not admit.
 //!
 //! Each step runs only on the probe's page shapes (`factbox_line_pages`) and after the probe's earlier steps
-//! (`FactboxLine`, `steps_are`); everything else keeps the path it had. After a `New()` that kept the part, the host's reads and
-//! property calls, a key's SetValue the probe does not make and Close keep main's answers; a call that reads or moves the part
-//! otherwise, an action, another SetValue or a move of the host is refused (`factbox_line_call`).
+//! (`FactboxLine`, `steps_are`); everything else keeps the path it had, and a SetValue that raises an error ends the steps. After
+//! a `New()` that kept the part, the host's reads and property calls, a key's SetValue the probe does not make and Close keep
+//! main's answers; a call that reads or moves the part otherwise, an action, another SetValue or a move of the host is refused
+//! (`factbox_line_call`).
 
 use super::pinned_shape::{PinnedCode, TestCall, code_stmts, rec_text_log_call};
 use super::*;
@@ -28,7 +29,7 @@ use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::page_op::{PageMethod, PageOp, PageRecv};
 
 /// The last measured step of the host's FactBox around the new line (`PageState::factbox_line`). Each step requires the one
-/// before it; the open and every close start again from `Off`.
+/// before it; the open, every close and a SetValue that raises an error (`factbox_line_after_set_value`) start again from `Off`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum FactboxLine {
     #[default]
@@ -59,16 +60,18 @@ impl Session {
     /// The part control and the part page of host `host` when both are the probe's pages, every fact required
     /// (ListHostFactBoxNewLine.al:12-112):
     /// - the host: a top-level List page (:30) the test opened with OpenEdit (:163, :184), over a stored table in its primary
-    ///   key with no filter; its only trigger OnAfterGetRecord (:55-58), its controls the repeater's fields of Rec without a
-    ///   trigger (:39-43) and one part in its FactBoxes (:45-52), no other property, no page extension, no subscriber;
+    ///   key with no filter; its only trigger OnAfterGetRecord (:55-58), its controls a repeater without a property (:39-40),
+    ///   its fields of Rec without a trigger and with no property but ApplicationArea (:41-42) and one part in its FactBoxes
+    ///   (:45-52), no other page property, no page extension, no subscriber;
     /// - the part control: no property but ApplicationArea, a SubPageLink of one `field(..)` entry that links the one field of
     ///   the primary key to itself (:50), no SubPageView, no Provider;
     /// - the part: a CardPart over the host's table (:66-67), shown, whose only triggers are OnAfterGetRecord and
-    ///   OnAfterGetCurrRecord (:78-86), its controls fields of Rec without a trigger (:74), no other property, no page
-    ///   extension, no subscriber; its Rec stored, not marked, filtered by the link only;
+    ///   OnAfterGetCurrRecord (:78-86), its controls fields of Rec without a trigger and with no property but ApplicationArea
+    ///   (:74), no other page property, no page extension, no subscriber; its Rec stored, not marked, filtered by the link only;
     /// - each trigger of both pages only calls a log procedure of a codeunit variable with a text of constants and fields of Rec
     ///   (`rec_text_log_call`; :57, :80, :85, the procedure :99-102);
-    /// - the table: one Code field in its primary key (:18, :24), no trigger, no procedure, no table extension, no subscriber.
+    /// - the table: no property but DataClassification (:14), its own fields without a property (:18-19), one Code field in its
+    ///   primary key (:18, :24), no trigger, no procedure, no table extension, no subscriber.
     pub(super) fn factbox_line_pages(&mut self, host: &St) -> Result<Option<(usize, St)>, Signal> {
         let (open_edit, parts, hidden) = {
             let h = host.borrow();
@@ -142,8 +145,37 @@ impl Session {
                         .all(|s| matches!(s, ir::Stmt::Expr(e) if rec_text_log_call(program, object, e)))
             })
         };
+        // The field controls carry no property but ApplicationArea (:41-42, :74), the repeater none (:39-40); the one part
+        // control is `part_control`.
+        let plain_controls = |p: &St, part_at: Option<usize>| {
+            page_of(&engine, p)
+                .controls
+                .iter()
+                .enumerate()
+                .all(|(i, c)| match c.kind {
+                    ir::ControlKind::Field => c.props.iter().all(|(k, _)| k == "applicationarea"),
+                    ir::ControlKind::Repeater => c.props.is_empty(),
+                    ir::ControlKind::Part => part_at == Some(i),
+                    _ => false,
+                })
+        };
+        // The table declares no property but DataClassification (:14) and its own fields none (:18-19).
+        let table_object = &program.objects[table.object as usize];
+        let plain_table = table_object
+            .properties
+            .iter()
+            .all(|(k, _)| k.eq_ignore_ascii_case("dataclassification"))
+            && table_object.table.as_ref().is_some_and(|t| {
+                t.fields
+                    .iter()
+                    .filter(|f| f.declared_in == Some(table.object))
+                    .all(|f| f.properties.is_empty())
+            });
         let pinned = link
             && part_control
+            && plain_controls(host, Some(*idx))
+            && plain_controls(part, None)
+            && plain_table
             && matches!(table.fields[key].ty, RtType::Code(_))
             && logs_only(host)
             && logs_only(part);
@@ -326,12 +358,22 @@ impl Session {
                 let before = self.host_new_running.replace(true);
                 let r = self.with_blank_landing(&root, |s| s.sync_parts(&root));
                 self.host_new_running = before;
+                Self::factbox_line_after_set_value(method, &root, &r);
                 r
             }
             _ => unsupported(format!(
                 "{method} after New() on a List page whose CardPart FactBox still shows the row before (only a read of the part, \
                  the host's reads, the SetValue of the key and Close are measured or keep main's read)"
             )),
+        }
+    }
+
+    /// After a SetValue (`method`) on the tree of host `st`, before it or with it (`result`): one that raised an error ends the
+    /// measured steps, `factbox_line` goes back to `Off` and the later calls take main's path.
+    pub(super) fn factbox_line_after_set_value<T>(method: PageOp, st: &St, result: &Result<T, Signal>) {
+        if method == PageOp::TestFieldSetValue && result.is_err() {
+            let (root, _) = Self::tree_root(st);
+            root.borrow_mut().factbox_line = FactboxLine::Off;
         }
     }
 

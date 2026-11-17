@@ -300,6 +300,7 @@ impl Session {
                     })
                 });
                 self.test_call_ended(&page, &result);
+                Self::factbox_line_after_set_value(method, &page, &result);
                 result
             }
             other => unsupported(format!("{method} on {}", other.describe())),

@@ -355,8 +355,54 @@ fn page_extension(s: &str) -> String {
     format!("{s}\npageextension 97055 \"LT FB Rows Ext\" extends \"LT FB Rows\"\n{{\n}}\n")
 }
 
-/// What main (al-runner 1bd640629) reads in `OBSERVE`'s EmptyView and RowBefore on a page that leaves the probe's shape in one
-/// fact other than its host triggers and its parts.
+/// `s` with the one `from` written as `to`; `from` must be in `s`.
+fn edited(s: &str, from: &str, to: &str) -> String {
+    assert!(s.contains(from), "{from}");
+    s.replacen(from, to, 1)
+}
+
+fn host_key_control_not_editable(s: &str) -> String {
+    edited(
+        s,
+        "field(\"No.\"; Rec.\"No.\") { ApplicationArea = All; }",
+        "field(\"No.\"; Rec.\"No.\") { ApplicationArea = All; Editable = false; }",
+    )
+}
+
+fn part_field_control_not_editable(s: &str) -> String {
+    edited(
+        s,
+        "        {\n            field(Name; Rec.Name) { ApplicationArea = All; }",
+        "        {\n            field(Name; Rec.Name) { ApplicationArea = All; Editable = false; }",
+    )
+}
+
+fn repeater_property(s: &str) -> String {
+    edited(
+        s,
+        "            repeater(Rows)\n            {\n",
+        "            repeater(Rows)\n            {\n                FreezeColumn = \"No.\";\n",
+    )
+}
+
+fn table_field_caption(s: &str) -> String {
+    edited(
+        s,
+        "field(2; Name; Text[30]) { }",
+        "field(2; Name; Text[30]) { Caption = 'Name'; }",
+    )
+}
+
+fn key_table_relation(s: &str) -> String {
+    edited(
+        s,
+        "field(1; \"No.\"; Code[10]) { }",
+        "field(1; \"No.\"; Code[10]) { TableRelation = \"LT FB Rel\"; }",
+    )
+}
+
+/// What main (al-runner 1bd640629, and 5d12a5580 for the property cells) reads in `OBSERVE`'s EmptyView and RowBefore on a page
+/// that leaves the probe's shape in one fact other than its host triggers and its parts.
 const MAIN_EMPTY: &str = "OBSERVE open= | part= | setno= | part2= | setname=F.AGR(B);F.AGCR(B); | part3= | close= | ";
 const MAIN_ROW: &str = "OBSERVE open=P.AGR(A);F.AGR(A);F.AGCR(A); | part=Alpha | new= | partnew= | setno= | part2= | \
     setname=F.AGR(B);F.AGCR(B); | part3= | prev=Yes/A | prevlog=F.AGR(A);F.AGCR(A); | part4=Alpha | next=Yes/B | \
@@ -371,7 +417,8 @@ fn reads(o: &[(String, Outcome, Vec<Assumption>)], name: &str, text: &str) -> bo
 
 /// A page that leaves the probe's shape in one fact keeps main's reads at every step, and runs every call after `New()`: a
 /// trigger more on the host, a host trigger that does more than log, a part control property, a second part, a key field that
-/// is no Code field, a page extension.
+/// is no Code field, a page extension, a property on a field control of the host or the part or on the repeater, a property
+/// on a table field.
 #[test]
 fn issue_8188_neighbors_keep_main() {
     let main_host_agcr_empty =
@@ -385,7 +432,7 @@ fn issue_8188_neighbors_keep_main() {
         partnew= | setno= | part2= | setname=F.AGR(A);F.AGCR(A);F.AGR(B);F.AGCR(B); | part3= | prev=Yes/A | \
         prevlog=F.AGR(A);F.AGCR(A); | part4=Alpha | next=Yes/B | nextlog=P.AGR(B);F.AGR(B);F.AGCR(B); | part5=N | next2=Yes/ | \
         next2log= | part6= | close= | ";
-    let cells: [(&str, Edit, &str, &str); 6] = [
+    let cells: [(&str, Edit, &str, &str); 10] = [
         (
             "host OnAfterGetCurrRecord",
             host_with_agcr,
@@ -397,6 +444,20 @@ fn issue_8188_neighbors_keep_main() {
         ("second part", second_part, main_second_empty, main_second_row),
         ("key Text", text_key, MAIN_EMPTY, MAIN_ROW),
         ("page extension", page_extension, MAIN_EMPTY, MAIN_ROW),
+        (
+            "host key control Editable",
+            host_key_control_not_editable,
+            MAIN_EMPTY,
+            MAIN_ROW,
+        ),
+        (
+            "part field control Editable",
+            part_field_control_not_editable,
+            MAIN_EMPTY,
+            MAIN_ROW,
+        ),
+        ("repeater property", repeater_property, MAIN_EMPTY, MAIN_ROW),
+        ("table field Caption", table_field_caption, MAIN_EMPTY, MAIN_ROW),
     ];
     for (what, edit, empty, row) in cells {
         let o = observe(edit);
@@ -481,4 +542,124 @@ fn issue_8188_main_reads_after_the_held_new_line() {
     for (name, read) in main {
         assert_eq!(outcome(name), Some(Outcome::Fail(read.into())), "{name}");
     }
+}
+
+/// Tests whose SetValue raises an error, logged as `OBSERVE` logs: the key's SetValue after the `New()` that kept the part, with
+/// a TableRelation on the key (`NewThenRelationError`); on the probe's pages, a key too long for the field at the open of an empty
+/// view (`EmptyViewKeyError`). The table the relation names holds no row.
+const ERRORS: &str = r#"
+table 97056 "LT FB Rel"
+{
+    DataClassification = SystemMetadata;
+
+    fields
+    {
+        field(1; Code; Code[10]) { }
+    }
+
+    keys
+    {
+        key(PK; Code) { Clustered = true; }
+    }
+}
+
+codeunit 97062 "LT FB Observe Error"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    var
+        Log: Codeunit "LT FB Log";
+        Obs: Text;
+
+    local procedure O(Name: Text; Value: Text)
+    begin
+        Obs += Name + '=' + Value + ' | ';
+    end;
+
+    local procedure Seed(Rows: Integer)
+    var
+        Row: Record "LT FB Row";
+    begin
+        Row.DeleteAll();
+        if Rows >= 1 then begin
+            Row."No." := 'A';
+            Row.Name := 'Alpha';
+            Row.Insert();
+        end;
+        Log.Take();
+        Obs := '';
+    end;
+
+    [Test]
+    procedure NewThenRelationError()
+    var
+        Rows: TestPage "LT FB Rows";
+    begin
+        Seed(1);
+        Rows.OpenEdit();
+        O('open', Log.Take());
+        Rows.New();
+        O('new', Log.Take());
+        asserterror Rows."No.".SetValue('B');
+        O('setno', Log.Take());
+        O('part', Rows.Peek.Name.Value());
+        O('next', Format(Rows.Next()));
+        O('nextlog', Log.Take());
+        Rows.Close();
+        O('close', Log.Take());
+        Error('OBSERVE ' + Obs);
+    end;
+
+    [Test]
+    procedure EmptyViewKeyError()
+    var
+        Rows: TestPage "LT FB Rows";
+    begin
+        Seed(0);
+        Rows.OpenEdit();
+        O('open', Log.Take());
+        asserterror Rows."No.".SetValue('ABCDEFGHIJK');
+        O('err', Log.Take());
+        Rows."No.".SetValue('B');
+        O('setno', Log.Take());
+        Rows.Name.SetValue('N');
+        O('setname', Log.Take());
+        Rows.Close();
+        O('close', Log.Take());
+        Error('OBSERVE ' + Obs);
+    end;
+}
+"#;
+
+/// Each test of `ERRORS` on the probe's objects changed by `edit`.
+fn observe_errors(edit: impl Fn(&str) -> String) -> Vec<(String, Outcome, Vec<Assumption>)> {
+    outcomes(&format!("{}\n{ERRORS}", edit(PROBE)), "LT FB Observe Error")
+}
+
+/// With a TableRelation on the key, the key's SetValue after `New()` raises an error, and the part runs nothing: the test reads
+/// what main (al-runner 5d12a5580) reads, at the error and at the later calls, and runs through no assumption.
+#[test]
+fn issue_8188_key_table_relation_keeps_main() {
+    let o = observe_errors(key_table_relation);
+    let main = "OBSERVE open=P.AGR(A);F.AGR(A);F.AGCR(A); | new= | setno= | part= | next=No | nextlog= | close= | ";
+    let only: Vec<_> = o.into_iter().filter(|(n, _, _)| n == "NewThenRelationError").collect();
+    assert!(reads(&only, "NewThenRelationError", main), "{only:#?}");
+}
+
+/// On the probe's pages, a SetValue that raises an error after the open of an empty view ends the steps: the later SetValues
+/// and Close read what main (al-runner 5d12a5580) reads (`setno=`, `setname=F.AGR(B);F.AGCR(B);`); only the open is the
+/// assumption's (`open=F.AGCR();`, main `open=`).
+#[test]
+fn issue_8188_set_value_error_ends_the_steps() {
+    let o = observe_errors(|s| s.to_string());
+    let (_, outcome, marks) = o
+        .into_iter()
+        .find(|(n, _, _)| n == "EmptyViewKeyError")
+        .expect("EmptyViewKeyError");
+    assert_eq!(
+        outcome,
+        Outcome::Fail("OBSERVE open=F.AGCR(); | err= | setno= | setname=F.AGR(B);F.AGCR(B); | close= | ".into())
+    );
+    assert!(marks.contains(&Assumption::ListFactboxNewLine));
 }
