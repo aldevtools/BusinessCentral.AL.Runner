@@ -1,6 +1,6 @@
 # ADR-076: Apps installed on the server that are not dependencies of the app under test
 
-- Status: Proposed
+- Status: Accepted (2026-11-17)
 - Date: 2026-11-16
 - Owner decision behind it (2026-11-16): users can declare apps that are installed on their BC server but are not
   dependencies of the app under test, as the corpus does with `extra_apps`. The runner loads them from the BC
@@ -222,7 +222,7 @@ default, see 6), `impact-index build` and `test-microsoft`. VALUE is one of:
 There is no version on the command line. A Microsoft app comes in the build of the run, like every other Microsoft app
 (section 7 checks this).
 
-The shape for a settings file, when there is one (open question 3), is the shape of an `app.json` dependency:
+The shape for a settings file, when there is one (owner decision 3: none in step 1, so this shape is for a later ADR), is the shape of an `app.json` dependency:
 `"installedApps": [{ "id": "...", "name": "...", "publisher": "...", "version": "..." }]`, with `version` a minimum, as
 in `app.json`.
 
@@ -265,9 +265,14 @@ stops the run, naming the app and "not in the cache of build B; run once without
 ### 6. Serve, and the keys that must see the installed set
 
 - `al-runner serve --installed-app ...` sets the list for every request.
-- The `runTests` and `execute` field `installedApps` (a list of strings in the forms of 4) **replaces** the server's
-  list for that request when present. `[]` means none. A value that is not a list of strings answers `{"error":...}`.
-  `docs/manual/tool-protocol.md` says that this differs from `packagePaths`, which adds to the server's folders.
+- The `runTests` and `execute` field `installedApps` (a list of strings in the forms of 4) **adds to** the server's
+  list for that request, as `packagePaths` adds to the server's folders (owner decision 5). The apps of the run are the
+  union of the server list and the request list; an app named in both is loaded once. A request with no field, or `[]`,
+  gets a run with only the server list. A value that is not a list of strings answers `{"error":...}`.
+- **A request cannot remove a server entry.** A client that needs a run without an app the server lists must talk to a
+  server started without that `--installed-app`. A run with no installed apps at all needs a server started with none.
+  The server's list is therefore the floor of every run on that server. `docs/manual/tool-protocol.md` says this in the
+  same place as the `packagePaths` rule.
 
 Eight keys decide whether something computed earlier is reused. Each must change when the installed set changes:
 
@@ -284,8 +289,8 @@ Eight keys decide whether something computed earlier is reused. Each must change
 7. **Serve's kept dependencies** (`alrunner-cli/src/run.rs`, `deps_key`, al-runner issue 5856). Not covered by
    itself: it holds `{project:?}`, and the installed list is the one function's own input, not part of `project`. A
    request with another `installedApps` would reuse the old dependencies, `warm_key` would be computed from them and
-   match, and the run would answer for another server. The installed list (after the request replaced the server's
-   list) is added to `deps_key`.
+   match, and the run would answer for another server. The installed list (the server list plus the request list)
+   is added to `deps_key`.
 8. **Run inputs** (`alrunner-cli/src/run_inputs.rs`, `RunInputs::of`): the new `TestArgs` field goes in class
    **outcome**, so it is in the options hash of the `--affected` stored result and in the key of the impact index
    (ADR-043). `RunInputs::of` destructures `TestArgs` without `..`, so the field does not compile until it is
@@ -359,7 +364,7 @@ origin, `pulledInBy` when pulled in), next to `skippedDependencies`. Both are ad
   function as `--installed-app`, without the admission gate of 7.
 - One behavior change: today an extra app that is not found is skipped with a note (`MissingPolicy::Skip`; ADR-013
   Layer A decision 10 and the 2026-11-10 amendment, item 6). With this ADR it stops the suite's pass (exit 2), also
-  under `--no-download` (owner question 4). A testlibraries pass without Tests-TestLibraries gives outcomes of another
+  under `--no-download` (owner decision 4). A testlibraries pass without Tests-TestLibraries gives outcomes of another
   environment. The harness tests in `al-test-cli/tests/corpus_harness.rs` change in the same PR.
 - `al-test-cli --no-deps` loads no app from the artifact, so it loads no extra app either, as today. Nothing stops;
   this is the documented exception, and the run is not a CI-shaped run.
@@ -392,8 +397,11 @@ origin, `pulledInBy` when pulled in), next to `skippedDependencies`. Both are ad
 - **Model a BcContainerHelper container by default** (Tests-TestLibraries and Data Archive always installed, or every
   app of the artifact's database). It changes the corpus oracle environment (closure-only, BaTpEnv.al:28) and the
   result of every user run, and which apps a container has is not pinned. A preset on top of the explicit list is
-  open question 6.
+  owner decision 6 (none now).
 - **A key in `app.json`.** `app.json` belongs to the AL compiler and describes the app, not the server it is tested on.
+- **Serve: the request list replaces the server list** (the draft's recommendation). Not chosen by the owner
+  (decision 5): a request could then drop apps the server was started with, and the server list would not be a floor.
+  The cost of adding: a client cannot ask for fewer apps than the server lists.
 - **Serve: a server-level list only.** `packagePaths` is already a request field; an editor that switches projects
   needs the installed set per request as well.
 - **Search `--dep`, `--package-cache` and `.alpackages` for an installed app in step 1.** A name can match a
@@ -423,8 +431,8 @@ Red/green, in this order (hard rule 1):
    change; `metrics/<major>/work.json` does not change; `tools/fresh_vs_grown.sh run` shows 0 differences.
 2. **Rust tests for what the corpus cannot reach** (CLI, protocol and refusal plumbing), each red before the code:
    - `alrunner-cli` args: `--installed-app` with an id, a name, repeated; a path refused in step 1 with a reason that
-     names step 2; the serve field `installedApps` accepted, replacing the server list, `[]` clearing it, a non-list
-     answered with an error; `execute` with `installedApps`.
+     names step 2; the serve field `installedApps` accepted and added to the server list, a name in both loaded once, `[]` or no
+     field giving the server list alone, a non-list answered with an error; `execute` with `installedApps`.
    - The admission gate, on fixture packages made in the test (no Microsoft content): a non-Microsoft name hit in
      `.alpackages`, a package with publisher "Microsoft" in `--dep` at another build, a name that hits in the artifact
      and in `--dep`, a pulled-in app that fails the gate; each exits 2 naming step 2.
@@ -435,7 +443,8 @@ Red/green, in this order (hard rule 1):
    - The feed match of section 5 on a fake feed: a folder name that differs from the app name, a country entry over the
      platform's, two hinted entries with different ids.
    - **Serve keys**: same sources; request 2 changes only `installedApps`, the answer changes and `cached` is false;
-     request 3 with `[]` answers as a server started without `--installed-app`.
+     request 3 with `[]` answers as request 1 would without the field (the server list alone); a request cannot
+      remove a server entry.
    - **Membership**: one fixture app used as a declared dependency in one run and as an installed app in the next,
      with the same cache folder. The second run flags its assumption rows; a third run, as a dependency again, does not.
    - Section 3's refusal: two unrelated non-Microsoft closure apps with install code still run; one of them as an
@@ -464,25 +473,18 @@ Red/green, in this order (hard rule 1):
    at the test codeunit's own routines, so a handler outside the closure must still make the baseline observable.
    `tools/baseline_rule_check.sh run` and `tools/demand_vs_eager.sh run` stay at 0 differences.
 
-## Open questions for the owner
+## Owner decisions (2026-11-17)
 
-The design review agreed with each recommendation.
-
-1. **Flag name.** `--installed-app` (recommended) or `--extra-app`. Why: it names what the app is on the server;
-   "extra" is the word of the corpus tooling, which keeps `extra_apps` in `oracle.toml`.
-2. **Non-Microsoft apps and paths (step 2).** Build only after a user asks, with the install order probe and a pin
-   for subscriber order and "Published As" first (recommended); build together with step 1; or never. Why: partner
-   apps add unpinned facts, and step 1 already covers the apps of both issues.
-3. **Settings file.** None in step 1, CLI and serve only (recommended; decide it with `docs/ideas.md` "Build pin"); a
-   new `alrunner.json` next to `app.json` now; or a key in `app.json`. Why: a second place for the list would be a
-   second owner of it.
-4. **Corpus `extra_apps` not found.** Stop the pass, with `--no-deps` as the documented exception (recommended); or
-   keep today's skip with a note. Why: a pass without the extra app compares outcomes of another environment with the
-   oracle.
-5. **Serve field and server list.** The request list replaces the server's list (recommended); or it adds to it, as
-   `packagePaths` does. Why: the installed set describes one server, not a search list, and a client must be able to
-   ask for none.
-6. **Presets.** No preset now (recommended); later, after a probe measures it, a preset for the apps a BcContainerHelper
-   container has installed, or for the installed apps of the artifact's demo database. Why: which apps a container has
-   is not pinned. A cheap follow-up issue: with `--test-data`, a verbose note when the backup's NAV App Installed App
+1. **Flag name.** `--installed-app`.
+2. **Non-Microsoft apps and paths (step 2).** Built only when a user asks, after the install-order probe and the pins
+   for subscriber order and "Published As".
+3. **Settings file.** None in step 1. The list is given on the command line and to `serve` only.
+4. **Corpus `extra_apps` not found.** The pass stops (exit 2), also under `--no-download`. `--no-deps` is the
+   documented exception.
+5. **Serve field and server list.** The request's `installedApps` adds to the server's start list, like
+   `packagePaths`. This is not the draft's recommendation (replace). A client gets a run with only the server list by
+   sending none. A request cannot remove a server entry; a client that needs fewer apps uses a server started with a
+   shorter list. The draft's reason "a client must be able to ask for none" no longer holds: asking for none now means
+   "no additions", and "no installed apps at all" needs a server started without `--installed-app`.
+6. **Presets.** None now. A follow-up issue: with `--test-data`, a verbose note when the backup's NAV App Installed App
    names apps the run does not load (a diagnostic, not a guess; it points users at gaps like #8170).
