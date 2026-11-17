@@ -150,7 +150,7 @@ pub fn holds_ae(t: &str) -> bool {
 /// a normal table). The small `æ`, a Code value and a temporary record are not measured: the order main gives them is
 /// shown wrong for a Text field by the same issue, so a read whose answer rests on it refuses (al-data memory/held_cols.rs).
 pub fn ae_order_measured(t: &str, text_value: bool, normal_record: bool) -> bool {
-    !holds_ae(t) || (text_value && normal_record && !t.contains('æ'))
+    !holds_ae(t) || (text_value && normal_record && t.chars().filter(|c| matches!(c, 'Æ' | 'æ')).all(|c| c == 'Æ'))
 }
 
 /// `t` with each accented letter of [`ACCENTED`] replaced by its base letter, in its case: the text as a filter that ignores
