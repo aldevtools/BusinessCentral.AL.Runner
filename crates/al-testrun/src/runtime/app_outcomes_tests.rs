@@ -19,6 +19,31 @@ pub(super) fn outcomes_and_hits_with(
     codeunit: &str,
     isolation: TestIsolation,
 ) -> OutcomesAndHits {
+    let (engine, l) = compiled_apps(apps, publishers);
+    let oi = l.program.objects.iter().position(|o| o.name == codeunit).unwrap();
+    let mut hits = Vec::new();
+    let done = run_codeunit_full(
+        &engine,
+        &l,
+        oi,
+        None,
+        isolation,
+        None,
+        &mut Vec::new(),
+        &mut Vec::new(),
+        &mut hits,
+        None,
+    );
+    let hits = hits
+        .into_iter()
+        .map(|(n, h)| (n, h.iter().map(|a| a.info().id).collect()))
+        .collect();
+    (done, hits)
+}
+
+/// The engine and the compile of a program of several apps (id, dependencies, source), with the manifest publisher of
+/// the apps named in `publishers`; an app whose id starts with `dep` is a dependency app (ADR-013).
+pub(super) fn compiled_apps(apps: &[(&str, &[&str], &str)], publishers: &[(&str, &str)]) -> (Arc<Engine>, Lowered) {
     let (ws, mut l) = al_sema::lower::compile_apps(
         apps.iter()
             .map(|(id, deps, src)| AppSource {
@@ -50,26 +75,7 @@ pub(super) fn outcomes_and_hits_with(
         .iter()
         .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
-    let engine = Engine::new(l.program.clone(), blocked);
-    let oi = l.program.objects.iter().position(|o| o.name == codeunit).unwrap();
-    let mut hits = Vec::new();
-    let done = run_codeunit_full(
-        &engine,
-        &l,
-        oi,
-        None,
-        isolation,
-        None,
-        &mut Vec::new(),
-        &mut Vec::new(),
-        &mut hits,
-        None,
-    );
-    let hits = hits
-        .into_iter()
-        .map(|(n, h)| (n, h.iter().map(|a| a.info().id).collect()))
-        .collect();
-    (done, hits)
+    (Engine::new(l.program.clone(), blocked), l)
 }
 
 /// The outcomes and the assumption ids each test hit, of the test codeunit `T` of app `main` on the install baseline of

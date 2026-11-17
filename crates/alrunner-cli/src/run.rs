@@ -2666,10 +2666,7 @@ fn explain(
         al_testrun::explain::render_without_oracle(&head, &r.outcome, rt.detail_in("", &id))
     );
     if !r.assumptions.is_empty() {
-        println!(
-            "{}",
-            al_testrun::flagged::render_explain(&r.assumptions, matches!(r.outcome, Outcome::Pass))
-        );
+        println!("{}", al_testrun::flagged::render_explain(&r.assumptions, &r.outcome));
     }
     Ok(match r.outcome {
         Outcome::Pass => 0,

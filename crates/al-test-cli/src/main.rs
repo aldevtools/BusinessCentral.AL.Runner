@@ -1600,10 +1600,7 @@ fn run_version_inner(
         );
         let marks = rt.assumptions_in(name, &case.id);
         if !marks.is_empty() {
-            println!(
-                "{}",
-                al_testrun::flagged::render_explain(marks, outcome == report::Outcome::Pass)
-            );
+            println!("{}", al_testrun::flagged::render_explain(marks, &outcome));
         }
         return Ok(VersionRun {
             code: 0,
