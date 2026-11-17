@@ -1367,7 +1367,7 @@ pub(crate) fn closing_mark(standard: Option<i32>, lang: i32) -> Result<&'static 
 /// The answer: whether the letter is the language's own, the letter as written, and the date part. The caller checks its own
 /// measured facts and answers; no mark is set here.
 pub fn closing_letter_text(text: &str, lang: i32) -> Option<(bool, char, &str)> {
-    let own = language_closing_letter(lang).filter(|_| lang != 1033)?;
+    let own = language_closing_letter(lang).filter(|_| matches!(lang, 1030 | 1031 | 1036 | 1044 | 1053))?;
     let mut chars = text.chars();
     let letter = chars
         .next()

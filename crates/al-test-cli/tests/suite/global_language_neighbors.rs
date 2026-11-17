@@ -181,11 +181,21 @@ fn evaluate(lang: i32, args: &str) -> String {
 // Review round 2, follow-up list: Evaluate reads the letter only before mm/dd/yy and without a format number 9.
 #[test]
 fn closing_letter_evaluate_neighbors_keep_mains_answer() {
+    let statement = "var D: Date; begin GlobalLanguage(1030); Evaluate(D, 'U12/31/23'); end;";
     let o = tests(&[
+        ("Statement", statement),
+        ("NumberOne", &evaluate(1030, "'U12/31/23', 1")),
+        ("LowerS", &evaluate(1053, "'s12/31/23'")),
+        ("NoDate", &evaluate(1030, "'U99/99/99'")),
         ("TrailingBlankC", &evaluate(1030, "'C12/31/23 '")),
         ("NumberNineU", &evaluate(1030, "'U12/31/23', 9")),
         ("NumberNineC", &evaluate(1030, "'C12/31/23', 9")),
     ]);
+    refused(&o, "Statement");
+    refused(&o, "NumberOne");
+    refused(&o, "LowerS");
+    // A date part that does not read keeps main's answer (a refusal).
+    refused(&o, "NoDate");
     reports(&o, "TrailingBlankC", "true|2023-12-31|true", None);
     reports(&o, "NumberNineU", "false|2000-01-01|false", None);
     reports(&o, "NumberNineC", "false|2000-01-01|false", None);

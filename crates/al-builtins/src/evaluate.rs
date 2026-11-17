@@ -1431,9 +1431,12 @@ pub fn read_text(ty: &crate::value::RtType, text: &str) -> Option<Value> {
 /// `closing-date-letter-by-language`, corpus PR 1428 GlobalLanguageClosingDate.al:39-42 TryEvaluate, :123-284 at 04e1fa0a):
 /// without a format number, with the result used, C and U in either case and upper-case S: `Some(Ok(Some(date)))` for the
 /// language's letter, `Some(Ok(None))` (false, the variable unchanged) for another language's letter. Format number 9 keeps its
-/// own rule (`None`); the statement form, another number, a lower-case s and a date part that does not read refuse.
+/// own rule, and so does a date part that does not read (`None`); the statement form, another number and a lower-case s refuse.
 fn closing_in_language(c: &dyn Ctx, text: &str, number: Option<i64>) -> Option<Result<Option<Value>, Signal>> {
     let (own, letter, rest) = crate::format::closing_letter_text(text, c.language())?;
+    let Ok(Parsed::Value(Value::Date(d, false))) = date(rest, 0, c.today_day(), c.work_date_day(), true) else {
+        return None;
+    };
     if number == Some(9) {
         return None;
     }
@@ -1449,9 +1452,6 @@ fn closing_in_language(c: &dyn Ctx, text: &str, number: Option<i64>) -> Option<R
     if letter == 's' {
         return refused("a lower-case s");
     }
-    let Ok(Parsed::Value(Value::Date(d, false))) = date(rest, 0, c.today_day(), c.work_date_day(), true) else {
-        return refused("a closing date whose date part does not read");
-    };
     crate::assumptions::assume(crate::assumptions::Assumption::ClosingDateLetterByLanguage);
     Some(Ok(own.then_some(Value::Date(d, true))))
 }

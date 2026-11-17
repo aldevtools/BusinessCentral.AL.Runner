@@ -42,7 +42,7 @@ impl Session {
         if self.global_language == 1031 {
             return self.german_date_filter_error(t, pos, value, value);
         }
-        let (shown, bad) = (value, value);
+        let (shown, bad) = (value, value); // the filter as written is the one value
         let (field, table) = (self.field_caption(t, pos), self.caption(t));
         let message = match self.global_language {
             1030 => format!(

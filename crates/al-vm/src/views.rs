@@ -194,8 +194,7 @@ impl Session {
             }
         }
         // A closing date under another language than English: Format marks it with the letter of the language (assumption
-        // `closing-date-letter-by-language`), the filter readers keep the English `C`; what GetFilter, GetFilters and GetView show
-        // there is not measured.
+        // `closing-date-letter-by-language`); what GetFilter, GetFilters and GetView show there is not measured.
         if let Value::Date(_, true) = v
             && self.global_language != 1033
         {
