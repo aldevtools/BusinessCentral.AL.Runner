@@ -137,6 +137,22 @@ pub fn compare_text_key_expanded(a: &str, b: &str) -> Ordering {
     compare_key(&expanded(a), &expanded(b)).then_with(|| compare_key(a, b))
 }
 
+/// Whether a text holds the letter `Æ` or `æ`: outside the Text key order of assumption `text-key-ae-sorts-as-ae` their order is
+/// not measured, and the code point order main gave is shown wrong for a Text field (al-runner issue 8195).
+pub fn holds_ae(t: &str) -> bool {
+    t.contains(['Æ', 'æ'])
+}
+
+/// The key order of two text values: [`text_field_key_order`] when both are Text values, [`text_key_order`] when either is a
+/// Code value (the one place that decides it, for the store's key order and for a filter's ranges and comparisons).
+pub fn text_value_key_order(a: &str, b: &str, both_text: bool) -> Ordering {
+    if both_text {
+        text_field_key_order(a, b)
+    } else {
+        text_key_order(a, b)
+    }
+}
+
 /// The primary weight and the upper-case flag of an ASCII character, `None` for one without a weight.
 type AsciiWeight = Option<(u32, bool)>;
 
@@ -278,7 +294,7 @@ pub fn text_key_order(a: &str, b: &str) -> Ordering {
 /// The key order of two values of a Text field: [`text_key_order`], except that a capital `Æ` sorts as `AE`
 /// ([`compare_text_key_expanded`], assumption `text-key-ae-sorts-as-ae`, al-runner issue 8195). A Code key
 /// and a Text value against a Code value keep [`text_key_order`].
-pub fn text_field_key_order(a: &str, b: &str) -> Ordering {
+fn text_field_key_order(a: &str, b: &str) -> Ordering {
     if a.contains('Æ') || b.contains('Æ') {
         let (a, b) = (a.trim_end_matches(' '), b.trim_end_matches(' '));
         if a == b {
@@ -369,7 +385,7 @@ mod tests {
         ];
         for list in lists {
             let want: Vec<&str> = list.split('¦').collect();
-            for order in [crate::ops::text_key_order, crate::ops::code_key_order] {
+            for order in [super::text_key_order, crate::ops::code_key_order] {
                 let mut got = want.clone();
                 got.reverse();
                 got.sort_by(|a, b| order(a, b));

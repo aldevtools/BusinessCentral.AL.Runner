@@ -1475,6 +1475,11 @@ impl Session {
                     r.filters.retain(|f| !(f.field == pos && f.group == group));
                     return Ok(Value::Null);
                 }
+                if let Some(reason) = al_builtins::filter::set_filter_text_error(&text, &ty)
+                    && self.global_language == 1033
+                {
+                    return Err(self.filter_error(&t, pos, &text, reason));
+                }
                 let enums = self.enum_members_fn();
                 let date_ctx = self.date_filter_context_for(&text);
                 let parse = |text: &str| {

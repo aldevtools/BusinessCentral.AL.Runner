@@ -1505,8 +1505,7 @@ fn digit_code_order(a: &str, b: &str) -> Option<Ordering> {
     }
 }
 
-/// [`text_key_order`] and [`text_field_key_order`] live with the collation they order by.
-pub use crate::collation::{text_field_key_order, text_key_order};
+use crate::collation::text_key_order;
 
 /// The order a filter applies to two texts when one starts with a hyphen and both are letters and digits besides it: the key order,
 /// in which the hyphen does not count first (`'-5'` is above `'3'` and below `'9'`; types/text-code-char/
@@ -1549,16 +1548,15 @@ pub fn code_key_order(a: &str, b: &str) -> Ordering {
     text_key_order(a, b)
 }
 
-/// [`compare`] for the values of a key: text follows [`text_key_order`].
+/// [`compare`] for the values of a key: text follows [`crate::collation::text_value_key_order`].
 #[inline]
 pub fn compare_key_value(l: &Value, r: &Value) -> Result<Ordering, Signal> {
     match (l, r) {
         (Value::Integer(a), Value::Integer(b)) => Ok(a.cmp(b)),
         (Value::Code(a), Value::Code(b)) if !a.has_marker() && !b.has_marker() => Ok(code_key_order(a, b)),
-        (Value::Text(a), Value::Text(b)) if !a.has_marker() && !b.has_marker() => Ok(text_field_key_order(a, b)),
-        (Value::Text(a) | Value::Code(a), Value::Text(b) | Value::Code(b)) if !a.has_marker() && !b.has_marker() => {
-            Ok(text_key_order(a, b))
-        }
+        (Value::Text(a) | Value::Code(a), Value::Text(b) | Value::Code(b)) if !a.has_marker() && !b.has_marker() => Ok(
+            crate::collation::text_value_key_order(a, b, matches!((l, r), (Value::Text(_), Value::Text(_)))),
+        ),
         _ => compare(l, r),
     }
 }
@@ -2817,7 +2815,9 @@ mod tests {
         // The capital Æ of a Text key sorts as AE (assumption `text-key-ae-sorts-as-ae`); the order stays total next to the
         // letters it expands to, the small æ and an unweighted letter.
         let ae = texts_over(&["", " ", "-", "A", "E", "e", "Æ", "æ", "ø"]);
-        check_total_order("text_field_key_order(Æ)", &ae, &|a, b| text_field_key_order(a, b));
+        check_total_order("text_value_key_order(Æ)", &ae, &|a, b| {
+            crate::collation::text_value_key_order(a, b, true)
+        });
     }
 
     #[test]
