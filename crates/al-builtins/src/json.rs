@@ -1114,6 +1114,9 @@ fn as_date(s: &Scalar) -> Result<Value, Signal> {
 fn as_datetime(s: &Scalar) -> Result<Value, Signal> {
     match s {
         Scalar::Val(Value::DateTime(d)) => Ok(Value::DateTime(*d)),
+        // The exact string of the minimum UTC DateTime reads as 0DT, on a temporary record and through a stored field
+        // (record/crud/TestMinimumUtcDateTimeStorage.al:46-51; al-runner issue 7907, from draft PR 7913).
+        Scalar::Val(Value::Text(t)) if t.as_ref() == "0001-01-01T00:00:00Z" => Ok(Value::DateTime(0)),
         Scalar::Val(Value::Text(t)) => match crate::iso::parse_datetime(t) {
             Some(d) => Ok(Value::DateTime(d)),
             None => Err(conversion(NAV_JSON_VALUE, "Microsoft.Dynamics.Nav.Runtime.NavDateTime")),
