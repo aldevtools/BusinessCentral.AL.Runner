@@ -314,6 +314,7 @@ impl Session {
         if !only_fields || !Self::same_key(&landed, &key) || self.view_row_count(st)? != 1 {
             return Ok(None);
         }
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ListNewLineCodeInsertUpdate);
         Ok(Some(false))
     }
 }

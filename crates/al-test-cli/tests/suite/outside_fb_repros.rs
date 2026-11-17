@@ -248,6 +248,69 @@ fn issue_8186_unmeasured_neighbors_stay_refused() {
     }
 }
 
+/// `Previous()` on the landed row answers through the assumption: the step marks list-new-line-code-insert-update on its own,
+/// apart from the landing before it (a SingleInstance codeunit keeps the page open between the two calls from Rust).
+#[test]
+fn issue_8186_previous_on_the_landed_row_marks_the_assumption() {
+    use al_builtins::assumptions::{Assumption::ListNewLineCodeInsertUpdate, clear_hits, take_hits};
+    let steps = r#"
+codeunit 97098 "LT NI Steps"
+{
+    SingleInstance = true;
+
+    var
+        Lines: TestPage "LT NI Lines";
+        Log: Codeunit "LT NI Log";
+
+    procedure Land(): Text
+    var
+        Line: Record "LT NI Line";
+    begin
+        Line.DeleteAll();
+        Log.Reset(false);
+        Lines.OpenEdit();
+        Lines.New();
+        Lines.Name.SetValue('X');
+        Lines.Value.SetValue('V');
+        exit(Lines.Name.Value() + '/' + Lines.Value.Value());
+    end;
+
+    procedure Prev(): Text
+    begin
+        Log.Take();
+        exit(Log.Bool(Lines.Previous()) + '/' + Log.Take());
+    end;
+}
+codeunit 97099 "LT NI Driver"
+{
+    procedure Land(): Text
+    var
+        Steps: Codeunit "LT NI Steps";
+    begin
+        exit(Steps.Land());
+    end;
+
+    procedure Prev(): Text
+    var
+        Steps: Codeunit "LT NI Steps";
+    begin
+        exit(Steps.Prev());
+    end;
+}
+"#;
+    let src = format!(
+        "{ISSUE_8186_PROBE}\n{steps}\n{}",
+        include_str!("../fixtures/outside-sc/Assert.al")
+    );
+    let mut b = al_testkit::Built::from_source(&src);
+    clear_hits();
+    assert_eq!(al_testkit::text(b.run_in("LT NI Driver", "Land")), "X/V");
+    assert!(take_hits().contains(&ListNewLineCodeInsertUpdate), "the landing");
+    // ListNewLineCodeInsertUpdate.al:463-464: false, no trigger.
+    assert_eq!(al_testkit::text(b.run_in("LT NI Driver", "Prev")), "F/");
+    assert_eq!(take_hits(), vec![ListNewLineCodeInsertUpdate]);
+}
+
 const ISSUE_8186_NEIGHBORS: &str = include_str!("../fixtures/outside-fb/Issue8186Neighbors.al");
 
 /// The outcome and marks of each test of `codeunits` in Issue8186Neighbors.al (with the probe's objects), by test name.

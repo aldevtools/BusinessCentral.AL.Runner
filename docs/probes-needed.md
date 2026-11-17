@@ -1770,3 +1770,19 @@ call that reaches the facts).
 | An expression-bound control read after a new row on a page whose part is hidden by a Visible expression and declares OnAfterGetCurrRecord (al-runner 7419, the refusal after the temporary List refill landed) | REFUSED | not in corpus PR 1429 (page refresh, left for the page work): the reporter's page reduced to an invented repro, then the control values after the action, the TestPage filter and First | al-vm `pages/` |
 | The capital `Æ` in a Text key and a Text range (al-runner 8195) | ASSUMED `text-key-ae-sorts-as-ae` (the registry above names the shapes outside it) | as in the registry entry | al-builtins `collation.rs` |
 | `@` against a capital `É` (al-runner 8196) | ASSUMED `at-filter-e-matches-e-acute` (the registry above names the shapes outside it) | as in the registry entry | al-builtins `filter.rs` `like` |
+
+## A list's new line that the table field's OnValidate inserted: shapes the probe did not measure (al-runner PR 8187, 2026-11-17)
+
+Needs probe. Each row is a neighbor of the cells of the registry entry `list-new-line-code-insert-update` (corpus pull request 1425, tests/al-language/pages/currpage/ListNewLineCodeInsertUpdate.al) on the page with the five triggers and AutoSplitKey, opened with OpenEdit.
+
+| Shape | Runtime now | Probe wanted | Code |
+|---|---|---|---|
+| A second `Previous()` on the view's only row, after the first `Previous()` on the landed row answered false (a Value typed after the landing) | Main's general rule: the second Previous saves the typed Value (`P.MOD(X/V);T.M(X/V);`) | Previous twice after New(), SetValue Name, SetValue Value on an empty view: each answer, the trigger log and the stored rows | al-vm `pages/code_inserted_new_line.rs` `previous_on_code_inserted_row` |
+| `Previous()` right after the landing SetValue, with no Value typed since | The new path answers, flagged by `list-new-line-code-insert-update` | Previous then Next after only SetValue Name, on an empty view: answers, trigger log, rows | al-vm `pages/code_inserted_new_line.rs` |
+| OnModifyRecord that exits false, with `Update()` and with `Update(false)` | The new path answers, flagged | The probe's steps with OnModifyRecord returning false: trigger log, the row shown, the stored rows | al-vm `pages/code_inserted_new_line.rs` |
+| `Rec.Insert(false)` in the table field's OnValidate, with `Update()` and with `Update(false)` | The new path answers, flagged | The probe's steps with Insert(false): trigger log, the row shown, the stored rows | al-vm `pages/code_inserted_new_line.rs` |
+| A second SetValue on Name after the landing, then `Previous()` | The new path answers, flagged | New(), SetValue Name X, SetValue Name Y, Previous: trigger log, the row shown, the stored rows | al-vm `pages/code_inserted_new_line.rs` |
+| `CurrPage.Update` called twice in the control's OnValidate (`Update()` twice, and `Update(false)` then `Update()`) | The new path answers, flagged | The probe's steps with each pair of calls: trigger log, the row shown, the stored rows | al-vm `pages/code_inserted_new_line.rs` |
+| A field of Rec assigned in the control's OnValidate before `CurrPage.Update`, with `Update()` and with `Update(false)` | The new path answers, flagged | The probe's steps with the assignment, on a view with one row before: trigger log, the row shown, the stored rows | al-vm `pages/code_inserted_new_line.rs` |
+| `First()` on the landed row, the view's only row | The new path answers, flagged | First after the landing on an empty view: answer, trigger log, rows | al-vm `pages/code_inserted_new_line.rs` |
+| `Close()` right after the landing SetValue | The new path answers, flagged | Close after only SetValue Name: trigger log and the stored rows | al-vm `pages/code_inserted_new_line.rs` |
