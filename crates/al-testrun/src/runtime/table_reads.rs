@@ -69,7 +69,7 @@ pub(crate) fn non_table_event_subscribers(engine: &al_vm::Engine, t: usize) -> V
 }
 
 /// The read methods measured on table object `t` (see [`APP_TABLE_READS`] and [`COMPANY_READS`]): the platform table
-/// Company by its id; or an app table (an id below 2000000000) whose TableType is absent or Normal, with no table trigger
+/// Company by its id; or an app table (an id below 2000000000) with no TableType property, no table trigger
 /// and no table extension, as table 73600 "LT TI Read Row" of the probe (TiReadEventObjects.al). `None` for every other
 /// table.
 fn measured_reads(lowered: &Lowered, t: usize) -> Option<&'static [&'static str]> {
@@ -79,12 +79,13 @@ fn measured_reads(lowered: &Lowered, t: usize) -> Option<&'static [&'static str]
         return Some(&COMPANY_READS);
     }
     let app_table = head.kind == ObjKind::Table && head.id.is_some_and(|id| (1..2_000_000_000).contains(&id));
-    let normal = (head.properties.iter())
-        .find(|(k, _)| k.eq_ignore_ascii_case("TableType"))
-        .is_none_or(|(_, v)| v.eq_ignore_ascii_case("Normal"));
+    let no_table_type = head
+        .properties
+        .iter()
+        .all(|(k, _)| !k.eq_ignore_ascii_case("TableType"));
     let no_trigger = objs[t].routines.iter().all(|r| !r.is_trigger);
     let extended = (objs.heads().iter()).any(|h| h.kind == ObjKind::TableExtension && h.extends_id == head.id);
-    (app_table && normal && no_trigger && !extended).then_some(&APP_TABLE_READS)
+    (app_table && no_table_type && no_trigger && !extended).then_some(&APP_TABLE_READS)
 }
 
 /// Whether routine `r` of object `o` only reads table object `t` in a measured shape: `o` is a codeunit without a

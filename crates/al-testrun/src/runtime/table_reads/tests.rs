@@ -110,6 +110,13 @@ fn an_unmeasured_table_or_record_shape_is_not_asked() {
         "procedure P() var R: Record Co; begin if R.IsEmpty() then; end;",
         "Co"
     ));
+    let normal =
+        "table 50300 Co { TableType = Normal; fields { field(1; Name; Text[30]) { } } keys { key(PK; Name) { } } }\n";
+    assert!(!ask_with(
+        normal,
+        "procedure P() var R: Record Co; begin if R.IsEmpty() then; end;",
+        "Co"
+    ));
     let trigger = "table 50300 Co { fields { field(1; Name; Text[30]) { } } keys { key(PK; Name) { } } trigger OnInsert() begin end; }\n";
     assert!(!ask_with(
         trigger,
