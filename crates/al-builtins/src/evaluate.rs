@@ -565,9 +565,9 @@ fn boolean(text: &str, number: i64) -> Result<Parsed, Signal> {
 /// A Boolean text under a language other than English (see [`crate::filter_boolean_words::evaluate_boolean_word`]).
 /// German texts that are no word of the table are pinned too (xmlports/shapes-properties/Y83XpMiscTests.al:Boolean_VT_German,
 /// Boolean_XML_German: `TRUE` reads as in English). Other texts are not pinned and are refused.
-fn language_boolean(language: i32, text: &str) -> Option<Result<Parsed, Signal>> {
+fn language_boolean(language: i32, text: &str, ret_used: bool) -> Option<Result<Parsed, Signal>> {
     use crate::filter_boolean_words::{EvaluateWord, evaluate_boolean_word};
-    Some(match evaluate_boolean_word(language, text)? {
+    Some(match evaluate_boolean_word(language, text, ret_used)? {
         EvaluateWord::Value(b) => Ok(Parsed::Value(Value::Boolean(b))),
         EvaluateWord::Rejected => Ok(Parsed::Rejected),
         EvaluateWord::NotPinned => unsupported(format!(
@@ -576,9 +576,13 @@ fn language_boolean(language: i32, text: &str) -> Option<Result<Parsed, Signal>>
     })
 }
 
-/// [`boolean`] with the words of the session language when it has pinned ones (number 0 only).
-fn boolean_in_language(language: Option<i32>, text: &str, number: i64) -> Result<Parsed, Signal> {
-    match language.filter(|_| number == 0).and_then(|l| language_boolean(l, text)) {
+/// [`boolean`] with the words of the session language when it has pinned ones (number 0 only); `ret_used`: the call's result is
+/// used.
+fn boolean_in_language(language: Option<i32>, text: &str, number: i64, ret_used: bool) -> Result<Parsed, Signal> {
+    match language
+        .filter(|_| number == 0)
+        .and_then(|l| language_boolean(l, text, ret_used))
+    {
         Some(r) => r,
         None => boolean(text, number),
     }
@@ -1422,6 +1426,36 @@ pub fn read_text(ty: &crate::value::RtType, text: &str) -> Option<Value> {
     }
 }
 
+/// `Evaluate(Date, Text)` of a closing-date text of [`crate::format::closing_letter_text`] (the letter and mm/dd/yy) under a
+/// language whose letter is measured, `number` the format number when one is given. Measured (assumption
+/// `closing-date-letter-by-language`, corpus PR 1428 GlobalLanguageClosingDate.al:39-42 TryEvaluate, :123-284 at 04e1fa0a):
+/// without a format number, with the result used, C and U in either case and upper-case S: `Some(Ok(Some(date)))` for the
+/// language's letter, `Some(Ok(None))` (false, the variable unchanged) for another language's letter. Format number 9 keeps its
+/// own rule, and so does a date part that does not read (`None`); the statement form, another number and a lower-case s refuse.
+fn closing_in_language(c: &dyn Ctx, text: &str, number: Option<i64>) -> Option<Result<Option<Value>, Signal>> {
+    let (own, letter, rest) = crate::format::closing_letter_text(text, c.language())?;
+    let Ok(Parsed::Value(Value::Date(d, false))) = date(rest, 0, c.today_day(), c.work_date_day(), true) else {
+        return None;
+    };
+    if number == Some(9) {
+        return None;
+    }
+    let refused = |why: &str| {
+        Some(unsupported(format!(
+            "Evaluate of `{text}` into a Date under GlobalLanguage {}: {why} (not measured)",
+            c.language()
+        )))
+    };
+    if number.is_some() || !c.ret_used() {
+        return refused("a format number or the statement form");
+    }
+    if letter == 's' {
+        return refused("a lower-case s");
+    }
+    crate::assumptions::assume(crate::assumptions::Assumption::ClosingDateLetterByLanguage);
+    Some(Ok(own.then_some(Value::Date(d, true))))
+}
+
 /// A text of ASCII letters, digits and `-./` with letters, read with number 0, 9 or none: its failed Evaluate statement into a
 /// Date raises the Date-format error (types/date-time/Evaluate.al:188-197 Date_Evaluate_Raises `abc` with no number;
 /// types/P130EvaluateDate.al UN_Evaluate_Statement_NotADate_ByTarget on writer UN's corpus branch,
@@ -2235,13 +2269,24 @@ fn evaluate_with_max(
         }
         return crate::json::evaluate_array(c, &mut a[0], &text);
     }
+    if matches!(&a[0], Value::Date(..))
+        && let Some(read) = closing_in_language(c, &text, (a.len() > 2).then_some(number))
+    {
+        return read.map(|v| match v {
+            Some(d) => {
+                a[0] = d;
+                Value::Boolean(true)
+            }
+            None => Value::Boolean(false),
+        });
+    }
     let parsed = match &a[0] {
         Value::Text(_) | Value::Code(_) => text_or_code(c, &a[0], &text, number, max)?,
         Value::Integer(_) => integer(&text, number)?,
         Value::BigInteger(_) => big_integer(&text, number)?,
         Value::Decimal(_) => decimal(&text, number)?,
         Value::Duration(_) => duration(&text, number, c.language())?,
-        Value::Boolean(_) => boolean_in_language(c.session_locale().map(|l| l.0), &text, number)?,
+        Value::Boolean(_) => boolean_in_language(c.session_locale().map(|l| l.0), &text, number, c.ret_used())?,
         Value::Guid(_) => guid(&text)?,
         // A Char reads one character, any (a blank, `?`, NUL, `é`, `¶`, `€`), with format 0 and 9 alike, in English and German; the
         // empty text, two characters and more (`AB`, `65`, `256`, `-1`, `a b`, `1D`) are rejected (format-evaluate/format-matrix/
@@ -2311,19 +2356,21 @@ fn evaluate_with_max(
         // false (format-evaluate/Y71EvaluateDashedDates.al FilterTokens_MakeDateFilter_OperatorTexts, corpus PR 1247; System
         // Application Filter Tokens Impl.ResolveDateFilterToken). The statement form is not pinned.
         Value::DateFormula(_) if c.ret_used() && date_forms::operator_before_slashed_date(&text) => Parsed::Rejected,
-        Value::DateFormula(_) => match crate::date_formula_language::evaluate(&text, c.language())? {
-            crate::datefns::Evaluated::Stored(f) => Parsed::Value(Value::DateFormula(f)),
-            // A statement form raises the formula's error (types/date-time/DateFormulaEdges.al:SignsAndDigits_ErrorTexts).
-            crate::datefns::Evaluated::Rejected(Some(m)) if !c.ret_used() => {
-                return crate::native::raise(m, "Evaluate");
+        Value::DateFormula(_) => {
+            match crate::date_formula_language::evaluate(&text, c.language(), number, c.ret_used())? {
+                crate::datefns::Evaluated::Stored(f) => Parsed::Value(Value::DateFormula(f)),
+                // A statement form raises the formula's error (types/date-time/DateFormulaEdges.al:SignsAndDigits_ErrorTexts).
+                crate::datefns::Evaluated::Rejected(Some(m)) if !c.ret_used() => {
+                    return crate::native::raise(m, "Evaluate");
+                }
+                crate::datefns::Evaluated::Rejected(_) => Parsed::Rejected,
+                crate::datefns::Evaluated::Failed(m) if !c.ret_used() => return crate::native::raise(m, "Evaluate"),
+                // With the result used, both errors of this kind answer false and leave the value
+                // (types/date-time/P128CalcDateForms.al:154-169: date texts, "should include a
+                // time unit"; types/date-time/P131CalcDate.al:140,152: `<1D>+`, "should include a number").
+                crate::datefns::Evaluated::Failed(_) => Parsed::Rejected,
             }
-            crate::datefns::Evaluated::Rejected(_) => Parsed::Rejected,
-            crate::datefns::Evaluated::Failed(m) if !c.ret_used() => return crate::native::raise(m, "Evaluate"),
-            // With the result used, both errors of this kind answer false and leave the value
-            // (types/date-time/P128CalcDateForms.al:154-169: date texts, "should include a
-            // time unit"; types/date-time/P131CalcDate.al:140,152: `<1D>+`, "should include a number").
-            crate::datefns::Evaluated::Failed(_) => Parsed::Rejected,
-        },
+        }
         other => return unsupported(format!("Evaluate into {} (not pinned by the corpus)", other.describe())),
     };
     match parsed {
@@ -2389,6 +2436,11 @@ fn evaluate_with_max(
                 // format-evaluate/EvalLanguageBoolean.al EL_Errors_NLB_2067, _NLD_1043, _FRA_1036, _DAN_1030 (the quotes of the
                 // French text are « and » with a no-break space inside).
                 (Some(n @ (1030 | 1036 | 1043 | 2067)), "Boolean") => raise_boolean_error(n, &text),
+                // Under 1044 and 1053 only the form with the result used is measured (assumption
+                // `boolean-words-norwegian-swedish`); the error text of the statement form is not.
+                (Some(n @ (1044 | 1053)), "Boolean") if number == 0 => unsupported(format!(
+                    "the error of Evaluate into a Boolean under GlobalLanguage {n} (not measured)"
+                )),
                 // The flag hides the text (errors/last-error/P70_02LastErrFlag.al:Flag_EvaluateAndOverflow
                 // `eval_int|true`, `eval_int_var|true`); for the other types it is not pinned.
                 (_, "Integer") => crate::native::raise_redacted(
