@@ -22,9 +22,10 @@ pub fn normalise_reason(raw: &str) -> String {
     fold_numbers(&fold_quotes(strip_site(raw)))
 }
 
-/// The reason without the routine it was found in (`Object.Routine: `, `handler X: `, `OnRun: `).
+/// The reason without the routine it was found in (`Object.Routine: `, `handler X: `, `OnRun: `) and without the routine it
+/// stopped in (`explain::site_suffix`).
 fn strip_site(raw: &str) -> &str {
-    let mut rest = raw.trim();
+    let mut rest = crate::explain::without_site_suffix(raw.trim()).trim_end();
     for _ in 0..4 {
         let Some((head, tail)) = rest.split_once(": ") else {
             break;
@@ -323,6 +324,20 @@ mod tests {
     }
 
     // al-runner issue 8104: a reference to a decision record is part of the cause, not a number to fold.
+    // al-runner issue 8142: the routine a refusal of the company open stopped in does not split its group.
+    #[test]
+    fn the_site_a_reason_stopped_in_does_not_split_its_group() {
+        let plain =
+            "OnAfterLogin raised to the login subscribers of the apps under test before the first test: Clear of a X";
+        let at = format!("{plain} [in codeunit 50110 \"Repro\".Reset at LoginApp: Repro.Codeunit.al:9:9]");
+        assert_eq!(normalise_reason(&at), normalise_reason(plain));
+        // A bracket that is not the site stays.
+        assert_ne!(
+            normalise_reason("Get of a row [in a key]"),
+            normalise_reason("Get of a row")
+        );
+    }
+
     #[test]
     fn an_adr_reference_keeps_its_numbers() {
         assert_eq!(
