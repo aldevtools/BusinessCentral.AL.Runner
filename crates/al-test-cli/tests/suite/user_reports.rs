@@ -3912,3 +3912,40 @@ codeunit 52013 T {
     let result = run_with_deps(&[], &variable);
     assert!(matches!(&result[0].1, Outcome::NotRun(_)), "{result:?}");
 }
+
+#[test]
+fn measured_integer_record_field_in_set_and_boolean() {
+    all_pass(run_with_deps(&[], include_str!("../fixtures/record-in-and-boolean.al")));
+}
+
+#[test]
+fn integer_record_field_boolean_neighbors_still_refuse() {
+    let src = include_str!("../fixtures/record-in-and-boolean.al");
+    let measured = "Row.Id in [1, 2] and Row.Approved";
+    for other in [
+        "Row.Id in [1, 2] or Row.Approved",
+        "Row.Id in [1, 2] xor Row.Approved",
+        "N in [1, 2] and Row.Approved",
+        "Row.Id in [1, 2] and false",
+        "Row.Id in [1, 2] and B",
+        "Row.Id in [N, 2] and Row.Approved",
+        "Row.Id in [1..3] and Row.Approved",
+    ] {
+        let result = run_with_deps(
+            &[],
+            &src.replace("N: Integer;", "N: Integer; B: Boolean;")
+                .replace(measured, other),
+        );
+        assert!(
+            matches!(&result[0].1, Outcome::NotRun(why) if why.contains("set followed by")),
+            "{other}: {result:?}"
+        );
+    }
+    for kind in ["BigInteger", "Decimal"] {
+        let result = run_with_deps(&[], &src.replace("Id; Integer", &format!("Id; {kind}")));
+        assert!(
+            matches!(&result[0].1, Outcome::NotRun(why) if why.contains("set followed by")),
+            "{kind}: {result:?}"
+        );
+    }
+}
