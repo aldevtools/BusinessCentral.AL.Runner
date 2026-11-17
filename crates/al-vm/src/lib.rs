@@ -1737,6 +1737,7 @@ impl Session {
                     probed_source: Default::default(),
                     globals: Default::default(),
                     unpinned_buffer: None,
+                    view_assumption: false,
                     run_page_link: None,
                 })))
             }
@@ -2503,7 +2504,7 @@ impl Session {
                 // stored table, not a temporary one: IsTemporary is No, Count sees the stored rows, Insert, Modify and DeleteAll reach the
                 // stored table and the caller's temporary rows do not change
                 // (record/temporary/TempRecordByValue.al:TempRecord_ByValue_ToPersistentParameter, :TempRecord_ByValue_ModifyAndDeleteAll).
-                // The copy keeps the record's current values and filters like any by-value copy. A parameter declared `temporary` gets
+                // The copy keeps the record's current values and filters (not pinned; a stored record's copy is in records/by_value_view.rs). A parameter declared `temporary` gets
                 // an independent empty buffer (record/TestTempTableContracts.al:141-148). Base Application's To-do.InsertTask relies on it.
                 (Value::Record(rc), false)
                     if rc.borrow().temporary
@@ -2546,15 +2547,7 @@ impl Session {
                     st.unpinned_buffer = Some(crate::records::RUN_PAGE_LINK_VARIANT);
                     Value::Record(Rc::new(RefCell::new(st)))
                 }
-                // The copy keeps what Record.IsDirty compares with (record/Y8RecordIsDirtyShapes.al:321-324 `by_value_dirty` Yes,
-                // `by_value_clean` No).
-                (Value::Record(rc), false) => {
-                    let v = self.record_by_value_into(&rc, &r.locals[i].ty);
-                    if let Value::Record(copy) = &v {
-                        copy.borrow_mut().is_dirty_base = rc.borrow().is_dirty_base.copy();
-                    }
-                    v
-                }
+                (Value::Record(rc), false) => self.record_param_copy(&rc, &r.locals[i].ty, subscriber),
                 // A RecordRef handed by value to a RecordRef or Variant parameter, or bound to a `var` Variant parameter
                 // (`VariantRefs::param_value`).
                 (Value::Library(al_builtins::library_kind::LibraryKind::RecordRef, h), by_var)

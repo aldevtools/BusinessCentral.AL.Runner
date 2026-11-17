@@ -33,7 +33,9 @@ mod sql_range_code;
 pub(crate) use insert_buffer::{InsertKind, InsertQueue};
 use sql_range::InsertShape;
 mod nested_validate;
-pub(crate) use nested_validate::ValidateSite;
+pub(crate) use nested_validate::{ProcXrec, ValidateSite, XREC_OF_RUNNING_CALL};
+mod by_value_view;
+pub(crate) use by_value_view::BY_VALUE_VIEW;
 mod op_inner;
 mod own_rolled_back_modify;
 mod platform_rows;
@@ -119,6 +121,7 @@ pub(crate) fn copy_refused_mark(rec: &Rec) -> Option<&'static str> {
         *w == XP_VIEW_AFTER_EXPORT
             || *w == XP_BUFFER_AFTER_EXPORT
             || *w == al_builtins::stream_cleared::UNCREATED_IMPORT_BUFFER
+            || *w == XREC_OF_RUNNING_CALL
     })
 }
 
@@ -166,7 +169,7 @@ pub(crate) fn media_key_marked(rec: &Rec) -> bool {
 pub(crate) fn buffer_read_refused(rec: &Rec) -> Option<&'static str> {
     rec.borrow()
         .unpinned_buffer
-        .filter(|w| !run_page_link_fields_read(w) && *w != HELD_PART_REC)
+        .filter(|w| !run_page_link_fields_read(w) && *w != HELD_PART_REC && *w != BY_VALUE_VIEW)
 }
 
 /// Whether field reads of a record whose buffer has the reason `why` run.
@@ -2266,6 +2269,9 @@ impl Session {
         }
         if why == RUN_PAGE_LINK_VARIANT {
             return unsupported(format!("Record.{}(): {RUN_PAGE_LINK_VARIANT}", method.name()));
+        }
+        if why == BY_VALUE_VIEW {
+            return self.by_value_view_op(method, rec, args);
         }
         if why == HELD_PART_XREC {
             return unsupported(format!("Record.{}(): {HELD_PART_XREC}", method.name()));

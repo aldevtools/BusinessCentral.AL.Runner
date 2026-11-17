@@ -9,13 +9,7 @@ impl Session {
         if rec.borrow().unpinned_buffer.is_some() {
             return self.unpinned_buffer_op(method, rec, args);
         }
-        // Copy, CopyFilters, TransferFields and the like from a record `copy_refused_mark` names would carry its unpinned view
-        // or buffer over.
-        if let Some(Value::Record(src)) = args.first() {
-            if let Some(why) = copy_refused_mark(src) {
-                return unsupported(format!("Record.{}() from a record: {why}", method.name()));
-            }
-        }
+        Self::view_and_source_marks(method, rec, args)?;
         let t = self.table(rec)?;
         crate::blob_transfer::record_write_starts(method, &rec.borrow());
         Self::refuse_filter_in_unpinned_group(method, rec)?;
@@ -2300,5 +2294,25 @@ fn valid_find_direction(which: &str) -> bool {
                 && w.chars().all(|c| matches!(c, '=' | '<' | '>'))
                 && w.char_indices().all(|(i, c)| !w[i + 1..].contains(c))
         }
+    }
+}
+
+impl Session {
+    /// The marks `record_op_inner` checks before a method runs: a read of the view of a by-value copy whose filters were dropped
+    /// on an assumption (`records/by_value_view.rs`), on `rec` or on its source argument; and Copy, CopyFilters, TransferFields
+    /// and the like from a record `copy_refused_mark` names, which would carry its unpinned view or buffer over.
+    fn view_and_source_marks(method: RecordOp, rec: &Rec, args: &[Value]) -> Result<(), Signal> {
+        if rec.borrow().view_assumption {
+            Self::by_value_view_read(method, rec, true);
+        }
+        if let Some(Value::Record(src)) = args.first() {
+            if src.borrow().view_assumption {
+                Self::by_value_view_read(method, src, false);
+            }
+            if let Some(why) = copy_refused_mark(src) {
+                return unsupported(format!("Record.{}() from a record: {why}", method.name()));
+            }
+        }
+        Ok(())
     }
 }
