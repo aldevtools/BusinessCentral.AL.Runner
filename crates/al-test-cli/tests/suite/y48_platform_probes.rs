@@ -90,7 +90,12 @@ pub(crate) fn outcomes_edited(
 ) -> Vec<(String, Outcome)> {
     let (mut engine, l) = compile_on_system_edited("main", main, edit);
     std::sync::Arc::get_mut(&mut engine).expect("not shared").skipped_apps = skipped;
-    let oi = l.program.objects.iter().position(|o| o.name == "T").expect("test codeunit T");
+    let oi = l
+        .program
+        .objects
+        .iter()
+        .position(|o| o.name == "T")
+        .expect("test codeunit T");
     run_codeunit(&engine, &l, oi)
 }
 

@@ -477,10 +477,16 @@ impl Session {
     fn query_static_object(&self, method: &str, id: i64) -> Result<Option<usize>, Signal> {
         let heads = self.engine.program.objects.heads();
         let want = u32::try_from(id).ok();
-        if let Some(object) = heads.iter().position(|o| o.is_kind(al_ir::ObjKind::Query) && o.id == want) {
+        if let Some(object) = heads
+            .iter()
+            .position(|o| o.is_kind(al_ir::ObjKind::Query) && o.id == want)
+        {
             return Ok(Some(object));
         }
-        if heads.iter().any(|o| o.is_shell_of(al_ir::ObjKind::Query) && o.id == want) {
+        if heads
+            .iter()
+            .any(|o| o.is_shell_of(al_ir::ObjKind::Query) && o.id == want)
+        {
             return unsupported(format!(
                 "Query.{method} of query {id}, which belongs to a dependency app and was not compiled (no code the workspace reaches uses it)"
             ));
