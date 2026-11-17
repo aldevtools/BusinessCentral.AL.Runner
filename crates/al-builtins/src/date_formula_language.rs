@@ -180,7 +180,7 @@ pub(crate) fn evaluate(
     }
 }
 
-/// `CalcDate(Text, Date)` under GlobalLanguage 1030, 1031, 1036, 1044 or 1053 (assumption `calcdate-letters-by-language`,
+/// CalcDate with a Text or Code formula, with or without a base date, under GlobalLanguage 1030, 1031, 1036, 1044 or 1053 (assumption `calcdate-letters-by-language`,
 /// corpus PR 1428 GlobalLanguageDateFormula.al:540-702): the answer the language gives before or instead of the English
 /// reading, or `None` to keep it. `unit_error`: the English reading raised the should-include-a-time-unit error. Measured: a
 /// formula `<1X>` with X one of U, K, Å, T, J, Z raises the language's text that lists the English units; the text `1D` without
