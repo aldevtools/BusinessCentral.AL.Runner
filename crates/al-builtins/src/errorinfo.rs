@@ -5,7 +5,7 @@
 use crate::describe::Describe;
 use crate::native::{Ctx, NativeFn, Signal, unsupported};
 use crate::signature::Signature;
-use crate::value::{ErrorInfoState, LibraryValue, Value};
+use crate::value::{ErrorInfoMessageForm, ErrorInfoState, LibraryValue, Value};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -132,6 +132,7 @@ fn fresh(message: String, collectible: bool) -> ErrorInfoState {
         field_no: 0,
         page_no: 0,
         custom_dimensions: None,
+        message_form: ErrorInfoMessageForm::Other,
     }
 }
 
@@ -143,7 +144,9 @@ fn wrap(s: ErrorInfoState) -> Value {
 /// (errors/errorinfo/TestErrorInfoType.al:21-60,:225-245).
 fn create(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     if a.is_empty() {
-        return Ok(wrap(fresh(String::new(), true)));
+        let mut s = fresh(String::new(), true);
+        s.message_form = ErrorInfoMessageForm::NoMessage;
+        return Ok(wrap(s));
     }
     let collectible = match a.get(1) {
         None => false,
@@ -188,6 +191,26 @@ fn create(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     Ok(wrap(s))
 }
 
+/// `ErrorInfo.Create('literal')`: one string literal and no other argument (the lowering picks this id). It creates what
+/// `Create(Message)` creates and records that the message is a literal.
+pub(crate) fn create_literal(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
+    let v = create(ctx, r, a)?;
+    if let Value::Library(_, cell) = &v {
+        if let LibraryValue::ErrorInfo(s) = &mut *cell.borrow_mut() {
+            s.message_form = ErrorInfoMessageForm::Literal;
+        }
+    }
+    Ok(v)
+}
+
+/// The `Message` property; setting it makes the message's form `Other`.
+fn message(ctx: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> Out {
+    if !a.is_empty() {
+        with_state(r.as_deref_mut(), |s| s.message_form = ErrorInfoMessageForm::Other)?;
+    }
+    message_text(ctx, r, a)
+}
+
 macro_rules! text_prop {
     ($name:ident, $field:ident) => {
         fn $name(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
@@ -199,7 +222,7 @@ macro_rules! text_prop {
         }
     };
 }
-text_prop!(message, message);
+text_prop!(message_text, message);
 text_prop!(title, title);
 text_prop!(detailed_message, detailed_message);
 text_prop!(control_name, control_name);
@@ -420,6 +443,15 @@ pub fn message_of(v: &Value) -> Option<String> {
     let Value::Library(_, cell) = v else { return None };
     match &*cell.borrow() {
         LibraryValue::ErrorInfo(s) => Some(s.message.clone()),
+        _ => None,
+    }
+}
+
+/// How the message of an `ErrorInfo` value was written.
+pub fn message_form_of(v: &Value) -> Option<ErrorInfoMessageForm> {
+    let Value::Library(_, cell) = v else { return None };
+    match &*cell.borrow() {
+        LibraryValue::ErrorInfo(s) => Some(s.message_form),
         _ => None,
     }
 }

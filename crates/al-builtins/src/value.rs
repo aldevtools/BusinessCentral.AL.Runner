@@ -1397,6 +1397,17 @@ pub struct ErrorInfoState {
     pub page_no: i32,
     /// The dictionary the test assigned, held by reference.
     pub custom_dimensions: Option<Value>,
+    /// How the message was written, for `GetLastErrorText(true)` after `FieldError(Field, ErrorInfo)`.
+    pub message_form: ErrorInfoMessageForm,
+}
+
+/// How the message of an `ErrorInfo` was written: `Create()` with no message, `Create('literal')` with one string literal
+/// and nothing else, or any other way (a Label, a variable, more arguments, the `Message` property).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ErrorInfoMessageForm {
+    NoMessage,
+    Literal,
+    Other,
 }
 
 /// What a `ModuleInfo` reports: an app's manifest (corpus session-system/TestNavAppExtended.al,

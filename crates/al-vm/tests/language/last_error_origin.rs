@@ -81,6 +81,42 @@ codeunit 69871 "LO C"
         exit(GetLastErrorText(true));
     end;
 
+    procedure FieldErrInfoLabel(): Text
+    var R: Record "LO Row";
+    begin
+        R.Id := 1; R.Name := 'Jane';
+        asserterror R.FieldError(Name, ErrorInfo.Create(Lbl));
+        exit(GetLastErrorText(true));
+    end;
+
+    procedure FieldErrInfoTextVar(): Text
+    var R: Record "LO Row"; T: Text;
+    begin
+        R.Id := 1; R.Name := 'Jane'; T := 'not allowed';
+        asserterror R.FieldError(Name, ErrorInfo.Create(T));
+        exit(GetLastErrorText(true));
+    end;
+
+    procedure FieldErrInfoMessageSet(): Text
+    var R: Record "LO Row"; Info: ErrorInfo;
+    begin
+        R.Id := 1; R.Name := 'Jane';
+        Info := ErrorInfo.Create('not allowed');
+        Info.Message := 'other';
+        asserterror R.FieldError(Name, Info);
+        exit(GetLastErrorText(true));
+    end;
+
+    procedure FieldErrInfoEmptyMessageSet(): Text
+    var R: Record "LO Row"; Info: ErrorInfo;
+    begin
+        R.Id := 1; R.Name := 'Jane';
+        Info := ErrorInfo.Create();
+        Info.Message := '';
+        asserterror R.FieldError(Name, Info);
+        exit(GetLastErrorText(true));
+    end;
+
     procedure FieldErrGlobalText(): Text
     var R: Record "LO Row";
     begin
@@ -258,6 +294,10 @@ fn an_error_text_of_an_unpinned_form_is_refused() {
         "FieldErrInfoOption",
         "FieldErrInfoCollectible",
         "FieldErrInfoBlankText",
+        "FieldErrInfoLabel",
+        "FieldErrInfoTextVar",
+        "FieldErrInfoMessageSet",
+        "FieldErrInfoEmptyMessageSet",
     ] {
         match run_in(SRC, "LO C", routine) {
             Err(Signal::Unsupported(m)) => assert!(m.contains("does not pin"), "{routine}: {m}"),

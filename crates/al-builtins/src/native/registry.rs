@@ -50,6 +50,7 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
     ("Dialog.ErrorComputed#1", error_text_computed),
     ("Record.FieldErrorConstant#1", field_error_constant),
     ("Record.FieldErrorComputed#1", field_error_computed),
+    ("ErrorInfo.CreateLiteral#1", crate::errorinfo::create_literal),
     ("Dialog.Error#1", crate::errorinfo::raise),
     ("Session.GetExecutionContext#1", execution_context),
     ("Session.GetCurrentModuleExecutionContext#1", execution_context),
