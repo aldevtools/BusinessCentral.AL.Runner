@@ -1,5 +1,6 @@
 //! `First()` and `Last()` that read nothing: they stand on the row they would go to already, or the view holds no row. The
-//! pinned shapes, each with its own predicate (`end_move_without_read`, asked by `page_move`).
+//! pinned shapes, each with its own predicate (`end_move_without_read`, asked by `page_move`). `Previous()` on the only row of a
+//! view after a new line the table code inserted (`previous_on_code_inserted_row`).
 
 use super::part_filter_find::FindPartAt;
 use super::*;
@@ -9,6 +10,9 @@ use al_builtins::record_op::RecordOp;
 impl Session {
     /// What `how` (a move) answers on `st` when it reads nothing; `None` when it reads.
     pub(super) fn end_move_without_read(&mut self, st: &St, how: PageMethod) -> Result<Option<bool>, Signal> {
+        if let Some(answer) = self.previous_on_code_inserted_row(st, how)? {
+            return Ok(Some(answer));
+        }
         if !matches!(how, PageMethod::First | PageMethod::Last) {
             return Ok(None);
         }
