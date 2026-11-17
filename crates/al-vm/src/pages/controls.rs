@@ -987,7 +987,7 @@ impl Session {
                     let filters = self.page_rec(st).borrow().filters.clone();
                     st.borrow_mut().filters_before_validate = Some(filters);
                 }
-                if let Err(e) = self.control_routine(st, idx, r) {
+                if let Err(e) = self.run_control_onvalidate(st, idx, r) {
                     from_page_trigger.set(true);
                     return Err(e);
                 }
