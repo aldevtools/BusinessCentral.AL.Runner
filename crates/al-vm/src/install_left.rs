@@ -93,6 +93,8 @@ impl Session {
             // Carried: the Baseline.
             sequences: _,
             sequences_changed: _,
+            // Set by the caller after the install code, from the run's order (al-testrun `order_hint.rs`).
+            numbers_unmeasured: _,
             singletons: _,
             // Set by the caller after the install code, from the run's lane (`single_lane.rs`).
             si_track: _,

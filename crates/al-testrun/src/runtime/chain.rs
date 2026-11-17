@@ -320,11 +320,11 @@ fn tests_take_numbers(engine: &Arc<al_vm::Engine>, lowered: &Lowered, oi: usize)
 }
 
 /// Whether the tests or the OnRun trigger of test codeunit `oi` can read a number sequence (any `NumberSequence` call,
-/// `written.rs`). With `unknown` a reach that is not fully known counts as one that can.
-pub(super) fn reads_numbers(engine: &Arc<al_vm::Engine>, lowered: &Lowered, oi: usize, unknown: bool) -> bool {
+/// `written.rs`), for the numbers list of a default run.
+pub(super) fn reads_numbers(engine: &Arc<al_vm::Engine>, lowered: &Lowered, oi: usize) -> bool {
     use super::written::state;
     tests_reach_has(engine, lowered, oi, true, &|f| {
-        f.state_reads & state::NUMBER_SEQUENCE != 0 || (unknown && f.unknown.is_some())
+        f.state_reads & state::NUMBER_SEQUENCE != 0
     })
 }
 

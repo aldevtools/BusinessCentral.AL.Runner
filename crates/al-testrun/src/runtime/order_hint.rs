@@ -15,7 +15,8 @@
 //!   test-framework/onrun-storage/Y35OnRunStorage.al:30-31). A report line and a JUnit property, not a failure.
 //!
 //! Under `--strict-order` the numbers chain as on BC, except under TestIsolation = Function, where what a later codeunit
-//! sees of them is not measured: [`refuse_unmeasured_numbers`] refuses its readers (al-runner issue 8152).
+//! sees of them is not measured: [`mark_unmeasured_numbers`] refuses every NumberSequence call of the later codeunits
+//! (al-runner issue 8152).
 
 use super::single_fresh::CarriedRead;
 use al_vm::single_track::GlobalKey;
@@ -169,65 +170,63 @@ pub(super) fn numbers_unchained(units: &mut [super::Unit], strict: bool) {
     }
 }
 
-/// Decision 3: the numbers list of a default run (none under `--strict-order`), per BC session (`single_lane.rs`
-/// `streams`: the whole run, or each suite of `--test-suites`).
+/// Decision 3: the numbers list of a default run, per BC session (`single_lane.rs` `streams`: the whole run, or each
+/// suite of `--test-suites`). Under `--strict-order` there is no list; [`mark_unmeasured_numbers`] marks the units instead.
 pub(super) fn note_numbers_order(
     engine: &std::sync::Arc<al_vm::Engine>,
     lowered: &al_sema::lower::Lowered,
-    units: &[super::Unit],
+    units: &mut [super::Unit],
     place: &dyn Fn(usize, u32) -> u32,
     opts: &super::RunOptions,
     report: &mut super::ChainReport,
 ) {
     if opts.strict_order {
-        return;
+        return mark_unmeasured_numbers(lowered, units, place, opts);
     }
+    let units = &*units;
     let sessions = super::single_lane::streams(units, place, &|_| true, opts.test_suites.as_deref());
     report.numbers_order.extend(numbers_order(
         lowered,
         units,
         &sessions,
         &|k| units[k].takes_numbers,
-        &|k| super::chain::reads_numbers(engine, lowered, units[k].oi, false),
+        &|k| super::chain::reads_numbers(engine, lowered, units[k].oi),
     ));
 }
 
-/// al-runner issue 8152: under `--strict-order` with TestIsolation = Function, a test codeunit whose tests or OnRun
-/// trigger can read a number sequence (or whose reach is not fully known) after a codeunit of its BC session that is in
-/// the carry chain for the numbers its tests take (`ChainWhy::TestsTakeNumbers`) is refused. Only runner 130450's
-/// Codeunit isolation is measured to leave the taken numbers to the later codeunits (Y35OnRunStorage.al:30-31); under
-/// Function the walk hands them nothing, and BC's answer is not measured.
-pub(super) fn refuse_unmeasured_numbers(
-    engine: &std::sync::Arc<al_vm::Engine>,
+/// al-runner issue 8152: under `--strict-order` with TestIsolation = Function, every NumberSequence call of a test
+/// codeunit after a codeunit of its BC session that is in the carry chain for the numbers its tests take
+/// (`ChainWhy::TestsTakeNumbers`) is refused, from any code of its session (`Unit::numbers_unmeasured`, al-vm
+/// `storage_checkpoint.rs`). Only runner 130450's Codeunit isolation is measured to leave the taken numbers to the later
+/// codeunits (Y35OnRunStorage.al:30-31); under Function BC's answer is not measured.
+fn mark_unmeasured_numbers(
     lowered: &al_sema::lower::Lowered,
-    units: &[super::Unit],
+    units: &mut [super::Unit],
     place: &dyn Fn(usize, u32) -> u32,
     opts: &super::RunOptions,
-    slots: &mut [Option<super::UnitResult>],
 ) {
-    if !opts.strict_order {
-        return;
-    }
     let function_taker = |u: &super::Unit| {
         u.isolation == super::TestIsolation::Function && u.carry == Some(super::chain::ChainWhy::TestsTakeNumbers)
     };
     let objs = &lowered.program.objects;
+    let mut marks: Vec<(usize, std::sync::Arc<str>)> = Vec::new();
     for ks in super::single_lane::streams(units, place, &|_| true, opts.test_suites.as_deref()) {
         let mut last: Option<usize> = None;
         for k in ks {
-            if let Some(w) = last.filter(|_| super::chain::reads_numbers(engine, lowered, units[k].oi, true)) {
+            if let Some(w) = last {
                 let why = format!(
                     "the tests of an earlier test codeunit, {} \"{}\", can take NumberSequence numbers: what a later \
                      codeunit sees of them under TestIsolation = Function is not measured (al-runner issue 8152)",
                     units[w].id, objs[units[w].oi].name
                 );
-                if let Some(Ok(done)) = slots[k].as_mut().map(|r| &mut r.result) {
-                    super::corpus::refuse_all(&mut done.0, &why);
-                }
+                marks.push((k, why.into()));
             }
             if function_taker(&units[k]) {
                 last = Some(k);
             }
         }
+    }
+    for (k, why) in marks {
+        units[k].numbers_unmeasured.get_or_insert(why);
     }
 }

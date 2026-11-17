@@ -98,9 +98,10 @@ Two reports say where the result may differ from Business Central's:
   codeunit whose tests can take some gets one `number order:` line and the JUnit
   property `numberSequenceOrder` on each of its tests. On Business Central it would
   see the numbers after the ones the earlier codeunit took. It is a note, not a
-  failure. Under `--strict-order --isolation test` such a codeunit is not run: what
-  Business Central leaves of the numbers under TestIsolation = Function is not
-  measured yet.
+  failure. Under `--strict-order --isolation test` every `NumberSequence` call of a
+  test codeunit after one whose tests can take numbers is refused, and its test is
+  reported as not run: what Business Central leaves of the numbers under
+  TestIsolation = Function is not measured yet.
 
 `--strict-order` (in `serve`: the `runTests` field `strictOrder`) runs the test
 codeunits in Business Central's order: the state and the numbers carry, and the

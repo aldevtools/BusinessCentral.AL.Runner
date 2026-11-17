@@ -666,6 +666,8 @@ pub(crate) struct Unit {
     /// carry chain for that (`ChainWhy::TestsTakeNumbers` without `--strict-order`): it is on the numbers list when
     /// it comes after another such codeunit (`order_hint::numbers_order`).
     takes_numbers: bool,
+    /// See `Scratch::numbers_unmeasured`.
+    numbers_unmeasured: Option<Arc<str>>,
     /// The driver whose behavior the unit models (ADR-074, `discovery.rs`).
     driver: TestDriver,
     /// This unit runs BcContainerHelper's discovery pass over these test codeunits instead of its tests
@@ -747,6 +749,9 @@ pub(crate) struct Scratch {
     /// ran on BC too; the part that did not run is the stopped codeunit's reach, which `strict_taint.rs` checks the later
     /// codeunits against. Off: R3 of ADR-066 amendment 3, the next codeunit starts without single instances.
     singles_past_stop: bool,
+    /// Why no NumberSequence call of the codeunit's session can have BC's answer (`order_hint::mark_unmeasured_numbers`):
+    /// every call is refused (al-vm `storage_checkpoint.rs`). `None`: every call runs.
+    numbers_unmeasured: Option<Arc<str>>,
     /// What this codeunit did with the watched single instances (`al_vm::single_track`).
     pub(crate) singles_out: Option<al_vm::single_track::SingleOut>,
     /// A test of the codeunit started and did not run to its end: it failed (also a failure judged not trusted) or was
@@ -908,6 +913,7 @@ fn run_unit(
             runner: u.runner,
             watch: u.watch,
             singles_past_stop: u.singles_past_stop,
+            numbers_unmeasured: u.numbers_unmeasured.clone(),
             installs: u.installs.clone(),
             ..Default::default()
         };
@@ -1046,6 +1052,7 @@ fn scratch_unit(
         runner: None,
         watch: false,
         takes_numbers: false,
+        numbers_unmeasured: None,
         singles_past_stop: false,
         driver: opts.test_driver,
         discovery: None,

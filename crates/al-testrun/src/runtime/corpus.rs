@@ -1459,6 +1459,7 @@ impl CorpusRuntime {
                             runner: *runner,
                             watch: false,
                             takes_numbers: false,
+                            numbers_unmeasured: None,
                             singles_past_stop: false,
                             driver,
                             discovery: None,
@@ -1567,7 +1568,7 @@ impl CorpusRuntime {
                 si == u.si && place(si, id) < place(u.si, u.id) && (leg == 0 || !u.hub_leg)
             };
             chain_report.single_lane.watched = super::single_lane::assign_watches(&mut units, &place, opts);
-            super::order_hint::note_numbers_order(&engine, lowered, &units, &place, opts, &mut chain_report);
+            super::order_hint::note_numbers_order(&engine, lowered, &mut units, &place, opts, &mut chain_report);
             let mut slots: Vec<Option<UnitResult>> = (0..units.len()).map(|_| None).collect();
             chain_report.units += units.len() + chain.iter().filter(|c| matches!(c.3, Link::Refused(..))).count();
             let first_origin = baseline.as_ref().map(al_vm::Baseline::origin);
@@ -1685,7 +1686,6 @@ impl CorpusRuntime {
             let lane = super::single_lane::Lane { engine: &engine, lowered, baseline: baseline.as_ref(), units: &units, carried: &carried, sees: &sees, place: &place, limit, bc_order: opts.strict_order, strict: opts.replay_every_dependent, max_replay: opts.max_replay, suites: opts.test_suites.as_deref(), workers, install_copies: baseline_engine.is_some(), snapshot: &snapshot_once, thread_baseline: &thread_baseline, kept_chain: keep_singles, pool: memory.pool(), fresh_check: opts.single_fresh_check };
             (!opts.sequential_strict()).then(|| lane.run(&mut slots, &mut chain_report.single_lane));
             super::discovery::refuse_after_pass(&mut slots, &chain_report, &engine, lowered, opts.strict_order);
-            super::order_hint::refuse_unmeasured_numbers(&engine, lowered, &units, &place, opts, &mut slots);
             let results: Vec<UnitResult> = slots.into_iter().flatten().collect();
             for r in results {
                 suite_work.push((r.si, r.took));

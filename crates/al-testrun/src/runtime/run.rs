@@ -219,6 +219,21 @@ fn open_company(
     Ok((wrote, al_builtins::assumptions::take_hit_bits()))
 }
 
+/// The session enters test codeunit `object` after the install code: the settings of its isolation, and the refusal of
+/// every NumberSequence call when an earlier codeunit's numbers are not known here (`Scratch::numbers_unmeasured`).
+fn enter_test_codeunit(session: &mut Session, scratch: &Scratch, object: usize, isolation: TestIsolation) {
+    if let Some(why) = &scratch.numbers_unmeasured {
+        session.mark_numbers_unmeasured(std::rc::Rc::from(&**why));
+    }
+    session.mark_install_end();
+    session.in_test_codeunit = true;
+    session.isolation_from_hub = scratch.hub && isolation != TestIsolation::Codeunit;
+    // StartSession starts a session under Disabled isolation, from the hub (RqIsolationModes.al:573-600) and from a runner
+    // (corpus PR 735, SdIsolStartSession.Codeunit.al:20-22): refused there, as no second session is modelled.
+    session.hub_disabled = isolation == TestIsolation::Disabled;
+    session.test_object = Some(object);
+}
+
 /// Every test of the codeunit (`all`) not run, when the code that opens the company did not end (`not`). `--explain`:
 /// each test shows the stack the call that did not end left from, or the subscriber refused at lowering, as a test
 /// refused while it ran or before it does (al-runner issue 8142).
@@ -464,13 +479,7 @@ fn run_codeunit_inner(
     );
     // What install code wrote is known only in part (ADR-046): the tests read it through the facts of this engine.
     crate::install::ensure_facts(engine, lowered);
-    session.mark_install_end();
-    session.in_test_codeunit = true;
-    session.isolation_from_hub = scratch.hub && isolation != TestIsolation::Codeunit;
-    // StartSession starts a session under Disabled isolation, from the hub (RqIsolationModes.al:573-600) and from a runner
-    // (corpus PR 735, SdIsolStartSession.Codeunit.al:20-22): refused there, as no second session is modelled.
-    session.hub_disabled = isolation == TestIsolation::Disabled;
-    session.test_object = Some(object);
+    enter_test_codeunit(&mut session, scratch, object, isolation);
     // Company Triggers when the test session opens the company, before the codeunit's OnRun and first test (ADR-046
     // amendment 1, A4 item 10). What the step relied on counts for every test of the session
     // (`mark_test_start_assumptions`).
