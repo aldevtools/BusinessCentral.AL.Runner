@@ -1,12 +1,12 @@
 # Brief for agents
 
-You work on AL Runner. `CLAUDE.md` has the hard rules. This file is the working method.
-Your task prompt holds only the task. Read both files from YOUR worktree: the main checkout can be old.
+You work on AL Runner. `CLAUDE.md` has the hard rules, `docs/agents/workflow.md` the commands. This file is the working method.
+Your task prompt holds only the task. Read these files from YOUR worktree: the main checkout can be old.
 
 The orchestrator starts agents from the definitions in `.claude/agents/` (`al-implementer`, `al-reviewer`,
 `al-probe-writer`) plus a task-specific part: the area table, the issues, the branch and the session
 attribution line. It does not hand-write the general rules into each prompt. A rule that review keeps
-finding goes into `docs/agents/recurring-findings.md`, not into one prompt.
+finding goes into `docs/agents/recurring-findings.md` (and its examples file), not into one prompt.
 
 ## Start
 1. From the main checkout: `git fetch origin`, then `git worktree add .worktrees/<branch> -b <branch> origin/main`.
@@ -25,13 +25,9 @@ finding goes into `docs/agents/recurring-findings.md`, not into one prompt.
    command when a file is missing. Run it again after `bc_build` in `oracle/oracle.toml` moves.
 
 ## Rules
-1. **Cite, assume, or refuse** (CLAUDE.md rule 3, owner 2026-11-12). Every behavior you add or change
-   has a corpus `file:line` in a code comment. A behavior the pinned corpus does not cover yet runs only
-   through an assumption registry entry that cites its open probe PR (a flagged pass); your PR may land
-   before that probe merges. No probe written means you guessed: refuse that path (lowering reason,
-   `al-sema` diagnostic, `Signal::Unsupported`) and list it under "needs probe". A rule that also decides
-   cases its evidence does not show (a wider range, "every type", "any count") is a guess for those cases.
-   How to register an entry: `docs/agents/assumptions.md`.
+1. **Cite, assume, or refuse**: `CLAUDE.md` hard rules 3 and 4. List a refused path under "needs probe".
+   A rule that also decides cases its evidence does not show (a wider range, "every type", "any count") is a
+   guess for those cases. How to register an entry: `docs/agents/assumptions.md`.
 2. **Whole area.** Your prompt has an area table: rows are every form, columns are types,
    compile/run and BC versions. Fill every cell with one of: PINNED file:line, ASSUMED id (open probe
    PR), REFUSED reason, PROBE QUEUED spec, OUT OF SCOPE. Fix the shared code path, not one caller.
@@ -54,15 +50,15 @@ finding goes into `docs/agents/recurring-findings.md`, not into one prompt.
    PR CI run: list it in your report under "needs CI observation".
 8. **Never wait more than 20 minutes** on CI, a container or another agent. Write `RESUME.md` in your
    scratch folder (what you wait for, the command that continues), stop your monitors, hand back WAITING.
-9. **Never `pkill` or `killall`.** Other agents run the same binaries. Stop only a PID you started.
-10. **Never `git stash`.** All worktrees share one stash list. Commit work in progress on your branch.
-11. **Never `git commit -a` or `git add -A`.** Stage paths by name. Check `git submodule status` first.
+9. **Never `pkill` or `killall`**: `docs/agents/workflow.md`, "Commands agents never run".
+10. **Never `git stash`**: the same section.
+11. **Never `git commit -a` or `git add -A`**: the same section.
 12. **Nothing local in the repo.** No host names, URLs, user names, home paths, partner names or
     Microsoft code in commits, pull requests or issues.
 13. **Hand off at 150k tokens.** Commit, write your hand-off file (done, next steps in order, traps),
     report HANDOFF. Do not start sub-agents.
-14. **Error texts come from the corpus.** Never invent one.
-15. **Seams change only through an ADR. Caps and budgets never go up.** Stop that part and report it.
+14. **Error texts come from the corpus**: `CLAUDE.md` hard rule 3.
+15. **Seams and caps** (`CLAUDE.md` hard rule 5 and Priorities; budgets never go up either): stop that part and report it.
     Any other open decision: take the sensible default and list it in your report.
 16. **Commit messages** say what changed and why, in plain American English. End them with the
     session attribution line the orchestrator gives in your prompt.
@@ -91,9 +87,8 @@ depend on.
    If you touched dependency loading, lowering, the checker, `observe.rs` or lazy package reading:
    run the check that `docs/agents/checks.md` names for it.
 7. `cargo fmt --all` LAST, after every edit. Then `tools/prepush.sh`.
-8. Push your branch. `gh pr create --draft`. No auto-merge. CI runs only the `test` job on a draft (owner, 2026-11-10). Do not wait for CI. Do not mark it ready.
-   The orchestrator reviews it. Every reviewed PR lands through a merge train, never on its own
-   (owner, 2026-11-13).
+8. Push your branch. `gh pr create --draft`. No auto-merge. Do not wait for CI. Do not mark it ready.
+   Review and the merge train: `docs/agents/workflow.md`, "Draft pull requests and merge trains".
 9. Stop every monitor and background process you started.
 
 ## Pull request body and final report (the same content)
@@ -119,3 +114,4 @@ Under 200 words plus the table.
 - `docs/agents/assumptions.md`: register an unprobed behavior.
 - `docs/agents/checks.md`: checks by area, listing new failures.
 - `docs/agents/bump.md`: corpus bumps, generated files, bump bot.
+- `docs/agents/workflow.md`: build, fast loop, lists, PR CI, ratchets, worktrees (the details of `CLAUDE.md` Workflow).
