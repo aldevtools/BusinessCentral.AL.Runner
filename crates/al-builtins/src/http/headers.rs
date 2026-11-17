@@ -251,13 +251,22 @@ pub(super) fn headers_contains(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [
         unnamed_secret_header(b, Some(&name))?;
         // Corpus PR 1424, http/HttpHeaders.al:518 and :545.
         if name.is_empty() {
-            if http_probe_measured(c) {
-                assume(crate::assumptions::Assumption::HttpContainsEmptyName);
-                return header_error("Argument");
+            let ordinary_headers = b.items.is_empty()
+                || (b.kind == HeaderKind::Content
+                    && b.items.len() == 1
+                    && b.items[0].0.eq_ignore_ascii_case("Content-Type")
+                    && b.items[0].1.as_slice() == ["text/plain; charset=utf-8"]);
+            let secret_headers = b.secret.is_empty()
+                || (b.kind == HeaderKind::Request
+                    && b.items.is_empty()
+                    && b.secret.len() == 1
+                    && b.secret[0].0 == "X-Secret"
+                    && b.secret[0].1.as_slice() == ["body"]);
+            if !http_probe_measured(c) || !ordinary_headers || !secret_headers || b.set_cookies {
+                return unsupported("HttpHeaders.Contains with an empty name on an unmeasured version or header state");
             }
-            if c.gate(al_version::Gate::ProbedValuesDifferFrom28) {
-                return unsupported("HttpHeaders.Contains with an empty name on an unmeasured BC version");
-            }
+            assume(crate::assumptions::Assumption::HttpContainsEmptyName);
+            return header_error("Argument");
         }
         Ok(Value::Boolean(find(&b.items, &name).is_some()))
     })?

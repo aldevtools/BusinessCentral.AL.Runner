@@ -123,9 +123,6 @@ fn keep_stream_content_type(c: &dyn Ctx, s: &HttpContentState, stream: Option<&V
         return Ok(false);
     }
     if !http_probe_measured(c) {
-        if !c.gate(al_version::Gate::ProbedValuesDifferFrom28) {
-            return Ok(false);
-        }
         return unsupported("HttpContent.WriteFrom(InStream) with a changed Content-Type on an unmeasured BC version");
     }
     let measured_type = headers.items.is_empty()

@@ -1006,9 +1006,31 @@ codeunit 50196 C
         H: HttpHeaders;
         S: SecretText;
     begin
-        S := SecretStrSubstNo('value');
+        S := SecretStrSubstNo('body');
         R.GetHeaders(H);
         H.Add('X-Secret', S);
+        exit(Check(H));
+    end;
+
+    procedure OtherHeader(): Text
+    var
+        R: HttpRequestMessage;
+        H: HttpHeaders;
+    begin
+        R.GetHeaders(H);
+        H.Add('X-Other', 'value');
+        exit(Check(H));
+    end;
+
+    procedure OtherSecretHeader(): Text
+    var
+        R: HttpRequestMessage;
+        H: HttpHeaders;
+        S: SecretText;
+    begin
+        S := SecretStrSubstNo('body');
+        R.GetHeaders(H);
+        H.Add('X-Other', S);
         exit(Check(H));
     end;
 
@@ -1036,15 +1058,20 @@ fn empty_name_does_not_bypass_the_secret_content_guard() {
 }
 
 #[test]
-fn empty_name_keeps_main_behavior_on_unmeasured_bc27() {
+fn empty_name_is_refused_for_unmeasured_header_states() {
     let lowered = al_testkit::compile(EMPTY_CONTAINS_SRC);
-    let target = al_version::Target::for_bc(al_version::BcVersion::new(27, 4));
+    let target = al_version::Target::for_bc(al_version::BcVersion::new(28, 5));
     let engine = al_vm::Engine::with_target(lowered.program.clone(), al_testkit::blocked(&lowered), Some(target));
     let mut built = al_testkit::Built {
         session: al_vm::Session::new(engine),
         lowered,
     };
-    assert_eq!(text(built.run("Req")), "ok=No");
+    for routine in ["OtherHeader", "OtherSecretHeader"] {
+        assert!(
+            matches!(built.run(routine), Err(al_builtins::native::Signal::Unsupported(_))),
+            "{routine}"
+        );
+    }
 }
 
 #[test]
@@ -1298,18 +1325,6 @@ fn measured_versions_stream_writes_keep_the_current_content_type() {
 }
 
 #[test]
-fn stream_after_remove_keeps_main_behavior_on_unmeasured_bc27() {
-    let lowered = al_testkit::compile(STREAM_CONTENT_TYPE_SRC);
-    let target = al_version::Target::for_bc(al_version::BcVersion::new(27, 4));
-    let engine = al_vm::Engine::with_target(lowered.program.clone(), al_testkit::blocked(&lowered), Some(target));
-    let mut built = al_testkit::Built {
-        session: al_vm::Session::new(engine),
-        lowered,
-    };
-    assert_eq!(text(built.run("StreamAfterRemove")), "Yes[text/plain; charset=utf-8]");
-}
-
-#[test]
 fn stream_with_changed_type_is_refused_on_unmeasured_bc29() {
     let lowered = al_testkit::compile(STREAM_CONTENT_TYPE_SRC);
     let target = al_version::Target::for_bc(al_version::BcVersion::new(29, 0));
@@ -1353,7 +1368,7 @@ fn http_probe_changes_are_refused_on_unmeasured_versions() {
             ),
             "{routine} with no target"
         );
-        for (major, minor) in [(28, 0), (28, 4), (28, 6), (29, 0), (29, 2)] {
+        for (major, minor) in [(27, 4), (28, 0), (28, 4), (28, 6), (29, 0), (29, 2)] {
             let lowered = al_testkit::compile(source);
             let target = al_version::Target::for_bc(al_version::BcVersion::new(major, minor));
             let engine =
