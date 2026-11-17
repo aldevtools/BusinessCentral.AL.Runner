@@ -3,12 +3,14 @@
 //!
 //! Measured on the platform artifacts of the feed on 2026-11-17 (`runtimeOptions.frameworks`; the
 //! `TargetFrameworkAttribute` of `Microsoft.Dynamics.Nav.OpenXml.dll` agrees in each):
-//! - `8.0.0` (`"tfm": "net8.0"`): 26.5.38752.58303, 27.5.46862.56249, 27.5.46862.58294, 28.5.54151.56267.
+//! - `8.0.0` (`"tfm": "net8.0"`): 26.5.38752.58303, 27.5.46862.56249, 27.5.46862.58057, 27.5.46862.58294,
+//!   28.5.54151.56267, 28.5.54151.58194.
 //! - `10.0.0` (`"tfm": "net10.0"`): 27.0.54905.58351, 27.5.54899.58349, 28.5.54976.58348, 29.0.54011.56262,
 //!   29.0.54011.58356.
 //!
-//! So the major is a fact of the build, not of the BC major: the BC 27 and 28 builds published on 2026-11-17 run on
-//! .NET 10, the builds of the same minors before them on .NET 8.
+//! The same list, as data: `al_version::MEASURED_SERVICE_RUNTIMES`. So the major is a fact of the build, not of the BC
+//! major: the BC 27 and 28 builds published on 2026-11-17 run on .NET 10, the builds of the same minors before them on
+//! .NET 8.
 use crate::artifact::Cdn;
 use crate::service_tier::ServiceTier;
 use std::path::Path;

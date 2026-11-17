@@ -178,7 +178,7 @@ impl<C: Cdn> ServiceTier<C> {
         }
         if !self.download {
             return Err(format!(
-                "{file} of build {} is not in the artifact cache and downloading is off",
+                "{file} of build {} is not in the artifact cache and downloading is off; one run without --no-download caches it",
                 self.build
             ));
         }

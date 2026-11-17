@@ -25,7 +25,7 @@
 
 use al_deps::artifact::Cdn;
 use al_deps::service_tier::ServiceTier;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// The runtime major the sidecar needs, and whose service tier needs it (`BC 29`, `BC build 27.5.54899.58349`), for the
@@ -80,6 +80,34 @@ impl ServiceRuntime {
                 )),
             }
         }))
+    }
+}
+
+/// The runtime when the sidecar loads the service-tier assemblies from the extracted folder `dir`. The folder answers when
+/// it is the run build's own folder (`own_dir`) or the run has no build (`run_tier` `None`). The folder of another build of
+/// the major (`crate::dotnet::default_probe_dir`'s fall back) answers only when its major equals the one the run build's
+/// own service tier names, and then as that tier; else every DotNet call is refused, naming both.
+pub fn of_extracted(dir: PathBuf, own_dir: Option<&Path>, run_tier: Option<ServiceRuntime>) -> ServiceRuntime {
+    let is_own = own_dir == Some(dir.as_path());
+    let folder = ServiceRuntime::of_dir(dir);
+    if is_own {
+        return folder;
+    }
+    match run_tier {
+        Some(run) => ServiceRuntime(Arc::new(move || {
+            let (f, r) = ((folder.0)()?, (run.0)()?);
+            if f.major == r.major {
+                return Ok(r);
+            }
+            Err(format!(
+                "the assemblies come from {}, of another build of the major, which runs on .NET {}; {}'s service tier runs on .NET {}",
+                f.of.unwrap_or_default(),
+                f.major,
+                r.of.unwrap_or_default(),
+                r.major
+            ))
+        })),
+        None => folder,
     }
 }
 
@@ -183,6 +211,75 @@ mod tests {
             major,
             of: bc.map(|m| format!("BC {m}")),
         }
+    }
+
+    /// An extracted service folder whose runtime configuration names `netcore`.
+    fn folder(root: &Path, build: &str, netcore: &str) -> PathBuf {
+        let dir = root.join(build).join("Service");
+        std::fs::create_dir_all(&dir).unwrap();
+        let cfg = format!(
+            r#"{{"runtimeOptions":{{"frameworks":[{{"name":"Microsoft.NETCore.App","version":"{netcore}"}}]}}}}"#
+        );
+        std::fs::write(dir.join(al_deps::service_runtime::SERVER_RUNTIME_CONFIG), cfg).unwrap();
+        dir
+    }
+
+    /// The run build's own service tier, answering `major` (or an error when `None`).
+    fn run_tier(build: &str, major: Option<u32>) -> ServiceRuntime {
+        let of = format!("BC build {build}");
+        ServiceRuntime(Arc::new(move || {
+            major
+                .map(|major| Need {
+                    major,
+                    of: Some(of.clone()),
+                })
+                .ok_or_else(|| format!("the .NET runtime of {of}'s service tier is not known: not cached"))
+        }))
+    }
+
+    #[test]
+    fn another_builds_folder_on_another_major_is_refused_naming_both_builds() {
+        let t = tempfile::tempdir().unwrap();
+        let dir = folder(t.path(), "27.5.54899.58349", "10.0.0");
+        let rt = of_extracted(dir, None, Some(run_tier("27.5.46862.58057", Some(8))));
+        let why = need(Some(&rt), Some(27)).unwrap_err();
+        assert!(
+            why.contains("27.5.54899.58349") && why.contains("BC build 27.5.46862.58057") && why.contains(".NET 10"),
+            "{why}"
+        );
+        // The mirror shape: the run build on .NET 10, the other build's folder on .NET 8.
+        let dir = folder(t.path(), "27.5.46862.56249", "8.0.0");
+        let rt = of_extracted(dir, None, Some(run_tier("27.5.54899.58349", Some(10))));
+        assert!(need(Some(&rt), Some(27)).is_err());
+    }
+
+    #[test]
+    fn another_builds_folder_on_the_same_major_answers_with_the_run_builds_tier() {
+        let t = tempfile::tempdir().unwrap();
+        let dir = folder(t.path(), "27.5.46862.56249", "8.0.0");
+        let rt = of_extracted(dir, None, Some(run_tier("27.5.46862.58057", Some(8))));
+        assert_eq!(
+            need(Some(&rt), Some(27)),
+            Ok(Need {
+                major: 8,
+                of: Some("BC build 27.5.46862.58057".into())
+            })
+        );
+        // An unknown run build's tier refuses too: the other build's folder alone does not decide.
+        let dir = folder(t.path(), "27.5.46862.56250", "8.0.0");
+        let rt = of_extracted(dir, None, Some(run_tier("27.5.46862.58057", None)));
+        assert!(need(Some(&rt), Some(27)).unwrap_err().contains("not cached"));
+    }
+
+    #[test]
+    fn the_run_builds_own_folder_or_a_run_without_a_build_takes_the_folders_answer() {
+        let t = tempfile::tempdir().unwrap();
+        let dir = folder(t.path(), "27.5.54899.58349", "10.0.0");
+        // The run build's own tier is not asked (it would refuse).
+        let own = of_extracted(dir.clone(), Some(&dir), Some(run_tier("27.5.54899.58349", None)));
+        assert_eq!(need(Some(&own), Some(27)).map(|n| n.major), Ok(10));
+        let no_build = of_extracted(dir, None, None);
+        assert_eq!(need(Some(&no_build), Some(27)).map(|n| n.major), Ok(10));
     }
 
     #[test]

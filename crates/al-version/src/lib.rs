@@ -238,6 +238,23 @@ pub fn dotnet_major_for_bc(major: u16) -> u32 {
     }
 }
 
+/// The builds whose service-tier runtime configuration was measured (`al_deps::service_runtime`, 2026-11-17), with the
+/// `Microsoft.NETCore.App` major their runtime configuration names. A test of `al-test-cli` requires every `bc_build` of `oracle/oracle.toml` here, with the major the corpus sidecar's table
+/// gives its BC major (the corpus sidecar asks no service tier).
+pub const MEASURED_SERVICE_RUNTIMES: &[(&str, u32)] = &[
+    ("26.5.38752.58303", 8),
+    ("27.5.46862.56249", 8),
+    ("27.5.46862.58057", 8),
+    ("27.5.46862.58294", 8),
+    ("28.5.54151.56267", 8),
+    ("28.5.54151.58194", 8),
+    ("27.0.54905.58351", 10),
+    ("27.5.54899.58349", 10),
+    ("28.5.54976.58348", 10),
+    ("29.0.54011.56262", 10),
+    ("29.0.54011.58356", 10),
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;

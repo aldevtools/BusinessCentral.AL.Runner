@@ -67,7 +67,7 @@ pub fn dotnet_dirs(a: &TestArgs, build: Option<&ArtifactUse>, major: u32) -> Sid
         .as_deref()
         .and_then(|s| al_testrun::dotnet::default_probe_dir(s, name.as_deref(), major));
     let cache_root = al_deps::cache::cache_root_from_env(a.cache_dir.as_deref());
-    let tier = build.filter(|_| extracted.is_none()).map(|u| {
+    let run_tier = build.map(|u| {
         Arc::new(ServiceTier::new(
             HttpCdn::from_env(),
             &cache_root,
@@ -75,10 +75,20 @@ pub fn dotnet_dirs(a: &TestArgs, build: Option<&ArtifactUse>, major: u32) -> Sid
             !a.no_download,
         ))
     });
+    let tier = run_tier.clone().filter(|_| extracted.is_none());
     let fetched = tier.as_ref().map(|t| t.dir());
-    // The .NET major the sidecar runs on is the one the service tier the assemblies come from names (al_testrun::dotnet_runtime).
+    // The .NET major the sidecar runs on is the one the run build's service tier names (al_testrun::dotnet_runtime); an
+    // extracted folder of another build of the major must name the same one.
+    let own_dir = sandbox
+        .as_deref()
+        .zip(name.as_deref())
+        .and_then(|(s, b)| al_testrun::dotnet::own_build_probe_dir(s, b));
     let service_runtime = match (&extracted, &tier) {
-        (Some(dir), _) => Some(ServiceRuntime::of_dir(dir.clone())),
+        (Some(dir), _) => Some(al_testrun::dotnet_runtime::of_extracted(
+            dir.clone(),
+            own_dir.as_deref(),
+            run_tier.map(ServiceRuntime::of_tier),
+        )),
         (None, Some(t)) => Some(ServiceRuntime::of_tier(t.clone())),
         (None, None) => None,
     };
