@@ -2799,74 +2799,16 @@ impl Session {
         if matches!(method, RecordOp::SetFilter | RecordOp::SetRange) && group == 1 {
             return self.set_global_group_filter(rec, table, method, args);
         }
-        if !self.global_group1.is_empty() {
-            self.global_group_check(rec, table, method.name())?;
-        }
+        let group1 = if self.global_group1.has_tables() {
+            self.group1_use(rec, table, crate::group1_sessions::Group1Op::Record(method))?
+        } else {
+            crate::group1_sessions::Group1Use::Own
+        };
         // ADR-062: a denial of a method AL code calls raises BC's error where its shape is pinned.
         if self.permission_checks() {
             self.permission_from_al = true;
         }
-        self.record_op_of_al(method, rec, args)
-    }
-
-    /// The filters of `rec` in filter group 1, as text to compare.
-    fn group1_signature(rec: &Rec) -> String {
-        let r = rec.borrow();
-        let mut v: Vec<String> = r
-            .filters
-            .iter()
-            .filter(|f| f.group == 1)
-            .map(|f| format!("{}={:?}", f.field, f.expr))
-            .collect();
-        v.sort();
-        v.join(";")
-    }
-
-    /// SetFilter or SetRange in filter group 1 (the global group) on a database record: BC keeps the filter on every record
-    /// of the table for the rest of the session, through Reset and Clear (types/text-code-char/
-    /// P145PageRunView.al:232-235, SfSeed :236-268, seed_before = 4 at :283). The session notes what group 1 holds now;
-    /// `global_group_check` refuses the records that do not carry it.
-    #[cold]
-    #[inline(never)]
-    fn set_global_group_filter(
-        &mut self,
-        rec: &Rec,
-        table: u32,
-        method: RecordOp,
-        args: &mut [Value],
-    ) -> Result<Value, Signal> {
-        if rec.borrow().temporary {
-            return unsupported(format!(
-                "{} in filter group 1 (the global group) on a temporary record (how BC scopes it is not pinned)",
-                method.name()
-            ));
-        }
-        self.global_group_check(rec, table, method.name())?;
-        let by_record = self.is_al_record_call(method, rec);
-        let r = self.record_op(method, rec, args)?;
-        let sig = Self::group1_signature(rec);
-        self.note_group1(table, sig, by_record);
-        Ok(r)
-    }
-
-    /// A record of a table whose filter group 1 (the global group) holds a filter another record set: BC applies that
-    /// filter to this record too (P145PageRunView.al:232-235), the runtime keeps filters on the record that set them.
-    /// Answered when the record carries the same group 1 filters (the setter, or a copy of it such as the record of
-    /// Page.Run(Page, Rec)); refused otherwise.
-    pub(crate) fn global_group_check(&self, rec: &Rec, table: u32, what: &str) -> Result<(), Signal> {
-        let Some(global) = self.global_group1.signature(table) else {
-            return Ok(());
-        };
-        if what == "FilterGroup" {
-            return Ok(());
-        }
-        if !rec.borrow().temporary && Self::group1_signature(rec) == global {
-            return Ok(());
-        }
-        unsupported(format!(
-            "{what} on a record of a table with a filter in filter group 1 (the global group) that another record set: BC \
-             applies it to every record of the table for the session, the runtime does not"
-        ))
+        self.with_group1(rec, group1, |s| s.record_op_of_al(method, rec, args))
     }
 
     /// What a filter does in a negative filter group other than -1, the OR group, is not pinned (only reading the group back is:

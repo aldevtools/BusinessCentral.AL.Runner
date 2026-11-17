@@ -453,11 +453,11 @@ impl Session {
         st.borrow_mut().read_up_from_last = None;
         st.borrow_mut().opened_on_moved_rec = false;
         let rec = self.page_rec(st);
-        // The rows of a page whose table holds a global filter (filter group 1) another record set (records.rs
-        // `global_group_check`).
-        if !self.global_group1.is_empty() {
+        // The rows of a page whose table holds a global filter (filter group 1) another record set: only a record that holds
+        // the same filters is answered (`group1_sessions.rs` `group1_use`).
+        if self.global_group1.has_tables() {
             let table = rec.borrow().table;
-            self.global_group_check(&rec, table, "A page reading its rows")?;
+            self.group1_use(&rec, table, crate::group1_sessions::Group1Op::Page)?;
         }
         let start = self.row_key(&rec)?;
         let mut keys = Vec::new();

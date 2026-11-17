@@ -900,15 +900,20 @@ impl Session {
     }
 
     pub(crate) fn recordref_op(&mut self, method: &str, lib: &Lib, args: &mut [Value]) -> Result<Value, Signal> {
-        // A RecordRef on a table whose filter group 1 another record set (records.rs `global_group_check`).
-        if !self.global_group1.is_empty() && method != "FilterGroup" {
-            if let LibraryValue::RecordRef(rec) = &*lib.borrow() {
-                let table = rec.borrow().table;
-                self.global_group_check(rec, table, &format!("RecordRef.{method}"))?;
-            }
+        // A RecordRef on a table whose filter group 1 holds an entry (`group1_sessions.rs`).
+        let mut group1 = None;
+        if self.global_group1.has_tables()
+            && let LibraryValue::RecordRef(rec) = &*lib.borrow()
+        {
+            let table = rec.borrow().table;
+            let op = crate::group1_sessions::Group1Op::RecordRef(method);
+            group1 = Some((rec.clone(), self.group1_use(rec, table, op)?));
         }
         let new_ref_tried = crate::unopened_refs::open_attempt_on_new_ref(method, &lib.borrow());
-        let r = self.recordref_op_inner(method, lib, args);
+        let r = match group1 {
+            Some((rec, use_)) => self.with_group1(&rec, use_, |s| s.recordref_op_inner(method, lib, args)),
+            None => self.recordref_op_inner(method, lib, args),
+        };
         if new_ref_tried {
             crate::unopened_refs::after_open_attempt(method, lib, &r);
         }

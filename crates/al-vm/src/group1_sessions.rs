@@ -1,7 +1,8 @@
-//! The filters in filter group 1 (the global group) a session holds, per table, and when they end.
+//! The filters in filter group 1 (the global group) a session holds, per table, what other records of the table see of
+//! them, and when they end.
 //!
-//! In-session: BC keeps a group 1 filter on every record of the table for the rest of the session (records.rs
-//! `set_global_group_filter`, `global_group_check`).
+//! In-session: BC keeps a group 1 filter on every record of the table for the rest of the session
+//! ([`Session::set_global_group_filter`], [`Session::group1_use`]).
 //!
 //! Across sessions (pinned by tests/al-language/install-upgrade/G1sInstallSessionTests.al with
 //! tests/al-language-xapp-a/G1sXaInstall.al and tests/al-language-xapp-b/G1sXbInstall.al, BC 27 to 29): a filter that a
@@ -16,6 +17,10 @@
 //! in that shape ends; every other entry stays, and a record without it is refused (records.rs `global_group_check`).
 
 use super::*;
+use crate::records::Rec;
+use al_builtins::filter::{FieldFilter, FilterExpr};
+use al_builtins::native::unsupported;
+use al_builtins::record_op::RecordOp;
 use std::collections::HashMap;
 
 /// The place in an app's install session that the session runs now, of the two the probe measured; set by the runner
@@ -45,10 +50,13 @@ enum Ends {
     WithInstallSession,
 }
 
-/// One table's group 1 filters.
+/// One table's group 1 filters. An entry with no filter is left by a record that took back the filter another record set
+/// ([`Session::set_global_group_filter`]): the records that still hold filters in group 1 are refused there.
 struct Entry {
-    /// The filters, as text to compare (records.rs `group1_signature`).
+    /// The filters, as text to compare ([`group1_signature`]).
     signature: String,
+    /// The filters themselves, for the records that see them ([`Session::with_group1`]).
+    filters: Vec<FieldFilter>,
     ends: Ends,
 }
 
@@ -66,30 +74,35 @@ pub(crate) struct Group1Filters {
 }
 
 impl Group1Filters {
+    /// No table holds a group 1 filter.
     pub(crate) fn is_empty(&self) -> bool {
-        self.filters.by_table.is_empty()
+        self.filters.by_table.values().all(|e| e.signature.is_empty())
     }
 
-    /// The group 1 filters of table `table`, as text to compare.
-    pub(crate) fn signature(&self, table: u32) -> Option<&str> {
-        self.filters.by_table.get(&table).map(|e| e.signature.as_str())
+    /// Some table holds a group 1 filter, or had one another record took back.
+    pub(crate) fn has_tables(&self) -> bool {
+        !self.filters.by_table.is_empty()
     }
 
     /// The group 1 filters of every table that holds some, as text to compare (al-vm `state_stamp.rs`).
     pub(crate) fn signatures(&self) -> std::collections::BTreeMap<u32, String> {
         (self.filters.by_table.iter())
+            .filter(|(_, e)| !e.signature.is_empty())
             .map(|(&t, e)| (t, e.signature.clone()))
             .collect()
     }
 }
 
 impl Session {
-    /// Notes what group 1 of table `table` holds now; `by_record`: a Record variable of AL code set it.
-    pub(crate) fn note_group1(&mut self, table: u32, signature: String, by_record: bool) {
-        if signature.is_empty() {
+    /// Notes what group 1 of table `table` holds now, from `rec`; `by_record`: a Record variable of AL code set it;
+    /// `by_another`: a record that held no group 1 filter took the filter back.
+    fn note_group1(&mut self, table: u32, rec: &Rec, by_record: bool, by_another: bool) {
+        let signature = group1_signature(&rec.borrow());
+        if signature.is_empty() && !by_another {
             self.global_group1.filters.by_table.remove(&table);
             return;
         }
+        let filters = rec.borrow().filters.iter().filter(|f| f.group == 1).cloned().collect();
         // The innermost AL frame: the routine whose body sets the filter.
         let innermost = (self.frames.last())
             .zip(self.call_stack.last())
@@ -102,6 +115,7 @@ impl Session {
             });
         let entry = Entry {
             signature,
+            filters,
             ends: if in_shape { Ends::AwaitsRoutine } else { Ends::Never },
         };
         self.global_group1.filters.by_table.insert(table, entry);
@@ -144,5 +158,226 @@ impl Session {
         let g = &mut self.global_group1;
         g.shape = Group1InstallShape::Off;
         g.filters.by_table.retain(|_, e| e.ends != Ends::WithInstallSession);
+    }
+}
+
+/// The filters of a record in filter group 1, as text to compare.
+fn group1_signature(r: &RecordState) -> String {
+    let mut v: Vec<String> = (r.filters.iter())
+        .filter(|f| f.group == 1)
+        .map(|f| format!("{}={:?}", f.field, f.expr))
+        .collect();
+    v.sort();
+    v.join(";")
+}
+
+/// Who asks for the records of a table whose group 1 holds an entry ([`Session::group1_use`]).
+#[derive(Clone, Copy)]
+pub(crate) enum Group1Op<'a> {
+    /// A Record method AL code calls, on a Record or through a FieldRef.
+    Record(RecordOp),
+    /// A RecordRef method AL code calls.
+    RecordRef(&'a str),
+    /// A page reading its rows.
+    Page,
+}
+
+impl Group1Op<'_> {
+    fn name(self) -> String {
+        match self {
+            Group1Op::Record(m) => m.name().to_string(),
+            Group1Op::RecordRef(m) => format!("RecordRef.{m}"),
+            Group1Op::Page => "A page reading its rows".to_string(),
+        }
+    }
+
+    fn is_filter_group(self) -> bool {
+        matches!(self, Group1Op::Record(RecordOp::FilterGroup) | Group1Op::RecordRef("FilterGroup"))
+    }
+
+    /// The calls tests/al-language/record/filters/FilterGroupOtherVariable.al measured on a record that holds no group 1
+    /// filter while another record's filter is in group 1 (codeunit 97452). On a database Record: Count, IsEmpty, Get and
+    /// GetFilters (:596-638), Reset and Clear (:618-621), DeleteAll (:622), FindSet and Next (`Fresh1` :163-174), Init, Insert, Modify
+    /// and ModifyAll (:721-762). On a temporary Record: Count (:826, :900). On a RecordRef of a database table: Count and
+    /// GetFilters (:859, :896-898).
+    fn measured(self, temporary: bool) -> bool {
+        use RecordOp::*;
+        match (self, temporary) {
+            (
+                Group1Op::Record(
+                    Count | IsEmpty | Get | GetFilters | Reset | Clear | DeleteAll | FindSet | Next | Init | Insert
+                    | Modify | ModifyAll,
+                ),
+                false,
+            ) => true,
+            (Group1Op::Record(Count), true) => true,
+            (Group1Op::RecordRef("Count" | "GetFilters"), false) => true,
+            _ => false,
+        }
+    }
+}
+
+/// What a record of a table whose group 1 holds an entry reads ([`Session::group1_use`]).
+pub(crate) enum Group1Use {
+    /// Its own filters.
+    Own,
+    /// Its own filters and the entry's group 1 filters, for this one call ([`Session::with_group1`]).
+    Shared(Vec<FieldFilter>),
+}
+
+/// How a SetFilter or SetRange in filter group 1 changes the session's entry ([`Session::set_global_group_filter`]).
+enum Group1Set {
+    /// A database record with no entry for its table, or that holds the entry's filters: main's path, P145PageRunView.al.
+    Setter,
+    /// A record that holds no group 1 filter takes back the entry's one filter: SetRange(Field) on the field the entry
+    /// filters (FilterGroupOtherVariable.al:197-204 `ClearGroup1In3` at :748, `ClearGroup1In4` at :793; then a fresh
+    /// variable reads every row, :762 and :797, and an empty group 1, :763).
+    ClearByAnother,
+}
+
+impl Session {
+    /// SetFilter or SetRange in filter group 1 (the global group): BC keeps the filter on every record of the table for the
+    /// rest of the session, through Reset and Clear (types/text-code-char/P145PageRunView.al:232-235, SfSeed :236-268,
+    /// seed_before = 4 at :283), the temporary records of the table and its RecordRefs included
+    /// (FilterGroupOtherVariable.al:802-874). The session notes what group 1 holds now.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn set_global_group_filter(
+        &mut self,
+        rec: &Rec,
+        table: u32,
+        method: RecordOp,
+        args: &mut [Value],
+    ) -> Result<Value, Signal> {
+        let set = self.group1_set(rec, table, method, args)?;
+        let by_record = self.is_al_record_call(method, rec);
+        let r = self.record_op(method, rec, args)?;
+        self.note_group1(table, rec, by_record, matches!(set, Group1Set::ClearByAnother));
+        Ok(r)
+    }
+
+    /// Which change [`Self::set_global_group_filter`] makes, or the refusal of a shape no test measured.
+    fn group1_set(&self, rec: &Rec, table: u32, method: RecordOp, args: &[Value]) -> Result<Group1Set, Signal> {
+        let entry = self.global_group1.filters.by_table.get(&table);
+        let (temporary, own) = {
+            let r = rec.borrow();
+            (r.temporary, group1_signature(&r))
+        };
+        let set_range = method == RecordOp::SetRange;
+        let set = match entry {
+            // No entry (or one taken back, by a record that holds no group 1 filter).
+            None => Some(Group1Set::Setter).filter(|_| !temporary || set_range && self.integer_value(rec, args)),
+            Some(e) if e.signature.is_empty() && own.is_empty() => {
+                Some(Group1Set::Setter).filter(|_| !temporary || set_range && self.integer_value(rec, args))
+            }
+            Some(e) if !e.signature.is_empty() && own == e.signature => {
+                Some(Group1Set::Setter).filter(|_| !temporary || set_range && args.len() == 1)
+            }
+            Some(e) if !temporary && own.is_empty() && set_range && args.len() == 1 && self.entry_pinned(rec, e) => {
+                let field = args.first().and_then(|a| match a {
+                    Value::Integer(p) => usize::try_from(*p).ok(),
+                    _ => None,
+                });
+                Some(Group1Set::ClearByAnother).filter(|_| field == e.filters.first().map(|f| f.field))
+            }
+            _ => None,
+        };
+        match set {
+            Some(s) => Ok(s),
+            None if temporary => unsupported(format!(
+                "{} in filter group 1 (the global group) on a temporary record (how BC scopes it is not pinned)",
+                method.name()
+            )),
+            None => self.group1_refusal(entry.is_some_and(|e| e.signature.is_empty()), Group1Op::Record(method)),
+        }
+    }
+
+    /// SetRange(Field, Value) of one Integer value on an Integer field: the form a temporary record set in group 1
+    /// (FilterGroupOtherVariable.al:822-824, SetRange(Tag, 1)).
+    fn integer_value(&self, rec: &Rec, args: &[Value]) -> bool {
+        let Ok(t) = self.table(rec) else {
+            return false;
+        };
+        matches!(args, [Value::Integer(p), Value::Integer(_)]
+            if usize::try_from(*p).ok().and_then(|p| t.fields.get(p)).is_some_and(|f| f.ty == RtType::Integer))
+    }
+
+    /// The entry form FilterGroupOtherVariable.al measured: one filter, SetRange of one Integer value on an Integer field
+    /// (SetRange(Tag, 1) at :193, :604, :823, :855, :893).
+    fn entry_pinned(&self, rec: &Rec, e: &Entry) -> bool {
+        let Ok(t) = self.table(rec) else {
+            return false;
+        };
+        let [f] = &e.filters[..] else {
+            return false;
+        };
+        let one_integer = match &f.expr {
+            FilterExpr::Range(Some(Value::Integer(a)), Some(Value::Integer(b))) => a == b,
+            FilterExpr::Eq(Value::Integer(_)) => true,
+            _ => false,
+        };
+        one_integer && t.fields.get(f.field).is_some_and(|d| d.ty == RtType::Integer)
+    }
+
+    /// What `rec`, of table `table`, reads for the call `op` while group 1 of the table holds an entry. A record that holds
+    /// the entry's filters (the setter, or a copy of it such as the record of Page.Run(Page, Rec), P145PageRunView.al:232-235)
+    /// reads its own, on a database table; on a temporary one only Count is measured (FilterGroupOtherVariable.al:825). A
+    /// record that holds no group 1 filter reads the entry's filters as well for the calls [`Group1Op::measured`] lists,
+    /// when the entry has the measured form ([`Self::entry_pinned`]). After a record that held none took the filter back,
+    /// a record with no group 1 filter reads its own (:762-763, :797); one that still holds some is refused. Every other
+    /// shape is refused.
+    pub(crate) fn group1_use(&self, rec: &Rec, table: u32, op: Group1Op) -> Result<Group1Use, Signal> {
+        let Some(entry) = self.global_group1.filters.by_table.get(&table) else {
+            return Ok(Group1Use::Own);
+        };
+        if op.is_filter_group() {
+            return Ok(Group1Use::Own);
+        }
+        let (temporary, own) = {
+            let r = rec.borrow();
+            (r.temporary, group1_signature(&r))
+        };
+        let taken_back = entry.signature.is_empty();
+        if taken_back && own.is_empty() {
+            return Ok(Group1Use::Own);
+        }
+        if !taken_back && own == entry.signature && (!temporary || matches!(op, Group1Op::Record(RecordOp::Count))) {
+            return Ok(Group1Use::Own);
+        }
+        if !taken_back && own.is_empty() && op.measured(temporary) && self.entry_pinned(rec, entry) {
+            return Ok(Group1Use::Shared(entry.filters.clone()));
+        }
+        self.group1_refusal(taken_back, op)
+    }
+
+    fn group1_refusal<T>(&self, taken_back: bool, op: Group1Op) -> Result<T, Signal> {
+        let what = op.name();
+        if taken_back {
+            return unsupported(format!(
+                "{what} on a record that holds filters in filter group 1 (the global group) after another record took \
+                 the global group's filter back (not pinned)"
+            ));
+        }
+        unsupported(format!(
+            "{what} on a record of a table with a filter in filter group 1 (the global group) that another record set: BC \
+             applies it to every record of the table for the session, the runtime does not"
+        ))
+    }
+
+    /// Runs `f` with `use_` applied to `rec`: the entry's group 1 filters of a [`Group1Use::Shared`] are on the record
+    /// (which holds no group 1 filter of its own) only for the call.
+    pub(crate) fn with_group1<T>(
+        &mut self,
+        rec: &Rec,
+        use_: Group1Use,
+        f: impl FnOnce(&mut Self) -> Result<T, Signal>,
+    ) -> Result<T, Signal> {
+        let Group1Use::Shared(shared) = use_ else {
+            return f(self);
+        };
+        rec.borrow_mut().filters.extend(shared);
+        let r = f(self);
+        rec.borrow_mut().filters.retain(|f| f.group != 1);
+        r
     }
 }
