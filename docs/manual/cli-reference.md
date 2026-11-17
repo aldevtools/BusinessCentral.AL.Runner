@@ -29,7 +29,7 @@ or an `.app` that carries its source.
 | `--dep PATH` | A package file (`.app`, `*.Source.zip`), an app folder or a folder of packages. Repeatable. |
 | `--package-cache DIR` | A folder of `.app` files. Repeatable. |
 | `--bc-version V` | A Business Central major, major.minor, or an exact build (four numbers). An exact build also fills Microsoft's `$(app_...)` variables in source archives outside a folder named for their build. |
-| `--no-download` | Never fetch from the artifact feed (apps, `System.app`, demo data). A dependency app that is then not found (not in `--dep`, `.alpackages` or the cache) stops the run with exit 2; the message names its id, name and declared version. |
+| `--no-download` | Never fetch from the artifact feed (apps, `System.app`, demo data, and the service tier's `Microsoft.Dynamics.Nav.Server.runtimeconfig.json` a DotNet call needs: without it in the cache, DotNet calls are refused until one run without `--no-download` has cached it). A dependency app that is then not found (not in `--dep`, `.alpackages` or the cache) stops the run with exit 2; the message names its id, name and declared version. |
 | `--allow-missing-dependencies` | With `--no-download`: skip a dependency that cannot be found with a warning on stderr, as before. The run may then differ from one that has the app. `--output-json` and the `serve` summary list it in `skippedDependencies`. |
 | `--cache-dir DIR` | Where downloads and the compile cache live. Else `$ALRUNNER_CACHE`, else `$XDG_CACHE_HOME/al-runtime`, else `~/.cache/al-runtime` (on Windows `%USERPROFILE%\.cache\al-runtime`). |
 | `--country CODE` | The Business Central country version (`us`, `gb`, `de`, ...). Default `w1`. See [Test data](test-data.md). |
@@ -273,7 +273,7 @@ Protocol server. See [Editor and tool integration](editor-tools.md#debugging).
 | 3 | The apps do not compile: an error the AL compiler gives (its code, such as AL0118). No test ran. |
 | 6 | The selection matched no test. |
 | 7 | Some tests were not run (a refusal). `--allow-not-run` makes this 0. |
-| 8 | Some tests were not run because the .NET helper could not be used (not found, or no .NET runtime of the major the BC version needs: 8 for BC 27-28, 10 for BC 29). `--allow-not-run` makes this 0. |
+| 8 | Some tests were not run because the .NET helper could not be used (not found, or no .NET runtime of the major the BC build's service tier needs: 10 for BC 29 and newer BC 27-28 builds, 8 for older ones). `--allow-not-run` makes this 0. |
 
 Order when several apply: 2, 6, 1, 8, 7. Exit code 3 means no test ran; the errors are on stderr and in `compilationErrors` of `--output-json`. The check covers the AL compiler errors that the corpus has checked against the real compiler, not all of them. Source of an app under test that the parser does not accept also exits 3; that line has the parser's message and no AL code. A dependency app's file the parser does not accept is not judged: the tests that need it are not run (exit 7). An impact run has its own codes; see
 [Impact analysis](impact.md).

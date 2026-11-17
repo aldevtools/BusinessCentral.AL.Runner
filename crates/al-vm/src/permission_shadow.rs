@@ -14,19 +14,19 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 impl Session {
-    /// The test runner's step assigned `role` through the mock: remembered for the shadow run (the sets are not enforced).
+    /// The test runner's step assigned `role` through the mock: remembered for the shadow run and for the one Insert the
+    /// runner's sets deny (`permission_probed/runner_sets_insert.rs`); otherwise the sets are not enforced.
     pub(crate) fn shadow_add_role(&mut self, role: &str) {
-        if al_builtins::permission_shadow::enabled() {
-            let role: String = role.to_uppercase().chars().take(20).collect();
-            if !self.shadow_roles.contains(&role) {
-                self.shadow_roles.push(role);
-            }
+        let role: String = role.to_uppercase().chars().take(20).collect();
+        if !self.shadow_roles.contains(&role) {
+            self.shadow_roles.push(role);
         }
     }
 
     /// After the runner's steps: the session holds the runner's sets for the shadow run, when the switch is on and they restrict.
     pub(crate) fn shadow_begin(&mut self) {
-        if self.shadow_roles.is_empty()
+        if !al_builtins::permission_shadow::enabled()
+            || self.shadow_roles.is_empty()
             || !self.runner_permission_sets
             || self.permissions_off
             || self.ignore_permission_mock
