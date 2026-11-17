@@ -212,6 +212,7 @@ mod sql_counters;
 mod stream_length_forms;
 mod strsubstno_decimal_field_places;
 mod strsubstno_unit_amount_field;
+mod subscriber_namespace;
 mod table_ext_base_vars;
 mod temp_record_array;
 mod ternary_args;

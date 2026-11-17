@@ -1,12 +1,16 @@
 // BC Documentation: https://learn.microsoft.com/en-us/dynamics365/business-central/dev-itpro/developer/methods-auto/page/page-update-method
 // Scope: in-scope
 // local object: the table field's OnValidate that inserts the page's new line, and the page triggers that log, are what is under test
-// Fixtures used: shared Assert (60021); own table 97030, log codeunit 97031, pages 97032 and 97033, opener codeunit 97034, test codeunit 97035
+// Fixtures used: shared Assert (60021); own table 97030, log codeunit 97031, pages 97032, 97033, 97036 to 97039, opener codeunit 97034,
+//   test codeunit 97035
 // Probe (al-runner issue 8186): a List page stands on its new line (New()). SetValue on Name runs the table field's OnValidate, which inserts
 //   Rec itself (Insert(true), with an AutoIncrement key field), and then the control's OnValidate, which calls CurrPage.Update() or
-//   CurrPage.Update(false). Readings: the page and table triggers each step runs, the row the page shows after the refresh, the rows the
-//   table holds, where a later SetValue lands, and Previous()/Next() from there. Cells: a page with and without AutoSplitKey, opened with
-//   OpenEdit and with Page.RunModal, on an empty view and on a view with one row before, Update() and Update(false).
+//   CurrPage.Update(false). Readings: the page, part and table triggers each step runs, the row the page shows after the refresh, the rows
+//   the table holds, where a later SetValue lands, and Previous()/Next() from there. Cells: a page with OnAfterGetRecord and
+//   OnAfterGetCurrRecord, with and without AutoSplitKey, opened with OpenEdit and with Page.RunModal, on an empty view and on a view with
+//   one row before, Update() and Update(false); a page with OnAfterGetRecord only and two CardPart FactBoxes linked to the line's key,
+//   opened with OpenEdit and with Page.RunModal on a record filtered to one group (a row of another group outside the view); a page
+//   without page triggers.
 //   Measured on a local BC 29.1 OnPrem w1 container; BC 27.5 and 28.5 are left to CI.
 // BC versions: 27, 28, 29
 

@@ -129,7 +129,7 @@ impl Session {
 
     /// The refresh after a control's OnValidate from the stored row Rec stands on: the client reads the view from its first row
     /// (the rows it held do not matter), the row again, then OnAfterGetCurrRecord (`refresh_after_validate_filter`, and the
-    /// new line the table code inserted, `code_inserted_new_line.rs`: ListNewLineCodeInsertUpdate.al `ExpectedSetName`).
+    /// new line the table code inserted, `code_inserted_new_line.rs`: ListNewLineCodeInsertUpdate.al:419 `ExpectedSetName`).
     pub(super) fn reread_view_from_row(
         &mut self,
         st: &St,

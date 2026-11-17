@@ -140,7 +140,7 @@ codeunit 50130 "Refill Probe Part Reads"
 }
 "#;
 
-/// The corpus probe of issue 8186 (corpus pull request 1425, open: tests/al-language/pages/currpage/ListNewLineCodeInsertUpdate.al,
+/// The corpus probe of issue 8186 (corpus pull request 1425, merged, not pinned yet: tests/al-language/pages/currpage/ListNewLineCodeInsertUpdate.al,
 /// measured on BC 29.1) with a stand-in for the corpus's Assert, and the reporter's repro: each test's outcome and the assumptions
 /// it ran through.
 fn issue_8186_outcomes(src: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<al_builtins::assumptions::Assumption>)> {

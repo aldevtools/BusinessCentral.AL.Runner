@@ -2,8 +2,8 @@
 //! Insert(true)`, an AutoIncrement key field) before the control's OnValidate calls `CurrPage.Update()` or `CurrPage.Update(false)`
 //! (al-runner issue 8186). BC treats the line as the stored row from then on: `Update()` modifies it (OnModifyRecord and the
 //! table's OnModify run inside the OnValidate, OnInsertRecord never runs), `Update(false)` saves nothing, and both refresh onto
-//! that row; the next SetValue lands on it. Measured on a local BC 29.1 container by corpus pull request 1425 (open),
-//! pages/currpage/ListNewLineCodeInsertUpdate.al; assumption `list-new-line-code-insert-update` until a bump pins it.
+//! that row; the next SetValue lands on it. Measured by corpus pull request 1425 (merged, not pinned yet),
+//! pages/currpage/ListNewLineCodeInsertUpdate.al:515-610 and :783-810; assumption `list-new-line-code-insert-update` until a bump pins it.
 
 use super::pinned_shape::TestCall;
 use super::*;
@@ -107,7 +107,7 @@ impl Session {
 
     /// `CurrPage.Update()` (`arg` `None`) or `CurrPage.Update(false)` in that shape: the page leaves the new line for the stored row
     /// before the call goes on, so `Update()` saves it as a stored row (its modify, `P.MOD(X/);T.M(X/);` before the OnValidate ends,
-    /// ListNewLineCodeInsertUpdate.al `ExpectedSetName`) and `Update(false)` (measured on the pages with both row triggers only)
+    /// ListNewLineCodeInsertUpdate.al:419 `ExpectedSetName`) and `Update(false)` (measured on the pages with both row triggers only)
     /// saves nothing. The refresh the call asked for reads the view from its first row (`code_inserted_refresh_due`).
     /// `Update(true)` written out is not measured and keeps main's way.
     pub(super) fn land_on_code_inserted_line(&mut self, st: &St, arg: Option<&Value>) -> Result<(), Signal> {
@@ -154,7 +154,7 @@ impl Session {
     }
 
     /// `Previous()` on the row that refresh landed on, when it is the only row of the view and the test only read and wrote
-    /// controls since: BC answers false, runs no trigger and keeps an edit typed since unsaved (ListNewLineCodeInsertUpdate.al, the
+    /// controls since: BC answers false, runs no trigger and keeps an edit typed since unsaved (ListNewLineCodeInsertUpdate.al:455
     /// `prev` steps of the empty views: `F/X` and an empty log; `Next()` then saves it). `None` for every other move, which also
     /// ends the mark.
     pub(super) fn previous_on_code_inserted_row(&mut self, st: &St, how: PageMethod) -> Result<Option<bool>, Signal> {
