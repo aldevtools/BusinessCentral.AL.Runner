@@ -110,6 +110,7 @@ mod partial;
 mod permission_bulk_no_match;
 mod permission_shadow;
 mod permission_system_flowfield;
+mod permission_trigger_setup;
 mod permission_triggers;
 mod permissions;
 mod platform;
@@ -1513,6 +1514,7 @@ impl Session {
                 install_written: None,
                 install_rows: None,
                 setup_no_ops: Default::default(),
+                db_setup_table: None,
                 trial: Default::default(),
                 global_setups: Default::default(),
             },

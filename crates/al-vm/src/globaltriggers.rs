@@ -139,7 +139,9 @@ impl Session {
                 sender: None,
             };
             self.events.setup_no_ops = self.setup_subscribers_changing_nothing(id);
+            let outer = self.events.db_setup_table.replace(table);
             let raised = self.raise_global(&call, &mut args);
+            self.events.db_setup_table = outer;
             self.events.setup_no_ops.clear();
             if let Err(e) = raised {
                 self.events.global_setups.remove(&table);
