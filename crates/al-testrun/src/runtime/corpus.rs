@@ -2470,7 +2470,7 @@ fn app_contexts(
 pub(super) fn observed_detail(lowered: &Lowered, seen: &Observed) -> explain::TestDetail {
     let mut d = explain::detail(
         &lowered.program,
-        seen.session.fault_site(),
+        seen.site,
         seen.error.map(|e| explain::ErrorInfo {
             message: e.message.clone(),
             code: e.code.clone(),

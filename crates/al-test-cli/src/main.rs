@@ -1107,7 +1107,7 @@ fn run_version_inner(
         match &deps.build {
             Some(u) => {
                 println!("bc build: {} ({})", u.build, origin_word(u.origin));
-                chosen.target.bc.build = Some(u.build.to_string());
+                chosen.target.bc.resolved_to(&u.build.to_string());
                 bc_build = Some(u.build.to_string());
                 let fetch = al_deps::artifact::Fetch {
                     cache_root: al_deps::cache::cache_root_from_env(args.cache_dir.as_deref()),
@@ -1600,10 +1600,7 @@ fn run_version_inner(
         );
         let marks = rt.assumptions_in(name, &case.id);
         if !marks.is_empty() {
-            println!(
-                "{}",
-                al_testrun::flagged::render_explain(marks, outcome == report::Outcome::Pass)
-            );
+            println!("{}", al_testrun::flagged::render_explain(marks, &outcome));
         }
         return Ok(VersionRun {
             code: 0,
