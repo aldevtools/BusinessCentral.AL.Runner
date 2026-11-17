@@ -21,6 +21,9 @@ fn language_words(language: Option<i32>) -> Option<(&'static [&'static str], &'s
 /// `Some(value)` for an accepted word, `None` for a word the language does not accept, `Err` for a language not pinned.
 pub(crate) fn boolean_filter_word(language: Option<i32>, text: &str) -> Result<Option<bool>, String> {
     let word = text.to_lowercase();
+    if language == Some(1030) {
+        return danish_filter_word(&word);
+    }
     let Some((yes, no)) = language_words(language) else {
         return Err(format!(
             "a Boolean filter value under GlobalLanguage {} (the words of that language are not pinned)",
@@ -34,6 +37,23 @@ pub(crate) fn boolean_filter_word(language: Option<i32>, text: &str) -> Result<O
     } else {
         None
     })
+}
+
+/// The Boolean filter words under 1030 the reporter of al-runner issue 8197 measured (assumption `boolean-filter-words-danish`):
+/// `ja` is true, `nej` false, `yes` is no word of the language. Every other text is not measured.
+fn danish_filter_word(word: &str) -> Result<Option<bool>, String> {
+    let read = match word {
+        "ja" => Some(true),
+        "nej" => Some(false),
+        "yes" => None,
+        _ => {
+            return Err(format!(
+                "the Boolean filter value `{word}` under GlobalLanguage 1030 (not measured)"
+            ));
+        }
+    };
+    crate::assumptions::assume(crate::assumptions::Assumption::BooleanFilterWordsDanish);
+    Ok(read)
 }
 
 /// What `Evaluate` into a Boolean makes of a text under a language other than English.
@@ -131,6 +151,16 @@ mod tests {
     #[test]
     fn other_languages_are_refused() {
         assert!(w(Some(1043), "Ja").is_err());
+    }
+
+    // Assumption boolean-filter-words-danish (al-runner issue 8197): only Ja, Nej and Yes are measured.
+    #[test]
+    fn danish_words_as_measured() {
+        assert_eq!(w(Some(1030), "Ja"), Ok(Some(true)));
+        assert_eq!(w(Some(1030), "nej"), Ok(Some(false)));
+        assert_eq!(w(Some(1030), "Yes"), Ok(None));
+        assert!(w(Some(1030), "true").is_err());
+        assert!(w(Some(1030), "No").is_err());
     }
 
     use super::{EvaluateWord::*, evaluate_boolean_word as e};

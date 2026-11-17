@@ -2208,7 +2208,12 @@ mod tests {
             code_name("Weekday Text", Some((2027, 3, 18)), Some(mon + 3), 1031, false).unwrap(),
             "Donnerstag"
         );
-        assert!(code_name("Weekday Text", Some((2027, 3, 16)), Some(tue), 1031, false).is_err());
+        // Tuesday is measured by the reporter of al-runner issue 8183 (assumption month-weekday-names-by-language); Wednesday is not.
+        assert_eq!(
+            code_name("Weekday Text", Some((2027, 3, 16)), Some(tue), 1031, false).unwrap(),
+            "Dienstag"
+        );
+        assert!(code_name("Weekday Text", Some((2027, 3, 17)), Some(tue + 1), 1031, false).is_err());
     }
     // reports/runtime/ReportLanguageNotRunFormats.al:242: Dutch December and Wednesday as a report's language; the other months
     // and days, and 2067 that is not a report's language, are refused.

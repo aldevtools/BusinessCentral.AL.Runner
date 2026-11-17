@@ -62,7 +62,7 @@ fn get<'a>(o: &'a [(String, String, Vec<Assumption>)], name: &str) -> (&'a str, 
 fn reports(o: &[(String, String, Vec<Assumption>)], name: &str, value: &str, flag: Option<Assumption>) {
     let (out, hits) = get(o, name);
     assert!(
-        out.starts_with("Fail") && out.contains(&format!("V:[{value}]")),
+        out.starts_with("Fail") && out.contains(format!("{:?}", format!("V:[{value}]")).trim_matches('"')),
         "{name}: {out}"
     );
     match flag {
@@ -308,4 +308,142 @@ fn date_formula_letters_measured_by_the_reporter() {
     refused(&o, "OtherGermanText");
     refused(&o, "OtherDanishText");
     refused(&o, "DanishCalcDateError");
+}
+
+// al-runner issue 8197: the reporter's repro, its objects unchanged; the Danish date filter text and the Enum shape stay refused.
+const FILTER_OBJECTS: &str = r#"
+enum 58320 "Ref Color" { value(0; Red) { } value(1; Green) { } value(2; Blue) { } }
+
+table 58320 "Ref Row"
+{
+    fields
+    {
+        field(1; "Code"; Code[20]) { }
+        field(2; Kind; Option) { OptionMembers = Alpha,Beta,Gamma; }
+        field(3; Color; Enum "Ref Color") { }
+        field(4; "Doc Date"; Date) { }
+        field(5; Active; Boolean) { }
+    }
+    keys { key(PK; "Code") { Clustered = true; } }
+}
+"#;
+
+#[test]
+fn set_filter_shapes_measured_by_the_reporter() {
+    let o = run(&format!(
+        "{FILTER_OBJECTS}{}",
+        r#"
+codeunit 58321 T
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    procedure OptionNotAMember()
+    var
+        R: Record "Ref Row";
+    begin
+        asserterror R.SetFilter(Kind, 'Delta');
+        if StrPos(GetLastErrorText(), 'The existing options are: Alpha,Beta,Gamma') = 0 then
+            Error('BC names the options: %1', GetLastErrorText());
+    end;
+
+    [Test]
+    procedure DanishBooleanWords()
+    var
+        R: Record "Ref Row";
+    begin
+        GlobalLanguage(1030);
+        R.DeleteAll();
+        R."Code" := 'A';
+        R.Active := true;
+        R.Insert();
+        R.SetFilter(Active, 'Ja');
+        if R.IsEmpty() then
+            Error('BC reads Ja as true under 1030');
+        asserterror R.SetFilter(Active, 'Yes');
+    end;
+
+    [Test]
+    procedure DanishDateTextUnderEnUsRegion()
+    var
+        R: Record "Ref Row";
+    begin
+        GlobalLanguage(1030);
+        asserterror R.SetFilter("Doc Date", '15.03.2024');
+    end;
+
+    [Test]
+    procedure OptionFullText()
+    var
+        R: Record "Ref Row";
+    begin
+        GlobalLanguage(1033);
+        asserterror R.SetFilter(Kind, 'Delta');
+        Error('V:[%1]', GetLastErrorText());
+    end;
+
+    [Test]
+    procedure DanishYesText()
+    var
+        R: Record "Ref Row";
+    begin
+        GlobalLanguage(1030);
+        asserterror R.SetFilter(Active, 'Yes');
+        Error('V:[%1]', GetLastErrorText());
+    end;
+
+    [Test]
+    procedure DanishTrueWord()
+    var
+        R: Record "Ref Row";
+    begin
+        GlobalLanguage(1030);
+        R.SetFilter(Active, 'true');
+    end;
+
+    [Test]
+    procedure OptionWordWithDigit()
+    var
+        R: Record "Ref Row";
+    begin
+        GlobalLanguage(1033);
+        asserterror R.SetFilter(Kind, 'Delta2');
+    end;
+
+    [Test]
+    procedure EnumNotAMember()
+    var
+        R: Record "Ref Row";
+    begin
+        GlobalLanguage(1033);
+        asserterror R.SetFilter(Color, 'Purple');
+    end;
+}
+"#
+    ));
+    for (t, a) in [
+        ("OptionNotAMember", Assumption::OptionFilterNonMemberError),
+        ("DanishBooleanWords", Assumption::BooleanFilterWordsDanish),
+    ] {
+        let (out, hits) = get(&o, t);
+        assert_eq!(out, "Pass", "{t}");
+        assert!(hits.contains(&a), "{t}: {hits:?}");
+    }
+    reports(
+        &o,
+        "OptionFullText",
+        "The filter \"Delta\" is not valid for the Kind field on the Ref Row table. 'Delta' is not an option. The existing options are: Alpha,Beta,Gamma",
+        Some(Assumption::OptionFilterNonMemberError),
+    );
+    reports(
+        &o,
+        "DanishYesText",
+        "Filteret \"Yes\" er ikke gyldigt for feltet Active i tabellen Ref Row. V\u{e6}rdien \"Yes\" kan ikke evalueres til typen Boolean.",
+        Some(Assumption::BooleanFilterWordsDanish),
+    );
+    refused(&o, "DanishDateTextUnderEnUsRegion");
+    refused(&o, "DanishTrueWord");
+    refused(&o, "OptionWordWithDigit");
+    refused(&o, "EnumNotAMember");
 }

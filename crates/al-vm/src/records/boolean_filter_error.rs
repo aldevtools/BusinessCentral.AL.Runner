@@ -22,6 +22,10 @@ impl Session {
             1031 => format!(
                 "Der Filter '{text}' ist für das Feld '{field}' der Tabelle '{table}' nicht gültig. Der Wert „{word}“ kann nicht in Typ Boolean ausgewertet werden."
             ),
+            // Assumption boolean-filter-words-danish (al-runner issue 8197): the reporter's measured text.
+            1030 => format!(
+                "Filteret \"{text}\" er ikke gyldigt for feltet {field} i tabellen {table}. V\u{e6}rdien \"{word}\" kan ikke evalueres til typen Boolean."
+            ),
             1036 => format!(
                 "Le filtre «\u{a0}{text}\u{a0}» n'est pas valide pour le champ {field} de la table {table}. La valeur «\u{a0}{word}\u{a0}» ne peut pas être évaluée en type Boolean."
             ),

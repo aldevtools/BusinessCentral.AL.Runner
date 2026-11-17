@@ -1278,7 +1278,15 @@ impl Parser<'_> {
                 Some(i) => Value::Option(i as i32, m.clone()),
                 None => Value::Option(
                     text.parse().map_err(|_| {
-                        if matches!(text.trim(), "\" \"" | "\"\"") {
+                        let word = text.trim();
+                        // A word of letters that is no member (assumption `option-filter-non-member-error`, al-runner issue 8197).
+                        let reported = !word.is_empty()
+                            && word.bytes().all(|b| b.is_ascii_alphabetic())
+                            && m.iter().all(|x| !x.is_empty());
+                        if reported {
+                            crate::assumptions::assume(crate::assumptions::Assumption::OptionFilterNonMemberError);
+                        }
+                        if reported || matches!(word, "\" \"" | "\"\"") {
                             format!(
                                 "{FILTER_SYNTAX}'{}' is not an option. The existing options are: {}",
                                 text.trim(),
