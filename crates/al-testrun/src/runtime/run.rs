@@ -196,7 +196,7 @@ fn open_company(
     lowered: &Lowered,
     session: &mut Session,
     mode: Option<bool>,
-    skipped_installs: &[(BTreeSet<u32>, String)],
+    skipped_installs: &[al_vm::SkippedInstall],
     perturb: &crate::stability::Perturb,
 ) -> Result<(crate::install::CompanyOpenWrites, al_builtins::assumptions::HitBits), crate::install::NotOpened> {
     // A scratch run is not a test session: it opens nothing.
@@ -261,7 +261,7 @@ fn observed_not_run(
 /// The tables `watched` and those of `skipped_installs` (`skipped_install_tables`), for the store's watch.
 fn with_skipped<'a>(
     watched: impl Iterator<Item = &'a u32>,
-    skipped_installs: &[(BTreeSet<u32>, String)],
+    skipped_installs: &[al_vm::SkippedInstall],
 ) -> BTreeSet<u32> {
     let mut out: BTreeSet<u32> = watched.copied().collect();
     out.extend(skipped_install_tables(skipped_installs));
@@ -271,19 +271,20 @@ fn with_skipped<'a>(
 /// The reason of the first skipped install that wrote a table `routine` can reach. The tables the routine reaches are
 /// found once, and only when an install was skipped: the walk of its calls cost as much as the test for every skipped install.
 fn skipped_install_touching<'a>(
-    skipped_installs: &'a [(BTreeSet<u32>, String)],
+    skipped_installs: &'a [al_vm::SkippedInstall],
     lowered: &Lowered,
     object: usize,
     routine: usize,
+    assumed: Assumed,
 ) -> Option<&'a String> {
     if skipped_installs.is_empty() {
         return None;
     }
     let touched = tables_touched(lowered, object, routine);
-    skipped_installs
-        .iter()
-        .find(|(tables, _)| !tables.is_disjoint(&touched))
-        .map(|(_, why)| why)
+    let refuses = |s: &al_vm::SkippedInstall| {
+        !s.tables.is_disjoint(&touched) || (assumed == Assumed::Refused && !s.assumed.is_disjoint(&touched))
+    };
+    skipped_installs.iter().find(|s| refuses(s)).map(|s| &s.why)
 }
 
 /// The data-driven tests of a codeunit: procedures with `[TestDataSource(Codeunit, DataSet)]` and no `[Test]`.
@@ -587,7 +588,7 @@ fn run_codeunit_inner(
             let hits = session.store_mut().watch_hits();
             scratch.leak_hit |= !leak.is_disjoint(&hits);
             session.store_mut().watch(Default::default());
-            if let Some((_, why)) = skipped_install_hit(&skipped_installs, &hits) {
+            if let Some((_, why)) = skipped_install_hit(&skipped_installs, &hits, Assumed::Refused) {
                 return Err(on_run_refused(format!("OnRun: {why}")));
             }
             (partner.after_on_run(&hits, lowered)).map_err(|why| on_run_refused(format!("OnRun: {why}")))?;
@@ -624,7 +625,9 @@ fn run_codeunit_inner(
                         ))));
                     }
                     // The error may come from install data this run does not have: it is not trusted.
-                    if let Some(why) = skipped_install_touching(&skipped_installs, lowered, object, on_run) {
+                    if let Some(why) =
+                        skipped_install_touching(&skipped_installs, lowered, object, on_run, Assumed::Refused)
+                    {
                         return Err(on_run_refused(format!(
                             "OnRun failed after install code that did not run: {why}"
                         )));
@@ -770,7 +773,9 @@ fn run_codeunit_inner(
             } else if let Some(b) = blocked_site(lowered, object, r) {
                 refused_in = Some((b.object, b.routine));
                 Outcome::NotRun(b.text)
-            } else if let Some(reason) = skipped_install_touching(&skipped_installs, lowered, object, r) {
+            } else if let Some(reason) =
+                skipped_install_touching(&skipped_installs, lowered, object, r, Assumed::Marked)
+            {
                 Outcome::NotRun(reason.clone())
             } else if let Some(reason) = company_open_refuses(r) {
                 Outcome::NotRun(reason)
@@ -1092,7 +1097,9 @@ fn run_codeunit_inner(
             // A test that read or wrote a table install code that could not run touches, through a path its record
             // variables do not show (a RecordRef): not run, as the static check does for a record variable (al-runner
             // issue 8115, scenario s03b).
-            let skipped_hit = skipped_install_hit(&skipped_installs, &touched).filter(|_| began);
+            let skipped_hit = began
+                .then(|| skipped_install_hit(&skipped_installs, &touched, Assumed::Marked))
+                .flatten();
             let outcome = match (hit.and_then(|t| company_open.touched(t, lowered)))
                 .or_else(|| skipped_hit.map(|(_, why)| why.clone()))
             {
@@ -1400,7 +1407,7 @@ fn discover(
     lowered: &Lowered,
     object: usize,
     company_open: &crate::install::CompanyOpenWrites,
-    skipped_installs: &[(BTreeSet<u32>, String)],
+    skipped_installs: &[al_vm::SkippedInstall],
     scratch: &mut Scratch,
     limit: Option<std::time::Duration>,
 ) -> Vec<(String, Outcome)> {
@@ -1463,7 +1470,7 @@ fn carry_disabled(
     object: usize,
     routines: impl Iterator<Item = usize> + Clone,
     changes_from: u64,
-    skipped_installs: &[(BTreeSet<u32>, String)],
+    skipped_installs: &[al_vm::SkippedInstall],
 ) {
     let obj = &lowered.program.objects[object];
     let mode = if runner_disabled {

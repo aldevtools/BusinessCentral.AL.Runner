@@ -641,6 +641,46 @@ pub(crate) fn statement_at(lowered: &Lowered, object: usize, routine: usize, pos
     body.iter().position(|s| holds(std::slice::from_ref(s), pos))
 }
 
+/// The local (`false`) or global (`true`) slot a place is part of; `None` for a slot of another instance.
+pub(crate) fn root(p: &Place) -> Option<(bool, usize)> {
+    let mut p = p;
+    loop {
+        match p {
+            Place::Index(b, _) | Place::Field(b, _) | Place::RecGlobal(b, ..) => p = b,
+            Place::Local(i) => return Some((false, *i)),
+            Place::Global(i) => return Some((true, *i)),
+            Place::BaseGlobal(_) | Place::ExtGlobal(..) => return None,
+        }
+    }
+}
+/// Calls `note` on every place `body` assigns, its loop variables included (statements only; the places of expressions
+/// are found by walking them).
+pub(crate) fn stmt_places(body: &[Stmt], note: &mut dyn FnMut(&Place)) {
+    for s in body {
+        match s {
+            Stmt::Assign(p, _) => note(p),
+            Stmt::For { var, body, .. } | Stmt::Foreach { var, body, .. } => {
+                note(var);
+                stmt_places(body, note);
+            }
+            Stmt::If(_, a, b) => {
+                stmt_places(a, note);
+                stmt_places(b, note);
+            }
+            Stmt::While(_, b) | Stmt::Repeat(b, _) | Stmt::AssertError(b) => stmt_places(b, note),
+            Stmt::Case {
+                branches, otherwise, ..
+            } => {
+                for (_, b) in branches {
+                    stmt_places(b, note);
+                }
+                stmt_places(otherwise, note);
+            }
+            _ => {}
+        }
+    }
+}
+
 /// The reach facts of a test refused while it ran, when the refusal came from a statement of the test method itself
 /// (al-runner issue 5961): what it wrote while it ran (`written`: our run rolls those writes back, BC keeps them), and
 /// the static reach of what it did not run: the statements of its body from the one at index `from` (the statement it
@@ -674,42 +714,6 @@ pub(crate) fn remainder_reach_facts(
     let rest = rt.body.get(from..)?;
     // Per slot (global or not, index) the rest names: how often, and how often as the test page of a filter read.
     let mut named: BTreeMap<(bool, usize), (usize, usize)> = BTreeMap::new();
-    fn root(p: &Place) -> Option<(bool, usize)> {
-        let mut p = p;
-        loop {
-            match p {
-                Place::Index(b, _) | Place::Field(b, _) | Place::RecGlobal(b, ..) => p = b,
-                Place::Local(i) => return Some((false, *i)),
-                Place::Global(i) => return Some((true, *i)),
-                Place::BaseGlobal(_) | Place::ExtGlobal(..) => return None,
-            }
-        }
-    }
-    fn stmt_places(body: &[Stmt], note: &mut dyn FnMut(&Place)) {
-        for s in body {
-            match s {
-                Stmt::Assign(p, _) => note(p),
-                Stmt::For { var, body, .. } | Stmt::Foreach { var, body, .. } => {
-                    note(var);
-                    stmt_places(body, note);
-                }
-                Stmt::If(_, a, b) => {
-                    stmt_places(a, note);
-                    stmt_places(b, note);
-                }
-                Stmt::While(_, b) | Stmt::Repeat(b, _) | Stmt::AssertError(b) => stmt_places(b, note),
-                Stmt::Case {
-                    branches, otherwise, ..
-                } => {
-                    for (_, b) in branches {
-                        stmt_places(b, note);
-                    }
-                    stmt_places(otherwise, note);
-                }
-                _ => {}
-            }
-        }
-    }
     fn note(named: &mut BTreeMap<(bool, usize), (usize, usize)>, p: &Place) {
         if let Some(k) = root(p) {
             named.entry(k).or_default().0 += 1;

@@ -19,7 +19,7 @@ pub struct SharedBaseline {
     isolated_storage: std::collections::HashMap<(String, String), (String, bool, bool)>,
     sequences: std::collections::HashMap<(String, String), crate::sessionops::Sequence>,
     last_stamp: i64,
-    workspace_installs: Option<Vec<(std::collections::BTreeSet<u32>, String)>>,
+    workspace_installs: Option<Vec<super::SkippedInstall>>,
     company_built: bool,
     company_unknown: Vec<(String, u32, String)>,
     full_copies: Vec<String>,
