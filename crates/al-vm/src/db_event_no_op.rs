@@ -295,8 +295,7 @@ impl Session {
             return quiet;
         };
         let engine = &self.engine;
-        let key = (engine.events.global_key, event.to_string());
-        let Some(subs) = engine.events.subscribers.get(&key) else {
+        let Some(subs) = engine.events.subscribers_at(engine.events.global_key, event) else {
             return quiet;
         };
         let number = ir::BuiltinId::of("RecordRef.Number#1");

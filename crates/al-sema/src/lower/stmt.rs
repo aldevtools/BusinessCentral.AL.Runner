@@ -751,8 +751,31 @@ impl Lowerer<'_> {
                             .collect()
                     })
                     .unwrap_or_default(),
+                publisher: self.subscriber_publisher(&a),
             })
             .collect()
+    }
+
+    /// What `[EventSubscriber(ObjectType::<Kind>, <publisher>, ...)]` names as its publisher, resolved in this file
+    /// (`Workspace::subscriber_publisher`); [`ir::PublisherRef::NotSubscriber`] for every other attribute. A publisher argument
+    /// of another form than [`subscriber_publisher_parts`] reads is [`ir::PublisherRef::Unread`].
+    fn subscriber_publisher(&self, a: &al_syntax::ast::Attribute) -> ir::PublisherRef {
+        if !a.name().eq_ignore_ascii_case("EventSubscriber") {
+            return ir::PublisherRef::NotSubscriber;
+        }
+        let args: Vec<String> = a
+            .args()
+            .map(|l| l.children().map(|e| e.text().to_string()).collect())
+            .unwrap_or_default();
+        let (Some(kind), Some(publisher)) = (args.first(), args.get(1)) else {
+            return ir::PublisherRef::Unread;
+        };
+        // The kind as the scan of a dependency file reads it (`Workspace::subscribers_of`): `ObjectType::Table` names a table.
+        let kind = ObjKind::from_keyword(kind.rsplit("::").next().unwrap_or_default().trim().trim_matches('"'));
+        match subscriber_publisher_parts(publisher) {
+            Some(parts) => self.ws.subscriber_publisher(self.file, kind, &parts),
+            None => ir::PublisherRef::Unread,
+        }
     }
 
     /// `Codeunit::"Name"` as an attribute argument: the object's id. `[TestDataSource(Codeunit::"Name", 'Set')]` and
@@ -2410,4 +2433,19 @@ fn variant_into_text_guard(src_place: &ir::Place, target_ty: &Ty) -> L<(ir::Expr
         );
         (cond, "NavText")
     })
+}
+
+/// The publisher argument of an `[EventSubscriber]` as the name parts `Workspace::subscriber_publisher` takes, in exactly two
+/// forms: `<Kind>::<name>` with the name plain or qualified (`Codeunit::"Name"`, `Codeunit::Ns."Name"`), and a bare object id
+/// (`ObjectType::Table, 483`, the form 17 subscribers of Microsoft's apps write; one part, the digits, found by id as before
+/// al-runner issue 8171). `None` for any other text.
+fn subscriber_publisher_parts(text: &str) -> Option<Vec<String>> {
+    let text = text.trim();
+    if let Some((kind, name)) = text.split_once("::") {
+        let kind = kind.trim();
+        let is_ident = !kind.is_empty() && kind.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+        let parts = crate::members::name_parts(name.trim());
+        return (is_ident && parts.iter().all(|p| !p.is_empty())).then_some(parts);
+    }
+    (text.bytes().all(|b| b.is_ascii_digit()) && text.parse::<u32>().is_ok()).then(|| vec![text.to_string()])
 }

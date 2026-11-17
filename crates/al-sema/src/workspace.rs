@@ -8,6 +8,7 @@ use std::collections::BTreeSet;
 use std::sync::OnceLock;
 
 mod moved_tables;
+mod subscriber_publisher;
 
 pub use al_ir::ObjKind;
 
@@ -211,9 +212,12 @@ pub struct Workspace {
     ext_target: Vec<Option<usize>>,
     /// For an extended object, its extensions in object order.
     ext_of: HashMap<usize, Vec<usize>>,
-    /// Event subscribers of scanned objects by publisher: (kind, lower-case name or id) to
-    /// (subscriber object, index in its `subscribers`).
+    /// Event subscribers of scanned objects by the publisher name as written: (kind, lower-case name or id, namespace and name
+    /// when written) to (subscriber object, index in its `subscribers`). The platform codeunits, which no app need declare, are
+    /// found here (`codeunit_subscribers`).
     subscribers_of: HashMap<(ObjKind, String), Vec<(usize, usize)>>,
+    /// Event subscribers of scanned objects by the publisher object their name names (`subscribers_of`).
+    subscribers_by_publisher: HashMap<usize, Vec<(usize, usize)>>,
     /// Scanned objects that implement an interface, by lower-case interface name.
     implementers_of: HashMap<String, Vec<usize>>,
     /// For an interface that `extends` another, the interface it extends.
@@ -341,6 +345,7 @@ impl Workspace {
             ext_target: Vec::new(),
             ext_of: HashMap::default(),
             subscribers_of: HashMap::default(),
+            subscribers_by_publisher: HashMap::default(),
             implementers_of: HashMap::default(),
             iface_base: HashMap::default(),
             iface_derived: HashMap::default(),
@@ -465,6 +470,10 @@ impl Workspace {
         self.subscribers_of.retain(|_, v| {
             v.retain(|&(o, _)| o < n_obj);
             !v.is_empty()
+        });
+        self.subscribers_by_publisher.retain(|&k, v| {
+            v.retain(|&(o, _)| o < n_obj);
+            k < n_obj && !v.is_empty()
         });
         self.loaded_files = self.files.len();
         self.compiled = OnceLock::new();
@@ -731,9 +740,13 @@ impl Workspace {
                 }
             }
         }
-        for (i, o) in self.objects.iter().enumerate().skip(first) {
+        for i in first..self.objects.len() {
+            let o = &self.objects[i];
             for (si, sub) in o.subscribers.iter().enumerate() {
                 let kind = ObjKind::from_keyword(&sub.publisher_kind);
+                for p in self.scanned_subscriber_publishers(o.file, kind, &sub.publisher) {
+                    self.subscribers_by_publisher.entry(p).or_default().push((i, si));
+                }
                 let name = sub.publisher.join(".").to_lowercase();
                 self.subscribers_of.entry((kind, name)).or_default().push((i, si));
             }
@@ -786,21 +799,13 @@ impl Workspace {
         self.ext_of.get(&i).map_or(&[], Vec::as_slice)
     }
 
-    /// Subscribers (object, index in its `subscribers`) of scanned objects that name `publisher`
-    /// as their publisher, by name or by id.
+    /// Subscribers (object, index in its `subscribers`) of scanned objects that name `publisher` as their publisher (see
+    /// `scanned_subscriber_publishers`).
     pub fn subscribers_of(&self, publisher: usize) -> Vec<(usize, usize)> {
-        let o = &self.objects[publisher];
-        let mut keys = vec![o.name.to_lowercase()];
-        if let Some(id) = o.id {
-            keys.push(id.to_string());
-        }
-        // `Codeunit::Microsoft.Foo."Name"` writes the namespace; the index key is the written text.
-        if let Some(ns) = &o.namespace {
-            keys.push(format!("{ns}.{}", o.name).to_lowercase());
-        }
-        keys.into_iter()
-            .flat_map(|k| self.subscribers_of.get(&(o.kind, k)).into_iter().flatten().copied())
-            .collect()
+        self.subscribers_by_publisher
+            .get(&publisher)
+            .cloned()
+            .unwrap_or_default()
     }
 
     /// Subscribers (object, index in its `subscribers`) of scanned objects to the platform codeunit
@@ -1430,6 +1435,12 @@ impl Workspace {
     /// no namespace and no `using`, `TableRelation = "Dimension Set Entry"`: Base Application's table and Power BI
     /// Report embeddings' removed table 36950 of that name).
     fn pick_real(&self, tier: Vec<usize>) -> Resolution {
+        pick(self.without_moved_stubs(tier))
+    }
+
+    /// The candidates of `tier` without the stubs that give way (see [`Self::pick_real`]): unchanged when it holds one candidate
+    /// or only stubs.
+    fn without_moved_stubs(&self, tier: Vec<usize>) -> Vec<usize> {
         let moved = |i: &usize| {
             self.objects[*i].scanned_properties.iter().any(|(n, v)| {
                 n.eq_ignore_ascii_case("ObsoleteState")
@@ -1440,9 +1451,9 @@ impl Workspace {
         // (`moved_table_of_dependency`, assumption `moved-table-stub-of-dependency`).
         let moved = |i: &usize| moved(i) || self.moved_table_of_dependency(*i).is_some();
         if tier.len() > 1 && tier.iter().any(|i| !moved(i)) {
-            return pick(tier.into_iter().filter(|i| !moved(i)).collect());
+            return tier.into_iter().filter(|i| !moved(i)).collect();
         }
-        pick(tier)
+        tier
     }
 
     /// Looks an object up by kind and name (case-insensitive) or by numeric id text.

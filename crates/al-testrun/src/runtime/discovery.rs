@@ -455,7 +455,7 @@ pub(super) fn run_pass(
                 al_builtins::assumptions::clear_hits();
                 let instance = session.codeunit_instance(oi);
                 let ran = session.call(oi, r, instance, Vec::new());
-                let timed_out = watchdog.is_some_and(super::run::Watchdog::finish);
+                let timed_out = watchdog.and_then(super::run::Watchdog::finish).is_some();
                 let marks = al_builtins::assumptions::take_hits();
                 match ran {
                     _ if timed_out => Some("it was stopped by the time limit".to_string()),
