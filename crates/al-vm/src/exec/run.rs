@@ -882,10 +882,7 @@ impl Session {
             return Ok(());
         }
         if closing {
-            return al_builtins::native::raise(
-                "The operation cannot be performed on a closing date value.",
-                "ClosingDateOperation",
-            );
+            return al_builtins::native::closing_date_operation();
         }
         let op = if site.down {
             al_builtins::ops::Arith::Sub
