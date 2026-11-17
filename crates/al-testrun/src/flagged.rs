@@ -79,15 +79,13 @@ pub fn id_list(hits: &[Assumption]) -> String {
     hits.iter().map(|a| a.info().id).collect::<Vec<_>>().join(",")
 }
 
-/// `--explain`: the assumptions a test ran through (al-runner issue 8232). A test that was not run lists their ids only:
-/// the refusal decided its outcome. A flagged pass gives each id with what it assumes; a failure also the probe wanted and
+/// `--explain`: the assumptions a test ran through (al-runner issue 8232). A test that was not run lists their ids only. A flagged pass gives each id with what it assumes; a failure also the probe wanted and
 /// the note. `--list-assumptions` has the whole entry.
 pub fn render_explain(hits: &[Assumption], outcome: &crate::Outcome) -> String {
     let mut s = match outcome {
         crate::Outcome::NotRun(_) => {
             return format!(
-                "This test ran through unprobed assumptions before it was refused; they did not decide its outcome \
-                 (--list-assumptions describes them): {}\n",
+                "Assumptions this test ran through before it was refused (--list-assumptions describes them): {}\n",
                 hits.iter().map(|a| a.info().id).collect::<Vec<_>>().join(", ")
             );
         }
@@ -201,8 +199,8 @@ mod tests {
         let text = render_explain(&hits, &crate::Outcome::NotRun("refused".into()));
         assert_eq!(
             text,
-            "This test ran through unprobed assumptions before it was refused; they did not decide its outcome \
-             (--list-assumptions describes them): text-digits-to-integer, code-coverage-snapshot-while-logging\n"
+            "Assumptions this test ran through before it was refused (--list-assumptions describes them): \
+             text-digits-to-integer, code-coverage-snapshot-while-logging\n"
         );
     }
 

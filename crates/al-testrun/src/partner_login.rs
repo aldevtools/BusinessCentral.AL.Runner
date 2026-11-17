@@ -182,26 +182,27 @@ pub(crate) fn raise(
     session: &mut Session,
     step: &Step,
     left: &mut PartnerLogin,
-) -> Result<(), String> {
+) -> Result<(), crate::install::NotOpened> {
     let who = "OnAfterLogin raised to the login subscribers of the partner dependency apps";
     for &(o, r) in &step.subscribers {
         if let Some(reason) = crate::runtime::blocked_reason(lowered, o, r) {
-            return Err(format!(
+            let why = format!(
                 "{who}: {} before the first test: {reason}",
                 crate::install::label(lowered, o, r)
-            ));
+            );
+            return Err(crate::install::NotOpened::refused_at_lowering(why, o, r));
         }
     }
     let before = session.left_stamp();
     let since = session.store_mut().change_counter();
     let (po, pr) = step.publisher;
-    let ended = session.raise_to(po, pr, &step.subscribers);
-    crate::install::not_ended_before_first_test(lowered, session, who, ended)?;
+    crate::install::call_before_first_test(lowered, session, who, |s| s.raise_to(po, pr, &step.subscribers))?;
     let store = session.store_mut();
     if store.virtual_write_pending() {
         return Err(format!(
             "{who} changed a platform table in the test session before the first test: what the test runner does with the change is not pinned"
-        ));
+        )
+        .into());
     }
     left.tables.extend(store.tables_changed_since(since));
     let after = session.left_stamp();
@@ -209,17 +210,19 @@ pub(crate) fn raise(
     if let Some(what) = change.session {
         return Err(format!(
             "{who} ran before the first test and changed {what}, which is not a row the run can watch: what BC leaves there is not pinned"
-        ));
+        )
+        .into());
     }
     if let Some(what) = seen_by_test(lowered, session, &change) {
         return Err(format!(
             "{who} ran before the first test and changed {what}, which this test codeunit can read and which is not a row the run can watch: what BC leaves there is not pinned"
-        ));
+        )
+        .into());
     }
     if let Some(what) = unmeasured_single(lowered, step, &change.singles) {
-        return Err(format!(
-            "{who} ran before the first test and changed {what}: what BC leaves there is not pinned"
-        ));
+        return Err(
+            format!("{who} ran before the first test and changed {what}: what BC leaves there is not pinned").into(),
+        );
     }
     left.group1.extend(before.group1_changed(&after));
     left.watch_after(session);

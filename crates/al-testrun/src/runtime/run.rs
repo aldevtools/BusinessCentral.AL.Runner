@@ -34,12 +34,27 @@ pub fn run_codeunit_isolated(
 
 /// What an observer sees of a test that has just ended.
 pub struct Observed<'a> {
-    /// The session, with its fault site (tracing is on when there is an observer).
+    /// The session.
     pub session: &'a Session,
+    /// Where the error or the refusal of the test was raised from, outermost first (tracing is on when there is an observer).
+    pub site: &'a [al_vm::FaultFrame],
     /// The error that failed the test.
     pub error: Option<&'a AlError>,
     /// The routine a refusal decided before the run belongs to (object, routine).
     pub refused_in: Option<(usize, usize)>,
+}
+
+impl<'a> Observed<'a> {
+    /// A test that ran: the site is the session's.
+    fn of_test(session: &'a Session, error: Option<&'a AlError>, refused_in: Option<(usize, usize)>) -> Self {
+        let site = session.fault_site();
+        Observed {
+            session,
+            site,
+            error,
+            refused_in,
+        }
+    }
 }
 
 /// Called with the test's name and outcome after each test of the codeunit that ran.
@@ -183,14 +198,12 @@ fn open_company(
     mode: Option<bool>,
     skipped_installs: &[(BTreeSet<u32>, String)],
     perturb: &crate::stability::Perturb,
-) -> Result<(crate::install::CompanyOpenWrites, al_builtins::assumptions::HitBits), String> {
+) -> Result<(crate::install::CompanyOpenWrites, al_builtins::assumptions::HitBits), crate::install::NotOpened> {
     // A scratch run is not a test session: it opens nothing.
     let Some(disabled) = mode else {
         return Ok(Default::default());
     };
     al_builtins::assumptions::clear_hits();
-    // A refusal of this code names where it left from (`install::not_ended_before_first_test`), not an earlier one.
-    session.clear_fault_site();
     // Base Application's login code sets WorkDate when the session opens the company (`install::login_work_date`).
     // It runs before the workspace's own Company Triggers subscribers: the order of the two is not pinned
     // (docs/probes-needed.md, WorkDate row).
@@ -206,18 +219,22 @@ fn open_company(
     Ok((wrote, al_builtins::assumptions::take_hit_bits()))
 }
 
-/// `--explain` for each test of `refused` when the code that opens the company refused the codeunit: each test shows
-/// where that code left from (`session`'s fault site), as a test refused while it ran does (al-runner issue 8142).
+/// Every test of the codeunit (`all`) not run, when the code that opens the company did not end (`not`). `--explain`:
+/// each test shows the stack the call that did not end left from, or the subscriber refused at lowering, as a test
+/// refused while it ran or before it does (al-runner issue 8142).
 fn observed_not_run(
     observe: Option<&mut Observer>,
     session: &Session,
-    refused: Vec<(String, Outcome)>,
+    not: &crate::install::NotOpened,
+    all: impl Fn(Outcome) -> Vec<(String, Outcome)>,
 ) -> Vec<(String, Outcome)> {
+    let refused = all(Outcome::NotRun(not.why.clone()));
     if let Some(observe) = observe {
         let seen = Observed {
             session,
+            site: &not.site,
             error: None,
-            refused_in: None,
+            refused_in: not.refused_in,
         };
         for (name, outcome) in &refused {
             observe(name, outcome, &seen);
@@ -462,7 +479,7 @@ fn run_codeunit_inner(
     let opened = open_company(engine, lowered, &mut session, mode, &skipped_installs, &perturb);
     let (company_open, company_open_marks) = match opened {
         Ok(opened) => opened,
-        Err(why) => return observed_not_run(observe.as_deref_mut(), &session, all(Outcome::NotRun(why))),
+        Err(not) => return observed_not_run(observe.as_deref_mut(), &session, &not, all),
     };
     // SingleInstance state an earlier test codeunit left (ADR-066 amendment 2): notes from here on, and in the lane the
     // single instances of the codeunit before are moved in.
@@ -1213,11 +1230,7 @@ fn run_codeunit_inner(
                 observe(
                     &name,
                     &outcome,
-                    &Observed {
-                        session,
-                        error: failure.as_ref(),
-                        refused_in,
-                    },
+                    &Observed::of_test(session, failure.as_ref(), refused_in),
                 );
             }
             crate::isolation::after_test(

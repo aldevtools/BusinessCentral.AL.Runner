@@ -1233,7 +1233,7 @@ pub(crate) fn test_session_company_open(
     session: &mut Session,
     disabled: bool,
     skipped: &[(BTreeSet<u32>, String)],
-) -> Result<CompanyOpenWrites, String> {
+) -> Result<CompanyOpenWrites, NotOpened> {
     match crate::runtime::watching_skipped_installs(lowered, session, skipped, |s| {
         let opened = open_test_session_company(lowered, s, disabled);
         // The window the partner dependency apps' login subscribers opened (`partner_login::PartnerLogin::watch_after`)
@@ -1241,13 +1241,14 @@ pub(crate) fn test_session_company_open(
         let end = s.store_mut().watch_window_end();
         let wrote = opened?;
         match wrote.partner_login.after_open(end, lowered) {
-            Some(why) => Err(why),
+            Some(why) => Err(why.into()),
             None => Ok(wrote),
         }
     }) {
         (Ok(_), Some(why)) => Err(format!(
             "the code that runs when the test session opens the company (Company Triggers subscribers, the login) {why}"
-        )),
+        )
+        .into()),
         (opened, _) => opened,
     }
 }
@@ -1257,7 +1258,7 @@ fn open_test_session_company(
     lowered: &Lowered,
     session: &mut Session,
     disabled: bool,
-) -> Result<CompanyOpenWrites, String> {
+) -> Result<CompanyOpenWrites, NotOpened> {
     let engine = session.engine.clone();
     let objs = &lowered.program.objects;
     let mut wrote = CompanyOpenWrites::default();
@@ -1289,12 +1290,12 @@ fn open_test_session_company(
     // Under `--no-client` which login events a web-service session raises is not measured (assumption `no-client-session`):
     // the raised login is refused, before any login code runs.
     if raise && watched == Some(crate::login::NO_CLIENT) {
-        return Err(format!("the login: {}", crate::login::NO_CLIENT_RAISE));
+        return Err(format!("the login: {}", crate::login::NO_CLIENT_RAISE).into());
     }
     let partner = crate::partner_login::subscribers(lowered, &engine.events, raise, watched);
     let (own, watched): (&[crate::login::OwnEvent], _) = match &decision {
         crate::login::Login::Own { events, watched } => (events, *watched),
-        crate::login::Login::Refused(why) => return Err(why.clone()),
+        crate::login::Login::Refused(why) => return Err(why.clone().into()),
         _ => (&[], None),
     };
     let steps = crate::partner_login::steps(lowered, &engine.events, own, &partner);
@@ -1325,20 +1326,24 @@ fn open_test_session_company(
         let name = label(lowered, o, r);
         let who = format!("Company Triggers OnCompanyOpen(Completed) subscriber {name}");
         if let Some(reason) = crate::runtime::blocked_reason(lowered, o, r) {
-            return Err(format!("{who} before the first test: {reason}"));
+            return Err(NotOpened::refused_at_lowering(
+                format!("{who} before the first test: {reason}"),
+                o,
+                r,
+            ));
         }
         // The subscriber runs here, so what it wrote is what it wrote while it ran, not what its static reach could write:
         // code it did not run (a routine refused at lowering, a run by an id known only at run time, behind a branch that
         // is not taken) wrote nothing (al-runner issue 5641). Code it ran that is not supported raises `Unsupported`.
         let since = session.store_mut().change_counter();
-        let ended = session.call_parameterless_subscriber(o, r);
-        not_ended_before_first_test(lowered, session, &who, ended)?;
+        call_before_first_test(lowered, session, &who, |s| s.call_parameterless_subscriber(o, r))?;
         let store = session.store_mut();
         // A change to a computed (platform) table is not a stored row the watch can follow.
         if store.virtual_write_pending() {
             return Err(format!(
                 "{who} changed a platform table in the test session before the first test: what the test runner does with the change is not pinned (ADR-046 amendment 1, A4 item 10)"
-            ));
+            )
+            .into());
         }
         let changed = store.tables_changed_since(since);
         if changed.is_empty() {
@@ -1360,26 +1365,66 @@ fn open_test_session_company(
     Ok(wrote)
 }
 
-/// Why the codeunit is not run when code that runs as the test session opens the company (`who`) did not end: refused by
-/// the runner, failed with an AL error, or stopped another way. A refusal's reason ends with the routine and statement it
-/// left from (`explain::site_suffix`, al-runner issue 8142); the site is recorded for a refusal only, with tracing off too.
-pub(crate) fn not_ended_before_first_test(
+/// Why the codeunit is not run when the test session opens the company, with what `--explain` shows for each of its tests
+/// (al-runner issue 8142): the stack that the call which did not end left from (`site`), or the subscriber refused at
+/// lowering (`refused_in`, object and routine). Both are empty for every other reason.
+#[derive(Debug, Default)]
+pub(crate) struct NotOpened {
+    pub why: String,
+    pub site: Vec<al_vm::FaultFrame>,
+    pub refused_in: Option<(usize, usize)>,
+}
+
+impl From<String> for NotOpened {
+    fn from(why: String) -> Self {
+        Self { why, ..Self::default() }
+    }
+}
+
+impl NotOpened {
+    /// Subscriber `(o, r)` was refused at lowering (`runtime::blocked_reason`) and not called.
+    pub(crate) fn refused_at_lowering(why: String, o: usize, r: usize) -> Self {
+        Self {
+            why,
+            site: Vec::new(),
+            refused_in: Some((o, r)),
+        }
+    }
+}
+
+/// Runs `call`, code that runs as the test session opens the company (`who`). `Err` when it did not end: refused by the
+/// runner, failed with an AL error, or stopped another way. The fault site is cleared first, so the site kept is the one
+/// this call left from. A refusal's reason ends with the routine and statement it left from (`explain::site_suffix`); a
+/// refusal's site is recorded with tracing off too, an error's only with tracing on (`--explain`).
+pub(crate) fn call_before_first_test(
     lowered: &Lowered,
-    session: &Session,
+    session: &mut Session,
     who: &str,
-    ended: Result<(), Signal>,
-) -> Result<(), String> {
-    match ended {
+    call: impl FnOnce(&mut Session) -> Result<(), Signal>,
+) -> Result<(), NotOpened> {
+    session.clear_fault_site();
+    match call(session) {
         Ok(()) => Ok(()),
-        Err(Signal::Unsupported(why)) => Err(format!(
-            "{who} before the first test: {why}{}",
-            crate::explain::site_suffix(&lowered.program, session.refusal_site().unwrap_or_default())
-        )),
-        Err(Signal::Error(e)) => Err(format!(
-            "{who} failed before the first test (behaviour not pinned): {}",
-            e.message
-        )),
-        Err(_) => Err(format!("{who} stopped before the first test (not pinned)")),
+        Err(Signal::Unsupported(why)) => {
+            let site = session.refusal_site().unwrap_or_default().to_vec();
+            Err(NotOpened {
+                why: format!(
+                    "{who} before the first test: {why}{}",
+                    crate::explain::site_suffix(&lowered.program, &site)
+                ),
+                site,
+                refused_in: None,
+            })
+        }
+        Err(Signal::Error(e)) => Err(NotOpened {
+            why: format!(
+                "{who} failed before the first test (behaviour not pinned): {}",
+                e.message
+            ),
+            site: session.fault_site().to_vec(),
+            refused_in: None,
+        }),
+        Err(_) => Err(format!("{who} stopped before the first test (not pinned)").into()),
     }
 }
 
@@ -1394,7 +1439,7 @@ fn own_login(
     session: &mut Session,
     steps: &[crate::partner_login::Step],
     watched: Option<&'static str>,
-) -> Result<(BTreeSet<u32>, crate::partner_login::PartnerLogin), String> {
+) -> Result<(BTreeSet<u32>, crate::partner_login::PartnerLogin), NotOpened> {
     let before = watched.map(|_| session.state_stamp());
     let mut wrote = BTreeSet::new();
     let mut partner = crate::partner_login::PartnerLogin::default();
@@ -1406,10 +1451,11 @@ fn own_login(
         let since = session.store_mut().change_counter();
         for &(o, r) in &step.subscribers {
             if let Some(reason) = crate::runtime::blocked_reason(lowered, o, r) {
-                return Err(format!(
+                let why = format!(
                     "login subscriber of an app under test {} before the first test: {reason}",
                     label(lowered, o, r)
-                ));
+                );
+                return Err(NotOpened::refused_at_lowering(why, o, r));
             }
         }
         let (po, pr) = step.publisher;
@@ -1417,8 +1463,7 @@ fn own_login(
             "{} raised to the login subscribers of the apps under test",
             lowered.program.objects[po].routines[pr].name
         );
-        let ended = session.raise_to(po, pr, &step.subscribers);
-        not_ended_before_first_test(lowered, session, &what, ended)?;
+        call_before_first_test(lowered, session, &what, |s| s.raise_to(po, pr, &step.subscribers))?;
         // On BC the registration events are raised inside Base Application's "Checklist Events" subscriber of the
         // isolated OnAfterLogin, whose own transaction commits before the app's OnAfterLogin subscribers run; an isolated
         // event isolates a subscriber only when nothing is pending (codeunits/TestIsolatedEventSubscriberError.al:5-11,
@@ -1429,13 +1474,14 @@ fn own_login(
         wrote.extend(session.store_mut().tables_changed_since(since));
     }
     if session.store_mut().virtual_write_pending() {
-        return Err("the login subscribers of the apps under test changed a platform table in the test session before the first test: what the test runner does with the change is not pinned (ADR-046 amendment 1, A4 item 10)".into());
+        return Err(String::from("the login subscribers of the apps under test changed a platform table in the test session before the first test: what the test runner does with the change is not pinned (ADR-046 amendment 1, A4 item 10)").into());
     }
     if let (Some(why), Some(b)) = (watched, &before) {
         if let Some(what) = b.changed(&session.state_stamp()) {
             return Err(format!(
                 "{why}: the login subscribers of the apps under test ran before the first test and changed {what}"
-            ));
+            )
+            .into());
         }
     }
     Ok((wrote, partner))
@@ -1940,7 +1986,11 @@ fn run_install_code(
     };
     match called {
         Ok(()) => Ok(true),
-        Err(Signal::Unsupported(r)) => Err(stopped(r.into_reason(), true)),
+        // The reason names the routine and statement the refusal left from (al-runner issue 8142).
+        Err(Signal::Unsupported(r)) => {
+            let at = crate::explain::site_suffix(&lowered.program, session.refusal_site().unwrap_or_default());
+            Err(stopped(format!("{}{at}", r.into_reason()), true))
+        }
         Err(Signal::Error(e)) => Err(stopped(format!("failed (behaviour not pinned): {}", e.message), false)),
         Err(_) => Ok(false),
     }
