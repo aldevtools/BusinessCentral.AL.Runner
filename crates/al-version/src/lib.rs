@@ -228,7 +228,9 @@ fn numbers(s: &str, max: usize) -> Result<Vec<u16>, VersionError> {
 /// where the artifact has it): 27.5.46862.48827 and 28.1.49838.50621 target `net8.0`; 29.0.54011.56307's
 /// `Microsoft.Dynamics.Nav.OpenXml.dll` and `System.Drawing.Common.dll` target `.NETCoreApp,Version=v10.0` and reference
 /// `System.Runtime 10.0.0.0` (al-runner issues 6924 and 5590). A newer major than the table knows gets the newest major
-/// it names: the .NET helper then says which assembly did not load, and the table gets its row.
+/// it names: the .NET helper then says which assembly did not load, and the table gets its row. Used only by a run with no
+/// service tier to ask: BC 27 and 28 builds published from 2026-11-17 run on .NET 10, which their service tier's runtime
+/// configuration says (`al_deps::service_runtime`).
 pub fn dotnet_major_for_bc(major: u16) -> u32 {
     match major {
         ..=28 => 8,

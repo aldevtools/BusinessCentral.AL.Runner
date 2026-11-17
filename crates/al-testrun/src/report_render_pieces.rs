@@ -83,6 +83,14 @@ pub fn run_renderer(
     {
         dirs.push(t.dir());
     }
+    // The render process runs on the .NET major of the build whose sets it fetches (crate::dotnet_runtime).
+    let cfg = match &tier {
+        Some(t) => crate::dotnet::SidecarConfig {
+            service_runtime: Some(crate::dotnet_runtime::ServiceRuntime::of_tier(t.clone())),
+            ..cfg
+        },
+        None => cfg,
+    };
     let src = PieceSources {
         dirs,
         tier,

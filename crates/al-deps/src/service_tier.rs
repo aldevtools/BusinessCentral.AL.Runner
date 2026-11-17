@@ -95,6 +95,11 @@ impl<C: Cdn> ServiceTier<C> {
         }
     }
 
+    /// The build whose platform artifact this reads.
+    pub fn build(&self) -> &BuildId {
+        &self.build
+    }
+
     /// The folder this fetches into.
     pub fn dir(&self) -> PathBuf {
         service_dir(&self.cache_root, &self.build)
@@ -161,6 +166,43 @@ impl<C: Cdn> ServiceTier<C> {
             }
         }
         Ok(out)
+    }
+
+    /// The bytes of `file`, a file of the service folder's top level named exactly so (any case in the archive): from
+    /// [`Self::dir`] when it is there, else read from the platform artifact and written there. `None` when the service
+    /// folder has no such file. With downloading off, a file that is not on disk is an error.
+    pub fn service_file(&self, file: &str) -> Result<Option<Vec<u8>>, String> {
+        let dir = self.dir();
+        if let Ok(bytes) = std::fs::read(dir.join(file)) {
+            return Ok(Some(bytes));
+        }
+        if !self.download {
+            return Err(format!(
+                "{file} of build {} is not in the artifact cache and downloading is off",
+                self.build
+            ));
+        }
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let index = st
+            .index
+            .get_or_insert_with(|| self.open())
+            .as_ref()
+            .map_err(Clone::clone)?;
+        let Some(entry) = index
+            .zip
+            .entries
+            .iter()
+            .find(|e| in_service(&e.name).is_some_and(|rest| rest.eq_ignore_ascii_case(file)))
+        else {
+            return Ok(None);
+        };
+        let (url, _) = self.cdn.platform(&self.build);
+        let bytes = index
+            .zip
+            .read(entry)
+            .map_err(|e| format!("{url}: entry `{}`: {e}", entry.name))?;
+        write_atomic(&dir.join(file), &bytes)?;
+        Ok(Some(bytes))
     }
 
     /// Whether `name`'s file is in `dir` with the size the archive records. Opens the archive's index (from the cache)
@@ -274,13 +316,14 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::assembly_refs::testutil::assembly;
     use crate::remote::{FileSource, RemoteError};
     use crate::zip::testutil::Builder;
 
-    struct Platform(PathBuf);
+    /// A platform artifact on disk, served as the feed would.
+    pub(crate) struct Platform(pub(crate) PathBuf);
 
     impl Cdn for Platform {
         type Src = FileSource;
@@ -298,9 +341,9 @@ mod tests {
         }
     }
 
-    const SVC: &str = "ServiceTier/PFiles64/Microsoft Dynamics NAV/270/Service";
+    pub(crate) const SVC: &str = "ServiceTier/PFiles64/Microsoft Dynamics NAV/270/Service";
 
-    fn build() -> BuildId {
+    pub(crate) fn build() -> BuildId {
         BuildId::parse("27.5.46862.48827").unwrap()
     }
 
