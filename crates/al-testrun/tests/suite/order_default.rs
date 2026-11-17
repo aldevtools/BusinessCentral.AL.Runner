@@ -242,6 +242,80 @@ fn with_strict_order_the_numbers_chain_as_on_bc() {
     assert!(!rt.phases.chain.members.is_empty());
 }
 
+/// The NUMBERS shape with codeunits that only read the sequence: one before the first taker, one after it.
+const READERS: &str = r#"
+codeunit 60470 "Order Early Reader"
+{
+    Subtype = Test;
+    [Test] procedure ReadsEarly() begin if NumberSequence.Current('ORDERSEQ') <> 1 then Error('early'); end;
+}
+codeunit 60478 "Order Current Reader"
+{
+    Subtype = Test;
+    [Test] procedure ReadsCurrent() var N: BigInteger; begin N := NumberSequence.Current('ORDERSEQ'); if N <> 2 then Error('current %1', N); end;
+}
+"#;
+
+fn with_readers() -> String {
+    format!("{NUMBERS}{READERS}")
+}
+
+/// al-runner issue 8152: by default a codeunit that only reads the sequence after a codeunit that takes numbers is listed
+/// too; one that reads before every taker, or reads nothing, is not.
+#[test]
+fn by_default_a_codeunit_that_only_reads_numbers_after_a_taker_is_listed() {
+    let rt = run(&with_readers(), &RunOptions::default());
+    let chain = &rt.phases.chain;
+    let listed: Vec<u32> = chain.numbers_order.iter().map(|n| n.codeunit).collect();
+    assert_eq!(listed, vec![60476, 60478], "{:?}", chain.numbers_order);
+    let reader = &chain.numbers_order[1];
+    assert_eq!(reader.after, (60476, "Order Second Taker".to_string()));
+    assert!(reader.text().contains("read"), "{}", reader.text());
+    assert!(
+        !chain.numbers_order[0].text().contains("only read"),
+        "{}",
+        chain.numbers_order[0].text()
+    );
+}
+
+/// al-runner issue 8152: under `--strict-order` with TestIsolation = Function (`--isolation test`) what a later codeunit
+/// reads of the numbers an earlier codeunit's tests took is not measured: the reader is refused. A codeunit that reads
+/// before every taker, one that reads nothing and the takers run; under Codeunit isolation the reader keeps main's result.
+#[test]
+fn strict_order_under_function_isolation_refuses_a_later_reader_of_the_numbers() {
+    for sequential in [false, true] {
+        let opts = RunOptions {
+            strict_order: true,
+            strict_sequential: sequential,
+            isolation: Some(al_testrun::isolation::TestIsolation::Function),
+            ..Default::default()
+        };
+        let rt = run(&with_readers(), &opts);
+        for test in ["ReadsCurrent", "TakesTwo"] {
+            assert!(
+                matches!(&result(&rt, test).outcome, Outcome::NotRun(m) if m.contains("TestIsolation = Function")),
+                "{sequential} {test}: {:?}",
+                result(&rt, test)
+            );
+        }
+        for test in ["ReadsEarly", "TakesOne", "TakesNothing"] {
+            assert!(
+                !matches!(&result(&rt, test).outcome, Outcome::NotRun(_)),
+                "{sequential} {test}: {:?}",
+                result(&rt, test)
+            );
+        }
+    }
+    let rt = run(&with_readers(), &strict());
+    assert_eq!(
+        result(&rt, "ReadsCurrent").outcome,
+        Outcome::Pass,
+        "{:?}",
+        result(&rt, "ReadsCurrent")
+    );
+    assert_eq!(result(&rt, "TakesTwo").outcome, Outcome::Pass);
+}
+
 /// The corpus's order probes (`metrics/strict-order-files.txt`): a default run takes the outcomes of the listed
 /// codeunits from a `--strict-order` run of them alone.
 #[test]

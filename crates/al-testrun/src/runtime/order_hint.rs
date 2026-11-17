@@ -9,10 +9,13 @@
 //!   global, the codeunit that would have written it and the flag. From the lane's analysis (`single_lane.rs`
 //!   `Found::changed`, `Found::last`) and the test each global was first read in (`SingleOut::read_in`, ADR-066
 //!   amendment 7).
-//! * [`NumbersOrder`] (decision 3): a test codeunit whose tests can take NumberSequence numbers and that comes after
-//!   another such codeunit in BC's order: on BC it would take the numbers after the ones the earlier codeunit took
-//!   (runner 130450 does not give them back: test-framework/onrun-storage/Y35OnRunStorage.al:30-31). A report line and
-//!   a JUnit property, not a failure.
+//! * [`NumbersOrder`] (decision 3): a test codeunit whose tests can take NumberSequence numbers, or that only reads
+//!   them, and that comes after a codeunit whose tests can take some in BC's order: on BC it would see the numbers after
+//!   the ones the earlier codeunit took (runner 130450 does not give them back:
+//!   test-framework/onrun-storage/Y35OnRunStorage.al:30-31). A report line and a JUnit property, not a failure.
+//!
+//! Under `--strict-order` the numbers chain as on BC, except under TestIsolation = Function, where what a later codeunit
+//! sees of them is not measured: [`refuse_unmeasured_numbers`] refuses its readers (al-runner issue 8152).
 
 use super::single_fresh::CarriedRead;
 use al_vm::single_track::GlobalKey;
@@ -52,8 +55,8 @@ impl OrderHint {
     }
 }
 
-/// A test codeunit whose tests can take NumberSequence numbers after an earlier codeunit of its BC session that can
-/// take some too (decision 3).
+/// A test codeunit whose tests can take NumberSequence numbers, or that only reads them, after an earlier codeunit of
+/// its BC session whose tests can take some (decision 3).
 #[derive(Debug, Clone, PartialEq)]
 pub struct NumbersOrder {
     /// The index of the run (`TestResult::suite`) and the codeunit.
@@ -62,13 +65,19 @@ pub struct NumbersOrder {
     pub name: String,
     /// The last codeunit before it in BC's order that can take numbers (id, name).
     pub after: (u32, String),
+    /// Its tests and OnRun trigger only read the numbers (`NumberSequence.Current` or `Exists`), they take none.
+    pub reads_only: bool,
 }
 
 impl NumbersOrder {
     /// The text of the report line and of the JUnit property `numberSequenceOrder`.
     pub fn text(&self) -> String {
+        let (what, verb) = match self.reads_only {
+            true => ("only read NumberSequence values", "read them"),
+            false => ("can take NumberSequence numbers", "take them"),
+        };
         format!(
-            "its tests can take NumberSequence numbers and start from the install baseline's values here; on BC they take them after test codeunit {} \"{}\"; {STRICT_FLAG} chains the numbers as on BC",
+            "its tests {what} and start from the install baseline's values here; on BC they {verb} after test codeunit {} \"{}\" took some; {STRICT_FLAG} chains the numbers as on BC",
             self.after.0, self.after.1
         )
     }
@@ -116,27 +125,33 @@ pub(super) fn hints_for(
 }
 
 /// Decision 3: per BC session (`sessions`, unit indices in BC's order), each codeunit that can take numbers
-/// (`takes(k)`) after an earlier one that can.
+/// (`takes(k)`) or only reads them (`reads(k)`, asked only of a codeunit that takes none) after an earlier one that can
+/// take some.
 pub(super) fn numbers_order(
     lowered: &al_sema::lower::Lowered,
     units: &[super::Unit],
     sessions: &[Vec<usize>],
     takes: &dyn Fn(usize) -> bool,
+    reads: &dyn Fn(usize) -> bool,
 ) -> Vec<NumbersOrder> {
     let name = |k: usize| lowered.program.objects[units[k].oi].name.clone();
     let mut out = Vec::new();
     for ks in sessions {
         let mut last: Option<usize> = None;
-        for &k in ks.iter().filter(|&&k| takes(k)) {
-            if let Some(w) = last {
+        for &k in ks {
+            let took = takes(k);
+            if let Some(w) = last.filter(|_| took || reads(k)) {
                 out.push(NumbersOrder {
                     suite: units[k].si,
                     codeunit: units[k].id,
                     name: name(k),
                     after: (units[w].id, name(w)),
+                    reads_only: !took,
                 });
             }
-            last = Some(k);
+            if took {
+                last = Some(k);
+            }
         }
     }
     out
@@ -157,6 +172,7 @@ pub(super) fn numbers_unchained(units: &mut [super::Unit], strict: bool) {
 /// Decision 3: the numbers list of a default run (none under `--strict-order`), per BC session (`single_lane.rs`
 /// `streams`: the whole run, or each suite of `--test-suites`).
 pub(super) fn note_numbers_order(
+    engine: &std::sync::Arc<al_vm::Engine>,
     lowered: &al_sema::lower::Lowered,
     units: &[super::Unit],
     place: &dyn Fn(usize, u32) -> u32,
@@ -167,7 +183,51 @@ pub(super) fn note_numbers_order(
         return;
     }
     let sessions = super::single_lane::streams(units, place, &|_| true, opts.test_suites.as_deref());
-    report
-        .numbers_order
-        .extend(numbers_order(lowered, units, &sessions, &|k| units[k].takes_numbers));
+    report.numbers_order.extend(numbers_order(
+        lowered,
+        units,
+        &sessions,
+        &|k| units[k].takes_numbers,
+        &|k| super::chain::reads_numbers(engine, lowered, units[k].oi, false),
+    ));
+}
+
+/// al-runner issue 8152: under `--strict-order` with TestIsolation = Function, a test codeunit whose tests or OnRun
+/// trigger can read a number sequence (or whose reach is not fully known) after a codeunit of its BC session that is in
+/// the carry chain for the numbers its tests take (`ChainWhy::TestsTakeNumbers`) is refused. Only runner 130450's
+/// Codeunit isolation is measured to leave the taken numbers to the later codeunits (Y35OnRunStorage.al:30-31); under
+/// Function the walk hands them nothing, and BC's answer is not measured.
+pub(super) fn refuse_unmeasured_numbers(
+    engine: &std::sync::Arc<al_vm::Engine>,
+    lowered: &al_sema::lower::Lowered,
+    units: &[super::Unit],
+    place: &dyn Fn(usize, u32) -> u32,
+    opts: &super::RunOptions,
+    slots: &mut [Option<super::UnitResult>],
+) {
+    if !opts.strict_order {
+        return;
+    }
+    let function_taker = |u: &super::Unit| {
+        u.isolation == super::TestIsolation::Function && u.carry == Some(super::chain::ChainWhy::TestsTakeNumbers)
+    };
+    let objs = &lowered.program.objects;
+    for ks in super::single_lane::streams(units, place, &|_| true, opts.test_suites.as_deref()) {
+        let mut last: Option<usize> = None;
+        for k in ks {
+            if let Some(w) = last.filter(|_| super::chain::reads_numbers(engine, lowered, units[k].oi, true)) {
+                let why = format!(
+                    "the tests of an earlier test codeunit, {} \"{}\", can take NumberSequence numbers: what a later \
+                     codeunit sees of them under TestIsolation = Function is not measured (al-runner issue 8152)",
+                    units[w].id, objs[units[w].oi].name
+                );
+                if let Some(Ok(done)) = slots[k].as_mut().map(|r| &mut r.result) {
+                    super::corpus::refuse_all(&mut done.0, &why);
+                }
+            }
+            if function_taker(&units[k]) {
+                last = Some(k);
+            }
+        }
+    }
 }

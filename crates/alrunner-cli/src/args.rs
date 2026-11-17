@@ -993,10 +993,11 @@ ISOLATION
                          that fails because it needs state an earlier codeunit sets on Business
                          Central gets an order hint: the SingleInstance codeunit, its app, the
                          variable, the codeunit that sets it and this option (console, JUnit
-                         property `orderHint`, JSON `orderHint`). Test codeunits that take numbers
-                         after another codeunit took some are listed (`number order:` lines, JUnit
-                         property `numberSequenceOrder`). Fix such a test: set up the state it needs
-                         in its own codeunit's Initialize, or clear the SingleInstance codeunit there.
+                         property `orderHint`, JSON `orderHint`). Test codeunits that take or read
+                         numbers after another codeunit took some are listed (`number order:`
+                         lines, JUnit property `numberSequenceOrder`). Fix such a test: set up the
+                         state it needs in its own codeunit's Initialize, or clear the
+                         SingleInstance codeunit there.
                          With this option the state and the numbers carry as on Business Central.
                          A test codeunit that reads SingleInstance state an earlier one left keeps
                          its parallel result, flagged `single-instance-order`, and runs again in

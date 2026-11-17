@@ -93,11 +93,14 @@ Two reports say where the result may differ from Business Central's:
             order hint: this test read global Flag of SingleInstance codeunit 50961 "Order Cli State" (app Order by Me), which test codeunit 50971 "Order Cli Setter" sets before this test on BC; each test codeunit starts with fresh SingleInstance state here; --strict-order runs the test codeunits in BC's order
   ```
 
-- **Number order.** A test codeunit whose tests can take NumberSequence numbers and
-  that comes after another such codeunit gets one `number order:` line and the
-  JUnit property `numberSequenceOrder` on each of its tests. On Business Central
-  it would take its numbers after the ones the earlier codeunit took. It is a note,
-  not a failure.
+- **Number order.** A test codeunit whose tests can take NumberSequence numbers, or
+  only read them (`NumberSequence.Current`, `Exists`), and that comes after a
+  codeunit whose tests can take some gets one `number order:` line and the JUnit
+  property `numberSequenceOrder` on each of its tests. On Business Central it would
+  see the numbers after the ones the earlier codeunit took. It is a note, not a
+  failure. Under `--strict-order --isolation test` such a codeunit is not run: what
+  Business Central leaves of the numbers under TestIsolation = Function is not
+  measured yet.
 
 `--strict-order` (in `serve`: the `runTests` field `strictOrder`) runs the test
 codeunits in Business Central's order: the state and the numbers carry, and the
