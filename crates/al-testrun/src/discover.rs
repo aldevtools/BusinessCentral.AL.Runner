@@ -130,6 +130,12 @@ fn scan(original: &str) -> Vec<Scanned> {
             }
             _ => {}
         }
+        // A `]` ends its word, so `[Test][HandlerFunctions(..)]` is `[Test]` and then the next attribute (issue 8207).
+        if c == ']'
+            && let Some(s) = start.take()
+        {
+            spans.push((s, &src[s..=i]));
+        }
     }
     if let Some(s) = start {
         spans.push((s, &src[s..]));
@@ -194,6 +200,14 @@ mod tests {
                 (50101, "Plain".to_string(), vec![])
             ]
         );
+    }
+
+    // al-runner issue 8207: `[Test]` followed by another attribute on its line still marks the procedure a test.
+    #[test]
+    fn a_test_attribute_followed_by_another_attribute_on_its_line_is_found() {
+        let src = "codeunit 50100 \"Scan Gap Tests\"\n{\n    Subtype = Test;\n    [Test]\n    procedure Alpha()\n    begin end;\n    [Test][HandlerFunctions('MsgHandler')]\n    procedure Beta()\n    begin end;\n    [Test] procedure Gamma()\n    begin end;\n    [MessageHandler]\n    procedure MsgHandler(Msg: Text[1024])\n    begin end;\n}\n";
+        let names = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(test_codeunits(src), vec![(50100, names(&["Alpha", "Beta", "Gamma"]))]);
     }
 
     #[test]
