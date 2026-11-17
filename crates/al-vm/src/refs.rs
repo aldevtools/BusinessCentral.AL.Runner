@@ -1620,14 +1620,7 @@ impl Session {
                     {
                         crate::recmeta::tdd_fits(f, v)?;
                     }
-                    let v = if matches!(v, Value::Option(..)) {
-                        match ops::number_into_text_field(v, &field.ty, &*self) {
-                            Some(converted) => converted?,
-                            None => self.fieldref_value_into(&t, pos, &field.ty, v)?,
-                        }
-                    } else {
-                        self.fieldref_value_into(&t, pos, &field.ty, v)?
-                    };
+                    let v = self.fieldref_value_into(&t, pos, &field.ty, v)?;
                     let mut r = rec.borrow_mut();
                     let kind = || self.blob_field_kind(t.object as usize, pos);
                     let v = crate::blob_transfer::moved(

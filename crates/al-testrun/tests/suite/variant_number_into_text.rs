@@ -44,6 +44,35 @@ codeunit 50500 "T"
         if Dst.Txt <> 'First Caption' then Error('text %1', Dst.Txt);
     end;
     [Test]
+    procedure AnOptionVariantIntoFields()
+    var V: Variant; Row: Record "VNT Row"; i: Integer;
+    begin
+        for i := 0 to 1 do begin
+            Row.Opt := i;
+            V := Row.Opt;
+            asserterror Row.Txt := V;
+            if GetLastErrorCode() <> 'TypeConversion' then Error('text code %1', GetLastErrorCode());
+            asserterror Row.Cd := V;
+            if GetLastErrorCode() <> 'TypeConversion' then Error('code code %1', GetLastErrorCode());
+        end;
+    end;
+    local procedure ReturnOption(V: Variant): Variant
+    begin
+        exit(V);
+    end;
+    [Test]
+    procedure AReturnedOptionVariantIntoFields()
+    var Row: Record "VNT Row"; i: Integer;
+    begin
+        for i := 0 to 1 do begin
+            Row.Opt := i;
+            asserterror Row.Txt := ReturnOption(Row.Opt);
+            if GetLastErrorCode() <> 'TypeConversion' then Error('text code %1', GetLastErrorCode());
+            asserterror Row.Cd := ReturnOption(Row.Opt);
+            if GetLastErrorCode() <> 'TypeConversion' then Error('code code %1', GetLastErrorCode());
+        end;
+    end;
+    [Test]
     procedure AnEnumVariantIntoAField()
     var V: Variant; Row: Record "VNT Row"; K: Enum "VNT Kind";
     begin
@@ -82,9 +111,11 @@ fn a_field_ref_number_becomes_text_in_a_field_and_a_variant_number_raises() {
     for name in [
         "IntoAField",
         "FromAFieldRef",
-        "AnOptionFromAFieldRef",
+        "AnOptionVariantIntoFields",
+        "AReturnedOptionVariantIntoFields",
         "AnEnumVariantIntoAField",
         "IntoAVariable",
+        "AnOptionFromAFieldRef",
     ] {
         let o = rt.first_outcome(&CaseId {
             codeunit: 50500,
