@@ -90,13 +90,12 @@ impl MemStore {
                 .tie_read(cx, t, &slot, filters, &ties)
                 .map_or(Ok(()), |why| Err(StoreError::Refused(why)));
         }
-        let filter_text = format!("{filters:?}");
         let cols: Vec<usize> = filters
             .iter()
             .map(|f| f.field)
             .chain(key.into_iter().flat_map(key_fields))
             .collect();
-        let refusal = match self.kept_verdict(&slot, key, &filter_text, &cols) {
+        let refusal = match self.kept_verdict(&slot, key, filters, &cols) {
             Some(refusal) => refusal,
             None => {
                 let Some(table) = self.table(cx, t) else {
@@ -107,7 +106,7 @@ impl MemStore {
                     _ => Vec::new(),
                 };
                 let refusal = self.collation_verdict(t, &table, filters, key, &order);
-                self.keep_verdict(slot, key, filter_text, refusal.clone());
+                self.keep_verdict(slot, key, filters, refusal.clone());
                 refusal
             }
         };
@@ -219,35 +218,35 @@ impl MemStore {
             })
     }
 
-    /// The verdict kept for a read of `slot` in `key` through the filters `filter_text` that still holds: kept at the table's
+    /// The verdict kept for a read of `slot` in `key` through `filters` that still holds: kept at the table's
     /// version now, or at a version since which only Modifies ran that changed none of `cols`.
     fn kept_verdict(
         &self,
         slot: &Slot,
         key: Option<usize>,
-        filter_text: &str,
+        filters: &[FieldFilter],
         cols: &[usize],
     ) -> Option<Option<String>> {
         let mut cache = self.collation_verdicts.borrow_mut();
         let kept = cache.get_mut(slot)?;
         let i = kept
             .iter()
-            .position(|v| v.key == key && v.filters == filter_text && self.still_holds(slot, &v.at, cols))?;
+            .position(|v| v.key == key && same_filters(&v.filters, filters) && self.still_holds(slot, &v.at, cols))?;
         kept[..=i].rotate_right(1);
         Some(kept[0].refusal.clone())
     }
 
-    fn keep_verdict(&self, slot: Slot, key: Option<usize>, filters: String, refusal: Option<String>) {
+    fn keep_verdict(&self, slot: Slot, key: Option<usize>, filters: &[FieldFilter], refusal: Option<String>) {
         let at = self.kept_at(&slot);
         let mut cache = self.collation_verdicts.borrow_mut();
         let kept = cache.entry(slot).or_default();
-        kept.retain(|v| !(v.key == key && v.filters == filters));
+        kept.retain(|v| !(v.key == key && same_filters(&v.filters, filters)));
         kept.insert(
             0,
             Verdict {
                 at,
                 key,
-                filters,
+                filters: filters.to_vec(),
                 refusal,
             },
         );
@@ -329,6 +328,11 @@ fn order_refusal(t: &TableDef, key: usize, a: &[Value], b: &[Value], normal_reco
     })
 }
 
+/// Whether two filter lists are the same filters in the same order ([`FieldFilter::identical`]).
+fn same_filters(a: &[FieldFilter], b: &[FieldFilter]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.identical(y))
+}
+
 /// How many verdicts of [`MemStore::collation_read`] one table keeps, the one used last first.
 const VERDICTS_PER_TABLE: usize = 8;
 
@@ -342,12 +346,12 @@ pub(super) struct KeptAt {
 /// Per folded text, the primary keys of the rows that hold it ([`MemStore::fold_index`]).
 pub(super) type FoldIndex = std::collections::HashMap<String, Vec<Key>>;
 
-/// One answer of [`MemStore::collation_read`]: for a table as of `at`, read in `key` through `filters` (their debug text).
+/// One answer of [`MemStore::collation_read`]: for a table as of `at`, read in `key` through `filters` (compared by [`FieldFilter::identical`]).
 #[derive(Clone)]
 pub(super) struct Verdict {
     at: KeptAt,
     key: Option<usize>,
-    filters: String,
+    filters: Vec<FieldFilter>,
     refusal: Option<String>,
 }
 

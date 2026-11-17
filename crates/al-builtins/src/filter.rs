@@ -1755,7 +1755,54 @@ pub struct FieldFilter {
     pub group: i32,
 }
 
+impl FilterExpr {
+    /// Exact structural identity, values by [`Value::identical`]: for keys that ask "is this exactly the filter it was",
+    /// never AL equality.
+    pub fn identical(&self, other: &FilterExpr) -> bool {
+        fn all(a: &[FilterExpr], b: &[FilterExpr]) -> bool {
+            a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.identical(y))
+        }
+        fn same(a: &Option<Value>, b: &Option<Value>) -> bool {
+            match (a, b) {
+                (Some(a), Some(b)) => a.identical(b),
+                (None, None) => true,
+                _ => false,
+            }
+        }
+        use FilterExpr::*;
+        match (self, other) {
+            (Range(a, b), Range(c, d)) => same(a, c) && same(b, d),
+            (Eq(a), Eq(b))
+            | (RangeSame(a), RangeSame(b))
+            | (Ne(a), Ne(b))
+            | (Lt(a), Lt(b))
+            | (Le(a), Le(b))
+            | (Gt(a), Gt(b))
+            | (Ge(a), Ge(b)) => a.identical(b),
+            (Or(a), Or(b)) | (And(a), And(b)) => all(a, b),
+            (Like(a, x), Like(b, y)) | (NotLike(a, x), NotLike(b, y)) => a == b && x == y,
+            (AtSignAlone(a), AtSignAlone(b)) => a == b,
+            (EmptyViewValue, EmptyViewValue) => true,
+            (NumCode(a), NumCode(b)) | (UnpinnedText(a), UnpinnedText(b)) => a.identical(b),
+            (UnpinnedMatch(a, s), UnpinnedMatch(b, t)) => s == t && a.identical(b),
+            (
+                Range(..) | Eq(_) | RangeSame(_) | Ne(_) | Lt(_) | Le(_) | Gt(_) | Ge(_) | Or(_) | And(_) | Like(..)
+                | NotLike(..) | AtSignAlone(_) | EmptyViewValue | NumCode(_) | UnpinnedMatch(..) | UnpinnedText(_),
+                _,
+            ) => false,
+        }
+    }
+}
+
 impl FieldFilter {
+    /// Exact structural identity ([`FilterExpr::identical`]) of language, field, filter and group.
+    pub fn identical(&self, other: &FieldFilter) -> bool {
+        self.lang == other.lang
+            && self.field == other.field
+            && self.group == other.group
+            && self.expr.identical(&other.expr)
+    }
+
     /// A filter set now: it records the language of this thread ([`filter_language`]).
     pub fn new(field: usize, expr: FilterExpr, group: i32) -> Self {
         FieldFilter {
