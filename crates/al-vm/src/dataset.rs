@@ -163,7 +163,6 @@ fn escape_xml(text: &str, attribute: bool, column_line_breaks: bool) -> Result<S
                     chars.next();
                 }
                 out.push_str("\r\n");
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ReportDatasetColumnLineBreaks);
             }
             c if c.is_control() => {
                 return unsupported(format!(
@@ -462,7 +461,7 @@ pub(crate) enum DataFileText {
 #[derive(Default)]
 pub(crate) struct Dataset {
     body: String,
-    /// The modern SaveAs XML dataset normalizes text column line breaks.
+    /// A save that writes CR, LF and CRLF in a Text field column as CRLF (`Dataset::for_report_save`).
     column_line_breaks: bool,
     /// For every open `DataItem`: whether its own `DataItems` element is open.
     open: Vec<bool>,
@@ -494,28 +493,43 @@ pub(crate) struct Dataset {
 }
 
 impl Dataset {
+    /// The dataset of one save. Line breaks in a Text column are written as CRLF only for the call the corpus measures:
+    /// `Report.SaveAs(Number, '', ReportFormat::Xml, OutStream)` by number; `plain_call` is an empty parameters text and no
+    /// RecordRef (reports/dataset/TestReportDatasetLineBreaks.al:98, reports/extensions/TestReportExtensionParentLink.al:98).
+    /// The column side of the rule is in `escape_column_text`.
     pub(crate) fn for_report_save(
         id: al_ir::BuiltinId,
         format: &str,
         target: &crate::reports::SaveTarget,
+        plain_call: bool,
         region: Option<(String, al_builtins::format::Region)>,
         language: i32,
     ) -> Self {
         Self {
             column_line_breaks: id == al_builtins::builtin_id::ids::REPORT_SAVEAS_2
                 && format == "Xml"
-                && matches!(target, crate::reports::SaveTarget::Stream(_)),
+                && matches!(target, crate::reports::SaveTarget::Stream(_))
+                && plain_call,
             region,
             language: (language == 1031).then(|| "de-DE".to_string()),
             ..Self::default()
         }
     }
 
-    pub(crate) fn escape_column_text(dataset: Option<&Self>, text: &str, value: &Value) -> Result<String, Signal> {
+    /// The text of a column. In a save `for_report_save` admits, a Text value of a column that the report itself declares over
+    /// one normal Text field (`own_field`: that field, None for any other column) writes CR, LF and CRLF as CRLF: TestReportDatasetLineBreaks.al:90 seeds the three, :110-113 find
+    /// CRLF for each (and TestReportExtensionParentLink.al:90 seeds the same column). Every other control character refuses.
+    pub(crate) fn escape_column_text(
+        dataset: Option<&Self>,
+        text: &str,
+        value: &Value,
+        own_field: Option<&al_data::FieldDef>,
+    ) -> Result<String, Signal> {
+        let own_text_field = own_field.is_some_and(|f| f.stored && matches!(f.ty, al_builtins::value::RtType::Text(_)));
         escape_xml(
             text,
             false,
-            dataset.is_some_and(|d| d.column_line_breaks) && matches!(value, Value::Text(_)),
+            dataset.is_some_and(|d| d.column_line_breaks) && own_text_field && matches!(value, Value::Text(_)),
         )
     }
 }
@@ -1418,11 +1432,27 @@ mod tests {
             column_line_breaks: true,
             ..Default::default()
         };
+        let field = |ty, stored| al_data::FieldDef {
+            id: 1,
+            name: "Payload".into(),
+            ty,
+            stored,
+            code_storage: Default::default(),
+        };
+        let (text, flow, code) = (
+            field(al_builtins::value::RtType::Text(Some(100)), true),
+            field(al_builtins::value::RtType::Text(Some(100)), false),
+            field(al_builtins::value::RtType::Code(Some(100)), true),
+        );
+        let value = Value::Text("".into());
         assert_eq!(
-            Dataset::escape_column_text(Some(&ds), "a\rb\r\nc\nd<&", &Value::Text("".into())).unwrap(),
+            Dataset::escape_column_text(Some(&ds), "a\rb\r\nc\nd<&", &value, Some(&text)).unwrap(),
             "a\r\nb\r\nc\r\nd&lt;&amp;"
         );
-        assert!(Dataset::escape_column_text(Some(&ds), "a\u{1}b", &Value::Text("".into())).is_err());
-        assert!(Dataset::escape_column_text(None, "a\rb", &Value::Text("".into())).is_err());
+        assert!(Dataset::escape_column_text(Some(&ds), "a\u{1}b", &value, Some(&text)).is_err());
+        for other in [None, Some(&flow), Some(&code)] {
+            assert!(Dataset::escape_column_text(Some(&ds), "a\rb", &value, other).is_err());
+        }
+        assert!(Dataset::escape_column_text(None, "a\rb", &value, Some(&text)).is_err());
     }
 }

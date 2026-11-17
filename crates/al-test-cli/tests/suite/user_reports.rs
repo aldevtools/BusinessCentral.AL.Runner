@@ -3908,9 +3908,40 @@ codeunit 52013 T {
 }
 "#;
     all_pass(run_with_deps(&[], fixture));
-    let variable = fixture.replace("Report.SaveAs(Report::LineBreakReport, ", "R.SaveAs(");
-    let result = run_with_deps(&[], &variable);
-    assert!(matches!(&result[0].1, Outcome::NotRun(_)), "{result:?}");
+    let call = "Report.SaveAs(Report::LineBreakReport, '', ReportFormat::Xml, OutS);";
+    let with_ref = fixture
+        .replace("OutS: OutStream;", "OutS: OutStream; Ref: RecordRef;")
+        .replace(
+            call,
+            "Ref.Open(52010); Report.SaveAs(Report::LineBreakReport, '', ReportFormat::Xml, OutS, Ref);",
+        );
+    let with_parameters = fixture.replace(
+        call,
+        r#"Report.SaveAs(Report::LineBreakReport, '<?xml version="1.0" standalone="yes"?><ReportParameters name="LineBreakReport" id="52011"><DataItems><DataItem name="Row">VERSION(1) SORTING(Field1)</DataItem></DataItems></ReportParameters>', ReportFormat::Xml, OutS);"#,
+    );
+    let extension_column = fixture.replace("column(Payload; Payload) { }", "").replace(
+        "codeunit 52013 T {",
+        "reportextension 52012 LineBreakExt extends LineBreakReport {
+    dataset { add(Row) { column(Payload; Payload) { } } }
+}
+codeunit 52013 T {",
+    );
+    for (shape, src) in [
+        (
+            "variable SaveAs",
+            fixture.replace("Report.SaveAs(Report::LineBreakReport, ", "R.SaveAs("),
+        ),
+        ("RecordRef argument", with_ref),
+        ("parameters", with_parameters),
+        (
+            "text expression column",
+            fixture.replace("column(Payload; Payload)", "column(Payload; Payload + '')"),
+        ),
+        ("report extension column", extension_column),
+    ] {
+        let result = run_with_deps(&[], &src);
+        assert!(matches!(&result[0].1, Outcome::NotRun(_)), "{shape}: {result:?}");
+    }
 }
 
 #[test]
@@ -3930,11 +3961,23 @@ fn integer_record_field_boolean_neighbors_still_refuse() {
         "Row.Id in [1, 2] and B",
         "Row.Id in [N, 2] and Row.Approved",
         "Row.Id in [1..3] and Row.Approved",
+        "Row.Id in [1, 2] and Row.IsEmpty()",
+        "Row.Id in [1, 2] and Other.Approved",
+        "Row.Id in [1, 2] and Row.IsApproved()",
+        "Row.Id in [1] and Row.Approved",
+        "Row.Id in [1, 2, 3] and Row.Approved",
     ] {
         let result = run_with_deps(
             &[],
-            &src.replace("N: Integer;", "N: Integer; B: Boolean;")
-                .replace(measured, other),
+            &src.replace(
+                "N: Integer;",
+                "N: Integer; B: Boolean; Other: Record \"Probe Predicate Row\";",
+            )
+            .replace(
+                "keys { key(PK; Id) { Clustered = true; } }",
+                "keys { key(PK; Id) { Clustered = true; } }\n    procedure IsApproved(): Boolean begin exit(Approved); end;",
+            )
+            .replace(measured, other),
         );
         assert!(
             matches!(&result[0].1, Outcome::NotRun(why) if why.contains("set followed by")),
@@ -3999,12 +4042,27 @@ codeunit 50999 UnmeasuredClose {{
 }}
 "#
     );
+    let document_extension = format!(
+        r#"{src}
+pageextension 50999 UnmeasuredClose extends "Three Part Probe Document" {{
+    trigger OnQueryClosePage(CloseAction: Action): Boolean begin exit(true); end;
+}}
+"#
+    );
+    let part_id = "field(Id; Rec.Id) { ApplicationArea = All; }\n                field(Payload";
+    assert!(src.contains(part_id));
+    let second_validate = src.replace(
+        part_id,
+        "field(Id; Rec.Id) { ApplicationArea = All; trigger OnValidate() begin end; }\n                field(Payload",
+    );
     for (shape, fixture) in [
         ("two parts", two),
         ("four parts", four),
         ("dirty", dirty),
         ("extension", extension),
         ("subscriber", subscriber),
+        ("document extension", document_extension),
+        ("second OnValidate on the part", second_validate),
     ] {
         let result = run_with_deps(&[], &fixture);
         assert!(matches!(&result[0].1, Outcome::NotRun(_)), "{shape}: {result:?}");

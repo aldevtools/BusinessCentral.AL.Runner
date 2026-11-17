@@ -743,32 +743,56 @@ impl Lowerer<'_> {
         if !matches!(subject_type, Ty::Integer | Ty::BigInteger | Ty::Decimal) {
             return Ok(());
         }
-        // al-runner issue 7906, corpus PR #1360: language/operators/TestIntegerRecordMembership.al.
-        let record_field = |node: &SyntaxNode| {
+        // The measured shapes (language/operators/TestIntegerRecordMembership.al:35-39, eager right side :41): an Integer field
+        // of a local Record variable `in` a set of two Integer literals, `and` a Boolean field of the same variable (:35, :38)
+        // or an unqualified call of a procedure of the same object (:36, :39). Every other shape keeps the refusal.
+        let local_record = |node: &SyntaxNode| {
+            node.children()
+                .next()
+                .filter(|receiver| {
+                    receiver.kind() == SyntaxKind::NameRef && matches!(self.ty_ref(receiver), Ty::Record { .. })
+                })
+                .and_then(|receiver| match self.res(&receiver) {
+                    Some(Res::Local(name)) => Some(name.clone()),
+                    _ => None,
+                })
+        };
+        let field_of = |node: &SyntaxNode, ty: Ty| {
             node.kind() == SyntaxKind::MemberExpr
                 && matches!(self.res(node), Some(Res::Field { .. }))
-                && node
+                && *self.ty_ref(node) == ty
+        };
+        let subject_record = field_of(&subject, Ty::Integer)
+            .then(|| local_record(&subject))
+            .flatten();
+        let same_record_boolean =
+            || field_of(rhs, Ty::Boolean) && subject_record.is_some() && local_record(rhs) == subject_record;
+        let bare_procedure_call = || {
+            rhs.kind() == SyntaxKind::CallExpr
+                && rhs
                     .children()
                     .next()
-                    .is_some_and(|receiver| matches!(self.ty_ref(&receiver), Ty::Record { .. }))
+                    .is_some_and(|callee| callee.kind() == SyntaxKind::NameRef)
+                && matches!(self.res(rhs), Some(Res::Proc { .. }))
+        };
+        let two_integer_literals = |set: SyntaxNode| {
+            let entries: Vec<_> = set.children().collect();
+            set.kind() == SyntaxKind::SetExpr
+                && entries.len() == 2
+                && entries
+                    .iter()
+                    .all(|entry| entry.kind() == SyntaxKind::Literal && matches!(self.ty_ref(entry), Ty::Integer))
         };
         let measured = op == "and"
-            && matches!(subject_type, Ty::Integer)
-            && record_field(&subject)
-            && (rhs.kind() == SyntaxKind::CallExpr || record_field(rhs))
-            && operands.next().is_some_and(|set| {
-                set.kind() == SyntaxKind::SetExpr
-                    && set
-                        .children()
-                        .all(|entry| entry.kind() == SyntaxKind::Literal && matches!(self.ty_ref(&entry), Ty::Integer))
-            });
+            && subject_record.is_some()
+            && (same_record_boolean() || bare_procedure_call())
+            && operands.next().is_some_and(two_integer_literals);
         if !measured {
             return Err(
                 "an Integer `in` set followed by and, or or xor with a Boolean: BC answers `1 in [1, 2] and false` with Yes (corpus P143Prec_InAnd_Int), which no reading of the precedence explains (docs/probes-needed.md)"
                     .into(),
             );
         }
-        self.assume(al_builtins::assumptions::Assumption::IntegerRecordFieldInAndBoolean);
         Ok(())
     }
 

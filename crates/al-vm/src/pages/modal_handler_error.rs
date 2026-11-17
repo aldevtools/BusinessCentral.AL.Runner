@@ -71,12 +71,7 @@ impl Session {
             // handler's error, also an error of a page action the handler invoked (ui-handlers/WbModalHandlerCloseTests.al:9-39
             // `Part:None|Page:LookupCancel`, al-runner issue 6291). Outside lookup mode it is not pinned.
             Ok(_) if lookup && !st.borrow().open => Ok(()),
-            Ok(_) if close_three_drafts && !st.borrow().open => {
-                al_builtins::assumptions::assume(
-                    al_builtins::assumptions::Assumption::ModalValidationThreeDraftPartsClose,
-                );
-                Ok(())
-            }
+            Ok(_) if close_three_drafts && !st.borrow().open => Ok(()),
             Err(Signal::Error(_)) | Ok(_) => unsupported(
                 "a page left open by a ModalPageHandler that raised an error, whose close is allowed (not pinned)",
             ),
@@ -84,7 +79,12 @@ impl Session {
         }
     }
 
-    // al-runner issue 7891, corpus PR #1353: pages/close-errors/TestModalThreeDraftParts.al.
+    /// The measured page: pages/close-errors/TestModalThreeDraftParts.al:26-31 (codeunit 51771
+    /// ThreeDraftListPartsCloseAndKeepValidationError) keeps the field validation error after the three parts and the Document
+    /// close, with the objects of TestModalThreeDraftParts1Fixture51768.al (the Document, one OnQueryClosePage, three parts with
+    /// a one-field SubPageLink, no control trigger) and TestModalThreeDraftParts1Fixture51769.al (the ListPart, one
+    /// OnQueryClosePage, one control trigger: the OnValidate of Payload that raises, :21-24), and the handler calls of
+    /// TestModalThreeDraftParts.al:37-40.
     fn three_draft_parts_close_pinned(&self, st: &St, parts: &[St], error: &Signal) -> bool {
         use super::pinned_shape::{TestCall, TreeCall, table_code};
         use al_builtins::page_op::PageMethod;
@@ -161,8 +161,17 @@ impl Session {
         if !new_on(new_a, *a) || !new_on(new_b, *b) || !new_on(new_c, *c) || *part != *a {
             return false;
         }
-        let control = &page_of(&engine, first).controls[*field];
-        control.triggers.iter().any(|(name, _)| name == "onvalidate")
+        let part_page = page_of(&engine, first);
+        let control = &part_page.controls[*field];
+        // The only control triggers: the OnValidate of the written part control.
+        let only_written_validate = part_page.controls.iter().enumerate().all(|(i, c)| {
+            if i == *field {
+                matches!(c.triggers.as_slice(), [(name, _)] if name == "onvalidate")
+            } else {
+                c.triggers.is_empty()
+            }
+        }) && page.controls.iter().all(|c| c.triggers.is_empty());
+        only_written_validate
             && first.borrow().trigger_errors.iter().any(|(index, message)| {
                 *index == *field
                     && error.message
