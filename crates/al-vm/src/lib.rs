@@ -26,6 +26,7 @@ mod partial_gone;
 mod placeholder_files;
 mod run_restore;
 pub mod single_track;
+mod single_unmeasured;
 mod state;
 pub(crate) use state::*;
 mod baseline;
@@ -886,6 +887,8 @@ pub struct Session {
     /// Each sequence this session restarted or deleted, as it was just before the first of those (`numbers_taken.rs` in
     /// al-testrun: what a codeunit under runner 130450 leaves of it).
     pub(crate) sequences_changed: std::collections::HashMap<(String, String), sessionops::SequenceChange>,
+    /// Why no NumberSequence call of this session can have BC's answer (`storage_checkpoint.rs`); `None`: every call runs.
+    numbers_unmeasured: Option<Rc<str>>,
     /// The one instance of each `SingleInstance = true` codeunit in this session.
     singletons: std::collections::HashMap<usize, Rc<RefCell<Instance>>>,
     /// The notes on the watched single instances' globals (`single_track.rs`).
@@ -1350,6 +1353,7 @@ impl Session {
             depth: 0,
             spare_vecs: Vec::new(),
             xp_pass_views: Vec::new(),
+            numbers_unmeasured: None,
             singletons: Default::default(),
             si_track: None,
             singles_unclaimed: Default::default(),
@@ -2142,6 +2146,7 @@ impl Session {
             xp_text: Vec::new(),
             born: Default::default(),
             single: false,
+            unmeasured: None,
             live: Default::default(),
         })
     }
@@ -2185,6 +2190,7 @@ impl Session {
             xp_text: Vec::new(),
             born: Default::default(),
             single: false,
+            unmeasured: None,
             live: Default::default(),
         })
     }
