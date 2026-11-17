@@ -192,7 +192,10 @@ impl Group1Op<'_> {
     }
 
     fn is_filter_group(self) -> bool {
-        matches!(self, Group1Op::Record(RecordOp::FilterGroup) | Group1Op::RecordRef("FilterGroup"))
+        matches!(
+            self,
+            Group1Op::Record(RecordOp::FilterGroup) | Group1Op::RecordRef("FilterGroup")
+        )
     }
 
     /// The calls tests/al-language/record/filters/FilterGroupOtherVariable.al measured on a record that holds no group 1
@@ -202,18 +205,28 @@ impl Group1Op<'_> {
     /// GetFilters (:859, :896-898).
     fn measured(self, temporary: bool) -> bool {
         use RecordOp::*;
-        match (self, temporary) {
+        matches!(
+            (self, temporary),
             (
                 Group1Op::Record(
-                    Count | IsEmpty | Get | GetFilters | Reset | Clear | DeleteAll | FindSet | Next | Init | Insert
-                    | Modify | ModifyAll,
+                    Count
+                        | IsEmpty
+                        | Get
+                        | GetFilters
+                        | Reset
+                        | Clear
+                        | DeleteAll
+                        | FindSet
+                        | Next
+                        | Init
+                        | Insert
+                        | Modify
+                        | ModifyAll,
                 ),
                 false,
-            ) => true,
-            (Group1Op::Record(Count), true) => true,
-            (Group1Op::RecordRef("Count" | "GetFilters"), false) => true,
-            _ => false,
-        }
+            ) | (Group1Op::Record(Count), true)
+                | (Group1Op::RecordRef("Count" | "GetFilters"), false)
+        )
     }
 }
 
@@ -266,19 +279,19 @@ impl Session {
         let set_range = method == RecordOp::SetRange;
         let set = match entry {
             // No entry (or one taken back, by a record that holds no group 1 filter).
-            None => Some(Group1Set::Setter).filter(|_| !temporary || set_range && self.integer_value(rec, args)),
+            None => (!temporary || set_range && self.integer_value(rec, args)).then_some(Group1Set::Setter),
             Some(e) if e.signature.is_empty() && own.is_empty() => {
-                Some(Group1Set::Setter).filter(|_| !temporary || set_range && self.integer_value(rec, args))
+                (!temporary || set_range && self.integer_value(rec, args)).then_some(Group1Set::Setter)
             }
             Some(e) if !e.signature.is_empty() && own == e.signature => {
-                Some(Group1Set::Setter).filter(|_| !temporary || set_range && args.len() == 1)
+                (!temporary || set_range && args.len() == 1).then_some(Group1Set::Setter)
             }
             Some(e) if !temporary && own.is_empty() && set_range && args.len() == 1 && self.entry_pinned(rec, e) => {
                 let field = args.first().and_then(|a| match a {
                     Value::Integer(p) => usize::try_from(*p).ok(),
                     _ => None,
                 });
-                Some(Group1Set::ClearByAnother).filter(|_| field == e.filters.first().map(|f| f.field))
+                (field == e.filters.first().map(|f| f.field)).then_some(Group1Set::ClearByAnother)
             }
             _ => None,
         };

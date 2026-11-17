@@ -719,9 +719,7 @@ fn tenant_visible_lookup_reads_nav_app_extra_unchecked_neighbors_keep_main() {
         }
     }
     // With an indirect grant, the direct read of Published Application is still checked: main's outcome.
-    for name in ["DirectIndirect"] {
-        let (_, outcome, hits) = get(name);
-        assert_ne!(*outcome, Outcome::Pass, "{name}");
-        assert!(hits.is_empty(), "{name}: {hits:?}");
-    }
+    let (_, outcome, hits) = get("DirectIndirect");
+    assert_ne!(*outcome, Outcome::Pass, "DirectIndirect");
+    assert!(hits.is_empty(), "DirectIndirect: {hits:?}");
 }

@@ -5,7 +5,7 @@
 //! Every other shape keeps the answer of its owner in `refs.rs` (which refuses it).
 
 use crate::Session;
-use al_builtins::native::{AlError, Signal};
+use al_builtins::native::{AlError, Signal, unsupported};
 use al_builtins::recordref_closed::not_open;
 use al_builtins::value::{EmptiedRef, LibraryValue, RecordState, Value};
 
@@ -153,7 +153,34 @@ impl Session {
             _ => None,
         }
     }
+}
 
+impl Session {
+    /// The buffer GetTable copies from a Library value `src` (`name` its type) on the RecordRef `lib`: an open RecordRef's.
+    /// A RecordRef that is not open, through a Variant, is a Conversion error (recordref-fieldref/AsRecRefGetTable.al:110
+    /// FromNotOpen); a RecordId through a Variant is one for the measured value only (GetTableVariantKinds.al:139).
+    pub(crate) fn get_table_ref_source(
+        &self,
+        lib: &LibraryValue,
+        name: &str,
+        src: &LibraryValue,
+        from_variant: bool,
+        arg: Option<&Value>,
+    ) -> Result<crate::records::Rec, Signal> {
+        match src {
+            LibraryValue::RecordRef(r) => Ok(r.clone()),
+            l if not_open(l) && name.eq_ignore_ascii_case("RecordRef") && from_variant => {
+                Err(crate::transactions::al_error_code(
+                    "Unable to convert from Microsoft.Dynamics.Nav.Runtime.NavRecordRef to Microsoft.Dynamics.Nav.Runtime.INavRecordHandle.",
+                    "Conversion",
+                ))
+            }
+            _ => match self.get_table_variant_not_record(lib, arg).filter(|_| from_variant) {
+                Some(e) => Err(e),
+                None => unsupported("RecordRef.GetTable of a RecordRef that is not open"),
+            },
+        }
+    }
 }
 
 /// The RecordId GetTableVariantKinds.al:139 hands to GetTable: table 60000 ("ALT Universal") with the key 1.

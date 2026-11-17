@@ -907,7 +907,10 @@ impl Session {
         {
             let table = rec.borrow().table;
             let op = crate::group1_sessions::Group1Op::RecordRef(method);
-            group1 = Some((rec.clone(), self.group1_use(rec, table, op)?));
+            // Only a shared read holds the record for the call: GetTable counts the handles of a row (recordref_variant.rs).
+            if let use_ @ crate::group1_sessions::Group1Use::Shared(_) = self.group1_use(rec, table, op)? {
+                group1 = Some((rec.clone(), use_));
+            }
         }
         let new_ref_tried = crate::unopened_refs::open_attempt_on_new_ref(method, &lib.borrow());
         let r = match group1 {
@@ -970,24 +973,9 @@ impl Session {
                     // case 1140): a copy of its table, buffer, filters and current row, not shared afterwards
                     // (recordref-fieldref/AsRecRefGetTable.al:35-106). A ref that is not open is a Conversion error and
                     // leaves the target unopened (AsRecRefGetTable.al:110 FromNotOpen).
-                    Some(Value::Library(name, other)) => match &*other.borrow() {
-                        LibraryValue::RecordRef(r) => r.clone(),
-                        l if not_open(l) && name.eq_ignore_ascii_case("RecordRef") && from_variant => {
-                            return Err(Signal::Error(Box::new(AlError {
-                                message: "Unable to convert from Microsoft.Dynamics.Nav.Runtime.NavRecordRef to Microsoft.Dynamics.Nav.Runtime.INavRecordHandle.".into(),
-                                code: "Conversion".into(),
-                                call_stack: String::new(),
-                                ..Default::default()
-                            })));
-                        }
-                        LibraryValue::RecordId { .. } if from_variant => {
-                            match self.get_table_variant_not_record(&lib.borrow(), args.first()) {
-                                Some(e) => return Err(e),
-                                None => return unsupported("RecordRef.GetTable of a Variant that holds a RecordId"),
-                            }
-                        }
-                        _ => return unsupported("RecordRef.GetTable of a RecordRef that is not open"),
-                    },
+                    Some(Value::Library(name, other)) => {
+                        self.get_table_ref_source(&lib.borrow(), name, &other.borrow(), from_variant, args.first())?
+                    }
                     other => {
                         if from_variant && let Some(e) = self.get_table_variant_not_record(&lib.borrow(), other) {
                             return Err(e);
