@@ -79,7 +79,9 @@ impl Session {
     /// another variable before it), and no change to the marks during the run, whether the run succeeds or fails with an
     /// `Error` (:170-236, :272-289); or no mark before the run and one the inner codeunit set and kept, when the run
     /// succeeds (:238-252). An inner codeunit that lifts its own mark leaves none (:254-270).
-    /// `None` when no mark is there before or after. Any other shape is refused.
+    /// `None` when no mark is there before or after. Any other shape is refused. The error is the one of a Commit
+    /// ([`Session::inconsistent_error`]): the pin reads its text (:181); its code is the Commit one (CuCommitTests.al:416),
+    /// which no test reads after a guarded run.
     pub(crate) fn guarded_run_end_marks(
         &self,
         before: &[(u32, MarkState)],

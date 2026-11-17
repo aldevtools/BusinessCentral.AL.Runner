@@ -1,6 +1,7 @@
 //! A static `Query.SaveAsCsv(Number, OutStream)` and `Query.SaveAsXml(Number, OutStream)` under a restricted set check the
 //! query of that number, not the query of the last instance call in the session (al-runner issue 7612). The check is the one
-//! `Query.Open` takes (Y24PermExecute.al:62-63, Query Execute denied).
+//! `Query.Open` takes (Y24PermExecute.al:62-63, Query Execute denied). A granted query saves; what a denied one raises in
+//! SaveAs is not pinned, so that is refused.
 
 use super::y48_platform_probes::{outcomes, outcomes_edited};
 use al_test_cli::report::Outcome;
@@ -40,7 +41,10 @@ fn static_save_as_checks_the_query_of_its_number() {
             .1
     };
     for name in ["CsvOfDeniedFirst", "CsvOfDeniedAfterGranted", "XmlOfDeniedAfterGranted"] {
-        assert_eq!(*get(name), Outcome::Fail("DB:ExecuteObjDenied".into()), "{name}");
+        match get(name) {
+            Outcome::NotRun(why) => assert!(why.contains("the permission set denies"), "{name}: {why}"),
+            other => panic!("{name}: {other:?}"),
+        }
     }
     assert_eq!(*get("CsvOfGranted"), Outcome::Fail("saved".into()));
 }

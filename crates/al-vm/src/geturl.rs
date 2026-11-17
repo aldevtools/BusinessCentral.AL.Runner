@@ -525,32 +525,39 @@ impl Session {
         ))
     }
 
-    /// The `bookmark=` or `filter=` part for a record: the filters when `use_filters` and there are some, nothing when
-    /// `use_filters` and there are none, else the bookmark of the key (GetUrlBookmarkFilter.al:GetUrl_Filter_Text,
-    /// GetUrl_Bookmark_TwoFieldKey `usefilters_true_not_inserted`).
     /// Whether the record argument `v` of a five-argument service form is a pinned shape (GetUrlServiceClientRecord.al:
-    /// 166-182): a Record or an open RecordRef that is not temporary, with a codeunit, or with a page whose source table is
-    /// the record's table.
+    /// 166-182): a Record or an open RecordRef that is not temporary, with a codeunit the app compiled (:176), or with a
+    /// List page whose source table is the record's table (page "SS UrlSvc List", :36-38). A RecordRef that is not open is
+    /// refused: its error is pinned for ClientType::Web only (PGetUrl.al:198-209).
     fn service_record_pinned(
         &mut self,
         object: Option<&str>,
         id: Option<i32>,
         v: Option<&Value>,
     ) -> Result<bool, Signal> {
+        let ref_not_open =
+            matches!(v, Some(Value::Library(_, l)) if !matches!(&*l.borrow(), LibraryValue::RecordRef(_)));
+        if ref_not_open {
+            return unsupported(
+                "GetUrl of a service client type with a RecordRef that is not open (its error is pinned for ClientType::Web only)",
+            );
+        }
         let rec = record_arg(v)?;
         let stored = !rec.borrow().temporary;
         let table = self.table(&rec)?.object as usize;
-        if object == Some("Codeunit") {
-            return Ok(stored);
-        }
         let program = &self.engine.program;
-        let page = program
-            .objects
-            .heads()
-            .iter()
-            .position(|o| o.kind == al_ir::ObjKind::Page && id.is_some_and(|n| o.id == Some(n as u32)));
+        let compiled = |kind: al_ir::ObjKind| {
+            (program.objects.heads().iter())
+                .position(|o| o.kind == kind && id.is_some_and(|n| o.id == Some(n as u32)))
+                .filter(|&p| !program.objects[p].uncompiled)
+        };
+        if object == Some("Codeunit") {
+            return Ok(stored && compiled(al_ir::ObjKind::Codeunit).is_some());
+        }
+        let list_page = compiled(al_ir::ObjKind::Page)
+            .filter(|&p| self.engine.object_facts[p].page_type == Some(al_ir::PageType::List));
         Ok(stored
-            && page.is_some_and(|p| {
+            && list_page.is_some_and(|p| {
                 let o = &program.objects[p];
                 o.rec_slot.is_some_and(
                     |s| matches!(o.globals.get(s).map(|g| &g.ty), Some(RtType::Record(t, _)) if *t as usize == table),
@@ -558,6 +565,9 @@ impl Session {
             }))
     }
 
+    /// The `bookmark=` or `filter=` part for a record: the filters when `use_filters` and there are some, nothing when
+    /// `use_filters` and there are none, else the bookmark of the key (GetUrlBookmarkFilter.al:GetUrl_Filter_Text,
+    /// GetUrl_Bookmark_TwoFieldKey `usefilters_true_not_inserted`).
     fn url_record_part(&mut self, rec: &Rec, use_filters: bool) -> Result<Option<String>, Signal> {
         let t = self.table(rec)?;
         {

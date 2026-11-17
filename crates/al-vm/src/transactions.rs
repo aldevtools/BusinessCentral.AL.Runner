@@ -887,13 +887,16 @@ impl Session {
             t.runs -= 1;
         }
         self.tx.tx_world -= 1;
-        // An inner error the pin raises is the one of `Error` (errors/ConsistentGuardedRun.al:100, :221-236).
-        let pinned_end = result.is_ok() || matches!(&result, Err(Signal::Error(e)) if e.code == "Dialog");
+        // The pin runs Codeunit.Run(Id) without a record, and an inner error it raises is the one of `Error`
+        // (errors/ConsistentGuardedRun.al:180, :100, :221-236).
+        let pinned_end =
+            record_arg.is_none() && (result.is_ok() || matches!(&result, Err(Signal::Error(e)) if e.code == "Dialog"));
         if guarded && self.pages.bg_worker.is_none() && pinned_end {
             if let Some(e) = self.guarded_run_end_marks(&marks_before, result.is_ok())? {
                 return Err(e);
             }
-        } else if guarded && self.pages.bg_worker.is_none() {
+        } else if guarded && self.pages.bg_worker.is_none() && matches!(&result, Ok(_) | Err(Signal::Error(_))) {
+            // Every other end of a run that leaves a mark is refused; an inner refusal keeps its own reason.
             self.refuse_inconsistent_end("A guarded Codeunit.Run")?;
         }
 

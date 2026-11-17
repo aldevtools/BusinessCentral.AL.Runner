@@ -14,14 +14,18 @@
 //! routines all do). It is not there in the next app's install session (G1sInstallSessionTests.al:55-63, B after A;
 //! :65-73, the main app after B) nor in the test session after the install sessions (:75-85); the same for a per-company
 //! table (:107-123, table 98485). An OnAfterLogin subscriber sets it again in each session (:87-105). Only an entry set
-//! in that shape ends; every other entry stays, and a record without it is refused (records.rs `global_group_check`).
+//! in that shape ends; every other entry stays, and a record without it reads it only for the calls
+//! [`Session::group1_use`] allows.
 
 use super::*;
+use crate::globaltriggers::GlobalOp;
 use crate::records::Rec;
 use al_builtins::filter::{FieldFilter, FilterExpr};
 use al_builtins::native::unsupported;
 use al_builtins::record_op::RecordOp;
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Weak;
 
 /// The place in an app's install session that the session runs now, of the two the probe measured; set by the runner
 /// around the per-company part in the session company.
@@ -58,6 +62,36 @@ struct Entry {
     /// The filters themselves, for the records that see them ([`Session::with_group1`]).
     filters: Vec<FieldFilter>,
     ends: Ends,
+    /// The kind of variable that set the filters; `None` for a temporary RecordRef, which no test measured.
+    setter: Option<VarKind>,
+    /// The readers whose FindSet read the filters and found a row, and whose Next calls since then found one: only such a
+    /// reader's Next reads the filters (`Fresh*`, FilterGroupOtherVariable.al:169-172).
+    find_set_readers: Vec<Weak<RefCell<RecordState>>>,
+}
+
+/// The kinds of variable FilterGroupOtherVariable.al set a group 1 filter with and read it through, each with its own
+/// readers ([`measured_read`]).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum VarKind {
+    /// A Record variable of a database table.
+    Record,
+    /// A temporary Record variable.
+    TemporaryRecord,
+    /// A RecordRef of a database table.
+    RecordRef,
+}
+
+impl VarKind {
+    /// The kind of a Record variable (`record`) or a RecordRef, of a temporary table or not; `None` for a temporary
+    /// RecordRef.
+    fn of(record: bool, temporary: bool) -> Option<VarKind> {
+        match (record, temporary) {
+            (true, false) => Some(VarKind::Record),
+            (true, true) => Some(VarKind::TemporaryRecord),
+            (false, false) => Some(VarKind::RecordRef),
+            (false, true) => None,
+        }
+    }
 }
 
 /// The group 1 filters of one session; StartSession parks them (bgsession.rs).
@@ -103,6 +137,7 @@ impl Session {
             return;
         }
         let filters = rec.borrow().filters.iter().filter(|f| f.group == 1).cloned().collect();
+        let setter = VarKind::of(by_record, rec.borrow().temporary);
         // The innermost AL frame: the routine whose body sets the filter.
         let innermost = (self.frames.last())
             .zip(self.call_stack.last())
@@ -117,6 +152,8 @@ impl Session {
             signature,
             filters,
             ends: if in_shape { Ends::AwaitsRoutine } else { Ends::Never },
+            setter,
+            find_set_readers: Vec::new(),
         };
         self.global_group1.filters.by_table.insert(table, entry);
     }
@@ -197,45 +234,66 @@ impl Group1Op<'_> {
             Group1Op::Record(RecordOp::FilterGroup) | Group1Op::RecordRef("FilterGroup")
         )
     }
+}
 
-    /// The calls tests/al-language/record/filters/FilterGroupOtherVariable.al measured on a record that holds no group 1
-    /// filter while another record's filter is in group 1 (codeunit 97452). On a database Record: Count, IsEmpty, Get and
-    /// GetFilters (:596-638), Reset and Clear (:618-621), DeleteAll (:622), FindSet and Next (`Fresh1` :163-174), Init, Insert, Modify
-    /// and ModifyAll (:721-762). On a temporary Record: Count (:826, :900). On a RecordRef of a database table: Count and
-    /// GetFilters (:859, :896-898).
-    fn measured(self, temporary: bool) -> bool {
-        use RecordOp::*;
-        matches!(
-            (self, temporary),
-            (
-                Group1Op::Record(
-                    Count
-                        | IsEmpty
-                        | Get
-                        | GetFilters
-                        | Reset
-                        | Clear
-                        | DeleteAll
-                        | FindSet
-                        | Next
-                        | Init
-                        | Insert
-                        | Modify
-                        | ModifyAll,
-                ),
-                false,
-            ) | (Group1Op::Record(Count), true)
-                | (Group1Op::RecordRef("Count" | "GetFilters"), false)
-        )
+/// The calls tests/al-language/record/filters/FilterGroupOtherVariable.al (codeunit 97452) measured on a variable that holds
+/// no filter of its own while another variable's filter is in group 1, by the kind of variable that set the filter and the
+/// kind that reads it; `group`: the reader's current filter group; `args`: the number of arguments of the call (each
+/// measured call passes no optional argument: no RunTrigger, no Steps, no UpdateKey).
+fn measured_read(setter: VarKind, reader: VarKind, op: Group1Op, group: i32, args: usize) -> bool {
+    use RecordOp::*;
+    use VarKind::*;
+    match (reader, op, group, args) {
+        // `FreshGroup1Filter*` (:177-186) after each kind of setter: :614 and :730, :828, :861.
+        (Record, Group1Op::Record(GetFilters), 1, 0) => true,
+        // `Fresh*` (:163-174) after each kind of setter: :605-611 and :729, :827, :860.
+        (Record, Group1Op::Record(Count | FindSet | Next), 0, 0) => true,
+        // A Record setter, a database Record reader: :612-622, :731-746.
+        (Record, Group1Op::Record(IsEmpty | GetFilters | Reset | Clear | DeleteAll | Init | Insert | Modify), 0, 0)
+        | (Record, Group1Op::Record(Get), 0, 1)
+        | (Record, Group1Op::Record(ModifyAll), 0, 2) => setter == Record,
+        // A temporary Record reader's Count after a temporary setter (:826) or a Record setter (:900).
+        (TemporaryRecord, Group1Op::Record(Count), 0, 0) => setter == TemporaryRecord || setter == Record,
+        // A RecordRef reader: Count after a RecordRef setter (:859) or a Record setter (:896); GetFilters in its group 1
+        // after a Record setter (:897-898).
+        (RecordRef, Group1Op::RecordRef("Count"), 0, 0) => setter == RecordRef || setter == Record,
+        (RecordRef, Group1Op::RecordRef("GetFilters"), 1, 0) => setter == Record,
+        _ => false,
     }
+}
+
+/// The view every measured reader had: no filter in any group, the primary key ascending, no marks, the session company
+/// (each reader of FilterGroupOtherVariable.al is a fresh variable, or one after Reset or Clear: :611-621, :733, :745).
+fn reader_view_measured(r: &RecordState) -> bool {
+    r.filters.is_empty()
+        && r.key == 0
+        && r.adhoc.is_none()
+        && r.ascending
+        && r.field_descending == 0
+        && r.marks.is_empty()
+        && !r.marked_only
+        && r.company.is_none()
+}
+
+/// The step of a FindSet loop a shared call is ([`Entry::find_set_readers`]).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LoopStep {
+    FindSet,
+    Next,
+    Other,
 }
 
 /// What a record of a table whose group 1 holds an entry reads ([`Session::group1_use`]).
 pub(crate) enum Group1Use {
     /// Its own filters.
     Own,
-    /// Its own filters and the entry's group 1 filters, for this one call ([`Session::with_group1`]).
-    Shared(Vec<FieldFilter>),
+    /// Its own filters and the group 1 filters of table `table`'s entry, for this one call, which is `step` of a FindSet
+    /// loop ([`Session::with_group1`]).
+    Shared {
+        table: u32,
+        filters: Vec<FieldFilter>,
+        step: LoopStep,
+    },
 }
 
 /// How a SetFilter or SetRange in filter group 1 changes the session's entry ([`Session::set_global_group_filter`]).
@@ -316,7 +374,7 @@ impl Session {
     }
 
     /// The entry form FilterGroupOtherVariable.al measured: one filter, SetRange of one Integer value on an Integer field
-    /// (SetRange(Tag, 1) at :193, :604, :823, :855, :893).
+    /// outside the primary key (SetRange(Tag, 1) at :193, :604, :823, :855, :893; Tag is no key field of the tables).
     fn entry_pinned(&self, rec: &Rec, e: &Entry) -> bool {
         let Ok(t) = self.table(rec) else {
             return false;
@@ -329,26 +387,50 @@ impl Session {
             FilterExpr::Eq(Value::Integer(_)) => true,
             _ => false,
         };
-        one_integer && t.fields.get(f.field).is_some_and(|d| d.ty == RtType::Integer)
+        let outside_primary_key = t.keys.first().is_some_and(|pk| !pk.contains(&f.field));
+        one_integer && outside_primary_key && t.fields.get(f.field).is_some_and(|d| d.ty == RtType::Integer)
+    }
+
+    /// A shared write runs no code: no event subscriber of the table, and its global trigger known to be off (the tables of
+    /// FilterGroupOtherVariable.al have no subscriber, :622, :736-746; RunTrigger is not passed, [`measured_read`]).
+    fn shared_write_runs_no_code(&self, rec: &Rec, op: Group1Op) -> bool {
+        let global = match op {
+            Group1Op::Record(RecordOp::DeleteAll) => GlobalOp::Delete,
+            Group1Op::Record(RecordOp::Insert) => GlobalOp::Insert,
+            Group1Op::Record(RecordOp::Modify | RecordOp::ModifyAll) => GlobalOp::Modify,
+            _ => return true,
+        };
+        let Ok(t) = self.table(rec) else {
+            return false;
+        };
+        let subscribed = self.engine.events.any_subscriber_of(t.object as usize);
+        !subscribed && self.global_known_off(&t, global)
     }
 
     /// What `rec`, of table `table`, reads for the call `op` while group 1 of the table holds an entry. A record that holds
     /// the entry's filters (the setter, or a copy of it such as the record of Page.Run(Page, Rec), P145PageRunView.al:232-235)
     /// reads its own, on a database table; on a temporary one only Count is measured (FilterGroupOtherVariable.al:825). A
-    /// record that holds no group 1 filter reads the entry's filters as well for the calls [`Group1Op::measured`] lists,
-    /// when the entry has the measured form ([`Self::entry_pinned`]). After a record that held none took the filter back,
+    /// record that holds no group 1 filter reads the entry's filters as well for the calls [`measured_read`] lists, with the
+    /// view every measured reader had ([`reader_view_measured`]), a Next only inside the reader's FindSet loop, a write only
+    /// when it runs no code ([`Self::shared_write_runs_no_code`]), and the entry in the measured form
+    /// ([`Self::entry_pinned`]). After a record that held none took the filter back,
     /// a record with no group 1 filter reads its own (:762-763, :797); one that still holds some is refused. Every other
     /// shape is refused.
-    pub(crate) fn group1_use(&self, rec: &Rec, table: u32, op: Group1Op) -> Result<Group1Use, Signal> {
+    pub(crate) fn group1_use(&self, rec: &Rec, table: u32, op: Group1Op, args: &[Value]) -> Result<Group1Use, Signal> {
         let Some(entry) = self.global_group1.filters.by_table.get(&table) else {
             return Ok(Group1Use::Own);
         };
         if op.is_filter_group() {
             return Ok(Group1Use::Own);
         }
-        let (temporary, own) = {
+        let (temporary, own, group, view_measured) = {
             let r = rec.borrow();
-            (r.temporary, group1_signature(&r))
+            (
+                r.temporary,
+                group1_signature(&r),
+                r.filter_group,
+                reader_view_measured(&r),
+            )
         };
         let taken_back = entry.signature.is_empty();
         if taken_back && own.is_empty() {
@@ -357,8 +439,25 @@ impl Session {
         if !taken_back && own == entry.signature && (!temporary || matches!(op, Group1Op::Record(RecordOp::Count))) {
             return Ok(Group1Use::Own);
         }
-        if !taken_back && own.is_empty() && op.measured(temporary) && self.entry_pinned(rec, entry) {
-            return Ok(Group1Use::Shared(entry.filters.clone()));
+        let reader = VarKind::of(matches!(op, Group1Op::Record(_)), temporary);
+        let step = match op {
+            Group1Op::Record(RecordOp::FindSet) => LoopStep::FindSet,
+            Group1Op::Record(RecordOp::Next) => LoopStep::Next,
+            _ => LoopStep::Other,
+        };
+        let in_loop = || (entry.find_set_readers.iter()).any(|w| std::ptr::eq(w.as_ptr(), Rc::as_ptr(rec)));
+        let shared = !taken_back
+            && view_measured
+            && (entry.setter.zip(reader)).is_some_and(|(s, r)| measured_read(s, r, op, group, args.len()))
+            && (step != LoopStep::Next || in_loop())
+            && self.entry_pinned(rec, entry)
+            && self.shared_write_runs_no_code(rec, op);
+        if shared {
+            return Ok(Group1Use::Shared {
+                table,
+                filters: entry.filters.clone(),
+                step,
+            });
         }
         self.group1_refusal(taken_back, op)
     }
@@ -378,19 +477,33 @@ impl Session {
     }
 
     /// Runs `f` with `use_` applied to `rec`: the entry's group 1 filters of a [`Group1Use::Shared`] are on the record
-    /// (which holds no group 1 filter of its own) only for the call.
-    pub(crate) fn with_group1<T>(
+    /// (which holds no group 1 filter of its own) only for the call. The reader stays in its FindSet loop while FindSet
+    /// and Next find a row ([`Entry::find_set_readers`]).
+    pub(crate) fn with_group1(
         &mut self,
         rec: &Rec,
         use_: Group1Use,
-        f: impl FnOnce(&mut Self) -> Result<T, Signal>,
-    ) -> Result<T, Signal> {
-        let Group1Use::Shared(shared) = use_ else {
+        f: impl FnOnce(&mut Self) -> Result<Value, Signal>,
+    ) -> Result<Value, Signal> {
+        let Group1Use::Shared { table, filters, step } = use_ else {
             return f(self);
         };
-        rec.borrow_mut().filters.extend(shared);
+        rec.borrow_mut().filters.extend(filters);
         let r = f(self);
         rec.borrow_mut().filters.retain(|f| f.group != 1);
+        let found = match (step, &r) {
+            (LoopStep::FindSet, Ok(Value::Boolean(true))) => true,
+            (LoopStep::Next, Ok(Value::Integer(n))) => *n != 0,
+            _ => false,
+        };
+        if let Some(e) = self.global_group1.filters.by_table.get_mut(&table) {
+            let here = Rc::as_ptr(rec);
+            e.find_set_readers
+                .retain(|w| w.strong_count() > 0 && !std::ptr::eq(w.as_ptr(), here));
+            if found {
+                e.find_set_readers.push(Rc::downgrade(rec));
+            }
+        }
         r
     }
 }

@@ -132,6 +132,29 @@ struct Plan {
 /// The row of a dataitem with no match under a left outer join.
 const NO_MATCH: Vec<Value> = Vec::new();
 
+/// The query object a run reads, and whether a static `Query.SaveAsCsv` or `Query.SaveAsXml` runs it (`Session::query_rows`).
+#[derive(Clone, Copy)]
+struct QueryReader {
+    object: usize,
+    static_save: bool,
+}
+
+impl QueryReader {
+    fn instance(object: usize) -> Self {
+        QueryReader {
+            object,
+            static_save: false,
+        }
+    }
+
+    fn static_save(object: usize) -> Self {
+        QueryReader {
+            object,
+            static_save: true,
+        }
+    }
+}
+
 impl Session {
     /// An instance of query `object` whose hidden `__query` slot holds `q`, so a procedure's
     /// unqualified `SetRange` and the like act on the query the caller holds
@@ -421,7 +444,7 @@ impl Session {
             "SaveAsCsv" => {
                 let filters = qs.borrow().filters.clone();
                 let top = qs.borrow().top.unwrap_or(def.top);
-                self.query_save_csv(object, def, &filters, top, args)
+                self.query_save_csv(QueryReader::instance(object), def, &filters, top, args)
             }
             other => unsupported(format!("Query.{other}")),
         }
@@ -434,12 +457,12 @@ impl Session {
         let filters = qs.borrow().filters.clone();
         let top = qs.borrow().top.unwrap_or(def.top);
         let object = qs.borrow().object as usize;
-        self.query_save_as_with(object, def, &filters, top, method, args.first())
+        self.query_save_as_with(QueryReader::instance(object), def, &filters, top, method, args.first())
     }
 
     fn query_save_as_with(
         &mut self,
-        object: usize,
+        run: QueryReader,
         def: &ir::Query,
         filters: &[(usize, FilterExpr)],
         top: i32,
@@ -460,7 +483,7 @@ impl Session {
             .iter()
             .map(|&c| (def.columns[c].name.as_str(), &def.columns[c].ty))
             .collect();
-        let (rows, _) = self.query_rows(object, def, filters)?;
+        let (rows, _) = self.query_rows(run, def, filters)?;
         let rows: Vec<Vec<&Value>> = rows
             .iter()
             .take(if top > 0 { top as usize } else { usize::MAX })
@@ -518,7 +541,14 @@ impl Session {
         for a in &def.assumes {
             al_builtins::assumptions::assume(*a);
         }
-        self.query_save_as_with(object, def, &[], def.top, "SaveAsXml", args.get(1))
+        self.query_save_as_with(
+            QueryReader::static_save(object),
+            def,
+            &[],
+            def.top,
+            "SaveAsXml",
+            args.get(1),
+        )
     }
 
     /// `Query.SaveAsCsv(Number, OutStream)`: the query of that id with no filters. An id no query has writes nothing and
@@ -536,7 +566,7 @@ impl Session {
         for a in &def.assumes {
             al_builtins::assumptions::assume(*a);
         }
-        self.query_save_csv(object, def, &[], def.top, &args[1..])
+        self.query_save_csv(QueryReader::static_save(object), def, &[], def.top, &args[1..])
     }
 
     /// The rows of a query as CSV: the column names, then a row per line, each line ended by a line feed. A text with a comma or a
@@ -544,7 +574,7 @@ impl Session {
     /// Other column types are not pinned.
     fn query_save_csv(
         &mut self,
-        object: usize,
+        run: QueryReader,
         def: &ir::Query,
         filters: &[(usize, FilterExpr)],
         top: i32,
@@ -592,7 +622,7 @@ impl Session {
                 ));
             }
         }
-        let (rows, _) = self.query_rows(object, def, filters)?;
+        let (rows, _) = self.query_rows(run, def, filters)?;
         // The file of queries/W7QueryLifecycle.al:SaveAsCsv_NonIntegerColumns (a Date column and a text with an accent) is 83 bytes
         // where this writes 81; which of the two accounts for the difference is not pinned, so neither is written.
         if rows.iter().any(|r| {
@@ -883,7 +913,7 @@ impl Session {
         }
         if !qs.borrow().run.as_ref().expect("open").started {
             let filters = qs.borrow().filters.clone();
-            let (rows, stamps) = self.query_rows(qs.borrow().object as usize, def, &filters)?;
+            let (rows, stamps) = self.query_rows(QueryReader::instance(qs.borrow().object as usize), def, &filters)?;
             let mut q = qs.borrow_mut();
             let run = q.run.as_mut().expect("open");
             run.rows = rows;
@@ -899,7 +929,8 @@ impl Session {
                 return unsupported("a write to a table an open aggregated query reads (the re-read is not pinned)");
             }
             let filters = qs.borrow().filters.clone();
-            let (mut rows, stamps) = self.query_rows(qs.borrow().object as usize, def, &filters)?;
+            let (mut rows, stamps) =
+                self.query_rows(QueryReader::instance(qs.borrow().object as usize), def, &filters)?;
             let dirs: Vec<bool> = def.order_by.iter().map(|(_, asc)| *asc).collect();
             let mut q = qs.borrow_mut();
             let run = q.run.as_mut().expect("open");
@@ -993,17 +1024,25 @@ impl Session {
         out
     }
 
-    /// Runs the query: its rows in order, and the table versions they were read at.
-    /// `object`: the query object, whose Execute permission and table reads are checked.
+    /// Runs the query: its rows in order, and the table versions they were read at. `run.object`: the query object, whose
+    /// Execute permission and table reads are checked (the check of Query.Open, Y24PermExecute.al:62-63). What a static
+    /// SaveAs of a query the set denies raises is not pinned: refused (docs/probes-needed.md, "Static Query.SaveAs under a
+    /// set that denies the query").
     fn query_rows(
         &mut self,
-        object: usize,
+        run: QueryReader,
         def: &ir::Query,
         runtime: &[(usize, FilterExpr)],
     ) -> Result<(Vec<QueryRow>, Stamps), Signal> {
         if self.permission_checks() {
             let tables: Vec<usize> = def.items.iter().map(|i| i.table).collect();
-            self.permission_gate_object_read(object, &tables)?;
+            let gate = self.permission_gate_object_read(run.object, &tables);
+            if run.static_save && matches!(gate, Err(Signal::Error(_))) {
+                return unsupported(
+                    "a static Query.SaveAsCsv or Query.SaveAsXml of a query the permission set denies (its error is not pinned)",
+                );
+            }
+            gate?;
         }
         let stamps = self.query_stamps(def);
         for (table, _) in &stamps {

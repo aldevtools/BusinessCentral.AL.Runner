@@ -908,7 +908,7 @@ impl Session {
             let table = rec.borrow().table;
             let op = crate::group1_sessions::Group1Op::RecordRef(method);
             // Only a shared read holds the record for the call: GetTable counts the handles of a row (recordref_variant.rs).
-            if let use_ @ crate::group1_sessions::Group1Use::Shared(_) = self.group1_use(rec, table, op)? {
+            if let use_ @ crate::group1_sessions::Group1Use::Shared { .. } = self.group1_use(rec, table, op, args)? {
                 group1 = Some((rec.clone(), use_));
             }
         }

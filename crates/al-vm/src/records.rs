@@ -2785,7 +2785,7 @@ impl Session {
     }
 
     /// A record method AL code calls (a Record or a RecordRef): [`Session::record_op`], with the global filter group checked
-    /// (`global_group_check`). The runtime's own record calls (page refills, probes) are not AL code and pass straight on.
+    /// ([`Session::group1_use`]). The runtime's own record calls (page refills, probes) are not AL code and pass straight on.
     pub(crate) fn record_op_from_al(
         &mut self,
         method: RecordOp,
@@ -2800,7 +2800,7 @@ impl Session {
             return self.set_global_group_filter(rec, table, method, args);
         }
         let group1 = if self.global_group1.has_tables() {
-            self.group1_use(rec, table, crate::group1_sessions::Group1Op::Record(method))?
+            self.group1_use(rec, table, crate::group1_sessions::Group1Op::Record(method), args)?
         } else {
             crate::group1_sessions::Group1Use::Own
         };

@@ -457,7 +457,7 @@ impl Session {
         // the same filters is answered (`group1_sessions.rs` `group1_use`).
         if self.global_group1.has_tables() {
             let table = rec.borrow().table;
-            self.group1_use(&rec, table, crate::group1_sessions::Group1Op::Page)?;
+            self.group1_use(&rec, table, crate::group1_sessions::Group1Op::Page, &[])?;
         }
         let start = self.row_key(&rec)?;
         let mut keys = Vec::new();

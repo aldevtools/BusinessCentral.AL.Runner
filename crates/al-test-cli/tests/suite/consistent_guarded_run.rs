@@ -9,6 +9,8 @@ const SRC: &str = r#"
 table 50100 "C Row" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { Clustered = true; } } }
 table 50101 "C Other" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { Clustered = true; } } }
 codeunit 50101 "C Nothing" { trigger OnRun() begin end; }
+codeunit 50103 "C Row Run" { TableNo = "C Row"; trigger OnRun() begin Rec.Id := 7; end; }
+codeunit 50104 "C Refused" { trigger OnRun() begin if TaskScheduler.SetTaskReady(CreateGuid()) then; end; }
 codeunit 50102 "C Mark Fail" { trigger OnRun() var R: Record "C Row"; begin R.Consistent(false); Error('inner failed'); end; }
 codeunit 50000 T { Subtype = Test;
   [Test] procedure Pinned() var R: Record "C Row"; Ok: Boolean; begin
@@ -17,6 +19,10 @@ codeunit 50000 T { Subtype = Test;
     M.Consistent(false); U.Consistent(true); Commit(); end;
   [Test] procedure InnerMarksAndFails() var Ok: Boolean; begin
     Commit(); Ok := Codeunit.Run(Codeunit::"C Mark Fail"); end;
+  [Test] procedure WithRecord() var R: Record "C Row"; Row: Record "C Row"; Ok: Boolean; begin
+    Commit(); R.Consistent(false); asserterror Ok := Codeunit.Run(Codeunit::"C Row Run", Row); end;
+  [Test] procedure InnerRefused() var R: Record "C Row"; Ok: Boolean; begin
+    Commit(); R.Consistent(false); Ok := Codeunit.Run(Codeunit::"C Refused"); end;
   [Test] procedure TwoTables() var R: Record "C Row"; O: Record "C Other"; Ok: Boolean; begin
     Commit(); R.Consistent(false); O.Consistent(false); asserterror Ok := Codeunit.Run(Codeunit::"C Nothing"); end;
 }
@@ -37,10 +43,16 @@ fn guarded_run_with_consistent_marks() {
         Outcome::NotRun(why) => assert!(why.contains("another variable"), "{why}"),
         other => panic!("CommitAfterOther: {other:?}"),
     }
-    for name in ["InnerMarksAndFails", "TwoTables"] {
+    // Codeunit.Run(Id, Rec): the pin runs Codeunit.Run(Id) only (ConsistentGuardedRun.al:180).
+    for name in ["InnerMarksAndFails", "TwoTables", "WithRecord"] {
         match get(name) {
             Outcome::NotRun(why) => assert!(why.contains("only Commit() is pinned"), "{name}: {why}"),
             other => panic!("{name}: {other:?}"),
         }
+    }
+    // An inner refusal keeps its own reason: the Consistent mark does not replace it.
+    match get("InnerRefused") {
+        Outcome::NotRun(why) => assert!(why.contains("SetTaskReady"), "{why}"),
+        other => panic!("InnerRefused: {other:?}"),
     }
 }
