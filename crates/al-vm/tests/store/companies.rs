@@ -867,3 +867,23 @@ fn a_copy_made_by_install_code_stays_a_copy_through_the_baseline_bytes() {
     fresh.session.restore_baseline(&baseline);
     assert_eq!(al_testkit::text(fresh.run_in("C", "ReadCopy")), "1");
 }
+
+// CompanyProperty.DisplayName is non-empty (session-system/TestBCPlatformContracts.al:CompanyProperty_DisplayName_NonEmpty); for a
+// company whose row states a Display Name the answer is not pinned: refused. Without one it keeps main's answer.
+#[test]
+fn display_name_of_a_company_with_a_display_name_is_refused() {
+    let body = "if not Co.Get(CompanyName()) then begin Co.Name := CompanyName(); Co.Insert(); end;";
+    let r = run_with(
+        TABLES,
+        NEW_CO,
+        &format!("{body} Co.\"Display Name\" := 'Disp'; Co.Modify(); exit(CompanyProperty.DisplayName());"),
+    );
+    assert!(
+        matches!(&r, Err(Signal::Unsupported(w)) if w.contains("DisplayName")),
+        "{r:?}"
+    );
+    assert_ne!(
+        text(NEW_CO, &format!("{body} exit(CompanyProperty.DisplayName());")),
+        ""
+    );
+}

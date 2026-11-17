@@ -241,10 +241,7 @@ impl Session {
             };
         }
         if id == ids::COMPANYPROPERTY_DISPLAYNAME_1 {
-            // Non-empty (session-system/TestBCPlatformContracts.al:CompanyProperty_DisplayName_NonEmpty). That it is
-            // the company's name when no display name is set is an assumption (docs/probes-needed.md); a
-            // company that states a display name is not modelled.
-            return Ok(Value::Text(self.cx.company.clone().into()));
+            return self.company_display_name();
         }
         if id == ids::COMPANYPROPERTY_ID_1 {
             // The `Id` of the company's row of the Company table (session-system/company/CompanyRecord.al:ID_EqualsTheCompanyRecordId).
