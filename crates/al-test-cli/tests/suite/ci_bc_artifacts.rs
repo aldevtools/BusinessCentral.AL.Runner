@@ -47,12 +47,42 @@ fn before(text: &str, first: &str, then: &str) {
 #[test]
 fn the_action_names_the_builds_restores_the_cache_and_fetches() {
     let action = read(".github/actions/bc-artifacts/action.yml");
-    before(&action, "--print-builds", "actions/cache@v4");
-    before(&action, "actions/cache@v4", "--fetch-deps");
+    before(&action, "--print-builds", "actions/cache/restore@v4");
+    before(
+        &action,
+        "actions/cache/restore@v4",
+        "--fetch-deps --fetch-render-pieces",
+    );
+    before(&action, "--fetch-deps --fetch-render-pieces", "actions/cache/save@v4");
     assert!(action.contains("path: ~/.cache/al-runtime/artifacts"));
     // The key names the builds of the selection the job fetches, and other caches can use it.
-    assert!(action.contains("key: bc-artifacts-v2-${{ steps.bc.outputs.key }}"));
+    assert!(action.contains("key: bc-artifacts-v3-${{ steps.bc.outputs.key }}"));
     assert!(action.contains("value: ${{ steps.bc.outputs.key }}"));
+}
+
+/// The save runs whatever the job does later, but only after a fetch that succeeded and only on a miss, under the
+/// key the restore step tried.
+#[test]
+fn the_action_saves_the_cache_only_after_a_successful_fetch_on_a_miss() {
+    let action = read(".github/actions/bc-artifacts/action.yml");
+    let save = &action[action
+        .find("actions/cache/save@v4")
+        .expect("missing `actions/cache/save@v4`")..];
+    let step_start = action[..action.find("actions/cache/save@v4").unwrap()]
+        .rfind("- name:")
+        .expect("the save step has no name");
+    let condition = action[step_start..]
+        .lines()
+        .find(|l| l.trim_start().starts_with("if:"))
+        .expect("the save step has no `if:`");
+    assert!(condition.contains("steps.fetch.outcome == 'success'"), "{condition}");
+    assert!(
+        condition.contains("steps.restore.outputs.cache-hit != 'true'"),
+        "{condition}"
+    );
+    assert!(action.contains("id: fetch"));
+    assert!(action.contains("id: restore"));
+    assert!(save.contains("key: ${{ steps.restore.outputs.cache-primary-key }}"));
 }
 
 /// The debug tests read the BC 27 build only (`al_testfiles::MAJOR`); the step comes before the tests.
