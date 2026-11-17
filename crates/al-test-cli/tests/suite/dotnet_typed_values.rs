@@ -27,6 +27,8 @@ dotnet
         type("System.IO.Path"; DnPath) { }
         type("System.TimeSpan"; DnTimeSpan) { }
         type("System.IO.MemoryStream"; DnMemoryStream) { }
+        type("System.IO.StreamWriter"; DnStreamWriter) { }
+        type("System.IO.Stream"; DnStream) { }
         type("System.String[]"; DnStringArray) { }
         type("System.Collections.ArrayList"; DnArrayList) { }
         type("System.Collections.Queue"; DnQueue) { }
@@ -122,6 +124,39 @@ codeunit 50100 C
         Target.Data.CreateOutStream(O);
         CopyStream(O, Memory);
         exit(ReadBlob(Target) + '|' + Format(Memory.Position));
+    end;
+
+    local procedure WriterOver(var Target: Record "ALT Blob" temporary; var Base: DotNet DnStream)
+    var
+        Writer: DotNet DnStreamWriter;
+        O: OutStream;
+    begin
+        Target.Data.CreateOutStream(O);
+        Writer := Writer.StreamWriter(O);
+        Writer.Write('abc');
+        Writer.Flush();
+        Base := Writer.BaseStream;
+    end;
+
+    procedure WriterAppendsAfterFlush(): Text
+    var
+        Target: Record "ALT Blob" temporary;
+        Base: DotNet DnStream;
+    begin
+        WriterOver(Target, Base);
+        Base.WriteByte(100);
+        exit(ReadBlob(Target));
+    end;
+
+    procedure WriterOverwritesAfterFlush(): Text
+    var
+        Target: Record "ALT Blob" temporary;
+        Base: DotNet DnStream;
+    begin
+        WriterOver(Target, Base);
+        Base.Position := 0;
+        Base.WriteByte(120);
+        exit(ReadBlob(Target));
     end;
 
     procedure CopyOutWithACount(): Text
@@ -721,6 +756,17 @@ fn copystream_out_of_a_memorystream_copies_the_whole_stream_or_the_count_from_th
         Some("hello world|0") | None
     ));
     assert!(matches!(txt("CopyOutWithACount").as_deref(), Some("hello|5") | None));
+}
+
+// al-runner issue 7947: a .NET write over bytes a bridge already handed back to the Blob runs (as the zip archive's patch of its
+// header does in Y44ZipCreateMode.al, Zip_OpenTemporaryNoCopy_SecondCreate), and the Blob is marked: reading it is refused. A
+// write after them reaches the Blob.
+#[test]
+fn a_dotnet_write_over_bytes_handed_back_to_a_blob_marks_the_blob() {
+    assert!(matches!(txt("WriterAppendsAfterFlush").as_deref(), Some("abcd") | None));
+    if let Some(w) = refusal("WriterOverwritesAfterFlush") {
+        assert!(w.contains("wrote over after it had handed them back"), "{w}");
+    }
 }
 
 #[test]

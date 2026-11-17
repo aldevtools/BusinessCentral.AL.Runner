@@ -1385,6 +1385,14 @@ impl Session {
                 None => return unsupported(format!("DotNet {shown}: bytes for an unknown stream bridge {id}")),
             }
         }
+        for id in &reply.streams.overwritten {
+            match self.dotnet.bridges.get(id) {
+                Some(blob) => {
+                    blob.borrow_mut().render_pending = Some(al_builtins::stream::DOTNET_BRIDGE_OVERWRITTEN.into())
+                }
+                None => return unsupported(format!("DotNet {shown}: an unknown stream bridge {id}")),
+            }
+        }
         self.dotnet.null_string = matches!(reply.value, DotNetValue::NullString);
         let value = self.wire_to_value(reply.value).map_err(|e| prefix(e, shown))?;
         for (idx, v) in reply.by_ref {

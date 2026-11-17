@@ -172,6 +172,17 @@ pub const UNLOADED_THEN_LOADED: &str = "Blob.CreateOutStream without CalcFields,
 /// it leaves in the Blob is not pinned (al-vm `dotnet/blob_stream.rs`).
 pub const DOTNET_WRITE_AFTER_CLOSE: &str = "System.IO.Stream write after Close";
 
+/// The mark a `DotNet` call puts on the Blob behind an `OutStream` argument when .NET wrote over bytes it had already handed back
+/// to the Blob after an earlier call, or set the stream's length below them: the call succeeds
+/// (tests/al-language-onprem-dotnet/dotnet/zip-create/Y44ZipCreateMode.al, Zip_OpenTemporaryNoCopy_SecondCreate), what the Blob
+/// then holds is not pinned (al-runner issue 7947; the bridge is in tools/dotnet-sidecar/Marshal.cs).
+pub const DOTNET_BRIDGE_OVERWRITTEN: &str = "a DotNet write over bytes an OutStream had handed back";
+
+/// Whether a mark says a .NET stream left bytes in the Blob that no later `CreateOutStream` makes known.
+fn dotnet_bytes_unknown(mark: Option<&str>) -> bool {
+    matches!(mark, Some(DOTNET_WRITE_AFTER_CLOSE | DOTNET_BRIDGE_OVERWRITTEN))
+}
+
 /// The mark on the Metadata Blob of a query's Application Object Metadata row: the bytes hold only the query's id, for
 /// Microsoft's `QueryMetadataReader.FromStream` (al-vm `dotnet/query_metadata.rs`). What BC stores there is not pinned, so
 /// every other look at the Blob is refused; `HasValue` is Yes (ODataUtility.GetTenantWebServiceMetadata reads it before
@@ -283,6 +294,13 @@ pub fn render_pending_error(report: &str) -> Signal {
         return Signal::Unsupported(
             "a file a DotNet WorkbookWriter created by its name, before the writer is closed (what the file holds then is not \
              pinned)"
+                .into(),
+        );
+    }
+    if report == DOTNET_BRIDGE_OVERWRITTEN {
+        return Signal::Unsupported(
+            "a Blob whose bytes a DotNet call wrote over after it had handed them back (the call succeeds; what the Blob holds \
+             then is not pinned)"
                 .into(),
         );
     }
@@ -1124,8 +1142,7 @@ fn blob_create_out(_: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) 
         buf.dotnet_view = 0;
         if unloaded_content || buf.render_pending.as_deref().is_some_and(is_unloaded_write_mark) {
             buf.render_pending = Some(UNLOADED_WRITE.into());
-        } else if buf.render_pending.as_deref() != Some(DOTNET_WRITE_AFTER_CLOSE)
-            && crate::placeholder_output::of(&buf).is_none()
+        } else if !dotnet_bytes_unknown(buf.render_pending.as_deref()) && crate::placeholder_output::of(&buf).is_none()
         {
             // The bytes a .NET stream wrote after Close stay unknown: the new stream writes over the content. So do a
             // placeholder report output's: the stream writes over its first bytes and the rest stays (`placeholder_output`).

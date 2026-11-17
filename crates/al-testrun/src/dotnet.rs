@@ -1397,6 +1397,12 @@ fn reply_of(v: Value) -> Result<DotNetReply, DotNetFailure> {
         fx.written
             .push((e[0].as_u64().unwrap_or(0), unbase64(e[1].as_str().unwrap_or(""))));
     }
+    fx.overwritten = s["overwritten"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.as_u64())
+        .collect();
     Ok(DotNetReply {
         value,
         by_ref,
