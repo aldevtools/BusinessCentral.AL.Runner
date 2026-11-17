@@ -208,43 +208,64 @@ impl Session {
         x == object || (objects[x].kind == ObjKind::TableExtension && objects[x].extends_id == objects[object].id)
     }
 
-    /// A procedure of table `object` called on `rc` by code that holds no xRec of it (frame `f`, no case of `frame_xrec`).
-    /// - Called from the table's or a table extension's own code (a trigger or procedure of either): a plain call, as
-    ///   `table_proc_xrec` lists (record/PWTableGlobals.al:196-260; al-test-cli suite `xrec_proc_call_scope.rs`).
-    /// - Called from other code while a trigger or procedure on the same record runs further up: the table's instance of the
-    ///   record variable (ADR-021) holds `rc` as Rec and that call's xRec (`running_xrec`).
-    /// - The shape al-runner issue 8189 measured (`through_codeunit_measured`): the running call's xRec, shared, on assumption
-    ///   `xrec-table-proc-through-codeunit` (the reporter's repro passes on real BC).
-    /// - Any other shape, when that xRec holds other values than the blank record a plain call gets: the blank xRec marked
-    ///   [`XREC_OF_RUNNING_CALL`], so a read of it refuses.
+    /// A procedure of table `object` (or of one of its table extensions) called on `rc` by code that holds no xRec of it (frame
+    /// `f`, no case of `frame_xrec`).
+    /// - Called from the code of the record's table or of one of its table extensions (a trigger or procedure of any of them): a
+    ///   plain call, as `table_proc_xrec` lists (record/PWTableGlobals.al:196-260; al-test-cli suite `xrec_proc_call_scope.rs`).
+    /// - Called from other code while triggers or procedures on the same record run further up: the instances of the record
+    ///   variable (ADR-021) of its table and of its table extensions that hold `rc` as Rec, and those calls' xRecs
+    ///   (`running_xrecs`).
+    /// - The shape al-runner issue 8189 measured (`through_codeunit_measured`): the xRec of the call running on the instance of
+    ///   `object`, shared, on assumption `xrec-table-proc-through-codeunit` (the reporter's repro passes on real BC).
+    /// - Any other shape, when one of those xRecs holds other values than the blank record a plain call gets: the blank xRec
+    ///   marked [`XREC_OF_RUNNING_CALL`], so a read of it refuses.
     /// - Else, and when no call on the record runs: a plain call (record/PWTableGlobals.al:196-260 XRecPlainProc_*).
     fn running_call_xrec(&mut self, object: usize, rc: &Rec, f: &Frame) -> ProcXrec {
-        if self.table_or_its_extension(f.object, object) {
+        let table = rc.borrow().table as usize;
+        if self.table_or_its_extension(f.object, table) {
             return ProcXrec::Plain;
         }
-        let Some(running) = self.running_xrec(object, rc) else {
-            return ProcXrec::Plain;
-        };
-        let blank = self.initial_fields(rc.borrow().table as usize);
-        if Self::same_values(&running.borrow().fields, &blank) {
+        let blank = self.initial_fields(table);
+        let not_blank = |x: &Rec| !Self::same_values(&x.borrow().fields, &blank);
+        let running = self.running_xrecs(table, rc);
+        if !running.iter().any(|(_, x)| not_blank(x)) {
             return ProcXrec::Plain;
         }
-        if self.through_codeunit_measured(object, rc, f) && assumptions::hit(Assumption::XrecTableProcThroughCodeunit) {
-            return ProcXrec::Shared(running);
+        let of_object = running.iter().find(|(o, _)| *o == object).map(|(_, x)| x.clone());
+        if let Some(x) = of_object
+            && not_blank(&x)
+            && self.through_codeunit_measured(object, rc, f)
+            && assumptions::hit(Assumption::XrecTableProcThroughCodeunit)
+        {
+            return ProcXrec::Shared(x);
         }
         ProcXrec::PlainUnpinned
     }
 
-    /// The xRec of the call running on the instance of table `object` of the record variable `rc` (ADR-021): its Rec slot holds
-    /// `rc` while the call runs (`enter_record` fills it, `leave_record` empties it).
-    fn running_xrec(&self, object: usize, rc: &Rec) -> Option<Rec> {
-        let inst = rc.borrow().globals.instance(object as u32)?;
-        let o = &self.engine.program.objects[object];
-        let i = inst.borrow();
-        match (&i.globals[o.rec_slot?], &i.globals[o.xrec_slot?]) {
-            (Value::Record(r), Value::Record(x)) if Rc::ptr_eq(r, rc) => Some(x.clone()),
-            _ => None,
+    /// The xRecs of the calls running on the record variable `rc` of table `table`: of each instance (ADR-021) of the table
+    /// and of its table extensions whose Rec slot holds `rc` (`enter_record` fills it while the call runs, `leave_record`
+    /// empties it), with the instance's object.
+    fn running_xrecs(&self, table: usize, rc: &Rec) -> Vec<(usize, Rec)> {
+        let instances = rc.borrow().globals.instances();
+        let objects = &self.engine.program.objects;
+        let mut running = Vec::new();
+        for (object, inst) in instances {
+            let object = object as usize;
+            if !self.table_or_its_extension(object, table) {
+                continue;
+            }
+            let o = &objects[object];
+            let (Some(rs), Some(xs)) = (o.rec_slot, o.xrec_slot) else {
+                continue;
+            };
+            let i = inst.borrow();
+            if let (Value::Record(r), Value::Record(x)) = (&i.globals[rs], &i.globals[xs])
+                && Rc::ptr_eq(r, rc)
+            {
+                running.push((object, x.clone()));
+            }
         }
+        running
     }
 
     /// Whether the call of a procedure of table `object` on `rc` from frame `f` is the shape al-runner issue 8189 measured
@@ -254,8 +275,8 @@ impl Session {
     /// - the three innermost frames are, from the inside out: that codeunit procedure, a procedure of table `object` that is no
     ///   trigger, and the field OnValidate trigger of table `object`;
     /// - the Validate is the one `Record.Validate` AL code called on the record (`sole_validate_from_al`);
-    /// - the record is stored and its buffer came from its own Insert or from a Get of the row the open transaction wrote
-    ///   (`measured_buffer`).
+    /// - the record is stored and its buffer came from its own Insert or from a Get of the row the open transaction inserted
+    ///   and wrote nothing to since (`measured_buffer`).
     fn through_codeunit_measured(&self, object: usize, rc: &Rec, f: &Frame) -> bool {
         let objects = &self.engine.program.objects;
         let n = self.frames.len();
@@ -284,24 +305,44 @@ impl Session {
             && trigger.field.is_some()
             && trigger.name.eq_ignore_ascii_case("OnValidate")
             && self.sole_validate_from_al(Rc::as_ptr(rc) as usize)
-            && Self::measured_buffer(&rc.borrow())
+            && self.measured_buffer(&rc.borrow())
     }
 
     /// The two buffers al-runner issue 8189 measured (the reporter's `PrepareAfterInsert` and `PrepareAfterGet`): a record that is
     /// not temporary, whose buffer came from its own `Insert` (no Modify, Rename or read after it), or from a `Get` of the row
-    /// that its own transaction inserted. A Find, a GetBySystemId, a Get of a committed row or a TransferFields refuse.
-    fn measured_buffer(r: &RecordState) -> bool {
+    /// that its own transaction inserted and wrote nothing to since (`inserted_unwritten_in_tx`). A Find, a GetBySystemId, a
+    /// Get of a committed row, a Get of a row the open transaction modified or a TransferFields refuse.
+    fn measured_buffer(&self, r: &RecordState) -> bool {
         let Some(o) = r.row_origin else {
             return false;
         };
         let own_insert = !o.read_in_write_tx && !o.by_get;
-        let get_of_own_write = o.read_in_write_tx && o.by_get;
+        let get_of_own_insert = o.read_in_write_tx && o.by_get && self.inserted_unwritten_in_tx(r);
         !r.temporary
             && o.own_write
             && !o.own_modified
             && !o.lock_only
             && !o.from_find
-            && (own_insert || get_of_own_write)
+            && (own_insert || get_of_own_insert)
+    }
+
+    /// Whether the open transaction inserted the row of the buffer `r` and wrote nothing to it since: every store write since
+    /// the last Commit or rollback is noted (`writes_all_noted`), and the last of them that is to the row's key or to its whole
+    /// table (a Rename, ModifyAll, DeleteAll, Truncate or other write whose rows are not told apart) is an Insert of the row.
+    fn inserted_unwritten_in_tx(&self, r: &RecordState) -> bool {
+        use crate::state::TxWriteKind;
+        let Some(t) = self.engine.tables.get(r.table as usize).and_then(|t| t.as_deref()) else {
+            return false;
+        };
+        let pk = t.primary_key(&r.fields);
+        let last = self.tx.writes.iter().rev().find(|w| {
+            w.table == t.object
+                && w.company == r.company
+                && (crate::records::same_key(&w.pk, &pk)
+                    || !matches!(w.kind, TxWriteKind::Insert | TxWriteKind::Modify | TxWriteKind::Delete))
+        });
+        self.writes_all_noted()
+            && last.is_some_and(|w| w.kind == TxWriteKind::Insert && crate::records::same_key(&w.pk, &pk))
     }
 
     /// The before-image of the innermost running Validate of the record at `handle`, when the Validate about to start is

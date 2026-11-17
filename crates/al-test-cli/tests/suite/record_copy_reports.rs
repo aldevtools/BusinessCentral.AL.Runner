@@ -662,14 +662,210 @@ fn issue_8189_neighbors_refuse_a_read_of_xrec_or_keep_main() {
     check(&o, &want);
 }
 
+/// Neighbors of the shape of issue 8189 in the buffer and in the object whose call runs: a Get of a row the open transaction
+/// modified (after its Insert, or after a Commit), a running trigger of a table extension, and a table extension's code
+/// calling another table extension's procedure.
+const XREC_GET_AND_EXTENSIONS: &str = r##"
+table 50140 "XG Item"
+{
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(2; Value; Integer)
+        {
+            trigger OnValidate()
+            begin
+                case Mode of
+                    1: CallMover();
+                    2: Mover.CallExtProc(Rec);
+                    3: Mover.CallExtBProc(Rec);
+                end;
+            end;
+        }
+        field(3; Mode; Integer) { }
+        field(4; Seen; Integer) { }
+        field(5; Calls; Integer) { }
+    }
+    keys { key(PK; "No.") { Clustered = true; } }
+    var
+        Mover: Codeunit "XG Mover";
+
+    procedure BaseSeen()
+    begin
+        Rec.Seen := xRec.Value;
+    end;
+
+    local procedure CallMover()
+    begin
+        Mover.CallBaseProc(Rec);
+    end;
+}
+
+tableextension 50141 "XG Item Ext" extends "XG Item"
+{
+    fields
+    {
+        field(50140; ExtTrig; Integer)
+        {
+            trigger OnValidate()
+            var
+                M: Codeunit "XG Mover";
+            begin
+                M.CallBaseProc(Rec);
+            end;
+        }
+    }
+
+    procedure ExtSeen()
+    begin
+        Rec.Seen := xRec.Value;
+    end;
+}
+
+tableextension 50142 "XG Item Ext B" extends "XG Item"
+{
+    procedure ExtBCallsExtSeen()
+    begin
+        Rec.ExtSeen();
+    end;
+}
+
+codeunit 50143 "XG Mover"
+{
+    procedure CallBaseProc(var Item: Record "XG Item")
+    begin
+        Item.BaseSeen();
+    end;
+
+    procedure CallExtProc(var Item: Record "XG Item")
+    begin
+        Item.ExtSeen();
+    end;
+
+    procedure CallExtBProc(var Item: Record "XG Item")
+    begin
+        Item.ExtBCallsExtSeen();
+    end;
+}
+
+codeunit 50144 "XG Test"
+{
+    Subtype = Test;
+
+    local procedure Stored(var Item: Record "XG Item"; Mode: Integer)
+    begin
+        Item."No." := 'A';
+        Item.Value := 10;
+        Item.Mode := Mode;
+        Item.Insert(false);
+    end;
+
+    [Test]
+    procedure MeasuredChain_GetOfRowInsertedInOpenTx_Flagged()
+    var
+        Item: Record "XG Item";
+        Read: Record "XG Item";
+    begin
+        Stored(Item, 1);
+        Read.Get('A');
+        Read.Validate(Value, 15);
+        if Read.Seen <> 10 then
+            Error('Seen %1', Read.Seen);
+    end;
+
+    [Test]
+    procedure MeasuredChain_GetOfRowModifiedInOpenTx_Refused()
+    var
+        Item: Record "XG Item";
+        Other: Record "XG Item";
+        Read: Record "XG Item";
+    begin
+        Stored(Item, 1);
+        Commit();
+        Other.Get('A');
+        Other.Calls := 1;
+        Other.Modify();
+        Read.Get('A');
+        Read.Validate(Value, 15);
+    end;
+
+    [Test]
+    procedure MeasuredChain_GetOfRowInsertedThenModified_Refused()
+    var
+        Item: Record "XG Item";
+        Other: Record "XG Item";
+        Read: Record "XG Item";
+    begin
+        Stored(Item, 1);
+        Other.Get('A');
+        Other.Calls := 1;
+        Other.Modify();
+        Read.Get('A');
+        Read.Validate(Value, 15);
+    end;
+
+    [Test]
+    procedure ExtTrigger_Codeunit_BaseProc_ReadsXRec_Refused()
+    var
+        Item: Record "XG Item";
+    begin
+        Stored(Item, 0);
+        Item.Validate(ExtTrig, 1);
+    end;
+
+    [Test]
+    procedure BaseTrigger_Codeunit_ExtProc_ReadsXRec_Refused()
+    var
+        Item: Record "XG Item";
+    begin
+        Stored(Item, 2);
+        Item.Validate(Value, 15);
+    end;
+
+    [Test]
+    procedure ExtCode_CallsOtherExtProc_PlainCall()
+    var
+        Item: Record "XG Item";
+    begin
+        Stored(Item, 3);
+        Item.Validate(Value, 15);
+        if Item.Seen <> 0 then
+            Error('Seen %1', Item.Seen);
+    end;
+}
+"##;
+
+#[test]
+fn issue_8189_get_of_a_written_row_and_running_extension_triggers_refuse() {
+    let o = run(XREC_GET_AND_EXTENSIONS, "XG Test");
+    let want = [
+        // The reporter's second buffer: a Get of the row the open transaction inserted, nothing written to it since.
+        ("MeasuredChain_GetOfRowInsertedInOpenTx_Flagged", PASS, true),
+        // A Get of a row the open transaction modified, after a Commit or after its Insert: not measured.
+        ("MeasuredChain_GetOfRowModifiedInOpenTx_Refused", XREC_REFUSED, false),
+        (
+            "MeasuredChain_GetOfRowInsertedThenModified_Refused",
+            XREC_REFUSED,
+            false,
+        ),
+        // The running call is a trigger of a table extension, or the called procedure is one of a table extension.
+        ("ExtTrigger_Codeunit_BaseProc_ReadsXRec_Refused", XREC_REFUSED, false),
+        ("BaseTrigger_Codeunit_ExtProc_ReadsXRec_Refused", XREC_REFUSED, false),
+        // A table extension's own code calling another table extension's procedure: a plain call, as on main.
+        ("ExtCode_CallsOtherExtProc_PlainCall", PASS, false),
+    ];
+    check(&o, &want);
+}
+
 /// A test outcome that passes, and the start of each refusal reason the neighbor tests expect.
 const PASS: &str = "Pass";
 const XREC_REFUSED: &str = "xRec in a table procedure called through other code";
 const VIEW_REFUSED: &str = "a record handed by value whose caller had filters outside filter group 0";
 
 /// Asserts each `(name, outcome, flagged)` of `want` on the outcomes `o` of `run`: [`PASS`] is a pass, a refusal reason is
-/// `NotRun` with a text that names it.
+/// `NotRun` with a text that names it. Lists every test that differs.
 fn check(o: &[(String, String, bool)], want: &[(&str, &str, bool)]) {
+    let mut wrong = Vec::new();
     for &(name, outcome, flagged) in want {
         let got = o
             .iter()
@@ -680,9 +876,11 @@ fn check(o: &[(String, String, bool)], want: &[(&str, &str, bool)]) {
         } else {
             got.1.starts_with("NotRun") && got.1.contains(outcome)
         };
-        assert!(ok, "{name}: {}", got.1);
-        assert_eq!(got.2, flagged, "{name}");
+        if !ok || got.2 != flagged {
+            wrong.push(format!("{name}: {} (flagged {})", got.1, got.2));
+        }
     }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
 
 /// The table's own OnInsert, OnModify and OnDelete call `Rec.Proc()` (Base Application's Sales Header OnInsert calls
