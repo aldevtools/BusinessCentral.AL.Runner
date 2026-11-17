@@ -1012,12 +1012,16 @@ impl Session {
         any
     }
 
-    /// A read of global `i` of the frame's instance: the alias watch, then the single-instance notes.
+    /// The value of global `i` of the frame's instance, read by its name: the alias watch, the refusal of a single instance
+    /// whose value is not known (`single_unmeasured.rs`), then the single-instance notes.
     #[inline]
-    pub(crate) fn global_read(&mut self, i: usize, f: &Frame) -> Result<(), Signal> {
+    pub(crate) fn global_value(&mut self, i: usize, f: &Frame) -> Result<Value, Signal> {
         self.alias_access(i, f)?;
+        if let Some(why) = &f.instance.borrow().unmeasured {
+            return Err(crate::single_unmeasured::read_refused(why));
+        }
         self.single_read(&f.instance, i);
-        Ok(())
+        Ok(f.instance.borrow().globals[i].clone())
     }
 
     /// Before a read or a write of global `i` of the frame's instance by its own name while a procedure that got the same
@@ -1383,11 +1387,7 @@ impl Session {
     pub(crate) fn read_place(&mut self, p: &ir::Place, value: bool, f: &mut Frame) -> Result<Value, Signal> {
         match p {
             ir::Place::Local(i) => Ok(f.locals[*i].clone()),
-            ir::Place::Global(i) => {
-                self.alias_access(*i, f)?;
-                self.single_read(&f.instance, *i);
-                Ok(f.instance.borrow().globals[*i].clone())
-            }
+            ir::Place::Global(i) => self.global_value(*i, f),
             ir::Place::BaseGlobal(i) => {
                 let base = self.base_instance(f)?;
                 let v = base.borrow().globals.get(*i).cloned();
