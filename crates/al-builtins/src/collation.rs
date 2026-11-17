@@ -6,8 +6,10 @@
 //! comes next (`a` before `ä`); the case comes last (`a` before `A`). Equality is not decided here:
 //! two texts are equal only when they are the same characters.
 //!
-//! Only ASCII and the accented Latin-1 letters have weights. Anything else is refused, never ordered
-//! by a guess. The order of two different accents on the same letter is not pinned either.
+//! Only ASCII and the accented Latin-1 letters have weights. `compare` refuses anything else; the total order of keys
+//! (`compare_total`) puts it after every weighted letter, by code point, and a read whose answer rests on `Æ` or `æ`
+//! there refuses unless it is the assumed shape (`ae_order_measured`). The order of two different accents on the same letter
+//! is not pinned either.
 
 use std::cmp::Ordering;
 
@@ -141,6 +143,29 @@ pub fn compare_text_key_expanded(a: &str, b: &str) -> Ordering {
 /// not measured, and the code point order main gave is shown wrong for a Text field (al-runner issue 8195).
 pub fn holds_ae(t: &str) -> bool {
     t.contains(['Æ', 'æ'])
+}
+
+/// Whether the order of `t` among other texts is measured where it holds `Æ` or `æ`: only the capital `Æ` in a Text value of
+/// a normal record, compared with another Text value (assumption `text-key-ae-sorts-as-ae`, al-runner issue 8195, measured on
+/// a normal table). The small `æ`, a Code value and a temporary record are not measured: the order main gives them is
+/// shown wrong for a Text field by the same issue, so a read whose answer rests on it refuses (al-data memory/held_cols.rs).
+pub fn ae_order_measured(t: &str, text_value: bool, normal_record: bool) -> bool {
+    !holds_ae(t) || (text_value && normal_record && !t.contains('æ'))
+}
+
+/// `t` with each accented letter of [`ACCENTED`] replaced by its base letter, in its case: the text as a filter that ignores
+/// accents reads it (al-runner issue 8196, title: BC ignores accents under `@`).
+pub fn fold_accents(t: &str) -> String {
+    t.chars()
+        .map(|c| {
+            let lower = c.to_lowercase().next().unwrap_or(c);
+            match ACCENTED.iter().find(|(set, _)| set.contains(lower)) {
+                Some((_, base)) if c == lower => *base,
+                Some((_, base)) => base.to_ascii_uppercase(),
+                None => c,
+            }
+        })
+        .collect()
 }
 
 /// The key order of two text values: [`text_field_key_order`] when both are Text values, [`text_key_order`] when either is a

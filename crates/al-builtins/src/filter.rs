@@ -77,6 +77,10 @@ impl FilterExpr {
         if let Some(why) = self.unpinned_match() {
             return Err(Signal::unsupported(why));
         }
+        // These callers do not say whether the record is a normal one, which the collation measurements need.
+        if let Some(why) = self.collation_refusal(v, false) {
+            return Err(Signal::unsupported(why));
+        }
         Ok(self.matches_checked(v))
     }
 
@@ -145,6 +149,82 @@ impl FilterExpr {
             _ => None,
         }
     }
+}
+
+impl FilterExpr {
+    /// Why the answer of this filter for the text value `v` rests on an order or a match of letters no measurement covers
+    /// (review of al-runner PR 8220): an ordered comparison where either text holds `Æ` or `æ` outside
+    /// [`crate::collation::ae_order_measured`], or an `@` filter whose answer changes when the accents are ignored
+    /// ([`at_refusal`]). `normal_record`: the value is of a normal record, the only kind either measurement covers.
+    pub fn collation_refusal(&self, v: &Value, normal_record: bool) -> Option<String> {
+        let v = &*blank_if_spaces(v);
+        let (Value::Text(t) | Value::Code(t)) = v else {
+            return None;
+        };
+        let ordered = |x: &Value| {
+            let (Value::Text(b) | Value::Code(b)) = x else {
+                return None;
+            };
+            let both_text = matches!((v, x), (Value::Text(_), Value::Text(_)));
+            let measured = |s: &str| crate::collation::ae_order_measured(s, both_text, normal_record);
+            (!(measured(t) && measured(b))).then(|| {
+                format!(
+                    "the order of '{}' and '{}' in a filter (the letters Æ and æ are measured only in two Text values of a normal record, the capital Æ)",
+                    t.as_str(),
+                    b.as_str()
+                )
+            })
+        };
+        match self {
+            FilterExpr::Range(lo, hi) => lo.iter().chain(hi.iter()).find_map(ordered),
+            FilterExpr::Lt(x) | FilterExpr::Le(x) | FilterExpr::Gt(x) | FilterExpr::Ge(x) => ordered(x),
+            FilterExpr::Like(p, true) | FilterExpr::NotLike(p, true) => {
+                at_refusal(t, p, matches!(v, Value::Text(_)), normal_record)
+            }
+            FilterExpr::Or(xs) | FilterExpr::And(xs) => xs.iter().find_map(|x| x.collation_refusal(v, normal_record)),
+            FilterExpr::NumCode(inner) | FilterExpr::UnpinnedText(inner) => inner.collation_refusal(v, normal_record),
+            _ => None,
+        }
+    }
+
+    /// Whether a value or a pattern of this filter holds a letter outside ASCII: a store checks its rows with
+    /// [`FilterExpr::collation_refusal`] then, whatever letters they hold.
+    pub fn holds_non_ascii(&self) -> bool {
+        let non_ascii = |x: &Value| matches!(x, Value::Text(s) | Value::Code(s) if !s.is_ascii());
+        match self {
+            FilterExpr::Range(lo, hi) => lo.iter().chain(hi.iter()).any(non_ascii),
+            FilterExpr::Lt(x) | FilterExpr::Le(x) | FilterExpr::Gt(x) | FilterExpr::Ge(x) => non_ascii(x),
+            FilterExpr::Like(p, _) | FilterExpr::NotLike(p, _) => !p.is_ascii(),
+            FilterExpr::Or(xs) | FilterExpr::And(xs) => xs.iter().any(FilterExpr::holds_non_ascii),
+            FilterExpr::NumCode(inner) | FilterExpr::UnpinnedText(inner) => inner.holds_non_ascii(),
+            _ => false,
+        }
+    }
+}
+
+/// Why an `@` filter's answer for `text` is not measured: on a temporary record, a Text value with the capital `É` the
+/// assumption `at-filter-e-matches-e-acute` reads (measured on a normal table, al-runner issue 8196); on any record, an
+/// accented letter in the text or the pattern where the answer with the accents ignored differs (issue 8196: BC ignores
+/// accents; only `É` in a Text value against `e` is measured).
+fn at_refusal(text: &str, pattern: &str, text_value: bool, normal_record: bool) -> Option<String> {
+    if text.is_ascii() && pattern.is_ascii() {
+        return None;
+    }
+    if text_value && !normal_record && text.contains('É') {
+        return Some(format!(
+            "the filter '@{pattern}' on '{text}' of a temporary record (É under @ is measured on a normal record only)"
+        ));
+    }
+    let folded = |s: &str| crate::collation::fold_accents(s);
+    (like(text, pattern, true, text_value) != like(&folded(text), &folded(pattern), true, false))
+        .then(|| format!("the filter '@{pattern}' on '{text}': whether @ ignores these accents is not measured"))
+}
+
+/// The first filter of `filters` whose answer for `row` is not measured ([`FilterExpr::collation_refusal`]).
+pub fn row_collation_refusal(row: &[Value], filters: &[FieldFilter], normal_record: bool) -> Option<String> {
+    filters
+        .iter()
+        .find_map(|f| f.expr.collation_refusal(&row[f.field], normal_record))
 }
 
 impl FilterExpr {
@@ -2682,6 +2762,19 @@ mod compare_error_tests {
         assert!(!range.matches_checked(&t("Bravo")));
         assert!(!range.matches_checked(&t("ærø")));
         assert!(!FilterExpr::Range(Some(c("A")), Some(c("B"))).matches_checked(&c("ÆRØ")));
+    }
+
+    /// Review of al-runner PR 8220: `FilterExpr::matches` does not know whether the record is a normal one, so a range on `Æ` and an
+    /// `@` filter on `É` refuse there; equality and plain letters keep their answer.
+    #[test]
+    fn matches_refuses_the_letters_measured_on_normal_records_only() {
+        let t = |s: &str| Value::Text(s.to_string().into());
+        let range = FilterExpr::Range(Some(t("A")), Some(t("B")));
+        assert!(range.matches(&t("Ærø")).is_err());
+        assert!(range.matches(&t("Alpha")).unwrap());
+        assert!(FilterExpr::Eq(t("Ærø")).matches(&t("Ærø")).unwrap());
+        assert!(FilterExpr::Like("emile".into(), true).matches(&t("Émile")).is_err());
+        assert!(FilterExpr::Like("emile".into(), true).matches(&t("Emile")).unwrap());
     }
 
     /// al-runner issue 8196 (assumption `at-filter-e-matches-e-acute`): `@emile` finds `Émile`. Every neighbor keeps main's
