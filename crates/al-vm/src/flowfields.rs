@@ -77,6 +77,13 @@ impl Tally {
             }
             M::Min | M::Max => {
                 let v = &row[calc.field.expect("field")];
+                if let Value::Text(t) | Value::Code(t) = v
+                    && al_builtins::collation::holds_ae(t)
+                {
+                    return unsupported(
+                        "a min or max FlowField over a text with the letter `Æ` or `æ`: its order is not measured (al-runner issue 8195)",
+                    );
+                }
                 self.best = match self.best.take() {
                     None => Some(v.clone()),
                     Some(b) => match (calc.method, ops::compare(v, &b)?) {
