@@ -726,8 +726,13 @@ impl Session {
                 // A table procedure runs with the record as its Rec, on the record
                 // variable's own globals (ADR-021).
                 Value::Record(rc) => {
-                    // The caller's xRec the procedure shares (`table_proc_xrec`: the page's or the field trigger's), else none.
-                    let caller_xrec = self.table_proc_xrec(object, &rc, f);
+                    // The caller's xRec the procedure shares (`table_proc_xrec`: the page's, the field trigger's or the running
+                    // call's), else none.
+                    let proc_xrec = self.table_proc_xrec(object, &rc, f);
+                    let caller_xrec = match &proc_xrec {
+                        crate::records::ProcXrec::Shared(x) => Some(x.clone()),
+                        _ => None,
+                    };
                     let handle = Rc::as_ptr(&rc) as usize;
                     let (inst, saved) = self.enter_record(object, rc, caller_xrec.as_ref())?;
                     // A plain call: the procedure's xRec is the blank record `enter_record` made (`plain_proc_xrec`).
@@ -738,6 +743,9 @@ impl Session {
                             _ => None,
                         }
                     });
+                    if let (crate::records::ProcXrec::PlainUnpinned, Some(Some(x))) = (&proc_xrec, &plain) {
+                        x.borrow_mut().unpinned_buffer = Some(crate::records::XREC_OF_RUNNING_CALL);
+                    }
                     let pushed = if let Some(Some(x)) = plain {
                         self.plain_proc_xrec.push((handle, self.call_stack.len() + 1, x));
                         true
