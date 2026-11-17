@@ -219,11 +219,11 @@ fn a_partner_subscriber_that_sets_a_single_instance_of_another_app_refuses_its_r
     assert_only_the_reader_is_refused(login, "\"Sys Cache\"", "Get() = 0", "Sys Cache");
 }
 
-// The reporter's shape of al-runner issue 8239: the partner login calls a Microsoft SingleInstance codeunit that keeps
-// what it found (`Env Memo`, as Environment Information Impl. keeps IsSaaS). In the reporter's one test codeunit the
-// test that asks it again is not run at that read; the test that reads nothing runs.
+// A stand-in for the shape of al-runner issue 8239 (not the reporter's setup, which has Base Application): the partner
+// login calls a SingleInstance codeunit that keeps what it found (`Env Memo`, as Environment Information Impl. keeps
+// IsSaaS). The test that asks it again is not run at that read; the test that reads nothing runs.
 #[test]
-fn the_reporters_login_that_fills_a_microsoft_memo_refuses_only_the_test_that_reads_it() {
+fn a_login_that_fills_a_memo_codeunit_refuses_only_the_test_that_reads_it() {
     let login = "var M: Codeunit \"Env Memo\"; begin if M.IsSaaS() then; end;";
     let tests = "codeunit 60911 Inst { Subtype = Install; trigger OnInstallAppPerCompany() begin end; }
         codeunit 60970 \"PX Env Test\" { Subtype = Test;
