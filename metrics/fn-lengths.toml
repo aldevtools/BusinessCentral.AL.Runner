@@ -24,7 +24,7 @@
 "crates/al-testrun/src/reach.rs::report" = 315
 "crates/al-testrun/src/runtime/corpus.rs::compile_suites_once" = 446
 "crates/al-testrun/src/runtime/corpus.rs::run_compiled_kept" = 867
-"crates/al-testrun/src/runtime/run.rs::run_codeunit_inner" = 812
+"crates/al-testrun/src/runtime/run.rs::run_codeunit_inner" = 805
 "crates/al-version/src/gates.rs::evidence" = 433
 "crates/al-vm/src/exec/compile.rs::expr_into" = 315
 "crates/al-vm/src/exec/run.rs::run_range" = 338
@@ -33,7 +33,7 @@
 "crates/al-vm/src/pages/controls.rs::test_control_op" = 479
 "crates/al-vm/src/pages/open/page_open.rs::open_page_as_inner" = 301
 "crates/al-vm/src/pages/pageops.rs::test_page_op" = 271
-"crates/al-vm/src/pages/pageops.rs::test_page_op_inner" = 535
+"crates/al-vm/src/pages/pageops.rs::test_page_op_inner" = 531
 "crates/al-vm/src/recmeta.rs::record_meta_op" = 404
 "crates/al-vm/src/records/op_inner.rs::record_op_inner" = 1820
 "crates/al-vm/src/refs.rs::recordref_op_inner" = 337

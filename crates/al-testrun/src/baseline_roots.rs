@@ -130,13 +130,8 @@ impl RootRun<'_> {
             Ok(_) => None,
             Err(Signal::Unsupported(r)) => {
                 let reason = r.into_reason();
-                Some(match session.fault_site().last() {
-                    Some(f) => {
-                        let at = crate::explain::describe(&self.lowered.program, f.object, f.routine, f.pos);
-                        (reason.clone(), format!("{reason} [in {} at {}]", at.who, at.at))
-                    }
-                    None => (reason.clone(), reason),
-                })
+                let at = crate::explain::site_suffix(&self.lowered.program, session.fault_site());
+                Some((reason.clone(), format!("{reason}{at}")))
             }
             Err(Signal::Error(e)) => {
                 let text = format!("failed with an error: {}", e.message);
