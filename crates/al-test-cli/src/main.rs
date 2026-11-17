@@ -680,7 +680,9 @@ fn sidecar_config(args: &Args, root: &Path, major: u16) -> SidecarConfig {
         // (corpus_harness.rs `outcomes_do_not_depend_on_threads_or_home`). A missing assembly is refused, as on CI.
         assembly_dirs: args.dotnet_assembly_dirs.clone(),
         allow_roll_forward: args.dotnet_allow_roll_forward,
-        // BC 29 runs on .NET 10, 27 and 28 on .NET 8 (al_testrun::dotnet_runtime).
+        // No service tier is loaded, so the BC major's table picks the .NET major (al_testrun::dotnet_runtime). A test
+        // (config.rs `every_pinned_build_runs_on_the_net_major_of_the_corpus_sidecar_table`) keeps it equal to the measured
+        // major of each `bc_build` of oracle/oracle.toml.
         bc_major: Some(u32::from(major)),
         timeout: Duration::from_secs(args.dotnet_timeout_secs.unwrap_or(60)),
         ..Default::default()
