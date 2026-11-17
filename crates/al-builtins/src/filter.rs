@@ -77,6 +77,10 @@ impl FilterExpr {
         if let Some(why) = self.unpinned_match() {
             return Err(Signal::unsupported(why));
         }
+        // These callers do not say whether the record is a normal one, which the collation measurements need.
+        if let Some(why) = self.collation_refusal(v, false) {
+            return Err(Signal::unsupported(why));
+        }
         Ok(self.matches_checked(v))
     }
 
@@ -90,6 +94,7 @@ impl FilterExpr {
             return crate::filter_blob::matches(self, b);
         }
         let v = &*blank_if_spaces(v);
+        let text_value = matches!(v, Value::Text(_));
         let cmp = |x: &Value| {
             let x = blank_if_spaces(x);
             crate::ops::hyphen_filter_order(v, &x).or_else(|| compare(v, &x).ok())
@@ -98,9 +103,9 @@ impl FilterExpr {
         // regard to case first (record/filters/UcQuotedValues.al SetView_FilterGreaterB `view_txt_plain_ids`,
         // PageAndQuery_FilterGreaterB `page_txt_ids`: `>B` keeps neither a>b nor a>). Equality stays exact.
         let ord = |x: &Value| match (v, x) {
-            (Value::Text(a), Value::Text(b) | Value::Code(b)) if !a.has_marker() && !b.has_marker() => {
-                Some(crate::ops::text_key_order(a, b))
-            }
+            (Value::Text(a), Value::Text(b) | Value::Code(b)) if !a.has_marker() && !b.has_marker() => Some(
+                crate::collation::text_value_key_order(a, b, matches!(x, Value::Text(_))),
+            ),
             _ => cmp(x),
         };
         match self {
@@ -117,8 +122,8 @@ impl FilterExpr {
             FilterExpr::Le(x) => matches!(ord(x), Some(Ordering::Less | Ordering::Equal)),
             FilterExpr::Gt(x) => ord(x) == Some(Ordering::Greater),
             FilterExpr::Ge(x) => matches!(ord(x), Some(Ordering::Greater | Ordering::Equal)),
-            FilterExpr::Like(p, ci) => crate::native::text_of(v).is_some_and(|t| like(&t, p, *ci)),
-            FilterExpr::NotLike(p, ci) => crate::native::text_of(v).is_some_and(|t| !like(&t, p, *ci)),
+            FilterExpr::Like(p, ci) => crate::native::text_of(v).is_some_and(|t| like(&t, p, *ci, text_value)),
+            FilterExpr::NotLike(p, ci) => crate::native::text_of(v).is_some_and(|t| !like(&t, p, *ci, text_value)),
             FilterExpr::AtSignAlone(negated) => !negated,
             FilterExpr::EmptyViewValue => true,
             FilterExpr::Or(xs) => xs.iter().any(|x| x.matches_checked(v)),
@@ -187,7 +192,7 @@ impl FilterExpr {
 }
 
 /// The value, or the blank text when it is spaces only; borrowed (no clone) in the usual case.
-fn blank_if_spaces(v: &Value) -> std::borrow::Cow<'_, Value> {
+pub(crate) fn blank_if_spaces(v: &Value) -> std::borrow::Cow<'_, Value> {
     use std::borrow::Cow;
     match v {
         Value::Text(s) if !s.is_empty() && s.bytes().all(|c| c == b' ') => {
@@ -204,24 +209,53 @@ fn blank_if_spaces(v: &Value) -> std::borrow::Cow<'_, Value> {
     }
 }
 
-fn like(text: &str, pattern: &str, ci: bool) -> bool {
-    let (t, p): (Vec<char>, Vec<char>) = if ci {
+/// Whether `text` matches the wildcard `pattern`, without regard to case under `@` (`ci`). `text_value`: the value is of a Text
+/// field, the only type the measurement of `at_letters_with_e_acute` covers.
+pub(crate) fn like(text: &str, pattern: &str, ci: bool, text_value: bool) -> bool {
+    // Each character of the text, and whether it is a capital `É` of a Text value under `@`.
+    let (t, p): (Vec<(char, bool)>, Vec<char>) = if ci && text_value && text.contains('É') {
+        (at_letters_with_e_acute(text), pattern.to_lowercase().chars().collect())
+    } else if ci {
         (
-            text.to_lowercase().chars().collect(),
+            text.to_lowercase().chars().map(|c| (c, false)).collect(),
             pattern.to_lowercase().chars().collect(),
         )
     } else {
-        (text.chars().collect(), pattern.chars().collect())
+        (text.chars().map(|c| (c, false)).collect(), pattern.chars().collect())
     };
-    fn go(t: &[char], p: &[char]) -> bool {
+    fn go(t: &[(char, bool)], p: &[char]) -> bool {
         match p.first() {
             None => t.is_empty(),
             Some('*') => (0..=t.len()).any(|i| go(&t[i..], &p[1..])),
             Some('?') => !t.is_empty() && go(&t[1..], &p[1..]),
-            Some(c) => t.first() == Some(c) && go(&t[1..], &p[1..]),
+            Some(c) => {
+                t.first()
+                    .is_some_and(|&(tc, e_acute)| tc == *c || (e_acute && *c == 'e' && e_acute_hit()))
+                    && go(&t[1..], &p[1..])
+            }
         }
     }
     go(&t, &p)
+}
+
+/// The lower-cased characters of a value with a capital `É` under `@`, each `É` marked: the letter `e` of the filter matches it
+/// (assumption `at-filter-e-matches-e-acute`, al-runner issue 8196: `@emile` finds `Émile`). The text between two `É` is
+/// lower-cased as a whole, as main lower-cases the value.
+fn at_letters_with_e_acute(text: &str) -> Vec<(char, bool)> {
+    let mut out = Vec::with_capacity(text.len());
+    for (k, part) in text.split('É').enumerate() {
+        if k > 0 {
+            out.push(('é', true));
+        }
+        out.extend(part.to_lowercase().chars().map(|c| (c, false)));
+    }
+    out
+}
+
+/// Marks the assumption of [`at_letters_with_e_acute`] at each comparison of a marked `É` with `e` of the filter, whether or
+/// not the match then succeeds.
+fn e_acute_hit() -> bool {
+    crate::assumptions::hit(crate::assumptions::Assumption::AtFilterEMatchesEAcute)
 }
 
 /// Parses a `SetFilter` expression for a field of type `ty`. `%1`.. take the
@@ -656,12 +690,39 @@ pub fn with_date_context<R>(ctx: DateFilterContext, f: impl FnOnce() -> R) -> R 
     r
 }
 
+/// The error of Record.SetFilter and FieldRef.SetFilter on a Text field for the whole filter texts record/crud/RcAFilters.al:
+/// 640-660 (SetFilter_Text_Invalid) pins, as written: `..` (:646, :658 `dotsOnly`), `>` (:644, :656 `opOnly`), and `a&` (:642,
+/// :654 `trailingAnd`), read as a term of ASCII letters and digits before `&`. A blank, a placeholder, a wildcard or `@` in the
+/// text, another operator, and every other caller are not pinned: [`parse_filter_with`] refuses these three texts, and their
+/// neighbors keep its answer.
+pub fn set_filter_text_error(text: &str, ty: &crate::value::RtType) -> Option<&'static str> {
+    if !matches!(ty, crate::value::RtType::Text(_)) {
+        return None;
+    }
+    match text {
+        ".." => Some("Both sides of the range ('..') cannot be empty."),
+        ">" => Some("A value is expected after the '>'."),
+        _ if text
+            .strip_suffix('&')
+            .is_some_and(|term| !term.is_empty() && term.bytes().all(|b| b.is_ascii_alphanumeric())) =>
+        {
+            Some("The right side of '&' operators cannot be empty.")
+        }
+        _ => None,
+    }
+}
+
 pub fn parse_filter_with(
     text: &str,
     args: &[crate::value::Value],
     ty: &crate::value::RtType,
     enums: &dyn Fn(u32) -> Result<Vec<(i32, String)>, String>,
 ) -> Result<FilterExpr, String> {
+    if set_filter_text_error(text, ty).is_some() {
+        return Err(format!(
+            "the filter `{text}` on a Text field outside Record.SetFilter and FieldRef.SetFilter: BC's error there is not pinned"
+        ));
+    }
     if matches!(ty, crate::value::RtType::Date) {
         if let Some(e) = date_letter_filter(text.trim()) {
             return e;
@@ -1117,6 +1178,11 @@ impl Parser<'_> {
         matches!(self.ty, crate::value::RtType::Date)
     }
 
+    /// A Text field.
+    fn text_field(&self) -> bool {
+        matches!(self.ty, crate::value::RtType::Text(_))
+    }
+
     fn or(&mut self) -> Result<FilterExpr, String> {
         if self.date() && self.peek_op() == Some("|") {
             return Err(format!("{FILTER_SYNTAX}{LEFT_OF_OR_EMPTY}"));
@@ -1570,6 +1636,11 @@ impl Parser<'_> {
                 let before = self.written_wildcard;
                 let v = match self.value() {
                     Some(v) => self.typed(v)?,
+                    // An ordered operator without a value on a Text field: only the whole filter `>` is pinned, and only for
+                    // Record.SetFilter and FieldRef.SetFilter (`set_filter_text_error`); the others are not.
+                    None if self.text_field() && matches!(op, "<" | ">" | "<=" | ">=") => {
+                        return Err(format!("value expected after `{op}`"));
+                    }
                     None if matches!(self.ty, crate::value::RtType::Text(_) | crate::value::RtType::Code(_)) => {
                         Value::Text(String::new().into())
                     }
@@ -1606,6 +1677,7 @@ impl Parser<'_> {
             }
             Some("..") => {
                 self.i += 1;
+                // `..` alone on a Date (P81DateFilters.al:149).
                 if self.date() && self.i == self.toks.len() && self.i == 1 {
                     return Err(format!(
                         "{FILTER_SYNTAX}Both sides of the range ('..') cannot be empty."
@@ -1690,7 +1762,54 @@ pub struct FieldFilter {
     pub group: i32,
 }
 
+impl FilterExpr {
+    /// Exact structural identity, values by [`Value::identical`]: for keys that ask "is this exactly the filter it was",
+    /// never AL equality.
+    pub fn identical(&self, other: &FilterExpr) -> bool {
+        fn all(a: &[FilterExpr], b: &[FilterExpr]) -> bool {
+            a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.identical(y))
+        }
+        fn same(a: &Option<Value>, b: &Option<Value>) -> bool {
+            match (a, b) {
+                (Some(a), Some(b)) => a.identical(b),
+                (None, None) => true,
+                _ => false,
+            }
+        }
+        use FilterExpr::*;
+        match (self, other) {
+            (Range(a, b), Range(c, d)) => same(a, c) && same(b, d),
+            (Eq(a), Eq(b))
+            | (RangeSame(a), RangeSame(b))
+            | (Ne(a), Ne(b))
+            | (Lt(a), Lt(b))
+            | (Le(a), Le(b))
+            | (Gt(a), Gt(b))
+            | (Ge(a), Ge(b)) => a.identical(b),
+            (Or(a), Or(b)) | (And(a), And(b)) => all(a, b),
+            (Like(a, x), Like(b, y)) | (NotLike(a, x), NotLike(b, y)) => a == b && x == y,
+            (AtSignAlone(a), AtSignAlone(b)) => a == b,
+            (EmptyViewValue, EmptyViewValue) => true,
+            (NumCode(a), NumCode(b)) | (UnpinnedText(a), UnpinnedText(b)) => a.identical(b),
+            (UnpinnedMatch(a, s), UnpinnedMatch(b, t)) => s == t && a.identical(b),
+            (
+                Range(..) | Eq(_) | RangeSame(_) | Ne(_) | Lt(_) | Le(_) | Gt(_) | Ge(_) | Or(_) | And(_) | Like(..)
+                | NotLike(..) | AtSignAlone(_) | EmptyViewValue | NumCode(_) | UnpinnedMatch(..) | UnpinnedText(_),
+                _,
+            ) => false,
+        }
+    }
+}
+
 impl FieldFilter {
+    /// Exact structural identity ([`FilterExpr::identical`]) of language, field, filter and group.
+    pub fn identical(&self, other: &FieldFilter) -> bool {
+        self.lang == other.lang
+            && self.field == other.field
+            && self.group == other.group
+            && self.expr.identical(&other.expr)
+    }
+
     /// A filter set now: it records the language of this thread ([`filter_language`]).
     pub fn new(field: usize, expr: FilterExpr, group: i32) -> Self {
         FieldFilter {
@@ -1736,15 +1855,13 @@ pub fn row_passes(row: &[Value], filters: &[FieldFilter]) -> Result<bool, Signal
     Ok(row_passes_checked(row, filters))
 }
 
-/// Whether every filter matches its field of `row`, whatever its group; a filter whose matching is not pinned refuses.
+/// Whether every filter matches its field of `row`, whatever its group, for a reader that does not know whether the record is a
+/// normal one ([`all_match_on`]).
 pub fn all_match(filters: &[FieldFilter], row: &[Value]) -> Result<bool, Signal> {
-    for f in filters {
-        if !f.expr.matches(&row[f.field])? {
-            return Ok(false);
-        }
-    }
-    Ok(true)
+    all_match_on(filters, row, false)
 }
+
+pub use crate::filter_collation::{all_match_on, row_passes_collation};
 
 /// `row` when every filter matches it ([`all_match`]), else `None`.
 pub fn passing(filters: &[FieldFilter], row: Option<Vec<Value>>) -> Result<Option<Vec<Value>>, Signal> {
@@ -2607,5 +2724,102 @@ mod compare_error_tests {
         ]);
         assert!(f.compare_error(&Value::Code("C".into())).is_none());
         assert!(f.compare_error(&Value::Code("".into())).is_none());
+    }
+
+    /// al-runner issue 8195: `SetRange(Name, 'A', 'B')` on a Text field finds `Ærø` (assumption `text-key-ae-sorts-as-ae`); on a
+    /// Code field the range keeps main's answer.
+    #[test]
+    fn a_text_range_holds_the_capital_ae_as_ae() {
+        let t = |s: &str| Value::Text(s.to_string().into());
+        let c = |s: &str| Value::Code(s.to_string().into());
+        let range = FilterExpr::Range(Some(t("A")), Some(t("B")));
+        assert!(range.matches_checked(&t("Ærø")));
+        assert!(range.matches_checked(&t("Alpha")));
+        assert!(!range.matches_checked(&t("Bravo")));
+        assert!(!range.matches_checked(&t("ærø")));
+        assert!(!FilterExpr::Range(Some(c("A")), Some(c("B"))).matches_checked(&c("ÆRØ")));
+    }
+
+    /// Review of al-runner PR 8220: `FilterExpr::matches` does not know whether the record is a normal one, so a range on `Æ` and an
+    /// `@` filter on `É` refuse there; equality and plain letters keep their answer.
+    #[test]
+    fn matches_refuses_the_letters_measured_on_normal_records_only() {
+        let t = |s: &str| Value::Text(s.to_string().into());
+        let range = FilterExpr::Range(Some(t("A")), Some(t("B")));
+        assert!(range.matches(&t("Ærø")).is_err());
+        assert!(range.matches(&t("Alpha")).unwrap());
+        assert!(FilterExpr::Eq(t("Ærø")).matches(&t("Ærø")).unwrap());
+        assert!(FilterExpr::Like("emile".into(), true).matches(&t("Émile")).is_err());
+        assert!(FilterExpr::Like("emile".into(), true).matches(&t("Emile")).unwrap());
+    }
+
+    /// al-runner issue 8196 (assumption `at-filter-e-matches-e-acute`): `@emile` finds `Émile`. Every neighbor keeps main's
+    /// answer: without `@`, a small `é` in the value, another accent, and `é` in the filter against `e` in the value.
+    #[test]
+    fn an_at_filter_matches_the_capital_e_acute_with_e() {
+        crate::assumptions::clear_hits();
+        assert!(super::like("Émile", "emile", true, true));
+        assert!(super::like("Émile", "EMILE*", true, true));
+        assert!(crate::assumptions::take_hits().contains(&crate::assumptions::Assumption::AtFilterEMatchesEAcute));
+        assert!(super::like("Émile", "émile", true, true));
+        assert!(!super::like("Émile", "emile", false, true));
+        assert!(!super::like("émile", "emile", true, true));
+        assert!(!super::like("Èmile", "emile", true, true));
+        assert!(!super::like("Emile", "émile", true, true));
+        assert!(super::like("Alpha", "alpha*", true, true));
+        // A Code value keeps main's exact letters (review of al-runner PR 8220, probe at-obs DC1).
+        crate::assumptions::clear_hits();
+        assert!(!super::like("ÉMILE", "emile", true, false));
+        assert!(crate::assumptions::take_hits().is_empty());
+    }
+
+    /// The filter errors of a Text field pinned by record/crud/RcAFilters.al:640-660 (SetFilter_Text_Invalid), by whole filter
+    /// text (`set_filter_text_error`, for Record.SetFilter and FieldRef.SetFilter). Every other caller refuses these texts; the
+    /// blank, placeholder and wildcard variants and a Code field keep main's answers; an ordered operator without a value on a
+    /// Text field refuses (review of al-runner PR 8220, probe fe-obs E04-E09, E27-E39).
+    #[test]
+    fn the_pinned_errors_of_a_text_field_and_their_neighbors() {
+        use crate::value::RtType;
+        let text = RtType::Text(Some(50));
+        let code = RtType::Code(Some(20));
+        let pinned = |t: &str| super::set_filter_text_error(t, &text);
+        assert_eq!(pinned(".."), Some("Both sides of the range ('..') cannot be empty."));
+        assert_eq!(pinned(">"), Some("A value is expected after the '>'."));
+        assert_eq!(pinned("a&"), Some("The right side of '&' operators cannot be empty."));
+        assert_eq!(
+            pinned("Ab12&"),
+            Some("The right side of '&' operators cannot be empty.")
+        );
+        for t in [
+            " ..", ".. ", " >", "> ", "a& ", "a &", "%1&", "a*&", "@a&", "&", "a&b&", "<", ">=", "<=",
+        ] {
+            assert_eq!(pinned(t), None, "{t}");
+        }
+        assert_eq!(super::set_filter_text_error("..", &code), None);
+        assert_eq!(super::set_filter_text_error(">", &code), None);
+        let err = |t: &str, ty: &RtType| super::parse_filter(t, &[], ty).err().unwrap_or_default();
+        // The other callers (SetView, TestPage filters, Query.SetFilter) refuse the three texts.
+        for t in ["..", ">", "a&"] {
+            assert!(
+                err(t, &text).contains("BC's error there is not pinned"),
+                "{t}: {}",
+                err(t, &text)
+            );
+        }
+        // Main's answers.
+        assert_eq!(err("..", &code), "value expected after ..");
+        assert_eq!(err(" ..", &text), "value expected after ..");
+        assert!(super::parse_filter(">", &[], &code).is_ok());
+        assert!(!err("a& ", &text).is_empty() && !err("a& ", &text).starts_with(super::FILTER_SYNTAX));
+        assert!(!err("a&b&", &text).starts_with(super::FILTER_SYNTAX));
+        // An ordered operator without a value on a Text field.
+        for t in ["<", ">=", "<=", " >", "> ", ">|a", "a&>"] {
+            assert!(
+                err(t, &text).starts_with("value expected after"),
+                "{t}: {}",
+                err(t, &text)
+            );
+        }
+        assert!(super::parse_filter("<", &[], &code).is_ok());
     }
 }

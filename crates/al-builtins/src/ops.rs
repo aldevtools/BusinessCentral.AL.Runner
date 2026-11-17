@@ -1488,63 +1488,7 @@ fn digit_code_order(a: &str, b: &str) -> Option<Ordering> {
     }
 }
 
-/// The order of two text key values: trailing blanks do not count, the letters compare without regard to their case first
-/// (collation order), and two texts that differ only in case are ordered by it (`a` before `A`), so they are two keys. A
-/// character the collation has no weight for falls back to the code point order of the trimmed texts
-/// (record/crud/RcAGetFind.al:Get_Text_Key, Find_Text_Key_Case_Insensitive).
-pub fn text_key_order(a: &str, b: &str) -> Ordering {
-    // The common case first, without trimming or copying: byte-equal texts are equal, and two texts that first differ
-    // at an upper-case letter or a digit are ordered by that byte (the collation agrees with the code points there), or,
-    // when one is the start of the other, by what the longer one adds besides blanks.
-    let (ab, bb) = (a.as_bytes(), b.as_bytes());
-    let n = ab.iter().zip(bb).take_while(|(x, y)| x == y).count();
-    if n == ab.len() && n == bb.len() {
-        return Ordering::Equal;
-    }
-    let plain = |c: u8| c.is_ascii_uppercase() || c.is_ascii_digit();
-    if n < ab.len() && n < bb.len() && plain(ab[n]) && plain(bb[n]) {
-        return ab[n].cmp(&bb[n]);
-    }
-    if n == ab.len() || n == bb.len() {
-        let tail = if n == ab.len() { &bb[n..] } else { &ab[n..] };
-        if tail.iter().all(|c| *c == b' ') {
-            return Ordering::Equal;
-        }
-        if tail.iter().all(|c| c.is_ascii_graphic() || *c == b' ') && tail.iter().any(|c| *c != b' ') {
-            return if n == ab.len() {
-                Ordering::Less
-            } else {
-                Ordering::Greater
-            };
-        }
-    }
-    let (a, b) = (a.trim_end_matches(' '), b.trim_end_matches(' '));
-    if a == b {
-        return Ordering::Equal;
-    }
-    // Letters and digits only: the case-folded byte order is the collation's, and the first difference in case decides a tie.
-    let plain = |t: &str| t.bytes().all(|c| c.is_ascii_alphanumeric());
-    if plain(a) && plain(b) {
-        let folded = a
-            .bytes()
-            .map(|c| c.to_ascii_uppercase())
-            .cmp(b.bytes().map(|c| c.to_ascii_uppercase()));
-        if folded != Ordering::Equal {
-            return folded;
-        }
-        for (x, y) in a.bytes().zip(b.bytes()) {
-            if x != y {
-                return if x.is_ascii_lowercase() {
-                    Ordering::Less
-                } else {
-                    Ordering::Greater
-                };
-            }
-        }
-        return Ordering::Equal;
-    }
-    crate::collation::compare_key(a, b)
-}
+use crate::collation::text_key_order;
 
 /// The order a filter applies to two texts when one starts with a hyphen and both are letters and digits besides it: the key order,
 /// in which the hyphen does not count first (`'-5'` is above `'3'` and below `'9'`; types/text-code-char/
@@ -1587,15 +1531,15 @@ pub fn code_key_order(a: &str, b: &str) -> Ordering {
     text_key_order(a, b)
 }
 
-/// [`compare`] for the values of a key: text follows [`text_key_order`].
+/// [`compare`] for the values of a key: text follows [`crate::collation::text_value_key_order`].
 #[inline]
 pub fn compare_key_value(l: &Value, r: &Value) -> Result<Ordering, Signal> {
     match (l, r) {
         (Value::Integer(a), Value::Integer(b)) => Ok(a.cmp(b)),
         (Value::Code(a), Value::Code(b)) if !a.has_marker() && !b.has_marker() => Ok(code_key_order(a, b)),
-        (Value::Text(a) | Value::Code(a), Value::Text(b) | Value::Code(b)) if !a.has_marker() && !b.has_marker() => {
-            Ok(text_key_order(a, b))
-        }
+        (Value::Text(a) | Value::Code(a), Value::Text(b) | Value::Code(b)) if !a.has_marker() && !b.has_marker() => Ok(
+            crate::collation::text_value_key_order(a, b, matches!((l, r), (Value::Text(_), Value::Text(_)))),
+        ),
         _ => compare(l, r),
     }
 }
@@ -2851,6 +2795,12 @@ mod tests {
     fn key_orders_are_total_over_punctuation_accents_and_unweighted_characters() {
         check_total_order("text_key_order(exotic)", &exotic_texts(), &|a, b| text_key_order(a, b));
         check_total_order("code_key_order(exotic)", &exotic_texts(), &|a, b| code_key_order(a, b));
+        // The capital Æ of a Text key sorts as AE (assumption `text-key-ae-sorts-as-ae`); the order stays total next to the
+        // letters it expands to, the small æ and an unweighted letter.
+        let ae = texts_over(&["", " ", "-", "A", "E", "e", "Æ", "æ", "ø"]);
+        check_total_order("text_value_key_order(Æ)", &ae, &|a, b| {
+            crate::collation::text_value_key_order(a, b, true)
+        });
     }
 
     #[test]

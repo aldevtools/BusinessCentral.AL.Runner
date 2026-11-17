@@ -38,9 +38,12 @@ pub struct SidecarConfig {
     /// `--dotnet-allow-roll-forward`: when the .NET major the BC version needs is not installed, run on the lowest
     /// newer one, with a warning (`crate::dotnet_runtime`).
     pub allow_roll_forward: bool,
-    /// The BC major in use: it picks the .NET major the sidecar runs on (`dotnet_runtime::runtime_major_for_bc`;
-    /// al-runner issues 6924 and 5590). `None`: .NET 8.
+    /// The BC major in use: without `service_runtime` it picks the .NET major the sidecar runs on
+    /// (`dotnet_runtime::runtime_major_for_bc`; al-runner issues 6924 and 5590). `None`: .NET 8.
     pub bc_major: Option<u32>,
+    /// The service tier the DotNet types load from, which names the .NET major the sidecar runs on
+    /// (`dotnet_runtime::ServiceRuntime`). `None`: the run has none, and `bc_major` decides.
+    pub service_runtime: Option<crate::dotnet_runtime::ServiceRuntime>,
     /// Where each process gets its working folders; default: `run/` under the helper's cache ([`work_root`]).
     pub work_root: Option<PathBuf>,
     /// Deadline of one call; on expiry the process is killed (ADR-014 section 10).
@@ -77,6 +80,7 @@ impl Default for SidecarConfig {
             assembly_dirs: Vec::new(),
             allow_roll_forward: false,
             bc_major: None,
+            service_runtime: None,
             work_root: None,
             timeout: Duration::from_secs(60),
             reuse: None,
@@ -659,11 +663,12 @@ pub(crate) fn major(v: &str) -> Option<u32> {
 }
 
 pub(crate) fn resolve(cfg: &SidecarConfig) -> Result<Resolved, String> {
+    let need = crate::dotnet_runtime::need(cfg.service_runtime.as_ref(), cfg.bc_major)?;
+    let needed = need.major;
     if let Some(p) = &cfg.dotnet {
         if !p.is_file() {
             return Err(format!(
-                "needs the .NET {} runtime; 'dotnet' not found ({} does not exist)",
-                crate::dotnet_runtime::runtime_major_for_bc(cfg.bc_major),
+                "needs the .NET {needed} runtime; 'dotnet' not found ({} does not exist)",
                 p.display()
             ));
         }
@@ -672,13 +677,11 @@ pub(crate) fn resolve(cfg: &SidecarConfig) -> Result<Resolved, String> {
     let explicit = cfg.dotnet.clone().map(|p| std::path::absolute(&p).unwrap_or(p));
     let Some(dotnet) = explicit.or_else(locate_dotnet) else {
         return Err(format!(
-            "needs the .NET {} runtime; 'dotnet' not found (looked in DOTNET_ROOT, PATH, /usr/share/dotnet, /usr/lib/dotnet, ~/.dotnet)",
-            crate::dotnet_runtime::runtime_major_for_bc(cfg.bc_major)
+            "needs the .NET {needed} runtime; 'dotnet' not found (looked in DOTNET_ROOT, PATH, /usr/share/dotnet, /usr/lib/dotnet, ~/.dotnet)"
         ));
     };
     let versions = runtimes(&dotnet);
-    let needed = crate::dotnet_runtime::runtime_major_for_bc(cfg.bc_major);
-    let runtime = crate::dotnet_runtime::pick_runtime(&versions, needed, cfg.bc_major, cfg.allow_roll_forward)?;
+    let runtime = crate::dotnet_runtime::pick_runtime(&versions, &need, cfg.allow_roll_forward)?;
     if runtime.rolled_forward {
         eprintln!(
             "warning: running the .NET sidecar on {} instead of {needed}.x (--dotnet-allow-roll-forward); BCL behaviour can differ",

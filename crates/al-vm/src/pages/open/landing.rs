@@ -445,7 +445,7 @@ impl Session {
                 self.page_event(st, "onaftergetcurrrecordevent", None, None)?;
                 // Rec then holds the link values for the part's later code (`empty_part_rec`).
                 self.empty_part_rec(st)?;
-            } else if self.card_part_of_new_host(st) {
+            } else if self.factbox_blank_landing(st) || self.card_part_of_new_host(st) {
                 self.card_part_blank_on_new_host(st)?;
             } else if self.has_source(st) && st.borrow().host.is_some() && st.borrow().mode == PageMode::Edit {
                 // A part of a host that moved to a row without lines holds no row of the old link: Rec is blank, so the part's

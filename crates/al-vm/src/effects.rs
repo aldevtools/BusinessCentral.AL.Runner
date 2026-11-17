@@ -240,8 +240,7 @@ impl Walk<'_> {
         // An event publisher also runs its subscribers, each on its own instance: the session's one instance of a
         // SingleInstance codeunit, the bound one of a manual subscriber, else a fresh one.
         if let Some(p) = self.engine.events.publishers.get(&at) {
-            let key = (p.object, p.event.clone());
-            if let Some(subs) = self.engine.events.subscribers.get(&key) {
+            if let Some(subs) = self.engine.events.subscribers_at(p.object, &p.event) {
                 for s in subs.clone() {
                     let on = if self.single_instance(s.object) {
                         Inst::Single

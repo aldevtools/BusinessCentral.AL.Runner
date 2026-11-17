@@ -7,7 +7,10 @@ pub use key::PkStorage;
 use key::{Key, table_storage};
 use std::cmp::Ordering;
 
+#[cfg(test)]
+mod collation_read_tests;
 mod frozen;
+mod held_cols;
 mod key;
 #[cfg(test)]
 mod key_value_tests;
@@ -198,6 +201,19 @@ pub struct MemStore {
     /// (`Value::Unknown`, a record copied from one). Never cleared: a filter or an order on such a column checks the
     /// rows (`unknown_read`).
     unknown_cols: std::collections::HashMap<u32, Vec<usize>>,
+    /// Per table, the columns in which a stored row held a text outside ASCII. Never cleared (`collation_read`).
+    accent_cols: std::collections::HashMap<u32, Vec<usize>>,
+    /// Per table, the columns in which a stored row held a text with `Æ` or `æ`. Never cleared (`collation_read`).
+    ae_cols: std::collections::HashMap<u32, Vec<usize>>,
+    /// Per table, the answers of `collation_read` kept for later reads (`held_cols::Verdict`).
+    collation_verdicts: std::cell::RefCell<std::collections::HashMap<Slot, Vec<held_cols::Verdict>>>,
+    /// Per table and column, the rows whose text can tie with an equality's text (`held_cols::FoldIndex`).
+    #[allow(clippy::type_complexity)]
+    fold_indexes: std::cell::RefCell<
+        std::collections::HashMap<(Slot, usize), (held_cols::KeptAt, std::rc::Rc<held_cols::FoldIndex>)>,
+    >,
+    /// Per table with noted columns, the Modifies since its last other write (`held_cols::ModifyRun`).
+    modify_runs: std::collections::HashMap<Slot, held_cols::ModifyRun>,
     /// A virtual table took a change (a Feature Key's Enabled) since the last commit: whether a rollback undoes it is
     /// not settled (metadata/platform-tables/AwTests.al:557-576, a Linux suspect), so the session refuses that rollback.
     virtual_write_pending: bool,
@@ -442,8 +458,9 @@ impl Seek {
                     }
                 }
             }
-            // The store orders text keys by `text_key_order`; the filters compare text by code points. The two agree
-            // for upper-case letters and digits only: any other text is looked at row by row.
+            // The store orders text keys by `collation::text_value_key_order`; a filter compares a Text field's ranges by it
+            // too and other text by `ops::compare`. The two agree for upper-case letters and digits: any other text is looked
+            // at row by row.
             if let (Value::Text(x) | Value::Code(x), Value::Text(y) | Value::Code(y)) = (&row[i], b) {
                 let neutral = |t: &str| t.bytes().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit());
                 if !neutral(x) || !neutral(y) {
@@ -513,41 +530,6 @@ fn passes(row: &Row, filters: &[FieldFilter]) -> bool {
 }
 
 impl MemStore {
-    /// A read that filters on, or orders by, a column a stored row holds unknown (a copy of a platform row) is refused:
-    /// whether that row passes, or where it sorts, is not known. Costs nothing until such a row was stored.
-    fn unknown_read(
-        &self,
-        cx: &AccessContext,
-        t: &TableDef,
-        filters: &[FieldFilter],
-        order: &[usize],
-    ) -> Result<(), StoreError> {
-        if self.unknown_cols.is_empty() {
-            return Ok(());
-        }
-        let Some(held) = self.unknown_cols.get(&t.object) else {
-            return Ok(());
-        };
-        let cols: Vec<usize> = filters
-            .iter()
-            .map(|f| f.field)
-            .chain(order.iter().copied())
-            .filter(|c| held.contains(c))
-            .collect();
-        if cols.is_empty() {
-            return Ok(());
-        }
-        let Some(table) = self.table(cx, t) else {
-            return Ok(());
-        };
-        for row in table.values() {
-            if let Some(why) = cols.iter().find_map(|&c| row.get(c).and_then(Value::unknown)) {
-                return Err(StoreError::Refused(why.to_string()));
-            }
-        }
-        Ok(())
-    }
-
     /// A read that filters a Code field with another SQLDataType than Varchar, Integer, BigInteger or Variant at all, or sorts by one
     /// whose first key field it is, is refused: the order and the comparison of such a field are not pinned (see [`CodeStorage`]).
     /// The Writes, Get by exact key and the other keys run.
@@ -576,18 +558,6 @@ impl MemStore {
             )));
         }
         Ok(())
-    }
-
-    /// Writes down the columns of `row` that hold an unknown value (see `unknown_cols`).
-    fn note_unknown(&mut self, t: &TableDef, row: &Row) {
-        for (i, v) in row.iter().enumerate() {
-            if v.unknown().is_some() {
-                let held = self.unknown_cols.entry(t.object).or_default();
-                if !held.contains(&i) {
-                    held.push(i);
-                }
-            }
-        }
     }
 
     /// A store whose virtual tables are answered by `v`.
@@ -623,6 +593,8 @@ impl MemStore {
     pub fn with_backing(mut self, b: std::rc::Rc<dyn Backing>) -> MemStore {
         self.backing = Some(b);
         self.alt_cache.borrow_mut().clear();
+        self.collation_verdicts.borrow_mut().clear();
+        self.fold_indexes.borrow_mut().clear();
         // The clones of the store keep the old backing and its orders.
         self.order_cache = Default::default();
         self
@@ -1627,7 +1599,7 @@ impl Store for MemStore {
                 return Ok(InsertOutcome::AlreadyExists);
             }
         }
-        self.note_unknown(t, &row);
+        self.note_held(t, &row);
         let k = Key::of(t, t.primary_key(&row));
         let carry = self.has_orders(&slot(cx, t), t);
         let table = self.table_mut(cx, t);
@@ -1689,14 +1661,20 @@ impl Store for MemStore {
             }
             return Err(self.read_only(t, "Modify"));
         }
-        self.note_unknown(t, &row);
+        self.note_held(t, &row);
         let k = Key::of(t, t.primary_key(&row));
         self.note_restored(cx, t, &k, "Modify", Some(&row));
         let carry = self.has_orders(&slot(cx, t), t);
+        let watch = self.accent_cols.contains_key(&t.object);
+        let before = self.versions.get(&slot(cx, t)).copied().unwrap_or(0);
         let table = self.table_mut(cx, t);
         if !table.contains_key(&k) {
             return Ok(WriteOutcome::NotFound);
         }
+        let changed = match table.get(&k) {
+            Some(old) if watch => (0..row.len()).filter(|&i| key_fields_differ(&[i], old, &row)).collect(),
+            _ => Vec::new(),
+        };
         // A key is made of fields; when a Modify changes one the row stands elsewhere in that key, and only there (the
         // primary key does not change: that is a Rename).
         let moved: Vec<usize> = match table.get(&k) {
@@ -1718,6 +1696,9 @@ impl Store for MemStore {
             None => Vec::new(),
         };
         self.touch(cx, t);
+        if watch {
+            self.note_modify(&sl, before, changed);
+        }
         for j in stale {
             self.moves.insert((sl.clone(), j), self.counter);
         }
@@ -1767,6 +1748,7 @@ impl Store for MemStore {
         if self.virtual_of(t).is_some() {
             return Err(self.read_only(t, "Rename"));
         }
+        self.note_held(t, &row);
         let new_k = Key::of(t, t.primary_key(&row));
         self.note_restored(cx, t, &Key::of(t, old.to_vec()), "Rename", None);
         let table = self.table_mut(cx, t);
@@ -1793,6 +1775,7 @@ impl Store for MemStore {
         self.unknown_read(cx, t, scan.filters, t.keys.get(scan.key).map_or(&[], |k| k.as_slice()))?;
         Self::unpinned_match_read(scan.filters)?;
         Self::code_storage_read(t, scan.filters, t.keys.get(scan.key).map_or(&[], |k| k.as_slice()))?;
+        self.collation_read(cx, t, scan.filters, Some(scan.key).filter(|&k| k < t.keys.len()))?;
         let Some(table) = self.table(cx, t) else {
             return Ok(None);
         };
@@ -1934,6 +1917,7 @@ impl Store for MemStore {
         self.unknown_read(cx, t, f, &[])?;
         Self::unpinned_match_read(f)?;
         Self::code_storage_read(t, f, &[])?;
+        self.collation_read(cx, t, f, None)?;
         let Some(table) = self.table(cx, t) else {
             return Ok(0);
         };
@@ -1949,6 +1933,7 @@ impl Store for MemStore {
         self.unknown_read(cx, t, f, &[])?;
         Self::unpinned_match_read(f)?;
         Self::code_storage_read(t, f, &[])?;
+        self.collation_read(cx, t, f, None)?;
         let doomed: Vec<Key> = match self.table(cx, t) {
             Some(table) => {
                 let f = &*crate::code_storage::number_filters(t, f, &mut table.values())?;

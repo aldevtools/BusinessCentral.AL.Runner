@@ -534,7 +534,7 @@ fn run_codeunit_inner(
             if let Err(why) = runner.after_on_run(session, obj, ran.is_ok(), on_run_error(&ran)) {
                 return Err(on_run_refused(why));
             }
-            let timed_out = watchdog.is_some_and(Watchdog::finish);
+            let timed_out = watchdog.and_then(Watchdog::finish);
             let ran = on_run_time_limit(session, ran, limit, timed_out);
             let hits = session.store_mut().watch_hits();
             scratch.leak_hit |= !leak.is_disjoint(&hits);
@@ -859,13 +859,13 @@ fn run_codeunit_inner(
                         };
                         let result = runner.rows_touched(session, result);
                         session.set_runner_frames(String::new());
-                        let timed_out = watchdog.is_some_and(Watchdog::finish);
+                        let timed_out = watchdog.and_then(Watchdog::finish);
                         let slept_out = session.sleep_budget_passed();
                         // A refusal the method's call raised, whose innermost frame is the method: the statement it came
                         // from. The writes are read before the rollback below undoes them.
                         if reset_ok
                             && !panicked
-                            && !timed_out
+                            && timed_out.is_none()
                             && !slept_out
                             && matches!(result, Err(Signal::Unsupported(_)))
                         {
@@ -889,10 +889,9 @@ fn run_codeunit_inner(
                                 limit.map_or(0, |l| l.as_secs()),
                                 session.slept_in_test_ms()
                             ))),
-                            Err(Signal::Unsupported(_)) if timed_out => Err(Signal::unsupported(format!(
-                                "the test used more than the time limit of {} s of CPU time and was stopped (--test-timeout-secs); BC may have ended it differently or not at all",
-                                limit.map_or(0, |l| l.as_secs())
-                            ))),
+                            Err(Signal::Unsupported(_)) if timed_out.is_some() => {
+                                Err(Signal::unsupported(time_limit_reason(timed_out, limit, "")))
+                            }
                             r => r,
                         };
                         // ADR-062: a test that lowered its permissions to sets that do not grant everything, and made no
@@ -1631,7 +1630,42 @@ impl Carried {
 /// counts.
 pub(crate) struct Watchdog {
     pub(crate) done: std::sync::mpsc::Sender<()>,
-    pub(crate) thread: std::thread::JoinHandle<bool>,
+    pub(crate) thread: std::thread::JoinHandle<Option<Stopped>>,
+}
+
+/// The clock whose reading stopped a test at its time limit (al-runner issue 8168): the outputs name it as the `clock` of the
+/// timeout row (`alrunner-cli` `output.rs` `stopped_by_clock`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Stopped {
+    /// The test thread's CPU time passed the limit.
+    Cpu,
+    /// The wall clock did: the backstop of `WALL_BACKSTOP` times the limit, or the limit where no CPU clock can be read.
+    Wall,
+}
+
+/// The reason of a test (or, with `place`, its codeunit's OnRun) that the clock `stopped` stopped at its time `limit`. It starts
+/// as `TIME_LIMIT_REASON`, which the outputs turn into the timeout row; the clock's words decide its `clock`.
+fn time_limit_reason(stopped: Option<Stopped>, limit: Option<std::time::Duration>, place: &str) -> String {
+    let clock = match stopped {
+        Some(Stopped::Wall) => "of wall time",
+        Some(Stopped::Cpu) | None => "of CPU time",
+    };
+    format!(
+        "{TIME_LIMIT_REASON}{} s {clock} and was stopped (--test-timeout-secs){place}; BC may have ended it differently or not at all",
+        limit.map_or(0, |l| l.as_secs())
+    )
+}
+
+/// Which clock stops a test now: `cpu` is the CPU time the test thread used (`None`: no CPU clock), `wall` the wall time of
+/// the test. With a CPU clock the CPU time counts and the wall clock is the backstop; without one the wall clock counts.
+fn stop_by(cpu: Option<std::time::Duration>, wall: std::time::Duration, limit: std::time::Duration) -> Option<Stopped> {
+    match cpu {
+        Some(cpu) if cpu >= limit => Some(Stopped::Cpu),
+        Some(_) if wall >= limit.saturating_mul(WALL_BACKSTOP) => Some(Stopped::Wall),
+        Some(_) => None,
+        None if wall >= limit => Some(Stopped::Wall),
+        None => None,
+    }
 }
 
 /// The flag the watchdog of a test also stops it for: `cancel` for a scratch run (`execute`), else the run's stop at its
@@ -1702,48 +1736,35 @@ impl Watchdog {
                     .unwrap_or_default();
                 started.elapsed().saturating_sub(stopped)
             };
-            let stop = |flag: &std::sync::atomic::AtomicBool| {
-                flag.store(true, std::sync::atomic::Ordering::Relaxed);
-                true
-            };
             loop {
                 match rx.recv_timeout(WATCHDOG_POLL) {
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
-                    _ => return false,
+                    _ => return None,
                 }
                 if cancel
                     .as_ref()
                     .is_some_and(|c| c.load(std::sync::atomic::Ordering::Relaxed))
                 {
                     flag.store(true, std::sync::atomic::Ordering::Relaxed);
-                    return false;
+                    return None;
                 }
                 let used = clock
                     .as_ref()
                     .and_then(|c| c.read())
                     .map(|cpu| cpu.saturating_sub(base));
-                match used {
-                    Some(cpu) => {
-                        if cpu >= limit || elapsed() >= limit.saturating_mul(WALL_BACKSTOP) {
-                            return stop(&flag);
-                        }
-                    }
-                    // No CPU clock: the wall clock counts.
-                    None => {
-                        if elapsed() >= limit {
-                            return stop(&flag);
-                        }
-                    }
+                if let Some(stopped) = stop_by(used, elapsed(), limit) {
+                    flag.store(true, std::sync::atomic::Ordering::Relaxed);
+                    return Some(stopped);
                 }
             }
         });
         Watchdog { done, thread }
     }
 
-    /// Ends the watch; true when the limit passed first.
-    pub(crate) fn finish(self) -> bool {
+    /// Ends the watch; the clock that stopped the test when the limit passed first.
+    pub(crate) fn finish(self) -> Option<Stopped> {
         let _ = self.done.send(());
-        self.thread.join().unwrap_or(false)
+        self.thread.join().unwrap_or(None)
     }
 }
 
@@ -1850,14 +1871,14 @@ fn on_run_error<T>(ran: &Result<T, Signal>) -> Option<&AlError> {
     }
 }
 
-/// The OnRun trigger's result `ran`, with a stop by the time `limit` (`timed_out`: the CPU watchdog fired) named. The
+/// The OnRun trigger's result `ran`, with a stop by the time `limit` (`timed_out`: the clock that stopped it) named. The
 /// reasons start as a test method's do, so the outputs give the same timeout row (`Test exceeded <N>s timeout.`); the rest
 /// names the trigger. Ends the trigger's Sleep budget.
 fn on_run_time_limit<T>(
     session: &mut Session,
     ran: Result<T, Signal>,
     limit: Option<std::time::Duration>,
-    timed_out: bool,
+    timed_out: Option<Stopped>,
 ) -> Result<T, Signal> {
     let slept_out = session.sleep_budget_passed();
     let slept_ms = session.slept_in_test_ms();
@@ -1867,9 +1888,10 @@ fn on_run_time_limit<T>(
             "the test used more than the time limit of {} s and was stopped (--test-timeout-secs) in the test codeunit's OnRun trigger, before its tests: its Sleep calls asked to wait {slept_ms} ms in total (Sleep does not wait here; the time it asks for counts toward the limit)",
             limit.map_or(0, |l| l.as_secs())
         ))),
-        Err(Signal::Unsupported(_)) if timed_out => Err(Signal::unsupported(format!(
-            "the test used more than the time limit of {} s of CPU time and was stopped (--test-timeout-secs) in the test codeunit's OnRun trigger, before its tests; BC may have ended it differently or not at all",
-            limit.map_or(0, |l| l.as_secs())
+        Err(Signal::Unsupported(_)) if timed_out.is_some() => Err(Signal::unsupported(time_limit_reason(
+            timed_out,
+            limit,
+            " in the test codeunit's OnRun trigger, before its tests",
         ))),
         r => r,
     }
@@ -1906,7 +1928,7 @@ fn mark_test_start_assumptions(
 
 #[cfg(test)]
 mod tests {
-    use super::{Ended, Unfinished, WATCHDOG_POLL, Watchdog, ends_of};
+    use super::{Ended, Stopped, Unfinished, WALL_BACKSTOP, WATCHDOG_POLL, Watchdog, ends_of, stop_by};
     use std::sync::Arc;
 
     /// The limit counts the CPU time of the test thread: a thread that waits is not stopped at the
@@ -1918,7 +1940,7 @@ mod tests {
         let flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let w = Watchdog::start(flag.clone(), limit);
         std::thread::sleep(limit * 3);
-        assert!(!w.finish(), "a thread that waited was stopped");
+        assert_eq!(w.finish(), None, "a thread that waited was stopped");
         assert!(!flag.load(std::sync::atomic::Ordering::Relaxed));
 
         let flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -1929,7 +1951,46 @@ mod tests {
         {
             x = x.wrapping_add(std::hint::black_box(1));
         }
-        assert!(w.finish() && x > 0, "a thread that computed was not stopped");
+        assert!(x > 0);
+        assert_eq!(
+            w.finish(),
+            Some(Stopped::Cpu),
+            "a thread that computed was not stopped by its CPU time"
+        );
+    }
+
+    /// The wall backstop stops a test that waits for `WALL_BACKSTOP` times the limit, on the wall clock (al-runner issue 8168:
+    /// its timeout row names the clock `wall`, not `cpu`).
+    #[cfg(unix)]
+    #[test]
+    fn the_wall_backstop_stops_a_waiting_test_on_the_wall_clock() {
+        let limit = std::time::Duration::from_millis(20);
+        let flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let w = Watchdog::start(flag.clone(), limit);
+        let started = std::time::Instant::now();
+        while !flag.load(std::sync::atomic::Ordering::Relaxed) && started.elapsed() < std::time::Duration::from_secs(10)
+        {
+            std::thread::sleep(WATCHDOG_POLL);
+        }
+        assert!(
+            started.elapsed() >= limit * WALL_BACKSTOP,
+            "stopped before the backstop"
+        );
+        assert_eq!(w.finish(), Some(Stopped::Wall));
+    }
+
+    /// Which clock stops a test (al-runner issue 8168): the CPU time at the limit; the wall time at the backstop while a CPU
+    /// clock is read; the wall time at the limit where no CPU clock can be read.
+    #[test]
+    fn the_stop_names_the_clock_that_passed_the_limit() {
+        let ms = std::time::Duration::from_millis;
+        let limit = ms(100);
+        assert_eq!(stop_by(Some(ms(100)), ms(100), limit), Some(Stopped::Cpu));
+        assert_eq!(stop_by(Some(ms(100)), ms(1000), limit), Some(Stopped::Cpu));
+        assert_eq!(stop_by(Some(ms(99)), ms(999), limit), None);
+        assert_eq!(stop_by(Some(ms(10)), ms(1000), limit), Some(Stopped::Wall));
+        assert_eq!(stop_by(None, ms(99), limit), None);
+        assert_eq!(stop_by(None, ms(100), limit), Some(Stopped::Wall));
     }
 
     /// A limit so large that ten times it does not fit a `Duration` (a client may send any whole number of seconds,
@@ -1940,7 +2001,7 @@ mod tests {
         let w = Watchdog::start(flag.clone(), std::time::Duration::from_secs(u64::MAX));
         std::thread::sleep(WATCHDOG_POLL * 4);
         assert!(!w.thread.is_finished(), "the watchdog thread ended (it panicked)");
-        assert!(!w.finish(), "a huge limit stopped the test");
+        assert_eq!(w.finish(), None, "a huge limit stopped the test");
         assert!(!flag.load(std::sync::atomic::Ordering::Relaxed));
     }
 
@@ -1961,7 +2022,8 @@ mod tests {
             }
             // Let the watchdog poll once more after the work.
             std::thread::sleep(WATCHDOG_POLL * 3);
-            assert!(!w.finish() && x > 0, "test {n} was stopped under 60 % of the limit");
+            assert!(x > 0);
+            assert_eq!(w.finish(), None, "test {n} was stopped under 60 % of the limit");
         }
     }
 

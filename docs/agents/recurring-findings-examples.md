@@ -348,3 +348,10 @@ key, files, scheduled tasks, table connections, last error, application areas, t
 when the other fields equal a new session's, in one predicate next to the snapshot that names every field (no `..`), so a
 new field does not compile until it is decided. Probe each with code that writes it and a test that reads it, head
 against main.
+
+## 23. A workflow or action change made without the Rust tests that read workflow text (al-runner PR 8179, and earlier CI edits)
+
+Rust tests in `crates/al-test-cli/tests/suite/ci_*.rs` read the text of `.github/workflows/*.yml` and
+`.github/actions/*/action.yml` (step order, cache keys, conditions). A change to a workflow or an action changes what
+they read. Before hand-back, grep those tests for the step text you changed and run
+`cargo test -p al-test-cli --test suite ci_`.

@@ -33,4 +33,19 @@ impl Session {
             ..Default::default()
         }))
     }
+
+    /// The error of a Text filter text `Record.SetFilter` and `FieldRef.SetFilter` reject in an English session
+    /// (`al_builtins::filter::set_filter_text_error`, record/crud/RcAFilters.al:654-658).
+    pub(crate) fn check_set_filter_text(
+        &self,
+        t: &TableDef,
+        pos: usize,
+        text: &str,
+        ty: &RtType,
+    ) -> Result<(), Signal> {
+        match al_builtins::filter::set_filter_text_error(text, ty) {
+            Some(reason) if self.global_language == 1033 => Err(self.filter_error(t, pos, text, reason)),
+            _ => Ok(()),
+        }
+    }
 }

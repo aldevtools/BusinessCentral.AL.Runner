@@ -28,3 +28,4 @@ or more pull requests gets an item here and there, in the change that fixes it.
 20. **Rows the runner does not know have more readers than the test.** Refuse every kind of reader, in one owner.
 21. **A mark set on the first read only.** Mark the first reader and every later test. A keeping write is a read.
 22. **Code moved to a session of its own.** One predicate names every `Session` field (no `..`). Probe each.
+23. **A workflow or action change without the Rust tests that read workflow text.** Grep `crates/al-test-cli/tests/suite/ci_*.rs` for the changed step text; run `cargo test -p al-test-cli --test suite ci_`.

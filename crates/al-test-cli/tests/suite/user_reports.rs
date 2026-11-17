@@ -3873,3 +3873,198 @@ fn issue_7410_second_caption_read_of_a_resolved_field() {
         "My Caption Tests",
     ));
 }
+
+#[test]
+fn report_xml_column_line_breaks_are_limited_to_static_save_as() {
+    let fixture = r#"
+table 52010 LineBreakRow {
+    fields { field(1; Id; Integer) { } field(2; Payload; Text[100]) { } field(3; Bytes; Blob) { } }
+    keys { key(PK; Id) { } }
+}
+report 52011 LineBreakReport {
+    dataset { dataitem(Row; LineBreakRow) { column(Payload; Payload) { } } }
+}
+codeunit 52013 T {
+    Subtype = Test;
+    [Test] procedure LineBreaks()
+    var Row: Record LineBreakRow; Buffer: Record LineBreakRow temporary; R: Report LineBreakReport;
+        OutS: OutStream; InS: InStream; Raw: Text; Ch: Text[1]; B: Byte; Cr: Char; Lf: Char;
+    begin
+        Cr := 13;
+        Lf := 10;
+        Row.Payload := 'A' + Format(Cr) + 'B' + Format(Lf) + 'C' + Format(Cr) + Format(Lf) + 'D';
+        Row.Insert();
+        Buffer.Bytes.CreateOutStream(OutS);
+        Report.SaveAs(Report::LineBreakReport, '', ReportFormat::Xml, OutS);
+        Buffer.Bytes.CreateInStream(InS);
+        while not InS.EOS() do begin
+            InS.Read(B);
+            Ch[1] := B;
+            Raw += Ch;
+        end;
+        if not Raw.Contains('A' + Format(Cr) + Format(Lf) + 'B' + Format(Cr) + Format(Lf) + 'C' + Format(Cr) + Format(Lf) + 'D') then
+            Error('The XML did not contain all three CRLF pairs.');
+    end;
+}
+"#;
+    all_pass(run_with_deps(&[], fixture));
+    let call = "Report.SaveAs(Report::LineBreakReport, '', ReportFormat::Xml, OutS);";
+    let with_ref = fixture
+        .replace("OutS: OutStream;", "OutS: OutStream; Ref: RecordRef;")
+        .replace(
+            call,
+            "Ref.Open(52010); Report.SaveAs(Report::LineBreakReport, '', ReportFormat::Xml, OutS, Ref);",
+        );
+    let with_parameters = fixture.replace(
+        call,
+        r#"Report.SaveAs(Report::LineBreakReport, '<?xml version="1.0" standalone="yes"?><ReportParameters name="LineBreakReport" id="52011"><DataItems><DataItem name="Row">VERSION(1) SORTING(Field1)</DataItem></DataItems></ReportParameters>', ReportFormat::Xml, OutS);"#,
+    );
+    let extension_column = fixture.replace("column(Payload; Payload) { }", "").replace(
+        "codeunit 52013 T {",
+        "reportextension 52012 LineBreakExt extends LineBreakReport {
+    dataset { add(Row) { column(Payload; Payload) { } } }
+}
+codeunit 52013 T {",
+    );
+    for (shape, src) in [
+        (
+            "variable SaveAs",
+            fixture.replace("Report.SaveAs(Report::LineBreakReport, ", "R.SaveAs("),
+        ),
+        ("RecordRef argument", with_ref),
+        ("parameters", with_parameters),
+        (
+            "text expression column",
+            fixture.replace("column(Payload; Payload)", "column(Payload; Payload + '')"),
+        ),
+        ("report extension column", extension_column),
+    ] {
+        let result = run_with_deps(&[], &src);
+        assert!(matches!(&result[0].1, Outcome::NotRun(_)), "{shape}: {result:?}");
+    }
+}
+
+#[test]
+fn measured_integer_record_field_in_set_and_boolean() {
+    all_pass(run_with_deps(&[], include_str!("../fixtures/record-in-and-boolean.al")));
+}
+
+#[test]
+fn integer_record_field_boolean_neighbors_still_refuse() {
+    let src = include_str!("../fixtures/record-in-and-boolean.al");
+    let measured = "Row.Id in [1, 2] and Row.Approved";
+    for other in [
+        "Row.Id in [1, 2] or Row.Approved",
+        "Row.Id in [1, 2] xor Row.Approved",
+        "N in [1, 2] and Row.Approved",
+        "Row.Id in [1, 2] and false",
+        "Row.Id in [1, 2] and B",
+        "Row.Id in [N, 2] and Row.Approved",
+        "Row.Id in [1..3] and Row.Approved",
+        "Row.Id in [1, 2] and Row.IsEmpty()",
+        "Row.Id in [1, 2] and Other.Approved",
+        "Row.Id in [1, 2] and Row.IsApproved()",
+        "Row.Id in [1] and Row.Approved",
+        "Row.Id in [1, 2, 3] and Row.Approved",
+    ] {
+        let result = run_with_deps(
+            &[],
+            &src.replace(
+                "N: Integer;",
+                "N: Integer; B: Boolean; Other: Record \"Probe Predicate Row\";",
+            )
+            .replace(
+                "keys { key(PK; Id) { Clustered = true; } }",
+                "keys { key(PK; Id) { Clustered = true; } }\n    procedure IsApproved(): Boolean begin exit(Approved); end;",
+            )
+            .replace(measured, other),
+        );
+        assert!(
+            matches!(&result[0].1, Outcome::NotRun(why) if why.contains("set followed by")),
+            "{other}: {result:?}"
+        );
+    }
+    for kind in ["BigInteger", "Decimal"] {
+        let result = run_with_deps(&[], &src.replace("Id; Integer", &format!("Id; {kind}")));
+        assert!(
+            matches!(&result[0].1, Outcome::NotRun(why) if why.contains("set followed by")),
+            "{kind}: {result:?}"
+        );
+    }
+}
+
+#[test]
+fn measured_modal_document_closes_three_draft_parts_after_validation_error() {
+    all_pass(run_with_deps(
+        &[],
+        include_str!("../fixtures/modal-three-draft-parts.al"),
+    ));
+}
+
+#[test]
+fn modal_validation_three_draft_parts_refuses_unmeasured_layouts() {
+    let src = include_str!("../fixtures/modal-three-draft-parts.al");
+    let third = r#"            part(ThirdLines; "Three Part Probe Part")
+            {
+                ApplicationArea = All;
+                SubPageLink = Id = field(Id);
+            }
+"#;
+    assert!(src.contains(third));
+    let two = src.replace(third, "").replace("Document.ThirdLines.New();", "");
+    let four = src
+        .replace(third, &format!("{third}{}", third.replace("ThirdLines", "FourthLines")))
+        .replace(
+            "Document.ThirdLines.New();",
+            "Document.ThirdLines.New(); Document.FourthLines.New();",
+        );
+    let dirty = src
+        .replace(
+            "Error('Repro part validation failed.');",
+            "if Rec.Payload = 'INPUT' then Error('Repro part validation failed.');",
+        )
+        .replace(
+            "Document.Lines.Payload.SetValue('INPUT');",
+            "Document.OtherLines.Payload.SetValue('DIRTY'); Document.Lines.Payload.SetValue('INPUT');",
+        );
+    let extension = format!(
+        r#"{src}
+pageextension 50999 UnmeasuredClose extends "Three Part Probe Part" {{
+    trigger OnQueryClosePage(CloseAction: Action): Boolean begin exit(true); end;
+}}
+"#
+    );
+    let subscriber = format!(
+        r#"{src}
+codeunit 50999 UnmeasuredClose {{
+    [EventSubscriber(ObjectType::Page, Page::"Three Part Probe Part", OnQueryClosePageEvent, '', false, false)]
+    local procedure ObserveClose() begin end;
+}}
+"#
+    );
+    let document_extension = format!(
+        r#"{src}
+pageextension 50999 UnmeasuredClose extends "Three Part Probe Document" {{
+    trigger OnQueryClosePage(CloseAction: Action): Boolean begin exit(true); end;
+}}
+"#
+    );
+    let part_id = "field(Id; Rec.Id) { ApplicationArea = All; }\n                field(Payload";
+    assert!(src.contains(part_id));
+    let second_validate = src.replace(
+        part_id,
+        "field(Id; Rec.Id) { ApplicationArea = All; trigger OnValidate() begin end; }\n                field(Payload",
+    );
+    for (shape, fixture) in [
+        ("two parts", two),
+        ("four parts", four),
+        ("dirty", dirty),
+        ("extension", extension),
+        ("subscriber", subscriber),
+        ("document extension", document_extension),
+        ("second OnValidate on the part", second_validate),
+    ] {
+        let result = run_with_deps(&[], &fixture);
+        assert!(matches!(&result[0].1, Outcome::NotRun(_)), "{shape}: {result:?}");
+    }
+}

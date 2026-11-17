@@ -51,6 +51,7 @@ pub mod file;
 pub mod filter;
 pub mod filter_blob;
 pub mod filter_boolean_words;
+mod filter_collation;
 pub mod format;
 mod format_json;
 mod format_textbuilder;

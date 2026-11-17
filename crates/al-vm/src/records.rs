@@ -34,7 +34,9 @@ mod sql_range_code;
 pub(crate) use insert_buffer::{InsertKind, InsertQueue};
 use sql_range::InsertShape;
 mod nested_validate;
-pub(crate) use nested_validate::ValidateSite;
+pub(crate) use nested_validate::{BeforeImage, ProcXrec, ValidateSite, XREC_OF_RUNNING_CALL};
+mod by_value_view;
+pub(crate) use by_value_view::BY_VALUE_VIEW;
 mod op_inner;
 mod own_rolled_back_modify;
 mod platform_rows;
@@ -120,6 +122,7 @@ pub(crate) fn copy_refused_mark(rec: &Rec) -> Option<&'static str> {
         *w == XP_VIEW_AFTER_EXPORT
             || *w == XP_BUFFER_AFTER_EXPORT
             || *w == al_builtins::stream_cleared::UNCREATED_IMPORT_BUFFER
+            || *w == XREC_OF_RUNNING_CALL
     })
 }
 
@@ -167,7 +170,7 @@ pub(crate) fn media_key_marked(rec: &Rec) -> bool {
 pub(crate) fn buffer_read_refused(rec: &Rec) -> Option<&'static str> {
     rec.borrow()
         .unpinned_buffer
-        .filter(|w| !run_page_link_fields_read(w) && *w != HELD_PART_REC)
+        .filter(|w| !run_page_link_fields_read(w) && *w != HELD_PART_REC && *w != BY_VALUE_VIEW)
 }
 
 /// Whether field reads of a record whose buffer has the reason `why` run.
@@ -1810,10 +1813,11 @@ impl Session {
     }
 
     /// Whether `row` passes the record's filters (every group), its FlowField filters and
-    /// MarkedOnly.
+    /// MarkedOnly. A filter answer that rests on the letters `Æ` or `É` is measured only for the rows of the database.
     fn row_passes(&mut self, rec: &Rec, t: &TableDef, row: &[Value]) -> Result<bool, Signal> {
         let (filters, flow_field_filters) = self.split_filters(rec);
-        if !al_builtins::filter::all_match(&filters, row)? {
+        let normal_record = self.store_of(rec).0.holds_normal_records();
+        if !al_builtins::filter::all_match_on(&filters, row, normal_record)? {
             return Ok(false);
         }
         if rec.borrow().marked_only && !Self::is_marked(rec, t, row)? {
