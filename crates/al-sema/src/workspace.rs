@@ -9,6 +9,18 @@ use std::sync::OnceLock;
 
 mod moved_tables;
 
+/// Which tiers of a bare name's search `Workspace::resolve_in_scope` takes.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Tiers {
+    /// The compiler's: the file's namespace, its usings, the global namespace, then a unique match in any namespace.
+    Compiler,
+    /// Only those no absent app could shadow (`Workspace::resolve_ref_certain`).
+    Certain,
+    /// The compiler's, without the match in any namespace for a file that has a namespace
+    /// (`Workspace::resolve_relation_target`).
+    Relation,
+}
+
 pub use al_ir::ObjKind;
 
 #[derive(Debug, Clone)]
@@ -715,7 +727,7 @@ impl Workspace {
             if let (Some(kind), Some(parts)) = (o.kind.extended(), &o.extends) {
                 // Not `resolve_ref`: that would parse the target's file, and an index of
                 // thousands of extensions must not parse their targets.
-                if let Resolution::Found(t) = self.resolve_in_scope(o.file, kind, parts, false, false) {
+                if let Resolution::Found(t) = self.resolve_in_scope(o.file, kind, parts, Tiers::Compiler, false) {
                     self.ext_target[i] = Some(t);
                     self.ext_of.entry(t).or_default().push(i);
                 }
@@ -725,7 +737,9 @@ impl Workspace {
             let o = &self.objects[i];
             if let (ObjKind::Interface, Some(parts)) = (o.kind, &o.extends) {
                 // Like the extension targets above: no parse of the base interface's file.
-                if let Resolution::Found(b) = self.resolve_in_scope(o.file, ObjKind::Interface, parts, false, false) {
+                if let Resolution::Found(b) =
+                    self.resolve_in_scope(o.file, ObjKind::Interface, parts, Tiers::Compiler, false)
+                {
                     self.iface_base.insert(i, b);
                     self.iface_derived.entry(b).or_default().push(i);
                 }
@@ -1226,7 +1240,7 @@ impl Workspace {
     /// unique match in any namespace (corpus evidence: files with neither
     /// namespace nor `using` reference namespaced Base App tables and compile).
     pub fn resolve_ref(&self, file: usize, kind: ObjKind, parts: &[String]) -> Resolution {
-        self.resolve_in_scope(file, kind, parts, false, true)
+        self.resolve_in_scope(file, kind, parts, Tiers::Compiler, true)
     }
 
     /// Whether any object of `kind` that `file` can see has the name (or id) `parts` says, whether or not
@@ -1238,12 +1252,18 @@ impl Workspace {
     /// app (see `visible_from`), so the same holds while it is not loaded (corpus must-not-compile
     /// 0740-subscribe-internal-event-get-role-center-banner.al:5 names its codeunit "System Action Triggers").
     pub fn names_object(&self, file: usize, kind: ObjKind, parts: &[String]) -> bool {
-        self.has_unloaded_dependency(self.files[file].app)
-            || !self.apps.iter().any(|a| a.id.eq_ignore_ascii_case(PLATFORM_APP_ID))
+        !self.no_app_absent(self.files[file].app)
             || !matches!(
-                self.resolve_in_scope(file, kind, parts, false, false),
+                self.resolve_in_scope(file, kind, parts, Tiers::Compiler, false),
                 Resolution::Missing
             )
+    }
+
+    /// Whether every app `app` could see is loaded: no dependency that `app` or an app it sees declares is missing
+    /// ([`has_unloaded_dependency`](Self::has_unloaded_dependency)), and the platform app System, an implicit dependency of
+    /// every app, is loaded. Only then is the absence of a name known.
+    pub fn no_app_absent(&self, app: usize) -> bool {
+        self.apps.iter().any(|a| a.id.eq_ignore_ascii_case(PLATFORM_APP_ID)) && !self.has_unloaded_dependency(app)
     }
 
     /// Whether an object of `kind` named `name` (bare) is among the objects `file` searches before the any-namespace
@@ -1300,7 +1320,7 @@ impl Workspace {
     /// The id of the platform table `parts` names when nothing provides rows for it. The id is
     /// a constant of its declaration, so `Database::"X"` can name it.
     pub fn unprovided_platform_table_id(&self, file: usize, parts: &[String]) -> Option<i32> {
-        match self.resolve_in_scope(file, ObjKind::Table, parts, false, false) {
+        match self.resolve_in_scope(file, ObjKind::Table, parts, Tiers::Compiler, false) {
             Resolution::Found(i) if self.platform_table_without_provider(i) => self.objects[i].id.map(|id| id as i32),
             _ => None,
         }
@@ -1314,7 +1334,7 @@ impl Workspace {
     /// TestRelationTargetNamespaceScope.al and TestRelationOwnNamespaceDependency.al: an
     /// imported or global workspace table must not stand in for a Base Application one).
     pub fn resolve_ref_certain(&self, file: usize, kind: ObjKind, parts: &[String]) -> Resolution {
-        self.resolve_in_scope(file, kind, parts, true, true)
+        self.resolve_in_scope(file, kind, parts, Tiers::Certain, true)
     }
 
     /// Whether Microsoft's Base Application is among the apps `app` sees. Then no app is absent that
@@ -1329,15 +1349,17 @@ impl Workspace {
     /// saw (`visible`), as BC fixed it when the app compiled: a same-named table of a dependent app
     /// is not a candidate (corpus recordref-fieldref/fieldref/TestRelationTargetNameCollision.al). The file of a
     /// workspace app resolves it the same way when no app it could see is absent: when it sees Base Application, or
-    /// when every dependency it and the apps it sees declare is loaded (`has_unloaded_dependency`), so no absent app
-    /// can hold a same-named object; the name then means what it means to the compiler, its own namespace first, then
-    /// its usings (TestRelationTargetNamespaceScope.al:235 `RelationScope_Third_RelationAnswersTheLocalTableThroughUsing`,
-    /// a table of the app reached through a using). Otherwise it resolves as `resolve_ref_certain` does.
+    /// when every app it could see is loaded ([`no_app_absent`](Self::no_app_absent)). The name then means what it
+    /// means to the compiler: its own namespace, its usings (TestRelationTargetNamespaceScope.al:235, a table of the app
+    /// reached through a using), the global namespace, and a unique match in any namespace only from a file without a
+    /// namespace (types/PZMisc.al:27, :31 `Field."No."` and metadata/CmInstallObjects.al:217 `AllObj."Object ID"`, a
+    /// platform table named from a file without namespace or using). A file with a namespace does not reach a table of
+    /// another namespace without a using (must-not-compile 2081-namespace-record-integer-without-using.al, AL0185).
+    /// Otherwise it resolves as `resolve_ref_certain` does.
     pub fn resolve_relation_target(&self, file: usize, kind: ObjKind, parts: &[String]) -> Resolution {
         let app = self.files[file].app;
-        let every_dependency_loaded = !self.has_unloaded_dependency(app);
-        if self.kinds[app] == AppKind::Dependency || self.sees_base_application(app) || every_dependency_loaded {
-            self.resolve_ref(file, kind, parts)
+        if self.kinds[app] == AppKind::Dependency || self.sees_base_application(app) || self.no_app_absent(app) {
+            self.resolve_in_scope(file, kind, parts, Tiers::Relation, true)
         } else {
             self.resolve_ref_certain(file, kind, parts)
         }
@@ -1350,9 +1372,10 @@ impl Workspace {
         file: usize,
         kind: ObjKind,
         parts: &[String],
-        certain_only: bool,
+        tiers: Tiers,
         check_usable: bool,
     ) -> Resolution {
+        let certain_only = tiers == Tiers::Certain;
         let f = &self.files[file];
         let visible = |i: &usize| {
             self.visible[f.app].contains(&self.objects[*i].app)
@@ -1414,7 +1437,11 @@ impl Workspace {
             } else {
                 in_ns(&None)
             },
-            if certain_only { Vec::new() } else { cands.clone() },
+            if certain_only || (tiers == Tiers::Relation && !no_ns) {
+                Vec::new()
+            } else {
+                cands.clone()
+            },
         ];
         for tier in tiers {
             if !tier.is_empty() {
@@ -1931,166 +1958,7 @@ mod tests {
         }
     }
 
-    #[test]
-    fn run_time_resolution_only_trusts_tiers_no_absent_app_could_shadow() {
-        // corpus recordref-fieldref/fieldref/TestRelationOwnNamespaceDependency.al, TestRelationTargetNamespaceScope.al:
-        // a workspace table must not stand in for a Base Application one that is not here.
-        let ws = load(vec![app(
-            "a",
-            &[],
-            &[
-                ("t.al", "namespace Imported; table 50900 \"Agent\" { }"),
-                ("g.al", "table 50901 \"Global Agent\" { }"),
-                ("own.al", "namespace Own; table 50902 \"Own Agent\" { }"),
-                ("c1.al", "namespace Own; using Imported; codeunit 60100 C1 { }"),
-                ("c2.al", "using Imported; codeunit 60101 C2 { }"),
-                ("c3.al", "codeunit 60102 C3 { }"),
-                ("c4.al", "namespace Other; codeunit 60103 C4 { }"),
-            ],
-        )]);
-        let file = |name: &str| ws.objects.iter().find(|o| o.name == name).unwrap().file;
-        let found = |r: Resolution| matches!(r, Resolution::Found(_));
-        let one = |n: &str| vec![n.to_string()];
-        // The ordinary compile-time resolution finds each of them.
-        assert!(found(ws.resolve_ref(file("C1"), ObjKind::Table, &one("Agent"))));
-        // Own namespace: certain.
-        assert!(found(ws.resolve_ref_certain(
-            file("C1"),
-            ObjKind::Table,
-            &one("Own Agent")
-        )));
-        // A `using` hit under a namespaced file could be shadowed by a Base Application table of the
-        // file's own namespace: not certain. Without a namespace of its own it is.
-        assert!(!found(ws.resolve_ref_certain(
-            file("C1"),
-            ObjKind::Table,
-            &one("Agent")
-        )));
-        assert!(found(ws.resolve_ref_certain(file("C2"), ObjKind::Table, &one("Agent"))));
-        // A global table is only certain for a file with neither namespace nor usings.
-        assert!(!found(ws.resolve_ref_certain(
-            file("C2"),
-            ObjKind::Table,
-            &one("Global Agent")
-        )));
-        assert!(found(ws.resolve_ref_certain(
-            file("C3"),
-            ObjKind::Table,
-            &one("Global Agent")
-        )));
-        assert!(!found(ws.resolve_ref_certain(
-            file("C4"),
-            ObjKind::Table,
-            &one("Global Agent")
-        )));
-        // Qualified names are exact.
-        assert!(found(ws.resolve_ref_certain(
-            file("C4"),
-            ObjKind::Table,
-            &["Imported".to_string(), "Agent".to_string()]
-        )));
-    }
-
-    #[test]
-    fn with_base_application_loaded_a_using_resolves_a_relation_target() {
-        // corpus recordref-fieldref/fieldref/TestRelationTargetNamespaceScope.al RelationScope_Usings_*: a table in a
-        // file with a namespace, naming "Shipping Agent" with `using Microsoft.Foundation.Shipping`,
-        // relates to Base Application's table 291. Base Application is here, so the tiers above the
-        // using can be told to hold nothing (the same holds for the name written in Base
-        // Application's own files, which resolve among the apps they saw).
-        let base = app(
-            "Base Application",
-            &[],
-            &[(
-                "sa.al",
-                "namespace Microsoft.Foundation.Shipping; table 291 \"Shipping Agent\" { }",
-            )],
-        );
-        let mine = app(
-            "mine",
-            &["Base Application"],
-            &[(
-                "c.al",
-                "namespace Mine.Scope; using Microsoft.Foundation.Shipping; codeunit 60100 C1 { }",
-            )],
-        );
-        let ws = Workspace::load_apps(
-            vec![base, mine],
-            vec![AppKind::Dependency, AppKind::Workspace],
-            &al_version::corpus_symbols(27),
-        );
-        let file = ws.objects.iter().find(|o| o.name == "C1").unwrap().file;
-        let name = vec!["Shipping Agent".to_string()];
-        assert!(matches!(
-            ws.resolve_relation_target(file, ObjKind::Table, &name),
-            Resolution::Found(_)
-        ));
-        // Without Base Application, and with a dependency that is not loaded, a hit under a using stays uncertain (the
-        // test above): the absent app could hold a same-named table.
-        let alone = Workspace::load(
-            vec![app(
-                "mine",
-                &["437dbf0e-84ff-417a-965d-ed2bb9650972"],
-                &[
-                    (
-                        "t.al",
-                        "namespace Microsoft.Foundation.Shipping; table 291 \"Shipping Agent\" { }",
-                    ),
-                    (
-                        "c.al",
-                        "namespace Mine.Scope; using Microsoft.Foundation.Shipping; codeunit 60100 C1 { }",
-                    ),
-                ],
-            )],
-            &al_version::corpus_symbols(27),
-        );
-        let file = alone.objects.iter().find(|o| o.name == "C1").unwrap().file;
-        assert!(!matches!(
-            alone.resolve_relation_target(file, ObjKind::Table, &name),
-            Resolution::Found(_)
-        ));
-    }
-
-    #[test]
-    fn with_every_dependency_loaded_a_using_resolves_a_relation_target() {
-        // al-runner issues 8191 and 8181: an app with no dependency names a table of its own in another namespace through a
-        // using, and a table of another namespace from a file with neither namespace nor using (the "Table Metadata" shape). No app is absent, so the name means what it means to
-        // the compiler (TestRelationTargetNamespaceScope.al:235, a table of the app reached through a using).
-        let ws = load(vec![app(
-            "mine",
-            &[],
-            &[
-                ("g.al", "namespace Repro.Setup; table 51690 \"Repro Posting Group\" { }"),
-                (
-                    "h.al",
-                    "namespace Repro.Assets; using Repro.Setup; codeunit 60100 C1 { }",
-                ),
-                (
-                    "m.al",
-                    "namespace System.Reflection; table 50999 \"Repro Metadata\" { }",
-                ),
-                ("p.al", "codeunit 60101 C2 { }"),
-            ],
-        )]);
-        let file = |name: &str| ws.objects.iter().find(|o| o.name == name).unwrap().file;
-        let found = |r: Resolution| matches!(r, Resolution::Found(_));
-        assert!(found(ws.resolve_relation_target(
-            file("C1"),
-            ObjKind::Table,
-            &["Repro Posting Group".to_string()]
-        )));
-        assert!(found(ws.resolve_relation_target(
-            file("C2"),
-            ObjKind::Table,
-            &["Repro Metadata".to_string()]
-        )));
-        // The certain resolution itself is unchanged: an absent app is what it guards against.
-        assert!(!found(ws.resolve_ref_certain(
-            file("C1"),
-            ObjKind::Table,
-            &["Repro Posting Group".to_string()]
-        )));
-    }
+    mod relation_target;
 
     /// Issue 15: one eager run of Microsoft's apps reported a parse error in a report that parsed fine in every
     /// other run (a stray token next to a synthetic column routine). A parse is a function of the text, so
