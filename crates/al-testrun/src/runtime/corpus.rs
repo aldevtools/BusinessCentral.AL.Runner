@@ -1459,6 +1459,7 @@ impl CorpusRuntime {
                             runner: *runner,
                             watch: false,
                             takes_numbers: false,
+                            numbers_unmeasured: None,
                             singles_past_stop: false,
                             driver,
                             discovery: None,
@@ -1567,7 +1568,7 @@ impl CorpusRuntime {
                 si == u.si && place(si, id) < place(u.si, u.id) && (leg == 0 || !u.hub_leg)
             };
             chain_report.single_lane.watched = super::single_lane::assign_watches(&mut units, &place, opts);
-            super::order_hint::note_numbers_order(lowered, &units, &place, opts, &mut chain_report);
+            super::order_hint::note_numbers_order(&engine, lowered, &mut units, &place, opts, &mut chain_report);
             let mut slots: Vec<Option<UnitResult>> = (0..units.len()).map(|_| None).collect();
             chain_report.units += units.len() + chain.iter().filter(|c| matches!(c.3, Link::Refused(..))).count();
             let first_origin = baseline.as_ref().map(al_vm::Baseline::origin);
