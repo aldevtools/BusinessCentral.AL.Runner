@@ -34,15 +34,6 @@ codeunit 50500 "T"
         if Dst.Txt <> '2645' then Error('text %1', Dst.Txt);
     end;
     [Test]
-    procedure AnOptionFromAFieldRef()
-    var Row: Record "VNT Row"; Dst: Record "VNT Row"; RR: RecordRef; FR: FieldRef;
-    begin
-        Row.Opt := Row.Opt::First;
-        RR.GetTable(Row);
-        FR := RR.Field(4);
-        Dst.Txt := FR.Value();
-        if Dst.Txt <> 'First Caption' then Error('text %1', Dst.Txt);
-    end;
     [Test]
     procedure AnOptionVariantIntoFields()
     var V: Variant; Row: Record "VNT Row"; i: Integer;
@@ -115,7 +106,6 @@ fn a_field_ref_number_becomes_text_in_a_field_and_a_variant_number_raises() {
         "AReturnedOptionVariantIntoFields",
         "AnEnumVariantIntoAField",
         "IntoAVariable",
-        "AnOptionFromAFieldRef",
     ] {
         let o = rt.first_outcome(&CaseId {
             codeunit: 50500,

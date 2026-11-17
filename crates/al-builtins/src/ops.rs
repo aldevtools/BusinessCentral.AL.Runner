@@ -777,7 +777,7 @@ pub fn number_into_text_field(
 ) -> Option<Result<Value, Signal>> {
     if !matches!(
         v,
-        Value::Integer(_) | Value::BigInteger(_) | Value::Decimal(_) | Value::Enum(..) | Value::Option(..)
+        Value::Integer(_) | Value::BigInteger(_) | Value::Decimal(_) | Value::Enum(..)
     ) {
         return None;
     }
