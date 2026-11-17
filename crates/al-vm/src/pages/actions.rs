@@ -2137,21 +2137,6 @@ impl Session {
         let Some(on_row) = self.validate_refresh_start(st, without_curr)? else {
             return Ok(false);
         };
-        let curr = |this: &mut Self| -> Result<(), Signal> {
-            let r = (|| {
-                if without_curr {
-                    return Ok(true);
-                }
-                this.page_trigger(st, "onaftergetcurrrecord", vec![])?;
-                this.page_event(st, "onaftergetcurrrecordevent", None, None)
-            })();
-            this.torn_down_on_error(st, r)?;
-            st.borrow_mut().refresh = false;
-            if !without_parts {
-                this.sync_parts(st)?;
-            }
-            Ok(())
-        };
         if self.view_row_count(st)? == 0 {
             if !on_row {
                 return Ok(false);
@@ -2181,7 +2166,7 @@ impl Session {
             let fresh = self.initial_fields(table);
             rec.borrow_mut().fields = fresh;
             self.stamp_from_filters(st, false)?;
-            curr(self)?;
+            self.finish_validate_refresh(st, without_curr, without_parts)?;
             return Ok(true);
         }
         if !on_row {
@@ -2197,18 +2182,7 @@ impl Session {
             s.cursor = Cursor::Row;
             s.window_from_start = true;
         }
-        // The client reads the new view from its first row: the rows it held do not matter.
-        st.borrow_mut().window_from_start = true;
-        let key = self.row_key(&rec)?;
-        self.read_list_again_from_row_as(st, &rec, &key, false)?;
-        let mut pk = self.table(&rec)?.primary_key(&rec.borrow().fields);
-        self.ret_used = true;
-        self.record_op(RecordOp::Get, &rec, &mut pk)?;
-        self.populate_current(st)?;
-        curr(self)?;
-        // The client holds the rows the refresh read (`read_list_again_from_row_as`).
-        st.borrow_mut().window_top_unread = false;
-        st.borrow_mut().read_up_from_last = None;
+        self.reread_view_from_row(st, without_curr, without_parts)?;
         Ok(true)
     }
 
@@ -2549,8 +2523,12 @@ impl Session {
         let read_done = std::mem::take(&mut st.borrow_mut().refresh_read_done);
         let by_update = std::mem::take(&mut st.borrow_mut().refresh_by_update);
         let filters_before = std::mem::take(&mut st.borrow_mut().filters_before_validate);
+        let code_inserted_line = std::mem::take(&mut st.borrow_mut().refresh_from_code_inserted_line);
         if !std::mem::take(&mut st.borrow_mut().refresh) || read_done {
             return Ok(());
+        }
+        if self.code_inserted_refresh_due(st, code_inserted_line, by_update)? {
+            return self.reread_view_from_row(st, without_curr, without_parts);
         }
         if by_update && self.refresh_after_validate_filter(st, filters_before, without_curr, without_parts)? {
             return Ok(());

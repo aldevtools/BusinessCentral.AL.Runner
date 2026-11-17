@@ -612,6 +612,11 @@ pub struct PageState {
     /// A ListPart that shows no row on a top-level List host landed in a cell BC was measured at: Rec holds the link values
     /// only inside a measured read (`empty_part_rec.rs`, `reading_empty_list_rec`).
     pub empty_list_landing: Option<crate::pages::empty_part_rec::EmptyListLanding>,
+    /// The last measured step of a List host's CardPart FactBox around the new line (`list_factbox_new_line.rs`).
+    pub factbox_line: crate::pages::list_factbox_new_line::FactboxLine,
+    /// A measured step of `factbox_line` reads the part now: a part that finds no row runs OnAfterGetCurrRecord on the blank
+    /// record (`list_factbox_new_line.rs`, `factbox_blank_landing`).
+    pub factbox_blank_landing: bool,
     /// The test called `First()` on the page since it opened (`next_held_row_read`; set and cleared by `test_page_op_held`).
     pub first_since_open: bool,
     /// The static `Page.RunModal(0, Rec)` found the page from the table's LookupPageId.
@@ -901,6 +906,14 @@ pub struct PageState {
     pub refresh_by_update: bool,
     /// The last `CurrPage.Update` call was `Update(false)` (it saves nothing).
     pub refresh_update_false: bool,
+    /// The refresh about to run starts from a new line the table code inserted inside the validation (`code_inserted_new_line.rs`).
+    pub refresh_from_code_inserted_line: bool,
+    /// The key of the row that refresh landed on and the number of test calls then, until the next move
+    /// (`code_inserted_new_line.rs`).
+    pub code_inserted_row: Option<(Vec<Value>, usize)>,
+    /// The store's write mark (`Session::write_mark`) when the page control's own OnValidate began, while it runs
+    /// (`code_inserted_new_line.rs` `run_control_onvalidate`).
+    pub control_onvalidate_writes: Option<(i64, u64)>,
     /// The filters of the page's record when a control's OnValidate began, for the refresh a `CurrPage.Update` in it asks for
     /// (`al-vm` `refresh_after_validate_filter`).
     pub filters_before_validate: Option<Vec<al_builtins::filter::FieldFilter>>,
@@ -1055,6 +1068,8 @@ impl PageState {
         self.tree_calls_unknown = false;
         self.tree_calls_mark = None;
         self.empty_list_landing = None;
+        self.factbox_line = Default::default();
+        self.factbox_blank_landing = false;
         self.typed_key_dropped = false;
         self.pinned_end = None;
         self.data_caption_at_open = false;
@@ -1067,6 +1082,14 @@ impl PageState {
         self.temp_ws_edit = None;
         self.temp_ws_preloaded = false;
         self.journal_stayed = false;
+        self.forget_code_inserted_line();
+    }
+
+    /// What `code_inserted_new_line.rs` noted when the page landed on the row its new line became is gone: the page opens or
+    /// closes, or the validation that landed ended with an error.
+    pub(crate) fn forget_code_inserted_line(&mut self) {
+        self.refresh_from_code_inserted_line = false;
+        self.code_inserted_row = None;
     }
 
     /// The page opens: the captions its controls and fields resolved on the last run are gone.

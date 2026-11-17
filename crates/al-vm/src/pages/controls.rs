@@ -987,7 +987,7 @@ impl Session {
                     let filters = self.page_rec(st).borrow().filters.clone();
                     st.borrow_mut().filters_before_validate = Some(filters);
                 }
-                if let Err(e) = self.control_routine(st, idx, r) {
+                if let Err(e) = self.run_control_onvalidate(st, idx, r) {
                     from_page_trigger.set(true);
                     return Err(e);
                 }
@@ -1804,7 +1804,7 @@ impl Session {
                 let before = self.has_source(st).then(|| self.page_rec(st).borrow().fields.clone());
                 let r = self.set_value_reading_held_row(st, idx, args)?;
                 self.trapped_card_blank_part_validated(st, idx, before.as_deref())?;
-                self.resync_parts_linked_by(st, idx, before.as_deref())?;
+                self.resync_parts_after_set_value(st, idx, before.as_deref())?;
                 self.refresh_host_after_part_edit(st)?;
                 Ok(r)
             }
