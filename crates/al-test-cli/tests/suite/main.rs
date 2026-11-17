@@ -291,4 +291,5 @@ mod no_source_page_neighbors;
 mod pageext_temp_worksheet_set_before_open;
 mod pages_p4_allowlists;
 mod read_only_temp_list_gone_row;
+mod record_copy_reports;
 mod ws_trigger_order;

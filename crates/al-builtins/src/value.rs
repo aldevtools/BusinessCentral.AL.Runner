@@ -589,6 +589,10 @@ pub struct RecordState {
     /// Every use of the record refuses with this reason: what its buffer holds is not pinned (the row a page closed on after
     /// `Page.RunModal(Id, Rec)` called as a statement, see `hand_back_selection`).
     pub unpinned_buffer: Option<&'static str>,
+    /// A by-value copy whose filters were dropped on the assumption `by-value-record-no-filters` (al-vm
+    /// `records/by_value_view.rs`): a read of its view marks the assumption. Clones of the state keep it; `Reset`, `SetView`
+    /// and `Clear` end it.
+    pub view_assumption: bool,
     /// The filters an action's `RunPageLink` put on this Rec of the page it opened: a copy of Rec passed by value does not
     /// carry them (testpage/TestActionRunPageLinkFilterGroup.al:292-369, `filters=` in OnOpenPage and OnAfterGetCurrRecord).
     pub run_page_link: Option<Rc<Vec<crate::filter::FieldFilter>>>,
@@ -643,8 +647,9 @@ pub struct OwnReadAt {
     pub store_changes: u64,
 }
 
-/// See [`RecordState::row_origin`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// See [`RecordState::row_origin`]. Two origins are equal when every field but `by_get` is: the stale-buffer rules compare
+/// origins without it.
+#[derive(Debug, Clone, Copy)]
 pub struct RowOrigin {
     /// The variable's own write: its Insert, or its own Modify or Rename after its Insert or Get in the same transaction
     /// (record/crud/SbStaleOwnModify.al). Else a Get.
@@ -665,7 +670,44 @@ pub struct RowOrigin {
     pub own_modified: bool,
     /// A read by a Find, FindFirst, FindLast, FindSet or Next, not by Get, gave the buffer its committed version.
     pub from_find: bool,
+    /// A `Get` gave the buffer its version (not GetBySystemId, not a Find), committed or written in the open transaction. Read
+    /// only by the xRec rule of al-runner issue 8189 (al-vm `records/nested_validate.rs` `measured_buffer`).
+    pub by_get: bool,
 }
+
+impl PartialEq for RowOrigin {
+    fn eq(&self, other: &Self) -> bool {
+        let RowOrigin {
+            own_write,
+            version,
+            commits,
+            read_in_write_tx,
+            lock_only,
+            own_modified,
+            from_find,
+            by_get: _,
+        } = *self;
+        (
+            own_write,
+            version,
+            commits,
+            read_in_write_tx,
+            lock_only,
+            own_modified,
+            from_find,
+        ) == (
+            other.own_write,
+            other.version,
+            other.commits,
+            other.read_in_write_tx,
+            other.lock_only,
+            other.own_modified,
+            other.from_find,
+        )
+    }
+}
+
+impl Eq for RowOrigin {}
 
 impl RowOrigin {
     /// An origin at `version` with the session's `commits`, no Get in a write transaction, no lock rule and no own Modify.
@@ -678,6 +720,7 @@ impl RowOrigin {
             lock_only: false,
             own_modified: false,
             from_find: false,
+            by_get: false,
         }
     }
 }

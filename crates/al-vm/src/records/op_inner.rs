@@ -6,16 +6,10 @@ use crate::state::WriteOfAl;
 impl Session {
     pub(crate) fn record_op_inner(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
         self.connection_check(rec)?;
-        if rec.borrow().unpinned_buffer.is_some() {
+        if rec.borrow().unpinned_buffer.is_some() && !self.by_value_view_runs(method, rec)? {
             return self.unpinned_buffer_op(method, rec, args);
         }
-        // Copy, CopyFilters, TransferFields and the like from a record `copy_refused_mark` names would carry its unpinned view
-        // or buffer over.
-        if let Some(Value::Record(src)) = args.first() {
-            if let Some(why) = copy_refused_mark(src) {
-                return unsupported(format!("Record.{}() from a record: {why}", method.name()));
-            }
-        }
+        Self::view_and_source_marks(method, rec, args)?;
         let t = self.table(rec)?;
         crate::blob_transfer::record_write_starts(method, &rec.borrow());
         Self::refuse_filter_in_unpinned_group(method, rec)?;
@@ -1926,7 +1920,7 @@ impl Session {
                 if let Some(v) = new_value {
                     rec.borrow_mut().fields[pos] = v;
                 }
-                let xrec = Self::xrec_handle(rec, before.clone());
+                let xrec = Self::validate_xrec_handle(rec, &before);
                 let outermost = outer.is_none().then_some(before);
                 self.while_validating(entry, outermost, |s| s.validate_hooks(&t, rec, &xrec, field, snapshot))?;
                 if sum_flowfield {
@@ -2300,5 +2294,20 @@ fn valid_find_direction(which: &str) -> bool {
                 && w.chars().all(|c| matches!(c, '=' | '<' | '>'))
                 && w.char_indices().all(|(i, c)| !w[i + 1..].contains(c))
         }
+    }
+}
+
+impl Session {
+    /// The marks `record_op_inner` checks before a method runs: the view of a by-value copy (`records/by_value_view.rs`
+    /// `by_value_view_marks`); and Copy, CopyFilters, TransferFields and the like from a record `copy_refused_mark` names, which
+    /// would carry its unpinned view or buffer over.
+    fn view_and_source_marks(method: RecordOp, rec: &Rec, args: &[Value]) -> Result<(), Signal> {
+        Self::by_value_view_marks(method, rec, args)?;
+        if let Some(Value::Record(src)) = args.first() {
+            if let Some(why) = copy_refused_mark(src) {
+                return unsupported(format!("Record.{}() from a record: {why}", method.name()));
+            }
+        }
+        Ok(())
     }
 }

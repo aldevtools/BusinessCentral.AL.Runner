@@ -323,6 +323,7 @@ mod tests {
             probed_source: Default::default(),
             globals: Default::default(),
             unpinned_buffer: None,
+            view_assumption: false,
             run_page_link: None,
         })))
     }

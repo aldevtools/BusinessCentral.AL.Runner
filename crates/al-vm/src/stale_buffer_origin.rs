@@ -23,11 +23,13 @@ impl Session {
             Some(Value::BigInteger(v)) if (via_get || via_sysid || via_find) && *v > self.tx.committed_row_version => {
                 Some(RowOrigin {
                     read_in_write_tx: true,
+                    by_get: via_get,
                     ..RowOrigin::new(true, *v, self.commits)
                 })
             }
             Some(Value::BigInteger(v)) if via_get || via_find => Some(RowOrigin {
                 from_find: !via_get,
+                by_get: via_get,
                 ..RowOrigin::new(false, *v, self.commits)
             }),
             _ => None,
