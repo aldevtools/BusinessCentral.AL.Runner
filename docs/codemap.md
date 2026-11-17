@@ -72,7 +72,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 ### al-builtins
 
 - `catalog.rs` (432): Generating the signature catalog from the docs scrape (ADR-008). Entry: `Catalog` 54, `load` 65, `for_target` 72, `generate` 219.
-- `collation.rs` (135): Text order for `<`, `>`, `<=` and `>=`. Entry: `compare` 74.
+- `collation.rs` (~450): Text order for `<`, `>`, `<=` and `>=` (`compare`), and the key order of text values (`compare_key`, `text_key_order`; `text_value_key_order` picks the Text key order, where `Æ` sorts as `AE`, assumption `text-key-ae-sorts-as-ae`). `ae_order_measured` says which texts with `Æ`/`æ` that order covers, `ae_decides_order` and `ae_equality_open` whether an order or an equality of two texts rests on a letter outside it; `fold_accents` reads a text with its accents ignored. Entry: `compare`, `text_key_order`, `text_value_key_order`.
 - `collections.rs` (286): List and Dictionary methods.
 - `describe.rs` (330): How a value or type reads in a refusal reason or internal error (AL type and a short value, never a debug dump). Entry: `Describe` 12.
 - `refusal.rs` (490): Typed refusals (ADR-071): `Refusal` (a key and a text, the size of a `String`; free text converts with the key `legacy` and reads, prints and stores as the `String` did), `refuse!` (arguments through `Describe`, positional or `name = value`; a name read from the scope does not compile), `Shown`, `Probe`, `AREAS`, and `refusal_keys!`, which turns this crate's list `src/refusals/<key>.rs` (one file per key, collected by `build.rs`) into `keys` and `ALL`. Entry: `Refusal`, `refuse!`, `refusal_keys!`, `placeholders_passed`.
@@ -87,6 +87,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `evaluate.rs` (265): `Evaluate(var Variable, String [, Number])`. Entry: `evaluate` 205.
 - `file.rs` (362): The `File` data type, on the host file system capability (ADR-006, `al-host::FileSystem`). Entry: `FileState` 32, `native_for` 331.
 - `filter.rs` (626): Record filters as data (shared by the VM and the store). Entry: `FilterExpr` 8, `parse_filter` 70, `parse_filter_with` 79, `FieldFilter` 371.
+- `filter_collation.rs`: Where a filter's answer for a text rests on `Æ`/`æ` or on accents under `@` that no measurement covers (`FilterExpr::collation_refusal`, `collation_open`), and the row checks built on it (`row_passes_collation` for the store, `all_match_on` for a record's own filters). Entry: `collation_refusal`.
 - `format.rs` (619): `Format(Value [, Length] [, FormatNumber])`. Entry: `FormatCtx` 8, `FormatFail` 15, `try_format` 29, `format_value` 37.
 - `format_json.rs` (~80): `Format` of a JsonObject, JsonArray, JsonValue or JsonToken. Entry: `format_json`.
 - `formatstr.rs` (389): `Format(Value, Length, FormatString)`. Entry: `format_with_string` 50.
@@ -141,6 +142,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `lib.rs` (153): The Store trait and table definitions (TableDef, Row, AccessContext). Owns which values may enter a key: `TableDef::check_key_values` (writes, `Rows::from_rows`) and `check_primary_key` (lookups) refuse a value `al_builtins::ops::key_orderable` rejects, so the key comparators never meet values that do not compare (al-runner issue 7644). Entry: `Store` 120, `TableDef` 21, `FieldDef` 12, `AccessContext` 40, `InsertOutcome` 58.
 - `memory.rs` (640): In-memory store on persistent maps; a `Backing` gives untouched tables their restored rows (test data). Entry: `MemStore` 33, `with_virtual_tables` 63, `detached` 72, `attached` 83.
 - `memory/key.rs`: The primary-key tuple `Key` and its table's order: every key of a table carries the storage of the primary key fields (`PkStorage`, Code stored as a number orders by number), and an export, freeze or row delta carries it with the rows (al-runner issue 7618). Entry: `Key::of`, `Key::in_table`, `table_storage`.
+- `memory/held_cols.rs`: The columns a write notes so a read can refuse rows it cannot answer for: unknown values of a platform row (`unknown_read`) and texts outside ASCII (`collation_read`: an order or filter resting on `Æ`/`æ` or on accents under `@` that no measurement covers, decided once per read and kept per table version, key and filters, `Verdict`, across Modifies that write no column the read looks at, `ModifyRun`). Entry: `note_held`, `collation_read`.
 - `memory/order_carry.rs`: Keeps a cached secondary-key order (`order_of`) through an Insert, a Delete or a Modify that moves a row, by a binary-search insert instead of a new sort (al-runner issue 6924). Entry: `carry_orders`, `carry_moved`.
 
 ### al-deps
