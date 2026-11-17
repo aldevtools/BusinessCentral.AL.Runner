@@ -664,6 +664,20 @@ impl Session {
         Ok(r)
     }
     /// The save of `CurrPage.Update(true)`, `CurrPage.Update()` and `CurrPage.SaveRecord()` on an open page.
+    /// The refresh `CurrPage.Update(arg)` asks for, `save` when it saves. It lands after the trigger that asked for it returns (corpus
+    /// pages/currpage/TestPageUpdate.al: ValidateBegin;ValidateEnd;HostAGCR).
+    fn ask_update_refresh(&mut self, st: &St, save: bool, arg: Option<&Value>) -> Result<(), Signal> {
+        self.refuse_update_in_action(st)?;
+        {
+            let mut s = st.borrow_mut();
+            s.refresh = true;
+            s.refresh_by_update = true;
+            s.refresh_update_false = !save;
+        }
+        self.note_view_left(st)?;
+        self.land_on_code_inserted_line(st, arg)
+    }
+
     fn save_from_update(&mut self, method: PageOp, st: &St) -> Result<Value, Signal> {
         if method == PageOp::PageSaveRecord {
             st.borrow_mut().save_record_called = true;
@@ -1321,13 +1335,7 @@ impl Session {
                 // CurrPage.Update() without an argument saves (the parameter defaults to true).
                 let save = (method == PageOp::PageSaveRecord) || !matches!(args.first(), Some(Value::Boolean(false)));
                 if !(method == PageOp::PageSaveRecord) {
-                    self.refuse_update_in_action(st)?;
-                    // The refresh lands after the trigger that asked for it returns (corpus
-                    // pages/currpage/TestPageUpdate.al: ValidateBegin;ValidateEnd;HostAGCR).
-                    st.borrow_mut().refresh = true;
-                    st.borrow_mut().refresh_by_update = true;
-                    st.borrow_mut().refresh_update_false = !save;
-                    self.note_view_left(st)?;
+                    self.ask_update_refresh(st, save, args.first())?;
                 }
                 if !save {
                     self.validate_step_update_false(st);

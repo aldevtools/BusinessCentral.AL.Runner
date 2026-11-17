@@ -21,7 +21,7 @@ use al_data::{AccessContext, CodeStorage, Store, TableDef};
 use al_ir::{FieldClass, RelationWhere};
 
 /// The SystemRowVersion in `fields` (0 when it holds none); `None` for a table without the field.
-fn row_version(t: &TableDef, fields: &[Value]) -> Option<i64> {
+pub(crate) fn row_version(t: &TableDef, fields: &[Value]) -> Option<i64> {
     let i = t.fields.iter().position(|f| f.id == 2_000_000_005)?;
     match fields.get(i) {
         Some(Value::BigInteger(n)) => Some(*n),
