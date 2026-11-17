@@ -203,6 +203,8 @@ pub struct MemStore {
     unknown_cols: std::collections::HashMap<u32, Vec<usize>>,
     /// Per table, the columns in which a stored row held a text outside ASCII. Never cleared (`collation_read`).
     accent_cols: std::collections::HashMap<u32, Vec<usize>>,
+    /// Per table, the columns in which a stored row held a text with `Æ` or `æ`. Never cleared (`collation_read`).
+    ae_cols: std::collections::HashMap<u32, Vec<usize>>,
     /// Per table, the answers of `collation_read` kept for later reads (`held_cols::Verdict`).
     collation_verdicts: std::cell::RefCell<std::collections::HashMap<Slot, Vec<held_cols::Verdict>>>,
     /// Per table and column, the rows whose text can tie with an equality's text (`held_cols::FoldIndex`).

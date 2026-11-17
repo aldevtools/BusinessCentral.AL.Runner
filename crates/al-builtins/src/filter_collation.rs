@@ -97,6 +97,16 @@ impl FilterExpr {
         }
     }
 
+    /// Whether this filter holds an `@` comparison, the only kind other accents than `Æ` and `æ` can leave open.
+    pub fn holds_at(&self) -> bool {
+        match self {
+            FilterExpr::Like(_, true) | FilterExpr::NotLike(_, true) => true,
+            FilterExpr::Or(xs) | FilterExpr::And(xs) => xs.iter().any(FilterExpr::holds_at),
+            FilterExpr::NumCode(inner) | FilterExpr::UnpinnedText(inner) => inner.holds_at(),
+            _ => false,
+        }
+    }
+
     /// The text value an equality filter holds its field to: `Eq`, `RangeSame` and a range with two equal ends of a text.
     pub fn text_equality(&self) -> Option<&str> {
         match self {

@@ -248,6 +248,16 @@ fn a_modify_loop_keeps_the_answer_until_a_read_column_changes() {
 }
 
 #[test]
+fn an_ordered_read_of_other_accents_looks_at_no_row() {
+    // Probe perf-de: `Müller` in the key column; only `Æ` and `æ` can make an order open.
+    let s = store(&[("Müller 1", "A"), ("Müller 2", "B")], true);
+    let before = rows_looked_at();
+    let range = filter(0, FilterExpr::Range(Some(text("A")), Some(text("N"))));
+    assert_eq!(name(&first(&s, 0, &[range]).unwrap().unwrap()), "Müller 1");
+    assert_eq!(rows_looked_at(), before);
+}
+
+#[test]
 fn a_lookup_by_an_equality_looks_at_the_table_once() {
     // A loop that reads one row by name per step, the names holding `æ`: only rows that tie with the name are checked.
     let n = 2_000;

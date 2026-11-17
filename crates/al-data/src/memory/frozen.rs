@@ -24,6 +24,7 @@ pub struct FrozenStore {
     emptied: crate::pmap::PMap<Slot, ()>,
     unknown_cols: std::collections::HashMap<u32, Vec<usize>>,
     accent_cols: std::collections::HashMap<u32, Vec<usize>>,
+    ae_cols: std::collections::HashMap<u32, Vec<usize>>,
     counter: u64,
     /// The tables whose rows hold a value that is not [`shareable`], as bytes (see the module comment).
     held: Vec<Held>,
@@ -203,6 +204,7 @@ impl FrozenStore {
             emptied: store.committed_emptied.clone(),
             unknown_cols: store.unknown_cols.clone(),
             accent_cols: store.accent_cols.clone(),
+            ae_cols: store.ae_cols.clone(),
             counter: store.counter,
         })
     }
@@ -238,6 +240,7 @@ impl FrozenStore {
             committed_emptied: self.emptied.clone(),
             unknown_cols: self.unknown_cols.clone(),
             accent_cols: self.accent_cols.clone(),
+            ae_cols: self.ae_cols.clone(),
             counter: self.counter,
             ..Default::default()
         }

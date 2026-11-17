@@ -45,8 +45,9 @@ impl MemStore {
     /// ([`al_builtins::filter::row_passes_collation`]), unless a filter with a measured answer keeps it out; and, among the rows that
     /// pass, two neighbours in the order of `key` (`None`: a read in no order) whose order rests on `Æ` or `æ`
     /// ([`al_builtins::collation::ae_decides_order`]). The rows are looked at only when a filter that can refuse
-    /// ([`al_builtins::filter::FilterExpr::collation_open`]) reads a column a written row noted or holds a letter outside ASCII
-    /// itself, or the key orders by a noted column that no equality filter holds to one text. Rows a backing or a virtual table
+    /// ([`al_builtins::filter::FilterExpr::collation_open`]) reads a column where a written row held `Æ` or `æ` (any letter outside
+    /// ASCII, for an `@` filter) or holds a letter outside ASCII itself, or the key orders by a column where a written row held
+    /// `Æ` or `æ` and no equality filter holds it to one text. Rows a backing or a virtual table
     /// serves are not noted. A store that is not the database (a temporary record's, a CRM connection's) holds no normal records.
     ///
     /// The answer is decided once per read: it is kept per table, key and filters ([`Verdict`]) and holds while the table is
@@ -58,10 +59,14 @@ impl MemStore {
         filters: &[FieldFilter],
         key: Option<usize>,
     ) -> Result<(), StoreError> {
-        let held = self.accent_cols.get(&t.object).map_or(&[][..], Vec::as_slice);
-        let checked = filters
-            .iter()
-            .any(|f| (held.contains(&f.field) || f.expr.holds_non_ascii()) && f.expr.collation_open());
+        // Only `Æ` and `æ` make an order, a range or an equality open; other accents only an `@` filter.
+        let held = self.ae_cols.get(&t.object).map_or(&[][..], Vec::as_slice);
+        let accents = self.accent_cols.get(&t.object).map_or(&[][..], Vec::as_slice);
+        let looked_at = |f: &FieldFilter| {
+            (held.contains(&f.field) || f.expr.holds_non_ascii() || (accents.contains(&f.field) && f.expr.holds_at()))
+                && f.expr.collation_open()
+        };
+        let checked = filters.iter().any(looked_at);
         let key_fields = |k: usize| t.keys[k].iter().chain(&t.keys[0]).copied();
         // Rows that pass an equality filter hold the same text in its field, so that field never decides their order.
         let one_text = |c: usize| {
@@ -77,7 +82,7 @@ impl MemStore {
         // Equalities alone, in no order that rests on these letters: only the rows that tie with an equality's text can be open.
         let ties: Option<Vec<(usize, &str)>> = filters
             .iter()
-            .filter(|f| !ordered && (held.contains(&f.field) || f.expr.holds_non_ascii()) && f.expr.collation_open())
+            .filter(|f| !ordered && looked_at(f))
             .map(|f| f.expr.tie_text().map(|x| (f.field, x)))
             .collect();
         if let Some(ties) = ties.filter(|_| !ordered) {
@@ -277,18 +282,25 @@ impl MemStore {
         self.database
     }
 
-    /// Writes down the columns of `row` that hold an unknown value (see `unknown_cols`) or a text outside ASCII (see
-    /// `accent_cols`).
+    /// Writes down the columns of `row` that hold an unknown value (see `unknown_cols`), a text outside ASCII (see
+    /// `accent_cols`), and one with `Æ` or `æ` (see `ae_cols`).
     pub(super) fn note_held(&mut self, t: &TableDef, row: &Row) {
-        for (i, v) in row.iter().enumerate() {
-            let map = match v {
-                _ if v.unknown().is_some() => &mut self.unknown_cols,
-                Value::Text(s) | Value::Code(s) if !s.is_ascii() => &mut self.accent_cols,
-                _ => continue,
-            };
+        let note = |map: &mut std::collections::HashMap<u32, Vec<usize>>, i: usize| {
             let held = map.entry(t.object).or_default();
             if !held.contains(&i) {
                 held.push(i);
+            }
+        };
+        for (i, v) in row.iter().enumerate() {
+            match v {
+                _ if v.unknown().is_some() => note(&mut self.unknown_cols, i),
+                Value::Text(s) | Value::Code(s) if !s.is_ascii() => {
+                    note(&mut self.accent_cols, i);
+                    if al_builtins::collation::holds_ae(s) {
+                        note(&mut self.ae_cols, i);
+                    }
+                }
+                _ => {}
             }
         }
     }
