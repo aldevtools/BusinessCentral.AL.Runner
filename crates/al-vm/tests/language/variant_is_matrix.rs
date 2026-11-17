@@ -489,6 +489,23 @@ fn each_held_kind_answers_the_measured_is_methods() {
 const NEIGHBORS: &str = r#"
 codeunit 69974 "LT VaM Neighbors"
 {
+    procedure HoldsFile(): Boolean
+    var
+        Value: Variant;
+        F: File;
+    begin
+        Value := F;
+        exit(Value.IsFile());
+    end;
+
+    procedure HoldsTextIsFile(): Boolean
+    var
+        Value: Variant;
+    begin
+        Value := 'a';
+        exit(Value.IsFile());
+    end;
+
     procedure Reporter(): Boolean
     var
         Value: Variant;
@@ -666,4 +683,20 @@ fn a_transaction_type_literal_is_no_option() {
         "TransactionTypeLiteralIsOption"
     )));
     assert!(take_hits().is_empty());
+}
+
+/// IsFile of a Variant that holds a File is not measured (VariantIsMatrix.al:5-6 holds no File): refused. Of a Variant that holds
+/// another kind it keeps main's false (VariantIsMatrix.al:83).
+#[test]
+fn is_file_of_a_variant_holding_a_file_refuses() {
+    let r = al_testkit::run_in(NEIGHBORS, "LT VaM Neighbors", "HoldsFile");
+    assert!(
+        matches!(&r, Err(al_builtins::native::Signal::Unsupported(w)) if w.contains("IsFile")),
+        "{r:?}"
+    );
+    assert!(!al_testkit::boolean(al_testkit::run_in(
+        NEIGHBORS,
+        "LT VaM Neighbors",
+        "HoldsTextIsFile"
+    )));
 }

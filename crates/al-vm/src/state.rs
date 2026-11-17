@@ -99,7 +99,7 @@ pub(crate) struct TxState {
     /// Modify are not writes of the try (xmlports/shapes-properties/YXmlPortProps.al:861); other writes there are refused.
     pub(crate) xp_export_try_world: Option<usize>,
     /// The tables (object indexes) `Consistent(false)` marked in the open transaction: `Commit` fails while one is marked.
-    pub(crate) inconsistent: Vec<u32>,
+    pub(crate) inconsistent: Vec<crate::consistent_marks::ConsistentMark>,
     /// A lock started the open write transaction: `LockTable` on a database table, `ReadIsolation := UpdLock`, or a FindFirst
     /// under RepeatableRead or UpdLock (codeunits/TestCodeunitRunWriteTransaction.al:211-278). A Commit ends it.
     pub(crate) lock_tx: bool,
@@ -408,6 +408,9 @@ pub(crate) struct EventState {
     /// subscribers of `order_unknown_apps` that leave every flag unchanged for it (setup_no_op.rs), or do nothing for it
     /// (db_event_no_op.rs), which the raise leaves out instead of refusing.
     pub(crate) setup_no_ops: std::collections::BTreeSet<(usize, usize)>,
+    /// While the subscribers of `GetDatabaseTableTriggerSetup` answer for one table: that table (object index), for the read
+    /// they make under a restricted set (permission_trigger_setup.rs).
+    pub(crate) db_setup_table: Option<usize>,
     /// The trial runs of subscribers whose install order is not known (order_trial.rs).
     pub(crate) trial: crate::order_trial::TrialState,
     /// What the subscribers of `Global Triggers` answered, per table object (globaltriggers.rs).

@@ -295,8 +295,9 @@ impl Session {
         self.gate_used_try_write("COMMIT")?;
         // A table `Consistent(false)` marked fails the Commit (errors/CuCommitTests.al:405-419
         // Consistent_False_ThenCommit); `Consistent(true)` lifts the mark (:422-433).
-        if let Some(&table) = self.tx.inconsistent.first() {
-            return Err(self.inconsistent_error(table as usize));
+        self.refuse_commit_after_other_variable()?;
+        if let Some(m) = self.tx.inconsistent.first() {
+            return Err(self.inconsistent_error(m.table as usize));
         }
         // A deferred duplicate-key Insert comes out here (corpus record/TestRecordRuntimeTextsAndViews.al:
         // Record_Insert_DuplicateKey_WithoutBlobField_IsDeferred_...: "raised by Commit").
@@ -315,7 +316,7 @@ impl Session {
 
     /// The error of a Commit while `Consistent(false)` marks `table` (errors/CuCommitTests.al:405-419). The
     /// table is named in the text; only a table whose caption is its name is pinned.
-    fn inconsistent_error(&self, table: usize) -> Signal {
+    pub(crate) fn inconsistent_error(&self, table: usize) -> Signal {
         let t = &self.engine.program.objects[table];
         let caption = t
             .properties
@@ -360,34 +361,19 @@ impl Session {
         self.tx
             .inconsistent
             .first()
-            .map(|&t| self.engine.program.objects[t as usize].name.clone())
+            .map(|m| self.engine.program.objects[m.table as usize].name.clone())
     }
 
     /// A transaction that ends other than by `Commit()` while `Consistent(false)` marks a table: what BC does is not
     /// pinned (only `Commit()` is, errors/CuCommitTests.al:405-419), so it is refused.
     pub(crate) fn refuse_inconsistent_end(&self, how: &str) -> Result<(), Signal> {
         match self.tx.inconsistent.first() {
-            Some(&t) => Err(Signal::unsupported(format!(
+            Some(m) => Err(Signal::unsupported(format!(
                 "{how} ends a transaction while Consistent(false) marks table {} (only Commit() is pinned)",
-                self.engine.program.objects[t as usize].name
+                self.engine.program.objects[m.table as usize].name
             ))),
             None => Ok(()),
         }
-    }
-
-    /// `Record.Consistent(Value)` on a database table marks or unmarks it for the open transaction
-    /// (errors/CuCommitTests.al:382-433). A temporary record is not pinned.
-    pub(crate) fn set_consistent(&mut self, table: u32, temporary: bool, consistent: bool) -> Result<(), Signal> {
-        if temporary {
-            return Err(Signal::Unsupported(
-                "Consistent on a temporary record (not pinned)".into(),
-            ));
-        }
-        self.tx.inconsistent.retain(|&t| t != table);
-        if !consistent {
-            self.tx.inconsistent.push(table);
-        }
-        Ok(())
     }
 
     /// A TryFunction call whose result is used begins: `consumer` is the frame count of the caller that uses the
@@ -869,6 +855,7 @@ impl Session {
         // under TransactionModel::None, and the transaction ends with the run
         // (codeunits/TestWriteTxTestBoundary.al:Test10_ARunCodeunitMayWriteUnderNone).
         let began_world = self.tx_model == TxModel::None && self.tx.tx_world == 0;
+        let marks_before = if guarded { self.marks_at_run_start() } else { Vec::new() };
         self.tx.tx_world += 1;
         if let Some(t) = self.tx.used_tries.last_mut() {
             t.runs += 1;
@@ -900,6 +887,18 @@ impl Session {
             t.runs -= 1;
         }
         self.tx.tx_world -= 1;
+        // The pin runs Codeunit.Run(Id) without a record, and an inner error it raises is the one of `Error`
+        // (errors/ConsistentGuardedRun.al:180, :100, :221-236).
+        let pinned_end =
+            record_arg.is_none() && (result.is_ok() || matches!(&result, Err(Signal::Error(e)) if e.code == "Dialog"));
+        if guarded && self.pages.bg_worker.is_none() && pinned_end {
+            if let Some(e) = self.guarded_run_end_marks(&marks_before, result.is_ok())? {
+                return Err(e);
+            }
+        } else if guarded && self.pages.bg_worker.is_none() && matches!(&result, Ok(_) | Err(Signal::Error(_))) {
+            // Every other end of a run that leaves a mark is refused; an inner refusal keeps its own reason.
+            self.refuse_inconsistent_end("A guarded Codeunit.Run")?;
+        }
 
         match result {
             Ok(_) if guarded => {
@@ -929,7 +928,6 @@ impl Session {
                     return Ok(Value::Boolean(false));
                 }
                 if self.pages.bg_worker.is_none() {
-                    self.refuse_inconsistent_end("A guarded Codeunit.Run")?;
                     self.commit_transaction();
                 }
                 Ok(Value::Boolean(true))

@@ -256,6 +256,47 @@ fn web_service_rows(t: &TableDef, id: u32) -> Vec<Row> {
 }
 
 impl Session {
+    /// Whether a Web Service or Tenant Web Service row names the object of `object_type` (the tables' Object Type ordinal:
+    /// 5 Codeunit, 8 Page, 9 Query) and `object_id`: the store's rows when the program has the table, else the rows of a
+    /// fresh tenant above.
+    pub(crate) fn web_service_row_names(
+        &self,
+        object_type: i32,
+        object_id: i32,
+    ) -> Result<bool, al_builtins::native::Signal> {
+        let heads = self.engine.program.objects.heads();
+        for (table, seed) in [(WEB_SERVICE, WEB_SERVICES), (TENANT_WEB_SERVICE, TENANT_WEB_SERVICES)] {
+            let loaded = heads
+                .iter()
+                .position(|o| o.kind == al_ir::ObjKind::Table && o.id == Some(table))
+                .and_then(|oi| self.engine.tables[oi].clone());
+            let Some(t) = loaded else {
+                if seed.iter().any(|&(ty, _, id)| ty == object_type && id == object_id) {
+                    return Ok(true);
+                }
+                continue;
+            };
+            let eq = |id: u32, v: Value| al_builtins::filter::FieldFilter {
+                lang: al_builtins::filter::filter_language(),
+                field: pos(&t, id),
+                expr: al_builtins::filter::FilterExpr::Eq(v),
+                group: 0,
+            };
+            let filters = [
+                eq(3, super::option(&t, 3, object_type)),
+                eq(6, Value::Integer(object_id)),
+            ];
+            let n = self
+                .store
+                .count(&self.cx, &t, &filters)
+                .map_err(|e| al_builtins::native::Signal::unsupported(format!("{e}")))?;
+            if n > 0 {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     /// The seed rows that depend on the program only (All Profile, Web Service, Tenant Web Service), without their
     /// SystemId, per object index of `tables`. A session clones them instead of building them again.
     fn program_seed_rows(
