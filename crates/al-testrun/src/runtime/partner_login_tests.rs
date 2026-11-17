@@ -13,7 +13,10 @@ fn sys(isolated: bool) -> String {
         codeunit 151 \"System Initialization Impl.\" {{
             [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Company Triggers\", 'OnCompanyOpenCompleted', '', false, false)]
             local procedure InitCompany() var S: Codeunit \"System Initialization\"; begin S.Raise(); end; }}
-        codeunit 152 \"Sys Cache\" {{ SingleInstance = true; var N: Integer; procedure Set() begin N := 1; end; }}"
+        codeunit 152 \"Sys Cache\" {{ SingleInstance = true; var N: Integer; procedure Set() begin N := 1; end;
+            procedure Get(): Integer begin exit(N); end; }}
+        codeunit 153 \"Env Memo\" {{ SingleInstance = true; var Known: Boolean; SaaS: Boolean;
+            procedure IsSaaS(): Boolean begin if not Known then begin SaaS := false; Known := true; end; exit(SaaS); end; }}"
     )
 }
 
@@ -28,11 +31,13 @@ fn partner(login: &str) -> String {
             procedure Set(N: Integer) begin Cnt := N; end; procedure Bump() begin Cnt += 1; end;
             procedure GetCount(): Integer begin exit(Cnt); end; procedure AddTxt(T: Text) begin Txt += T; end;
             procedure AddLog(T: Text) begin Log.Add(T); end; procedure LogCount(): Integer begin exit(Log.Count()); end; }}
-        codeunit 60909 Counter {{ SingleInstance = true; var N: Integer; procedure Put() begin N := 1; end; }}
+        codeunit 60909 Counter {{ SingleInstance = true; var N: Integer; procedure Put() begin N := 1; end;
+            procedure Get(): Integer begin exit(N); end; }}
         codeunit 60903 Wider {{ SingleInstance = true; var Cnt: Integer; Log: List of [Text]; Txt: Text; Calls: Integer; More: Text;
-            procedure Put() begin Cnt := 1; end; }}
+            procedure Put() begin Cnt := 1; end; procedure Get(): Integer begin exit(Cnt); end; }}
         codeunit 60908 Flags {{ SingleInstance = true; var On: Boolean; Row: Record Other;
-            procedure Put() begin On := true; end; procedure Sort() begin Row.SetCurrentKey(Blocked); end; }}
+            procedure Put() begin On := true; end; procedure Sort() begin Row.SetCurrentKey(Blocked); end;
+            procedure IsOn(): Boolean begin exit(On); end; }}
         codeunit 60906 Pub {{ procedure Ask(): Integer var N: Integer; begin N := 1; OnAsk(N); exit(N); end;
             [IntegrationEvent(false, false)] local procedure OnAsk(var N: Integer) begin end; }}
         codeunit 60907 Hook {{ SingleInstance = true; EventSubscriberInstance = Manual;
@@ -154,46 +159,165 @@ fn a_test_that_reads_a_single_instance_global_the_partner_subscriber_set_sees_it
     assert!(clean(&hits), "{hits:?}");
 }
 
-// A SingleInstance codeunit with a global of a type the probe did not measure (a Boolean, a record): no test runs.
+/// Test codeunits after a login that changes a SingleInstance codeunit outside the measured shape: the first test of `T`
+/// reads one of its globals through `read` (a call of the codeunit `single`), its second test and `U` read none.
+fn single_reader(single: &str, read: &str) -> String {
+    format!(
+        "table 60910 Mine {{ fields {{ field(1; K; Code[10]) {{ }} }} }}
+        codeunit 60911 Inst {{ Subtype = Install; trigger OnInstallAppPerCompany() begin end; }}
+        codeunit 60912 T {{ Subtype = Test;
+            [Test] procedure Reads() var S: Codeunit {single}; begin if S.{read} then; end;
+            [Test] procedure ReadsNothing() begin end; }}
+        codeunit 60915 U {{ Subtype = Test;
+            [Test] procedure OtherTable() var M: Record Mine; begin M.K := 'X'; M.Insert(); end;
+            [Test] procedure NoTable() begin end; }}"
+    )
+}
+
+/// The test that reads `single` is not run at its read; the test of the same codeunit and the codeunit that read none
+/// of its globals run (al-runner issue 8239: they cannot see what BC leaves there).
+fn assert_only_the_reader_is_refused(login: &str, single: &str, read: &str, name: &str) {
+    let tests = single_reader(single, read);
+    let (o, _) = run_codeunit("Probe", login, &tests, false, TestIsolation::Codeunit, "T");
+    assert!(
+        not_run_for(&o[0].1, &format!("a global of SingleInstance codeunit {name}")),
+        "{login}: {o:?}"
+    );
+    assert_eq!(o[1].1, Outcome::Pass, "{login}: {o:?}");
+    let (o, _) = run_codeunit("Probe", login, &tests, false, TestIsolation::Codeunit, "U");
+    assert!(o.iter().all(|(_, x)| *x == Outcome::Pass), "{login}: {o:?}");
+}
+
+// A SingleInstance codeunit with a global of a type the probe did not measure (a Boolean, a record): its reads refuse.
 #[test]
-fn a_partner_subscriber_that_sets_an_unmeasured_single_instance_refuses_the_codeunit() {
+fn a_partner_subscriber_that_sets_an_unmeasured_single_instance_refuses_its_reads() {
     for login in [
         "var F: Codeunit Flags; begin F.Put(); end;",
         "var F: Codeunit Flags; begin F.Sort(); end;",
     ] {
-        let (o, _) = run(login);
-        assert!(
-            o.iter().all(|(_, x)| not_run_for(x, "SingleInstance codeunit Flags")),
-            "{o:?}"
-        );
+        assert_only_the_reader_is_refused(login, "Flags", "IsOn()", "Flags");
     }
 }
 
-// Globals of the measured types but not the measured set (one Integer only; the measured set and one Text more): no test runs.
+// Globals of the measured types but not the measured set (one Integer only; the measured set and one Text more): its
+// reads refuse.
 #[test]
-fn a_partner_subscriber_that_sets_a_single_instance_of_other_globals_refuses_the_codeunit() {
+fn a_partner_subscriber_that_sets_a_single_instance_of_other_globals_refuses_its_reads() {
     for (login, name) in [
         ("var C: Codeunit Counter; begin C.Put(); end;", "Counter"),
         ("var W: Codeunit Wider; begin W.Put(); end;", "Wider"),
     ] {
-        let (o, _) = run(login);
-        assert!(
-            o.iter()
-                .all(|(_, x)| not_run_for(x, &format!("SingleInstance codeunit {name}"))),
-            "{login}: {o:?}"
-        );
+        assert_only_the_reader_is_refused(login, name, "Get() = 0", name);
     }
 }
 
-// A SingleInstance codeunit of another app than the subscriber's (here Microsoft's): no test runs.
+// A SingleInstance codeunit of another app than the subscriber's (here Microsoft's, as Environment Information Impl. in
+// al-runner issue 8239): its reads refuse.
 #[test]
-fn a_partner_subscriber_that_sets_a_single_instance_of_another_app_refuses_the_codeunit() {
-    let (o, _) = run("var S: Codeunit \"Sys Cache\"; begin S.Set(); end;");
+fn a_partner_subscriber_that_sets_a_single_instance_of_another_app_refuses_its_reads() {
+    let login = "var S: Codeunit \"Sys Cache\"; begin S.Set(); end;";
+    assert_only_the_reader_is_refused(login, "\"Sys Cache\"", "Get() = 0", "Sys Cache");
+}
+
+// A stand-in for the shape of al-runner issue 8239 (not the reporter's setup, which has Base Application): the partner
+// login calls a SingleInstance codeunit that keeps what it found (`Env Memo`, as Environment Information Impl. keeps
+// IsSaaS). The test that asks it again is not run at that read; the test that reads nothing runs.
+#[test]
+fn a_login_that_fills_a_memo_codeunit_refuses_only_the_test_that_reads_it() {
+    let login = "var M: Codeunit \"Env Memo\"; begin if M.IsSaaS() then; end;";
+    let tests = "codeunit 60911 Inst { Subtype = Install; trigger OnInstallAppPerCompany() begin end; }
+        codeunit 60970 \"PX Env Test\" { Subtype = Test;
+            [Test] procedure IsSaaSAfterLogin() var M: Codeunit \"Env Memo\"; begin if M.IsSaaS() then Error('saas'); end;
+            [Test] procedure ReadsNothing() begin end; }";
+    let (o, hits) = run_codeunit("Probe", login, tests, false, TestIsolation::Codeunit, "PX Env Test");
     assert!(
-        o.iter()
-            .all(|(_, x)| not_run_for(x, "SingleInstance codeunit Sys Cache")),
+        not_run_for(&o[0].1, "a global of SingleInstance codeunit Env Memo"),
         "{o:?}"
     );
+    assert_eq!(o[1].1, Outcome::Pass, "{o:?}");
+    assert!(clean(&hits), "{hits:?}");
+}
+
+/// Test codeunit `C` after a login that sets `Flags` (outside the measured shape): `objects` copy it into `Mine`, a
+/// SingleInstance codeunit of the app under test, which `MineIs10` reads; `Nothing` reads nothing.
+fn run_copied_flags(objects: &str) -> OutcomesAndHits {
+    let tests = format!(
+        "codeunit 60911 Inst {{ Subtype = Install; trigger OnInstallAppPerCompany() begin end; }}
+        codeunit 60950 Mine {{ SingleInstance = true; var V: Integer;
+            procedure Put(N: Integer) begin V := N; end; procedure Take(): Integer begin exit(V); end; }}
+        codeunit 60953 C {{ Subtype = Test;
+            [Test] procedure MineIs10() var M: Codeunit Mine; begin if M.Take() <> 10 then Error('mine %1', M.Take()); end;
+            [Test] procedure Nothing() begin end; }}
+        {objects}"
+    );
+    let login = "var F: Codeunit Flags; begin F.Put(); end;";
+    run_codeunit("Probe", login, &tests, false, TestIsolation::Codeunit, "C")
+}
+
+/// The body that copies `Flags` into `Mine`.
+const COPY_FLAGS: &str = "var F: Codeunit Flags; M: Codeunit Mine; begin if F.IsOn() then M.Put(10); end;";
+
+// Review of al-runner PR 8241, set B: the app's own session-open code after the login reads the unmeasured codeunit: the
+// session does not open, no test runs.
+#[test]
+fn session_open_code_that_reads_an_unmeasured_single_instance_refuses_the_codeunit() {
+    let (o, _) = run_copied_flags(&format!(
+        "codeunit 60960 Cot {{
+            [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Company Triggers\", 'OnCompanyOpenCompleted', '', false, false)]
+            local procedure L() {COPY_FLAGS} }}"
+    ));
+    assert!(
+        o.iter()
+            .all(|(_, x)| not_run_for(x, "a global of SingleInstance codeunit Flags")),
+        "{o:?}"
+    );
+}
+
+// Review of al-runner PR 8241, set F: the runner runs codeunit 130301 before every test (runner_reset.rs); when it reads
+// the unmeasured codeunit no test runs.
+#[test]
+fn the_runners_reset_step_that_reads_an_unmeasured_single_instance_refuses_every_test() {
+    let (o, _) = run_copied_flags(&format!(
+        "codeunit 130301 \"Reset State Before Test Run\" {{ trigger OnRun() {COPY_FLAGS} }}"
+    ));
+    assert!(
+        o.iter()
+            .all(|(_, x)| not_run_for(x, "a global of SingleInstance codeunit Flags")),
+        "{o:?}"
+    );
+}
+
+// Review of al-runner PR 8241, set A2: a RecordRef insert reaches a table event subscriber that reads the unmeasured
+// codeunit: that test is not run at the read, the other test runs.
+#[test]
+fn a_table_event_behind_a_recordref_insert_that_reads_an_unmeasured_single_instance_refuses_the_test() {
+    let tests = "codeunit 60911 Inst { Subtype = Install; trigger OnInstallAppPerCompany() begin end; }
+        table 60971 RefRow { fields { field(1; K; Code[10]) { } field(2; Seen; Boolean) { } } keys { key(PK; K) { } } }
+        codeunit 60972 RefSub {
+            [EventSubscriber(ObjectType::Table, Database::RefRow, OnBeforeInsertEvent, '', false, false)]
+            local procedure OnIns(var Rec: Record RefRow) var F: Codeunit Flags; begin Rec.Seen := F.IsOn(); end; }
+        codeunit 60973 R { Subtype = Test;
+            [Test] procedure RecRefInsert() var RR: RecordRef; FR: FieldRef;
+            begin RR.Open(60971); FR := RR.Field(1); FR.Value := 'A'; RR.Insert(); end;
+            [Test] procedure Nothing() begin end; }";
+    let login = "var F: Codeunit Flags; begin F.Put(); end;";
+    let (o, _) = run_codeunit("Probe", login, tests, false, TestIsolation::Codeunit, "R");
+    assert!(
+        not_run_for(&o[0].1, "a global of SingleInstance codeunit Flags"),
+        "{o:?}"
+    );
+    assert_eq!(o[1].1, Outcome::Pass, "{o:?}");
+}
+
+// A write of a global of the unmeasured codeunit reads nothing of it: the test that only sets it runs.
+#[test]
+fn a_write_of_an_unmeasured_single_instance_runs() {
+    let tests = "codeunit 60911 Inst { Subtype = Install; trigger OnInstallAppPerCompany() begin end; }
+        codeunit 60974 W { Subtype = Test;
+            [Test] procedure Puts() var F: Codeunit Flags; begin F.Put(); end; }";
+    let login = "var F: Codeunit Flags; begin F.Put(); end;";
+    let (o, _) = run_codeunit("Probe", login, tests, false, TestIsolation::Codeunit, "W");
+    assert_eq!(o[0].1, Outcome::Pass, "{o:?}");
 }
 
 // A manual subscriber the subscriber binds through a SingleInstance codeunit: no test runs.

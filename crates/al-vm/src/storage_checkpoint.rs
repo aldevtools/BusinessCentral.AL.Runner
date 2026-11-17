@@ -1,10 +1,12 @@
 //! The isolated storage and the number sequences at a test runner's checkpoint (al-testrun `isolation::Checkpoint`), and
 //! the keys and sequences whose state after the rollback no probe measures: a later test of the codeunit that reaches one
-//! is refused at that call (`refuse_unmeasured_key`, `refuse_unmeasured_sequence`), and every other test runs.
+//! is refused at that call (`refuse_unmeasured_key`, `refuse_unmeasured_sequence`), and every other test runs. A session
+//! whose sequences as a whole are not known refuses every NumberSequence call (`mark_numbers_unmeasured`).
 
 use crate::{Session, sessionops};
 use al_builtins::native::{Signal, unsupported};
 use std::collections::HashMap;
+use std::rc::Rc;
 
 type Key = (String, String);
 
@@ -108,8 +110,18 @@ impl Session {
         }
     }
 
-    /// Refuses a `NumberSequence` call on `key` that an earlier test of the codeunit left unmeasured.
+    /// From now on every NumberSequence call of this session is refused with `reason` (al-testrun
+    /// `order_hint::mark_unmeasured_numbers`). Not ended by [`Session::clear_unmeasured`]: it holds for the session.
+    pub fn mark_numbers_unmeasured(&mut self, reason: Rc<str>) {
+        self.numbers_unmeasured = Some(reason);
+    }
+
+    /// Refuses a `NumberSequence` call on `key` that an earlier test of the codeunit left unmeasured, and every call in a
+    /// session marked by [`Session::mark_numbers_unmeasured`].
     pub(crate) fn check_unmeasured_sequence(&self, key: &Key) -> Result<(), Signal> {
+        if let Some(reason) = &self.numbers_unmeasured {
+            return unsupported(reason.to_string());
+        }
         match self.unmeasured.sequences.get(&loose(&key.0, &key.1)) {
             Some(reason) => unsupported(reason.clone()),
             None => Ok(()),

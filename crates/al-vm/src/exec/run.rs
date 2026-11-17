@@ -183,8 +183,7 @@ impl Session {
                 }
                 Op::Const { d, k } => set(&mut f.locals[d as usize], self.constant_once(&chunk.consts[k as usize])),
                 Op::LoadGlobal { d, i } => {
-                    self.global_read(i as usize, f)?;
-                    let v = f.instance.borrow().globals[i as usize].clone();
+                    let v = self.global_value(i as usize, f)?;
                     set(&mut f.locals[d as usize], v);
                 }
                 Op::SingleWrite { i, kind } => self.single_write_op(i as usize, kind, f),

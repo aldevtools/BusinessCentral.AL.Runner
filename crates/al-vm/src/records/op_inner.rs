@@ -1487,7 +1487,10 @@ impl Session {
                 let shape = super::measured_setfilter::MeasuredSetFilter::of(from_al, &rec.borrow(), &text, args.len());
                 let mut parsed = match record_id {
                     Some(p) => p,
-                    None => parse(&text),
+                    None => match self.measured_language_filter(shape.as_ref(), &t, pos)? {
+                        Some(expr) => Ok(expr),
+                        None => parse(&text),
+                    },
                 };
                 // A Date text with a piece no filter reads asks `MakeDateFilter` subscribers first.
                 if matches!(&parsed, Err(e) if e.starts_with(al_builtins::filter::INVALID_DATE))
@@ -1616,6 +1619,9 @@ impl Session {
                     }
                     Err(e) if e.starts_with(al_builtins::filter::OPTION_NEGATIVE) => {
                         return Err(self.option_negative_error(shape.as_ref(), &t, pos, &e));
+                    }
+                    Err(e) if e.starts_with(al_builtins::filter::OPTION_NOT_MEMBER) => {
+                        return Err(self.option_non_member_error(shape.as_ref(), &t, pos, &e));
                     }
                     Err(e) => return Err(Signal::unsupported(format!("SetFilter: {e}"))),
                 };

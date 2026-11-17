@@ -1442,6 +1442,9 @@ pub struct Instance {
     pub born: Born,
     /// The session watches this single instance's globals (al-vm `single_track.rs`).
     pub single: bool,
+    /// Why what this single instance holds is not the value BC has: every read of one of its globals is refused with this
+    /// reason (al-vm `single_unmeasured.rs`). `None` for every other instance.
+    pub unmeasured: Option<Rc<str>>,
     /// Counts the instance as live while it exists (`instance_cycles::live`).
     pub live: crate::instance_cycles::LiveCount,
 }

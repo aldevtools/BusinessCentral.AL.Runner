@@ -205,6 +205,7 @@ mod setfilter_empty_or_side;
 mod setter_call;
 mod setview_blank_datetime_or;
 mod single_track_access;
+mod single_unmeasured;
 mod sql_counter_copy;
 mod sql_counter_sizes;
 mod sql_counter_stored;

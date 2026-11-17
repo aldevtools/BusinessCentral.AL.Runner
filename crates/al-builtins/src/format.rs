@@ -1318,18 +1318,89 @@ const MONTHS_ES_SHORT: [&str; 12] = [
     "ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sept", "oct", "nov", "dic",
 ];
 
+/// The letter of a closing date under GlobalLanguage `lang`: English `C` (types/date-time/Format.al:172-175); under 1030, 1031,
+/// 1036, 1044 and 1053 as measured (assumption `closing-date-letter-by-language`, corpus PR 1428
+/// GlobalLanguageClosingDate.al:123-284 at 04e1fa0a): `U` under 1030, 1031 and 1044, `S` under 1053, `C` under 1036. `None`
+/// for every other language.
+fn language_closing_letter(lang: i32) -> Option<char> {
+    match lang {
+        1033 | 1036 => Some('C'),
+        1030 | 1031 | 1044 => Some('U'),
+        1053 => Some('S'),
+        _ => None,
+    }
+}
+
+/// The letter that marks a closing date in standard formats 0, 1 and 2 (`standard` `Some(n)`) and in the code `<Closing>`
+/// (`None`); format 9 shows no mark and does not ask. English `C` is pinned (types/date-time/Format.al:172-175). Under another
+/// language only standard format 0 runs, with the letter of [`language_closing_letter`]; every other language, format and the
+/// code refuse.
+pub(crate) fn closing_mark(standard: Option<i32>, lang: i32) -> Result<&'static str, String> {
+    if lang == 1033 {
+        return Ok("C");
+    }
+    let letter = match (language_closing_letter(lang), standard) {
+        (Some('U'), Some(0)) => "U",
+        (Some('S'), Some(0)) => "S",
+        (Some('C'), Some(0)) => "C",
+        (_, Some(n)) => {
+            return Err(format!(
+                "Format of a closing date with standard format {n} under GlobalLanguage {lang} (the letter is not measured)"
+            ));
+        }
+        (_, None) => {
+            return Err(format!(
+                "code `<Closing>` of a closing date under GlobalLanguage {lang} (the letter is not measured)"
+            ));
+        }
+    };
+    crate::assumptions::assume(crate::assumptions::Assumption::ClosingDateLetterByLanguage);
+    Ok(letter)
+}
+
+/// A closing-date text a reader takes under GlobalLanguage `lang` (1030, 1031, 1036, 1044 or 1053; `None` for English, whose
+/// reading is pinned, types/date-time/P143Date_FieldRef.al:89-113, and for every other language): the letter C, U or S as written
+/// in either case, followed by a date of two digits, `/`, two digits, `/` and two digits, the form the probe measured
+/// (assumption `closing-date-letter-by-language`, corpus PR 1428 at 04e1fa0a: GlobalLanguageClosingDate.al:90 for Evaluate,
+/// `C12/31/23`, `u12/31/23`, `U01/05/24` and more; FilterGlobalLanguageDateBool.al:117 and :125 for a Date filter, `C12/31/23`,
+/// `U12/31/23`, `S12/31/23`).
+/// The answer: whether the letter is the language's own, the letter as written, and the date part. The caller checks its own
+/// measured facts and answers; no mark is set here.
+pub fn closing_letter_text(text: &str, lang: i32) -> Option<(bool, char, &str)> {
+    let own = language_closing_letter(lang).filter(|_| matches!(lang, 1030 | 1031 | 1036 | 1044 | 1053))?;
+    let mut chars = text.chars();
+    let letter = chars
+        .next()
+        .filter(|c| matches!(c.to_ascii_uppercase(), 'C' | 'U' | 'S'))?;
+    let rest = chars.as_str();
+    let b = rest.as_bytes();
+    let form = b.len() == 8
+        && b.iter().enumerate().all(|(i, c)| {
+            if i == 2 || i == 5 {
+                *c == b'/'
+            } else {
+                c.is_ascii_digit()
+            }
+        });
+    form.then_some((letter.to_ascii_uppercase() == own, letter, rest))
+}
+
 /// The standard formats of a Date, en-US (types/TestFormatEvaluateTextContracts.al:Format_Date_StandardFormats):
 /// 0 and 1 `mm/dd/yy`, 2 `mmddyyD`, 3 `yy/mm/dd`, 4 `March 5, 2024`, 5 `mmddyy`, 6 `yymmdd`,
 /// 7 `Mar 5, 2024`, 9 `yyyy-mm-dd`. Number 8 does not exist
-/// (:Format_Date_Format8_DoesNotExist). A closing date is marked with `C` in the formats the corpus
-/// shows it in (0, 1 and 2); the others are not pinned for one.
+/// (:Format_Date_Format8_DoesNotExist). A closing date is marked in formats 0, 1 and 2 ([`closing_mark`]); format 9 shows
+/// no mark (types/date-time/Format.al:172-175); the others are not pinned for one.
 fn format_date(day: i32, closing: bool, standard: i32, lang: i32) -> Result<String, FormatFail> {
     let (y, m, d) = civil_from_day(day);
     let yy = y.rem_euclid(100);
-    let c = if closing { "C" } else { "" };
     if closing && !matches!(standard, 0 | 1 | 2 | 9) {
         return Err(format!("Format of a closing date with standard format {standard} (not pinned)").into());
     }
+    let c = if closing && standard != 9 {
+        closing_mark(Some(standard), lang).map_err(FormatFail::Unsupported)?
+    } else {
+        ""
+    };
     // The month names of formats 4 and 7 follow the language: English, German, French and Spanish are pinned for every month
     // (format-evaluate/AxLanguageFormats.al:52-132; P142ToTextLang.al:109,117). Another language is refused.
     let month = match (lang, standard) {

@@ -2,6 +2,9 @@
 //! Evaluate reads a formula without angle brackets in them (format-evaluate/Y62DateFormulaFormat.al, codeunit
 //! 93262, writer Y62; the same on the BC Linux legs and the SaaS sandbox).
 
+use crate::native::{Signal, raise, unsupported};
+use crate::value::Value;
+
 /// The English letter of a unit and its letter in a language, for the languages and letters measured: Danish (1030) `U` for W,
 /// `Å` for Y, `L` for C, D and M unchanged (DateFormulaFormat_Std1And2_Danish: `-1U`, `-1Å`, `LM+1D`, `+LÅ-24M`); German (1031)
 /// `J` for Y, `L` for C, `T` for D, W and M unchanged (DateFormulaFormat_Std1_German: `-1W`, `-1M`, `-1J`, `LM+1T`).
@@ -11,6 +14,25 @@ fn letters(language: i32) -> Option<&'static [(char, char)]> {
         1031 => Some(&[('D', 'T'), ('W', 'W'), ('M', 'M'), ('Y', 'J'), ('C', 'L')]),
         _ => None,
     }
+}
+
+/// Format 0 of the stored formulas the reporter of al-runner issue 8200 measured that no pinned rule answers (assumption
+/// `date-formula-letters-danish-german`): `Format(DF)` after `Evaluate(DF, '1K')` under 1030 and after `Evaluate(DF, text, 9)` or the
+/// Evaluate cells under 1031. Danish `K` is Q and `UD` WD; German `T` is D, `J` Y, `L` C and `WT` WD. `None` for every other text.
+fn reported_format_zero(text: &str, language: i32) -> Option<&'static str> {
+    Some(match (language, text) {
+        (1030, "1Q") => "1K",
+        (1030, "WD1") => "UD1",
+        (1031, "1D") => "1T",
+        (1031, "1Y") => "1J",
+        (1031, "1Q") => "1Q",
+        (1031, "-1D") => "-1T",
+        (1031, "CM+1D") => "LM+1T",
+        (1031, "1Y+1M+1D") => "1J+1M+1T",
+        (1031, "-CW") => "-LW",
+        (1031, "WD1") => "WT1",
+        _ => return None,
+    })
 }
 
 /// The formula `text` (English letters, no brackets) in the letters of `language`, as format 1 prints it. Format 1 in English
@@ -47,7 +69,7 @@ pub(crate) fn format_one(text: &str, language: i32) -> Result<String, String> {
 /// Format 0 is format 1 in English and in Danish (DateFormulaFormat_Std0And9_English, _Std1And2_Danish). In another language it is
 /// pinned only where every reading gives the same text: a formula with no letter that a language may change.
 pub(crate) fn format_zero(text: &str, language: i32) -> Result<String, String> {
-    if language == 1033 || language == 1030 || text.is_empty() {
+    if language == 1033 || text.is_empty() || language == 1030 && !text.contains('Q') && !text.contains("WD") {
         return format_one(text, language);
     }
     if letters(language).is_some_and(|map| {
@@ -55,6 +77,10 @@ pub(crate) fn format_zero(text: &str, language: i32) -> Result<String, String> {
             .all(|c| !c.is_ascii_alphabetic() || map.iter().any(|(en, own)| *en == c && *own == c))
     }) {
         return Ok(text.to_string());
+    }
+    if let Some(shown) = reported_format_zero(text, language) {
+        crate::assumptions::assume(crate::assumptions::Assumption::DateFormulaLettersDanishGerman);
+        return Ok(shown.to_string());
     }
     Err(format!(
         "Format of a DateFormula with standard format 0 in the language {language} (not pinned)"
@@ -122,6 +148,34 @@ fn danish_letter_number_nine(
     ))))
 }
 
+/// The Evaluate cells without a format number the reporter of al-runner issue 8200 measured, with the result used (assumption
+/// `date-formula-letters-danish-german`): `Some(Some(english))` for a text read, `Some(None)` for a text rejected, `None` for every
+/// other text.
+fn reported_evaluate(text: &str, language: i32) -> Option<Option<&'static str>> {
+    Some(match (language, text) {
+        (1030, "1K") => Some("1Q"),
+        (1030, "1W" | "1Q" | "1Y" | "NU" | "CW" | "AM") => None,
+        (1031, "1T") => Some("1D"),
+        (1031, "1W") => Some("1W"),
+        (1031, "1M") => Some("1M"),
+        (1031, "1J") => Some("1Y"),
+        (1031, "1Q") => Some("1Q"),
+        (1031, "1D" | "1Y" | "AJ" | "CW") => None,
+        _ => return None,
+    })
+}
+
+/// The texts the reporter of al-runner issue 8200 measured with `Evaluate(DF, text, 9)` under 1030 and 1031, which read the
+/// English letters (assumption `date-formula-letters-danish-german`). Under 1030 `1D`, `1M` and the empty text are pinned and take
+/// the path of [`evaluate_text`].
+fn reported_number_nine(text: &str, language: i32) -> bool {
+    match language {
+        1030 => matches!(text, "CM+1D" | "1Y+1M+1D" | "-CW" | "WD1"),
+        1031 => matches!(text, "1M" | "-1D" | "CM+1D" | "1Y+1M+1D" | "-CW" | "WD1"),
+        _ => false,
+    }
+}
+
 /// `Evaluate` of a DateFormula text in `language` (see [`evaluate_text`]) with format `number`; `ret_used`: the call's result
 /// is used.
 pub(crate) fn evaluate(
@@ -133,6 +187,22 @@ pub(crate) fn evaluate(
     if let Some(read) = danish_letter_number_nine(text, language, number, ret_used) {
         return read;
     }
+    if number == 9 && reported_number_nine(text, language) {
+        crate::assumptions::assume(crate::assumptions::Assumption::DateFormulaLettersDanishGerman);
+        return crate::datefns::evaluate_formula(text);
+    }
+    if let Some(read) = reported_evaluate(text, language).filter(|_| number == 0) {
+        if !ret_used {
+            return Err(crate::native::Signal::unsupported(format!(
+                "Evaluate of the date formula `{text}` under language {language} as a statement (only the result is measured)"
+            )));
+        }
+        crate::assumptions::assume(crate::assumptions::Assumption::DateFormulaLettersDanishGerman);
+        return match read {
+            Some(english) => crate::datefns::evaluate_formula(english),
+            None => Ok(crate::datefns::Evaluated::Rejected(None)),
+        };
+    }
     match evaluate_text(text, language) {
         // A Danish letter is no unit in English: `-1Å` evaluates to false under 1033 (DateFormulaFormat_Std1_Danish_EvaluateBack
         // `en:No|`).
@@ -140,6 +210,66 @@ pub(crate) fn evaluate(
         Ok(None) => crate::datefns::evaluate_formula(text),
         Ok(Some(english)) => crate::datefns::evaluate_formula(&english),
         Err(why) => Err(crate::native::Signal::unsupported(why)),
+    }
+}
+
+/// CalcDate with a Text or Code formula, with or without a base date, under GlobalLanguage 1030, 1031, 1036, 1044 or 1053 (assumption `calcdate-letters-by-language`,
+/// corpus PR 1428 GlobalLanguageDateFormula.al:540-702): the answer the language gives before or instead of the English
+/// reading, or `None` to keep it. `unit_error`: the English reading raised the should-include-a-time-unit error. Measured: a
+/// formula `<1X>` with X one of U, K, Å, T, J, Z raises the language's text that lists the English units; the text `1D` without
+/// brackets reads the language's letters, the next day under 1030, 1044 and 1053, the language's text that lists its own units
+/// under 1031 and 1036. Every other text without brackets that has a letter refuses; a bracketed formula keeps the English reading.
+pub(crate) fn calcdate_text(formula: &str, language: i32, unit_error: bool) -> Option<Result<Value, Signal>> {
+    if !matches!(language, 1030 | 1031 | 1036 | 1044 | 1053) || !formula.chars().any(char::is_alphabetic) {
+        return None;
+    }
+    let assume = || crate::assumptions::assume(crate::assumptions::Assumption::CalcdateLettersByLanguage);
+    if let Some(f) = formula.strip_prefix('<').and_then(|f| f.strip_suffix('>')) {
+        let measured = matches!(f, "1U" | "1K" | "1Å" | "1T" | "1J" | "1Z");
+        if !(unit_error && measured) {
+            return None;
+        }
+        assume();
+        let message = match language {
+            1030 => format!(
+                "Der skal indgå en tidsenhed i datoformlen '{f}'.\\\\Tidsenheder kan være: D,WD,W,M,Q eller Y.\\C betyder den aktuelle tidsenhed baseret på dato, kan specificeres som et præfiks for tidsenheden."
+            ),
+            1031 => format!(
+                "Die Datumsformel \u{201e}{f}\u{201c} muss eine Zeiteinheit enthalten.\\\\Mögliche Zeiteinheiten: D,WD,W,M,Q oder Y.\\C, die laufende Zeiteinheit basierend auf dem Datum, kann als Präfix der Zeiteinheit angegeben werden."
+            ),
+            1036 => format!(
+                "La formule de date \u{ab}\u{a0}{f}\u{a0}\u{bb} devrait inclure une unité de temps.\\\\Les unités de temps peuvent être\u{a0}: D,WD,W,M,Q ou Y.\\C, signifiant unité de temps actuelle basée sur la date, peut être spécifié comme préfixe de l\u{2019}unité de temps."
+            ),
+            1044 => format!(
+                "Datoformelen {f} må inneholde en tidsenhet.\\\\Tidsenheter kan være: D,WD,W,M,Q eller Y.\\C, som betyr nåværende tidsenhet basert på dato, kan angis som et prefiks til tidsenheten."
+            ),
+            _ => format!(
+                "Datumformeln '{f}' ska inkludera en tidsenhet.\\\\Tidsenheter kan vara: D,WD,W,M,Q eller Y.\\C, avser aktuell tidsenhet baserad på datum och kan anges som ett prefix till tidsenheten."
+            ),
+        };
+        return Some(raise(message, "Evaluate"));
+    }
+    if formula != "1D" {
+        return Some(unsupported(format!(
+            "CalcDate of `{formula}` without angle brackets under GlobalLanguage {language} (not measured for this text)"
+        )));
+    }
+    assume();
+    let f = formula;
+    match language {
+        1031 => Some(raise(
+            format!(
+                "Die Datumsformel \u{201e}{f}\u{201c} muss eine Zeiteinheit enthalten.\\\\Mögliche Zeiteinheiten: T,WT,W,M,Q oder J.\\L, die laufende Zeiteinheit basierend auf dem Datum, kann als Präfix der Zeiteinheit angegeben werden."
+            ),
+            "Evaluate",
+        )),
+        1036 => Some(raise(
+            format!(
+                "La formule de date \u{ab}\u{a0}{f}\u{a0}\u{bb} devrait inclure une unité de temps.\\\\Les unités de temps peuvent être\u{a0}: J,JS,S,M,T ou A.\\F, signifiant unité de temps actuelle basée sur la date, peut être spécifié comme préfixe de l\u{2019}unité de temps."
+            ),
+            "Evaluate",
+        )),
+        _ => None,
     }
 }
 
