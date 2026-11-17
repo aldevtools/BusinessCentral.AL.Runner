@@ -89,7 +89,6 @@ Documents for contributors:
 
 - [`CONTRIBUTING.md`](CONTRIBUTING.md): how to report a problem or contribute a change. Start here.
 - `CLAUDE.md`: the rules every contributor and agent follows.
-- `docs/agents/workflow.md`: the build, test, pull request and ratchet details behind the rules.
 - `docs/architecture.md`: pipeline, crates, runtime model, budgets.
 - `docs/codemap.md`: which module owns what, and where the entry points are.
 - `docs/status.md`: current coverage, open work, known issues.
