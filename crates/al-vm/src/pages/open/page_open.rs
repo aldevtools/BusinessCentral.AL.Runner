@@ -630,7 +630,7 @@ impl Session {
                 let never = self.stored_row(&rec)?.is_none();
                 st.borrow_mut().never_stored = never;
             }
-            self.sync_parts_at_open(st)?;
+            self.sync_parts_at_list_open(st)?;
             self.refresh_parts_then_fn_tail(st, &waiting)
         })();
         if let Err(e) = result {

@@ -269,6 +269,7 @@ impl Session {
                 Self::note_page_code_call(&st, method);
                 self.refuse_held_part_page_method(&st, method)?;
                 self.pending_add_in_reread(&st, method.method())?;
+                self.factbox_line_call(method, &st, None, args)?;
                 if method.method() != PageMethod::New {
                     st.borrow_mut().saved_by_update = false;
                 }
@@ -288,6 +289,7 @@ impl Session {
                 let c = control_of(c).clone();
                 let page = c.page.clone();
                 self.pending_add_in_reread(&page, method.method())?;
+                self.factbox_line_call(method, &page, Some(&c.target), args)?;
                 page.borrow_mut().saved_by_update = false;
                 self.lookup_refresh_deferred_call(method, &page, Some(&c.target))?;
                 let result = self.code_close_client_call(method, &page, |s| {
@@ -298,6 +300,7 @@ impl Session {
                     })
                 });
                 self.test_call_ended(&page, &result);
+                Self::factbox_line_after_set_value(method, &page, &result);
                 result
             }
             other => unsupported(format!("{method} on {}", other.describe())),
@@ -645,11 +648,7 @@ impl Session {
                         false
                     }
                     PageMethod::New => {
-                        // The parts a host's New() links afresh run no OnNewRecord (see `land_on_part_open_line`).
-                        let before = self.host_new_running.replace(new_from_row);
-                        let r = self.sync_parts(st);
-                        self.host_new_running = before;
-                        r?;
+                        self.sync_parts_after_new(st, new_from_row)?;
                         false
                     }
                     _ => {
