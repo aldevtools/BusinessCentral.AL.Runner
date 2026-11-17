@@ -1484,6 +1484,7 @@ impl Session {
                     }
                     _ => None,
                 };
+                let shape = super::measured_setfilter::MeasuredSetFilter::of(from_al, &rec.borrow(), &text, args.len());
                 let mut parsed = match record_id {
                     Some(p) => p,
                     None => parse(&text),
@@ -1593,17 +1594,7 @@ impl Session {
                     }
                     Err(e) if e.starts_with(al_builtins::filter::INVALID_DATE) => {
                         let bad = &e[al_builtins::filter::INVALID_DATE.len()..];
-                        return Err(Signal::Error(Box::new(AlError {
-                            message: format!(
-                                "Der Filter '{}' ist für das Feld '{}' der Tabelle '{}' nicht gültig. Das Format Date „{bad}“ stimmt nicht mit den Datumseinstellungen Ihres Geräts überein.\\\\Stellen Sie sicher, dass Tag, Monat und Jahr die richtige Reihenfolge aufweisen und das richtige Trennzeichen verwendet wird (z. b. - oder /). Alternativ können Sie das Format „jjjj-mm-tt“ verwenden.",
-                                text.trim(),
-                                self.field_caption(&t, pos),
-                                self.caption(&t)
-                            ),
-                            code: "Filter:CSide".into(),
-                            call_stack: String::new(),
-                            ..Default::default()
-                        })));
+                        return Err(self.german_date_filter_error(&t, pos, text.trim(), bad));
                     }
                     // record/TestFilterTextBooleanFindContracts.al:130 (SetFilter_BooleanField_UnknownWord_Throws).
                     // A leading blank stays in the quoted filter (format-evaluate/EvalLastError.al:501-539,
@@ -1622,6 +1613,9 @@ impl Session {
                         return Err(self
                             .setfilter_empty_or_side(from_al, &t, pos, rec, args)
                             .unwrap_or_else(|| Signal::unsupported(format!("SetFilter: {e}"))));
+                    }
+                    Err(e) if e.starts_with(al_builtins::filter::OPTION_NEGATIVE) => {
+                        return Err(self.option_negative_error(shape.as_ref(), &t, pos, &e));
                     }
                     Err(e) => return Err(Signal::unsupported(format!("SetFilter: {e}"))),
                 };

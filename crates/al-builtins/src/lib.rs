@@ -1,6 +1,7 @@
 //! The AL standard library: builtin signatures (generated from the docs, see
 //! ADR-008) and, later, the value model and native implementations.
 
+mod closing_date_days;
 mod conv_undefined;
 pub mod date_filter_forms;
 mod date_formula_language;

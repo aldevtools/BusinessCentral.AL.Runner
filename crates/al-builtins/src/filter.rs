@@ -270,6 +270,9 @@ pub fn parse_filter(text: &str, args: &[crate::value::Value], ty: &crate::value:
 pub const INVALID_BOOLEAN: &str = "invalid Boolean filter value: ";
 /// The prefix of the error for a text no Guid filter reads (types/date-time/P143Guid_Filters.al:P143_GuidInvalid).
 pub const INVALID_GUID: &str = "invalid Guid filter value: ";
+/// The prefix of the error for a negative number as the value of an Option filter; the value as the token holds it follows. The
+/// caller decides whether the text is a shape it answers (al-vm `option_negative_error`); every other caller refuses it.
+pub const OPTION_NEGATIVE: &str = "Option filter value that is a negative number: ";
 /// The prefix of the error for a date text no Date filter reads; the failing value follows (types/date-time/
 /// P143Date_DePlain.al: `Das Format Date „17.01.27“ ...`).
 pub const INVALID_DATE: &str = "invalid Date filter value: ";
@@ -1342,6 +1345,7 @@ impl Parser<'_> {
                 .position(|x| !x.is_empty() && x.trim().eq_ignore_ascii_case(text.trim()))
             {
                 Some(i) => Value::Option(i as i32, m.clone()),
+                None if text.parse::<i32>().is_ok_and(|n| n < 0) => return Err(format!("{OPTION_NEGATIVE}{text}")),
                 None => Value::Option(
                     text.parse().map_err(|_| {
                         if matches!(text.trim(), "\" \"" | "\"\"") {
