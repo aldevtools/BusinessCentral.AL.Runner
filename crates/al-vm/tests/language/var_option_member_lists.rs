@@ -934,12 +934,10 @@ fn callers_the_probe_does_not_measure_refuse() {
     // An array handed directly to a publisher no subscriber hears: no code runs, the array keeps its value (main's result).
     assert_eq!(text(al_testkit::run_in(SRC, "C", "LocalArrayToPublisher")), "First");
     refused("VarParameterWithMembersCaller", "a `var` parameter with members");
-    for routine in [
-        "GlobalToOtherMembers",
-        "GlobalVarArray",
-        "MemberlessGlobalToMembers",
-        "VarArrayHandedOn",
-    ] {
+    // A global with members to a procedure's parameter with other members keeps its own (corpus PR 1444,
+    // OptionVarMemberlessUnheard.al:415, :423); a memberless global is not measured.
+    assert_eq!(assumed("GlobalToOtherMembers"), "First");
+    for routine in ["GlobalVarArray", "MemberlessGlobalToMembers", "VarArrayHandedOn"] {
         refused(routine, "another member list");
     }
 }

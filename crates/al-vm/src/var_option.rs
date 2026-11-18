@@ -2,7 +2,8 @@
 //! 8291): which members the parameter reads while the call runs, and which the caller's variable has after it. Not pinned:
 //! assumption `var-option-caller-members` (corpus PR 1432, tests/al-language/types/enum-option/OptionVarMemberLists.al and
 //! OptionVarMemberlessEvaluate.al; corpus PR 1439, OptionVarMemberlessWrites.al (OVMW) and OptionVarMemberlessCallers.al
-//! (OVMC)). The callers the probes do not measure are refused where the call is lowered (al-sema `lower/var_option_arg.rs`).
+//! (OVMC); corpus PR 1444, OptionVarMemberlessUnheard.al (OVMU), an event publisher no subscriber hears). The callers the
+//! probes do not measure are refused where the call is lowered (al-sema `lower/var_option_arg.rs`).
 
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::builtin_id::{BuiltinId, ids};
@@ -46,8 +47,7 @@ pub(crate) fn var_binding(v: &Value, ty: &RtType, subscriber: bool) -> Option<Re
 /// without members, the members it holds (a memberless caller stays memberless, OptionVarMemberLists.al:432; a memberless
 /// `var` parameter handed on keeps its caller's, :364). After an empty body, `Value := 1` (:224), a write to another list
 /// (`Value::C` gives Third, :398), a TryFunction and an error after the write (:552, :566), a store of any Option and Clear
-/// (OVMW:226, :269). After an event publisher no subscriber hears, which runs no code, the same (`unheard_publisher_caller`).
-/// An array is not touched: its elements are the caller's (OVMW:472). `None`: `v` as it is.
+/// (OVMW:226, :269). An array is not touched: its elements are the caller's (OVMW:472). `None`: `v` as it is.
 pub(crate) fn written_back(v: &Value, declared: &RtType, current: impl FnOnce() -> Option<Value>) -> Option<Value> {
     let (Value::Option(o, has), RtType::Option(d)) = (v, declared) else {
         return None;
@@ -83,20 +83,26 @@ pub(crate) fn param_store(v: Value, declared: &RtType, var_param: bool, current:
     }
 }
 
-/// The refusal of place `p` handed to a `var` parameter of type `param` with another member list of an event publisher
-/// no subscriber hears, which runs no code: after the call the caller's variable has its own members. Runs for a
-/// variable of the running routine (a local, a parameter, a named return value) and a global of its object
-/// (`written_back`, flagged; not measured yet: the probe written for it, OptionVarMemberlessUnheard.al, waits for its
-/// observation), and, as on main, for a field and an array element, which take their own type on the write-back, and
-/// for an array parameter. Every other place refuses: a global of a base object, of another extension or of a record's
-/// instance.
-fn unheard_publisher_caller(p: &al_ir::Place, param: &RtType) -> Result<(), Signal> {
+/// Whether place `p`, handed to a `var` parameter of type `param` of an event publisher no subscriber hears, keeps its
+/// value: with another member list than the parameter's, or an element of an array of memberless Options that holds its
+/// caller's members. Such a call changes nothing: the caller's variable keeps its value and its members, and what follows
+/// reads them (a local BC of the newest supported major, OVMU). Measured, and kept (the call writes nothing back): a
+/// local (OVMU:115), a memberless local (:327), a parameter passed by value (:202), a `var` parameter with or without
+/// members (:347) and a named return value (:372) of the running routine, a global of its object (:176), a field of a
+/// local or `var` record, also one with captions (:216, :313), an element of a local, global or CopyArray filled array or
+/// of a `var` or by-value array parameter (:244, :281): `Ok(true)`, flagged. A whole array handed to a memberless array
+/// parameter shares the caller's elements, and its write-back changes nothing either (:244, :281): `Ok(false)`, main's
+/// path. Every other place refuses: a global of a base object, of another extension or of a record's instance.
+fn unheard_publisher_caller(p: &al_ir::Place, param: &RtType) -> Result<bool, Signal> {
     match (p, param) {
-        (al_ir::Place::Local(_) | al_ir::Place::Global(_), RtType::Option(_)) => {
+        (
+            al_ir::Place::Local(_) | al_ir::Place::Global(_) | al_ir::Place::Field(..) | al_ir::Place::Index(..),
+            RtType::Option(_),
+        ) => {
             assume(Assumption::VarOptionCallerMembers);
-            Ok(())
+            Ok(true)
         }
-        (al_ir::Place::Field(..) | al_ir::Place::Index(..), RtType::Option(_)) | (_, RtType::Array(..)) => Ok(()),
+        (_, RtType::Array(..)) => Ok(false),
         _ => Err(Signal::unsupported(
             "an Option variable handed directly to an event publisher's `var` Option parameter with another member list, which no subscriber hears, from a place the probe does not measure (assumption var-option-caller-members)",
         )),
@@ -154,10 +160,12 @@ pub(crate) enum ArrayOf {
 ///   array parameter (OVMW:833) and a local array CopyArray filled (OVMW:560, :813);
 /// - in a `var` array parameter only: Evaluate keeps them (OVME:552), and so does Clear of the element (OVMW:799); an Option
 ///   assigned from a variable of the routine's `var` section (`Store::AssignVarSection`): one whose members share no name with
-///   the held ones and are as many keeps them with the ordinal (OVMW:762); one without members or with the held members name
-///   by name takes no members, the caller reads the number (OVMW:771, :780).
+///   the held ones and are as many keeps them with the ordinal (OVMW:762; OVMU:1022); one without members takes no members,
+///   the caller reads the number (OVMW:771; OVMU:1016-1019).
 ///
-/// Every other store refuses: another store kind, another value or the value of another place (an element of an array, a
+/// One with the held members name by name refuses: it takes no members after a memberless store into the same element
+/// (OVMW:484-491) but keeps them in a cleared array (OVMU:1020-1021), which the run cannot tell apart. Every other store
+/// refuses: another store kind, another value or the value of another place (an element of an array, a
 /// `var` parameter, a global: it may hold another list than its own), or another array. `None`: the usual conversion.
 pub(crate) fn element_store(
     v: &Value,
@@ -199,7 +207,7 @@ pub(crate) fn element_store(
         {
             kept(*o)
         }
-        (Store::AssignVarSection, Value::Option(o, m)) if var_array && (memberless(m) || m == own) => {
+        (Store::AssignVarSection, Value::Option(o, m)) if var_array && memberless(m) => {
             Ok(Value::Option(*o, d.clone()))
         }
         _ => refused(),
@@ -304,19 +312,22 @@ impl crate::Session {
     /// parameters, or an array of them:
     /// - an argument whose declared member list differs from the parameter's, when a subscriber hears the event: the probes
     ///   raise every event through a procedure (OptionVarMemberLists.al:510, :531; OVMC:196-353), never directly. A call no
-    ///   subscriber hears runs for the callers `unheard_publisher_caller` names.
+    ///   subscriber hears runs for the callers `unheard_publisher_caller` names; the result lists the arguments it keeps,
+    ///   whose write-back the call skips (`Session::write_backs`).
     /// - a parameter with members that a subscriber declares without members: the subscriber reads the publisher's members
     ///   (`var_binding`). Measured only through a procedure's `var` parameter with the publisher's members that its caller
     ///   handed a variable `option_hops_of` names (OptionVarMemberLists.al:531; OVMC:196, :249, :311). Every other argument
     ///   refuses: a parameter handed on twice, a caller without members, a field whose captions differ (OVMC:290: BC shows
     ///   the caption).
-    pub(crate) fn var_option_publisher_refusal(
+    pub(crate) fn var_option_publisher_args(
         &mut self,
         object: usize,
         routine: usize,
         args: &[al_ir::Arg],
+        values: &[Value],
         f: &crate::Frame,
-    ) -> Result<(), Signal> {
+    ) -> Result<Vec<usize>, Signal> {
+        let mut kept = Vec::new();
         let engine = self.engine.clone();
         let r = &engine.program.objects[object].routines[routine];
         let running = &engine.program.objects[f.object].routines[f.routine];
@@ -326,14 +337,25 @@ impl crate::Session {
             };
             if let (Some(true), al_ir::Arg::Ref(p)) = (r.by_var.get(i).copied(), a)
                 && let Some(declared) = option_members(&slot.ty)
-                && option_members(&self.place_type(p, f)).is_some_and(|has| has != declared)
+                && let Some(has) = option_members(&self.place_type(p, f))
             {
-                if self.publisher_heard(object, routine) {
-                    return Err(Signal::unsupported(
-                        "an Option variable handed directly to an event publisher's `var` Option parameter with another member list, which a subscriber hears (not measured, assumption var-option-caller-members)",
-                    ));
+                let other = has != declared;
+                // To a publisher no subscriber hears, an element of an array of memberless Options that holds its caller's
+                // members too, whatever the parameter's list (OVMU:281).
+                let element = memberless(&has)
+                    && matches!(p, al_ir::Place::Index(..))
+                    && matches!(values.get(i), Some(Value::Option(_, held)) if !memberless(held));
+                if other || element {
+                    if self.publisher_heard(object, routine) {
+                        if other {
+                            return Err(Signal::unsupported(
+                                "an Option variable handed directly to an event publisher's `var` Option parameter with another member list, which a subscriber hears (not measured, assumption var-option-caller-members)",
+                            ));
+                        }
+                    } else if unheard_publisher_caller(p, &slot.ty)? {
+                        kept.push(i);
+                    }
                 }
-                unheard_publisher_caller(p, &slot.ty)?;
             }
             let RtType::Option(declared) = &slot.ty else {
                 continue;
@@ -352,7 +374,7 @@ impl crate::Session {
                 ));
             }
         }
-        Ok(())
+        Ok(kept)
     }
 
     /// Whether field `pos` of the record at `base` has neither OptionCaption nor OptionCaptionML.

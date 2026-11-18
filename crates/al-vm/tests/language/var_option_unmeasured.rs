@@ -652,6 +652,58 @@ codeunit 69855 C
     begin
         exit(Format(Value));
     end;
+
+    procedure UnheardFromCopyArrayElement(): Text
+    var Pub: Codeunit VPub; Arr: array[2] of Option A,B,C; Arr0: array[2] of Option;
+    begin
+        Arr[1] := Arr[1]::B;
+        CopyArray(Arr0, Arr, 1);
+        Pub.OnUnheardWithMembers(Arr0[1]);
+        exit(Format(Arr0[1]) + '|' + Format(Arr0[1], 0, 2));
+    end;
+
+    procedure UnheardFromByValueArrayElement(): Text
+    var Arr: array[2] of Option A,B,C;
+    begin
+        Arr[2] := Arr[2]::C;
+        exit(ByValueElementToUnheard(Arr) + '>' + Format(Arr[2]) + '|' + Format(Arr[2], 0, 2));
+    end;
+
+    local procedure ByValueElementToUnheard(A: array[2] of Option): Text
+    var Pub: Codeunit VPub;
+    begin
+        Pub.OnUnheardWithMembers(A[2]);
+        exit(Format(A[2]) + '|' + Format(A[2], 0, 2));
+    end;
+
+    procedure UnheardFromPlainMemberlessElement(): Text
+    var Pub: Codeunit VPub; Arr0: array[2] of Option;
+    begin
+        Arr0[1] := 2;
+        Pub.OnUnheardMemberless(Arr0[1]);
+        exit(Format(Arr0[1]) + '|' + Format(Arr0[1], 0, 2));
+    end;
+
+    procedure HeardMemberlessArrayElement(): Text
+    var Pub: Codeunit VPub; Arr0: array[2] of Option; Seen: Text;
+    begin
+        Arr0[1] := 2;
+        Pub.OnMemberless(Arr0[1], Seen);
+        exit(Seen + '>' + Format(Arr0[1]));
+    end;
+
+    procedure GlobalToOtherMembersProcedure(): Text
+    var T: Text;
+    begin
+        GAbc := GAbc::B;
+        T := OtherMembersOrdinal(GAbc);
+        exit(T + '>' + Format(GAbc) + '|' + Format(GAbc, 0, 2));
+    end;
+
+    local procedure OtherMembersOrdinal(var Value: Option X,Y,Z): Text
+    begin
+        exit(Format(Value) + '|' + Format(Value, 0, 2));
+    end;
 }
 "#;
 
@@ -720,9 +772,9 @@ fn unmeasured_callers_of_a_memberless_subscriber_refuse() {
 }
 
 // A publisher called directly with a variable of another member list refuses when a subscriber hears it; no probe calls one
-// directly. After one no subscriber hears, the caller's variable has its own members, flagged: a declared list, or,
-// declared without members, the members it held before the call. An element that holds a caller's members refuses the
-// write-back, as after a procedure.
+// directly. One no subscriber hears changes nothing, flagged: the caller's variable keeps its value and members, also an
+// element of a `var` memberless array that holds its caller's members (corpus PR 1444, OptionVarMemberlessUnheard.al:115,
+// :281, :327, :347).
 #[test]
 fn a_publisher_called_directly_refuses_only_when_a_subscriber_hears_it() {
     refused("DirectLocalToMemberlessPublisher", PUBLISHER);
@@ -731,30 +783,33 @@ fn a_publisher_called_directly_refuses_only_when_a_subscriber_hears_it() {
     assert_eq!(assumed("UnheardMembersPublisher"), "1@R");
     assert_eq!(assumed("UnheardFromParameters"), "Second|1@Second|1");
     assert_eq!(assumed("UnheardFromMemberlessVarParam"), "Second|1@Second|1");
-    refused("UnheardFromVarArrayElement", ELEMENT);
+    assert_eq!(assumed("UnheardFromVarArrayElement"), "Third|2");
     assert_eq!(assumed("UnheardThroughVarParamSameMembers"), "B|1@B|1");
     assert_eq!(assumed("UnheardThroughMemberlessVarParamMemberless"), "1|1@1|1");
 }
 
 // No later read meets a member list an unheard publisher left: a memberless `var` parameter reads the caller's own members
-// (OptionVarMemberLists.al:241), Evaluate takes the caller's member names (OptionVarMemberlessEvaluate.al:77), and an element
-// store from a variable declared with the held members takes the number (OVMW:780).
+// (OptionVarMemberlessUnheard.al:555), Evaluate takes the caller's member names (:635). An element store from a variable
+// declared with the held members refuses: it takes no members after a memberless store into the same element (OVMW:484-491)
+// but keeps them in a cleared array (OptionVarMemberlessUnheard.al:1020-1021).
 #[test]
 fn no_read_after_an_unheard_publisher_sees_its_member_list() {
     assert_eq!(assumed("UnheardThenMemberlessVarParam"), "B|1");
     assert_eq!(assumed("UnheardThenEvaluateInside"), "C|2");
-    assert_eq!(assumed("UnheardThenElementStore"), "2|2");
+    refused("UnheardThenElementStore", ELEMENT);
 }
 
-// After an unheard publisher, a global has its own members, as a local (flagged); a field, an element of an array with
-// members and a whole array take their own members as on main (the usual conversion; the flag comes from the memberless
-// `var` parameter that reads them next, measured).
+// After an unheard publisher a global, a field, an element of an array with members, an element of a CopyArray filled or
+// by-value memberless array and a whole array keep their value and members (OptionVarMemberlessUnheard.al:176, :216, :244,
+// :281). A global of a base table is not measured: refused.
 #[test]
 fn other_places_handed_to_an_unheard_publisher_keep_main_or_refuse() {
     assert_eq!(assumed("UnheardFieldThenMemberless"), "B|1");
     assert_eq!(assumed("UnheardElementThenMemberless"), "B|1");
     assert_eq!(assumed("UnheardArrayOtherMembers"), "B|1");
     assert_eq!(assumed("UnheardGlobalThenMemberless"), "B|1");
+    assert_eq!(assumed("UnheardFromCopyArrayElement"), "B|1");
+    assert_eq!(assumed("UnheardFromByValueArrayElement"), "C|2>C|2");
     refused("UnheardBaseTableVar", UNHEARD);
 }
 
@@ -771,16 +826,23 @@ fn unmeasured_pairs_of_call_and_caller_refuse() {
 }
 
 // Neighbors: an element of a local array to a procedure is measured (OptionVarMemberLists.al:491); a field to a parameter
-// with other members converts as on main.
+// with other members converts as on main; a global with members to a procedure's parameter with other members keeps its
+// own (OptionVarMemberlessUnheard.al:415, :423).
 #[test]
 fn measured_and_main_neighbors_keep_running() {
     assert_eq!(assumed("ProcedureLocalArrayElement"), "Second@Second");
     assert_eq!(clean("FieldToOtherMembers"), "B@Second");
+    assert_eq!(assumed("GlobalToOtherMembersProcedure"), "Y|1>B|1");
+    // An element of an array of memberless Options to a publisher a subscriber hears: main's binding and write-back.
+    assert_eq!(clean("HeardMemberlessArrayElement"), "2|2>2");
+    // One that holds no caller's members, to a publisher no subscriber hears: main's path.
+    assert_eq!(clean("UnheardFromPlainMemberlessElement"), "2|2");
 }
 
-// `A[1] := A[2]` and `A[2] := A[2]` in a `var` array parameter of memberless Options keep the held members on a local BC of the newest
-// supported major (corpus PR 1439 extension, local commit da4c8406, OptionVarMemberlessElementStores.al:77, not pushed yet), unlike a variable
-// declared with those members (OVMW:780). An element is no variable of the `var` section: refused.
+// `A[1] := A[2]` and `A[2] := A[2]` in a `var` array parameter of memberless Options keep the held members on a local BC
+// of the newest supported major (corpus PR 1439 extension, local commit da4c8406, OptionVarMemberlessElementStores.al:77,
+// not pushed yet).
+// An element is no variable of the `var` section: refused.
 #[test]
 fn an_element_assigned_from_an_element_refuses() {
     refused("VarArrayAssignOtherElement", ELEMENT);
@@ -788,7 +850,7 @@ fn an_element_assigned_from_an_element_refuses() {
 }
 
 // An Option stored into an element that holds a caller's members runs only from a variable of the routine's `var` section
-// (OVMW:762, :771, :780). From an element of another array, a memberless `var` parameter that holds another list, or a
+// (OVMW:762, :771). From an element of another array, a memberless `var` parameter that holds another list, or a
 // global: refused. Into an element that holds no members the store converts as on main.
 #[test]
 fn an_element_assigned_from_an_unmeasured_place_refuses() {

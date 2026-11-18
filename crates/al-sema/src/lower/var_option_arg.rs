@@ -4,7 +4,7 @@
 //! OptionVarMemberLists.al and OptionVarMemberlessEvaluate.al; corpus PR 1439: OptionVarMemberlessCallers.al and
 //! OptionVarMemberlessWrites.al). This module refuses each pair of call kind (procedure, interface method) and caller the
 //! probes do not measure, leaves an event publisher called directly to the run (al-vm
-//! `Session::var_option_publisher_refusal`), and routes `A[i] := x` into an array of memberless Options to the run, marking
+//! `Session::var_option_publisher_args`), and routes `A[i] := x` into an array of memberless Options to the run, marking
 //! `x` when it is a variable of the routine's `var` section.
 use super::*;
 use al_builtins::option_members::memberless;
@@ -118,8 +118,9 @@ impl Lowerer<'_> {
     /// - a parameter declared without members, the caller with members: the pairs of call and caller `measured_memberless`
     ///   names.
     /// - a parameter with members: a record field or an array element (the usual conversion, as on main); from a procedure
-    ///   call, a variable of the `var` section with other members or without members (OVML:398, :432) and a parameter passed
-    ///   by value (OVMC:131, :215).
+    ///   call, a variable of the `var` section with other members or without members (OVML:398, :432), a parameter passed by
+    ///   value (OVMC:131, :215) and a global with members of the running object (corpus PR 1444,
+    ///   OptionVarMemberlessUnheard.al:415, :423).
     /// - a procedure's `var` array parameter of memberless Options, the caller an array with members of the `var` section
     ///   or passed by value (OVML:468; OVMC:145).
     ///
@@ -148,7 +149,7 @@ impl Lowerer<'_> {
         let call = match target {
             None => Call::Interface,
             // An event publisher runs no code of its own: the run refuses the call where a subscriber hears it, and where none
-            // does refuses the callers the probe does not measure (al-vm `Session::var_option_publisher_refusal`).
+            // does refuses the callers the probe does not measure (al-vm `Session::var_option_publisher_args`).
             Some((o, r))
                 if self.routine_has_attribute(o, r, &["IntegrationEvent", "BusinessEvent", "InternalEvent"]) =>
             {
@@ -171,9 +172,13 @@ impl Lowerer<'_> {
                 }
                 _ => measured_memberless(call, caller),
             },
-            (false, _, false) => {
+            (false, has_memberless, false) => {
                 matches!(arg, ir::Arg::Ref(ir::Place::Field(..) | ir::Place::Index(..)))
-                    || (call == Call::Procedure && matches!(caller, Caller::DeclaredLocal | Caller::ByValueParameter))
+                    || (call == Call::Procedure
+                        && matches!(
+                            (caller, has_memberless),
+                            (Caller::DeclaredLocal | Caller::ByValueParameter, _) | (Caller::Global, false)
+                        ))
             }
             (true, false, true) => {
                 call == Call::Procedure && matches!(caller, Caller::DeclaredLocal | Caller::ByValueParameter)

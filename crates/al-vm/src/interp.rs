@@ -827,8 +827,9 @@ impl Session {
         // A publisher's `var` argument that is a global of the caller's instance is that variable itself for its subscribers
         // (events/binding-senders/EventVarThroughSender.al): they alias it, see `Frame::aliases`.
         let facts = self.engine.routine_facts(object, routine);
+        let mut kept = Vec::new();
         if facts.publisher {
-            self.var_option_publisher_refusal(object, routine, args, f)?;
+            kept = self.var_option_publisher_args(object, routine, args, &values, f)?;
             let by_var = &self.engine.program.objects[object].routines[routine].by_var;
             self.events.var_origins = args
                 .iter()
@@ -907,11 +908,7 @@ impl Session {
         }
         if let Err(Signal::Error(_)) = &result {
             if let Some(finals) = self.error_finals.take() {
-                for (a, v) in args.iter().zip(finals) {
-                    if let ir::Arg::Ref(p) = a {
-                        self.write_back(p, v, f)?;
-                    }
-                }
+                self.write_backs(args, finals.into_iter(), &kept, f)?;
             }
         }
         let (ret, finals) = match (result, try_call) {
@@ -928,11 +925,7 @@ impl Session {
             (r, _) => r?,
         };
         let mut finals = finals;
-        for (a, v) in args.iter().zip(finals.drain(..)) {
-            if let ir::Arg::Ref(p) = a {
-                self.write_back(p, v, f)?;
-            }
-        }
+        self.write_backs(args, finals.drain(..), &kept, f)?;
         self.return_vec(finals);
         Ok(ret)
     }
@@ -1128,6 +1121,25 @@ impl Session {
     /// The final value of a by-reference parameter goes back to the caller's place. An `HttpContent` the callee only worked on is the
     /// caller's own object: writing it back would store a copy (an HttpContent is a value on assignment) and cut the headers handed
     /// out before from it.
+    /// Stores the final values of a call's `var` arguments back into the caller's places, except the arguments in `kept`:
+    /// those an event publisher no subscriber hears leaves as they were (`var_option::unheard_publisher_caller`).
+    fn write_backs(
+        &mut self,
+        args: &[ir::Arg],
+        finals: impl Iterator<Item = Value>,
+        kept: &[usize],
+        f: &mut Frame,
+    ) -> Result<(), Signal> {
+        for (i, (a, v)) in args.iter().zip(finals).enumerate() {
+            if let ir::Arg::Ref(p) = a
+                && !kept.contains(&i)
+            {
+                self.write_back(p, v, f)?;
+            }
+        }
+        Ok(())
+    }
+
     fn write_back(&mut self, p: &ir::Place, v: Value, f: &mut Frame) -> Result<(), Signal> {
         if let Value::Library(n, cell) = &v {
             if n == "HttpContent" {

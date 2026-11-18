@@ -628,6 +628,18 @@ codeunit 69840 C
         exit(Seen + '@' + ArrayStoreSameMembers(Arr) + '@' + Format(Arr[1]) + '|' + Format(Arr[1], 0, 2));
     end;
 
+    // OptionVarMemberlessWrites.al:472, without its last store
+    procedure VarArrayStoreOtherThenMemberless(): Text
+    var
+        Arr: array[2] of Option First,Second,Third;
+        Seen: Text;
+    begin
+        Arr[1] := Arr[1]::First;
+        Seen := ArrayStoreOtherMembers(Arr) + '@' + F(Arr[1]);
+        Arr[1] := Arr[1]::First;
+        exit(Seen + '@' + ArrayStoreMemberlessLocal(Arr) + '@' + Format(Arr[1]) + '|' + Format(Arr[1], 0, 2));
+    end;
+
     // OptionVarMemberlessWrites.al:496, :513
     procedure VarArrayClear(Whole: Boolean): Text
     var
@@ -1249,7 +1261,13 @@ fn fields_of_a_var_record_parameter_and_of_rec() {
 // OptionVarMemberlessWrites.al:472, :496, :513, :530, :551, :568
 #[test]
 fn arrays_of_options_without_members() {
-    assert_eq!(assumed("VarArrayStoreOtherOption"), "Third|2@Third|2@2|2@2|2@2|2@2|2");
+    assert_eq!(assumed("VarArrayStoreOtherThenMemberless"), "Third|2@Third|2@2|2@2|2");
+    // A variable with the held members takes no members after a memberless store into the same element (OVMW:484-491) but
+    // keeps them into a cleared array (OptionVarMemberlessUnheard.al:1020-1021): refused.
+    refused(
+        "VarArrayStoreOtherOption",
+        "a store the probe does not measure into an element",
+    );
     assert_eq!(assumed("VarArrayClearAll"), "First|0#First|0#Second|1@Second|1@First|0");
     assert_eq!(
         assumed("VarArrayClearElement"),
