@@ -1550,6 +1550,30 @@ fn an_outstream_argument_is_bridged_and_the_bytes_dotnet_wrote_are_appended_to_t
     assert_eq!(text(r), "from .net!", "a later call can still write into the bridge");
 }
 
+// A reply that names a bridge the session never opened is refused: for written bytes and for an overwrite alike.
+#[test]
+fn a_reply_naming_an_unknown_stream_bridge_is_refused() {
+    for (effects, want) in [
+        (
+            StreamEffects { written: vec![(77, b"x".to_vec())], ..Default::default() },
+            "bytes for an unknown stream bridge 77",
+        ),
+        (StreamEffects { overwritten: vec![77], ..Default::default() }, "an unknown stream bridge 77"),
+    ] {
+        let host = Fake::new(move |r| match r {
+            Req::Invoke(_, m, _) if m == "Touch" => Ok(DotNetReply {
+                value: DotNetValue::Null,
+                by_ref: vec![],
+                streams: effects.clone(),
+            }),
+            other => panic!("{other:?}"),
+        });
+        let r = run(&host, "C: DotNet Convert;", "C.Touch(); exit('');", ": Text");
+        let why = unsupported(&r);
+        assert!(why.contains(want), "{why}");
+    }
+}
+
 // al-runner issue 6317: BC hands .NET the Blob's own stream, so a ZipArchive in Read mode over an OutStream sees the bytes AL
 // wrote through it (corpus tests/al-language-onprem-dotnet/dotnet/dotnet/WdZipArchiveOverOutStream.al WD_Zip_ReadThroughAnOutStream).
 #[test]

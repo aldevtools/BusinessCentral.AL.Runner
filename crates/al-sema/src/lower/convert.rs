@@ -254,8 +254,8 @@ impl<'a> Lowerer<'a> {
     }
 
     /// Whether a Label or TextConst variable `node` going into a Variant at `site` makes the Variant hold a TextConstant
-    /// (`Variant.FromTextConstant#1`): it answers IsTextConstant and no other Is... test, and Format, a Text, a Text parameter
-    /// and a Code read its text. Pinned, for the forms `shared::plain_text_constant` names:
+    /// (`Variant.FromTextConstant#1`): it answers IsTextConstant and no other Is... test; what every other reader gets is
+    /// `al_builtins::conv::text_constant::read`. Pinned, for the forms `shared::plain_text_constant` names:
     /// - assigned to a local Variant: a local Label (types/variant/VaTTextConst.al:283, :289; types/TestTernaryContracts.al:564,
     ///   :572), a global Label (types/variant/VariantIsMatrix.al:224, :242), a local TextConst (TestTernaryContracts.al:566,
     ///   :573), a global TextConst (VaTTextConst.al:137-149, :280, :287; VariantIsMatrix.al:226, :243);
@@ -303,7 +303,7 @@ impl<'a> Lowerer<'a> {
     }
 
     /// The routine being lowered is a procedure whose only attribute is `[Test]`, of a codeunit with `Subtype = Test`:
-    /// the routines of every site `text_constant_into_variant` names (VaTTextConst.al:9, :274; TestTernaryContracts.al:3;
+    /// the routines of every site `text_constant_into_variant` names (VaTTextConst.al:9, :273; TestTernaryContracts.al:3;
     /// VariantIsMatrix.al:42).
     fn in_text_constant_routine(&self) -> bool {
         let obj = &self.ws.objects[self.oi];

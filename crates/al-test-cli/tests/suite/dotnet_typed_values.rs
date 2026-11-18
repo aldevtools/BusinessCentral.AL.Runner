@@ -180,6 +180,16 @@ codeunit 50100 C
         exit(ReadBlob(Target));
     end;
 
+    procedure WriterSetLengthBelowFlush(): Text
+    var
+        Target: Record "ALT Blob" temporary;
+        Base: DotNet DnStream;
+    begin
+        WriterOver(Target, Base);
+        Base.SetLength(1);
+        exit(ReadBlob(Target));
+    end;
+
     procedure BlobHandedToDotNetAgain(): Integer
     var
         Target: Record "ALT Blob" temporary;
@@ -820,6 +830,10 @@ fn copystream_out_of_a_memorystream_copies_the_whole_stream_or_the_count_from_th
 fn a_dotnet_write_over_bytes_handed_back_to_a_blob_marks_the_blob() {
     assert!(matches!(txt("WriterAppendsAfterFlush").as_deref(), Some("abcd") | None));
     if let Some(w) = refusal("WriterOverwritesAfterFlush") {
+        assert!(w.contains("wrote over after it had handed them back"), "{w}");
+    }
+    // Setting the length below the handed-back bytes marks the Blob too.
+    if let Some(w) = refusal("WriterSetLengthBelowFlush") {
         assert!(w.contains("wrote over after it had handed them back"), "{w}");
     }
 }

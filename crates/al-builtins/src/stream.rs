@@ -1144,8 +1144,9 @@ fn blob_create_out(_: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) 
             buf.render_pending = Some(UNLOADED_WRITE.into());
         } else if !dotnet_bytes_unknown(buf.render_pending.as_deref()) && crate::placeholder_output::of(&buf).is_none()
         {
-            // The bytes a .NET stream wrote after Close stay unknown: the new stream writes over the content. So do a
-            // placeholder report output's: the stream writes over its first bytes and the rest stays (`placeholder_output`).
+            // The bytes a .NET stream wrote after Close or over handed-back bytes stay unknown: the new stream writes over
+            // the content, so the mark stays and a later read still refuses. So do a placeholder report output's: the stream
+            // writes over its first bytes and the rest stays (`placeholder_output`).
             buf.render_pending = None;
         }
         buf.write_pos = 0;
