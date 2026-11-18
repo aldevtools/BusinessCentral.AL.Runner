@@ -307,6 +307,11 @@ impl Session {
         if let Some(why) = self.caption_class_lasting_effect(t, exprs) {
             return unsupported(why);
         }
+        if !self.page_runs_no_code_on_rec(st, t) {
+            if let Some(why) = self.caption_class_checked_write(t, exprs) {
+                return unsupported(why);
+            }
+        }
         // The count has a reader only through what an expression leaves behind: a write it keeps (`effects::Effect::Kept`).
         // Expressions that leave nothing run without the mark (a dialog or an Error with a text refuses below when a run raises
         // it, and a Record write the walk let through when the expression's own routine runs it).
@@ -328,6 +333,44 @@ impl Session {
             }
             Ok(())
         })
+    }
+
+    /// Why a Record write the walk let through (`Engine::caption_checked_write`) keeps main's static refusal on a page that runs
+    /// code which may assign fields of Rec: its guard reads fields of Rec, and the walk does not follow what that code assigns.
+    fn caption_class_checked_write(&self, t: &al_data::TableDef, exprs: &[(usize, String)]) -> Option<String> {
+        let table = self.engine.program.objects[t.object as usize].table.as_ref()?;
+        exprs.iter().find_map(|(pos, _)| {
+            let (object, routine) = table.fields.get(*pos)?.caption_class?;
+            let write = self.engine.caption_checked_write(object, routine)?;
+            Some(caption_count_refusal(
+                &t.fields[*pos].name,
+                &self.engine.program.objects[t.object as usize].name,
+                &write,
+            ))
+        })
+    }
+
+    /// Whether the page of `st` runs no code that may assign a field of its Rec: neither it nor an extension declares a page
+    /// trigger, no control has a trigger (an OnValidate, an OnAction, ...), and no field a control shows has an OnValidate in `t` or a table extension.
+    fn page_runs_no_code_on_rec(&self, st: &St, t: &al_data::TableDef) -> bool {
+        let object = st.borrow().object as usize;
+        let objects = &self.engine.program.objects;
+        let (Some(page), Some(table)) = (objects[object].page.as_ref(), objects[t.object as usize].table.as_ref())
+        else {
+            return false;
+        };
+        page.triggers.is_empty()
+            && page.ext_triggers.is_empty()
+            && page.controls.iter().all(|c| {
+                let no_trigger = c.triggers.is_empty() && c.ext_triggers.is_empty();
+                let shown_field_has_no_validate = match c.binding {
+                    al_ir::Binding::Field(pos) => table.fields.get(pos).is_some_and(|f| {
+                        f.on_validate.is_none() && f.ext_before_validate.is_empty() && f.ext_after_validate.is_empty()
+                    }),
+                    _ => true,
+                };
+                no_trigger && shown_field_has_no_validate
+            })
     }
 
     /// Whether the CaptionClass expression of a field of `t` in `exprs` can leave a kept write behind (`effects::Effect::Kept`).

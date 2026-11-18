@@ -145,6 +145,9 @@ struct Walk<'a> {
     /// ([`Walk::reads_rec_and_constants_only`]); counted by the walk of [`Engine::lasting_effect`] only, and 0 again in every
     /// routine it enters.
     rec_guarded: usize,
+    /// The first Record write the walk let through because a run of it is checked (`record_write_checked_at_run_time`), as
+    /// `calls Record.<Method>`.
+    checked_write: Option<String>,
 }
 
 /// The instance code runs on, for what its writes to the instance's variables do.
@@ -171,10 +174,31 @@ pub(crate) enum Effect {
     Refused(String),
 }
 
+/// What the walk of [`Engine::lasting_effect`] found for one routine.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Walked {
+    effect: Option<Effect>,
+    checked_write: Option<String>,
+}
+
 impl Engine {
     /// What a run of routine `routine` of object `object` on a transient instance (the empty record of a page open) can
     /// leave behind that AL code may read later; `None` when it leaves nothing. Worked out once per routine.
     pub(crate) fn lasting_effect(&self, object: usize, routine: usize) -> Option<Effect> {
+        self.walked(object, routine).effect
+    }
+
+    /// The first Record write of the routine that [`Engine::lasting_effect`] let through because a run of it is checked
+    /// (`calls Record.<Method>`), when the routine leaves nothing refused behind.
+    pub(crate) fn caption_checked_write(&self, object: usize, routine: usize) -> Option<String> {
+        let walked = self.walked(object, routine);
+        match walked.effect {
+            Some(Effect::Refused(_)) => None,
+            _ => walked.checked_write,
+        }
+    }
+
+    fn walked(&self, object: usize, routine: usize) -> Walked {
         if let Some(known) = self
             .lasting_effects
             .lock()
@@ -191,10 +215,15 @@ impl Engine {
             path: Vec::new(),
             top: self.caption_expression_body(object, routine),
             rec_guarded: 0,
+            checked_write: None,
         };
-        let found = match w.routine(object, routine, Inst::Transient) {
+        let effect = match w.routine(object, routine, Inst::Transient) {
             Err(why) => Some(Effect::Refused(why)),
-            Ok(()) => w.kept.map(Effect::Kept),
+            Ok(()) => w.kept.take().map(Effect::Kept),
+        };
+        let found = Walked {
+            effect,
+            checked_write: w.checked_write,
         };
         self.lasting_effects
             .lock()
@@ -542,9 +571,12 @@ impl Walk<'_> {
                     && !self.as_integer_in_table_or_codeunit(*id, at)
                     && !get_table_on_local(*id, receiver.as_deref())
                     && !dialog_checked_at_run_time(*id)
-                    && !(self.rec_guarded > 0 && at == self.top && record_write_checked_at_run_time(*id))
                 {
-                    return Err(format!("calls {}", id.name().split('#').next().unwrap_or(id.name())));
+                    let what = format!("calls {}", id.name().split('#').next().unwrap_or(id.name()));
+                    if !(self.rec_guarded > 0 && at == self.top && record_write_checked_at_run_time(*id)) {
+                        return Err(what);
+                    }
+                    self.checked_write.get_or_insert(what);
                 }
                 if let Some(r) = receiver {
                     self.args(std::slice::from_ref(r), at, inst)?;

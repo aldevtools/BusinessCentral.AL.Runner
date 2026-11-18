@@ -1,7 +1,8 @@
 //! A CaptionClass expression that can reach a Record write, on a page whose empty-record runs have no pinned number (al-runner
 //! issue 7391). The walk lets a write through only when it sits in the expression's own routine under an `if` whose
 //! condition reads only fields of Rec and constants (the shape of record/captions/CaptionClassStateFreeCalls.al:168-181
-//! NotTakenCc); such a write refuses when a run of that page executes it. Every other write keeps main's result.
+//! NotTakenCc), on a page that runs no trigger and shows no field with an OnValidate; such a write refuses when a run of that
+//! page executes it. Every other write keeps main's result.
 
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
@@ -123,6 +124,34 @@ table 50116 "RW Callee"
     end;
 }
 
+table 50118 "RW Valid Rec"
+{
+    fields
+    {
+        field(1; "Code"; Code[20]) { trigger OnValidate() begin Flag := 'INS'; end; }
+        field(2; NotTaken; Text[30]) { CaptionClass = NotTakenCap(); }
+        field(3; Second; Text[30]) { CaptionClass = SecondCap(); }
+        field(4; Flag; Code[20]) { }
+    }
+    keys { key(PK; "Code") { Clustered = true; } }
+
+    procedure NotTakenCap(): Text
+    var
+        Other: Record "RW Log";
+    begin
+        Other.Init();
+        Other.Id := 1;
+        if Rec.Flag = 'INS' then
+            Other.Insert();
+        exit('3,Not taken');
+    end;
+
+    procedure SecondCap(): Text
+    begin
+        exit('3,Second');
+    end;
+}
+
 codeunit 50117 "RW Writer"
 {
     procedure Write()
@@ -140,6 +169,60 @@ page 50110 "RW Card"
     PageType = Card;
     SourceTable = "RW Rec";
     layout { area(Content) { field("Code"; Rec."Code") { } field(NotTaken; Rec.NotTaken) { } field(Second; Rec.Second) { } field(Flag; Rec.Flag) { } } }
+}
+
+page 50117 "RW Agr Card"
+{
+    PageType = Card;
+    SourceTable = "RW Rec";
+    layout { area(Content) { field("Code"; Rec."Code") { } field(NotTaken; Rec.NotTaken) { } field(Second; Rec.Second) { } } }
+    trigger OnAfterGetRecord() begin Rec.Flag := 'INS'; end;
+}
+
+page 50118 "RW Curr Card"
+{
+    PageType = Card;
+    SourceTable = "RW Rec";
+    layout { area(Content) { field("Code"; Rec."Code") { } field(NotTaken; Rec.NotTaken) { } field(Second; Rec.Second) { } } }
+    trigger OnAfterGetCurrRecord() begin Rec.Flag := 'INS'; end;
+}
+
+page 50119 "RW New Card"
+{
+    PageType = Card;
+    SourceTable = "RW Rec";
+    layout { area(Content) { field("Code"; Rec."Code") { } field(NotTaken; Rec.NotTaken) { } field(Second; Rec.Second) { } } }
+    trigger OnNewRecord(BelowxRec: Boolean) begin Rec.Flag := 'INS'; end;
+}
+
+page 50120 "RW Open Card"
+{
+    PageType = Card;
+    SourceTable = "RW Rec";
+    layout { area(Content) { field("Code"; Rec."Code") { } field(NotTaken; Rec.NotTaken) { } field(Second; Rec.Second) { } } }
+    trigger OnOpenPage() begin Rec.Flag := 'INS'; end;
+}
+
+page 50121 "RW Control Validate Card"
+{
+    PageType = Card;
+    SourceTable = "RW Rec";
+    layout
+    {
+        area(Content)
+        {
+            field("Code"; Rec."Code") { trigger OnValidate() begin Rec.Flag := 'INS'; end; }
+            field(NotTaken; Rec.NotTaken) { }
+            field(Second; Rec.Second) { }
+        }
+    }
+}
+
+page 50122 "RW Table Validate Card"
+{
+    PageType = Card;
+    SourceTable = "RW Valid Rec";
+    layout { area(Content) { field("Code"; Rec."Code") { } field(NotTaken; Rec.NotTaken) { } field(Second; Rec.Second) { } } }
 }
 
 page 50111 "RW Taken Card"
@@ -217,6 +300,13 @@ codeunit 50113 C
         Card.GoToKey('B');
         exit(Card.NotTaken.Caption);
     end;
+
+    procedure AgrOpen(): Text var Card: TestPage "RW Agr Card"; begin Card.OpenNew(); exit(Card.NotTaken.Caption); end;
+    procedure CurrOpen(): Text var Card: TestPage "RW Curr Card"; begin Card.OpenNew(); exit(Card.NotTaken.Caption); end;
+    procedure NewOpen(): Text var Card: TestPage "RW New Card"; begin Card.OpenNew(); exit(Card.NotTaken.Caption); end;
+    procedure OpenOpen(): Text var Card: TestPage "RW Open Card"; begin Card.OpenNew(); exit(Card.NotTaken.Caption); end;
+    procedure ControlValidateOpen(): Text var Card: TestPage "RW Control Validate Card"; begin Card.OpenNew(); exit(Card.NotTaken.Caption); end;
+    procedure TableValidateOpen(): Text var Card: TestPage "RW Table Validate Card"; begin Card.OpenNew(); exit(Card.NotTaken.Caption); end;
 
     procedure TakenOpen(): Text
     var
@@ -313,6 +403,26 @@ fn a_write_the_open_row_takes_refuses_for_every_write_method() {
 fn a_write_a_later_row_run_takes_refuses() {
     let got = out(SRC, "LaterRow");
     assert!(refused_at_run_time(&got, "NotTaken", "RW Rec", "Insert"), "{got}");
+}
+
+/// A guard on a Rec field when the page runs code that may assign Rec fields (a page trigger, a control OnValidate, the
+/// OnValidate of a field the page shows) keeps main's static refusal: the walk does not follow what that code assigns.
+#[test]
+fn a_rec_guard_on_a_page_with_code_that_may_assign_rec_keeps_mains_refusal() {
+    for (routine, table) in [
+        ("AgrOpen", "RW Rec"),
+        ("CurrOpen", "RW Rec"),
+        ("NewOpen", "RW Rec"),
+        ("OpenOpen", "RW Rec"),
+        ("ControlValidateOpen", "RW Rec"),
+        ("TableValidateOpen", "RW Valid Rec"),
+    ] {
+        let got = out(SRC, routine);
+        assert!(
+            refused_at_run_time(&got, "NotTaken", table, "Insert") && !got.contains("Not taken"),
+            "{routine}: {got}"
+        );
+    }
 }
 
 /// Main's result is kept: a FieldCaption read outside a page open runs the write.
