@@ -32,8 +32,20 @@ pub struct Publisher {
     pub object: usize,
     /// Lower-case event name.
     pub event: String,
+    /// The attribute that declares the event.
+    pub kind: EventKind,
     pub include_sender: bool,
+    /// `IntegrationEvent(IncludeSender, GlobalVarAccess)`: GlobalVarAccess (`false` for the other kinds).
+    pub global_var_access: bool,
     pub isolated: bool,
+}
+
+/// The attribute that declares an event publisher.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EventKind {
+    Integration,
+    Business,
+    Internal,
 }
 
 #[derive(Debug)]
@@ -352,17 +364,21 @@ impl Registry {
                         "integrationevent" | "businessevent" | "internalevent" => {
                             // IntegrationEvent(IncludeSender, GlobalVarAccess[, Isolated]);
                             // BusinessEvent / InternalEvent(IncludeSender[, Isolated]).
-                            let isolated = if name == "integrationevent" {
-                                flag(&args, 2)
-                            } else {
-                                flag(&args, 1)
+                            let kind = match name.as_str() {
+                                "integrationevent" => EventKind::Integration,
+                                "businessevent" => EventKind::Business,
+                                _ => EventKind::Internal,
                             };
+                            let integration = kind == EventKind::Integration;
+                            let isolated = if integration { flag(&args, 2) } else { flag(&args, 1) };
                             reg.publishers.insert(
                                 (oi, ri),
                                 Publisher {
                                     object: base_of.get(&oi).copied().unwrap_or(oi),
                                     event: r.name.to_lowercase(),
+                                    kind,
                                     include_sender: flag(&args, 0),
+                                    global_var_access: integration && flag(&args, 1),
                                     isolated,
                                 },
                             );
