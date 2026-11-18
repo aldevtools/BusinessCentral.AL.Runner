@@ -1,4 +1,5 @@
-//! `Evaluate` into an Option: a variable (`variable`) and a field (`field`).
+//! `Evaluate` into an Option: a variable (`variable`), a `var` parameter declared without members
+//! (`memberless_var_parameter`) and a field (`field`).
 
 use super::{Parsed, unsupported};
 use crate::native::{Ctx, Signal};
@@ -9,8 +10,7 @@ use std::sync::Arc;
 /// A variable: an ordinal of any size is kept (`3` of three members formats as `3`), a text that is neither an ordinal
 /// nor a member name is rejected, and the error names the members (P86Eval.al, codeunit "LT P86 Eval Option").
 pub(super) fn variable(c: &mut dyn Ctx, members: &Arc<[String]>, text: &crate::text::Txt) -> Result<Parsed, Signal> {
-    // NUL alone reads as the empty text (format-evaluate/format-matrix/FMEvalOption.al:222-224, corpus PR 1256).
-    let t = if text.as_str() == "\0" { "" } else { text.trim() };
+    let t = trimmed(text);
     // The empty text, a blank text and NUL name the member declared as " " at any place (format-evaluate/format-matrix/
     // FMOptionBlankVar.al, FMEvalOption.al:64-69, :262-267), and no member declared as "" or left empty (ScT70062.al:
     // Option_EvaluateByName `empty`): that member has no name. Names are read in any case.
@@ -19,12 +19,7 @@ pub(super) fn variable(c: &mut dyn Ctx, members: &Arc<[String]>, text: &crate::t
     } else {
         members.iter().position(|m| m.eq_ignore_ascii_case(t))
     };
-    let ordinal = if t.starts_with(|ch: char| ch.is_ascii_digit() || ch == '+') {
-        t.parse::<u64>().ok()
-    } else {
-        None
-    };
-    Ok(match (ordinal, by_name) {
+    Ok(match (ordinal(t), by_name) {
         (Some(n), _) => match i32::try_from(n) {
             Ok(n) => Parsed::Value(Value::Option(n, members.clone())),
             Err(_) => {
@@ -52,6 +47,35 @@ pub(super) fn variable(c: &mut dyn Ctx, members: &Arc<[String]>, text: &crate::t
             );
         }
     })
+}
+
+/// The text a variable reads: NUL alone reads as the empty text (format-evaluate/format-matrix/FMEvalOption.al:222-224,
+/// corpus PR 1256), any other text without its blanks.
+fn trimmed(text: &crate::text::Txt) -> &str {
+    if text.as_str() == "\0" { "" } else { text.trim() }
+}
+
+/// The ordinal a trimmed text gives a variable: digits after an optional `+`, of any size (P86Eval.al).
+fn ordinal(t: &str) -> Option<u64> {
+    if t.starts_with(|ch: char| ch.is_ascii_digit() || ch == '+') {
+        t.parse::<u64>().ok()
+    } else {
+        None
+    }
+}
+
+/// `Evaluate` of `source` into a `var` Option parameter declared without members (the lowering's
+/// `memberless_var_option_parameter`, al-runner issue 7994): BC reads the caller's members there, which the runner does not
+/// hand to the parameter. A text that reads as an ordinal (`ordinal`) goes on and is read as by any Option variable, as
+/// before; every other source would need the caller's members (a member name, a blank text, the error that lists them)
+/// and refuses. Not pinned.
+pub(super) fn memberless_var_parameter(source: &Value) -> Result<(), Signal> {
+    match crate::native::text_of(source) {
+        Some(text) if ordinal(trimmed(&text)).is_some() => Ok(()),
+        _ => unsupported(
+            "Evaluate of a text that is not an ordinal into a `var` Option parameter declared without members: the caller's members are not handed to the parameter (al-runner issue 7994, not pinned)",
+        ),
+    }
 }
 
 /// An Option field reads a member name and an ordinal below the member count.
