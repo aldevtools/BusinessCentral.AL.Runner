@@ -182,6 +182,18 @@ codeunit 50105 "Part Probe Neighbours"
         Host.Close();
     end;
 
+    [Test]
+    procedure OpenEditGoToKeyOnFilteredPart()
+    var
+        Host: TestPage "Part Probe Host";
+    begin
+        InsertRows();
+        Host.OpenEdit();
+        Host.NoFilter.SetValue('B2');
+        Assert.AreEqual(true, Host.Lines.GoToKey('B2'), 'GoToKey');
+        Host.Close();
+    end;
+
     local procedure WalkPart(var Host: TestPage "Part Probe Host") Seen: Text
     begin
         Seen := 'filter=' + Host.Lines.Filter.GetFilter("No.");
@@ -220,10 +232,15 @@ fn outcome_of(list: &[(String, Outcome)], name: &str) -> Outcome {
 }
 
 fn assert_refused(o: Outcome, name: &str) {
+    assert_refused_move(o, name, "First");
+}
+
+fn assert_refused_move(o: Outcome, name: &str, how: &str) {
     match o {
         Outcome::NotRun(why) => assert!(
-            why.contains("First() on a part whose own CurrPage.Update waits for its refresh")
-                && why.contains("not pinned"),
+            why.contains(&format!(
+                "{how}() on a part whose own CurrPage.Update waits for its refresh"
+            )) && why.contains("not pinned"),
             "{name}: {why}"
         ),
         other => panic!("{name}: expected a refusal, got {other:?}"),
@@ -260,5 +277,15 @@ fn a_pending_update_whose_view_keeps_the_held_rows_keeps_mains_outcome() {
     assert_eq!(
         outcome_of(&list, "OpenEditUpdateWithSameRowsKeepsHeldRows"),
         Outcome::Pass
+    );
+}
+
+#[test]
+fn go_to_key_on_the_filtered_part_is_refused() {
+    let list = outcomes("Part Probe Neighbours");
+    assert_refused_move(
+        outcome_of(&list, "OpenEditGoToKeyOnFilteredPart"),
+        "OpenEditGoToKeyOnFilteredPart",
+        "GoToKey",
     );
 }
