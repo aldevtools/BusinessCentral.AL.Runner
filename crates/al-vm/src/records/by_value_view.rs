@@ -1,6 +1,7 @@
-//! The view a record of a stored table gets when it is handed by value to a Record parameter of a procedure: the parameter is
-//! not declared temporary, is of a table that is not TableType = Temporary, and is not an event subscriber's. Entry:
-//! `Session::by_value_view` (by the parameter binding of `call_inner` in `lib.rs`). What a copy whose view is not pinned
+//! The view a record gets when it is handed by value to a Record parameter of a procedure: the parameter is not declared
+//! temporary, is of a table that is not TableType = Temporary, and is not an event subscriber's. Entry:
+//! `Session::record_param_copy` for a record of a stored table, `Session::temporary_into_stored_param` for a temporary one (by
+//! the parameter binding of `call_inner` in `lib.rs`, which describes the call in a [`ByValueCall`]). What a copy whose view is not pinned
 //! answers afterwards: its own record methods (`Session::by_value_view_runs`, by `record_op_inner`), and every hand-off of it to
 //! code that reads its view (`Session::by_value_view_handed`: a record method with it as the source, `RecordRef.GetTable`, a
 //! page, report, XmlPort or FilterPageBuilder it is handed to); Copy and CopyFilters hand its marks to their target.
@@ -10,11 +11,48 @@ use crate::records::{FLOWFIELD_KEY, Rec};
 use al_builtins::assumptions::{self, Assumption};
 use al_builtins::native::{Signal, unsupported};
 use al_builtins::record_op::RecordOp;
-use al_builtins::value::{RtType, Value};
+use al_builtins::value::{Instance, RecordState, RtType, Value};
+use al_ir::ObjKind;
+use std::cell::RefCell;
 use std::rc::Rc;
 
 /// The `RecordState::unpinned_buffer` reason of a by-value copy whose view [`Session::by_value_view`] does not decide.
-pub(crate) const BY_VALUE_VIEW: &str = "a record handed by value whose caller had filters outside filter group 0, stood in another filter group, read in descending order or had marks: real BC hands such a copy the primary key and no filter of group 0, the rest of its view is not pinned";
+pub(crate) const BY_VALUE_VIEW: &str = "a record handed by value whose view the probe did not measure (a filter in filter group 1 or in a group other than -1, 0, 2 and 4, the caller standing in a group other than 0 and 2, a field sorted descending by SetAscending, a SetLoadFields after a read, SetAutoCalcFields or ReadIsolation on the record, a call through an interface, or a parameter of an object other than a codeunit or of a table procedure other than Row.Proc(Row) from a codeunit): what the copy's view holds is not pinned";
+
+/// How the procedure a record is handed to by value is reached.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Dispatch {
+    /// A call of the procedure by name.
+    Direct,
+    /// An event raise to a subscriber (`dispatch.rs` sets `next_is_subscriber`).
+    Subscriber,
+    /// A call through an interface (`exec/run.rs` `run_iface` sets `Session::next_interface_call`).
+    Interface,
+}
+
+/// The call a by-value Record parameter belongs to: the callee's object, the instance the procedure runs on (a table
+/// procedure's holds its `Rec`, `enter_record`) and how it is reached. Made once per call by `call_inner` in `lib.rs`.
+pub(crate) struct ByValueCall<'a> {
+    callee: usize,
+    instance: &'a Rc<RefCell<Instance>>,
+    dispatch: Dispatch,
+}
+
+impl<'a> ByValueCall<'a> {
+    /// `subscriber` and `interface`: the call is an event raise or an interface call (each flag taken once, at the call).
+    pub(crate) fn new(callee: usize, instance: &'a Rc<RefCell<Instance>>, subscriber: bool, interface: bool) -> Self {
+        let dispatch = match (subscriber, interface) {
+            (true, _) => Dispatch::Subscriber,
+            (false, true) => Dispatch::Interface,
+            (false, false) => Dispatch::Direct,
+        };
+        ByValueCall {
+            callee,
+            instance,
+            dispatch,
+        }
+    }
+}
 
 /// Whether record method `method` reads neither the view (filters, key, order) nor the marks of the record it is called on: it
 /// reads or writes the record's own fields or its row by primary key, reads the table's metadata, or names the fields to load.
@@ -47,71 +85,171 @@ fn reads_no_view(method: RecordOp) -> bool {
     )
 }
 
+/// Whether the probe measured the view of `s`, handed by value to a callee [`Session::measured_callee`] names
+/// (assumption `by-value-record-no-filters`, corpus PR 1430, record/filters/ByValueRecordView.al): every filter in filter
+/// group -1, 0, 2 or 4 (`ByValue_GroupMinus1Filter`, `ByValue_GroupMinus1_TwoFields`, `ByValue_Group0Filter_*`,
+/// `ByValue_Group2Filter`, `ByValue_Group4Filter`, `ByValue_FlowFieldFilter_*`, `ByValue_CalcFields_*`), the caller standing
+/// in group 0 or 2 (`ByValue_CallerInGroup2_*`), no field sorted descending by SetAscending. The key (primary, declared
+/// secondary in `ByValue_SecondaryKey_*`, ad hoc in `ByValue_AdHocKey_Group0Filter`), Ascending (`ByValue_Descending_*`)
+/// and the marks with MarkedOnly on or off (`ByValue_Marks_*`) are each measured. A filter in group 1 is seen by every
+/// record of the table in the session (`ByValue_Group1Filter_OtherInstance`), which the runtime does not model.
+fn measured_view(s: &RecordState) -> bool {
+    s.filters.iter().all(|f| matches!(f.group, -1 | 0 | 2 | 4))
+        && matches!(s.filter_group, 0 | 2)
+        && s.field_descending == 0
+        && measured_state(s)
+}
+
+/// Whether the probe measured what else `s` holds that a copy could keep: no SetLoadFields, or one before any read
+/// (`ByValue_SetLoadFields`; `load.buffer` is set by a read), no SetAutoCalcFields, ReadIsolation at its default. Every cell
+/// of the probe has these. SecurityFiltering of a by-value parameter is pinned on its own
+/// (al-language/reports/runtime/SFSecurityFilteringFlow.al, `RecordState::security_filtering_unpinned`).
+fn measured_state(s: &RecordState) -> bool {
+    (s.load.request.is_none() || s.load.buffer.is_none()) && s.auto_calc.is_empty() && s.read_isolation == 0
+}
+
+/// The view of a fresh record: no filters in any filter group, filter group 0, the primary key ascending, no marks,
+/// MarkedOnly off. What a by-value copy gets in [`Session::by_value_view`] (each callee:
+/// `f={} n=3 key=Id asc=Yes grp=0 first=1`, `mo=No n=3 marked n=0`), and a copy for a temporary parameter (al-vm
+/// `Session::temporary_param_copy`).
+pub(crate) fn primary_view(st: &mut RecordState) {
+    st.key = 0;
+    st.adhoc = None;
+    st.ascending = true;
+    st.field_descending = 0;
+    st.marks.clear();
+    st.marked_only = false;
+    st.filters.clear();
+    st.filter_group = 0;
+}
+
 impl Session {
-    /// The copy of `rc` a by-value parameter of type `param` gets (`record_by_value_into`): it keeps what Record.IsDirty
-    /// compares with (record/Y8RecordIsDirtyShapes.al:321-324 `by_value_dirty` Yes, `by_value_clean` No) and has the view
-    /// [`Session::by_value_view`] gives it.
-    pub(crate) fn record_param_copy(&mut self, rc: &Rec, param: &RtType, subscriber: bool) -> Value {
+    /// The copy of `rc` a by-value parameter of type `param` of the procedure of `call` gets (`record_by_value_into`): it keeps
+    /// what Record.IsDirty compares with (record/Y8RecordIsDirtyShapes.al:321-324 `by_value_dirty` Yes, `by_value_clean` No)
+    /// and has the view [`Session::by_value_view`] gives it. An event subscriber's copy keeps main's view (not measured).
+    pub(crate) fn record_param_copy(&mut self, rc: &Rec, param: &RtType, call: &ByValueCall) -> Value {
         let v = self.record_by_value_into(rc, param);
         if let Value::Record(copy) = &v {
             copy.borrow_mut().is_dirty_base = rc.borrow().is_dirty_base.copy();
-            self.by_value_view(rc, copy, param, subscriber);
+            if matches!(call.dispatch, Dispatch::Direct | Dispatch::Interface) {
+                self.by_value_view(rc, copy, param, call);
+            }
         }
         v
     }
 
-    /// Gives `copy`, the by-value copy of `source` for a parameter of type `param` (`subscriber`: an event subscriber's), the
-    /// view BC hands it. The entry is one allowlist: `source` is not temporary and of no other company, the parameter is a
-    /// Record of the same table, not temporary and of a table that is not TableType = Temporary, not a subscriber's, `source`
-    /// carries no link filter, and its key is the primary key or an ad hoc one (`RecordState::adhoc`: SetCurrentKey on fields
-    /// no key of the table starts with). Every other copy keeps main's view (`record_by_value`): a declared secondary key too.
-    /// - Caller in filter group 0, ascending, no marks, MarkedOnly off, no filter: the copy has the primary key, also after an
-    ///   ad hoc key on a normal field, on a FlowField whose value depends on the row (whose `FLOWFIELD_KEY` mark it does not
-    ///   take) or on a FlowField and then the primary key field (record/keys-sorting/PwFlowFieldKeyRule.al:249-252
-    ///   `byValue=Id order=1 2 3`).
-    /// - The same with filters, every one in group 0, and no mark on `source`: the primary key and no filters (assumption
-    ///   `by-value-record-no-filters`, al-runner issue 8185), marked on the copy (`RecordState::view_assumption`) so that a
-    ///   read of its view marks the assumption (`by_value_view_read`, `by_value_view_handed`).
+    /// Whether the probe measured `source` handed by value to a Record parameter of type `param` of the procedure of `call`
+    /// (assumption `by-value-record-no-filters`, corpus PR 1430, record/filters/ByValueRecordView.al), called by name: a
+    /// codeunit's procedure (`BVV Callee`, and `DescribeLocal`, a local procedure of the test codeunit), or a table's procedure
+    /// whose parameter is a record of that table, called from a codeunit on `source` itself (`CountSameStatus`, called as
+    /// `Row.CountSameStatus(Row)` from the test codeunit in `ByValue_TableProcedure_OwnRecByValue`). An interface call is not
+    /// measured.
+    fn measured_callee(&self, call: &ByValueCall, param: &RtType, source: &Rec) -> bool {
+        let objects = &self.engine.program.objects;
+        let callee = &objects[call.callee];
+        match (call.dispatch, callee.kind) {
+            (Dispatch::Direct, ObjKind::Codeunit) => true,
+            (Dispatch::Direct, ObjKind::Table) => {
+                matches!(param, RtType::Record(t, false) if *t as usize == call.callee)
+                    && self.frames.last().is_some_and(|&o| objects[o].kind == ObjKind::Codeunit)
+                    && callee.rec_slot.is_some_and(|s| {
+                        matches!(call.instance.borrow().globals.get(s), Some(Value::Record(r)) if Rc::ptr_eq(r, source))
+                    })
+            }
+            _ => false,
+        }
+    }
+
+    /// Gives `copy`, the by-value copy of `source` for a parameter of type `param` of the procedure of `call`, the view BC
+    /// hands it. The entry is one allowlist: `source` is not temporary and of no other company, the parameter is a
+    /// Record of the same table, not temporary and of a table that is not TableType = Temporary, and `source` carries no
+    /// link filter. Every other copy keeps main's view (`record_by_value`).
+    /// - Caller in filter group 0, ascending, no marks, MarkedOnly off, no filter, on the primary key or an ad hoc key
+    ///   (`RecordState::adhoc`), any callee: the copy has the primary key, also after an ad hoc key on a normal field, on a
+    ///   FlowField whose value depends on the row (whose `FLOWFIELD_KEY` mark it does not take) or on a FlowField and then
+    ///   the primary key field (record/keys-sorting/PwFlowFieldKeyRule.al:249-252 `byValue=Id order=1 2 3`).
+    /// - A callee [`Session::measured_callee`] names, no mark on `source`, a view [`measured_view`] names: the view of
+    ///   [`primary_view`], and a SetLoadFields of a caller that read no row is dropped (`ByValue_SetLoadFields`
+    ///   `amount loaded=Yes`). Marked on the copy (`RecordState::view_assumption`) so that a read of its view marks the
+    ///   assumption (`by_value_view_read`, `by_value_view_handed`).
+    /// - Another callee, no filter and no mark on `source`, the caller in filter group 0, ascending, with no marks: main's
+    ///   view (a declared secondary key stays).
     /// - Else, with no mark on `source`, the copy keeps main's view and is marked [`BY_VALUE_VIEW`]: a read of its view
     ///   refuses (`by_value_view_runs`, `by_value_view_handed`). A copy of a marked `source` keeps main's view and the mark.
-    pub(crate) fn by_value_view(&self, source: &Rec, copy: &Rec, param: &RtType, subscriber: bool) {
+    pub(crate) fn by_value_view(&self, source: &Rec, copy: &Rec, param: &RtType, call: &ByValueCall) {
         let s = source.borrow();
-        let ad_hoc_key = s.adhoc.as_ref().is_some_and(|(k, _)| *k == s.key);
         let entry = matches!(param, RtType::Record(t, false) if *t == s.table
                 && !self.engine.object_facts[*t as usize].temporary())
             && !s.temporary
             && s.company.is_none()
             && !s.crm
-            && !subscriber
-            && s.run_page_link.is_none()
-            && (s.key == 0 || ad_hoc_key);
+            && s.run_page_link.is_none();
         if !entry {
             return;
         }
+        let measured = self.measured_callee(call, param, source);
         let plain_view =
             s.filter_group == 0 && s.ascending && s.field_descending == 0 && s.marks.is_empty() && !s.marked_only;
         let no_filter = s.filters.is_empty();
-        let group_zero = s.filters.iter().all(|f| f.group == 0);
+        let pinned_key = s.key == 0 || s.adhoc.as_ref().is_some_and(|(k, _)| *k == s.key);
+        let load_dropped = measured && s.load.request.is_some() && s.load.buffer.is_none();
         let mut c = copy.borrow_mut();
         match s.unpinned_buffer {
-            None if plain_view && no_filter => {
-                c.key = 0;
-                c.adhoc = None;
-            }
-            Some(FLOWFIELD_KEY) if plain_view && no_filter => {
+            None | Some(FLOWFIELD_KEY) if plain_view && no_filter && pinned_key && !load_dropped => {
                 c.key = 0;
                 c.adhoc = None;
                 c.unpinned_buffer = None;
             }
-            None if plain_view && group_zero => {
-                c.key = 0;
-                c.adhoc = None;
-                c.filters.clear();
+            None if measured && measured_view(&s) => {
+                primary_view(&mut c);
+                if load_dropped {
+                    c.load.request = None;
+                }
                 c.view_assumption = true;
             }
+            None if !measured && plain_view && no_filter => {}
             None => c.unpinned_buffer = Some(BY_VALUE_VIEW),
             Some(_) => {}
         }
+    }
+
+    /// The copy a by-value parameter that is not declared temporary, of a table that is not TableType = Temporary, of the
+    /// procedure of `call` gets of the temporary record `rc`: a record of the stored table
+    /// (record/temporary/TempRecordByValue.al:TempRecord_ByValue_ToPersistentParameter, :TempRecord_ByValue_ModifyAndDeleteAll),
+    /// with the record's current values. The probe measured one view (assumption `by-value-record-no-filters`, corpus PR
+    /// 1430, record/filters/ByValueRecordView.al `ByValue_TemporaryToPlainParameter`: `temp=No f={}`): a codeunit's procedure
+    /// called by name, the caller with filters in filter group 0 only, standing in group 0, on the primary key, ascending, with
+    /// no marks and the state [`measured_state`] names. That copy has no filters, marked as in [`Session::by_value_view`]. The
+    /// same shape through an interface call is marked [`BY_VALUE_VIEW`]. Every other copy, an event subscriber's among them,
+    /// keeps the caller's view (main; not pinned).
+    pub(crate) fn temporary_into_stored_param(&self, rc: &Rec, call: &ByValueCall) -> Value {
+        let mut st = rc.borrow().copy_as_new_variable();
+        st.temporary = false;
+        st.temp_id = None;
+        let shape = self.engine.program.objects[call.callee].kind == ObjKind::Codeunit
+            && !st.filters.is_empty()
+            && st.filters.iter().all(|f| f.group == 0)
+            && st.filter_group == 0
+            && st.key == 0
+            && st.adhoc.is_none()
+            && st.ascending
+            && st.field_descending == 0
+            && st.marks.is_empty()
+            && !st.marked_only
+            && st.load.request.is_none()
+            && measured_state(&st)
+            && st.company.is_none()
+            && st.run_page_link.is_none()
+            && st.unpinned_buffer.is_none();
+        match (shape, call.dispatch) {
+            (true, Dispatch::Direct) => {
+                st.filters.clear();
+                st.view_assumption = true;
+            }
+            (true, Dispatch::Interface) => st.unpinned_buffer = Some(BY_VALUE_VIEW),
+            (true, Dispatch::Subscriber) | (false, _) => {}
+        }
+        Value::Record(Rc::new(RefCell::new(st)))
     }
 
     /// A record method `method` on `rec`, which holds `RecordState::view_assumption`: a method that reads the view marks
