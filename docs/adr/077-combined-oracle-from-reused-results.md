@@ -39,29 +39,38 @@ Facts read from the code on 2026-11-17:
    `source_run`, `source_attempt`, `source_commit`, `bc_build` and `app` (`full` or `partial`). A codeunit always
    runs whole, so its tests share one provenance. A reused suite keeps its `timestamp`.
 4. **The run carries a manifest** (artifact `results-manifest`): commit, base run, and per version the BC build, the
-   mode, the chain length and the nightly comparison. A green run without a manifest is a full run from before this
-   change and is accepted as before.
+   mode, the chain length and the nightly comparison. A manifest counts only when its `run_attempt` is the run's
+   latest attempt and the run's conclusion is success: a later attempt replaces the legs' files but not an earlier
+   manifest. A green run without a manifest is accepted as a full run from before this change only when none of its
+   suites carries provenance properties.
 5. **`tools/corpus_bump.sh` refuses the bump** unless all of this holds:
-   - every test leg of the run succeeded, and the run is on master;
+   - the run is green (conclusion success) and on master;
+   - the manifest's `run_attempt` is the run's latest attempt;
    - every suite has its properties, and every suite of one file names the manifest's BC build;
    - every `source_commit` is an ancestor of the run's commit;
    - for each reused suite, the files that declare its codeunit are identical between `source_commit` and the new pin;
    - the chain is at most 20 runs;
    - the newest nightly comparison at or before the run's commit does not report a difference;
    - no codeunit of the current oracle is missing, unless the corpus diff deleted or renamed its file.
-6. **A nightly full run is a valid source while a comparison difference is open** (owner, 2026-11-17). All its
-   results are fresh, so the comparison does not bear on them. The bump accepts it when every test leg succeeded and
-   its manifest says `full` for every version, even when its own comparison reports a difference. Only combined runs
-   stay blocked. The corpus therefore writes the manifest of a nightly run whether or not its comparison passes.
+6. **The nightly full run is the one exception to decision 5** (owner, 2026-11-17). All its results are fresh, so an
+   open comparison difference does not bear on them. The bump accepts a nightly run whose only failed job is the
+   comparison, when every test leg succeeded and its manifest says `full` for every version. That run passes the
+   first bullet and the comparison bullet of decision 5; every other bullet still applies. The exception names the
+   nightly run only: a push run that is full for every version stays blocked while a difference is open. The corpus
+   therefore writes the manifest of a nightly run whether or not its comparison passes.
 7. **`oracle.toml` records**, per version: `mode`, the counts of fresh and reused codeunits, the oldest source run,
    and `ci_bc_build`. The bump prints a warning when `ci_bc_build` differs from `bc_build`.
 8. **The pin check does not change.** The CLI still exits 2 when the pin and `oracle.toml` disagree. The rule for an
    oracle recorded for an older commit (only added files) stays for suites that have no Linux CI result.
 9. **The ratchet does not change** (ADR-065). A reused result counts like a fresh one.
 10. **`--from-pr` is retired** (owner, 2026-11-17). It keeps working, unchanged, until corpus master runs reuse
-    results. The first runner pull request after that switch deletes `tools/corpus_bump_pr.py`, its tests, the
-    2026-11-05 sentence in ADR-007 and its paragraph in `docs/agents/workflow.md`. The corpus then owns the one rule
-    that merges results.
+    results. The first runner pull request after that switch deletes every `--from-pr` path:
+    `tools/corpus_bump_pr.py` and its tests, the `--from-pr` branch of `tools/corpus_bump.sh`, the PR-results record
+    that `tools/corpus_bump_edit.py` removes and `oracle/README.md` holds, the paragraphs in `docs/agents/bump.md` and
+    `docs/agents/workflow.md`, the path list entry in `.github/workflows/ci.yml`, and the 2026-11-05 sentence in
+    ADR-007. The corpus then owns the one rule that merges results. Until then, the checks of decision 5 apply to a bump
+    from a master run only. A `--from-pr` bump keeps its own checks: its suites carry a pull request's merge commit as
+    `source_commit`, a commit on no branch, so the ancestry check cannot apply to them.
 
 ## Options considered
 
@@ -90,9 +99,11 @@ Facts read from the code on 2026-11-17:
 ## Conformance
 
 - `crates/al-test-cli/tests/suite/corpus_bump_combined.rs` (new, with a fake `gh` like `corpus_bump_script.rs`): one
-  test per refusal of decision 5, each seen red first; a full run without a manifest is accepted; a nightly full run
-  whose comparison differs is accepted and a combined run at that commit is refused (decision 6); a combined run is
-  accepted and `oracle.toml` gets the fields of decision 7.
+  test per refusal of decision 5, each seen red first; a run whose test legs all succeeded but whose manifest job
+  failed is refused; a manifest of an earlier attempt is refused; a full run without a manifest and without provenance
+  properties is accepted, and one without a manifest whose suites carry properties is refused (decision 4); a nightly
+  full run whose only failed job is the comparison is accepted, while a combined run and a full push run at that
+  commit are refused (decision 6); a combined run is accepted and `oracle.toml` gets the fields of decision 7.
 - `al-test-cli/src/oracle.rs` unit test: a suite with a `<properties>` child gives the same cases and the same clock
   as the suite without it.
 - `corpus_harness.rs`: pin mismatch still exits 2.
