@@ -5,7 +5,7 @@
 use crate::describe::Describe;
 use crate::native::{Ctx, NativeFn, Signal, unsupported};
 use crate::signature::Signature;
-use crate::value::{ErrorInfoMessageForm, ErrorInfoState, LibraryValue, Value};
+use crate::value::{ErrorInfoBuilt, ErrorInfoState, LibraryValue, Value};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -86,6 +86,15 @@ fn with_state<R>(r: Option<&mut Value>, f: impl FnOnce(&mut ErrorInfoState) -> R
     }
 }
 
+/// A write to the ErrorInfo: it is no longer built by `Create` alone (`ErrorInfoBuilt`).
+fn set(r: Option<&mut Value>, f: impl FnOnce(&mut ErrorInfoState)) -> Out {
+    with_state(r, |s| {
+        f(s);
+        s.built = ErrorInfoBuilt::Other;
+    })
+    .map(|()| Value::Null)
+}
+
 fn text(a: &[Value], i: usize) -> Result<String, Signal> {
     match a.get(i).and_then(crate::native::text_of) {
         Some(t) => Ok(t.to_string()),
@@ -132,7 +141,7 @@ fn fresh(message: String, collectible: bool) -> ErrorInfoState {
         field_no: 0,
         page_no: 0,
         custom_dimensions: None,
-        message_form: ErrorInfoMessageForm::Other,
+        built: ErrorInfoBuilt::Other,
     }
 }
 
@@ -145,7 +154,7 @@ fn wrap(s: ErrorInfoState) -> Value {
 fn create(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     if a.is_empty() {
         let mut s = fresh(String::new(), true);
-        s.message_form = ErrorInfoMessageForm::NoMessage;
+        s.built = ErrorInfoBuilt::CreateNoMessage;
         return Ok(wrap(s));
     }
     let collectible = match a.get(1) {
@@ -192,23 +201,15 @@ fn create(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
 }
 
 /// `ErrorInfo.Create('literal')`: one string literal and no other argument (the lowering picks this id). It creates what
-/// `Create(Message)` creates and records that the message is a literal.
+/// `Create(Message)` creates and records that it was built so.
 pub(crate) fn create_literal(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let v = create(ctx, r, a)?;
     if let Value::Library(_, cell) = &v {
         if let LibraryValue::ErrorInfo(s) = &mut *cell.borrow_mut() {
-            s.message_form = ErrorInfoMessageForm::Literal;
+            s.built = ErrorInfoBuilt::CreateLiteral;
         }
     }
     Ok(v)
-}
-
-/// The `Message` property; setting it makes the message's form `Other`.
-fn message(ctx: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> Out {
-    if !a.is_empty() {
-        with_state(r.as_deref_mut(), |s| s.message_form = ErrorInfoMessageForm::Other)?;
-    }
-    message_text(ctx, r, a)
 }
 
 macro_rules! text_prop {
@@ -218,7 +219,7 @@ macro_rules! text_prop {
                 return with_state(r, |s| Value::Text(s.$field.clone().into()));
             }
             let t = text_stored(a, 0)?;
-            with_state(r, |s| s.$field = t).map(|()| Value::Null)
+            set(r, |s| s.$field = t)
         }
     };
 }
@@ -234,7 +235,7 @@ macro_rules! int_prop {
                 return with_state(r, |s| Value::Integer(s.$field));
             }
             let n = int(a, 0)?;
-            with_state(r, |s| s.$field = n).map(|()| Value::Null)
+            set(r, |s| s.$field = n)
         }
     };
 }
@@ -249,7 +250,7 @@ macro_rules! option_prop {
                 return with_state(r, |s| option($ty, s.$field));
             }
             let o = option_arg(a, 0)?;
-            with_state(r, |s| s.$field = o).map(|()| Value::Null)
+            set(r, |s| s.$field = o)
         }
     };
 }
@@ -264,7 +265,7 @@ fn collectible(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
         return unsupported(format!("Collectible with {}", a.first().describe()));
     };
     let b = *b;
-    with_state(r, |s| s.collectible = b).map(|()| Value::Null)
+    set(r, |s| s.collectible = b)
 }
 
 /// Both members round-trip (errors/errorinfo/TestErrorInfoErrorType.al:25-45); the default is Client
@@ -274,14 +275,14 @@ fn error_type(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
         return with_state(r, |s| option("ErrorType", s.error_type.unwrap_or(0)));
     }
     let o = option_arg(a, 0)?;
-    with_state(r, |s| s.error_type = Some(o)).map(|()| Value::Null)
+    set(r, |s| s.error_type = Some(o))
 }
 
 /// `Err.RecordId := Rid` reads back and leaves the TableId as it was (record/ProbePropertyAssignmentForms.al:352-373).
 fn record_id(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     if let Some(id) = a.first() {
         let id = id.clone();
-        return with_state(r, |s| s.record_id = Some(id)).map(|()| Value::Null);
+        return set(r, |s| s.record_id = Some(id));
     }
     Ok(with_state(r, |s| s.record_id.clone())?.unwrap_or_else(|| Value::Library("RecordId".into(), Rc::default())))
 }
@@ -294,7 +295,7 @@ fn system_id(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
             Value::Guid(_) => g.clone(),
             other => return unsupported(format!("SystemId with {}", other.describe())),
         };
-        return with_state(r, |s| s.system_id = Some(g)).map(|()| Value::Null);
+        return set(r, |s| s.system_id = Some(g));
     }
     Ok(with_state(r, |s| s.system_id.clone())?.unwrap_or(Value::Guid([0; 16])))
 }
@@ -306,7 +307,9 @@ fn system_id(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
 /// errors/PnBErrorsCollections.al:270 and :329-358 `dims=1:Dim1=Val1`).
 fn custom_dimensions(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     if a.is_empty() {
+        // The dictionary is handed out by reference: a later `Add` on it is a write to the ErrorInfo.
         return with_state(r, |s| {
+            s.built = ErrorInfoBuilt::Other;
             s.custom_dimensions
                 .get_or_insert_with(|| Value::Dictionary(Rc::new(RefCell::new(Vec::new()))))
                 .clone()
@@ -316,7 +319,7 @@ fn custom_dimensions(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) ->
         return unsupported(format!("CustomDimensions with {}", a.first().describe()));
     };
     let held = d.clone();
-    with_state(r, |s| s.custom_dimensions = Some(held)).map(|()| Value::Null)
+    set(r, |s| s.custom_dimensions = Some(held))
 }
 
 /// Actions are stored for the client; there is none in a test, so they only have to bind and not
@@ -325,11 +328,11 @@ fn add_action(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     text(a, 0)?;
     int(a, 1)?;
     text(a, 2)?;
-    with_state(r, |_| ()).map(|()| Value::Null)
+    set(r, |_| ())
 }
 
 fn add_navigation_action(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
-    with_state(r, |_| ()).map(|()| Value::Null)
+    set(r, |_| ())
 }
 
 /// `Error(ErrorInfo)`: raises the message as it is for a client error
@@ -447,11 +450,11 @@ pub fn message_of(v: &Value) -> Option<String> {
     }
 }
 
-/// How the message of an `ErrorInfo` value was written.
-pub fn message_form_of(v: &Value) -> Option<ErrorInfoMessageForm> {
+/// How an `ErrorInfo` value was built.
+pub fn built_of(v: &Value) -> Option<ErrorInfoBuilt> {
     let Value::Library(_, cell) = v else { return None };
     match &*cell.borrow() {
-        LibraryValue::ErrorInfo(s) => Some(s.message_form),
+        LibraryValue::ErrorInfo(s) => Some(s.built),
         _ => None,
     }
 }
@@ -462,7 +465,7 @@ pub fn native_for(sig: &Signature) -> Option<NativeFn> {
     }
     Some(match sig.name.as_str() {
         "Create" => create,
-        "Message" => message,
+        "Message" => message_text,
         "Title" => title,
         "DetailedMessage" => detailed_message,
         "ControlName" => control_name,

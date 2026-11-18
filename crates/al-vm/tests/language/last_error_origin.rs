@@ -305,3 +305,61 @@ fn an_error_text_of_an_unpinned_form_is_refused() {
         }
     }
 }
+
+/// `FieldError(Name, Info)` on a filled Text field, with `Info` created by `create` and then `after` run on it.
+fn info_after(create: &str, after: &str) -> Result<al_builtins::value::Value, Signal> {
+    let src = format!(
+        "table 69873 \"LO Info Row\" {{ fields {{ field(1; Id; Integer) {{ }} field(2; Name; Text[30]) {{ }} }} keys {{ key(PK; Id) {{ }} }} }}
+         codeunit 69874 \"LO Info\" {{
+             procedure F(): Text
+             var R: Record \"LO Info Row\"; Info: ErrorInfo; D: Dictionary of [Text, Text]; T: Text;
+             begin
+                 R.Id := 1; R.Name := 'Jane';
+                 Info := {create};
+                 {after}
+                 asserterror R.FieldError(Name, Info);
+                 exit(GetLastErrorText(true));
+             end;
+         }}"
+    );
+    run_in(&src, "LO Info", "F")
+}
+
+#[test]
+fn a_fielderror_errorinfo_answers_only_when_nothing_was_set_after_create() {
+    // The pin sets nothing after Create (errors/last-error/SnLastErrorTextMoreForms.al:121-133, :161, :164).
+    let pinned = [
+        ("ErrorInfo.Create('not allowed')", "FieldError on field LO Info Row.Name"),
+        ("ErrorInfo.Create()", "FieldError for incorrect value of LO Info Row.Name"),
+    ];
+    for (create, want) in pinned {
+        // A read changes nothing.
+        for after in ["", "T := Info.Title; T := Info.Message; T := Format(Info.FieldNo);"] {
+            assert_eq!(text(info_after(create, after)), want, "{create} {after}");
+        }
+        for after in [
+            "Info.DataClassification := DataClassification::SystemMetadata;",
+            "Info.ErrorType := ErrorType::Internal;",
+            "Info.DetailedMessage := 'd';",
+            "Info.Title := 't';",
+            "Info.Verbosity := Verbosity::Warning;",
+            "Info.FieldNo := 2;",
+            "Info.RecordId := R.RecordId;",
+            "Info.PageNo := 1;",
+            "Info.CustomDimensions := D;",
+            "Info.CustomDimensions.Add('k', 'v');",
+            "Info.AddAction('a', 50000, 'b');",
+            "Info.AddNavigationAction();",
+            "Info.ControlName := 'c';",
+            "Info.TableId := 1;",
+            "Info.SystemId := CreateGuid();",
+            "Info.Collectible := Info.Collectible;",
+            "Info.Message := Info.Message;",
+        ] {
+            match info_after(create, after) {
+                Err(Signal::Unsupported(m)) => assert!(m.contains("does not pin"), "{create} {after}: {m}"),
+                other => panic!("{create} {after}: {other:?}"),
+            }
+        }
+    }
+}
