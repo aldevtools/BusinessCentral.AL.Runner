@@ -39,7 +39,7 @@ mod running_call_xrec;
 pub(crate) use nested_validate::{BeforeImage, ProcXrec, ValidateSite, XREC_OF_RUNNING_CALL};
 pub(crate) use running_call_xrec::XREC_ASSIGNED_UNDER_NESTED_VALIDATE;
 mod by_value_view;
-pub(crate) use by_value_view::BY_VALUE_VIEW;
+pub(crate) use by_value_view::{BY_VALUE_VIEW, ByValueCall, primary_view};
 mod op_inner;
 mod own_rolled_back_modify;
 mod platform_rows;

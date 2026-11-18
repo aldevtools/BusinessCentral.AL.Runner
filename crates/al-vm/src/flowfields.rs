@@ -738,6 +738,8 @@ impl Session {
         // The source table is read even when the record holding the FlowField is temporary.
         self.note_indirect_read(src_t.object);
         self.unseeded_read(&src_t, rec.borrow().temporary, "a FlowField")?;
+        // A CalcFields of the source table's own record raised a deferred Insert error before this (`record_op_inner`).
+        self.refuse_unmeasured_read_while_deferred(calc.table, "a FlowField read")?;
         // ADR-062: a FlowField reads its source table indirectly (CpPermLeads.al:29-63).
         if self.permission_checks() {
             self.permission_gate_flowfield(rec, calc.table, stack)?;

@@ -58,6 +58,7 @@ impl Session {
             spare_vecs: _,
             xp_pass_views: _,
             frames: _,
+            next_interface_call: _,
             xp_unlinked_passes: _,
             xp_link_hidden: _,
             call_stack: _,
