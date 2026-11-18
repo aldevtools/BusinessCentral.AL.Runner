@@ -28,6 +28,10 @@ pub enum Reader<'a> {
 
 /// `v` as `reader` gets it: the value itself unless it is a TextConstant (see the module).
 pub fn read(v: Value, reader: Reader<'_>) -> Result<Value, Signal> {
+    // Into another Variant it stays a TextConstant: the copy keeps the kind (`AllFlags(V)`, VariantIsMatrix.al:224-243).
+    if matches!(reader, Reader::Slot(RtType::Variant)) {
+        return Ok(v);
+    }
     let Value::TextConst(text, from) = v else {
         return Ok(v);
     };
