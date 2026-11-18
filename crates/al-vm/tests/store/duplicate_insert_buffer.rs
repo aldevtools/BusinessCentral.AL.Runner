@@ -45,16 +45,17 @@ codeunit 50891 C
     begin
         for I := First to Last do begin R.Code := 'K' + Format(I); R.Insert(); end;
     end;
-    // Rows inserts, a Commit after CommitAfter of them (0: none), then the key K1 again inside an asserterror that does not read.
+    // Rows inserts, a Commit after CommitAfter of them (0: none), then the key K1 again inside an asserterror that reads the
+    // table after it, as the probe's DuplicateAfter does: whether the statement after the Insert was reached, and the error.
     local procedure DupAfter(Rows: Integer; CommitAfter: Integer): Text
-    var R: Record "DB Row";
+    var R: Record "DB Row"; Reached: Boolean;
     begin
         R.DeleteAll();
         Commit();
         Insert(1, Rows);
         if CommitAfter > 0 then Commit();
-        asserterror Insert(1, 1);
-        exit(GetLastErrorText());
+        asserterror begin Insert(1, 1); Reached := true; R.Count(); end;
+        exit(Format(Reached) + '|' + GetLastErrorText());
     end;
     procedure Dup2(): Text begin exit(DupAfter(1, 0)); end;
     procedure Dup4(): Text begin exit(DupAfter(3, 0)); end;
@@ -144,30 +145,32 @@ fn assert_error(routine: &str) {
     );
 }
 
-fn assert_expected_error_missing(routine: &str) {
-    let r = run_in(SRC, "C", routine);
+/// The duplicate Insert returned and the read after it raised the duplicate.
+fn assert_pending(routine: &str) {
+    let t = al_testkit::text(run_in(SRC, "C", routine));
     assert!(
-        matches!(&r, Err(Signal::Error(e)) if e.code == "AssertError"),
-        "{routine}: {r:?}"
+        t.starts_with("Yes|The record in table DB Row already exists"),
+        "{routine}: {t}"
     );
 }
 
 #[test]
 fn a_duplicate_among_the_first_four_inserts_is_pending() {
-    assert_expected_error_missing("Dup2");
-    assert_expected_error_missing("Dup4");
+    assert_pending("Dup2");
+    assert_pending("Dup4");
 }
 
 #[test]
 fn a_duplicate_as_the_fifth_insert_raises_at_the_insert() {
-    assert_error("Dup5");
+    let t = al_testkit::text(run_in(SRC, "C", "Dup5"));
+    assert!(t.starts_with("No|The record in table DB Row already exists"), "{t}");
 }
 
 #[test]
 fn a_duplicate_after_the_queue_was_sent_is_pending_again() {
-    assert_expected_error_missing("Dup6");
-    assert_expected_error_missing("Dup7");
-    assert_expected_error_missing("Dup5AfterCommit");
+    assert_pending("Dup6");
+    assert_pending("Dup7");
+    assert_pending("Dup5AfterCommit");
 }
 
 #[test]
