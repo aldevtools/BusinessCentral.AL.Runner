@@ -2918,3 +2918,51 @@ fn a_restarted_daemon_reads_the_compiled_workspace_and_answers_the_same() {
     }
     assert_eq!(answers[0], answers[1]);
 }
+
+/// ADR-022 amendment 2026-11-15: a one-shot `al-runner test` and a daemon over the same workspace and cache folder share
+/// the workspace layer. The first one-shot run builds the entry (written before the process ends), the second reads it,
+/// and so does a daemon started after them; `ALRUNNER_NO_WORKSPACE_CACHE=1` turns the layer off.
+#[test]
+fn a_one_shot_run_and_a_daemon_share_the_workspace_layer() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app(d.path(), "mixed", MIXED);
+    let cache = d.path().join("cache").to_string_lossy().to_string();
+    let one_shot = |env: &[(&str, &str)]| {
+        let out = Command::new(env!("CARGO_BIN_EXE_al-runner"))
+            .args([
+                "test",
+                a.to_str().unwrap(),
+                "--no-download",
+                "--no-test-data",
+                "--timings",
+            ])
+            .args(["--cache-dir", &cache])
+            .envs(env.iter().copied())
+            .output()
+            .unwrap();
+        let err = String::from_utf8_lossy(&out.stderr).to_string();
+        let line = err
+            .lines()
+            .find(|l| l.starts_with("compile cache: workspace layer"))
+            .unwrap_or_default()
+            .to_string();
+        (out.status.code(), line)
+    };
+    let (code, first) = one_shot(&[]);
+    assert!(first.contains("workspace layer built"), "{first}");
+    let (code2, second) = one_shot(&[]);
+    assert_eq!(code, code2);
+    assert!(second.contains("workspace layer read"), "{second}");
+    let (_, off) = one_shot(&[("ALRUNNER_NO_WORKSPACE_CACHE", "1")]);
+    assert!(off.contains("workspace layer off"), "{off}");
+    let mut s = Server::start(&["--no-download", "--no-test-data", "--cache-dir", &cache]);
+    assert_eq!(s.line(), json!({"ready": true}));
+    s.send(json!({"command": "runTests", "sourcePaths": [a]}));
+    let summary = s.until_summary().last().unwrap().clone();
+    assert_eq!(summary["timings"]["workspaceCache"], json!("read"), "{summary}");
+    // A request on the kept compile used no cache: no `workspaceCache`.
+    s.send(json!({"command": "runTests", "sourcePaths": [a]}));
+    let summary = s.until_summary().last().unwrap().clone();
+    assert_eq!(summary["cached"], json!(true), "{summary}");
+    assert!(summary["timings"].get("workspaceCache").is_none(), "{summary}");
+}

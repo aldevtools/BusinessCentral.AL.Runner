@@ -522,3 +522,214 @@ pub fn canonical_dump(c: &Compiled) -> String {
     );
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample() -> WorkspaceKey {
+        WorkspaceKey {
+            format: KEY_FORMAT,
+            runtime_build: [1; 32],
+            below: [2; 32],
+            apps: vec![WorkspaceAppKey {
+                id: "a".into(),
+                name: "App".into(),
+                dependencies: vec!["b".into()],
+                app_json: "platform 27".into(),
+                manifest: [3; 32],
+                paths: [4; 32],
+                source: [5; 32],
+            }],
+            target: "BC 27.5 runtime 16.0".into(),
+            symbols: vec!["CLEAN27".into()],
+            compile_options: "tdd=false".into(),
+            roots: "baseline true".into(),
+            env: vec![("AL_NO_BASELINE".into(), String::new())],
+            path: "lean false".into(),
+        }
+    }
+
+    /// Decision 2: every field of the key misses when it changes, and the list of changes names every field.
+    #[test]
+    fn every_field_of_the_key_misses_when_it_changes() {
+        type Change = fn(&mut WorkspaceKey);
+        let changes: Vec<(&str, Change)> = vec![
+            ("format", |k| k.format += 1),
+            ("runtime_build", |k| k.runtime_build[0] ^= 1),
+            ("below", |k| k.below[31] ^= 1),
+            ("apps", |k| k.apps[0].source[0] ^= 1),
+            ("target", |k| k.target = "BC 28.0 runtime 17.0".into()),
+            ("symbols", |k| k.symbols.push("CLEAN28".into())),
+            ("compile_options", |k| k.compile_options = "tdd=true".into()),
+            ("roots", |k| k.roots = "baseline false".into()),
+            ("env", |k| k.env[0].1 = "1".into()),
+            ("path", |k| k.path = "lean true".into()),
+        ];
+        let names: Vec<&str> = changes.iter().map(|(n, _)| *n).collect();
+        assert_eq!(names, WorkspaceKey::FIELDS, "one change per field of the key");
+        let parts: Vec<&str> = sample().parts(true).into_iter().map(|(n, _)| n).collect();
+        assert_eq!(parts, WorkspaceKey::FIELDS, "the digest hashes every field");
+        let base = sample();
+        for (name, change) in changes {
+            let mut k = sample();
+            change(&mut k);
+            assert_ne!(k.digest(), base.digest(), "{name}");
+            assert_ne!(k.file_name(), base.file_name(), "{name}");
+            let differs: Vec<String> = k
+                .field_digests()
+                .into_iter()
+                .zip(base.field_digests())
+                .filter(|(a, b)| a != b)
+                .map(|(a, _)| a.0)
+                .collect();
+            assert_eq!(
+                differs,
+                vec![name.to_string()],
+                "the stored fields name the one that changed"
+            );
+        }
+    }
+
+    /// Every field of an app of the key misses; the texts are left out of `digest_without_texts` (serve's kept compile)
+    /// and nothing else is.
+    #[test]
+    fn every_field_of_an_app_misses_and_only_the_text_is_left_out_of_the_warm_digest() {
+        type Change = fn(&mut WorkspaceAppKey);
+        let changes: Vec<(&str, Change)> = vec![
+            ("id", |a| a.id = "c".into()),
+            ("name", |a| a.name = "Other".into()),
+            ("dependencies", |a| a.dependencies.clear()),
+            ("app_json", |a| a.app_json = "platform 28".into()),
+            ("manifest", |a| a.manifest[0] ^= 1),
+            ("paths", |a| a.paths[0] ^= 1),
+            ("source", |a| a.source[0] ^= 1),
+        ];
+        let base = sample();
+        for (name, change) in changes {
+            let mut k = sample();
+            change(&mut k.apps[0]);
+            assert_ne!(k.digest(), base.digest(), "{name}");
+            assert_eq!(
+                k.digest_without_texts() == base.digest_without_texts(),
+                name == "source",
+                "{name}"
+            );
+        }
+    }
+
+    /// Decision 2.7: every field of `Roots` but `workers` is in the key.
+    #[test]
+    fn every_field_of_the_roots_but_the_thread_count_is_in_the_key() {
+        use al_sema::check::Roots;
+        type Change = fn(&mut Roots);
+        let changes: Vec<(&str, Change)> = vec![
+            ("baseline", |r| r.baseline = true),
+            ("company_data", |r| r.company_data = vec![1]),
+            ("company_methods", |r| r.company_methods = vec![(1, "M".into())]),
+            ("only_tests", |r| r.only_tests = Some(vec![(0, 1)])),
+            ("reach_only", |r| r.reach_only = true),
+            ("lean", |r| r.lean = true),
+            ("no_login_root", |r| r.no_login_root = true),
+            ("eager", |r| r.eager = true),
+            ("provided", |r| r.provided = vec![true]),
+            ("provided_queries", |r| r.provided_queries = vec![None]),
+            ("only_objects", |r| r.only_objects = Some(vec![1])),
+            ("skipped_before", |r| r.skipped_before = Some(vec![true])),
+            ("tdd", |r| r.tdd = true),
+            ("tdd_id_ranges", |r| {
+                r.tdd_id_ranges.insert("a".into(), vec![(1, 2)]);
+            }),
+            ("object_hashes", |r| r.object_hashes = true),
+            ("app_contexts", |r| {
+                r.app_contexts = vec![(
+                    "a".into(),
+                    al_sema::alcodes::AppContext {
+                        target: al_sema::alcodes::AppTarget::Cloud,
+                        runtime: None,
+                        app_json_keys: Vec::new(),
+                        bc_major: None,
+                    },
+                )]
+            }),
+            ("keep_demand", |r| r.keep_demand = true),
+            ("test_runners", |r| r.test_runners = vec![130450]),
+        ];
+        let base = roots_text(&Roots::default());
+        for (name, change) in &changes {
+            let mut r = Roots::default();
+            change(&mut r);
+            assert_ne!(roots_text(&r), base, "{name}");
+            assert!(roots_text(&r).contains(name), "the text names {name}");
+        }
+        let workers = Roots {
+            workers: Some(1),
+            ..Default::default()
+        };
+        assert_eq!(roots_text(&workers), base, "the thread count is not in the key");
+        // `roots_text` destructures `Roots` without `..`: a field added there does not compile until it is decided, and
+        // its miss test goes in the list above (the count is the fields but `workers`).
+        assert_eq!(
+            changes.len(),
+            roots_text(&Roots::default()).matches(' ').count() / 2 + 1
+        );
+    }
+
+    /// Decision 2.8: every environment variable the compile reads is in `COMPILE_ENV`.
+    #[test]
+    fn the_list_of_environment_reads_names_every_read_of_the_compile() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let mut sources: Vec<std::path::PathBuf> = Vec::new();
+        for krate in ["al-sema", "al-syntax", "al-ir", "al-link", "al-builtins", "al-cache"] {
+            collect_rs(&root.join("crates").join(krate).join("src"), &mut sources);
+        }
+        for file in [
+            "compile_cache.rs",
+            "workspace_cache.rs",
+            "runtime/cache.rs",
+            "runtime/workspace_layer.rs",
+            "runtime/internals_grant.rs",
+            "runtime/apply_manifests.rs",
+        ] {
+            sources.push(root.join("crates/al-testrun/src").join(file));
+        }
+        let mut texts: Vec<(String, String)> = sources
+            .iter()
+            .map(|p| (p.display().to_string(), std::fs::read_to_string(p).unwrap()))
+            .collect();
+        // The compile function of the runner, not the rest of corpus.rs (the run phase reads its own switches).
+        let corpus = std::fs::read_to_string(root.join("crates/al-testrun/src/runtime/corpus.rs")).unwrap();
+        let start = corpus.find("fn compile_suites_once(").unwrap();
+        let end = start + corpus[start..].find("\n    }\n").unwrap();
+        texts.push(("corpus.rs::compile_suites_once".into(), corpus[start..end].to_string()));
+        let listed: Vec<&str> = COMPILE_ENV.iter().map(|(n, _)| *n).collect();
+        let mut missing = Vec::new();
+        for (path, text) in &texts {
+            for call in ["env::var(", "env::var_os("] {
+                for (at, _) in text.match_indices(call) {
+                    let arg = &text[at + call.len()..];
+                    let name: String = arg
+                        .trim_start_matches('"')
+                        .chars()
+                        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                        .collect();
+                    if !name.is_empty() && name != "name" && !listed.contains(&name.as_str()) {
+                        missing.push(format!("{path}: {name}"));
+                    }
+                }
+            }
+        }
+        assert!(missing.is_empty(), "environment reads not in COMPILE_ENV: {missing:?}");
+    }
+
+    fn collect_rs(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        for e in std::fs::read_dir(dir).unwrap().flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                collect_rs(&p, out);
+            } else if p.extension().is_some_and(|x| x == "rs") {
+                out.push(p);
+            }
+        }
+    }
+}

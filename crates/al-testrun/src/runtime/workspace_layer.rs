@@ -101,6 +101,11 @@ impl Layer {
             })
             .collect();
         let suites: Vec<String> = i.suites.iter().map(|s| format!("{s:?}")).collect();
+        // Whether the compile weighs the install baseline on a compile of the selected tests first (`compile_suites_once`):
+        // only then does `lean` change the compile.
+        let weighed = i.try_skip
+            && !cache.require
+            && crate::observe::text_looks_pure(i.apps, i.kinds, i.symbols, i.roots.only_tests.as_deref());
         let key = WorkspaceKey {
             format: wc::KEY_FORMAT,
             runtime_build: cc::runtime_build(),
@@ -112,8 +117,11 @@ impl Layer {
             roots: wc::roots_text(i.roots),
             env: wc::env_values(),
             path: format!(
-                "lean {} try_skip {} require {} baseline_wanted {} n_cached {} suites {suites:?}",
-                i.lean, i.try_skip, cache.require, i.baseline_wanted, i.n_cached
+                "try_skip {} weighed {weighed} lean {} baseline_wanted {} n_cached {} suites {suites:?}",
+                i.try_skip,
+                i.lean && weighed,
+                i.baseline_wanted,
+                i.n_cached
             ),
         };
         Layer {

@@ -124,7 +124,11 @@ fn layer(write_now: bool) -> Option<WorkspaceCacheOptions> {
 fn compile(i: &Inputs, dir: &Path, workspace: bool) -> Compiled {
     let opts = RunOptions {
         compile_cache: cache(dir),
-        workspace_cache: if workspace { layer(true) } else { None },
+        workspace_cache: if workspace {
+            i.opts.workspace_cache.clone().or_else(|| layer(true))
+        } else {
+            None
+        },
         ..i.opts.clone()
     };
     CorpusRuntime::compile_suites(
@@ -192,4 +196,265 @@ fn a_read_compile_on_a_dependency_layer_equals_a_fresh_one() {
 #[test]
 fn a_read_compile_of_two_workspace_apps_without_dependencies_equals_a_fresh_one() {
     assert_read_equals_fresh(&two_source_paths());
+}
+
+/// Builds the entry for `i`, then compiles `changed`: it must not read the entry (built, a new key), and `i` still reads
+/// its own.
+fn assert_misses(i: &Inputs, changed: &Inputs, what: &str) {
+    let dir = tempfile::tempdir().unwrap();
+    assert_eq!(
+        state(&compile(i, dir.path(), true)),
+        Some(WorkspaceState::Built),
+        "{what}"
+    );
+    let other = compile(changed, dir.path(), true);
+    assert_eq!(
+        state(&other),
+        Some(WorkspaceState::Built),
+        "{what}: {:?}",
+        other.workspace_cache()
+    );
+    let fresh = compile(changed, dir.path(), false);
+    assert_eq!(wc::canonical_dump(&other), wc::canonical_dump(&fresh), "{what}");
+    assert_eq!(
+        state(&compile(i, dir.path(), true)),
+        Some(WorkspaceState::Read),
+        "{what}"
+    );
+    assert_eq!(entries(dir.path()).len(), 2, "{what}: one entry per key");
+}
+
+/// Decision 2 through a run: a byte of source, a renamed file, a symbol, the target, a compile option, the layer below
+/// and a field of the roots each miss.
+#[test]
+fn each_input_of_the_key_misses_through_a_compile() {
+    type Change = fn(&mut Inputs);
+    let changes: Vec<(&str, Change)> = vec![
+        ("a byte of source", |i| i.apps[0].files[0].1.push(' ')),
+        ("a renamed file", |i| i.apps[0].files[0].0 = "src/Renamed.al".into()),
+        ("a symbol", |i| {
+            i.symbols.insert("CLEAN27".into());
+        }),
+        ("the target", |i| {
+            i.target = Some(al_version::Target::for_bc(
+                al_version::BcVersion::parse("28.0").unwrap(),
+            ))
+        }),
+        ("a compile option", |i| {
+            i.opts.workspace_cache = layer(true).map(|mut o| {
+                o.compile_options = "execute=true".into();
+                o
+            })
+        }),
+        ("the layer below", |i| {
+            i.apps[1].files[0].1.push_str("\ncodeunit 50199 More { }\n")
+        }),
+        ("a field of the roots (the selection)", |i| {
+            i.opts.only = Some(vec![(0, 60102)])
+        }),
+        ("a field of the roots (--affected hashes)", |i| {
+            i.opts.object_hashes = true
+        }),
+        ("a manifest", |i| i.manifests[0].version = "2.0.0.0".into()),
+    ];
+    for (what, change) in changes {
+        let base = with_dependency();
+        let mut changed = base.clone();
+        change(&mut changed);
+        assert_misses(&base, &changed, what);
+    }
+}
+
+/// `compile` with the options of `i`, keeping its own `workspace_cache` when it set one.
+fn compile_as_set(i: &Inputs, dir: &Path) -> Compiled {
+    let opts = RunOptions {
+        compile_cache: cache(dir),
+        workspace_cache: i.opts.workspace_cache.clone().or_else(|| layer(true)),
+        ..i.opts.clone()
+    };
+    CorpusRuntime::compile_suites(
+        i.apps.clone(),
+        i.kinds.clone(),
+        &i.manifests,
+        &i.symbols,
+        i.target.as_ref(),
+        &[SuiteRun::everything()],
+        &opts,
+    )
+    .unwrap()
+}
+
+/// What a run decided, test by test.
+fn outcomes(i: &Inputs, dir: &Path, workspace: bool) -> (Vec<String>, Option<WorkspaceState>) {
+    let opts = RunOptions {
+        compile_cache: cache(dir),
+        workspace_cache: if workspace { layer(true) } else { None },
+        ..i.opts.clone()
+    };
+    let rt = CorpusRuntime::try_run_suites_with(
+        i.apps.clone(),
+        i.kinds.clone(),
+        &i.manifests,
+        &i.symbols,
+        i.target.as_ref(),
+        Default::default(),
+        &[SuiteRun::everything()],
+        &opts,
+    )
+    .unwrap();
+    let list = rt
+        .results()
+        .iter()
+        .map(|r| format!("{} {} {} {:?}", r.app, r.codeunit, r.test, r.outcome))
+        .collect();
+    (list, rt.phases.workspace_cache.as_ref().map(|r| r.state))
+}
+
+/// Decision 10: an entry that is damaged, cut short, or made for other inputs under this key's name is removed and
+/// rebuilt; the run's outcomes are those of a run without the layer.
+#[test]
+fn a_damaged_truncated_or_foreign_entry_is_a_miss_that_never_changes_an_outcome() {
+    let i = with_dependency();
+    let plain_dir = tempfile::tempdir().unwrap();
+    let (plain, _) = outcomes(&i, plain_dir.path(), false);
+    type Spoil = fn(&Path, &Path);
+    let spoils: Vec<(&str, Spoil)> = vec![
+        ("a byte flipped in the blocks", |p, _| {
+            let mut b = std::fs::read(p).unwrap();
+            let at = b.len() / 3;
+            b[at] ^= 0x5a;
+            std::fs::write(p, b).unwrap();
+        }),
+        ("a byte flipped in the extra section", |p, _| {
+            let mut b = std::fs::read(p).unwrap();
+            let at = b.len() - 10;
+            b[at] ^= 0x5a;
+            std::fs::write(p, b).unwrap();
+        }),
+        ("cut short", |p, _| {
+            let b = std::fs::read(p).unwrap();
+            std::fs::write(p, &b[..b.len() * 2 / 3]).unwrap();
+        }),
+        ("empty", |p, _| std::fs::write(p, b"").unwrap()),
+        ("another key's entry under this name", |p, other| {
+            std::fs::copy(other, p).unwrap();
+        }),
+    ];
+    for (what, spoil) in spoils {
+        let dir = tempfile::tempdir().unwrap();
+        // Another key's entry, to copy over this one.
+        let mut other = i.clone();
+        other.apps[0].files[0].1.push(' ');
+        compile(&other, dir.path(), true);
+        let other_file = entries(dir.path())[0].clone();
+        let (first, s) = outcomes(&i, dir.path(), true);
+        assert_eq!(s, Some(WorkspaceState::Built), "{what}");
+        let file = entries(dir.path()).into_iter().find(|p| *p != other_file).unwrap();
+        spoil(&file, &other_file);
+        let (after, s) = outcomes(&i, dir.path(), true);
+        assert_eq!(s, Some(WorkspaceState::Built), "{what}: refused and built again");
+        assert_eq!(first, plain, "{what}");
+        assert_eq!(after, plain, "{what}");
+        let (again, s) = outcomes(&i, dir.path(), true);
+        assert_eq!(
+            (again, s),
+            (plain.clone(), Some(WorkspaceState::Read)),
+            "{what}: the rebuilt entry reads"
+        );
+    }
+}
+
+/// The outcomes of a run that reads the entry are those of a run without the layer.
+#[test]
+fn a_run_on_a_read_compile_has_the_outcomes_of_a_fresh_run() {
+    for i in [with_dependency(), two_source_paths()] {
+        let dir = tempfile::tempdir().unwrap();
+        let (plain, s) = outcomes(&i, dir.path(), false);
+        assert_eq!(s, None);
+        let (built, s) = outcomes(&i, dir.path(), true);
+        assert_eq!((built, s), (plain.clone(), Some(WorkspaceState::Built)));
+        let (read, s) = outcomes(&i, dir.path(), true);
+        assert_eq!((read, s), (plain, Some(WorkspaceState::Read)));
+    }
+}
+
+/// The modes of the test plan: `--tdd`, `--affected` (object hashes), a workspace with compile errors, and a dependency
+/// app that stands on a workspace app (compiled with the workspace, al-runner issue 6044). Relowered blocks (the
+/// workspace extends and implements dependency objects) and synthetic ranges are in `with_dependency` itself.
+#[test]
+fn the_modes_read_equal_to_fresh() {
+    let mut tdd = with_dependency();
+    tdd.opts.tdd = true;
+    tdd.apps[0].files.push((
+        "test/Stub.al".into(),
+        "codeunit 60110 StubTests { Subtype = Test; [Test] procedure T() var D: Codeunit Dep; begin D.NotThere(); end; }"
+            .into(),
+    ));
+    let mut affected = with_dependency();
+    affected.opts.object_hashes = true;
+    let mut errors = with_dependency();
+    errors.apps[0].files.push((
+        "src/Bad.al".into(),
+        "codeunit 60120 Bad { procedure P() begin Unknown(); end; }".into(),
+    ));
+    let mut on_workspace = with_dependency();
+    on_workspace.apps.push(app(
+        "ondep",
+        &["main"],
+        &[(
+            "OnDep.al",
+            "codeunit 70100 OnDep { procedure P(): Text var G: Codeunit WsGreet; begin exit(G.Hello()); end; }",
+        )],
+    ));
+    on_workspace.kinds.push(al_sema::AppKind::Dependency);
+    on_workspace.manifests.push(manifest("Partner"));
+    for (what, i) in [
+        ("tdd", tdd),
+        ("affected", affected),
+        ("compile errors", errors),
+        ("a dependency on the workspace", on_workspace),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let fresh = compile(&i, dir.path(), false);
+        let built = compile_as_set(&i, dir.path());
+        let read = compile_as_set(&i, dir.path());
+        assert_eq!(
+            state(&built),
+            Some(WorkspaceState::Built),
+            "{what}: {:?}",
+            built.workspace_cache()
+        );
+        assert_eq!(
+            state(&read),
+            Some(WorkspaceState::Read),
+            "{what}: {:?}",
+            read.workspace_cache()
+        );
+        let (a, b) = (wc::canonical_dump(&fresh), wc::canonical_dump(&read));
+        assert!(a == b, "{what}: {}", first_difference(&a, &b));
+    }
+}
+
+/// The incremental compile of serve after a read compile gives what it gives after a fresh compile.
+#[test]
+fn an_incremental_compile_after_a_read_equals_one_after_a_fresh_compile() {
+    let mut i = with_dependency();
+    const EXTRA: &str = "codeunit 60130 Extra { procedure P(): Integer begin exit(1); end; }";
+    i.apps[0].files.push(("src/Extra.al".into(), EXTRA.into()));
+    let dir = tempfile::tempdir().unwrap();
+    let mut fresh = compile(&i, dir.path(), false);
+    compile(&i, dir.path(), true);
+    let mut read = compile(&i, dir.path(), true);
+    assert_eq!(state(&read), Some(WorkspaceState::Read));
+    let edited = EXTRA.replace("exit(1)", "exit(2)");
+    let change = [al_testrun::runtime::FileChange {
+        app: 0,
+        path: "src/Extra.al",
+        text: &edited,
+    }];
+    fresh.update_files(&change).unwrap();
+    read.update_files(&change).unwrap();
+    let (a, b) = (wc::canonical_dump(&fresh), wc::canonical_dump(&read));
+    assert!(a == b, "{}", first_difference(&a, &b));
+    fresh.same_lowering_as(&read).unwrap();
 }

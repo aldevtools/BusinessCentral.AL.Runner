@@ -455,4 +455,29 @@ mod tests {
         assert!(auto_prune(&d, ME).is_some());
         assert!(!g.exists());
     }
+
+    /// ADR-022 amendment 2026-11-15, decision 9: a fifth workspace layer entry of a project removes the project's oldest,
+    /// never another project's or another build's; the prune applies the same limit.
+    #[test]
+    fn a_fifth_workspace_entry_removes_the_oldest_of_its_project_only() {
+        let d = scratch("ws-limit");
+        let mine: Vec<PathBuf> = (0..5)
+            .map(|i| put(&d, &format!("{ME}-ws-1111111111111111-{i:032x}.alcw"), 10, 5 - i as u64))
+            .collect();
+        let other_project = put(&d, &format!("{ME}-ws-2222222222222222-{:032x}.alcw", 9), 10, 20);
+        let other_build = put(&d, &format!("{OLD}-ws-1111111111111111-{:032x}.alcw", 9), 10, 20);
+        let removed = limit_workspace_entries(&d, false);
+        assert_eq!(
+            removed.iter().map(|r| r.path.clone()).collect::<Vec<_>>(),
+            vec![mine[0].clone()],
+            "the oldest of the five"
+        );
+        assert!(removed.iter().all(|r| r.why == Why::OverLimit));
+        assert!(mine[1..].iter().all(|p| p.exists()));
+        assert!(other_project.exists() && other_build.exists());
+        let sixth = put(&d, &format!("{ME}-ws-1111111111111111-{:032x}.alcw", 7), 10, 0);
+        let r = prune(&d, &opt());
+        assert_eq!(r.count_of(Why::OverLimit).0, 1, "{:?}", r.removed);
+        assert!(!mine[1].exists() && sixth.exists());
+    }
 }
