@@ -1855,8 +1855,9 @@ impl Value {
             // Never reached: a read of an unknown column is refused before its value reaches a Variant.
             Value::Unknown(_) => false,
             // The type of the slot that held it: an Integer as Blob.Length returns it, a BigInteger or Decimal field or variable
-            // its own type (record/flowfields/R6986BigIntegerCount.al:173-178: a field's value answers the field's type;
-            // types/TestTypeSystemContracts.al:175-181: a Variant answers the type of the variable assigned to it).
+            // its own type. An Integer expression in a BigInteger variable answers BigInteger (types/decimal-integer/
+            // Y66BigIntIntoInt.al:143-144, :163; types/decimal-integer/ScT70063.al:159-162, :196-197); a whole number of another
+            // type in a Decimal variable answers Decimal (Y66BigIntIntoInt.al:139-140, :162).
             Value::PlaceholderSize(_, ty) => {
                 k == match ty {
                     SqlType::Integer => "integer",

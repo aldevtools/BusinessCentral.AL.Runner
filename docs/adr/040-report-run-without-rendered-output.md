@@ -905,9 +905,10 @@ test that never reads the field again is not run.
    as an Integer, BigInteger, Decimal or Variant variable already holds it. Any other field type refuses (`size_convert`).
 2. A read of the field by AL gives the same value back, with the same rules: a comparison with 0 answers (greater), every
    other use refuses (`size_guard`, `size_order`, `size_convert`).
-3. The value goes with the row: `Insert`, `Modify`, a record assignment, `TransferFields` into an Integer, BigInteger or
-   Decimal field, `Get`/`Find` back. The row store keeps the value as it is (it holds `Value` today; `frozen.rs` names the
-   kind).
+3. The value goes with the row: `Insert`, the `Modify` that writes it into a row that did not hold it, `Rename`, a record
+   assignment, `TransferFields` into a field of the same type, `Get`/`Find` back. The row store keeps the value as it is
+   (it holds `Value` today; `frozen.rs` names the kind). A `Modify` or `ModifyAll` of a stored row that already holds the
+   size refuses: it compares the old row with the new one by value (point 4).
 4. Every platform read of the field's value refuses where it happens, with the size refusal text: a filter or a range on the
    field (`SetRange`, `SetFilter`, a table relation, a FlowFilter), a sort or a key that holds the field, `CalcSums`,
    a FlowField that sums or looks it up, `Format` of the field (pages, TestPage, `FieldRef.Value` formatted, the change log,
@@ -953,7 +954,9 @@ test that never reads the field again is not run.
   (an action, a field, a part's row, a modal page under a handler, the close at the end of the test). A page that shows a
   row holding the size and compares nothing runs.
 - The size keeps the number type of the slot that holds it (an Integer, BigInteger or Decimal field or variable), and
-  `Variant.Is*` answers that type (record/flowfields/R6986BigIntegerCount.al:173-178, types/TestTypeSystemContracts.al:175-181).
+  `Variant.Is*` answers that type: an Integer expression in a BigInteger variable (types/decimal-integer/Y66BigIntIntoInt.al:
+  143-144, :163; types/decimal-integer/ScT70063.al:159-162, :196-197) and a whole number of another type in a Decimal variable
+  (Y66BigIntIntoInt.al:139-140, :162).
 - `TransferFields` moves the size between fields of the same type. Between fields of different types the rule
   `TransferFields` already has for them decides before any value is read (a refusal, or the type error).
 - Already refused before this amendment, kept: `TestField`, `FieldError`, `Format` of the field and of `FieldRef.Value`, a

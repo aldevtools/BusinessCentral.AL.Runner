@@ -135,6 +135,30 @@ codeunit 50990 "PSF Tests"
         exit(R.Count());
     end;
 
+    // A Modify or ModifyAll of a stored row that already holds the size compares the old row with the new one: refused.
+    procedure ModifyRowHoldingSize(): Integer
+    var R: Record "PSF Row";
+    begin
+        Stored(R);
+        R.Get(1); R.Txt := 'x'; R.Modify();
+        exit(R.Count());
+    end;
+    procedure ModifyAllOfRowHoldingSize(): Integer
+    var R: Record "PSF Row";
+    begin
+        Stored(R);
+        R.ModifyAll(Txt, 'x');
+        exit(R.Count());
+    end;
+    procedure ModifyRowHoldingNumber(): Integer
+    var R: Record "PSF Row";
+    begin
+        R.DeleteAll(); R.Id := 1; R.Amount := 7; R.Insert();
+        R.Get(1); R.Txt := 'x'; R.Modify();
+        R.ModifyAll(Txt, 'y');
+        exit(R.Count());
+    end;
+
     // Read back as a number variable holding it answers.
     procedure ReadBack(): Text
     var R: Record "PSF Row"; R2: Record "PSF Row"; N: Integer;
@@ -453,6 +477,14 @@ fn placeholder_size_in_a_field_is_refused_by_exports_and_pages() {
 fn placeholder_size_in_a_field_is_refused_by_a_record_comparison() {
     // IsDirty refuses a field whose kind it does not compare (`isdirty.rs`, main's refusal, kept).
     assert!(matches!(run("IsDirtyOfRecord"), Err(Signal::Unsupported(_))));
+}
+
+#[test]
+fn placeholder_size_in_a_stored_row_is_refused_by_a_later_modify() {
+    for p in ["ModifyRowHoldingSize", "ModifyAllOfRowHoldingSize"] {
+        assert!(matches!(run(p), Err(Signal::Unsupported(_))), "{p}");
+    }
+    assert!(matches!(run("ModifyRowHoldingNumber"), Ok(Value::Integer(1))));
 }
 
 #[test]
