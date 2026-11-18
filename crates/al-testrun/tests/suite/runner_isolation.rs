@@ -757,46 +757,40 @@ codeunit 50309 "Seq I"
 /// The shapes of `SEQ_SHAPES` under al-runner's own runner with TestIsolation = Codeunit. An AL runner codeunit (130450,
 /// 61301) adds a platform commit before every test method (al_runner.rs, RpReader.Codeunit.al:73-98 P4): al-test-cli's
 /// `isolation_probe` test runs the pinned shape under runner 61301.
-fn seq_runs() -> Vec<(&'static str, Vec<(u32, String, Outcome)>)> {
-    vec![("builtin", run(SEQ_SHAPES, TestIsolation::Codeunit))]
+fn seq_run() -> Vec<(u32, String, Outcome)> {
+    run(SEQ_SHAPES, TestIsolation::Codeunit)
 }
 
 #[test]
 fn without_a_commit_in_a_test_body_a_failed_test_takes_a_new_sequence_back() {
-    for (runner, o) in seq_runs() {
-        for (test, seen) in [
-            ("A3_ReadsExists", "OBS exists=No"),
-            ("A4_ReadsNothing", "OBS ran"),
-            ("B2_ReadsExists", "OBS exists=No"),
-            ("D3_ReadsExists", "OBS exists=No"),
-            ("H3_ReadsExists", "OBS exists=No"),
-            ("C3_ReadsRowsOnly", "OBS rows=1"),
-            ("C4_FailsPlain", "C4 deliberate"),
-            ("G2_ReadsNext", "OBS next=2"),
-        ] {
-            assert_eq!(outcome(&o, test), &Outcome::Fail(seen.into()), "{runner} {test}: {o:?}");
-        }
-        assert_eq!(outcome(&o, "A1_PassInsertsAndNext"), &Outcome::Pass, "{runner}: {o:?}");
+    let o = seq_run();
+    for (test, seen) in [
+        ("A3_ReadsExists", "OBS exists=No"),
+        ("A4_ReadsNothing", "OBS ran"),
+        ("B2_ReadsExists", "OBS exists=No"),
+        ("D3_ReadsExists", "OBS exists=No"),
+        ("H3_ReadsExists", "OBS exists=No"),
+        ("C3_ReadsRowsOnly", "OBS rows=1"),
+        ("C4_FailsPlain", "C4 deliberate"),
+        ("G2_ReadsNext", "OBS next=2"),
+    ] {
+        assert_eq!(outcome(&o, test), &Outcome::Fail(seen.into()), "{test}: {o:?}");
     }
+    assert_eq!(outcome(&o, "A1_PassInsertsAndNext"), &Outcome::Pass, "{o:?}");
 }
 
 #[test]
 fn after_a_commit_in_a_test_body_the_next_reader_of_a_new_sequence_is_refused() {
-    for (runner, o) in seq_runs() {
-        for (test, seq) in [
-            ("C2_ReadsExists", "'SEQC'"),
-            ("E3_ReadsExists", "'SEQE'"),
-            ("F3_ReadsExists", "'SEQF'"),
-            ("I4_ReadsExists", "'SEQI'"),
-        ] {
-            assert!(not_run(outcome(&o, test), seq), "{runner} {test}: {o:?}");
-        }
-        assert_eq!(
-            outcome(&o, "I2_PassesWithoutSequence"),
-            &Outcome::Pass,
-            "{runner}: {o:?}"
-        );
+    let o = seq_run();
+    for (test, seq) in [
+        ("C2_ReadsExists", "'SEQC'"),
+        ("E3_ReadsExists", "'SEQE'"),
+        ("F3_ReadsExists", "'SEQF'"),
+        ("I4_ReadsExists", "'SEQI'"),
+    ] {
+        assert!(not_run(outcome(&o, test), seq), "{test}: {o:?}");
     }
+    assert_eq!(outcome(&o, "I2_PassesWithoutSequence"), &Outcome::Pass, "{o:?}");
 }
 
 // Under a Disabled runner a codeunit that reaches isolated storage only in a handler function of its test, after an earlier

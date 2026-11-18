@@ -1,8 +1,7 @@
 //! Running the test codeunits of one compiled program, each test on a session of its own.
 use super::al_runner::run_unit;
 use super::written::{
-    self, ReachFacts, ReachIndex, remainder_reach_facts, settled_flags, unfinished_reach_facts,
-    union_reach_facts_skipping,
+    self, ReachFacts, ReachIndex, remainder_reach_facts, settled_flags, test_reach_facts, unfinished_reach_facts,
 };
 use super::*;
 // What a reader of a table a skipped install holds on assumption gets (`blocked.rs` `Assumed`).
@@ -290,6 +289,35 @@ fn skipped_install_touching<'a>(
     skipped_installs.iter().find(|s| refuses(s)).map(|s| &s.why)
 }
 
+/// Runs `body`, a test method's body, and notes in `committed` whether a commit ran inside it (its AL Commit(), or one
+/// its code causes).
+fn noting_commits<T>(session: &mut Session, committed: &mut bool, body: impl FnOnce(&mut Session) -> T) -> T {
+    let from = session.commits;
+    let out = body(session);
+    *committed |= session.commits != from;
+    out
+}
+
+/// The runner commits a test that passes: with a table still marked by Consistent(false) what BC does there is not pinned
+/// (only Commit() is, errors/CuCommitTests.al:405-419), so the test is not run. `handled`: every handler the test
+/// declares ran.
+fn refuse_inconsistent_end<T>(
+    session: &Session,
+    result: Result<T, Signal>,
+    model: al_vm::TxModel,
+    handled: bool,
+) -> Result<T, Signal> {
+    match result {
+        Ok(_) if model != al_vm::TxModel::AutoRollback && handled => match session.inconsistent_table() {
+            Some(t) => Err(Signal::unsupported(format!(
+                "the test ends while Consistent(false) marks table {t}: the runner's commit is not pinned"
+            ))),
+            None => result,
+        },
+        r => r,
+    }
+}
+
 /// The data-driven tests of a codeunit: procedures with `[TestDataSource(Codeunit, DataSet)]` and no `[Test]`.
 fn data_driven_tests(lowered: &Lowered, object: usize) -> Vec<usize> {
     let obj = &lowered.program.objects[object];
@@ -533,11 +561,7 @@ fn run_codeunit_inner(
     let company_open_refuses = |r: usize| -> Option<String> {
         company_open.who.as_ref()?;
         let index = engine.derived(|| ReachIndex::new(&engine.events, lowered));
-        let roots = super::handlers::test_roots(lowered, object, r);
-        company_open.refuses(
-            &union_reach_facts_skipping(&engine.events, lowered, &index, &roots, &[]),
-            lowered,
-        )
+        company_open.refuses(&test_reach_facts(&engine.events, lowered, &index, object, r), lowered)
     };
     // A test codeunit with SingleInstance = true runs its tests on the session's single instance: a variable of its own type
     // and its manual subscriber share its globals, and the second test sees what the first left
@@ -890,8 +914,7 @@ fn run_codeunit_inner(
                                     at,
                                     &mut cases_ok,
                                     |session| {
-                                        let from = session.commits;
-                                        let ran = match &case {
+                                        noting_commits(session, &mut body_committed, |session| match &case {
                                             None => session.call(object, r, instance.clone(), Vec::new()),
                                             Some((source, index, id)) => data_driven::run_case(
                                                 session,
@@ -903,9 +926,7 @@ fn run_codeunit_inner(
                                                 *index,
                                                 id,
                                             ),
-                                        };
-                                        body_committed |= session.commits != from;
-                                        ran
+                                        })
                                     },
                                 )
                             })),
@@ -970,19 +991,7 @@ fn run_codeunit_inner(
                         };
                         session.tx_model = al_vm::TxModel::AutoCommit;
                         let unexecuted = session.end_ui_scope();
-                        // The runner commits a test that passes: with a table still marked by Consistent(false) what BC does there
-                        // is not pinned (only Commit() is, errors/CuCommitTests.al:405-419), so the test is not run.
-                        let result = match result {
-                            Ok(_) if model != al_vm::TxModel::AutoRollback && unexecuted.is_empty() => {
-                                match session.inconsistent_table() {
-                                    Some(t) => Err(Signal::unsupported(format!(
-                                        "the test ends while Consistent(false) marks table {t}: the runner's commit is not pinned"
-                                    ))),
-                                    None => result,
-                                }
-                            }
-                            r => r,
-                        };
+                        let result = refuse_inconsistent_end(session, result, model, unexecuted.is_empty());
                         // A duplicate-key Insert whose error is still deferred when the test ends: the next access to the
                         // table or a Commit raises it (record/TestRecordRuntimeTextsAndViews.al:180-209). At the end of the
                         // test the runner raises it: the test fails with the error, whose AL call stack has no frame of the
@@ -1169,10 +1178,7 @@ fn run_codeunit_inner(
                                     &rest.written,
                                 )
                             })
-                            .unwrap_or_else(|| {
-                                let roots = super::handlers::test_roots(lowered, object, u.routine);
-                                unfinished_reach_facts(&engine.events, lowered, index, &roots)
-                            })
+                            .unwrap_or_else(|| unfinished_reach_facts(&engine.events, lowered, index, object, u.routine))
                     });
                     // ADR-061: each test restarts `Random` from the run seed, so an earlier test's draws matter only when
                     // the sequence goes on past that restart, after a `Randomize(n)`; an earlier test that can call
@@ -1189,10 +1195,7 @@ fn run_codeunit_inner(
                             // An unknown part of the earlier reach answers without this test's reach.
                             let later = match facts.unknown {
                                 Some(_) => &ReachFacts::default(),
-                                None => mine.get_or_insert_with(|| {
-                                    let roots = super::handlers::test_roots(lowered, object, r);
-                                    union_reach_facts_skipping(&engine.events, lowered, index, &roots, &[])
-                                }),
+                                None => mine.get_or_insert_with(|| test_reach_facts(&engine.events, lowered, index, object, r)),
                             };
                             facts.changes_read_by(later, checkpoint.is_none(), drew, &settled, lowered).map(|what| {
                                 let how = match u.ended {
