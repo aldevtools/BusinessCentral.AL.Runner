@@ -566,6 +566,28 @@ codeunit 69855 C
         exit(FormatInsideVar(Row.Abc) + '|' + Format(Row.Abc, 0, 2));
     end;
 
+    procedure UnheardGlobalRecordField(): Text
+    var Pub: Codeunit VPub;
+    begin
+        GRow.Abc := GRow.Abc::B;
+        Pub.OnUnheardWithMembers(GRow.Abc);
+        exit(Format(GRow.Abc) + '|' + Format(GRow.Abc, 0, 2));
+    end;
+
+    procedure UnheardByValueRecordField(): Text
+    var Row: Record VRow;
+    begin
+        Row.Abc := Row.Abc::C;
+        exit(ByValueRecordToUnheard(Row));
+    end;
+
+    local procedure ByValueRecordToUnheard(Row: Record VRow): Text
+    var Pub: Codeunit VPub;
+    begin
+        Pub.OnUnheardWithMembers(Row.Abc);
+        exit(Format(Row.Abc) + '|' + Format(Row.Abc, 0, 2));
+    end;
+
     procedure UnheardElementThenMemberless(): Text
     var Pub: Codeunit VPub; Arr: array[2] of Option A,B,C;
     begin
@@ -789,22 +811,25 @@ fn a_publisher_called_directly_refuses_only_when_a_subscriber_hears_it() {
 }
 
 // No later read meets a member list an unheard publisher left: a memberless `var` parameter reads the caller's own members
-// (OptionVarMemberlessUnheard.al:555), Evaluate takes the caller's member names (:635). An element store from a variable
-// declared with the held members refuses: it takes no members after a memberless store into the same element (OVMW:484-491)
-// but keeps them in a cleared array (OptionVarMemberlessUnheard.al:1020-1021).
+// (OptionVarMemberlessUnheard.al:555), Evaluate takes the caller's member names (:635), and an element store from a
+// variable declared with the held members keeps them with the ordinal (:1020).
 #[test]
 fn no_read_after_an_unheard_publisher_sees_its_member_list() {
     assert_eq!(assumed("UnheardThenMemberlessVarParam"), "B|1");
     assert_eq!(assumed("UnheardThenEvaluateInside"), "C|2");
-    refused("UnheardThenElementStore", ELEMENT);
+    assert_eq!(assumed("UnheardThenElementStore"), "C|2");
 }
 
-// After an unheard publisher a global, a field, an element of an array with members, an element of a CopyArray filled or
-// by-value memberless array and a whole array keep their value and members (OptionVarMemberlessUnheard.al:176, :216, :244,
-// :281). A global of a base table is not measured: refused.
+// After an unheard publisher a global, a field of a local record, an element of an array with members, an element of a
+// CopyArray filled or by-value memberless array and a whole array keep their value and members (OptionVarMemberlessUnheard.al
+// :176, :216, :244, :281). A field of a global or by-value record has no cell: main's write-back. A global of a base table is
+// not measured: refused.
 #[test]
 fn other_places_handed_to_an_unheard_publisher_keep_main_or_refuse() {
     assert_eq!(assumed("UnheardFieldThenMemberless"), "B|1");
+    // A field of a global record or of a record passed by value: no cell; main's write-back, which leaves the value as it was.
+    assert_eq!(clean("UnheardGlobalRecordField"), "B|1");
+    assert_eq!(clean("UnheardByValueRecordField"), "C|2");
     assert_eq!(assumed("UnheardElementThenMemberless"), "B|1");
     assert_eq!(assumed("UnheardArrayOtherMembers"), "B|1");
     assert_eq!(assumed("UnheardGlobalThenMemberless"), "B|1");

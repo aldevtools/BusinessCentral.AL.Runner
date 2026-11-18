@@ -89,20 +89,30 @@ pub(crate) fn param_store(v: Value, declared: &RtType, var_param: bool, current:
 /// reads them (a local BC of the newest supported major, OVMU). Measured, and kept (the call writes nothing back): a
 /// local (OVMU:115), a memberless local (:327), a parameter passed by value (:202), a `var` parameter with or without
 /// members (:347) and a named return value (:372) of the running routine, a global of its object (:176), a field of a
-/// local or `var` record, also one with captions (:216, :313), an element of a local, global or CopyArray filled array or
-/// of a `var` or by-value array parameter (:244, :281): `Ok(true)`, flagged. A whole array handed to a memberless array
-/// parameter shares the caller's elements, and its write-back changes nothing either (:244, :281): `Ok(false)`, main's
-/// path. Every other place refuses: a global of a base object, of another extension or of a record's instance.
-fn unheard_publisher_caller(p: &al_ir::Place, param: &RtType) -> Result<bool, Signal> {
+/// record of the running routine's `var` section or of a `var` record parameter, also one with captions (:216, :313), an
+/// element of a local, global or CopyArray filled array or of a `var` or by-value array parameter (:244, :281): `Ok(true)`,
+/// flagged. A whole array handed to a memberless array parameter shares the caller's elements, and its write-back changes
+/// nothing either (:244, :281): `Ok(false)`, main's path. A field of any other record: `Ok(false)`, main's write-back,
+/// which stores the value the field held. Every other place refuses: a global of a base object, of another extension or of a record's instance.
+fn unheard_publisher_caller(p: &al_ir::Place, param: &RtType, running: &al_ir::Routine) -> Result<bool, Signal> {
+    // The records whose fields the probe hands on: a record of the running routine's `var` section (:216) and a `var`
+    // record parameter (:313).
+    let measured_record = |base: &al_ir::Place| match base {
+        al_ir::Place::Local(s) if *s < running.params => running.by_var.get(*s) == Some(&true),
+        al_ir::Place::Local(s) if running.ret_local == Some(*s) => false,
+        al_ir::Place::Local(_) => true,
+        _ => false,
+    };
     match (p, param) {
-        (
-            al_ir::Place::Local(_) | al_ir::Place::Global(_) | al_ir::Place::Field(..) | al_ir::Place::Index(..),
-            RtType::Option(_),
-        ) => {
+        (al_ir::Place::Local(_) | al_ir::Place::Global(_) | al_ir::Place::Index(..), RtType::Option(_)) => {
             assume(Assumption::VarOptionCallerMembers);
             Ok(true)
         }
-        (_, RtType::Array(..)) => Ok(false),
+        (al_ir::Place::Field(base, _), RtType::Option(_)) if measured_record(base) => {
+            assume(Assumption::VarOptionCallerMembers);
+            Ok(true)
+        }
+        (al_ir::Place::Field(..), RtType::Option(_)) | (_, RtType::Array(..)) => Ok(false),
         _ => Err(Signal::unsupported(
             "an Option variable handed directly to an event publisher's `var` Option parameter with another member list, which no subscriber hears, from a place the probe does not measure (assumption var-option-caller-members)",
         )),
@@ -152,6 +162,28 @@ pub(crate) enum ArrayOf {
     Other,
 }
 
+/// Clear of a whole array declared of Options with members (`declared`) gives an element that a memberless store or CopyArray
+/// left without members its declared members back: the stores that follow read them (OVMU:984-1003, :1020-1024). Flagged.
+/// Every other value: `v` as it is.
+pub(crate) fn cleared_array(v: Value, declared: &RtType, id: BuiltinId) -> Value {
+    if id == ids::SYSTEM_CLEAR_1
+        && let (Value::Array(a), RtType::Array(_, el)) = (&v, declared)
+        && let RtType::Option(d) = el.as_ref()
+        && !memberless(d)
+        && matches!(a.borrow().first(), Some(Value::Option(..)))
+    {
+        for e in a.borrow_mut().iter_mut() {
+            if let Value::Option(o, m) = e
+                && memberless(m)
+            {
+                assume(Assumption::VarOptionCallerMembers);
+                *e = Value::Option(*o, d.clone());
+            }
+        }
+    }
+    v
+}
+
 /// The value an element of an array of Options declared without members (`el`) takes when `how` stores `v` into it, in
 /// `array`, while it holds `current` with members: a caller's members, of a `var` array parameter, of a by-value array
 /// parameter, or CopyArray filled. `v` comes unconverted from `A[i] := x` (al-sema `memberless_option_array_assign`).
@@ -163,9 +195,13 @@ pub(crate) enum ArrayOf {
 ///   the held ones and are as many keeps them with the ordinal (OVMW:762; OVMU:1022); one without members takes no members,
 ///   the caller reads the number (OVMW:771; OVMU:1016-1019).
 ///
-/// One with the held members name by name refuses: it takes no members after a memberless store into the same element
-/// (OVMW:484-491) but keeps them in a cleared array (OVMU:1020-1021), which the run cannot tell apart. Every other store
-/// refuses: another store kind, another value or the value of another place (an element of an array, a
+/// One with the held members keeps them with the ordinal (OVMU:1020-1021, in an array Clear gave back its members after a
+/// memberless store, OVMU:988-1003).
+///
+/// An element declared with members that holds none refuses every store: a memberless store or CopyArray from memberless
+/// Options left it so (OVMW:771, :539), and on BC it keeps no members when the caller assigns it, so the held list then
+/// takes no members either (OVMW:483-491); the run does not model that state. Refusing the caller's store keeps the state
+/// from reaching the arms above. Its reads stay (OVMW:488-489). Every other store refuses: another store kind, another value or the value of another place (an element of an array, a
 /// `var` parameter, a global: it may hold another list than its own), or another array. `None`: the usual conversion.
 pub(crate) fn element_store(
     v: &Value,
@@ -177,8 +213,14 @@ pub(crate) fn element_store(
     let (RtType::Option(d), Value::Option(_, own)) = (el, current) else {
         return None;
     };
-    if !memberless(d) || memberless(own) {
-        return None;
+    match (memberless(d), memberless(own)) {
+        (true, false) => {}
+        (false, true) => {
+            return Some(Err(Signal::unsupported(
+                "a store into an element of an array of Options declared with members that holds none, which a memberless store or CopyArray left (not measured, assumption var-option-caller-members)",
+            )));
+        }
+        _ => return None,
     }
     assume(Assumption::VarOptionCallerMembers);
     let var_array = array == ArrayOf::VarParameter;
@@ -207,6 +249,7 @@ pub(crate) fn element_store(
         {
             kept(*o)
         }
+        (Store::AssignVarSection, Value::Option(o, m)) if var_array && m == own => kept(*o),
         (Store::AssignVarSection, Value::Option(o, m)) if var_array && memberless(m) => {
             Ok(Value::Option(*o, d.clone()))
         }
@@ -352,7 +395,7 @@ impl crate::Session {
                                 "an Option variable handed directly to an event publisher's `var` Option parameter with another member list, which a subscriber hears (not measured, assumption var-option-caller-members)",
                             ));
                         }
-                    } else if unheard_publisher_caller(p, &slot.ty)? {
+                    } else if unheard_publisher_caller(p, &slot.ty, running)? {
                         kept.push(i);
                     }
                 }

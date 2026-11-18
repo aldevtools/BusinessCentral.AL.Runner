@@ -640,6 +640,80 @@ codeunit 69840 C
         exit(Seen + '@' + ArrayStoreMemberlessLocal(Arr) + '@' + Format(Arr[1]) + '|' + Format(Arr[1], 0, 2));
     end;
 
+    // Not measured: the caller assigns an element a memberless store left without members (OptionVarMemberlessWrites.al:483),
+    // then the callee stores another list, an Integer or the held list into it.
+    procedure DroppedThenStore(Kind: Integer): Text
+    var
+        Arr: array[2] of Option First,Second,Third;
+        Seen: Text;
+    begin
+        Arr[1] := Arr[1]::First;
+        Seen := ArrayStoreMemberlessLocal(Arr) + '@' + Format(Arr[1]) + '|' + Format(Arr[1], 0, 2);
+        Arr[1] := Arr[1]::First;
+        exit(Seen + '@' + StoreKind(Arr, Kind) + '@' + Format(Arr[1]) + '|' + Format(Arr[1], 0, 2));
+    end;
+
+    // The same after CopyArray from an array of memberless Options (OptionVarMemberlessWrites.al:539).
+    procedure CopiedInThenStore(Kind: Integer): Text
+    var
+        Arr: array[2] of Option First,Second,Third;
+        Seen: Text;
+    begin
+        Arr[1] := Arr[1]::First;
+        Seen := ArrayCopyIn(Arr);
+        Arr[1] := Arr[1]::First;
+        exit(Seen + '@' + StoreKind(Arr, Kind) + '@' + Format(Arr[1]) + '|' + Format(Arr[1], 0, 2));
+    end;
+
+    // A memberless store, Clear of the whole array, then the held list (OptionVarMemberlessUnheard.al:988-1003, :1020-1021).
+    procedure DroppedClearedThenSame(): Text
+    var
+        Arr: array[2] of Option First,Second,Third;
+        Seen: Text;
+    begin
+        Arr[1] := Arr[1]::First;
+        Seen := ArrayStoreMemberlessLocal(Arr);
+        Clear(Arr);
+        Arr[1] := Arr[1]::Second;
+        exit(Seen + '@' + ArrayStoreSameMembers(Arr) + '@' + Format(Arr[1]) + '|' + Format(Arr[1], 0, 2));
+    end;
+
+    // An element of a fresh array declared with members holds its list: an ordinary store.
+    procedure FreshElementStore(): Text
+    var
+        Arr: array[2] of Option First,Second,Third;
+    begin
+        Arr[1] := Arr[1]::Second;
+        Arr[2] := 2;
+        exit(Format(Arr[1]) + '|' + Format(Arr[2]));
+    end;
+
+    // Clear of a fresh array declared with members: an ordinary Clear.
+    procedure FreshArrayClear(): Text
+    var
+        Arr: array[2] of Option First,Second,Third;
+    begin
+        Arr[1] := Arr[1]::Second;
+        Clear(Arr);
+        Arr[2] := Arr[2]::Third;
+        exit(Format(Arr[1]) + '|' + Format(Arr[2]));
+    end;
+
+    local procedure StoreKind(var A: array[2] of Option; Kind: Integer): Text
+    begin
+        case Kind of
+            0:
+                exit(ArrayStoreOtherMembers(A));
+            1:
+                begin
+                    A[1] := 2;
+                    exit(Format(A[1]) + '|' + Format(A[1], 0, 2));
+                end;
+            2:
+                exit(ArrayStoreSameMembers(A));
+        end;
+    end;
+
     // OptionVarMemberlessWrites.al:496, :513
     procedure VarArrayClear(Whole: Boolean): Text
     var
@@ -1126,6 +1200,11 @@ codeunit 69840 C
     procedure EvalTryEmpty(): Text begin exit(AssignThenEvaluateTry('')); end;
     procedure VarArrayClearAll(): Text begin exit(VarArrayClear(true)); end;
     procedure VarArrayClearElement(): Text begin exit(VarArrayClear(false)); end;
+    procedure DroppedThenOther(): Text begin exit(DroppedThenStore(0)); end;
+    procedure DroppedThenInteger(): Text begin exit(DroppedThenStore(1)); end;
+    procedure DroppedThenSame(): Text begin exit(DroppedThenStore(2)); end;
+    procedure CopiedInThenOther(): Text begin exit(CopiedInThenStore(0)); end;
+    procedure CopiedInThenInteger(): Text begin exit(CopiedInThenStore(1)); end;
 }
 "#;
 
@@ -1258,15 +1337,37 @@ fn fields_of_a_var_record_parameter_and_of_rec() {
     );
 }
 
+// An element a memberless store or CopyArray from memberless Options left without members keeps none on BC when the caller
+// assigns it (OptionVarMemberlessWrites.al:483-491); the run does not model that state, so the caller's store refuses, and no
+// later store into the element meets it. Reads of the element stay (OVMW:488-489). Clear of the whole array gives the
+// element its members back (OptionVarMemberlessUnheard.al:988-1003), and the held list then keeps them (:1020-1021).
+#[test]
+fn an_element_a_memberless_store_left_without_members() {
+    const DROPPED: &str = "a store into an element of an array of Options declared with members that holds none";
+    for routine in [
+        "DroppedThenOther",
+        "DroppedThenInteger",
+        "DroppedThenSame",
+        "CopiedInThenOther",
+        "CopiedInThenInteger",
+    ] {
+        refused(routine, DROPPED);
+    }
+    assert_eq!(assumed("DroppedClearedThenSame"), "2|2@Third|2@Third|2");
+    // An element of a fresh array declared with members holds its list: main's store, not flagged.
+    assert_eq!(clean("FreshElementStore"), "Second|Third");
+    assert_eq!(clean("FreshArrayClear"), "First|Third");
+}
+
 // OptionVarMemberlessWrites.al:472, :496, :513, :530, :551, :568
 #[test]
 fn arrays_of_options_without_members() {
     assert_eq!(assumed("VarArrayStoreOtherThenMemberless"), "Third|2@Third|2@2|2@2|2");
-    // A variable with the held members takes no members after a memberless store into the same element (OVMW:484-491) but
-    // keeps them into a cleared array (OptionVarMemberlessUnheard.al:1020-1021): refused.
+    // The caller assigns the element its memberless store left without members (OVMW:483): refused, see
+    // `an_element_a_memberless_store_left_without_members`.
     refused(
         "VarArrayStoreOtherOption",
-        "a store the probe does not measure into an element",
+        "a store into an element of an array of Options declared with members that holds none",
     );
     assert_eq!(assumed("VarArrayClearAll"), "First|0#First|0#Second|1@Second|1@First|0");
     assert_eq!(

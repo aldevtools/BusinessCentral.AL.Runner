@@ -1555,6 +1555,7 @@ impl Session {
     /// The write-back of a builtin's by-reference receiver or argument (`run_native`): a Blob it hands back is stored as the
     /// buffer it is, never copied (a stream `CreateOutStream` created on it writes there; `blob_transfer::moved`).
     fn write_native_back(&mut self, p: &ir::Place, v: Value, f: &mut Frame, id: BuiltinId) -> Result<(), Signal> {
+        let v = crate::var_option::cleared_array(v, &self.place_type(p, f), id);
         self.write_as(p, v, f, Store::Builtin(id))
     }
 
