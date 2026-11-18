@@ -137,20 +137,23 @@ impl Session {
     /// start, which the action moved out of the view (the page's filters no longer hold it): BC reads the view again and
     /// First() finds no row, where the runtime kept the client on the row (al-runner issue 8343, the reporter's repro on BC
     /// 29.1 with OnAfterGetRecord; the issue says OnAfterGetCurrRecord alone fails the same way). Not pinned: refused, with
-    /// CurrPage.Update(false), Update(true) or none. A list without row triggers, with both, or on a later row keeps its path.
+    /// CurrPage.Update(false), Update(true) or none. With OnAfterGetCurrRecord alone only when the action left Rec's view as it
+    /// was (same filters, key and order: `view_changed_by_action` false); where the action changed the view the runtime already
+    /// finds no row, and the page keeps that path. A list without row triggers, with both, or on a later row keeps its path.
     pub(super) fn refuse_first_row_left_view_after_action(&mut self, st: &St) -> Result<(), Signal> {
         let on_stored_row = {
             let s = st.borrow();
             s.open && s.host.is_none() && s.cursor == Cursor::Row && !s.draft
         };
-        let one_row_trigger = matches!(
-            (
-                self.declares(st, "onaftergetrecord"),
-                self.declares(st, "onaftergetcurrrecord")
-            ),
-            (true, false) | (false, true)
-        );
-        if !(on_stored_row && one_row_trigger && self.is_list(st) && self.has_source(st)) {
+        let refused_triggers = match (
+            self.declares(st, "onaftergetrecord"),
+            self.declares(st, "onaftergetcurrrecord"),
+        ) {
+            (true, false) => true,
+            (false, true) => !self.view_changed_by_action(st),
+            _ => false,
+        };
+        if !(on_stored_row && refused_triggers && self.is_list(st) && self.has_source(st)) {
             return Ok(());
         }
         let rec = self.page_rec(st);

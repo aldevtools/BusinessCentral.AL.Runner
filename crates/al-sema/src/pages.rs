@@ -1451,16 +1451,20 @@ impl Tree {
         (0..self.nodes.len()).find(|&i| self.nodes[i].name.eq_ignore_ascii_case(name) && !self.separators.contains(&i))
     }
 
-    /// The anchor of `addafter`/`addbefore`: a node, or a separator of the base page's actions. alc compiles an extension
-    /// that adds an action after a separator (al-runner issue 8078, the reporter's measurement on Base Application's
-    /// "Purchase Return Order" `separator(Action134)`); that the added action then runs is not pinned: assumption
-    /// pageext-anchor-on-separator, awaiting the corpus probe.
-    fn find_anchor(&mut self, name: &str) -> Option<usize> {
-        let n = self.nodes.iter().position(|n| n.name.eq_ignore_ascii_case(name))?;
-        if self.separators.contains(&n) {
-            self.assumes
-                .push(al_builtins::assumptions::Assumption::PageextAnchorOnSeparator);
+    /// The anchor of `addafter`/`addbefore`: a node, or, for an operation in the actions section, a separator the base page
+    /// declares (`owner` `None`). alc compiles an extension that adds an action after one (al-runner issue 8078, the reporter's
+    /// measurement on Base Application's "Purchase Return Order" `separator(Action134)`); that the added action then runs is
+    /// not pinned: assumption pageext-anchor-on-separator, awaiting the corpus probe.
+    fn find_anchor(&mut self, name: &str, in_actions: bool) -> Option<usize> {
+        if let Some(n) = self.find_node(name) {
+            return Some(n);
         }
+        let n =
+            self.separators.iter().copied().find(|&i| {
+                in_actions && self.nodes[i].owner.is_none() && self.nodes[i].name.eq_ignore_ascii_case(name)
+            })?;
+        self.assumes
+            .push(al_builtins::assumptions::Assumption::PageextAnchorOnSeparator);
         Some(n)
     }
 
@@ -1563,7 +1567,7 @@ impl Tree {
                 Ok(true)
             }
             "addafter" | "addbefore" => {
-                let Some(n) = self.find_anchor(&target) else {
+                let Some(n) = self.find_anchor(&target, op.in_actions) else {
                     return Ok(false);
                 };
                 let Some((id, at)) = self.parent_list(n) else {
@@ -2563,6 +2567,19 @@ mod tests {
                 l.reasons
             );
             assert!(l.assumes.is_empty(), "{op}");
+        }
+    }
+
+    // Only a separator the base page declares, for an operation in the actions section, is an anchor (assumption
+    // pageext-anchor-on-separator); an extension's own separator and a layout operation keep the refusal.
+    #[test]
+    fn a_separator_of_an_extension_or_from_the_layout_is_no_anchor() {
+        let base = "page 50100 P { layout { area(Content) { field(A; Rec.A) { } } } actions { area(Processing) { action(Send) { } separator(S1) { } } } }";
+        let own = "actions { addlast(Processing) { separator(ExtSep) { } } addafter(ExtSep) { action(Extra) { } } }";
+        for body in [own, "layout { addafter(S1) { field(ExtField; Rec.A) { } } }"] {
+            let l = merged(base, &[&format!("pageextension 50101 E extends P {{ {body} }}")]);
+            let refused = l.reasons.iter().any(|r| r.contains("is not on the page"));
+            assert!(refused && l.assumes.is_empty(), "{body}: {:?}", l.reasons);
         }
     }
 

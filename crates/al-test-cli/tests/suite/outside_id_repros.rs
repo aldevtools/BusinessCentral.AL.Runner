@@ -101,6 +101,41 @@ fn issue_8339_neighbors_keep_the_typed_text() {
     }
 }
 
+/// Neighbor of issue 8339: a Text page variable whose TableRelation names a table with `TableType = Temporary` (no stored row
+/// can be related) keeps the typed text, as on main; the same relation to a normal table stays refused.
+#[test]
+fn issue_8339_relation_to_a_temporary_table_keeps_the_typed_text() {
+    let relation_to = |table_type: &str| {
+        with(
+            include_str!("../fixtures/outside-id/Issue8339.al"),
+            &[
+                (
+                    "field(CompanyNameField; CompName) { Caption = 'Company Name'; TableRelation = Company; }\n        }\n    }\n    var",
+                    "field(CompanyNameField; CompName) { Caption = 'Company Name'; TableRelation = \"ALR Pick Buffer\".\"Pick Caption\" where(\"Pick Kind\" = const(1)); }\n        }\n    }\n    var",
+                ),
+                (
+                    "SetValue(UpperCase(CompanyName()));\n        Assert.AreEqual(CompanyName(),",
+                    "SetValue('Typed Text');\n        Assert.AreEqual('Typed Text',",
+                ),
+                (
+                    "codeunit 50202 \"ALR Probe Store\"",
+                    &format!(
+                        "table 50290 \"ALR Pick Buffer\"\n{{\n    {table_type}\n    fields {{ field(1; ID; Integer) {{ }} field(2; \"Pick Caption\"; Text[30]) {{ }} field(3; \"Pick Kind\"; Integer) {{ }} }}\n    keys {{ key(PK; ID) {{ Clustered = true; }} }}\n}}\n\ncodeunit 50202 \"ALR Probe Store\""
+                    ),
+                ),
+            ],
+        )
+    };
+    let o = outcomes(&relation_to("TableType = Temporary;"), "ALR P CompanyRelationSetValue");
+    assert_eq!(
+        outcome_of(&o, "PageVariableWithCompanyRelationTakesStoredName"),
+        Outcome::Pass,
+        "{o:#?}"
+    );
+    let o = outcomes(&relation_to(""), "ALR P CompanyRelationSetValue");
+    refused(&o, "PageVariableWithCompanyRelationTakesStoredName", RELATION_TEXT);
+}
+
 /// Issue 8340: OnNewRecord raises an error at the OpenEdit of a Card over an empty table: refused.
 #[test]
 fn issue_8340_error_in_on_new_record_at_open_is_refused() {
@@ -227,6 +262,40 @@ fn issue_8343_with_on_after_get_curr_record_alone_is_refused() {
         &[("trigger OnAfterGetRecord()", "trigger OnAfterGetCurrRecord()")],
     );
     let o = outcomes(&src, "ALR P RefreshAfterAction");
+    refused(
+        &o,
+        "FirstAfterActionOnPageWithOnAfterGetRecord",
+        "whose filters no longer hold the row",
+    );
+}
+
+/// Neighbor of issue 8343 with OnAfterGetCurrRecord alone: the action itself changes Rec's filters and the row leaves the new
+/// view. Main already finds no row there; the page keeps main's result. With OnAfterGetRecord alone main keeps the client on
+/// the row: refused.
+#[test]
+fn issue_8343_action_that_changes_the_view_keeps_mains_result_with_on_after_get_curr_record() {
+    let changes_view = |trigger: &str| {
+        with(
+            include_str!("../fixtures/outside-id/Issue8343.al"),
+            &[
+                ("trigger OnAfterGetRecord()", trigger),
+                (
+                    "AllLines.ModifyAll(Processed, true);",
+                    "AllLines.ModifyAll(Processed, true);\n                    Rec.Reset();\n                    Rec.SetRange(\"Line No.\", 0, 20000);\n                    Rec.SetRange(Processed, false);",
+                ),
+            ],
+        )
+    };
+    let o = outcomes(
+        &changes_view("trigger OnAfterGetCurrRecord()"),
+        "ALR P RefreshAfterAction",
+    );
+    assert_eq!(
+        outcome_of(&o, "FirstAfterActionOnPageWithOnAfterGetRecord"),
+        Outcome::Pass,
+        "{o:#?}"
+    );
+    let o = outcomes(&changes_view("trigger OnAfterGetRecord()"), "ALR P RefreshAfterAction");
     refused(
         &o,
         "FirstAfterActionOnPageWithOnAfterGetRecord",
