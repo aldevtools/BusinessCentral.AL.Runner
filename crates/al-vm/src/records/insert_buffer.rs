@@ -17,10 +17,12 @@
 //! - a valid row that sends the queue while a duplicate is pending (`K1, K2, K1, K3, K4`): in every measured cell the Insert
 //!   that sends the queue is itself a duplicate. Whether the valid row stays written is not known: refused;
 //! - a unique secondary key that a statement-form Insert into such a table breaks (al-runner issue 8287): refused at the Insert;
-//! - GetBySystemId, CountApprox, a Query and a FlowField that read a table whose Insert error is deferred (al-runner issue 8288):
-//!   refused (`refuse_unmeasured_read_while_deferred`);
+//! - GetBySystemId, CountApprox, a Query (Open, Read, SaveAsXml, SaveAsJson, SaveAsCsv, also the static Query.SaveAsXml and
+//!   Query.SaveAsCsv) and a FlowField that read a table whose Insert error is deferred (al-runner issue 8288): refused
+//!   (`refuse_unmeasured_read_while_deferred`). The TableRelation check of a Validate that reads such a table runs as before the
+//!   queue (main; not measured);
 //! - an `asserterror` body that ends without an error while an Insert error is deferred (al-runner issue 8267); one left by
-//!   exit, break or continue is refused by the lowering (al-runner issue 8289). The slot holds a duplicate key or a Date or DateTime its SQL column cannot hold
+//!   exit, break or continue is refused where the leave runs (al-runner issue 8289). The slot holds a duplicate key or a Date or DateTime its SQL column cannot hold
 //!   (`sql_range.rs` `insert_sql_range`). In every measured cell the deferred error comes out inside the body: a duplicate at a
 //!   read of the table (Y7407DuplicateInsertBuffer.al:98-105, :386) or at the Insert that sends the queue (:277, :301); the
 //!   SQL-range kind at a read or a Commit, and every body of record/filters/SqlDateFloor1753.al ends in Error(). Whether the

@@ -1295,11 +1295,9 @@ impl Lowerer<'_> {
             BreakStmt => Ok(ir::Stmt::Break),
             ContinueStmt => self.continue_stmt(),
             AssertErrorStmt => {
-                let body = self.stmt_or_empty(kids.first());
-                match leaves_assert_error(&body, false) {
-                    true => Err(ir::ASSERT_ERROR_LEAVE.into()),
-                    false => Ok(ir::Stmt::AssertError(body)),
-                }
+                let mut body = self.stmt_or_empty(kids.first());
+                refuse_assert_error_leaves(&mut body, false);
+                Ok(ir::Stmt::AssertError(body))
             }
             other => Err(format!("statement {other:?} is not lowered yet")),
         };
@@ -2475,24 +2473,43 @@ fn subscriber_publisher_parts(text: &str) -> Option<Vec<String>> {
     (text.bytes().all(|b| b.is_ascii_digit()) && text.parse::<u32>().is_ok()).then(|| vec![text.to_string()])
 }
 
-/// Whether a statement of `body`, the body of an `asserterror`, leaves it (al-runner issue 8289, `ir::ASSERT_ERROR_LEAVE`):
-/// an `exit` without a value, or a `break` or `continue` outside a loop of the body (`in_loop`: the statements are inside
-/// such a loop). An `exit` with a value leaves only when its value raises nothing: the VM refuses it then (`op_assert`). A
-/// procedure the body calls has its own exit.
-fn leaves_assert_error(body: &[ir::Stmt], in_loop: bool) -> bool {
+/// Replaces each statement of `body`, the body of an `asserterror`, that leaves it by a refusal that is raised when the
+/// statement runs (al-runner issue 8289, `ir::ASSERT_ERROR_LEAVE`): an `exit` without a value, or a `break` or `continue`
+/// outside a loop of the body (`in_loop`: the statements are inside such a loop). A leave the run does not reach keeps main's
+/// result. An `exit` with a value leaves only when its value raises nothing: the VM refuses it then (`op_assert`). A procedure
+/// the body calls has its own exit.
+fn refuse_assert_error_leaves(body: &mut [ir::Stmt], in_loop: bool) {
     use ir::Stmt;
-    body.iter().any(|s| match s {
-        Stmt::Exit(None) => true,
-        Stmt::Exit(Some(_)) => false,
-        Stmt::Break | Stmt::Continue => !in_loop,
-        Stmt::If(_, a, b) => leaves_assert_error(a, in_loop) || leaves_assert_error(b, in_loop),
-        Stmt::Case {
-            branches, otherwise, ..
-        } => branches.iter().any(|(_, b)| leaves_assert_error(b, in_loop)) || leaves_assert_error(otherwise, in_loop),
-        Stmt::AssertError(b) => leaves_assert_error(b, in_loop),
-        Stmt::While(_, b) | Stmt::Repeat(b, _) | Stmt::For { body: b, .. } | Stmt::Foreach { body: b, .. } => {
-            leaves_assert_error(b, true)
+    for s in body.iter_mut() {
+        match s {
+            Stmt::Exit(None) => *s = Stmt::Expr(ir::Expr::Refused(ir::ASSERT_ERROR_LEAVE.into())),
+            Stmt::Break | Stmt::Continue if !in_loop => {
+                *s = Stmt::Expr(ir::Expr::Refused(ir::ASSERT_ERROR_LEAVE.into()))
+            }
+            Stmt::If(_, a, b) => {
+                refuse_assert_error_leaves(a, in_loop);
+                refuse_assert_error_leaves(b, in_loop);
+            }
+            Stmt::Case {
+                branches, otherwise, ..
+            } => {
+                for (_, b) in branches.iter_mut() {
+                    refuse_assert_error_leaves(b, in_loop);
+                }
+                refuse_assert_error_leaves(otherwise, in_loop);
+            }
+            Stmt::AssertError(b) => refuse_assert_error_leaves(b, in_loop),
+            Stmt::While(_, b) | Stmt::Repeat(b, _) | Stmt::For { body: b, .. } | Stmt::Foreach { body: b, .. } => {
+                refuse_assert_error_leaves(b, true)
+            }
+            Stmt::Exit(Some(_))
+            | Stmt::Break
+            | Stmt::Continue
+            | Stmt::Assign(..)
+            | Stmt::Expr(_)
+            | Stmt::Pos(_)
+            | Stmt::Assume(_)
+            | Stmt::TddMark(_) => {}
         }
-        Stmt::Assign(..) | Stmt::Expr(_) | Stmt::Pos(_) | Stmt::Assume(_) | Stmt::TddMark(_) => false,
-    })
+    }
 }

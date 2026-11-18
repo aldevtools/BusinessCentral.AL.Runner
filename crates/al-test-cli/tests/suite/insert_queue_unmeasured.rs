@@ -34,6 +34,17 @@ table 51979 "IQ Unique Temp"
     fields { field(1; Code; Code[20]) { } field(2; Name; Text[30]) { } }
     keys { key(PK; Code) { Clustered = true; } key(ByName; Name) { Unique = true; } }
 }
+table 51982 "IQ Xml Row" { fields { field(1; Code; Code[20]) { } } keys { key(PK; Code) { Clustered = true; } } }
+table 51983 "IQ Csv Row" { fields { field(1; Code; Code[20]) { } } keys { key(PK; Code) { Clustered = true; } } }
+table 51986 "IQ Blob" { fields { field(1; Code; Code[20]) { } field(2; Data; Blob) { } } keys { key(PK; Code) { Clustered = true; } } }
+query 51984 "IQ Xml Query"
+{
+    elements { dataitem(Q; "IQ Xml Row") { column(Code; Code) { } } }
+}
+query 51985 "IQ Csv Query"
+{
+    elements { dataitem(Q; "IQ Csv Row") { column(Code; Code) { } } }
+}
 query 51980 "IQ Query"
 {
     elements { dataitem(Q; "IQ Query Row") { column(Code; Code) { } } }
@@ -105,6 +116,52 @@ codeunit 51982 "IQ Test"
         Q.Open();
         if not Q.Read() then
             Error('no row');
+    end;
+
+    [Test]
+    procedure StaticQuerySaveAsXmlWithDuplicatePending()
+    var
+        R: Record "IQ Xml Row";
+        R2: Record "IQ Xml Row";
+        B: Record "IQ Blob" temporary;
+        OS: OutStream;
+    begin
+        R.Code := 'A';
+        R.Insert();
+        R2.Code := 'A';
+        R2.Insert();
+        B.Data.CreateOutStream(OS);
+        Query.SaveAsXml(Query::"IQ Xml Query", OS);
+    end;
+
+    [Test]
+    procedure StaticQuerySaveAsCsvWithDuplicatePending()
+    var
+        R: Record "IQ Csv Row";
+        R2: Record "IQ Csv Row";
+        B: Record "IQ Blob" temporary;
+        OS: OutStream;
+    begin
+        R.Code := 'A';
+        R.Insert();
+        R2.Code := 'A';
+        R2.Insert();
+        B.Data.CreateOutStream(OS);
+        Query.SaveAsCsv(Query::"IQ Csv Query", OS);
+    end;
+
+    [Test]
+    procedure KeptStaticQuerySaveAsXmlNothingPending()
+    var
+        R: Record "IQ Kept Row";
+        B: Record "IQ Blob" temporary;
+        OS: OutStream;
+    begin
+        R.Code := 'K';
+        R.Insert();
+        B.Data.CreateOutStream(OS);
+        if not Query.SaveAsXml(Query::"IQ Xml Query", OS) then
+            Error('not saved');
     end;
 
     [Test]
@@ -226,6 +283,19 @@ fn issue_8288_reads_that_no_case_measures_with_a_duplicate_pending_are_refused()
     ] {
         refused_with(&out, n, "while the error of an Insert into");
     }
+}
+
+/// The static Query.SaveAsXml and Query.SaveAsCsv read the query's tables as the instance methods do.
+#[test]
+fn issue_8288_static_query_save_as_with_a_duplicate_pending_is_refused() {
+    let out = outcomes_in(SRC, "IQ Test");
+    for n in [
+        "StaticQuerySaveAsXmlWithDuplicatePending",
+        "StaticQuerySaveAsCsvWithDuplicatePending",
+    ] {
+        refused_with(&out, n, "while the error of an Insert into");
+    }
+    assert_eq!(of(&out, "KeptStaticQuerySaveAsXmlNothingPending"), Outcome::Pass);
 }
 
 #[test]

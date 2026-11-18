@@ -202,9 +202,7 @@ impl Session {
             al_builtins::assumptions::assume(*a);
         }
         if matches!(method, "Open" | "Read" | "SaveAsXml" | "SaveAsJson" | "SaveAsCsv") {
-            for item in &def.items {
-                self.refuse_unmeasured_read_while_deferred(item.table, &format!("Query.{method}"))?;
-            }
+            self.refuse_query_read_while_deferred(def, method)?;
         }
         if qs.borrow().in_before_open {
             match method {
@@ -546,6 +544,7 @@ impl Session {
         for a in &def.assumes {
             al_builtins::assumptions::assume(*a);
         }
+        self.refuse_query_read_while_deferred(def, "SaveAsXml")?;
         self.query_save_as_with(
             QueryReader::static_save(object),
             def,
@@ -571,7 +570,17 @@ impl Session {
         for a in &def.assumes {
             al_builtins::assumptions::assume(*a);
         }
+        self.refuse_query_read_while_deferred(def, "SaveAsCsv")?;
         self.query_save_csv(QueryReader::static_save(object), def, &[], def.top, &args[1..])
+    }
+
+    /// A read of query `def` by `method` (Open, Read, SaveAsXml, SaveAsJson or SaveAsCsv, of an instance or static) while an
+    /// Insert error into one of its tables is deferred: refused (`records/insert_buffer.rs`, al-runner issue 8288).
+    fn refuse_query_read_while_deferred(&self, def: &ir::Query, method: &str) -> Result<(), Signal> {
+        for item in &def.items {
+            self.refuse_unmeasured_read_while_deferred(item.table, &format!("Query.{method}"))?;
+        }
+        Ok(())
     }
 
     /// The rows of a query as CSV: the column names, then a row per line, each line ended by a line feed. A text with a comma or a

@@ -2088,7 +2088,7 @@ pub enum Expr {
     /// `this` in a codeunit: the running instance as a Codeunit value.
     ThisInstance,
     /// Code that lowers but refuses when it runs, with the reason (a call of a control add-in procedure:
-    /// control add-ins are not modelled).
+    /// control add-ins are not modelled; a statement that leaves an `asserterror` body, `ASSERT_ERROR_LEAVE`).
     Refused(String),
     /// Code that lowers and raises an AL error with this text and code when it runs (`this.<protected variable of the
     /// base report>` in a reportextension: BC compiles it and raises when it runs).
@@ -2201,8 +2201,9 @@ pub enum SetElem {
 }
 
 /// The refusal of an `asserterror` body that a statement of its own leaves by exit, break or continue (al-runner issue 8289):
-/// no corpus test measures it. The lowering refuses an `exit` without a value, a `break` and a `continue`; the VM refuses an
-/// `exit` with a value whose value raised nothing.
+/// no corpus test measures it. The lowering turns an `exit` without a value, a `break` and a `continue` into an
+/// `Expr::Refused` with this text, raised only when the run reaches it; the VM refuses an `exit` with a value whose value raised
+/// nothing.
 pub const ASSERT_ERROR_LEAVE: &str = "an asserterror body left by exit, break or continue: whether the asserterror then raises its own error is not pinned";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
