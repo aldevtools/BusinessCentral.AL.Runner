@@ -384,14 +384,20 @@ fn dict_insert(d: &mut Vec<(Value, Value)>, k: Value, v: Value) {
     }
 }
 
-/// `Contains`, `IndexOf`, `LastIndexOf` and `Remove` refuse when the list has an element and the searched value or that
-/// element is of a type whose comparison no corpus case measures ([`unmeasured_compare`]); an empty list compares nothing.
+/// `Contains`, `IndexOf`, `LastIndexOf` and `Remove` refuse when the searched value or an element of the list is of a type
+/// whose comparison no corpus case measures ([`unmeasured_compare`]). For a JSON type that is only when the list has an
+/// element (an empty list compares nothing and answers as before); an XML search refuses on an empty list too, until corpus
+/// PR 1422 is pinned (al-runner issue 8165).
 /// This includes the XmlNode that AsXmlNode of an unassigned XmlElement returned (al-builtins `xml/unassigned_element.rs`).
 /// A list holds values of one AL type (a list of Variant does not compile: must-not-compile/cases/2770-list-of-variant.al:1,
 /// 1747-collection-of-variant.al:1), so the searched value and the first element decide.
 fn refuse_unmeasured_search(l: &[Value], v: &Value, member: &str) -> Result<(), Signal> {
-    let first = l.first();
-    if let Some(kind) = first.and_then(|e| unmeasured_compare(v).or_else(|| unmeasured_compare(e))) {
+    let kind = match l.first() {
+        None if is_xml_handle(v) => unmeasured_compare(v),
+        None => None,
+        Some(e) => unmeasured_compare(v).or_else(|| unmeasured_compare(e)),
+    };
+    if let Some(kind) = kind {
         return Err(Signal::unsupported(format!(
             "List.{member} on a list of {kind}: how BC compares them is not measured"
         )));
