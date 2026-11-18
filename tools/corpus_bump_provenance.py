@@ -53,8 +53,8 @@ APPS = ("full", "partial")
 NIGHTLY_SKIPPED = ("Coverage facts must not shrink",)
 # The corpus writes a manifest for push runs (ci.yml, job "Results manifest") and for the nightly run (decision 6).
 EVENTS = ("push", "schedule")
-# Decision 5: the corpus script whose --check-reuse mode answers whether a reused result still holds at the new pin. It
-# loads check-fixture-edit.py from its own folder, so the whole folder is taken from the pin.
+# Decision 5: the corpus script whose --check-reuse mode answers whether a reused result still holds at the new pin. The
+# whole scripts folder is taken from the pin, so that a later import of a sibling script still works.
 SELECT_TESTS = ".github/scripts/select-tests.py"
 
 
