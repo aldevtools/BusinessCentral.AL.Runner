@@ -107,6 +107,12 @@ impl LoginState {
         &self.rows
     }
 
+    /// The session state lines.
+    #[cfg(test)]
+    pub(crate) fn state_lines(&self) -> &al_vm::StateLines {
+        &self.state
+    }
+
     /// What `session` holds now, with the marks `hits` the company open made.
     pub(crate) fn of(session: &mut Session, hits: al_builtins::assumptions::HitBits) -> LoginState {
         LoginState {
@@ -227,8 +233,11 @@ impl Check {
         }
         let sessions = s.exact.compared + s.exact.firsts.len() as u64;
         Some(format!(
-            "login replay check: {sessions} sessions over {} keys, {}; across test codeunits: {}",
+            "login replay check: {sessions} sessions over {} keys (a key seen before: {} sessions, {}%), {}; across test \
+             codeunits: {}",
             s.exact.firsts.len(),
+            s.exact.compared,
+            s.exact.compared * 100 / sessions,
             s.exact.counts(),
             s.across_codeunits.counts()
         ))
@@ -340,7 +349,7 @@ mod tests {
         assert_eq!(
             check.line().as_deref(),
             Some(
-                "login replay check: 3 sessions over 2 keys, 1 compared, 0 differ; across test codeunits: 1 compared, \
+                "login replay check: 3 sessions over 2 keys (a key seen before: 1 sessions, 33%), 1 compared, 0 differ; across test codeunits: 1 compared, \
                  1 differ (first: row 1: r | other)"
             )
         );
@@ -348,7 +357,7 @@ mod tests {
         assert_eq!(
             check.line().as_deref(),
             Some(
-                "login replay check: 4 sessions over 2 keys, 2 compared, 1 differ (first: row 1: r | other); across test \
+                "login replay check: 4 sessions over 2 keys (a key seen before: 2 sessions, 50%), 2 compared, 1 differ (first: row 1: r | other); across test \
                  codeunits: 1 compared, 1 differ (first: row 1: r | other)"
             )
         );

@@ -2947,10 +2947,10 @@ codeunit 50821 "Probe Login Tests"
     // makes two more keys: the seed moves the clock the login reads (without the seed in the key: "3 differ", the clock).
     assert_eq!(
         checks[0],
-        "login replay check: 3 sessions over 2 keys, 1 compared, 0 differ; across test codeunits: 0 compared, 0 differ"
+        "login replay check: 3 sessions over 2 keys (a key seen before: 1 sessions, 33%), 1 compared, 0 differ; across test codeunits: 0 compared, 0 differ"
     );
     assert_eq!(
         checks[1],
-        "login replay check: 6 sessions over 4 keys, 2 compared, 0 differ; across test codeunits: 0 compared, 0 differ"
+        "login replay check: 6 sessions over 4 keys (a key seen before: 2 sessions, 33%), 2 compared, 0 differ; across test codeunits: 0 compared, 0 differ"
     );
 }

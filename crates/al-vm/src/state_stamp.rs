@@ -250,25 +250,22 @@ impl Session {
         let id = |o: usize| self.engine.program.objects[o].id.unwrap_or(0);
         let mut out = StateLines::default();
         out.lines.push(format!("session {:?}", stamp.state));
+        // The temporary tables the globals hold, by first sight: records that share one (`Copy(x, true)`) name one table.
+        let mut temp_tables: Vec<u64> = Vec::new();
         for (&o, single) in &stamp.singles {
             for (g, fp) in single.globals.iter().enumerate() {
                 match fp {
                     crate::single_track::Fp::Val(bytes) => {
                         out.lines.push(format!("single {} global {g} {bytes:?}", id(o)))
                     }
-                    // A ModuleInfo is an app's manifest, plain data with no handle: compared by value here, while the
-                    // fingerprint the SingleInstance rules use keeps it opaque (System Application's "System
-                    // Initialization Impl." holds one after the login on BC 28.5).
-                    crate::single_track::Fp::Opaque(what) => {
-                        let global = self
-                            .singletons
-                            .get(&o)
-                            .and_then(|i| module_info(i.borrow().globals.get(g)));
-                        match global {
-                            Some(m) => out.lines.push(format!("single {} global {g} {m}", id(o))),
-                            None => out.opaque.push(format!("codeunit {} global {g}: {what}", id(o))),
+                    // No fingerprint: compared here when it is plain data (`comparable_global`), while the fingerprint
+                    // the SingleInstance rules use keeps it opaque.
+                    crate::single_track::Fp::Opaque(what) => match self.comparable_global(o, g, &mut temp_tables) {
+                        Some(lines) => {
+                            (out.lines).extend(lines.into_iter().map(|l| format!("single {} global {g} {l}", id(o))))
                         }
-                    }
+                        None => out.opaque.push(format!("codeunit {} global {g}: {what}", id(o))),
+                    },
                 }
             }
         }
@@ -287,6 +284,51 @@ impl Session {
         out.lines.push(format!("autoincrement {autoinc:?}"));
         out.lines.push(format!("last error {:?}", self.last_error));
         out
+    }
+}
+
+impl Session {
+    /// A SingleInstance global (codeunit object `o`, global `g`) that has no fingerprint, as lines that compare across
+    /// sessions when it holds plain data ([`Session::state_lines`]): a ModuleInfo by value (System Application's "System
+    /// Initialization Impl." holds one after the login on BC 28.5); a temporary record by everything it carries (view,
+    /// position, buffer) and its table's rows, once per table (Base Application's "Acc. Sched. KPI Event Handler" and
+    /// "Change Log Management" hold some after the login on BC 28.5). `temp_tables` numbers the tables. `None`: no
+    /// comparable form.
+    fn comparable_global(&self, o: usize, g: usize, temp_tables: &mut Vec<u64>) -> Option<Vec<String>> {
+        let inst = self.singletons.get(&o)?.borrow();
+        let v = inst.globals.get(g)?;
+        if let Some(m) = module_info(Some(v)) {
+            return Some(vec![m]);
+        }
+        let Value::Record(r) = v else { return None };
+        let r = r.try_borrow().ok()?;
+        let temp = r
+            .temp_id
+            .as_ref()
+            .filter(|t| r.temporary && !r.crm && !t.rows_unmeasured())?;
+        let mut lines = Vec::new();
+        let n = match temp_tables.iter().position(|t| *t == temp.id()) {
+            Some(n) => n,
+            None => {
+                temp_tables.push(temp.id());
+                let n = temp_tables.len() - 1;
+                for t in self
+                    .temps
+                    .get(&temp.id())
+                    .map(|s| s.export_current())
+                    .unwrap_or_default()
+                {
+                    for (_, row) in &t.rows {
+                        lines.push(format!("temp table {n} row {}|{}|{row:?}", t.company, t.object));
+                    }
+                }
+                n
+            }
+        };
+        let mut view = r.clone();
+        view.temp_id = None;
+        lines.push(format!("temp record of table {n}: {view:?}"));
+        Some(lines)
     }
 }
 

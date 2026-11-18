@@ -9,16 +9,25 @@ use super::*;
 use crate::login_replay::{Check, first_difference};
 
 /// An app under test whose `OnRegisterManualSetup` subscriber (the issue's shape; the event raises the login, `login.rs`
-/// `RAISE_ONLY`) registers a row whose id depends on the text of the app's resource `rpl.txt`.
+/// `RAISE_ONLY`) registers a row whose id depends on the text of the app's resource `rpl.txt`, and keeps a copy in a temporary record of
+/// a SingleInstance codeunit, shared with a second record (`Copy(x, true)`), as Base Application's "Change Log Management"
+/// keeps temporary records after the login on BC 28.5.
 const MAIN: &str = r#"
 codeunit 77400 "RPL Registration"
 {
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterManualSetup', '', false, false)]
     local procedure RegisterManualSetup()
-    var G: Codeunit "Guided Experience";
+    var G: Codeunit "Guided Experience"; Cache: Codeunit "RPL Cache";
     begin
         G.InsertAssistedSetup(77400 + StrLen(NavApp.GetResourceAsText('rpl.txt')));
+        Cache.Keep(77400 + StrLen(NavApp.GetResourceAsText('rpl.txt')));
     end;
+}
+codeunit 77405 "RPL Cache"
+{
+    SingleInstance = true;
+    var Temp: Record "Guided Experience Item" temporary; Shared: Record "Guided Experience Item" temporary;
+    procedure Keep(Id: Integer) begin Temp."Object ID" := Id; Temp.Insert(); Shared.Copy(Temp, true); end;
 }
 codeunit 77402 "RPL Tests A"
 {
@@ -109,7 +118,7 @@ fn sessions_of_one_key_hold_the_same_after_the_raised_login() {
     assert_eq!(
         crate::login_replay::report(&engine).as_deref(),
         Some(
-            "login replay check: 3 sessions over 1 keys, 2 compared, 0 differ; across test codeunits: 0 compared, 0 differ"
+            "login replay check: 3 sessions over 1 keys (a key seen before: 2 sessions, 66%), 2 compared, 0 differ; across test codeunits: 0 compared, 0 differ"
         )
     );
     // What the login wrote is in the state compared: the subscriber's row (77400 + 1).
@@ -129,7 +138,7 @@ fn another_test_codeunit_is_another_key() {
     assert_eq!(
         crate::login_replay::report(&engine).as_deref(),
         Some(
-            "login replay check: 2 sessions over 2 keys, 0 compared, 0 differ; across test codeunits: 1 compared, 0 differ"
+            "login replay check: 2 sessions over 2 keys (a key seen before: 0 sessions, 0%), 0 compared, 0 differ; across test codeunits: 1 compared, 0 differ"
         )
     );
 }
@@ -147,7 +156,7 @@ fn an_entrys_resource_text_is_part_of_the_key_and_changes_what_the_login_leaves(
     assert_eq!(
         crate::login_replay::report(&engine).as_deref(),
         Some(
-            "login replay check: 3 sessions over 2 keys, 1 compared, 0 differ; across test codeunits: 0 compared, 0 differ"
+            "login replay check: 3 sessions over 2 keys (a key seen before: 1 sessions, 33%), 1 compared, 0 differ; across test codeunits: 0 compared, 0 differ"
         )
     );
     let firsts = crate::login_replay::check(&engine).firsts();
@@ -156,8 +165,47 @@ fn an_entrys_resource_text_is_part_of_the_key_and_changes_what_the_login_leaves(
         difference.as_deref().is_some_and(|d| d.contains("77404")),
         "{difference:?}"
     );
+    // The temporary table of the SingleInstance cache holds the other row too.
+    let temp_row = |k: usize, id: &str| {
+        (firsts[k].1.state_lines().lines.iter()).any(|l| l.contains(" temp table 0 row ") && l.contains(id))
+    };
+    assert!(temp_row(0, "Integer(77401)") && temp_row(1, "Integer(77404)"));
     let planted = Check::default();
     planted.note(firsts[0].0.clone(), firsts[0].1.clone());
     planted.note(firsts[0].0.clone(), firsts[1].1.clone());
     assert!(planted.line().is_some_and(|l| l.contains("1 compared, 1 differ")));
+}
+
+// What the login leaves in a SingleInstance codeunit's temporary records ("Change Log Management" on BC 28.5) compares by
+// the table's rows and everything each record carries: equal sessions are equal, not "not comparable"; two records that
+// share one table (`Copy(x, true)`) name it once, as one table.
+#[test]
+fn temporary_records_the_login_leaves_compare_by_their_rows_and_view_and_a_shared_table_is_one_table() {
+    let (engine, l) = compiled();
+    run(&engine, &l, "RPL Tests A");
+    run(&engine, &l, "RPL Tests A");
+    let line = crate::login_replay::report(&engine).unwrap();
+    assert!(line.contains(", 1 compared, 0 differ;"), "{line}");
+    let firsts = crate::login_replay::check(&engine).firsts();
+    let state = firsts[0].1.state_lines();
+    assert!(state.opaque.is_empty(), "{:?}", state.opaque);
+    let rows: Vec<&String> = state
+        .lines
+        .iter()
+        .filter(|l| l.contains(" temp table 0 row "))
+        .collect();
+    assert_eq!(rows.len(), 1, "{:?}", state.lines);
+    assert!(rows[0].contains("Integer(77401)"), "{rows:?}");
+    let records = state
+        .lines
+        .iter()
+        .filter(|l| l.contains(" temp record of table 0: "))
+        .count();
+    assert_eq!(records, 2, "{:?}", state.lines);
+    assert!(
+        !state
+            .lines
+            .iter()
+            .any(|l| l.contains(" temp table 1 ") || l.contains(" temp record of table 1:"))
+    );
 }
