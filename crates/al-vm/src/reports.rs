@@ -104,7 +104,7 @@ impl Schema {
 }
 
 impl Session {
-    pub(super) fn report_builtin_call(
+    fn report_builtin(
         &mut self,
         id: al_ir::BuiltinId,
         receiver: Option<Value>,

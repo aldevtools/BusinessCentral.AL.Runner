@@ -15,7 +15,7 @@ use al_builtins::value::{LibraryValue, Value};
 use crate::Session;
 
 /// The report builtins that run a report or read its layout: each runs with the admission of its own call
-/// ([`Session::report_builtin`]).
+/// ([`Session::report_call`]).
 const ENTRIES: &[al_ir::BuiltinId] = &[
     ids::REPORT_RUN_1,
     ids::REPORT_RUN_2,
@@ -60,7 +60,7 @@ impl Session {
     /// Every report builtin call: one of [`ENTRIES`] runs with [`State::excel_sheets_admitted`](crate::state) set to the
     /// report it admits ([`Session::excel_sheets_admits`], `None` for any other call) and restored after it, whatever it
     /// returns; the other calls (`CurrReport` inside a run) keep the running call's.
-    pub(crate) fn report_builtin(
+    pub(crate) fn report_call(
         &mut self,
         id: al_ir::BuiltinId,
         receiver: Option<Value>,
@@ -68,11 +68,11 @@ impl Session {
         running: super::Inst,
     ) -> Result<Value, Signal> {
         if !ENTRIES.contains(&id) {
-            return self.report_builtin_call(id, receiver, args, running);
+            return self.report_builtin(id, receiver, args, running);
         }
         let admitted = self.excel_sheets_admits(id, args);
         let outer = std::mem::replace(&mut self.report.excel_sheets_admitted, admitted);
-        let r = self.report_builtin_call(id, receiver, args, running);
+        let r = self.report_builtin(id, receiver, args, running);
         self.report.excel_sheets_admitted = outer;
         r
     }
