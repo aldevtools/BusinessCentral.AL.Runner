@@ -3,7 +3,7 @@
 //! variable with `TableRelation = Company` gives `CRONUS USA, Inc.`. The runner kept the typed text. Which value BC takes for
 //! other values is not pinned either, so SetValue of any value but a blank text into such a control, bound to a variable of
 //! the page or to a variable of the base page from an extension, is refused before anything runs. A control bound to a field
-//! of Rec keeps its path (no corpus case pins its SetValue with a relation), and so does a Code variable: its value and the
+//! of Rec keeps its path (not measured by the reporter; this refusal does not cover it), and so does a Code variable: its value and the
 //! stored key read the same in upper case.
 
 use super::*;
