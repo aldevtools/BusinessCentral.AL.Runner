@@ -1887,6 +1887,10 @@ impl Session {
 
     /// `CountApprox` answers as `Count`. The gate ran for CountApprox, so `Count` passes it again with the same answer.
     pub(crate) fn count_approx(&mut self, rec: &crate::records::Rec) -> Result<al_builtins::value::Value, Signal> {
+        // The Count below would raise a deferred Insert error as Count does; for CountApprox that is not measured.
+        if !rec.borrow().temporary {
+            self.refuse_unmeasured_read_while_deferred(rec.borrow().table as usize, "CountApprox")?;
+        }
         self.permission_from_al = self.permission_checks();
         self.record_op(al_builtins::record_op::RecordOp::Count, rec, &mut [])
     }

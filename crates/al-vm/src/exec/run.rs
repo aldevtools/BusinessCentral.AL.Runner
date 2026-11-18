@@ -476,8 +476,9 @@ impl Session {
         }
     }
 
-    /// `asserterror`: runs the body `pc..stop`; returns where the code goes on. Every leave of the body without an error (its end,
-    /// a jump, exit, break, continue) passes `refuse_pending_at_assert_end`.
+    /// `asserterror`: runs the body `pc..stop`; returns where the code goes on. Its end without an error passes
+    /// `refuse_pending_at_assert_end`; an `exit` with a value that left it is refused. The lowering turns every other leave into a
+    /// refusal that runs where the leave would (al-sema `refuse_assert_error_leaves`).
     #[inline(never)]
     fn op_assert(&mut self, chunk: &Chunk, f: &mut Frame, pc: usize, stop: usize, from: u16) -> Result<usize, Signal> {
         let nl = chunk.nlocals;
@@ -492,10 +493,8 @@ impl Session {
                     ..Default::default()
                 })))
             }
-            Ok(at) => {
-                self.refuse_pending_at_assert_end()?;
-                Ok(at)
-            }
+            // An `exit` with a value that left the body (al-sema `refuse_assert_error_leaves` turns every other leave into a refusal).
+            Ok(_) | Err(Signal::Exit(_)) => Err(Signal::unsupported(ir::ASSERT_ERROR_LEAVE)),
             Err(Signal::Error(mut e)) => {
                 self.guarded_bodies_leave_pin();
                 self.trapped_error_rollback(&e, crate::records::TrappedRollback::AssertError)?;
@@ -508,10 +507,6 @@ impl Session {
                     f.locals[r] = Value::Null;
                 }
                 Ok(stop)
-            }
-            Err(leave @ (Signal::Exit(_) | Signal::Break | Signal::Continue)) => {
-                self.refuse_pending_at_assert_end()?;
-                Err(leave)
             }
             Err(other) => Err(other),
         }
@@ -690,7 +685,11 @@ impl Session {
         for &r in &site.arg_regs {
             values.push(take(f, r, nl));
         }
-        self.finish_call(object, routine, inst, &site.args, values, false, f)
+        // Taken by the callee's frame; cleared here too when the call ends before its frame (a refused or blocked call).
+        self.next_interface_call = true;
+        let result = self.finish_call(object, routine, inst, &site.args, values, false, f);
+        self.next_interface_call = false;
+        result
     }
 
     #[inline(never)]
