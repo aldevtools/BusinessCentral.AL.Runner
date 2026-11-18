@@ -4,7 +4,7 @@
 //! read). The canonical dumps (`al_testrun::workspace_cache::canonical_dump`) of the reference and the read compile must
 //! be identical. Exits 1 when they differ or the third compile did not read the entry.
 //!
-//! `cargo run --release -p al-test-cli --example workspace_cache_equality -- ROOT MAJOR OUT_DIR`
+//! `cargo run --release -p al-test-cli --example workspace_cache_equality -- ROOT MAJOR OUT_DIR [APP_DIR]`
 //!
 //! The Microsoft apps of the pinned build come from the artifact cache (`al-test-cli --root . --all-versions
 //! --fetch-deps`). Run it twice to cover the thread counts: as is, and with `AL_CHECK_THREADS=1 AL_LOWER_THREADS=1`.
@@ -20,10 +20,17 @@ fn main() {
     let major: u16 = args[2].parse().expect("a BC major");
     let out = PathBuf::from(&args[3]);
     std::fs::create_dir_all(&out).unwrap();
-    let tests = root.join("corpus/tests");
-    let publish = al_test_cli::deps::corpus_publish_dirs(&tests.join("al-language")).unwrap();
+    // A fourth argument: one app folder instead of the corpus apps (the measurement of issue 8143's app).
+    let main_app = args
+        .get(4)
+        .map_or_else(|| root.join("corpus/tests/al-language"), PathBuf::from);
+    let publish = if args.len() > 4 {
+        Vec::new()
+    } else {
+        al_test_cli::deps::corpus_publish_dirs(&main_app).unwrap()
+    };
     let mut apps: Vec<_> = publish.iter().map(|d| runtime::load_app(d).unwrap()).collect();
-    apps.push(runtime::load_app(&tests.join("al-language")).unwrap());
+    apps.push(runtime::load_app(&main_app).unwrap());
     let mut kinds = vec![al_sema::AppKind::Workspace; apps.len()];
     let mut manifests = vec![runtime::Manifest::default(); apps.len()];
     let mut lazy = vec![None; apps.len()];
@@ -42,8 +49,7 @@ fn main() {
         local_artifacts: None,
         country: String::new(),
     };
-    let deps =
-        al_test_cli::deps::load_corpus(&tests.join("al-language"), &publish, &[], Some(&provision), &[]).unwrap();
+    let deps = al_test_cli::deps::load_corpus(&main_app, &publish, &[], Some(&provision), &[]).unwrap();
     kinds.extend(deps.apps.iter().map(|_| al_sema::AppKind::Dependency));
     manifests.extend(deps.manifests);
     lazy.extend(deps.lazy);

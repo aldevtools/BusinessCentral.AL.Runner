@@ -46,6 +46,8 @@ pub(super) struct Hit {
     pub(super) ws: al_sema::Workspace,
     pub(super) lowered: Lowered,
     pub(super) cache_report: Option<cc::CacheReport>,
+    /// Where the scan of the lazily read apps came from, when no dependency layer report says it.
+    pub(super) source_index: Option<&'static str>,
     pub(super) layers: Option<cc::Layers>,
     pub(super) decided: Decided,
 }
@@ -199,7 +201,8 @@ impl Layer {
             }
         };
         // The dependency layers the compile stands on: those of the key, opened (and built if one is missing).
-        let (layers, mut report) = if n_cached > 0 {
+        // Not for the compile of selected tests free of data, which used none (`Decided::compile_cache_skipped`).
+        let (layers, mut report) = if n_cached > 0 && !extra.decided.compile_cache_skipped {
             let cache = &plan.cc;
             let fill = |a: &mut [al_sema::workspace::AppSource]| {
                 for (a, l) in a.iter_mut().zip(lazy) {
@@ -291,6 +294,7 @@ impl Layer {
         Some(Hit {
             ws,
             lowered,
+            source_index: if report.is_some() { None } else { source_index },
             cache_report: report,
             layers,
             decided: extra.decided,
@@ -304,13 +308,15 @@ impl Layer {
     }
 
     /// Stores the fresh compile `c` (decision 6) when it is one the layer covers (a complete compile of the workspace on
-    /// the dependency layers, or of a workspace without dependency apps), and sets its report. The parts are taken now;
+    /// the dependency layers, of a workspace without dependency apps, or of selected tests free of data, which used no
+    /// layer), and sets its report. The parts are taken now;
     /// the entry is encoded and written on a thread of its own unless the options ask to write it now.
     pub(super) fn finish(mut self, c: &mut Compiled, pre_apply: Option<(Vec<al_ir::AppInfo>, Vec<al_ir::SourceFile>)>) {
         if let (Some(plan), Some((apps, sources))) = (self.plan.take(), pre_apply) {
             let storable = match (plan.key.below != [0; 32], c.cache_report.is_some(), c.incr.is_some()) {
                 (false, false, false) | (true, true, true) => Ok(()),
-                (true, false, _) => Err("the selected tests were compiled without the compile cache".to_string()),
+                // The compile of selected tests free of data, without the dependency layers, is the compile.
+                (true, false, false) if c.compile_cache_skipped => Ok(()),
                 _ => Err("the dependency layers did not fit; compiled without them".to_string()),
             };
             match storable.and_then(|()| Self::store(&plan, c, apps, sources)) {
@@ -360,6 +366,7 @@ impl Layer {
                 baseline: c.baseline,
                 baseline_note: c.baseline_note.clone(),
                 compiles: c.compiles,
+                compile_cache_skipped: c.compile_cache_skipped,
             },
         };
         let layer = al_sema::provided::DepLayer {

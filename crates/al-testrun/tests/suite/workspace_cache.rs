@@ -458,3 +458,35 @@ fn an_incremental_compile_after_a_read_equals_one_after_a_fresh_compile() {
     assert!(a == b, "{}", first_difference(&a, &b));
     fresh.same_lowering_as(&read).unwrap();
 }
+
+/// Selected tests that are free of data are compiled without the dependency layers and without the install baseline
+/// (`compile_suites_once`, the weighing); that compile is stored too, and read back equal to a fresh one.
+#[test]
+fn a_compile_of_selected_tests_free_of_data_reads_equal_to_fresh() {
+    let mut i = with_dependency();
+    i.apps[0].files = vec![(
+        "test/Pure.al".into(),
+        "codeunit 60140 PureTests { Subtype = Test; [Test] procedure Adds() var D: Codeunit DefaultGreet; begin if D.Hello() <> 'dep' then Error('hello'); end; }"
+            .into(),
+    )];
+    i.opts.only = Some(vec![(0, 60140)]);
+    let dir = tempfile::tempdir().unwrap();
+    let fresh = compile(&i, dir.path(), false);
+    let built = compile(&i, dir.path(), true);
+    assert_eq!(
+        state(&built),
+        Some(WorkspaceState::Built),
+        "{:?}",
+        built.workspace_cache()
+    );
+    let read = compile(&i, dir.path(), true);
+    assert_eq!(state(&read), Some(WorkspaceState::Read), "{:?}", read.workspace_cache());
+    let (a, b) = (wc::canonical_dump(&fresh), wc::canonical_dump(&read));
+    assert!(a.contains("skipped true"), "the compile of the weighing is the compile");
+    assert!(a == b, "{}", first_difference(&a, &b));
+    // A run compiles with the lean selection (another key than `compile_suites`): built once, then read.
+    let (plain, _) = outcomes(&i, dir.path(), false);
+    outcomes(&i, dir.path(), true);
+    let (cached, s) = outcomes(&i, dir.path(), true);
+    assert_eq!((cached, s), (plain, Some(WorkspaceState::Read)));
+}

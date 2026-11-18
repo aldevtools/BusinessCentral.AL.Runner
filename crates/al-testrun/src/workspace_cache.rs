@@ -440,6 +440,9 @@ pub struct Decided {
     pub baseline: bool,
     pub baseline_note: Option<String>,
     pub compiles: usize,
+    /// The compile of the weighing is the compile: the selected tests are free of data, compiled without the dependency
+    /// layers (`Compiled::compile_cache_skipped`).
+    pub compile_cache_skipped: bool,
 }
 
 /// What the entry holds besides the blocks (decision 3, `WorkspaceExtra`).

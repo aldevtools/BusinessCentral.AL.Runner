@@ -677,8 +677,9 @@ impl CorpusRuntime {
             &identities,
             &catalog,
         );
-        if let Some(d) = hit.as_ref().map(|h| h.decided.clone()) {
+        if let Some((d, index)) = hit.as_ref().map(|h| (h.decided.clone(), h.source_index)) {
             (baseline, baseline_note, compiles) = (d.baseline, d.baseline_note, d.compiles);
+            (compile_cache_skipped, source_index) = (d.compile_cache_skipped, index);
         }
         if hit.is_none()
             && try_skip
