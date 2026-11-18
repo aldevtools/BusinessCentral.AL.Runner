@@ -624,6 +624,7 @@ mod copy_array;
 mod coverage_ids;
 mod dotnet;
 mod dotnet_arg;
+mod evaluate_id;
 mod expr;
 mod ext_order;
 mod ext_request_page;
