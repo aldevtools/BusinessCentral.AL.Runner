@@ -323,6 +323,28 @@ impl ReachIndex {
         Some(cell.get_or_init(|| Box::new(Rec::record(events, lowered, self, o, r))))
     }
 
+    /// The tables routine `r` of `o` writes in its own body, when what it does beyond its static calls is known. `None`
+    /// when it runs an object (by an id, or through a codeunit variable), writes a table not known statically (a
+    /// `RecordRef`, an xmlport, media, `DataTransfer`) or has a part that is not known (a refused routine or construct,
+    /// triggers run on a table not known). For `table_reads::ReadOnlyTables`.
+    pub(crate) fn own_writes(
+        &self,
+        events: &al_vm::events::Registry,
+        lowered: &Lowered,
+        o: usize,
+        r: usize,
+    ) -> Option<Vec<u32>> {
+        let mut out = Vec::new();
+        for step in &self.summary(events, lowered, o, r)?.steps {
+            match step {
+                Step::Write(Some(t), _) => out.push(*t),
+                Step::Push(..) | Step::Events(_) | Step::TableOps(..) => {}
+                Step::Write(None, _) | Step::Run(_) | Step::Unknown(_) => return None,
+            }
+        }
+        Some(out)
+    }
+
     /// How many routines have a recorded [`Summary`].
     #[cfg(test)]
     fn recorded(&self) -> usize {

@@ -14,13 +14,18 @@ const DEP: &str = "table 2000000006 Company { DataPerCompany = false;
 /// (`Company`, declared `company_var`). A subscriber of Company's OnAfterDeleteEvent inserts a row of `Open Row`.
 /// `extra` adds objects; the tests read `Open Row`, `Install Row` and no table.
 fn app(company_var: &str, company: &str, extra: &str) -> String {
+    app_vars(&format!("Company: {company_var};"), company, extra)
+}
+
+/// [`app`] with the whole variable list `vars` of the procedure the install trigger calls after the stop.
+fn app_vars(vars: &str, company: &str, extra: &str) -> String {
     format!(
         "table 60970 \"Install Row\" {{ fields {{ field(1; Code; Code[20]) {{ }} }} keys {{ key(PK; Code) {{ }} }} }}
         table 60971 \"Open Row\" {{ fields {{ field(1; Code; Code[20]) {{ }} }} keys {{ key(PK; Code) {{ }} }} }}
         codeunit 60972 Inst {{ Subtype = Install;
             trigger OnInstallAppPerCompany() var Row: Record \"Install Row\"; T: Record \"Install Row\" temporary;
             begin Row.Code := 'A'; if Row.Insert() then; T.FilterGroup(1); T.SetRange(Code, 'A'); T.FilterGroup(0); Companies(); end;
-            local procedure Companies() var Company: {company_var}; begin {company} end; }}
+            local procedure Companies() var {vars} begin {company} end; }}
         codeunit 60977 \"Company Deleted\" {{
             [EventSubscriber(ObjectType::Table, Database::Company, 'OnAfterDeleteEvent', '', false, false)]
             local procedure Deleted(var Rec: Record Company; RunTrigger: Boolean) var R: Record \"Open Row\";
@@ -133,4 +138,67 @@ fn later_install_code_that_reads_an_assumed_table_is_refused_as_before() {
     let r = run(&a);
     assert!(not_run(r.outcome("ReadsSeen")), "{:?}", r.o);
     assert_eq!(r.outcome("NoTable"), &Outcome::Pass, "{:?}", r.o);
+}
+
+/// The stopped routine reads Company with a measured call (`Company.IsEmpty()`) and changes Company another way: the
+/// full reach stays (main's result), so the test that reads what the Company delete subscriber writes is not run, and the
+/// test that reads no table passes. `vars`: the locals of the procedure after the stop; `extra`: more objects.
+fn assert_full_reach(vars: &str, body: &str, extra: &str) {
+    let r = run(&app_vars(
+        &format!("Company: Record Company; {vars}"),
+        &format!("{IS_EMPTY_THEN} {body}"),
+        extra,
+    ));
+    assert!(not_run(r.outcome("ReadsOpenRow")), "{vars} {body}: {:?}", r.o);
+    assert_eq!(r.outcome("NoTable"), &Outcome::Pass, "{vars} {body}: {:?}", r.o);
+}
+
+const IS_EMPTY_THEN: &str = "if Company.IsEmpty() then;";
+
+// Review of PR 8275, shape d_array_insert: a record of an array of Company records is deleted.
+#[test]
+fn an_array_of_the_table_s_records_keeps_the_full_reach() {
+    assert_full_reach("Rows: array[2] of Record Company;", "if Rows[1].Delete() then;", "");
+}
+
+// Review of PR 8275, shapes e_recref_assert and co_company_recref_delete: a RecordRef opened on Company deletes.
+#[test]
+fn a_recordref_opened_on_the_table_keeps_the_full_reach() {
+    assert_full_reach(
+        "RecRef: RecordRef;",
+        "RecRef.Open(Database::Company); if RecRef.Delete() then;",
+        "",
+    );
+}
+
+// Review of PR 8275, shape e2_recref_const_callee: the RecordRef that deletes is in a callee with no Company record.
+#[test]
+fn a_recordref_opened_on_the_table_in_a_callee_keeps_the_full_reach() {
+    let callee = "codeunit 60978 Del { procedure Go() var RecRef: RecordRef; begin RecRef.Open(Database::Company); if RecRef.Delete() then; end; }";
+    assert_full_reach("D: Codeunit Del;", "D.Go();", callee);
+}
+
+// Review of PR 8275, shape e3_fieldref_validate: a FieldRef of a RecordRef opened on Company validates (no write).
+#[test]
+fn a_fieldref_validate_on_the_table_keeps_the_full_reach() {
+    assert_full_reach(
+        "RecRef: RecordRef; FldRef: FieldRef;",
+        "RecRef.Open(Database::Company); FldRef := RecRef.Field(3); FldRef.Validate('X');",
+        "",
+    );
+}
+
+// Review of PR 8275, shapes c2_return_assert and c_named_return_delete: a record a callee returns is deleted; the callee
+// only reads its own record.
+#[test]
+fn a_returned_record_of_the_table_keeps_the_full_reach() {
+    let callee = "codeunit 60978 Src { procedure GetRow() R: Record Company; begin if R.Get('X') then; end; }";
+    assert_full_reach("S: Codeunit Src;", "if S.GetRow().Delete() then;", callee);
+}
+
+// Review of PR 8275, shape r_codeunit_run_assert: a codeunit with TableNo = Company, run by its id, deletes Rec.
+#[test]
+fn a_table_no_codeunit_run_by_id_keeps_the_full_reach() {
+    let w = "codeunit 60978 W { TableNo = Company; trigger OnRun() begin if Rec.Delete() then; end; }";
+    assert_full_reach("", "Codeunit.Run(Codeunit::W);", w);
 }

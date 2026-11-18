@@ -166,9 +166,9 @@ pub(crate) fn subscribers_reached_from(
     subscribers_reached_with(engine, lowered, roots, false)
 }
 
-/// [`subscribers_reached_from`] without the subscribers of the ten table events of a table a routine of the walk only
-/// reads in a shape corpus PR 1431 measured (`table_reads::reads_only`): the reach `install.rs` `touched` narrows on
-/// assumption `table-reads-raise-no-table-event`.
+/// [`subscribers_reached_from`] without the subscribers of the ten table events of a table that every routine of the walk
+/// only reads, in a shape corpus PR 1431 measured (`table_reads::ReadOnlyTables`): the reach `install.rs` `touched`
+/// narrows on assumption `table-reads-raise-no-table-event`.
 pub(crate) fn subscribers_reached_reading(
     engine: &Engine,
     lowered: &Lowered,
@@ -189,6 +189,7 @@ fn subscribers_reached_with(
     let mut seen = BTreeSet::new();
     let mut reached = BTreeSet::new();
     let mut stack = roots.to_vec();
+    let mut read_only = reading.then(super::table_reads::ReadOnlyTables::default);
     while let Some((o, r)) = stack.pop() {
         if !seen.insert((o, r)) {
             continue;
@@ -217,13 +218,12 @@ fn subscribers_reached_with(
                 tables.insert(*t as usize);
             }
         }
-        for t in tables {
-            if reading && super::table_reads::reads_only(lowered, o, r, t) {
-                super::table_reads::non_table_event_subscribers(engine, t)
-                    .into_iter()
-                    .for_each(&mut reach);
-            } else {
-                events.subscribers_of(t).iter().copied().for_each(&mut reach);
+        match &mut read_only {
+            Some(walk) => walk.visit(engine, lowered, (o, r), &tables, &mut reach),
+            None => {
+                for t in tables {
+                    events.subscribers_of(t).iter().copied().for_each(&mut reach);
+                }
             }
         }
     }
