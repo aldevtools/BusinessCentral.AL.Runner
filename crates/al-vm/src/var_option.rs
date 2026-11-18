@@ -120,6 +120,33 @@ pub(crate) fn element_store(v: &Value, el: &RtType, var_param: bool, current: &V
 }
 
 impl crate::Session {
+    /// What a store of `v` into an element of array `base` (elements of type `el`, now `current`) in frame `f` leaves there
+    /// instead of the usual conversion: an element of a `var` array parameter of the running routine keeps its caller's
+    /// members (`element_store`).
+    pub(crate) fn option_element_store(
+        &self,
+        base: &al_ir::Place,
+        v: &Value,
+        el: &RtType,
+        f: &crate::Frame,
+        current: &Value,
+    ) -> Option<Value> {
+        let var_param = matches!(base, al_ir::Place::Local(s)
+            if self.engine.program.objects[f.object].routines[f.routine].by_var.get(*s) == Some(&true));
+        element_store(v, el, var_param, current)
+    }
+
+    /// The value a store of `v` into local `i` of the routine running in `f` leaves there: an Option goes through
+    /// `param_store` (a memberless `var` Option parameter that holds its caller's members); any other value is stored as is.
+    pub(crate) fn option_param_store(&self, i: usize, v: Value, f: &crate::Frame) -> Value {
+        if !matches!(v, Value::Option(..)) {
+            return v;
+        }
+        let r = &self.engine.program.objects[f.object].routines[f.routine];
+        let var_param = r.by_var.get(i).copied().unwrap_or(false);
+        param_store(v, &r.locals[i].ty, var_param, &f.locals[i])
+    }
+
     /// The refusal of a call of event publisher `routine` of `object` that hands `args` (with `values`, from frame `f`) to a
     /// `var` Option parameter with members that a subscriber declares without members: the subscriber keeps the members
     /// (`var_binding`), measured for a `var` parameter that stands for a variable of the caller's `var` section

@@ -1801,13 +1801,7 @@ impl Session {
             _ => v,
         };
         match p {
-            // A memberless `var` Option parameter that holds its caller's members (`var_option::param_store`).
-            ir::Place::Local(i) if matches!(v, Value::Option(..)) => {
-                let r = &self.engine.program.objects[f.object].routines[f.routine];
-                let var_param = r.by_var.get(*i).copied().unwrap_or(false);
-                f.locals[*i] = crate::var_option::param_store(v, &r.locals[*i].ty, var_param, &f.locals[*i]);
-            }
-            ir::Place::Local(i) => f.locals[*i] = v,
+            ir::Place::Local(i) => f.locals[*i] = self.option_param_store(*i, v, f),
             ir::Place::Global(i) => self.put_global(*i, v, f, assign)?,
             ir::Place::BaseGlobal(i) => {
                 let base = self.base_instance(f)?;
@@ -1855,10 +1849,7 @@ impl Session {
                     }
                     Err(e) => return Err(e),
                 };
-                // An element of a caller's array of Options keeps the caller's members (`var_option::element_store`).
-                let var_param = matches!(base.as_ref(), ir::Place::Local(s)
-                    if self.engine.program.objects[f.object].routines[f.routine].by_var.get(*s) == Some(&true));
-                let kept = crate::var_option::element_store(&v, &el_ty, var_param, &arr.borrow()[flat]);
+                let kept = self.option_element_store(base, &v, &el_ty, f, &arr.borrow()[flat]);
                 arr.borrow_mut()[flat] = match kept {
                     Some(v) => v,
                     None => ops::convert(v, &el_ty)?,

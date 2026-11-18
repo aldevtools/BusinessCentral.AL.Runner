@@ -683,19 +683,8 @@ impl Lowerer<'_> {
                     // `Blob.Length` compared with 0: only the sign of the stored size is observed (issue 6896; blob_length_sign.rs).
                     Self::blob_length_emit_id(&id, node)
                 };
-                // `IsNull` of a `[RunOnClient]` DotNet variable: the variable can never be assigned (its constructor and
-                // `Create` raise), so it is null (onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:171-176, :211-223
-                // `ok Yes`; the second pin is on corpus master from PR 790).
-                // `Clear` of a `[RunOnClient]` variable: it stays null (corpus master 92fdde19,
-                // onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:454-480 Y16_RunOnClient_ClearAndVariant `cleared isnull=Yes`).
-                if let Some(why) = args.first().filter(|_| id == "System.Clear#1").and_then(|a| self.var_option_clear_refusal(a)) {
-                    return Err(why);
-                }
-                if (id == "System.IsNull#1" || id == "System.Clear#1")
-                    && args.len() == 1
-                    && self.run_on_client_var(&args[0]).is_some()
-                {
-                    return Ok(ir::Expr::Const(ir::Const::Boolean(true)));
+                if let Some(e) = self.is_null_or_clear(&id, args)? {
+                    return Ok(e);
                 }
                 let receiver = match &receiver_node {
                     // `CurrReport` is the report whose code is running: the VM takes the running
@@ -1202,6 +1191,26 @@ impl Lowerer<'_> {
             self.assume(al_builtins::assumptions::Assumption::EnumOverloadOwnType);
         }
         self.twin_call_refusal(object, offset)
+    }
+
+    /// `IsNull` or `Clear` of one argument that `call` lowers apart, or `None`.
+    /// - `IsNull` of a `[RunOnClient]` DotNet variable: the variable can never be assigned (its constructor and `Create`
+    ///   raise), so it is null (onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:171-176, :211-223 `ok Yes`; the second pin is
+    ///   on corpus master from PR 790).
+    /// - `Clear` of a `[RunOnClient]` variable: it stays null (corpus master 92fdde19,
+    ///   onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:454-480 Y16_RunOnClient_ClearAndVariant `cleared isnull=Yes`).
+    /// - `Clear` of a memberless `var` Option parameter refuses (`var_option_clear_refusal`).
+    fn is_null_or_clear(&self, id: &str, args: &[SyntaxNode]) -> L<Option<ir::Expr>> {
+        let [a] = args else {
+            return Ok(None);
+        };
+        if id == "System.Clear#1" {
+            if let Some(why) = self.var_option_clear_refusal(a) {
+                return Err(why);
+            }
+        }
+        let shortcut = (id == "System.IsNull#1" || id == "System.Clear#1") && self.run_on_client_var(a).is_some();
+        Ok(shortcut.then_some(ir::Expr::Const(ir::Const::Boolean(true))))
     }
 
     /// The checker's runtime refusal of this call, if any: AL0666 (a builtin newer than the app's runtime) or AR1007

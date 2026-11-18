@@ -73,9 +73,10 @@ fn ordinal(t: &str) -> Option<u64> {
 /// and without its blanks, an ordinal past the members kept, a rejected text false with the result used and the value kept,
 /// as a statement the error that lists the caller's members, also for the empty text (assumption var-option-caller-members,
 /// corpus PR 1432, OptionVarMemberlessEvaluate.al:77-244, :170). After the routine stored into the parameter
-/// (`option_members::stored`): not measured, refused. A blank text as a statement from a caller without members (the error
-/// is measured for a caller with members only): refused.
-pub(super) fn memberless_var_parameter(c: &dyn Ctx, a: &[Value]) -> Result<(), Signal> {
+/// (`option_members::stored`): not measured, refused. A blank text is measured from callers whose members all have a name
+/// (First,Second,Third, :170-185; " ",First, :286-325); from a caller with an empty member (`,A,B`, or a caller without
+/// members) it refuses.
+pub(super) fn memberless_var_parameter(a: &[Value]) -> Result<(), Signal> {
     let Value::Option(_, members) = &a[0] else {
         return Ok(());
     };
@@ -83,9 +84,9 @@ pub(super) fn memberless_var_parameter(c: &dyn Ctx, a: &[Value]) -> Result<(), S
         return unsupported(crate::option_members::stored_refusal("Evaluate"));
     }
     let blank = crate::native::text_of(&a[1]).is_some_and(|t| trimmed(&t).is_empty());
-    if blank && !c.ret_used() && crate::option_members::memberless(members) {
+    if blank && members.iter().any(String::is_empty) {
         return unsupported(
-            "Evaluate of a blank text as a statement into a `var` Option parameter declared without members, from a caller without members (not measured, assumption var-option-caller-members)",
+            "Evaluate of a blank text into a `var` Option parameter declared without members, from a caller with an empty member or without members (not measured, assumption var-option-caller-members)",
         );
     }
     crate::assumptions::assume(crate::assumptions::Assumption::VarOptionCallerMembers);

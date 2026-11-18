@@ -1,8 +1,8 @@
 //! `Evaluate` into a `var` Option parameter declared without members, or into an element of a `var` array of such Options
 //! (al-runner issue 7994): the text is read against the caller's members (assumption var-option-caller-members, corpus PR
 //! 1432, OptionVarMemberlessEvaluate.al; Microsoft's System Application test `Json Test`.
-//! TestGetEnumPropertyValueFromJObjectByName passes on BC 28.4). A caller without members has none to read, a blank text as
-//! a statement refuses (not measured). The neighbors keep their results. More shapes: `var_option_member_lists.rs`.
+//! TestGetEnumPropertyValueFromJObjectByName passes on BC 28.4). A caller without members has none to read; a blank text from
+//! a caller with an empty member or without members refuses (not measured). The neighbors keep their results. More shapes: `var_option_member_lists.rs`.
 
 use al_builtins::native::Signal;
 use al_testkit::text;
@@ -51,6 +51,28 @@ codeunit 69810 C
     begin
         EvaluateInto(Value, '');
         exit(Format(Value));
+    end;
+
+    procedure EmptyMemberCallerBlankText(): Text
+    var Value: Option ,PrimaryKey,NonKeyFields;
+    begin
+        Value := Value::PrimaryKey;
+        EvaluateInto(Value, '');
+        exit(Format(Value));
+    end;
+
+    procedure MemberlessBlankTextResultUsed(): Text
+    var Value: Option;
+    begin
+        exit(Format(TryEvaluateInto(Value, '')));
+    end;
+
+    procedure BlankMemberCallerBlankText(): Text
+    var Value: Option " ",A,B;
+    begin
+        Value := Value::A;
+        EvaluateInto(Value, '');
+        exit(Format(Value, 0, 2));
     end;
 
     procedure FieldByOrdinal(): Text
@@ -186,6 +208,23 @@ fn a_blank_text_as_a_statement_is_refused() {
         Err(Signal::Unsupported(why)) => assert!(why.contains("declared without members"), "{why}"),
         other => panic!("expected a refusal, got {other:?}"),
     }
+}
+
+/// The probe measures a blank text from callers whose members all have a name (OptionVarMemberlessEvaluate.al:170-185,
+/// :286-325). A caller with an empty member is not measured.
+#[test]
+fn a_blank_text_from_a_caller_with_an_empty_member_is_refused() {
+    for routine in ["EmptyMemberCallerBlankText", "MemberlessBlankTextResultUsed"] {
+        match al_testkit::run_in(SRC, "C", routine) {
+            Err(Signal::Unsupported(why)) => assert!(why.contains("an empty member"), "{routine}: {why}"),
+            other => panic!("{routine}: expected a refusal, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn a_blank_text_from_a_caller_with_a_blank_member_reads_that_member() {
+    assert_eq!(assumed("BlankMemberCallerBlankText"), "0");
 }
 
 #[test]
