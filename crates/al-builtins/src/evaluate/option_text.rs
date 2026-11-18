@@ -67,18 +67,25 @@ fn ordinal(t: &str) -> Option<u64> {
     }
 }
 
-/// `Evaluate` into a `var` Option parameter declared without members (the lowering's `memberless_var_option_parameter`):
-/// the parameter holds the caller's members (al-vm `var_option::var_binding`), and the text is read against them as by any
-/// Option variable (`variable`): a name in any case and without its blanks, an ordinal past the members kept, a rejected text
-/// false with the result used and the value kept, as a statement the error that lists the caller's members (assumption
-/// var-option-caller-members, corpus PR 1432, OptionVarMemberlessEvaluate.al). A blank text that names no member, as a
-/// statement, raised on BC with an error the probe did not observe (MemberlessVar_EvaluateStatement_Empty): refused.
+/// `Evaluate` into a `var` Option parameter declared without members (the lowering's `memberless_var_option_parameter`), or
+/// into an element of a `var` array parameter of such Options: the parameter holds the caller's members (al-vm
+/// `var_option::var_binding`), and the text is read against them as by any Option variable (`variable`): a name in any case
+/// and without its blanks, an ordinal past the members kept, a rejected text false with the result used and the value kept,
+/// as a statement the error that lists the caller's members, also for the empty text (assumption var-option-caller-members,
+/// corpus PR 1432, OptionVarMemberlessEvaluate.al:77-244, :170). After the routine stored into the parameter
+/// (`option_members::stored`): not measured, refused. A blank text as a statement from a caller without members (the error
+/// is measured for a caller with members only): refused.
 pub(super) fn memberless_var_parameter(c: &dyn Ctx, a: &[Value]) -> Result<(), Signal> {
+    let Value::Option(_, members) = &a[0] else {
+        return Ok(());
+    };
+    if crate::option_members::is_stored(members) {
+        return unsupported(crate::option_members::stored_refusal("Evaluate"));
+    }
     let blank = crate::native::text_of(&a[1]).is_some_and(|t| trimmed(&t).is_empty());
-    let blank_member = matches!(&a[0], Value::Option(_, m) if m.iter().any(|m| m == " "));
-    if blank && !blank_member && !c.ret_used() {
+    if blank && !c.ret_used() && crate::option_members::memberless(members) {
         return unsupported(
-            "Evaluate of a blank text into a `var` Option parameter declared without members, as a statement (the error is not measured, assumption var-option-caller-members)",
+            "Evaluate of a blank text as a statement into a `var` Option parameter declared without members, from a caller without members (not measured, assumption var-option-caller-members)",
         );
     }
     crate::assumptions::assume(crate::assumptions::Assumption::VarOptionCallerMembers);
@@ -87,8 +94,8 @@ pub(super) fn memberless_var_parameter(c: &dyn Ctx, a: &[Value]) -> Result<(), S
 
 /// `Evaluate` into an element of a `var` array parameter of Options declared without members: the element holds the caller's
 /// members and keeps them when it is stored (al-vm `var_option::element_store`). Measured for a member name with the result used
-/// (OptionVarMemberlessEvaluate.al MemberlessVarArray_EvaluateResult, assumption var-option-caller-members); a text read as an
-/// ordinal or a name is stored the same way. A rejected text is not measured: `parsed` false or an error refuses.
+/// (OptionVarMemberlessEvaluate.al:552, assumption var-option-caller-members); a text read as an ordinal or a name is stored the
+/// same way. A rejected text is not measured: `parsed` false or an error refuses.
 pub(super) fn memberless_var_array_element(parsed: Result<Value, Signal>) -> Result<Value, Signal> {
     match parsed {
         Ok(Value::Boolean(false)) | Err(Signal::Error(_)) => unsupported(

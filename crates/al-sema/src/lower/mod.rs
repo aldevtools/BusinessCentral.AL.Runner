@@ -336,6 +336,8 @@ pub(crate) struct Lowerer<'a> {
     loops: Vec<bool>,
     /// `by_var` of the parameters of the routine being lowered.
     var_params: Vec<bool>,
+    /// The slot of the named return value of the routine being lowered.
+    named_ret: Option<usize>,
     /// The routine being lowered reads MaxStrLen of a `var` parameter, or hands one on to a `var` parameter
     /// (`ir::Routine::reads_var_max_len`).
     reads_var_max_len: bool,

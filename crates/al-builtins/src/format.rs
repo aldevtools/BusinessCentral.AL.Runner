@@ -4,6 +4,7 @@
 
 use crate::native::Signal;
 use crate::value::Value;
+use std::sync::Arc;
 
 mod recordid_number;
 mod region;
@@ -352,7 +353,7 @@ fn unnamed_member_text(members: &[String], o: i32) -> String {
 }
 
 /// The text of an Option value in a standard format (an arm of [`format_value`]).
-fn option_text(o: &i32, members: &[String], standard: i32) -> Result<String, FormatFail> {
+fn option_text(o: &i32, members: &Arc<[String]>, standard: i32) -> Result<String, FormatFail> {
     Ok(match standard {
         2 | 9 if crate::sysenum::is_field_table_type(members) => FIELD_TABLE_TYPE_ORDINALS
             .get(*o as usize)
@@ -373,7 +374,12 @@ fn option_text(o: &i32, members: &[String], standard: i32) -> Result<String, For
         2 | 9 if !crate::sysenum::ordinals_hidden(members, standard) => o.to_string(),
         // `Option` declared without members is the one empty name: it shows the number
         // (types/decimal-integer/ScT70062.al:Option_Defaults `nomembers_len`, `nomembers_3`).
-        _ if members.len() == 1 && members[0].is_empty() => o.to_string(),
+        // After a routine stored into its `var` parameter declared without members while it held the caller's members:
+        // not measured (`option_members`).
+        _ if crate::option_members::is_stored(members) => {
+            return Err(FormatFail::Unsupported(crate::option_members::stored_refusal("Format")));
+        }
+        _ if crate::option_members::memberless(members) => o.to_string(),
         // A member with a blank name shows as one space (types/decimal-integer/ScT70053.al:Option_Format `blank_len`).
         _ => match members.get(*o as usize) {
             // An unquoted empty member shows its number (text/P69OptionInText.al:Option_StrSubstNo

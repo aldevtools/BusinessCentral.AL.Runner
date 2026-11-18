@@ -1497,6 +1497,7 @@ pub fn evaluate_memberless_var_option_element(
     _: Option<&mut Value>,
     a: &mut [Value],
 ) -> Result<Value, Signal> {
+    option_text::memberless_var_parameter(c, a)?;
     option_text::memberless_var_array_element(evaluate_with(c, a, true))
 }
 

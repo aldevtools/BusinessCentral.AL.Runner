@@ -395,7 +395,7 @@ impl Lowerer<'_> {
                     }
                     if p.by_var {
                         let arg = self.by_var_arg(a)?;
-                        if let Some(why) = self.var_option_arg_refusal(object, routine, &p.ty, a, &arg) {
+                        if let Some(why) = self.var_option_arg_refusal(Some((object, routine)), &p.ty, a, &arg) {
                             return Ok(ir::Expr::Refused(format!("call `{}`: {why}", node.text())));
                         }
                         // A `var` Text or Code parameter handed on to another `var` parameter keeps the declared length of the
@@ -688,6 +688,9 @@ impl Lowerer<'_> {
                 // `ok Yes`; the second pin is on corpus master from PR 790).
                 // `Clear` of a `[RunOnClient]` variable: it stays null (corpus master 92fdde19,
                 // onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:454-480 Y16_RunOnClient_ClearAndVariant `cleared isnull=Yes`).
+                if let Some(why) = args.first().filter(|_| id == "System.Clear#1").and_then(|a| self.var_option_clear_refusal(a)) {
+                    return Err(why);
+                }
                 if (id == "System.IsNull#1" || id == "System.Clear#1")
                     && args.len() == 1
                     && self.run_on_client_var(&args[0]).is_some()

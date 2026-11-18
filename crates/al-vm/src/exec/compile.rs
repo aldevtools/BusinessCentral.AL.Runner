@@ -1334,6 +1334,14 @@ impl<'a> Compiler<'a> {
             return Ok(());
         }
         match p {
+            // A `var` Option parameter declared without members may hold its caller's members: its stores go through
+            // `write_as` (`var_option::param_store`).
+            ir::Place::Local(i)
+                if self.by_var.get(*i) == Some(&true)
+                    && matches!(self.locals_ty.get(*i), Some(RtType::Option(m)) if al_builtins::option_members::memberless(m)) =>
+            {
+                self.store_place(p, e, single)?;
+            }
             // A local of a typed kind takes a proven value of that kind straight into its register.
             ir::Place::Local(i)
                 if self.locals_ty.get(*i).and_then(of_rt).is_some_and(|t| {
@@ -1351,25 +1359,29 @@ impl<'a> Compiler<'a> {
                 let pi = self.place(p);
                 self.emit(Op::StoreLocal { i, a, p: pi });
             }
-            _ => {
-                let a = if has_index(p) {
-                    self.expr_copy(e)?
-                } else {
-                    self.expr_any(e)?
-                };
-                let rp = self.rplace(p)?;
-                // A field read stored in a global or an array element: a Blob moves first (`blob_transfer::FieldRead`).
-                if let Some(mut read) = self.blob_field_read(e).filter(|_| FieldRead::stored_in(p)) {
-                    read.global = matches!(p, ir::Place::Global(_));
-                    self.emit(Op::BlobFieldRead { r: a, read });
-                }
-                let pi = self.place(&rp);
-                if let Some((i, kind)) = single {
-                    self.emit(Op::SingleWrite { i, kind });
-                }
-                self.emit(Op::StorePlace { p: pi, a });
-            }
+            _ => self.store_place(p, e, single)?,
         }
+        Ok(())
+    }
+
+    /// `p := e` through `Op::StorePlace`, which writes through `Session::write_as`.
+    fn store_place(&mut self, p: &'a ir::Place, e: &'a ir::Expr, single: Option<(u32, SingleWriteKind)>) -> R<()> {
+        let a = if has_index(p) {
+            self.expr_copy(e)?
+        } else {
+            self.expr_any(e)?
+        };
+        let rp = self.rplace(p)?;
+        // A field read stored in a global or an array element: a Blob moves first (`blob_transfer::FieldRead`).
+        if let Some(mut read) = self.blob_field_read(e).filter(|_| FieldRead::stored_in(p)) {
+            read.global = matches!(p, ir::Place::Global(_));
+            self.emit(Op::BlobFieldRead { r: a, read });
+        }
+        let pi = self.place(&rp);
+        if let Some((i, kind)) = single {
+            self.emit(Op::SingleWrite { i, kind });
+        }
+        self.emit(Op::StorePlace { p: pi, a });
         Ok(())
     }
 

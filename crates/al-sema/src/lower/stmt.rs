@@ -117,6 +117,7 @@ impl Lowerer<'_> {
             ret_local = Some(locals.len());
             add(self, n, t.clone(), &mut locals);
         }
+        self.named_ret = ret_local;
         for v in r.local_var_decls() {
             let ty = v.type_ref().map(|t| Ty::from_type_ref(&t)).unwrap_or(Ty::Unknown);
             let label = v.type_ref().as_ref().and_then(label_text);
@@ -1346,6 +1347,9 @@ impl Lowerer<'_> {
         }
         for k in kids.iter().take(2) {
             self.security_filtering_array_refusal(k, "an array assignment")?;
+        }
+        if let Some(why) = self.var_option_element_store_refusal(&kids[0], &kids[1]) {
+            return Err(why);
         }
         // `CurrFieldNo := FieldNo(X)` in table code sets the field number of the implicit Rec. Base Application's
         // `SelltoContactLookup` does it before it validates a field. The corpus pins reading CurrFieldNo

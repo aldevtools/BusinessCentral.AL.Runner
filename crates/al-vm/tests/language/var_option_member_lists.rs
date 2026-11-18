@@ -16,7 +16,31 @@ table 69821 Row
         field(1; Id; Integer) { }
         field(2; Opt; Option) { OptionMembers = First,Second,Third; }
         field(3; OptCap; Option) { OptionMembers = First,Second,Third; OptionCaption = 'One,Two,Three'; }
+        field(4; OptML; Option) { OptionMembers = First,Second,Third; OptionCaptionML = ENU = 'One,Two,Three'; }
     }
+
+    procedure SelfFormat(): Text
+    begin
+        exit(Inside(Opt));
+    end;
+
+    local procedure Inside(var Value: Option): Text
+    begin
+        exit(Format(Value));
+    end;
+}
+
+interface IOpt
+{
+    procedure FormatInside(var Value: Option): Text;
+}
+
+codeunit 69823 Impl implements IOpt
+{
+    procedure FormatInside(var Value: Option): Text
+    begin
+        exit(Format(Value) + '|' + Format(Value, 0, 2));
+    end;
 }
 
 codeunit 69820 C
@@ -25,6 +49,7 @@ codeunit 69820 C
         GlobalV: Option First,Second,Third;
         GlobalArr: array[2] of Option First,Second,Third;
         GlobalRow: Record Row;
+        GlobalV0: Option;
 
     procedure EmptyBodyLocal(): Text
     var V: Option First,Second,Third;
@@ -218,8 +243,9 @@ codeunit 69820 C
     procedure EvaluateBlankStatement(): Text
     var V: Option First,Second,Third;
     begin
-        EvalStatement(V, '');
-        exit(Format(V));
+        V := V::Third;
+        asserterror EvalStatement(V, '');
+        exit(GetLastErrorText() + '|' + GetLastErrorCode() + '|' + Format(V));
     end;
 
     procedure EvaluateArrayElementUnknown(): Text
@@ -330,6 +356,361 @@ codeunit 69820 C
         exit(Format(Evaluate(A[1], T)) + '|' + Format(A[1]));
     end;
 
+    procedure AssignThenFormatInside(): Text
+    var V: Option First,Second,Third;
+    begin
+        V := V::Second;
+        exit(AssignFormat(V));
+    end;
+
+    procedure AssignThenEvaluate(): Text
+    var V: Option First,Second,Third;
+    begin
+        AssignEvaluate(V);
+        exit(Format(V));
+    end;
+
+    procedure AssignThenHop(): Text
+    var V: Option First,Second,Third;
+    begin
+        exit(AssignHop(V));
+    end;
+
+    procedure AssignOtherThenFormat(): Text
+    var V: Option First,Second,Third;
+    begin
+        exit(AssignOtherFormat(V));
+    end;
+
+    procedure AssignThenOrdinal(): Text
+    var V: Option First,Second,Third;
+    begin
+        exit(AssignOrdinal(V) + '|' + Format(V));
+    end;
+
+    procedure ClearInside(): Text
+    var V: Option First,Second,Third;
+    begin
+        V := V::Second;
+        exit(ClearFormat(V));
+    end;
+
+    procedure ArrayAssignThenFormatInside(): Text
+    var Arr: array[2] of Option First,Second,Third;
+    begin
+        exit(ArrayAssignFormat(Arr));
+    end;
+
+    procedure ArrayAssignOther(): Text
+    var Arr: array[2] of Option First,Second,Third;
+    begin
+        ArrayAssignOtherOption(Arr);
+        exit(Format(Arr[1]));
+    end;
+
+    procedure ArrayClear(): Text
+    var Arr: array[2] of Option First,Second,Third;
+    begin
+        ArrayClearAll(Arr);
+        exit(Format(Arr[1]));
+    end;
+
+    procedure LocalArrayCopy(): Text
+    var
+        Arr: array[2] of Option First,Second,Third;
+        Arr0: array[2] of Option;
+    begin
+        Arr[1] := Arr[1]::Second;
+        Arr0 := Arr;
+        Arr0[1] := 1;
+        exit(Format(Arr0[1]));
+    end;
+
+    procedure LocalCopyArray(): Text
+    var
+        Arr: array[2] of Option First,Second,Third;
+        Arr0: array[2] of Option;
+    begin
+        Arr[1] := Arr[1]::Second;
+        CopyArray(Arr0, Arr, 1);
+        Arr0[1] := 1;
+        exit(Format(Arr0[1]));
+    end;
+
+    procedure ByValueArrayParameter(): Text
+    var Arr: array[2] of Option First,Second,Third;
+    begin
+        Arr[1] := Arr[1]::Second;
+        exit(ByValueArrayAssign(Arr));
+    end;
+
+    procedure InterfaceLocal(): Text
+    var
+        V: Option First,Second,Third;
+        Impl: Codeunit Impl;
+        I: Interface IOpt;
+    begin
+        I := Impl;
+        V := V::Second;
+        exit(I.FormatInside(V) + '|' + Format(V));
+    end;
+
+    procedure InterfaceCaptionField(): Text
+    var
+        R: Record Row;
+        Impl: Codeunit Impl;
+        I: Interface IOpt;
+    begin
+        I := Impl;
+        exit(I.FormatInside(R.OptCap));
+    end;
+
+    procedure InterfaceGlobalRecordField(): Text
+    var
+        Impl: Codeunit Impl;
+        I: Interface IOpt;
+    begin
+        I := Impl;
+        exit(I.FormatInside(GlobalRow.Opt));
+    end;
+
+    procedure InterfaceVarParameter(): Text
+    begin
+        exit(InterfacePassOnVar(GlobalV));
+    end;
+
+    procedure ByValueToPublisher(): Text
+    begin
+        GlobalV := GlobalV::Second;
+        exit(PassToPublisher(GlobalV));
+    end;
+
+    procedure ByValueToOtherMembers(): Text
+    begin
+        exit(PassToOther(GlobalV));
+    end;
+
+    procedure ByValueArrayToVarArray(): Text
+    begin
+        exit(PassArrayOn(GlobalArr));
+    end;
+
+    procedure NamedReturnCaller(): Text
+    begin
+        exit(Format(NamedReturn()));
+    end;
+
+    procedure ByValueRecordField(): Text
+    var R: Record Row;
+    begin
+        exit(PassRowField(R));
+    end;
+
+    procedure ByValueMemberlessToMembers(): Text
+    var V0: Option;
+    begin
+        exit(PassMemberless(V0));
+    end;
+
+    procedure LocalFieldToPublisher(): Text
+    var
+        R: Record Row;
+        Seen: Text;
+    begin
+        OnMemberless(R.Opt, Seen);
+        exit(Seen);
+    end;
+
+    procedure LocalElementToPublisher(): Text
+    var
+        Arr: array[2] of Option First,Second,Third;
+        Seen: Text;
+    begin
+        OnMemberless(Arr[1], Seen);
+        exit(Seen);
+    end;
+
+    procedure LocalArrayToPublisher(): Text
+    var Arr: array[2] of Option First,Second,Third;
+    begin
+        OnArray(Arr);
+        exit(Format(Arr[1]));
+    end;
+
+    procedure CaptionMLFieldCaller(): Text
+    var R: Record Row;
+    begin
+        exit(FormatInside(R.OptML));
+    end;
+
+    procedure VarRecordField(): Text
+    var R: Record Row;
+    begin
+        exit(PassVarRowField(R));
+    end;
+
+    procedure TableOwnField(): Text
+    var R: Record Row;
+    begin
+        exit(R.SelfFormat());
+    end;
+
+    procedure MemberlessGlobalToMembers(): Text
+    begin
+        exit(SameFormat(GlobalV0));
+    end;
+
+    procedure VarArrayHandedOn(): Text
+    begin
+        exit(PassVarArrayOn(GlobalArr));
+    end;
+
+    procedure MembersPublisherLocal(): Text
+    var
+        V: Option First,Second,Third;
+        Seen: Text;
+    begin
+        V := V::Second;
+        OnWithMembers(V, Seen);
+        exit(Seen);
+    end;
+
+    procedure MembersPublisherCaptionField(): Text
+    var
+        R: Record Row;
+        Seen: Text;
+    begin
+        OnWithMembers(R.OptCap, Seen);
+        exit(Seen);
+    end;
+
+    procedure MembersPublisherGlobal(): Text
+    var Seen: Text;
+    begin
+        OnWithMembers(GlobalV, Seen);
+        exit(Seen);
+    end;
+
+    local procedure AssignFormat(var Value: Option): Text
+    begin
+        Value := 1;
+        exit(Format(Value));
+    end;
+
+    local procedure AssignEvaluate(var Value: Option)
+    begin
+        Value := 1;
+        Evaluate(Value, 'Third');
+    end;
+
+    local procedure AssignHop(var Value: Option): Text
+    begin
+        Value := 1;
+        exit(FormatInside(Value));
+    end;
+
+    local procedure AssignOtherFormat(var Value: Option): Text
+    var O: Option A,B,C;
+    begin
+        O := O::C;
+        Value := O;
+        exit(Format(Value));
+    end;
+
+    local procedure AssignOrdinal(var Value: Option): Text
+    begin
+        Value := 1;
+        exit(Format(Value, 0, 2));
+    end;
+
+    local procedure ClearFormat(var Value: Option): Text
+    begin
+        Clear(Value);
+        exit(Format(Value));
+    end;
+
+    local procedure ArrayAssignFormat(var A: array[2] of Option): Text
+    begin
+        A[1] := 1;
+        exit(Format(A[1]));
+    end;
+
+    local procedure ArrayAssignOtherOption(var A: array[2] of Option)
+    var O: Option A,B,C;
+    begin
+        O := O::B;
+        A[1] := O;
+    end;
+
+    local procedure ArrayClearAll(var A: array[2] of Option)
+    begin
+        Clear(A);
+    end;
+
+    local procedure ByValueArrayAssign(A: array[2] of Option): Text
+    begin
+        A[1] := 1;
+        exit(Format(A[1]));
+    end;
+
+    local procedure InterfacePassOnVar(var V: Option First,Second,Third): Text
+    var
+        Impl: Codeunit Impl;
+        I: Interface IOpt;
+    begin
+        I := Impl;
+        exit(I.FormatInside(V));
+    end;
+
+    local procedure PassToPublisher(V: Option First,Second,Third): Text
+    var Seen: Text;
+    begin
+        OnMemberless(V, Seen);
+        exit(Seen + '|' + Format(V));
+    end;
+
+    local procedure PassToOther(V: Option First,Second,Third): Text
+    begin
+        exit(OtherFormat(V));
+    end;
+
+    local procedure PassArrayOn(A: array[2] of Option First,Second,Third): Text
+    begin
+        ArrayAssign1(A);
+        exit(Format(A[1]));
+    end;
+
+    local procedure NamedReturn() R: Option First,Second,Third
+    begin
+        Nop(R);
+    end;
+
+    local procedure PassRowField(R: Record Row): Text
+    begin
+        exit(FormatInside(R.Opt));
+    end;
+
+    local procedure PassMemberless(V: Option): Text
+    begin
+        exit(SameFormat(V));
+    end;
+
+    local procedure PassVarRowField(var R: Record Row): Text
+    begin
+        exit(FormatInside(R.Opt));
+    end;
+
+    local procedure PassVarArrayOn(var A: array[2] of Option First,Second,Third): Text
+    begin
+        ArrayAssign1(A);
+        exit(Format(A[1]));
+    end;
+
+    [IntegrationEvent(false, false)]
+    local procedure OnArray(var A: array[2] of Option)
+    begin
+    end;
+
     [IntegrationEvent(false, false)]
     local procedure OnMemberless(var Value: Option; var Seen: Text)
     begin
@@ -353,6 +734,12 @@ codeunit 69822 Subs
     begin
         Seen := Format(Value);
         Value := 2;
+    end;
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::C, 'OnWithMembers', '', false, false)]
+    local procedure SeeWithMembersMemberless(var Value: Option; var Seen: Text)
+    begin
+        Seen := Format(Value);
     end;
 
     [EventSubscriber(ObjectType::Codeunit, Codeunit::C, 'OnMemberlessToMembers', '', false, false)]
@@ -404,9 +791,6 @@ fn a_parameter_without_members_reads_the_caller_s_members_and_the_caller_keeps_t
     assert_eq!(assumed("FieldCaller"), "Second|1|Second");
     assert_eq!(assumed("ArrayElementCaller"), "Second|1|Second");
     assert_eq!(assumed("TwoHops"), "Second");
-    // A parameter passed by value is a local variable of its routine (Base Application's "Config. Package Management"
-    // hands one to an event).
-    assert_eq!(assumed("ByValueParameterCaller"), "Second");
 }
 
 // OptionVarMemberLists.al: OtherMembersVar_EmptyBody, OtherMembersVar_CalleeFormatAndAssign, MemberlessCaller_MembersVar.
@@ -424,6 +808,8 @@ fn a_var_array_and_an_event_subscriber_keep_the_caller_s_members() {
     // Base Application's "Config. Package Management" hands a global to a publisher's memberless `var` parameter (reached
     // by the pinned corpus case table-objects Y76_Package_AutoIncrementField_NotInPackage).
     assert_eq!(assumed("GlobalToMemberlessPublisher"), "Second|Third");
+    // The same case hands a parameter passed by value to a publisher's memberless `var` parameter.
+    assert_eq!(assumed("ByValueToPublisher"), "Second|Third");
 }
 
 // OptionVarMemberlessEvaluate.al: MemberlessVar_EvaluateStatement_NameLowerCase, _Ordinal7, MemberlessVar_EvaluateResult_Others
@@ -442,11 +828,67 @@ fn evaluate_into_a_parameter_without_members_reads_the_caller_s_members() {
         "'Second' is not an option. The existing options are: "
     );
     assert_eq!(assumed("EvaluateArrayElement"), "Yes|Second|Second");
+    // OptionVarMemberlessEvaluate.al:170.
+    assert_eq!(
+        assumed("EvaluateBlankStatement"),
+        "'' is not an option. The existing options are: First,Second,Third|InvalidOptionString|Third"
+    );
 }
 
 #[test]
 fn a_record_field_with_an_option_caption_refuses() {
     refused("CaptionFieldCaller", "OptionCaption");
+    refused("CaptionMLFieldCaller", "OptionCaption");
+    refused("InterfaceCaptionField", "OptionCaption");
+}
+
+// An interface method's `var` parameter is gated as a procedure's.
+#[test]
+fn an_interface_call_reads_the_caller_s_members_from_the_measured_callers_only() {
+    assert_eq!(assumed("InterfaceLocal"), "Second|1|Second");
+    refused("InterfaceGlobalRecordField", "another member list");
+    refused("InterfaceVarParameter", "another member list");
+}
+
+// After the routine stored into its memberless `var` parameter, a member-name read inside it is not measured; the caller's
+// read after the call is (OptionVarMemberLists.al:224, :364).
+#[test]
+fn a_name_read_after_the_routine_stored_into_the_parameter_refuses() {
+    for routine in [
+        "AssignThenFormatInside",
+        "AssignThenEvaluate",
+        "AssignThenHop",
+        "AssignOtherThenFormat",
+        "ArrayAssignThenFormatInside",
+    ] {
+        refused(routine, "after the routine stored into it");
+    }
+    assert_eq!(assumed("AssignThenOrdinal"), "1|Second");
+}
+
+#[test]
+fn clear_and_other_stores_into_a_memberless_var_parameter_refuse() {
+    refused("ClearInside", "Clear");
+    refused("ArrayClear", "Clear");
+    refused("ArrayAssignOther", "another Option");
+}
+
+// Only an element of a `var` array parameter keeps the caller's members: a local array copied from one with members and a
+// by-value array parameter keep main's result.
+#[test]
+fn an_array_that_is_no_var_parameter_keeps_main_s_result() {
+    assert_eq!(plain("LocalArrayCopy"), "1");
+    assert_eq!(plain("LocalCopyArray"), "1");
+    assert_eq!(plain("ByValueArrayParameter"), "1");
+}
+
+// A publisher with members whose subscriber is declared without members: measured for a `var` parameter that stands for a
+// local (OptionVarMemberLists.al:531); other callers refuse when such a subscriber binds.
+#[test]
+fn a_memberless_subscriber_under_a_publisher_with_members_reads_measured_callers_only() {
+    assert_eq!(assumed("MembersPublisherLocal"), "Second");
+    refused("MembersPublisherCaptionField", "caller the probe does not measure");
+    refused("MembersPublisherGlobal", "caller the probe does not measure");
 }
 
 #[test]
@@ -458,6 +900,19 @@ fn callers_the_probe_does_not_measure_refuse() {
         "GlobalRecordField",
         "GlobalArrayElement",
         "GlobalVarArray",
+        "ByValueParameterCaller",
+        "ByValueToOtherMembers",
+        "ByValueArrayToVarArray",
+        "NamedReturnCaller",
+        "ByValueRecordField",
+        "ByValueMemberlessToMembers",
+        "LocalFieldToPublisher",
+        "LocalElementToPublisher",
+        "LocalArrayToPublisher",
+        "VarRecordField",
+        "TableOwnField",
+        "MemberlessGlobalToMembers",
+        "VarArrayHandedOn",
     ] {
         refused(routine, "another member list");
     }
@@ -465,7 +920,6 @@ fn callers_the_probe_does_not_measure_refuse() {
 
 #[test]
 fn evaluate_shapes_the_probe_does_not_measure_refuse() {
-    refused("EvaluateBlankStatement", "declared without members");
     refused("EvaluateArrayElementUnknown", "declared without members");
 }
 

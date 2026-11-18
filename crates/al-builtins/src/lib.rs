@@ -69,6 +69,7 @@ pub mod media_orphans;
 pub mod moduleinfo;
 pub mod native;
 pub mod ops;
+pub mod option_members;
 pub mod page_handle;
 pub mod page_op;
 pub mod pagebuiltins;
