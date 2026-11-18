@@ -482,7 +482,14 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
     // Kinds the value model has no variant for yet are never true.
     ("Variant.IsTextConstant#1", |_, r, _| is(r, "TextConstant")),
     ("Variant.IsAutomation#1", |_, _, _| Ok(Value::Boolean(false))),
-    ("Variant.IsFile#1", |_, _, _| Ok(Value::Boolean(false))),
+    // IsFile is false for a Variant of another kind (types/variant/VariantIsMatrix.al:83); one holding a File is not measured
+    // (VariantIsMatrix.al:5-6): refused.
+    ("Variant.IsFile#1", |_, r, _| match r {
+        Some(v) if v.is("File") => {
+            crate::native::unsupported("Variant.IsFile of a Variant that holds a File (not pinned)")
+        }
+        _ => Ok(Value::Boolean(false)),
+    }),
 ];
 
 pub(super) fn all() -> impl Iterator<Item = &'static (&'static str, NativeFn)> {

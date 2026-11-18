@@ -739,11 +739,7 @@ impl Session {
                     Some(Value::Boolean(b)) => *b,
                     _ => return unsupported("Consistent without a Boolean argument"),
                 };
-                let (table, temporary) = {
-                    let r = rec.borrow();
-                    (r.table, r.temporary)
-                };
-                self.set_consistent(table, temporary, consistent)?;
+                self.set_consistent(rec, consistent)?;
                 Ok(Value::Null)
             }
             RecordOp::ReadConsistency => Ok(Value::Boolean(false)),

@@ -299,9 +299,31 @@ impl Session {
             // (GetUrlObjects.al GetUrl_ObjectIdZero_Record_1); so has a page with a record and UseFilters true, a page without an
             // id (CY_GetUrl_ServiceClients_UseFilters_And_TypeWithoutId) and an OData table (GetUrl_Object_Types_OtherClients
             // `odata_table`).
+            // A Web Service or Tenant Web Service row for the object gives an address with the service name
+            // (GetUrlServiceClientRecord.al:311-317, ODataV4 and OData of a tenant web service page); that is not built.
+            let row_type = match object.as_deref() {
+                Some("Codeunit") => Some(5),
+                Some("Page") => Some(8),
+                Some("Query") => Some(9),
+                _ => None,
+            };
+            if let (Some(ty), Some(n)) = (row_type, id)
+                && n > 0
+                && self.web_service_row_names(ty, n)?
+            {
+                return unsupported(format!(
+                    "GetUrl(ClientType::{kind}) of an object published as a web service: the address with its service name is not built"
+                ));
+            }
             let pinned = match (object.as_deref(), id, args.len()) {
                 (Some("Page"), Some(n), 6) if n <= 0 => true,
                 (_, Some(n), _) if n <= 0 => return refuse("an object id that is not positive"),
+                // A page over the record's table or a codeunit, with a record or a RecordRef that is not temporary, and no
+                // UseFilters: the empty text for every service type and company (GetUrlServiceClientRecord.al:166-171,
+                // :176, :186-204 and the three other client types).
+                (Some("Page") | Some("Codeunit"), _, 5) => {
+                    self.service_record_pinned(object.as_deref(), id, args.get(4))?
+                }
                 (Some("Page") | Some("Report"), _, 4) => true,
                 (Some("Page"), None, 3) => kind == "SOAP",
                 (Some("Codeunit"), _, 4) => kind == "SOAP" || kind == "ODataV4",
@@ -501,6 +523,49 @@ impl Session {
         Ok(Value::Text(
             format!("{}/?{}", base.trim_end_matches('/'), query.join("&")).into(),
         ))
+    }
+
+    /// Whether the record argument `v` of a five-argument service form is a pinned shape (GetUrlServiceClientRecord.al:
+    /// 166-182): a stored Record with a codeunit the app compiled (:177), or a stored Record or open RecordRef with a
+    /// List page whose source table is the record's table (page "SS UrlSvc List", :36-38, :172-176, :181-183). A
+    /// codeunit with a RecordRef is not measured and refuses. A RecordRef that is not open is
+    /// refused: its error is pinned for ClientType::Web only (PGetUrl.al:198-209).
+    fn service_record_pinned(
+        &mut self,
+        object: Option<&str>,
+        id: Option<i32>,
+        v: Option<&Value>,
+    ) -> Result<bool, Signal> {
+        let ref_not_open =
+            matches!(v, Some(Value::Library(_, l)) if !matches!(&*l.borrow(), LibraryValue::RecordRef(_)));
+        if ref_not_open {
+            return unsupported(
+                "GetUrl of a service client type with a RecordRef that is not open (its error is pinned for ClientType::Web only)",
+            );
+        }
+        let rec = record_arg(v)?;
+        let stored = !rec.borrow().temporary;
+        let table = self.table(&rec)?.object as usize;
+        let program = &self.engine.program;
+        let compiled = |kind: al_ir::ObjKind| {
+            (program.objects.heads().iter())
+                .position(|o| o.kind == kind && id.is_some_and(|n| o.id == Some(n as u32)))
+                .filter(|&p| !program.objects[p].uncompiled)
+        };
+        if object == Some("Codeunit") {
+            // The codeunit is measured with a Record only (GetUrlServiceClientRecord.al:177); a RecordRef refuses.
+            let is_record = matches!(v, Some(Value::Record(..)));
+            return Ok(is_record && stored && compiled(al_ir::ObjKind::Codeunit).is_some());
+        }
+        let list_page = compiled(al_ir::ObjKind::Page)
+            .filter(|&p| self.engine.object_facts[p].page_type == Some(al_ir::PageType::List));
+        Ok(stored
+            && list_page.is_some_and(|p| {
+                let o = &program.objects[p];
+                o.rec_slot.is_some_and(
+                    |s| matches!(o.globals.get(s).map(|g| &g.ty), Some(RtType::Record(t, _)) if *t as usize == table),
+                )
+            }))
     }
 
     /// The `bookmark=` or `filter=` part for a record: the filters when `use_filters` and there are some, nothing when

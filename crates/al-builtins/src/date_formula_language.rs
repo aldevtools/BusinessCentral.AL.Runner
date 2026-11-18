@@ -118,6 +118,36 @@ pub(crate) fn evaluate_text(text: &str, language: i32) -> Result<Option<String>,
     Ok(Some(out))
 }
 
+/// `Evaluate(DateFormula, text, 9)` under 1030 of a text without brackets that has a Danish letter (the letters of [`letters`]
+/// that are not their English letter: U, Å and L in either case). Format number 9 reads the English letters: the measured texts
+/// `1U` and `1Å`, with the result used, give false and leave the variable (assumption
+/// `date-formula-danish-letter-number-nine`, corpus PR 1428 GlobalLanguageDateFormula.al:418, :420 at 04e1fa0a,
+/// DateFormula_FormatAfterEvaluate9_Danish1030). `None` for every other language, number and text (main's reading); every other
+/// text with a Danish letter and the statement form refuse.
+fn danish_letter_number_nine(
+    text: &str,
+    language: i32,
+    number: i64,
+    ret_used: bool,
+) -> Option<Result<crate::datefns::Evaluated, crate::native::Signal>> {
+    let danish = letters(1030).expect("Danish");
+    let danish_letter = |c: char| {
+        let up = c.to_uppercase().next().unwrap_or(c);
+        danish.iter().any(|(en, own)| en != own && *own == up)
+    };
+    let t = text.trim();
+    if !(language == 1030 && number == 9) || t.starts_with('<') || !t.chars().any(danish_letter) {
+        return None;
+    }
+    if ret_used && matches!(text, "1U" | "1Å") {
+        crate::assumptions::assume(crate::assumptions::Assumption::DateFormulaDanishLetterNumberNine);
+        return Some(Ok(crate::datefns::Evaluated::Rejected(None)));
+    }
+    Some(Err(crate::native::Signal::unsupported(format!(
+        "Evaluate of the date formula `{text}` with format number 9 under language 1030 (not measured for this text or form)"
+    ))))
+}
+
 /// The Evaluate cells without a format number the reporter of al-runner issue 8200 measured, with the result used (assumption
 /// `date-formula-letters-danish-german`): `Some(Some(english))` for a text read, `Some(None)` for a text rejected, `None` for every
 /// other text.
@@ -154,6 +184,9 @@ pub(crate) fn evaluate(
     number: i64,
     ret_used: bool,
 ) -> Result<crate::datefns::Evaluated, crate::native::Signal> {
+    if let Some(read) = danish_letter_number_nine(text, language, number, ret_used) {
+        return read;
+    }
     if number == 9 && reported_number_nine(text, language) {
         crate::assumptions::assume(crate::assumptions::Assumption::DateFormulaLettersDanishGerman);
         return crate::datefns::evaluate_formula(text);

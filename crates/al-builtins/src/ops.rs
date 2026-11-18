@@ -1123,7 +1123,11 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
             // The result stays within 0001-01-01 and 9999-12-31, an undefined date takes no days, and the sum is computed in 32
             // bits on twice the day number (a date and its closing date): 2024-01-01 + 2147483647 and 2026-01-31 - 2147483647
             // overflow, +/- 3000000 is an invalid date (Arithmetic.al:Date_Arithmetic_Errors, Date_Plus_Minus_Integer `af39`,
-            // `af41`; types/operators-expressions/Y31ConvAr.al, LT Y31 Ar Date `Date_Integer` `sub.d.max`).
+            // `af41`; types/operators-expressions/Y31ConvAr.al, LT Y31 Ar Date `Date_Integer` `sub.d.max`). A closing date goes to
+            // `closing_date_days`.
+            if *c {
+                return crate::closing_date_days::closing_date_moved(*a, n);
+            }
             let n = whole_days(n).expect("whole");
             let Ok(n) = i32::try_from(n) else {
                 return raise("Arithmetic operation resulted in an overflow.", "AL:Overflow");
