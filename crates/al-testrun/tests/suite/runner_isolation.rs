@@ -337,6 +337,110 @@ codeunit 50735 "Old Sequence Failed"
     );
 }
 
+// al-runner issue 8152, the reporter's repro unchanged (a comment on the issue): a failed test that committed rows keyed by a
+// NumberSequence it inserted. Under Codeunit isolation the failed test is undone back to its last Commit()
+// (SdIsolCommitError.Codeunit.al:24-25, rows); what that leaves of a sequence inserted since the tests began is not measured,
+// so the later test that reaches the sequence is refused instead of drawing a number a committed row already holds.
+const REPRO_8152: &str = r#"
+table 50200 "Repro Sequenced Entry"
+{
+    DataClassification = CustomerContent;
+    fields
+    {
+        field(1; "Entry No."; Integer) { }
+        field(2; Description; Text[50]) { }
+    }
+    keys { key(PK; "Entry No.") { Clustered = true; } }
+
+    trigger OnInsert()
+    begin
+        if not NumberSequence.Exists('ReproSeq', true) then
+            NumberSequence.Insert('ReproSeq', 1, 1, true);
+        "Entry No." := NumberSequence.Next('ReproSeq', true);
+    end;
+}
+
+codeunit 50201 "Repro Seq After Failed Test"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure T1_CommitTwiceThenFail()
+    begin
+        InsertEntry('committed 1');
+        Commit();
+        InsertEntry('committed 2');
+        Commit();
+        Error('deliberate failure after two commits');
+    end;
+
+    [Test]
+    procedure T2_InsertAfterFailedTest()
+    begin
+        InsertEntry('after the failed test');
+    end;
+
+    local procedure InsertEntry(Description: Text[50])
+    var
+        ReproSequencedEntry: Record "Repro Sequenced Entry";
+    begin
+        ReproSequencedEntry.Init();
+        ReproSequencedEntry.Description := Description;
+        ReproSequencedEntry.Insert(true);
+    end;
+}
+
+codeunit 50202 "Repro Seq After Passed Test"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure U1_CommitTwice()
+    begin
+        InsertEntry('committed 1');
+        Commit();
+        InsertEntry('committed 2');
+        Commit();
+    end;
+
+    [Test]
+    procedure U2_InsertAfterPassedTest()
+    begin
+        InsertEntry('after the passed test');
+    end;
+
+    local procedure InsertEntry(Description: Text[50])
+    var
+        ReproSequencedEntry: Record "Repro Sequenced Entry";
+    begin
+        ReproSequencedEntry.Init();
+        ReproSequencedEntry.Description := Description;
+        ReproSequencedEntry.Insert(true);
+    end;
+}
+"#;
+
+#[test]
+fn issue_8152_after_a_failed_test_that_committed_a_new_sequence_the_next_reader_is_refused() {
+    let o = run(REPRO_8152, TestIsolation::Codeunit);
+    assert_eq!(
+        outcome(&o, "T1_CommitTwiceThenFail"),
+        &Outcome::Fail("deliberate failure after two commits".into())
+    );
+    assert!(not_run(outcome(&o, "T2_InsertAfterFailedTest"), "'ReproSeq'"), "{o:?}");
+    assert_eq!(outcome(&o, "U1_CommitTwice"), &Outcome::Pass, "{o:?}");
+    assert_eq!(outcome(&o, "U2_InsertAfterPassedTest"), &Outcome::Pass, "{o:?}");
+    // Without a Commit() the failed test takes the new sequence back with its rows (IsolProbeAfterRollback.Codeunit.al:58-78,
+    // :117-132 under runner 61301): main's result, the next test inserts entry 1 again and passes.
+    let uncommitted = REPRO_8152.replace(
+        "        Commit();\n        InsertEntry('committed 2');\n        Commit();\n        Error",
+        "        InsertEntry('committed 2');\n        Error",
+    );
+    assert_ne!(uncommitted, REPRO_8152);
+    let o = run(&uncommitted, TestIsolation::Codeunit);
+    assert_eq!(outcome(&o, "T2_InsertAfterFailedTest"), &Outcome::Pass, "{o:?}");
+}
+
 // A failed test after an earlier test was refused mid-run: its failure is reported as not trusted, but its body still
 // ended with an AL error, so the sequences it deleted or restarted stay refused for the later tests (review of al-runner
 // issue 8002, round one).

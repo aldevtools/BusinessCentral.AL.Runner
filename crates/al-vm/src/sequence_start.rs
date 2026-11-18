@@ -13,6 +13,8 @@ type Key = (String, String);
 pub struct SequenceStart {
     sequences: HashMap<Key, Sequence>,
     changed: HashMap<Key, (bool, bool)>,
+    /// `Session::commits` then.
+    commits: u64,
 }
 
 impl Session {
@@ -21,6 +23,7 @@ impl Session {
         SequenceStart {
             sequences: self.sequences.clone(),
             changed: self.change_flags(),
+            commits: self.commits,
         }
     }
 
@@ -51,6 +54,24 @@ impl Session {
             (true, true) => Some(true),
             (false, true) => None,
         }
+    }
+
+    /// The sequences inserted since `start` when a `Commit()` ran since `start`, sorted; empty without one. A failed test
+    /// under TestIsolation = Codeunit is undone back to its last `Commit()` (tests/al-language-isolation-probe/src/
+    /// SdIsolCommitError.Codeunit.al:24-25, measured for rows); what that leaves of such a sequence is not measured. Call
+    /// before [`Session::drop_sequences_inserted_since`].
+    pub fn sequences_inserted_before_a_commit(&self, start: &SequenceStart) -> Vec<Key> {
+        if self.commits == start.commits {
+            return Vec::new();
+        }
+        let mut new: Vec<Key> = self
+            .sequences
+            .keys()
+            .filter(|k| !start.sequences.contains_key(*k))
+            .cloned()
+            .collect();
+        new.sort();
+        new
     }
 
     /// The sequences of `start` that were restarted, deleted or otherwise changed since, sorted: what a failed test's
