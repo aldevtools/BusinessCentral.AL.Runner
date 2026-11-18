@@ -59,8 +59,8 @@ unchanged since its source commit, the chain must be at most 20 runs, the newest
 nightly at or before the commit must be green and report no difference for
 every version, and
 no codeunit of the current oracle may go missing unless the corpus diff deleted
-or renamed its file. A run without a manifest passes only when no suite carries
-provenance (a run from before the corpus recorded it). The bump writes `mode`,
+or renamed its file. A run without a manifest passes only when it is not a nightly
+and no suite carries provenance (a run from before the corpus recorded it). The bump writes `mode`,
 `fresh`, `reused`, `oldest_source_run` and `ci_bc_build` into each
 `[[version]]` of `oracle.toml` and warns when `ci_bc_build` differs from
 `bc_build`. The bump bot lists green push and nightly runs (owner,

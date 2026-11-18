@@ -103,7 +103,10 @@ Facts read from the code on 2026-11-17:
 - A combined run is usable only after the next nightly compared it (decision 6, owner 2026-11-18), so combined runs
   move the pin at most once a day, the cost for which option (a) was rejected. Full push runs still move it at once.
   The bump bot lists green nightly runs as well as green push runs (owner, 2026-11-18), so the pin still moves when
-  master does not move after a run that stays refused. The bump checks a nightly like any other run.
+  master does not move after a run that stays refused. The bump checks a nightly like any other run, so a green
+  nightly is refused when a later nightly on the same commit reports a difference or ended red (decision 5, the newest
+  nightly at or before its commit); the pin then waits for a later green nightly. A nightly without a manifest is
+  refused (decision 4).
 - A corpus fixture may now change. That can change the runner's outcome for tests whose own code did not change.
   `--baseline-diff` and the ratchet catch it at the bump; the corpus pull request shows runner parity before the merge.
 - The build CI ran becomes visible for the first time, and so does a difference to the build the runner loads.
