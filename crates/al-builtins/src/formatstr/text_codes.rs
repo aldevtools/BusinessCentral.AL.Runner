@@ -25,7 +25,7 @@ pub(super) fn format(
 ) -> Option<Result<String, String>> {
     let text_like = matches!(
         v,
-        Value::Text(_) | Value::TextConst(_) | Value::Code(_) | Value::Boolean(_) | Value::Option(..) | Value::Enum(..)
+        Value::Text(_) | Value::TextConst(..) | Value::Code(_) | Value::Boolean(_) | Value::Option(..) | Value::Enum(..)
     );
     let no_text = matches!(v, Value::Char(_) | Value::Guid(_));
     if !text_like && !no_text {

@@ -443,14 +443,18 @@ impl Lowerer<'_> {
                             out.push(ir::Arg::Value(value));
                             continue;
                         }
-                        let local_proc = self.routine_nodes.get(object).get(routine).is_some_and(|r| r.is_local());
+                        let local_proc = self
+                            .routine_nodes
+                            .get(object)
+                            .get(routine)
+                            .is_some_and(|r| r.is_local() && r.attributes().next().is_none());
                         let site = if receiver_node.is_none() && instance.is_none() && object == self.oi && local_proc && !try_call {
                             super::convert::TextConstantSite::ArgumentOfSameObjectProcedure
                         } else {
                             super::convert::TextConstantSite::Other
                         };
-                        if self.refuse_variant_argument(&p.ty, a, site)? {
-                            out.push(ir::Arg::Value(self.text_constant(value)?));
+                        if let Some(textconst) = self.refuse_variant_argument(&p.ty, a, site)? {
+                            out.push(ir::Arg::Value(self.text_constant(value, textconst)?));
                             continue;
                         }
                         // A Text or Code handed to a by-value Text or Code parameter of a TryFunction is converted by the callee's

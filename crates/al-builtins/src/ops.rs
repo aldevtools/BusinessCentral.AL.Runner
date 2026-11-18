@@ -55,6 +55,10 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
     if let Value::SqlCount(c) = &v {
         return crate::sqlcount::convert(*c, v, t);
     }
+    // A TextConstant leaves a Variant as `conv::text_constant` says; into another Variant it stays one.
+    if matches!(v, Value::TextConst(..)) && !matches!(t, T::Variant) {
+        return convert(crate::conv::text_constant::read(v, crate::conv::text_constant::Reader::Slot(t))?, t);
+    }
     // A Text or Code into a Text or Code, the most common conversion (an assignment or a parameter of text), straight to
     // the arm the general match below would reach: no earlier arm takes a text source into a text target, and a text
     // that carries the call stack marker moves unread into a Text (`native::text_of`).

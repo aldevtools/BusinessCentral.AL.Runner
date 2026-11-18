@@ -151,14 +151,14 @@ impl super::Lowerer<'_> {
 }
 
 impl super::Lowerer<'_> {
-    /// The shapes refused for an argument handed to a Variant parameter; `Ok(true)` when the argument goes in as a
+    /// The shapes refused for an argument handed to a Variant parameter; `Ok(Some(textconst))` when the argument goes in as a
     /// TextConstant (`text_constant_into_variant`).
     pub(super) fn refuse_variant_argument(
         &self,
         target: &Ty,
         node: &al_syntax::SyntaxNode,
         site: super::convert::TextConstantSite,
-    ) -> super::L<bool> {
+    ) -> super::L<Option<bool>> {
         self.refuse_session_ending_ternary(target, node)?;
         self.text_constant_into_variant(target, node, site)
     }

@@ -1198,8 +1198,8 @@ pub(crate) fn label_maxlength(t: &ast::TypeRef) -> bool {
         .any(|w| w[0].text().eq_ignore_ascii_case("maxlength") && w[1].kind() == SyntaxKind::Eq)
 }
 
-/// Whether a declaration is a Label with its text and no property (`Label 'text'`) or a TextConst with one text, in ENU: the
-/// forms the corpus puts into a Variant as a TextConstant (`Lowerer::text_constant_into_variant`).
+/// Whether a declaration is a Label with a text that is not empty and no property (`Label 'text'`) or a TextConst with one
+/// such text, in ENU: the forms the corpus puts into a Variant as a TextConstant (`Lowerer::text_constant_into_variant`).
 pub(crate) fn plain_text_constant(t: &ast::TypeRef) -> bool {
     let toks: Vec<_> = t
         .syntax()
@@ -1208,15 +1208,19 @@ pub(crate) fn plain_text_constant(t: &ast::TypeRef) -> bool {
         .filter(|k| !k.kind().is_trivia())
         .collect();
     match toks.as_slice() {
-        [kw, text] => kw.text().eq_ignore_ascii_case("label") && text.kind() == SyntaxKind::StringLit,
+        [kw, text] => kw.text().eq_ignore_ascii_case("label") && text_not_empty(text),
         [kw, lang, eq, text] => {
             kw.text().eq_ignore_ascii_case("textconst")
                 && lang.text().eq_ignore_ascii_case("enu")
                 && eq.kind() == SyntaxKind::Eq
-                && text.kind() == SyntaxKind::StringLit
+                && text_not_empty(text)
         }
         _ => false,
     }
+}
+
+fn text_not_empty(t: &al_syntax::SyntaxToken) -> bool {
+    t.kind() == SyntaxKind::StringLit && t.text() != "''"
 }
 
 /// Whether a declaration is of type `TextConst`.

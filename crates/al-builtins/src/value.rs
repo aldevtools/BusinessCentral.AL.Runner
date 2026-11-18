@@ -108,6 +108,16 @@ impl std::ops::DerefMut for ListVec {
     }
 }
 
+/// The declaration a TextConstant in a Variant came from (`Value::TextConst`): the readers outside the pinned ones treat
+/// the two apart (`conv::text_constant::read`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextConstFrom {
+    /// A variable declared `Label`.
+    Label,
+    /// A variable declared `TextConst`.
+    TextConst,
+}
+
 #[derive(Debug, Clone)]
 pub enum Value {
     /// An unassigned Variant.
@@ -119,9 +129,10 @@ pub enum Value {
     Byte(u8),
     Char(u16),
     Text(crate::text::Txt),
-    /// A Label (or TextConst) held by a Variant: the text, answering IsTextConstant and no IsText (types/
-    /// Y81LabelVariant.al; needs corpus bump). Only a Variant ever holds it; anything that takes it out reads a Text.
-    TextConst(crate::text::Txt),
+    /// A Label or TextConst held by a Variant: the text and the kind of its declaration. It answers IsTextConstant and no
+    /// IsText (types/Y81LabelVariant.al; types/variant/VariantIsMatrix.al:224-243). Only a Variant ever holds it; what
+    /// every other reader gets is `conv::text_constant::read`.
+    TextConst(crate::text::Txt, TextConstFrom),
     Code(crate::text::Txt),
     /// Day number (0 = undefined `0D`), closing-date flag.
     Date(i32, bool),
@@ -1814,7 +1825,7 @@ impl Value {
             Value::Byte(_) => k == "byte",
             Value::Char(_) => k == "char",
             Value::Text(_) => k == "text",
-            Value::TextConst(_) => k == "textconstant",
+            Value::TextConst(..) => k == "textconstant",
             Value::Code(_) => k == "code",
             Value::Date(..) => k == "date",
             Value::Time(_) => k == "time",

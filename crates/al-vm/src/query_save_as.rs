@@ -58,7 +58,7 @@ fn cell(method: &str, name: &str, value: &Value, json: bool) -> Result<Cell, Sig
             };
             Ok(Cell::Text { text, quoted: json })
         }
-        Value::Text(s) | Value::TextConst(s) | Value::Code(s) => {
+        Value::Text(s) | Value::TextConst(s, _) | Value::Code(s) => {
             let text = if json {
                 json_escape(method, name, s)?
             } else {

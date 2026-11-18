@@ -3918,7 +3918,7 @@ impl Session {
                 n.to_string()
             }
             Value::BigInteger(n) => n.to_string(),
-            Value::Text(s) | Value::TextConst(s) | Value::Code(s) => {
+            Value::Text(s) | Value::TextConst(s, _) | Value::Code(s) => {
                 schema_type = Some("xs:string");
                 let own_field = c.field.filter(|_| own).and_then(|f| t.as_ref()?.fields.get(f));
                 Dataset::escape_column_text(self.report.dataset.as_ref(), s, &value, own_field)?

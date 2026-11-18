@@ -259,13 +259,20 @@ impl<'a> Lowerer<'a> {
     /// - assigned to a local Variant: a local Label (types/variant/VaTTextConst.al:283, :289; types/TestTernaryContracts.al:564,
     ///   :572), a global Label (types/variant/VariantIsMatrix.al:224, :242), a local TextConst (TestTernaryContracts.al:566,
     ///   :573), a global TextConst (VaTTextConst.al:137-149, :280, :287; VariantIsMatrix.al:226, :243);
-    /// - a global TextConst handed to a by-value Variant parameter of a `local procedure` of the same object, called bare
-    ///   (VaTTextConst.al:124, :282, :288).
+    /// - a global TextConst handed to a by-value Variant parameter of a `local procedure` of the same object with no
+    ///   attribute, called bare (VaTTextConst.al:124, :282, :288).
     ///
+    /// Each pinned site is in a `[Test]` procedure of a codeunit with `Subtype = Test` (`in_text_constant_routine`).
     /// Any other TextConst into a Variant is refused. Any other Label keeps the runtime's earlier answer, a Text.
-    pub(crate) fn text_constant_into_variant(&self, target: &Ty, node: &SyntaxNode, site: TextConstantSite) -> L<bool> {
+    /// `Some(true)` for a TextConst, `Some(false)` for a Label that goes in as a TextConstant.
+    pub(crate) fn text_constant_into_variant(
+        &self,
+        target: &Ty,
+        node: &SyntaxNode,
+        site: TextConstantSite,
+    ) -> L<Option<bool>> {
         if !matches!(target, Ty::Variant) {
-            return Ok(false);
+            return Ok(None);
         }
         let (global, textconst, plain) = match self.res(node) {
             Some(Res::Local(n)) => (
@@ -278,20 +285,39 @@ impl<'a> Lowerer<'a> {
                 self.global_textconsts.contains(n),
                 self.global_plain_text_constants.contains(n),
             ),
-            _ => return Ok(false),
+            _ => return Ok(None),
         };
-        let pinned = match site {
-            TextConstantSite::AssignToLocalVariant => plain,
-            TextConstantSite::ArgumentOfSameObjectProcedure => plain && textconst && global,
-            TextConstantSite::Other => false,
-        };
+        let pinned = self.in_text_constant_routine()
+            && match site {
+                TextConstantSite::AssignToLocalVariant => plain,
+                TextConstantSite::ArgumentOfSameObjectProcedure => plain && textconst && global,
+                TextConstantSite::Other => false,
+            };
         if pinned {
-            return Ok(true);
+            return Ok(Some(textconst));
         }
         if textconst {
             return Err("a TextConst in a Variant at a place or of a form the corpus does not pin".into());
         }
-        Ok(false)
+        Ok(None)
+    }
+
+    /// The routine being lowered is a procedure whose only attribute is `[Test]`, of a codeunit with `Subtype = Test`:
+    /// the routines of every site `text_constant_into_variant` names (VaTTextConst.al:9, :274; TestTernaryContracts.al:3;
+    /// VariantIsMatrix.al:42).
+    fn in_text_constant_routine(&self) -> bool {
+        let obj = &self.ws.objects[self.oi];
+        let test_codeunit = obj.kind == ObjKind::Codeunit
+            && self
+                .ws
+                .object_ast(self.oi)
+                .properties()
+                .any(|p| p.name().eq_ignore_ascii_case("Subtype") && p.value_text().eq_ignore_ascii_case("Test"));
+        let test_procedure = self.routine_nodes.get(self.oi).get(self.routine_idx).is_some_and(|r| {
+            let attrs: Vec<_> = r.attributes().map(|a| a.name()).collect();
+            r.syntax().kind() == SyntaxKind::Procedure && attrs.len() == 1 && attrs[0].eq_ignore_ascii_case("Test")
+        });
+        test_codeunit && test_procedure
     }
 
     /// `target := source` (`kids`) with `value` the lowered source: the TextConstant a Variant then holds
@@ -311,18 +337,18 @@ impl<'a> Lowerer<'a> {
         } else {
             TextConstantSite::Other
         };
-        if self.text_constant_into_variant(target, &kids[1], site)? {
-            return Ok(Some(self.text_constant(value.clone())?));
+        match self.text_constant_into_variant(target, &kids[1], site)? {
+            Some(textconst) => Ok(Some(self.text_constant(value.clone(), textconst)?)),
+            None => Ok(None),
         }
-        Ok(None)
     }
 
-    /// `value`, the text of a Label or TextConst, as the TextConstant a Variant holds.
-    pub(crate) fn text_constant(&self, value: ir::Expr) -> L<ir::Expr> {
+    /// `value`, the text of a Label or TextConst (`textconst`), as the TextConstant a Variant holds.
+    pub(crate) fn text_constant(&self, value: ir::Expr, textconst: bool) -> L<ir::Expr> {
         Ok(ir::Expr::Builtin {
             id: super::call::builtin_id("Variant.FromTextConstant#1")?,
             receiver: None,
-            args: vec![ir::Arg::Value(value)],
+            args: vec![ir::Arg::Value(value), ir::Arg::Value(ir::Expr::Const(ir::Const::Boolean(textconst)))],
             ret_used: true,
         })
     }
@@ -886,7 +912,7 @@ pub(super) fn is_builtin(e: &ir::Expr, id: &str) -> bool {
 pub(crate) enum TextConstantSite {
     /// `V := X` with `V` a local Variant variable.
     AssignToLocalVariant,
-    /// A by-value Variant parameter of a `local procedure` of the same object, called bare, that is no TryFunction.
+    /// A by-value Variant parameter of a `local procedure` of the same object with no attribute, called bare.
     ArgumentOfSameObjectProcedure,
     /// Anywhere else: an exit value, an interface or another object's procedure, a global or a field.
     Other,
