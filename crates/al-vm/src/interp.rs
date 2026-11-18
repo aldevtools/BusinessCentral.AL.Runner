@@ -1,5 +1,7 @@
 use super::*;
 use crate::blob_transfer::{BlobMove, FieldKind, Holder};
+use crate::var_option::Store;
+use al_builtins::builtin_id::BuiltinId;
 
 /// The start of the refusal of an index with fewer positions than the array has dimensions.
 const ROW_REFUSAL: &str = "a row of a ";
@@ -73,6 +75,7 @@ impl Session {
     pub(crate) fn run_native(
         &mut self,
         native: al_builtins::native::NativeFn,
+        id: BuiltinId,
         class: al_builtins::builtin_id::Class,
         receiver: Option<&ir::Arg>,
         args: &[ir::Arg],
@@ -112,7 +115,7 @@ impl Session {
         // ADR-068 item 3: a builtin that read a text with half of a surrogate pair without an audit refuses.
         al_builtins::text::check_unaudited()?;
         if let (Some(ir::Arg::Ref(p)), Some(v)) = (receiver, recv) {
-            self.write_native_back(p, v, f)?;
+            self.write_native_back(p, v, f, id)?;
         }
         for (a, v) in args.iter().zip(values.drain(..)) {
             if let ir::Arg::Ref(p) = a {
@@ -122,7 +125,7 @@ impl Session {
                 } else {
                     self.fit_ref_number(p, v, f)?
                 };
-                self.write_native_back(p, v, f)?;
+                self.write_native_back(p, v, f, id)?;
             }
         }
         self.return_vec(values);
@@ -825,7 +828,7 @@ impl Session {
         // (events/binding-senders/EventVarThroughSender.al): they alias it, see `Frame::aliases`.
         let facts = self.engine.routine_facts(object, routine);
         if facts.publisher {
-            self.var_option_subscriber_refusal(object, routine, args, &values, f)?;
+            self.var_option_publisher_refusal(object, routine, args, f)?;
             let by_var = &self.engine.program.objects[object].routines[routine].by_var;
             self.events.var_origins = args
                 .iter()
@@ -851,6 +854,11 @@ impl Session {
         let own_aliases = self.set_alias_live(f, false);
         // Only a routine that reads MaxStrLen of a `var` parameter, or hands one on, gets them (known at lowering), so other
         // calls pay nothing. An event's subscribers get the lengths of the publisher's arguments (`publish`).
+        // A procedure's `var` Option parameter with members learns whether its caller's variable is one the probes measure
+        // handing on to an event publisher (`var_option::option_hops_of`); not through an interface.
+        if facts.option_hops && !self.next_interface_call {
+            self.events.next_option_hops = self.option_hops_of(object, routine, args, &values, f);
+        }
         let var_lens = facts.var_lens;
         if var_lens {
             self.events.next_var_lens = self.var_lens_of(object, routine, args, f);
@@ -877,6 +885,9 @@ impl Session {
             self.var_alias_watch.truncate(n);
             // A call refused before its frame was made leaves them behind.
             self.events.next_aliases.clear();
+        }
+        if facts.option_hops {
+            self.events.next_option_hops.clear();
         }
         if var_lens {
             self.events.next_var_lens.clear();
@@ -1137,7 +1148,7 @@ impl Session {
         };
         // A `var Text` parameter can stand for a variable of a declared length.
         let v = self.rendered_into_place(p, v, f)?;
-        self.write(p, v, f)
+        self.write_as(p, v, f, Store::CallBack)
     }
 
     /// The instance a call on codeunit value `i` runs on: the session's
@@ -1530,13 +1541,13 @@ impl Session {
     }
 
     pub(crate) fn write(&mut self, p: &ir::Place, v: Value, f: &mut Frame) -> Result<(), Signal> {
-        self.write_as(p, v, f, true)
+        self.write_as(p, v, f, Store::Assign)
     }
 
     /// The write-back of a builtin's by-reference receiver or argument (`run_native`): a Blob it hands back is stored as the
     /// buffer it is, never copied (a stream `CreateOutStream` created on it writes there; `blob_transfer::moved`).
-    fn write_native_back(&mut self, p: &ir::Place, v: Value, f: &mut Frame) -> Result<(), Signal> {
-        self.write_as(p, v, f, false)
+    fn write_native_back(&mut self, p: &ir::Place, v: Value, f: &mut Frame, id: BuiltinId) -> Result<(), Signal> {
+        self.write_as(p, v, f, Store::Builtin(id))
     }
 
     /// Global `i` of the running instance takes `v` as it is: the end of [`Self::write_as`] (and of a Variant's shared record,
@@ -1558,8 +1569,9 @@ impl Session {
         Ok(())
     }
 
-    /// [`Self::write`]; `assign` is false for a builtin's write-back.
-    fn write_as(&mut self, p: &ir::Place, v: Value, f: &mut Frame, assign: bool) -> Result<(), Signal> {
+    /// [`Self::write`]; `how` names the store: a builtin's write-back is no assignment.
+    fn write_as(&mut self, p: &ir::Place, v: Value, f: &mut Frame, how: Store) -> Result<(), Signal> {
+        let assign = matches!(how, Store::Assign | Store::CallBack);
         // A column a platform row leaves unknown never reaches a variable: every read of one is refused where it happens; this
         // catches a reader that missed it.
         if let Value::Unknown(why) = &v {
@@ -1849,11 +1861,8 @@ impl Session {
                     }
                     Err(e) => return Err(e),
                 };
-                let kept = crate::var_option::element_store(&v, &el_ty, &arr.borrow()[flat]);
-                arr.borrow_mut()[flat] = match kept {
-                    Some(v) => v?,
-                    None => ops::convert(v, &el_ty)?,
-                };
+                let value = self.element_value(v, &el_ty, &arr.borrow()[flat], how, base, f)?;
+                arr.borrow_mut()[flat] = value;
             }
             ir::Place::Field(..) => unreachable!("handled above"),
         }

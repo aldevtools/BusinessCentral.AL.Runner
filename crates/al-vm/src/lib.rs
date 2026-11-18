@@ -353,6 +353,9 @@ pub(crate) struct RoutineFacts {
     /// A call hands the routine the declared lengths of its `var` Text and Code arguments (`ir::Routine::reads_var_max_len`;
     /// never for a publisher, whose subscribers would see them).
     pub var_lens: bool,
+    /// A `var` Option parameter declared with members, of a routine that is no publisher: a call hands it whether its argument
+    /// is a variable the probes measure handing on to a publisher (`var_option::option_hops_of`, `Frame::option_hops`).
+    pub option_hops: bool,
 }
 
 fn routine_facts(r: &ir::Routine, publisher: bool) -> RoutineFacts {
@@ -377,6 +380,12 @@ fn routine_facts(r: &ir::Routine, publisher: bool) -> RoutineFacts {
     }
     f.odd_attributes |= commits > 1 || collects > 1;
     f.var_lens = r.reads_var_max_len && !publisher;
+    f.option_hops = !publisher
+        && r.locals
+            .iter()
+            .zip(&r.by_var)
+            .take(r.params)
+            .any(|(l, v)| *v && matches!(&l.ty, RtType::Option(m) if !al_builtins::option_members::memberless(m)));
     f
 }
 
@@ -1514,6 +1523,7 @@ impl Session {
                 next_blob_event: false,
                 subscriber_stack: Vec::new(),
                 next_var_lens: Vec::new(),
+                next_option_hops: Vec::new(),
                 publisher_var_lens: Vec::new(),
                 unpinned_event_depth: 0,
                 skip_dependency_subscribers: false,
@@ -2623,6 +2633,7 @@ impl Session {
         } else {
             Vec::new()
         };
+        let option_hops = self.take_option_hops(facts.option_hops);
         let mut frame = Frame {
             object,
             routine,
@@ -2630,6 +2641,7 @@ impl Session {
             locals,
             aliases,
             var_lens,
+            option_hops,
         };
         let is_try = facts.is_try;
         // [CommitBehavior] governs the whole dynamic extent of the procedure and ends when it
@@ -2904,6 +2916,9 @@ struct Frame {
     /// Per parameter: what `MaxStrLen` of a `var` Text or Code parameter answers, the declared length of the variable or
     /// field the caller passed (set by `finish_call`; `None`: not known, and `MaxStrLen` refuses).
     var_lens: Vec<Option<i32>>,
+    /// Per parameter: the caller handed this `var` Option parameter with members a variable the probes measure handing on
+    /// to an event publisher with a memberless subscriber (set by `finish_call`, `var_option::option_hops_of`).
+    option_hops: Vec<bool>,
 }
 
 fn int(v: &Value) -> Result<i64, Signal> {

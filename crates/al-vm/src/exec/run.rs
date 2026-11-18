@@ -1345,6 +1345,7 @@ impl Session {
         }
         let result = self.run_native(
             native,
+            site.id,
             site.class,
             site.receiver_arg.as_ref(),
             &site.args,

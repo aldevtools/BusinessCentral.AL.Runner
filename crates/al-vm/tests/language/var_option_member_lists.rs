@@ -800,16 +800,30 @@ fn a_parameter_with_other_members_reads_its_own_and_the_caller_keeps_its_own() {
     assert_eq!(assumed("MemberlessCaller"), "Second|1");
 }
 
-// OptionVarMemberLists.al: MemberlessVarArray_Callee, Event_MemberlessPublisher.
+// OptionVarMemberLists.al: MemberlessVarArray_Callee.
 #[test]
 fn a_var_array_and_an_event_subscriber_keep_the_caller_s_members() {
     assert_eq!(assumed("VarArray"), "Second");
-    assert_eq!(assumed("EventMemberless"), "Second|Third");
-    // Base Application's "Config. Package Management" hands a global to a publisher's memberless `var` parameter (reached
-    // by the pinned corpus case table-objects Y76_Package_AutoIncrementField_NotInPackage).
-    assert_eq!(assumed("GlobalToMemberlessPublisher"), "Second|Third");
-    // The same case hands a parameter passed by value to a publisher's memberless `var` parameter.
-    assert_eq!(assumed("ByValueToPublisher"), "Second|Third");
+}
+
+// An event publisher called directly with another member list is not measured: the probes raise their events through a
+// procedure (OptionVarMemberLists.al:510 through `RaiseMemberless`). With a subscriber, as here, it refuses. Base Application's
+// "Config. Package Management" calls one directly that no subscriber hears (the pinned corpus case table-objects
+// Y76_Package_AutoIncrementField_NotInPackage): that runs no code and keeps main's result.
+#[test]
+fn a_publisher_called_directly_refuses() {
+    for routine in [
+        "EventMemberless",
+        "GlobalToMemberlessPublisher",
+        "ByValueToPublisher",
+        "PublisherWithOtherMembers",
+        "LocalFieldToPublisher",
+        "LocalElementToPublisher",
+    ] {
+        refused(routine, "handed directly to an event publisher's");
+    }
+    // An element of a global array is measured only handed to an interface method (OptionVarMemberlessCallers.al:573).
+    refused("GlobalArrayElement", "caller the probe does not measure");
 }
 
 // OptionVarMemberlessEvaluate.al: MemberlessVar_EvaluateStatement_NameLowerCase, _Ordinal7, MemberlessVar_EvaluateResult_Others
@@ -884,28 +898,29 @@ fn a_copied_array_and_a_by_value_array_hold_the_caller_s_members() {
 // and a global (corpus PR 1439, OptionVarMemberlessCallers.al:249); a field whose captions differ from its members refuses
 // when such a subscriber binds (:290).
 #[test]
-fn a_memberless_subscriber_under_a_publisher_with_members_reads_measured_callers_only() {
-    assert_eq!(assumed("MembersPublisherLocal"), "Second");
-    assert_eq!(assumed("MembersPublisherGlobal"), "First");
-    refused("MembersPublisherCaptionField", "caller the probe does not measure");
+fn a_memberless_subscriber_under_a_publisher_called_directly_refuses() {
+    // The probes raise every event through a procedure (OptionVarMemberLists.al:531; OVMC:249); a direct call is not measured.
+    for routine in [
+        "MembersPublisherLocal",
+        "MembersPublisherGlobal",
+        "MembersPublisherCaptionField",
+    ] {
+        refused(routine, "caller the probe does not measure");
+    }
 }
 
-// Caller kinds corpus PR 1439 measured (OptionVarMemberlessCallers.al:117-215, :332, :353, :573;
-// OptionVarMemberlessWrites.al:411, :447). A publisher's parameter takes them as a procedure's does (:196).
+// Caller kinds corpus PR 1439 measured handed to a procedure (OptionVarMemberlessCallers.al:117-215, :332, :353;
+// OptionVarMemberlessWrites.al:411, :447).
 #[test]
 fn callers_corpus_pr_1439_measured_run() {
     for (routine, shown) in [
-        ("PublisherWithOtherMembers", "A"),
         ("GlobalRecordField", "First"),
-        ("GlobalArrayElement", "First"),
         ("ByValueParameterCaller", "Second"),
         ("ByValueToOtherMembers", "A"),
         ("ByValueArrayToVarArray", "Second"),
         ("NamedReturnCaller", "First"),
         ("ByValueRecordField", "First|0"),
         ("ByValueMemberlessToMembers", "First"),
-        ("LocalFieldToPublisher", "First"),
-        ("LocalElementToPublisher", "First"),
         ("VarRecordField", "First|0"),
         ("TableOwnField", "First"),
     ] {
@@ -915,11 +930,12 @@ fn callers_corpus_pr_1439_measured_run() {
 
 #[test]
 fn callers_the_probe_does_not_measure_refuse() {
+    // An array handed directly to a publisher no subscriber hears: no code runs, the array keeps its value (main's result).
+    assert_eq!(text(al_testkit::run_in(SRC, "C", "LocalArrayToPublisher")), "First");
     refused("VarParameterWithMembersCaller", "a `var` parameter with members");
     for routine in [
         "GlobalToOtherMembers",
         "GlobalVarArray",
-        "LocalArrayToPublisher",
         "MemberlessGlobalToMembers",
         "VarArrayHandedOn",
     ] {

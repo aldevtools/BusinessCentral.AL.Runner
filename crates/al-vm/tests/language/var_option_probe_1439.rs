@@ -1182,10 +1182,6 @@ fn event_subscribers_without_members_read_the_caller_s_members() {
         assumed("EventLocalArrayElementMemberlessPublisher"),
         "Second|1@Second|1@Third|2"
     );
-    assert_eq!(
-        assumed("DirectCallersToMembersPublisher"),
-        "Second|1#Third|2@Second|1#Third|2@Second|1#Third|2"
-    );
 }
 
 // OptionVarMemberlessCallers.al:388, :419, :481, :511, :573
@@ -1273,25 +1269,23 @@ fn stores_into_an_element_without_a_caller_s_members_keep_the_number() {
     assert_eq!(clean("LocalMemberlessElementStores"), "2|2#1|1");
 }
 
-// The shapes of Base Application that Microsoft's tests reach: a memberless local to an event publisher's parameter with
-// members (the purchase order page), a memberless `var` parameter to a procedure's parameter with members (batch posting),
-// and a field whose OptionCaption names its members to a memberless publisher ("Item Entry Relation"). Each is a caller
-// kind the probe measured; the caller without members keeps none (OptionVarMemberLists.al:432).
+// Shapes of Base Application that Microsoft's tests reach and no probe measures: a memberless local to an event publisher
+// called directly (the purchase order page), a memberless `var` parameter handed on to a procedure's parameter with members
+// (batch posting), and a field whose OptionCaption names its members ("Item Entry Relation"). They refuse; the probes measure
+// a memberless caller handed to members only directly (OptionVarMemberLists.al:432), and only fields without OptionCaption.
 #[test]
-fn base_application_shapes_run() {
-    assert_eq!(
-        al_testkit::run_in(SRC, "C", "MemberlessLocalToMembersPublisher")
-            .map(|v| text(Ok(v)))
-            .unwrap(),
-        "Second|1@2|2"
+fn base_application_shapes_the_probes_do_not_measure_refuse() {
+    refused(
+        "MemberlessLocalToMembersPublisher",
+        "handed directly to an event publisher's",
     );
-    assert_eq!(
-        al_testkit::run_in(SRC, "C", "MemberlessVarParamToMembers")
-            .map(|v| text(Ok(v)))
-            .unwrap(),
-        "Second|1@2|2"
+    refused(
+        "NumericCaptionFieldToPublisher",
+        "handed directly to an event publisher's",
     );
-    assert_eq!(assumed("NumericCaptionFieldToPublisher"), "1|1#2|2");
+    for routine in ["MemberlessVarParamToMembers", "DirectCallersToMembersPublisher"] {
+        refused(routine, "caller the probe does not measure");
+    }
 }
 
 // Not measured, or not carried: a field whose OptionCaption differs from its members (OptionVarMemberlessCallers.al:179,
@@ -1306,7 +1300,7 @@ fn caption_fields_and_var_parameters_with_members_refuse() {
         "RecordArrayElementFieldToMembersPublisher",
         "from a caller the probe does not measure",
     );
-    refused("VarArrayStoreShorterOption", "of a value the probe does not measure");
+    refused("VarArrayStoreShorterOption", "a store the probe does not measure");
     for routine in [
         "ByValueRecordCaptionField",
         "EventCaptionFieldMemberlessPublisher",

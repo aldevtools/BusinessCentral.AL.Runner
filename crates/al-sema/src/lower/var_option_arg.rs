@@ -1,14 +1,45 @@
 //! A `var` Option argument whose declared member list differs from the parameter's (al-runner issues 7994 and 8291). The run
 //! gives a parameter declared without members the caller's members, and the caller's variable its own back after the call
 //! (al-vm `var_option`, assumption var-option-caller-members, corpus PR 1432: tests/al-language/types/enum-option/
-//! OptionVarMemberLists.al and OptionVarMemberlessEvaluate.al). This module refuses the callers the probe does not measure,
-//! for a procedure's, an event publisher's and an interface method's `var` parameter alike, and the stores into a memberless
-//! `var` Option parameter the probe does not measure.
+//! OptionVarMemberLists.al and OptionVarMemberlessEvaluate.al; corpus PR 1439: OptionVarMemberlessCallers.al and
+//! OptionVarMemberlessWrites.al). This module refuses each pair of call kind (procedure, interface method) and caller the
+//! probes do not measure, leaves an event publisher called directly to the run (al-vm
+//! `Session::var_option_publisher_refusal`), and routes `A[i] := x` into an array of memberless Options to the run.
 use super::*;
 use al_builtins::option_members::memberless;
 
+/// The kinds of call the probes tell apart for a `var` Option argument.
+#[derive(Clone, Copy, PartialEq)]
+enum Call {
+    /// A procedure of a codeunit, a table or the routine's own object.
+    Procedure,
+    /// An interface method.
+    Interface,
+}
+
+/// The record a field argument belongs to.
+#[derive(Clone, Copy, PartialEq)]
+enum Record {
+    /// A record of the routine's `var` section.
+    Declared,
+    Global,
+    /// The implicit Rec of a table.
+    Rec,
+    VarParameter,
+    ByValueParameter,
+}
+
+/// The array an element argument belongs to.
+#[derive(Clone, Copy, PartialEq)]
+enum Array {
+    /// An array of the routine's `var` section.
+    Declared,
+    Global,
+    ByValueParameter,
+}
+
 /// What a `var` argument names, as far as the measured callers tell them apart.
-#[derive(PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 enum Caller {
     /// A variable of the routine's `var` section.
     DeclaredLocal,
@@ -21,38 +52,80 @@ enum Caller {
     MemberlessVarParameter,
     /// A parameter of the routine passed by `var` and declared with members.
     VarParameterWithMembers,
-    /// A field of a local record (not the named return value) or of a global record, without OptionCaption or OptionCaptionML,
-    /// or with an OptionCaption that names each member as it is.
-    Field,
+    /// An Option field without OptionCaption and OptionCaptionML.
+    Field(Record),
+    /// An Option field whose OptionCaption names each member as it is (Base Application's "Item Entry Relation"."Source
+    /// Subtype"): no probe table has one.
+    CaptionNamesMembers,
     /// An Option field whose OptionCaption or OptionCaptionML differs from its members: the callee would read its captions,
     /// which the value does not carry.
     CaptionField,
-    /// An element of an array of the routine's `var` section, of a parameter passed by value, or of a global.
-    Element,
+    /// An element of an array.
+    Element(Array),
     Other,
 }
 
 const REFUSED: &str = "an Option variable handed to a `var` Option parameter with another member list, from a caller the probe does not measure (assumption var-option-caller-members)";
 
+/// Whether the probes measure `caller`, with members, handed by `call` to a `var` Option parameter declared without
+/// members (corpus PR 1432, OptionVarMemberLists.al (OVML); corpus PR 1439, OptionVarMemberlessCallers.al (OVMC) and
+/// OptionVarMemberlessWrites.al (OVMW)). An event's cells reach the publisher through a procedure (`RaiseMemberless`), so
+/// they measure the procedure call.
+fn measured_memberless(call: Call, caller: Caller) -> bool {
+    use Call::{Interface, Procedure};
+    matches!(
+        (call, caller),
+        // OVML:104, :241, :510
+        (Procedure, Caller::DeclaredLocal)
+            // OVML:330; OVMC:229
+            | (Procedure, Caller::Global)
+            // OVMC:117, :196
+            | (Procedure, Caller::ByValueParameter)
+            // OVMC:164
+            | (Procedure, Caller::NamedReturn)
+            // OVML:283
+            | (Procedure, Caller::Field(Record::Declared))
+            // OVMC:332
+            | (Procedure, Caller::Field(Record::Global))
+            // OVMW:411
+            | (Procedure, Caller::Field(Record::VarParameter))
+            // OVMC:179
+            | (Procedure, Caller::Field(Record::ByValueParameter))
+            // OVMW:447
+            | (Procedure, Caller::Field(Record::Rec))
+            // OVML:491; OVMC:353
+            | (Procedure, Caller::Element(Array::Declared))
+            // OVMC:145
+            | (Procedure, Caller::Element(Array::ByValueParameter))
+            // OVMC:388
+            | (Interface, Caller::DeclaredLocal)
+            // OVMC:419
+            | (Interface, Caller::Field(Record::Declared))
+            // OVMC:481
+            | (Interface, Caller::Global)
+            // OVMC:511
+            | (Interface, Caller::Field(Record::Global))
+            // OVMC:573
+            | (Interface, Caller::Element(Array::Global))
+    )
+}
+
 impl Lowerer<'_> {
     /// The refusal of a call that hands `a` (lowered to `arg`) to `var` parameter `param` of procedure `target` (`None`: an
-    /// interface method), or `None`. Measured, when the member lists differ name by name (corpus PR 1432, OptionVarMemberLists.al;
-    /// corpus PR 1439, OptionVarMemberlessCallers.al (OVMC) and OptionVarMemberlessWrites.al (OVMW)):
-    /// - a parameter declared without members, the caller with members: a variable of the `var` section (:104, :241, :510; OVMC:388),
-    ///   a global (:330; OVMC:229, :481), a parameter passed by value (OVMC:117, :196), a named return value (OVMC:164), a field
-    ///   of a local record (:283; OVMC:419), of a global record (OVMC:332, :511), of a `var` or by-value record parameter (OVMW:411;
-    ///   OVMC:179) and of Rec (OVMW:447), an element of a local, global or by-value array (:491; OVMC:353, :573, :145). The
-    ///   call kind does not change the result in any of these (procedure, interface method, event publisher); a caller kind
-    ///   is run for all three.
-    /// - a parameter with members: a record field or an array element (the usual conversion), a variable of the `var` section with
-    ///   other members or without members (:398, :432; to an event publisher as to a procedure, OVMC:196), a parameter passed
-    ///   by value (OVMC:131, :215), a memberless `var` parameter (it stands for its caller's variable, OVMW:269).
-    /// - a procedure's or an interface method's `var` array parameter of memberless Options, the caller an array with members of
-    ///   the `var` section or passed by value (:468; OVMC:145).
+    /// interface method), or `None`, when the member lists differ name by name (an event publisher: always `None`, the run
+    /// decides):
+    /// - a parameter declared without members, the caller with members: the pairs of call and caller `measured_memberless`
+    ///   names.
+    /// - a parameter with members: a record field or an array element (the usual conversion, as on main); from a procedure
+    ///   call, a variable of the `var` section with other members or without members (OVML:398, :432) and a parameter passed
+    ///   by value (OVMC:131, :215).
+    /// - a procedure's `var` array parameter of memberless Options, the caller an array with members of the `var` section
+    ///   or passed by value (OVML:468; OVMC:145).
     ///
-    /// Refused: a field whose captions differ from its members (BC shows the caption, OVMC:269, :290, :450, which the value
-    /// does not carry); a `var` parameter with members as the caller of a memberless parameter (after a hop through other members a
-    /// rejected Evaluate leaves the first member, OVMW:387, which the run cannot tell from a direct caller); every other caller.
+    /// Refused: a field whose captions differ from its members (BC shows the caption, OVMC:269, :450, which the value does
+    /// not carry); a `var` parameter with members as the caller of a memberless parameter (after a hop through other members
+    /// a rejected Evaluate leaves the first member, OVMW:387, which the run cannot tell from a direct caller); every other
+    /// pair of call and caller.
     pub(super) fn var_option_arg_refusal(
         &mut self,
         target: Option<(usize, usize)>,
@@ -71,15 +144,20 @@ impl Lowerer<'_> {
         if declared == has {
             return None;
         }
+        let call = match target {
+            None => Call::Interface,
+            // An event publisher runs no code of its own: the run refuses the call where a subscriber hears it and keeps
+            // main's result where none does (al-vm `Session::var_option_publisher_refusal`).
+            Some((o, r))
+                if self.routine_has_attribute(o, r, &["IntegrationEvent", "BusinessEvent", "InternalEvent"]) =>
+            {
+                return None;
+            }
+            Some(_) => Call::Procedure,
+        };
         let caller = self.var_option_caller(a, arg);
         let measured = match (memberless(&declared), memberless(&has), array) {
             (true, false, false) => match caller {
-                Caller::DeclaredLocal
-                | Caller::Global
-                | Caller::ByValueParameter
-                | Caller::NamedReturn
-                | Caller::Field
-                | Caller::Element => true,
                 Caller::CaptionField => {
                     return Some(
                         "an Option field whose OptionCaption differs from its members handed to a `var` Option parameter declared without members: the callee reads its captions, which the value does not carry (assumption var-option-caller-members)".into(),
@@ -90,20 +168,14 @@ impl Lowerer<'_> {
                         "a `var` parameter with members handed to a `var` Option parameter declared without members: a rejected Evaluate there is measured to leave the first member (assumption var-option-caller-members)".into(),
                     );
                 }
-                Caller::MemberlessVarParameter | Caller::Other => false,
+                _ => measured_memberless(call, caller),
             },
             (false, _, false) => {
                 matches!(arg, ir::Arg::Ref(ir::Place::Field(..) | ir::Place::Index(..)))
-                    || matches!(
-                        caller,
-                        Caller::DeclaredLocal | Caller::ByValueParameter | Caller::MemberlessVarParameter
-                    )
+                    || (call == Call::Procedure && matches!(caller, Caller::DeclaredLocal | Caller::ByValueParameter))
             }
             (true, false, true) => {
-                let publisher = target.is_some_and(|(o, r)| {
-                    self.routine_has_attribute(o, r, &["IntegrationEvent", "BusinessEvent", "InternalEvent"])
-                });
-                !publisher && matches!(caller, Caller::DeclaredLocal | Caller::ByValueParameter)
+                call == Call::Procedure && matches!(caller, Caller::DeclaredLocal | Caller::ByValueParameter)
             }
             (false, _, true) | (true, true, _) => true,
         };
@@ -115,11 +187,6 @@ impl Lowerer<'_> {
         let ir::Arg::Ref(place) = arg else {
             return Caller::Other;
         };
-        let declared_or_by_value = |l: &Self, p: &ir::Place| match p {
-            ir::Place::Local(s) => (*s >= params && Some(*s) != l.named_ret) || (*s < params && !l.var_params[*s]),
-            ir::Place::Global(_) => true,
-            _ => false,
-        };
         match place {
             ir::Place::Local(s) if Some(*s) == self.named_ret => Caller::NamedReturn,
             ir::Place::Local(s) if *s >= params => Caller::DeclaredLocal,
@@ -130,23 +197,43 @@ impl Lowerer<'_> {
                 _ => Caller::Other,
             },
             ir::Place::Global(_) => Caller::Global,
-            ir::Place::Field(base, _) if !self.measured_record(base) => Caller::Other,
-            ir::Place::Field(..) if self.option_caption_owner(a).is_some() && !self.captions_name_members(a) => {
-                Caller::CaptionField
-            }
-            ir::Place::Field(..) => Caller::Field,
-            ir::Place::Index(base, _) if declared_or_by_value(self, base) => Caller::Element,
+            ir::Place::Field(base, _) => match self.record_of(base) {
+                None => Caller::Other,
+                Some(_) if self.option_caption_owner(a).is_some() && self.captions_name_members(a) => {
+                    Caller::CaptionNamesMembers
+                }
+                Some(_) if self.option_caption_owner(a).is_some() => Caller::CaptionField,
+                Some(record) => Caller::Field(record),
+            },
+            ir::Place::Index(base, _) => self.array_of(base).map_or(Caller::Other, Caller::Element),
             _ => Caller::Other,
         }
     }
 
-    /// Whether `base` is a record the probe hands a field of: a local of the routine (its `var` section, a `var` or by-value
-    /// parameter, Rec) other than the named return value, or a global (OVMC:179, :332, :419, :511; OVMW:411, :447).
-    fn measured_record(&self, base: &ir::Place) -> bool {
+    /// The kind of record `base` is, for a field argument; `None`: the named return value or a record of another place.
+    fn record_of(&self, base: &ir::Place) -> Option<Record> {
+        let params = self.var_params.len();
         match base {
-            ir::Place::Local(s) => Some(*s) != self.named_ret,
-            ir::Place::Global(_) => true,
-            _ => false,
+            ir::Place::Local(s) if Some(*s) == self.named_ret => None,
+            ir::Place::Local(s) if *s >= params => Some(Record::Declared),
+            ir::Place::Local(s) if self.var_params[*s] => Some(Record::VarParameter),
+            ir::Place::Local(_) => Some(Record::ByValueParameter),
+            ir::Place::Global(s) if Some(*s) == self.rec_slot => Some(Record::Rec),
+            ir::Place::Global(_) => Some(Record::Global),
+            _ => None,
+        }
+    }
+
+    /// The kind of array `base` is, for an element argument; `None`: a `var` parameter, the named return value or an array
+    /// of another place.
+    fn array_of(&self, base: &ir::Place) -> Option<Array> {
+        let params = self.var_params.len();
+        match base {
+            ir::Place::Local(s) if Some(*s) == self.named_ret => None,
+            ir::Place::Local(s) if *s >= params => Some(Array::Declared),
+            ir::Place::Local(s) if !self.var_params[*s] => Some(Array::ByValueParameter),
+            ir::Place::Global(_) => Some(Array::Global),
+            _ => None,
         }
     }
 
@@ -205,9 +292,9 @@ impl Lowerer<'_> {
     /// `A[i] := x` into an element of an array of Options declared without members, `x` an Integer or an Option: the value goes
     /// in unconverted, so that the run tells an Integer, an Option without members and an Option with its own members apart
     /// in an element that holds a caller's members (al-vm `var_option::element_store`, corpus PR 1439,
-    /// OptionVarMemberlessWrites.al:472). The run converts it as the assignment would in any other element. `A := B` of an
-    /// array of Options with members into one of Options without members refuses: the probe measures CopyArray (:530, :551),
-    /// not the assignment of the whole array. `None`: another statement.
+    /// OptionVarMemberlessWrites.al:472); in any other element the run converts it as the assignment would. `A := B` of an
+    /// array of Options with members into one of Options without members refuses: the probe notes that BC does not compile
+    /// it (AL0145, OptionVarMemberlessWrites.al:31) and measures CopyArray instead (:530, :551). `None`: another statement.
     pub(super) fn memberless_option_array_assign(
         &mut self,
         n: &SyntaxNode,
@@ -219,7 +306,7 @@ impl Lowerer<'_> {
         match (self.ty_of(&kids[0]), self.ty_of(&kids[1])) {
             (Ty::Array(_, to), Ty::Array(_, from)) => match (*to, *from) {
                 (Ty::Option(to), Ty::Option(from)) if memberless(&to) && !memberless(&from) => Some(Err(
-                    "the assignment of an array of Options with members to an array of Options declared without members (not measured, assumption var-option-caller-members)".into(),
+                    "the assignment of an array of Options with members to an array of Options declared without members: the probe notes that BC does not compile it (AL0145, assumption var-option-caller-members)".into(),
                 )),
                 _ => None,
             },
