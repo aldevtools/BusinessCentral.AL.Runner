@@ -101,6 +101,8 @@ impl Session {
                     };
                     self.record_ref_into_record_param(&h, *table)?
                 }
+                // A `var` Option parameter with another member list than the value (`var_option`).
+                (a, true) if let Some(v) = crate::var_option::var_binding(&a, &r.locals[i].ty, false) => v?,
                 (a, _) => ops::convert(a, &r.locals[i].ty)?,
             });
         }

@@ -744,17 +744,8 @@ impl<'a> Compiler<'a> {
                 self.aux(AuxSite::FieldOf { pos: *pos }, d, a);
             }
             E::QueryColumn { query, column } => self.query_column(query, *column, d)?,
-            E::TddFit { max, why, inner } | E::FitOrRefuse { max, why, inner } => {
-                let a = self.expr_any(inner)?;
-                self.aux(
-                    AuxSite::Fit {
-                        max: *max,
-                        why: why.clone(),
-                    },
-                    d,
-                    a,
-                );
-            }
+            E::VarSectionValue(inner) => self.expr_into(inner, d)?,
+            E::TddFit { max, why, inner } | E::FitOrRefuse { max, why, inner } => self.fit_into(*max, why, inner, d)?,
             E::TddStub { stub, args, ty } => {
                 // The arguments run left to right for what they do, as a call's would; the stub reads none of them.
                 for a in args {
@@ -837,6 +828,14 @@ impl<'a> Compiler<'a> {
                 ir::Place::Index(Box::new(base), regs)
             }
         })
+    }
+
+    /// `ir::Expr::TddFit` and `ir::Expr::FitOrRefuse`: `inner`, refused when it is a text longer than `max`.
+    fn fit_into(&mut self, max: u32, why: &str, inner: &'a ir::Expr, d: u16) -> R<()> {
+        let a = self.expr_any(inner)?;
+        let why = why.to_string();
+        self.aux(AuxSite::Fit { max, why }, d, a);
+        Ok(())
     }
 
     /// A query column read; the site keeps the global slot when the query is a global variable (`query_reopen`).
@@ -1334,6 +1333,21 @@ impl<'a> Compiler<'a> {
             return Ok(());
         }
         match p {
+            // A `var` Option parameter declared without members may hold its caller's members: its stores go through
+            // `write_as` (`var_option::param_store`).
+            ir::Place::Local(i)
+                if self.by_var.get(*i) == Some(&true)
+                    && matches!(self.locals_ty.get(*i), Some(RtType::Option(m)) if al_builtins::option_members::memberless(m)) =>
+            {
+                self.store_place(p, e, single)?;
+            }
+            // An element of an array of memberless Options stored from a variable of the `var` section (`var_option::element_store`).
+            ir::Place::Index(..) if let ir::Expr::VarSectionValue(inner) = e => {
+                let a = self.expr_copy(inner)?;
+                let rp = self.rplace(p)?;
+                let p = self.place(&rp);
+                self.emit(Op::StoreVarSectionValue { p, a });
+            }
             // A local of a typed kind takes a proven value of that kind straight into its register.
             ir::Place::Local(i)
                 if self.locals_ty.get(*i).and_then(of_rt).is_some_and(|t| {
@@ -1351,25 +1365,29 @@ impl<'a> Compiler<'a> {
                 let pi = self.place(p);
                 self.emit(Op::StoreLocal { i, a, p: pi });
             }
-            _ => {
-                let a = if has_index(p) {
-                    self.expr_copy(e)?
-                } else {
-                    self.expr_any(e)?
-                };
-                let rp = self.rplace(p)?;
-                // A field read stored in a global or an array element: a Blob moves first (`blob_transfer::FieldRead`).
-                if let Some(mut read) = self.blob_field_read(e).filter(|_| FieldRead::stored_in(p)) {
-                    read.global = matches!(p, ir::Place::Global(_));
-                    self.emit(Op::BlobFieldRead { r: a, read });
-                }
-                let pi = self.place(&rp);
-                if let Some((i, kind)) = single {
-                    self.emit(Op::SingleWrite { i, kind });
-                }
-                self.emit(Op::StorePlace { p: pi, a });
-            }
+            _ => self.store_place(p, e, single)?,
         }
+        Ok(())
+    }
+
+    /// `p := e` through `Op::StorePlace`, which writes through `Session::write_as`.
+    fn store_place(&mut self, p: &'a ir::Place, e: &'a ir::Expr, single: Option<(u32, SingleWriteKind)>) -> R<()> {
+        let a = if has_index(p) {
+            self.expr_copy(e)?
+        } else {
+            self.expr_any(e)?
+        };
+        let rp = self.rplace(p)?;
+        // A field read stored in a global or an array element: a Blob moves first (`blob_transfer::FieldRead`).
+        if let Some(mut read) = self.blob_field_read(e).filter(|_| FieldRead::stored_in(p)) {
+            read.global = matches!(p, ir::Place::Global(_));
+            self.emit(Op::BlobFieldRead { r: a, read });
+        }
+        let pi = self.place(&rp);
+        if let Some((i, kind)) = single {
+            self.emit(Op::SingleWrite { i, kind });
+        }
+        self.emit(Op::StorePlace { p: pi, a });
         Ok(())
     }
 

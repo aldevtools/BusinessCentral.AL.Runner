@@ -5,7 +5,7 @@
 //! tests/al-language/testpage/parts/ProviderNoRowFirst.al:192, :240, :259, :278, :301 take this path; every other shape keeps
 //! the refusal in `sync_part` (`NO_ROW_CHAIN_REFUSAL`).
 
-use super::pinned_shape::{NextEnd, PLAIN_PROPERTIES, PinnedEnd, TestCall};
+use super::pinned_shape::{NextEnd, PLAIN_PROPERTIES, PinnedEnd, Reads, TestCall};
 use super::*;
 use al_builtins::filter::FieldFilter;
 use al_builtins::page_op::PageMethod;
@@ -18,7 +18,7 @@ pub(super) const NO_ROW_CHAIN_REFUSAL: &str = "a part linked through a Provider 
 const LANDED_END: PinnedEnd = PinnedEnd {
     reason: "a call of the test on a Card whose Provider part shows no row, after the test wrote to the store, or other than a \
              value read of a part's control, First, Last or Next of a part, or Close (not pinned)",
-    reads: false,
+    reads: Reads::No,
     caption: false,
     part_reads: true,
     one_action: false,

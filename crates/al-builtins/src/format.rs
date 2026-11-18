@@ -4,6 +4,7 @@
 
 use crate::native::Signal;
 use crate::value::Value;
+use std::sync::Arc;
 
 mod recordid_number;
 mod region;
@@ -320,7 +321,7 @@ fn format_unread(v: &Value, length: i32, standard: i32) -> Option<Result<String,
             Some(Ok(crate::native::SQL_COUNT_TEXT_MARK.to_string()))
         }
         // A placeholder's size: its digits would be the placeholder's (`placeholder_output::size`).
-        Value::PlaceholderSize(m) => Some(Err(FormatFail::Unsupported(
+        Value::PlaceholderSize(m, _) => Some(Err(FormatFail::Unsupported(
             crate::placeholder_output::size_refusal_text(m, "Format"),
         ))),
         Value::SqlCount(_) => Some(Err(FormatFail::Unsupported(crate::sqlcount::refusal_text(
@@ -352,7 +353,7 @@ fn unnamed_member_text(members: &[String], o: i32) -> String {
 }
 
 /// The text of an Option value in a standard format (an arm of [`format_value`]).
-fn option_text(o: &i32, members: &[String], standard: i32) -> Result<String, FormatFail> {
+fn option_text(o: &i32, members: &Arc<[String]>, standard: i32) -> Result<String, FormatFail> {
     Ok(match standard {
         2 | 9 if crate::sysenum::is_field_table_type(members) => FIELD_TABLE_TYPE_ORDINALS
             .get(*o as usize)
@@ -373,7 +374,7 @@ fn option_text(o: &i32, members: &[String], standard: i32) -> Result<String, For
         2 | 9 if !crate::sysenum::ordinals_hidden(members, standard) => o.to_string(),
         // `Option` declared without members is the one empty name: it shows the number
         // (types/decimal-integer/ScT70062.al:Option_Defaults `nomembers_len`, `nomembers_3`).
-        _ if members.len() == 1 && members[0].is_empty() => o.to_string(),
+        _ if crate::option_members::memberless(members) => o.to_string(),
         // A member with a blank name shows as one space (types/decimal-integer/ScT70053.al:Option_Format `blank_len`).
         _ => match members.get(*o as usize) {
             // An unquoted empty member shows its number (text/P69OptionInText.al:Option_StrSubstNo
@@ -1318,6 +1319,26 @@ const MONTHS_ES_SHORT: [&str; 12] = [
     "ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sept", "oct", "nov", "dic",
 ];
 
+/// Dutch month names of formats 4 and 7, the same in 1043 and 2067 (assumption month-names-dutch: MonthNamesLanguages.al
+/// Months_Dutch_Belgium_2067, Months_Dutch_1043).
+const MONTHS_NL: [&str; 12] = [
+    "januari",
+    "februari",
+    "maart",
+    "april",
+    "mei",
+    "juni",
+    "juli",
+    "augustus",
+    "september",
+    "oktober",
+    "november",
+    "december",
+];
+const MONTHS_NL_SHORT: [&str; 12] = [
+    "jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec",
+];
+
 /// The letter of a closing date under GlobalLanguage `lang`: English `C` (types/date-time/Format.al:172-175); under 1030, 1031,
 /// 1036, 1044 and 1053 as measured (assumption `closing-date-letter-by-language`, corpus PR 1428
 /// GlobalLanguageClosingDate.al:123-284 at 04e1fa0a): `U` under 1030, 1031 and 1044, `S` under 1053, `C` under 1036. `None`
@@ -1411,9 +1432,17 @@ fn format_date(day: i32, closing: bool, standard: i32, lang: i32) -> Result<Stri
         (1036, 7) => MONTHS_FR_SHORT[m as usize - 1],
         (3082, 4) => MONTHS_ES[m as usize - 1],
         (3082, 7) => MONTHS_ES_SHORT[m as usize - 1],
-        // Danish and Dutch December, format 4 only (format-evaluate/EvalLanguageBoolean.al EL_Date_DAN_1030, EL_Date_NLD_1043,
-        // EL_Date_NLB_2067: `december 31, 2026`); the other months are not pinned.
-        (1030 | 1043 | 2067, 4) if m == 12 => "december",
+        // Danish December, format 4 only (format-evaluate/EvalLanguageBoolean.al EL_Date_DAN_1030: `december 31, 2026`); the other
+        // Danish months are not pinned. Dutch (1043, 2067) December of format 4 is pinned there too (EL_Date_NLD_1043, EL_Date_NLB_2067).
+        (1030, 4) if m == 12 => "december",
+        (1043 | 2067, 4) if m == 12 => MONTHS_NL[11],
+        // Every Dutch month of formats 4 and 7: measured by the corpus probe, not pinned yet (assumption month-names-dutch).
+        (1043 | 2067, 4) if crate::assumptions::hit(crate::assumptions::Assumption::MonthNamesDutch) => {
+            MONTHS_NL[m as usize - 1]
+        }
+        (1043 | 2067, 7) if crate::assumptions::hit(crate::assumptions::Assumption::MonthNamesDutch) => {
+            MONTHS_NL_SHORT[m as usize - 1]
+        }
         (_, 4 | 7) => {
             return Err(FormatFail::Unsupported(format!(
                 "Format {standard} of a Date in language {lang}, month {m}: the month name is not pinned (docs/probes-needed.md)"
@@ -1478,6 +1507,37 @@ mod tests {
     }
     fn dec(s: &str) -> Value {
         Value::Decimal(Decimal::from_str(s).unwrap())
+    }
+
+    #[test]
+    fn dutch_month_names_of_formats_4_and_7() {
+        // Probe MonthNamesLanguages.al Months_Dutch_Belgium_2067 and Months_Dutch_1043 (assumption month-names-dutch).
+        let day = |m: u32, d: u32| day_from_civil(2026, m, d);
+        let long = [
+            "januari",
+            "februari",
+            "maart",
+            "april",
+            "mei",
+            "juni",
+            "juli",
+            "augustus",
+            "september",
+            "oktober",
+        ];
+        let short = [
+            "jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec",
+        ];
+        for lang in [2067, 1043] {
+            for (i, (l, s)) in long.iter().zip(short).enumerate() {
+                let d = day(i as u32 + 1, 5);
+                assert_eq!(format_date(d, false, 4, lang).unwrap(), format!("{l} 5, 2026"));
+                assert_eq!(format_date(d, false, 7, lang).unwrap(), format!("{s} 5, 2026"));
+            }
+            assert_eq!(format_date(day(11, 5), false, 4, lang).unwrap(), "november 5, 2026");
+            assert_eq!(format_date(day(12, 5), false, 7, lang).unwrap(), "dec 5, 2026");
+            assert_eq!(format_date(day(3, 15), false, 7, lang).unwrap(), "mrt 15, 2026");
+        }
     }
 
     #[test]
