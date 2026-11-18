@@ -157,8 +157,10 @@ impl<'a> Seq<'a> {
     pub(crate) fn report(&self, oi: usize) -> Option<&crate::reports::Layout> {
         self.report[oi]
             .get_or_init(|| {
-                (self.ws.objects[oi].kind == ObjKind::Report && self.active[oi])
-                    .then(|| crate::reports::layout(&self.ws.object_ast(oi)))
+                (self.ws.objects[oi].kind == ObjKind::Report && self.active[oi]).then(|| {
+                    let timer_trigger = super::with_events::timer_elapsed_trigger(self.ws, oi);
+                    crate::reports::layout(&self.ws.object_ast(oi), timer_trigger.as_deref())
+                })
             })
             .as_ref()
     }
@@ -178,6 +180,7 @@ impl<'a> Seq<'a> {
 pub(crate) fn make_lowerer<'a>(sh: &'a Shared<'a>, tl: &'a Local<'a>, seq: &'a Seq<'a>, oi: usize) -> Lowerer<'a> {
     Lowerer {
         rec_slot: None,
+        declared_rec_slot: None,
         table_of: &sh.table_of,
         ws: sh.ws,
         members: sh.members,
@@ -198,6 +201,9 @@ pub(crate) fn make_lowerer<'a>(sh: &'a Shared<'a>, tl: &'a Local<'a>, seq: &'a S
         local_label_xliff: HashMap::default(),
         global_textconsts: Default::default(),
         local_textconsts: Default::default(),
+        global_plain_text_constants: Default::default(),
+        local_plain_text_constants: Default::default(),
+        local_variant_vars: Default::default(),
         global_textconst_languages: HashMap::default(),
         local_textconst_languages: HashMap::default(),
         global_locked_labels: Default::default(),
@@ -266,6 +272,9 @@ fn note_global_label_facts(lw: &mut Lowerer<'_>, v: &ast::VarDecl, n: &str, labe
     }
     if v.type_ref().as_ref().is_some_and(label_locked) {
         lw.global_locked_labels.insert(key.clone());
+    }
+    if v.type_ref().as_ref().is_some_and(plain_text_constant) {
+        lw.global_plain_text_constants.insert(key.clone());
     }
     if v.type_ref().as_ref().is_some_and(label_maxlength) {
         lw.global_maxlength_labels.insert(key);
@@ -336,6 +345,7 @@ pub(crate) fn lower_object<'a>(
                         properties: l.properties.clone(),
                     })
                     .collect(),
+                modified_fields: Vec::new(),
             },
             positions: Vec::new(),
             unsupported: Vec::new(),
@@ -495,9 +505,9 @@ pub(crate) fn lower_object<'a>(
         for n in v.names() {
             if !attrs.is_empty() {
                 let mut left = attrs_left(&attrs, &declared);
-                if with_events_without_trigger(o.kind, &ty, &obj, &n) {
+                if let Some(marker) = super::with_events::marker(lw.ws, lw.file, o.kind, &ty, &obj, &n) {
                     for a in left.iter_mut().filter(|a| *a == "withevents") {
-                        *a = WITH_EVENTS_NO_TRIGGER.into();
+                        *a = marker.into();
                     }
                 }
                 lw.global_var_attrs.insert(n.to_lowercase(), left);
@@ -540,6 +550,7 @@ pub(crate) fn lower_object<'a>(
     }
     let (mut rec_slot, mut xrec_slot) = (None, None);
     if let Some(t) = table_of[oi] {
+        global_reasons.extend(super::table_no_rec::declared_rec_refusal(&mut lw, o.kind, &obj, t));
         for (name, slot) in [("Rec", &mut rec_slot), ("xRec", &mut xrec_slot)] {
             // A codeunit has no xRec.
             if name == "xRec" && o.kind == ObjKind::Codeunit {
@@ -753,6 +764,7 @@ pub(crate) fn lower_object<'a>(
             Vec::new()
         },
         query: checked.queries[oi].as_ref().map(|q| q.query.clone()),
+        modified_fields: modified_fields(ws, oi),
     };
     let positions = std::mem::take(&mut lw.positions);
     // Itself, whatever the lowering read about the extensions and implementers of others, and
@@ -1186,6 +1198,32 @@ pub(crate) fn label_maxlength(t: &ast::TypeRef) -> bool {
         .any(|w| w[0].text().eq_ignore_ascii_case("maxlength") && w[1].kind() == SyntaxKind::Eq)
 }
 
+/// Whether a declaration is a Label with a text that is not empty and no property (`Label 'text'`) or a TextConst with one
+/// such text, in ENU: the forms the corpus puts into a Variant as a TextConstant (`Lowerer::text_constant_into_variant`).
+pub(crate) fn plain_text_constant(t: &ast::TypeRef) -> bool {
+    let toks: Vec<_> = t
+        .syntax()
+        .descendants_with_tokens()
+        .filter_map(|e| e.into_token())
+        .filter(|k| !k.kind().is_trivia())
+        .collect();
+    match toks.as_slice() {
+        [kw, text] => kw.text().eq_ignore_ascii_case("label") && text_not_empty(text),
+        [kw, lang, eq, text] => {
+            kw.text().eq_ignore_ascii_case("textconst")
+                && lang.text().eq_ignore_ascii_case("enu")
+                && eq.kind() == SyntaxKind::Eq
+                && text_not_empty(text)
+        }
+        _ => false,
+    }
+}
+
+/// A string literal with at least one character between its quotes (every pinned text has one, `Simple` of VaTTextConst.al:13 among them; the empty text of :16 never goes into a Variant).
+fn text_not_empty(t: &al_syntax::SyntaxToken) -> bool {
+    t.kind() == SyntaxKind::StringLit && t.text().len() >= 3
+}
+
 /// Whether a declaration is of type `TextConst`.
 pub(crate) fn is_textconst(t: Option<&ast::TypeRef>) -> bool {
     t.is_some_and(|t| t.type_name().eq_ignore_ascii_case("textconst"))
@@ -1292,21 +1330,6 @@ pub(crate) fn attrs_left(attrs: &[String], declared: &Option<Result<i32, String>
     }
     attrs
 }
-
-/// Whether the global `name` of the object `obj` is a `[WithEvents]` DotNet variable of a codeunit that declares no
-/// `trigger name::Event` for it. No AL code then runs on its events, and its uses run as a plain DotNet variable's, marked
-/// with assumption `with-events-no-trigger` (Microsoft's Sales and Inventory Forecast Tests, codeunit 139540
-/// TestMissingApiUriOpenSetup, passes on real BC through Base App's Azure ML Connector, whose WithEvents variables have no
-/// trigger). Every other WithEvents variable keeps the refusal (`Lowerer::var_attr_refusal`).
-fn with_events_without_trigger(kind: ObjKind, ty: &Ty, obj: &ast::Object, name: &str) -> bool {
-    let prefix = format!("{}::", name.to_lowercase());
-    kind == ObjKind::Codeunit
-        && matches!(ty, Ty::DotNet(_))
-        && !obj.triggers().any(|t| t.name().to_lowercase().starts_with(&prefix))
-}
-
-/// The name a `[WithEvents]` attribute gets for a variable [`with_events_without_trigger`] accepts.
-pub(crate) const WITH_EVENTS_NO_TRIGGER: &str = "withevents-no-trigger";
 
 /// The name [`attrs_left`] gives the attribute SecurityFiltering of a variable whose declared value the runtime keeps: its
 /// read is not refused, an array assignment or CopyArray of it is (`Lowerer::security_filtering_array_refusal`).
@@ -1505,4 +1528,16 @@ pub(crate) fn enum_own(m: &crate::members::Members) -> super::localize::EnumOwn 
         enum_pairs(&m.enum_captions),
         enum_pairs(&m.enum_captions_ml),
     )
+}
+
+/// The `modify` blocks of table extension `oi` as the field name and the names of the properties each sets
+/// (`ir::Object::modified_fields`); none for another kind of object.
+fn modified_fields(ws: &Workspace, oi: usize) -> Vec<(String, Vec<String>)> {
+    if ws.objects[oi].kind != ObjKind::TableExtension {
+        return Vec::new();
+    }
+    crate::members::modify_properties(ws, oi)
+        .into_iter()
+        .map(|(field, props)| (field, props.into_iter().map(|(k, _)| k).collect()))
+        .collect()
 }

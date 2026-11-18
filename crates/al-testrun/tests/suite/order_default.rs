@@ -129,6 +129,7 @@ fn manifest(p: &str) -> Manifest {
         translation_source: None,
         runtime: None,
         app_json_keys: Vec::new(),
+        platform_internals_visible_to: Vec::new(),
         symbols: vec![],
     }
 }
@@ -239,6 +240,119 @@ fn with_strict_order_the_numbers_chain_as_on_bc() {
     );
     assert!(rt.phases.chain.numbers_order.is_empty());
     assert!(!rt.phases.chain.members.is_empty());
+}
+
+/// The NUMBERS shape with codeunits that only read the sequence: one before the first taker, one after it.
+const READERS: &str = r#"
+codeunit 60470 "Order Early Reader"
+{
+    Subtype = Test;
+    [Test] procedure ReadsEarly() begin if NumberSequence.Current('ORDERSEQ') <> 1 then Error('early'); end;
+}
+codeunit 60478 "Order Current Reader"
+{
+    Subtype = Test;
+    [Test] procedure ReadsCurrent() var N: BigInteger; begin N := NumberSequence.Current('ORDERSEQ'); if N <> 2 then Error('current %1', N); end;
+}
+"#;
+
+fn with_readers() -> String {
+    format!("{NUMBERS}{READERS}")
+}
+
+/// Readers of the sequence after the takers that the tests' static reach does not show (review of al-runner PR 8241,
+/// probe 8152 codeunits 51015, 51017, 51018): one in a message handler, one in a table event behind a RecordRef insert, and
+/// a codeunit that reads nothing but runs a codeunit by a variable id. `Order Current Reader` gets a test that reads nothing.
+const HIDDEN_READERS: &str = r#"
+codeunit 60479 "Order Handler Reader"
+{
+    Subtype = Test;
+    var Seen: BigInteger;
+    [Test] [HandlerFunctions('Msg')] procedure ReadsInHandler() begin Message('x'); if Seen <> 2 then Error('handler %1', Seen); end;
+    [MessageHandler] procedure Msg(T: Text[1024]) begin Seen := NumberSequence.Current('ORDERSEQ'); end;
+}
+table 60480 "Order Ref Row" { fields { field(1; K; Code[10]) { } field(2; Seen; BigInteger) { } } keys { key(PK; K) { } } }
+codeunit 60481 "Order Ref Sub"
+{
+    [EventSubscriber(ObjectType::Table, Database::"Order Ref Row", OnBeforeInsertEvent, '', false, false)]
+    local procedure OnIns(var Rec: Record "Order Ref Row") begin Rec.Seen := NumberSequence.Current('ORDERSEQ'); end;
+}
+codeunit 60482 "Order RecRef Reader"
+{
+    Subtype = Test;
+    [Test] procedure ReadsThroughRecRef() var R: RecordRef; F: FieldRef; begin R.Open(60480); F := R.Field(1); F.Value := 'A'; R.Insert(); end;
+}
+codeunit 60483 "Order Unknown Reach"
+{
+    Subtype = Test;
+    [Test] procedure RunsById() var Id: Integer; begin Id := Codeunit::"Order Noop"; Codeunit.Run(Id); end;
+}
+codeunit 60484 "Order Noop" { trigger OnRun() begin end; }
+"#;
+
+fn with_hidden_readers() -> String {
+    let readers = READERS.replace(
+        "[Test] procedure ReadsCurrent()",
+        "[Test] procedure ReadsNothing() begin end;\n    [Test] procedure ReadsCurrent()",
+    );
+    format!("{NUMBERS}{readers}{HIDDEN_READERS}")
+}
+
+/// al-runner issue 8152: by default a codeunit that only reads the sequence after a codeunit that takes numbers is listed
+/// too; one that reads before every taker, or reads nothing, is not.
+#[test]
+fn by_default_a_codeunit_that_only_reads_numbers_after_a_taker_is_listed() {
+    let rt = run(&with_readers(), &RunOptions::default());
+    let chain = &rt.phases.chain;
+    let listed: Vec<u32> = chain.numbers_order.iter().map(|n| n.codeunit).collect();
+    assert_eq!(listed, vec![60476, 60478], "{:?}", chain.numbers_order);
+    let reader = &chain.numbers_order[1];
+    assert_eq!(reader.after, (60476, "Order Second Taker".to_string()));
+    assert!(reader.text().contains("read"), "{}", reader.text());
+    assert!(
+        !chain.numbers_order[0].text().contains("only read"),
+        "{}",
+        chain.numbers_order[0].text()
+    );
+}
+
+/// al-runner issue 8152: under `--strict-order` with TestIsolation = Function (`--isolation test`) what a later codeunit
+/// reads of the numbers an earlier codeunit's tests took is not measured: the NumberSequence call is refused, from any
+/// code (a handler, a table event behind a RecordRef insert). A codeunit that reads before every taker, a test that reads
+/// nothing, one whose reach is not known and the first taker run; under Codeunit isolation the reader keeps main's result.
+#[test]
+fn strict_order_under_function_isolation_refuses_a_later_reader_of_the_numbers() {
+    for sequential in [false, true] {
+        let opts = RunOptions {
+            strict_order: true,
+            strict_sequential: sequential,
+            isolation: Some(al_testrun::isolation::TestIsolation::Function),
+            ..Default::default()
+        };
+        let rt = run(&with_hidden_readers(), &opts);
+        for test in ["ReadsCurrent", "TakesTwo", "ReadsInHandler", "ReadsThroughRecRef"] {
+            assert!(
+                matches!(&result(&rt, test).outcome, Outcome::NotRun(m) if m.contains("TestIsolation = Function")),
+                "{sequential} {test}: {:?}",
+                result(&rt, test)
+            );
+        }
+        for test in ["ReadsEarly", "TakesOne", "TakesNothing", "ReadsNothing", "RunsById"] {
+            assert!(
+                !matches!(&result(&rt, test).outcome, Outcome::NotRun(_)),
+                "{sequential} {test}: {:?}",
+                result(&rt, test)
+            );
+        }
+    }
+    let rt = run(&with_readers(), &strict());
+    assert_eq!(
+        result(&rt, "ReadsCurrent").outcome,
+        Outcome::Pass,
+        "{:?}",
+        result(&rt, "ReadsCurrent")
+    );
+    assert_eq!(result(&rt, "TakesTwo").outcome, Outcome::Pass);
 }
 
 /// The corpus's order probes (`metrics/strict-order-files.txt`): a default run takes the outcomes of the listed

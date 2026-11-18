@@ -25,9 +25,10 @@ pub struct Baseline {
     sequences: std::collections::HashMap<(String, String), crate::sessionops::Sequence>,
     last_stamp: i64,
     /// The workspace app's own install codeunits ran once, before this capture (the runner does it once per run, as
-    /// publishing an app does, not once per test codeunit): the tables of those that could not run, and why.
-    /// `None`: they did not run here and each test codeunit's session runs them.
-    pub workspace_installs: Option<Vec<(std::collections::BTreeSet<u32>, String)>>,
+    /// publishing an app does, not once per test codeunit): those that could not run.
+    /// `None`: they did not run here; each test codeunit's session runs them, or starts from what one run of them in a
+    /// session of its own left (al-testrun `install_once.rs`, `Session::install_left`).
+    pub workspace_installs: Option<Vec<SkippedInstall>>,
     /// The company data codeunit (Microsoft's DemoTool) built the company to its end before this capture: its setup rows
     /// (General Ledger Setup) are the ones BC's own build writes.
     pub company_built: bool,
@@ -45,6 +46,29 @@ pub struct Baseline {
     origin: u64,
 }
 
+/// Install code that could not run, as al-testrun's install step records it (`runtime/blocked.rs` judges the readers).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SkippedInstall {
+    /// The tables whose rows it leaves unknown: code that reads or writes one is not run.
+    pub tables: std::collections::BTreeSet<u32>,
+    /// The tables only the subscribers of table events its reads cannot raise add to `tables`, left out on an
+    /// assumption (al-testrun `runtime/table_reads.rs`): a reader the runner lets run marks it.
+    pub assumed: std::collections::BTreeSet<u32>,
+    /// Why it could not run.
+    pub why: String,
+}
+
+impl SkippedInstall {
+    /// Install code that leaves `tables` unknown for reason `why`, with nothing left out on an assumption.
+    pub fn new(tables: std::collections::BTreeSet<u32>, why: String) -> SkippedInstall {
+        SkippedInstall {
+            tables,
+            assumed: Default::default(),
+            why,
+        }
+    }
+}
+
 static NEXT_ORIGIN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 /// An origin no other baseline of the process has.
@@ -53,7 +77,7 @@ fn new_origin() -> u64 {
 }
 
 /// The first bytes of a snapshot: what it is and which layout it has. A change of the layout changes the last digit.
-const MAGIC: &[u8; 8] = b"ALBASE\0\x05";
+const MAGIC: &[u8; 8] = b"ALBASE\0\x08";
 
 /// The order of a table's keys (`al_data::memory::PkStorage`): the count of its key fields (0 for text order), then one
 /// byte per field.
@@ -140,12 +164,14 @@ impl Baseline {
             Some(list) => {
                 put_u8(&mut out, 1);
                 put_u32(&mut out, list.len() as u32);
-                for (tables, why) in list {
-                    put_u32(&mut out, tables.len() as u32);
-                    for t in tables {
-                        put_u32(&mut out, *t);
+                for skipped in list {
+                    for set in [&skipped.tables, &skipped.assumed] {
+                        put_u32(&mut out, set.len() as u32);
+                        for t in set {
+                            put_u32(&mut out, *t);
+                        }
                     }
-                    put_str(&mut out, why);
+                    put_str(&mut out, &skipped.why);
                 }
             }
         }
@@ -221,12 +247,17 @@ impl Baseline {
             0 => None,
             _ => {
                 let mut list = Vec::new();
+                let set = |r: &mut Reader<'_>| -> Option<std::collections::BTreeSet<u32>> {
+                    (0..r.u32()?).map(|_| r.u32()).collect()
+                };
                 for _ in 0..r.u32()? {
-                    let mut set = std::collections::BTreeSet::new();
-                    for _ in 0..r.u32()? {
-                        set.insert(r.u32()?);
-                    }
-                    list.push((set, r.str()?));
+                    let tables = set(&mut r)?;
+                    let assumed = set(&mut r)?;
+                    list.push(SkippedInstall {
+                        tables,
+                        assumed,
+                        why: r.str()?,
+                    });
                 }
                 Some(list)
             }
@@ -377,7 +408,7 @@ impl Session {
     /// Whether a session restored from a capture of this one now ([`Session::capture_baseline`]) would start exactly as one
     /// restored from `start`, the baseline this session was restored from ([`Session::restore_baseline`] reads nothing
     /// else): no table changed since that restore (the store is `start`'s), the counters, AutoIncrement values, isolated
-    /// storage, number sequences, last stamp, unknown company tables and full copies are `start`'s, and `start` holds no
+    /// storage, number sequences, last stamp, unknown company tables, full copies and group 1 flagged tables are `start`'s, and `start` holds no
     /// built company (a capture does not keep that mark). The install rows a capture is given are those `start` gave
     /// (`Session::install_rows`), and its workspace installs are the caller's to compare.
     pub fn holds_what_it_started_from(&self, start: &Baseline) -> bool {
@@ -474,6 +505,7 @@ impl Session {
         self.isolated_written_in_codeunit.clear();
         self.sequences = b.sequences.clone();
         self.sequences_changed.clear();
+        self.clear_unmeasured();
         // The install ran on a clock that its own Sleep calls had moved forward (hours, in Business Central's install
         // code); the session starts on the real clock again, and a stamp must not stay ahead of it: a row inserted by the
         // first test would otherwise be stamped hours after CurrentDateTime (corpus record/TestSystemFieldStampsContracts.al:
@@ -548,7 +580,11 @@ mod tests {
             .into_iter()
             .collect(),
             last_stamp: 639_277_389_274_520,
-            workspace_installs: Some(vec![([50000_u32, 50001].into_iter().collect(), "why".to_string())]),
+            workspace_installs: Some(vec![SkippedInstall {
+                tables: [50000_u32, 50001].into_iter().collect(),
+                assumed: [50002_u32].into_iter().collect(),
+                why: "why".to_string(),
+            }]),
             company_built: true,
             company_unknown: vec![("My Company".into(), 311, "why".into())],
             full_copies: vec!["Copy".into()],

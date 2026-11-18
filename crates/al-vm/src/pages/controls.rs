@@ -1,3 +1,4 @@
+use super::pinned_shape::TestCall;
 use super::*;
 use crate::records::ValidateSite;
 use al_builtins::page_op::{PageMethod, PageOp};
@@ -370,25 +371,16 @@ impl Session {
         // On a list, a table-field control over an Enum field with NotBlank (not the control's) takes a Text of spaces and the
         // Integer 0 for its blank-captioned value " " as a card does, and shows ' ' (BeEnumSetValueBlank.al:4021
         // QZ_NotBlankEnum_SetValueBlank_List, `notblank after space`, `notblank after ordinal 0`). Without NotBlank it is not pinned.
-        let pinned_list_not_blank = rec_bound
-            && self.has_source(st)
-            && self.is_list(st)
-            && st.borrow().host.is_none()
-            && !self.shows_no_row(st, idx)
-            && !matches!(
-                page_of(&engine, st).controls[idx].prop("notblank"),
-                Some(ir::PropVal::Lit(v)) if v.trim().eq_ignore_ascii_case("true")
-            )
-            && self.control_field(st, idx).is_some_and(|f| {
-                f.properties
-                    .iter()
-                    .any(|(k, v)| k.eq_ignore_ascii_case("NotBlank") && v.trim().eq_ignore_ascii_case("true"))
-            });
+        let pinned_list_not_blank = self.list_not_blank_control(st, idx, rec_bound);
         if let RtType::Enum(id) = &ty
             && let Some(why) = self.enum_ml_unpinned(*id, None, "SetValue and ValidateValue of an enum control")
         {
             return unsupported(why);
         }
+        // The rows of a list whose enum's first member has the caption ' ' (`blank_enum_rows.rs`, al-runner issue 7380).
+        let blank_list_rows = matches!(ty, RtType::Enum(id)
+            if rec_bound && self.blank_enum_list_rows_pinned(st, idx, id, &arg, from_variant)?);
+        let pinned_list_not_blank = pinned_list_not_blank || blank_list_rows;
         let mut blank_enum = None;
         if let (RtType::Enum(id), Value::Text(t) | Value::Code(t)) = (&ty, &arg) {
             if !t.is_empty() && t.chars().all(|c| c == ' ') {
@@ -429,7 +421,7 @@ impl Session {
                 let shown = self.control_text(st, idx, &arg)?;
                 // A request page's Enum variable takes it too and shows ' ' (Y37ValuesAllowedSetValue.al:247-248, :276).
                 if !shown.is_empty() && shown.trim().is_empty() {
-                    if !pinned_card && !(self.is_request_page(st) && !rec_bound) {
+                    if !pinned_card && !blank_list_rows && !(self.is_request_page(st) && !rec_bound) {
                         return unsupported(
                             "SetValue of a blank-captioned Enum value on a control of a list or of a page without a row (not pinned)",
                         );
@@ -560,12 +552,18 @@ impl Session {
         // A list shows no Refresh hint (testpage/PnC07TestPage.al:GetValidationError_AfterFailedValidation, ValueAssign_Number_FromText_And_Decimal);
         // a card does (testpage/TestPageErrTeardown_Tests.al, TestPageBooleanSpelling_Tests.al:210).
         let suffix = self.validation_suffix(st, idx, rec_bound);
-        let language = al_builtins::format::FormatCtx::language(self);
-        let draft_key = self.draft_integer_key(st, idx);
+        let frame = self.validation_frame(st, idx, &caption);
         let refuse_code = |msg: String, code: &str| -> Signal {
-            super::validation_text::validation_signal(&engine, st, idx, msg, suffix, code, (language, draft_key))
+            super::validation_text::validation_signal(&engine, st, idx, msg, suffix, code, frame)
         };
-        let refuse = |_: &mut Session, msg: String| -> Signal { refuse_code(msg, "") };
+        let refuse_entry_parse =
+            |msg: String, code: &str| -> Signal {
+                let mut entry_frame = frame;
+                entry_frame.error_kind = super::validation_text::ValidationErrorKind::Entry(
+                    self.entry_validation_facts(st, idx, &ty, rec_bound, allowed.is_some()),
+                );
+                super::validation_text::validation_signal(&engine, st, idx, msg, suffix, code, entry_frame)
+            };
         // The bounds and the length of a Text variable raise a TestValidation error
         // (errors/TestPageVariableMinMaxContracts.al:15-16, :119).
         let refuse_bound = |msg: String| -> Signal { refuse_code(msg, "TestValidation") };
@@ -690,6 +688,9 @@ impl Session {
                 }
             }
         }
+        if self.blank_enum_new_line_unchanged(st, blank_list_rows, blank_enum.as_ref(), &current) {
+            return Ok(Value::Null);
+        }
         let parsed = match blank_enum {
             Some(v) => Ok(v),
             None => {
@@ -769,22 +770,16 @@ impl Session {
                 }
                 // A control bound to a variable raises TestValidation (pages/controls/W2ValueControls.al:Date_IsoSpellings,
                 // Enum_VariableControl_*); one bound to a table field keeps the empty code.
-                return Err(
-                    // An Enum control raises TestValidation on a card with a row too (pages/controls/
-                    // PageEnumControlCaptionless.al:P161_EnumControl_SetValueSpellings_Captionless `spaceOrdinal`).
-                    // A refused text on an Option control is a TestValidation error on a card with a row: the empty text (testpage/
-                    // TestPageAssertEqualsOption.al:SetValue_BlankOption_AsEmptyText) and `Nope`, `5`, `2`, `Tw` (testpage/N582TestPageEdges.al:156-186).
-                    if rec_bound
-                        && !no_row
-                        && !matches!(ty, RtType::DateTime | RtType::Enum(_))
-                        && !matches!(ty, RtType::Option(_))
-                        && !self.is_list(st)
-                    {
-                        refuse(self, msg)
-                    } else {
-                        refuse_bound(msg)
-                    },
-                );
+                // An Enum control raises TestValidation on a card with a row too (pages/controls/
+                // PageEnumControlCaptionless.al:P161_EnumControl_SetValueSpellings_Captionless `spaceOrdinal`).
+                // A refused text on an Option control is a TestValidation error on a card with a row: the empty text (testpage/
+                // TestPageAssertEqualsOption.al:SetValue_BlankOption_AsEmptyText) and `Nope`, `5`, `2`, `Tw` (testpage/N582TestPageEdges.al:156-186).
+                let empty_code = rec_bound
+                    && !no_row
+                    && !matches!(ty, RtType::DateTime | RtType::Enum(_))
+                    && !matches!(ty, RtType::Option(_))
+                    && !self.is_list(st);
+                return Err(refuse_entry_parse(msg, if empty_code { "" } else { "TestValidation" }));
             }
             Err(al_builtins::pagefmt::ParseError::Unsupported) => {
                 return unsupported(format!(
@@ -954,7 +949,7 @@ impl Session {
                     // globals, and leaves the page's record with fresh globals (ADR-021 decision 8;
                     // corpus probes TableGlobals_PageFieldValidate_*, TableGlobals_PageRec_ActionGlobalsAreLostAfterPageFieldValidation).
                     self.reset_table_globals(&rec);
-                    let validated = self.platform_validate(ValidateSite::TestPageControl, &rec, pos, parsed.clone());
+                    let validated = self.platform_validate(self.test_page_control_site(st), &rec, pos, parsed.clone());
                     self.reset_table_globals(&rec);
                     self.pages.curr_field_no.pop();
                     validated?;
@@ -992,7 +987,7 @@ impl Session {
                     let filters = self.page_rec(st).borrow().filters.clone();
                     st.borrow_mut().filters_before_validate = Some(filters);
                 }
-                if let Err(e) = self.control_routine(st, idx, r) {
+                if let Err(e) = self.run_control_onvalidate(st, idx, r) {
                     from_page_trigger.set(true);
                     return Err(e);
                 }
@@ -1076,7 +1071,7 @@ impl Session {
                     let mut e = e;
                     e.code = format!("NSValidateField:{}", e.code);
                     self.error_finals = None;
-                    self.last_error = *e;
+                    self.hold_error(*e)?;
                     return Ok(Value::Null);
                 }
                 // Out of the table's OnValidate (or anything else than the control's own trigger) only an error with a text is
@@ -1102,7 +1097,7 @@ impl Session {
                     let mut e = e;
                     e.code = format!("NSValidateField:{}", e.code);
                     self.error_finals = None;
-                    self.last_error = *e;
+                    self.hold_error(*e)?;
                     return Ok(Value::Null);
                 }
                 // `RequestPage.Activate` in a request page control's OnValidate aborts the page: the error reaches the test as it
@@ -1163,7 +1158,50 @@ impl Session {
         }
     }
 
+    fn entry_validation_facts(
+        &self,
+        st: &St,
+        idx: usize,
+        ty: &RtType,
+        rec_bound: bool,
+        values_allowed: bool,
+    ) -> super::validation_text::EntryFacts {
+        let kind = match ty {
+            RtType::Boolean => super::validation_text::EntryKind::Boolean,
+            RtType::Enum(_) => super::validation_text::EntryKind::Enum,
+            _ => super::validation_text::EntryKind::Other,
+        };
+        super::validation_text::EntryFacts {
+            parse_failure: true,
+            kind,
+            table_field: rec_bound && self.control_field(st, idx).is_some(),
+            list: self.is_list_page(st),
+            values_allowed: if values_allowed {
+                super::validation_text::ValuesAllowedFact::Present
+            } else {
+                super::validation_text::ValuesAllowedFact::Absent
+            },
+        }
+    }
+
     // ---- controls -----------------------------------------------------------------------
+
+    /// A table-field control on a list (no host) with a row, over a field with NotBlank and without NotBlank on the control
+    /// (`control_set_value_now`, `pinned_list_not_blank`).
+    fn list_not_blank_control(&self, st: &St, idx: usize, rec_bound: bool) -> bool {
+        rec_bound
+            && self.has_source(st)
+            && self.is_list(st)
+            && st.borrow().host.is_none()
+            && !self.shows_no_row(st, idx)
+            && !matches!(
+                page_of(&self.engine(), st).controls[idx].prop("notblank"),
+                Some(ir::PropVal::Lit(v)) if v.trim().eq_ignore_ascii_case("true")
+            )
+            && self
+                .control_field(st, idx)
+                .is_some_and(|f| super::blank_enum_rows::field_not_blank(&f))
+    }
 
     /// Whether control `idx` is bound to an expression that is no place (no routine writes it), on a Card without a source table
     /// that is no request page, and declares no Editable: the shape QZ_NoSourceTable_SetValue_OnExpressionControls pins
@@ -1187,6 +1225,7 @@ impl Session {
     /// testpage/TestPageControlEditableRoutes.al: Part_HostOpenEdit_ThenViewAction).
     pub(super) fn switch_mode(&mut self, st: &St, mode: PageMode) -> Result<Value, Signal> {
         st.borrow_mut().mode = mode;
+        st.borrow_mut().mode_switched_since_open = true;
         self.set_part_modes(st, mode);
         Ok(Value::Null)
     }
@@ -1203,6 +1242,35 @@ impl Session {
             at = page.controls[p].parent;
         }
         false
+    }
+
+    fn guard_blank_part_host_control(&self, c: &ControlRef, m: PageMethod, field_read: bool) -> Result<(), Signal> {
+        let st = &c.page;
+        // A new host whose part shows rows of the blank key: a read of a host field and OK are pinned (PartLineBeforeHostKey.al:
+        // 2116 QH_BlankRows_ReadHostControl, :1939 QH_BlankRows_OkInvoke), and Activate of a host field: of a non-key field it
+        // inserts the host as without the rows, and the part then links to the new key; of the key field it does nothing
+        // (pages/activate-field-blank-host-rows/Y17ActivateNewHost.al:382 QH_BlankRows_ActivateHostField, :473 _ActivateKeyControl,
+        // :521 _CardHost). Nothing else.
+        if st.borrow().new_host_part_rows && st.borrow().host.is_none() {
+            let ok = matches!(&c.target, ControlTarget::BuiltIn(n) if n == "OK") && m == PageMethod::Invoke;
+            let activate = m == PageMethod::Activate && matches!(c.target, ControlTarget::Control(_));
+            let host_field_read = field_read && matches!(c.target, ControlTarget::Control(_));
+            // After the measured SetValue only a read of a host field follows (`trapped_card_blank_part.rs`).
+            if st.borrow().trapped_blank_part_edit && !host_field_read {
+                return blank_part_host_refusal(m);
+            }
+            let trapped_card_edit = if m == PageMethod::SetValue
+                && let ControlTarget::Control(index) = c.target
+            {
+                self.trapped_card_blank_part_set_value(st, index)?
+            } else {
+                false
+            };
+            if !host_field_read && !ok && !activate && !trapped_card_edit {
+                return blank_part_host_refusal(m);
+            }
+        }
+        Ok(())
     }
 
     pub(super) fn test_control_op(
@@ -1228,20 +1296,7 @@ impl Session {
         let m = method.method();
         let field_read = m == PageMethod::Value && args.is_empty();
         self.first_part_access(st, m, field_read)?;
-        // A new host whose part shows rows of the blank key: a read of a host field and OK are pinned (PartLineBeforeHostKey.al:
-        // 2116 QH_BlankRows_ReadHostControl, :1939 QH_BlankRows_OkInvoke), and Activate of a host field: of a non-key field it
-        // inserts the host as without the rows, and the part then links to the new key; of the key field it does nothing
-        // (pages/activate-field-blank-host-rows/Y17ActivateNewHost.al:382 QH_BlankRows_ActivateHostField, :473 _ActivateKeyControl,
-        // :521 _CardHost). Nothing else.
-        if st.borrow().new_host_part_rows && st.borrow().host.is_none() {
-            let ok = matches!(&c.target, ControlTarget::BuiltIn(n) if n == "OK") && m == PageMethod::Invoke;
-            let activate = m == PageMethod::Activate && matches!(c.target, ControlTarget::Control(_));
-            if !(field_read && matches!(c.target, ControlTarget::Control(_))) && !ok && !activate {
-                return unsupported(format!(
-                    "TestField.{m} on a new, unsaved host whose part shows rows of the blank key (not pinned)"
-                ));
-            }
-        }
+        self.guard_blank_part_host_control(c, m, field_read)?;
         // After a GoToKey that moved a list without OnAfterGetCurrRecord a Value read and SetValue read nothing, and the action
         // after them reads the row twice (pages/list-order/QgGoToKeyNextCall.al:223 Plain_GoToKey_ThenValueRead `no_log`,
         // `qty_log` empty; :236 Plain_GoToKey_ThenSetValue_ThenAction `setvalue_log` empty; :317 _ThenValueRead_ThenAction; the Nav_
@@ -1733,10 +1788,7 @@ impl Session {
                 None if self.read_only_expression_control(st, idx) => Ok(Value::Boolean(false)),
                 None => Ok(Value::Boolean(self.control_editable(st, idx)?)),
             },
-            PageMethod::Enabled => match self.part_field_gate(st, false)? {
-                Some(b) => Ok(Value::Boolean(b)),
-                None => Ok(Value::Boolean(self.control_enabled(st, idx)?)),
-            },
+            PageMethod::Enabled => self.test_control_enabled(st, idx),
             // A control of a part also answers what its part control says (see `part_visible_gate`).
             PageMethod::Visible => Ok(Value::Boolean(self.control_visible_in_part(st, idx)?)),
             PageMethod::Invoke => self.action_invoke(st, idx),
@@ -1751,7 +1803,8 @@ impl Session {
             PageMethod::SetValue => {
                 let before = self.has_source(st).then(|| self.page_rec(st).borrow().fields.clone());
                 let r = self.set_value_reading_held_row(st, idx, args)?;
-                self.resync_parts_linked_by(st, idx, before.as_deref())?;
+                self.trapped_card_blank_part_validated(st, idx, before.as_deref())?;
+                self.resync_parts_after_set_value(st, idx, before.as_deref())?;
                 self.refresh_host_after_part_edit(st)?;
                 Ok(r)
             }
@@ -1911,6 +1964,43 @@ fn unpinned_ext_validate(before: &[(usize, usize)], after: &[(usize, usize)], re
 }
 
 impl Session {
+    /// The validate site of a control written on the TestPage `st`.
+    fn test_page_control_site(&self, st: &St) -> ValidateSite {
+        ValidateSite::TestPageControl {
+            new_line_of_trapped_static_card: self.new_line_of_trapped_static_card(st),
+        }
+    }
+
+    /// The control written is the second SetValue on the line `New()` started, the first one being the key, on a Card that AL code
+    /// opened with a static `Page.Run(Id, Rec)` and `TestPage.Trap()` caught, at the top level: the test's calls since the open
+    /// are exactly New, a SetValue of the one primary key field, then this one (record/filters/TestRecordEnumFlowFilterGroup.al:
+    /// 74-75, :88-89, :110-119). The page call form of `ValidateSite::TestPageControl` that `relations.rs` `group_two_enum_pinned`
+    /// takes.
+    fn new_line_of_trapped_static_card(&self, st: &St) -> bool {
+        let trapped_static = {
+            let s = st.borrow();
+            s.caught_by_trap && s.trapped_run == Some(super::page_run_close::PageRunCall::StaticWithRecord) && !s.modal
+        };
+        let Some(calls) = Self::test_calls_all_succeeded(st) else {
+            return false;
+        };
+        let [
+            TestCall::Page(PageMethod::New),
+            TestCall::Write(key_ctl),
+            TestCall::Write(_),
+        ] = calls.as_slice()
+        else {
+            return false;
+        };
+        let engine = self.engine();
+        let page = page_of(&engine, st);
+        let table = self.page_rec(st).borrow().table as usize;
+        let key_field = engine.tables[table]
+            .as_ref()
+            .is_some_and(|t| matches!(page.controls[*key_ctl].binding, ir::Binding::Field(pos) if t.keys[0] == [pos]));
+        trapped_static && key_field && self.is_card(st)
+    }
+
     /// OnBeforeValidate and OnAfterValidate of `modify` blocks on a control bound to a page variable, on a Card opened as a
     /// TestPage: the extensions' OnBeforeValidate in extension order, the control's own OnValidate when it has one, then the
     /// extensions' OnAfterValidate (corpus pages/extensions/W2ExtModify.al:367-386 Validate_VariableControl `low.before.VarName(first);

@@ -27,6 +27,13 @@ pub(crate) struct Scopes {
 }
 
 impl Scopes {
+    /// Holds what a new session holds (`install_left.rs`). Every field is named: a new one does not compile here until
+    /// it is decided.
+    pub(crate) fn as_new(&self) -> bool {
+        let Scopes { starts, held } = self;
+        starts.is_empty() && held.is_empty()
+    }
+
     pub(crate) fn open(&mut self) {
         self.starts.push(self.held.len());
     }

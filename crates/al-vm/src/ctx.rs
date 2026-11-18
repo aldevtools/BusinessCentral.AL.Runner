@@ -39,8 +39,15 @@ impl al_builtins::format::FormatCtx for Session {
     }
     fn record_id_table(&self, table: u32) -> Option<(String, Option<String>)> {
         let t = self.engine.tables.get(table as usize)?.clone()?;
-        let caption = self.caption_checked(&t).ok()?;
+        let caption = self.record_id_caption(&t)?;
         Some((caption, self.engine.program.objects[table as usize].namespace.clone()))
+    }
+    fn record_id_namespace(&self, table: u32) -> Option<Option<String>> {
+        let t = self.engine.tables.get(table as usize)?.clone()?;
+        if self.caption_checked(&t).is_err() && !self.record_id_name_measured(table as usize) {
+            return None;
+        }
+        Some(self.engine.program.objects[table as usize].namespace.clone())
     }
     fn record_id_key_types(&self, table: u32) -> Option<Vec<al_builtins::value::RtType>> {
         let t = self.engine.tables.get(table as usize)?.clone()?;
@@ -137,6 +144,14 @@ impl al_builtins::native::Ctx for Session {
     fn gate(&self, gate: al_version::Gate) -> bool {
         self.has(gate)
     }
+    fn error_text_raise(&self) -> Result<(), Signal> {
+        // An Error of a CaptionClass run is measured only where `CaptionDialogs` lets it raise (record/captions/
+        // CaptionClassStateFreeCalls.al:919-936, al-runner issue 7391).
+        match self.caption_dialog_refusal("Error", true) {
+            Some(why) => Err(Signal::unsupported(why)),
+            None => Ok(()),
+        }
+    }
     fn translated_app_read(&self, app: &str, what: &str) -> Result<(), Signal> {
         Session::translated_app_read(self, app, what)
     }
@@ -186,6 +201,9 @@ impl al_builtins::native::Ctx for Session {
     fn auto_format_field_places(&mut self, record: &Value, field_no: usize) -> Result<String, Signal> {
         self.auto_format_field_places_of(record, field_no)
     }
+    fn auto_format_writer_refusal(&self, kind: &str) -> Option<String> {
+        Session::auto_format_writer_refusal(self, kind, false)
+    }
     fn last_error(&self) -> AlError {
         self.last_error.clone()
     }
@@ -216,7 +234,18 @@ impl al_builtins::native::Ctx for Session {
                     // `Record.Validate` in AL code (registry `Record.Validate#1`).
                     return self.validate_at(crate::records::ValidateSite::AlRecordValidate, &rc, args);
                 }
-                self.record_op_from_al(method, &rc, args)
+                // Taken by the SetFilter of `record_op_inner` (`setfilter_empty_or_side`).
+                self.setfilter_from_al = method == al_builtins::record_op::RecordOp::SetFilter;
+                // A Record variable's `Insert()` under the test runner's permission sets (`runner_sets_insert.rs`).
+                if self.runner_permission_sets && method == al_builtins::record_op::RecordOp::Insert && args.is_empty()
+                {
+                    self.runner_sets_insert(&rc)?;
+                }
+                let before = self.begin_al_record_call(method, &rc);
+                let r = self.record_op_from_al(method, &rc, args);
+                self.end_al_record_call(before);
+                self.setfilter_from_al = false;
+                r
             }
             other => Err(Signal::unsupported(format!(
                 "record method {method} on {}",
@@ -284,6 +313,7 @@ impl al_builtins::native::Ctx for Session {
         if !self.render_pending_files.is_empty() {
             self.render_pending_files.remove(&pending_key(path));
         }
+        self.placeholder_files.written(path);
         self.host.files.write(path, bytes)
     }
     fn fs_remove(&mut self, path: &str) -> Result<bool, Signal> {
@@ -292,10 +322,14 @@ impl al_builtins::native::Ctx for Session {
         } else if !self.forget_placeholder_file(path) {
             self.refuse_pending_file(path)?;
         }
+        self.placeholder_files.written(path);
         Ok(self.host.files.remove(path))
     }
     fn company_build(&self) -> bool {
         self.company_build
+    }
+    fn held_by_temp_blob_impl(&self, b: &al_builtins::stream::BlobRef) -> bool {
+        self.temp_blob_impl_fields.holds(b)
     }
     fn calling_object(&self) -> Option<(String, String)> {
         let obj = *self.frames.last()?;
@@ -318,13 +352,23 @@ impl al_builtins::native::Ctx for Session {
     fn fs_write_placeholder(&mut self, path: &str, bytes: &[u8], mark: Arc<str>) -> Result<(), String> {
         self.host.files.write(path, bytes)?;
         self.render_pending_files.insert(pending_key(path), mark);
+        self.placeholder_files.written(path);
         Ok(())
     }
     fn fs_placeholder(&mut self, path: &str) -> Option<(Arc<str>, Vec<u8>)> {
         let mark = self.placeholder_file_mark(path)?;
-        Some((mark, self.host.files.read(path)?))
+        let bytes = self.host.files.read(path)?;
+        Some((mark, bytes))
+    }
+    fn fs_opened(&mut self, path: &str) {
+        self.placeholder_files.opened(path);
+    }
+    fn fs_closed(&mut self, path: &str, handle: &al_builtins::file::FileHandle) {
+        let holds_placeholder = self.placeholder_file_mark(path).is_some();
+        self.placeholder_files.closed(path, handle, holds_placeholder);
     }
     fn fs_write_unproduced(&mut self, path: &str, mark: &str) -> Result<(), String> {
+        self.placeholder_files.written(path);
         self.host.files.write(path, &[])?;
         self.render_pending_files.insert(pending_key(path), mark.into());
         Ok(())
@@ -354,21 +398,10 @@ impl al_builtins::native::Ctx for Session {
         self.module_of_app(self.engine.program.objects[self.frames[at]].app as usize)
     }
     fn app_resources(&self) -> Option<al_builtins::native::AppResources> {
-        let obj = *self.frames.last()?;
-        let index = self.engine.program.objects[obj].app as usize;
-        let app = self.engine.program.apps.get(index)?;
-        self.engine
-            .resources_read
-            .store(true, std::sync::atomic::Ordering::Relaxed);
-        let resources = self
-            .engine
-            .resource_overrides
-            .read()
-            .ok()
-            .and_then(|o| o.get(&index).map(|r| r.as_ref().clone()))
-            .unwrap_or_else(|| app.resources.clone());
-        // BC names the app `<name> by <publisher> <version>` (session-system/W5NavAppResources.al:GetResourceAsText_NameMatching).
-        Some((format!("{} by {} {}", app.name, app.publisher, app.version), resources))
+        self.running_app_resources()
+    }
+    fn app_resource(&self, name: &str) -> Option<(String, Option<Vec<u8>>)> {
+        self.running_app_resource(name)
     }
     fn runner_call_stack(&self) -> String {
         self.runner_text_frames()
@@ -775,7 +808,9 @@ impl Session {
     }
 
     /// Drops the mark of a file that holds a placeholder report output, for a delete of the file: a delete looks at no byte
-    /// (ADR-040 amendment 2026-11-11). Whether the path held one.
+    /// (ADR-040 amendment 2026-11-11). AL `File.Erase` of a saved report file after it was opened, copied and closed:
+    /// reports/layouts-saveas/AMRdlcSaveAs.al:179. The DotNet delete calls it only for the shape of assumption
+    /// dotnet-file-delete-placeholder (`placeholder_files.rs`). Whether the path held one.
     pub(crate) fn forget_placeholder_file(&mut self, path: &str) -> bool {
         if self.placeholder_file_mark(path).is_none() {
             return false;

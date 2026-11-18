@@ -79,18 +79,30 @@ pub fn id_list(hits: &[Assumption]) -> String {
     hits.iter().map(|a| a.info().id).collect::<Vec<_>>().join(",")
 }
 
-/// `--explain`: the assumptions a test ran through, with what each assumes and the probe wanted.
-pub fn render_explain(hits: &[Assumption], passed: bool) -> String {
-    let mut s = if passed {
-        String::from("FLAGGED PASS: this test passed through code that rests on unprobed assumptions:\n")
-    } else {
-        String::from("This test ran through code that rests on unprobed assumptions:\n")
+/// `--explain`: the assumptions a test ran through (al-runner issue 8232). A test that was not run lists their ids only. A flagged pass gives each id with what it assumes; a failure also the probe wanted and
+/// the note. `--list-assumptions` has the whole entry.
+pub fn render_explain(hits: &[Assumption], outcome: &crate::Outcome) -> String {
+    let mut s = match outcome {
+        crate::Outcome::NotRun(_) => {
+            return format!(
+                "Assumptions this test ran through before it was refused (--list-assumptions describes them): {}\n",
+                hits.iter().map(|a| a.info().id).collect::<Vec<_>>().join(", ")
+            );
+        }
+        crate::Outcome::Pass => String::from(
+            "FLAGGED PASS: this test passed through code that rests on unprobed assumptions (--list-assumptions gives \
+             the probe wanted):\n",
+        ),
+        crate::Outcome::Fail(_) => String::from("This test ran through code that rests on unprobed assumptions:\n"),
     };
     for a in hits {
         let i = a.info();
-        s.push_str(&format!("  {}: {}\n      probe wanted: {}\n", i.id, i.assumed, i.probe));
-        if let Some(n) = i.note {
-            s.push_str(&format!("      NOTE: {n}\n"));
+        s.push_str(&format!("  {}: {}\n", i.id, i.assumed));
+        if matches!(outcome, crate::Outcome::Fail(_)) {
+            s.push_str(&format!("      probe wanted: {}\n", i.probe));
+            if let Some(n) = i.note {
+                s.push_str(&format!("      NOTE: {n}\n"));
+            }
         }
     }
     s
@@ -174,6 +186,48 @@ mod tests {
                 Assumption::CodeCoverageSnapshotWhileLogging
             ]),
             "text-digits-to-integer,code-coverage-snapshot-while-logging"
+        );
+    }
+
+    // al-runner issue 8232: a test that was not run lists only the ids of its assumptions.
+    #[test]
+    fn explain_of_a_test_not_run_lists_only_the_assumption_ids() {
+        let hits = [
+            Assumption::TextDigitsToInteger,
+            Assumption::CodeCoverageSnapshotWhileLogging,
+        ];
+        let text = render_explain(&hits, &crate::Outcome::NotRun("refused".into()));
+        assert_eq!(
+            text,
+            "Assumptions this test ran through before it was refused (--list-assumptions describes them): \
+             text-digits-to-integer, code-coverage-snapshot-while-logging\n"
+        );
+    }
+
+    // A flagged pass keeps each id with what it assumes; the probe wanted is left to --list-assumptions.
+    #[test]
+    fn explain_of_a_flagged_pass_gives_each_id_with_what_it_assumes() {
+        let text = render_explain(&[Assumption::TextDigitsToInteger], &crate::Outcome::Pass);
+        let i = Assumption::TextDigitsToInteger.info();
+        assert!(text.starts_with("FLAGGED PASS: "), "{text}");
+        assert!(
+            text.contains(&format!("  text-digits-to-integer: {}\n", i.assumed)),
+            "{text}"
+        );
+        assert!(!text.contains("probe wanted:"), "{text}");
+    }
+
+    // Neighbor: a failure keeps main's full text, the probe wanted included.
+    #[test]
+    fn explain_of_a_failure_keeps_the_probe_wanted() {
+        let text = render_explain(&[Assumption::TextDigitsToInteger], &crate::Outcome::Fail("boom".into()));
+        let i = Assumption::TextDigitsToInteger.info();
+        assert_eq!(
+            text,
+            format!(
+                "This test ran through code that rests on unprobed assumptions:\n  text-digits-to-integer: {}\n      probe wanted: {}\n",
+                i.assumed, i.probe
+            )
         );
     }
 

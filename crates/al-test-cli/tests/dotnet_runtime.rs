@@ -96,13 +96,11 @@ codeunit 50100 C
         exit(Format(Length) + ':' + Format(Position));
     end;
 
-    procedure BadBase64(): Integer
+    procedure TooBigForInt(): Integer
     var
         Convert: DotNet Convert;
-        Bytes: DotNet Array;
     begin
-        Bytes := Convert.FromBase64String('not base64!');
-        exit(Bytes.Length);
+        exit(Convert.ToInt32('99999999999'));
     end;
 
     procedure ListCount(): Integer
@@ -301,9 +299,10 @@ fn a_dotnet_exception_is_not_run_and_carries_the_clr_type_and_message() {
     let Some(h) = host() else { return };
     let f = fixture();
     let mut s = f.session(Some(h));
-    let w = why(f.call(&mut s, "BadBase64", vec![]));
-    assert!(w.contains("System.Convert.FromBase64String"), "{w}");
-    assert!(w.contains("System.FormatException"), "{w}");
+    // An OverflowException has no measured AL error text, so it stays refused.
+    let w = why(f.call(&mut s, "TooBigForInt", vec![]));
+    assert!(w.contains("System.Convert.ToInt32"), "{w}");
+    assert!(w.contains("System.OverflowException"), "{w}");
     assert!(w.contains("not pinned"), "{w}");
     // The sidecar is still there for the next call.
     assert!(matches!(

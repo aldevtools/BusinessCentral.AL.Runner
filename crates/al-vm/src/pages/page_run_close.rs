@@ -62,6 +62,10 @@ pub(crate) enum PageRunCall {
     StaticWithRecord,
     /// `SetRecord(Row)`, then `Run()`, and no other call on the Page variable (CemFixtures.al:485-486, :493-494).
     VariableAfterSetRecord,
+    /// `Run()` and no other call of a built-in method on the Page variable (calls of the page's own procedures are not counted):
+    /// the run of Microsoft's Navigate page from a posted document, evidence of the assumption
+    /// `data-caption-two-microsoft-opens-skipped` (`data_caption_kept_open.rs`).
+    VariableRunOnly,
     /// Any other run.
     Other,
 }
@@ -80,8 +84,20 @@ impl PageRunCall {
     pub(crate) fn of_variable(st: &St) -> Self {
         match st.borrow().code_calls.as_slice() {
             [PageMethod::SetRecord, PageMethod::Run] => Self::VariableAfterSetRecord,
+            [PageMethod::Run] => Self::VariableRunOnly,
             _ => Self::Other,
         }
+    }
+}
+
+impl PageRun {
+    /// `TestPage.Trap()` variable `trap` takes the page AL code runs on `from` (`run_page_ui_with`): it is caught by the trap,
+    /// and `trapped_run` keeps how AL code ran it.
+    pub(crate) fn catch_by_trap(trap: &St, from: &St) {
+        let run = from.borrow().page_run.as_ref().map(|r| r.call);
+        let mut t = trap.borrow_mut();
+        t.caught_by_trap = true;
+        t.trapped_run = run;
     }
 }
 

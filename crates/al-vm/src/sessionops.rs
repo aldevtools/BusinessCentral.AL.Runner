@@ -176,6 +176,7 @@ impl Session {
 
     /// The key of sequence `args[0]`; `scope` is the position of the optional CompanySpecific
     /// argument (company specific when omitted, as the default overload is: session-system/TestNumberSequence.al:15-30).
+    /// Refused when an earlier test of the codeunit left that sequence unmeasured (`storage_checkpoint.rs`).
     fn sequence_key(&self, args: &[Value], scope: usize) -> Result<(String, String), Signal> {
         let Some(name) = args.first().and_then(al_builtins::native::text_of) else {
             return unsupported("a number sequence name that is not text");
@@ -191,6 +192,7 @@ impl Session {
             String::new()
         };
         let key = (company, name.to_string());
+        self.check_unmeasured_sequence(&key)?;
         Ok(key)
     }
 
@@ -239,10 +241,7 @@ impl Session {
             };
         }
         if id == ids::COMPANYPROPERTY_DISPLAYNAME_1 {
-            // Non-empty (session-system/TestBCPlatformContracts.al:CompanyProperty_DisplayName_NonEmpty). That it is
-            // the company's name when no display name is set is an assumption (docs/probes-needed.md); a
-            // company that states a display name is not modelled.
-            return Ok(Value::Text(self.cx.company.clone().into()));
+            return self.company_display_name();
         }
         if id == ids::COMPANYPROPERTY_ID_1 {
             // The `Id` of the company's row of the Company table (session-system/company/CompanyRecord.al:ID_EqualsTheCompanyRecordId).
@@ -650,6 +649,7 @@ impl Session {
             return r;
         }
         let scope = self.storage_scope(scope_at.and_then(|i| args.get(i)))?;
+        self.check_unmeasured_key(&scope, &key)?;
         // A key that matches a stored key only without their trailing spaces (isolated_storage_reads.rs `trailing_twin`).
         let slot = self.trailing_twin(method, scope, &key)?;
         let found = self.ret_used;

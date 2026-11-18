@@ -4,6 +4,13 @@
 use crate::types::Ty;
 use crate::workspace::{ObjKind, Workspace};
 
+/// The procedure in corpus PR 1349 (issue 7887) that collides with the platform method.
+pub(crate) fn has_internal_parameterless_save_record(ws: &Workspace, object: usize) -> bool {
+    ws.object_ast(object).routines().any(|r| {
+        !r.is_trigger() && r.name().eq_ignore_ascii_case("SaveRecord") && r.is_internal() && r.params().next().is_none()
+    })
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FieldClass {
     Normal,

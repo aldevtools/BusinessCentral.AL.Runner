@@ -12,7 +12,8 @@ your scratch folder.
 
 1. `CLAUDE.md`: the priorities and the hard rules. Rule 3 defines when a behavior may run without a pin.
 2. `docs/agents/brief.md`: what the implementer had to do before hand-back.
-3. `docs/agents/recurring-findings.md`: your first checklist.
+3. `docs/agents/recurring-findings.md`: your first checklist. Read an item's examples in
+   `docs/agents/recurring-findings-examples.md` when the diff touches it.
 4. The PR body, the area table and the full diff against `origin/main`.
 
 ## Order of work
@@ -33,7 +34,10 @@ your scratch folder.
 - **MED**: an unpinned shape runs silently (no pin, no assumption id), or a flag or mark is lost on a path.
 - **LOW**: stale text, a missing test for a refusal, a duplicate owner, small cleanups.
 
-From round 3 on, only HIGH and MED block. LOW findings go into a follow-up list, not into another round.
+From round 2 on (owner, 2026-11-13), only these block: HIGH, and code that contradicts its own assumption text
+(the entry states a fact the gate does not check). An unmeasured neighbor that now passes flagged where main refused
+goes into the follow-up list, like LOW findings, not into another round. A review after round 1 checks only the listed
+findings and the gates; it does not hunt for new neighbors.
 
 ## Hand-back
 
@@ -43,5 +47,5 @@ Write the hand-back as the next round's task part for `al-implementer`:
 - Each finding: severity, `file:line`, the scenario that shows it (branch result, main result), and the fix in
   allowlist form (which exact fact to require). Name the probe app and its logs.
 - Name the recurring-findings item a finding belongs to. A new kind of finding that you saw in an earlier pull
-  request too: propose a row for `docs/agents/recurring-findings.md`.
+  request too: propose an item for `docs/agents/recurring-findings.md` and its examples file.
 - No host names, user names, home paths or URLs in anything that goes into the repository or a pull request.

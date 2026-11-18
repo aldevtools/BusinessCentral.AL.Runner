@@ -1,6 +1,6 @@
 //! An Xml export of a text element with one field attribute below a temporary table element, with its own text and an
 //! OnBeforePassVariable trigger (al-runner issue 7865): the element is always written, the attribute read after the trigger.
-//! Assumption `xmlport-text-elem-field-attr-export` (corpus PR 1366, xmlports/shapes-properties/XpTextElemFieldAttrExport.al).
+//! Pinned by xmlports/shapes-properties/XpTextElemFieldAttrExport.al; no assumption is taken.
 
 use al_builtins::native::Signal;
 use al_testkit::{Built, text};
@@ -131,14 +131,11 @@ fn expect(a1: &str, a2: &str, a3: [&str; 3]) -> String {
     )
 }
 
-fn flagged(src: &str) -> String {
+fn measured(src: &str) -> String {
     al_builtins::assumptions::take_hits();
     let got = text(measure(src));
     let hits = al_builtins::assumptions::take_hits();
-    assert!(
-        hits.contains(&al_builtins::assumptions::Assumption::XmlportTextElemFieldAttrExport),
-        "{hits:?}"
-    );
+    assert!(hits.is_empty(), "{hits:?}");
     got
 }
 
@@ -158,15 +155,15 @@ fn standard() -> String {
 #[test]
 fn the_element_with_its_attribute_and_trigger_is_always_written() {
     let zero = format!("MinOccurs = Zero;\n{}", trigger(""));
-    assert_eq!(flagged(&src("Export", &zero, ATTR, "")), standard());
-    assert_eq!(flagged(&src("Export", &trigger(""), ATTR, "")), standard());
+    assert_eq!(measured(&src("Export", &zero, ATTR, "")), standard());
+    assert_eq!(measured(&src("Export", &trigger(""), ATTR, "")), standard());
 }
 
 /// XpTextElemFieldAttrExport.al:478: the text set in the table element's OnAfterGetRecord.
 #[test]
 fn the_text_set_in_on_after_get_record_is_written_beside_the_attribute() {
     let row = format!("trigger OnAfterGetRecord()\n                begin{SET_TEXT}\n                end;");
-    assert_eq!(flagged(&src("Export", "MinOccurs = Zero;", ATTR, &row)), standard());
+    assert_eq!(measured(&src("Export", "MinOccurs = Zero;", ATTR, &row)), standard());
 }
 
 /// XpTextElemFieldAttrExport.al:508: the attribute is read after OnBeforePassVariable.
@@ -175,7 +172,7 @@ fn the_attribute_is_read_after_the_trigger() {
     let flip =
         trigger(r#"                        Line."Min. Value Equals Valid" := not Line."Min. Value Equals Valid";"#);
     assert_eq!(
-        flagged(&src("Export", &format!("MinOccurs = Zero;\n{flip}"), ATTR, "")),
+        measured(&src("Export", &format!("MinOccurs = Zero;\n{flip}"), ATTR, "")),
         expect(
             r#"<MinValue equalsValid="false">5</MinValue>"#,
             r#"<MinValue equalsValid="false" />"#,
@@ -193,7 +190,7 @@ fn the_attribute_is_read_after_the_trigger() {
 fn a_blank_text_attribute_is_written_empty() {
     let attr = r#"fieldattribute(note; Line.Note) { }"#;
     assert_eq!(
-        flagged(&src("Export", &format!("MinOccurs = Zero;\n{}", trigger("")), attr, "")),
+        measured(&src("Export", &format!("MinOccurs = Zero;\n{}", trigger("")), attr, "")),
         expect(
             r#"<MinValue note="">5</MinValue>"#,
             r#"<MinValue note="" />"#,
@@ -299,11 +296,7 @@ fn unmeasured_port_and_element_facts_keep_mains_refusal() {
         al_builtins::assumptions::take_hits();
         let why = refused(&s);
         assert!(why.contains(sema), "{what}: {why}");
-        assert!(
-            !al_builtins::assumptions::take_hits()
-                .contains(&al_builtins::assumptions::Assumption::XmlportTextElemFieldAttrExport),
-            "{what}"
-        );
+        assert!(al_builtins::assumptions::take_hits().is_empty(), "{what}");
     }
 }
 
@@ -322,4 +315,50 @@ fn a_text_attribute_without_a_trigger_keeps_mains_refusal() {
         why.contains("with a field attribute and its own text below a table element"),
         "{why}"
     );
+}
+
+/// The reporter's ports (al-runner issue 7865) declare `XmlName` with each node's own name on the table element, the text
+/// element and the attribute, and `MaxOccurs = Once; MinOccurs = Once` on the entry element. An `XmlName` equal to the name
+/// gives the same IR node, so the shape is the measured one (XpTextElemFieldAttrExport.al:468, :478). An `XmlName` that differs
+/// from the name, also only in case, keeps main's refusal.
+fn reporter_names(src: &str, line_name: &str) -> String {
+    src.replace(
+        "MinOccurs = Zero; UseTemporary = true;",
+        &format!("MinOccurs = Zero; XmlName = '{line_name}'; UseTemporary = true;"),
+    )
+    .replace(
+        r#"fieldelement(EntryNo; Line."Entry No.") { }"#,
+        r#"fieldelement(EntryNo; Line."Entry No.") { MaxOccurs = Once; MinOccurs = Once; }"#,
+    )
+    .replace(
+        "MaxOccurs = Once;\n",
+        "XmlName = 'MinValue';\n                    MaxOccurs = Once;\n",
+    )
+    .replace(
+        r#"fieldattribute(equalsValid; Line."Min. Value Equals Valid") { }"#,
+        r#"fieldattribute(equalsValid; Line."Min. Value Equals Valid") { XmlName = 'equalsValid'; }"#,
+    )
+}
+
+#[test]
+fn the_reporters_xml_names_equal_to_the_node_names_run_the_measured_shape() {
+    let with_trigger = reporter_names(
+        &src("Export", &format!("MinOccurs = Zero;\n{}", trigger("")), ATTR, ""),
+        "Line",
+    );
+    assert!(with_trigger.contains("XmlName = 'MinValue';"), "{with_trigger}");
+    assert_eq!(measured(&with_trigger), standard());
+    let row = format!("trigger OnAfterGetRecord()\n                begin{SET_TEXT}\n                end;");
+    assert_eq!(
+        measured(&reporter_names(&src("Export", "MinOccurs = Zero;", ATTR, &row), "Line")),
+        standard()
+    );
+    let other_case = reporter_names(
+        &src("Export", &format!("MinOccurs = Zero;\n{}", trigger("")), ATTR, ""),
+        "line",
+    );
+    al_builtins::assumptions::take_hits();
+    let why = refused(&other_case);
+    assert!(why.contains("triggers of the container text element"), "{why}");
+    assert!(al_builtins::assumptions::take_hits().is_empty());
 }

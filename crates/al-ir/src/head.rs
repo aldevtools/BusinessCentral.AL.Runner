@@ -93,6 +93,9 @@ pub struct EventRoutine {
     /// The codeunit objects of the variables the routine sees (the object's globals, then the routine's locals), in
     /// that order.
     pub codeunit_slots: Vec<u32>,
+    /// The routine is declared `local` (`Routine::local`).
+    #[serde(default)]
+    pub local: bool,
 }
 
 /// Whether an attribute named `name` declares an event or a subscriber.
@@ -120,6 +123,7 @@ impl ObjectHead {
                     .copied()
                     .chain(r.locals.iter().filter_map(|s| codeunit_of(&s.ty)))
                     .collect(),
+                local: r.local,
             })
             .collect();
         ObjectHead {

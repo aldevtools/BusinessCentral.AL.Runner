@@ -125,6 +125,8 @@ pub struct Layout {
     pub output: Vec<String>,
     /// The `Caption` property when it is a text literal.
     pub caption: Option<String>,
+    /// The `Caption` property states attributes after its literal (a `,` in its value: `Locked`, `Comment`, `MaxLength`).
+    pub caption_attributes: bool,
     /// The `FormatRegion` property (a text literal).
     pub format_region: Option<String>,
     /// `ExcelLayoutMultipleDataSheets = true` (al-vm `reports/property_gates.rs` says which runs of it run).
@@ -145,6 +147,8 @@ pub struct Layout {
     pub rendering: Vec<(String, String, String, String)>,
     /// `DefaultRenderingLayout`.
     pub default_rendering: Option<String>,
+    /// `ir::Report::layout_properties`.
+    pub layout_properties: Vec<String>,
 }
 
 /// The entries of a `labels` section: `Name = 'text'` with optional `Comment`, `MaxLength` and `Locked` after a comma,
@@ -324,6 +328,63 @@ fn rendering_layouts(obj: &ast::Object) -> Vec<(String, String, String, String)>
     out
 }
 
+/// The members of the body of `node` (an object or a section): its properties, sections, triggers, procedures and `var`
+/// sections, in source order.
+fn body_members(node: &al_syntax::SyntaxNode) -> Vec<al_syntax::SyntaxNode> {
+    node.children()
+        .filter(|n| n.kind() == SyntaxKind::ObjectBody)
+        .flat_map(|b| b.children())
+        .collect()
+}
+
+/// The one member of the body of `node` when it is a section named `name` (any case); `None` for any other body.
+fn only_section(node: &al_syntax::SyntaxNode, name: &str) -> Option<ast::Section> {
+    match body_members(node).as_slice() {
+        [one] => ast::Section::cast(one.clone()).filter(|s| s.name().eq_ignore_ascii_case(name)),
+        _ => None,
+    }
+}
+
+/// Whether report `obj` is, member for member, the report of the reporter's `--no-client` measurement (al-runner issue 8028,
+/// report 51440; al-vm `clientless.rs`): the one property `ProcessingOnly = true`, a `dataset` whose one member is a
+/// `dataitem` with an empty body, and a `requestpage` whose one member is a `layout` whose one member is an `area(Content)`
+/// with an empty body. Any other member anywhere (a property, a trigger, a procedure, a `var` section, a column, a nested data
+/// item, `labels`, `actions`, `rendering`) makes it another report.
+pub(crate) fn bare_processing_report(obj: &ast::Object) -> bool {
+    let members = body_members(obj.syntax());
+    let mut seen = (false, false, false);
+    for m in &members {
+        if let Some(p) = ast::Property::cast(m.clone()) {
+            if seen.0 || !p.name().eq_ignore_ascii_case("ProcessingOnly") || bool_prop(&p.value_text()) != Some(true) {
+                return false;
+            }
+            seen.0 = true;
+            continue;
+        }
+        let Some(s) = ast::Section::cast(m.clone()) else {
+            return false;
+        };
+        let bare = if s.name().eq_ignore_ascii_case("dataset") && !seen.1 {
+            seen.1 = true;
+            only_section(s.syntax(), "dataitem").is_some_and(|item| body_members(item.syntax()).is_empty())
+        } else if s.name().eq_ignore_ascii_case("requestpage") && !seen.2 {
+            seen.2 = true;
+            only_section(s.syntax(), "layout")
+                .and_then(|layout| only_section(layout.syntax(), "area"))
+                .is_some_and(|area| {
+                    matches!(area.args().as_slice(), [a] if a.eq_ignore_ascii_case("Content"))
+                        && body_members(area.syntax()).is_empty()
+                })
+        } else {
+            false
+        };
+        if !bare {
+            return false;
+        }
+    }
+    seen == (true, true, true)
+}
+
 fn bool_prop(value: &str) -> Option<bool> {
     match value.trim().to_ascii_lowercase().as_str() {
         "true" | "yes" => Some(true),
@@ -332,8 +393,9 @@ fn bool_prop(value: &str) -> Option<bool> {
     }
 }
 
-/// Walks the `dataset` section of report `obj` and checks the object's own properties.
-pub fn layout(obj: &ast::Object) -> Layout {
+/// Walks the `dataset` section of report `obj` and checks the object's own properties. `timer_trigger` is the lowercase name of
+/// the Elapsed trigger of the report's WithEvents Timer (`lower::with_events::timer_elapsed_trigger`), which never runs.
+pub fn layout(obj: &ast::Object, timer_trigger: Option<&str>) -> Layout {
     let mut out = Layout {
         items: Vec::new(),
         processing_only: false,
@@ -343,6 +405,7 @@ pub fn layout(obj: &ast::Object) -> Layout {
         reasons: Vec::new(),
         output: Vec::new(),
         caption: None,
+        caption_attributes: false,
         format_region: None,
         excel_multiple_data_sheets: false,
         about_title: None,
@@ -353,6 +416,11 @@ pub fn layout(obj: &ast::Object) -> Layout {
         dataset_reasons: Vec::new(),
         labels: Vec::new(),
         rendering: rendering_layouts(obj),
+        layout_properties: [("RDLCLayout", "rdlc"), ("WordLayout", "word"), ("ExcelLayout", "excel")]
+            .iter()
+            .filter(|(n, _)| obj.properties().any(|p| p.name().eq_ignore_ascii_case(n)))
+            .map(|(_, kind)| kind.to_string())
+            .collect(),
         default_rendering: obj
             .properties()
             .find(|p| p.name().eq_ignore_ascii_case("DefaultRenderingLayout"))
@@ -362,6 +430,10 @@ pub fn layout(obj: &ast::Object) -> Layout {
         let (name, value) = (p.name().to_ascii_lowercase(), p.value_text());
         match name.as_str() {
             "caption" => {
+                out.caption_attributes = p
+                    .syntax()
+                    .descendants_with_tokens()
+                    .any(|t| t.kind() == SyntaxKind::Comma);
                 out.caption = text_literal(&value);
                 if out.caption.is_none() {
                     out.dataset_reasons
@@ -420,7 +492,9 @@ pub fn layout(obj: &ast::Object) -> Layout {
     }
     for t in obj.triggers() {
         let n = t.name().to_ascii_lowercase();
-        if !["oninitreport", "onprereport", "onpostreport", "onprerendering"].contains(&n.as_str()) {
+        if !["oninitreport", "onprereport", "onpostreport", "onprerendering"].contains(&n.as_str())
+            && timer_trigger != Some(n.as_str())
+        {
             out.reasons.push(format!("report trigger {n} is not supported yet"));
         }
     }
@@ -881,12 +955,15 @@ pub struct Context<'a> {
     pub request_flag_slot: usize,
     /// (object, source offset) to routine index.
     pub routine_at: &'a crate::lower::RoutineAt,
-    /// Reportextensions that change what a run does: why the report cannot run yet.
+    /// Why the order of the reportextensions that change what a run does is not pinned (`lower/ext_order.rs`). It becomes
+    /// `ir::Report::extension_order`, which refuses a run of the report but not a variable of it.
     pub extension_reasons: Vec<String>,
     /// The unprobed assumptions the order of [`Context::extensions`] rests on.
     pub extension_assumes: Vec<al_builtins::assumptions::Assumption>,
     /// The reportextensions (object indices) that change what a run does, in object id order.
     pub extensions: Vec<usize>,
+    /// `lower/ext_request_page.rs` admits the request page with triggers on its extensions' request pages.
+    pub request_page_ok_only: bool,
 }
 
 fn table_object(ws: &Workspace, file: usize, name: &str) -> Option<usize> {
@@ -1133,7 +1210,7 @@ fn split_outside_quotes(s: &str) -> Vec<&str> {
 }
 
 /// An enclosing data item a `DataItemLinkReference` names: its index and its table.
-type EnclosingItem = (usize, Option<usize>);
+type EnclosingItem = (Option<usize>, Option<usize>);
 
 /// The IR of one data item. `parent_table` is the table of the item it is nested under.
 fn item_ir(
@@ -1169,12 +1246,14 @@ fn item_ir(
     // `DataItemLinkReference = Name` links the fields to the named enclosing data item's row, not the
     // parent's (corpus streams/TestReportDataItemLinkReferenceContracts.al).
     let mut link_item = None;
+    let mut reference_resolved = false;
     let mut parent_table = parent_table;
     if let Some(name) = prop("DataItemLinkReference") {
         let name = crate::scan::unquote_double(name.trim());
         match enclosing(&name) {
             Some((idx, table)) => {
-                link_item = Some(idx);
+                link_item = idx;
+                reference_resolved = true;
                 parent_table = table;
             }
             None => reasons.push(format!(
@@ -1183,7 +1262,7 @@ fn item_ir(
             )),
         }
     }
-    let referenced_unknown = prop("DataItemLinkReference").is_some() && link_item.is_none();
+    let referenced_unknown = prop("DataItemLinkReference").is_some() && !reference_resolved;
     if let Some(text) = prop("DataItemLink").filter(|_| !referenced_unknown) {
         match parent_table.zip(table) {
             None => reasons.push(format!(
@@ -1364,7 +1443,7 @@ pub fn build(cx: &Context, obj: &ast::Object, mut reasons: Vec<String>) -> ir::R
             let mut at = raw.parent;
             while let Some(i) = at {
                 if layout.items[i].name.eq_ignore_ascii_case(name) {
-                    return Some((i, items.get(i).and_then(|x| x.table)));
+                    return Some((Some(i), items.get(i).and_then(|x| x.table)));
                 }
                 at = layout.items[i].parent;
             }
@@ -1375,7 +1454,6 @@ pub fn build(cx: &Context, obj: &ast::Object, mut reasons: Vec<String>) -> ir::R
     }
     caption_sources(cx.members, &layout.items, &mut items);
     reasons.extend(layout.reasons.iter().cloned());
-    reasons.extend(cx.extension_reasons.iter().cloned());
     ir::Report {
         processing_only: layout.processing_only,
         use_request_page: layout.use_request_page,
@@ -1390,9 +1468,13 @@ pub fn build(cx: &Context, obj: &ast::Object, mut reasons: Vec<String>) -> ir::R
         assumes: cx.extension_assumes.clone(),
         request_flag_slot: cx.request_flag_slot,
         request_rec_routines: request_rec_routines(&o, obj),
+        request_page_ok_only: cx.request_page_ok_only,
+        bare_processing_only: bare_processing_report(obj),
         output: layout.output.clone(),
         unsupported: reasons,
+        extension_order: cx.extension_reasons.first().cloned(),
         caption: layout.caption.clone(),
+        caption_attributes: layout.caption_attributes,
         format_region: layout.format_region.clone(),
         excel_multiple_data_sheets: layout.excel_multiple_data_sheets,
         about_title: layout.about_title.clone(),
@@ -1414,6 +1496,7 @@ pub fn build(cx: &Context, obj: &ast::Object, mut reasons: Vec<String>) -> ir::R
             .collect(),
         default_rendering_layout: layout.default_rendering.clone(),
         default_layout_kind: layout.default_layout_kind.clone(),
+        layout_properties: layout.layout_properties.clone(),
     }
 }
 
@@ -1568,7 +1651,34 @@ pub fn build_ext(cx: &ExtContext, obj: &ast::Object) -> (ir::ReportExt, Vec<Stri
         } else {
             raw.parent.and_then(|p| added.get(p).and_then(|a| a.item.table))
         };
-        let item = item_ir(&o, raw, Some(n + j), parent, parent_table, &|_| None, &mut reasons);
+        let has_link = raw
+            .section
+            .properties()
+            .any(|p| p.name().eq_ignore_ascii_case("DataItemLink"));
+        let enclosing = |name: &str| {
+            // Issue #7904 and corpus PR #1358: reports/extensions/TestReportExtensionParentLink.al:51-57.
+            let anchor = base_parent
+                .map(|p| (Some(p), cx.base_items[p].name.as_str()))
+                .or_else(|| parent.map(|p| (None, cx.layout.items[p].name.as_str())));
+            anchor
+                .filter(|(_, parent)| has_link && parent.eq_ignore_ascii_case(name))
+                .map(|(index, _)| (index, parent_table))
+        };
+        let item = item_ir(&o, raw, Some(n + j), parent, parent_table, &enclosing, &mut reasons);
+        let explicit_parent_link = raw
+            .section
+            .properties()
+            .any(|p| p.name().eq_ignore_ascii_case("DataItemLinkReference"));
+        // Pinned (TestReportExtensionParentLink.al:46-61, :72): an item added with addbefore of a base sibling names its
+        // base parent, and an item nested in an added item names that item. Every other anchor refuses.
+        let pinned_anchor = (base_parent.is_some() && matches!(place, ir::AddedPlace::Before(ir::ItemAnchor::Base(_))))
+            || (raw.target.is_none() && parent.is_some());
+        if explicit_parent_link && !pinned_anchor {
+            reasons.push(format!(
+                "dataitem {}: DataItemLinkReference on an item added by addfirst, addlast or addafter is not pinned",
+                raw.name
+            ));
+        }
         added.push(ir::AddedItem {
             item,
             base_parent,
@@ -1624,7 +1734,7 @@ mod tests {
     fn layout_of(src: &str) -> Layout {
         let parse = al_syntax::parse(src, &Default::default());
         let root = ast::SourceFile::cast(parse.syntax()).unwrap();
-        layout(&root.objects().next().unwrap())
+        layout(&root.objects().next().unwrap(), None)
     }
 
     #[test]
@@ -1800,8 +1910,8 @@ mod tests {
     }
 
     /// The syntax of a column source (reports/dataset/DatasetDecimalPlacesValueOrigins.al:47 `D05`, :52 `Row.D05`, :71
-    /// `RecLiteral.D05`, :79 `VarLiteral`; :53 `D05 * 1` is an expression). A name may still lower to a call; al-vm
-    /// `decimal_column.rs` reads the routine for that.
+    /// `RecLiteral.D05`, :79 `VarLiteral`; :53 `D05 * 1` is an expression). The dataset no longer reads it (every shape is pinned,
+    /// reports/dataset/DatasetDecimalRoundScaleSources.al).
     #[test]
     fn a_column_source_is_a_name_two_names_or_other() {
         use ir::SourceSyntax::{Member, Name, Other};

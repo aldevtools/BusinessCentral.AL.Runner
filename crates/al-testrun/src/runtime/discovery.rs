@@ -280,9 +280,7 @@ fn on_run_of(o: &al_ir::Object) -> Option<usize> {
 
 /// Whether `o` is a codeunit with `SingleInstance = true`.
 fn single_instance(o: &al_ir::Object) -> bool {
-    o.properties
-        .iter()
-        .any(|(k, v)| k.eq_ignore_ascii_case("SingleInstance") && v.trim().eq_ignore_ascii_case("true"))
+    al_ir::ObjectFacts::of_properties(&o.properties).single_instance
 }
 
 /// What the last discovery pass on this thread found besides what it left in the database ([`run_pass`]).
@@ -427,7 +425,7 @@ pub(super) fn run_pass(
     session: &mut Session,
     lowered: &Lowered,
     objects: &[usize],
-    skipped_installs: &[(BTreeSet<u32>, String)],
+    skipped_installs: &[al_vm::SkippedInstall],
     company_open_wrote: bool,
     limit: Option<std::time::Duration>,
 ) {
@@ -455,7 +453,7 @@ pub(super) fn run_pass(
                 al_builtins::assumptions::clear_hits();
                 let instance = session.codeunit_instance(oi);
                 let ran = session.call(oi, r, instance, Vec::new());
-                let timed_out = watchdog.is_some_and(super::run::Watchdog::finish);
+                let timed_out = watchdog.and_then(super::run::Watchdog::finish).is_some();
                 let marks = al_builtins::assumptions::take_hits();
                 match ran {
                     _ if timed_out => Some("it was stopped by the time limit".to_string()),

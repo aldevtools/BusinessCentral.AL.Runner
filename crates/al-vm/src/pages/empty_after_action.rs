@@ -28,12 +28,16 @@ impl Session {
     }
 
     pub(super) fn empty_view_after_action(&mut self, st: &St, rec: &Rec) -> Result<(), Signal> {
-        let refuse = || unsupported("an action left the list's view without rows (not pinned)");
+        let refuse = |why: &str| {
+            unsupported(format!(
+                "an action left the list's view without rows: {why} (not pinned)"
+            ))
+        };
         let Some((filters, key, adhoc, ascending)) = st.borrow().view_before_action.clone() else {
-            return refuse();
+            return refuse("the view before the action was not kept");
         };
         if !filters.is_empty() || adhoc.is_some() {
-            return refuse();
+            return refuse("the view had filters before the action");
         }
         let old = || -> Rec {
             let mut r = rec.borrow().clone();
@@ -64,7 +68,7 @@ impl Session {
             }
         }
         if reads.len() >= Self::WINDOW {
-            return refuse();
+            return refuse("the view before the action held a full window of rows or more");
         }
         for fields in reads {
             rec.borrow_mut().fields = fields;
@@ -105,6 +109,8 @@ impl Session {
                 return Ok(Some(probe.borrow().fields.clone()));
             }
         }
-        unsupported("an action left the list's view without rows (not pinned)")
+        unsupported(
+            "an action left the list's view without rows: the row it stood on left the view and no row is left (not pinned)",
+        )
     }
 }

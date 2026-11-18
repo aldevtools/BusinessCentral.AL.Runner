@@ -1,9 +1,8 @@
 //! Which `HttpContent.ReadAs(var SecretText)` calls have evidence: as a statement, and on the content of a request that has
 //! none also with the result used (`content::read_as_secret`).
 //!
-//! A content carries the calls made on it so far as one [`SecretReadShape`]. Each shape is one call sequence of the probe
-//! al-language-onprem/http/N4ReadAsSecretStatement.al (cited below as N4, measured under assumption
-//! `http-readas-secret-statement`) or of corpus http/CzHttpNoNetwork.al (Cz). A call, a copy or a request that those files do
+//! A content carries the calls made on it so far as one [`SecretReadShape`]. Each shape is one call sequence of corpus
+//! al-language-onprem/http/N4ReadAsSecretStatement.al (cited below as N4) or of corpus http/CzHttpNoNetwork.al (Cz). A call, a copy or a request that those files do
 //! not have at that point gives `Other`, and `Other` never leaves: the read keeps the refusal it has on main.
 
 /// The calls made on an `HttpContent` so far, as far as the evidence follows them.
@@ -117,7 +116,7 @@ impl SecretReadShape {
 
     /// A statement read gives the body: N4:123 `secret`, :127 `secret_again`, :124 `plain`, :126 `empty`, :125 `fresh`,
     /// :171 `secret_inplace_statement`, :173 `plain_inplace_statement`, :176 `secret_copy_statement`; Cz:34 (pinned as not
-    /// empty by :80, the body is the assumption's).
+    /// empty by :80, the body is assumed: `statement_body_assumed`).
     pub(super) fn statement_gives_body(self) -> bool {
         use SecretReadShape as S;
         matches!(
@@ -131,6 +130,12 @@ impl SecretReadShape {
                 | S::RequestSecretCopy
                 | S::ClearedSecretCopyAsked
         )
+    }
+
+    /// The statement read of this shape gives a body the corpus pins only as not empty (Cz:34 with :80): the body runs
+    /// through assumption `http-readas-secret-statement`.
+    pub(super) fn statement_body_assumed(self) -> bool {
+        self == SecretReadShape::ClearedSecretCopyAsked
     }
 
     /// A read of the content of a request that has none is measured: the statement raises NotInitialized (N4:194 and :218

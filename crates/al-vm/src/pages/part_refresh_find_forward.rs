@@ -3,7 +3,7 @@
 //! of an open read.
 
 use super::pinned_body::{Callees, callees_are, page_is, table_is};
-use super::pinned_shape::{PartStep, PinnedEnd, PinnedPart, TestCall};
+use super::pinned_shape::{NextEnd, PartStep, PinnedEnd, PinnedPart, TestCall};
 use super::*;
 use al_builtins::page_op::PageMethod;
 
@@ -86,8 +86,17 @@ impl Session {
                 reason: "a call of the test after a part with OnFindRecord read its rows again after its own CurrPage.Update(true), \
                          other than a read and Close (not pinned)",
                 reads: true,
+                caption: false,
+                part_reads: false,
                 one_action: false,
                 first_ends: false,
+                part_visible: false,
+                part_moves: false,
+                no_writes: false,
+                next: NextEnd::Refused,
+                close: true,
+                ok: false,
+                walk: false,
             });
         }
         let r = self.sync_part(host, c, st);

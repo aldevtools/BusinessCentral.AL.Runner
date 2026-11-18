@@ -106,11 +106,9 @@ pub const RAISED_REPORTING_EVENTS: [&str; 4] = [
     "SetupPrinters",
 ];
 
-/// The events of `Reporting Triggers` the runtime raises to Base Application's [`REPORT_MANAGEMENT`] subscribers only, for a save
-/// while a temporary layout selection is held (ADR-040 amendment 2026-11-12, A7). SelectedBuiltinLayoutType is not raised once
-/// SelectReportLayoutCode answered a selected layout (corpus probe pull request 1362,
-/// reports/layouts-html-text/HtRenderedTextTests.al:494, :530).
-pub const REPORT_MANAGEMENT_LAYOUT_EVENTS: [&str; 1] = ["SelectReportLayoutCode"];
+/// The events of `Reporting Triggers` the runtime raises to Base Application's [`REPORT_MANAGEMENT`] subscribers only, so that
+/// Microsoft's layout selection runs as AL (ADR-040 amendment 2026-11-13, part 1, point 3; al-vm `report_save::fact_selection`).
+pub const REPORT_MANAGEMENT_LAYOUT_EVENTS: [&str; 2] = ["SelectReportLayoutCode", "SelectedBuiltinLayoutType"];
 
 /// Base Application's app id.
 pub const BASE_APPLICATION_APP_ID: &str = "437dbf0e-84ff-417a-965d-ed2bb9650972";
@@ -317,6 +315,11 @@ pub trait TranslationSource: Send + Sync {
     fn files(&self) -> &[TranslationFile];
     /// File `index` of [`Self::files`] with its units; `error` set when it could not be read.
     fn file(&self, index: usize) -> &TranslationFile;
+    /// What the files hold, for a source whose content no other key holds (an app folder: the compile cache keys a folder
+    /// by its AL files only). `None`: the key of what the source was read from already holds it (a package).
+    fn identity(&self) -> Option<[u8; 32]> {
+        None
+    }
 }
 
 /// A [`TranslationSource`] as an app carries it: never serialized, never compared.
@@ -554,6 +557,9 @@ pub struct Object {
     /// For a report: the layouts its `rendering` section declares.
     #[serde(default)]
     pub layouts: Vec<LayoutDecl>,
+    /// For a table extension: its `modify` blocks, each as the field name and the names of the properties it sets, as written.
+    #[serde(default)]
+    pub modified_fields: Vec<(String, Vec<String>)>,
 }
 
 /// `layout(Name) { Type = Word; ... }` of a report.
@@ -599,16 +605,34 @@ pub struct Report {
     /// reports/request-page/YRequestPageTests.al:551; through a procedure it is not pinned).
     #[serde(default)]
     pub request_rec_routines: Vec<usize>,
+    /// The request page is the one al-sema `lower/ext_request_page.rs` admits with triggers on the request pages of two
+    /// run-changing reportextensions of independent apps: the VM runs it only for the measured call and close and refuses
+    /// everything else on it (al-vm `pages/request_ok_only.rs`).
+    #[serde(default)]
+    pub request_page_ok_only: bool,
+    /// The source is, member for member, `ProcessingOnly = true;`, a `dataset` of one `dataitem` with nothing in it, and
+    /// `requestpage { layout { area(Content) { } } }`, and nothing else (al-sema `reports::bare_processing_report`): the report
+    /// of the `--no-client` measurement (al-vm `clientless.rs`).
+    #[serde(default)]
+    pub bare_processing_only: bool,
     /// Why running the report would render output (it is not `ProcessingOnly`, or it declares a
     /// layout): the runtime renders nothing, so a run that gets that far is refused. Its request
     /// page still opens first.
     #[serde(default)]
     pub output: Vec<String>,
-    /// Why the runtime cannot run this report yet; empty = it can.
+    /// Why the runtime cannot run this report yet, and why a variable of it is refused; empty = it can.
     pub unsupported: Vec<String>,
+    /// Why the order of `extensions` is not pinned (al-sema `lower/ext_order.rs`). It refuses a run of the report, not a
+    /// variable of it: declaring one runs no extension. [`Report::run_refusal`] reads both.
+    #[serde(default)]
+    pub extension_order: Option<String>,
     /// The `Caption` property when it is a plain text literal.
     #[serde(default)]
     pub caption: Option<String>,
+    /// The `Caption` property states label attributes after its literal (`Locked`, `Comment`, `MaxLength`); the lowered
+    /// property value holds the literal only.
+    #[serde(default)]
+    pub caption_attributes: bool,
     /// The `FormatRegion` property: the culture of a SaveAs Xml dataset and of `Format` while it is written.
     #[serde(default)]
     pub format_region: Option<String>,
@@ -645,6 +669,16 @@ pub struct Report {
     /// one. Empty when it cannot be told.
     #[serde(default)]
     pub default_layout_kind: String,
+    /// The kinds the `RDLCLayout`, `WordLayout` and `ExcelLayout` properties declare (`rdlc`, `word`, `excel`), in that order.
+    #[serde(default)]
+    pub layout_properties: Vec<String>,
+}
+
+impl Report {
+    /// Why a run of the report is refused: the first of `unsupported`, else `extension_order`. `None`: it can run.
+    pub fn run_refusal(&self) -> Option<&String> {
+        self.unsupported.first().or(self.extension_order.as_ref())
+    }
 }
 
 /// One `layout(Name) { ... }` of a report's `rendering` section.
@@ -714,8 +748,8 @@ pub struct ReportColumn {
     pub auto_format_type: Option<String>,
     #[serde(default)]
     pub auto_format_expression: Option<String>,
-    /// The syntax of the source expression; with the lowered routine it decides whether a Decimal is written without trailing
-    /// zeros (al-vm `decimal_column.rs`).
+    /// The syntax of the source expression. No runtime path reads it since every dataset Decimal shape is pinned
+    /// (reports/dataset/DatasetDecimalRoundScaleSources.al); kept until it is removed from the IR.
     #[serde(default)]
     pub source_syntax: SourceSyntax,
     /// The table (object index) and field position whose `DecimalPlaces` decide the `decimalformatter` when the column states
@@ -1052,13 +1086,18 @@ pub struct XmlNode {
     /// OnAfterGetRecord (xmlports/shapes-properties/Y68XmlPortShapes.al:567-621).
     #[serde(default)]
     pub calc_fields: Vec<usize>,
-    /// A field node in the import layout of al-sema `xmlports/assumed_shapes.rs` `after_assign_layout` (corpus PR 1366,
-    /// XpAfterAssignTableRelation.al): al-vm `xmlports/after_assign.rs` checks the field and the record, then runs
+    /// A field node in the import layout of al-sema `xmlports/measured_shapes.rs` `after_assign_layout`
+    /// (XpAfterAssignTableRelation.al): al-vm `xmlports/after_assign.rs` checks the field and the record, then runs
     /// OnAfterAssignField before the validation.
     #[serde(default)]
     pub after_assign_layout: bool,
-    /// A text element in the export shape of al-sema `xmlports/assumed_shapes.rs` `text_attr_export` (corpus PR 1366,
-    /// XpTextElemFieldAttrExport.al): al-vm `xmlports/text_attr_export.rs` writes it.
+    /// A field node in the import layout without triggers of al-sema `xmlports/measured_shapes.rs` `plain_import_layout`
+    /// (XpAfterAssignTableRelation.al): al-vm `xmlports/after_assign.rs` checks the field and the record and
+    /// validates nothing on a temporary table element.
+    #[serde(default)]
+    pub plain_import_layout: bool,
+    /// A text element in the export shape of al-sema `xmlports/measured_shapes.rs` `text_attr_export`
+    /// (XpTextElemFieldAttrExport.al): al-vm `xmlports/text_attr_export.rs` writes it.
     #[serde(default)]
     pub text_attr_export: bool,
     /// Triggers by lower-case name (`onbeforepassvariable`, ...) to routine index.
@@ -1109,6 +1148,9 @@ pub struct QueryItem {
     pub link_items: Vec<usize>,
     /// `DataItemTableFilter`: conditions on fields of this table.
     pub table_filter: Vec<CalcCond>,
+    /// The names of the properties the dataitem sets, lower case, as written.
+    #[serde(default)]
+    pub properties: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1137,6 +1179,14 @@ pub struct QueryColumn {
     pub ty: RtType,
     /// `ColumnFilter`: a `const` or `filter` condition on this column.
     pub static_filter: Option<CalcValue>,
+    /// A column or filter() element over a FlowField of an outer-joined dataitem below the top dataitem's child, in the shape
+    /// the compile pinned (al-sema `outer_flow_below_join_pinned`): a filter on it filters the joined rows by the value
+    /// calculated per row.
+    #[serde(default)]
+    pub flow_below_join: bool,
+    /// The names of the properties the element sets, lower case, as written.
+    #[serde(default)]
+    pub properties: Vec<String>,
 }
 
 /// A page object as the test client sees it (ADR-012). The AL code of a page
@@ -1293,6 +1343,11 @@ pub struct Control {
     /// routine), in the order the extensions apply.
     #[serde(default)]
     pub ext_triggers: Vec<(String, usize, usize)>,
+    /// The `modify` blocks of page extensions that set the control's `Caption` or `CaptionML`: (extension object, the
+    /// control's name as the block writes it), in the order the extensions apply. Their translation units name the
+    /// extension and that name (`PageExtension <ext> - Change <name> - Property Caption`).
+    #[serde(default)]
+    pub caption_modifies: Vec<(usize, String)>,
     /// The properties (lower-case names) a `modify` block of a page extension set over a value the control had already, from
     /// its own declaration or an earlier extension ([`apply_modify_prop`]).
     #[serde(default)]
@@ -1411,7 +1466,7 @@ pub struct PartLink {
     pub view: Option<String>,
     /// `Provider = <part>`: the control index (on the same page) whose current row the link reads.
     pub provider: Option<usize>,
-    /// The `RunPageLink` entries (indices into `entries`) written `const(...)`; empty for a part's `SubPageLink`.
+    /// The entries (indices into `entries`) written `const(...)`, not `filter(...)` or `field(...)`.
     #[serde(default)]
     pub consts: Vec<usize>,
     /// The `SubPageLink` entries (indices into `entries`) written as a qualified enum value, `const("Enum"::Member)`.
@@ -1444,6 +1499,10 @@ impl LinkEntry {
 impl Control {
     pub fn prop(&self, name: &str) -> Option<&PropVal> {
         self.props.iter().find(|(n, _)| n == name).map(|(_, v)| v)
+    }
+    /// Whether the properties a `modify` block sets give a control a caption (`caption_modifies`).
+    pub fn sets_caption(props: &[(String, PropVal)]) -> bool {
+        props.iter().any(|(n, _)| n == "caption" || n == "captionml")
     }
     pub fn trigger(&self, name: &str) -> Option<usize> {
         self.triggers.iter().find(|(n, _)| n == name).map(|(_, r)| *r)
@@ -1609,8 +1668,13 @@ pub struct RelationCond {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum RelationWhere {
-    /// `related = const(text)` / `filter(text)`: `text` is a filter on the related field.
-    Value { related: usize, text: String },
+    /// `related = const(text)` / `filter(text)` (`filter`): `text` is a filter on the related field.
+    Value {
+        related: usize,
+        text: String,
+        #[serde(default)]
+        filter: bool,
+    },
     /// `related = field(own)`: the related field equals the referencing row's field.
     Field { related: usize, own: usize },
 }
@@ -1735,6 +1799,9 @@ pub struct Routine {
     /// other call pays for.
     #[serde(default)]
     pub reads_var_max_len: bool,
+    /// The routine is declared `local`.
+    #[serde(default)]
+    pub local: bool,
 }
 
 fn no_pos() -> u32 {
@@ -1851,6 +1918,32 @@ pub struct Attribute {
     pub args: Vec<Const>,
     /// The attribute as written (`[EventSubscriber(ObjectType::Table, ...)]`).
     pub text: String,
+    /// For an `EventSubscriber` attribute: the object its publisher name names, as the compile resolved it in the subscriber's
+    /// file (al-sema `Workspace::subscriber_publisher`). [`PublisherRef::NotSubscriber`] for every other attribute.
+    pub publisher: PublisherRef,
+}
+
+/// The object an `[EventSubscriber]` names as its publisher, as indexes into `Program::objects`. The event registry (al-vm
+/// `events.rs`) binds the subscriber by it.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum PublisherRef {
+    /// Not an `EventSubscriber`.
+    #[default]
+    NotSubscriber,
+    /// The publisher argument is not one of the forms the compile reads (`<Kind>::<name>`, `<Kind>::<namespace>.<name>`, or a
+    /// bare object id): raising an event of that kind and name of any object is refused.
+    Unread,
+    /// No object visible from the subscriber's app has the kind and name (or id) it gives: the subscriber is bound to no
+    /// object of the program.
+    NotVisible,
+    /// The one object visible from the subscriber's app that has the kind and name (or id).
+    Only(u32),
+    /// Several visible objects have the kind and name (`twins`, `object` among them); the subscriber's file names `object`
+    /// (assumption `subscriber-publisher-namespace-scope`).
+    Picked { object: u32, twins: Vec<u32> },
+    /// Several visible objects have the kind and name, and the file names none of them by a measured rule: raising the event
+    /// of any of them is refused.
+    Unpicked(Vec<u32>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1998,7 +2091,7 @@ pub enum Expr {
     /// `this` in a codeunit: the running instance as a Codeunit value.
     ThisInstance,
     /// Code that lowers but refuses when it runs, with the reason (a call of a control add-in procedure:
-    /// control add-ins are not modelled).
+    /// control add-ins are not modelled; a statement that leaves an `asserterror` body, `ASSERT_ERROR_LEAVE`).
     Refused(String),
     /// Code that lowers and raises an AL error with this text and code when it runs (`this.<protected variable of the
     /// base report>` in a reportextension: BC compiles it and raises when it runs).
@@ -2110,6 +2203,12 @@ pub enum SetElem {
     Range(Option<Expr>, Option<Expr>),
 }
 
+/// The refusal of an `asserterror` body that a statement of its own leaves by exit, break or continue (al-runner issue 8289):
+/// no corpus test measures it. The lowering turns an `exit` without a value, a `break` and a `continue` into an
+/// `Expr::Refused` with this text, raised only when the run reaches it; the VM refuses an `exit` with a value whose value raised
+/// nothing.
+pub const ASSERT_ERROR_LEAVE: &str = "an asserterror body left by exit, break or continue: whether the asserterror then raises its own error is not pinned";
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Stmt {
     Assign(Place, Expr),
@@ -2173,6 +2272,7 @@ mod tests {
             body: body.into(),
             expr_tys: vec![],
             reads_var_max_len: false,
+            local: false,
         }
     }
 
@@ -2267,6 +2367,7 @@ mod tests {
                 namespace: None,
                 extends_id: None,
                 layouts: Vec::new(),
+                modified_fields: Vec::new(),
                 routines: vec![Routine {
                     name: "P".into(),
                     field: None,
@@ -2276,6 +2377,7 @@ mod tests {
                         name: "Test".into(),
                         args: vec![],
                         text: "[Test]".into(),
+                        publisher: PublisherRef::NotSubscriber,
                     }],
                     params: 0,
                     by_var: vec![],
@@ -2287,6 +2389,7 @@ mod tests {
                     begin_pos: NO_POS,
                     expr_tys: vec![],
                     reads_var_max_len: false,
+                    local: false,
                     body: vec![
                         Stmt::Pos(0),
                         Stmt::Assign(

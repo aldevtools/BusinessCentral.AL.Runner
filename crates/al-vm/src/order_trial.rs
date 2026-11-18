@@ -205,10 +205,7 @@ impl Session {
             if obj.app == app || obj.globals.is_empty() || obj.is_kind(al_ir::ObjKind::Table) {
                 continue;
             }
-            let single = obj
-                .properties
-                .iter()
-                .any(|(k, v)| k.eq_ignore_ascii_case("SingleInstance") && v.trim().eq_ignore_ascii_case("true"));
+            let single = self.engine.object_facts[o].single_instance;
             if obj.is_kind(al_ir::ObjKind::Codeunit)
                 && !single
                 && sender.contains(&true)

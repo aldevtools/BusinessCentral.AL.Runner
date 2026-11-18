@@ -83,6 +83,17 @@ impl Session {
                     };
                     self.type_call(DotNetTarget::Value(wire), clr_type)
                 }
+                // A Dictionary`2 variable that holds the dictionary its parameterless constructor made, with nothing added and
+                // held by no other variable, answers the open definition, as when it holds nothing (onprem-dotnet dotnet/dotnet/
+                // N4GetDotNetTypeGeneric.al:100-108, :164-172). `o` is held by the variable and by the argument.
+                DotNetKind::Internal { type_name, state }
+                    if type_name == al_builtins::dotnet_sigs::GENERIC_DICTIONARY
+                        && declared == al_builtins::dotnet_sigs::GENERIC_DICTIONARY
+                        && matches!(state.borrow().as_slice(), [Value::Boolean(false)])
+                        && Rc::strong_count(o) == 2 =>
+                {
+                    self.type_named(declared)
+                }
                 DotNetKind::Internal { type_name, .. } => {
                     unsupported(format!("GetDotNetType of a runtime-provided {type_name}"))
                 }
@@ -124,12 +135,11 @@ impl Session {
                 // Pinned by tests/al-language-onprem-dotnet/dotnet/dotnet/BbGetDotNetType.al TV_GetDotNetType_UnassignedEnumVariables, TV_EnumParse_GetDotNetTypeOfUnassignedX509ContentType (was assumption `dotnet-type-unassigned-enum`).
                 self.type_named("System.Security.Cryptography.X509Certificates.X509ContentType, netstandard")
             }
-            // Assumed, not pinned: the open generic type definition (assumption `dotnet-type-unassigned-dictionary`; the Microsoft
-            // test that passes on real BC calls MakeGenericType on it). Other open generics stay refused below.
-            "System.Collections.Generic.Dictionary`2" => {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DotnetTypeUnassignedDictionary);
-                self.type_named(declared)
-            }
+            // The open generic type definition (onprem-dotnet dotnet/dotnet/N4GetDotNetTypeGeneric.al:118-134, FullName, Name,
+            // Format and IsGenericTypeDefinition of these three). Other open generics stay refused below.
+            "System.Collections.Generic.Dictionary`2"
+            | "System.Collections.Generic.List`1"
+            | "System.Collections.Generic.KeyValuePair`2" => self.type_named(declared),
             "" => unsupported("GetDotNetType of an unassigned DotNet value whose declared type is not known"),
             other => unsupported(format!(
                 "GetDotNetType of an unassigned DotNet variable declared as {other} (not pinned; docs/probes-needed.md)"

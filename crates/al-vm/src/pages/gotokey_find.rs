@@ -91,6 +91,9 @@ impl Session {
             let r = self.arrive(st);
             self.torn_down_on_error(st, r)?;
             found = Self::same_key(&self.row_key(&rec)?, want);
+            if !found {
+                self.sync_parts_stepped(st)?;
+            }
         }
         if !found {
             if !Self::same_key(&self.row_key(&rec)?, &cur) {

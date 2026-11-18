@@ -322,6 +322,9 @@ pub struct ExtControl {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ControlMod {
     pub target: ControlId,
+    /// The control's name as the block writes it (`Control::caption_modifies`).
+    #[serde(default)]
+    pub name: String,
     pub props: Vec<(String, crate::PropVal)>,
     /// (trigger name in lower case, routine of the extension).
     pub triggers: Vec<(String, usize)>,

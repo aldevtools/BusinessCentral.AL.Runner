@@ -315,7 +315,7 @@ impl Session {
         op: GlobalOp,
         run: bool,
     ) -> AuditWrite {
-        let store_changes = self.store_for(rec).change_counter();
+        let store_changes = self.store_changes(rec);
         let r = rec.borrow();
         // Every rule needs `OwnRead` from a Get with nothing committed or written since (`own_row`): only then is it worth
         // asking for the triggers and subscribers. The Insert that started `OwnRead` must run none either; they are
@@ -367,8 +367,8 @@ impl Session {
             return Ok(RenameAudit::AsBuffer);
         }
         let w = self.audit_write(t, rec, GlobalOp::Rename, true);
-        let stored =
-            al_data::Store::get(self.store_for(rec), cx, t, old_pk).map_err(|e| Signal::unsupported(format!("{e}")))?;
+        let stored = al_data::Store::get(self.store_for(rec)?, cx, t, old_pk)
+            .map_err(|e| Signal::unsupported(format!("{e}")))?;
         Ok(rename_audit(t, stored.as_deref(), &rec.borrow().fields, &w))
     }
 
@@ -385,7 +385,7 @@ impl Session {
         if method == RecordOp::Insert {
             rec.borrow_mut().own_read = OwnRead(None);
             let plain = args.is_empty() && self.tx.insert_from_al && !self.through_recordref;
-            return plain.then(|| self.store_for(rec).change_counter());
+            return plain.then(|| self.store_changes(rec));
         }
         let mut r = rec.borrow_mut();
         let m = r.own_read.0.as_mut()?;
@@ -413,7 +413,7 @@ impl Session {
         match method {
             RecordOp::Insert => {
                 let Some(before) = inserted else { return };
-                let store_changes = self.store_for(rec).change_counter();
+                let store_changes = self.store_changes(rec);
                 if !ok || store_changes == before {
                     return;
                 }
@@ -469,7 +469,7 @@ impl Session {
         let Some(mut m) = rec.borrow_mut().own_read.0.take() else {
             return OwnRead(None);
         };
-        let store_changes = self.store_for(rec).change_counter();
+        let store_changes = self.store_changes(rec);
         let read = by_get
             && !self.through_recordref
             && !m.got

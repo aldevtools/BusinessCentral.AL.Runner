@@ -13,6 +13,8 @@ impl Session {
     ///   page types handed a stored row are refused (not pinned).
     /// - A record keyed on a FlowField whose value depends on the row (`records::FLOWFIELD_KEY`): the record's own finds
     ///   order its rows by the FlowField (records/flowfield_key.rs), the order a page shows them in is not pinned.
+    /// - A by-value copy whose view is not pinned (`records/by_value_view.rs` `by_value_view_handed`), handed by Page.Run,
+    ///   RunModal, SetRecord or SetTableView.
     pub(super) fn page_record_refusal(
         &mut self,
         st: &St,
@@ -22,6 +24,10 @@ impl Session {
         let Some(r) = record.filter(|_| has_source) else {
             return Ok(());
         };
+        if let Err(e) = Self::by_value_view_handed(r, || "a page opened on a record".into()) {
+            self.mark_closed(st);
+            return Err(e);
+        }
         if r.borrow().unpinned_buffer == Some(crate::records::FLOWFIELD_KEY) {
             self.mark_closed(st);
             return unsupported(

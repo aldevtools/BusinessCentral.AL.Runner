@@ -722,6 +722,10 @@ impl InprocSession {
 }
 
 impl DotNetSession for InprocSession {
+    fn is_in_process_utc_zone(&self, handle: DotNetHandle) -> bool {
+        self.local(handle)
+            .is_some_and(|c| matches!(&*c.borrow(), Local::Zone { id, .. } if id.eq_ignore_ascii_case("UTC")))
+    }
     fn construct(&mut self, ty: &DotNetType, args: Vec<DotNetArg>) -> Reply {
         if ty.name == "System.Text.StringBuilder" {
             let vals: Vec<&DotNetValue> = args.iter().map(|a| &a.value).collect();
@@ -1021,6 +1025,27 @@ mod tests {
             }
         }
         assert!(seen.lock().unwrap().is_empty(), "forwarded: {:?}", seen.lock().unwrap());
+    }
+
+    /// The fact the VM's off-Windows gate of `GetUtcOffset` asks (al-vm `dotnet/zone_rules.rs`): only a zone made here
+    /// for the id `UTC` answers yes; another zone made here and a handle the stand-in does not hold answer no.
+    #[test]
+    fn only_the_utc_zone_made_in_process_is_reported_as_utc() {
+        let (mut s, _) = session();
+        let zone = |s: &mut InprocSession, id: &str| {
+            handle_of(s.invoke(
+                DotNetTarget::Static(net_type("System.TimeZoneInfo")),
+                "FindSystemTimeZoneById",
+                vec![arg(DotNetValue::Str(id.into()))],
+            ))
+        };
+        for id in ["UTC", "utc"] {
+            let h = zone(&mut s, id);
+            assert!(s.is_in_process_utc_zone(h), "{id}");
+        }
+        let other = zone(&mut s, "Greenwich Standard Time");
+        assert!(!s.is_in_process_utc_zone(other));
+        assert!(!s.is_in_process_utc_zone(7));
     }
 
     #[test]

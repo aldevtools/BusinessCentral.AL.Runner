@@ -370,6 +370,13 @@ before a request is sent. Every refusal names the type or member and the rule.
   frameworks). `--dotnet-allow-roll-forward` now picks the lowest newer major
   only when that major is missing; `DOTNET_ROLL_FORWARD=Major`, used before,
   never left .NET 8 while .NET 8 was installed. No protocol or packaging change.
+  Note (2026-11-17): the BC 27 and 28 builds published on 2026-11-17 run on
+  .NET 10, the earlier builds of the same minors on .NET 8, so the major is a
+  fact of the build. A run with a service tier (a fetched one or an extracted
+  artifact) now takes the major from that tier's
+  `Microsoft.Dynamics.Nav.Server.runtimeconfig.json`, and refuses every DotNet
+  call when it cannot be read (`al-deps/src/service_runtime.rs`). The table by
+  BC major stays for runs without a service tier, such as corpus runs.
 - BCL behaviour that depends on the host OS (`System.Drawing`, file paths,
   certificates) can differ from Windows. Known cases are refused by name.
 - The same sidecar and the same inputs give the same outputs, except where

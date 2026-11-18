@@ -7,12 +7,16 @@
 //! does not pin raises `Signal::Unsupported` instead of guessing.
 
 use crate::Session;
+use crate::blob_transfer::{BlobMove, Holder};
+use crate::permission_bulk_no_match::RecordCaller;
+use crate::unopened_refs::record_not_open;
 use al_builtins::catalog::Catalog;
 use al_builtins::describe::Describe;
 use al_builtins::filter::FilterExpr;
 use al_builtins::native::{AlError, Signal, unsupported};
 use al_builtins::ops;
 use al_builtins::record_op::RecordOp;
+use al_builtins::recordref_closed::not_open;
 use al_builtins::value::{LibraryValue, RecordState, RtType, Value};
 use al_data::{Store, TableDef};
 use std::cell::RefCell;
@@ -102,6 +106,23 @@ fn key_fields(t: &TableDef, k: usize) -> Option<Vec<usize>> {
     None
 }
 
+/// GetTable's argument is a Record, not a Variant: the shared-buffer cells hand GetTable such a Record
+/// (`install_get_table_buffer`).
+fn record_source(from_variant: bool, args: &[Value]) -> bool {
+    !from_variant && matches!(args.first(), Some(Value::Record(_)))
+}
+
+/// A RecordRef copy of Rec in the OnOpenPage of a RunPageLink target answers as any RecordRef: it drops the RunPageLink marks.
+fn forget_run_page_link_open(copy: &mut RecordState) {
+    if matches!(
+        copy.unpinned_buffer,
+        Some(crate::records::RUN_PAGE_LINK_OPEN | crate::records::RUN_PAGE_LINK_OPEN_FILLED)
+    ) {
+        copy.unpinned_buffer = None;
+        copy.run_page_link = None;
+    }
+}
+
 /// The table as the program declares it: without the ad hoc key a record may have appended.
 impl Session {
     /// A lock through a RecordRef: whether it starts the write transaction is pinned for Record only
@@ -120,7 +141,7 @@ impl Session {
         let dst = match &*other.borrow() {
             LibraryValue::RecordRef(r) => r.clone(),
             // A RecordRef that is not open (:163-185 WC_SetTable_VariantHoldsClosedRecordRef): it stays not open.
-            LibraryValue::Empty => {
+            l if not_open(l) => {
                 return Err(crate::transactions::al_error_code(
                     "Unable to convert from Microsoft.Dynamics.Nav.Runtime.NavRecordRef to Microsoft.Dynamics.Nav.Runtime.INavRecordHandle.",
                     "Conversion",
@@ -252,7 +273,13 @@ impl Session {
             other => return unsupported(format!("{id} on {}", other.describe())),
         };
         match sig.receiver.as_str() {
-            "RecordRef" => self.recordref_op(&sig.name, &lib, args),
+            "RecordRef" => {
+                let measured = self.recordref_not_open_measured(id, &sig.name, &lib.borrow(), args);
+                match measured {
+                    Some(e) => Err(e),
+                    None => self.recordref_op(&sig.name, &lib, args),
+                }
+            }
             "FieldRef" => {
                 self.fieldref_arg_values(&sig.name, &lib, args)?;
                 self.fieldref_op(&sig.name, &lib, args)
@@ -265,14 +292,7 @@ impl Session {
             "RecordId" if sig.name == "GetRecord" => {
                 let (table, key) = match &*lib.borrow() {
                     LibraryValue::RecordId { table, key, .. } => (*table, key.clone()),
-                    _ => {
-                        return Err(Signal::Error(Box::new(al_builtins::native::AlError {
-                            message: "The record is not open.".into(),
-                            code: "RecordNotOpened".into(),
-                            call_stack: String::new(),
-                            ..Default::default()
-                        })));
-                    }
+                    _ => return Err(record_not_open()),
                 };
                 let Value::Record(rec) = self.default_value(&RtType::Record(table, false)) else {
                     return unsupported("record buffer for RecordId.GetRecord");
@@ -439,8 +459,8 @@ impl Session {
             // The methods below raise "The record is not open." on a RecordRef never opened or closed
             // (recordref-fieldref/recordref/RfTOpen.al:Closed_Errors, lt-recordref-fieldref-members/P92Position.al:GetPosition_UnopenedAndNotFound,
             // P92Counts.al:CountApprox_Unopened, P92ReadIsolation.al:ReadIsolation_Unopened, P92Fields.al:FieldExist).
-            LibraryValue::Empty
-                if what.strip_prefix("RecordRef.").is_some_and(|m| {
+            l if not_open(l)
+                && what.strip_prefix("RecordRef.").is_some_and(|m| {
                     matches!(
                         m,
                         "Name"
@@ -479,12 +499,7 @@ impl Session {
                     )
                 }) =>
             {
-                Err(Signal::Error(Box::new(AlError {
-                    message: "The record is not open.".into(),
-                    code: "RecordNotOpened".into(),
-                    call_stack: String::new(),
-                    ..Default::default()
-                })))
+                Err(record_not_open())
             }
             // BC's answer is not pinned by the corpus: the error text, and whether `Get(RecordId)` opens the
             // table of the RecordId (Base Application's Data Type Management does `if not Get(RecID) then
@@ -529,7 +544,7 @@ impl Session {
     }
 
     /// `RecordRef.Open(No, Temp, CompanyName)`.
-    fn rr_open(&mut self, lib: &Lib, args: &[Value]) -> Result<Value, Signal> {
+    pub(crate) fn rr_open(&mut self, lib: &Lib, args: &[Value]) -> Result<Value, Signal> {
         // Open on a RecordRef that holds a table raises (types/variant/VaTIsChecks.al:Is_Record_RecordRef_FieldRef `af137`,
         // after GetTable).
         if matches!(&*lib.borrow(), LibraryValue::RecordRef(_)) {
@@ -675,7 +690,7 @@ impl Session {
         };
         let current = match &*lib.borrow() {
             LibraryValue::RecordRef(r) => Some(r.clone()),
-            LibraryValue::Empty => None,
+            l if not_open(l) => None,
             _ => return Ok(None),
         };
         let Some((table, key)) = id else {
@@ -707,6 +722,7 @@ impl Session {
         let found = self.record_op(RecordOp::Get, &rec, &mut a)?;
         match found {
             Value::Boolean(true) => {
+                self.recordref_get_of_field_row(&t, &rec);
                 *lib.borrow_mut() = LibraryValue::RecordRef(rec);
                 Ok(Some(found))
             }
@@ -740,12 +756,19 @@ impl Session {
         let request = rec.borrow_mut().load.request.take();
         // RecordRef.Get(RecordId) of an existing row is a denied read like Record.Get (AEDependencyTableReads.al
         // `Customer_recref_get_recordid`).
-        if self.permission_checks() {
-            self.permission_from_al = true;
-        }
+        self.recordref_permission_call();
         let got = self.record_op(RecordOp::Get, rec, &mut a);
         rec.borrow_mut().load.request = request;
+        if matches!(got, Ok(Value::Boolean(true))) {
+            self.recordref_get_of_field_row(t, rec);
+        }
         got
+    }
+
+    /// A Field row RecordRef.Get(RecordId) found: Record.Get, Find('=') and RecordRef.Find('=') answer as a Get
+    /// (metadata/platform-tables/PlatformMetadataColumnValues.al:753-772); this form is not measured.
+    fn recordref_get_of_field_row(&self, t: &TableDef, rec: &Rec) {
+        crate::platform::unmeasured_key_read(&self.engine, t, &mut rec.borrow_mut().fields, "RecordRef.Get(RecordId)");
     }
 
     /// Whether the buffer differs from what the ref last read or wrote (`dirty_base`); a buffer that came from elsewhere
@@ -763,7 +786,7 @@ impl Session {
                 let cx = self.cx_for(rec, t)?;
                 let pk = t.primary_key(&fields);
                 let stored = self
-                    .store_for(rec)
+                    .store_for(rec)?
                     .get(&cx, t, &pk)
                     .map_err(|e| Signal::unsupported(format!("{e}")))?;
                 match stored {
@@ -876,15 +899,27 @@ impl Session {
         }
     }
 
-    fn recordref_op(&mut self, method: &str, lib: &Lib, args: &mut [Value]) -> Result<Value, Signal> {
-        // A RecordRef on a table whose filter group 1 another record set (records.rs `global_group_check`).
-        if !self.global_group1.is_empty() && method != "FilterGroup" {
-            if let LibraryValue::RecordRef(rec) = &*lib.borrow() {
-                let table = rec.borrow().table;
-                self.global_group_check(rec, table, &format!("RecordRef.{method}"))?;
+    pub(crate) fn recordref_op(&mut self, method: &str, lib: &Lib, args: &mut [Value]) -> Result<Value, Signal> {
+        // A RecordRef on a table whose filter group 1 holds an entry (`group1_sessions.rs`).
+        let mut group1 = None;
+        if self.global_group1.has_tables()
+            && let LibraryValue::RecordRef(rec) = &*lib.borrow()
+        {
+            let table = rec.borrow().table;
+            let op = crate::group1_sessions::Group1Op::RecordRef(method);
+            // Only a shared read holds the record for the call: GetTable counts the handles of a row (recordref_variant.rs).
+            if let use_ @ crate::group1_sessions::Group1Use::Shared { .. } = self.group1_use(rec, table, op, args)? {
+                group1 = Some((rec.clone(), use_));
             }
         }
-        let r = self.recordref_op_inner(method, lib, args);
+        let new_ref_tried = crate::unopened_refs::open_attempt_on_new_ref(method, &lib.borrow());
+        let r = match group1 {
+            Some((rec, use_)) => self.with_group1(&rec, use_, |s| s.recordref_op_inner(method, lib, args)),
+            None => self.recordref_op_inner(method, lib, args),
+        };
+        if new_ref_tried {
+            crate::unopened_refs::after_open_attempt(method, lib, &r);
+        }
         // What the ref read or wrote is what IsDirty compares with. A read that found nothing leaves the buffer alone.
         let snapshot = match (&r, method) {
             (Ok(Value::Boolean(false)), _) | (Ok(Value::Integer(0)), "Next") => None,
@@ -913,9 +948,10 @@ impl Session {
                     return Ok(v);
                 }
             }
-            // Close and Clear leave the ref unusable; closing an unopened ref is harmless.
+            // Close and Clear leave the ref unusable; closing an unopened ref is harmless. A closed ref is kept apart from one
+            // never opened (`unopened_refs.rs`).
             "Close" => {
-                *lib.borrow_mut() = LibraryValue::Empty;
+                *lib.borrow_mut() = LibraryValue::ClosedRecordRef;
                 return Ok(Value::Null);
             }
             // Doc (RecordRef.GetTable): the ref takes the record variable's table, buffer and
@@ -937,32 +973,23 @@ impl Session {
                     // case 1140): a copy of its table, buffer, filters and current row, not shared afterwards
                     // (recordref-fieldref/AsRecRefGetTable.al:35-106). A ref that is not open is a Conversion error and
                     // leaves the target unopened (AsRecRefGetTable.al:110 FromNotOpen).
-                    Some(Value::Library(name, other)) => match &*other.borrow() {
-                        LibraryValue::RecordRef(r) => r.clone(),
-                        LibraryValue::Empty if name.eq_ignore_ascii_case("RecordRef") && from_variant => {
-                            return Err(Signal::Error(Box::new(AlError {
-                                message: "Unable to convert from Microsoft.Dynamics.Nav.Runtime.NavRecordRef to Microsoft.Dynamics.Nav.Runtime.INavRecordHandle.".into(),
-                                code: "Conversion".into(),
-                                call_stack: String::new(),
-                                ..Default::default()
-                            })));
+                    Some(Value::Library(name, other)) => {
+                        self.get_table_ref_source(&lib.borrow(), name, &other.borrow(), from_variant, args.first())?
+                    }
+                    other => {
+                        if from_variant && let Some(e) = self.get_table_variant_not_record(&lib.borrow(), other) {
+                            return Err(e);
                         }
-                        _ => return unsupported("RecordRef.GetTable of a RecordRef that is not open"),
-                    },
-                    other => return unsupported(format!("RecordRef.GetTable of {}", other.describe())),
+                        return unsupported(format!("RecordRef.GetTable of {}", other.describe()));
+                    }
                 };
-                let mut copy = al_builtins::record_into_recordref::recordref_copy(&src.borrow());
+                let mut copy = self.gettable_copy(&src, matches!(args.first(), Some(Value::Record(_))))?;
                 // A RecordRef copy of Rec in the OnOpenPage of a RunPageLink target holds Rec's view, the link included, and answers
                 // as any RecordRef: GetView, SetView, SetFilter, FindFirst (corpus
                 // testpage/RunPageLinkOpenSetView.al, RSV_LinkAndView_SameViewOfRecordRef, RSV_LinkAndView_ViewOfACopyWithItsOwnFilter).
-                if matches!(
-                    copy.unpinned_buffer,
-                    Some(crate::records::RUN_PAGE_LINK_OPEN | crate::records::RUN_PAGE_LINK_OPEN_FILLED)
-                ) {
-                    copy.unpinned_buffer = None;
-                    copy.run_page_link = None;
-                }
-                *lib.borrow_mut() = LibraryValue::RecordRef(Rc::new(RefCell::new(copy)));
+                forget_run_page_link_open(&mut copy);
+                self.variant_refs
+                    .install_get_table_buffer(lib, copy, record_source(from_variant, args))?;
                 return Ok(Value::Null);
             }
 
@@ -974,14 +1001,7 @@ impl Session {
             "Copy" => {
                 let dst = match &*lib.borrow() {
                     LibraryValue::RecordRef(r) => r.clone(),
-                    LibraryValue::Empty => {
-                        return Err(Signal::Error(Box::new(AlError {
-                            message: "The record is not open.".into(),
-                            code: "RecordNotOpened".into(),
-                            call_stack: String::new(),
-                            ..Default::default()
-                        })));
-                    }
+                    l if not_open(l) => return Err(record_not_open()),
                     _ => return unsupported("RecordRef.Copy on a RecordRef opened on a system table"),
                 };
                 let src = match args.first() {
@@ -1004,7 +1024,7 @@ impl Session {
                 LibraryValue::SystemTable(n) => return Ok(Value::Integer(*n as i32)),
                 // A RecordRef never opened is table 0 (corpus branch al-runtime-rs-staging, ae3fe88,
                 // tests/al-language/types/PXEnumRecordRef.al:293-299).
-                LibraryValue::Empty => return Ok(Value::Integer(0)),
+                l if not_open(l) => return Ok(Value::Integer(0)),
                 _ => {}
             },
             // A RecordRef that is not open (never opened, closed, cleared) answers the system field numbers without an error
@@ -1012,7 +1032,7 @@ impl Session {
             m if let Some(n) = unopened_system_field_no(lib, m) => return Ok(Value::Integer(n)),
             // A RecordRef never opened answers false (PXEnumRecordRef.al:293-298); with the result
             // unused nothing pins what it raises.
-            "GetBySystemId" if matches!(&*lib.borrow(), LibraryValue::Empty) => {
+            "GetBySystemId" if not_open(&lib.borrow()) => {
                 return if self.ret_used {
                     Ok(Value::Boolean(false))
                 } else {
@@ -1026,7 +1046,7 @@ impl Session {
             // `if not RecRef.Get(RecID) then RecRef.Open(RecID.TableNo)` opens it (misc/lt-probes-needed-4 batch 4:
             // W4 RecRef Get Tests, Get_OnUnopenedRecordRef_ExistingRow and _MissingRow, GetOrOpen_Pattern_OfDataTypeManagement).
             // With the result unused the error of a missing row is not pinned (open_ref refuses).
-            "Get" if matches!(&*lib.borrow(), LibraryValue::Empty) && self.ret_used => {
+            "Get" if not_open(&lib.borrow()) && self.ret_used => {
                 let table_no = match args.first() {
                     Some(Value::Library(_, l)) => match &*l.borrow() {
                         LibraryValue::RecordId { table_no, .. } => *table_no,
@@ -1034,18 +1054,13 @@ impl Session {
                     },
                     _ => return Self::open_ref(lib, "RecordRef.Get").map(|_| Value::Null),
                 };
-                self.rr_open(lib, &[Value::Integer(table_no as i32)])?;
-                let found = self.recordref_op("Get", lib, args);
-                if !matches!(found, Ok(Value::Boolean(true))) {
-                    *lib.borrow_mut() = LibraryValue::Empty;
-                }
-                return found;
+                return self.get_on_unopened_ref(lib, table_no, args);
             }
             _ => {}
         }
         // Field/FieldExist by name on a RecordRef that is not open: only the number overloads are pinned (P92Fields.al).
         // SetTable(Rec, ShareTable) likewise: only SetTable(Rec) is pinned there (P92SetTable.al:84-101).
-        if matches!(&*lib.borrow(), LibraryValue::Empty)
+        if not_open(&lib.borrow())
             && (matches!(method, "Field" | "FieldExist")
                 && !matches!(args.first(), Some(Value::Integer(_) | Value::BigInteger(_)))
                 || method == "SetTable" && args.len() == 2)
@@ -1133,7 +1148,7 @@ impl Session {
             "GetBySystemId" => {
                 // The same read as Record.GetBySystemId (AEDependencyTableReads.al `Customer_getbysystemid_*`).
                 if self.permission_checks() {
-                    self.permission_gate_record(RecordOp::GetBySystemId, &rec, args, true)?;
+                    self.permission_gate_record(RecordOp::GetBySystemId, &rec, args, RecordCaller::RecordRef)?;
                 }
                 self.get_by_system_id(&rec, &t, args)
             }
@@ -1169,9 +1184,7 @@ impl Session {
             "IsEmpty" | "Count" | "Init" | "Insert" | "Modify" | "Delete" | "DeleteAll" | "Find" | "FindFirst"
             | "FindLast" | "FindSet" | "Next" | "Reset" | "Rename" => {
                 // ADR-062: a RecordRef write is checked like a record write (Y19PermWrites.al Y19_P6_RecordRef).
-                if self.permission_checks() {
-                    self.permission_from_al = true;
-                }
+                self.recordref_permission_call();
                 // A RecordRef.Insert of AL code is queued as a Record's (`insert_buffer.rs`).
                 self.recordref_record_op(method, &rec, args)
             }
@@ -1345,17 +1358,27 @@ impl Session {
         }
     }
 
-    /// `RecordRef.SetTable(Rec [, ShareTable])` and `RecordRef.SetTable(Variant)`.
+    /// `RecordRef.SetTable(Rec [, ShareTable])` and `RecordRef.SetTable(Variant)`; after it, whatever it gave, the record of the
+    /// RecordRef is a GetTable copy no longer (`blob_transfer::recordref_set_table_ran`).
     fn rr_set_table(&mut self, rec: &Rec, lib: &Lib, args: &[Value]) -> Result<Value, Signal> {
+        let done = self.rr_set_table_into(rec, lib, args);
+        crate::blob_transfer::recordref_set_table_ran(rec);
+        // A key moved this way is no cell of TempBlobEmptyInsertShare.al (`temp_blob_share::measured_detach`).
+        if let Some(Value::Record(dst)) = args.first()
+            && let Some(id) = &dst.borrow().temp_id
+        {
+            id.forget_empty_blob_inserter();
+        }
+        done
+    }
+
+    fn rr_set_table_into(&mut self, rec: &Rec, lib: &Lib, args: &[Value]) -> Result<Value, Signal> {
         // A Variant argument (types/WcSetTableVariant.al): an empty Variant and a RecordRef in it.
         if args.len() == 1 {
             match args.first() {
                 Some(Value::Null) => {
                     // :188-203 WC_SetTable_EmptyVariant.
-                    return Err(crate::transactions::al_error_code(
-                        "Microsoft.Dynamics.Nav.Runtime.NavVariant variable not initialized.",
-                        "NotInitialized",
-                    ));
+                    return Err(crate::recordref_variant::variant_not_initialized());
                 }
                 Some(Value::Library(name, other)) if name.eq_ignore_ascii_case("RecordRef") => {
                     return self.set_table_into_recordref(rec, lib, other);
@@ -1413,7 +1436,12 @@ impl Session {
             d.field_descending = s.field_descending;
             // The ReadIsolation passes too (recordref-fieldref/recordref/P92ReadIsolation.al:ReadIsolation_FromRecordAndToRecord).
             d.read_isolation = s.read_isolation;
-            d.fields = s.fields.clone();
+            let before = std::mem::replace(&mut d.fields, s.fields.clone());
+            // The Blobs move as `BlobMove::set_table` says.
+            if let Some(how) = BlobMove::set_table(args.len(), share) {
+                self.move_blobs(s.table as usize, &mut d.fields, Some(&before), how, self.holder(&s))?;
+            }
+            d.probed_source = crate::blob_transfer::set_table_target(&d, share, self.commits);
             d.filters = s.filters.clone();
             d.key = s.key;
             d.adhoc = s.adhoc.clone();
@@ -1444,7 +1472,12 @@ impl Session {
     fn keyref_op(&mut self, method: &str, lib: &Lib, args: &mut [Value]) -> Result<Value, Signal> {
         let (rec, k) = match &*lib.borrow() {
             LibraryValue::KeyRef(r, k) => (r.clone(), *k),
-            _ => return unsupported(format!("KeyRef.{method} on a KeyRef that was never assigned")),
+            other => {
+                if let Some(e) = self.keyref_unassigned_measured(method, other, args) {
+                    return Err(e);
+                }
+                return unsupported(format!("KeyRef.{method} on a KeyRef that was never assigned"));
+            }
         };
         let t = self.table(&rec)?;
         match method {
@@ -1485,12 +1518,10 @@ impl Session {
             _ if matches!(method, "Name" | "Number" | "Type" | "Length" | "Record")
                 || (method == "Value" && args.is_empty()) =>
             {
-                return Err(Signal::Error(Box::new(AlError {
-                    message: "Microsoft.Dynamics.Nav.Runtime.NavFieldRef variable not initialized.".into(),
-                    code: "NotInitialized".into(),
-                    call_stack: String::new(),
-                    ..Default::default()
-                })));
+                return Err(fieldref_not_initialized());
+            }
+            LibraryValue::Empty if unassigned_filter_member_measured(method, args) => {
+                return Err(fieldref_not_initialized());
             }
             _ => {
                 return unsupported(format!(
@@ -1590,6 +1621,14 @@ impl Session {
                     }
                     let v = self.fieldref_value_into(&t, pos, &field.ty, v)?;
                     let mut r = rec.borrow_mut();
+                    let kind = || self.blob_field_kind(t.object as usize, pos);
+                    let v = crate::blob_transfer::moved(
+                        Some(&r.fields[pos]),
+                        v,
+                        BlobMove::FieldRefValue,
+                        Holder::Other,
+                        kind,
+                    )?;
                     r.fields[pos] = v;
                     if r.load.partial {
                         r.load.written(pos);
@@ -1657,7 +1696,12 @@ impl Session {
                 if stored {
                     return unsupported("FieldRef.CalcField of a field that is not a FlowField (not pinned)");
                 }
-                self.flow_op(RecordOp::CalcFields, &rec, &[Value::Integer(pos as i32)])
+                self.flow_op_asked(
+                    RecordOp::CalcFields,
+                    &rec,
+                    &[Value::Integer(pos as i32)],
+                    crate::flowfields::Asked::Other,
+                )
             }
             // FieldRef.CalcSum sums a stored Decimal or Integer field over the rows the RecordRef's filters pass, a field in
             // no SumIndexFields list as well, puts the sum into the field and answers Yes
@@ -1743,6 +1787,29 @@ impl Session {
             }
             other => unsupported(format!("FieldRef.{other}")),
         }
+    }
+}
+
+/// The error of a member called on a FieldRef that holds no field (types/PSUnassignedFieldRef.al UnassignedFieldRef_Members).
+pub(crate) fn fieldref_not_initialized() -> Signal {
+    Signal::Error(Box::new(AlError {
+        message: "Microsoft.Dynamics.Nav.Runtime.NavFieldRef variable not initialized.".into(),
+        code: "NotInitialized".into(),
+        call_stack: String::new(),
+        ..Default::default()
+    }))
+}
+
+/// The filter members measured on a FieldRef that holds no field, both never assigned and after `Clear`, which the runtime
+/// cannot tell apart (tests/al-language/recordref-fieldref/fieldref/FieldRefUnassignedFilters.al:88 Unassigned_SetRange_Forms,
+/// :106 Unassigned_SetFilter_GetFilter_Range, :127 Cleared_Filter_Members): SetRange with no argument or one Text, SetFilter with one Text and no placeholder value,
+/// GetFilter and GetRangeMin. SetRange with an Integer or two values, SetFilter(''), GetRangeMax were measured only never
+/// assigned (:88, :106) and keep the refusal.
+fn unassigned_filter_member_measured(method: &str, args: &[Value]) -> bool {
+    match (method, args) {
+        ("SetRange" | "GetFilter" | "GetRangeMin", []) => true,
+        ("SetRange", [Value::Text(t)]) | ("SetFilter", [Value::Text(t)]) => !t.is_empty(),
+        _ => false,
     }
 }
 
@@ -2116,7 +2183,7 @@ fn record_method(method: &str) -> RecordOp {
 /// Get of the current row and of a row outside the link (testpage/R7138RunPageLinkCopyGet.al:117-134, :218 `rr[Project Code: P2]
 /// n=2;rr.get own O3;rr.get O1 O1`). A by-value copy of that Rec put into a Variant some other way is not pinned.
 fn variant_record_into_ref(lib: &Lib, src: &Rc<RefCell<RecordState>>) -> Result<Value, Signal> {
-    let mut copy = al_builtins::record_into_recordref::recordref_copy(&src.borrow());
+    let mut copy = gettable_record_copy(src)?;
     match copy.unpinned_buffer {
         Some(crate::records::RUN_PAGE_LINK_VARIANT) => copy.unpinned_buffer = None,
         Some(w @ (crate::records::RUN_PAGE_LINK_COPY | crate::records::RUN_PAGE_LINK_OPEN_COPY)) => {
@@ -2127,6 +2194,17 @@ fn variant_record_into_ref(lib: &Lib, src: &Rc<RefCell<RecordState>>) -> Result<
     copy.company = None;
     *lib.borrow_mut() = LibraryValue::RecordRef(Rc::new(RefCell::new(copy)));
     Ok(Value::Null)
+}
+
+/// The record a RecordRef takes in `RecordRef.GetTable`, from a Record, a Variant that holds one or a RecordRef: every GetTable
+/// copy is made here. Refused while the source carries a mark whose buffer or view must not be copied
+/// (`records.rs` `copy_refused_mark`, the same rule as an assignment and `Copy`).
+pub(crate) fn gettable_record_copy(src: &Rc<RefCell<RecordState>>) -> Result<RecordState, Signal> {
+    if let Some(why) = crate::records::copy_refused_mark(src) {
+        return unsupported(format!("RecordRef.GetTable of a record: {why}"));
+    }
+    crate::Session::by_value_view_handed(src, || "RecordRef.GetTable of a record".into())?;
+    Ok(al_builtins::record_into_recordref::recordref_copy(&src.borrow()))
 }
 
 /// The copy `RecordRef.GetTable` takes holds its own buffer of each Blob the record read from the database without
@@ -2141,7 +2219,7 @@ fn own_unloaded_blobs(copy: &mut al_builtins::value::RecordState) {
 /// as when it is open (corpus master ac3499d6, recordref-fieldref/recordref/W4RecordRefGetUnopened.al:317, Y40_SystemAuditFieldNos_NotOpen;
 /// BC 27.5/28.5/29.0).
 fn unopened_system_field_no(lib: &Lib, method: &str) -> Option<i32> {
-    if !matches!(&*lib.borrow(), LibraryValue::Empty) {
+    if !not_open(&lib.borrow()) {
         return None;
     }
     match method {

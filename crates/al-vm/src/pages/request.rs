@@ -286,7 +286,21 @@ impl Session {
     /// `[RequestPageHandler]` and reports how the handler closed it. The page's `OnInit` and
     /// `OnOpenPage` run before the handler sees it, and write the report's own variables
     /// (reports/TestRequestPageOnInit.al, reports/TestReportRunRequestPage.al: `rp-open`).
+    /// The page that two reportextensions of independent apps extend with triggers opens only as `request_ok_only_open` lets it.
     pub(crate) fn run_request_page(
+        &mut self,
+        inst: &Inst,
+        object: usize,
+        seed: Option<&str>,
+        run_ext: Vec<(usize, Inst)>,
+        want_parameters: bool,
+    ) -> Result<(RequestClosed, Option<String>), Signal> {
+        self.request_ok_only_open(object, want_parameters, |s| {
+            s.open_request_page(inst, object, seed, run_ext, want_parameters)
+        })
+    }
+
+    fn open_request_page(
         &mut self,
         inst: &Inst,
         object: usize,
@@ -354,6 +368,7 @@ impl Session {
         else {
             return unsupported("a request page without a handler");
         };
+        self.request_ok_only_handler(object, hobject, hroutine)?;
         self.request_page_takes_init_caption(inst, &st);
         self.ui_state.page_handler_depth += 1;
         // The handler of a `RunRequestPage` finds no transaction, while the page's own triggers write as ever
@@ -552,6 +567,8 @@ impl Session {
         let declared = self.data_file_items(&run)?;
         let data = written.finish_data_set(&declared)?;
         let parameters = self.save_as_xml_parameters();
+        self.placeholder_files.written(&parameters_file);
+        self.placeholder_files.written(&data_file);
         self.host
             .files
             .write(&parameters_file, &parameters)
@@ -588,20 +605,22 @@ impl Session {
         let inst = st.borrow().instance.clone().expect("open page");
         let schema = self.report_schema_of(&inst)?;
         // ADR-040 amendments of 2026-11-08 and 2026-11-11: a format the default layout gives writes a placeholder
-        // (`report_placeholder::grid`).
+        // (`report_save`).
         let target = crate::reports::SaveTarget::File(name);
-        let placeholder = match crate::report_placeholder::Format::from_name(format) {
-            Some(f) => self.placeholder_allowed(&schema, f, &target)?,
-            None => None,
+        // `None`: the ADR-040 allow-list's answer, run and write nothing.
+        let placeholder = {
+            use crate::report_save::{AnswerForm, BeforeRun, Call};
+            let Some(f) = crate::report_placeholder::Format::from_name(format) else {
+                return unsupported(format!("SaveAs{format} of \"{}\"", schema.name()));
+            };
+            match self.save_before_run(&schema, f, (&target, Call::Other), AnswerForm::None, false)? {
+                BeforeRun::Run(plan) => Some(crate::report_placeholder::SaveOutput::Rendered(Box::new(plan))),
+                BeforeRun::Discard => None,
+                // No row of the request page's form answers before the run (`report_save` test
+                // `report_save_the_request_page_form_answers_only_after_a_run`).
+                BeforeRun::Dataset | BeforeRun::False(_) => unreachable!("a request page save answers after its run"),
+            }
         };
-        if placeholder.is_none() && !self.output_is_ignored(&schema) {
-            return unsupported(format!(
-                "SaveAs{format} of \"{}\": only the Xml dataset and placeholders of the formats a default layout gives are \
-                 produced (a rendered format needs a layout renderer, and the Linux tier the corpus was measured on does not \
-                 render them either)",
-                schema.name()
-            ));
-        }
         // What the handler sees of a layout without a file, or of a processing-only report, is not pinned here.
         let report = schema.report();
         if report.layout_file_missing || report.processing_only {

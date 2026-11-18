@@ -132,8 +132,8 @@ impl Session {
                 }
                 r.table
             }
-            al_builtins::value::LibraryValue::Empty if call == RefCall::StaticExecute => return Ok(None),
-            al_builtins::value::LibraryValue::Empty => {
+            l if al_builtins::recordref_closed::not_open(l) && call == RefCall::StaticExecute => return Ok(None),
+            l if al_builtins::recordref_closed::not_open(l) => {
                 return not_pinned("that is not open, outside a static Execute,");
             }
             _ => return not_pinned("that is no RecordRef"),

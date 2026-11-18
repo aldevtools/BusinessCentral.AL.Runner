@@ -15,6 +15,7 @@ use crate::value::Value;
 
 mod brackets;
 mod numbers;
+mod range;
 
 pub const REGISTRY: &[(&str, NativeFn)] = &[
     ("System.DMY2Date#1", dmy2date),
@@ -443,6 +444,8 @@ fn dwy2date(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
 fn normal_date(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     match &a[0] {
         Value::Date(n, _) if *n > 0 => Ok(Value::Date(*n, false)),
+        // types/date-time/DateFuncs.al:34 and :60-61 (`NormalDate(0D)`, error af34), as ClosingDate(0D) (:30-33).
+        Value::Date(0, _) => raise("The date is not valid.".to_string(), "DateInvalid"),
         other => unsupported(format!("NormalDate of {}", other.describe())),
     }
 }
@@ -1063,26 +1066,50 @@ pub fn check_formula(text: &str) -> Result<(), Signal> {
 }
 
 /// The day `months` months from `(y, m, d)`; the day of the month is cut back to the month's length
-/// (types/TestDateRoundFormatStringContracts.al:CalcDate_MonthYearClamping).
-fn add_months(y: i32, m: u32, d: u32, months: i64) -> Result<i32, Signal> {
+/// (types/TestDateRoundFormatStringContracts.al:CalcDate_MonthYearClamping). `None` when the year leaves 0001-9999.
+fn add_months(y: i32, m: u32, d: u32, months: i64) -> Option<i32> {
     let total = i64::from(y) * 12 + i64::from(m) - 1 + months;
     let (ny, nm) = (total.div_euclid(12), total.rem_euclid(12) as u32 + 1);
-    if !(1..=9999).contains(&ny) {
-        return unsupported("CalcDate result outside 0001-9999 (error text not pinned)");
-    }
-    Ok(day_from_civil(ny as i32, nm, d.min(days_in_month(ny as i32, nm))))
+    (1..=9999)
+        .contains(&ny)
+        .then(|| day_from_civil(ny as i32, nm, d.min(days_in_month(ny as i32, nm))))
 }
 
-fn apply(terms: &[Term], from: i32) -> Result<i32, Signal> {
+fn outside_range<T>() -> Result<T, Signal> {
+    unsupported("CalcDate result outside 0001-9999 (error text not pinned)")
+}
+
+/// Where [`apply`] ended.
+enum Applied {
+    /// The result, a day in 0001-01-01..9999-12-31.
+    Day(i32),
+    /// The last term, a step, left the range ([`range::past_edge`] decides).
+    PastEdge,
+}
+
+/// The day a step term moves to, `None` when it leaves 0001-01-01..9999-12-31.
+fn step(day: i32, unit: Unit, n: i32) -> Option<i32> {
+    let (y, m, d) = civil_from_day(day);
+    let to = match unit {
+        Unit::Day => i64::from(day) + i64::from(n),
+        Unit::Week => i64::from(day) + i64::from(n) * 7,
+        Unit::Month => i64::from(add_months(y, m, d, i64::from(n))?),
+        Unit::Quarter => i64::from(add_months(y, m, d, i64::from(n) * 3)?),
+        Unit::Year => i64::from(add_months(y, m, d, i64::from(n) * 12)?),
+    };
+    i32::try_from(to).ok().filter(|t| (1..=LAST_DAY).contains(t))
+}
+
+fn apply(terms: &[Term], from: i32) -> Result<Applied, Signal> {
     let mut day = from;
-    for term in terms {
+    for (i, term) in terms.iter().enumerate() {
         let (y, m, d) = civil_from_day(day);
         day = match *term {
-            Term::Step(Unit::Day, n) => day.checked_add(n).unwrap_or(0),
-            Term::Step(Unit::Week, n) => n.checked_mul(7).and_then(|n| day.checked_add(n)).unwrap_or(0),
-            Term::Step(Unit::Month, n) => add_months(y, m, d, i64::from(n))?,
-            Term::Step(Unit::Quarter, n) => add_months(y, m, d, i64::from(n) * 3)?,
-            Term::Step(Unit::Year, n) => add_months(y, m, d, i64::from(n) * 12)?,
+            Term::Step(unit, n) => match step(day, unit, n) {
+                Some(to) => to,
+                None if i + 1 == terms.len() => return Ok(Applied::PastEdge),
+                None => return outside_range(),
+            },
             Term::Edge { unit: Unit::Day, .. } => day,
             Term::Edge { unit: Unit::Week, end } => {
                 if end {
@@ -1121,7 +1148,7 @@ fn apply(terms: &[Term], from: i32) -> Result<i32, Signal> {
                 if d < n {
                     day_from_civil(y, m, n.min(days_in_month(y, m)))
                 } else {
-                    add_months(y, m, n, 1)?
+                    add_months(y, m, n, 1).map_or_else(outside_range, Ok)?
                 }
             }
             // `-Dn`: day n of the date's month when the date is after it, else of the month before, cut back to the month's length
@@ -1132,7 +1159,7 @@ fn apply(terms: &[Term], from: i32) -> Result<i32, Signal> {
                 if d > n {
                     day_from_civil(y, m, n)
                 } else {
-                    add_months(y, m, n, -1)?
+                    add_months(y, m, n, -1).map_or_else(outside_range, Ok)?
                 }
             }
             Term::DayLetterFirst { .. } => {
@@ -1187,14 +1214,33 @@ fn apply(terms: &[Term], from: i32) -> Result<i32, Signal> {
             }
         };
         if !(1..=LAST_DAY).contains(&day) {
-            return unsupported("CalcDate result outside 0001-9999 (error text not pinned)");
+            return outside_range();
         }
     }
-    Ok(day)
+    Ok(Applied::Day(day))
 }
 
-fn calcdate(ctx: &dyn Ctx, formula: &str, base: Option<&Value>) -> Out {
-    let terms = parse_formula(formula)?;
+fn calcdate(ctx: &dyn Ctx, formula: &str, base: Option<&Value>, overload: range::Overload) -> Out {
+    // BC raises the time-unit error in the session language (al-runner issue 8200: Danish and German texts measured); only the
+    // English text is pinned, and the line breaks of the others are not, so it refuses under another language.
+    let parsed = parse_formula(formula);
+    let unit_error = matches!(&parsed, Err(Signal::Error(e)) if e.message.contains("should include a time unit"));
+    if matches!(overload, range::Overload::Text)
+        && let Some(answer) = crate::date_formula_language::calcdate_text(formula, ctx.language(), unit_error)
+    {
+        return answer;
+    }
+    if let Err(Signal::Error(e)) = &parsed
+        && ctx.language() != 1033
+        && e.message.contains("should include a time unit")
+    {
+        return unsupported(format!(
+            "CalcDate's error under GlobalLanguage {}: {} (the text of that language is not pinned)",
+            ctx.language(),
+            e.message
+        ));
+    }
+    let terms = parsed?;
     // Without a date the calculation counts from TODAY, not from WorkDate (types/
     // TestDateTimeIntegerCalcDateContracts.al:CalcDateWithoutADate_UsesToday_NotWorkDate).
     let today = base
@@ -1215,24 +1261,36 @@ fn calcdate(ctx: &dyn Ctx, formula: &str, base: Option<&Value>) -> Out {
             "Argument",
         );
     }
-    // A closing date is its day (Dates_CalcDate_Formulas, `closing_date_base`).
-    let from = match base {
-        Value::Date(n, _) if *n > 0 => *n,
+    // From a closing date the day is pinned (Dates_CalcDate_Formulas, `closing_date_base`, read with Format(R, 0, 9)); whether the
+    // result is a closing date is pinned only from C9999-12-31 (`range::closing_result`).
+    let base = match base {
+        Value::Date(n, closing) if *n > 0 => range::Base {
+            day: *n,
+            closing: *closing,
+        },
         other => return plain_date(other, "CalcDate").map(|_| unreachable!()),
     };
-    Ok(Value::Date(apply(&terms, from)?, false))
+    range::low_base(&terms, base, overload)?;
+    range::year_step_too_large(formula, base, overload)?;
+    match apply(&terms, base.day)? {
+        Applied::PastEdge => range::past_edge(&terms, base, overload),
+        Applied::Day(day) => {
+            range::first_day_result(day)?;
+            Ok(Value::Date(day, range::closing_result(&terms, base, overload)))
+        }
+    }
 }
 
 fn calcdate_text(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     match crate::native::text_of(&a[0]) {
-        Some(f) => calcdate(ctx, &f, a.get(1)),
+        Some(f) => calcdate(ctx, &f, a.get(1), range::Overload::Text),
         None => unsupported("CalcDate with a formula that is not text"),
     }
 }
 
 fn calcdate_formula(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     match &a[0] {
-        Value::DateFormula(f) => calcdate(ctx, f, a.get(1)),
+        Value::DateFormula(f) => calcdate(ctx, f, a.get(1), range::Overload::Formula),
         other => unsupported(format!("CalcDate with {}", other.describe())),
     }
 }
@@ -1844,9 +1902,10 @@ mod tests {
         ] {
             refused(calc(f, from.clone()));
         }
-        // A result off the calendar.
-        refused(calc("<1Y>", date(9999, 6, 1)));
-        refused(calc("<-1Y>", date(1, 6, 1)));
+        // A result off the calendar raises DateInvalid (types/date-time/CalcDate.al:474-477; `range` has the cells).
+        for r in [calc("<1Y>", date(9999, 6, 1)), calc("<-1Y>", date(1, 6, 1))] {
+            assert!(matches!(&r, Err(Signal::Error(e)) if e.code == "DateInvalid"), "{r:?}");
+        }
         refused(call("System.CalcDate#2", vec![t("<1D>")]));
     }
 
