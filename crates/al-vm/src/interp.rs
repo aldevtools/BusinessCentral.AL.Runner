@@ -1135,11 +1135,7 @@ impl Session {
     /// singleton for `SingleInstance = true` codeunits, `i` itself otherwise.
     pub(crate) fn shared_instance(&mut self, i: Rc<RefCell<Instance>>) -> Rc<RefCell<Instance>> {
         let object = i.borrow().object as usize;
-        let single = self.engine.program.objects[object]
-            .properties
-            .iter()
-            .any(|(k, v)| k.eq_ignore_ascii_case("SingleInstance") && v.trim().eq_ignore_ascii_case("true"));
-        if !single {
+        if !self.engine.object_facts[object].single_instance {
             return i;
         }
         if !self.singletons.contains_key(&object) {
