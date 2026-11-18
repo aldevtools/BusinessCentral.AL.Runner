@@ -1519,6 +1519,8 @@ impl Session {
                 var_origins: Vec::new(),
                 next_aliases: Vec::new(),
                 next_is_subscriber: false,
+                by_value_publisher: None,
+                next_event_args: Vec::new(),
                 blob_publisher: None,
                 next_blob_event: false,
                 subscriber_stack: Vec::new(),
@@ -2465,6 +2467,7 @@ impl Session {
             &instance,
             subscriber,
             std::mem::take(&mut self.next_interface_call),
+            std::mem::take(&mut self.events.next_event_args),
         );
         let measured_event = std::mem::take(&mut self.events.next_blob_event);
         self.note_routine(object, routine);
@@ -2529,7 +2532,7 @@ impl Session {
                     if rc.borrow().temporary
                         && matches!(r.locals[i].ty, RtType::Record(t, false) if !self.engine.object_facts[t as usize].temporary()) =>
                 {
-                    self.temporary_into_stored_param(&rc, &by_value)
+                    self.temporary_into_stored_param(&rc, &by_value, i)
                 }
                 // A record of the stored table handed by value to a parameter declared `temporary` gives the callee a temporary
                 // record with the record's values over an empty table of its own (events/ClEventLeads.al:70
@@ -2563,7 +2566,7 @@ impl Session {
                     st.unpinned_buffer = Some(crate::records::RUN_PAGE_LINK_VARIANT);
                     Value::Record(Rc::new(RefCell::new(st)))
                 }
-                (Value::Record(rc), false) => self.record_param_copy(&rc, &r.locals[i].ty, &by_value),
+                (Value::Record(rc), false) => self.record_param_copy(&rc, &r.locals[i].ty, &by_value, i),
                 // A RecordRef handed by value to a RecordRef or Variant parameter, or bound to a `var` Variant parameter
                 // (`VariantRefs::param_value`).
                 (Value::Library(al_builtins::library_kind::LibraryKind::RecordRef, h), by_var)

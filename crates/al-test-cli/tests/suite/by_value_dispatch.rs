@@ -1,5 +1,6 @@
 //! Who calls the procedure a record is handed to by value, and what else the caller's record holds (al-runner issue 8248,
-//! round 2 of its review): an event subscriber and an interface call are not measured, a table procedure is measured only as
+//! round 2 of its review): an interface call is not measured, nor is an event subscriber outside the shape of
+//! `by_value_subscriber.rs`, a table procedure is measured only as
 //! `Row.Proc(Row)` from a codeunit, and a record whose SetLoadFields after a read, SetAutoCalcFields or ReadIsolation the
 //! probe did not hand on is refused. Each neighbor that main answered keeps main's result.
 
@@ -139,7 +140,7 @@ codeunit 50166 "BD Test"
     end;
 
     [Test]
-    procedure TemporaryToSubscriber_KeepsMain()
+    procedure TemporaryToSubscriber_Refused()
     var
         Line: Record "BD Row" temporary;
     begin
@@ -147,7 +148,7 @@ codeunit 50166 "BD Test"
         Line.Insert();
         Line.SetRange(Code, 'A');
         Publisher.Raise(Line);
-        Expect(Subscriber.Take(), 'temp=No f={Code: A}');
+        Expect(Subscriber.Take(), '');
     end;
 
     [Test]
@@ -268,8 +269,8 @@ fn by_value_copies_outside_the_measured_calls_and_record_state_refuse_or_keep_ma
     let o = run(DISPATCH, "BD Test");
     let want = [
         ("Codeunit_Group0Filter_Flagged", PASS, true),
-        // Main's view, not BC's: the subscriber's copy keeps the caller's filters (issue draft A of the round-1 hand-back).
-        ("TemporaryToSubscriber_KeepsMain", PASS, false),
+        // A subscriber's copy of a temporary record with a filter is not measured (al-runner issue 8295): its view reads refuse.
+        ("TemporaryToSubscriber_Refused", VIEW_REFUSED, false),
         ("Interface_Group0Filter_Refused", VIEW_REFUSED, false),
         ("Interface_NoFilter_KeepsMain", PASS, false),
         ("TemporaryToInterface_Refused", VIEW_REFUSED, false),

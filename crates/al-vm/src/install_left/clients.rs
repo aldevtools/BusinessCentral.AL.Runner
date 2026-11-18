@@ -103,6 +103,8 @@ pub(super) fn events_as_new(e: &EventState) -> bool {
         var_origins,
         next_aliases,
         next_is_subscriber,
+        by_value_publisher,
+        next_event_args,
         blob_publisher,
         next_blob_event,
         subscriber_stack,
@@ -150,6 +152,8 @@ pub(super) fn events_as_new(e: &EventState) -> bool {
         && var_origins.is_empty()
         && next_aliases.is_empty()
         && !next_is_subscriber
+        && by_value_publisher.is_none()
+        && next_event_args.is_empty()
         && blob_publisher.is_none()
         && !next_blob_event
         && subscriber_stack.is_empty()
