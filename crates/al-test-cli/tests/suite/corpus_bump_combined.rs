@@ -146,7 +146,8 @@ struct Spec {
 }
 
 /// A nightly run: id, commit, its comparison for every version it names (None: no manifest), status, conclusion,
-/// versions, and its latest attempt (its manifest is always of attempt 1).
+/// versions, its latest attempt (its manifest is always of attempt 1), and the `comparison_detail` of each version
+/// (corpus PR 1440, compare-results.py `result`; JSON null: no such key).
 #[derive(Clone)]
 struct Nightly {
     id: u64,
@@ -156,6 +157,9 @@ struct Nightly {
     conclusion: String,
     versions: Vec<&'static str>,
     attempt: u32,
+    detail: serde_json::Value,
+    /// BC 29.0's `comparison_detail` when it differs from `detail`.
+    detail_29: Option<serde_json::Value>,
 }
 
 fn night(id: u64, sha: &str, cmp: Option<&str>) -> Nightly {
@@ -167,6 +171,9 @@ fn night(id: u64, sha: &str, cmp: Option<&str>) -> Nightly {
         conclusion: "success".into(),
         versions: LEGS.to_vec(),
         attempt: 1,
+        // The nightly compared run 20, the run of `Spec::combined`.
+        detail: serde_json::json!({"compared_run": 20, "compared": 4}),
+        detail_29: None,
     }
 }
 
@@ -366,6 +373,13 @@ fn bump(c: &Corpus, s: &Spec) -> (i32, String) {
             for leg in LEGS {
                 if n.versions.contains(&leg) {
                     m["versions"][leg]["comparison"] = serde_json::json!(cmp);
+                    let detail = match (&n.detail_29, leg) {
+                        (Some(d), "29.0") => d.clone(),
+                        _ => n.detail.clone(),
+                    };
+                    if !detail.is_null() {
+                        m["versions"][leg]["comparison_detail"] = detail;
+                    }
                 } else {
                     m["versions"].as_object_mut().unwrap().remove(leg);
                 }
@@ -780,7 +794,7 @@ fn a_difference_after_the_first_identical_nightly_does_not_block_the_run_before_
     s.nightlies.push(night(26, &c.c2, Some("differs")));
     let out = accepted(&c, &s);
     assert!(
-        out.contains("the first nightly run at or after its commit, 25, reports no difference"),
+        out.contains("the first nightly run at or after its commit, 25, compared this run and reports no difference"),
         "{out}"
     );
 }
@@ -792,9 +806,24 @@ fn a_nightly_at_the_commit_of_a_combined_run_is_the_first_after_it() {
     s.nightlies[1] = night(25, &c.c1, Some("identical"));
     let out = accepted(&c, &s);
     assert!(
-        out.contains("the first nightly run at or after its commit, 25, reports no difference"),
+        out.contains("the first nightly run at or after its commit, 25, compared this run and reports no difference"),
         "{out}"
     );
+}
+
+#[test]
+fn a_nightly_that_is_the_one_before_and_after_a_combined_run_is_downloaded_once() {
+    // Review L7: nightly 25 on c1 is the newest at or before the run's commit and the first at or after it.
+    let c = corpus();
+    let mut s = Spec::combined(&c);
+    s.nightlies = vec![night(25, &c.c1, Some("identical"))];
+    accepted(&c, &s);
+    let calls = std::fs::read_to_string(c.dir.path().join("gh/calls.log")).unwrap();
+    let zips: Vec<&str> = calls.lines().filter(|l| l.contains("/zip")).collect();
+    let mut seen = std::collections::HashSet::new();
+    for z in &zips {
+        assert!(seen.insert(*z), "downloaded twice: {z}\n{calls}");
+    }
 }
 
 #[test]
@@ -883,6 +912,106 @@ fn a_first_nightly_after_a_combined_run_with_another_answer_than_identical_is_re
 }
 
 #[test]
+fn a_same_commit_nightly_that_compared_an_older_run_does_not_confirm_a_combined_run() {
+    // Review q11: nightly 25 on c1 compared run 10 (run 20 was still running); nightly 26 compared run 20 and differs.
+    let c = corpus();
+    let mut s = Spec::combined(&c);
+    s.nightlies[1] = night(25, &c.c1, Some("identical"));
+    s.nightlies[1].detail = serde_json::json!({"compared_run": 10, "compared": 4});
+    s.nightlies.push(night(26, &c.c2, Some("differs")));
+    refused(
+        &c,
+        &s,
+        "the first nightly run at or after its commit, 25, compared run 10 for BC 27.5, not this run",
+    );
+}
+
+#[test]
+fn a_later_nightly_that_compared_an_older_run_does_not_confirm_a_combined_run() {
+    // Review q12: run 20 turned green after nightly 25 on c2 had compared run 10.
+    let c = corpus();
+    let mut s = Spec::combined(&c);
+    s.nightlies[1].detail = serde_json::json!({"compared_run": 10, "compared": 4});
+    s.nightlies.push(night(26, &c.c2, Some("differs")));
+    refused(
+        &c,
+        &s,
+        "the first nightly run at or after its commit, 25, compared run 10 for BC 27.5, not this run",
+    );
+}
+
+#[test]
+fn a_nightly_that_compared_no_run_does_not_confirm_a_combined_run() {
+    // Review q13: the nightly found no base run.
+    let c = corpus();
+    let mut s = Spec::combined(&c);
+    s.nightlies[1].detail = serde_json::json!({"compared_run": null, "compared": 0});
+    refused(
+        &c,
+        &s,
+        "the first nightly run at or after its commit, 25, compared run None for BC 27.5, not this run",
+    );
+}
+
+#[test]
+fn a_nightly_without_a_comparison_detail_does_not_confirm_a_combined_run() {
+    let c = corpus();
+    let mut s = Spec::combined(&c);
+    s.nightlies[1].detail = serde_json::Value::Null;
+    refused(
+        &c,
+        &s,
+        "the first nightly run at or after its commit, 25, compared run None for BC 27.5, not this run",
+    );
+}
+
+#[test]
+fn a_nightly_that_compared_a_later_full_run_does_not_confirm_a_combined_run() {
+    // Review q70: full push run 22 on c2 came between run 20 and nightly 25, which compared run 22.
+    let c = corpus();
+    let mut s = Spec::combined(&c);
+    s.nightlies[1].detail = serde_json::json!({"compared_run": 22, "compared": 4});
+    refused(
+        &c,
+        &s,
+        "the first nightly run at or after its commit, 25, compared run 22 for BC 27.5, not this run",
+    );
+}
+
+#[test]
+fn a_nightly_that_compared_the_run_for_one_version_only_does_not_confirm_it() {
+    let c = corpus();
+    let mut s = Spec::combined(&c);
+    s.nightlies[1].detail_29 = Some(serde_json::json!({"compared_run": 19, "compared": 4}));
+    refused(
+        &c,
+        &s,
+        "the first nightly run at or after its commit, 25, compared run 19 for BC 29.0, not this run",
+    );
+}
+
+#[test]
+fn a_listing_of_nightlies_after_a_combined_run_with_one_off_master_is_refused() {
+    // Review L2: the newest 50 hold one nightly off master; every other listed nightly is after the run, and so is
+    // the oldest listed one. The first nightly after the run (25, differs) is older than the listing.
+    let c = corpus();
+    let mut s = Spec::combined(&c);
+    s.nightlies[1].cmp = Some("differs".into());
+    for id in 30..80 {
+        let sha = if id == 50 { &c.side } else { &c.c2 };
+        let mut n = night(id, sha, Some("identical"));
+        n.status = "queued".into();
+        n.conclusion = "".into();
+        s.nightlies.push(n);
+    }
+    refused(
+        &c,
+        &s,
+        "the oldest of the 50 nightly runs gh listed is at or after its commit",
+    );
+}
+
+#[test]
 fn a_listing_of_only_nightlies_after_a_combined_run_is_refused() {
     // gh lists the newest 50 nightly runs; all are after the run, so an older one may be the first after it.
     let c = corpus();
@@ -894,7 +1023,11 @@ fn a_listing_of_only_nightlies_after_a_combined_run_is_refused() {
         n.conclusion = "".into();
         s.nightlies.push(n);
     }
-    refused(&c, &s, "all 50 nightly runs gh listed are at or after its commit");
+    refused(
+        &c,
+        &s,
+        "the oldest of the 50 nightly runs gh listed is at or after its commit",
+    );
 }
 
 #[test]

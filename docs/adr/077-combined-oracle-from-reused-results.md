@@ -59,12 +59,16 @@ Facts read from the code on 2026-11-17:
    nightly run only: a push run that is full for every version stays blocked while a difference is open. The corpus
    therefore writes the manifest of a nightly run whether or not its comparison passes.
 
-   **A later nightly difference also blocks the combined runs before it** (owner, 2026-11-18). A run that reuses
-   results is accepted only when the first nightly run at or after its commit (by commit order, then by time) exists,
-   has ended green, has a manifest of its latest attempt, and reports `identical` for every BC version of the run.
-   So a nightly that reports a difference blocks every combined run made before it, back to the last nightly before it
-   that reported `identical`. While no nightly after the run exists, the run is refused; it waits for the next nightly,
-   at most a day. A full push run and the nightly run itself keep the rules above.
+   **A combined run needs the next nightly to have compared it** (owner, 2026-11-18). The first nightly run after a run
+   that reuses results is, among the nightly runs whose commit is the run's commit or a descendant of it, the one
+   created first. The run is accepted only when that nightly has ended green, has a manifest of its latest attempt,
+   and for every BC version of the run reports `identical` and names this run as the run it compared
+   (`comparison_detail.compared_run`, corpus PR 1440). So only the run that the nightly compared can be bumped as a
+   combined run; a nightly that reports a difference blocks it. While no nightly after the run exists, the run is
+   refused until the next nightly ends. A first nightly that is red, cancelled, reports a difference or compared another
+   run keeps refusing the run, because the first nightly after the run does not change. Only a re-run of that nightly
+   can make the run usable; otherwise the pin moves through a later run or a nightly run.
+   A full push run and the nightly run itself keep the rules above.
 7. **`oracle.toml` records**, per version: `mode`, the counts of fresh and reused codeunits, the oldest source run,
    and `ci_bc_build`. The bump prints a warning when `ci_bc_build` differs from `bc_build`.
 8. **The pin check does not change.** The CLI still exits 2 when the pin and `oracle.toml` disagree. The rule for an
@@ -96,6 +100,8 @@ Facts read from the code on 2026-11-17:
   a real cost against hard rule 2 ("never weaken an oracle") and the reason every guard refuses instead of warning.
 - Without a shadow period, the first nightly comparisons are the first measurement of the selection on master. A
   difference blocks combined bumps until it is classified; nightly bumps (decision 6) keep the pin moving meanwhile.
+- A combined run is usable only after the next nightly compared it (decision 6, owner 2026-11-18), so combined runs
+  move the pin at most once a day, the cost for which option (a) was rejected. Full push runs still move it at once.
 - A corpus fixture may now change. That can change the runner's outcome for tests whose own code did not change.
   `--baseline-diff` and the ratchet catch it at the bump; the corpus pull request shows runner parity before the merge.
 - The build CI ran becomes visible for the first time, and so does a difference to the build the runner loads.
@@ -115,7 +121,8 @@ Facts read from the code on 2026-11-17:
   as the suite without it.
 - `corpus_harness.rs`: pin mismatch still exits 2.
 - `corpus_bump_combined.rs` (owner decision 2026-11-18): a combined run is refused when no nightly run at or after its
-  commit exists, when the first one reports any answer but `identical`, has not ended, ended red or cancelled, has no manifest, has a manifest of an
-  earlier attempt or lacks a version, and when every listed nightly is after it; a difference in a later nightly after an
-  identical first one does not block it; a nightly at the run's commit counts as the first after it; a full push run
-  keeps its answer whatever the nightlies after it say.
+  commit exists, when the first one reports any answer but `identical`, has not ended, ended red or cancelled, has no
+  manifest, has a manifest of an earlier attempt, lacks a version, or compared another run, an older, a later or no run,
+  for any version, and when the oldest listed nightly is after it; a difference in a later nightly after an identical
+  first one does not block it; a nightly at the run's commit counts as the first after it; a full push run keeps its
+  answer whatever the nightlies after it say.
