@@ -57,7 +57,7 @@ const ENTRIES: &[al_ir::BuiltinId] = &[
 ];
 
 impl Session {
-    /// Every report builtin call: one of [`ENTRIES`] runs with [`State::excel_sheets_admitted`](crate::state) set to the
+    /// Every report builtin call: one of [`ENTRIES`] runs with [`ReportState::excel_sheets_admitted`](crate::state::ReportState) set to the
     /// report it admits ([`Session::excel_sheets_admits`], `None` for any other call) and restored after it, whatever it
     /// returns; the other calls (`CurrReport` inside a run) keep the running call's.
     pub(crate) fn report_call(
