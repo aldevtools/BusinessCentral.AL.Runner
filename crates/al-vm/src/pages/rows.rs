@@ -1191,6 +1191,7 @@ impl Session {
     /// Moves the cursor; the Boolean the move methods return.
     pub(super) fn page_move(&mut self, st: &St, how: PageMethod) -> Result<Value, Signal> {
         let result_used = self.ret_used;
+        self.refuse_move_on_part_left_by_its_view(st, how)?;
         if !(how == PageMethod::Next || how == PageMethod::Previous && st.borrow().cursor == Cursor::NewLine) {
             st.borrow_mut().refreshed_after_gone_move = false;
         }
@@ -2066,6 +2067,7 @@ impl Session {
             return unsupported("GoToKey on a page without a source table");
         }
         let result_used = self.ret_used;
+        self.refuse_move_on_part_left_by_its_view(st, PageMethod::GoToKey)?;
         // A TestPart raises when the key has the wrong number of fields, and when the key is
         // missing and the result is not used (corpus testpage/parts/TestTestPart.al:
         // TestPart_GoToKey_ErrorsWhenTheKeyFieldCountIsWrong, _ErrorsForAMissingKeyWhenTheReturnIsDiscarded).
