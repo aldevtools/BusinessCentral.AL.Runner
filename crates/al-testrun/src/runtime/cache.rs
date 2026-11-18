@@ -123,10 +123,7 @@ pub(crate) fn compile_with_cache(
     let stack = layers.shared_stack().map_err(|why| format!("compile cache: {why}"))?;
     report.objects = stack.len();
     report.parse_problems = layers.parse_problems();
-    let catalog = match target {
-        Some(t) => al_builtins::catalog::Catalog::for_target(t),
-        None => al_builtins::catalog::Catalog::load(),
-    };
+    let catalog = catalog_for(target);
     let started = std::time::Instant::now();
     // A lazily read app is loaded from its index when there is one: its sources are neither read nor
     // scanned. Otherwise they are read now (once), scanned, and the index is saved.
@@ -319,4 +316,12 @@ pub(crate) fn cache_order(
         .chain((0..n_apps).filter(|&i| kinds[i] != al_sema::AppKind::Dependency))
         .collect();
     (order, n_cached)
+}
+
+/// The builtins catalog of a compile for `target` (the runtime's own without one).
+pub(crate) fn catalog_for(target: Option<&al_version::Target>) -> al_builtins::catalog::Catalog {
+    match target {
+        Some(t) => al_builtins::catalog::Catalog::for_target(t),
+        None => al_builtins::catalog::Catalog::load(),
+    }
 }

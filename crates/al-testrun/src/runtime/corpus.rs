@@ -623,10 +623,7 @@ impl CorpusRuntime {
         // Whether the install baseline runs, and why it does when it was weighed.
         let mut baseline = baseline_wanted;
         let mut baseline_note: Option<String> = None;
-        let catalog = match target {
-            Some(t) => al_builtins::catalog::Catalog::for_target(t),
-            None => al_builtins::catalog::Catalog::load(),
-        };
+        let catalog = catalog_for(target);
         let mut apps = apps;
         // Selected tests that look free of data are compiled first the way the demand-driven path
         // does it, without the baseline's roots and without the compile cache: that touches only what
