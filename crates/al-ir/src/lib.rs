@@ -1661,6 +1661,9 @@ pub struct RelationCond {
     /// `Field = filter(text)`: the arm applies when the field's value passes the filter `value` holds.
     #[serde(default)]
     pub filter: bool,
+    /// The unprobed assumption `value` rests on; the VM marks it each time it evaluates the condition.
+    #[serde(default)]
+    pub assumes: Option<al_builtins::assumptions::Assumption>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

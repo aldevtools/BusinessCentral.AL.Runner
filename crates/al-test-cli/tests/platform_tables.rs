@@ -1379,6 +1379,27 @@ codeunit 50000 "T" { Subtype = Test;
     passes(&o, "Rows");
 }
 
+/// al-runner #8297: the Condition Value of a `const(Member)` condition that a table extension sets, on an Enum field of the table
+/// whose enum the extension's file cannot name (no `using` of its namespace), rests on assumption
+/// `relation-condition-enum-of-declaring-file` (corpus PR 1437): a read of the row marks it.
+#[test]
+fn table_relations_condition_value_of_an_extension_condition_on_an_unnamed_enum_is_flagged() {
+    let dep = r#"namespace T.Journal;
+enum 50003 "Kinds" { value(0; " ") { } value(1; Production) { } }
+table 50002 "Line" { fields { field(1; Id; Integer) { } field(2; Kind; Enum "Kinds") { } field(3; "Order No."; Code[20]) { } }
+  keys { key(PK; Id) { Clustered = true; } } }"#;
+    let src = r#"namespace T.Mfg;
+table 50001 "Order" { fields { field(1; "No."; Code[20]) { } } keys { key(PK; "No.") { Clustered = true; } } }
+tableextension 50001 "Line Ext" extends T.Journal."Line" { fields { modify("Order No.") { TableRelation = if (Kind = const(Production)) "Order"."No."; } } }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Value() var M: Record "Table Relations Metadata"; begin M.SetRange("Table ID", 50002); M.SetRange("Field No.", 3);
+    M.FindFirst(); if M."Condition Value" <> '1' then Error('value %1', M."Condition Value"); end; }"#;
+    let out = ext_event_hits(src, Some(dep));
+    let (_, o, ids) = out.iter().find(|(n, _, _)| n == "Value").expect("Value");
+    assert_eq!(*o, Outcome::Pass, "{o:?}");
+    assert!(ids.contains(&"relation-condition-enum-of-declaring-file"), "{ids:?}");
+}
+
 /// A tableextension `modify(..) { TableRelation }` on a field whose base relation is unconditional: the Field row keeps
 /// the base's table when the extension adds an unconditional relation (table-objects/extensions/TestTableExtFieldTableRelation.al:266)
 /// or a conditional one with an else arm (:532). An extension relation without an else arm is not pinned: refused.

@@ -138,6 +138,7 @@ impl Lowerer<'_> {
                             field: pos,
                             value: ir::Const::Text(numbers),
                             filter: true,
+                            assumes: None,
                         });
                         continue;
                     }
@@ -156,6 +157,7 @@ impl Lowerer<'_> {
                         field: pos,
                         value: ir::Const::Text(raw),
                         filter: true,
+                        assumes: None,
                     });
                     continue;
                 }
@@ -204,13 +206,14 @@ impl Lowerer<'_> {
                     (Some(number), false) => number.as_str(),
                     _ => qualified.as_deref().unwrap_or(value),
                 };
-                let Some(value) = self.condition_const(file, value, &own.fields[pos].ty) else {
+                let Some((value, assumes)) = self.relation_condition_const(oi, pos, scope.unwrap_or(oi), value) else {
                     return Vec::new();
                 };
                 conditions.push(ir::RelationCond {
                     field: pos,
                     value,
                     filter: false,
+                    assumes,
                 });
             }
             // The whole path names a table, or all but the last part do and the last is a field.
@@ -483,11 +486,11 @@ impl Lowerer<'_> {
         arms
     }
 
-    /// The constant of a `Field = const(x)` condition, typed by the field.
+    /// The constant of a `Field = const(x)` condition, typed by the field. An Enum field's enum is named in `file`, the file
+    /// that set the relation.
     pub(crate) fn condition_const(&self, file: usize, text: &str, ty: &Ty) -> Option<ir::Const> {
         if let Ty::Enum(name) = ty {
-            // The enum is named in the file that declares the field, as a relation target is: a
-            // dependency's file resolves it among the apps it saw (its `using`s included), so that an
+            // A dependency's file resolves the enum among the apps it saw (its `using`s included), so that an
             // enum of another namespace is found (Gen. Journal Line."IC Account No.", issue 23).
             let Resolution::Found(e) =
                 self.ws
@@ -504,6 +507,46 @@ impl Lowerer<'_> {
             return Some(ir::Const::Enum(e as u32, *value as i32));
         }
         init_const(text, ty)
+    }
+
+    /// The constant of the `const(x)` condition on field `pos` of table `oi`, in a relation that object `setter` set (the table
+    /// or one of its extensions), with the assumption it rests on. The enum of an Enum field is named in `setter`'s file. A table
+    /// extension's file that cannot name the enum of a field the table declares (its namespace has no `using` of the enum's:
+    /// Base Application's "Mfg. Item Journal Line" on Item Journal Line."Order Type", al-runner issue 8297) names it as the
+    /// table's file does (assumption relation-condition-enum-of-declaring-file).
+    fn relation_condition_const(
+        &self,
+        oi: usize,
+        pos: usize,
+        setter: usize,
+        text: &str,
+    ) -> Option<(ir::Const, Option<al_builtins::assumptions::Assumption>)> {
+        let field = &self.members[oi].fields[pos];
+        let file = self.ws.objects[setter].file;
+        if let Some(c) = self.condition_const(file, text, &field.ty) {
+            return Some((c, None));
+        }
+        let Ty::Enum(name) = &field.ty else {
+            return None;
+        };
+        let unnamed = !matches!(
+            self.ws
+                .resolve_relation_target(file, ObjKind::Enum, &crate::types::qualified_parts(name)),
+            Resolution::Found(_)
+        );
+        let table_file = self.ws.objects[oi].file;
+        if !unnamed
+            || self.ws.objects[setter].kind != ObjKind::TableExtension
+            || field.declared_in != Some(oi)
+            || table_file == file
+        {
+            return None;
+        }
+        let c = self.condition_const(table_file, text, &field.ty)?;
+        Some((
+            c,
+            Some(al_builtins::assumptions::Assumption::RelationConditionEnumOfDeclaringFile),
+        ))
     }
 
     /// The position of field `id`.

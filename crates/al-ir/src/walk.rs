@@ -743,6 +743,7 @@ fn walk_field<V: RefVisitor>(f: &mut Field, v: &mut V) {
                 field,
                 value,
                 filter: _,
+                assumes: _,
             } = c;
             fld(v, field, TableOf::Own);
             walk_const(value, v);
