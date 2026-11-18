@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Bump the corpus to the commit of a green corpus CI run, in one command (issue 44). The steps are the
 # ones oracle/README.md describes ("To bump"):
-#   1. check the run: completed and green, and its head commit on the corpus branch master (the default
+#   1. check the run: completed and green (or the nightly exception of ADR-077), its results manifest (ADR-077,
+#      tools/corpus_bump_provenance.py), and its head commit on the corpus branch master (the default
 #      branch; it moves only through a pull request from al-runtime-rs-staging, merged with a merge commit);
 #      when a merge commit brought the commit into master, that merge must hold exactly the commit's files;
-#   2. find the artifacts: per leg (27.5, 28.5, 29.0) two to six named junit-test-results-<leg>: the oracle
+#   2. find the artifacts, download them and check their provenance (ADR-077): per leg (27.5, 28.5, 29.0) two to six named junit-test-results-<leg>: the oracle
 #      (junit-al-language.xml), the OnPrem file, the OnPrem DotNet file, the TestLibraries file, the
 #      Isolation Disabled file and the TryWrites file;
 #   3. move the corpus submodule to the run's commit;
