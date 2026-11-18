@@ -59,6 +59,7 @@ fn base() -> Facts {
     Facts {
         format: Format::Html,
         target: Target::Stream,
+        call: Call::StaticPlain,
         answer: AnswerForm::Used,
         kind: Kind::Word,
         layout: Layout::NotRdlc,
@@ -258,6 +259,7 @@ fn report_save_every_fact_of_the_vector_is_in_fact_all() {
     let Facts {
         format: _,
         target: _,
+        call: _,
         answer: _,
         kind: _,
         layout: _,
@@ -280,6 +282,7 @@ fn report_save_every_fact_of_the_vector_is_in_fact_all() {
     let fields = [
         Fact::Format,
         Fact::Target,
+        Fact::Call,
         Fact::Answer,
         Fact::Kind,
         Fact::Layout,
@@ -305,5 +308,55 @@ fn report_save_every_fact_of_the_vector_is_in_fact_all() {
     }
     for (i, f) in Fact::ALL.iter().enumerate() {
         assert_eq!(*f as usize, i, "Fact::ALL lists {f:?} out of the enum's order");
+    }
+}
+
+/// The stored selection rows hold only the calls the pin makes (RxLayoutSelectionTests.al:116, :189): `Report.SaveAs` by number
+/// with no request parameters, a RecordRef only for the RDLC (built-in) row (:1082, :1116), and for the Custom Layout row a
+/// report that declares an RDLC layout (`fact_selection`, report 80020 at :746, :771). Another call misses.
+#[test]
+fn report_save_a_stored_row_holds_only_the_pinned_call() {
+    let rdlc = Facts {
+        format: Format::Pdf,
+        selection: Selection::OtherKind,
+        stored: Stored::RdlcBuiltin,
+        ..base()
+    };
+    let custom = Facts {
+        format: Format::Pdf,
+        selection: Selection::Unknown,
+        stored: Stored::CustomUnknownCode,
+        ..base()
+    };
+    assert!(matches!(lookup::before_run(&CELLS, &rdlc), Before::Run(_)));
+    let with_ref = Facts {
+        call: Call::StaticRecordRef,
+        ..rdlc
+    };
+    assert!(matches!(lookup::before_run(&CELLS, &with_ref), Before::Run(_)));
+    assert!(matches!(lookup::before_run(&CELLS, &custom), Before::Answer(_)));
+    // Another call under the RDLC row refuses once the run wrote rows, where the rows of the other kind answer.
+    let other = Facts {
+        call: Call::Other,
+        rows: Some(Rows::Some),
+        named: Some(true),
+        dataset_rgba: Some(false),
+        ..rdlc
+    };
+    assert!(matches!(
+        lookup::after_run(&CELLS, &other).map(|c| c.answer),
+        Ok(Answer::Refuse(_))
+    ));
+    for f in [
+        Facts {
+            call: Call::Other,
+            ..custom
+        },
+        Facts {
+            call: Call::StaticRecordRef,
+            ..custom
+        },
+    ] {
+        assert!(matches!(lookup::before_run(&CELLS, &f), Before::Miss(_)), "{f:?}");
     }
 }

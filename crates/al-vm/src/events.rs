@@ -2,9 +2,11 @@
 //! (ADR-001: it is part of the immutable `Engine`) and the pure parsing of
 //! the attributes that feed it. Dispatch lives in `Session` (`dispatch.rs`).
 //!
-//! Resolution is by name against the workspace only. A subscriber whose
+//! A subscriber is bound to the object the compile resolved its publisher name
+//! to in the subscriber's file (`ir::Attribute::publisher`). A subscriber whose
 //! publisher is not in the workspace (Base App, platform codeunits) attaches
-//! to nothing: the publisher cannot run here, so it cannot fire.
+//! to nothing: the publisher cannot run here, so it cannot fire. The platform
+//! codeunits the runtime raises events of are found by the name as written.
 
 use al_ir as ir;
 use al_ir::ObjKind;
@@ -30,8 +32,20 @@ pub struct Publisher {
     pub object: usize,
     /// Lower-case event name.
     pub event: String,
+    /// The attribute that declares the event.
+    pub kind: EventKind,
     pub include_sender: bool,
+    /// `IntegrationEvent(IncludeSender, GlobalVarAccess)`: GlobalVarAccess (`false` for the other kinds).
+    pub global_var_access: bool,
     pub isolated: bool,
+}
+
+/// The attribute that declares an event publisher.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EventKind {
+    Integration,
+    Business,
+    Internal,
 }
 
 #[derive(Debug)]
@@ -55,9 +69,22 @@ pub struct Registry {
     /// no code for (`Program::uncompiled_subscribers`, and subscribers whose publisher cannot be
     /// told apart from another object of the same name). Raising such an event is refused.
     pub missing: HashMap<(usize, String), Vec<Missing>>,
-    /// (lower-case platform codeunit, lower-case event) -> subscribers of platform events the runtime does not raise:
-    /// `UI Helper Triggers`. Where BC raises such an event, the runtime refuses (`Registry::unraised_subscriber`).
+    /// (publisher object, lower-case event name) of the events whose subscribers depend on a publisher name several objects have,
+    /// which the subscriber's file picks (`ir::PublisherRef::Picked`): every one of those objects, for each event a picked
+    /// subscriber names. Asking for the subscribers of such an event marks the assumption `subscriber-publisher-namespace-scope`
+    /// ([`Registry::subscribers_at`], [`Registry::is_subscribed`]).
+    scope_assumed: std::collections::HashSet<(usize, String)>,
+    /// (lower-case codeunit, lower-case event) -> subscribers of events the runtime does not raise: every event of `UI Helper
+    /// Triggers`, of `Reporting Triggers` and Base Application's `ReportManagement`, and OnResolveAutoFormat and
+    /// OnAfterResolveAutoFormat of `Auto Format`. Where BC raises such an event, the runtime refuses
+    /// (`Registry::unraised_subscriber`, `auto_format_writer`).
     pub unraised: HashMap<(String, String), Vec<Unraised>>,
+    /// Subscribers whose publisher is no object of the program, not even a shell, and is none the runtime raises events
+    /// of without it: the publisher's app is not loaded (a `--no-deps` run of an app that depends on Microsoft's apps).
+    /// Real BC raises its events (record/table-relation/RenameBlankKeyRelation.al:722-736 subscribes to Base
+    /// Application's GlobalTriggerManagement, whose `OnAfterOnDatabaseRename` the log shows, :2104-2112); the runtime
+    /// cannot. Each with the publisher's event as written, for the refusal (`Registry::absent_publisher_subscriber`).
+    pub absent: Vec<(String, Unraised)>,
     /// Subscribers (object, routine, lower-case event) to `OnInstallAppPerCompany` and `OnInstallAppPerDatabase` of the
     /// platform codeunit `Extension Triggers` (2000000010), in program order. BC raises them when the subscriber's own app
     /// is installed (events/platform-triggers/PeVFixtures.al:395-407, PeVTests.al:284;
@@ -84,15 +111,81 @@ pub struct Unraised {
     /// or routine holds a variable of (the corpus fixtures log there, events/platform-triggers/PeVFixtures.al:133,
     /// events/platform-triggers/P114GlobalTriggerEvents.al:31).
     pub witnesses: Vec<usize>,
+    /// The subscriber routine, in `object`.
+    pub routine: usize,
+    /// The subscriber codeunit declares `EventSubscriberInstance = Manual`: it would receive the event only while bound.
+    pub manual: bool,
 }
 
-/// A subscriber that is declared and not compiled.
+impl Unraised {
+    /// The entry for subscriber `r` of codeunit `oi`.
+    fn of(heads: &[ir::ObjectHead], oi: usize, o: &ir::ObjectHead, r: &ir::EventRoutine) -> Unraised {
+        Unraised {
+            object: oi,
+            subscriber: format!("{} \"{}\".{}", o.kind, o.name, r.name),
+            witnesses: witnesses(heads, oi, r),
+            routine: r.routine as usize,
+            manual: is_manual(o),
+        }
+    }
+
+    /// Whether test codeunit `test` (object `test_index`) can see that this subscriber ran: it is the subscriber's codeunit or
+    /// holds a variable of one of its witnesses. Outside a test run (a unit test of the runtime) every subscriber counts.
+    pub fn seen_by(&self, test: Option<&ir::Object>, test_index: Option<usize>) -> bool {
+        match (test, test_index) {
+            (Some(t), Some(ti)) => {
+                self.witnesses.contains(&ti)
+                    || t.globals
+                        .iter()
+                        .chain(t.routines.iter().flat_map(|r| r.locals.iter()))
+                        .any(|s| matches!(s.ty, al_builtins::value::RtType::Codeunit(c) if self.witnesses.contains(&(c as usize))))
+            }
+            _ => true,
+        }
+    }
+}
+
+/// A subscriber BC would run that the program cannot run: one that is declared and not compiled, or one whose publisher name
+/// several objects have and its file names none of them by a measured rule (`ir::PublisherRef::Unpicked`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Missing {
     /// `ElementName`; empty when the event has no elements.
     pub element: String,
     /// Where it is declared, for the refusal text.
     pub subscriber: String,
+    pub why: MissingWhy,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MissingWhy {
+    /// The compile left the subscriber out (`Program::uncompiled_subscribers`).
+    NotCompiled,
+    /// The publisher name as written: several objects have it, and the subscriber's file does not pick one.
+    PublisherNotPicked(String),
+    /// The publisher argument as written: neither `<Kind>::<name>` nor an object id (`ir::PublisherRef::Unread`).
+    PublisherNotRead(String),
+}
+
+impl Missing {
+    /// Why raising `event` is refused for this subscriber.
+    pub fn refusal(&self, event: &str) -> String {
+        match &self.why {
+            MissingWhy::NotCompiled => format!(
+                "event {event}: {} subscribes to it and was not compiled (no code the workspace reaches uses it)",
+                self.subscriber
+            ),
+            MissingWhy::PublisherNotPicked(name) => format!(
+                "event {event}: {} subscribes to {name}, a name more than one object has, and its file's namespace and `using`s \
+                 do not pick one by a measured rule (al-runner issue 8171)",
+                self.subscriber
+            ),
+            MissingWhy::PublisherNotRead(written) => format!(
+                "event {event}: {} subscribes to the publisher {written}, an argument that is neither `<Kind>::<name>` nor an \
+                 object id, so which object it names is not known",
+                self.subscriber
+            ),
+        }
+    }
 }
 
 impl Default for Registry {
@@ -104,7 +197,9 @@ impl Default for Registry {
             has_global_triggers: false,
             unavailable_global: Default::default(),
             missing: HashMap::new(),
+            scope_assumed: Default::default(),
             unraised: HashMap::new(),
+            absent: Vec::new(),
             install_subscribers: Vec::new(),
             by_publisher: Default::default(),
             depends: Vec::new(),
@@ -128,7 +223,6 @@ impl Registry {
         target: &str,
         event: &str,
     ) {
-        let witnesses = witnesses(heads, oi, r);
         if event == "captionclasstranslate" {
             self.subscribers
                 .entry((UI_HELPER_TRIGGERS, event.to_string()))
@@ -143,11 +237,7 @@ impl Registry {
         self.unraised
             .entry((target.to_ascii_lowercase(), event.to_string()))
             .or_default()
-            .push(Unraised {
-                object: oi,
-                subscriber: format!("{} \"{}\".{}", o.kind, o.name, r.name),
-                witnesses,
-            });
+            .push(Unraised::of(heads, oi, o, r));
     }
 }
 
@@ -157,11 +247,10 @@ fn witnesses(heads: &[ir::ObjectHead], oi: usize, r: &ir::EventRoutine) -> Vec<u
     let mut witnesses = vec![oi];
     for &c in &r.codeunit_slots {
         let c = c as usize;
-        if heads.get(c).is_some_and(|x| {
-            x.properties
-                .iter()
-                .any(|(k, v)| k.eq_ignore_ascii_case("SingleInstance") && v.trim().eq_ignore_ascii_case("true"))
-        }) && !witnesses.contains(&c)
+        if heads
+            .get(c)
+            .is_some_and(|x| ir::ObjectFacts::of_properties(&x.properties).single_instance)
+            && !witnesses.contains(&c)
         {
             witnesses.push(c);
         }
@@ -248,40 +337,19 @@ impl Registry {
         let mut reg = Registry::default();
         // Heads only: building the registry makes no object of a program whose objects are made on first read (ADR-054).
         let heads = program.objects.heads();
-        // Events declared in a table or page extension are subscribed to on the base object
-        // (corpus events/extension-events/TestExtensionDeclaredEvents.al:92 PageExtEvent_SubscriberBoundToBasePage_...).
-        let mut base_of: HashMap<usize, usize> = HashMap::new();
-        for (oi, o) in heads.iter().enumerate() {
-            if let Some(base) = o.report_ext_base {
-                base_of.insert(oi, base);
-            }
-            if let Some(t) = &o.table {
-                for &e in &t.extensions {
-                    base_of.insert(e, oi);
-                }
-            }
-            for &e in &o.page_extensions {
-                base_of.insert(e, oi);
-            }
-        }
-        let mut by_name: HashMap<(ObjKind, String), usize> = HashMap::new();
-        // Objects that share a kind and a name (they sit in different namespaces).
-        let mut same_name: HashMap<(ObjKind, String), Vec<usize>> = HashMap::new();
-        let mut by_id: HashMap<(ObjKind, u32), usize> = HashMap::new();
-        for (oi, o) in heads.iter().enumerate() {
-            // A shell (an uncompiled object) is never found by kind and name.
-            if o.uncompiled {
-                continue;
-            }
-            by_name.entry((o.kind, o.name.to_lowercase())).or_insert(oi);
-            same_name.entry((o.kind, o.name.to_lowercase())).or_default().push(oi);
-            if let Some(id) = o.id {
-                by_id.entry((o.kind, id)).or_insert(oi);
-            }
-        }
-        if let Some(&gt) = by_name
-            .get(&(ObjKind::Codeunit, "global triggers".to_string()))
-            .or_else(|| by_id.get(&(ObjKind::Codeunit, 2_000_000_002)))
+        let base_of = base_objects(heads);
+        let any_head = object_keys(heads);
+        let present = |kind: ObjKind, target: &str| any_head.contains(&(kind, target.to_lowercase()));
+        // A shell (an uncompiled object) is never a publisher.
+        let compiled_codeunit = |o: &&ir::ObjectHead| !o.uncompiled && o.kind == ObjKind::Codeunit;
+        if let Some(gt) = heads
+            .iter()
+            .position(|o| compiled_codeunit(&o) && o.name.eq_ignore_ascii_case("Global Triggers"))
+            .or_else(|| {
+                heads
+                    .iter()
+                    .position(|o| compiled_codeunit(&o) && o.id == Some(2_000_000_002))
+            })
         {
             reg.global_key = gt;
         }
@@ -295,17 +363,21 @@ impl Registry {
                         "integrationevent" | "businessevent" | "internalevent" => {
                             // IntegrationEvent(IncludeSender, GlobalVarAccess[, Isolated]);
                             // BusinessEvent / InternalEvent(IncludeSender[, Isolated]).
-                            let isolated = if name == "integrationevent" {
-                                flag(&args, 2)
-                            } else {
-                                flag(&args, 1)
+                            let kind = match name.as_str() {
+                                "integrationevent" => EventKind::Integration,
+                                "businessevent" => EventKind::Business,
+                                _ => EventKind::Internal,
                             };
+                            let integration = kind == EventKind::Integration;
+                            let isolated = if integration { flag(&args, 2) } else { flag(&args, 1) };
                             reg.publishers.insert(
                                 (oi, ri),
                                 Publisher {
                                     object: base_of.get(&oi).copied().unwrap_or(oi),
                                     event: r.name.to_lowercase(),
+                                    kind,
                                     include_sender: flag(&args, 0),
+                                    global_var_access: integration && flag(&args, 1),
                                     isolated,
                                 },
                             );
@@ -323,37 +395,21 @@ impl Registry {
                                 "xmlport" => ObjKind::XmlPort,
                                 _ => continue,
                             };
-                            // `Codeunit::Microsoft.Foundation.Company."Company-Initialize"` writes the
-                            // namespace; objects are found by their name.
-                            let (target, qualified) = publisher_name(args[1].rsplit("::").next().unwrap_or(""));
+                            // The platform codeunits below are found by the name as written, namespace left out.
+                            let (target, _) = publisher_name(args[1].rsplit("::").next().unwrap_or(""));
                             let event = unquote(&args[2]).to_lowercase();
-                            // A qualified name of which several objects of the program share the last
-                            // part cannot be told apart here (the program keeps no namespaces): the
-                            // subscriber attaches to none of them and every one refuses its event.
-                            if qualified {
-                                let twins = same_name.get(&(kind, target.to_lowercase())).map_or(&[][..], |v| v);
-                                if twins.len() > 1 {
-                                    for &t in twins {
-                                        reg.missing.entry((t, event.clone())).or_default().push(Missing {
-                                            element: args.get(3).map(|e| unquote(e)).unwrap_or_default(),
-                                            subscriber: format!("{} \"{}\".{}", o.kind, o.name, r.name),
-                                        });
-                                    }
-                                    continue;
-                                }
-                            }
-                            let found = by_name.get(&(kind, target.to_lowercase())).copied().or_else(|| {
-                                target
-                                    .parse::<u32>()
-                                    .ok()
-                                    .and_then(|id| by_id.get(&(kind, id)).copied())
-                            });
+                            let Some(found) = reg.publisher_of(heads, (oi, kind), r, a, &event, args.get(3)) else {
+                                continue;
+                            };
+                            // The runtime raises (or refuses where BC raises) this event without the publisher object.
+                            let mut native = false;
                             // The page client raises the caption class event under a key of its own,
                             // whether or not the codeunit is compiled.
                             if kind == ObjKind::Codeunit
                                 && (target.eq_ignore_ascii_case("Caption Class") || target == "42")
                                 && al_ir::is_raised_caption_class_event(&event)
                             {
+                                native = true;
                                 reg.subscribers
                                     .entry((CAPTION_CLASS, event.clone()))
                                     .or_default()
@@ -368,12 +424,14 @@ impl Registry {
                                 && (target.eq_ignore_ascii_case("Extension Triggers") || target == "2000000010")
                                 && (event == "oninstallapppercompany" || event == "oninstallappperdatabase")
                             {
+                                native = true;
                                 reg.install_subscribers.push((oi, ri, event.clone()));
                             }
                             if kind == ObjKind::Codeunit
                                 && (target.eq_ignore_ascii_case("Company Triggers") || target == "2000000003")
                                 && (event == "oncompanyopen" || event == "oncompanyopencompleted")
                             {
+                                native = true;
                                 reg.subscribers
                                     .entry((COMPANY_TRIGGERS, event.clone()))
                                     .or_default()
@@ -385,6 +443,7 @@ impl Registry {
                                     });
                             }
                             if kind == ObjKind::Codeunit && target.eq_ignore_ascii_case("UI Helper Triggers") {
+                                native = true;
                                 reg.add_ui_helper_subscriber(heads, oi, o, r, &target, &event);
                             }
                             // The events of Reporting Triggers, and those Base Application's ReportManagement raises from its
@@ -394,14 +453,23 @@ impl Registry {
                                 && (target.eq_ignore_ascii_case("Reporting Triggers")
                                     || target.eq_ignore_ascii_case("ReportManagement"))
                             {
+                                native = true;
                                 reg.unraised
                                     .entry((target.to_ascii_lowercase(), event.clone()))
                                     .or_default()
-                                    .push(Unraised {
-                                        object: oi,
-                                        subscriber: format!("{} \"{}\".{}", o.kind, o.name, r.name),
-                                        witnesses: witnesses(heads, oi, r),
-                                    });
+                                    .push(Unraised::of(heads, oi, o, r));
+                            }
+                            // The events of the System Application's "Auto Format" codeunit that its AutoFormatTranslate subscriber
+                            // raises: listed too, the runtime raises neither (`auto_format_writer`).
+                            if kind == ObjKind::Codeunit
+                                && (target.eq_ignore_ascii_case("Auto Format") || target == "45")
+                                && (event == "onresolveautoformat" || event == "onafterresolveautoformat")
+                            {
+                                native = true;
+                                reg.unraised
+                                    .entry(("auto format".to_string(), event.clone()))
+                                    .or_default()
+                                    .push(Unraised::of(heads, oi, o, r));
                             }
                             // The layout selection events go to Base Application's ReportManagement only (ADR-040 amendment
                             // 2026-11-12, A7; `report_save::fact_selection`).
@@ -409,6 +477,7 @@ impl Registry {
                                 && target.eq_ignore_ascii_case("Reporting Triggers")
                                 && raised_reporting_event(program, o, &event)
                             {
+                                native = true;
                                 reg.subscribers
                                     .entry((REPORTING_TRIGGERS, event.clone()))
                                     .or_default()
@@ -425,6 +494,7 @@ impl Registry {
                                     .iter()
                                     .any(|e| e.eq_ignore_ascii_case(event.as_str()))
                             {
+                                native = true;
                                 reg.subscribers
                                     .entry((FILTER_HELPER_TRIGGERS, event.clone()))
                                     .or_default()
@@ -459,6 +529,10 @@ impl Registry {
                                             element: String::new(),
                                         })
                                 }
+                                None if !native && !present(kind, &target) => reg.absent.push((
+                                    format!("{kind} \"{target}\".{}", unquote(&args[2])),
+                                    Unraised::of(heads, oi, o, r),
+                                )),
                                 None => {}
                             }
                         }
@@ -503,6 +577,7 @@ impl Registry {
             reg.missing.entry((key, u.event.clone())).or_default().push(Missing {
                 element: u.element.clone(),
                 subscriber: u.subscriber.clone(),
+                why: MissingWhy::NotCompiled,
             });
         }
         reg.depends = app_dependencies(&program.apps);
@@ -552,31 +627,33 @@ impl Registry {
         test_index: Option<usize>,
         but: Option<usize>,
     ) -> Option<(&str, &str)> {
-        let sees = |u: &Unraised| {
-            match (test, test_index) {
-            (Some(t), Some(ti)) => {
-                u.witnesses.contains(&ti)
-                    || t.globals
-                        .iter()
-                        .chain(t.routines.iter().flat_map(|r| r.locals.iter()))
-                        .any(|s| matches!(s.ty, al_builtins::value::RtType::Codeunit(c) if u.witnesses.contains(&(c as usize))))
-            }
-            // Outside a test run (a unit test of the runtime) every subscriber counts.
-            _ => true,
-        }
-        };
         let mut found: Vec<(&str, &str)> = self
             .unraised
             .iter()
             .filter(|((p, e), _)| p == publisher && event.is_none_or(|want| e == want))
             .flat_map(|((_, e), subs)| {
                 subs.iter()
-                    .filter(|u| Some(u.object) != but && sees(u))
+                    .filter(|u| Some(u.object) != but && u.seen_by(test, test_index))
                     .map(move |u| (e.as_str(), u.subscriber.as_str()))
             })
             .collect();
         found.sort();
         found.into_iter().next()
+    }
+
+    /// Why test codeunit `test` (object `test_index`) is not run: it can see a subscriber whose publisher is not in the
+    /// program ([`Registry::absent`], [`Unraised::seen_by`]), so whether BC ran that subscriber is not known here.
+    pub fn absent_publisher_subscriber(&self, test: &ir::Object, test_index: usize) -> Option<String> {
+        let mut seen: Vec<_> = (self.absent.iter())
+            .filter(|(_, u)| u.seen_by(Some(test), Some(test_index)))
+            .map(|(publisher, u)| (u.subscriber.as_str(), publisher.as_str()))
+            .collect();
+        seen.sort_unstable();
+        let (subscriber, publisher) = seen.first()?;
+        Some(format!(
+            "the test codeunit can see subscriber {subscriber} of {publisher}, whose publisher is in no loaded app: the \
+             runtime cannot raise its events"
+        ))
     }
 
     /// Whether any subscriber (compiled or not) listens to an event of object `object`.
@@ -585,11 +662,92 @@ impl Registry {
             || self.missing.keys().any(|(o, _)| *o == object)
     }
 
+    /// The events (publisher, lower-case event name) routine `routine` of object `object` is a compiled subscriber to.
+    pub fn subscriptions_of(&self, object: usize, routine: usize) -> Vec<(usize, &str)> {
+        let mut found: Vec<(usize, &str)> = self
+            .subscribers
+            .iter()
+            .filter(|(_, v)| v.iter().any(|s| s.object == object && s.routine == routine))
+            .map(|((p, e), _)| (*p, e.as_str()))
+            .collect();
+        found.sort_unstable();
+        found
+    }
+
     pub fn is_subscribed(&self, object: usize, event: &str) -> bool {
+        self.note_scope(object, event);
         self.subscribers
             .get(&(object, event.to_string()))
             .is_some_and(|v| !v.is_empty())
             || self.missing.contains_key(&(object, event.to_string()))
+    }
+
+    /// The subscribers of `event` (lower case) of `object`, in the order they receive it.
+    pub fn subscribers_at(&self, object: usize, event: &str) -> Option<&Vec<Subscriber>> {
+        self.note_scope(object, event);
+        self.subscribers.get(&(object, event.to_string()))
+    }
+
+    /// Marks the assumption `subscriber-publisher-namespace-scope` when the subscribers of `event` of `object` depend on a
+    /// publisher name the subscriber's file picked among several objects (`scope_assumed`).
+    fn note_scope(&self, object: usize, event: &str) {
+        if !self.scope_assumed.is_empty() && self.scope_assumed.contains(&(object, event.to_string())) {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::SubscriberPublisherNamespaceScope);
+        }
+    }
+
+    /// The publisher object that subscriber attribute `a` of routine `r` of object `oi` (kind `kind` named in its first argument)
+    /// is bound to, for `event`: the object the compile resolved its publisher name to in the subscriber's file (`ir::PublisherRef`,
+    /// al-sema `Workspace::subscriber_publisher`), a shell never. `Some(None)`: no object of the program. `None`: the subscriber is
+    /// bound to no object and `event` is refused for each object it may name: the twins of a name the file picks none of
+    /// (`MissingWhy::PublisherNotPicked`), every object of `kind` for a publisher argument the compile did not read
+    /// (`MissingWhy::PublisherNotRead`).
+    fn publisher_of(
+        &mut self,
+        heads: &[ir::ObjectHead],
+        (oi, kind): (usize, ObjKind),
+        r: &ir::EventRoutine,
+        a: &ir::Attribute,
+        event: &str,
+        element: Option<&String>,
+    ) -> Option<Option<usize>> {
+        let compiled = |t: u32| Some(t as usize).filter(|&t| heads.get(t).is_some_and(|h| !h.uncompiled));
+        let written = || split_args(&a.text).get(1).cloned().unwrap_or_default();
+        let (targets, why): (Vec<usize>, MissingWhy) = match &a.publisher {
+            ir::PublisherRef::NotSubscriber | ir::PublisherRef::NotVisible => return Some(None),
+            ir::PublisherRef::Only(t) => return Some(compiled(*t)),
+            ir::PublisherRef::Picked { object, twins } => {
+                for &t in twins {
+                    self.scope_assumed.insert((t as usize, event.to_string()));
+                }
+                return Some(compiled(*object));
+            }
+            ir::PublisherRef::Unpicked(twins) => {
+                let w = written();
+                let name = w
+                    .split_once("::")
+                    .map_or(w.as_str(), |(_, name)| name)
+                    .trim()
+                    .to_string();
+                (
+                    twins.iter().map(|&t| t as usize).collect(),
+                    MissingWhy::PublisherNotPicked(name),
+                )
+            }
+            ir::PublisherRef::Unread => (
+                (0..heads.len()).filter(|&t| heads[t].kind == kind).collect(),
+                MissingWhy::PublisherNotRead(written()),
+            ),
+        };
+        let o = &heads[oi];
+        for t in targets {
+            self.missing.entry((t, event.to_string())).or_default().push(Missing {
+                element: element.map(|e| unquote(e)).unwrap_or_default(),
+                subscriber: format!("{} \"{}\".{}", o.kind, o.name, r.name),
+                why: why.clone(),
+            });
+        }
+        None
     }
 
     /// The first subscriber of `event` of `object` that is declared but not compiled and that an
@@ -695,6 +853,39 @@ pub fn unquote(arg: &str) -> String {
         return inner.to_string();
     }
     a.to_string()
+}
+
+/// The base object of each extension object: events declared in a table or page extension are subscribed to on the base
+/// object (corpus events/extension-events/TestExtensionDeclaredEvents.al:92 PageExtEvent_SubscriberBoundToBasePage_...).
+fn base_objects(heads: &[ir::ObjectHead]) -> HashMap<usize, usize> {
+    let mut base_of: HashMap<usize, usize> = HashMap::new();
+    for (oi, o) in heads.iter().enumerate() {
+        if let Some(base) = o.report_ext_base {
+            base_of.insert(oi, base);
+        }
+        if let Some(t) = &o.table {
+            for &e in &t.extensions {
+                base_of.insert(e, oi);
+            }
+        }
+        for &e in &o.page_extensions {
+            base_of.insert(e, oi);
+        }
+    }
+    base_of
+}
+
+/// Every object of the program by kind and lower-case name or id, shells included: a publisher among them is in a loaded
+/// app ([`Registry::absent`]).
+fn object_keys(heads: &[ir::ObjectHead]) -> std::collections::HashSet<(ObjKind, String)> {
+    let mut keys = std::collections::HashSet::new();
+    for o in heads {
+        keys.insert((o.kind, o.name.to_lowercase()));
+        if let Some(id) = o.id {
+            keys.insert((o.kind, id.to_string()));
+        }
+    }
+    keys
 }
 
 #[cfg(test)]
@@ -820,6 +1011,37 @@ mod tests {
         assert!(!table.has_global_triggers);
     }
 
+    /// `Registry::absent`: a publisher that is no object of the program, and none whose events the runtime raises or refuses
+    /// without the object. A publisher in the program, also a table, is not absent.
+    #[test]
+    fn only_a_publisher_no_object_is_and_the_runtime_does_not_stand_in_for_is_absent() {
+        let sub = |kind: &str, publisher: &str, event: &str| {
+            registry(&format!(
+                "table 50300 T {{ fields {{ field(1; K; Integer) {{ }} }} }}
+                 codeunit 50301 Pub {{ [IntegrationEvent(false, false)] procedure OnX() begin end; }}
+                 codeunit 50310 Sub
+                 {{ [EventSubscriber(ObjectType::{kind}, {publisher}, '{event}', '', false, false)] local procedure H() begin end; }}"
+            ))
+            .absent
+            .iter()
+            .map(|(p, u)| format!("{} {p}", u.subscriber))
+            .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            sub("Codeunit", "Codeunit::\"Not There\"", "OnX"),
+            ["codeunit \"Sub\".H codeunit \"Not There\".OnX"]
+        );
+        for (kind, publisher, event) in [
+            ("Codeunit", "Codeunit::Pub", "OnX"),
+            ("Table", "Database::T", "OnAfterInsertEvent"),
+            ("Codeunit", "Codeunit::\"Global Triggers\"", "OnDatabaseInsert"),
+            ("Codeunit", "Codeunit::\"Company Triggers\"", "OnCompanyOpenCompleted"),
+            ("Codeunit", "Codeunit::\"Reporting Triggers\"", "OnX"),
+        ] {
+            assert_eq!(sub(kind, publisher, event), Vec::<String>::new(), "{publisher}");
+        }
+    }
+
     #[test]
     fn a_publisher_written_with_its_namespace_is_found_by_its_name() {
         let reg = registry(
@@ -834,30 +1056,33 @@ mod tests {
     }
 
     #[test]
-    fn a_qualified_name_two_objects_share_attaches_to_neither_and_both_refuse() {
-        // Two codeunits `Pub` in different namespaces: the program keeps no namespaces, so the
-        // subscriber cannot be told which it means.
+    fn a_qualified_name_two_objects_share_attaches_to_the_one_of_that_namespace() {
+        // Two codeunits `Pub` in two namespaces of two apps (one app may not declare both, AL0197): the qualified name names
+        // the one of namespace A, from a file with a namespace (al-runner issue 8171; corpus PR 1423, SnUsingTests.al).
+        let app = |id: &str, deps: &[&str], src: &str| al_sema::workspace::AppSource {
+            id: id.into(),
+            name: id.into(),
+            dependencies: deps.iter().map(|d| d.to_string()).collect(),
+            files: vec![(format!("{id}.al"), src.into())],
+        };
         let (_ws, l) = al_sema::lower::compile(
-            vec![al_sema::workspace::AppSource {
-                id: "a".into(),
-                name: "a".into(),
-                dependencies: vec![],
-                files: vec![
-                    ("a.al".into(), "namespace A;\ncodeunit 50200 Pub { }".into()),
-                    ("b.al".into(), "namespace B;\ncodeunit 50201 Pub { }".into()),
-                    (
-                        "s.al".into(),
-                        "codeunit 50202 Sub { [EventSubscriber(ObjectType::Codeunit, Codeunit::A.Pub, 'OnX', '', false, false)] local procedure H() begin end; }"
-                            .into(),
-                    ),
-                ],
-            }],
+            vec![
+                app("a", &[], "namespace A;\ncodeunit 50200 Pub { }"),
+                app("b", &["a"], "namespace B;\ncodeunit 50201 Pub { }"),
+                app(
+                    "s",
+                    &["a", "b"],
+                    "namespace S;\ncodeunit 50202 Sub { [EventSubscriber(ObjectType::Codeunit, Codeunit::A.Pub, 'OnX', '', false, false)] local procedure H() begin end; }",
+                ),
+            ],
             &Default::default(),
         );
         let reg = Registry::build(&l.program);
-        assert!(reg.subscribers.is_empty());
-        assert_eq!(reg.missing.len(), 2);
-        assert!(reg.is_subscribed(0, "onx") || reg.is_subscribed(1, "onx"));
+        let a = l.program.objects.iter().position(|o| o.id == Some(50200)).unwrap();
+        let b = l.program.objects.iter().position(|o| o.id == Some(50201)).unwrap();
+        assert!(reg.missing.is_empty());
+        assert!(reg.is_subscribed(a, "onx"));
+        assert!(!reg.is_subscribed(b, "onx"));
     }
 
     #[test]

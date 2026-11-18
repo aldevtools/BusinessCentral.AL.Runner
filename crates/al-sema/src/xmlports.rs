@@ -64,9 +64,9 @@ pub struct Layout {
     pub object_triggers: Vec<String>,
 }
 
-/// `Table.Field` at the first dot outside quotes: a table name may hold a dot (`"Data Exch. Def".Code`).
-mod assumed_shapes;
 mod containers;
+/// `Table.Field` at the first dot outside quotes: a table name may hold a dot (`"Data Exch. Def".Code`).
+mod measured_shapes;
 mod table_props;
 
 fn split_source_at_dot(source: &str) -> Option<(&str, &str)> {
@@ -1110,10 +1110,10 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
             big_text: is_big_text(layout, i),
             calc_fields: Vec::new(),
             after_assign_layout: matches!(kind, ir::XmlNodeKind::Field | ir::XmlNodeKind::FieldAttr)
-                && assumed_shapes::after_assign_layout(layout, i),
+                && measured_shapes::after_assign_layout(layout, i),
             plain_import_layout: matches!(kind, ir::XmlNodeKind::Field | ir::XmlNodeKind::FieldAttr)
-                && assumed_shapes::plain_import_layout(layout, i),
-            text_attr_export: kind == ir::XmlNodeKind::Text && assumed_shapes::text_attr_export(cx, layout, i),
+                && measured_shapes::plain_import_layout(layout, i),
+            text_attr_export: kind == ir::XmlNodeKind::Text && measured_shapes::text_attr_export(cx, layout, i),
             triggers,
         };
         match kind {
@@ -1131,8 +1131,8 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
                 // table element, a text element whose nodes are only text attributes, or text attributes and leaf text and
                 // field elements; the runtime (al-vm xmlports.rs `text_in_table`) runs its triggers. The same for a text element
                 // with field and text attributes and one text element of only text attributes below it, and for that inner
-                // element (QrXpContainerOccurs.al TP_Nested_*). Assumed (corpus PR 1366): a text element with one field attribute
-                // below a temporary table element (`assumed_shapes::text_attr_export`).
+                // element (QrXpContainerOccurs.al TP_Nested_*). Measured (XpTextElemFieldAttrExport.al): a text element with one field attribute
+                // below a temporary table element (`measured_shapes::text_attr_export`).
                 if kind == ir::XmlNodeKind::Text
                     && layout.has_children(i)
                     && !node.triggers.is_empty()

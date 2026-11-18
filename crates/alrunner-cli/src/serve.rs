@@ -29,6 +29,7 @@ const RUN_TESTS_FIELDS: &[&str] = &[
     "announceStart",
     "serverUrl",
     "license",
+    "companies",
     "tdd",
     "runSelectedOnly",
     "ignorePermissionMock",
@@ -44,12 +45,13 @@ const RUN_TESTS_FIELDS: &[&str] = &[
     "includeFailing",
     "strictEnvironment",
     "skipAfterTimeout",
+    "testTimeoutSecs",
     "entries",
     "seed",
     "profile",
 ];
 /// The fields of an entry of `runTests` (issue 5635).
-const ENTRY_FIELDS: &[&str] = &["id", "resources", "test", "excludeTests"];
+const ENTRY_FIELDS: &[&str] = &["id", "resources", "test", "excludeTests", "testTimeoutSecs"];
 /// The request fields of `execute`.
 const EXECUTE_FIELDS: &[&str] = &[
     "command",
@@ -251,6 +253,18 @@ fn test_filter(fields: &Map<String, Value>) -> Result<Option<String>, String> {
     }
 }
 
+/// `testTimeoutSecs` of a request or an entry (al-runner issue 8125): the test time limit in seconds, as
+/// `--test-timeout-secs` (`0`: no limit). `None`: not given.
+fn test_timeout_secs(fields: &Map<String, Value>) -> Result<Option<u64>, String> {
+    match fields.get("testTimeoutSecs") {
+        None | Some(Value::Null) => Ok(None),
+        Some(v) => v
+            .as_u64()
+            .map(Some)
+            .ok_or_else(|| format!("`testTimeoutSecs` is a whole number of seconds (0: no limit), not `{v}`")),
+    }
+}
+
 fn flag(fields: &Map<String, Value>, name: &str) -> Result<bool, String> {
     match fields.get(name) {
         None | Some(Value::Null) => Ok(false),
@@ -333,6 +347,19 @@ fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArg
         Some(Value::String(p)) if !p.is_empty() => a.license = Some(PathBuf::from(p)),
         Some(_) => return Err("`license` is the path of a .bclicense file".into()),
     }
+    // Issue 7775: `companies` is `--companies` for one request; absent, the server's.
+    match fields.get("companies") {
+        None | Some(Value::Null) => {}
+        Some(Value::String(c)) => {
+            a.companies = Some(al_host::Companies::parse(c).map_err(|e| format!("`companies` {e}"))?);
+            a.companies_from_request = true;
+        }
+        Some(_) => {
+            return Err(
+                "`companies` is a text: company names, comma separated, the session company first, or `all`".into(),
+            );
+        }
+    }
     // ADR-051 decision 1: `tdd` turns stubs on for this request; absent, the server's `--tdd` decides.
     if !matches!(fields.get("tdd"), None | Some(Value::Null)) {
         a.tdd = flag(fields, "tdd")?;
@@ -348,6 +375,10 @@ fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArg
     // Issue 7517: absent, the server's `--skip-after-timeout`.
     if fields.get("skipAfterTimeout").is_some_and(|v| !v.is_null()) {
         a.skip_after_timeout = flag(fields, "skipAfterTimeout")?;
+    }
+    // Issue 8125: absent, the server's `--test-timeout-secs` or environment variable (`run::test_timeout_secs`).
+    if let Some(n) = test_timeout_secs(fields)? {
+        a.test_timeout_secs = Some(n);
     }
     // Issue 3697: UI calls no handler takes get the dev-endpoint runner's answer, as `--dev-endpoint-ui`.
     a.dev_endpoint_ui = flag(fields, "devEndpointUi")?;
@@ -494,6 +525,7 @@ fn entries_of(fields: &Map<String, Value>) -> Result<(Vec<run::Entry>, Vec<Value
             filters: test_filter(e)?.into_iter().collect(),
             excludes: string_list(e, "excludeTests")?,
             resources,
+            test_timeout_secs: test_timeout_secs(e)?,
         });
     }
     Ok((entries, ids))
@@ -1185,6 +1217,40 @@ mod tests {
         assert!(w.is_empty() && a.capture.values && a.capture.loops);
     }
 
+    /// Al-runner issue 8125: `testTimeoutSecs` is `--test-timeout` for one request, and for one entry; absent, the
+    /// server's. A value that is not a whole number of seconds is an error of the request.
+    #[test]
+    fn a_request_and_an_entry_may_set_the_test_time_limit_and_a_bad_one_is_an_error() {
+        let run = |v: Value| request_args(&base(), &fields(v));
+        let request = |v: Value| run(json!({"sourcePaths": ["/a"], "testTimeoutSecs": v}));
+        assert_eq!(request(json!(7)).unwrap().0.test_timeout_secs, Some(7));
+        assert_eq!(request(json!(0)).unwrap().0.test_timeout_secs, Some(0));
+        let started = daemon_args(&["--test-timeout".into(), "30".into()]).unwrap();
+        let kept = request_args(&started, &fields(json!({"sourcePaths": ["/a"]})))
+            .unwrap()
+            .0;
+        assert_eq!(kept.test_timeout_secs, Some(30), "absent: the server's");
+        let kept = request_args(
+            &started,
+            &fields(json!({"sourcePaths": ["/a"], "testTimeoutSecs": null})),
+        )
+        .unwrap()
+        .0;
+        assert_eq!(kept.test_timeout_secs, Some(30), "null: the server's");
+        let entry = |v: Value| {
+            entries_of(&fields(
+                json!({"entries": [{"test": "X", "testTimeoutSecs": v}, {"test": "Y"}]}),
+            ))
+        };
+        let (e, _) = entry(json!(4)).unwrap();
+        assert_eq!((e[0].test_timeout_secs, e[1].test_timeout_secs), (Some(4), None));
+        assert_eq!(entry(json!(0)).unwrap().0[0].test_timeout_secs, Some(0));
+        for bad in [json!(-1), json!(1.5), json!("3"), json!(true), json!([2])] {
+            assert!(request(bad.clone()).unwrap_err().contains("`testTimeoutSecs`"), "{bad}");
+            assert!(entry(bad.clone()).unwrap_err().contains("`testTimeoutSecs`"), "{bad}");
+        }
+    }
+
     /// ADR-066 amendment 7 (owner, 2026-11-08): `maxReplay` is `--max-replay N` for one request; no cap without it.
     #[test]
     fn max_replay_field() {
@@ -1204,7 +1270,7 @@ mod tests {
     /// as in the `--output-json` document.
     #[test]
     fn a_flagged_pass_is_flagged_on_the_serve_line_and_in_the_summary_as_in_output_json() {
-        let marks = vec![al_builtins::assumptions::Assumption::CalcDatePastDateRange];
+        let marks = vec![al_builtins::assumptions::Assumption::NoClientSession];
         let mut result = crate::output::tests::r(50120, "Flag Tests", "D_TestPage", al_testrun::Outcome::Pass);
         result.assumptions = marks.clone();
         let clean = crate::output::tests::r(50120, "Flag Tests", "Clean", al_testrun::Outcome::Pass);

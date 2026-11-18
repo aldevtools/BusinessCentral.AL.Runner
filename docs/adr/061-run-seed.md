@@ -73,7 +73,7 @@ install baseline is the same in every run and its cache stays valid (owner decis
 
 What the run seed does **not** change:
 
-- The clock (ADR-045): noon UTC of today, 1 ms per read. `ALRUNNER_REAL_CLOCK` works as before.
+- The clock (ADR-045): 12:34:56.789 UTC of today (noon before the 2026-11-15 amendment), 1 ms per read. `ALRUNNER_REAL_CLOCK` works as before.
 - The work date.
 - Identity, company, session settings.
 - Test order and isolation.

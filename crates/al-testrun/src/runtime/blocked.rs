@@ -9,8 +9,84 @@ use super::*;
 /// A routine a lean compile left out (`Lowered::left_out`) does not run: the compile is lean only for tests that
 /// read no data (`observe.rs`), and BC runs install code in a session of its own, so nothing else of it reaches a test's
 /// session (the install baseline, which runs it once in a session of its own, gives the same).
-pub(crate) fn run_install_codeunits(lowered: &Lowered, session: &mut Session) -> Vec<(BTreeSet<u32>, String)> {
+pub(crate) fn run_install_codeunits(lowered: &Lowered, session: &mut Session) -> Vec<al_vm::SkippedInstall> {
     crate::install::run_apps_under_test(lowered, session)
+}
+
+/// The tables of `skipped` (what [`run_install_codeunits`] returns): the install code that could not run touches them, so
+/// the rows they hold are not BC's. Code that reads or writes one, through any path, is not run. The readers, each
+/// watched: a test and the test codeunit's OnRun (`run.rs`, the store's watch next to the static check of their record
+/// variables); the install code that runs after it (`install::watching_skipped`), with the Company Triggers subscribers of
+/// the install session; and the code that runs when the test session opens the company, its Company Triggers subscribers
+/// and the login subscribers of the apps under test (`install::test_session_company_open`).
+///
+/// The tables a skipped install holds on assumption (`SkippedInstall::assumed`) are watched too; what their readers get
+/// is [`Assumed`].
+pub(crate) fn skipped_install_tables(skipped: &[al_vm::SkippedInstall]) -> BTreeSet<u32> {
+    (skipped.iter())
+        .flat_map(|s| s.tables.iter().chain(&s.assumed).copied())
+        .collect()
+}
+
+/// What code that read or wrote a table only `SkippedInstall::assumed` holds gets: the tables that only the subscribers of
+/// table events of a table the install code only reads would add (`install.rs` `touched`, assumption
+/// `table-reads-raise-no-table-event`, corpus PR 1431, open).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Assumed {
+    /// It runs, marked with the assumption: a test method (its own marks), and the code that runs when the test session
+    /// opens the company (its marks count for every test of the session, `run.rs` `open_company`).
+    Marked,
+    /// It is not run, as for a table of `SkippedInstall::tables` (main's result): the test codeunit's OnRun and the install
+    /// code that runs after it, whose marks count for no test.
+    Refused,
+}
+
+/// Runs `run` with the tables of `skipped` watched ([`skipped_install_tables`]), and clears the watch after it. Returns
+/// what `run` returned and, when it read or wrote one of them, why that table's rows are not known
+/// ([`skipped_install_reason`]). Nothing is watched when `skipped` holds no table.
+pub(crate) fn watching_skipped_installs<R>(
+    lowered: &Lowered,
+    session: &mut Session,
+    skipped: &[al_vm::SkippedInstall],
+    assumed: Assumed,
+    run: impl FnOnce(&mut Session) -> R,
+) -> (R, Option<String>) {
+    let tables = skipped_install_tables(skipped);
+    if tables.is_empty() {
+        return (run(session), None);
+    }
+    session.store_mut().watch(tables);
+    let ran = run(session);
+    let hits = session.store_mut().watch_hits();
+    session.store_mut().watch(Default::default());
+    let hit = skipped_install_hit(skipped, &hits, assumed).map(|(t, why)| skipped_install_reason(lowered, t, why));
+    (ran, hit)
+}
+
+/// Why code that read or wrote table `t` of a skipped install (`why`: why that install did not run) is not run.
+pub(crate) fn skipped_install_reason(lowered: &Lowered, t: u32, why: &str) -> String {
+    format!(
+        "it read or wrote table {}, whose rows install code that did not run to its end leaves unknown: {why}",
+        lowered.program.objects.get(t as usize).map_or("?", |o| o.name.as_str())
+    )
+}
+
+/// Of the tables `hits` that code read or wrote, the first of `skipped` that refuses it: the table and why its rows are
+/// not known. A table of `SkippedInstall::assumed` refuses as one of `SkippedInstall::tables` under `Assumed::Refused`;
+/// under `Assumed::Marked`, when nothing refuses, a hit on one marks `table-reads-raise-no-table-event`.
+pub(crate) fn skipped_install_hit<'a>(
+    skipped: &'a [al_vm::SkippedInstall],
+    hits: &BTreeSet<u32>,
+    assumed: Assumed,
+) -> Option<(u32, &'a String)> {
+    let refuses = |s: &al_vm::SkippedInstall, t: &u32| {
+        s.tables.contains(t) || (assumed == Assumed::Refused && s.assumed.contains(t))
+    };
+    let hit = (hits.iter()).find_map(|t| skipped.iter().find(|s| refuses(s, t)).map(|s| (*t, &s.why)));
+    if hit.is_none() && skipped.iter().any(|s| !s.assumed.is_disjoint(hits)) {
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::TableReadsRaiseNoTableEvent);
+    }
+    hit
 }
 
 /// Whether the table at object index `table` is a platform table whose rows are computed from the compiled objects
@@ -27,11 +103,27 @@ pub(crate) fn listed_from_objects(lowered: &Lowered, table: u32) -> bool {
 
 /// Tables whose records appear in the slots of anything `routine` can reach.
 pub(crate) fn tables_touched(lowered: &Lowered, object: usize, routine: usize) -> BTreeSet<u32> {
-    pub(crate) fn record_tables(t: &al_builtins::value::RtType, out: &mut BTreeSet<u32>) {
-        if let al_builtins::value::RtType::Record(id, _) = t {
-            out.insert(*id);
+    record_tables_reached(lowered, object, routine, true)
+}
+
+/// [`tables_touched`] without the records declared temporary: a record declared temporary reads only its own rows, and its
+/// Insert and Modify leave the stored table as it was (record/temporary/QdStoredToTempParam.al:123, :127-135). A record
+/// variable not declared temporary counts, also when it is handed a temporary record. For install code that did not run to
+/// its end (`install::touched`).
+pub(crate) fn tables_touched_not_temporary(lowered: &Lowered, object: usize, routine: usize) -> BTreeSet<u32> {
+    record_tables_reached(lowered, object, routine, false)
+}
+
+/// The tables of the record slots of anything `routine` of `object` can reach; those declared temporary only with
+/// `temporary`.
+fn record_tables_reached(lowered: &Lowered, object: usize, routine: usize, temporary: bool) -> BTreeSet<u32> {
+    let record_tables = |t: &al_builtins::value::RtType, out: &mut BTreeSet<u32>| {
+        if let al_builtins::value::RtType::Record(id, temp) = t {
+            if temporary || !temp {
+                out.insert(*id);
+            }
         }
-    }
+    };
     let mut out = BTreeSet::new();
     let mut seen = BTreeSet::new();
     let mut stack = vec![(object, routine)];
@@ -71,11 +163,33 @@ pub(crate) fn subscribers_reached_from(
     lowered: &Lowered,
     roots: &[(usize, usize)],
 ) -> BTreeSet<(usize, usize)> {
+    subscribers_reached_with(engine, lowered, roots, false)
+}
+
+/// [`subscribers_reached_from`] without the subscribers of the ten table events of a table that every routine of the walk
+/// only reads, in a shape corpus PR 1431 measured (`table_reads::ReadOnlyTables`): the reach `install.rs` `touched`
+/// narrows on assumption `table-reads-raise-no-table-event`.
+pub(crate) fn subscribers_reached_reading(
+    engine: &Engine,
+    lowered: &Lowered,
+    roots: &[(usize, usize)],
+) -> BTreeSet<(usize, usize)> {
+    subscribers_reached_with(engine, lowered, roots, true)
+}
+
+/// The walk of [`subscribers_reached_from`] (`reading` false) and [`subscribers_reached_reading`] (`reading` true).
+fn subscribers_reached_with(
+    engine: &Engine,
+    lowered: &Lowered,
+    roots: &[(usize, usize)],
+    reading: bool,
+) -> BTreeSet<(usize, usize)> {
     let events = &engine.events;
     let objs = &lowered.program.objects;
     let mut seen = BTreeSet::new();
     let mut reached = BTreeSet::new();
     let mut stack = roots.to_vec();
+    let mut read_only = reading.then(super::table_reads::ReadOnlyTables::default);
     while let Some((o, r)) = stack.pop() {
         if !seen.insert((o, r)) {
             continue;
@@ -104,9 +218,12 @@ pub(crate) fn subscribers_reached_from(
                 tables.insert(*t as usize);
             }
         }
-        for t in tables {
-            for &sub in events.subscribers_of(t) {
-                reach(sub);
+        match &mut read_only {
+            Some(walk) => walk.visit(engine, lowered, (o, r), &tables, &mut reach),
+            None => {
+                for t in tables {
+                    events.subscribers_of(t).iter().copied().for_each(&mut reach);
+                }
             }
         }
     }

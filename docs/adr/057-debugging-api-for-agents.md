@@ -54,7 +54,7 @@ All features below are in scope (owner, 2026-10-29):
   `tx.try_depth` in `Session::call`. `[ErrorBehavior(Collect)]` opens `error_scopes`. `Codeunit.Run` with a used
   return value catches in the dispatch code. No single place knows "will this error be caught".
 - **Determinism.** The store is a persistent map with O(1) snapshots (ADR-004, ADR-035). The clock is a session
-  counter on top of a host instant fixed per run (ADR-045 and its amendment: noon UTC of the day of the first read).
+  counter on top of a host instant fixed per run (ADR-045 and its amendments: 12:34:56.789 UTC of the day of the first read).
   `CreateGuid` and SystemIds come from `guid_seed` and a counter (`crates/al-vm/src/ctx.rs`, `fresh_guid`). `Random`
   is .NET's seeded generator with a host seed (`crates/al-host/src/random.rs`). AL `File` and .NET file access run on
   an in-memory file system per run (ADR-056). ADR-043 already relies on this determinism ("Why it is exact").

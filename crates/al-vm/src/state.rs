@@ -55,6 +55,9 @@ pub(crate) struct TxState {
     /// or at Commit (corpus record/TestRecordRuntimeTextsAndViews.al:
     /// Record_Insert_DuplicateKey_WithoutBlobField_IsDeferred_AndSurfacesAtTheNextAccess).
     pub(crate) deferred_insert: Option<(usize, AlError)>,
+    /// The record of the last Rename that raised the SQL range error of its new key (`records/sql_range.rs`): what it holds
+    /// afterwards is not measured, so catching that error while the record still lives is refused (`catch_error`).
+    pub(crate) failed_sql_rename: Option<std::rc::Weak<std::cell::RefCell<al_builtins::value::RecordState>>>,
     /// The rows each table's insert queue holds since it was last sent (`Session::note_insert_buffer`).
     pub(crate) insert_buffer: Vec<crate::records::InsertQueue>,
     /// Set by an Insert that AL code calls on a Record or a RecordRef, taken by the record method it starts
@@ -64,6 +67,11 @@ pub(crate) struct TxState {
     /// Set by a Rename that AL code calls on a Record or a RecordRef, taken by the Rename arm of `record_op_inner`: only such
     /// a Rename is in a measured cell of `rename_blank_key.rs`. The page client's rename at close clears it.
     pub(crate) rename_from_al: bool,
+    /// Which write statement of AL code on a Record variable (not a RecordRef) is starting: set by `record_op_of_al`, and by
+    /// ModifyAll(.., true) of such a statement for each row it modifies; taken by the arm it starts (`Session::take_write_of_al`)
+    /// and cleared when the call returns. Only such a write is in the measured cells of `records/sql_range.rs`. A page's save
+    /// and the platform's own writes do not set it.
+    pub(crate) write_of_al: Option<WriteOfAl>,
     /// The record (its address) whose Insert was the last to leave a duplicate key pending: the insert queue asks whether the
     /// Insert that sends it was itself a duplicate (`Session::note_insert_buffer`).
     pub(crate) deferred_by: Option<usize>,
@@ -91,7 +99,7 @@ pub(crate) struct TxState {
     /// Modify are not writes of the try (xmlports/shapes-properties/YXmlPortProps.al:861); other writes there are refused.
     pub(crate) xp_export_try_world: Option<usize>,
     /// The tables (object indexes) `Consistent(false)` marked in the open transaction: `Commit` fails while one is marked.
-    pub(crate) inconsistent: Vec<u32>,
+    pub(crate) inconsistent: Vec<crate::consistent_marks::ConsistentMark>,
     /// A lock started the open write transaction: `LockTable` on a database table, `ReadIsolation := UpdLock`, or a FindFirst
     /// under RepeatableRead or UpdLock (codeunits/TestCodeunitRunWriteTransaction.al:211-278). A Commit ends it.
     pub(crate) lock_tx: bool,
@@ -113,6 +121,16 @@ pub(crate) struct TxState {
     /// (a FindFirst, FindSet, FindLast or another Find under an isolation set in an earlier transaction): `lock_unpinned`
     /// then refuses IsInWriteTransaction. Without it, the pinned reads that set `lock_unpinned` open no write transaction.
     pub(crate) locking_read_tx_unpinned: bool,
+}
+
+/// A write statement of AL code on a Record variable (`TxState::write_of_al`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum WriteOfAl {
+    Insert,
+    Modify,
+    ModifyAll,
+    /// The Modify of one row by ModifyAll(.., true) of such a statement.
+    ModifyAllRow,
 }
 
 /// What kind of Record write a [`TxWrite`] was.
@@ -166,6 +184,8 @@ pub(crate) struct TxWrite {
     /// A ModifyAll or DeleteAll that ended: what it wrote (`Session::note_bulk_end`). `None` for other writes and for one that
     /// stopped with an error.
     pub(crate) bulk: Option<BulkEnd>,
+    /// The write ran through a RecordRef (`Session::through_recordref`).
+    pub(crate) through_recordref: bool,
 }
 
 impl TxState {
@@ -191,9 +211,11 @@ impl TxState {
             rollback_kind: None,
             last_commit_wrote: false,
             deferred_insert: None,
+            failed_sql_rename: None,
             insert_buffer: Vec::new(),
             insert_from_al: false,
             rename_from_al: false,
+            write_of_al: None,
             deferred_by: None,
             deferred_raised: 0,
             immediate_errors: false,
@@ -235,6 +257,8 @@ pub(crate) struct UiState {
 /// What the TestPage client keeps between calls.
 #[derive(Default)]
 pub(crate) struct PageClients {
+    /// What the action running now did (`pages/action_tally.rs`); armed only around an action of an empty List on its new-row line.
+    pub(crate) action_tally: Option<crate::pages::action_tally::ActionTally>,
     /// The TestPage variables whose `Trap()` waits for the next plain `Page.Run` of their page (ADR-012). Several wait at
     /// once, one per page: a test traps the preview page and, inside it, the entries page its action opens.
     /// The variable-bound control values each SaveValues page stored when it closed: (owner, global slot, value), the owner
@@ -248,6 +272,8 @@ pub(crate) struct PageClients {
     pub(crate) scope_unpinned: Vec<Rc<RefCell<crate::pages::PageState>>>,
     /// A page background task worker is running: its parameters and the result it set.
     pub(crate) bg_worker: Option<pages::BgWorker>,
+    /// Which dialogs and errors the CaptionClass runs in progress may raise (`Session::caption_dialog_refusal`).
+    pub(crate) caption_dialogs: crate::pages::CaptionDialogs,
     /// The page whose enqueued background tasks run once the `EnqueueBackgroundTask` call that queued them has
     /// written its by-reference task id back (see `Session::bg_enqueue`).
     pub(crate) bg_drain_after_call: Option<Rc<RefCell<crate::pages::PageState>>>,
@@ -298,8 +324,14 @@ pub(crate) struct PageClients {
     pub(crate) shown_frames: Vec<(*const RefCell<crate::pages::PageState>, Vec<crate::pages::ShownNote>)>,
     /// Per page object, the expression controls whose value the page keeps between refreshes (`pages/shown.rs`).
     pub(crate) shown_controls: std::collections::HashMap<u32, Rc<Vec<usize>>>,
-    /// The page triggers running now, innermost last, with their page (`pages/code_close_veto.rs`).
-    pub(crate) trigger_kinds: Vec<(*const RefCell<crate::pages::PageState>, crate::pages::TriggerKind)>,
+    /// The page triggers running now, innermost last, with their page and, for the OnOpenPage of a page the test opened with
+    /// `TestPage.OpenView`, its page object (`pages/code_close_veto.rs`, read by
+    /// `permissions/permission_probed/extension_code.rs`).
+    pub(crate) trigger_kinds: Vec<(
+        *const RefCell<crate::pages::PageState>,
+        crate::pages::TriggerKind,
+        Option<usize>,
+    )>,
     /// How many TestPage calls run now, nested (`pages/code_close_veto.rs`).
     pub(crate) client_depth: u32,
     /// Vetoed `CurrPage.Close()` calls waiting for the end of their TestPage call (`pages/code_close_veto.rs`).
@@ -337,6 +369,18 @@ pub(crate) struct EventState {
     pub(crate) next_aliases: Vec<(usize, Rc<RefCell<crate::Instance>>, usize)>,
     /// Set just before a subscriber is called, taken by its frame: the call is an event subscriber dispatch.
     pub(crate) next_is_subscriber: bool,
+    /// Set by `publish` just before the raise: the publisher routine (object, routine); taken by `raise_to_subscribers`
+    /// for `Session::event_publisher`.
+    pub(crate) by_value_publisher: Option<(usize, usize)>,
+    /// Set just before a subscriber is called, taken by its frame (`records::ByValueCall`), cleared after the call: per
+    /// subscriber parameter, what `Session::event_args` says of it.
+    pub(crate) next_event_args: Vec<crate::records::EventArg>,
+    /// Set by `publish` for a publisher `blob_transfer::measured_publisher` names and by `table_event` for an event
+    /// `blob_transfer::measured_table_event` names, just before the raise; taken by `raise_to_subscribers`.
+    pub(crate) blob_publisher: Option<crate::blob_transfer::BlobEvent>,
+    /// Set just before a subscriber is called, taken by its frame, cleared after the call: the raise of a `blob_publisher`
+    /// event to a subscriber `blob_transfer::measured_subscriber` names (`blob_transfer::Argument::measured_call`).
+    pub(crate) next_blob_event: bool,
     /// The event subscriber calls on the stack, innermost last: (publisher object, subscriber object, subscriber routine) for
     /// the shapes whose event recursion error text is pinned, `None` for another (the call-depth error names event
     /// recursion when any is on the stack).
@@ -370,6 +414,9 @@ pub(crate) struct EventState {
     /// subscribers of `order_unknown_apps` that leave every flag unchanged for it (setup_no_op.rs), or do nothing for it
     /// (db_event_no_op.rs), which the raise leaves out instead of refusing.
     pub(crate) setup_no_ops: std::collections::BTreeSet<(usize, usize)>,
+    /// While the subscribers of `GetDatabaseTableTriggerSetup` answer for one table: that table (object index), for the read
+    /// they make under a restricted set (permission_trigger_setup.rs).
+    pub(crate) db_setup_table: Option<usize>,
     /// The trial runs of subscribers whose install order is not known (order_trial.rs).
     pub(crate) trial: crate::order_trial::TrialState,
     /// What the subscribers of `Global Triggers` answered, per table object (globaltriggers.rs).

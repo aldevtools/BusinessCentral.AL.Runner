@@ -67,10 +67,17 @@ impl Session {
             reason: "a call of the test after the header of an OpenNew Document was stored before its variable control \
                      validated, other than Close (not pinned)",
             reads: false,
+            caption: false,
+            part_reads: false,
             one_action: false,
             first_ends: false,
             part_visible: false,
+            part_moves: false,
+            no_writes: false,
             next: NextEnd::Refused,
+            close: true,
+            ok: false,
+            walk: false,
         });
         self.inserted_outside_view(st, idx)
     }

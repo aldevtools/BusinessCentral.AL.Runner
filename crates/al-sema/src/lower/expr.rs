@@ -367,6 +367,44 @@ impl Lowerer<'_> {
     }
 
     /// Whether the routine being lowered was made from a property expression (a control's source).
+    /// The kind of object `Kw::Name` names when it is an object literal (`Database::"X"`, `Report::"X"`, ...) and
+    /// neither the file's app nor an app it sees declares that object (al-runner issues 8101, 8099).
+    fn names_no_loaded_object(&self, kw: &str, name: &str) -> Option<ObjKind> {
+        let kind = match kw.trim().to_ascii_lowercase().as_str() {
+            "database" => ObjKind::Table,
+            "report" => ObjKind::Report,
+            "page" => ObjKind::Page,
+            "codeunit" => ObjKind::Codeunit,
+            "query" => ObjKind::Query,
+            "xmlport" => ObjKind::XmlPort,
+            _ => return None,
+        };
+        let parts = crate::types::qualified_parts(name.trim());
+        matches!(
+            self.ws.resolve_ref(self.file, kind, &parts),
+            crate::workspace::Resolution::Missing
+        )
+        .then_some(kind)
+    }
+
+    /// Why `text`, an object literal of `kind` that [`Self::names_no_loaded_object`] found, is refused. It names a cause
+    /// only when the workspace shows it: a dependency of the app or of an app it sees that is not loaded, or, when the
+    /// app sees Base Application, another country's Base Application.
+    fn no_declared_object_reason(&self, text: &str, kind: ObjKind) -> String {
+        let app = self.ws.files[self.file].app;
+        let mut reason = format!(
+            "`{text}` names no {} that this app or its dependencies declare",
+            kind.label()
+        );
+        if self.ws.has_unloaded_dependency(app) {
+            reason.push_str("; a dependency was skipped as not found");
+        }
+        if self.ws.sees_base_application(app) {
+            reason.push_str("; an object of another country's Base Application needs --country");
+        }
+        reason
+    }
+
     pub(crate) fn in_synthetic_routine(&self) -> bool {
         self.routine_nodes
             .get(self.oi)
@@ -689,6 +727,75 @@ impl Lowerer<'_> {
         })
     }
 
+    fn guard_numeric_in_followed_by_boolean(&mut self, op: &str, lhs: &SyntaxNode, rhs: &SyntaxNode) -> L<()> {
+        let is_membership = |node: &SyntaxNode| {
+            node.kind() == SyntaxKind::BinExpr
+                && sig_tokens(node)
+                    .first()
+                    .is_some_and(|t| t.text().eq_ignore_ascii_case("in"))
+        };
+        if !matches!(op, "and" | "or" | "xor") || !is_membership(lhs) || is_membership(rhs) {
+            return Ok(());
+        }
+        let mut operands = lhs.children();
+        let Some(subject) = operands.next() else { return Ok(()) };
+        let subject_type = self.ty_ref(&subject);
+        if !matches!(subject_type, Ty::Integer | Ty::BigInteger | Ty::Decimal) {
+            return Ok(());
+        }
+        // The measured shapes (language/operators/TestIntegerRecordMembership.al:35-39, eager right side :41): an Integer field
+        // of a local Record variable `in` a set of two Integer literals, `and` a Boolean field of the same variable (:35, :38)
+        // or an unqualified call of a procedure of the same object (:36, :39). Every other shape keeps the refusal.
+        let local_record = |node: &SyntaxNode| {
+            node.children()
+                .next()
+                .filter(|receiver| {
+                    receiver.kind() == SyntaxKind::NameRef && matches!(self.ty_ref(receiver), Ty::Record { .. })
+                })
+                .and_then(|receiver| match self.res(&receiver) {
+                    Some(Res::Local(name)) => Some(name.clone()),
+                    _ => None,
+                })
+        };
+        let field_of = |node: &SyntaxNode, ty: Ty| {
+            node.kind() == SyntaxKind::MemberExpr
+                && matches!(self.res(node), Some(Res::Field { .. }))
+                && *self.ty_ref(node) == ty
+        };
+        let subject_record = field_of(&subject, Ty::Integer)
+            .then(|| local_record(&subject))
+            .flatten();
+        let same_record_boolean =
+            || field_of(rhs, Ty::Boolean) && subject_record.is_some() && local_record(rhs) == subject_record;
+        let bare_procedure_call = || {
+            rhs.kind() == SyntaxKind::CallExpr
+                && rhs
+                    .children()
+                    .next()
+                    .is_some_and(|callee| callee.kind() == SyntaxKind::NameRef)
+                && matches!(self.res(rhs), Some(Res::Proc { .. }))
+        };
+        let two_integer_literals = |set: SyntaxNode| {
+            let entries: Vec<_> = set.children().collect();
+            set.kind() == SyntaxKind::SetExpr
+                && entries.len() == 2
+                && entries
+                    .iter()
+                    .all(|entry| entry.kind() == SyntaxKind::Literal && matches!(self.ty_ref(entry), Ty::Integer))
+        };
+        let measured = op == "and"
+            && subject_record.is_some()
+            && (same_record_boolean() || bare_procedure_call())
+            && operands.next().is_some_and(two_integer_literals);
+        if !measured {
+            return Err(
+                "an Integer `in` set followed by and, or or xor with a Boolean: BC answers `1 in [1, 2] and false` with Yes (corpus P143Prec_InAnd_Int), which no reading of the precedence explains (docs/probes-needed.md)"
+                    .into(),
+            );
+        }
+        Ok(())
+    }
+
     pub(crate) fn expr(&mut self, n: &SyntaxNode) -> L<ir::Expr> {
         // Parentheses are the expression inside, with its records.
         if !self.tys_on || n.kind() == SyntaxKind::ParenExpr {
@@ -776,27 +883,8 @@ impl Lowerer<'_> {
                 // `and`, `or` and `xor` (grammar/expressions.rs; corpus types/lt-in-precedence-date-guid-filters/P143Prec_*.al).
                 // `<Integer> in [..] and|or|xor <Boolean>`: the corpus has BC answer `1 in [1, 2] and false` with Yes
                 // (P143Prec_InAnd_Int), which neither reading of the precedence explains, while the Boolean and enum forms follow
-                // `(a in [..]) and b`. The Integer form is refused until it is probed again (docs/probes-needed.md).
-                if matches!(op.as_str(), "and" | "or" | "xor") {
-                    let in_op = |n: &SyntaxNode| {
-                        n.kind() == BinExpr
-                            && sig_tokens(n)
-                                .first()
-                                .is_some_and(|t| t.text().eq_ignore_ascii_case("in"))
-                    };
-                    if let (Some(l), Some(r)) = (kids.first(), kids.get(1)) {
-                        if in_op(l) && !in_op(r) {
-                            if let Some(subject) = l.children().next() {
-                                if matches!(self.ty_ref(&subject), Ty::Integer | Ty::BigInteger | Ty::Decimal) {
-                                    return Err(
-                                        "an Integer `in` set followed by and, or or xor with a Boolean: BC answers `1 in [1, 2] and false` with Yes (corpus P143Prec_InAnd_Int), which no reading of the precedence explains (docs/probes-needed.md)"
-                                            .into(),
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
+                // `(a in [..]) and b`. The guard admits only the measured Integer record-field form.
+                self.guard_numeric_in_followed_by_boolean(&op, &kids[0], &kids[1])?;
                 // How a settled DotNet operand may be used depends on the operator (ADR-024).
                 let operand_use = match op.as_str() {
                     "+" | "=" | "<>" => ir::OperandUse::Enum,
@@ -1032,7 +1120,11 @@ impl Lowerer<'_> {
                             m.trim().trim_matches('"'),
                             e.trim()
                         )),
-                        _ => Err(format!("`{text}` is not lowered yet")),
+                        Some((kw, name)) => match self.names_no_loaded_object(kw, name) {
+                            Some(kind) => Err(self.no_declared_object_reason(&text, kind)),
+                            None => Err(format!("`{text}` is not lowered yet")),
+                        },
+                        None => Err(format!("`{text}` is not lowered yet")),
                     }
                 }
             },

@@ -60,8 +60,7 @@ pub(super) fn variant_2_time(_: &mut dyn Ctx, _: Option<&mut Value>, args: &mut 
 }
 
 /// `Clear(var X)` of a global `[WithEvents]` System.Timers.Timer with an Elapsed trigger (al-sema `lower/with_events.rs` picks
-/// it): the variable becomes null (corpus PR 1365, onprem-dotnet dotnet/ac/N4WithEventsNoRaise.al:209-212, :312; assumption
-/// with-events-timer-elapsed-not-started, marked where the lowering accepted the use).
+/// it): the variable becomes null (onprem-dotnet dotnet/ac/N4WithEventsNoRaise.al:209-212, :312).
 pub(super) fn clear_with_events_timer(
     _: &mut dyn Ctx,
     _: Option<&mut Value>,
@@ -82,18 +81,28 @@ pub(super) fn clear_with_events_timer(
     Ok(Value::Null)
 }
 
+/// Whether `Clear` of the Blob buffer `b` empties it in place (every holder of the buffer sees it empty) rather than giving
+/// the variable a new buffer: see the Blob arm of [`clear`].
+pub fn blob_clears_in_place(ctx: &dyn Ctx, b: &crate::stream::BlobRef) -> bool {
+    !b.borrow().temp_inserted && !ctx.xrec_holds_blob(b)
+}
+
 /// `Clear(var X)`: the default of the value's own kind. Records go to the VM.
 pub(super) fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
     let v = &mut args[0];
     *v = match v {
         Value::Record(_) => return ctx.record(RecordOp::Clear, Some(v), &mut []),
-        // Clearing a RecordRef/FieldRef/KeyRef closes it: a fresh, unopened handle.
+        // Clearing a RecordRef or a KeyRef gives a new handle that holds nothing, kept apart from one never opened or assigned
+        // (`recordref_closed::cleared`).
+        Value::Library(name, h) if matches!(name.as_str(), "RecordRef" | "KeyRef") => {
+            let emptied = crate::recordref_closed::cleared(name.as_str() == "RecordRef", &h.borrow());
+            Value::Library(name.clone(), std::rc::Rc::new(std::cell::RefCell::new(emptied)))
+        }
+        // Clearing a FieldRef closes it: a fresh, unopened handle.
         Value::Library(name, _)
             if matches!(
                 name.as_str(),
-                "RecordRef"
-                    | "FieldRef"
-                    | "KeyRef"
+                "FieldRef"
                     | "RecordId"
                     | "WebServiceActionContext"
                     | "SessionSettings"
@@ -160,8 +169,10 @@ pub(super) fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]
         // replaced as before: what a Clear of it leaves on the row is not pinned. So is a buffer a live xRec shares with Rec (a
         // Clear in OnModify or in a table event): nothing pins what xRec shows after the Clear, so Rec gets a new buffer and xRec
         // keeps its content, as before issue 6791 (crates/al-vm/tests/store/blob_clear_shared_xrec.rs).
-        Value::Blob(b) if !b.borrow().temp_inserted && !ctx.xrec_holds_blob(b) => {
-            let fresh = crate::stream::new_blob().borrow().clone();
+        Value::Blob(b) if blob_clears_in_place(&*ctx, b) => {
+            let mut fresh = crate::stream::new_blob().borrow().clone();
+            fresh.content_edits = b.borrow().content_edits.wrapping_add(1);
+            fresh.line_breaks = crate::stream_line_breaks::LineBreakHistory::cleared(fresh.content_edits);
             *b.borrow_mut() = fresh;
             Value::Blob(b.clone())
         }
@@ -175,17 +186,8 @@ pub(super) fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]
         // (queries/TestQueryRuntimeContracts.al:Query_GetFilters_ThreeFilters_OrderIsNotColumnOrder).
         Value::Query(q) => {
             let object = q.borrow().object;
-            Value::Query(Rc::new(std::cell::RefCell::new(crate::value::QueryState {
-                object,
-                filters: Vec::new(),
-                filter_replaced: false,
-                top: None,
-                security_filtering: None,
-                run: None,
-                instance: None,
-                in_before_open: false,
-                closed: false,
-            })))
+            q.borrow_mut().reopen.cleared()?;
+            Value::Query(Rc::new(std::cell::RefCell::new(crate::value::QueryState::new(object))))
         }
         // A codeunit or report variable nothing has used yet has no instance to release, so
         // clearing it changes nothing (reports/TestReportRunWithRequestPage.al: `Clear(Probe)`
@@ -194,10 +196,10 @@ pub(super) fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]
         Value::Codeunit(rc) if !rc.borrow().initialized => return Ok(Value::Null),
         Value::Codeunit(rc) => {
             let object = rc.borrow().object;
-            Value::Codeunit(std::rc::Rc::new(std::cell::RefCell::new(crate::value::Instance {
+            Value::Codeunit(crate::instance_cycles::shared(crate::value::Instance {
                 object,
                 ..Default::default()
-            })))
+            }))
         }
         // An array goes back to its initial value element by element, in place: a `var` parameter
         // that shares it sees the change (docs/probes-needed.md; the oracle runs

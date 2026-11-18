@@ -234,10 +234,17 @@ impl Session {
         st.borrow_mut().pinned_end = Some(PinnedEnd {
             reason,
             reads,
+            caption: false,
+            part_reads: false,
             one_action: false,
             first_ends: false,
             part_visible: false,
+            part_moves: false,
+            no_writes: false,
             next: NextEnd::Refused,
+            close: true,
+            ok: false,
+            walk: false,
         });
         Ok(Some(match cell {
             NewLineCell::Variant((_, rows, ..)) => self.extra_blank_pairs(rows),

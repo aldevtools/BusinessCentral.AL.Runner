@@ -29,6 +29,7 @@ mod staged_dir;
 mod system_environment;
 mod xml_errors;
 mod zip_entry_streams;
+mod zone_rules;
 
 use crate::{Frame, Session};
 use al_builtins::describe::Describe;
@@ -63,6 +64,12 @@ pub struct DotNetConfig {
     pub host: Arc<dyn DotNetHost>,
     pub registry: Arc<Registry>,
     pub policy: Arc<Policy>,
+    /// BC's own Word merger and document converter (ADR-040 amendments 2026-11-13b and 2026-11-15), run by a front end;
+    /// `NoRenderer` when the run has none. Which saves ask it is `crate::report_render`'s gate.
+    pub renderer: Arc<dyn al_host::render::ReportRenderer>,
+    /// `--require-report-renderer`: a save whose real output needs `renderer` refuses when it is unavailable, instead of
+    /// keeping the output it has without one.
+    pub require_renderer: bool,
 }
 
 impl Default for DotNetConfig {
@@ -71,6 +78,8 @@ impl Default for DotNetConfig {
             host: Arc::new(al_host::dotnet::NoDotNet),
             registry: Arc::new(Registry::builtin()),
             policy: Arc::new(Policy::builtin()),
+            renderer: Arc::new(al_host::render::NoRenderer),
+            require_renderer: false,
         }
     }
 }
@@ -118,6 +127,41 @@ pub struct DotNetState {
 }
 
 impl DotNetState {
+    /// Holds what a new session holds (`install_left.rs`): no host session started and nothing noted. Every field is
+    /// named: a new one does not compile here until it is decided.
+    pub(crate) fn as_new(&self) -> bool {
+        let DotNetState {
+            session,
+            release,
+            available,
+            bridges,
+            open_workbooks,
+            closed_workbooks,
+            worksheets,
+            workbook_readers,
+            worksheet_readers,
+            cleared,
+            entry_streams,
+            result_ty,
+            null_string,
+            password_rng,
+        } = self;
+        session.is_none()
+            && release.borrow().is_empty()
+            && available.is_none()
+            && bridges.is_empty()
+            && open_workbooks.is_empty()
+            && closed_workbooks.is_empty()
+            && worksheets.is_empty()
+            && workbook_readers.is_empty()
+            && worksheet_readers.is_empty()
+            && cleared.is_empty()
+            && entry_streams.is_empty()
+            && result_ty.is_none()
+            && !null_string
+            && password_rng.is_none()
+    }
+
     pub(crate) fn clear_null_string(&mut self) {
         self.null_string = false;
     }
@@ -458,13 +502,9 @@ impl Session {
         {
             let blob = al_builtins::stream::new_blob();
             save_to = Some((p.to_string(), blob.clone()));
-            values[0] = Value::Library(
-                al_builtins::library_kind::LibraryKind::OutStream,
-                std::rc::Rc::new(std::cell::RefCell::new(LibraryValue::OutStream(
-                    blob,
-                    al_builtins::stream::Encoding::default(),
-                ))),
-            );
+            let out = LibraryValue::OutStream(blob, al_builtins::stream::Encoding::default(), None);
+            let out = std::rc::Rc::new(std::cell::RefCell::new(out));
+            values[0] = Value::Library(al_builtins::library_kind::LibraryKind::OutStream, out);
         }
 
         // ADR-056: outside the company build, .NET reads and writes files only in the session's in-memory file system.
@@ -483,18 +523,7 @@ impl Session {
         }
 
         // 2. The host provider, after the policy (ADR-014 section 8).
-        let assembly = match &target {
-            Target::Static(d) => Some(d.assembly.as_str()),
-            _ => None,
-        };
-        let access = if kind == MemberKind::Construct {
-            Access::Construct(values.len())
-        } else if values.iter().any(|v| matches!(v, Value::Text(_) | Value::Code(_))) {
-            Access::MemberWithText(&member)
-        } else {
-            Access::Member(&member)
-        };
-        if let Err(why) = engine.dotnet.policy.check(assembly, &clr_type, access) {
+        if let Err(why) = self.policy_check(&engine.dotnet.policy, &target, &clr_type, &member, kind, &values) {
             return unsupported(format!("DotNet {shown}: {why}"));
         }
         if matches!(target, Target::Internal(..)) {
@@ -688,7 +717,7 @@ impl Session {
             let blob = al_builtins::stream::new_blob();
             *(if create_book { open_workbook } else { save_to }) = Some((path.to_string(), blob.clone()));
             values[0] = lib(
-                LibraryValue::OutStream(blob, al_builtins::stream::Encoding::default()),
+                LibraryValue::OutStream(blob, al_builtins::stream::Encoding::default(), None),
                 al_builtins::library_kind::LibraryKind::OutStream,
             );
             return Ok(());
@@ -1154,7 +1183,7 @@ impl Session {
                     return unsupported(format!("DotNet {clr_type}: {why}"));
                 }
                 let blob = match &*h.borrow() {
-                    LibraryValue::OutStream(blob, _) => blob.clone(),
+                    LibraryValue::OutStream(blob, ..) => blob.clone(),
                     other => {
                         return unsupported(format!("CopyStream from a DotNet stream into {}", other.describe()));
                     }
@@ -1326,6 +1355,27 @@ impl Session {
         Ok(())
     }
 
+    /// What a reply says .NET did to the AL streams behind its bridges, applied to their Blobs: the bytes it wrote come back
+    /// (the bridges of al-runner issue 6317), and a Blob whose handed-back bytes it wrote over is marked
+    /// (`DOTNET_BRIDGE_OVERWRITTEN`). Every call that can write through a bridge applies its reply here.
+    fn apply_stream_effects(&self, streams: &al_host::dotnet::StreamEffects, shown: &str) -> Result<(), Signal> {
+        for (id, bytes) in &streams.written {
+            match self.dotnet.bridges.get(id) {
+                Some(blob) => al_builtins::stream::write_bytes(blob, bytes),
+                None => return unsupported(format!("DotNet {shown}: bytes for an unknown stream bridge {id}")),
+            }
+        }
+        for id in &streams.overwritten {
+            match self.dotnet.bridges.get(id) {
+                Some(blob) => {
+                    blob.borrow_mut().render_pending = Some(al_builtins::stream::DOTNET_BRIDGE_OVERWRITTEN.into())
+                }
+                None => return unsupported(format!("DotNet {shown}: an unknown stream bridge {id}")),
+            }
+        }
+        Ok(())
+    }
+
     fn apply_reply(
         &mut self,
         reply: DotNetReply,
@@ -1350,12 +1400,7 @@ impl Session {
                 self.dotnet.bridges.insert(*id, blob.clone());
             }
         }
-        for (id, bytes) in &reply.streams.written {
-            match self.dotnet.bridges.get(id) {
-                Some(blob) => al_builtins::stream::write_bytes(blob, bytes),
-                None => return unsupported(format!("DotNet {shown}: bytes for an unknown stream bridge {id}")),
-            }
-        }
+        self.apply_stream_effects(&reply.streams, shown)?;
         self.dotnet.null_string = matches!(reply.value, DotNetValue::NullString);
         let value = self.wire_to_value(reply.value).map_err(|e| prefix(e, shown))?;
         for (idx, v) in reply.by_ref {
@@ -1426,7 +1471,14 @@ impl Session {
                         at: st.pos.min(st.len()),
                     }
                 }
-                LibraryValue::OutStream(blob, _) => {
+                LibraryValue::OutStream(blob, ..) => {
+                    // A Blob whose handed-back bytes .NET wrote over holds bytes that are not known (al-runner issue 7947), and BC
+                    // hands .NET that Blob's own stream: refused.
+                    if blob.borrow().render_pending.as_deref() == Some(al_builtins::stream::DOTNET_BRIDGE_OVERWRITTEN) {
+                        return unsupported(
+                            "an OutStream of a Blob whose bytes a DotNet call wrote over, handed to .NET",
+                        );
+                    }
                     book.outs.push((arg, blob.clone()));
                     // BC hands .NET the Blob's own stream: a ZipArchive in Read mode over an OutStream AL copied a zip into reads
                     // that zip (corpus tests/al-language-onprem-dotnet/dotnet/dotnet/WdZipArchiveOverOutStream.al:77-96
@@ -1671,6 +1723,34 @@ fn boxed_clr_type(v: &Value) -> Option<&'static str> {
         Value::Guid(_) => "System.Guid",
         _ => return None,
     })
+}
+
+impl Session {
+    /// Step 2 of the router: the policy (ADR-014 section 8), then the zone checks that also need the arguments
+    /// (`zone_rules.rs`). `Err` is the refusal reason.
+    fn policy_check(
+        &self,
+        policy: &Policy,
+        target: &Target,
+        clr_type: &str,
+        member: &str,
+        kind: MemberKind,
+        values: &[Value],
+    ) -> Result<(), String> {
+        let assembly = match target {
+            Target::Static(d) => Some(d.assembly.as_str()),
+            _ => None,
+        };
+        let access = if kind == MemberKind::Construct {
+            Access::Construct(values.len())
+        } else if values.iter().any(|v| matches!(v, Value::Text(_) | Value::Code(_))) {
+            Access::MemberWithText(member)
+        } else {
+            Access::Member(member)
+        };
+        policy.check(assembly, clr_type, access)?;
+        self.zone_rules_check(policy, clr_type, member, target, values)
+    }
 }
 
 fn host_target(t: &Target) -> DotNetTarget {

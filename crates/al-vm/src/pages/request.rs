@@ -286,7 +286,21 @@ impl Session {
     /// `[RequestPageHandler]` and reports how the handler closed it. The page's `OnInit` and
     /// `OnOpenPage` run before the handler sees it, and write the report's own variables
     /// (reports/TestRequestPageOnInit.al, reports/TestReportRunRequestPage.al: `rp-open`).
+    /// The page that two reportextensions of independent apps extend with triggers opens only as `request_ok_only_open` lets it.
     pub(crate) fn run_request_page(
+        &mut self,
+        inst: &Inst,
+        object: usize,
+        seed: Option<&str>,
+        run_ext: Vec<(usize, Inst)>,
+        want_parameters: bool,
+    ) -> Result<(RequestClosed, Option<String>), Signal> {
+        self.request_ok_only_open(object, want_parameters, |s| {
+            s.open_request_page(inst, object, seed, run_ext, want_parameters)
+        })
+    }
+
+    fn open_request_page(
         &mut self,
         inst: &Inst,
         object: usize,
@@ -354,6 +368,7 @@ impl Session {
         else {
             return unsupported("a request page without a handler");
         };
+        self.request_ok_only_handler(object, hobject, hroutine)?;
         self.request_page_takes_init_caption(inst, &st);
         self.ui_state.page_handler_depth += 1;
         // The handler of a `RunRequestPage` finds no transaction, while the page's own triggers write as ever
@@ -594,11 +609,11 @@ impl Session {
         let target = crate::reports::SaveTarget::File(name);
         // `None`: the ADR-040 allow-list's answer, run and write nothing.
         let placeholder = {
-            use crate::report_save::{AnswerForm, BeforeRun};
+            use crate::report_save::{AnswerForm, BeforeRun, Call};
             let Some(f) = crate::report_placeholder::Format::from_name(format) else {
                 return unsupported(format!("SaveAs{format} of \"{}\"", schema.name()));
             };
-            match self.save_before_run(&schema, f, &target, AnswerForm::None, false)? {
+            match self.save_before_run(&schema, f, (&target, Call::Other), AnswerForm::None, false)? {
                 BeforeRun::Run(plan) => Some(crate::report_placeholder::SaveOutput::Rendered(Box::new(plan))),
                 BeforeRun::Discard => None,
                 // No row of the request page's form answers before the run (`report_save` test
@@ -627,7 +642,7 @@ impl Session {
         let rows = written.rows;
         drop(written);
         let output = placeholder.unwrap_or(crate::report_placeholder::SaveOutput::Discard);
-        self.write_save_output(target, output, &schema, &[], rows)?;
+        self.write_save_output(target, output, &schema, &[], rows, None)?;
         st.borrow_mut().result = Some(format!("SaveAs{format}"));
         self.mark_closed(st);
         Ok(Value::Null)

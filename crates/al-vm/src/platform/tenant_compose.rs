@@ -10,8 +10,12 @@
 //! - an included set that does not exist adds nothing, and a cycle of includes gives each set the rights of all of them
 //!   (:191 Compose_IncludedSetMissing_And_Cycle).
 //!
+//! - own rows of other object types are listed as stored (tests/al-language/permissions/testpermissions/
+//!   Y19PermExtAndCompose.al:432-453 PC_D_ExpandedPermissionOfTenantObjectGrants), in the shape
+//!   [`measured_object_grant`] allows, for a set that includes and excludes nothing and that no other set names.
+//!
 //! Only the shapes the corpus measured are served; a set that uses another is refused when a read can reach it: a right of
-//! Indirect, a Security Filter, an object type other than Table Data, a row with no right, a relation to a System set, an
+//! Indirect, a Security Filter, any other row of an object type other than Table Data, a row with no right, a relation to a System set, an
 //! included set that excludes, an excluded set that is missing or composes itself, and Tenant Permission rows of a role
 //! without a set. A set composed again after its rows changed is refused: the platform keeps the last composed set
 //! (TestMetadataExpandedPermission.al:196-207), which is not modelled.
@@ -45,6 +49,8 @@ struct TenantSet {
     excludes: Vec<SetKey>,
     /// Why the set is not served.
     unpinned: Option<String>,
+    /// The set has own rows of an object type other than Table Data, in the shape [`measured_object_grant`] allows.
+    object_grants: bool,
 }
 
 /// The sets composed so far in this session, for the refusal of a set composed again after its rows changed.
@@ -153,8 +159,19 @@ impl Providers {
             for (k, l) in level.iter_mut().enumerate() {
                 *l = ord(&r[c[4 + k]]) as u8;
             }
+            let object_id = match &r[c[3]] {
+                Value::Integer(n) => *n,
+                _ => 0,
+            };
+            let object_grant = ord(&r[c[2]]) != 0
+                && ord(&r[c[10]]) == 0
+                && text(&r[c[9]]).is_empty()
+                && measured_object_grant(&self.engine(), ord(&r[c[2]]), object_id, level);
+            if object_grant {
+                set.object_grants = true;
+            }
             // Object Type: Table Data (0).
-            let why = if ord(&r[c[2]]) != 0 {
+            let why = if ord(&r[c[2]]) != 0 && !object_grant {
                 Some("a tenant grant of an object type other than Table Data")
             } else if level.iter().any(|l| *l > 1) {
                 Some("a tenant grant of Indirect")
@@ -265,6 +282,20 @@ fn included(
     if !top && (!set.exclude.is_empty() || !set.excludes.is_empty()) {
         return Err("an included tenant set that excludes rights".into());
     }
+    // The measured set with grants of other object types has only its own rows, and no other set names it
+    // (Y19PermExtAndCompose.al:455-477).
+    let named = || {
+        sets.values()
+            .any(|s| s.includes.contains(key) || s.excludes.contains(key))
+    };
+    if set.object_grants
+        && (!top || !set.includes.is_empty() || !set.excludes.is_empty() || !set.exclude.is_empty() || named())
+    {
+        return Err(
+            "a tenant set with grants of an object type other than Table Data that includes, excludes or is included or excluded"
+                .into(),
+        );
+    }
     let mut rights = set.include.clone();
     for inc in &set.includes {
         if !seen.contains(inc) {
@@ -282,11 +313,15 @@ fn compose(sets: &HashMap<SetKey, TenantSet>, key: &SetKey) -> Result<Rights, St
             return Err("an excluded tenant set that does not exist".into());
         };
         if other.unpinned.is_some()
+            || other.object_grants
             || !other.includes.is_empty()
             || !other.excludes.is_empty()
             || !other.exclude.is_empty()
         {
-            return Err("an excluded tenant set that composes other sets or excludes rights".into());
+            return Err(
+                "an excluded tenant set that composes other sets, excludes rights or grants an object type other than Table Data"
+                    .into(),
+            );
         }
         remove(&mut rights, &other.include);
     }
@@ -362,4 +397,31 @@ pub(super) fn tenant_expanded_entries(
         }
     }
     Ok(out)
+}
+
+/// Whether a Tenant Permission row of object type `kind` (the "Object Type" ordinal) for object `id` with levels `level` is in
+/// the shape tests/al-language/permissions/testpermissions/Y19PermExtAndCompose.al:432-453 pins (rows :455-478, test
+/// PC_D_ExpandedPermissionOfTenantObjectGrants): a row of Type Include,
+/// no Security Filter, every permission column Yes (its InitValue), for a Table, Report, Codeunit, XMLport, Page or Query object
+/// of the program, or System object 1350; "Expanded Permission" lists it as it is stored (:450-451).
+fn measured_object_grant(engine: &crate::Engine, kind: i32, id: i32, level: [u8; 5]) -> bool {
+    let object_kind = match kind {
+        1 => al_ir::ObjKind::Table,
+        3 => al_ir::ObjKind::Report,
+        5 => al_ir::ObjKind::Codeunit,
+        6 => al_ir::ObjKind::XmlPort,
+        8 => al_ir::ObjKind::Page,
+        9 => al_ir::ObjKind::Query,
+        10 => return id == 1350 && level == [1; 5],
+        _ => return false,
+    };
+    let declared = u32::try_from(id).is_ok_and(|id| {
+        engine
+            .program
+            .objects
+            .heads()
+            .iter()
+            .any(|o| o.kind == object_kind && o.id == Some(id))
+    });
+    declared && level == [1; 5]
 }

@@ -10,13 +10,13 @@
 //! false). When SelectReportLayoutCode answers a selected layout BC raises no SelectedBuiltinLayoutType
 //! (reports/layouts-html-text/HtRenderedTextTests.al:494, :530, corpus pull request 1362), so the platform never reads the
 //! company's row then: a temporary selection renders the same over every row of the company (RxdDeclLayoutTests.al:811,
-//! :1336, :1651; RxdDeclEmailBodyTests.al:199, :329, :407, corpus pull request 1381).
+//! :1336, :1651; RxdDeclEmailBodyTests.al:199, :329, :407).
 //!
 //! The mapping:
 //! - SelectedBuiltinLayoutType answers RDLC or Word for a layout of the default layout's kind: [`Selection::SameKind`]
 //!   (reports/html-email-body/RxLayoutSelectionTests.al:403, :428, :501, corpus pull request 1371); of the other kind, which
 //!   the rendering section declares: [`Selection::OtherKind`]. For a save of a report whose `WordLayout` and `RDLCLayout`
-//!   properties declare its layouts, RDLC is the other kind too (RxdDeclLayoutTests.al:130-:293, corpus pull request 1381).
+//!   properties declare its layouts, RDLC is the other kind too (RxdDeclLayoutTests.al:130-:293).
 //!   Any other answer that is not None: [`Selection::Unknown`]. A row of another company or with an empty Company Name is
 //!   not read by Microsoft's code (RxLayoutSelectionTests.al:795, :1022; RxdDeclLayoutTests.al:916, :1126).
 //! - A Tenant Report Layout Selection row that names a declared RDLC or Word layout is classed the same way; any other row is
@@ -26,7 +26,8 @@
 //!   Word layout of the report: [`Selection::TempWord`], and SelectedBuiltinLayoutType is not raised. Any other answer while
 //!   a selection was held is [`Selection::DesignTimeHeld`].
 //! - The same answer while no selection was held (the name is the company's Custom Layout row's code): a name of no Tenant
-//!   Report Layout row, while SelectedBuiltinLayoutType answers None, is [`Stored::CustomUnknownCode`]
+//!   Report Layout row, while SelectedBuiltinLayoutType answers None, for a report that declares an RDLC layout in its
+//!   rendering section, is [`Stored::CustomUnknownCode`]
 //!   (RxLayoutSelectionTests.al:746, :771). Any other answer is [`Selection::Unknown`].
 //!
 //! A run, and a save that does not reach the layout selection (processing only, a layout of Type Custom, the company build),
@@ -143,7 +144,10 @@ impl Session {
             }
             Select::Named(name) => {
                 let builtin = self.builtin_layout_type(schema)?;
-                let stored = if builtin == NONE && self.no_tenant_layout_named(&name)? {
+                // The report of the pin declares an RDLC layout (report 80020, RxLayoutSelFixtures.al; its RDLC row at
+                // RxLayoutSelectionTests.al:452).
+                let declares_rdlc = schema.report().rendering_layouts.iter().any(|l| l.kind == "rdlc");
+                let stored = if builtin == NONE && declares_rdlc && self.no_tenant_layout_named(&name)? {
                     Stored::CustomUnknownCode
                 } else {
                     Stored::None

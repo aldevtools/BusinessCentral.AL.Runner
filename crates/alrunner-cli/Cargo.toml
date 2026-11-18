@@ -42,5 +42,6 @@ libc = "0.2"
 mimalloc = { version = "0.1", optional = true, features = ["v2"] }
 
 [dev-dependencies]
+al-testfiles.workspace = true
 al-testkit.workspace = true
 tempfile = "3"

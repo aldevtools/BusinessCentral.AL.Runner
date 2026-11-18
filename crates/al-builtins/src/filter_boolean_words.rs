@@ -6,7 +6,8 @@
 //! - German (1031): `Ja`/`Nein`; the English `Yes` and `no` are refused (:164-174 WF3_Words_German);
 //! - French (1036): `Oui`/`Non`, and `no` too; `Yes`, `Ja` and `Nein` are refused (:184-194 WF3_Words_French).
 //!
-//! Any other language is not pinned and is refused.
+//! Any other language is not pinned and is refused by the parser; under Danish (1030) al-vm answers the whole texts
+//! [`danish_filter_text`] lists.
 
 /// The words of the session language for true and false, besides `true`, `false`, `1` and `0` (lower case).
 fn language_words(language: Option<i32>) -> Option<(&'static [&'static str], &'static [&'static str])> {
@@ -36,6 +37,19 @@ pub(crate) fn boolean_filter_word(language: Option<i32>, text: &str) -> Result<O
     })
 }
 
+/// The whole Boolean filter texts under 1030 the reporter of al-runner issue 8197 measured, as written (assumption
+/// `boolean-filter-words-danish`): `Some(Some(value))` for `Ja` (true) and `Nej` (false), `Some(None)` for `Yes`, which the
+/// language does not accept, `None` for every other text. The parser does not read them ([`boolean_filter_word`] refuses 1030):
+/// only al-vm's `danish_boolean_filter`, which knows the caller and the arguments, does.
+pub fn danish_filter_text(text: &str) -> Option<Option<bool>> {
+    match text {
+        "Ja" => Some(Some(true)),
+        "Nej" => Some(Some(false)),
+        "Yes" => Some(None),
+        _ => None,
+    }
+}
+
 /// What `Evaluate` into a Boolean makes of a text under a language other than English.
 #[derive(Debug, PartialEq)]
 pub(crate) enum EvaluateWord {
@@ -46,12 +60,21 @@ pub(crate) enum EvaluateWord {
 }
 
 /// `Evaluate(Boolean, Text)` under GlobalLanguage 1030, 1031, 1036, 1043 or 2067 (`None` for another language), with blanks
-/// around the text dropped and any case (format-evaluate/EvalLanguageBoolean.al EL_Words_*, EL_Errors_*, the same on the
+/// around the text dropped and any case; 1044 and 1053 only as measured, with the result used (`ret_used`,
+/// [`norwegian_swedish_word`]) (format-evaluate/EvalLanguageBoolean.al EL_Words_*, EL_Errors_*, the same on the
 /// three supported majors). The language's own words are `Ja`/`Nein` (1031), `Oui`/`Non` and `No` (1036), `Ja`/`Nej` (1030)
 /// and `Ja`/`Nee` (1043, 2067); `true`, `false`, `1`, `0` and `N` (false) read in all of them. `Y`, `Yes`, and the words of
 /// the other languages are rejected, except `No`, which French reads as false. Texts outside that list are not pinned,
 /// except the German ones errors/WcUnpinnedSingles.al:79-113 pins (`vielleicht`, `Wahr`, `Falsch`, `x`).
-pub(crate) fn evaluate_boolean_word(language: i32, text: &str) -> Option<EvaluateWord> {
+pub(crate) fn evaluate_boolean_word(language: i32, text: &str, ret_used: bool) -> Option<EvaluateWord> {
+    if matches!(language, 1044 | 1053) {
+        // The statement form is not measured: `Yes`, which the measured form rejects, refuses; every other text keeps the English
+        // reading, and its error under these languages refuses (evaluate.rs).
+        if !ret_used {
+            return (text == "Yes").then_some(EvaluateWord::NotPinned);
+        }
+        return Some(norwegian_swedish_word(language, text));
+    }
     let (yes, no): (&[&str], &[&str]) = match language {
         1031 => (&["ja"], &["nein"]),
         1036 => (&["oui"], &["non", "no"]),
@@ -74,6 +97,24 @@ pub(crate) fn evaluate_boolean_word(language: i32, text: &str) -> Option<Evaluat
     } else {
         EvaluateWord::NotPinned
     })
+}
+
+/// `Evaluate(Boolean, Text)` under 1044 and 1053: only the texts the reporter of al-runner issue 8182 measured, as written
+/// (assumption `boolean-words-norwegian-swedish`): `Ja`, `true` and `1` are true, `false` and the language's own `Nei` (1044) or
+/// `Nej` (1053) false, `Yes` is rejected. Every other text, another case and a blank around the word, is not measured.
+fn norwegian_swedish_word(language: i32, w: &str) -> EvaluateWord {
+    let no = if language == 1044 { "Nei" } else { "Nej" };
+    let read = if matches!(w, "Ja" | "true" | "1") {
+        EvaluateWord::Value(true)
+    } else if w == "false" || w == no {
+        EvaluateWord::Value(false)
+    } else if w == "Yes" {
+        EvaluateWord::Rejected
+    } else {
+        return EvaluateWord::NotPinned;
+    };
+    crate::assumptions::assume(crate::assumptions::Assumption::BooleanWordsNorwegianSwedish);
+    read
 }
 
 #[cfg(test)]
@@ -109,7 +150,25 @@ mod tests {
         assert!(w(Some(1043), "Ja").is_err());
     }
 
-    use super::{EvaluateWord::*, evaluate_boolean_word as e};
+    // Assumption boolean-filter-words-danish (al-runner issue 8197): only the whole texts Ja, Nej and Yes as written are measured;
+    // the parser reads no word under 1030.
+    #[test]
+    fn danish_texts_as_measured() {
+        use super::danish_filter_text as d;
+        assert_eq!(d("Ja"), Some(Some(true)));
+        assert_eq!(d("Nej"), Some(Some(false)));
+        assert_eq!(d("Yes"), Some(None));
+        for other in ["JA", "nej", " Ja", "Ja|Nej", "true", "No"] {
+            assert_eq!(d(other), None, "{other}");
+        }
+        assert!(w(Some(1030), "Ja").is_err());
+    }
+
+    use super::EvaluateWord::*;
+
+    fn e(language: i32, text: &str) -> Option<super::EvaluateWord> {
+        super::evaluate_boolean_word(language, text, true)
+    }
 
     #[test]
     fn evaluate_words_by_language() {

@@ -117,9 +117,8 @@ pub struct TestArgs {
     /// `--dev-endpoint-ui` (issue 3697): a UI call no handler takes gets the answer of Business Central's dev-endpoint
     /// test runner, for the measured shapes, with a warning per call; such a pass is flagged `dev-endpoint-ui`.
     pub dev_endpoint_ui: bool,
-    /// `--no-client` (issue 7564): the test session is a session without a client: GuiAllowed false, Message silent, Confirm,
-    /// StrMenu and a page that would open raise CallbackNotAllowed, calls not probed are not run. Such a pass is flagged
-    /// `no-client-session`.
+    /// `--no-client` (issues 7564, 8154): the test session is a web-service session, as a user measured it on BC (al-vm
+    /// `clientless.rs`); calls not measured there are not run. Such a pass is flagged `no-client-session`.
     pub no_client: bool,
     /// `--allow-write-in-try-functions` (al-runner issue 7143): run as a service tier whose setting DisableWriteInsideTryFunctions
     /// is off (Business Central online). Default: the setting's default, as a BC container: such a write raises TryFunctionWrite.
@@ -196,6 +195,9 @@ pub struct TestArgs {
     /// not run and ends as not run, naming that test.
     pub skip_after_timeout: bool,
     pub require_dotnet: bool,
+    /// `--require-report-renderer` (ADR-040 amendment 2026-11-15): a save whose real Html needs BC's own merger and converter
+    /// refuses when the report renderer is unavailable, instead of keeping the opaque Html.
+    pub require_report_renderer: bool,
     pub files_dir: Option<PathBuf>,
     /// `--license FILE` (serve: `license`): the BC license the run uses instead of the BC artifacts' (ADR-060).
     pub license: Option<PathBuf>,
@@ -203,6 +205,8 @@ pub struct TestArgs {
     pub environment: Option<al_host::Environment>,
     /// `--companies NAME[,NAME...]|all` (ADR-046 decision 2): the companies of the database. `None`: one company.
     pub companies: Option<al_host::Companies>,
+    /// Not a command line option: a serve request's `companies` field set `companies`, so a message names that field.
+    pub companies_from_request: bool,
     /// `--server-url URL` (else `$ALRUNNER_SERVER_URL`): the base address `GetUrl` answers with (ADR-042).
     pub server_url: Option<String>,
     /// Not a command line option: the name `CompanyName()` answers when no company is restored (a lane of the recipe).
@@ -494,7 +498,11 @@ fn stability_matrix_args(a: &mut TestArgs) -> Result<(), String> {
                         axes.companies.len()
                     )
                 })?;
-            a.companies = value.as_deref().map(al_host::Companies::parse).transpose()?;
+            a.companies = value
+                .as_deref()
+                .map(al_host::Companies::parse)
+                .transpose()
+                .map_err(|e| format!("--companies {e}"))?;
         }
         return Ok(());
     }
@@ -682,23 +690,32 @@ selects only the tests both match)
                          measured on Business Central are answered; the others still fail. Each
                          answer prints a warning with the test, the call and the answer, and such a
                          test is a flagged pass, `dev-endpoint-ui`.
-    --no-client          Run the tests as a session without a client, as a web-service session is
-                         (for example a mutation-testing run compared with a web-service run on
-                         Business Central). Every dialog answers as it does in a page background
-                         task worker, and no handler of the test sees the call: GuiAllowed() is
-                         false; Message, Dialog.Open, Hyperlink and RequestSessionUpdate(false)
-                         return; Notification.Send returns true; FilterPageBuilder.RunModal and
-                         UploadIntoStream return false; Confirm, StrMenu, Page.Run(Id),
-                         Page.RunModal and a static Report.Run or RunModal whose request page
-                         would open raise the CallbackNotAllowed error. Business Central is
-                         measured only for that worker, so a test that passes through one of
-                         these is a flagged pass, `no-client-session`. So is a test that opens a
-                         TestPage, and a read of the WorkDate that Base Application's login code
-                         would have set (it does not run without a client). A call that is not
-                         measured there is not run, with the reason: CurrentClientType, a page
-                         run with a record or of a page with triggers, a report run on a
-                         variable or with a RequestPageHandler, Xmlport.Run with its request
-                         page, Report.RunRequestPage, file download.
+    --no-client          Run the tests as a web-service session runs them (Microsoft's test
+                         runner called over OData, as a mutation-testing tool does), measured
+                         by a user on Business Central 28.4. On every version GuiAllowed() is
+                         false. On version 28 only: in a test method Confirm, StrMenu, Message,
+                         Hyperlink and Notification.Send go to the test's handlers, a Message
+                         or Hyperlink that no handler takes fails with `Unhandled UI`, and
+                         CurrentClientType() is ODataV4; a static Report.Run or RunModal of a
+                         processing-only report with one empty data item and an empty request
+                         page, and nothing else, skips the request page, so a bound
+                         RequestPageHandler ends in `not executed`. On 27 and 29 these are not
+                         run. They need version 28 as the target: `--bc-version 28`, or
+                         application 28 in app.json; with no target they are not run. A test
+                         that passes through one of these is a flagged pass,
+                         `no-client-session`; so is a read of the WorkDate that Base
+                         Application's login code would have set. Not run, as Business Central
+                         fails them there with an error that is not measured: a TestPage open
+                         and every other call on a TestPage, Report.RunRequestPage, a read of
+                         the Session table. Not run, as not measured: a read of the Active
+                         Session table, CurrentClientType() outside a test method, a raised
+                         login, Confirm, StrMenu and Notification.Send without a handler, a
+                         page handler that takes a TestPage, Page.Run and Page.RunModal,
+                         Dialog.Open, the file dialogs, FilterPageBuilder.RunModal,
+                         RequestSessionUpdate, Report.RunModal with a handler, a report run in
+                         a write transaction, any other report request page, Xmlport.Run with
+                         its request page. Install code keeps its own answers.
+                         --dev-endpoint-ui has no effect with it.
                          In `serve`: the runTests field `noClient`.
     --dependencies-published-global
                          Show Published As of NAV App Installed App as Global, not Dev, for a
@@ -976,11 +993,15 @@ ISOLATION
                          that fails because it needs state an earlier codeunit sets on Business
                          Central gets an order hint: the SingleInstance codeunit, its app, the
                          variable, the codeunit that sets it and this option (console, JUnit
-                         property `orderHint`, JSON `orderHint`). Test codeunits that take numbers
-                         after another codeunit took some are listed (`number order:` lines, JUnit
-                         property `numberSequenceOrder`). Fix such a test: set up the state it needs
-                         in its own codeunit's Initialize, or clear the SingleInstance codeunit there.
+                         property `orderHint`, JSON `orderHint`). Test codeunits that take or read
+                         numbers after another codeunit took some are listed (`number order:`
+                         lines, JUnit property `numberSequenceOrder`). Fix such a test: set up the
+                         state it needs in its own codeunit's Initialize, or clear the
+                         SingleInstance codeunit there.
                          With this option the state and the numbers carry as on Business Central.
+                         Under --isolation test what a later codeunit sees of the numbers an
+                         earlier codeunit's tests took is not measured: each NumberSequence call
+                         there is refused, and its test is reported as not run.
                          A test codeunit that reads SingleInstance state an earlier one left keeps
                          its parallel result, flagged `single-instance-order`, and runs again in
                          order with the codeunits it depends on when one of its tests failed or was
@@ -1211,7 +1232,8 @@ OTHER
                          no test); past it, every test of the codeunit gets the timeout row. 0: no limit.
                          Sleep does not wait, but the time it asks for, summed over the test,
                          counts toward N: a test whose Sleep calls go past N is stopped and
-                         reported the same way.
+                         reported the same way. In `serve`: a start option; the runTests field
+                         `testTimeoutSecs`, on the request or on an entry, sets it for that one.
     --skip-after-timeout  Once a test is stopped at the time limit, do not run the rest of its codeunit:
                          the tests after it end as not run, with a reason that names the stopped test.
                          Default: they run, since a later pass is still a result. Also for --affected,
@@ -1220,6 +1242,8 @@ OTHER
                          document has it as `notRunSeconds`.
     --dotnet-sidecar PATH, --dotnet-assembly-dir DIR, --dotnet-allow-roll-forward,
     --dotnet-timeout-secs N, --require-dotnet     The optional .NET helper (ADR-014).
+    --require-report-renderer  A save whose real Html needs BC's own Word merger and converter refuses
+                         when they are unavailable, instead of keeping the opaque Html (CI).
 
 ENVIRONMENT
     ALRUNNER_CACHE       The cache folder when --cache-dir is not given.
@@ -1235,6 +1259,21 @@ ENVIRONMENT
     AL_CHECK_THREADS, AL_LOWER_THREADS, AL_TEST_THREADS  Worker threads of the check, the
     lowering and the test codeunits (default: one per core).
 ";
+
+/// The optional count after `flag` (`--top-refusals` or `--top-refusals 5`): at least 1, [`DEFAULT_TOP`] without one.
+fn optional_count(flag: &str, it: &mut std::iter::Peekable<impl Iterator<Item = String>>) -> Result<usize, String> {
+    match it.peek() {
+        Some(v) if !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit()) => {
+            let v = it.next().unwrap_or_default();
+            let n = number(flag, &v)?;
+            if n == 0 {
+                return Err(format!("{flag} needs a count of at least 1"));
+            }
+            Ok(n)
+        }
+        _ => Ok(DEFAULT_TOP),
+    }
+}
 
 fn number(flag: &str, v: &str) -> Result<usize, String> {
     v.parse().map_err(|_| format!("{flag} needs a number, got `{v}`"))
@@ -1481,19 +1520,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             return Ok(Command::Help);
         }
         if flag == "--top-refusals" {
-            // The count is optional: `--top-refusals` or `--top-refusals 5`.
-            let n = match it.peek() {
-                Some(v) if !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit()) => {
-                    let v = it.next().unwrap_or_default();
-                    let n = number("--top-refusals", &v)?;
-                    if n == 0 {
-                        return Err("--top-refusals needs a count of at least 1".into());
-                    }
-                    n
-                }
-                _ => DEFAULT_TOP,
-            };
-            a.top_refusals = Some(n);
+            a.top_refusals = Some(optional_count("--top-refusals", &mut it)?);
             continue;
         }
         if flag == "--list-assumptions" {
@@ -1517,33 +1544,11 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             continue;
         }
         if flag == "--top-assumptions" {
-            let n = match it.peek() {
-                Some(v) if !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit()) => {
-                    let v = it.next().unwrap_or_default();
-                    let n = number("--top-assumptions", &v)?;
-                    if n == 0 {
-                        return Err("--top-assumptions needs a count of at least 1".into());
-                    }
-                    n
-                }
-                _ => DEFAULT_TOP,
-            };
-            a.top_assumptions = Some(n);
+            a.top_assumptions = Some(optional_count("--top-assumptions", &mut it)?);
             continue;
         }
         if flag == "--top-failures" {
-            let n = match it.peek() {
-                Some(v) if !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit()) => {
-                    let v = it.next().unwrap_or_default();
-                    let n = number("--top-failures", &v)?;
-                    if n == 0 {
-                        return Err("--top-failures needs a count of at least 1".into());
-                    }
-                    n
-                }
-                _ => DEFAULT_TOP,
-            };
-            a.top_failures = Some(n);
+            a.top_failures = Some(optional_count("--top-failures", &mut it)?);
             continue;
         }
         if flag == "--output-json" {
@@ -1672,7 +1677,9 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             "--files-dir" => a.files_dir = Some(text()?.into()),
             "--license" => a.license = Some(text()?.into()),
             "--environment" => a.environment = Some(text()?.parse().map_err(|e| format!("--environment: {e}"))?),
-            "--companies" => a.companies = Some(al_host::Companies::parse(&text()?)?),
+            "--companies" => {
+                a.companies = Some(al_host::Companies::parse(&text()?).map_err(|e| format!("--companies {e}"))?)
+            }
             "--server-url" => {
                 a.server_url = Some(al_host::check_server_url(&text()?).map_err(|e| format!("--server-url: {e}"))?)
             }
@@ -1680,6 +1687,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             "--dotnet-assembly-dir" => a.dotnet_assembly_dirs.push(text()?.into()),
             "--dotnet-allow-roll-forward" => a.dotnet_allow_roll_forward = true,
             "--require-dotnet" => a.require_dotnet = true,
+            "--require-report-renderer" => a.require_report_renderer = true,
             "--dotnet-timeout-secs" => {
                 let v = text()?;
                 a.dotnet_timeout_secs = Some(number(&flag, &v)? as u64);

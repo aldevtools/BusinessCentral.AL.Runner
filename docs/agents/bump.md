@@ -46,6 +46,31 @@ and does not merge. Its pull request body lists what is left for a person
 assumptions, guards without a gate, harness counts, stale golden files). Fix
 those on its branch; the bot never pushes to a branch that exists.
 
+A bump from a corpus run also checks where each result came from (ADR-077,
+`tools/corpus_bump_provenance.py`, also in `--dry-run`). The run must be green
+on `master` (a push or schedule run), or be the nightly full run whose only
+failed job is the comparison. Its `results-manifest` must be of the run's
+latest attempt, and its counts of fresh and reused codeunits must match the
+files. Every suite must carry its provenance and the manifest's BC build, every
+source commit must be an ancestor of the run's commit, a suite of the run itself
+must name the run's commit, a reused codeunit's declaring files must be
+unchanged since its source commit, the chain must be at most 20 runs, the newest
+nightly at or before the commit must be green and report no difference for
+every version, and
+no codeunit of the current oracle may go missing unless the corpus diff deleted
+or renamed its file. A run without a manifest passes only when no suite carries
+provenance (a run from before the corpus recorded it). The bump writes `mode`,
+`fresh`, `reused`, `oldest_source_run` and `ci_bc_build` into each
+`[[version]]` of `oracle.toml` and warns when `ci_bc_build` differs from
+`bc_build`. The bump bot finds only green push runs, so a bump from the
+nightly exception is run by hand. A run that reuses results also waits for the
+first nightly after it (the first created among the nightlies on its commit or a
+later one): that nightly must have ended green, with a manifest of its latest
+attempt that reports no difference for every version and names this run as the
+run it compared (owner, 2026-11-18). Only the run a nightly compared can be
+bumped as a combined run. A first nightly that refuses keeps refusing the run
+until that nightly is re-run; the pin then moves through a later run.
+
 A bump need not wait for the corpus master run (about 55 minutes after a corpus
 pull request merges; owner, 2026-11-05): `tools/corpus_bump.sh --from-pr
 N[,N...]` moves the pin to the merge commit of those corpus pull requests and

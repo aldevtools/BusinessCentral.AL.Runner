@@ -1,14 +1,18 @@
 //! al-runner issue 6924 on a List host: what Rec holds in the action of a ListPart that shows no row, when the host is a
 //! PageType = List page. The objects and tests are the corpus probe's (pages/parts/EmptyPartRecLinkList.al), each test raising
 //! what it observed in place of the Probe Observer. The expected values are the probe's local observation on BC 28.5 (corpus
-//! pull request 1339); the List-host cells run through the assumption `empty-part-rec-list-host` until it is pinned.
+//! pull request 1339); the probe is pinned (tests/al-language/pages/parts/EmptyPartRecLinkList.al), so no cell goes through an
+//! assumption.
 
 use al_builtins::assumptions::Assumption;
 use al_testkit::{blocked, compile};
 use al_testrun::Outcome;
 use al_testrun::isolation::TestIsolation;
 
-/// Each test's outcome and the assumptions it went through.
+/// The assumption the tests' own `Error(Log.Get())` goes through; not one of the runtime paths under test.
+const HARNESS: Assumption = Assumption::ErrorTextProcedureResult;
+
+/// Each test's outcome and whether it went through an assumption other than `HARNESS`.
 fn run(src: &str) -> Vec<(String, Outcome, bool)> {
     let l = compile(src);
     let engine = al_vm::Engine::new(l.program.clone(), blocked(&l));
@@ -39,7 +43,7 @@ fn run(src: &str) -> Vec<(String, Outcome, bool)> {
         .map(|(name, outcome)| {
             let flagged = hits
                 .iter()
-                .any(|(n, h): &(String, Vec<Assumption>)| *n == name && h.contains(&Assumption::EmptyPartRecListHost));
+                .any(|(n, h): &(String, Vec<Assumption>)| *n == name && h.iter().any(|a| *a != HARNESS));
             (name, outcome, flagged)
         })
         .collect()
@@ -1978,8 +1982,9 @@ codeunit 76850 "PG EPL Tests"
 }
 "#;
 
-/// Each cell: what BC 28.5 raised (corpus pull request 1339, local observation), and whether the cell goes through the
-/// assumption (a List host whose part takes the link values; the cells of a List that shows no row do not).
+/// Each cell: what BC 28.5 raised (corpus pull request 1339, local observation), and whether the cell lands in a List-host cell
+/// (a List host whose part takes the link values; the cells of a List that shows no row do not). No cell goes through an
+/// assumption.
 const CELLS: &[(&str, &str, bool)] = &[
     (
         "EmptyPart_ListOpenEdit_FactBoxConstField_ActionReadsRec",
@@ -2401,12 +2406,12 @@ fn empty_list_part_rec_list_host_cells() {
             }
             continue;
         }
-        let (_, bc, flag) = CELLS
+        let (_, bc, _) = CELLS
             .iter()
             .find(|(n, _, _)| n == name)
             .unwrap_or_else(|| panic!("no cell {name}"));
         let want = GAPS.iter().find(|(n, _)| n == name).map_or(*bc, |(_, v)| *v);
-        if !raised(outcome, want) || flagged != flag {
+        if !raised(outcome, want) || *flagged {
             wrong.push((name, outcome, flagged));
         }
     }
@@ -2425,7 +2430,9 @@ fn raised(outcome: &Outcome, want: &str) -> bool {
 
 /// List-host shapes probe 1339 does not measure: a `field(filter(..))` link, a SubPageView, a part with an OnNewRecord, a part a
 /// page extension adds, a host
-/// moved by Previous, Last or GoToKey, and the new row of OpenNew. The runtime gave the blank Rec there before (`act=0//0`), a
+/// moved by Previous, Last or GoToKey, the new row of OpenNew, a property of a part's field control other than ApplicationArea
+/// and Editable = false (the probe parts' only ones, EmptyPartRecLinkList.al:75-76, :300-313), and a field link whose host value
+/// is blank (no probe cell that runs has one). The runtime gave the blank Rec in the first eight before (`act=0//0`), a
 /// guess (al-runner issue 6924); now the read of the part's Rec is refused. The static shapes sit on Lists of their own; the
 /// moves use a List whose part takes the assumed path as the host opens, and the read after the move is refused.
 const UNMEASURED_SRC: &str = r#"
@@ -2499,6 +2506,22 @@ page 76870 "PG EPLU List Bare"
     PageType = List; SourceTable = "PG EPLU Head";
     layout { area(Content) { repeater(R) { field(NoCtl; Rec."No.") { } } } }
 }
+page 76872 "PG EPLU Part Prop"
+{
+    PageType = ListPart; SourceTable = "PG EPLU Line"; InsertAllowed = false;
+    layout { area(Content) { repeater(Lines) { field(LineNoCtl; Rec."Line No.") { Style = Strong; } } } }
+    actions { area(Processing) { action(ReadRec) { trigger OnAction() var Log: Codeunit "PG EPLU Log"; begin Log.Add(Rec); end; } } }
+    trigger OnAfterGetCurrRecord() begin end;
+}
+page 76873 "PG EPLU List Prop"
+{
+    PageType = List; SourceTable = "PG EPLU Head";
+    layout
+    {
+        area(Content) { repeater(R) { field(NoCtl; Rec."No.") { } } }
+        area(FactBoxes) { part(Box; "PG EPLU Part Prop") { SubPageLink = "Table ID" = const(76860), "No." = field("No."); } }
+    }
+}
 pageextension 76871 "PG EPLU List Bare Ext" extends "PG EPLU List Bare"
 {
     layout { addfirst(FactBoxes) { part(ExtBox; "PG EPLU Part") { SubPageLink = "Table ID" = const(76860), "No." = field("No."); } } }
@@ -2516,13 +2539,15 @@ codeunit 76869 "PG EPL Tests"
     [Test] procedure Move_Previous() var P: TestPage "PG EPLU List"; H: Record "PG EPLU Head"; begin Init(); P.OpenEdit(); P.Last(); P.Previous(); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
     [Test] procedure Move_Last() var P: TestPage "PG EPLU List"; begin Init(); P.OpenEdit(); P.Last(); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
     [Test] procedure Move_GoToKey() var P: TestPage "PG EPLU List"; begin Init(); P.OpenView(); P.GoToKey('B'); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Static_PartFieldControlProperty() var P: TestPage "PG EPLU List Prop"; H: Record "PG EPLU Head"; begin Init(); P.OpenEdit(); H.Get('B'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Static_BlankFieldLinkValue() var P: TestPage "PG EPLU List"; H: Record "PG EPLU Head"; begin Init(); H."No." := ''; H.Insert(); P.OpenEdit(); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
 }
 "#;
 
 #[test]
 fn empty_list_part_rec_list_host_unmeasured_shapes_refuse() {
     let o = run(UNMEASURED_SRC);
-    assert_eq!(o.len(), 8, "{o:?}");
+    assert_eq!(o.len(), 10, "{o:?}");
     let wrong: Vec<_> = o.iter().filter(|(_, outcome, _)| !refused(outcome)).collect();
     assert!(wrong.is_empty(), "{wrong:#?}");
 }
@@ -3035,18 +3060,9 @@ codeunit 76926 "PG EPL Tests"
 "#;
 
 /// The neighbors of the widened cells: each refuses, and a CardPart's reason names a part, not a ListPart; the Card host and the
-/// OnAfterGetCurrRecord read keep main's result. A test goes through the assumption only where a landing before the one the
-/// read follows was a measured cell (`LANDED_IN_A_CELL`: the open of a DocBoth or Rep host for edit, the GoToRecord to the only
-/// row of a DocBoth host opened for view).
+/// OnAfterGetCurrRecord read keep main's result. No test goes through an assumption.
 #[test]
 fn empty_list_part_rec_widened_cells_neighbors_refuse() {
-    const LANDED_IN_A_CELL: &[&str] = &[
-        "DocBoth_OpenEdit_Next",
-        "Rep_OpenEdit_GoToMiddleRow",
-        "Rep_OpenEdit_GoToFirstOfThree",
-        "Rep_OpenEdit_Next",
-        "DocBoth_OpenView_GoToSameRow_Curr",
-    ];
     let o = run(WIDEN_NEIGHBOR_SRC);
     assert_eq!(o.len(), 14, "{o:?}");
     let main_result: &[(&str, &str)] = &[
@@ -3056,7 +3072,7 @@ fn empty_list_part_rec_widened_cells_neighbors_refuse() {
     let wrong: Vec<_> = o
         .iter()
         .filter(|(name, outcome, flagged)| {
-            *flagged != LANDED_IN_A_CELL.contains(&name.as_str())
+            *flagged
                 || match main_result.iter().find(|(n, _)| n == name) {
                     Some((_, want)) => !raised(outcome, want),
                     None => !matches!(outcome, Outcome::NotRun(m)
@@ -3476,7 +3492,7 @@ fn empty_list_part_rec_tied_to_its_landing() {
         .iter()
         .filter(
             |(name, outcome, flagged)| match kept.iter().find(|(n, _, _)| n == name) {
-                Some((_, want, flag)) => !raised(outcome, want) || flagged != flag,
+                Some((_, want, _)) => !raised(outcome, want) || *flagged,
                 None => !refused(outcome),
             },
         )
@@ -3753,7 +3769,7 @@ fn empty_list_part_rec_nested_test_call_ends_the_read() {
     let wrong: Vec<_> = o
         .iter()
         .filter(|(name, outcome, flagged)| match kept.iter().find(|(n, _)| n == name) {
-            Some((_, want)) => !raised(outcome, want) || !flagged,
+            Some((_, want)) => !raised(outcome, want) || *flagged,
             None => !refused(outcome),
         })
         .collect();

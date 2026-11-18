@@ -590,16 +590,10 @@ impl Session {
                     ));
                 }
                 let quit = self.report_init(&inst)?;
-                // `--no-client`: a request page that would open raises here; the report has no OnInitReport (`clientless.rs`).
-                if let Some(b) = self.clientless_report(&schema, explicit)? {
-                    let slot = schema.report().request_flag_slot;
-                    let flag = match (b, id == ids::REPORT_RUNMODAL_3) {
-                        (true, _) => REQUEST_PAGE_ON,
-                        (false, false) => REQUEST_PAGE_OFF,
-                        (false, true) => REQUEST_PAGE_OFF_UNPINNED_GETTER,
-                    };
-                    inst.borrow_mut().globals[slot] = Value::Integer(flag);
-                }
+                // Without a client a request page that would open raises here (a page background task worker) or is skipped
+                // (the test session under `--no-client`); the report has no OnInitReport (`clientless.rs`).
+                let modal = id == ids::REPORT_RUNMODAL_3;
+                let explicit = self.static_request_window(&inst, &schema, explicit, args.len() == 1, modal)?;
                 let window = match explicit {
                     Some(b) => b,
                     None => Self::report_shows_page(&inst, &schema)?,
@@ -703,7 +697,7 @@ impl Session {
             ids::REPORT_SAVEASHTML_2 => self.report_save_as_file(id, receiver, args, "Html", true),
             ids::REPORT_WORDXMLPART_1 | ids::REPORT_WORDXMLPART_2 => self.report_word_xml_part(id, receiver, args),
             ids::REPORT_RUNREQUESTPAGE_1 | ids::REPORT_RUNREQUESTPAGE_2 => {
-                let (inst, schema, seed) = if id == ids::REPORT_RUNREQUESTPAGE_1 {
+                let (inst, schema, seed, pinned_call) = if id == ids::REPORT_RUNREQUESTPAGE_1 {
                     let inst = self.report_instance(receiver, false)?.0;
                     // After a RunModal of the variable: the error, and no page opens
                     // (reports/request-page/RptRequestPage.al:990-1009 UseRequestPageFalse_RunModalAndRunRequestPage).
@@ -711,7 +705,7 @@ impl Session {
                         return Err(running::already_run());
                     }
                     let schema = self.report_schema(&inst)?;
-                    (inst, schema, args.first())
+                    (inst, schema, args.first(), false)
                 } else {
                     // The static form raises SubstituteReport with RunMode ParametersOnly first, once, with an empty
                     // RequestPageXml also when old parameters are given (events/platform-triggers/PeVTests.al:465, :660:
@@ -729,15 +723,15 @@ impl Session {
                     if self.report_init(&inst)? {
                         return unsupported("CurrReport.Quit in OnInitReport of a RunRequestPage (not pinned)");
                     }
-                    (inst, schema, args.get(1))
+                    (inst, schema, args.get(1), args.len() == 1 && number.is_none())
                 };
+                self.request_ok_only_call(schema.object, pinned_call)?;
                 // Only the empty string and the text this runtime produced are understood; how BC
                 // loads a parameters string into the page is pinned only by its result
                 // (reports/TestReportInstanceRunReqPage.al:SeededWithParameters_StillRunsTheHandler).
                 let seed = match seed {
-                    None => None,
-                    Some(Value::Text(s)) if s.is_empty() => None,
-                    Some(Value::Text(s)) => Some(s.clone()),
+                    Some(Value::Text(s)) if !s.is_empty() => Some(s.clone()),
+                    None | Some(Value::Text(_)) => None,
                     Some(other) => return unsupported(format!("{id} seeded with {}", other.describe())),
                 };
                 // RunRequestPage always shows the page, so it always enters a transaction world
@@ -959,7 +953,7 @@ impl Session {
             object,
         };
         match &schema.engine.program.objects[object].report {
-            Some(r) => match r.unsupported.first() {
+            Some(r) => match r.run_refusal() {
                 None => {
                     for a in &r.assumes {
                         al_builtins::assumptions::assume(*a);
@@ -1049,38 +1043,6 @@ impl Session {
             self.report.prepared.push(Rc::downgrade(inst));
         }
         Ok(())
-    }
-
-    /// The request page's OnInit of a report that a procedure uses first (see `first_use`): it runs right after OnInitReport and
-    /// before the procedure's body, and the run does not run it again, with or without the request page
-    /// (reports/request-page/RequestPageOnInitFirstUse.al:104-185). An OnInit a reportextension adds is left to the run,
-    /// which refuses it.
-    fn request_page_init_at_first_use(&mut self, inst: &Inst) -> Result<(), Signal> {
-        let object = inst.borrow().object as usize;
-        let engine = self.engine.clone();
-        let o = &engine.program.objects[object];
-        if o.report.is_none() {
-            return Ok(());
-        }
-        let Some(page) = o.page.as_ref() else {
-            return Ok(());
-        };
-        if page.ext_triggers.iter().any(|(n, _, _)| n == "oninit") {
-            return Ok(());
-        }
-        let Some(r) = page.triggers.iter().find(|(n, _)| n == "oninit").map(|(_, r)| *r) else {
-            return Ok(());
-        };
-        self.report.rp_init_done.push(Rc::downgrade(inst));
-        self.call(object, r, inst.clone(), Vec::new()).map(|_| ())
-    }
-
-    /// Whether the request page's OnInit of `inst` already ran at a procedure's first use.
-    pub(crate) fn request_page_init_done(&self, inst: &Inst) -> bool {
-        self.report
-            .rp_init_done
-            .iter()
-            .any(|w| w.upgrade().is_some_and(|i| Rc::ptr_eq(&i, inst)))
     }
 
     /// Makes the globals of `inst` and, for a report that had none, runs `OnInitReport`. Returns
@@ -1359,6 +1321,7 @@ impl Session {
             },
             other => return unsupported(format!("a table view of {}", other.describe())),
         };
+        Self::by_value_view_handed(&view, || "a report's table view of a record".into())?;
         let table = view.borrow().table;
         let items: Vec<&ir::ReportItem> = schema
             .report()
@@ -1562,7 +1525,7 @@ impl Session {
                 );
             }
         }
-        let shows_page = entry == Entry::Run && window;
+        let shows_page = self.note_report_start(entry == Entry::Run && window);
         self.report.report_preview_pinned.push(match entry {
             Entry::Run => crate::state::ReportStart::Run,
             Entry::Execute | Entry::Print => crate::state::ReportStart::Execute,
@@ -1679,11 +1642,6 @@ impl Session {
         }
     }
 
-    /// The instances a run executes (the report, and the reportextension that changes it) with
-    /// every data item's own view in force. The views are in force before the request page opens
-    /// (reports/TestReportMultiLineDataItemView.al: "the request page applies those views to the
-    /// data items before the handler runs") and before OnPreReport, which may refine them
-    /// (reports/TestReportGetFilterInTriggers.al:43-52 reads the view there).
     /// The `Schema` of the report `inst` is an instance of.
     pub(crate) fn report_schema_of(&self, inst: &Inst) -> Result<Schema, Signal> {
         self.report_schema(inst)
@@ -1719,6 +1677,10 @@ impl Session {
             })
     }
 
+    /// The instances a run executes (the report, and the reportextension that changes it) with every data item's own view in
+    /// force. The views are in force before the request page opens (reports/TestReportMultiLineDataItemView.al: "the request
+    /// page applies those views to the data items before the handler runs") and before OnPreReport, which may refine them
+    /// (reports/TestReportGetFilterInTriggers.al:43-52 reads the view there).
     fn report_prepare(&mut self, inst: &Inst, schema: &Schema, zero_date_pinned: bool) -> Result<Run, Signal> {
         self.report.zero_date_view_failed = false;
         // ShowPrintStatus is inert (al-sema reports.rs `INERT_OBJECT_PROPERTIES`): `false` with Report.Run
@@ -2103,7 +2065,7 @@ impl Session {
         let item = run.item(r);
         let (owner, object) = run.owner(r);
         let mut rec = self.report_item_record(run, r)?;
-        let parent_rec = explicit_parent_link::linked_parent(run, r, item.link_item, parent_rec, enclosing);
+        let parent_rec = explicit_parent_link::linked_parent(item.link_item, parent_rec, enclosing);
         if let Some(parent) = parent_rec {
             // The link filter is hidden from GetFilters (reports/TestReportRuntimeContracts.al:62-90).
             let table = self.table(&rec)?;
@@ -2472,6 +2434,7 @@ impl<'a> ItemTree<'a> {
 // ---------------------------------------------------------------------- Report.SaveAs
 
 use crate::report_placeholder::SaveOutput;
+use crate::report_render::{RenderInputs, SaveCall};
 
 /// Where a rendering save puts its output.
 pub(crate) enum SaveTarget {
@@ -2543,14 +2506,16 @@ impl Session {
             Some(Value::Option(n, names)) => names.get(*n as usize).cloned().unwrap_or_default(),
             other => return unsupported(format!("{id} with the format {}", other.describe())),
         };
-        let blob = match args.get(at + 2) {
+        let (blob, encoding) = match args.get(at + 2) {
             Some(Value::Library(_, h)) => match &*h.borrow() {
-                al_builtins::value::LibraryValue::OutStream(blob, _) => blob.clone(),
+                al_builtins::value::LibraryValue::OutStream(blob, encoding, ..) => (blob.clone(), *encoding),
                 other => return unsupported(format!("{id} to {}, which is not an OutStream", other.describe())),
             },
             other => return unsupported(format!("{id} to {}", other.describe())),
         };
         let record_ref = args.get(at + 3);
+        let call = self.save_call(at == 1, !parameters.is_empty(), record_ref.is_some(), &blob, encoding);
+        let target = SaveTarget::Stream(blob);
         self.report_save_core(
             id,
             receiver,
@@ -2558,8 +2523,9 @@ impl Session {
             at,
             parameters,
             &format,
-            SaveTarget::Stream(blob),
+            target,
             record_ref,
+            Some(call),
         )
     }
 
@@ -2583,7 +2549,7 @@ impl Session {
             return unsupported(format!("{id} with a record argument (what it filters is not pinned)"));
         }
         let target = SaveTarget::File(name);
-        self.report_save_core(id, receiver, args, at, String::new().into(), format, target, None)
+        self.report_save_core(id, receiver, args, at, String::new().into(), format, target, None, None)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2597,6 +2563,7 @@ impl Session {
         format: &str,
         target: SaveTarget,
         record_ref: Option<&Value>,
+        save_call: Option<SaveCall>,
     ) -> Result<Value, Signal> {
         let result_used = self.ret_used;
         let format = format.to_string();
@@ -2719,7 +2686,7 @@ impl Session {
         }
         // ADR-040 and its amendments: the save table (`report_save`).
         if format != "Xml" {
-            match self.static_or_variable_save(&schema, &format, &target, result_used, custom.is_some())? {
+            match self.static_or_variable_save(&schema, &format, (&target, save_call), result_used, custom.is_some())? {
                 Ok(o) => output = o,
                 Err(e) => {
                     self.last_error = e;
@@ -2727,46 +2694,8 @@ impl Session {
                 }
             }
         }
-        // reports/layouts-saveas/TestReportSaveAsColumnTypesContracts.al:372-388: false with the text and the code
-        // `ReportProcessingOnly`, no trigger runs and nothing is written. With the answer dropped
-        // BC's behaviour is not pinned.
         if schema.report().processing_only {
-            // The Xml SaveAs of a processing-only report runs OnInitReport before it answers false
-            // (reports/request-page/RptTriggerOrder.al:308,:324 SaveAs_NestedItems_Order, SaveAs_Siblings_Order;
-            // reports/PnH5aExt.al:380). For the other formats that is not pinned and no trigger runs.
-            if format == "Xml" && at != 0 && self.report_init(&inst)? {
-                return unsupported(
-                    "CurrReport.Quit in OnInitReport of a SaveAs of a processing-only report (not pinned)",
-                );
-            }
-            // The request page's OnInit follows, as in a run without the page (reports/reporthandler/AeReportHandler.al:
-            // 133-145 SaveAs_WithReportHandler `OnInitReport;RP OnInit ...;` with an empty parameters string; with parameters the
-            // same error follows and OnPreReport does not run, Y68SelfClosingParams.al:407-418).
-            if format == "Xml" && at != 0 {
-                self.request_page_init_unshown(&inst, &schema)?;
-            }
-            if format == "Xml" && at == 0 && quit {
-                return unsupported(
-                    "CurrReport.Quit in OnInitReport of a SaveAs of a processing-only report (not pinned)",
-                );
-            }
-            let error = al_builtins::native::AlError {
-                message: format!(
-                    "Report {} is a processing-only report. Output cannot be rendered and saved to a file.",
-                    self.object_id_of(schema.object as u32)
-                ),
-                code: "ReportProcessingOnly".into(),
-                call_stack: String::new(),
-                ..Default::default()
-            };
-            // The statement form raises the same error (streams/TestReportSaveAsColumnDetailsContracts.al:
-            // ProcessingOnlyReport_StatementFormRaises, streams/PWReportSaveAsColumns.al:
-            // ProcessingOnly_AnswerDropped_AsserterrorForm); with the answer used it is returned as false.
-            if !result_used {
-                return Err(Signal::Error(Box::new(error)));
-            }
-            self.last_error = error;
-            return Ok(Value::Boolean(false));
+            return self.save_of_processing_only(&inst, &schema, &format, at, quit, result_used);
         }
         if let Some(why) = schema.report().dataset_unsupported.first() {
             return unsupported(format!("Report.SaveAs of \"{}\": {why}", schema.name()));
@@ -2882,9 +2811,8 @@ impl Session {
         };
         let deferred = self.report_record_ref(&inst, &schema, record_ref, !parameters.is_empty(), call)?;
         let enters = self.report_enter_world(&schema, false)?;
-        let mut fresh = Dataset::default();
-        fresh.region = region.clone();
-        fresh.language = (language == 1031).then(|| "de-DE".to_string());
+        let plain_call = parameters.is_empty() && record_ref.is_none();
+        let fresh = Dataset::for_report_save(id, &format, &target, plain_call, region.clone(), language);
         let outer = self.report.dataset.replace(fresh);
         if let Err(e) = self.dataset_labels(&schema) {
             self.report.dataset = outer;
@@ -2917,7 +2845,7 @@ impl Session {
         match ran {
             Ok(true) => {
                 let header = self.dataset_header(&schema)?;
-                let (bytes, rows) = written.expect("a SaveAs run has a dataset").finish_counted(&header)?;
+                let (bytes, rows, kinds) = written.expect("a SaveAs run has a dataset").finish_counted(&header)?;
                 if let Some(layout) = custom {
                     let SaveTarget::Stream(blob) = target else {
                         return unsupported(format!(
@@ -2935,7 +2863,8 @@ impl Session {
                         return Ok(Value::Boolean(true));
                     }
                 }
-                let saved = self.write_save_output(target, output, &schema, &bytes, rows)?;
+                let render = save_call.map(|call| RenderInputs { call, kinds: &kinds });
+                let saved = self.write_save_output(target, output, &schema, &bytes, rows, render)?;
                 Ok(Value::Boolean(saved))
             }
             Ok(false) => unsupported("CurrReport.Quit during a SaveAs (what the dataset holds is not pinned)"),
@@ -2967,7 +2896,7 @@ impl Session {
                     // `asserterror Probe.SaveAs(..)` on a report with an RDLC layout).
                     (ir::ReportLayout::Rdlc, false) if !result_used => Err(Signal::Error(e)),
                     (ir::ReportLayout::Rdlc, false) => {
-                        self.last_error = *e;
+                        self.hold_error(*e)?;
                         Ok(Value::Boolean(false))
                     }
                     _ => unsupported(format!(
@@ -3125,14 +3054,13 @@ impl Session {
             .iter()
             .map(|n| n.to_string())
             .collect();
+        let source = LibraryValue::InStream(InState::live(document, Encoding::Utf8));
+        let target = LibraryValue::OutStream(output.clone(), Encoding::Utf8, None);
         let mut args = vec![
             Value::Integer(self.object_id_of(schema.object as u32) as i32),
             al_builtins::json::unpinned_object("the ObjectPayload of OnDocumentReady is not pinned"),
-            stream(
-                "InStream",
-                LibraryValue::InStream(InState::live(document, Encoding::Utf8)),
-            ),
-            stream("OutStream", LibraryValue::OutStream(output.clone(), Encoding::Utf8)),
+            stream("InStream", source),
+            stream("OutStream", target),
             Value::Boolean(false),
         ];
         let call = crate::dispatch::EventCall {
@@ -3481,7 +3409,7 @@ impl Session {
                 "InStream",
                 LibraryValue::InStream(InState::snapshot(layout_bytes, Encoding::Utf8)),
             ),
-            stream("OutStream", LibraryValue::OutStream(blob.clone(), Encoding::Utf8)),
+            stream("OutStream", LibraryValue::OutStream(blob.clone(), Encoding::Utf8, None)),
             Value::Boolean(false),
         ];
         let call = crate::dispatch::EventCall {
@@ -3860,24 +3788,6 @@ impl Session {
     /// as their captions, a Duration as words, a Guid without braces, and a Decimal in full with a
     /// `decimalformatter` attribute from `DecimalPlaces` of the column, else of the field. Every other
     /// type is refused. A column that asks for its caption adds to the Labels block.
-    /// The `decimalformatter` of a Decimal column: from `DecimalPlaces` of the column, else of the field (`dataset::decimal_formatter`).
-    /// Without either it is `#,##0.00` on every version (reports/runtime/YReportPropsTests.al:40, 1234567.891;
-    /// reports/W3ReportObjectIdPreviewLanguage.al:448). BC follows General Ledger Setup "Amount Decimal Places" as the
-    /// session first read it; the corpus tests read it at the default 2:2 after SelectLatestVersion (corpus bump 28: the
-    /// earlier BC 28 `#,##0.00###` was a value left by an earlier test).
-    fn decimal_column_formatter(
-        &self,
-        t: &Option<Arc<al_data::TableDef>>,
-        c: &ir::ReportColumn,
-    ) -> Result<String, Signal> {
-        let from_field = match (t, c.field, c.places_table.zip(c.places_field)) {
-            (Some(t), Some(pos), _) => self.field_property(t, pos, "DecimalPlaces"),
-            (_, None, Some(at)) => crate::column_formatter::field_places(&self.engine.program, at),
-            _ => None,
-        };
-        crate::column_formatter::of_column(c, from_field.as_deref())
-    }
-
     fn dataset_column(
         &mut self,
         c: &ir::ReportColumn,
@@ -3976,9 +3886,10 @@ impl Session {
                 n.to_string()
             }
             Value::BigInteger(n) => n.to_string(),
-            Value::Text(s) | Value::TextConst(s) | Value::Code(s) => {
+            Value::Text(s) | Value::TextConst(s, _) | Value::Code(s) => {
                 schema_type = Some("xs:string");
-                dataset::escape(s)?
+                let own_field = c.field.filter(|_| own).and_then(|f| t.as_ref()?.fields.get(f));
+                Dataset::escape_column_text(self.report.dataset.as_ref(), s, &value, own_field)?
             }
             // A SaveAsXml data file writes a Boolean as `xs:boolean`, `true` or `false`, and a Date as `xs:dateTime` at midnight
             // UTC, leaving out a blank one (al-language-onprem/reports/AqSaveAsXml.al:247 SaveAsXml_ColumnTypes_DataFile).
@@ -4001,15 +3912,7 @@ impl Session {
             // An undefined Time or DateTime is blank like an undefined Date (docs/probes-needed.md).
             Value::Time(0) | Value::DateTime(0) => String::new(),
             Value::Time(t) => dataset::time_text(t - 1)?,
-            Value::DateTime(t) => {
-                let ms = t - 1;
-                let day = ms.div_euclid(86_400_000) as i32 + 1;
-                format!(
-                    "{} {}",
-                    dataset::date_text(day),
-                    dataset::time_text(ms.rem_euclid(86_400_000))?
-                )
-            }
+            Value::DateTime(t) => dataset::datetime_text(*t)?,
             Value::Decimal(_) => {
                 // A DataSet column of type xs:decimal (dataset.rs `finish_data_set`; al-language-onprem/reports/
                 // AqSaveAsXml.al:257 `AmountC`).
@@ -4018,7 +3921,7 @@ impl Session {
                 let Value::Decimal(d) = &value else {
                     unreachable!("matched a Decimal")
                 };
-                crate::decimal_column::text(&self.engine.program, object, c, *d)
+                al_builtins::decimal_scale::shown(*d).to_string()
             }
             // The column's OptionCaptionML: the caption of the session language, ENU where it has none
             // (record/table-properties/XTablePropsTests.al:741-785, `EnuOnly` shows `Only B` in 1031).
@@ -4095,335 +3998,7 @@ impl Session {
             text,
             schema_type,
             data,
-        })
-    }
-
-    /// The CompanyAddressLine elements of the BC 29 dataset header for the Company Information row `rec`: Name, Name 2,
-    /// Address, Address 2, the city line, County and the name of the country, each empty one left out; the Contact Person is
-    /// never written (reports/dataset/AhDatasetHeader.al:98-151, writer RB :260-460).
-    ///
-    /// The city line follows the address format: of the Country/Region row, of the General Ledger Setup's Local Address Format
-    /// without a country (:390-430, no country line then), and City+Post Code for a code without a row, whose country line is the
-    /// code (:366-388). With City and Post Code both set:
-    /// - Post Code+City and Blank Line+Post Code+City: the post code, a space and the city, no blank line (:309, :345);
-    /// - City+Post Code: the city, a comma and the post code (:327);
-    /// - City+County+Post Code: the city, a comma, the county, a space and the post code, and no County line; without a county
-    ///   the city, a comma and the post code (:335);
-    /// - County is a line of its own in every other format;
-    /// - Custom with the rows Validate writes from City+Post Code: the city, a space and the post code, no County (:366-380).
-    ///
-    /// With only one of City and Post Code, or neither, only these are pinned: no country and the local format Post Code+City
-    /// (the post code, a space and the city, leading spaces cut: :125-126, :152-153), and a country of the City+Post Code format
-    /// with neither (:155). Everything else is refused: other partial addresses, Custom rows of another shape, an empty Name with
-    /// address lines, a country row without a name, country translations.
-    fn company_address_lines(&mut self, rec: &Rec, t: &al_data::TableDef) -> Result<Vec<String>, Signal> {
-        let get = |name: &str| -> String {
-            t.fields
-                .iter()
-                .position(|f| f.name.eq_ignore_ascii_case(name))
-                .and_then(|i| al_builtins::native::text_of(&rec.borrow().fields[i]).map(|v| v.to_string()))
-                .unwrap_or_default()
-        };
-        let refuse = |what: String| -> Result<Vec<String>, Signal> {
-            unsupported(format!(
-                "the company address lines of the dataset header: {what} (not pinned by AhDatasetHeader.al)"
-            ))
-        };
-        let name = get("Name");
-        let [name2, address, address2, city, post_code, county, country] = [
-            "Name 2",
-            "Address",
-            "Address 2",
-            "City",
-            "Post Code",
-            "County",
-            "Country/Region Code",
-        ]
-        .map(get);
-        const POST_CODE_CITY: i32 = 0;
-        const CITY_POST_CODE: i32 = 1;
-        const CITY_COUNTY_POST_CODE: i32 = 2;
-        const BLANK_LINE_POST_CODE_CITY: i32 = 3;
-        const CUSTOM: i32 = 13;
-        let (format, country_line) =
-            if country.is_empty() && city.is_empty() && post_code.is_empty() && county.is_empty() {
-                // Nothing the format places: no city line in any format, as before the local format was read (AhDatasetHeader.al:
-                // 155-156 `all_empty`, `only_country`).
-                (POST_CODE_CITY, None)
-            } else if country.is_empty() {
-                match self.header_row(98, None, 57)? {
-                    None => return refuse("the General Ledger Setup has no row".into()),
-                    Some(Value::Option(n, _)) if (0..=3).contains(&n) => (n, None),
-                    Some(v) => return refuse(format!("the Local Address Format {}", v.describe())),
-                }
-            } else {
-                let key = || Some(Value::Code(country.clone().into()));
-                match self.header_row(9, key(), 8)? {
-                    // A code without a row: Country/Region's InitValue City+Post Code, the code as the country line (:382-388).
-                    None => (CITY_POST_CODE, Some(country.clone())),
-                    Some(Value::Enum(_, n)) if [0, 1, 2, 3, CUSTOM].contains(&n) => {
-                        let country_name = match self.header_row(9, key(), 2)? {
-                            Some(v) => al_builtins::native::text_of(&v).unwrap_or_default().to_string(),
-                            None => String::new(),
-                        };
-                        if country_name.is_empty() {
-                            return refuse(format!("country \"{country}\" has no name"));
-                        }
-                        if self.compiled_table(11).is_some() && self.header_row(11, None, 1)?.is_some() {
-                            return refuse("Country/Region Translation has rows".into());
-                        }
-                        (n, Some(country_name))
-                    }
-                    Some(v) => return refuse(format!("country \"{country}\" has the Address Format {}", v.describe())),
-                }
-            };
-        let both = !city.is_empty() && !post_code.is_empty();
-        let partial_pinned = match format {
-            POST_CODE_CITY => country_line.is_none(),
-            CITY_POST_CODE => country_line.is_some() && city.is_empty() && post_code.is_empty(),
-            _ => false,
-        };
-        if !both && !partial_pinned {
-            return refuse(format!(
-                "the address format {format} with City \"{city}\" and Post Code \"{post_code}\" (only both set is pinned)"
-            ));
-        }
-        let (city_line, county_line) = match format {
-            POST_CODE_CITY | BLANK_LINE_POST_CODE_CITY => {
-                (format!("{post_code} {city}").trim_start().to_string(), county)
-            }
-            CITY_POST_CODE if both => (format!("{city}, {post_code}"), county),
-            CITY_POST_CODE => (String::new(), county),
-            CITY_COUNTY_POST_CODE if county.is_empty() => (format!("{city}, {post_code}"), String::new()),
-            CITY_COUNTY_POST_CODE => (format!("{city}, {county} {post_code}"), String::new()),
-            _ => {
-                self.custom_address_format_pinned(&country)?;
-                (format!("{city} {post_code}"), String::new())
-            }
-        };
-        let rest: Vec<String> = [
-            name2,
-            address,
-            address2,
-            city_line,
-            county_line,
-            country_line.unwrap_or_default(),
-        ]
-        .into_iter()
-        .filter(|l| !l.is_empty())
-        .collect();
-        if name.is_empty() && !rest.is_empty() {
-            return refuse("an empty Name with address fields set".into());
-        }
-        Ok(std::iter::once(name).chain(rest).collect())
-    }
-
-    /// The Custom Address Format rows of `country` are the ones Validate("Address Format", Custom) writes for a country of the
-    /// City+Post Code format (AhDatasetHeader.al:366-380): lines 1-7 Name, Name 2, Contact Person, Address, Address 2, a line of
-    /// City and Post Code without separators, and the country. Any other shape is refused.
-    fn custom_address_format_pinned(&mut self, country: &str) -> Result<(), Signal> {
-        let refuse = || {
-            unsupported(format!(
-                "the company address lines of the dataset header: the Custom Address Format rows of country \"{country}\" are not the ones Validate writes from City+Post Code (not pinned by AhDatasetHeader.al)"
-            ))
-        };
-        let int = |v: &Value| match v {
-            Value::Integer(i) => Some(*i),
-            Value::Option(i, _) => Some(*i),
-            _ => None,
-        };
-        let code = |v: &Value| al_builtins::native::text_of(v).unwrap_or_default().to_string();
-        // Field ids of Company Information: Name 2, 3 Name 2, 51 Contact Person, 4 Address, 5 Address 2, 6 City, 30 Post Code,
-        // 36 Country/Region Code.
-        let mut lines: Vec<(i32, i32, i32)> = self
-            .header_rows(725, &[1, 2, 4, 5])?
-            .iter()
-            .filter(|r| code(&r[0]).eq_ignore_ascii_case(country))
-            .filter_map(|r| Some((int(&r[1])?, int(&r[2])?, int(&r[3])?)))
-            .collect();
-        lines.sort();
-        let fields: Vec<i32> = lines.iter().map(|l| l.2).collect();
-        if lines.iter().map(|l| l.0).ne(0..7) || fields != [2, 3, 51, 4, 5, 0, 36] {
-            return refuse();
-        }
-        let line_no = lines[5].1;
-        let mut parts: Vec<(i32, i32, String)> = self
-            .header_rows(726, &[1, 7, 3, 5, 4])?
-            .iter()
-            .filter(|r| code(&r[0]).eq_ignore_ascii_case(country) && int(&r[1]) == Some(line_no))
-            .filter_map(|r| Some((int(&r[2])?, int(&r[3])?, code(&r[4]))))
-            .collect();
-        parts.sort();
-        if parts != [(0, 6, String::new()), (1, 30, String::new())] {
-            return refuse();
-        }
-        Ok(())
-    }
-
-    /// The values of fields `fields` of every row of table `table`, in key order. A table that is not compiled is refused.
-    fn header_rows(&mut self, table: u32, fields: &[u32]) -> Result<Vec<Vec<Value>>, Signal> {
-        let Some(obj) = self.compiled_table(table) else {
-            return unsupported(format!(
-                "the company address lines of the dataset header need table {table}, which is not compiled"
-            ));
-        };
-        let t = self.engine.tables[obj].clone().expect("a compiled table has a schema");
-        let mut pos = Vec::with_capacity(fields.len());
-        for field in fields {
-            let Some(p) = t.fields.iter().position(|f| f.id == *field) else {
-                return unsupported(format!(
-                    "the company address lines of the dataset header: table {table} has no field {field}"
-                ));
-            };
-            pos.push(p);
-        }
-        let Value::Record(rec) = self.default_value(&al_builtins::value::RtType::Record(obj as u32, false)) else {
-            unreachable!("a record type defaults to a record")
-        };
-        let mut rows = Vec::new();
-        if al_builtins::ops::truthy(&self.record_op(RecordOp::FindSet, &rec, &mut [])?)? {
-            loop {
-                rows.push(pos.iter().map(|&p| rec.borrow().fields[p].clone()).collect());
-                if matches!(self.record_op(RecordOp::Next, &rec, &mut [])?, Value::Integer(0)) {
-                    break;
-                }
-            }
-        }
-        Ok(rows)
-    }
-
-    /// The value of field `field` of a row of table `table`: the row with primary key `key`, or the first row. `None` when
-    /// the table has no such row. A table that is not compiled is refused.
-    fn header_row(&mut self, table: u32, key: Option<Value>, field: u32) -> Result<Option<Value>, Signal> {
-        let Some(obj) = self.compiled_table(table) else {
-            return unsupported(format!(
-                "the company address lines of the dataset header need table {table}, which is not compiled"
-            ));
-        };
-        let t = self.engine.tables[obj].clone().expect("a compiled table has a schema");
-        let Some(pos) = t.fields.iter().position(|f| f.id == field) else {
-            return unsupported(format!(
-                "the company address lines of the dataset header: table {table} has no field {field}"
-            ));
-        };
-        let Value::Record(rec) = self.default_value(&al_builtins::value::RtType::Record(obj as u32, false)) else {
-            unreachable!("a record type defaults to a record")
-        };
-        let found = match key {
-            Some(k) => self.record_op(RecordOp::Get, &rec, &mut [k])?,
-            None => self.record_op(RecordOp::FindFirst, &rec, &mut [])?,
-        };
-        if !al_builtins::ops::truthy(&found)? {
-            return Ok(None);
-        }
-        let v = rec.borrow().fields[pos].clone();
-        Ok(Some(v))
-    }
-
-    /// The header of the dataset: what the report, its app, the session and the clock say.
-    fn dataset_header(&mut self, schema: &Schema) -> Result<dataset::Header, Signal> {
-        let engine = &schema.engine;
-        let object = &engine.program.objects[schema.object];
-        let report = schema.report();
-        let app = engine.program.apps.get(object.app as usize);
-        let ms = self.now_millis();
-        let day = ms.div_euclid(86_400_000) + i64::from(al_builtins::format::day_from_civil(1970, 1, 1));
-        let (y, mo, d) = al_builtins::format::civil_from_day(day as i32);
-        let in_day = ms.rem_euclid(86_400_000);
-        let id: String = {
-            let g = self.host.identity.company_id();
-            let h: String = g.iter().map(|b| format!("{b:02x}")).collect();
-            format!(
-                "{}-{}-{}-{}-{}",
-                &h[0..8],
-                &h[8..12],
-                &h[12..16],
-                &h[16..20],
-                &h[20..32]
-            )
-        };
-        // BC 29 and later: the company address lines of the header, all empty while Company Information has no row
-        // (reports/W3ReportDataset.al:174 Header_CompanyInformation_NameAndAddress); see `company_address_lines`.
-        let mut company_lines = Vec::new();
-        let mut company_values: Vec<(&'static str, String)> = Vec::new();
-        if self.has(al_version::Gate::ReportSaveAsXmlHeaderHasCompanyBlock) {
-            if let Some(obj) = self.compiled_table(79) {
-                let t = self.engine.tables[obj].clone().expect("a compiled table has a schema");
-                if t.fields.iter().any(|f| f.id == 2) {
-                    if let Value::Record(rec) =
-                        self.default_value(&al_builtins::value::RtType::Record(obj as u32, false))
-                    {
-                        if al_builtins::ops::truthy(&self.record_op(RecordOp::FindFirst, &rec, &mut [])?)? {
-                            company_lines = self.company_address_lines(&rec, &t)?;
-                            let value = |i: usize| al_builtins::native::text_of(&rec.borrow().fields[i]);
-                            // The other elements write the value of their field (text/PnBReportSaveAs.al:568-592).
-                            // The logo is the Picture field's bytes in base64 as they were written, a PNG and bytes that are no
-                            // picture alike, with no line breaks; empty without a picture (reports/dataset/
-                            // AhDatasetHeader.al:218-248 QV_Header_CompanyLogo_PictureVariants, BC 29; AL Runner issue 5681).
-                            for (element, field) in dataset::COMPANY_FIELDS {
-                                let Some(i) = t.fields.iter().position(|f| f.name.eq_ignore_ascii_case(field)) else {
-                                    continue;
-                                };
-                                if element == "CompanyLogo" {
-                                    self.load_blobs(&rec, &[i])?;
-                                    let logo = match &rec.borrow().fields[i] {
-                                        Value::Blob(b) => {
-                                            let b = b.borrow();
-                                            if let Some(what) = b.render_pending.as_deref()
-                                                && al_builtins::stream::is_unloaded_write_mark(what)
-                                            {
-                                                return Err(al_builtins::stream::render_pending_error(what));
-                                            }
-                                            if b.render_pending.is_some() {
-                                                return unsupported(
-                                                    "the CompanyLogo of the dataset header: the Picture holds content that was never produced",
-                                                );
-                                            }
-                                            crate::sessionops::base64(&b.bytes)
-                                        }
-                                        other => {
-                                            return unsupported(format!(
-                                                "the CompanyLogo of the dataset header from {}",
-                                                other.describe()
-                                            ));
-                                        }
-                                    };
-                                    if !logo.is_empty() {
-                                        company_values.push((element, logo));
-                                    }
-                                    continue;
-                                }
-                                if let Some(v) = value(i).filter(|v| !v.is_empty()) {
-                                    company_values.push((element, v.to_string()));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        Ok(dataset::Header {
-            company_lines,
-            company_values,
-            extension_id: app.map(|a| a.id.clone()).unwrap_or_default(),
-            extension_name: app
-                .map(|a| header_extension_name(&a.name, &a.publisher))
-                .unwrap_or_default(),
-            extension_publisher: app.map(|a| a.publisher.clone()).unwrap_or_default(),
-            extension_version: app.map(|a| a.version.clone()).unwrap_or_default(),
-            report_id: object.id.map_or(String::new(), |i| i.to_string()),
-            report_name: object.name.clone(),
-            report_caption: report.caption.clone().unwrap_or_else(|| object.name.clone()),
-            about_title: report.about_title.clone().unwrap_or_default(),
-            about_text: report.about_text.clone().unwrap_or_default(),
-            // The manifest of both apps the corpus measured states no contextSensitiveHelpUrl, and the
-            // page then states none either (xml/TestReportDatasetHelpLink.al).
-            help_link: String::new(),
-            company_name: self.cx.company.to_string(),
-            company_id: id,
-            user_name: self.host.identity.user_id(),
-            now: (y, mo, d, (in_day / 3_600_000) as u32, (in_day / 60_000 % 60) as u32),
-            company_block: self.has(al_version::Gate::ReportSaveAsXmlHeaderHasCompanyBlock),
+            kind: dataset::ValueKind::of(&value),
         })
     }
 }
@@ -4431,28 +4006,8 @@ impl Session {
 #[cfg(test)]
 mod ignored_output_tests;
 
-/// Values of a report's request-page flag slot (`UseRequestPage`); any other value means "never set": the report's own
-/// property decides.
-const REQUEST_PAGE_ON: i32 = 1;
-const REQUEST_PAGE_OFF: i32 = 2;
-/// The page is hidden by a static `RunModal(id, false)`: the getter is pinned in OnPreReport only, and refused elsewhere.
-const REQUEST_PAGE_OFF_UNPINNED_GETTER: i32 = 3;
-/// After an `Execute` of a variable whose `UseRequestPage` was set: what the getter answers is not pinned
-/// (reports/PnH2UseRp.al:389 pins only the variable never set), so it is refused.
-const REQUEST_PAGE_UNPINNED_GETTER: i32 = 4;
-
-/// The ExtensionName of the dataset header: the app's name, " by " and its publisher (reports/dataset/
-/// ReportDatasetHeaderRaw.al:174, text/PnBReportSaveAs.al:162). An app without a publisher (only the
-/// runtime's own tests build one) keeps the bare name.
-fn header_extension_name(name: &str, publisher: &str) -> String {
-    if publisher.is_empty() {
-        name.to_string()
-    } else {
-        format!("{name} by {publisher}")
-    }
-}
-
 mod blob_column;
+mod dataset_header;
 mod execute_args;
 use execute_args::RefCall;
 pub(crate) mod format_region;
@@ -4460,8 +4015,11 @@ pub(crate) mod format_region;
 mod header_tests;
 mod html_record;
 mod request_caption;
+mod request_flag;
+use request_flag::{REQUEST_PAGE_OFF, REQUEST_PAGE_OFF_UNPINNED_GETTER, REQUEST_PAGE_ON, REQUEST_PAGE_UNPINNED_GETTER};
 mod request_unshown;
 mod running;
-mod word_xml_part;
+mod save_processing_only;
+pub(crate) mod word_xml_part;
 
 mod explicit_parent_link;

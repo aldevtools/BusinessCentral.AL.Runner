@@ -72,6 +72,27 @@ pub(crate) struct Recorder {
 pub(crate) struct TestScope(Option<i32>);
 
 impl Recorder {
+    /// Holds what a new session holds (`install_left.rs`). Every field is named: a new one does not compile here until
+    /// it is decided.
+    pub(crate) fn as_new(&self) -> bool {
+        let Recorder {
+            hits,
+            entered,
+            tests,
+            lookups,
+            current_test,
+            dirty,
+            refreshed_while_logging,
+        } = self;
+        hits.is_empty()
+            && entered.is_empty()
+            && tests.is_empty()
+            && lookups.is_empty()
+            && current_test.is_none()
+            && !dirty
+            && !refreshed_while_logging
+    }
+
     pub(crate) fn reset_refreshed(&mut self) {
         self.refreshed_while_logging = false;
     }

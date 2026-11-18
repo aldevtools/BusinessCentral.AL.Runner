@@ -20,7 +20,6 @@ impl Session {
         let Value::Record(src) = inst.borrow().globals[slot].clone() else {
             return unsupported("Page.GetRecord: the page's Rec is no record");
         };
-        crate::blob_transfer::buffer_replaced(&mut dst.borrow_mut());
         if src.borrow().table != dst.borrow().table {
             return unsupported("Page.GetRecord into a record of another table (not pinned)");
         }

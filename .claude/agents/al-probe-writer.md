@@ -14,7 +14,8 @@ exactly that. You never change AL Runner runtime code.
 2. `docs/agents/corpus-writer.md`: the corpus repo, object ids, the observe-then-assert loop, the rules that
    broke past batches, and the compile check for every CI leg.
 3. `docs/agents/brief.md`, the "Rules" list: the shared rules for every agent (no workflow runs, no `pkill`,
-   no `git stash`, stage by name, nothing local in the repo).
+   no `git stash`, stage by name, nothing local in the repo). Rules 9 to 11 point to
+   `docs/agents/workflow.md`, "Commands agents never run", for the details.
 
 ## Cells
 

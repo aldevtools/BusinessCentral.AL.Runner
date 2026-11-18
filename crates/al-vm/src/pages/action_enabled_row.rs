@@ -1,10 +1,10 @@
 //! `TestAction.Enabled()` right after a `GoToKey` on a list whose OnAfterGetRecord sets the page variable the action's Enabled
 //! reads (al-runner issue 7916). The list read its rows at open, so the variable holds what OnAfterGetRecord computed for the
 //! last row read; BC answers from the row the GoToKey landed on: the reporter's repro on real BC gives `e2=Yes rel=349` after
-//! `GoToKey(Dimension Set Entry, 3)` where the earlier code answered No, and open corpus PR 1367 (testpage/
-//! ActionEnabledAfterGoToKey.al:610 FieldTable_TrapPageRun_EnabledAfterGoToKey, :430 List_TrapPageRunFiltered) measures the same
-//! after a trapped static Page.Run (group G1 passes on every major of its CI run). Only the reporter's shape runs here, under the assumption
-//! `action-enabled-follows-row-after-go-to-key`; every other shape keeps the variable's current value.
+//! `GoToKey(Dimension Set Entry, 3)` where the earlier code answered No, and testpage/ActionEnabledAfterGoToKey.al:610
+//! FieldTable_TrapPageRun_EnabledAfterGoToKey measures the same page after a trapped static Page.Run (page 75305 at :237-287 is
+//! the reporter's page with log calls added in OnAfterGetRecord and OnAfterGetCurrRecord; `gotokey-2` Yes, `gotokey-1` No).
+//! Only the reporter's shape runs here; every other shape keeps the variable's current value.
 
 use super::pinned_shape::{PinnedCode, TestCall};
 use super::*;
@@ -73,7 +73,7 @@ impl Session {
 
     /// `Enabled()` of action `idx` for the row the page stands on, when every fact of the repro holds:
     /// - the page is the repro's page (`action_enabled_row_page`), at the top level, run by the static `Page.Run(Page::X, Rec)`
-    ///   into a trapped TestPage (`trapped_static_run`), not modal and not in lookup mode;
+    ///   into a trapped TestPage (`trapped_run`), not modal and not in lookup mode;
     /// - the action's Enabled is an expression of the page's variables (`prop_global_slots`), each one set by OnAfterGetRecord
     ///   from Rec alone and set by no other code of the page (`row_function_slots`);
     /// - the test's call just before this one was a `GoToKey` on the page that found its row;
@@ -94,7 +94,7 @@ impl Session {
             let s = st.borrow();
             s.open
                 && s.caught_by_trap
-                && s.trapped_static_run
+                && s.trapped_run == Some(super::page_run_close::PageRunCall::StaticWithRecord)
                 && !s.opened_by_test
                 && !s.modal
                 && !s.lookup
@@ -133,7 +133,6 @@ impl Session {
         if !read_here {
             return Ok(None);
         }
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ActionEnabledFollowsRowAfterGoToKey);
         let inst = self.owner_instance(st, None);
         let saved: Vec<(usize, Value)> = assigned
             .iter()

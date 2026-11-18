@@ -21,39 +21,22 @@ impl Lowerer<'_> {
                 && args.is_empty()
                 && crate::members::has_internal_parameterless_save_record(self.ws, self.oi)
             {
-                self.assume(al_builtins::assumptions::Assumption::CurrPageSaveRecordNameCollision);
+                // `CurrPage.SaveRecord()` on a ListPart that declares an internal parameterless SaveRecord calls the
+                // platform method, not the procedure (pages/lifecycle/TestCurrPageSaveRecordName.al:13-37, page
+                // TestCurrPageSaveRecordName1Fixture51744.al:9,28,53). Other page types are not measured.
+                let list_part = self.ws.object_ast(self.oi).properties().any(|p| {
+                    p.name().eq_ignore_ascii_case("PageType") && p.value_text().trim().eq_ignore_ascii_case("ListPart")
+                });
+                if !list_part {
+                    return Err(
+                        "CurrPage.SaveRecord() on a page other than a ListPart that declares an internal SaveRecord \
+                         procedure (which one BC calls is pinned on a ListPart only)"
+                            .to_string(),
+                    );
+                }
             }
         }
         Ok(resolution)
-    }
-
-    /// A bare call of a system function (`UserId`, `Today`, with or without parentheses) outside the OnRun trigger of a
-    /// codeunit with TableNo whose table has a field of that name. There the name is the system function: the routine has no
-    /// implicit Rec (corpus must-not-compile 3140, corpus PR 1386; alc 18.0.39.10160 compiles `exit(UserId)`, review of PR
-    /// 7980). What it returns there is not measured on BC, and main returned the field: refused.
-    fn system_function_named_like_a_rec_field(&self, node: &SyntaxNode, receiver: Option<&SyntaxNode>) -> L<()> {
-        let Some(table) = self.table_of[self.oi].filter(|_| self.ws.objects[self.oi].kind == ObjKind::Codeunit) else {
-            return Ok(());
-        };
-        let callee = match node.kind() {
-            SyntaxKind::CallExpr => node.children().next(),
-            _ => Some(node.clone()),
-        };
-        let Some(callee) = callee.filter(|c| receiver.is_none() && c.kind() == SyntaxKind::NameRef) else {
-            return Ok(());
-        };
-        let name = callee.text_string().trim().trim_matches('"').to_string();
-        let in_on_run = node
-            .ancestors()
-            .find_map(ast::Routine::cast)
-            .is_some_and(|r| r.is_trigger() && r.name().eq_ignore_ascii_case("OnRun"));
-        if in_on_run || self.members[table].field(&name).is_none() {
-            return Ok(());
-        }
-        Err(format!(
-            "the system function `{name}` called bare outside OnRun of a codeunit with TableNo whose table has a field `{name}`: \
-             its value there is not measured"
-        ))
     }
 
     /// `Rec.SecurityFiltering()` read on a variable declared with `[SecurityFiltering(...)]` answers the declared value on
@@ -460,7 +443,20 @@ impl Lowerer<'_> {
                             out.push(ir::Arg::Value(value));
                             continue;
                         }
-                        self.refuse_variant_argument(&p.ty, a)?;
+                        let local_proc = self
+                            .routine_nodes
+                            .get(object)
+                            .get(routine)
+                            .is_some_and(|r| r.is_local() && r.attributes().next().is_none());
+                        let site = if receiver_node.is_none() && instance.is_none() && object == self.oi && local_proc && !try_call {
+                            super::convert::TextConstantSite::ArgumentOfSameObjectProcedure
+                        } else {
+                            super::convert::TextConstantSite::Other
+                        };
+                        if let Some(textconst) = self.refuse_variant_argument(&p.ty, a, site)? {
+                            out.push(ir::Arg::Value(self.text_constant(value, textconst)?));
+                            continue;
+                        }
                         // A Text or Code handed to a by-value Text or Code parameter of a TryFunction is converted by the callee's
                         // binding, inside the try: a text too long for a Code[20] parameter makes the TryFunction answer false
                         // (text/text-methods/TextAssign.Codeunit.al:240-281, LT_BU_TextAssign_LongTextToCode20Parameter). A Decimal or
@@ -607,9 +603,6 @@ impl Lowerer<'_> {
                     .by_id(&id)
                     .ok_or_else(|| format!("{id} not in catalog"))?
                     .clone();
-                // Evaluate into an Option variable: a variable has no OptionCaption, so a text that is neither an ordinal nor a
-                // member name is a plain rejection (P86Eval.al:Eval Option, `Bet`, `-1`, `1,0`). A field may name a member by its
-                // caption, which the value does not carry, so a field keeps the id that refuses it.
                 if id == "System.Format#1" || id == "System.Format#2" {
                     if let Some(why) = args.first().and_then(|a| self.decimal_field_format_unpinned(a)) {
                         return Ok(ir::Expr::Refused(why));
@@ -647,31 +640,17 @@ impl Lowerer<'_> {
                 } else {
                     None
                 };
-                let emit_id = if option_captions.is_some() {
-                    "System.EvaluateOptionField#1".to_string()
-                } else if id == "System.Evaluate#1"
-                    && args.first().is_some_and(|a| {
-                        // An element of an Option array variable reads as the variable does: an unknown name answers false
-                        // and keeps the element (types/arrays/PnC14OptionArray.al:51-78,
-                        // OptionArray_Evaluate_And_Out_Of_Range).
-                        let var = if a.kind() == SyntaxKind::IndexExpr {
-                            a.children().next()
-                        } else {
-                            Some(a.clone())
-                        };
-                        matches!(self.ty_of(a), Ty::Option(_))
-                            && var.is_some_and(|v| matches!(self.res(&v), Some(Res::Local(_) | Res::Global(_))))
-                    })
-                {
-                    "System.EvaluateVariableOption#1".to_string()
-                } else if id == "System.Evaluate#1"
-                    && args
-                        .first()
-                        .is_some_and(|a| matches!(self.ty_of(a), Ty::Text(Some(_)) | Ty::Code(Some(_))))
-                {
-                    "System.EvaluateBounded#1".to_string()
+                let emit_id = if id == "System.Evaluate#1" {
+                    self.evaluate_id(args.first(), option_captions.is_some()).to_string()
                 } else if id == "Dialog.Error#2" && args.first().is_some_and(|a| a.kind() != SyntaxKind::Literal) {
                     self.error_variant_id(args)
+                } else if id.starts_with("ErrorInfo.Create#")
+                    && args.len() == 1
+                    && matches!(self.error_text_form(&args[0]), al_builtins::native::ErrorTextForm::Literal)
+                {
+                    // The form of the message is what `GetLastErrorText(true)` after `FieldError(Field, ErrorInfo)` answers
+                    // by (errors/last-error/SnLastErrorTextMoreForms.al:130, :161).
+                    "ErrorInfo.CreateLiteral#1".to_string()
                 } else if matches!(id.as_str(), "Record.FieldError#1" | "Record.FieldError#2") && args.len() == 2 {
                     self.field_error_variant_id(&id, args)
                 } else if let Some(variant_id) = self.variant_argument_id(&id, args) {
@@ -944,7 +923,7 @@ impl Lowerer<'_> {
                         } else {
                             None
                         };
-                        match (places, without_expression.or(expression)) {
+                        let lowered = match (places, without_expression.or(expression)) {
                             _ if !self.decimal_field_declares_format(a) || self.decimal_field_is_plain(a) => {
                                 ir::Arg::Value(self.format_option_field(true, false, a)?)
                             }
@@ -977,6 +956,10 @@ impl Lowerer<'_> {
                             (None, None) => ir::Arg::Value(ir::Expr::Refused(
                                 "StrSubstNo, Message or Error %n of a Decimal field with this DecimalPlaces or AutoFormat: its places are not pinned (docs/probes-needed.md)".into(),
                             )),
+                        };
+                        match lowered {
+                            ir::Arg::Value(e) => ir::Arg::Value(self.auto_format_writer_guard(a, e)?),
+                            other => other,
                         }
                     } else {
                         ir::Arg::Value(self.expr(a)?)
@@ -1045,12 +1028,16 @@ impl Lowerer<'_> {
                     out.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Text(places))));
                     out.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(mode))));
                 }
-                Ok(ir::Expr::Builtin {
+                let lowered = ir::Expr::Builtin {
                     id: builtin_id(&emit_id)?,
                     receiver,
                     args: out,
                     ret_used: true,
-                })
+                };
+                match args.first() {
+                    Some(a) if id == "System.Format#1" || id == "System.Format#2" => self.auto_format_writer_guard(a, lowered),
+                    _ => Ok(lowered),
+                }
             }
             // The checker refused a builtin of a newer runtime (ADR-015 3.3): say why.
             None if self.runtime_refusal(node).is_some() => Err(self.runtime_refusal(node).unwrap_or_default()),

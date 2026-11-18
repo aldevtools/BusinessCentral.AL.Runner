@@ -204,7 +204,7 @@ fn held<'a>(vals: impl IntoIterator<Item = &'a Value>) -> Option<String> {
 fn value_text(v: &Value) -> Option<String> {
     match v {
         // `audited_str` only looks for the mark here; a text with half of a surrogate pair goes on to its own reader.
-        Value::Text(t) | Value::Code(t) | Value::TextConst(t) if t.has_marker() && holds(t.audited_str()) => {
+        Value::Text(t) | Value::Code(t) | Value::TextConst(t, _) if t.has_marker() && holds(t.audited_str()) => {
             Some(t.audited_str().to_string())
         }
         Value::Library(_, h) => match &*h.borrow() {
@@ -682,7 +682,7 @@ fn utf8_out(v: &Value) -> bool {
     let Value::Library(_, h) = v else {
         return false;
     };
-    matches!(&*h.borrow(), LibraryValue::OutStream(_, enc) if *enc == crate::stream::Encoding::Utf8)
+    matches!(&*h.borrow(), LibraryValue::OutStream(_, enc, ..) if *enc == crate::stream::Encoding::Utf8)
 }
 
 /// `StrSubstNo(Template, ..)`: the template is known (it holds no mark) and uses value `i` (argument `i`, `%i`) only as `%i`,

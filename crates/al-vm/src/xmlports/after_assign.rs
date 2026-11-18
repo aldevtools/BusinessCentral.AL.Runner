@@ -1,11 +1,8 @@
-//! Import of a field node into a field with a TableRelation, in the layouts corpus PR 1366 measures
-//! (xmlports/import/XpAfterAssignTableRelation.al:1437-1872, al-runner issue 7863). With OnAfterAssignField the trigger runs
-//! first and the field is validated with the value it left, under the assumption `xmlport-after-assign-before-validate`.
-//! Without triggers, a temporary table element validates nothing, under `xmlport-temporary-import-not-validated`. Every
-//! other shape keeps `xp_validate_field`.
+//! Import of a field node into a field with a TableRelation, in the layouts xmlports/import/XpAfterAssignTableRelation.al:1437-1872
+//! measures. With OnAfterAssignField the trigger runs first and the field is validated with the value it left. Without triggers,
+//! a temporary table element validates nothing. Every other shape keeps `xp_validate_field`.
 
 use super::*;
-use al_builtins::assumptions::{Assumption, assume};
 
 /// What follows OnAfterAssignField in a measured shape.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -35,7 +32,7 @@ enum MeasuredField {
 
 impl Session {
     /// The measured shape of `node` with OnAfterAssignField, or `None` for every other shape. Each fact is required by
-    /// equality: the layout al-sema `xmlports/assumed_shapes.rs` `after_assign_layout` marks, a field of `MeasuredField`,
+    /// equality: the layout al-sema `xmlports/measured_shapes.rs` `after_assign_layout` marks, a field of `MeasuredField`,
     /// the table element's temporary state matching the record's, and the combinations in `measured_after_assign`.
     pub(super) fn xp_after_assign_shape(
         &mut self,
@@ -57,25 +54,10 @@ impl Session {
         Ok(measured_after_assign(stored, n.kind, n.field_validate, field))
     }
 
-    /// A field node without triggers in a measured layout on a temporary table element: nothing is validated. True means
-    /// the caller stores the value and validates nothing; the assumption is marked here.
-    pub(super) fn xp_temporary_import_not_validated(
-        &mut self,
-        schema: &Schema,
-        node: usize,
-        rec: &Rec,
-        pos: usize,
-    ) -> Result<bool, Signal> {
-        if !self.xp_plain_temporary_shape(schema, node, rec, pos)? {
-            return Ok(false);
-        }
-        assume(Assumption::XmlportTemporaryImportNotValidated);
-        Ok(true)
-    }
-
-    /// The layout al-sema `plain_import_layout` marks, a temporary table element and record, the table's Integer key field
-    /// on the first node (`xp_first_node_is_integer_key`), and a combination in `measured_plain_temporary`.
-    fn xp_plain_temporary_shape(
+    /// A field node without triggers in a measured layout on a temporary table element, where nothing is validated: the
+    /// layout al-sema `plain_import_layout` marks, a temporary table element and record, the table's Integer key field on the
+    /// first node (`xp_first_node_is_integer_key`), and a combination in `measured_plain_temporary`.
+    pub(super) fn xp_plain_temporary_shape(
         &mut self,
         schema: &Schema,
         node: usize,
@@ -195,7 +177,6 @@ impl Session {
         shape: AfterAssign,
         blank: bool,
     ) -> Result<(usize, Option<Flow>), Signal> {
-        assume(Assumption::XmlportAfterAssignBeforeValidate);
         if schema.node(node).kind == ir::XmlNodeKind::FieldAttr && blank {
             return Ok((pos, None));
         }

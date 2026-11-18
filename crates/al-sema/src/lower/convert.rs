@@ -253,23 +253,107 @@ impl<'a> Lowerer<'a> {
         )
     }
 
-    /// A variable declared `TextConst` going into a Variant: in BC the Variant then answers no Is... test while Format and a
-    /// Text read its text (types/variant/VaTTextConst.al:144-151, TextConst_In_Variant). That value kind is not built, so the
-    /// conversion is refused. A Label is a Text in a Variant (Base App hands labels to Variant parameters). Probe wanted for the
-    /// other operations on such a Variant (docs/probes-needed.md).
-    pub(crate) fn refuse_textconst_into_variant(&self, target: &Ty, node: &SyntaxNode) -> L<()> {
+    /// Whether a Label or TextConst variable `node` going into a Variant at `site` makes the Variant hold a TextConstant
+    /// (`Variant.FromTextConstant#1`): it answers IsTextConstant and no other Is... test; what every other reader gets is
+    /// `al_builtins::conv::text_constant::read`. Pinned, for the forms `shared::plain_text_constant` names:
+    /// - assigned to a local Variant: a local Label (types/variant/VaTTextConst.al:283, :289; types/TestTernaryContracts.al:564,
+    ///   :572), a global Label (types/variant/VariantIsMatrix.al:224, :242), a local TextConst (TestTernaryContracts.al:566,
+    ///   :573), a global TextConst (VaTTextConst.al:137-149, :280, :287; VariantIsMatrix.al:226, :243);
+    /// - a global TextConst handed to a by-value Variant parameter of a `local procedure` of the same object with no
+    ///   attribute, called bare (VaTTextConst.al:124, :282, :288).
+    ///
+    /// Each pinned site is in a `[Test]` procedure of a codeunit with `Subtype = Test` (`in_text_constant_routine`).
+    /// Any other TextConst into a Variant is refused. Any other Label keeps the runtime's earlier answer, a Text.
+    /// `Some(true)` for a TextConst, `Some(false)` for a Label that goes in as a TextConstant.
+    pub(crate) fn text_constant_into_variant(
+        &self,
+        target: &Ty,
+        node: &SyntaxNode,
+        site: TextConstantSite,
+    ) -> L<Option<bool>> {
         if !matches!(target, Ty::Variant) {
-            return Ok(());
+            return Ok(None);
         }
-        let textconst = match self.res(node) {
-            Some(Res::Local(n)) => self.local_textconsts.contains(n),
-            Some(Res::Global(n)) => self.global_textconsts.contains(n),
-            _ => false,
+        let (global, textconst, plain) = match self.res(node) {
+            Some(Res::Local(n)) => (
+                false,
+                self.local_textconsts.contains(n),
+                self.local_plain_text_constants.contains(n),
+            ),
+            Some(Res::Global(n)) => (
+                true,
+                self.global_textconsts.contains(n),
+                self.global_plain_text_constants.contains(n),
+            ),
+            _ => return Ok(None),
         };
-        if textconst {
-            return Err("a TextConst in a Variant (the Variant answers no Is... test; not built)".into());
+        let pinned = self.in_text_constant_routine()
+            && match site {
+                TextConstantSite::AssignToLocalVariant => plain,
+                TextConstantSite::ArgumentOfSameObjectProcedure => plain && textconst && global,
+                TextConstantSite::Other => false,
+            };
+        if pinned {
+            return Ok(Some(textconst));
         }
-        Ok(())
+        if textconst {
+            return Err("a TextConst in a Variant at a place or of a form the corpus does not pin".into());
+        }
+        Ok(None)
+    }
+
+    /// The routine being lowered is a procedure whose only attribute is `[Test]`, of a codeunit with `Subtype = Test`:
+    /// the routines of every site `text_constant_into_variant` names (VaTTextConst.al:9, :273; TestTernaryContracts.al:3;
+    /// VariantIsMatrix.al:42).
+    fn in_text_constant_routine(&self) -> bool {
+        let obj = &self.ws.objects[self.oi];
+        let test_codeunit = obj.kind == ObjKind::Codeunit
+            && self
+                .ws
+                .object_ast(self.oi)
+                .properties()
+                .any(|p| p.name().eq_ignore_ascii_case("Subtype") && p.value_text().eq_ignore_ascii_case("Test"));
+        let test_procedure = self.routine_nodes.get(self.oi).get(self.routine_idx).is_some_and(|r| {
+            let attrs: Vec<_> = r.attributes().map(|a| a.name()).collect();
+            r.syntax().kind() == SyntaxKind::Procedure && attrs.len() == 1 && attrs[0].eq_ignore_ascii_case("Test")
+        });
+        test_codeunit && test_procedure
+    }
+
+    /// `target := source` (`kids`) with `value` the lowered source: the TextConstant a Variant then holds
+    /// (`text_constant_into_variant`), or `None` for every other assignment.
+    pub(crate) fn text_constant_assigned(
+        &self,
+        op: Option<SyntaxKind>,
+        kids: &[SyntaxNode],
+        target: &Ty,
+        value: &ir::Expr,
+    ) -> L<Option<ir::Expr>> {
+        let site = if op == Some(SyntaxKind::Assign)
+            && kids[0].kind() == SyntaxKind::NameRef
+            && matches!(self.res(&kids[0]), Some(Res::Local(n)) if self.local_variant_vars.contains(n))
+        {
+            TextConstantSite::AssignToLocalVariant
+        } else {
+            TextConstantSite::Other
+        };
+        match self.text_constant_into_variant(target, &kids[1], site)? {
+            Some(textconst) => Ok(Some(self.text_constant(value.clone(), textconst)?)),
+            None => Ok(None),
+        }
+    }
+
+    /// `value`, the text of a Label or TextConst (`textconst`), as the TextConstant a Variant holds.
+    pub(crate) fn text_constant(&self, value: ir::Expr, textconst: bool) -> L<ir::Expr> {
+        Ok(ir::Expr::Builtin {
+            id: super::call::builtin_id("Variant.FromTextConstant#1")?,
+            receiver: None,
+            args: vec![
+                ir::Arg::Value(value),
+                ir::Arg::Value(ir::Expr::Const(ir::Const::Boolean(textconst))),
+            ],
+            ret_used: true,
+        })
     }
 
     /// `value` (of type `src`) converted for a slot of type `target`. An interface slot takes a
@@ -349,6 +433,22 @@ impl<'a> Lowerer<'a> {
             let ch = self.convert_to(&Ty::Char, src, value)?;
             return self.convert_to(target, &Ty::Char, ch);
         }
+        // A value whose declared type is TransactionType (a variable, `TransactionType::X`, `CurrentTransactionType()`) carries
+        // its type into a Variant, where IsTransactionType is true and IsOption false (tests/al-language/types/variant/
+        // VariantIsMatrix.al:135; tests/al-language/types/TestVariantExtended.al:238 pins the default value). An
+        // Option with the same members stays an Option.
+        let value = if matches!(src, Ty::Builtin(n) if n.eq_ignore_ascii_case("TransactionType"))
+            && matches!(self.rt(target), Ok(RtType::Variant))
+        {
+            ir::Expr::Builtin {
+                id: super::call::builtin_id("Variant.FromTransactionType#1")?,
+                receiver: None,
+                args: vec![ir::Arg::Value(value)],
+                ret_used: true,
+            }
+        } else {
+            value
+        };
         // The literal of an option member (`O::B`) is an Integer in a Variant; a platform enum's member keeps its type
         // (types/variant/LTP89IsMisc.al:NearTypes `option_literal`, LTP89IsEnumsA.al `literal`).
         if matches!(self.rt(target), Ok(RtType::Variant)) {
@@ -764,7 +864,7 @@ impl<'a> Lowerer<'a> {
                 out.push(ir::Arg::Ref(self.place(a)?));
             } else {
                 let value = self.expr_into(&p.ty, a)?;
-                self.refuse_variant_argument(&p.ty, a)?;
+                self.refuse_variant_argument(&p.ty, a, TextConstantSite::Other)?;
                 out.push(ir::Arg::Value(self.convert_arg(&p.ty, self.ty_ref(a), value)?));
             }
         }
@@ -808,4 +908,15 @@ fn is_identity_scalar(t: &RtType) -> bool {
 /// Whether `e` is a call of the builtin `id`.
 pub(super) fn is_builtin(e: &ir::Expr, id: &str) -> bool {
     matches!(e, ir::Expr::Builtin { id: b, .. } if super::call::builtin_id(id).is_ok_and(|i| i == *b))
+}
+
+/// Where a Label or TextConst goes into a Variant (`Lowerer::text_constant_into_variant`).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TextConstantSite {
+    /// `V := X` with `V` a local Variant variable.
+    AssignToLocalVariant,
+    /// A by-value Variant parameter of a `local procedure` of the same object with no attribute, called bare.
+    ArgumentOfSameObjectProcedure,
+    /// Anywhere else: an exit value, an interface or another object's procedure, a global or a field.
+    Other,
 }

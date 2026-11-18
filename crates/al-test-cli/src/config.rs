@@ -536,6 +536,28 @@ extra_apps = [
         }
     }
 
+    /// The corpus sidecar runs on the BC major's table (`al_version::dotnet_major_for_bc`), not on the pinned build's service
+    /// tier. A pin moved to a build on another .NET major (BC 27 and 28 builds from 2026-11-17 run on .NET 10) fails here
+    /// until the pin's measured major is recorded in `al_version::MEASURED_SERVICE_RUNTIMES` and agrees with the table.
+    #[test]
+    fn every_pinned_build_runs_on_the_net_major_of_the_corpus_sidecar_table() {
+        let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../oracle/oracle.toml")).unwrap();
+        let f = OracleFile::parse(&text).unwrap();
+        for v in &f.versions {
+            let build = v.bc_build.as_deref().unwrap_or_default();
+            let measured = al_version::MEASURED_SERVICE_RUNTIMES
+                .iter()
+                .find(|(b, _)| *b == build)
+                .map(|(_, m)| *m);
+            assert_eq!(
+                measured,
+                Some(al_version::dotnet_major_for_bc(v.major)),
+                "BC {} pins build '{build}': its measured .NET major must equal the corpus sidecar's table",
+                v.major
+            );
+        }
+    }
+
     #[test]
     fn the_leg_build_is_kept_when_recorded() {
         let f = file();
@@ -586,5 +608,18 @@ extra_apps = [
         for (major, want) in [(27, "16.1"), (28, "17.1"), (29, "18.0")] {
             assert!(got.contains(&(major, Some(want))), "{got:?}");
         }
+    }
+
+    /// ADR-077 decision 7: the bump writes `mode`, `fresh`, `reused`, `oldest_source_run` and `ci_bc_build` into a
+    /// [[version]] table (tools/corpus_bump_edit.py). The CLI reads the table as it did without them.
+    #[test]
+    fn the_provenance_fields_of_a_version_change_nothing_the_cli_reads() {
+        let with = TOML.replace(
+            "artifact_id = 2\n",
+            "artifact_id = 2\nmode = \"subset\"\nfresh = 3\nreused = 4\noldest_source_run = 1\nci_bc_build = \"29.0.54011.55817\"\n",
+        );
+        assert_ne!(with, TOML);
+        let (a, b) = (file(), OracleFile::parse(&with).unwrap());
+        assert_eq!(format!("{:?}", a.versions), format!("{:?}", b.versions));
     }
 }

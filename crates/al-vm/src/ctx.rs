@@ -39,8 +39,15 @@ impl al_builtins::format::FormatCtx for Session {
     }
     fn record_id_table(&self, table: u32) -> Option<(String, Option<String>)> {
         let t = self.engine.tables.get(table as usize)?.clone()?;
-        let caption = self.caption_checked(&t).ok()?;
+        let caption = self.record_id_caption(&t)?;
         Some((caption, self.engine.program.objects[table as usize].namespace.clone()))
+    }
+    fn record_id_namespace(&self, table: u32) -> Option<Option<String>> {
+        let t = self.engine.tables.get(table as usize)?.clone()?;
+        if self.caption_checked(&t).is_err() && !self.record_id_name_measured(table as usize) {
+            return None;
+        }
+        Some(self.engine.program.objects[table as usize].namespace.clone())
     }
     fn record_id_key_types(&self, table: u32) -> Option<Vec<al_builtins::value::RtType>> {
         let t = self.engine.tables.get(table as usize)?.clone()?;
@@ -137,6 +144,14 @@ impl al_builtins::native::Ctx for Session {
     fn gate(&self, gate: al_version::Gate) -> bool {
         self.has(gate)
     }
+    fn error_text_raise(&self) -> Result<(), Signal> {
+        // An Error of a CaptionClass run is measured only where `CaptionDialogs` lets it raise (record/captions/
+        // CaptionClassStateFreeCalls.al:919-936, al-runner issue 7391).
+        match self.caption_dialog_refusal("Error", true) {
+            Some(why) => Err(Signal::unsupported(why)),
+            None => Ok(()),
+        }
+    }
     fn translated_app_read(&self, app: &str, what: &str) -> Result<(), Signal> {
         Session::translated_app_read(self, app, what)
     }
@@ -186,6 +201,9 @@ impl al_builtins::native::Ctx for Session {
     fn auto_format_field_places(&mut self, record: &Value, field_no: usize) -> Result<String, Signal> {
         self.auto_format_field_places_of(record, field_no)
     }
+    fn auto_format_writer_refusal(&self, kind: &str) -> Option<String> {
+        Session::auto_format_writer_refusal(self, kind, false)
+    }
     fn last_error(&self) -> AlError {
         self.last_error.clone()
     }
@@ -216,7 +234,18 @@ impl al_builtins::native::Ctx for Session {
                     // `Record.Validate` in AL code (registry `Record.Validate#1`).
                     return self.validate_at(crate::records::ValidateSite::AlRecordValidate, &rc, args);
                 }
-                self.record_op_from_al(method, &rc, args)
+                // Taken by the SetFilter of `record_op_inner` (`setfilter_empty_or_side`).
+                self.setfilter_from_al = method == al_builtins::record_op::RecordOp::SetFilter;
+                // A Record variable's `Insert()` under the test runner's permission sets (`runner_sets_insert.rs`).
+                if self.runner_permission_sets && method == al_builtins::record_op::RecordOp::Insert && args.is_empty()
+                {
+                    self.runner_sets_insert(&rc)?;
+                }
+                let before = self.begin_al_record_call(method, &rc);
+                let r = self.record_op_from_al(method, &rc, args);
+                self.end_al_record_call(before);
+                self.setfilter_from_al = false;
+                r
             }
             other => Err(Signal::unsupported(format!(
                 "record method {method} on {}",
@@ -299,6 +328,9 @@ impl al_builtins::native::Ctx for Session {
     fn company_build(&self) -> bool {
         self.company_build
     }
+    fn held_by_temp_blob_impl(&self, b: &al_builtins::stream::BlobRef) -> bool {
+        self.temp_blob_impl_fields.holds(b)
+    }
     fn calling_object(&self) -> Option<(String, String)> {
         let obj = *self.frames.last()?;
         let o = &self.engine.program.objects[obj];
@@ -366,21 +398,10 @@ impl al_builtins::native::Ctx for Session {
         self.module_of_app(self.engine.program.objects[self.frames[at]].app as usize)
     }
     fn app_resources(&self) -> Option<al_builtins::native::AppResources> {
-        let obj = *self.frames.last()?;
-        let index = self.engine.program.objects[obj].app as usize;
-        let app = self.engine.program.apps.get(index)?;
-        self.engine
-            .resources_read
-            .store(true, std::sync::atomic::Ordering::Relaxed);
-        let resources = self
-            .engine
-            .resource_overrides
-            .read()
-            .ok()
-            .and_then(|o| o.get(&index).map(|r| r.as_ref().clone()))
-            .unwrap_or_else(|| app.resources.clone());
-        // BC names the app `<name> by <publisher> <version>` (session-system/W5NavAppResources.al:GetResourceAsText_NameMatching).
-        Some((format!("{} by {} {}", app.name, app.publisher, app.version), resources))
+        self.running_app_resources()
+    }
+    fn app_resource(&self, name: &str) -> Option<(String, Option<Vec<u8>>)> {
+        self.running_app_resource(name)
     }
     fn runner_call_stack(&self) -> String {
         self.runner_text_frames()

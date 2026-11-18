@@ -14,6 +14,38 @@ pub(crate) enum OptionCaptions {
 }
 
 impl Lowerer<'_> {
+    /// Records what a local variable `n` of `r`, declared by `v` with type `ty`, is for the reads and conversions that ask:
+    /// its Label text (`label`) and XLIFF id, whether it is a TextConst, its texts by language, Locked, MaxLength, the plain
+    /// text constant forms, and whether it is a Variant.
+    fn note_local_var_facts(&mut self, r: &ast::Routine, v: &ast::VarDecl, n: &str, label: Option<&String>, ty: &Ty) {
+        let key = n.to_lowercase();
+        let t = v.type_ref();
+        if let Some(l) = label {
+            self.local_labels.insert(key.clone(), l.clone());
+            if let Some(id) = self.label_xliff_id(Some(r), n) {
+                self.local_label_xliff.insert(key.clone(), id);
+            }
+        }
+        if is_textconst(t.as_ref()) {
+            self.local_textconsts.insert(key.clone());
+        }
+        if let Some(texts) = t.as_ref().and_then(textconst_languages) {
+            self.local_textconst_languages.insert(key.clone(), texts);
+        }
+        if t.as_ref().is_some_and(label_locked) {
+            self.local_locked_labels.insert(key.clone());
+        }
+        if t.as_ref().is_some_and(plain_text_constant) {
+            self.local_plain_text_constants.insert(key.clone());
+        }
+        if matches!(ty, Ty::Variant) {
+            self.local_variant_vars.insert(key.clone());
+        }
+        if t.as_ref().is_some_and(label_maxlength) {
+            self.local_maxlength_labels.insert(key);
+        }
+    }
+
     pub(crate) fn routine(&mut self, r: &ast::Routine) -> ir::Routine {
         #[cfg(test)]
         if r.name() == "InjectedLowerPanic" {
@@ -38,6 +70,8 @@ impl Lowerer<'_> {
         self.local_labels.clear();
         self.local_label_xliff.clear();
         self.local_textconsts.clear();
+        self.local_plain_text_constants.clear();
+        self.local_variant_vars.clear();
         self.local_textconst_languages.clear();
         self.local_locked_labels.clear();
         self.local_maxlength_labels.clear();
@@ -104,24 +138,7 @@ impl Lowerer<'_> {
                 if let Some(Err(e)) = &declared {
                     self.reasons.push(format!("`{n}`: {e}"));
                 }
-                if let Some(l) = &label {
-                    self.local_labels.insert(n.to_lowercase(), l.clone());
-                    if let Some(id) = self.label_xliff_id(Some(r), &n) {
-                        self.local_label_xliff.insert(n.to_lowercase(), id);
-                    }
-                }
-                if is_textconst(v.type_ref().as_ref()) {
-                    self.local_textconsts.insert(n.to_lowercase());
-                }
-                if let Some(texts) = v.type_ref().as_ref().and_then(textconst_languages) {
-                    self.local_textconst_languages.insert(n.to_lowercase(), texts);
-                }
-                if v.type_ref().as_ref().is_some_and(label_locked) {
-                    self.local_locked_labels.insert(n.to_lowercase());
-                }
-                if v.type_ref().as_ref().is_some_and(label_maxlength) {
-                    self.local_maxlength_labels.insert(n.to_lowercase());
-                }
+                self.note_local_var_facts(r, &v, &n, label.as_ref(), &ty);
                 if let Some(why) = refusal {
                     self.reasons.push(format!("`{n}`: {why}"));
                 }
@@ -282,6 +299,7 @@ impl Lowerer<'_> {
             begin_pos,
             expr_tys,
             reads_var_max_len: self.reads_var_max_len,
+            local: r.is_local(),
         }
     }
 
@@ -511,8 +529,9 @@ impl Lowerer<'_> {
             })
     }
 
-    /// Why `Format`, StrSubstNo, Message or Error of the Decimal table field `arg` is not pinned: the field declares
-    /// `DecimalPlaces` and an AutoFormat beside it. Only `DecimalPlaces` with `AutoFormatType = 1` and a blank
+    /// Why `Format`, StrSubstNo, Message or Error of the Decimal table field `arg` is not pinned: its AutoFormatType is not
+    /// modelled (`pagefmt::unmodelled_auto_format_type`), or the field declares `DecimalPlaces` and an AutoFormat beside it.
+    /// Only `DecimalPlaces` with `AutoFormatType = 1` and a blank
     /// `AutoFormatExpression` is pinned (the AutoFormat wins: text/text-methods/RwDecimalFieldPlaces.al:83
     /// `Dp33Amt1` gives `70.00`). `AutoFormatType = 0` is the default and keeps the places.
     pub(crate) fn decimal_field_format_unpinned(&mut self, arg: &SyntaxNode) -> Option<String> {
@@ -529,6 +548,10 @@ impl Lowerer<'_> {
                 .find(|(k, _)| k.eq_ignore_ascii_case(n))
                 .map(|(_, v)| v.trim().to_string())
         };
+        // An AutoFormatType the runtime does not model, with or without DecimalPlaces or an expression beside it.
+        if let Some(why) = prop("AutoFormatType").and_then(|k| al_builtins::pagefmt::unmodelled_auto_format_type(&k)) {
+            return Some(format!("Format of Decimal field {}: {why}", f.name));
+        }
         prop("DecimalPlaces")?;
         let (aft, expr) = (prop("AutoFormatType"), prop("AutoFormatExpression"));
         match (aft.as_deref(), expr.as_deref()) {
@@ -550,6 +573,40 @@ impl Lowerer<'_> {
                 f.name
             )),
         }
+    }
+
+    /// `lowered` (the `Format` of the Decimal table field `arg`, or its StrSubstNo, Message or Error substitution) behind the check
+    /// that no subscriber could write the AutoFormat result (al-vm `auto_format_writer`), for a field of AutoFormatType 1, 2, 4, 5, 10
+    /// or 11 (`pagefmt::resolved_auto_format_type`): the check runs first, the Format only after it. Any other argument as it is.
+    pub(crate) fn auto_format_writer_guard(&mut self, arg: &SyntaxNode, lowered: ir::Expr) -> Result<ir::Expr, String> {
+        let Some(Res::Field { table, id: field }) = self.res(arg).cloned() else {
+            return Ok(lowered);
+        };
+        let Some(f) = self.members[table].fields.iter().find(|f| f.id == field) else {
+            return Ok(lowered);
+        };
+        let kind = f
+            .properties
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case("AutoFormatType"))
+            .map(|(_, v)| v.trim().to_string())
+            .filter(|k| al_builtins::pagefmt::resolved_auto_format_type(k));
+        let (Ty::Decimal, Some(kind)) = (&f.ty, kind) else {
+            return Ok(lowered);
+        };
+        let guard = ir::Expr::Builtin {
+            id: super::call::builtin_id("System.AutoFormatWriterGuard#1")?,
+            receiver: None,
+            args: vec![ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(
+                kind.parse().expect("a resolved type is a number"),
+            )))],
+            ret_used: true,
+        };
+        Ok(ir::Expr::Ternary(
+            Box::new(guard),
+            Box::new(lowered),
+            Box::new(ir::Expr::Const(ir::Const::Text(String::new()))),
+        ))
     }
 
     /// The places `min:max` a Decimal table field declares for `Format`: its `DecimalPlaces`, else the precision of its
@@ -711,8 +768,31 @@ impl Lowerer<'_> {
                             .collect()
                     })
                     .unwrap_or_default(),
+                publisher: self.subscriber_publisher(&a),
             })
             .collect()
+    }
+
+    /// What `[EventSubscriber(ObjectType::<Kind>, <publisher>, ...)]` names as its publisher, resolved in this file
+    /// (`Workspace::subscriber_publisher`); [`ir::PublisherRef::NotSubscriber`] for every other attribute. A publisher argument
+    /// of another form than [`subscriber_publisher_parts`] reads is [`ir::PublisherRef::Unread`].
+    fn subscriber_publisher(&self, a: &al_syntax::ast::Attribute) -> ir::PublisherRef {
+        if !a.name().eq_ignore_ascii_case("EventSubscriber") {
+            return ir::PublisherRef::NotSubscriber;
+        }
+        let args: Vec<String> = a
+            .args()
+            .map(|l| l.children().map(|e| e.text().to_string()).collect())
+            .unwrap_or_default();
+        let (Some(kind), Some(publisher)) = (args.first(), args.get(1)) else {
+            return ir::PublisherRef::Unread;
+        };
+        // The kind as the scan of a dependency file reads it (`Workspace::subscribers_of`): `ObjectType::Table` names a table.
+        let kind = ObjKind::from_keyword(kind.rsplit("::").next().unwrap_or_default().trim().trim_matches('"'));
+        match subscriber_publisher_parts(publisher) {
+            Some(parts) => self.ws.subscriber_publisher(self.file, kind, &parts),
+            None => ir::PublisherRef::Unread,
+        }
     }
 
     /// `Codeunit::"Name"` as an attribute argument: the object's id. `[TestDataSource(Codeunit::"Name", 'Set')]` and
@@ -755,6 +835,7 @@ impl Lowerer<'_> {
             begin_pos: ir::NO_POS,
             expr_tys: Vec::new(),
             reads_var_max_len: false,
+            local: r.is_local(),
         }
     }
 
@@ -1174,7 +1255,7 @@ impl Lowerer<'_> {
                 Some(e) => self.expr_into(&self.ret_decl.clone().unwrap_or(Ty::Boolean), e).and_then(|v| {
                     if let Some(decl) = self.ret_decl.clone() {
                         self.refuse_session_ending_ternary(&decl, e)?;
-                        self.refuse_textconst_into_variant(&decl, e)?;
+                        self.text_constant_into_variant(&decl, e, super::convert::TextConstantSite::Other)?;
                     }
                     // A DotNet result must fit the return type exactly (ADR-014). An interface
                     // result takes what an interface variable takes: a codeunit that implements
@@ -1213,7 +1294,11 @@ impl Lowerer<'_> {
             },
             BreakStmt => Ok(ir::Stmt::Break),
             ContinueStmt => self.continue_stmt(),
-            AssertErrorStmt => Ok(ir::Stmt::AssertError(self.stmt_or_empty(kids.first()))),
+            AssertErrorStmt => {
+                let mut body = self.stmt_or_empty(kids.first());
+                refuse_assert_error_leaves(&mut body, false);
+                Ok(ir::Stmt::AssertError(body))
+            }
             other => Err(format!("statement {other:?} is not lowered yet")),
         };
         match r {
@@ -1697,7 +1782,9 @@ impl Lowerer<'_> {
                 ));
             }
         }
-        self.refuse_textconst_into_variant(&target_ty, &kids[1])?;
+        if let Some(text_constant) = self.text_constant_assigned(op_kind, kids, &target_ty, &value)? {
+            return Ok(ir::Stmt::Assign(place, text_constant));
+        }
         // A Byte assigned to a character of a Text or Code goes in unconverted: the runtime maps a byte from 0x80 up to the
         // character Format shows for it (al-language-onprem/types/ByteFormat.al:13-31, `Interp::write_char`).
         let byte_into_text_char = matches!(op_kind, Some(SyntaxKind::Assign) | None)
@@ -1900,8 +1987,8 @@ impl Lowerer<'_> {
     /// Why a use of the variable `name` is refused for an attribute of its declaration: `[RunOnClient]` (BC raises
     /// DotNetFromAlNotSupported, al-language-onprem-dotnet/dotnet/ac/AcDnAttributes.al:145-146) and `[WithEvents]` (the
     /// `trigger Variable::Event` handlers run when the object raises the event, AcDnAttributes.al:50, :86) are not
-    /// implemented, and running the variable without them would be silently wrong. A codeunit's WithEvents variable that no
-    /// trigger handles, and a Timer whose one trigger is Elapsed, are not refused here (`with_events::marker`).
+    /// implemented, and running the variable without them would be silently wrong. The WithEvents variables `with_events::marker`
+    /// accepts (a Timer, an AzureML variable of a codeunit with no trigger for it) are not refused here.
     pub(crate) fn var_attr_refusal(&self, name: &str, local: bool) -> Option<String> {
         let attrs = if local {
             self.local_var_attrs.get(name)
@@ -1967,7 +2054,7 @@ impl Lowerer<'_> {
                         .map(|i| ir::Place::Global(*i))
                         .ok_or_else(|| format!("implicit variable `{name}` is not lowered yet"))
                 }
-                // A WithEvents variable no trigger handles (`with_events::marker`) runs as a plain one, assumed.
+                // An AzureML WithEvents variable with no trigger (`with_events::marker`): only the uses codeunit 2001 makes.
                 Some(Res::Global(name))
                     if !self.in_request_page
                         && self
@@ -1975,13 +2062,12 @@ impl Lowerer<'_> {
                             .get(name)
                             .is_some_and(|a| a.iter().any(|a| a == super::with_events::WITH_EVENTS_NO_TRIGGER)) =>
                 {
-                    let place = self
-                        .globals
-                        .get(name)
+                    let name = name.clone();
+                    self.with_events_no_trigger_use(n, &name)?;
+                    self.globals
+                        .get(&name)
                         .map(|i| ir::Place::Global(*i))
-                        .ok_or_else(|| format!("implicit variable `{name}` is not lowered yet"));
-                    self.assume(al_builtins::assumptions::Assumption::WithEventsNoTrigger);
-                    place
+                        .ok_or_else(|| format!("implicit variable `{name}` is not lowered yet"))
                 }
                 // The request page's Rec in OnInitReport: reading it raises (reports/request-page/YRequestPageTests.al:551,
                 // RS_RequestPageRec_ReadInOnInitReport_Raises; report 88566 in RsRequestPageRec.al:224). xRec is not pinned.
@@ -2011,6 +2097,7 @@ impl Lowerer<'_> {
                     .ok_or_else(|| format!("local `{name}`")),
                 // An extension variable named like a base variable is its own (corpus
                 // pages/extensions/TestPageExtensionBaseAccessContracts.al:20, Shadow).
+                Some(Res::Global(name)) if name == "rec" && self.declared_rec_slot.is_some() => self.declared_rec_place(n),
                 Some(Res::Global(name)) => self
                     .in_request_page
                     .then(|| self.request_page_globals.get(name))
@@ -2369,4 +2456,60 @@ fn variant_into_text_guard(src_place: &ir::Place, target_ty: &Ty) -> L<(ir::Expr
         );
         (cond, "NavText")
     })
+}
+
+/// The publisher argument of an `[EventSubscriber]` as the name parts `Workspace::subscriber_publisher` takes, in exactly two
+/// forms: `<Kind>::<name>` with the name plain or qualified (`Codeunit::"Name"`, `Codeunit::Ns."Name"`), and a bare object id
+/// (`ObjectType::Table, 483`, the form 17 subscribers of Microsoft's apps write; one part, the digits, found by id as before
+/// al-runner issue 8171). `None` for any other text.
+fn subscriber_publisher_parts(text: &str) -> Option<Vec<String>> {
+    let text = text.trim();
+    if let Some((kind, name)) = text.split_once("::") {
+        let kind = kind.trim();
+        let is_ident = !kind.is_empty() && kind.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+        let parts = crate::members::name_parts(name.trim());
+        return (is_ident && parts.iter().all(|p| !p.is_empty())).then_some(parts);
+    }
+    (text.bytes().all(|b| b.is_ascii_digit()) && text.parse::<u32>().is_ok()).then(|| vec![text.to_string()])
+}
+
+/// Replaces each statement of `body`, the body of an `asserterror`, that leaves it by a refusal that is raised when the
+/// statement runs (al-runner issue 8289, `ir::ASSERT_ERROR_LEAVE`): an `exit` without a value, or a `break` or `continue`
+/// outside a loop of the body (`in_loop`: the statements are inside such a loop). A leave the run does not reach keeps main's
+/// result. An `exit` with a value leaves only when its value raises nothing: the VM refuses it then (`op_assert`). A procedure
+/// the body calls has its own exit.
+fn refuse_assert_error_leaves(body: &mut [ir::Stmt], in_loop: bool) {
+    use ir::Stmt;
+    for s in body.iter_mut() {
+        match s {
+            Stmt::Exit(None) => *s = Stmt::Expr(ir::Expr::Refused(ir::ASSERT_ERROR_LEAVE.into())),
+            Stmt::Break | Stmt::Continue if !in_loop => {
+                *s = Stmt::Expr(ir::Expr::Refused(ir::ASSERT_ERROR_LEAVE.into()))
+            }
+            Stmt::If(_, a, b) => {
+                refuse_assert_error_leaves(a, in_loop);
+                refuse_assert_error_leaves(b, in_loop);
+            }
+            Stmt::Case {
+                branches, otherwise, ..
+            } => {
+                for (_, b) in branches.iter_mut() {
+                    refuse_assert_error_leaves(b, in_loop);
+                }
+                refuse_assert_error_leaves(otherwise, in_loop);
+            }
+            Stmt::AssertError(b) => refuse_assert_error_leaves(b, in_loop),
+            Stmt::While(_, b) | Stmt::Repeat(b, _) | Stmt::For { body: b, .. } | Stmt::Foreach { body: b, .. } => {
+                refuse_assert_error_leaves(b, true)
+            }
+            Stmt::Exit(Some(_))
+            | Stmt::Break
+            | Stmt::Continue
+            | Stmt::Assign(..)
+            | Stmt::Expr(_)
+            | Stmt::Pos(_)
+            | Stmt::Assume(_)
+            | Stmt::TddMark(_) => {}
+        }
+    }
 }

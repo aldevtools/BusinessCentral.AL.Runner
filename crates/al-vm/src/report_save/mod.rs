@@ -19,6 +19,7 @@ mod fact_report;
 mod fact_run;
 mod fact_selection;
 mod facts;
+mod html_cell;
 mod lookup;
 
 #[cfg(test)]
@@ -28,12 +29,13 @@ use std::sync::Arc;
 
 pub(crate) use crate::report_placeholder::Format;
 use crate::report_placeholder::SaveOutput;
+use crate::report_render::SaveCall;
 use crate::reports::{SaveTarget, Schema};
 use crate::{Session, Signal};
 use al_builtins::native::AlError;
 pub(crate) use cell::Renders;
 use cell::{Answer, Cell, Events};
-pub(crate) use facts::AnswerForm;
+pub(crate) use facts::{AnswerForm, Call};
 use facts::{Facts, Selection, Target};
 
 /// A save that runs: its facts, to look up again after the run.
@@ -64,11 +66,13 @@ pub(crate) enum BeforeRun {
 
 /// What a save that ran writes or answers.
 pub(crate) enum AfterRun {
-    /// Write the placeholder of the format, rendered by this layout; `rgba` the row's rgba column.
+    /// Write the placeholder of the format, rendered by this layout; `rgba` the row's rgba column; `html_cell` whether the
+    /// whole fact vector after the run is the one of the Html hash cells (`html_cell::HTML_HASH_CELL`), with no layout named.
     Write {
         renders: Renders,
         selected: Option<Arc<str>>,
         rgba: al_builtins::rendered_text::RgbaReplace,
+        html_cell: bool,
     },
     /// The answer, with nothing written (the last error is set).
     Answer(bool),
@@ -98,14 +102,23 @@ fn target_fact(target: &SaveTarget) -> Target {
     }
 }
 
+/// The call fact of a save to a stream from what `Session::save_call` took of it (`None`: a save to a file or a request page's).
+fn call_fact(save_call: Option<SaveCall>) -> Call {
+    match save_call.map(|c| (c.by_number, c.parameters, c.record_ref)) {
+        Some((true, false, false)) => Call::StaticPlain,
+        Some((true, false, true)) => Call::StaticRecordRef,
+        _ => Call::Other,
+    }
+}
+
 impl Session {
-    /// The facts of a save of `schema` as `format` to `target`, taken as `answer`, before the run. `custom`: a layout of Type
-    /// Custom renders.
+    /// The facts of a save of `schema` as `format` to `target` by `call`, taken as `answer`, before the run. `custom`: a
+    /// layout of Type Custom renders.
     fn save_facts(
         &mut self,
         schema: &Schema,
         format: Format,
-        target: &SaveTarget,
+        (target, call): (&SaveTarget, Call),
         answer: AnswerForm,
         custom: bool,
     ) -> Result<(Facts, Option<Arc<str>>), Signal> {
@@ -117,6 +130,7 @@ impl Session {
         let facts = Facts {
             format,
             target,
+            call,
             answer,
             kind: r.kind,
             layout: r.layout,
@@ -144,11 +158,11 @@ impl Session {
         &mut self,
         schema: &Schema,
         format: Format,
-        target: &SaveTarget,
+        how: (&SaveTarget, Call),
         answer: AnswerForm,
         custom: bool,
     ) -> Result<BeforeRun, Signal> {
-        let (facts, selected) = self.save_facts(schema, format, target, answer, custom)?;
+        let (facts, selected) = self.save_facts(schema, format, how, answer, custom)?;
         let table: &[Cell] = &cells::CELLS;
         match lookup::before_run(table, &facts) {
             lookup::Before::Answer(row) => {
@@ -170,6 +184,7 @@ impl Session {
                 for row in &all {
                     self.check_events(schema, &facts, row.events)?;
                 }
+                refuse_unmeasured_data_items_before_false(&all, &facts, schema, &self.engine.tables)?;
                 // When every row the run can end in marks the same assumption (a stored selection, a temporary
                 // selection), it is marked now, as main did; otherwise the row the run ends in marks it.
                 if let Some(a) = lookup::one_mark_after_any_run(table, &facts) {
@@ -193,7 +208,7 @@ impl Session {
         &mut self,
         schema: &Schema,
         format: &str,
-        target: &SaveTarget,
+        (target, save_call): (&SaveTarget, Option<SaveCall>),
         result_used: bool,
         custom: bool,
     ) -> Result<Result<SaveOutput, AlError>, Signal> {
@@ -209,7 +224,7 @@ impl Session {
             AnswerForm::Statement
         };
         Ok(Ok(
-            match self.save_before_run(schema, format, target, answer, custom)? {
+            match self.save_before_run(schema, format, (target, call_fact(save_call)), answer, custom)? {
                 BeforeRun::Run(plan) => SaveOutput::Rendered(Box::new(plan)),
                 BeforeRun::Dataset => SaveOutput::Dataset,
                 BeforeRun::Discard => SaveOutput::Discard,
@@ -243,6 +258,7 @@ impl Session {
                 } else {
                     al_builtins::rendered_text::RgbaReplace::NotMeasured(lookup::rgba_reason(&cells::CELLS, &facts))
                 },
+                html_cell: facts == html_cell::HTML_HASH_CELL && plan.selected.is_none(),
             }),
             Answer::Empty if used => {
                 self.last_error = empty();
@@ -251,6 +267,14 @@ impl Session {
             Answer::Empty => Err(Signal::Error(Box::new(empty()))),
             Answer::FalseKeepError => Ok(AfterRun::Answer(false)),
             Answer::TrueNothing => Ok(AfterRun::Answer(true)),
+            Answer::FalseAfterRun(e) => {
+                let error = errors::error_of(e, self.object_id_of(schema.object as u32), facts.format);
+                if !used {
+                    return Err(Signal::Error(Box::new(error)));
+                }
+                self.last_error = error;
+                Ok(AfterRun::Answer(false))
+            }
             Answer::Refuse(why) => Err(Signal::unsupported(format!("{}, {why}", what(&facts, schema)))),
             Answer::False(_) | Answer::Dataset | Answer::Discard => unreachable!("rows read no run fact"),
         }
@@ -304,6 +328,29 @@ impl Session {
             facts::Describe::describe(&selection)
         )))
     }
+}
+
+/// Refuses a run that can end in a false answer after the run unless every data item is as the cells of those rows ran it
+/// (`fact_report::data_items_as_measured_for_false`): whether BC runs a data item trigger or a computed column source before
+/// it answers false is not measured.
+fn refuse_unmeasured_data_items_before_false(
+    rows: &[&Cell],
+    facts: &Facts,
+    schema: &Schema,
+    tables: &[Option<std::sync::Arc<al_data::TableDef>>],
+) -> Result<(), Signal> {
+    let Some(row) = rows.iter().find(|c| matches!(c.answer, Answer::FalseAfterRun(_))) else {
+        return Ok(());
+    };
+    if fact_report::data_items_as_measured_for_false(schema, tables) {
+        return Ok(());
+    }
+    Err(Signal::unsupported(format!(
+        "{} while a data item declares a trigger or a column whose source is not a stored field of its table: not \
+         measured on BC (the cells of {} ran a data item without either)",
+        what(facts, schema),
+        row.evidence.cite()
+    )))
 }
 
 fn mark(row: &Cell) {

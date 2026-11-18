@@ -74,6 +74,50 @@ fn jpeg_size(b: &[u8]) -> Option<(i32, i32)> {
     None
 }
 
+/// The size (width, height) of a JPEG built as the one JPEG app logo measured (corpus PR 1412, tests/al-language-xapp-e/
+/// logo.jpg, 8 x 8, 307 bytes), each part by equality: SOI, an APP0 `JFIF` segment first, then only quantization tables
+/// (`FF DB`), one baseline start-of-frame segment (`FF C0`) of precision 8 and 3 components, Huffman tables (`FF C4`), a
+/// start-of-scan segment (`FF DA`) of 3 components, at least one byte of coded data in which every `FF` is followed by
+/// `00`, and then `FF D9` as the last two bytes. The size is read from the frame; width and height are at least 1.
+/// `None` for any other file.
+pub fn jfif_logo_size(b: &[u8]) -> Option<(i32, i32)> {
+    let framed = b.starts_with(&[0xFF, 0xD8, 0xFF, 0xE0]) && b.get(6..11) == Some(&b"JFIF\0"[..]);
+    framed.then_some(())?;
+    let mut size = None;
+    let mut i = 2;
+    loop {
+        (*b.get(i)? == 0xFF).then_some(())?;
+        let marker = *b.get(i + 1)?;
+        let len = usize::from(u16::from_be_bytes([*b.get(i + 2)?, *b.get(i + 3)?]));
+        let segment = b.get(i + 4..i + 2 + len)?;
+        match (marker, segment) {
+            (0xE0, _) if i == 2 => {}
+            (0xDB | 0xC4, _) => {}
+            (0xC0, [8, h1, h2, w1, w2, 3, ..]) if len == 17 && size.is_none() => {
+                let (w, h) = (u16::from_be_bytes([*w1, *w2]), u16::from_be_bytes([*h1, *h2]));
+                (w >= 1 && h >= 1).then_some(())?;
+                size = Some((i32::from(w), i32::from(h)));
+            }
+            (0xDA, [3, ..]) if len == 12 => return size.filter(|_| coded_data_then_end(&b[i + 2 + len..])),
+            _ => return None,
+        }
+        i += 2 + len;
+    }
+}
+
+/// Whether the bytes after the measured logo's start-of-scan header are at least one byte of coded data, in which every
+/// `FF` is followed by `00` (no restart or other marker), and then `FF D9` as the last two bytes.
+fn coded_data_then_end(rest: &[u8]) -> bool {
+    let Some(coded) = rest.strip_suffix(&[0xFF, 0xD9]) else {
+        return false;
+    };
+    !coded.is_empty()
+        && coded
+            .iter()
+            .enumerate()
+            .all(|(k, &x)| x != 0xFF || coded.get(k + 1) == Some(&0))
+}
+
 /// Whether a JPEG starts with a JFIF header of units 1 (dots per inch) and density 300 x 300: SOI, APP0, "JFIF\0", version,
 /// then units at byte 13 and the two densities.
 fn jfif_300_dpi(b: &[u8]) -> bool {
@@ -350,7 +394,7 @@ fn media_export(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out 
         let Some(Value::Library(_, h)) = a.first() else {
             return unsupported("Media.ExportStream without an OutStream");
         };
-        let LibraryValue::OutStream(blob, _) = &*h.borrow() else {
+        let LibraryValue::OutStream(blob, ..) = &*h.borrow() else {
             return unsupported("Media.ExportStream to a value that is not an OutStream");
         };
         crate::stream::write_bytes(blob, &obj.bytes);
@@ -364,7 +408,7 @@ fn media_export(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out 
         return unsupported("Media.ExportStream without an OutStream");
     };
     match &*h.borrow() {
-        LibraryValue::OutStream(blob, _) if docx_mark => {
+        LibraryValue::OutStream(blob, ..) if docx_mark => {
             let mut buf = blob.borrow_mut();
             buf.bytes.clear();
             buf.loaded = true;
@@ -372,11 +416,11 @@ fn media_export(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out 
             buf.render_pending = Some(crate::stream::MEDIA_DOCX_REZIPPED.into());
         }
         // The file's bytes come back on BC 27 and 28 (MediaFiles.al:510-512 'export length', 'export is the file').
-        LibraryValue::OutStream(blob, _) if obj.mime == DOCX_MIME => crate::stream::write_bytes(blob, &obj.bytes),
+        LibraryValue::OutStream(blob, ..) if obj.mime == DOCX_MIME => crate::stream::write_bytes(blob, &obj.bytes),
         // A 300 dpi JFIF JPEG that Media.ImportFile read comes back unchanged on Windows BC 29.0 (probe cu 61288
         // SC_DemoTool_Media_ExportStream, case JD; the DemoTool's pictures). No corpus test pins it yet: a registered assumption
         // under the Microsoft-test exception (CLAUDE.md rule 3).
-        LibraryValue::OutStream(blob, _)
+        LibraryValue::OutStream(blob, ..)
             if obj.mime == "image/jpeg"
                 && obj.file_column.is_some()
                 && jfif_300_dpi(&obj.bytes)
@@ -387,10 +431,10 @@ fn media_export(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out 
             crate::stream::write_bytes(blob, &obj.bytes)
         }
         // Text and binary content that is no picture comes back as the same bytes (media_export.rs).
-        LibraryValue::OutStream(blob, _) if crate::media_export::exports_unchanged(&obj) => {
+        LibraryValue::OutStream(blob, ..) if crate::media_export::exports_unchanged(&obj) => {
             crate::stream::write_bytes(blob, &obj.bytes)
         }
-        LibraryValue::OutStream(blob, _) => {
+        LibraryValue::OutStream(blob, ..) => {
             // An imported PNG comes back re-encoded on every major: 68 bytes export as 99 other bytes on Windows BC 27, 28 and 29
             // (types/W7Media.al:141-145, ExportStream_OfAnImportedPicture, corpus bump 34; bc-linux #161). The export itself
             // succeeds (streams/StTMedia.al:170 and :213, MediaExportStream and MediaExportAfterReload). The re-encoded bytes are

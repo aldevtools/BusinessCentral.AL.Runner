@@ -1,15 +1,20 @@
 //! The AL standard library: builtin signatures (generated from the docs, see
 //! ADR-008) and, later, the value model and native implementations.
 
+mod closing_date_days;
 mod conv_undefined;
+mod date_difference;
 pub mod date_filter_forms;
 mod date_formula_language;
 mod format_boolean;
+pub mod instance_cycles;
 pub mod library_kind;
+pub mod recordref_closed;
 pub mod signature;
 pub mod stream;
 mod stream_call_stack;
-mod stream_cleared;
+pub mod stream_cleared;
+pub mod stream_line_breaks;
 mod stream_read_len;
 pub mod testcontexts;
 pub mod text;
@@ -32,6 +37,7 @@ pub mod collections;
 pub mod conv;
 pub mod datatransfer;
 pub mod datefns;
+pub mod decimal_scale;
 pub mod describe;
 pub mod dotnet_sigs;
 pub mod enum_qualifier;
@@ -45,7 +51,8 @@ pub mod fieldref_variant_cells;
 pub mod file;
 pub mod filter;
 pub mod filter_blob;
-mod filter_boolean_words;
+pub mod filter_boolean_words;
+mod filter_collation;
 pub mod format;
 mod format_json;
 mod format_textbuilder;
@@ -71,6 +78,7 @@ pub mod pinned_columns;
 pub mod placeholder_output;
 pub mod platform;
 pub mod platform_native;
+pub mod query_reopen_step;
 pub mod querybuiltins;
 pub mod record_into_recordref;
 pub mod record_op;

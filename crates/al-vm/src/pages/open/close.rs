@@ -418,7 +418,7 @@ impl Session {
                 // The error stays the last error once a MessageHandler consumed it: GetLastErrorText after Close() is its text, with
                 // its code (corpus master text/TestPageQueryCloseErrorMessageHandler_Tests.al: clean row, row dirty from another
                 // field, row dirty after a confirmed OnValidate; al-runner issue 7457).
-                self.last_error = (*e).clone();
+                self.hold_error((*e).clone())?;
                 self.ui_message(e.message)?;
                 // With a MessageHandler, Close() returns and the variable is not open (testpage/TestPageCloseVeto_Tests.al:170
                 // ErrorConsumedByMessageHandler_SecondCloseRaisesNotOpen, TestPageQueryCloseMessageHandler_Tests.al:193
