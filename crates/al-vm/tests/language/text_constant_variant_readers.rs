@@ -104,6 +104,15 @@ fn a_textconst_text_constant_is_read_only_by_the_pinned_readers() {
     }
 }
 
+#[test]
+fn a_text_constant_handed_by_reference_to_a_builtin_is_refused() {
+    // The builtin may write the argument back; what the Variant holds then is not pinned.
+    for decl in [LABEL, TEXTCONST] {
+        let r = run(decl, "Evaluate(V, 'xyz'); Error('R=done');");
+        assert!(r.starts_with("refused:") && r.contains("by reference"), "{decl}: {r}");
+    }
+}
+
 /// A codeunit with `Subtype = Test` (`subtype`) whose procedure `F` (with `attrs`) runs `body`; `Shape(V)` says what a
 /// Variant holds.
 fn sites(subtype: &str, attrs: &str, decl: &str, body: &str) -> String {
