@@ -241,9 +241,13 @@ impl Refusals {
 }
 
 impl Calls {
-    /// The calls and the counts of direct calls of the objects lowered here (empty for an object the cache supplies),
-    /// for a stored compile.
-    pub(crate) fn own(&self) -> (&[Vec<Vec<(usize, usize)>>], &[Vec<u32>]) {
-        (&self.own, &self.ndirect)
+    /// The calls of the objects lowered here (empty for an object the cache supplies), for a stored compile.
+    pub(crate) fn own(&self) -> &[Vec<Vec<(usize, usize)>>] {
+        &self.own
+    }
+
+    /// The counts of direct calls of the objects lowered here (see `ndirect`), for a stored compile.
+    pub(crate) fn own_ndirect(&self) -> &[Vec<u32>] {
+        &self.ndirect
     }
 }

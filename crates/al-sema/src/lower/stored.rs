@@ -197,7 +197,7 @@ pub fn store(lowered: &Lowered, apps: Vec<ir::AppInfo>, sources: Vec<ir::SourceF
             },
         ));
     }
-    let (own_calls, ndirect) = calls.own();
+    let (own_calls, ndirect) = (calls.own(), calls.own_ndirect());
     let stored = StoredLowered {
         apps,
         dotnet_types: dotnet_types.clone(),

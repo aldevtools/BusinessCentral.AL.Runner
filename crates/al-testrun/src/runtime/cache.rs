@@ -235,6 +235,9 @@ pub fn global_triggers_find_unavailable(engine: &mut Arc<Engine>, lowered: &Lowe
     }
 }
 
+/// The apps a load that failed gives back, with the reason.
+pub(crate) type AppsBack = (Vec<al_sema::workspace::AppSource>, String);
+
 /// The workspace of a compile read from the workspace layer (ADR-022 amendment 2026-11-15, decision 4): the apps loaded
 /// as `compile_with_cache` loads them (a lazily read dependency app from its source index), with the workspace apps'
 /// files given by `stored` and not parsed. Gives the workspace and where the source index came from; an error gives the
@@ -249,7 +252,7 @@ pub(crate) fn load_stored_workspace(
     lazy: &[Option<al_sema::LazySource>],
     identities: &[Option<[u8; 32]>],
     stored: al_sema::StoredWorkspace,
-) -> Result<(al_sema::Workspace, Option<&'static str>), (Vec<al_sema::workspace::AppSource>, String)> {
+) -> Result<(al_sema::Workspace, Option<&'static str>), AppsBack> {
     let dep_symbols = crate::compile_cache::app_symbols(manifests)
         .into_iter()
         .zip(&kinds)
