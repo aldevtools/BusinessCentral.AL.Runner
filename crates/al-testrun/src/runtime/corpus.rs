@@ -1833,6 +1833,7 @@ impl CorpusRuntime {
             });
         }
         let install_runs = super::install_once::end_run(&engine, &installs);
+        let login_replay = crate::login_replay::report(&engine);
         let tests_time = tests_started.elapsed();
         memory.pool().unwatch();
         if let (Some((key, _)), Some(cc), Some((origin, read))) = (
@@ -1903,6 +1904,7 @@ impl CorpusRuntime {
                 passes: pass_times,
                 install_snapshot: snapshot_once.line(&lowered.program),
                 engine_kept,
+                login_replay,
                 decoded_on_touch: lowered.cached_objects.as_ref().map(|c| c.decoded()),
                 work: RunWork {
                     compiles: *compiles,

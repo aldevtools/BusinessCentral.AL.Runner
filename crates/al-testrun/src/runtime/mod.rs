@@ -533,6 +533,8 @@ pub struct Phases {
     pub install_snapshot: Option<String>,
     /// A warm server ran the request on the engines an earlier request over the same compile kept.
     pub engine_kept: bool,
+    /// `RunOptions::login_replay_check`: the check's report line (`login_replay.rs`), counted over every request the engine ran.
+    pub login_replay: Option<String>,
     /// What the run did, counted (the work ratchet of `al-test-cli`).
     pub work: RunWork,
 }
@@ -1255,6 +1257,8 @@ mod internals_grant;
 mod lane_starts;
 #[cfg(test)]
 mod login_explain_tests;
+#[cfg(test)]
+mod login_replay_tests;
 #[cfg(test)]
 mod login_tests;
 pub mod memory;

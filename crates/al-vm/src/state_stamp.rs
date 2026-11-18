@@ -10,7 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 
 /// The session state [`Session::state_stamp`] takes.
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 pub struct StateStamp {
     language: i32,
     work_date: Option<i32>,
@@ -217,4 +217,87 @@ fn same_view(a: &RecordState, b: &RecordState) -> bool {
         && a.last_modify.is_none()
         && a.failed_insert.is_none()
         && a.row_origin.is_none()
+}
+
+/// The session state that [`Session::state_lines`] takes, as lines that compare across sessions.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StateLines {
+    /// One line per kind of state, in a fixed order.
+    pub lines: Vec<String>,
+    /// The SingleInstance globals with no comparable form (a .NET object, a stream, a temporary record): what they hold
+    /// cannot be compared, so two sessions holding one are never known to hold the same.
+    pub opaque: Vec<String>,
+}
+
+impl Session {
+    /// The run seed (ADR-061): the session clock's key (`al_host::seed::clock_key`) and seeded Guids derive from it.
+    pub fn run_seed(&self) -> i32 {
+        self.host.run_seed
+    }
+
+    /// The user the session runs as (`UserId()`).
+    pub fn user_id(&self) -> String {
+        self.host.identity.user_id()
+    }
+
+    /// What [`LeftStamp`] takes (the session language, WorkDate, number sequences, isolated storage, the SingleInstance
+    /// codeunits' globals, the manual bindings, the `Random` sequence, the group 1 filters), plus the counters code
+    /// advances (the clock, the Guid and SystemId draws and their key, the row versions) and the last error, as lines
+    /// that compare across sessions: an instance is named by its codeunit id, not by its address (al-testrun
+    /// `login_replay.rs`, al-runner issue 8211).
+    pub fn state_lines(&mut self) -> StateLines {
+        let stamp = self.left_stamp();
+        let id = |o: usize| self.engine.program.objects[o].id.unwrap_or(0);
+        let mut out = StateLines::default();
+        out.lines.push(format!("session {:?}", stamp.state));
+        for (&o, single) in &stamp.singles {
+            for (g, fp) in single.globals.iter().enumerate() {
+                match fp {
+                    crate::single_track::Fp::Val(bytes) => {
+                        out.lines.push(format!("single {} global {g} {bytes:?}", id(o)))
+                    }
+                    // A ModuleInfo is an app's manifest, plain data with no handle: compared by value here, while the
+                    // fingerprint the SingleInstance rules use keeps it opaque (System Application's "System
+                    // Initialization Impl." holds one after the login on BC 28.5).
+                    crate::single_track::Fp::Opaque(what) => {
+                        let global = self
+                            .singletons
+                            .get(&o)
+                            .and_then(|i| module_info(i.borrow().globals.get(g)));
+                        match global {
+                            Some(m) => out.lines.push(format!("single {} global {g} {m}", id(o))),
+                            None => out.opaque.push(format!("codeunit {} global {g}: {what}", id(o))),
+                        }
+                    }
+                }
+            }
+        }
+        let mut bound: Vec<u32> = (self.events.bindings.iter())
+            .filter_map(|b| b.instance.upgrade().map(|i| id(i.borrow().object as usize)))
+            .collect();
+        bound.sort_unstable();
+        out.lines.push(format!("bindings {bound:?}"));
+        out.lines.push(format!("random {:?}", stamp.random));
+        out.lines.push(format!("group1 {:?}", stamp.group1));
+        out.lines.push(format!(
+            "counters clock {} guid key {} draws {} row versions {} committed {}",
+            self.waited_ms, self.guid_key, self.next_guid, self.next_row_version, self.tx.committed_row_version
+        ));
+        let autoinc: BTreeMap<&(String, u32), &i64> = self.autoinc.iter().collect();
+        out.lines.push(format!("autoincrement {autoinc:?}"));
+        out.lines.push(format!("last error {:?}", self.last_error));
+        out
+    }
+}
+
+/// A `ModuleInfo` value as text ([`Session::state_lines`]): the manifest it holds, or that it holds none yet.
+fn module_info(v: Option<&Value>) -> Option<String> {
+    let Some(Value::Library(al_builtins::library_kind::LibraryKind::ModuleInfo, l)) = v else {
+        return None;
+    };
+    match &*l.try_borrow().ok()? {
+        al_builtins::value::LibraryValue::ModuleInfo(m) => Some(format!("{m:?}")),
+        al_builtins::value::LibraryValue::Empty => Some("ModuleInfo (none)".into()),
+        _ => None,
+    }
 }

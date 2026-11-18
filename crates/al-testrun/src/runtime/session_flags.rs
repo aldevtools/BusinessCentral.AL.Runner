@@ -1,5 +1,5 @@
 //! The run options that each test session takes as they are (`RunOptions::ignore_permission_mock`,
-//! `RunOptions::permissions_off`, `RunOptions::dev_endpoint_ui`, `RunOptions::no_client`), carried as one value from the options to the session.
+//! `RunOptions::permissions_off`, `RunOptions::dev_endpoint_ui`, `RunOptions::no_client`, `RunOptions::login_replay_check`), carried as one value from the options to the session.
 use super::RunOptions;
 use al_vm::Session;
 
@@ -10,6 +10,7 @@ pub(super) struct SessionFlags {
     dev_endpoint_ui: bool,
     no_client: bool,
     cell_tap: bool,
+    login_replay_check: bool,
 }
 
 impl SessionFlags {
@@ -20,7 +21,13 @@ impl SessionFlags {
             dev_endpoint_ui: o.dev_endpoint_ui,
             no_client: o.no_client,
             cell_tap: o.cell_tap,
+            login_replay_check: o.login_replay_check,
         }
+    }
+
+    /// `RunOptions::login_replay_check`: `open_company` checks the raised login (`login_replay.rs`).
+    pub(super) fn login_replay_check(self) -> bool {
+        self.login_replay_check
     }
 
     pub(super) fn apply(self, s: &mut Session) {

@@ -8,7 +8,7 @@
 
 use super::*;
 
-const DEP: &str = r#"
+pub(super) const DEP: &str = r#"
 table 1990 "Guided Experience Item" { fields { field(1; "Object ID"; Integer) { } field(2; Completed; Boolean) { } } keys { key(PK; "Object ID") { Clustered = true; } } }
 table 1996 "Checklist Setup" { fields { field(1; K; Code[10]) { } field(2; Done; Boolean) { } } keys { key(PK; K) { Clustered = true; } } }
 codeunit 150 "System Initialization"
