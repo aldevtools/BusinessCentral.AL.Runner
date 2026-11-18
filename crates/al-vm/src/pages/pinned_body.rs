@@ -12,7 +12,8 @@ use al_ir as ir;
 /// The calls a rendered body makes to procedures (object, routine): the pin compares their bodies too (`routine_text`).
 pub(super) type Callees = Vec<(usize, usize)>;
 
-/// The lines of page `object`: its properties as written (`PageType = Worksheet`), then each control
+/// The lines of page `object`: its properties as written (`PageType = Worksheet`; SourceTable as the name of the table it
+/// resolves to, in quotes), then each control
 /// (`field Quantity in Rows = Quantity {applicationarea=All}` and a line per trigger), then each page trigger
 /// (`trigger OnOpenPage: begin ... end`). `None` for a page with an extension, an extension trigger, a refusal, a control
 /// declared by an extension, or anything else the renderer does not write.
@@ -22,11 +23,20 @@ pub(super) fn page_lines(program: &ir::Program, object: usize, callees: &mut Cal
     if !page.extensions.is_empty() || !page.ext_triggers.is_empty() || !page.unsupported.is_empty() {
         return None;
     }
-    let mut lines: Vec<String> = o.properties.iter().map(|(k, v)| format!("{k} = {v}")).collect();
-    let table = o.rec_slot.and_then(|s| match o.globals.get(s)?.ty {
-        RtType::Record(t, _) => program.objects.get(t as usize)?.table.as_ref(),
+    let table_object = o.rec_slot.and_then(|s| match o.globals.get(s)?.ty {
+        RtType::Record(t, _) => program.objects.get(t as usize),
         _ => None,
     });
+    let table = table_object.and_then(|t| t.table.as_ref());
+    // SourceTable by the table it names, as written in quotes: the spelling in the source does not change the page.
+    let mut lines: Vec<String> = o
+        .properties
+        .iter()
+        .map(|(k, v)| match table_object {
+            Some(t) if k.eq_ignore_ascii_case("sourcetable") => format!("{k} = \"{}\"", t.name),
+            _ => format!("{k} = {v}"),
+        })
+        .collect();
     for c in &page.controls {
         let plain = c.owner.is_none()
             && c.ext_triggers.is_empty()

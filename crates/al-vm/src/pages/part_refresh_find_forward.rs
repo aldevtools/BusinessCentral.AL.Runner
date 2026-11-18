@@ -3,7 +3,7 @@
 //! of an open read.
 
 use super::pinned_body::{Callees, Names, callees_are, page_is, table_is};
-use super::pinned_shape::{NextEnd, PartStep, PinnedEnd, PinnedPart, TestCall};
+use super::pinned_shape::{NextEnd, PartStep, PinnedEnd, PinnedPart, Reads, TestCall};
 use super::*;
 use al_builtins::page_op::PageMethod;
 
@@ -85,7 +85,7 @@ impl Session {
             host.borrow_mut().pinned_end = Some(PinnedEnd {
                 reason: "a call of the test after a part with OnFindRecord read its rows again after its own CurrPage.Update(true), \
                          other than a read and Close (not pinned)",
-                reads: true,
+                reads: Reads::Any,
                 caption: false,
                 part_reads: false,
                 one_action: false,

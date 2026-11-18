@@ -3,15 +3,15 @@
 //! with and without the new-row line (al-runner issues 6027, 6292, 7197, 7821).
 
 use super::pinned_body::{Callees, Names, callees_are, page_reads_as, routine_text, table_is};
-use super::pinned_shape::{NextEnd, PinnedEnd, TestCall};
+use super::pinned_shape::{NextEnd, PinnedEnd, Reads, TestCall};
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::page_op::PageMethod;
 
 /// The page of the reporter's repro (al-runner issue 7821, `Journal Post New Row Wks`), line for line (`pinned_body.rs`), under
 /// any object and variable names: `«T»` its source table, `«L»` the log codeunit, `«V»` the log variable. The repro, the page
-/// of open corpus PR 1333 (testpage/R7821JournalPostNewLine.al, page 67140) and page 67206 of corpus PR 1384
-/// (testpage/R7821JournalPostVariants.al:44) differ only in those names and give the same answer.
+/// of open corpus PR 1333 (testpage/R7821JournalPostNewLine.al, page 67140) and page 67206 of the pinned
+/// testpage/R7821JournalPostVariants.al:44 differ only in those names and give the same answer.
 const NEW_LINE_PAGE: &[&str] = &[
     "PageType = Worksheet",
     "SourceTable = \"«T»\"",
@@ -31,8 +31,8 @@ const NEW_LINE_PAGE: &[&str] = &[
     ON_AFTER_GET_CURR_RECORD,
 ];
 
-/// The same page with the field "Batch Name" first in the repeater (corpus PR 1384, testpage/R7821JournalPostVariants.al:124,
-/// page 67207 "TP R7821V Field Wks").
+/// The same page with the field "Batch Name" first in the repeater (testpage/R7821JournalPostVariants.al:124, page 67207
+/// "TP R7821V Field Wks").
 const BATCH_FIELD_PAGE: &[&str] = &[
     "PageType = Worksheet",
     "SourceTable = \"«T»\"",
@@ -77,7 +77,7 @@ const LINE_TABLE: &[&str] = &[
 /// The one procedure the page's triggers (and the logging subscribers) call: the log codeunit's Add.
 const LOG_ADD: &[&str] = &["\"«L»\".Add: begin Entries := (Entries + (Entry + ';')); end"];
 
-/// The bodies of the subscribers to OnBeforeActionEvent and OnAfterActionEvent of Post that corpus PR 1384 declares
+/// The bodies of the subscribers to OnBeforeActionEvent and OnAfterActionEvent of Post that the corpus file declares
 /// (testpage/R7821JournalPostVariants.al:224 codeunit 67208 "TP R7821V Subs", counting; :250 codeunit 67209 "TP R7821V Log
 /// Subs", logging), each in a codeunit with `EventSubscriberInstance = Manual`.
 const COUNTING_SUBSCRIBER: &str = "begin Runs := (Runs + 1); end";
@@ -107,7 +107,7 @@ enum OtherRow {
 enum Subscribers {
     /// No subscriber of any event of the page.
     None,
-    /// The subscribers of corpus PR 1384 are declared (`COUNTING_SUBSCRIBER`, `LOGGING_BEFORE`, `LOGGING_AFTER`), none bound.
+    /// The subscribers of the corpus file are declared (`COUNTING_SUBSCRIBER`, `LOGGING_BEFORE`, `LOGGING_AFTER`), none bound.
     Unbound,
     /// The same, and one instance of the counting codeunit is bound, no logging one.
     Counting,
@@ -115,8 +115,8 @@ enum Subscribers {
     Logging,
 }
 
-/// How the page opened: the test's own OpenEdit (`PageState::test_open_edit`), or the static `Page.Run(Page::X, Rec)` of a
-/// filtered record caught by the TestPage's Trap (`trapped_static_run`).
+/// How the page opened: the test's own OpenEdit (`PageState::test_open_edit`), or the static, non-modal `Page.Run(Page::X, Rec)`
+/// caught by the TestPage's Trap (`PageRunCall::StaticWithRecord`). The record it was given is `PostStart`'s to check.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Opened {
     OpenEdit,
@@ -124,12 +124,14 @@ enum Opened {
     Other,
 }
 
-/// One measured cell of corpus PR 1384: the page, the rows shown before Post, the other row, the subscribers and the open.
+/// One measured cell of testpage/R7821JournalPostVariants.al: the page, the rows of the view when Post starts (`PostStart`),
+/// the other row, the subscribers and the open.
 type Cell = (PageText, usize, OtherRow, Subscribers, Opened);
 
-/// The cells corpus PR 1384 measured on BC 27.5, 28.5 and 29.0 (testpage/R7821JournalPostVariants.al), each the test that
-/// measured it. Every one runs the blank line three times after OnAfterGetRecord of the deleted row, shows line 0 (and batch
-/// B1), runs nothing on Close and leaves no row of batch B1.
+/// The cells the pinned testpage/R7821JournalPostVariants.al measures on BC 27.5, 28.5 and 29.0, each with the test that
+/// measures it. Every one runs the blank line three times after OnAfterGetRecord of the deleted row, shows line 0 (and batch
+/// B1), runs nothing on Close and leaves no row of batch B1. The cells of the base page need both subscriber codeunits declared
+/// (`Subscribers::Unbound` when none is bound), as the corpus app declares them; the cells of the Batch Name page need none.
 const VARIANT_CELLS: &[Cell] = &[
     // :372 TPV7821_Base_OneLine_PageRun
     (PageText::Base, 1, OtherRow::None, Subscribers::Unbound, Opened::PageRun),
@@ -179,14 +181,35 @@ const VARIANT_CELLS: &[Cell] = &[
 enum NewLineCell {
     /// The reporter's repro: `NEW_LINE_PAGE`, one row, no other row, no subscriber (assumption `post-left-other-key-on-new-line`).
     Repro,
-    /// A cell of `VARIANT_CELLS` (assumption `post-left-other-key-new-line-variants`).
+    /// A cell of `VARIANT_CELLS` (pinned).
     Variant(Cell),
+}
+
+/// The page's Rec and its view when Post starts, before its body resets the filters (`new_line_post_start`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct PostStart {
+    /// The rows of the view: lines 10000, 20000, ... of batch B1, Quantity 300 (testpage/R7821JournalPostVariants.al:282-288).
+    rows: usize,
+    /// Rec holds the record's filter of Page.Run, batch B1 in filter group 0 (:296, :328), next to OnOpenPage's.
+    run_filter: bool,
+}
+
+impl PageText {
+    /// The fields of Rec, by position, whose `Value()` the corpus file reads after the Post: Line No. (:334, :364) and, on the
+    /// Batch Name page, Batch Name (:365). `LINE_TABLE` fixes the positions.
+    fn read_fields(self) -> &'static [usize] {
+        match self {
+            PageText::Base => &[1],
+            PageText::BatchField => &[0, 1],
+        }
+    }
 }
 
 impl Session {
     /// Whether the list settled after an action that emptied its view and left another primary key, no stored row's, in Rec
-    /// with `CurrPage.Update(false)` (`rec_moved_other` in `action_invoke_body`); `rows_before` is the count of rows shown
-    /// before the action. `Some(n)`: the caller then runs OnNewRecord and OnAfterGetCurrRecord `n` times more.
+    /// with `CurrPage.Update(false)` (`rec_moved_other` in `action_invoke_body`); `held` are the keys of the rows the list
+    /// held before the action, `start` what `new_line_post_start` found then. `Some(n)`: the caller then runs OnNewRecord and
+    /// OnAfterGetCurrRecord `n` times more.
     ///
     /// Without the new-row line the list stands on the blank Rec as when Rec keeps the deleted row's key
     /// (`settle_on_blank_rec`; pages/RtFilteredGoneRow.al:640 TD_LeavesKey_Line1WithUpdate_OneLine `R:10000;N:B1:0;C:B1:0;`,
@@ -200,12 +223,18 @@ impl Session {
     /// action only deleted the row (`settle_after_action`, misc/lt-probes-needed-7/PnGRefresh.al:702): `R:10000;N:0;C:0;N:0;C:0;
     /// N:0;C:0;` after one row (al-runner issue 7821). Only in the cells of `new_line_cell`: the reporter's repro (assumption
     /// `post-left-other-key-on-new-line`; the repro then only closes the page, so every other later call is refused) and the
-    /// cells of `VARIANT_CELLS` (assumption `post-left-other-key-new-line-variants`; the probe then reads the shown line and
-    /// closes the page).
+    /// cells of `VARIANT_CELLS` (testpage/R7821JournalPostVariants.al; the corpus file then reads the shown line, and the batch
+    /// on the Batch Name page, by `Value()` and closes the page).
     ///
     /// Rows left in the view, seven or more rows shown before, or any other shape with the new-row line are not pinned
     /// (`None`: the caller refuses).
-    pub(super) fn post_left_other_key_settled(&mut self, st: &St, rows_before: usize) -> Result<Option<usize>, Signal> {
+    pub(super) fn post_left_other_key_settled(
+        &mut self,
+        st: &St,
+        held: Option<&[Vec<Value>]>,
+        start: Option<PostStart>,
+    ) -> Result<Option<usize>, Signal> {
+        let rows_before = held.map_or(0, <[_]>::len);
         let on_blank = (1..=6).contains(&rows_before) && {
             let s = st.borrow();
             s.gone_blank_no_new_line && s.open && s.cursor == Cursor::None && !s.draft
@@ -213,24 +242,24 @@ impl Session {
         if on_blank {
             return Ok(Some(usize::from(rows_before > 1 && !self.blank_pair_once_on_28())));
         }
-        let Some(cell) = self.new_line_cell(st, rows_before)? else {
+        let Some(cell) = self.new_line_cell(st, rows_before, start)? else {
             return Ok(None);
         };
-        let (assumption, reads, reason) = match cell {
-            NewLineCell::Repro => (
-                Assumption::PostLeftOtherKeyOnNewLine,
-                false,
+        let (reads, reason) = match cell {
+            NewLineCell::Repro => {
+                assume(Assumption::PostLeftOtherKeyOnNewLine);
+                (
+                    Reads::No,
+                    "a call of the test after the Post of a journal that left another primary key in Rec on its new-row line, \
+                     other than Close (not pinned)",
+                )
+            }
+            NewLineCell::Variant((page, ..)) => (
+                Reads::Values(page.read_fields()),
                 "a call of the test after the Post of a journal that left another primary key in Rec on its new-row line, other \
-                 than Close (not pinned)",
-            ),
-            NewLineCell::Variant(_) => (
-                Assumption::PostLeftOtherKeyNewLineVariants,
-                true,
-                "a call of the test after the Post of a journal that left another primary key in Rec on its new-row line, other \
-                 than a value read and Close (not pinned)",
+                 than a value read of the line or the batch and Close (not pinned)",
             ),
         };
-        assume(assumption);
         st.borrow_mut().pinned_end = Some(PinnedEnd {
             reason,
             reads,
@@ -258,8 +287,8 @@ impl Session {
             && !self.has(al_version::Gate::ThreeLineLeavesKeyTwiceAgainFrom29)
     }
 
-    /// The blank-line pairs the new-row line runs after its three when `rows` rows were shown before Post (corpus PR 1384,
-    /// testpage/R7821JournalPostVariants.al:416 TPV7821_TwoLines_PageRun: five pairs in all on BC 27.5 and 29.0, four on BC
+    /// The blank-line pairs the new-row line runs after its three when the view held `rows` rows when Post started
+    /// (testpage/R7821JournalPostVariants.al:416 TPV7821_TwoLines_PageRun: five pairs in all on BC 27.5 and 29.0, four on BC
     /// 28.5, `#if BC28PLUS and not BC29PLUS`; :434 TPV7821_ThreeLines_PageRun: five on all three; one row: three).
     fn extra_blank_pairs(&self, rows: usize) -> usize {
         match rows {
@@ -267,6 +296,39 @@ impl Session {
             2 | 3 => 2,
             _ => 0,
         }
+    }
+
+    /// The page's Rec and its view as every variant cell has them when an action of list `st` starts, `None` otherwise; `held`
+    /// are the keys of the rows the list holds then. Required, each by equality:
+    /// - Rec is a stored record (:313 `Line: Record`, not temporary), not restricted to marks;
+    /// - its filters: batch B1 in filter group 2 (OnOpenPage, :94-99), and for a Page.Run cell batch B1 in filter group 0 (the
+    ///   record's `SetRange`, :296), nothing else;
+    /// - the view holds one to three rows, the lines i * 10000 of batch B1 with Quantity 300 (:282-288);
+    /// - the list holds them all and Rec stands on the first (:297 `FindFirst`; OpenEdit opens on it).
+    pub(super) fn new_line_post_start(
+        &mut self,
+        st: &St,
+        held: Option<&[Vec<Value>]>,
+    ) -> Result<Option<PostStart>, Signal> {
+        let Some(held) = held else { return Ok(None) };
+        let rec = self.page_rec(st);
+        let run_filter = {
+            let r = rec.borrow();
+            match (r.temporary, r.marked_only, r.filters.as_slice()) {
+                (false, false, [f]) if batch_b1_in(f, 2) => false,
+                (false, false, [a, b]) if [(a, 0), (b, 2)].iter().all(|(f, g)| batch_b1_in(f, *g)) => true,
+                (false, false, [a, b]) if [(a, 2), (b, 0)].iter().all(|(f, g)| batch_b1_in(f, *g)) => true,
+                _ => return Ok(None),
+            }
+        };
+        let rows = self.view_rows(&rec, 4)?;
+        let lines = (1..=3).contains(&rows.len()) && rows.iter().zip(1..).all(|(row, i)| line_row(row, i * 10000));
+        let on_first = rows.first().is_some_and(|row| same_key(&rec.borrow().fields, row));
+        let held_all = held.len() == rows.len() && held.iter().zip(&rows).all(|(key, row)| same_key(key, row));
+        Ok((lines && held_all && on_first).then_some(PostStart {
+            rows: rows.len(),
+            run_filter,
+        }))
     }
 
     /// The pinned case of the new-row line, `None` for any other shape. Facts every case requires:
@@ -278,8 +340,15 @@ impl Session {
     /// - the table holds no row, or one row of `OtherRow`.
     ///
     /// The repro: `NEW_LINE_PAGE`, one row shown before, no other row, no subscriber of the page (with main's open: by OpenEdit,
-    /// or by Page.Run on the trapped TestPage). Any other case must be a cell of `VARIANT_CELLS`, with its open by equality.
-    fn new_line_cell(&mut self, st: &St, rows_before: usize) -> Result<Option<NewLineCell>, Signal> {
+    /// or by Page.Run on the trapped TestPage). Any other case must be a cell of `VARIANT_CELLS`, with its open by equality, and
+    /// Post must have started as `start` says: its rows are the cell's, and Rec holds the record's filter exactly when the
+    /// cell's open is Page.Run.
+    fn new_line_cell(
+        &mut self,
+        st: &St,
+        rows_before: usize,
+        start: Option<PostStart>,
+    ) -> Result<Option<NewLineCell>, Signal> {
         let open = {
             let s = st.borrow();
             let on_new_line = s.gone_new_line_settled
@@ -295,7 +364,7 @@ impl Session {
             }
             if s.test_open_edit() {
                 Opened::OpenEdit
-            } else if s.caught_by_trap && s.trapped_static_run {
+            } else if s.caught_by_trap && s.trapped_run == Some(super::page_run_close::PageRunCall::StaticWithRecord) {
                 Opened::PageRun
             } else {
                 Opened::Other
@@ -331,8 +400,10 @@ impl Session {
         if (page, rows_before, other, subscribers) == (PageText::Base, 1, OtherRow::None, Subscribers::None) {
             return Ok(Some(NewLineCell::Repro));
         }
-        let cell = (page, rows_before, other, subscribers, open);
-        Ok(VARIANT_CELLS.contains(&cell).then_some(NewLineCell::Variant(cell)))
+        let Some(start) = start else { return Ok(None) };
+        let cell = (page, start.rows, other, subscribers, open);
+        let start_ok = start.run_filter == (open == Opened::PageRun);
+        Ok((start_ok && VARIANT_CELLS.contains(&cell)).then_some(NewLineCell::Variant(cell)))
     }
 
     /// The page text and the subscriber state of page `object` over table `table`, `None` when the code is not a pinned one.
@@ -377,7 +448,8 @@ impl Session {
 /// The two codeunits (counting, logging) when the subscribers of page `object` are exactly the ones corpus PR 1384 declares:
 /// OnBeforeActionEvent and OnAfterActionEvent of Post, each with one subscriber of a counting codeunit
 /// (`COUNTING_SUBSCRIBER`) and one of another, logging codeunit (`LOGGING_BEFORE`, `LOGGING_AFTER`), both manual, no
-/// parameter, and no subscriber declared but not compiled (testpage/R7821JournalPostVariants.al:224-275).
+/// parameter, no other property on either codeunit (`only_manual_instance`), and no subscriber declared but not compiled
+/// (testpage/R7821JournalPostVariants.al:224-269).
 fn declared_subscribers(
     engine: &crate::Engine,
     object: usize,
@@ -409,6 +481,7 @@ fn declared_subscribers(
         let mut logging = None;
         for sub in [a, b] {
             if !sub.manual
+                || !only_manual_instance(&engine.program.objects[sub.object])
                 || sub.element != "Post"
                 || engine.program.objects[sub.object].routines[sub.routine].params != 0
             {
@@ -434,6 +507,12 @@ fn declared_subscribers(
     found
 }
 
+/// Whether codeunit `o` declares one property, `EventSubscriberInstance = Manual`, as both subscriber codeunits of the corpus
+/// file do (testpage/R7821JournalPostVariants.al:226, :252).
+fn only_manual_instance(o: &ir::Object) -> bool {
+    matches!(o.properties.as_slice(), [(k, v)] if k.eq_ignore_ascii_case("EventSubscriberInstance") && v.eq_ignore_ascii_case("Manual"))
+}
+
 /// The other row of a cell: batch B2 or A1, Line No. 10000, Quantity 100 (testpage/R7821JournalPostVariants.al:276).
 fn other_row(row: &[Value]) -> Option<OtherRow> {
     let [Value::Code(batch), Value::Integer(10000), Value::Decimal(quantity), ..] = row else {
@@ -447,4 +526,22 @@ fn other_row(row: &[Value]) -> Option<OtherRow> {
         "A1" => Some(OtherRow::A1),
         _ => None,
     }
+}
+
+/// Whether `f` is `SetRange("Batch Name", 'B1')` in filter group `group` (testpage/R7821JournalPostVariants.al:97, :296).
+fn batch_b1_in(f: &al_builtins::filter::FieldFilter, group: i32) -> bool {
+    use al_builtins::filter::FilterExpr;
+    let b1 = |v: &Value| matches!(v, Value::Code(c) if c.as_str() == "B1");
+    (f.field, f.group) == (0, group) && matches!(&f.expr, FilterExpr::Range(Some(a), Some(b)) if b1(a) && b1(b))
+}
+
+/// Whether `row` is line `line` of batch B1 with Quantity 300 (testpage/R7821JournalPostVariants.al:284-286).
+fn line_row(row: &[Value], line: i32) -> bool {
+    matches!(row, [Value::Code(batch), Value::Integer(l), Value::Decimal(q), ..]
+        if batch.as_str() == "B1" && *l == line && *q == rust_decimal::Decimal::from(300))
+}
+
+/// Whether `a` and `b` start with the same primary key ("Batch Name", "Line No.", `LINE_TABLE`), values by `Value::identical`.
+fn same_key(a: &[Value], b: &[Value]) -> bool {
+    matches!((a.get(..2), b.get(..2)), (Some(a), Some(b)) if a.iter().zip(b).all(|(x, y)| x.identical(y)))
 }
