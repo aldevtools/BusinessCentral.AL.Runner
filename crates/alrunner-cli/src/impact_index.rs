@@ -290,8 +290,8 @@ pub fn of_run(c: &Collected) -> Index {
 /// `al-runner impact-index build APP...`: runs the tests of the APPs with the trace on and writes the index.
 pub fn build(a: &TestArgs) -> Result<u8, String> {
     // The index must hold every test codeunit an impact run of these APPs can run.
-    if !a.codeunits.is_empty() || !a.filters.is_empty() || !a.exact.is_empty() || !a.excludes.is_empty() {
-        return Err("al-runner impact-index build runs every test of the APPs: --codeunit, --test, --exact and --exclude do not apply (an impact run selects from the whole index)".into());
+    if a.selects_tests() {
+        return Err("al-runner impact-index build runs every test of the APPs: --codeunit, --test, --test-exact, --exclude-test and --exclude-test-exact do not apply (an impact run selects from the whole index)".into());
     }
     build_run(a)
 }
