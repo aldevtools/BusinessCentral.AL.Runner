@@ -1,7 +1,7 @@
 name: Corpus bump bot
 
 # Keeps the corpus pin close to the corpus branch master. Every 20 minutes the bot looks for a green corpus CI
-# run newer than the pin (tools/corpus_bump_bot.sh find). When there is one, it makes the mechanical part of the
+# push or nightly (schedule) run on master newer than the pin (tools/corpus_bump_bot.sh find). When there is one, it makes the mechanical part of the
 # bump on a branch corpus-bump/<commit> (the pin, oracle/, the harness counts and the not-passing lists;
 # tools/corpus_bump_bot.sh bump) and opens a pull request to main. The pull request body lists what needs a person:
 # regressions, cases

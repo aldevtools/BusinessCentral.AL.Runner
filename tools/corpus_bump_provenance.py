@@ -50,7 +50,8 @@ MODES = ("full", "subset")
 APPS = ("full", "partial")
 # The jobs of corpus ci.yml a nightly run may skip: the coverage job runs only for pull_request (its "if").
 NIGHTLY_SKIPPED = ("Coverage facts must not shrink",)
-# The corpus writes a manifest for push runs (ci.yml, job "Results manifest") and for the nightly run (decision 6).
+# The corpus writes a manifest for push runs (ci.yml, job "Results manifest") and for the nightly run (decision 6); the
+# bump bot lists both (tools/corpus_bump_bot.sh find).
 EVENTS = ("push", "schedule")
 
 

@@ -1072,6 +1072,53 @@ fn the_nightly_full_run_whose_only_failed_job_is_the_comparison_is_accepted() {
     );
 }
 
+/// A green nightly run (the bump bot lists it, owner 2026-11-18): every job succeeded, so its comparison job
+/// re-uploaded the manifest with `comparison` and `comparison_detail` per version (corpus PR 1440, ci.yml job
+/// "Nightly comparison", artifact `results-manifest` with `overwrite: true`). It is a full run and the newest
+/// nightly at or before its own commit.
+fn green_nightly(c: &Corpus) -> Spec {
+    let mut s = Spec::full(c, &c.c1);
+    s.event = "schedule".into();
+    s.jobs = vec![
+        ("BC 27.5 / 1".into(), "success".into()),
+        ("Results manifest".into(), "success".into()),
+        ("Nightly comparison".into(), "success".into()),
+        ("Coverage facts must not shrink".into(), "skipped".into()),
+    ];
+    let mut m = manifest(20, 1, &c.c1, "full", 0, 0);
+    m["event"] = serde_json::json!("schedule");
+    for leg in LEGS {
+        m["versions"][leg]["comparison"] = serde_json::json!("identical");
+        m["versions"][leg]["comparison_detail"] = serde_json::json!({"compared_run": 10, "compared": 4});
+    }
+    s.manifest = Some(m);
+    s.nightlies = vec![night(15, &c.c0, Some("identical")), night(20, &c.c1, Some("identical"))];
+    s
+}
+
+#[test]
+fn a_green_nightly_run_is_accepted_with_the_comparison_of_its_own_manifest() {
+    let c = corpus();
+    let out = accepted(&c, &green_nightly(&c));
+    assert!(
+        out.contains("nightly run 20 at or before its commit reports no difference"),
+        "{out}"
+    );
+}
+
+#[test]
+fn a_green_nightly_run_whose_manifest_lacks_the_comparison_is_refused() {
+    let c = corpus();
+    let mut s = green_nightly(&c);
+    let m = s.manifest.as_mut().unwrap();
+    for leg in LEGS {
+        let v = m["versions"][leg].as_object_mut().unwrap();
+        v.remove("comparison");
+        v.remove("comparison_detail");
+    }
+    refused(&c, &s, "the nightly run 20 reports comparison None for BC");
+}
+
 #[test]
 fn a_nightly_run_with_a_failed_test_leg_is_refused() {
     let c = corpus();
