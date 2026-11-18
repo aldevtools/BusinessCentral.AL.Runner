@@ -609,7 +609,7 @@ codeunit 50207 "XS Tests"
 /// The refusal reason of a read of the running call's xRec in a shape no corpus cell measured.
 const XREC_REFUSED: &str = "xRec in a table procedure called through other code";
 /// The refusal reason of an assignment to the xRec a procedure shares under a Validate the table's own code nested: BC shows
-/// it to both triggers (record/validate/XRecTableProcThroughSubscriber.al:573), the runner keeps the outer trigger's apart.
+/// it to both triggers (record/validate/XRecTableProcThroughSubscriber.al:606), the runner keeps the outer trigger's apart.
 const ASSIGN_REFUSED: &str = "an assignment to xRec in a table procedure called through an event subscriber";
 
 #[test]

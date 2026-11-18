@@ -21,14 +21,14 @@ use al_ir::{ObjKind, Routine};
 use std::rc::Rc;
 
 /// How many procedures of the table record/validate/XRecTableProcThroughSubscriber.al measured between the trigger that nests a
-/// Validate and the Validate (none, one, two and three: `Subscriber_VarRec_NestedValidateInTrigger` :486,
-/// `..._NestedValidateInFirstTableProcedure` :514, `..._NestedValidateInTableProcedure` :413,
-/// `..._NestedValidateInThirdTableProcedure` :500).
+/// Validate and the Validate (none, one, two and three: `Subscriber_VarRec_NestedValidateInTrigger` :519,
+/// `..._NestedValidateInFirstTableProcedure` :547, `..._NestedValidateInTableProcedure` :446,
+/// `..._NestedValidateInThirdTableProcedure` :533).
 const NESTING_PROCEDURES_MEASURED: usize = 3;
 
 /// The refusal when a procedure that shared the trigger's xRec under a Validate the table's own code nested (`nested_by_own_code`)
 /// assigned to it: real BC shows the assignment to the trigger of the outer Validate too
-/// (record/validate/XRecTableProcThroughSubscriber.al:573 `I after x=0/SET/I1`), where this runner keeps that trigger's xRec apart.
+/// (record/validate/XRecTableProcThroughSubscriber.al:606 `I after x=0/SET/I1`), where this runner keeps that trigger's xRec apart.
 pub(crate) const XREC_ASSIGNED_UNDER_NESTED_VALIDATE: &str = "an assignment to xRec in a table procedure called through an event subscriber under a Validate that the table's own code nested: real BC shows it to the outer Validate's trigger too, which this runner keeps apart";
 
 /// The chain of calls `measured_chain` found below a procedure call: the assumption it runs through, and whether a Validate
@@ -49,7 +49,7 @@ impl Session {
     /// - A chain the corpus measured (`measured_chain`): the xRec of the call running on the table's own instance (the field
     ///   trigger's), shared, so an assignment to it shows in the trigger after the call
     ///   (record/validate/XRecTableProcThroughCodeunit.al `Way3_ProcAssignsXRec_TriggerReadsAfter`,
-    ///   record/validate/XRecTableProcThroughSubscriber.al:559, :573, :603).
+    ///   record/validate/XRecTableProcThroughSubscriber.al:592, :606, :636).
     /// - Any other shape, when one of those xRecs holds other values than the blank record a plain call gets: the blank xRec
     ///   marked `XREC_OF_RUNNING_CALL`, so a read of it refuses.
     /// - Else, and when no call on the record runs: a plain call (record/PWTableGlobals.al:196-260 XRecPlainProc_*).
@@ -172,7 +172,7 @@ impl Session {
     /// table's field OnValidate calls a procedure of the table or of one of its table extensions: the trigger's xRec on a buffer
     /// of `measured_buffer`, the Validate being the one `Record.Validate` AL code called on the record, whose trigger is that
     /// frame (record/validate/XRecTableProcThroughCodeunit.al `CodeunitFromTriggerDirectly_AfterGet`,
-    /// `BaseField_Codeunit_ExtProc`; record/validate/XRecTableProcThroughSubscriber.al:470, :587, :603).
+    /// `BaseField_Codeunit_ExtProc`; record/validate/XRecTableProcThroughSubscriber.al:503, :620, :636).
     fn straight_from_trigger(&self, object: usize, table: usize, rc: &Rec) -> bool {
         let n = self.frames.len();
         self.table_or_its_extension(object, table)
@@ -184,13 +184,13 @@ impl Session {
 
     /// The subscriber of an integration event of the table, raised by the table's field OnValidate, calls a procedure of the
     /// table or of one of its table extensions on the record the event hands it by `var`: the trigger's xRec
-    /// (record/validate/XRecTableProcThroughSubscriber.al:351-399, :545, :619, :709-745). Every fact by equality:
+    /// (record/validate/XRecTableProcThroughSubscriber.al:384-432, :578, :652, :742-778). Every fact by equality:
     /// - frame `f` runs a subscriber of a codeunit that is not bound manually; below it the publisher's event frame, a procedure
     ///   of the table marked `[IntegrationEvent(false, false)]`, whose one or two parameters are all `var`, the first being `rc`
     ///   and the second a record of another table; below that the table's field OnValidate;
     /// - the subscriber declares the publisher's parameters, all `var`;
     /// - either the Validate is the one `Record.Validate` AL code called on the record, whose trigger is that frame; or
-    ///   `nested_by_own_code` nested it (record/validate/XRecTableProcThroughSubscriber.al:413-441, :486-541, :573, :636, :655).
+    ///   `nested_by_own_code` nested it (record/validate/XRecTableProcThroughSubscriber.al:446-474, :519-574, :606, :669, :688).
     ///
     /// Whatever the buffer: the xRec is the record before the Validate, not the stored row, on every buffer the probes tried
     /// (here: after Insert, Get, FindFirst, FindLast, FindSet, Find('='), Next, FindLast then Init with a new key, on a fresh and
@@ -250,7 +250,7 @@ impl Session {
     }
 
     /// Whether the Validate of the record at `handle` whose trigger runs in frame `inner` was nested by the table's own code in
-    /// one other Validate of the record, the shape record/validate/XRecTableProcThroughSubscriber.al:413-441, :486-541 measured:
+    /// one other Validate of the record, the shape record/validate/XRecTableProcThroughSubscriber.al:446-474, :519-574 measured:
     /// two Validates of the record run, both `Record.Validate` from AL code; the outer one's trigger is a field OnValidate of the
     /// table, of another field; between the two triggers run at most [`NESTING_PROCEDURES_MEASURED`] procedures of the table
     /// that are no triggers, none entered through a call on a record value (`plain_proc_xrec` notes such a call on another
