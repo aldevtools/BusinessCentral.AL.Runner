@@ -1210,6 +1210,7 @@ fn walk_report<V: RefVisitor>(r: &mut Report, v: &mut V) {
         caption: _,
         caption_attributes: _,
         format_region: _,
+        excel_multiple_data_sheets: _,
         about_title: _,
         about_text: _,
         layout: _,

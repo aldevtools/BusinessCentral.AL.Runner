@@ -500,6 +500,9 @@ pub(crate) struct ReportState {
     /// Report variables whose `RunModal` ran to its end: a second `RunModal` and a `RunRequestPage` on one raise
     /// ObjectHasAlreadyBeenRun (see `reports.rs`, `REPORT_RUN_1 | REPORT_RUNMODAL_1`).
     pub(crate) report_run_modal_done: Vec<std::rc::Weak<RefCell<Instance>>>,
+    /// The `ExcelLayoutMultipleDataSheets = true` admission of the running report call (`reports/excel_sheets.rs`: set and
+    /// restored around each report call that runs a report or reads its layout).
+    pub(crate) excel_sheets: crate::reports::ExcelSheetsAdmission,
     /// Report instances whose Run, RunModal or Execute is running now, innermost last (`RunningReport`).
     pub(crate) report_running: Vec<RunningReport>,
     /// `RequestOptionsPage.Caption` set by the code of a report outside its request page's OnOpenPage, by report instance: the

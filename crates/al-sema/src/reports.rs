@@ -129,6 +129,8 @@ pub struct Layout {
     pub caption_attributes: bool,
     /// The `FormatRegion` property (a text literal).
     pub format_region: Option<String>,
+    /// `ExcelLayoutMultipleDataSheets = true` (al-vm `reports/excel_sheets.rs` says which runs of it run).
+    pub excel_multiple_data_sheets: bool,
     /// The request page's `AboutTitle` and `AboutText` when they are text literals.
     pub about_title: Option<String>,
     pub about_text: Option<String>,
@@ -405,6 +407,7 @@ pub fn layout(obj: &ast::Object, timer_trigger: Option<&str>) -> Layout {
         caption: None,
         caption_attributes: false,
         format_region: None,
+        excel_multiple_data_sheets: false,
         about_title: None,
         about_text: None,
         default_layout: default_layout(obj),
@@ -458,6 +461,7 @@ pub fn layout(obj: &ast::Object, timer_trigger: Option<&str>) -> Layout {
                     .reasons
                     .push(format!("FormatRegion = {} is not a text literal", value.trim())),
             },
+            "excellayoutmultipledatasheets" if bool_prop(&value) == Some(true) => out.excel_multiple_data_sheets = true,
             n if INERT_OBJECT_PROPERTIES.contains(&n) => {}
             // Rendering-only: how the report prints. `PreviewMode` belongs to the Base Application's
             // G/L Register (xml/TestReportDatasetHelpLink.al runs its SaveAs).
@@ -1472,6 +1476,7 @@ pub fn build(cx: &Context, obj: &ast::Object, mut reasons: Vec<String>) -> ir::R
         caption: layout.caption.clone(),
         caption_attributes: layout.caption_attributes,
         format_region: layout.format_region.clone(),
+        excel_multiple_data_sheets: layout.excel_multiple_data_sheets,
         about_title: layout.about_title.clone(),
         about_text: layout.about_text.clone(),
         layout: layout.default_layout,
