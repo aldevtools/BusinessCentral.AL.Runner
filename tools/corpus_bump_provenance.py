@@ -6,8 +6,8 @@
 
 run: before any JUnit file is downloaded. RUN-JSON is gh run view --json databaseId,status,conclusion,headSha,attempt,
 event,headBranch,workflowDatabaseId; ARTIFACTS the run's artifact listing; DIR the corpus, already fetched (the run's
-commit and the nightly runs' commits are read). Checks that the run's results manifest belongs to its latest attempt
-(decision 4), the chain cap, that the manifest's modes agree with its chains and counts, that the run is green or is the
+commit and the nightly runs' commits are read). Checks that a nightly (schedule) run has a results manifest and that
+the run's results manifest belongs to its latest attempt (decision 4), the chain cap, that the manifest's modes agree with its chains and counts, that the run is green or is the
 nightly exception (decision 6), that it is a push or schedule run on master, the nightly comparison (decision 5) and, for
 a run that reuses results, the first nightly run after it (decision 6, owner 2026-11-18).
 Writes the run id, its attempt, the kind and the manifest to OUT.
@@ -50,7 +50,8 @@ MODES = ("full", "subset")
 APPS = ("full", "partial")
 # The jobs of corpus ci.yml a nightly run may skip: the coverage job runs only for pull_request (its "if").
 NIGHTLY_SKIPPED = ("Coverage facts must not shrink",)
-# The corpus writes a manifest for push runs (ci.yml, job "Results manifest") and for the nightly run (decision 6).
+# The corpus writes a manifest for push runs (ci.yml, job "Results manifest") and for the nightly run (decision 6); the
+# bump bot lists both (tools/corpus_bump_bot.sh find).
 EVENTS = ("push", "schedule")
 
 
@@ -281,6 +282,12 @@ def cmd_run(a):
     run = json.load(open(a.run_json))
     manifest = download_manifest(a.repo, json.load(open(a.artifacts)))
     if manifest is None:
+        # Decision 4 accepts a run without a manifest only from before the corpus wrote one. The corpus writes one for
+        # every nightly (corpus PR 1440, .github/workflows/ci.yml:662 at 2ff21242, job "Results manifest"), and the bump
+        # bot lists nightlies.
+        if run.get("event") == "schedule":
+            refuse("run %s is a nightly (schedule) run without a results manifest; the corpus writes one for every "
+                   "nightly (ADR-077 decision 4)" % run_id)
         kind = check_green(a.repo, run_id, run, None)
         print("run %s: no results manifest, a full run from before ADR-077 only if no suite carries provenance" % run_id)
     else:

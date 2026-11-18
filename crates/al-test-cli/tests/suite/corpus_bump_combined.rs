@@ -270,8 +270,9 @@ impl Spec {
     }
 }
 
-/// Writes the fake `gh`, the artifacts and the old oracle of the spec into the fixture folder; runs the dry bump.
-fn bump(c: &Corpus, s: &Spec) -> (i32, String) {
+/// Writes the fake `gh`, the artifacts and the old oracle of the spec into the fixture folder. Returns the fake
+/// `gh`, the corpus the bump reads and the old oracle folder.
+fn fixture(c: &Corpus, s: &Spec) -> (PathBuf, PathBuf, PathBuf) {
     let d = c.dir.path().join("gh");
     let _ = std::fs::remove_dir_all(&d);
     std::fs::create_dir_all(&d).unwrap();
@@ -411,6 +412,13 @@ fn bump(c: &Corpus, s: &Spec) -> (i32, String) {
     };
     std::fs::write(d.join("list.json"), newest(true)).unwrap();
     std::fs::write(d.join("list-all.json"), newest(false)).unwrap();
+    // The bump bot's own listing (tools/corpus_bump_bot.sh find): no green push run, the spec's run as the one
+    // green nightly.
+    std::fs::write(
+        d.join("bot-schedule.json"),
+        serde_json::json!([{"databaseId": s.run, "headSha": s.sha, "createdAt": "2026-11-17T02:00:00Z"}]).to_string(),
+    )
+    .unwrap();
     // The old oracle: codeunits 50100, 50101 and 50103 (D.al, deleted by c1) and 60100; oracle.toml with the CI builds.
     let oracle = d.join("oracle");
     let mut toml = String::new();
@@ -434,6 +442,8 @@ fn bump(c: &Corpus, s: &Spec) -> (i32, String) {
             r#"#!/bin/bash
 echo "$*" >> {dd}/calls.log
 case "$*" in
+  *"run list"*"--event push"*"--status success"*) echo '[]' ;;
+  *"run list"*"--event schedule"*"--status success"*) cat {dd}/bot-schedule.json ;;
   *"run view"*"--json jobs"*) cat {dd}/jobs-$3.json ;;
   *"run view"*) cat {dd}/view-$3.json ;;
   *"run list"*"--status completed"*) cat {dd}/list.json ;;
@@ -476,17 +486,48 @@ esac
     } else {
         origin
     };
-    for _ in 0..20 {
-        let o = Command::new("bash")
-            .arg(root().join("tools/corpus_bump.sh"))
+    (gh, local, oracle)
+}
+
+/// Runs the dry bump of the spec's run.
+fn bump(c: &Corpus, s: &Spec) -> (i32, String) {
+    let (gh, local, oracle) = fixture(c, s);
+    run_busy(&gh, || {
+        let mut cmd = Command::new("bash");
+        cmd.arg(root().join("tools/corpus_bump.sh"))
             .args(["--dry-run", &s.run.to_string()])
             .env("CORPUS_BUMP_GH", &gh)
             .env("CORPUS_BUMP_CORPUS", &local)
             .env("CORPUS_BUMP_NO_FETCH", if s.fetch { "0" } else { "1" })
             .env("CORPUS_BUMP_PIN", &c.c0)
-            .env("CORPUS_BUMP_ORACLE", &oracle)
-            .output()
-            .unwrap();
+            .env("CORPUS_BUMP_ORACLE", &oracle);
+        cmd
+    })
+}
+
+/// Runs `tools/corpus_bump_bot.sh find` with the spec's run as the one green nightly the bot lists: the bot's own
+/// dry run then goes through the provenance checks of a nightly of the real shape. Returns the exit code and output.
+fn bot_find(c: &Corpus, s: &Spec) -> (i32, String) {
+    let (gh, local, oracle) = fixture(c, s);
+    run_busy(&gh, || {
+        let mut cmd = Command::new("bash");
+        cmd.arg(root().join("tools/corpus_bump_bot.sh"))
+            .arg("find")
+            .env("CORPUS_BUMP_GH", &gh)
+            .env("CORPUS_BUMP_CORPUS", &local)
+            .env("CORPUS_BUMP_NO_FETCH", "1")
+            .env("CORPUS_BUMP_BOT_PIN", &c.c0)
+            .env("CORPUS_BUMP_PIN", &c.c0)
+            .env("CORPUS_BUMP_ORACLE", &oracle);
+        cmd
+    })
+}
+
+/// Runs a command; a fake `gh` written by another test thread can make the exec fail with ETXTBSY for a moment, so
+/// that one error is retried. Returns the exit code and stdout followed by stderr.
+fn run_busy(gh: &Path, cmd: impl Fn() -> Command) -> (i32, String) {
+    for _ in 0..20 {
+        let o = cmd().output().unwrap();
         let all = format!(
             "{}{}",
             String::from_utf8_lossy(&o.stdout),
@@ -1070,6 +1111,81 @@ fn the_nightly_full_run_whose_only_failed_job_is_the_comparison_is_accepted() {
         out.contains("the nightly full run, only its job 'Nightly comparison' failed"),
         "{out}"
     );
+}
+
+/// A green nightly run (the bump bot lists it, owner 2026-11-18): every job succeeded, so its comparison job
+/// re-uploaded the manifest with `comparison` and `comparison_detail` per version (corpus PR 1440, ci.yml job
+/// "Nightly comparison", artifact `results-manifest` with `overwrite: true`). It is a full run and the newest
+/// nightly at or before its own commit.
+fn green_nightly(c: &Corpus) -> Spec {
+    let mut s = Spec::full(c, &c.c1);
+    s.event = "schedule".into();
+    s.jobs = vec![
+        ("BC 27.5 / 1".into(), "success".into()),
+        ("Results manifest".into(), "success".into()),
+        ("Nightly comparison".into(), "success".into()),
+        ("Coverage facts must not shrink".into(), "skipped".into()),
+    ];
+    let mut m = manifest(20, 1, &c.c1, "full", 0, 0);
+    m["event"] = serde_json::json!("schedule");
+    for leg in LEGS {
+        m["versions"][leg]["comparison"] = serde_json::json!("identical");
+        m["versions"][leg]["comparison_detail"] = serde_json::json!({"compared_run": 10, "compared": 4});
+    }
+    s.manifest = Some(m);
+    s.nightlies = vec![night(15, &c.c0, Some("identical")), night(20, &c.c1, Some("identical"))];
+    s
+}
+
+#[test]
+fn a_green_nightly_run_is_accepted_with_the_comparison_of_its_own_manifest() {
+    let c = corpus();
+    let out = accepted(&c, &green_nightly(&c));
+    assert!(
+        out.contains("nightly run 20 at or before its commit reports no difference"),
+        "{out}"
+    );
+}
+
+/// The bump bot lists the green nightly and takes it: its own dry run passes the provenance checks of the real shape
+/// (event schedule, a manifest with the comparison).
+#[test]
+fn the_bump_bot_takes_a_green_nightly_of_the_real_shape() {
+    let c = corpus();
+    let (code, out) = bot_find(&c, &green_nightly(&c));
+    assert_eq!(code, 0, "{out}");
+    assert!(out.starts_with(&format!("run=20\nsha={}\n", c.c1)), "{out}");
+}
+
+/// ADR-077 decision 4 accepts a run without a manifest only as a full run from before the corpus wrote manifests, and
+/// the corpus writes one for every nightly (corpus PR 1440, .github/workflows/ci.yml:662 at 2ff21242, job "Results
+/// manifest"). A nightly without one is refused, also when no suite carries provenance; the bot does not take it.
+#[test]
+fn a_green_nightly_run_without_a_manifest_is_refused() {
+    let c = corpus();
+    let mut s = green_nightly(&c);
+    s.manifest = None;
+    for x in s.main.iter_mut().chain(s.onprem.iter_mut()) {
+        x.prov = None;
+    }
+    refused(&c, &s, "run 20 is a nightly (schedule) run without a results manifest");
+    let (code, out) = bot_find(&c, &s);
+    assert_eq!(code, 0, "{out}");
+    assert!(!out.contains("run="), "{out}");
+    assert!(out.contains("run 20: refused by the bump checks"), "{out}");
+}
+
+#[test]
+fn a_green_nightly_run_whose_manifest_lacks_the_comparison_is_refused() {
+    let c = corpus();
+    let mut s = green_nightly(&c);
+    let m = s.manifest.as_mut().unwrap();
+    for leg in LEGS {
+        let v = m["versions"][leg].as_object_mut().unwrap();
+        v.remove("comparison");
+        v.remove("comparison_detail");
+    }
+    refused(&c, &s, "the nightly run 20 reports comparison None for BC");
 }
 
 #[test]
