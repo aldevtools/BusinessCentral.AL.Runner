@@ -443,7 +443,20 @@ impl Lowerer<'_> {
                             out.push(ir::Arg::Value(value));
                             continue;
                         }
-                        self.refuse_variant_argument(&p.ty, a)?;
+                        let local_proc = self
+                            .routine_nodes
+                            .get(object)
+                            .get(routine)
+                            .is_some_and(|r| r.is_local() && r.attributes().next().is_none());
+                        let site = if receiver_node.is_none() && instance.is_none() && object == self.oi && local_proc && !try_call {
+                            super::convert::TextConstantSite::ArgumentOfSameObjectProcedure
+                        } else {
+                            super::convert::TextConstantSite::Other
+                        };
+                        if let Some(textconst) = self.refuse_variant_argument(&p.ty, a, site)? {
+                            out.push(ir::Arg::Value(self.text_constant(value, textconst)?));
+                            continue;
+                        }
                         // A Text or Code handed to a by-value Text or Code parameter of a TryFunction is converted by the callee's
                         // binding, inside the try: a text too long for a Code[20] parameter makes the TryFunction answer false
                         // (text/text-methods/TextAssign.Codeunit.al:240-281, LT_BU_TextAssign_LongTextToCode20Parameter). A Decimal or
@@ -655,6 +668,13 @@ impl Lowerer<'_> {
                     "System.EvaluateBounded#1".to_string()
                 } else if id == "Dialog.Error#2" && args.first().is_some_and(|a| a.kind() != SyntaxKind::Literal) {
                     self.error_variant_id(args)
+                } else if id.starts_with("ErrorInfo.Create#")
+                    && args.len() == 1
+                    && matches!(self.error_text_form(&args[0]), al_builtins::native::ErrorTextForm::Literal)
+                {
+                    // The form of the message is what `GetLastErrorText(true)` after `FieldError(Field, ErrorInfo)` answers
+                    // by (errors/last-error/SnLastErrorTextMoreForms.al:130, :161).
+                    "ErrorInfo.CreateLiteral#1".to_string()
                 } else if matches!(id.as_str(), "Record.FieldError#1" | "Record.FieldError#2") && args.len() == 2 {
                     self.field_error_variant_id(&id, args)
                 } else if let Some(variant_id) = self.variant_argument_id(&id, args) {

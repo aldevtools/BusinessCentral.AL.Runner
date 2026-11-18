@@ -183,6 +183,7 @@ fn every_registered_id_is_in_the_catalog() {
         "Dialog.ErrorComputed#1",
         "Record.FieldErrorConstant#1",
         "Record.FieldErrorComputed#1",
+        "ErrorInfo.CreateLiteral#1",
         "TextBuilder.AppendFieldValue#1",
         "Media.ToVariant#1",
         "Interface.AssertAssigned#1",

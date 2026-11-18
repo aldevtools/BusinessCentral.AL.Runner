@@ -1355,6 +1355,27 @@ impl Session {
         Ok(())
     }
 
+    /// What a reply says .NET did to the AL streams behind its bridges, applied to their Blobs: the bytes it wrote come back
+    /// (the bridges of al-runner issue 6317), and a Blob whose handed-back bytes it wrote over is marked
+    /// (`DOTNET_BRIDGE_OVERWRITTEN`). Every call that can write through a bridge applies its reply here.
+    fn apply_stream_effects(&self, streams: &al_host::dotnet::StreamEffects, shown: &str) -> Result<(), Signal> {
+        for (id, bytes) in &streams.written {
+            match self.dotnet.bridges.get(id) {
+                Some(blob) => al_builtins::stream::write_bytes(blob, bytes),
+                None => return unsupported(format!("DotNet {shown}: bytes for an unknown stream bridge {id}")),
+            }
+        }
+        for id in &streams.overwritten {
+            match self.dotnet.bridges.get(id) {
+                Some(blob) => {
+                    blob.borrow_mut().render_pending = Some(al_builtins::stream::DOTNET_BRIDGE_OVERWRITTEN.into())
+                }
+                None => return unsupported(format!("DotNet {shown}: an unknown stream bridge {id}")),
+            }
+        }
+        Ok(())
+    }
+
     fn apply_reply(
         &mut self,
         reply: DotNetReply,
@@ -1379,12 +1400,7 @@ impl Session {
                 self.dotnet.bridges.insert(*id, blob.clone());
             }
         }
-        for (id, bytes) in &reply.streams.written {
-            match self.dotnet.bridges.get(id) {
-                Some(blob) => al_builtins::stream::write_bytes(blob, bytes),
-                None => return unsupported(format!("DotNet {shown}: bytes for an unknown stream bridge {id}")),
-            }
-        }
+        self.apply_stream_effects(&reply.streams, shown)?;
         self.dotnet.null_string = matches!(reply.value, DotNetValue::NullString);
         let value = self.wire_to_value(reply.value).map_err(|e| prefix(e, shown))?;
         for (idx, v) in reply.by_ref {
@@ -1456,6 +1472,13 @@ impl Session {
                     }
                 }
                 LibraryValue::OutStream(blob, ..) => {
+                    // A Blob whose handed-back bytes .NET wrote over holds bytes that are not known (al-runner issue 7947), and BC
+                    // hands .NET that Blob's own stream: refused.
+                    if blob.borrow().render_pending.as_deref() == Some(al_builtins::stream::DOTNET_BRIDGE_OVERWRITTEN) {
+                        return unsupported(
+                            "an OutStream of a Blob whose bytes a DotNet call wrote over, handed to .NET",
+                        );
+                    }
                     book.outs.push((arg, blob.clone()));
                     // BC hands .NET the Blob's own stream: a ZipArchive in Read mode over an OutStream AL copied a zip into reads
                     // that zip (corpus tests/al-language-onprem-dotnet/dotnet/dotnet/WdZipArchiveOverOutStream.al:77-96

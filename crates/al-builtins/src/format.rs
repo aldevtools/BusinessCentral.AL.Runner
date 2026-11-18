@@ -445,7 +445,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
         // in the error text is not pinned for them.
         Value::Boolean(_) | Value::Enum(..) if standard == 10 => return Err(no_such_format_unpinned()),
         Value::Text(_)
-        | Value::TextConst(_)
+        | Value::TextConst(..)
         | Value::Code(_)
         | Value::Char(_)
         | Value::Option(..)
@@ -489,7 +489,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
         // A NUL character inside a text is kept (format-evaluate/format-matrix/FMEvalText.al:141-143 and FMEvalCode3.al:141-143,
         // corpus PR 1256: `Format(V, 0, 9)` of a text holding NUL shows it). LTP89StreamText.al `nul_between` gets no NUL here:
         // `Wide[1] := 0` ends the text (interp `write_char`).
-        Value::Text(t) | Value::TextConst(t) | Value::Code(t) => t.to_string(),
+        Value::Text(t) | Value::TextConst(t, _) | Value::Code(t) => t.to_string(),
         Value::Option(o, members) => option_text(o, members, standard)?,
         // Nor for an enum, named 'Option' (the enum test Enum_FormatNumbers `blue3`).
         Value::Enum(..) if (3..=8).contains(&standard) => return Err(no_such_format(standard, "Option")),

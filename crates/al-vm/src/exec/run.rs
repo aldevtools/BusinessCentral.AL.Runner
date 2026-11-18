@@ -1003,6 +1003,7 @@ impl Session {
         }
         crate::assigned_audit::own_read_end_for_operands(site.id, &values);
         crate::blob_transfer::records_into_builtin(self.blob_sources, site.id, recv.as_ref(), &values);
+        text_constant_arguments(site, &mut values)?;
         // No operand is by reference, and `temp_blob_share_guard` checks a Blob field only through one: only the OutStreams
         // the call takes are checked.
         if site.temp_blob != SiteCheck::Never && crate::temp_blob_share::streams_kept() {
@@ -1194,6 +1195,7 @@ impl Session {
         }
         crate::assigned_audit::own_read_end_for_operands(site.id, &values);
         crate::blob_transfer::records_into_builtin(self.blob_sources, site.id, recv.as_ref(), &values);
+        text_constant_arguments(site, &mut values)?;
         let open = match site.temp_blob {
             SiteCheck::Never => None,
             SiteCheck::StreamsKept if !crate::temp_blob_share::streams_kept() => None,
@@ -1370,4 +1372,15 @@ fn mark_assigned_stream(v: &Value) {
     {
         s.shared_by_assign = true;
     }
+}
+
+/// The arguments of a builtin as it gets them when one is a TextConstant a Variant held (`al_builtins::conv::text_constant`).
+#[inline]
+fn text_constant_arguments(site: &BuiltinSite, values: &mut [Value]) -> Result<(), Signal> {
+    if !values.iter().any(|v| matches!(v, Value::TextConst(..))) {
+        return Ok(());
+    }
+    al_builtins::conv::text_constant::read_arguments(site.id.name(), values, |i| {
+        matches!(site.args.get(i), Some(ir::Arg::Ref(_)))
+    })
 }
