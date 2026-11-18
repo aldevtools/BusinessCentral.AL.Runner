@@ -27,7 +27,17 @@ codeunit 77405 "RPL Cache"
 {
     SingleInstance = true;
     var Temp: Record "Guided Experience Item" temporary; Shared: Record "Guided Experience Item" temporary;
-    procedure Keep(Id: Integer) begin Temp."Object ID" := Id; Temp.Insert(); Shared.Copy(Temp, true); end;
+        Helper: Codeunit "RPL Helper"; Other: Codeunit "RPL Helper"; Same: Codeunit "RPL Helper";
+    procedure Keep(Id: Integer)
+    begin
+        Temp."Object ID" := Id; Temp.Insert(); Shared.Copy(Temp, true);
+        Helper.SetX(Id); Same := Helper; Other.SetX(1);
+    end;
+}
+codeunit 77406 "RPL Helper"
+{
+    var X: Integer; Buffer: Record "Guided Experience Item" temporary;
+    procedure SetX(V: Integer) begin X := V; Buffer."Object ID" := V; Buffer.Insert(); end;
 }
 codeunit 77402 "RPL Tests A"
 {
@@ -172,7 +182,7 @@ fn an_entrys_resource_text_is_part_of_the_key_and_changes_what_the_login_leaves(
     );
     // The temporary table of the SingleInstance cache holds the other row too.
     let temp_row = |k: usize, id: &str| {
-        (firsts[k].1.state_lines().lines.iter()).any(|l| l.contains(" temp table 0 row ") && l.contains(id))
+        (firsts[k].1.state_lines().lines.iter()).any(|l| l.starts_with("temp table 0 row ") && l.contains(id))
     };
     assert!(temp_row(0, "Integer(77401)") && temp_row(1, "Integer(77404)"));
     let planted = Check::default();
@@ -197,7 +207,7 @@ fn temporary_records_the_login_leaves_compare_by_their_rows_and_view_and_a_share
     let rows: Vec<&String> = state
         .lines
         .iter()
-        .filter(|l| l.contains(" temp table 0 row "))
+        .filter(|l| l.starts_with("temp table 0 row "))
         .collect();
     assert_eq!(rows.len(), 1, "{:?}", state.lines);
     assert!(rows[0].contains("Integer(77401)"), "{rows:?}");
@@ -207,12 +217,6 @@ fn temporary_records_the_login_leaves_compare_by_their_rows_and_view_and_a_share
         .filter(|l| l.contains(" temp record of table 0: "))
         .count();
     assert_eq!(records, 2, "{:?}", state.lines);
-    assert!(
-        !state
-            .lines
-            .iter()
-            .any(|l| l.contains(" temp table 1 ") || l.contains(" temp record of table 1:"))
-    );
 }
 
 // A serve request's session flags and license reach the login code (a permission error, an unhandled UI call) while the
@@ -252,4 +256,45 @@ fn another_session_flag_or_license_is_another_key() {
              across test codeunits: 0 compared, 0 differ"
         )
     );
+}
+
+// Codeunit instances a SingleInstance codeunit holds after the login (on a real app one global of a SingleInstance
+// codeunit holds one): compared by identity (one number per instance, by first sight: two globals that hold one
+// instance name the same number, another instance another) and by their own state (the codeunit and its globals).
+#[test]
+fn codeunit_instances_the_login_leaves_compare_by_identity_and_their_state() {
+    let (engine, l) = compiled();
+    run(&engine, &l, "RPL Tests A");
+    run(&engine, &l, "RPL Tests A");
+    let line = crate::login_replay::report(&engine).unwrap();
+    assert!(line.contains(", 1 compared, 0 differ"), "{line}");
+    let firsts = crate::login_replay::check(&engine).firsts();
+    let state = firsts[0].1.state_lines();
+    assert!(state.opaque.is_empty(), "{:?}", state.opaque);
+    let global = |g: usize| {
+        let prefix = format!("single 77405 global {g} ");
+        let line = state.lines.iter().find(|l| l.starts_with(&prefix));
+        line.unwrap_or_else(|| panic!("{:?}", state.lines)).clone()
+    };
+    // Helper and Same hold one instance, Other another.
+    assert!(global(2).ends_with(" instance 0"), "{}", global(2));
+    assert!(global(4).ends_with(" instance 0"), "{}", global(4));
+    assert!(global(3).ends_with(" instance 1"), "{}", global(3));
+    for n in 0..2 {
+        let own = format!("instance {n} codeunit 77406 globals [");
+        assert!(state.lines.iter().any(|l| l.starts_with(&own)), "{:?}", state.lines);
+    }
+    // The resource text the login read reaches the instance's own global: another text, another instance state.
+    set_resource(&engine, &l, Some("abcd"));
+    run(&engine, &l, "RPL Tests A");
+    let firsts = crate::login_replay::check(&engine).firsts();
+    let own = |k: usize| {
+        let lines = &firsts[k].1.state_lines().lines;
+        lines
+            .iter()
+            .find(|l| l.starts_with("instance 0 codeunit 77406"))
+            .cloned()
+            .unwrap()
+    };
+    assert_ne!(own(0), own(1));
 }

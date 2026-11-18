@@ -250,25 +250,30 @@ impl Session {
         let id = |o: usize| self.engine.program.objects[o].id.unwrap_or(0);
         let mut out = StateLines::default();
         out.lines.push(format!("session {:?}", stamp.state));
-        // The temporary tables the globals hold, by first sight: records that share one (`Copy(x, true)`) name one table.
-        let mut temp_tables: Vec<u64> = Vec::new();
+        // Temporary tables and codeunit instances are numbered by first sight, in this fixed order of the globals.
+        let mut render = Render {
+            session: self,
+            temp_tables: Vec::new(),
+            instances: Vec::new(),
+            lines: Vec::new(),
+        };
         for (&o, single) in &stamp.singles {
+            let inst = self.singletons.get(&o).map(|i| i.borrow());
             for (g, fp) in single.globals.iter().enumerate() {
-                match fp {
-                    crate::single_track::Fp::Val(bytes) => {
-                        out.lines.push(format!("single {} global {g} {bytes:?}", id(o)))
+                let value = inst.as_ref().and_then(|i| i.globals.get(g));
+                match value.and_then(|v| render.value(v, 0)) {
+                    Some(text) => out.lines.push(format!("single {} global {g} {text}", id(o))),
+                    None => {
+                        let what = match fp {
+                            crate::single_track::Fp::Opaque(what) => what.to_string(),
+                            crate::single_track::Fp::Val(_) => "a value".to_string(),
+                        };
+                        out.opaque.push(format!("codeunit {} global {g}: {what}", id(o)))
                     }
-                    // No fingerprint: compared here when it is plain data (`comparable_global`), while the fingerprint
-                    // the SingleInstance rules use keeps it opaque.
-                    crate::single_track::Fp::Opaque(what) => match self.comparable_global(o, g, &mut temp_tables) {
-                        Some(lines) => {
-                            (out.lines).extend(lines.into_iter().map(|l| format!("single {} global {g} {l}", id(o))))
-                        }
-                        None => out.opaque.push(format!("codeunit {} global {g}: {what}", id(o))),
-                    },
                 }
             }
         }
+        out.lines.append(&mut render.lines);
         let mut bound: Vec<u32> = (self.events.bindings.iter())
             .filter_map(|b| b.instance.upgrade().map(|i| id(i.borrow().object as usize)))
             .collect();
@@ -287,18 +292,37 @@ impl Session {
     }
 }
 
-impl Session {
-    /// A SingleInstance global (codeunit object `o`, global `g`) that has no fingerprint, as lines that compare across
-    /// sessions when it holds plain data ([`Session::state_lines`]): a ModuleInfo by value (System Application's "System
-    /// Initialization Impl." holds one after the login on BC 28.5); a temporary record by everything it carries (view,
-    /// position, buffer) and its table's rows, once per table (Base Application's "Acc. Sched. KPI Event Handler" and
-    /// "Change Log Management" hold some after the login on BC 28.5). `temp_tables` numbers the tables. `None`: no
-    /// comparable form.
-    fn comparable_global(&self, o: usize, g: usize, temp_tables: &mut Vec<u64>) -> Option<Vec<String>> {
-        let inst = self.singletons.get(&o)?.borrow();
-        let v = inst.globals.get(g)?;
+/// Renders the values of SingleInstance globals as text that compares across sessions ([`Session::state_lines`]). A value
+/// with no comparable form gives `None`; [`Session::state_lines`] then names it as opaque, never as equal.
+struct Render<'a> {
+    session: &'a Session,
+    /// The temporary tables seen, by id: records that share one (`Copy(x, true)`) name one table.
+    temp_tables: Vec<u64>,
+    /// The codeunit instances seen, by address (never written out): two globals that hold one instance name one number,
+    /// two instances two; a cycle ends at an instance already numbered.
+    instances: Vec<usize>,
+    /// What a numbered table or instance holds, one line each, written once.
+    lines: Vec<String>,
+}
+
+impl Render<'_> {
+    /// `v` as text, by the first rule that fits:
+    /// - a codeunit instance by its number, and once its codeunit id and globals by these rules (on a real app a global of
+    ///   a SingleInstance codeunit holds one after the login);
+    /// - a value with a fingerprint by the fingerprint (`single_track::fp`);
+    /// - a ModuleInfo by value (System Application's "System Initialization Impl." holds one after the login on BC 28.5);
+    /// - a temporary record by everything it carries (view, filters of every group, key, position, buffer) and its
+    ///   table's rows, once per table (Base Application's "Acc. Sched. KPI Event Handler" and "Change Log Management"
+    ///   hold some after the login on BC 28.5).
+    fn value(&mut self, v: &Value, depth: u8) -> Option<String> {
+        if let Value::Codeunit(rc) = v {
+            return self.instance(rc, depth);
+        }
+        if let crate::single_track::Fp::Val(bytes) = crate::single_track::fp(v, &self.session.engine) {
+            return Some(format!("{bytes:?}"));
+        }
         if let Some(m) = module_info(Some(v)) {
-            return Some(vec![m]);
+            return Some(m);
         }
         let Value::Record(r) = v else { return None };
         let r = r.try_borrow().ok()?;
@@ -306,20 +330,16 @@ impl Session {
             .temp_id
             .as_ref()
             .filter(|t| r.temporary && !r.crm && !t.rows_unmeasured())?;
-        let mut lines = Vec::new();
-        let n = match temp_tables.iter().position(|t| *t == temp.id()) {
+        let n = match self.temp_tables.iter().position(|t| *t == temp.id()) {
             Some(n) => n,
             None => {
-                temp_tables.push(temp.id());
-                let n = temp_tables.len() - 1;
-                for t in self
-                    .temps
-                    .get(&temp.id())
-                    .map(|s| s.export_current())
-                    .unwrap_or_default()
-                {
+                self.temp_tables.push(temp.id());
+                let n = self.temp_tables.len() - 1;
+                let rows = self.session.temps.get(&temp.id()).map(|s| s.export_current());
+                for t in rows.unwrap_or_default() {
                     for (_, row) in &t.rows {
-                        lines.push(format!("temp table {n} row {}|{}|{row:?}", t.company, t.object));
+                        self.lines
+                            .push(format!("temp table {n} row {}|{}|{row:?}", t.company, t.object));
                     }
                 }
                 n
@@ -327,8 +347,30 @@ impl Session {
         };
         let mut view = r.clone();
         view.temp_id = None;
-        lines.push(format!("temp record of table {n}: {view:?}"));
-        Some(lines)
+        Some(format!("temp record of table {n}: {view:?}"))
+    }
+
+    /// A codeunit instance: `instance <n>`, and once `instance <n> codeunit <id> globals [...]`.
+    fn instance(&mut self, rc: &Rc<RefCell<Instance>>, depth: u8) -> Option<String> {
+        let address = Rc::as_ptr(rc) as usize;
+        if let Some(n) = self.instances.iter().position(|a| *a == address) {
+            return Some(format!("instance {n}"));
+        }
+        if depth > 8 {
+            return None;
+        }
+        self.instances.push(address);
+        let n = self.instances.len() - 1;
+        let inst = rc.try_borrow().ok()?;
+        let id = self.session.engine.program.objects[inst.object as usize]
+            .id
+            .unwrap_or(0);
+        let globals = (inst.globals.iter())
+            .map(|g| self.value(g, depth + 1))
+            .collect::<Option<Vec<String>>>()?;
+        self.lines
+            .push(format!("instance {n} codeunit {id} globals [{}]", globals.join(", ")));
+        Some(format!("instance {n}"))
     }
 }
 

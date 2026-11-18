@@ -134,14 +134,13 @@ impl LoginState {
     }
 }
 
-/// The first thing that differs between `a` and `b`, the states of two sessions of one key; also when either holds a
-/// value with no comparable form, which no replay could give back.
-pub(crate) fn first_difference(a: &LoginState, b: &LoginState) -> Option<String> {
-    let opaque: BTreeSet<&String> = a.state.opaque.iter().chain(&b.state.opaque).collect();
-    if !opaque.is_empty() {
-        let what: Vec<&str> = opaque.into_iter().map(String::as_str).collect();
-        return Some(format!("not comparable: {}", what.join("; ")));
-    }
+/// The kinds of difference between two sessions' states, in the order [`differences`] looks at them: a value with no
+/// comparable form (which no replay could give back), the committed rows, the session state lines, the assumption marks.
+const KINDS: [&str; 4] = ["not comparable", "rows", "session state", "marks"];
+
+/// What differs between `a` and `b`, the states of two sessions of one key: per kind of [`KINDS`] that differs, its index
+/// and its first difference. One kind does not hide another.
+pub(crate) fn differences(a: &LoginState, b: &LoginState) -> Vec<(usize, String)> {
     let lines = |x: &[String], y: &[String], what: &str| {
         let n = x
             .iter()
@@ -157,9 +156,27 @@ pub(crate) fn first_difference(a: &LoginState, b: &LoginState) -> Option<String>
             )
         })
     };
-    lines(&a.rows, &b.rows, "row")
-        .or_else(|| lines(&a.state.lines, &b.state.lines, "session state"))
-        .or_else(|| (a.hits != b.hits).then(|| format!("assumption marks: {:?} | {:?}", a.hits, b.hits)))
+    let opaque: BTreeSet<&String> = a.state.opaque.iter().chain(&b.state.opaque).collect();
+    let opaque = (!opaque.is_empty()).then(|| {
+        let what: Vec<&str> = opaque.into_iter().map(String::as_str).collect();
+        format!("not comparable: {}", what.join("; "))
+    });
+    [
+        opaque,
+        lines(&a.rows, &b.rows, "row"),
+        lines(&a.state.lines, &b.state.lines, "session state"),
+        (a.hits != b.hits).then(|| format!("assumption marks: {:?} | {:?}", a.hits, b.hits)),
+    ]
+    .into_iter()
+    .enumerate()
+    .filter_map(|(k, d)| Some((k, d?)))
+    .collect()
+}
+
+/// The first of [`differences`]: `None` when the two states are the same.
+#[cfg(test)]
+pub(crate) fn first_difference(a: &LoginState, b: &LoginState) -> Option<String> {
+    differences(a, b).into_iter().next().map(|(_, what)| what)
 }
 
 /// The check on one engine: per key, the first state and the sessions compared with it; and, for evidence about the
@@ -181,6 +198,8 @@ struct Tally {
     firsts: Vec<(Key, LoginState)>,
     compared: u64,
     differ: u64,
+    /// Per kind of [`KINDS`], the compared sessions that differ in it.
+    differ_by: [u64; KINDS.len()],
     first_difference: Option<String>,
 }
 
@@ -191,23 +210,29 @@ impl Tally {
             self.firsts.push((key, state));
             return true;
         };
-        let differs = first_difference(first, &state);
+        let differs = differences(first, &state);
         self.compared += 1;
-        if let Some(what) = differs {
+        if let Some((_, what)) = differs.first() {
             self.differ += 1;
-            self.first_difference.get_or_insert(what);
+            self.first_difference.get_or_insert(what.clone());
+        }
+        for (k, _) in &differs {
+            self.differ_by[*k] += 1;
         }
         false
     }
 
     fn counts(&self) -> String {
+        let by: Vec<String> = (KINDS.iter().zip(&self.differ_by))
+            .map(|(kind, n)| format!("{kind} {n}"))
+            .collect();
         format!(
             "{} compared, {} differ{}",
             self.compared,
             self.differ,
             self.first_difference
                 .as_ref()
-                .map_or(String::new(), |w| format!(" (first: {w})"))
+                .map_or(String::new(), |w| format!(" ({}; first: {w})", by.join(", ")))
         )
     }
 }
@@ -363,15 +388,15 @@ mod tests {
             check.line().as_deref(),
             Some(
                 "login replay check: 3 sessions over 2 keys (a key seen before: 1 sessions, 33%), 1 compared, 0 differ; across test codeunits: 1 compared, \
-                 1 differ (first: row 1: r | other)"
+                 1 differ (not comparable 0, rows 1, session state 0, marks 0; first: row 1: r | other)"
             )
         );
         check.note(key(1), b);
         assert_eq!(
             check.line().as_deref(),
             Some(
-                "login replay check: 4 sessions over 2 keys (a key seen before: 2 sessions, 50%), 2 compared, 1 differ (first: row 1: r | other); across test \
-                 codeunits: 1 compared, 1 differ (first: row 1: r | other)"
+                "login replay check: 4 sessions over 2 keys (a key seen before: 2 sessions, 50%), 2 compared, 1 differ (not comparable 0, rows 1, session state 0, marks 0; first: row 1: r | other); across test \
+                 codeunits: 1 compared, 1 differ (not comparable 0, rows 1, session state 0, marks 0; first: row 1: r | other)"
             )
         );
     }
@@ -379,5 +404,24 @@ mod tests {
     #[test]
     fn no_line_before_a_session_was_noted() {
         assert_eq!(Check::default().line(), None);
+    }
+
+    // A value with no comparable form no longer hides the rows that differ too: each kind is counted.
+    #[test]
+    fn every_kind_that_differs_is_counted() {
+        let check = Check::default();
+        let a = state(&["r"], &["s"]);
+        let mut b = state(&["other"], &["s"]);
+        b.state.opaque.push("codeunit 5 global 1: Codeunit instance".into());
+        check.note(key(1), a);
+        check.note(key(1), b);
+        let line = check.line().unwrap();
+        assert!(
+            line.contains(
+                "1 compared, 1 differ (not comparable 1, rows 1, session state 0, marks 0; first: not comparable: \
+                 codeunit 5 global 1: Codeunit instance)"
+            ),
+            "{line}"
+        );
     }
 }
