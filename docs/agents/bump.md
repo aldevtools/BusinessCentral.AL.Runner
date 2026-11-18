@@ -69,8 +69,9 @@ the nightly exception is still run by hand. A run that reuses results also waits
 first nightly after it (the first created among the nightlies on its commit or a
 later one): that nightly must have ended green, with a manifest of its latest
 attempt that reports no difference for every version and names this run as the
-run it compared (owner, 2026-11-18). Only the run a nightly compared can be
-bumped as a combined run. A first nightly that refuses keeps refusing the run
+run it compared, and in `compared_attempt` the attempt of it that it downloaded, which must be
+the attempt bumped (owner, 2026-11-18). A manifest without `compared_attempt` refuses. Only the run and attempt a
+nightly compared can be bumped as a combined run. A first nightly that refuses keeps refusing the run
 until that nightly is re-run; the pin then moves through a later push run or a
 green nightly.
 
