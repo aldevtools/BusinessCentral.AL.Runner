@@ -1967,7 +1967,7 @@ fn sibling_of(engine: &Arc<Engine>, opts: &RunOptions) -> Arc<Engine> {
 /// ends right after, they are not freed.
 fn keep_or_retire_engines(
     (engine, baseline_engine, spare_engine): (Arc<Engine>, Option<Arc<Engine>>, Option<Arc<Engine>>),
-    installs: Option<&[(BTreeSet<u32>, String)]>,
+    installs: Option<&[al_vm::SkippedInstall]>,
     kept: Option<(String, &std::sync::Mutex<Option<KeptEngines>>)>,
     process_ends_after: bool,
 ) -> Met {
@@ -1979,7 +1979,7 @@ fn keep_or_retire_engines(
     let met = installs
         .into_iter()
         .flatten()
-        .fold(met, |m, (_, why)| m.or(Met::of_reason(why)));
+        .fold(met, |m, s| m.or(Met::of_reason(&s.why)));
     let (engine, baseline_engine, spare_engine) = match kept {
         Some((key, kept_engines)) => {
             let (install, tests) = match baseline_engine {

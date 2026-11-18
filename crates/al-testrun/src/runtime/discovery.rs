@@ -427,7 +427,7 @@ pub(super) fn run_pass(
     session: &mut Session,
     lowered: &Lowered,
     objects: &[usize],
-    skipped_installs: &[(BTreeSet<u32>, String)],
+    skipped_installs: &[al_vm::SkippedInstall],
     company_open_wrote: bool,
     limit: Option<std::time::Duration>,
 ) {
