@@ -356,8 +356,9 @@ fn live(d: &[(Value, Value)]) -> impl Iterator<Item = (usize, &(Value, Value))> 
 /// ([`unmeasured_compare`]) refuses when it is compared with an entry (al-runner issue 8173); an empty dictionary compares
 /// nothing.
 fn find_key(d: &[(Value, Value)], key: &Value, member: &str) -> Result<Option<usize>, Signal> {
+    let key_kind = unmeasured_compare(key);
     for (i, (k, _)) in live(d) {
-        if let Some(kind) = unmeasured_compare(key).or_else(|| unmeasured_compare(k)) {
+        if let Some(kind) = key_kind.or_else(|| unmeasured_compare(k)) {
             return Err(Signal::unsupported(format!(
                 "Dictionary.{member} with a key of {kind}: how BC compares them is not measured"
             )));
@@ -383,13 +384,14 @@ fn dict_insert(d: &mut Vec<(Value, Value)>, k: Value, v: Value) {
     }
 }
 
-/// `Contains`, `IndexOf`, `LastIndexOf` and `Remove` refuse when the searched value or an element of the list is of a type
-/// whose comparison no corpus case measures ([`unmeasured_compare`]).
+/// `Contains`, `IndexOf`, `LastIndexOf` and `Remove` refuse when the list has an element and the searched value or that
+/// element is of a type whose comparison no corpus case measures ([`unmeasured_compare`]); an empty list compares nothing.
 /// This includes the XmlNode that AsXmlNode of an unassigned XmlElement returned (al-builtins `xml/unassigned_element.rs`).
 /// A list holds values of one AL type (a list of Variant does not compile: must-not-compile/cases/2770-list-of-variant.al:1,
 /// 1747-collection-of-variant.al:1), so the searched value and the first element decide.
 fn refuse_unmeasured_search(l: &[Value], v: &Value, member: &str) -> Result<(), Signal> {
-    if let Some(kind) = unmeasured_compare(v).or_else(|| l.first().and_then(unmeasured_compare)) {
+    let first = l.first();
+    if let Some(kind) = first.and_then(|e| unmeasured_compare(v).or_else(|| unmeasured_compare(e))) {
         return Err(Signal::unsupported(format!(
             "List.{member} on a list of {kind}: how BC compares them is not measured"
         )));
@@ -398,12 +400,20 @@ fn refuse_unmeasured_search(l: &[Value], v: &Value, member: &str) -> Result<(), 
 }
 
 /// The kinds of value whose comparison no corpus case measures, named for the refusal, where `eq` would answer "not equal":
-/// an XML handle (al-runner issue 8165) and a JsonToken (issue 8173; the token of an object against itself).
+/// an XML handle (al-runner issue 8165) and a JSON value of any of the four types (issue 8173; an object, array, value or
+/// token against itself; probe P2 in docs/probes-needed.md).
 fn unmeasured_compare(v: &Value) -> Option<&'static str> {
+    use crate::library_kind::LibraryKind as K;
     if is_xml_handle(v) {
         return Some("XML handles");
     }
-    matches!(v, Value::Library(crate::library_kind::LibraryKind::JsonToken, _)).then_some("JsonToken values")
+    match v {
+        Value::Library(K::JsonToken, _) => Some("JsonToken values"),
+        Value::Library(K::JsonObject, _) => Some("JsonObject values"),
+        Value::Library(K::JsonArray, _) => Some("JsonArray values"),
+        Value::Library(K::JsonValue, _) => Some("JsonValue values"),
+        _ => None,
+    }
 }
 
 /// A value of an XML handle type: a node or document, a node list, an attribute collection, a name table or a namespace

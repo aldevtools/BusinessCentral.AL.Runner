@@ -110,3 +110,46 @@ fn a_search_of_a_list_of_json_tokens_refuses() {
 fn a_dictionary_of_text_keys_keeps_its_answers() {
     assert_eq!(text(run_in(SRC, "T", "TextKeys")), "No|Yes|3|No|Yes|1");
 }
+
+/// A Dictionary keyed by, and a List of, values of type `ty` made by `make`; `body` runs on `D`, `L` and `X`.
+fn json(ty: &str, make: &str, body: &str) -> Result<Value, Signal> {
+    let src = format!(
+        "codeunit 50335 J {{ procedure F(): Text var D: Dictionary of [{ty}, Integer]; L: List of [{ty}]; X: {ty}; O: JsonObject; A: JsonArray; V: JsonValue; \
+         begin {make} {body} end; }}"
+    );
+    run_in(&src, "J", "F")
+}
+
+const JSON_KINDS: [(&str, &str); 4] = [
+    ("JsonObject", "O.ReadFrom('{\"a\":1}'); X := O;"),
+    ("JsonArray", "A.Add(1); X := A;"),
+    ("JsonValue", "V.SetValue(1); X := V;"),
+    ("JsonToken", "X := O.AsToken();"),
+];
+
+// al-runner issue 8173: how BC compares two JSON values is not measured (corpus probe P2): a key compare and a list search
+// refuse for every JSON type.
+#[test]
+fn a_json_dictionary_key_or_list_search_refuses_when_it_compares() {
+    for (ty, make) in JSON_KINDS {
+        for body in [
+            "D.Add(X, 1); exit(Format(D.ContainsKey(X)));",
+            "L.Add(X); exit(Format(L.Contains(X)));",
+            "L.Add(X); exit(Format(L.IndexOf(X)));",
+        ] {
+            match json(ty, make, body) {
+                Err(Signal::Unsupported(why)) => assert!(why.contains("not measured"), "{ty} {body}: {why}"),
+                other => panic!("{ty} {body}: {other:?}"),
+            }
+        }
+    }
+}
+
+// Nothing is compared on an empty list or dictionary: the answers stay.
+#[test]
+fn an_empty_json_list_or_dictionary_keeps_its_answers() {
+    for (ty, make) in JSON_KINDS {
+        let body = "exit(Format(L.Contains(X)) + '|' + Format(L.IndexOf(X)) + '|' + Format(L.Remove(X)) + '|' + Format(D.ContainsKey(X)));";
+        assert_eq!(text(json(ty, make, body)), "No|0|No|No", "{ty}");
+    }
+}
