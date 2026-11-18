@@ -55,9 +55,14 @@ codeunit 77403 "RPL Tests B"
 
 /// The compiled apps (the main app has the resource `rpl.txt` holding `a`) and an engine for them.
 fn compiled() -> (Arc<Engine>, al_sema::lower::Lowered) {
+    compiled_with(MAIN)
+}
+
+/// [`compiled`] with the app under test's source `main`.
+fn compiled_with(main: &str) -> (Arc<Engine>, al_sema::lower::Lowered) {
     let (ws, mut l) = al_sema::lower::compile_apps(
         [
-            ("main", vec!["dep".to_string()], MAIN),
+            ("main", vec!["dep".to_string()], main),
             ("dep", vec![], super::login_tests::DEP),
         ]
         .into_iter()
@@ -297,4 +302,39 @@ fn codeunit_instances_the_login_leaves_compare_by_identity_and_their_state() {
             .unwrap()
     };
     assert_ne!(own(0), own(1));
+}
+
+/// [`MAIN`] with a second login subscriber that leaves, in a SingleInstance codeunit, an instance whose own global holds
+/// an open RecordRef.
+const OPAQUE_INSIDE: &str = r#"
+codeunit 77410 "RPL Deep Registration"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterManualSetup', '', false, false)]
+    local procedure RegisterManualSetup() var Holder: Codeunit "RPL Holder"; begin Holder.Keep(); end;
+}
+codeunit 77411 "RPL Holder"
+{
+    SingleInstance = true;
+    var Inner: Codeunit "RPL Ref Holder";
+    procedure Keep() begin Inner.Open(); end;
+}
+codeunit 77412 "RPL Ref Holder"
+{
+    var Count: Integer; Ref: RecordRef;
+    procedure Open() begin Count := 1; Ref.Open(Database::"Guided Experience Item"); end;
+}
+"#;
+
+// A value with no comparable form inside a codeunit instance is reported with its path: the SingleInstance global, the
+// instance's codeunit and global, and the kind of value (ids, indexes and type names only).
+#[test]
+fn a_value_with_no_comparable_form_inside_an_instance_is_named_with_its_path() {
+    let (engine, l) = compiled_with(&format!("{MAIN}{OPAQUE_INSIDE}"));
+    run(&engine, &l, "RPL Tests A");
+    run(&engine, &l, "RPL Tests A");
+    let line = crate::login_replay::report(&engine).unwrap();
+    assert!(
+        line.contains("not comparable: codeunit 77411 global 0: instance of codeunit 77412 global 1: RecordRef)"),
+        "{line}"
+    );
 }

@@ -261,15 +261,16 @@ impl Session {
             let inst = self.singletons.get(&o).map(|i| i.borrow());
             for (g, fp) in single.globals.iter().enumerate() {
                 let value = inst.as_ref().and_then(|i| i.globals.get(g));
-                match value.and_then(|v| render.value(v, 0)) {
-                    Some(text) => out.lines.push(format!("single {} global {g} {text}", id(o))),
-                    None => {
-                        let what = match fp {
-                            crate::single_track::Fp::Opaque(what) => what.to_string(),
-                            crate::single_track::Fp::Val(_) => "a value".to_string(),
-                        };
-                        out.opaque.push(format!("codeunit {} global {g}: {what}", id(o)))
-                    }
+                let rendered = value.map(|v| render.value(v, 0)).unwrap_or_else(|| {
+                    Err(match fp {
+                        crate::single_track::Fp::Opaque(what) => what.to_string(),
+                        crate::single_track::Fp::Val(_) => "a value".to_string(),
+                    })
+                });
+                match rendered {
+                    Ok(text) => out.lines.push(format!("single {} global {g} {text}", id(o))),
+                    // Why it has no comparable form, with the path into the instances it is held in.
+                    Err(why) => out.opaque.push(format!("codeunit {} global {g}: {why}", id(o))),
                 }
             }
         }
@@ -293,7 +294,8 @@ impl Session {
 }
 
 /// Renders the values of SingleInstance globals as text that compares across sessions ([`Session::state_lines`]). A value
-/// with no comparable form gives `None`; [`Session::state_lines`] then names it as opaque, never as equal.
+/// with no comparable form gives `Err` with why and its path (ids, indexes and type names only); [`Session::state_lines`]
+/// then names it as opaque, never as equal.
 struct Render<'a> {
     session: &'a Session,
     /// The temporary tables seen, by id: records that share one (`Copy(x, true)`) name one table.
@@ -314,22 +316,26 @@ impl Render<'_> {
     /// - a temporary record by everything it carries (view, filters of every group, key, position, buffer) and its
     ///   table's rows, once per table (Base Application's "Acc. Sched. KPI Event Handler" and "Change Log Management"
     ///   hold some after the login on BC 28.5).
-    fn value(&mut self, v: &Value, depth: u8) -> Option<String> {
+    fn value(&mut self, v: &Value, depth: u8) -> Result<String, String> {
         if let Value::Codeunit(rc) = v {
             return self.instance(rc, depth);
         }
-        if let crate::single_track::Fp::Val(bytes) = crate::single_track::fp(v, &self.session.engine) {
-            return Some(format!("{bytes:?}"));
-        }
+        let what = match crate::single_track::fp(v, &self.session.engine) {
+            crate::single_track::Fp::Val(bytes) => return Ok(format!("{bytes:?}")),
+            crate::single_track::Fp::Opaque(what) => what,
+        };
         if let Some(m) = module_info(Some(v)) {
-            return Some(m);
+            return Ok(m);
         }
-        let Value::Record(r) = v else { return None };
-        let r = r.try_borrow().ok()?;
-        let temp = r
-            .temp_id
-            .as_ref()
-            .filter(|t| r.temporary && !r.crm && !t.rows_unmeasured())?;
+        let Value::Record(r) = v else {
+            return Err(what.to_string());
+        };
+        let Ok(r) = r.try_borrow() else {
+            return Err(format!("{what} (in use)"));
+        };
+        let Some(temp) = (r.temp_id.as_ref()).filter(|t| r.temporary && !r.crm && !t.rows_unmeasured()) else {
+            return Err(what.to_string());
+        };
         let n = match self.temp_tables.iter().position(|t| *t == temp.id()) {
             Some(n) => n,
             None => {
@@ -347,30 +353,36 @@ impl Render<'_> {
         };
         let mut view = r.clone();
         view.temp_id = None;
-        Some(format!("temp record of table {n}: {view:?}"))
+        Ok(format!("temp record of table {n}: {view:?}"))
     }
 
-    /// A codeunit instance: `instance <n>`, and once `instance <n> codeunit <id> globals [...]`.
-    fn instance(&mut self, rc: &Rc<RefCell<Instance>>, depth: u8) -> Option<String> {
+    /// A codeunit instance: `instance <n>`, and once `instance <n> codeunit <id> globals [...]`. `Err`: why it has no
+    /// comparable form, with the path to the value that has none (`instance of codeunit <id> global <k>: ...`).
+    fn instance(&mut self, rc: &Rc<RefCell<Instance>>, depth: u8) -> Result<String, String> {
         let address = Rc::as_ptr(rc) as usize;
         if let Some(n) = self.instances.iter().position(|a| *a == address) {
-            return Some(format!("instance {n}"));
+            return Ok(format!("instance {n}"));
         }
-        if depth > 8 {
-            return None;
-        }
-        self.instances.push(address);
-        let n = self.instances.len() - 1;
-        let inst = rc.try_borrow().ok()?;
+        let Ok(inst) = rc.try_borrow() else {
+            return Err("Codeunit instance (in use)".into());
+        };
         let id = self.session.engine.program.objects[inst.object as usize]
             .id
             .unwrap_or(0);
-        let globals = (inst.globals.iter())
-            .map(|g| self.value(g, depth + 1))
-            .collect::<Option<Vec<String>>>()?;
+        if depth > 8 {
+            return Err(format!("instance of codeunit {id}: nested more than 8 instances deep"));
+        }
+        self.instances.push(address);
+        let n = self.instances.len() - 1;
+        let globals = (inst.globals.iter().enumerate())
+            .map(|(k, g)| {
+                self.value(g, depth + 1)
+                    .map_err(|why| format!("instance of codeunit {id} global {k}: {why}"))
+            })
+            .collect::<Result<Vec<String>, String>>()?;
         self.lines
             .push(format!("instance {n} codeunit {id} globals [{}]", globals.join(", ")));
-        Some(format!("instance {n}"))
+        Ok(format!("instance {n}"))
     }
 }
 
