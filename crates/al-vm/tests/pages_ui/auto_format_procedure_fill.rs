@@ -1,6 +1,6 @@
 //! A TestPage control over a table field whose AutoFormatExpression calls a procedure (al-runner issue 7850). The fills and
-//! steps of pages/controls/AutoFormatProcedureControl.al run it and a read takes what it gave; a page that would have to run
-//! such a procedure anywhere else refuses at the open, and a step outside the pinned ones refuses before it runs.
+//! steps of pages/controls/AutoFormatProcedureControl.al run it and a read takes what it gave; every other page and fetch keeps
+//! main's answer (the procedure does not run, a read refuses), and after a pinned open a step outside the pinned ones refuses.
 
 /// The repro of al-runner issue 7850, unchanged.
 const REPRO: &str = r#"
@@ -306,7 +306,10 @@ fn fixture(fill: &[(&str, &str)]) -> String {
         ("PAGEPROPS", ""),
         ("GROUPPROPS", ""),
         ("CODEPROPS", ""),
-        ("AMOUNTCONTROL", "field(Amount; Rec.Amount) { ApplicationArea = All; CONTROLPROPS }"),
+        (
+            "AMOUNTCONTROL",
+            "field(Amount; Rec.Amount) { ApplicationArea = All; CONTROLPROPS }",
+        ),
         ("CONTROLPROPS", ""),
         ("EXTRACONTROLS", ""),
         ("PAGETRIGGERS", ""),
@@ -332,13 +335,18 @@ fn refused(r: Outcome, why: &str) {
     assert!(e.contains("Unsupported") && e.contains(why), "{e}");
 }
 
-/// `Custom` with `custom` (and the holes in `fill`) refused at a fetch of the page, for the reason `why`.
-fn open_refused(fill: &[(&str, &str)], custom: &str, why: &str) {
+/// `Custom` with `custom` (and the holes in `fill`) keeps main's answer: the procedure has not run, and a read of the
+/// format control refuses with main's text.
+fn main_kept(fill: &[(&str, &str)], custom: &str) {
     let mut fill = fill.to_vec();
-    fill.push(("CUSTOM", custom));
-    let e = format!("{:?}", run(&fill, "Custom"));
-    assert!(e.contains("Unsupported") && e.contains("fetches") && e.contains(why), "{e}");
+    let custom = format!("{custom} Check('main', 0); if P.Amount.Value() = '' then;");
+    fill.push(("CUSTOM", &custom));
+    refused(run(&fill, "Custom"), MAIN_REFUSAL);
 }
+
+/// main's refusal of a read of a control whose field's AutoFormatExpression calls a procedure no fetch ran.
+const MAIN_REFUSAL: &str =
+    "whose AutoFormatExpression calls a procedure (BC runs it when the row is fetched; not modelled)";
 
 #[test]
 fn the_probe_steps_in_view_and_edit_mode() {
@@ -349,100 +357,115 @@ fn the_probe_steps_in_view_and_edit_mode() {
 }
 
 #[test]
-fn the_issue_7850_repro_refuses_at_the_open() {
+fn the_issue_7850_repro_keeps_main_s_answer() {
     // The repro's page shows the field directly in the area and declares no ApplicationArea, and its test sets the value in
     // View mode: none of it is pinned. main refused it at SetValue.
-    let e = format!("{:?}", al_testkit::run_in(REPRO, "AF Tests", "OpenCard"));
-    assert!(e.contains("Unsupported") && e.contains("fetches"), "{e}");
+    refused(
+        al_testkit::run_in(REPRO, "AF Tests", "OpenCard"),
+        "AutoFormatExpression calls a procedure",
+    );
 }
 
 // An OpenEdit runs its fill only when the next statement is the GoToRecord of the same TestPage: no AL code can read what the
 // OpenEdit alone ran (AutoFormatProcedureControl.al:239-241 counts both together).
 #[test]
-fn edit_open_with_code_before_the_go_to_record_refuses() {
-    open_refused(&[], "P.OpenEdit(); Check('openedit', 2); P.GoToRecord(T);", "GoToRecord");
+fn edit_open_with_code_before_the_go_to_record_keeps_main_s_answer() {
+    main_kept(&[], "P.OpenEdit(); Check('openedit', 0); P.GoToRecord(T);");
 }
 
 #[test]
-fn edit_open_without_a_go_to_record_refuses() {
-    open_refused(&[], "P.OpenEdit(); P.Close();", "GoToRecord");
+fn edit_open_without_a_go_to_record_keeps_main_s_answer() {
+    main_kept(&[], "P.OpenEdit();");
 }
 
 #[test]
-fn edit_open_then_go_to_record_of_another_test_page_refuses() {
-    open_refused(&[], "P.OpenEdit(); Q.GoToRecord(T);", "GoToRecord");
+fn edit_open_then_go_to_record_of_another_test_page_keeps_main_s_answer() {
+    // The OpenEdit of P runs nothing; main answers the GoToRecord of Q, which is not open.
+    let r = run(&[("CUSTOM", "P.OpenEdit(); Q.GoToRecord(T);")], "Custom");
+    let e = format!("{r:?}");
+    assert!(e.contains("The TestPage is not open."), "{e}");
 }
 
 #[test]
-fn edit_open_then_go_to_record_whose_answer_is_used_refuses() {
-    open_refused(&[], "P.OpenEdit(); if P.GoToRecord(T) then;", "GoToRecord");
+fn edit_open_then_go_to_record_whose_answer_is_used_keeps_main_s_answer() {
+    main_kept(&[], "P.OpenEdit(); if P.GoToRecord(T) then;");
 }
 
 // The expression and the procedure.
 #[test]
-fn an_expression_that_reads_the_row_refuses_at_the_open() {
-    open_refused(&[("EXPR", "AFSetup.GetFormatFor(Rec.\"Code\")")], "P.OpenView();", "expression");
+fn an_expression_that_reads_the_row_keeps_main_s_answer() {
+    main_kept(&[("EXPR", "AFSetup.GetFormatFor(Rec.\"Code\")")], "P.OpenView();");
 }
 
 #[test]
-fn a_procedure_that_writes_its_record_refuses_at_the_open() {
-    open_refused(&[("EXPR", "AFSetup.CountedFormat(AFSetup.FieldNo(Decimals))")], "P.OpenView();", "procedure");
-}
-
-#[test]
-fn a_receiver_that_is_no_record_refuses_at_the_open() {
-    open_refused(&[("EXPR", "NoRecord.Next(1)")], "P.OpenView();", "expression");
-}
-
-// The open.
-#[test]
-fn a_trapped_page_run_refuses_at_the_open() {
-    open_refused(&[], "P.Trap(); Page.Run(Page::\"AF Card\", T);", "opened");
-}
-
-#[test]
-fn open_new_refuses_at_the_open() {
-    open_refused(&[], "P.OpenNew();", "opened");
-}
-
-#[test]
-fn an_empty_table_at_the_open_refuses() {
-    open_refused(&[], "T.Delete(); P.OpenView();", "row");
-}
-
-#[test]
-fn two_rows_at_the_open_refuse() {
-    open_refused(&[], "Other := T; Other.\"Code\" := 'T2'; Other.Insert(); P.OpenView();", "row");
-}
-
-// Controls.
-#[test]
-fn two_controls_over_the_field_refuse_at_the_open() {
-    open_refused(
-        &[("EXTRACONTROLS", "field(Amount2; Rec.Amount) { ApplicationArea = All; }")],
+fn a_procedure_that_writes_its_record_keeps_main_s_answer() {
+    main_kept(
+        &[("EXPR", "AFSetup.CountedFormat(AFSetup.FieldNo(Decimals))")],
         "P.OpenView();",
-        "control",
     );
 }
 
 #[test]
-fn a_control_property_refuses_at_the_open() {
-    open_refused(&[("CONTROLPROPS", "Editable = false;")], "P.OpenView();", "control");
+fn a_receiver_that_is_no_record_keeps_main_s_answer() {
+    main_kept(&[("EXPR", "NoRecord.Next(1)")], "P.OpenView();");
+}
+
+// The open.
+#[test]
+fn a_trapped_page_run_keeps_main_s_answer() {
+    main_kept(&[], "P.Trap(); Page.Run(Page::\"AF Card\", T);");
 }
 
 #[test]
-fn a_property_of_another_control_refuses_at_the_open() {
-    open_refused(&[("CODEPROPS", "Caption = 'C';")], "P.OpenView();", "control");
+fn open_new_keeps_main_s_answer() {
+    main_kept(&[], "P.OpenNew();");
 }
 
 #[test]
-fn a_group_property_refuses_at_the_open() {
-    open_refused(&[("GROUPPROPS", "Visible = false;")], "P.OpenView();", "control");
+fn an_empty_table_at_the_open_keeps_main_s_answer() {
+    // main reads the control of an empty page without running the procedure.
+    let r = run(
+        &[(
+            "CUSTOM",
+            "T.Delete(); P.OpenView(); Check('main', 0); if P.Amount.Value() <> '' then Error('read');",
+        )],
+        "Custom",
+    );
+    assert!(r.is_ok(), "{r:?}");
 }
 
 #[test]
-fn a_control_trigger_refuses_at_the_open() {
-    open_refused(&[("CONTROLPROPS", "trigger OnValidate() begin end;")], "P.OpenView();", "control");
+fn two_rows_at_the_open_keep_main_s_answer() {
+    main_kept(&[], "Other := T; Other.\"Code\" := 'T2'; Other.Insert(); P.OpenView();");
+}
+
+// Controls.
+#[test]
+fn two_controls_over_the_field_keeps_main_s_answer() {
+    main_kept(
+        &[("EXTRACONTROLS", "field(Amount2; Rec.Amount) { ApplicationArea = All; }")],
+        "P.OpenView();",
+    );
+}
+
+#[test]
+fn a_control_property_keeps_main_s_answer() {
+    main_kept(&[("CONTROLPROPS", "Editable = false;")], "P.OpenView();");
+}
+
+#[test]
+fn a_property_of_another_control_keeps_main_s_answer() {
+    main_kept(&[("CODEPROPS", "Caption = 'C';")], "P.OpenView();");
+}
+
+#[test]
+fn a_group_property_keeps_main_s_answer() {
+    main_kept(&[("GROUPPROPS", "Caption = 'G';")], "P.OpenView();");
+}
+
+#[test]
+fn a_control_trigger_keeps_main_s_answer() {
+    main_kept(&[("CONTROLPROPS", "trigger OnValidate() begin end;")], "P.OpenView();");
 }
 
 #[test]
@@ -451,7 +474,10 @@ fn a_format_of_the_control_s_own_keeps_main_s_answer() {
     // page and ran nothing.
     let r = run(
         &[
-            ("CONTROLPROPS", "AutoFormatType = 11; AutoFormatExpression = '<precision, 2:2><standard format, 0>';"),
+            (
+                "CONTROLPROPS",
+                "AutoFormatType = 11; AutoFormatExpression = '<precision, 2:2><standard format, 0>';",
+            ),
             ("CUSTOM", "P.OpenView(); Check('openview', 0);"),
         ],
         "Custom",
@@ -462,7 +488,10 @@ fn a_format_of_the_control_s_own_keeps_main_s_answer() {
 #[test]
 fn a_page_without_a_control_over_the_field_keeps_main_s_answer() {
     let r = run(
-        &[("AMOUNTCONTROL", ""), ("CUSTOM", "P.OpenView(); Check('openview', 0); P.Next();")],
+        &[
+            ("AMOUNTCONTROL", ""),
+            ("CUSTOM", "P.OpenView(); Check('openview', 0); P.Next();"),
+        ],
         "Custom",
     );
     assert!(r.is_ok(), "{r:?}");
@@ -470,66 +499,68 @@ fn a_page_without_a_control_over_the_field_keeps_main_s_answer() {
 
 // Fields and the table.
 #[test]
-fn a_second_procedure_field_without_a_control_refuses_at_the_open() {
-    open_refused(
+fn a_second_procedure_field_without_a_control_keeps_main_s_answer() {
+    main_kept(
         &[(
             "EXTRAFIELDS",
             "field(3; Other; Decimal) { DataClassification = SystemMetadata; AutoFormatType = 11; AutoFormatExpression = AFSetup.GetFormat(AFSetup.FieldNo(Decimals)); }",
         )],
         "P.OpenView();",
-        "field",
     );
 }
 
 #[test]
-fn an_integer_field_refuses_at_the_open() {
-    open_refused(&[("AMOUNTTYPE", "Integer"), ("AMOUNTVALUE", "3")], "P.OpenView();", "field");
+fn an_integer_field_keeps_main_s_answer() {
+    main_kept(&[("AMOUNTTYPE", "Integer"), ("AMOUNTVALUE", "3")], "P.OpenView();");
 }
 
 #[test]
-fn auto_format_type_10_refuses_at_the_open() {
-    open_refused(&[("AFTYPE", "10")], "P.OpenView();", "field");
+fn auto_format_type_10_keeps_main_s_answer() {
+    main_kept(&[("AFTYPE", "10")], "P.OpenView();");
 }
 
 #[test]
-fn a_property_beside_the_expression_refuses_at_the_open() {
-    open_refused(&[("FIELDPROPS", "DecimalPlaces = 0 : 5;")], "P.OpenView();", "field");
+fn a_property_beside_the_expression_keeps_main_s_answer() {
+    main_kept(&[("FIELDPROPS", "DecimalPlaces = 0 : 5;")], "P.OpenView();");
 }
 
 #[test]
-fn a_property_of_another_field_refuses_at_the_open() {
-    open_refused(&[("FIRSTFIELDPROPS", "Caption = 'C';")], "P.OpenView();", "field");
+fn a_property_of_another_field_keeps_main_s_answer() {
+    main_kept(&[("FIRSTFIELDPROPS", "Caption = 'C';")], "P.OpenView();");
 }
 
 #[test]
-fn a_table_property_refuses_at_the_open() {
-    open_refused(&[("TABLEPROPS", "Caption = 'T';")], "P.OpenView();", "table");
+fn a_table_property_keeps_main_s_answer() {
+    main_kept(&[("TABLEPROPS", "Caption = 'T';")], "P.OpenView();");
 }
 
 #[test]
-fn a_table_trigger_refuses_at_the_open() {
-    open_refused(&[("TABLETRIGGERS", "trigger OnModify() begin end;")], "P.OpenView();", "table");
+fn a_table_trigger_keeps_main_s_answer() {
+    main_kept(&[("TABLETRIGGERS", "trigger OnModify() begin end;")], "P.OpenView();");
 }
 
 // The page.
 #[test]
-fn a_page_property_refuses_at_the_open() {
-    open_refused(&[("PAGEPROPS", "Caption = 'P';")], "P.OpenView();", "page");
+fn a_page_property_keeps_main_s_answer() {
+    main_kept(&[("PAGEPROPS", "Caption = 'P';")], "P.OpenView();");
 }
 
 #[test]
-fn a_page_trigger_refuses_at_the_open() {
-    open_refused(&[("PAGETRIGGERS", "trigger OnAfterGetRecord() begin end;")], "P.OpenView();", "page");
+fn a_page_trigger_keeps_main_s_answer() {
+    main_kept(
+        &[("PAGETRIGGERS", "trigger OnAfterGetRecord() begin end;")],
+        "P.OpenView();",
+    );
 }
 
 #[test]
-fn a_document_page_refuses_at_the_open() {
-    open_refused(&[("PAGETYPE", "Document")], "P.OpenView();", "page");
+fn a_document_page_keeps_main_s_answer() {
+    main_kept(&[("PAGETYPE", "Document")], "P.OpenView();");
 }
 
 #[test]
-fn a_list_refuses_at_the_open() {
-    open_refused(&[("PAGETYPE", "List")], "P.OpenView();", "page");
+fn a_list_keeps_main_s_answer() {
+    main_kept(&[("PAGETYPE", "List")], "P.OpenView();");
 }
 
 // Steps after a pinned open.
@@ -541,20 +572,29 @@ fn next_after_the_open_refuses() {
 #[test]
 fn a_second_go_to_record_refuses() {
     refused(
-        run(&[("CUSTOM", "P.OpenView(); P.GoToRecord(T); P.GoToRecord(T);")], "Custom"),
+        run(
+            &[("CUSTOM", "P.OpenView(); P.GoToRecord(T); P.GoToRecord(T);")],
+            "Custom",
+        ),
         "TestPage.GoToRecord",
     );
 }
 
 #[test]
 fn close_before_the_go_to_record_refuses() {
-    refused(run(&[("CUSTOM", "P.OpenView(); P.Close();")], "Custom"), "TestPage.Close");
+    refused(
+        run(&[("CUSTOM", "P.OpenView(); P.Close();")], "Custom"),
+        "TestPage.Close",
+    );
 }
 
 #[test]
 fn a_set_value_in_view_mode_refuses() {
     refused(
-        run(&[("CUSTOM", "P.OpenView(); P.GoToRecord(T); P.Amount.SetValue(7);")], "Custom"),
+        run(
+            &[("CUSTOM", "P.OpenView(); P.GoToRecord(T); P.Amount.SetValue(7);")],
+            "Custom",
+        ),
         "TestField.SetValue",
     );
 }
@@ -562,7 +602,10 @@ fn a_set_value_in_view_mode_refuses() {
 #[test]
 fn a_set_value_of_another_control_refuses() {
     refused(
-        run(&[("CUSTOM", "P.OpenEdit(); P.GoToRecord(T); P.\"Code\".SetValue('T9');")], "Custom"),
+        run(
+            &[("CUSTOM", "P.OpenEdit(); P.GoToRecord(T); P.\"Code\".SetValue('T9');")],
+            "Custom",
+        ),
         "TestField.SetValue",
     );
 }
@@ -570,7 +613,13 @@ fn a_set_value_of_another_control_refuses() {
 #[test]
 fn ok_after_a_set_value_refuses() {
     refused(
-        run(&[("CUSTOM", "P.OpenEdit(); P.GoToRecord(T); P.Amount.SetValue(7); P.OK().Invoke();")], "Custom"),
+        run(
+            &[(
+                "CUSTOM",
+                "P.OpenEdit(); P.GoToRecord(T); P.Amount.SetValue(7); P.OK().Invoke();",
+            )],
+            "Custom",
+        ),
         "TestPage.OK",
     );
 }
@@ -578,26 +627,41 @@ fn ok_after_a_set_value_refuses() {
 #[test]
 fn close_after_a_set_value_of_the_same_value_refuses() {
     refused(
-        run(&[("CUSTOM", "P.OpenEdit(); P.GoToRecord(T); P.Amount.SetValue(3.25); P.Close();")], "Custom"),
+        run(
+            &[(
+                "CUSTOM",
+                "P.OpenEdit(); P.GoToRecord(T); P.Amount.SetValue(3.25); P.Close();",
+            )],
+            "Custom",
+        ),
         "changes no value",
     );
 }
 
 #[test]
 fn close_in_edit_mode_without_a_set_value_refuses() {
-    refused(run(&[("CUSTOM", "P.OpenEdit(); P.GoToRecord(T); P.Close();")], "Custom"), "TestPage.Close");
+    refused(
+        run(&[("CUSTOM", "P.OpenEdit(); P.GoToRecord(T); P.Close();")], "Custom"),
+        "TestPage.Close",
+    );
 }
 
 #[test]
 fn an_error_in_the_procedure_at_the_open_refuses() {
-    refused(run(&[("CUSTOM", "Counter.FailNext(); P.OpenView();")], "Custom"), "raised an error");
+    refused(
+        run(&[("CUSTOM", "Counter.FailNext(); P.OpenView();")], "Custom"),
+        "raised an error",
+    );
 }
 
 #[test]
 fn an_unmeasured_format_text_refuses_the_read() {
     refused(
         run(
-            &[("CUSTOM", "Counter.Reset('<Precision,2:2><Standard Format,0>'); P.OpenView(); if P.Amount.Value() = '' then;")],
+            &[(
+                "CUSTOM",
+                "Counter.Reset('<Precision,2:2><Standard Format,0>'); P.OpenView(); if P.Amount.Value() = '' then;",
+            )],
             "Custom",
         ),
         "gave a format text",

@@ -57,6 +57,8 @@ pub(crate) fn format(ctx: &mut dyn Ctx, args: &[Value], expr: &str) -> Result<Va
         "System.Format#2",
         vec![args[0].clone(), Value::Integer(0), Value::Text(expr.to_string().into())],
     )?;
+    // Numbers 1, 2 and 9 drop the thousands separator of the measured `<Precision,a:b><Standard Format,0>` forms
+    // (format-evaluate/Y43AfType11.al:187-206; the lower-case spaced spelling for 9, format-evaluate/P144FormatCodes.al:111-113).
     match number {
         0 => Ok(text),
         1 | 2 | 9 if precision_standard_0(expr) || (number == 9 && lower_spaced_precision_standard_0(expr)) => {
