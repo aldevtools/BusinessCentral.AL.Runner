@@ -904,6 +904,10 @@ pub struct PageState {
     pub expr_set_no_source: bool,
     /// The refresh about to run was asked for by `CurrPage.Update` (not by an action that saved an edit).
     pub refresh_by_update: bool,
+    /// The part's own `CurrPage.Update` that asked for the refresh about to run found its view no longer starting with the rows
+    /// the client holds (`part_update_left_view.rs`). Read only together with `refresh_by_update`: every site that sets that
+    /// flag to true writes this one too.
+    pub update_left_view: bool,
     /// The last `CurrPage.Update` call was `Update(false)` (it saves nothing).
     pub refresh_update_false: bool,
     /// The refresh about to run starts from a new line the table code inserted inside the validation (`code_inserted_new_line.rs`).

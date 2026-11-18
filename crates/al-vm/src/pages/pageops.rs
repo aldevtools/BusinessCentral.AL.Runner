@@ -350,6 +350,7 @@ impl Session {
             self.refuse_unpinned_state(st)?;
         }
         if method.recv() == PageRecv::TestPart {
+            self.refuse_row_access_on_part_left_by_its_view(st, name)?;
             self.first_part_access(st, name, false)?;
         } else if st.borrow().new_host_part_rows
             && st.borrow().host.is_none()
@@ -675,6 +676,7 @@ impl Session {
             s.refresh_update_false = !save;
         }
         self.note_view_left(st)?;
+        self.note_part_update_left_view(st)?;
         self.land_on_code_inserted_line(st, arg)
     }
 
