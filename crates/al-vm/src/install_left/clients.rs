@@ -109,6 +109,7 @@ pub(super) fn events_as_new(e: &EventState) -> bool {
         next_blob_event,
         subscriber_stack,
         next_var_lens,
+        next_option_hops,
         publisher_var_lens,
         unpinned_event_depth,
         skip_dependency_subscribers,
@@ -157,6 +158,7 @@ pub(super) fn events_as_new(e: &EventState) -> bool {
         && !next_blob_event
         && subscriber_stack.is_empty()
         && next_var_lens.is_empty()
+        && next_option_hops.is_empty()
         && publisher_var_lens.is_empty()
         && *unpinned_event_depth == 0
         && !skip_dependency_subscribers

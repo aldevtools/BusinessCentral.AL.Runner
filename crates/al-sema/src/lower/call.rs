@@ -377,11 +377,7 @@ impl Lowerer<'_> {
                     None => return Err("implicit calls into another object are not lowered yet".into()),
                 };
                 // The routine node is the one `routine_at` numbered, so no search by offset.
-                let try_call = self
-                    .routine_nodes
-                    .get(object)
-                    .get(routine)
-                    .is_some_and(|r| r.attributes().any(|a| a.name().eq_ignore_ascii_case("tryfunction")));
+                let try_call = self.routine_has_attribute(object, routine, &["tryfunction"]);
                 let receiver_kind = match &receiver_node {
                     Some(r) if instance.is_some() => match self.ty_of(r) {
                         Ty::Object(k, _) => Some(k),
@@ -399,6 +395,9 @@ impl Lowerer<'_> {
                     }
                     if p.by_var {
                         let arg = self.by_var_arg(a)?;
+                        if let Some(why) = self.var_option_arg_refusal(Some((object, routine)), &p.ty, a, &arg) {
+                            return Ok(ir::Expr::Refused(format!("call `{}`: {why}", node.text())));
+                        }
                         // A `var` Text or Code parameter handed on to another `var` parameter keeps the declared length of the
                         // first caller's variable or field (text/text-methods/MaxStrLen.Codeunit.al:146-170,
                         // PYC_MaxStrLen_VarParameterHops; to an event's subscribers too, :172-201): the routine takes the
@@ -684,16 +683,8 @@ impl Lowerer<'_> {
                     // `Blob.Length` compared with 0: only the sign of the stored size is observed (issue 6896; blob_length_sign.rs).
                     Self::blob_length_emit_id(&id, node)
                 };
-                // `IsNull` of a `[RunOnClient]` DotNet variable: the variable can never be assigned (its constructor and
-                // `Create` raise), so it is null (onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:171-176, :211-223
-                // `ok Yes`; the second pin is on corpus master from PR 790).
-                // `Clear` of a `[RunOnClient]` variable: it stays null (corpus master 92fdde19,
-                // onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:454-480 Y16_RunOnClient_ClearAndVariant `cleared isnull=Yes`).
-                if (id == "System.IsNull#1" || id == "System.Clear#1")
-                    && args.len() == 1
-                    && self.run_on_client_var(&args[0]).is_some()
-                {
-                    return Ok(ir::Expr::Const(ir::Const::Boolean(true)));
+                if let Some(e) = self.is_null_or_clear(&id, args)? {
+                    return Ok(e);
                 }
                 let receiver = match &receiver_node {
                     // `CurrReport` is the report whose code is running: the VM takes the running
@@ -1200,6 +1191,20 @@ impl Lowerer<'_> {
             self.assume(al_builtins::assumptions::Assumption::EnumOverloadOwnType);
         }
         self.twin_call_refusal(object, offset)
+    }
+
+    /// `IsNull` or `Clear` of one argument that `call` lowers apart, or `None`.
+    /// - `IsNull` of a `[RunOnClient]` DotNet variable: the variable can never be assigned (its constructor and `Create`
+    ///   raise), so it is null (onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:171-176, :211-223 `ok Yes`; the second pin is
+    ///   on corpus master from PR 790).
+    /// - `Clear` of a `[RunOnClient]` variable: it stays null (corpus master 92fdde19,
+    ///   onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:454-480 Y16_RunOnClient_ClearAndVariant `cleared isnull=Yes`).
+    fn is_null_or_clear(&self, id: &str, args: &[SyntaxNode]) -> L<Option<ir::Expr>> {
+        let [a] = args else {
+            return Ok(None);
+        };
+        let shortcut = (id == "System.IsNull#1" || id == "System.Clear#1") && self.run_on_client_var(a).is_some();
+        Ok(shortcut.then_some(ir::Expr::Const(ir::Const::Boolean(true))))
     }
 
     /// The checker's runtime refusal of this call, if any: AL0666 (a builtin newer than the app's runtime) or AR1007

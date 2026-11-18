@@ -405,6 +405,14 @@ impl Lowerer<'_> {
         reason
     }
 
+    /// Whether routine `routine` of `object` carries one of the attributes `names` (any case).
+    pub(crate) fn routine_has_attribute(&self, object: usize, routine: usize, names: &[&str]) -> bool {
+        self.routine_nodes.get(object).get(routine).is_some_and(|r| {
+            r.attributes()
+                .any(|a| names.iter().any(|n| a.name().eq_ignore_ascii_case(n)))
+        })
+    }
+
     pub(crate) fn in_synthetic_routine(&self) -> bool {
         self.routine_nodes
             .get(self.oi)

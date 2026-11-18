@@ -173,6 +173,7 @@ mod user_account_keys;
 mod user_email;
 mod user_password;
 mod usertable;
+mod var_option;
 mod variant_copy;
 mod view_empty;
 mod view_unknown;
@@ -352,6 +353,9 @@ pub(crate) struct RoutineFacts {
     /// A call hands the routine the declared lengths of its `var` Text and Code arguments (`ir::Routine::reads_var_max_len`;
     /// never for a publisher, whose subscribers would see them).
     pub var_lens: bool,
+    /// A `var` Option parameter declared with members, of a routine that is no publisher: a call hands it whether its argument
+    /// is a variable the probes measure handing on to a publisher (`var_option::option_hops_of`, `Frame::option_hops`).
+    pub option_hops: bool,
 }
 
 fn routine_facts(r: &ir::Routine, publisher: bool) -> RoutineFacts {
@@ -376,6 +380,12 @@ fn routine_facts(r: &ir::Routine, publisher: bool) -> RoutineFacts {
     }
     f.odd_attributes |= commits > 1 || collects > 1;
     f.var_lens = r.reads_var_max_len && !publisher;
+    f.option_hops = !publisher
+        && r.locals
+            .iter()
+            .zip(&r.by_var)
+            .take(r.params)
+            .any(|(l, v)| *v && matches!(&l.ty, RtType::Option(m) if !al_builtins::option_members::memberless(m)));
     f
 }
 
@@ -1497,36 +1507,8 @@ impl Session {
             ui_state: UiState::default(),
             pages: PageClients::default(),
             events: EventState {
-                caption_context_revision: 0,
-                bindings: Vec::new(),
-                page_held: Vec::new(),
-                page_var_runs: Vec::new(),
-                pages_with_instance: Vec::new(),
                 event_stats,
-                publish_frame: false,
-                only_targets: None,
-                sender_refused: None,
-                var_origins: Vec::new(),
-                next_aliases: Vec::new(),
-                next_is_subscriber: false,
-                by_value_publisher: None,
-                next_event_args: Vec::new(),
-                blob_publisher: None,
-                next_blob_event: false,
-                subscriber_stack: Vec::new(),
-                next_var_lens: Vec::new(),
-                publisher_var_lens: Vec::new(),
-                unpinned_event_depth: 0,
-                skip_dependency_subscribers: false,
-                not_installed_apps: None,
-                order_unknown_apps: None,
-                order_unknown_hits: Default::default(),
-                install_written: None,
-                install_rows: None,
-                setup_no_ops: Default::default(),
-                db_setup_table: None,
-                trial: Default::default(),
-                global_setups: Default::default(),
+                ..EventState::default()
             },
             coverage: CoverageState::default(),
             report: ReportState::default(),
@@ -2441,6 +2423,33 @@ impl Session {
         r
     }
 
+    /// The `[CommitBehavior]` a call of `r` nests and whether it collects errors: from `facts`, or, for a routine with an
+    /// attribute the runtime does not understand, from the scan that reports it.
+    fn enter_attributes(&mut self, r: &ir::Routine, facts: &RoutineFacts) -> Result<bool, Signal> {
+        if !facts.odd_attributes {
+            if let Some(b) = facts.commit_behavior {
+                self.tx.commit_behavior = self.tx.commit_behavior.nested(b);
+            }
+            return Ok(facts.collects);
+        }
+        for a in r
+            .attributes
+            .iter()
+            .filter(|a| a.name.eq_ignore_ascii_case("CommitBehavior"))
+        {
+            match transactions::CommitBehavior::from_attribute(&a.text) {
+                Some(b) => self.tx.commit_behavior = self.tx.commit_behavior.nested(b),
+                None => {
+                    return Err(Signal::unsupported(format!(
+                        "{} (only Ignore and Error are pinned)",
+                        a.text
+                    )));
+                }
+            }
+        }
+        errorcollect::declares_collect(&r.attributes)
+    }
+
     fn call_inner(
         &mut self,
         object: usize,
@@ -2613,6 +2622,8 @@ impl Session {
                 // An event argument the platform leaves unknown (RequestPageXml of SubstituteReport for an Html SaveAs, reports.rs)
                 // is passed on by value as it is: a routine that never reads it runs, a read is refused where it happens.
                 (a @ Value::Unknown(_), false) => a,
+                // A `var` Option parameter with another member list than the value (`var_option`).
+                (a, true) if let Some(v) = crate::var_option::var_binding(&a, &r.locals[i].ty, subscriber) => v?,
                 (a, _) => ops::convert_plain(a, &r.locals[i].ty)?,
             };
             locals[i] = self.bind_blobs(argument, bound)?;
@@ -2623,6 +2634,7 @@ impl Session {
         } else {
             Vec::new()
         };
+        let option_hops = self.take_option_hops(facts.option_hops);
         let mut frame = Frame {
             object,
             routine,
@@ -2630,35 +2642,13 @@ impl Session {
             locals,
             aliases,
             var_lens,
+            option_hops,
         };
         let is_try = facts.is_try;
         // [CommitBehavior] governs the whole dynamic extent of the procedure and ends when it
         // returns (errors/TestCommitBehaviorAttribute.al:CommitBehavior_Ignore_ScopeIsPoppedOnReturn).
         let saved_commit_behavior = self.tx.commit_behavior;
-        let collecting = if facts.odd_attributes {
-            // An attribute the runtime does not understand: the scan that reports it.
-            for a in r
-                .attributes
-                .iter()
-                .filter(|a| a.name.eq_ignore_ascii_case("CommitBehavior"))
-            {
-                match transactions::CommitBehavior::from_attribute(&a.text) {
-                    Some(b) => self.tx.commit_behavior = self.tx.commit_behavior.nested(b),
-                    None => {
-                        return Err(Signal::unsupported(format!(
-                            "{} (only Ignore and Error are pinned)",
-                            a.text
-                        )));
-                    }
-                }
-            }
-            errorcollect::declares_collect(&r.attributes)?
-        } else {
-            if let Some(b) = facts.commit_behavior {
-                self.tx.commit_behavior = self.tx.commit_behavior.nested(b);
-            }
-            facts.collects
-        };
+        let collecting = self.enter_attributes(r, &facts)?;
         if collecting {
             self.error_scopes.open();
         }
@@ -2904,6 +2894,9 @@ struct Frame {
     /// Per parameter: what `MaxStrLen` of a `var` Text or Code parameter answers, the declared length of the variable or
     /// field the caller passed (set by `finish_call`; `None`: not known, and `MaxStrLen` refuses).
     var_lens: Vec<Option<i32>>,
+    /// Per parameter: the caller handed this `var` Option parameter with members a variable the probes measure handing on
+    /// to an event publisher with a memberless subscriber (set by `finish_call`, `var_option::option_hops_of`).
+    option_hops: Vec<bool>,
 }
 
 fn int(v: &Value) -> Result<i64, Signal> {
