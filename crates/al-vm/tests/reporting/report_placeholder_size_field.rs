@@ -257,6 +257,25 @@ codeunit 50990 "PSF Tests"
         exit(P.Amount.Value());
     end;
 
+    // A Rename writes the row with the size in it: a later filter, range, sort or filtered DeleteAll on that field refuses.
+    local procedure Renamed(var R: Record "PSF Row")
+    begin
+        R.DeleteAll(); R.Id := 1; R.Insert();
+        R.Amount := Size(); R.Rename(2);
+    end;
+    procedure RenameThenRange(): Integer var R: Record "PSF Row"; begin Renamed(R); R.SetRange(Amount, 1, 1000000); exit(R.Count()); end;
+    procedure RenameThenFilter(): Integer var R: Record "PSF Row"; begin Renamed(R); R.SetFilter(Amount, '>%1', 0); exit(R.Count()); end;
+    procedure RenameThenSort(): Integer var R: Record "PSF Row"; begin Renamed(R); R.SetCurrentKey(Amount); R.FindFirst(); exit(R.Id); end;
+    procedure RenameThenDeleteAll() var R: Record "PSF Row"; begin Renamed(R); R.SetFilter(Amount, '>0'); R.DeleteAll(); end;
+    procedure RenameTemporaryThenRange(): Integer
+    var R: Record "PSF Row" temporary;
+    begin
+        R.Id := 1; R.Insert();
+        R.Amount := Size(); R.Rename(2);
+        R.SetRange(Amount, 1, 1000000);
+        exit(R.Count());
+    end;
+
     // Record comparison by value: a page compares its row with xRec and the stored row, IsDirty with the row read.
     procedure PageWithoutTheField(): Text
     var R: Record "PSF Row"; P: TestPage "PSF Id Card";
@@ -355,6 +374,17 @@ fn placeholder_size_in_a_field_is_refused_by_a_filter_or_a_key() {
         "RangeOnTemporaryField",
         "KeyHoldingField",
         "FlowExistWhereField",
+    ]);
+}
+
+#[test]
+fn placeholder_size_written_by_a_rename_is_refused_by_a_filter_or_a_sort() {
+    assert_reads_refused(&[
+        "RenameThenRange",
+        "RenameThenFilter",
+        "RenameThenSort",
+        "RenameThenDeleteAll",
+        "RenameTemporaryThenRange",
     ]);
 }
 
