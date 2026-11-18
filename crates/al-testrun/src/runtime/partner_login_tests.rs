@@ -105,7 +105,7 @@ fn clean(hits: &[(String, Vec<&'static str>)]) -> bool {
 
 // Scenario s09: the partner subscriber's group 1 filter is in the test session (G1sInstallSessionTests.al:103). On main the
 // test counted 2 rows and failed; the filter another record set is now there, and the runtime refuses a record without it
-// (al-vm records.rs `global_group_check`). The tests that do not touch the table pass clean.
+// (al-vm group1_sessions.rs `Session::group1_use`). The tests that do not touch the table pass clean.
 #[test]
 fn a_partner_login_subscribers_group1_filter_reaches_the_test_session() {
     let (o, hits) = run(SETS_FILTER);

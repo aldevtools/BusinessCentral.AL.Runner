@@ -182,8 +182,6 @@ impl Session {
             report_refusal_after_denial: _,
             permission_caller: _,
             permission_run_object: _,
-            // Set before each query method call that reads it.
-            query_object: _,
             query_receiver: _,
             keyref_receiver_local: _,
             test_object: _,

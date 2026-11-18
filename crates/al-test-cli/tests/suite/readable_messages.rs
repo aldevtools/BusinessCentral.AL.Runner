@@ -105,7 +105,7 @@ const KEPT: &[(&str, &str, &str)] = &[
         "a cache key text, not a message",
     ),
     (
-        "al-vm/src/records.rs",
+        "al-vm/src/group1_sessions.rs",
         r#".map(|f| format!("{}={:?}", f.field, f.expr))"#,
         "the filter group 1 filters of a record, compared for equality with the session's, never shown",
     ),

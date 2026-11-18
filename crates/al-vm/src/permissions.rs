@@ -1359,6 +1359,9 @@ impl Session {
                     if self.system_flowfield_reads_unchecked(rec, table, stack) {
                         return Ok(());
                     }
+                    if self.published_app_calc_denied(table, stack) {
+                        return Err(self.denial_error(access, "IndirectRead", "Read", by));
+                    }
                     return Err(Signal::unsupported(unpinned_denial(
                         access,
                         "a FlowField over a system table",
@@ -1591,6 +1594,9 @@ impl Session {
         }
         if !from_al {
             return refuse("made by the runtime for a page, report, xmlport or validation; ADR-062 probes P16-P18");
+        }
+        if access.op == Op::Read && self.trigger_setup_read_unchecked(method, rec, access)? {
+            return Ok(());
         }
         if access.id >= 2_000_000_000 && access.id != TENANT_MEDIA {
             return refuse("on a system table; probe P13 pins Tenant Media only");
