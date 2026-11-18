@@ -5,7 +5,8 @@ use al_builtins::native::Signal;
 use al_builtins::value::Value;
 
 /// The objects of the reporter's repro (al-runner issue 8329), plus neighbors: a field whose expression reads another field's
-/// caption, and two fields whose expressions read each other's.
+/// caption, two fields whose expressions read each other's, and (another table) a field whose expression reads its own caption
+/// by FieldRef.
 const SRC: &str = r#"
 table 50100 "ALR Caption Repro"
 {
@@ -22,6 +23,24 @@ table 50100 "ALR Caption Repro"
         field(5; "Pong"; Date) { Caption = 'Pong'; CaptionClass = '3,' + FieldCaption("Ping"); }
     }
     keys { key(PK; "Code") { Clustered = true; } }
+}
+
+table 50102 "ALR Ref Repro"
+{
+    fields
+    {
+        field(1; "Code"; Code[20]) { }
+        field(2; "Ref Self"; Date) { Caption = 'Ref Self'; CaptionClass = '3,' + RefCaption(2); }
+    }
+    keys { key(PK; "Code") { Clustered = true; } }
+
+    procedure RefCaption(No: Integer): Text
+    var
+        RecRef: RecordRef;
+    begin
+        RecRef.GetTable(Rec);
+        exit(RecRef.Field(No).Caption);
+    end;
 }
 
 page 50100 "ALR Caption Repro Card"
@@ -47,6 +66,21 @@ codeunit 50101 C
     begin
         Card.OpenNew();
         exit(Card."End Date".Caption);
+    end;
+
+    procedure SelfFieldRefCaption(): Text
+    var
+        RecRef: RecordRef;
+    begin
+        RecRef.Open(Database::"ALR Caption Repro");
+        exit(RecRef.Field(2).Caption);
+    end;
+
+    procedure NestedFieldRefCaption(): Text
+    var
+        Rec: Record "ALR Ref Repro";
+    begin
+        exit(Rec.FieldCaption("Ref Self"));
     end;
 
     procedure MutualFieldCaption(): Text
@@ -89,6 +123,18 @@ fn field_caption_inside_its_own_caption_class_refuses() {
 #[test]
 fn testpage_caption_of_a_self_referencing_caption_class_refuses() {
     assert_refused("SelfTestPageCaption");
+}
+
+/// A FieldRef.Caption reader of the self-reading field goes through the same check.
+#[test]
+fn field_ref_caption_of_a_self_reading_caption_class_refuses() {
+    assert_refused("SelfFieldRefCaption");
+}
+
+/// The nested read inside the expression is a FieldRef.Caption of the same field.
+#[test]
+fn a_nested_field_ref_caption_of_the_same_field_refuses() {
+    assert_refused("NestedFieldRefCaption");
 }
 
 #[test]
