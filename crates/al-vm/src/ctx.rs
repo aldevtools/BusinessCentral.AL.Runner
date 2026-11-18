@@ -15,7 +15,7 @@ impl al_builtins::format::FormatCtx for Session {
         self.report
             .curr_report_language
             .or(self.report.run_language)
-            .unwrap_or(self.global_language)
+            .unwrap_or(self.global_language.get())
     }
     fn region(&self) -> Option<String> {
         self.report.format_region.clone()
@@ -81,7 +81,7 @@ impl al_builtins::format::FormatCtx for Session {
         }
         match self.report.curr_report_language {
             Some(n)
-                if n != self.global_language
+                if n != self.global_language.get()
                     && !(n == 2067
                         && matches!(
                             self.report.report_preview_pinned.last(),
@@ -102,7 +102,7 @@ impl al_builtins::format::FormatCtx for Session {
     fn region_language_pinned(&self) -> bool {
         match self.report.curr_report_language {
             Some(n) => self.region_language_pinned_for(n),
-            None => self.report.run_language.unwrap_or(self.global_language) == 1033,
+            None => self.report.run_language.unwrap_or(self.global_language.get()) == 1033,
         }
     }
     /// A read through Format or Evaluate takes the caption a translation file gives (ADR-053 step 2): refused only where
@@ -388,7 +388,7 @@ impl al_builtins::native::Ctx for Session {
     }
     fn session_locale(&self) -> Option<(i32, i32, String)> {
         Some((
-            self.global_language,
+            self.global_language.get(),
             self.host.identity.locale_id(),
             self.host.identity.time_zone(),
         ))

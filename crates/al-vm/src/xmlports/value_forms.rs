@@ -24,9 +24,9 @@ impl Session {
         match v {
             // Format 0 writes the letters of the global language; the pins run under 1033 (Export_Xml_PopulatedRow `CM+1D`), and
             // what a port writes under another language is not pinned (the import side refuses it too, `xp_date_formula`).
-            Value::DateFormula(f) if !f.is_empty() && self.global_language != 1033 => Some(unsupported(format!(
+            Value::DateFormula(f) if !f.is_empty() && self.global_language.get() != 1033 => Some(unsupported(format!(
                 "XmlPort export of a DateFormula under the language {} (not pinned)",
-                self.global_language
+                self.global_language.get()
             ))),
             Value::DateFormula(_) => Some(
                 al_builtins::format::try_format(v, 0, 0, self)
@@ -145,10 +145,10 @@ impl Session {
             return Ok(Value::DateFormula(String::new()));
         }
         // The formula and its error texts are the ones of Evaluate in English; another language is not pinned.
-        if self.global_language != 1033 {
+        if self.global_language.get() != 1033 {
             return unsupported(format!(
                 "XmlPort import of a DateFormula under the language {} (not pinned)",
-                self.global_language
+                self.global_language.get()
             ));
         }
         use al_builtins::datefns::Evaluated;

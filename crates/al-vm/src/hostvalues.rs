@@ -209,7 +209,7 @@ impl Session {
             ids::SYSTEM_TEMPORARYPATH_1 => Ok(Value::Text("\\TEMP\\".into())),
             ids::SYSTEM_WINDOWSLANGUAGE_1 => Ok(Value::Integer(self.host.identity.windows_language())),
             ids::SYSTEM_GLOBALLANGUAGE_1 => match args.first() {
-                None => Ok(Value::Integer(self.global_language)),
+                None => Ok(Value::Integer(self.global_language.get())),
                 // These ids raise NotSupportedLanguage and leave the language as it was
                 // (metadata/platform-tables/PlTSession.al:245-266, GlobalLanguage_InvalidIds: 0, -1, 99999;
                 // :326-360, GlobalLanguage_PositiveIds: 1000, 4096, 8192, 9999, 32767, 65535). Other ids are set as before.
@@ -222,14 +222,10 @@ impl Session {
                     ))
                 }
                 Some(Value::Integer(n)) if *n > 0 => {
-                    if self.global_language != *n {
+                    if self.global_language.get() != *n {
                         self.events.caption_context_revision += 1;
                     }
-                    self.global_language = *n;
-                    self.events.event_stats.language.set(*n);
-                    // A Code assignment under Turkish or Azerbaijani upper-cases `i` to `İ` (CaseConv.Codeunit.al:280-310).
-                    al_builtins::ops::set_turkic_code(al_builtins::native::is_turkic_language(*n));
-                    al_builtins::filter::set_filter_language(*n);
+                    self.set_language(*n);
                     Ok(Value::Null)
                 }
                 other => unsupported(format!(
