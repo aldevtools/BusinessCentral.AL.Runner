@@ -278,40 +278,45 @@ impl Session {
                     // GoToRecord), not when the text is read (format-evaluate/QiTableFieldAutoFormat.al:421
                     // QI_Type10Procedure_Card_Calls `after-open` fmt();fmt(A);, `after-t10-read` empty). Evaluated on read,
                     // its side effects and errors would come at the wrong time, so it is refused.
+                    // A pinned fill ran it and kept its text (`format_procedure.rs`, AutoFormatProcedureControl.al:14-16).
                     if text.as_deref().is_some_and(|e| e.contains('(')) {
-                        return unsupported(format!(
-                            "a control over table field {} whose AutoFormatExpression calls a procedure (BC runs it when the row is fetched; not modelled)",
-                            f.name
-                        ));
-                    }
-                    if let Some(why) = f.auto_format_refusal.clone() {
-                        return unsupported(why);
-                    }
-                    let Some((object, routine)) = f.auto_format_expression else {
-                        return unsupported(
-                            "a control over a table field whose AutoFormatExpression is an expression that did not compile",
-                        );
-                    };
-                    // A field of the row (`Rec."Currency Code"`, `"Currency Code"`) is pinned on a Card and a List, read on every
-                    // row it moves to (QiTableFieldAutoFormat.al:272 QI_TableFieldExpression_Card_ShowCurrencyNever, :300
-                    // QI_TableFieldExpression_List_ShowCurrencyNever: First, Next, Previous). Any other expression is not.
-                    if !is_field_reference(text.as_deref().unwrap_or_default()) {
-                        return unsupported(format!(
-                            "a control over table field {} whose AutoFormatExpression is neither a field of the row nor a text (not pinned)",
-                            f.name
-                        ));
-                    }
-                    let rec = format_rec.clone().unwrap_or_else(|| self.page_rec(st));
-                    field_expression = match self.call_on_record(object, routine, rec, None, Vec::new())?.0 {
-                        Value::Text(t) | Value::Code(t) => Some(t.into_string()),
-                        other => {
+                        let Some(kept) = self.format_procedure_text(st, idx) else {
                             return unsupported(format!(
-                                "the AutoFormatExpression of field {} gave a {}",
-                                f.name,
-                                other.describe()
+                                "a control over table field {} whose AutoFormatExpression calls a procedure (BC runs it when the row is fetched; not modelled)",
+                                f.name
+                            ));
+                        };
+                        field_expression = Some(kept);
+                    } else {
+                        if let Some(why) = f.auto_format_refusal.clone() {
+                            return unsupported(why);
+                        }
+                        let Some((object, routine)) = f.auto_format_expression else {
+                            return unsupported(
+                                "a control over a table field whose AutoFormatExpression is an expression that did not compile",
+                            );
+                        };
+                        // A field of the row (`Rec."Currency Code"`, `"Currency Code"`) is pinned on a Card and a List, read on every
+                        // row it moves to (QiTableFieldAutoFormat.al:272 QI_TableFieldExpression_Card_ShowCurrencyNever, :300
+                        // QI_TableFieldExpression_List_ShowCurrencyNever: First, Next, Previous). Any other expression is not.
+                        if !is_field_reference(text.as_deref().unwrap_or_default()) {
+                            return unsupported(format!(
+                                "a control over table field {} whose AutoFormatExpression is neither a field of the row nor a text (not pinned)",
+                                f.name
                             ));
                         }
-                    };
+                        let rec = format_rec.clone().unwrap_or_else(|| self.page_rec(st));
+                        field_expression = match self.call_on_record(object, routine, rec, None, Vec::new())?.0 {
+                            Value::Text(t) | Value::Code(t) => Some(t.into_string()),
+                            other => {
+                                return unsupported(format!(
+                                    "the AutoFormatExpression of field {} gave a {}",
+                                    f.name,
+                                    other.describe()
+                                ));
+                            }
+                        };
+                    }
                 }
             }
         }

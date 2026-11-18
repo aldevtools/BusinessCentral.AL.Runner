@@ -1389,7 +1389,7 @@ impl Session {
                 };
                 let table = self.table(r)?;
                 let mut key: Vec<Value> = table.primary_key(&r.borrow().fields);
-                self.page_go_to_key_captions(st, &mut key)
+                self.page_go_to_record(st, &mut key)
             }
             other => unsupported(format!("TestPage.{other}")),
         }

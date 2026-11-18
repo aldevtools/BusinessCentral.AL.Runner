@@ -204,6 +204,11 @@ pub struct PageState {
     /// index, caption, whether it is a subscriber's for an own area). `Caption()` reads it and runs nothing
     /// (record/captions/QdCaptionClassAreas.al:422-481); a subscriber's only while `own_area_control_caption_pinned` holds.
     pub field_captions: Vec<(usize, String, bool)>,
+    /// What the AutoFormatExpression procedure of the table field under each control gave at the last row fill that ran it:
+    /// (control index, text); a read of the control takes it (`format_procedure.rs`).
+    pub field_format_texts: Vec<(usize, String)>,
+    /// A TestPage GoToRecord is moving the page (`format_procedure.rs`).
+    pub format_procedure_goto: bool,
     /// The open ran the CaptionClass expressions of the source table's fields with an empty record (`field_captions`).
     pub field_captions_opened: bool,
     /// The open ran the empty-record CaptionClass runs without a pinned number, or in a cell of `Session::caption_state_free_pin`:
