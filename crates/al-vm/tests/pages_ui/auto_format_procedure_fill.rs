@@ -183,7 +183,6 @@ codeunit 50103 "AF Counter"
     var
         Calls: Integer;
         FormatText: Text;
-        Fail: Boolean;
 
     procedure Reset(NewFormat: Text)
     begin
@@ -191,17 +190,14 @@ codeunit 50103 "AF Counter"
         FormatText := NewFormat;
     end;
 
-    procedure FailNext()
+    procedure Prime(NewCalls: Integer)
     begin
-        Fail := true;
+        Calls := NewCalls;
     end;
 
     procedure Next(FieldNo: Integer): Text
     begin
-        Calls += 1;
-        if Fail then
-            Error('format failed');
-        exit(FormatText);
+        NEXTBODY
     end;
 
     procedure Take() Result: Integer
@@ -314,6 +310,7 @@ fn fixture(fill: &[(&str, &str)]) -> String {
         ("EXTRACONTROLS", ""),
         ("PAGETRIGGERS", ""),
         ("CUSTOM", ""),
+        ("NEXTBODY", "Calls += 1; exit(FormatText);"),
     ];
     let mut src = FIXTURE.to_string();
     for (hole, default) in defaults {
@@ -401,6 +398,23 @@ fn an_expression_that_reads_the_row_keeps_main_s_answer() {
 fn a_procedure_that_writes_its_record_keeps_main_s_answer() {
     main_kept(
         &[("EXPR", "AFSetup.CountedFormat(AFSetup.FieldNo(Decimals))")],
+        "P.OpenView();",
+    );
+}
+
+#[test]
+fn a_codeunit_procedure_that_calls_message_keeps_main_s_answer() {
+    // The probe's codeunit procedure only counts and exits (AutoFormatProcedureControl.al:161-165); one that also calls
+    // Message is not measured.
+    let next = [("NEXTBODY", "Calls += 1; Message('call %1', Calls); exit(FormatText);")];
+    main_kept(&next, "P.OpenEdit(); P.GoToRecord(T);");
+    main_kept(&next, "P.OpenView();");
+}
+
+#[test]
+fn a_codeunit_procedure_that_exits_a_call_keeps_main_s_answer() {
+    main_kept(
+        &[("NEXTBODY", "Calls += 1; exit(CopyStr(FormatText, 1));")],
         "P.OpenView();",
     );
 }
@@ -654,6 +668,13 @@ fn close_after_a_set_value_of_the_same_value_refuses() {
 }
 
 #[test]
+fn a_go_to_record_of_a_missing_key_between_open_edit_and_a_read_refuses() {
+    // The afp3 H1a shape: the GoToRecord after the OpenEdit fetches no row, so the 2 runs of the open alone could be read.
+    let custom = "Other.\"Code\" := 'ZZ'; asserterror begin P.OpenEdit(); P.GoToRecord(Other); end; Check('open', 2);";
+    refused(run(&[("CUSTOM", custom)], "Custom"), "not pinned");
+}
+
+#[test]
 fn close_in_edit_mode_without_a_set_value_refuses() {
     refused(
         run(&[("CUSTOM", "P.OpenEdit(); P.GoToRecord(T); P.Close();")], "Custom"),
@@ -663,8 +684,9 @@ fn close_in_edit_mode_without_a_set_value_refuses() {
 
 #[test]
 fn an_error_in_the_procedure_at_the_open_refuses() {
+    // The probe's procedure raises an error here only when its count passes the largest Integer.
     refused(
-        run(&[("CUSTOM", "Counter.FailNext(); P.OpenView();")], "Custom"),
+        run(&[("CUSTOM", "Counter.Prime(2147483647); P.OpenView();")], "Custom"),
         "raised an error",
     );
 }

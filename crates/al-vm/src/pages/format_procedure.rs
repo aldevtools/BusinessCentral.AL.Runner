@@ -262,7 +262,9 @@ impl Session {
 
     /// The statement that is calling `TestPage.OpenEdit` is a statement of its own, and the next one is the `GoToRecord` of the same
     /// TestPage variable on a plain variable, its answer unused: between the two no AL code runs, so what the OpenEdit alone ran
-    /// cannot be read (AutoFormatProcedureControl.al:239-241 reads only after both).
+    /// cannot be read (AutoFormatProcedureControl.al:239-241 reads only after both). A GoToRecord that fetches no row would let it be
+    /// read; today pages/gotokey_find.rs (`refuse_statement_miss_off_list`) refuses that on a Card, and
+    /// [`Session::page_go_to_record`] refuses its answer or error itself.
     fn open_edit_then_go_to_record(&self) -> bool {
         let (Some(&object), Some(frame)) = (self.frames.last(), self.call_stack.last()) else {
             return false;
@@ -348,17 +350,14 @@ impl Session {
     }
 
     /// `TestPage.GoToRecord`: [`Session::page_go_to_key_captions`], marking the fetch it makes. After an open that ran a format
-    /// procedure the GoToRecord must fetch the row (`fill_format_procedures`): one that fetched nothing refuses.
+    /// procedure the GoToRecord must fetch the row (`fill_format_procedures`): one that fetched nothing or raised an error refuses
+    /// ([`go_to_record_after_open`]).
     pub(super) fn page_go_to_record(&mut self, st: &St, key: &mut [Value]) -> Result<Value, Signal> {
         st.borrow_mut().format_procedure_goto = true;
         let r = self.page_go_to_key_captions(st, key);
         st.borrow_mut().format_procedure_goto = false;
-        if r.is_ok() && st.borrow().format_procedure_step == FormatProcedureStep::Opened {
-            return unsupported(
-                "a GoToRecord that fetched no row on a page whose open ran an AutoFormatExpression procedure (not pinned)",
-            );
-        }
-        r
+        let step = st.borrow().format_procedure_step;
+        go_to_record_after_open(step, r)
     }
 
     /// Whether `TestPage.Close()` of page `st` saves the row a SetValue changed after an open that ran a format procedure: the
@@ -441,6 +440,20 @@ impl Session {
     }
 }
 
+/// What `TestPage.GoToRecord` answers on a page in step `step` after it ran with answer `r`. Still in step Opened, the GoToRecord
+/// fetched no row: an answer, or an error AL code could catch and then read what the open alone ran, refuses.
+fn go_to_record_after_open(step: FormatProcedureStep, r: Result<Value, Signal>) -> Result<Value, Signal> {
+    match (step, &r) {
+        (FormatProcedureStep::Opened, Ok(_)) => unsupported(
+            "a GoToRecord that fetched no row on a page whose open ran an AutoFormatExpression procedure (not pinned)",
+        ),
+        (FormatProcedureStep::Opened, Err(Signal::Error(_))) => unsupported(
+            "a GoToRecord that raised an error on a page whose open ran an AutoFormatExpression procedure (not pinned)",
+        ),
+        _ => r,
+    }
+}
+
 /// An AutoFormatExpression as written calls a procedure: it is no Text literal and holds a call.
 pub(super) fn calls_procedure(text: &str) -> bool {
     !is_text_literal(text) && text.contains('(')
@@ -471,34 +484,60 @@ fn identifier(s: &str) -> bool {
 }
 
 /// Routine `r` is `exit(<codeunit local>.<procedure>(<parameter>, ...))` and nothing else (AutoFormatProcedureControl.al:34-39): it reads
-/// and writes no variable of its table and no field of its record.
+/// and writes no variable of its table and no field of its record. The codeunit procedure only counts ([`only_counts`]).
 fn hands_on_to_a_codeunit(objects: &ir::Objects, r: &ir::Routine) -> bool {
-    let strip = |mut e: &Expr| {
-        while let Expr::Convert(_, inner) = e {
-            e = inner;
-        }
-        e.clone()
-    };
     let stmts: Vec<&Stmt> = r.body.stmts().iter().filter(|s| !matches!(s, Stmt::Pos(_))).collect();
     let [Stmt::Exit(Some(e))] = stmts[..] else {
         return false;
     };
     let Expr::Call {
         object,
+        routine,
         instance: Some(instance),
         args,
         try_call: false,
-        ..
-    } = strip(e)
+    } = unconverted(e)
     else {
         return false;
     };
-    let declared_local = matches!(*instance, Expr::Load(Place::Local(n)) if n >= r.params);
+    let declared_local = matches!(**instance, Expr::Load(Place::Local(n)) if n >= r.params);
     let parameters = args.iter().all(|a| match a {
-        Arg::Value(e) => matches!(strip(e), Expr::Load(Place::Local(n)) if n < r.params),
+        Arg::Value(e) => matches!(unconverted(e), Expr::Load(Place::Local(n)) if *n < r.params),
         Arg::Ref(_) => false,
     });
-    objects[object].kind == ir::ObjKind::Codeunit && declared_local && parameters
+    objects[*object].kind == ir::ObjKind::Codeunit
+        && declared_local
+        && parameters
+        && objects[*object].routines.get(*routine).is_some_and(only_counts)
+}
+
+/// `e` without the conversions around it.
+fn unconverted(mut e: &Expr) -> &Expr {
+    while let Expr::Convert(_, inner) = e {
+        e = inner;
+    }
+    e
+}
+
+/// Routine `r` of a codeunit is the probe's `Next` (AutoFormatProcedureControl.al:161-165, `Calls += 1; exit(FormatText);`): no
+/// attribute, statements that each add a constant to a global of the codeunit, then `exit(<global>)`. It calls nothing.
+fn only_counts(r: &ir::Routine) -> bool {
+    let strip = unconverted;
+    let adds_to = |g: usize, e: &Expr| match strip(e) {
+        Expr::Binary(ir::BinOp::Add, a, b) => {
+            matches!(strip(a), Expr::Load(Place::Global(h)) if *h == g) && matches!(strip(b), Expr::Const(_))
+        }
+        _ => false,
+    };
+    let stmts: Vec<&Stmt> = r.body.stmts().iter().filter(|s| !matches!(s, Stmt::Pos(_))).collect();
+    let Some((Stmt::Exit(Some(last)), assigns)) = stmts.split_last() else {
+        return false;
+    };
+    r.attributes.is_empty()
+        && matches!(strip(last), Expr::Load(Place::Global(_)))
+        && assigns
+            .iter()
+            .all(|s| matches!(s, Stmt::Assign(Place::Global(g), e) if adds_to(*g, e)))
 }
 
 /// Somewhere in `stmts` (or a block inside them), position `pos` marks `<v>.OpenEdit()` as a statement, and the next statement is
@@ -553,4 +592,29 @@ fn field_text(f: &ir::Field, name: &str) -> Option<String> {
         .iter()
         .find(|(k, _)| k.eq_ignore_ascii_case(name))
         .map(|(_, v)| v.trim().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_error_of_the_go_to_record_after_a_pinned_open_refuses() {
+        let failed = Err(error_code("The row does not exist on the TestPage.", "TestRowNotFound"));
+        let r = go_to_record_after_open(FormatProcedureStep::Opened, failed);
+        assert!(matches!(&r, Err(Signal::Unsupported(_))), "{r:?}");
+    }
+
+    #[test]
+    fn an_error_of_a_go_to_record_outside_the_pinned_open_keeps_main_s_answer() {
+        for step in [
+            FormatProcedureStep::None,
+            FormatProcedureStep::Landed,
+            FormatProcedureStep::Set,
+        ] {
+            let failed = Err(error_code("The row does not exist on the TestPage.", "TestRowNotFound"));
+            let r = go_to_record_after_open(step, failed);
+            assert!(matches!(&r, Err(Signal::Error(_))), "{r:?}");
+        }
+    }
 }
