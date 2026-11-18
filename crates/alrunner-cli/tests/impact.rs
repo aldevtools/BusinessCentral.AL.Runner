@@ -226,6 +226,30 @@ fn without_an_index_the_run_selects_by_static_reach_and_says_what_that_misses() 
     assert_eq!(code(&o), 2, "{}", text(&o));
 }
 
+/// Issue 8059 review: the index holds every test of the APPs, so a selection of any kind (the exact exclusion too) is
+/// refused before any test runs; a short index would replace the full one.
+#[test]
+fn an_index_build_refuses_every_kind_of_selection() {
+    let (tests, lib) = (fixture("tests"), fixture("lib"));
+    for flags in [
+        ["--exclude-test-exact", "X"],
+        ["--exclude-test", "X"],
+        ["--test-exact", "X"],
+        ["--test", "X"],
+        ["--codeunit", "50510"],
+    ] {
+        let mut args = vec!["impact-index", "build", tests.as_str(), "--dep", lib.as_str()];
+        args.extend(flags);
+        let o = alrunner(&args);
+        assert_eq!(code(&o), 2, "{flags:?}: {}", text(&o));
+        assert!(
+            text(&o).contains("runs every test of the APPs"),
+            "{flags:?}: {}",
+            text(&o)
+        );
+    }
+}
+
 fn alrunner_in(cache: &std::path::Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_al-runner"))
         .env("AL_CHECK_THREADS", "2")

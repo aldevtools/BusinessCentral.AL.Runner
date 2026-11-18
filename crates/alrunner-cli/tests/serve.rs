@@ -972,6 +972,75 @@ fn a_selection_that_matches_no_test_answers_a_summary_with_exit_code_6() {
     s.line();
 }
 
+/// Issue 8059: `excludeTestsExact` of a request and of an entry leaves out the test whose method name or qualified name
+/// is exactly the text, in any case; `excludeTests` with the same text matches by substring.
+#[test]
+fn exclude_tests_exact_leaves_out_only_the_test_named() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app(d.path(), "mixed", MIXED);
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    s.line();
+    let names = |s: &mut Server, req: Value| -> Vec<String> {
+        s.send(req);
+        let mut n: Vec<String> = s
+            .until_summary()
+            .iter()
+            .filter(|l| l["type"] == "test")
+            .map(|l| l["name"].as_str().unwrap().to_string())
+            .collect();
+        n.sort();
+        n
+    };
+    let all = ["Codeunit50100.Fails", "Codeunit50100.Passes"];
+    let req = |extra: Value| {
+        let mut r = json!({"command": "runTests", "sourcePaths": [a]});
+        r.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        r
+    };
+    assert_eq!(
+        names(&mut s, req(json!({"excludeTestsExact": ["passes"]}))),
+        ["Codeunit50100.Fails"]
+    );
+    assert_eq!(
+        names(&mut s, req(json!({"excludeTestsExact": ["Codeunit50100.FAILS"]}))),
+        ["Codeunit50100.Passes"]
+    );
+    assert_eq!(names(&mut s, req(json!({"excludeTestsExact": ["Pass"]}))), all);
+    assert_eq!(
+        names(&mut s, req(json!({"excludeTests": ["Pass"]}))),
+        ["Codeunit50100.Fails"]
+    );
+    // An entry has its own `excludeTestsExact`.
+    s.send(req(json!({"entries": [
+        {"id": "e1", "excludeTestsExact": ["Passes"]},
+        {"id": "e2", "excludeTestsExact": ["Fails"]},
+    ]})));
+    let lines = s.until_summary();
+    let of = |entry: &str| -> Vec<String> {
+        lines
+            .iter()
+            .filter(|l| l["type"] == "test" && l["entry"] == entry)
+            .map(|l| l["name"].as_str().unwrap().to_string())
+            .collect()
+    };
+    assert_eq!(
+        (of("e1"), of("e2")),
+        (vec![all[0].to_string()], vec![all[1].to_string()]),
+        "{lines:?}"
+    );
+    // Not a list, and not with `entries` or `affectedOnly`, as `excludeTests`.
+    for bad in [
+        json!({"excludeTestsExact": "Passes"}),
+        json!({"excludeTestsExact": ["Passes"], "entries": [{"id": "x"}]}),
+        json!({"excludeTestsExact": ["Passes"], "affectedOnly": true}),
+    ] {
+        s.send(req(bad.clone()));
+        assert!(s.line().get("error").is_some(), "{bad}");
+    }
+    s.send(json!({"command": "shutdown"}));
+    s.line();
+}
+
 #[test]
 fn execute_with_announce_start_writes_the_started_line_and_no_warning() {
     let mut s = started();
