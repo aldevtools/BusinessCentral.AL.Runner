@@ -37,7 +37,7 @@ use sql_range::InsertShape;
 mod nested_validate;
 pub(crate) use nested_validate::{BeforeImage, ProcXrec, ValidateSite, XREC_OF_RUNNING_CALL};
 mod by_value_view;
-pub(crate) use by_value_view::BY_VALUE_VIEW;
+pub(crate) use by_value_view::{BY_VALUE_VIEW, ByValueCall, primary_view};
 mod op_inner;
 mod own_rolled_back_modify;
 mod platform_rows;
