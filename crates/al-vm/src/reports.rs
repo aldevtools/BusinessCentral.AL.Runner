@@ -104,7 +104,7 @@ impl Schema {
 }
 
 impl Session {
-    fn report_builtin(
+    pub(crate) fn report_builtin(
         &mut self,
         id: al_ir::BuiltinId,
         receiver: Option<Value>,
@@ -953,11 +953,7 @@ impl Session {
             object,
         };
         match &schema.engine.program.objects[object].report {
-            Some(r) => match r
-                .run_refusal()
-                .cloned()
-                .or_else(|| self.excel_sheets_refusal(object, r))
-            {
+            Some(r) => match r.run_refusal() {
                 None => {
                     for a in &r.assumes {
                         al_builtins::assumptions::assume(*a);

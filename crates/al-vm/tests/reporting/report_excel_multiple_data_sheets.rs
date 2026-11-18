@@ -1,8 +1,7 @@
-//! `ExcelLayoutMultipleDataSheets = true` on a report (al-runner issue 7836): the shapes the corpus probe measured run as the
-//! same report without the property (assumption excel-layout-multiple-data-sheets, ExcelMultipleDataSheetsReport.al); every
-//! other run of such a report refuses. Rust tests until the probe is pinned.
+//! `ExcelLayoutMultipleDataSheets = true` on a report (al-runner issue 7836): every call that uses such a report refuses, the
+//! calls the corpus probe measured (ExcelMultipleDataSheetsReport.al, corpus pull request 1368) included, until a separate
+//! pull request admits them. A report without the property keeps running.
 
-use al_builtins::assumptions::{self, Assumption};
 use al_builtins::native::Signal;
 use al_testkit::Built;
 
@@ -138,6 +137,7 @@ codeunit 50965 "XMS Tests"
         if TrySave(Id, Fmt, Tmp, Saved) then;
         exit(Format(Saved));
     end;
+    procedure SavePlainXml(): Text begin exit(SaveFacts(Report::"XMS Plain", ReportFormat::Xml)); end;
     procedure SavePdfNoLayout(): Text begin exit(SaveFacts(Report::"XMS Multi", ReportFormat::Pdf)); end;
     procedure SaveExcelOfWord(): Text begin exit(SaveFacts(Report::"XMS Multi Word", ReportFormat::Excel)); end;
     procedure SaveXmlProcessingOnly(): Text begin exit(SaveFacts(Report::"XMS Proc", ReportFormat::Xml)); end;
@@ -183,33 +183,15 @@ fn text(proc: &str) -> String {
 }
 
 #[test]
-fn multiple_data_sheets_saveas_xml_gives_the_dataset_of_the_report_without_it() {
-    assumptions::take_hits();
-    assert_eq!(text("SameDataset"), "Yes|Yes|Yes|Yes|Yes");
-    assert!(assumptions::take_hits().contains(&Assumption::ExcelLayoutMultipleDataSheets));
-}
-
-#[test]
-fn multiple_data_sheets_run_without_a_request_page_raises_as_measured() {
-    let no_layout = "No|Report 50961 does not have a valid layout. Valid layout types are: Word, RDLC, Excel, and Custom.|ReportNoLayout";
-    assert_eq!(text("RunNoLayout"), no_layout);
-    assert_eq!(text("RunModalNoLayout"), no_layout);
-    let excel = "No|The current report operation is not supported for Excel Layout reports.|ReportUnsupportedOperation";
-    assert_eq!(text("RunExcel"), excel);
-    assert_eq!(text("RunModalExcel"), excel);
-}
-
-#[test]
-fn multiple_data_sheets_saveas_excel_answers_as_measured() {
-    assert_eq!(text("SaveExcelLayout"), "Yes|Yes|Yes");
-    assumptions::take_hits();
-    assert_eq!(text("SaveExcelNoLayout"), "Yes|No|No");
-    assert!(assumptions::take_hits().contains(&Assumption::ExcelLayoutMultipleDataSheets));
-}
-
-#[test]
-fn multiple_data_sheets_shapes_not_measured_refuse() {
+fn multiple_data_sheets_refuses_every_call() {
     for p in [
+        "SameDataset",
+        "RunNoLayout",
+        "RunModalNoLayout",
+        "RunExcel",
+        "RunModalExcel",
+        "SaveExcelLayout",
+        "SaveExcelNoLayout",
         "RunWord",
         "SavePdfOfWord",
         "VarRunWord",
@@ -232,8 +214,18 @@ fn multiple_data_sheets_shapes_not_measured_refuse() {
         "SaveXmlWithParameters",
     ] {
         match Built::from_source(&src()).run_in("XMS Tests", p) {
-            Err(Signal::Unsupported(why)) => assert!(why.contains("ExcelLayoutMultipleDataSheets"), "{p}: {why}"),
+            Err(Signal::Unsupported(why)) => {
+                assert!(
+                    why.to_lowercase().contains("excellayoutmultipledatasheets"),
+                    "{p}: {why}"
+                )
+            }
             other => panic!("{p}: expected a refusal, got {other:?}"),
         }
     }
+}
+
+#[test]
+fn report_without_the_property_saves_its_dataset() {
+    assert_eq!(text("SavePlainXml"), "Yes");
 }

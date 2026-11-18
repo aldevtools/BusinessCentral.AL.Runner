@@ -59,7 +59,7 @@ impl Session {
         }
         if class == Class::Report {
             self.ret_used = ret_used;
-            return self.report_call(id, recv, &values, f.instance.clone());
+            return self.report_builtin(id, recv, &values, f.instance.clone());
         }
         if class == Class::FilterPageBuilder {
             return self.filter_page_builder_op(id, recv, &values, ret_used);
