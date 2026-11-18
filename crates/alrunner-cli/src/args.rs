@@ -98,6 +98,9 @@ pub struct TestArgs {
     pub test_driver: Option<al_testrun::runtime::TestDriver>,
     /// `--exclude-test TEXT`: tests whose name matches are left out of the selection. Repeatable.
     pub excludes: Vec<String>,
+    /// `--exclude-test-exact NAME`: leaves out the test whose method name or `Codeunit<ID>.<Method>` is exactly NAME
+    /// (any case), as `--test-exact` selects it. Repeatable.
+    pub excludes_exact: Vec<String>,
     /// `--test-exact NAME`: the test whose method name or `Codeunit<ID>.<Method>` is exactly NAME. Repeatable.
     pub exact: Vec<String>,
     /// `--define SYMBOL`: a preprocessor symbol for the apps. Repeatable. `--preprocessor-symbols A,B` adds several.
@@ -393,8 +396,7 @@ fn stability_args(a: &mut TestArgs) -> Result<(), String> {
     stability_matrix_args(a)?;
     let Some(st) = &a.stability else { return Ok(()) };
     let sel = st.config.selection.clone();
-    let cli_selects = !a.codeunits.is_empty() || !a.filters.is_empty() || !a.exact.is_empty() || !a.excludes.is_empty();
-    if !cli_selects {
+    if !a.selects_tests() {
         a.codeunits = sel.codeunits;
         a.exact = sel.tests;
         a.excludes = sel.exclude_tests;
@@ -514,6 +516,27 @@ fn stability_matrix_args(a: &mut TestArgs) -> Result<(), String> {
 }
 
 impl TestArgs {
+    /// Whether the command line selects tests: the one list of the options that do (`--codeunit`, `--filter`,
+    /// `--test-exact`, `--exclude-test`, `--exclude-test-exact`). A new selecting option is added here.
+    pub fn selects_tests(&self) -> bool {
+        let Self {
+            codeunits,
+            filters,
+            exact,
+            excludes,
+            excludes_exact,
+            ..
+        } = self;
+        [
+            codeunits.is_empty(),
+            filters.is_empty(),
+            exact.is_empty(),
+            excludes.is_empty(),
+            excludes_exact.is_empty(),
+        ]
+        .contains(&false)
+    }
+
     /// The country version of the run: `--country`, else `w1`.
     pub fn country(&self) -> &str {
         self.country.as_deref().unwrap_or("w1")
@@ -638,6 +661,10 @@ selects only the tests both match)
                          written, without quotes (`Codeunit50100.Space Step`).
     --exclude-test TEXT  Leave out the tests TEXT matches (matched like --filter). Wins over
                          every selecting option. Repeatable.
+    --exclude-test-exact NAME
+                         Leave out the test whose method name or `Codeunit<ID>.<Method>` is exactly
+                         NAME (any case), as --test-exact selects it. Wins over every selecting
+                         option. Repeatable.
     --explain TEST       Run one test (its name, `Codeunit<ID>.<Method>`, or a part of either that only
                          one test has) and print
                          its outcome and, for a failure or a refusal, the routines and source
@@ -740,7 +767,7 @@ AFFECTED TESTS (ADR-050)
                          removed object, app.json, a dependency app, the BC build, a run option,
                          install code) runs everything and says why. Every run with --affected
                          writes the stored result for the next one. Cannot be combined with
-                         --test, --test-exact, --codeunit or --exclude-test.
+                         --test, --test-exact, --codeunit, --exclude-test or --exclude-test-exact.
     --affected-store FILE  Read and write the stored result at FILE (for CI: save and restore it
                          between builds). Default: <cache dir>/affected/<key>.json.gz, keyed by the
                          ids and versions of the APPs.
@@ -907,7 +934,7 @@ TEST SOURCES (ADR-052)
                          no-index warning prints `al-runner impact-index build PATH ...`. A source
                          that is compiled only (no AL source) or has such a dependency, depends on
                          the extension, is also an APP or is given twice: exit 2 before any test.
-                         --filter, --codeunit, --test-exact and --exclude-test apply to your own
+                         --filter, --codeunit, --test-exact, --exclude-test and --exclude-test-exact apply to your own
                          tests only. --output-json FILE: your own tests as a plain run writes them,
                          plus `sources` (per source: source, kind, testApps, mode, lanes, counts,
                          notSelected, exitCode, tests). --impact-json FILE: format 2, `sources`
@@ -1063,12 +1090,12 @@ SERVE
                          request (--package-cache, --dep, --define, --test-timeout, --bc-version,
                          --cache-dir, --no-download, --test-data, ...); --recipe and --impact-of are
                          refused. A runTests request carries
-                         sourcePaths, packagePaths, test, excludeTests, testIsolation, coverage,
+                         sourcePaths, packagePaths, test, excludeTests, excludeTestsExact, testIsolation, coverage,
                          perTestCoverage, captureValues, iterationTracking, announceStart, serverUrl,
                          tdd (`serve --tdd` makes it the default), affectedOnly, includeFailing,
                          strictEnvironment (as --affected and its options; the summary gets `selection`),
                          entries (several runs on one compile and one install baseline, each with its own
-                         id, resources, test and excludeTests; ids are unique; `entry` on the test lines,
+                         id, resources, test, excludeTests and excludeTestsExact; ids are unique; `entry` on the test lines,
                          one `entrySummary` line per entry with its `exitCode`; an entry that matches no
                          test has exit code 6 and `warnings`, and so has the request). `test` is one text.
                          `seed` replays a run (ADR-061); a request without one gets the server's --seed
@@ -1411,10 +1438,7 @@ fn parse_serve(args: Vec<String>) -> Result<Command, String> {
     };
     let t = *t;
     if t.apps.len() != 1
-        || !t.codeunits.is_empty()
-        || !t.filters.is_empty()
-        || !t.excludes.is_empty()
-        || !t.exact.is_empty()
+        || t.selects_tests()
         || t.junit.is_some()
         || t.output_json.is_some()
         || t.coverage
@@ -1461,6 +1485,13 @@ fn permissions_off(value: &str) -> Result<bool, String> {
         "off" => Ok(true),
         other => Err(format!("--permissions takes on or off, not `{other}`")),
     }
+}
+
+/// `--stability-print-preset NAME`: the text of a stability preset.
+fn print_preset(name: &str) -> Result<Command, String> {
+    al_testrun::stability::preset(name)
+        .map(|t| Command::PrintText(t.to_string()))
+        .ok_or_else(|| format!("--stability-print-preset: no preset `{name}` (the presets are `microsoft` and `all`)"))
 }
 
 pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> {
@@ -1644,15 +1675,9 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             }
             "--seed-library" => a.seed_library = true,
             "--stability-max" => a.stability_max = Some(number("--stability-max", &text()?)?),
-            "--stability-print-preset" => {
-                let name = text()?;
-                return al_testrun::stability::preset(&name)
-                    .map(|t| Command::PrintText(t.to_string()))
-                    .ok_or_else(|| {
-                        format!("--stability-print-preset: no preset `{name}` (the presets are `microsoft` and `all`)")
-                    });
-            }
+            "--stability-print-preset" => return print_preset(&text()?),
             "--exclude-test" => a.excludes.push(text()?),
+            "--exclude-test-exact" => a.excludes_exact.push(text()?),
             "--define" => a.defines.push(text()?),
             "--preprocessor-symbols" => a.defines.extend(
                 text()?
@@ -1931,6 +1956,7 @@ fn affected_selection_args(a: &TestArgs, other_command: bool) -> Result<(), Stri
         (!a.exact.is_empty(), "--test-exact"),
         (!a.codeunits.is_empty(), "--codeunit"),
         (!a.excludes.is_empty(), "--exclude-test"),
+        (!a.excludes_exact.is_empty(), "--exclude-test-exact"),
         (!a.impact_of.is_empty(), "--impact-of"),
         (!a.affected_from.is_empty(), "--affected-from"),
         (a.recipe, "--recipe microsoft"),

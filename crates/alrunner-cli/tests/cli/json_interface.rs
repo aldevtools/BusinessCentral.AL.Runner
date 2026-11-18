@@ -104,6 +104,45 @@ fn a_qualified_test_name_selects_one_test_and_exclude_test_removes_tests() {
     );
 }
 
+/// Issue 8059: `--exclude-test-exact NAME` leaves out the test whose method name or qualified name is exactly NAME, in any
+/// case; `--exclude-test` with the same text also leaves out every test whose name contains it.
+#[test]
+fn exclude_test_exact_leaves_out_only_the_test_named() {
+    let d = tempfile::tempdir().unwrap();
+    let app = mixed_app(d.path());
+    let a = app.to_str().unwrap();
+    let total = |extra: &[&str]| {
+        let mut args = vec!["test", a, "--no-download", "--output-json"];
+        args.extend_from_slice(extra);
+        json_of(&alrunner(&args))["total"].as_u64().unwrap()
+    };
+    // The substring form: `Passes` is also in `AlsoPasses`.
+    assert_eq!(total(&["--exclude-test", "Passes"]), 2);
+    // The exact form: the method name, in any case, or the whole qualified name.
+    assert_eq!(total(&["--exclude-test-exact", "Passes"]), 3);
+    assert_eq!(total(&["--exclude-test-exact", "passes"]), 3);
+    assert_eq!(total(&["--exclude-test-exact", "codeunit50100.passes"]), 3);
+    // A part of a name matches nothing; the form is repeatable.
+    assert_eq!(total(&["--exclude-test-exact", "Pass"]), 4);
+    assert_eq!(
+        total(&["--exclude-test-exact", "Passes", "--exclude-test-exact", "Fails"]),
+        2
+    );
+    // It wins over a selecting option, as `--exclude-test` does.
+    assert_eq!(
+        code(&alrunner(&[
+            "test",
+            a,
+            "--no-download",
+            "--test-exact",
+            "Codeunit50100.Passes",
+            "--exclude-test-exact",
+            "Codeunit50100.Passes"
+        ])),
+        6
+    );
+}
+
 const ISO: &str = r#"
 table 50300 "Iso Row" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
 codeunit 50300 "Iso Tests"
