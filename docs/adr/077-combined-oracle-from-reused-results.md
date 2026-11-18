@@ -49,6 +49,10 @@ Facts read from the code on 2026-11-17:
    - every suite has its properties, and every suite of one file names the manifest's BC build;
    - every `source_commit` is an ancestor of the run's commit;
    - for each reused suite, the files that declare its codeunit are identical between `source_commit` and the new pin;
+   - for each reused suite, the corpus's own selection of the diff from `source_commit` to the new pin does not select
+     its codeunit, and that diff is no full run for a reason other than the file cap or an empty selection (owner,
+     2026-11-18). The corpus `select-tests.py --check-reuse` of the new pin answers. A pin whose script lacks that mode
+     refuses every bump that holds a reused suite;
    - the chain is at most 20 runs;
    - the newest nightly comparison at or before the run's commit does not report a difference;
    - no codeunit of the current oracle is missing, unless the corpus diff deleted or renamed its file.
@@ -85,8 +89,9 @@ Facts read from the code on 2026-11-17:
 ## Consequences
 
 - A reused pass can be wrong when the corpus selection missed an effect of a later change. The guards are the nightly
-  full run with its comparison, the chain cap, and the file check of decision 5. The window is at most one day. This is
-  a real cost against hard rule 2 ("never weaken an oracle") and the reason every guard refuses instead of warning.
+  full run with its comparison, the chain cap, and the file check and the selection check of decision 5. The window is
+  at most one day. This is a real cost against hard rule 2 ("never weaken an oracle") and the reason every guard
+  refuses instead of warning.
 - Without a shadow period, the first nightly comparisons are the first measurement of the selection on master. A
   difference blocks combined bumps until it is classified; nightly bumps (decision 6) keep the pin moving meanwhile.
 - A corpus fixture may now change. That can change the runner's outcome for tests whose own code did not change.
@@ -103,7 +108,10 @@ Facts read from the code on 2026-11-17:
   failed is refused; a manifest of an earlier attempt is refused; a full run without a manifest and without provenance
   properties is accepted, and one without a manifest whose suites carry properties is refused (decision 4); a nightly
   full run whose only failed job is the comparison is accepted, while a combined run and a full push run at that
-  commit are refused (decision 6); a combined run is accepted and `oracle.toml` gets the fields of decision 7.
+  commit are refused (decision 6); a combined run is accepted and `oracle.toml` gets the fields of decision 7; a reused
+  codeunit that the pin's `select-tests.py --check-reuse` refuses is refused, and so is a run with reused suites whose
+  pin has no such script or a script without the mode; the call names every reused codeunit by source commit and test
+  app; a run without reused suites does not call it.
 - `al-test-cli/src/oracle.rs` unit test: a suite with a `<properties>` child gives the same cases and the same clock
   as the suite without it.
 - `corpus_harness.rs`: pin mismatch still exits 2.

@@ -16,13 +16,14 @@ the downloaded file and the JUnit file name the artifact held (junit-al-language
 run from before ADR-077 only when no suite carries provenance properties (decision 4). A run with one: every suite has its
 properties and the manifest's BC build, every source commit is an ancestor of SHA, a suite of this run names SHA and an
 attempt of the run, a reused suite names an older run and its codeunit's declaring files are the same at its source
-commit and at SHA, each file's counts of fresh and reused codeunits are the manifest's, and no codeunit of the current oracle (ORACLE, the oracle folder) is missing
-unless the corpus diff OLD..SHA deleted or renamed its file (decision 5). Writes the oracle.toml fields of decision 7 per
+commit and at SHA, the corpus's select-tests.py --check-reuse at SHA keeps every reused result, each file's counts of
+fresh and reused codeunits are the manifest's, and no codeunit of the current oracle (ORACLE, the oracle folder) is
+missing unless the corpus diff OLD..SHA deleted or renamed its file (decision 5). Writes the oracle.toml fields of decision 7 per
 major to SUMMARY (corpus_bump_edit.py reads them); prints a warning when the CI build differs from oracle.toml bc_build.
 
 Every refusal prints "corpus_bump: refused: ..." and exits 1. gh is CORPUS_BUMP_GH (default gh).
 """
-import argparse, io, json, os, re, subprocess, sys, tomllib, zipfile
+import argparse, io, json, os, re, subprocess, sys, tarfile, tempfile, tomllib, zipfile
 import xml.etree.ElementTree as ET
 
 GH = os.environ.get("CORPUS_BUMP_GH", "gh")
@@ -49,6 +50,9 @@ APPS = ("full", "partial")
 NIGHTLY_SKIPPED = ("Coverage facts must not shrink",)
 # The corpus writes a manifest for push runs (ci.yml, job "Results manifest") and for the nightly run (decision 6).
 EVENTS = ("push", "schedule")
+# Decision 5: the corpus script whose --check-reuse mode answers whether a reused result still holds at the new pin. It
+# loads check-fixture-edit.py from its own folder, so the whole folder is taken from the pin.
+SELECT_TESTS = ".github/scripts/select-tests.py"
 
 
 def refuse(msg):
@@ -299,6 +303,29 @@ def check_reused_unchanged(corpus, sha, app_dir, cu, source_commit, where):
                % (where, cu, source_commit[:12], ", ".join(then) or "none", ", ".join(now) or "none"))
 
 
+def check_reuse_selection(corpus, sha, reused):
+    """Decision 5: the corpus's selection rule, as the new pin has it, keeps every reused result. reused: {source commit:
+    {test app dir: set of codeunits}}. select-tests.py --check-reuse refuses a codeunit of source commit S that the
+    selection of S..SHA selects, and every codeunit of S when that span is a full run for a reason other than the file
+    cap or an empty selection; a pin whose script lacks the mode, or has no script, is refused too."""
+    if not reused:
+        return
+    folder = os.path.dirname(SELECT_TESTS)
+    p = subprocess.run(["git", "-C", corpus, "archive", "--format=tar", sha, folder], capture_output=True)
+    if p.returncode != 0:
+        refuse("%d source commits hold reused results, but the corpus at the new pin %s has no %s to run "
+               "select-tests.py --check-reuse: %s" % (len(reused), sha[:12], folder, p.stderr.decode(errors="replace").strip()))
+    given = {src: {app: ",".join(map(str, sorted(cus))) for app, cus in sorted(apps.items())}
+             for src, apps in sorted(reused.items())}
+    with tempfile.TemporaryDirectory() as d:
+        tarfile.open(fileobj=io.BytesIO(p.stdout)).extractall(d, filter="data")
+        q = subprocess.run([sys.executable, "-I", os.path.join(d, SELECT_TESTS), "--check-reuse", json.dumps(given),
+                            "--head", sha, "--repo", corpus], capture_output=True, text=True)
+    if q.returncode != 0:
+        refuse("select-tests.py --check-reuse of the corpus at the new pin %s exited %d, so reused results may be stale:\n%s"
+               % (sha[:12], q.returncode, (q.stdout + q.stderr).strip()))
+
+
 def check_missing(corpus, old, sha, app_dir, old_file, new_ids, where):
     """Decision 5: no codeunit of the current oracle is missing unless the corpus diff deleted or renamed its file."""
     if not os.path.isfile(old_file):
@@ -335,6 +362,7 @@ def cmd_files(a):
         return
     ancestors = {}
     per_version = {}
+    reused_by_source = {}
     for leg, path, name in files:
         ver = manifest["versions"].get(leg)
         if ver is None:
@@ -380,6 +408,7 @@ def cmd_files(a):
                     refuse("%s: reused from run %d, which is not older than run %d" % (where, src, run_id))
                 reused += 1
                 check_reused_unchanged(a.corpus, a.sha, app_dir, cu, c, where)
+                reused_by_source.setdefault(c, {}).setdefault(app_dir, set()).add(cu)
         if (fresh, reused) != (entry.get("fresh"), entry.get("reused")):
             refuse("run %s, BC %s, %s: %d fresh and %d reused codeunits, the manifest names %r and %r"
                    % (run_id, leg, name, fresh, reused, entry.get("fresh"), entry.get("reused")))
@@ -387,6 +416,7 @@ def cmd_files(a):
         acc["reused"] += reused
         old_file = os.path.join(a.oracle, leg.split(".")[0], os.path.basename(path))
         check_missing(a.corpus, a.old, a.sha, app_dir, old_file, ids, "run %s, BC %s, %s" % (run_id, leg, name))
+    check_reuse_selection(a.corpus, a.sha, reused_by_source)
     builds = {}
     toml_path = os.path.join(a.oracle, "oracle.toml")
     if os.path.isfile(toml_path):

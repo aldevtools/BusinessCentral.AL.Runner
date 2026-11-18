@@ -43,14 +43,50 @@ fn build_of(leg: &str) -> String {
     format!("{leg}.100.200")
 }
 
-/// The corpus: `c0` declares codeunits 50100, 50101 and 50103 (file D.al) and the OnPrem codeunit 60100; `c1` adds
-/// 50102 and deletes D.al; `c2` changes B.al (codeunit 50101); `side` is a commit off master.
+/// The corpus: `c0` declares codeunits 50100, 50101 and 50103 (file D.al) and the OnPrem codeunit 60100, and holds the
+/// stand-in select-tests.py (`SELECT_TESTS`); `c1` adds 50102 and deletes D.al; `c2` changes B.al (codeunit 50101);
+/// `side` is a commit off master.
 struct Corpus {
     dir: tempfile::TempDir,
     c0: String,
     c1: String,
     c2: String,
     side: String,
+}
+
+/// A stand-in for corpus select-tests.py --check-reuse (its own tests are in the corpus, test-select-tests.py): it
+/// appends its arguments as one JSON line to `reuse-calls.log` next to the corpus and answers what `reuse-answer.txt`
+/// there says (first line the exit code, then the output; no file: exit 0).
+const SELECT_TESTS: &str = r#"import json, os, sys
+a = sys.argv[1:]
+d = os.path.dirname(os.path.abspath(a[a.index("--repo") + 1]))
+open(os.path.join(d, "reuse-calls.log"), "a").write(json.dumps(a) + "\n")
+f = os.path.join(d, "reuse-answer.txt")
+code, _, text = (open(f).read() if os.path.exists(f) else "0\n").partition("\n")
+sys.stdout.write(text)
+sys.exit(int(code))
+"#;
+
+/// What the stand-in select-tests.py answers next (exit code and output).
+fn reuse_answer(c: &Corpus, code: i32, text: &str) {
+    std::fs::write(c.dir.path().join("reuse-answer.txt"), format!("{code}\n{text}")).unwrap();
+}
+
+/// The argument lists the stand-in select-tests.py was called with.
+fn reuse_calls(c: &Corpus) -> Vec<Vec<String>> {
+    std::fs::read_to_string(c.dir.path().join("reuse-calls.log"))
+        .unwrap_or_default()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect()
+}
+
+/// `c3` on master after `c2`: the corpus without select-tests.py (as before the reuse check existed).
+fn drop_select_tests(c: &Corpus) -> String {
+    let dir = c.dir.path().join("corpus");
+    git(&dir, &["rm", "-q", ".github/scripts/select-tests.py"]);
+    git(&dir, &["commit", "-qm", "c3"]);
+    git(&dir, &["rev-parse", "HEAD"])
 }
 
 fn put(corpus: &Path, rel: &str, text: &str) {
@@ -68,6 +104,7 @@ fn corpus() -> Corpus {
     put(&c, &format!("{APP}/B.al"), "codeunit 50101 \"B\"\n{\n}\n");
     put(&c, &format!("{APP}/D.al"), "codeunit 50103 \"D\"\n{\n}\n");
     put(&c, &format!("{ONPREM}/O.al"), "codeunit 60100 \"O\"\n{\n}\n");
+    put(&c, ".github/scripts/select-tests.py", SELECT_TESTS);
     git(&c, &["add", "."]);
     git(&c, &["commit", "-qm", "c0"]);
     let c0 = git(&c, &["rev-parse", "HEAD"]);
@@ -1059,4 +1096,58 @@ fn each_artifact_is_downloaded_once() {
     for z in &zips {
         assert!(seen.insert(*z), "downloaded twice: {z}\n{calls}");
     }
+}
+
+#[test]
+fn a_reused_codeunit_that_the_corpus_selection_selects_is_refused() {
+    let c = corpus();
+    reuse_answer(
+        &c,
+        1,
+        "refused: c0..c1: tests/al-language codeunit 50101 is selected (changed)\n",
+    );
+    refused(&c, &Spec::combined(&c), "tests/al-language codeunit 50101 is selected");
+}
+
+#[test]
+fn the_reuse_check_gets_every_reused_codeunit_by_source_commit_and_the_pin() {
+    let c = corpus();
+    accepted(&c, &Spec::combined(&c));
+    let calls = reuse_calls(&c);
+    assert_eq!(calls.len(), 1, "{calls:?}");
+    let a = &calls[0];
+    let arg = |k: &str| a[a.iter().position(|x| x == k).unwrap() + 1].clone();
+    assert_eq!(arg("--head"), c.c1);
+    let given: serde_json::Value = serde_json::from_str(&arg("--check-reuse")).unwrap();
+    assert_eq!(given, serde_json::json!({ &c.c0: { APP: "50101", ONPREM: "60100" } }));
+}
+
+#[test]
+fn a_pin_whose_select_tests_has_no_reuse_mode_is_refused() {
+    let c = corpus();
+    reuse_answer(
+        &c,
+        2,
+        "usage: select-tests.py [-h] [--base BASE]\nselect-tests.py: error: unrecognized arguments: --check-reuse\n",
+    );
+    refused(&c, &Spec::combined(&c), "unrecognized arguments: --check-reuse");
+}
+
+#[test]
+fn a_pin_without_select_tests_is_refused_when_results_are_reused() {
+    let c = corpus();
+    let c3 = drop_select_tests(&c);
+    let mut s = Spec::full(&c, &c3);
+    s.main[0].prov = prov(10, &c.c0, "27.5");
+    s.manifest = Some(manifest(20, 1, &c3, "subset", 1, 1));
+    refused(&c, &s, "select-tests.py --check-reuse");
+}
+
+#[test]
+fn a_run_without_reused_results_does_not_ask_the_corpus_selection() {
+    let c = corpus();
+    let c3 = drop_select_tests(&c);
+    reuse_answer(&c, 1, "refused: anything\n");
+    accepted(&c, &Spec::full(&c, &c3));
+    assert!(reuse_calls(&c).is_empty());
 }
