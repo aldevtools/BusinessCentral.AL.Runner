@@ -1574,7 +1574,9 @@ pub fn compare(l: &Value, r: &Value) -> Result<Ordering, Signal> {
         (V::Unknown(a), V::Unknown(b)) if a == b => return Ok(Ordering::Equal),
         (V::Unknown(why), _) | (_, V::Unknown(why)) => return Err(Signal::unsupported(why.to_string())),
         (V::SqlCount(_), _) | (_, V::SqlCount(_)) => return crate::sqlcount::order(l, r),
-        (V::PlaceholderSize(..), _) | (_, V::PlaceholderSize(..)) => return crate::placeholder_output::size_order(l, r),
+        (V::PlaceholderSize(..), _) | (_, V::PlaceholderSize(..)) => {
+            return crate::placeholder_output::size_order(l, r);
+        }
         // A text with half of a surrogate pair is equal only to the same units, and the empty text comes before any other
         // (ADR-068; `R <> ''` in the corpus's `Codes`, streams/StTEncodings.al:70 on the values of :233-244). Any other order
         // of it is not audited and refuses (`Txt::cmp`).

@@ -219,7 +219,10 @@ fn outcomes() -> Vec<(String, Outcome)> {
 }
 
 fn outcome_of<'a>(all: &'a [(String, Outcome)], name: &str) -> &'a Outcome {
-    &all.iter().find(|(n, _)| n == name).unwrap_or_else(|| panic!("no test {name} in {all:?}")).1
+    &all.iter()
+        .find(|(n, _)| n == name)
+        .unwrap_or_else(|| panic!("no test {name} in {all:?}"))
+        .1
 }
 
 #[test]
