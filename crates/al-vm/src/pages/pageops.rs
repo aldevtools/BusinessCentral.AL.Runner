@@ -711,6 +711,7 @@ impl Session {
         }
         // What `CurrPage.Update(true)` saved (al-vm pages/leave_new_line.rs, testpage/NewRowThenMove.al:73).
         st.borrow_mut().saved_by_update = method != PageOp::PageSaveRecord;
+        self.code_inserted_saved(st);
         Ok(Value::Null)
     }
 

@@ -430,7 +430,7 @@ const ISSUE_8285_PROBE: &str = include_str!("../fixtures/outside-fb/Issue8285Pro
 const ISSUE_8285_NEIGHBORS: &str = include_str!("../fixtures/outside-fb/Issue8285Neighbors.al");
 
 /// The corpus probe of issue 8285 (corpus pull request 1436, open: tests/al-language/pages/currpage/ListNewLineSaveRecordUpdate.al,
-/// measured on BC 29.1) and the reporter's repro: `CurrPage.SaveRecord()` then `CurrPage.Update(false)`, and `CurrPage.Update(true)`,
+/// measured on BC 29.1 and green in its CI on 27.5, 28.5 and 29.0) and the reporter's repro: `CurrPage.SaveRecord()` then `CurrPage.Update(false)`, and `CurrPage.Update(true)`,
 /// on the new line the table field inserted, also on the host with a CardPart FactBox. Every test passes, flagged by
 /// list-new-line-code-insert-save.
 #[test]
@@ -474,7 +474,8 @@ const FACTBOX_MOVE_REFUSAL: &str = "a call on a List page with a CardPart FactBo
 
 /// Call sequences the probe does not measure are refused: SaveRecord without the Update(false) after it, SaveRecord then
 /// Update() or Update(true), two SaveRecord calls, an error after SaveRecord and Update(false) (`asserterror` around the
-/// SetValue), SaveRecord then CurrPage.Close(). Main answers the first and the last without the modify BC runs at the SaveRecord (ListNewLineSaveRecordUpdate.al:445
+/// SetValue), SaveRecord then CurrPage.Close(); and a change of Rec's filters or of the table, or a further CurrPage.Update or
+/// SaveRecord, after SaveRecord or Update(true). Main answers the first and the last without the modify BC runs at the SaveRecord (ListNewLineSaveRecordUpdate.al:445
 /// `P.MOD(X/);T.M(X/);P.SR;`). `Update(true)` on the page without AutoSplitKey keeps main's refusal.
 #[test]
 fn issue_8285_unmeasured_calls_are_refused() {
@@ -493,9 +494,19 @@ fn issue_8285_unmeasured_calls_are_refused() {
             "SaveRecordThenUpdateTrue",
             "CurrPage.Update() or Update(true) after CurrPage.SaveRecord",
         ),
-        ("SaveRecordTwice", "a second CurrPage.SaveRecord"),
+        ("SaveRecordTwice", "a further CurrPage.SaveRecord"),
         ("ErrorAfterSaveRecord", "an error ended the validation"),
         ("SaveRecordThenClose", "the page closed after CurrPage.SaveRecord"),
+        // The cell holds at every call after the landing, not only at the first: Rec, its view and the table stay as the save left
+        // them, and no further CurrPage.Update or SaveRecord follows (review of #8305, point 1).
+        ("SaveRecordFilterUpdateFalse", "changed between CurrPage.SaveRecord"),
+        ("SaveRecordInsertUpdateFalse", "changed between CurrPage.SaveRecord"),
+        ("SaveRecordUpdateFalseSaveRecord", "a further CurrPage.SaveRecord"),
+        ("SaveRecordUpdateFalseUpdate", "a further CurrPage.Update"),
+        ("UpdateTrueUpdateFalse", "a further CurrPage.Update"),
+        ("UpdateTrueSaveRecord", "a further CurrPage.SaveRecord"),
+        ("UpdateTrueFilter", "the validation changed the page's record"),
+        ("UpdateTrueInsert", "the validation changed the page's record"),
         ("UpdateTrueWithoutAutoSplitKey", MAIN_8186_REFUSAL),
     ] {
         let (_, r, marks) = o.iter().find(|(n, _, _)| n == name).expect("the test");
@@ -508,8 +519,10 @@ fn issue_8285_unmeasured_calls_are_refused() {
 
 /// On the FactBox host the landing ends only as measured: the Close after the Value SetValue passes, flagged; Next as the first
 /// move (with a row before and on an empty view), Previous or Close with no SetValue since, a GoToRecord, a second SetValue on
-/// Name and a SetValue on the part are refused at that call (main refuses each of them at the landing). Two rows before the
-/// line keep main's refusal.
+/// Name and a SetValue on the part are refused at that call (main refuses each of them at the landing). On the empty view after
+/// Previous() answered false only Next() goes on (ListNewLineSaveRecordUpdate.al:683); a second Previous, a SetValue, New() and
+/// Close() are refused. So are a SetValue of the value the row holds, and Close() in the handler of Page.RunModal (BC raises
+/// there). Two rows before the line, and a read of the part before New(), keep main's refusal.
 #[test]
 fn issue_8285_factbox_host_leaves_the_row_only_as_measured() {
     use al_builtins::assumptions::Assumption::ListNewLineCodeInsertSave;
@@ -528,6 +541,12 @@ fn issue_8285_factbox_host_leaves_the_row_only_as_measured() {
         "Host_RowBefore_GoToRecord",
         "Host_RowBefore_SecondNameSetValue",
         "Host_RowBefore_PartWrite",
+        "Host_EmptyView_PreviousThenPrevious",
+        "Host_EmptyView_PreviousThenSetValue",
+        "Host_EmptyView_PreviousThenNew",
+        "Host_EmptyView_PreviousThenClose",
+        "Host_RowBefore_SameValueThenClose",
+        "Host_RunModal_RowBefore_HandlerClose",
     ] {
         let (_, r, _) = find(name);
         assert!(
@@ -535,6 +554,16 @@ fn issue_8285_factbox_host_leaves_the_row_only_as_measured() {
             "{name}: {r:?}"
         );
     }
+    let (_, r, marks) = find("Host_EmptyView_PreviousThenNext");
+    assert!(
+        *r == Outcome::Pass && marks.contains(&ListNewLineCodeInsertSave),
+        "{r:?} {marks:?}"
+    );
+    let (_, r, marks) = find("Host_PartReadBeforeNew");
+    assert!(
+        matches!(r, Outcome::NotRun(w) if w.contains(MAIN_8186_REFUSAL)) && !marks.contains(&ListNewLineCodeInsertSave),
+        "{r:?} {marks:?}"
+    );
     let o = issue_8285_neighbor_outcomes("LT NS Host Rows Tests", same, same);
     let (_, r, marks) = &o[0];
     assert!(

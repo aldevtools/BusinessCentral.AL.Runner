@@ -11,8 +11,8 @@
 //   page with the five row triggers and AutoSplitKey, and a page without page triggers, each opened with OpenEdit on an empty
 //   view and on a view with one row before, and with Page.RunModal on a record filtered to one group (a row of another group
 //   outside the view); a page with OnAfterGetRecord only and one CardPart FactBox without triggers linked to the line's key
-//   (SaveRecord then Update(false) only), opened the same three ways.
-//   Measured on a local BC 29.1 OnPrem w1 container; BC 27.5 and 28.5 are left to CI.
+//   (SaveRecord then Update(false) only), opened the same three ways; then Close() or OK() after the Value SetValue (Close() in a
+//   modal handler raises on BC: not under RunModal). Measured on a local BC 29.1 OnPrem w1 container; green in CI on 27, 28, 29.
 // BC versions: 27, 28, 29
 
 table 97470 "LT NS Line"
@@ -823,6 +823,53 @@ codeunit 97477 "LT NS Tests"
             ' | rows1=G0:O/,G1:X/, | setvalue= | shown2=X/V | part2=X/ | rows2=G0:O/,G1:X/,' +
             ' | close=T.M(X/V); | rows3=G0:O/,G1:X/V,');
         Opener.Open(Page::"LT NS Lines Part", 'G1');
+        Closed();
+    end;
+
+
+    [Test]
+    procedure ListNewLine_PartHost_SaveRecordUpdateFalse_EmptyView_CloseSavesTheValue()
+    var
+        Lines: TestPage "LT NS Lines Part";
+    begin
+        Initialize(false, false, '', true);
+        CloseAfterValue := true;
+        Expect('open= | new= | setname=T.V(X);T.I(X);T.M(X/);P.AGR(X/); | shown=X/ | part=X/ | rows1=:X/,' +
+            ' | setvalue= | shown2=X/V | part2=X/ | rows2=:X/, | close=T.M(X/V); | rows3=:X/V,');
+        Lines.OpenEdit();
+        DrivePart(Lines);
+        Lines.Close();
+        Closed();
+    end;
+
+    [Test]
+    procedure ListNewLine_PartHost_SaveRecordUpdateFalse_RowBefore_OkSavesTheValue()
+    var
+        Lines: TestPage "LT NS Lines Part";
+    begin
+        Initialize(false, true, '', true);
+        CloseAfterValue := true;
+        Expect('open=P.AGR(A/); | new= | setname=T.V(X);T.I(X);T.M(X/);P.AGR(X/);P.AGR(A/); | shown=X/' +
+            ' | part=X/ | rows1=:A/,:X/, | setvalue= | shown2=X/V | part2=X/ | rows2=:A/,:X/,' +
+            ' | close=P.AGR(X/);T.M(X/V); | rows3=:A/,:X/V,');
+        Lines.OpenEdit();
+        DrivePart(Lines);
+        Lines.OK().Invoke();
+        Closed();
+    end;
+
+    [Test]
+    procedure ListNewLine_PartHost_SaveRecordUpdateFalse_EmptyView_OkSavesTheValue()
+    var
+        Lines: TestPage "LT NS Lines Part";
+    begin
+        Initialize(false, false, '', true);
+        CloseAfterValue := true;
+        Expect('open= | new= | setname=T.V(X);T.I(X);T.M(X/);P.AGR(X/); | shown=X/ | part=X/ | rows1=:X/,' +
+            ' | setvalue= | shown2=X/V | part2=X/ | rows2=:X/, | close=T.M(X/V); | rows3=:X/V,');
+        Lines.OpenEdit();
+        DrivePart(Lines);
+        Lines.OK().Invoke();
         Closed();
     end;
 

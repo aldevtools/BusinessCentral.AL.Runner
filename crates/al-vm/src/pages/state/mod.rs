@@ -123,6 +123,27 @@ pub struct CodeInsertedRow {
     pub factbox: FactboxStep,
 }
 
+/// The calls of the validation that left a new line for its row by `CurrPage.SaveRecord` or `CurrPage.Update(true)`
+/// (`code_inserted_new_line.rs`): what may follow, and the page's record and the store as the save left them, which must stay so.
+#[derive(Debug, Clone, Default)]
+pub enum CodeInsertedSave {
+    #[default]
+    Off,
+    /// The page left the line; its save runs now. `asked`: the call was `Update(true)`, which asks the refresh itself.
+    Pending { asked: bool },
+    /// `SaveRecord` saved: the `CurrPage.Update(false)` after it asks the refresh.
+    Saved(Box<SavedView>),
+    /// The refresh is asked: no further `CurrPage.Update` or `SaveRecord` in the validation.
+    Asked(Box<SavedView>),
+}
+
+/// The page's record and the store's write mark right after the save of `CodeInsertedSave`.
+#[derive(Debug, Clone)]
+pub struct SavedView {
+    pub rec: RecordState,
+    pub writes: (i64, u64),
+}
+
 /// The calls measured on the FactBox host after the page left its new line for the row (`code_inserted_new_line.rs`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FactboxStep {
@@ -135,6 +156,8 @@ pub enum FactboxStep {
     Typed,
     /// After `OK()`: its `Invoke`.
     OkAsked,
+    /// `Previous()` on the empty view's only row answered false: reads, then `Next()`.
+    PreviousNo,
 }
 
 /// Where the test client's cursor stands on a page (ADR-012).
@@ -939,9 +962,9 @@ pub struct PageState {
     pub refresh_from_code_inserted_line: bool,
     /// The row the page left its new line for, until the next move (`code_inserted_new_line.rs`).
     pub code_inserted_row: Option<CodeInsertedRow>,
-    /// `CurrPage.SaveRecord` left such a new line for its row inside the validation running now; the `CurrPage.Update(false)` it
-    /// awaits asks the refresh (`code_inserted_new_line.rs`).
-    pub code_inserted_saved: bool,
+    /// Where the validation running now stands after `CurrPage.SaveRecord` or `CurrPage.Update(true)` left such a new line for its
+    /// row (`code_inserted_new_line.rs`).
+    pub code_inserted_save: CodeInsertedSave,
     /// The store's write mark (`Session::write_mark`) when the page control's own OnValidate began, while it runs
     /// (`code_inserted_new_line.rs` `run_control_onvalidate`).
     pub control_onvalidate_writes: Option<(i64, u64)>,
@@ -1121,7 +1144,7 @@ impl PageState {
     pub(crate) fn forget_code_inserted_line(&mut self) {
         self.refresh_from_code_inserted_line = false;
         self.code_inserted_row = None;
-        self.code_inserted_saved = false;
+        self.code_inserted_save = CodeInsertedSave::Off;
     }
 
     /// The page opens: the captions its controls and fields resolved on the last run are gone.

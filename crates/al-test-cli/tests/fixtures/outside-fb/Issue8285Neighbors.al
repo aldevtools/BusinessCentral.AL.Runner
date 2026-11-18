@@ -54,6 +54,50 @@ page 97480 "LT NS Calls"
                                     CurrPage.SaveRecord();
                                     CurrPage.Close();
                                 end;
+                            7:
+                                begin
+                                    CurrPage.SaveRecord();
+                                    Rec.SetRange(Name, 'A1');
+                                    CurrPage.Update(false);
+                                end;
+                            8:
+                                begin
+                                    CurrPage.SaveRecord();
+                                    InsertRowAfter();
+                                    CurrPage.Update(false);
+                                end;
+                            9:
+                                begin
+                                    CurrPage.SaveRecord();
+                                    CurrPage.Update(false);
+                                    CurrPage.SaveRecord();
+                                end;
+                            10:
+                                begin
+                                    CurrPage.SaveRecord();
+                                    CurrPage.Update(false);
+                                    CurrPage.Update();
+                                end;
+                            11:
+                                begin
+                                    CurrPage.Update(true);
+                                    CurrPage.Update(false);
+                                end;
+                            12:
+                                begin
+                                    CurrPage.Update(true);
+                                    CurrPage.SaveRecord();
+                                end;
+                            13:
+                                begin
+                                    CurrPage.Update(true);
+                                    Rec.SetRange(Name, 'A1');
+                                end;
+                            14:
+                                begin
+                                    CurrPage.Update(true);
+                                    InsertRowAfter();
+                                end;
                         end;
                     end;
                 }
@@ -61,6 +105,16 @@ page 97480 "LT NS Calls"
             }
         }
     }
+
+    local procedure InsertRowAfter()
+    var
+        Other: Record "LT NS Line";
+    begin
+        Other.Init();
+        Other."Entry No." := 0;
+        Other.Name := 'Z';
+        Other.Insert();
+    end;
 
     var
         Mode: Codeunit "LT NS Mode";
@@ -282,6 +336,54 @@ codeunit 97484 "LT NS Neighbor Tests"
     end;
 
     [Test]
+    procedure SaveRecordFilterUpdateFalse()
+    begin
+        DriveCalls(7);
+    end;
+
+    [Test]
+    procedure SaveRecordInsertUpdateFalse()
+    begin
+        DriveCalls(8);
+    end;
+
+    [Test]
+    procedure SaveRecordUpdateFalseSaveRecord()
+    begin
+        DriveCalls(9);
+    end;
+
+    [Test]
+    procedure SaveRecordUpdateFalseUpdate()
+    begin
+        DriveCalls(10);
+    end;
+
+    [Test]
+    procedure UpdateTrueUpdateFalse()
+    begin
+        DriveCalls(11);
+    end;
+
+    [Test]
+    procedure UpdateTrueSaveRecord()
+    begin
+        DriveCalls(12);
+    end;
+
+    [Test]
+    procedure UpdateTrueFilter()
+    begin
+        DriveCalls(13);
+    end;
+
+    [Test]
+    procedure UpdateTrueInsert()
+    begin
+        DriveCalls(14);
+    end;
+
+    [Test]
     procedure UpdateTrueWithoutAutoSplitKey()
     var
         Lines: TestPage "LT NS Lines No Split";
@@ -447,6 +549,124 @@ codeunit 97485 "LT NS Host Neighbor Tests"
         Lines.New();
         Lines.Name.SetValue('X');
         Lines.Peek.Value.SetValue('P');
+    end;
+
+    [Test]
+    procedure Host_EmptyView_PreviousThenPrevious()
+    var
+        Lines: TestPage "LT NS Host";
+    begin
+        Initialize(0, 0);
+        Lines.OpenEdit();
+        Lines.New();
+        Lines.Name.SetValue('X');
+        Lines.Value.SetValue('V');
+        Lines.Previous();
+        Lines.Previous();
+    end;
+
+    [Test]
+    procedure Host_EmptyView_PreviousThenSetValue()
+    var
+        Lines: TestPage "LT NS Host";
+    begin
+        Initialize(0, 0);
+        Lines.OpenEdit();
+        Lines.New();
+        Lines.Name.SetValue('X');
+        Lines.Value.SetValue('V');
+        Lines.Previous();
+        Lines.Value.SetValue('W');
+    end;
+
+    [Test]
+    procedure Host_EmptyView_PreviousThenNew()
+    var
+        Lines: TestPage "LT NS Host";
+    begin
+        Initialize(0, 0);
+        Lines.OpenEdit();
+        Lines.New();
+        Lines.Name.SetValue('X');
+        Lines.Value.SetValue('V');
+        Lines.Previous();
+        Lines.New();
+    end;
+
+    [Test]
+    procedure Host_EmptyView_PreviousThenClose()
+    var
+        Lines: TestPage "LT NS Host";
+    begin
+        Initialize(0, 0);
+        Lines.OpenEdit();
+        Lines.New();
+        Lines.Name.SetValue('X');
+        Lines.Value.SetValue('V');
+        Lines.Previous();
+        Lines.Close();
+    end;
+
+    [Test]
+    procedure Host_EmptyView_PreviousThenNext()
+    var
+        Lines: TestPage "LT NS Host";
+    begin
+        Initialize(0, 0);
+        Lines.OpenEdit();
+        Lines.New();
+        Lines.Name.SetValue('X');
+        Lines.Value.SetValue('V');
+        Lines.Previous();
+        Lines.Next();
+        Lines.Close();
+        CheckRows('X/V,');
+    end;
+
+    [Test]
+    procedure Host_PartReadBeforeNew()
+    var
+        Lines: TestPage "LT NS Host";
+    begin
+        Initialize(1, 0);
+        Lines.OpenEdit();
+        Lines.Peek.Value.Value();
+        Lines.New();
+        Lines.Name.SetValue('X');
+        Lines.Value.SetValue('V');
+        Lines.Close();
+    end;
+
+    [Test]
+    procedure Host_RowBefore_SameValueThenClose()
+    var
+        Lines: TestPage "LT NS Host";
+    begin
+        Initialize(1, 0);
+        Lines.OpenEdit();
+        Lines.New();
+        Lines.Name.SetValue('X');
+        Lines.Value.SetValue('');
+        Lines.Close();
+    end;
+
+    [Test]
+    [HandlerFunctions('HostCloseHandler')]
+    procedure Host_RunModal_RowBefore_HandlerClose()
+    var
+        Opener: Codeunit "LT NS Opener";
+    begin
+        Initialize(1, 0);
+        Opener.Open(Page::"LT NS Host", '');
+    end;
+
+    [ModalPageHandler]
+    procedure HostCloseHandler(var Lines: TestPage "LT NS Host")
+    begin
+        Lines.New();
+        Lines.Name.SetValue('X');
+        Lines.Value.SetValue('V');
+        Lines.Close();
     end;
 }
 
