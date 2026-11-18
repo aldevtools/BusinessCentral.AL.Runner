@@ -1024,6 +1024,84 @@ fn run_license(
     Ok(l)
 }
 
+/// The runs of a server request's entries (al-runner issue 5635): each entry's test codeunits, its selected tests when
+/// it runs only those, its hooks (its test lines carry its index) and its resource texts.
+fn entry_runs(
+    a: &TestArgs,
+    w: &WarmCtx,
+    entry_selections: &[Selection],
+    found: &[Found],
+    inputs: &[AppInput],
+    request_hooks: &al_testrun::events::Hooks,
+) -> Vec<al_testrun::runtime::EntryRun> {
+    let cfg = a.capture;
+    let paths: Vec<PathBuf> = inputs.iter().map(|i| i.path.clone()).collect();
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let next_loop = Arc::new(std::sync::atomic::AtomicU32::new(0));
+    w.entries
+        .iter()
+        .zip(entry_selections)
+        .enumerate()
+        .map(|(k, (e, sel))| {
+            let units: Vec<(usize, u32)> = {
+                let mut v: Vec<(usize, u32)> = found
+                    .iter()
+                    .filter(|f| f.tests.iter().any(|t| sel.picks(f.id, t)))
+                    .map(|f| (f.app, f.id))
+                    .collect();
+                v.sort_unstable();
+                v.dedup();
+                v
+            };
+            // An entry that selects exactly one test runs that test alone, on a session of its own, as one
+            // runner call per method does in BC (issue 7207; BC 28.4 measured by the reporter): the siblings that
+            // would run first do not leave their WorkDate or other state behind. Entries are not in v2, so the
+            // "selection runs whole codeunits" rule of the plain `test` field stays as it is.
+            let picked: std::collections::BTreeSet<(u32, String)> = found
+                .iter()
+                .flat_map(|f| f.tests.iter().map(move |t| (f.id, t)))
+                .filter(|(id, t)| sel.picks(*id, t))
+                .map(|(id, t)| (id, t.to_lowercase()))
+                .collect();
+            let single_method = picked.len() == 1 && sel.active() && !a.execute;
+            let run_only = ((a.run_selected_only && sel.active()) || single_method).then(|| Arc::new(picked));
+            let resources = e.resources_in(
+                &inputs
+                    .iter()
+                    .map(|i| i.manifest.resources.as_slice())
+                    .collect::<Vec<_>>(),
+            );
+            let pick = sel.clone();
+            let forward = w.on_test.clone();
+            let (paths, cwd, next_loop) = (paths.clone(), cwd.clone(), next_loop.clone());
+            al_testrun::runtime::EntryRun {
+                only: Some(units),
+                run_only,
+                hooks: al_testrun::events::Hooks {
+                    on_test: forward.map(|f| {
+                        Arc::new(move |mut e: al_testrun::events::TestEvent| {
+                            if pick.picks(e.codeunit, &e.test) {
+                                e.entry = Some(k);
+                                let json = e.captured.as_ref().map(|c| {
+                                    let base = next_loop
+                                        .fetch_add(c.captured.loops.len() as u32, std::sync::atomic::Ordering::SeqCst);
+                                    capture::json(c, cfg, base, &|app: usize, file: &str| {
+                                        coverage::label(&paths[app], file, &cwd)
+                                    })
+                                });
+                                f(e, json)
+                            }
+                        }) as Arc<dyn Fn(al_testrun::events::TestEvent) + Send + Sync>
+                    }),
+                    ..request_hooks.clone()
+                },
+                resources,
+                test_time_limit: e.test_timeout_secs.map(time_limit),
+            }
+        })
+        .collect()
+}
+
 fn test_inner(
     a: &TestArgs,
     mut warm: Option<&mut WarmCtx>,
@@ -1580,6 +1658,7 @@ fn test_inner(
         .chain(a.defines.iter().cloned())
         .collect();
 
+    laps.lap(Part::Prepare);
     let (sidecar_cfg, renderer) = crate::service_tier::sidecar_and_renderer(
         a,
         dependencies.build.as_ref(),
@@ -1626,6 +1705,7 @@ fn test_inner(
     }
     let mut dotnet = al_testrun::dotnet::sidecar_config(host);
     crate::service_tier::set_renderer(&mut dotnet, renderer, a);
+    laps.lap(Part::DotNet);
     // `--affected` (ADR-050): the stored result of the last run, and the callback that narrows this one.
     let affected = if a.affected && collect.is_none() {
         Some(crate::affected::Affected::prepare(
@@ -1637,6 +1717,7 @@ fn test_inner(
     } else {
         None
     };
+    laps.lap(Part::Affected);
     let hooks = match warm.as_deref() {
         Some(w) => {
             let pick = selection.clone();
@@ -1771,76 +1852,11 @@ fn test_inner(
         // Left at their defaults: `single_fresh_check` (set per variant in stability mode, ADR-058 amendment 1), `perturb`, `check_baseline_rule`.
         ..Default::default()
     };
+    laps.lap(Part::Prepare);
     if let Some(w) = warm.as_deref() {
-        let cfg = a.capture;
-        let paths: Vec<PathBuf> = inputs.iter().map(|i| i.path.clone()).collect();
-        let cwd = std::env::current_dir().unwrap_or_default();
-        let next_loop = Arc::new(std::sync::atomic::AtomicU32::new(0));
-        opts.entries = entries
-            .iter()
-            .zip(&entry_selections)
-            .enumerate()
-            .map(|(k, (e, sel))| {
-                let units: Vec<(usize, u32)> = {
-                    let mut v: Vec<(usize, u32)> = found
-                        .iter()
-                        .filter(|f| f.tests.iter().any(|t| sel.picks(f.id, t)))
-                        .map(|f| (f.app, f.id))
-                        .collect();
-                    v.sort_unstable();
-                    v.dedup();
-                    v
-                };
-                // An entry that selects exactly one test runs that test alone, on a session of its own, as one
-                // runner call per method does in BC (issue 7207; BC 28.4 measured by the reporter): the siblings that
-                // would run first do not leave their WorkDate or other state behind. Entries are not in v2, so the
-                // "selection runs whole codeunits" rule of the plain `test` field stays as it is.
-                let picked: std::collections::BTreeSet<(u32, String)> = found
-                    .iter()
-                    .flat_map(|f| f.tests.iter().map(move |t| (f.id, t)))
-                    .filter(|(id, t)| sel.picks(*id, t))
-                    .map(|(id, t)| (id, t.to_lowercase()))
-                    .collect();
-                let single_method = picked.len() == 1 && sel.active() && !a.execute;
-                let run_only = ((a.run_selected_only && sel.active()) || single_method).then(|| Arc::new(picked));
-                let resources = e.resources_in(
-                    &inputs
-                        .iter()
-                        .map(|i| i.manifest.resources.as_slice())
-                        .collect::<Vec<_>>(),
-                );
-                let pick = sel.clone();
-                let forward = w.on_test.clone();
-                let (paths, cwd, next_loop) = (paths.clone(), cwd.clone(), next_loop.clone());
-                al_testrun::runtime::EntryRun {
-                    only: Some(units),
-                    run_only,
-                    hooks: al_testrun::events::Hooks {
-                        on_test: forward.map(|f| {
-                            Arc::new(move |mut e: al_testrun::events::TestEvent| {
-                                if pick.picks(e.codeunit, &e.test) {
-                                    e.entry = Some(k);
-                                    let json = e.captured.as_ref().map(|c| {
-                                        let base = next_loop.fetch_add(
-                                            c.captured.loops.len() as u32,
-                                            std::sync::atomic::Ordering::SeqCst,
-                                        );
-                                        capture::json(c, cfg, base, &|app: usize, file: &str| {
-                                            coverage::label(&paths[app], file, &cwd)
-                                        })
-                                    });
-                                    f(e, json)
-                                }
-                            }) as Arc<dyn Fn(al_testrun::events::TestEvent) + Send + Sync>
-                        }),
-                        ..opts.hooks.clone()
-                    },
-                    resources,
-                    test_time_limit: e.test_timeout_secs.map(time_limit),
-                }
-            })
-            .collect();
+        opts.entries = entry_runs(a, w, &entry_selections, &found, &inputs, &opts.hooks);
     }
+    laps.lap(Part::Entries);
     let setup = laps.finish();
     // A scratch run has a run of its own for every app; a test run has one for all of them.
     let suites: Vec<SuiteRun> = if a.execute {

@@ -232,8 +232,10 @@ Differences a client must adapt to:
    the server address, the output paths), `sourcesMs` (reading the apps' `app.json` and source files), `selectionMs`
    (finding the test codeunits, the disabled tests and test suites, the request's and its entries' selection),
    `dependenciesMs` (the target build and the dependency apps, read or kept), `testDataMs` (opening the test data),
-   `licenseMs` (the license: a file, the artifact's, or kept) and `prepareMs` (the rest before the compile: the .NET
-   helpers, `affectedOnly`, the run's options and its entries). `--timings` prints the same parts as its `setup:` line.
+   `licenseMs` (the license: a file, the artifact's, or kept), `dotnetMs` (the .NET helpers: their configuration and
+   starting them ahead), `affectedMs` (`affectedOnly`: the stored result and the hashes of the inputs), `entriesMs`
+   (building the runs of the entries) and `prepareMs` (the rest before the compile: the dependency notes, the hooks and
+   the run's options). `--timings` prints the same parts as its `setup:` line.
    `engineKept: true` when the request ran on the engines an earlier request over the same compile kept. Without
    `entries`, `resetMs` is the time the test threads took to set up their own copy of the install baseline (the
    longest of them; 0 with one thread). With `entries`, each `entrySummary` has `timings` with that entry's `resetMs`

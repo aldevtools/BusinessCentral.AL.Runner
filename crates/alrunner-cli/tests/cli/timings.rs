@@ -33,6 +33,9 @@ fn timings_split_the_setup_into_its_parts() {
             "dependencies",
             "test data",
             "license",
+            "dotnet",
+            "affected",
+            "entries",
             "prepare"
         ],
         "{line}"

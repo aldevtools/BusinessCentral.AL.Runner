@@ -1835,13 +1835,16 @@ codeunit 50701 \"Seeding Install\" { Subtype = Install;
 }
 
 /// The parts of `setupMs` in a summary's `timings.setupParts` (al-runner issue 8205).
-const SETUP_PARTS: [&str; 7] = [
+const SETUP_PARTS: [&str; 10] = [
     "optionsMs",
     "sourcesMs",
     "selectionMs",
     "dependenciesMs",
     "testDataMs",
     "licenseMs",
+    "dotnetMs",
+    "affectedMs",
+    "entriesMs",
     "prepareMs",
 ];
 

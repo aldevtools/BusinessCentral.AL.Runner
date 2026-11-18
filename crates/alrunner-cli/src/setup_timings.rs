@@ -20,18 +20,27 @@ pub enum Part {
     TestData,
     /// The license of the run (a file, the artifact's, or kept by a server).
     License,
-    /// The rest before the compile: the .NET helpers, `--affected`, the run options and the entries' runs.
+    /// The .NET helpers: their configuration, whether the tests look free of data, starting the helpers ahead.
+    DotNet,
+    /// `--affected` and serve `affectedOnly` (ADR-050): reading the stored result and hashing the run's inputs.
+    Affected,
+    /// The runs of a server request's entries (`run.rs` `entry_runs`).
+    Entries,
+    /// The rest before the compile: the dependency notes, `--verbose`'s setup lines, the hooks and the run options.
     Prepare,
 }
 
 /// The parts in their order, with the name of each in the `setup:` line and in `setupParts`.
-const PARTS: [(Part, &str, &str); 7] = [
+const PARTS: [(Part, &str, &str); 10] = [
     (Part::Options, "options", "optionsMs"),
     (Part::Sources, "sources", "sourcesMs"),
     (Part::Selection, "selection", "selectionMs"),
     (Part::Dependencies, "dependencies", "dependenciesMs"),
     (Part::TestData, "test data", "testDataMs"),
     (Part::License, "license", "licenseMs"),
+    (Part::DotNet, "dotnet", "dotnetMs"),
+    (Part::Affected, "affected", "affectedMs"),
+    (Part::Entries, "entries", "entriesMs"),
     (Part::Prepare, "prepare", "prepareMs"),
 ];
 
@@ -131,7 +140,7 @@ mod tests {
         assert_eq!(
             parts.line(),
             "setup: options 0.00 s, sources 0.00 s, selection 0.00 s, dependencies 0.00 s, test data 0.00 s, \
-             license 0.00 s, prepare 0.00 s"
+             license 0.00 s, dotnet 0.00 s, affected 0.00 s, entries 0.00 s, prepare 0.00 s"
         );
         let keys: Vec<&str> = parts.keyed().map(|(k, _)| k).collect();
         assert_eq!(
@@ -143,6 +152,9 @@ mod tests {
                 "dependenciesMs",
                 "testDataMs",
                 "licenseMs",
+                "dotnetMs",
+                "affectedMs",
+                "entriesMs",
                 "prepareMs"
             ]
         );
