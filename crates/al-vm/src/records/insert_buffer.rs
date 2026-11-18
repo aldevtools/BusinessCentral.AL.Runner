@@ -15,7 +15,13 @@
 //!   counted, sends nothing and raises nothing here. Its duplicate key stays pending as before the queue (an XmlPort import:
 //!   xmlports/import/XpTImportBasic.al Import_DuplicateKeyExisting, Import_DuplicateKeyWithinInput);
 //! - a valid row that sends the queue while a duplicate is pending (`K1, K2, K1, K3, K4`): in every measured cell the Insert
-//!   that sends the queue is itself a duplicate. Whether the valid row stays written is not known: refused.
+//!   that sends the queue is itself a duplicate. Whether the valid row stays written is not known: refused;
+//! - an `asserterror` body that ends, or is left by a jump, exit, break or continue, without an error while an Insert error is
+//!   deferred (al-runner issue 8267). The slot holds a duplicate key or a Date or DateTime its SQL column cannot hold
+//!   (`sql_range.rs` `insert_sql_range`). In every measured cell the deferred error comes out inside the body: a duplicate at a
+//!   read of the table (Y7407DuplicateInsertBuffer.al:98-105, :386) or at the Insert that sends the queue (:277, :301); the
+//!   SQL-range kind at a read or a Commit, and every body of record/filters/SqlDateFloor1753.al ends in Error(). Whether the
+//!   leave of the body sends it, so that the asserterror catches it, is not known: refused (`refuse_pending_at_assert_end`).
 
 use super::*;
 use crate::state::WriteOfAl;
@@ -101,6 +107,20 @@ impl Session {
     pub(super) fn defer_insert(&mut self, rec: &Rec, object: u32, e: AlError) {
         self.tx.deferred_insert.get_or_insert((object as usize, e));
         self.tx.deferred_by = Some(Rc::as_ptr(rec) as usize);
+    }
+
+    /// Every leave of an `asserterror` body without an error (`op_assert`): an Insert error still deferred here (a duplicate key,
+    /// or a value its SQL column cannot hold) is refused. In every measured cell it comes out inside the body
+    /// (Y7407DuplicateInsertBuffer.al:98-105, :277, :301, :386; record/filters/SqlDateFloor1753.al, whose bodies end in Error()).
+    /// No cell leaves the body with it deferred.
+    pub(crate) fn refuse_pending_at_assert_end(&self) -> Result<(), Signal> {
+        match &self.tx.deferred_insert {
+            Some((t, _)) => unsupported(format!(
+                "an asserterror whose body ends or is left without an error while the error of an Insert into {} is deferred (a duplicate key, or a value its SQL column cannot hold): whether the asserterror catches it is not pinned (docs/probes-needed.md)",
+                self.engine.program.objects[*t].name
+            )),
+            None => Ok(()),
+        }
     }
 
     /// Whether an unguarded Insert of AL code into `rec`'s table is queued by the platform: a database table without a Blob or

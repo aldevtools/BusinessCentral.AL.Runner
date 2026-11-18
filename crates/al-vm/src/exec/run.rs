@@ -476,19 +476,26 @@ impl Session {
         }
     }
 
-    /// `asserterror`: runs the body `pc..stop`; returns where the code goes on.
+    /// `asserterror`: runs the body `pc..stop`; returns where the code goes on. Every leave of the body without an error (its end,
+    /// a jump, exit, break, continue) passes `refuse_pending_at_assert_end`.
     #[inline(never)]
     fn op_assert(&mut self, chunk: &Chunk, f: &mut Frame, pc: usize, stop: usize, from: u16) -> Result<usize, Signal> {
         let nl = chunk.nlocals;
         let open = self.cap_stmt_depth();
         match self.run_range::<true>(chunk, f, pc, stop) {
-            Ok(at) if at == stop => Err(Signal::Error(Box::new(al_builtins::native::AlError {
-                message: "An error was expected inside an ASSERTERROR statement.".into(),
-                code: "AssertError".into(),
-                call_stack: String::new(),
-                ..Default::default()
-            }))),
-            Ok(at) => Ok(at),
+            Ok(at) if at == stop => {
+                self.refuse_pending_at_assert_end()?;
+                Err(Signal::Error(Box::new(al_builtins::native::AlError {
+                    message: "An error was expected inside an ASSERTERROR statement.".into(),
+                    code: "AssertError".into(),
+                    call_stack: String::new(),
+                    ..Default::default()
+                })))
+            }
+            Ok(at) => {
+                self.refuse_pending_at_assert_end()?;
+                Ok(at)
+            }
             Err(Signal::Error(mut e)) => {
                 self.guarded_bodies_leave_pin();
                 self.trapped_error_rollback(&e, crate::records::TrappedRollback::AssertError)?;
@@ -501,6 +508,10 @@ impl Session {
                     f.locals[r] = Value::Null;
                 }
                 Ok(stop)
+            }
+            Err(leave @ (Signal::Exit(_) | Signal::Break | Signal::Continue)) => {
+                self.refuse_pending_at_assert_end()?;
+                Err(leave)
             }
             Err(other) => Err(other),
         }
