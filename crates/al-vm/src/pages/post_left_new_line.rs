@@ -320,7 +320,8 @@ impl Session {
         });
     }
 
-    /// Whether nothing was written to the store and nothing bound or unbound since the open ended as `end` says.
+    /// Whether nothing was written to the store since the open ended as `end` says, and the bound subscriber instances now equal
+    /// those at the end of the open, in the same order.
     fn unchanged_since_open(&mut self, end: &OpenEnd) -> bool {
         self.events.bindings.retain(|b| b.instance.strong_count() > 0);
         let now = &self.events.bindings;
@@ -340,7 +341,8 @@ impl Session {
     ///   record's `SetRange`, :296), nothing else;
     /// - the view holds one to three rows, the lines i * 10000 of batch B1 with Quantity 300 (:282-288);
     /// - the list holds them all and Rec stands on the first (:297 `FindFirst`; OpenEdit opens on it);
-    /// - nothing was written to the store and nothing bound or unbound since the open ended (:319-332);
+    /// - nothing was written to the store since the open ended, and the bound subscriber instances at Post equal those at the end
+    ///   of the open (:319-332);
     /// - a Page.Run cell got the record as InsertLines leaves it (`handed_as_inserted`), an OpenEdit cell got none.
     pub(super) fn new_line_post_start(
         &mut self,
