@@ -647,6 +647,7 @@ mod test_handlers;
 #[cfg(test)]
 mod tests;
 mod tys;
+mod var_option_arg;
 mod with_events;
 
 /// What the lowering does with a `CreateInStream` call that creates a handed-back InStream on a local of the routine.

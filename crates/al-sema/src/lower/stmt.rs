@@ -1036,12 +1036,7 @@ impl Lowerer<'_> {
             [] => Ok(ir::Stmt::Continue),
             [(offset, declared_in, true)] if *declared_in == self.oi => {
                 let routine = self.routine_at.get(&(self.oi, *offset)).ok_or("procedure not found")?;
-                let try_call = self
-                    .routine_nodes
-                    .get(self.oi)
-                    .get(routine)
-                    .is_some_and(|r| r.attributes().any(|a| a.name().eq_ignore_ascii_case("tryfunction")));
-                if try_call {
+                if self.routine_has_attribute(self.oi, routine, &["tryfunction"]) {
                     return Err("`continue;` with a TryFunction named Continue (not pinned)".into());
                 }
                 self.declared_in_both_proc(self.oi, *offset)?;
@@ -1487,11 +1482,7 @@ impl Lowerer<'_> {
                     let value = self.expr(&kids[1])?;
                     let value = self.convert_to(&params[0].ty, self.ty_ref(&kids[1]), value)?;
                     self.calls.push((self.oi, routine));
-                    let try_call = self
-                        .routine_nodes
-                        .get(self.oi)
-                        .get(routine)
-                        .is_some_and(|r| r.attributes().any(|a| a.name().eq_ignore_ascii_case("tryfunction")));
+                    let try_call = self.routine_has_attribute(self.oi, routine, &["tryfunction"]);
                     return Ok(ir::Stmt::Expr(ir::Expr::Call {
                         object: self.oi,
                         routine,

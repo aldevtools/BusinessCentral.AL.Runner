@@ -377,11 +377,7 @@ impl Lowerer<'_> {
                     None => return Err("implicit calls into another object are not lowered yet".into()),
                 };
                 // The routine node is the one `routine_at` numbered, so no search by offset.
-                let try_call = self
-                    .routine_nodes
-                    .get(object)
-                    .get(routine)
-                    .is_some_and(|r| r.attributes().any(|a| a.name().eq_ignore_ascii_case("tryfunction")));
+                let try_call = self.routine_has_attribute(object, routine, &["tryfunction"]);
                 let receiver_kind = match &receiver_node {
                     Some(r) if instance.is_some() => match self.ty_of(r) {
                         Ty::Object(k, _) => Some(k),
@@ -399,6 +395,9 @@ impl Lowerer<'_> {
                     }
                     if p.by_var {
                         let arg = self.by_var_arg(a)?;
+                        if let Some(why) = self.var_option_arg_refusal(object, routine, &p.ty, a, &arg) {
+                            return Ok(ir::Expr::Refused(format!("call `{}`: {why}", node.text())));
+                        }
                         // A `var` Text or Code parameter handed on to another `var` parameter keeps the declared length of the
                         // first caller's variable or field (text/text-methods/MaxStrLen.Codeunit.al:146-170,
                         // PYC_MaxStrLen_VarParameterHops; to an event's subscribers too, :172-201): the routine takes the

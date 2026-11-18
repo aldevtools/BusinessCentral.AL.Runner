@@ -1126,6 +1126,14 @@ impl Session {
                 }
             }
         }
+        // A local or global Option variable has its own members again (`var_option::written_back`).
+        let v = match p {
+            ir::Place::Local(_) | ir::Place::Global(_) => {
+                let ty = self.place_type(p, f);
+                crate::var_option::written_back(&v, &ty, || self.read(p, f).ok()).unwrap_or(v)
+            }
+            _ => v,
+        };
         // A `var Text` parameter can stand for a variable of a declared length.
         let v = self.rendered_into_place(p, v, f)?;
         self.write(p, v, f)
@@ -1840,7 +1848,12 @@ impl Session {
                     }
                     Err(e) => return Err(e),
                 };
-                arr.borrow_mut()[flat] = ops::convert(v, &el_ty)?;
+                // An element of a caller's array of Options keeps the caller's members (`var_option::element_store`).
+                let kept = crate::var_option::element_store(&v, &el_ty, &arr.borrow()[flat]);
+                arr.borrow_mut()[flat] = match kept {
+                    Some(v) => v,
+                    None => ops::convert(v, &el_ty)?,
+                };
             }
             ir::Place::Field(..) => unreachable!("handled above"),
         }

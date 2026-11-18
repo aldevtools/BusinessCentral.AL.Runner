@@ -173,6 +173,7 @@ mod user_account_keys;
 mod user_email;
 mod user_password;
 mod usertable;
+mod var_option;
 mod variant_copy;
 mod view_empty;
 mod view_unknown;
@@ -2611,6 +2612,8 @@ impl Session {
                 // An event argument the platform leaves unknown (RequestPageXml of SubstituteReport for an Html SaveAs, reports.rs)
                 // is passed on by value as it is: a routine that never reads it runs, a read is refused where it happens.
                 (a @ Value::Unknown(_), false) => a,
+                // A `var` Option parameter with another member list than the value (`var_option`).
+                (a, true) if let Some(v) = crate::var_option::var_binding(&a, &r.locals[i].ty, subscriber) => v?,
                 (a, _) => ops::convert_plain(a, &r.locals[i].ty)?,
             };
             locals[i] = self.bind_blobs(argument, bound)?;

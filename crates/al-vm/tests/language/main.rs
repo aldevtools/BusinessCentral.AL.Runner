@@ -248,6 +248,7 @@ mod user_gaps_evaluate;
 mod user_gaps_round_duration;
 mod var_attribute_refusals;
 mod var_global_alias;
+mod var_option_member_lists;
 mod variant_char_literal_argument;
 mod variant_defined_temporal;
 mod variant_from_variant_temp_record;

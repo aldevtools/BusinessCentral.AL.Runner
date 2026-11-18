@@ -1479,26 +1479,25 @@ pub fn evaluate_variable_option(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut 
     evaluate_with(c, a, true)
 }
 
-/// `Evaluate` into a `var` Option parameter declared without members: only a text that reads as an ordinal
+/// `Evaluate` into a `var` Option parameter declared without members: read against the caller's members
 /// (`option_text::memberless_var_parameter`).
 pub fn evaluate_memberless_var_option(
     c: &mut dyn Ctx,
     _: Option<&mut Value>,
     a: &mut [Value],
 ) -> Result<Value, Signal> {
-    option_text::memberless_var_parameter(&a[1])?;
+    option_text::memberless_var_parameter(c, a)?;
     evaluate_with(c, a, true)
 }
 
-/// `Evaluate` into an element of a `var` array of Options declared without members: only an ordinal text
+/// `Evaluate` into an element of a `var` array of Options declared without members: read against the caller's members
 /// (`option_text::memberless_var_array_element`).
 pub fn evaluate_memberless_var_option_element(
     c: &mut dyn Ctx,
     _: Option<&mut Value>,
     a: &mut [Value],
 ) -> Result<Value, Signal> {
-    option_text::memberless_var_array_element(&a[1])?;
-    evaluate_with(c, a, true)
+    option_text::memberless_var_array_element(evaluate_with(c, a, true))
 }
 
 /// `Evaluate` into an Option field that declares an OptionCaption (the lowering appends the captions as a comma list, or the

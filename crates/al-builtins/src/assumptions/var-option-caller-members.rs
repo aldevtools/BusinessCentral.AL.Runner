@@ -1,0 +1,14 @@
+VarOptionCallerMembers => {
+    id: "var-option-caller-members",
+    assumed: "An Option variable handed to a `var` Option parameter whose declared member list differs from the variable's, through a call of a procedure or an event: a parameter declared without members (`Option` or `Option \"\"`) reads the members of the value handed in (Format, StrSubstNo and Evaluate inside the callee, Evaluate case and blank insensitive, an ordinal past the members kept, an unknown text false with the result used and the value kept, as a statement the error that lists the caller's members); a parameter with members reads its own; after the call the caller's variable has its own members again (also after the callee wrote it). The same for an element of a `var` array of memberless Options. Measured callers: a local variable, a global, a field of a local record without OptionCaption, an element of a local array, a memberless `var` parameter handed on, a local array to a `var` array parameter; an event publisher without members called with a local, and a subscriber without members. Run, not measured as such: a parameter passed by value, taken as a local variable of its routine, and a global handed to an event publisher without members (Base Application's \"Config. Package Management\" does both, reached by the pinned corpus case table-objects Y76_Package_AutoIncrementField_NotInPackage). A record field or an array element handed to a parameter with members keeps the usual conversion and is not marked. Refused: every other caller (a `var` parameter, a global to a parameter with other members, a field with OptionCaption, a field of a record that is not a local variable, an element of an array that is not a local variable, a publisher with members called with another list, a subscriber with members under another list), Evaluate of a blank text into such a parameter as a statement, and a rejected text into an element of such an array.",
+    tests: "Corpus PR 1432 (draft, commit d49180ba), measured on a local BC of each of the three supported majors, the same on each: tests/al-language/types/enum-option/OptionVarMemberLists.al and OptionVarMemberlessEvaluate.al. Before that: Microsoft's System Application test `Json Test`.TestGetEnumPropertyValueFromJObjectByName passes on a BC server (al-runner issue 7994, reported by the reporter).",
+    probe: "Corpus PR 1432 (draft). Not measured: Format(V, 0, 1), SetFilter and FieldRef.Value on the caller after the call; a parameter passed by value as the caller; a global handed to an event publisher; a read inside the callee after it wrote the parameter; the callers this entry refuses.",
+    awaiting: Awaiting {
+        issues: &[7994, 8291],
+        files: &[
+            "tests/al-language/types/enum-option/OptionVarMemberLists.al",
+            "tests/al-language/types/enum-option/OptionVarMemberlessEvaluate.al",
+        ],
+        since: "2026-11-18",
+    },
+}
