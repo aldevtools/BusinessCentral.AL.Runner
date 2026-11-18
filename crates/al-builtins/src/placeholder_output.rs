@@ -169,12 +169,41 @@ pub fn sizes_made() -> bool {
     SIZE_MADE.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+std::thread_local! {
+    /// The mark of a size [`size_order`] could not order (a comparison with anything but 0), until [`size_guard`] or
+    /// [`refuse_unanswered`] takes it. A caller that turns that refusal into an answer made the answer up: a page counts a
+    /// value it cannot compare with xRec or the stored row as changed (al-vm `pages/draft.rs`, `same_values`). So the next
+    /// builtin call, or the end of the running procedure, refuses in its place.
+    static UNANSWERED: std::cell::RefCell<Option<Arc<str>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// The refusal of the comparison [`UNANSWERED`] holds, taken.
+fn take_unanswered() -> Option<Signal> {
+    let m = UNANSWERED.with(|u| u.borrow_mut().take())?;
+    Some(size_refusal(&m, "a comparison other than with 0"))
+}
+
+/// `outcome` of a procedure that just ended, or the refusal of a comparison of a size made while it ran and turned into an
+/// answer by its caller ([`UNANSWERED`]). A refusal the procedure already ended with stays.
+pub fn refuse_unanswered(outcome: Result<(), Signal>) -> Result<(), Signal> {
+    if !sizes_made() {
+        return outcome;
+    }
+    match take_unanswered() {
+        Some(refusal) if !matches!(outcome, Err(Signal::Unsupported(_))) => Err(refusal),
+        _ => outcome,
+    }
+}
+
 /// Refuses a builtin or a .NET member (`name`, a builtin id name or `DotNet Type.Member`) given a placeholder's size as its
 /// receiver or an argument. The callee would compare the size with its own code and not through [`size_order`] (a record
 /// filter counts a value it cannot compare as not passing, a List or Dictionary as not equal) or read its number, so the
 /// answer would be made up. The one allowed use: `Variant.Is*` on a Variant that holds it, which asks only the type of the slot
 /// that held it (`Value::is_kind`); Library Assert's `AreEqual`/`AreNotEqual` ask it.
 pub fn size_guard(name: &str, recv: Option<&Value>, args: &[Value]) -> Result<(), Signal> {
+    if let Some(refusal) = take_unanswered() {
+        return Err(refusal);
+    }
     let held = |v: Option<&Value>| match v {
         Some(Value::PlaceholderSize(m, _)) => Some(m.clone()),
         _ => None,
@@ -240,6 +269,7 @@ pub fn size_order(l: &Value, r: &Value) -> Result<Ordering, Signal> {
         (Value::PlaceholderSize(..), o) if zero(o) => Ok(Ordering::Greater),
         (o, Value::PlaceholderSize(..)) if zero(o) => Ok(Ordering::Less),
         (Value::PlaceholderSize(m, _), _) | (_, Value::PlaceholderSize(m, _)) => {
+            UNANSWERED.with(|u| *u.borrow_mut() = Some(m.clone()));
             Err(size_refusal(m, "a comparison other than with 0"))
         }
         _ => unreachable!("size_order is called with a placeholder size"),

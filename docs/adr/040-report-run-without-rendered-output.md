@@ -941,8 +941,21 @@ test that never reads the field again is not run.
 - A key that holds the field refuses at the write (`key_orderable`), so no sort by the field can run.
 - One helper says the refusal of a platform read: `placeholder_output::size_read`. It is called where each read happens:
   a FlowField over the field (`flowfields.rs` `Tally::add`), `CalcSums`, `Validate(Field)` without a value, a page control
-  that shows the field, and a TestPage whose record holds the size after any step (the page compares its row with xRec and
-  the stored row, and counts a value that does not compare as a change).
+  that shows the field.
+- Every write of a row (`Insert`, `Modify`, `Rename`, a virtual table's `Modify`, the Code Coverage replace) passes
+  through one store function (al-data `MemStore::kept`), which writes down the columns that hold the size, so a filter or a
+  sort on them refuses after any of them.
+- A record comparison by value that its caller turns into an answer: a page compares its row with xRec and the stored row
+  and counts a value that does not compare as a change (`pages/draft.rs` `same_values`, and the other comparisons in
+  `pages/` that take a failed comparison as "differs"). `size_order` writes down every comparison it refuses
+  (`placeholder_output` `UNANSWERED`); the next builtin call (`size_guard`) or the end of the running procedure
+  (`refuse_unanswered`) refuses in its place, so a test whose page compared a size is not run, whichever step compared it
+  (an action, a field, a part's row, a modal page under a handler, the close at the end of the test). A page that shows a
+  row holding the size and compares nothing runs.
+- The size keeps the number type of the slot that holds it (an Integer, BigInteger or Decimal field or variable), and
+  `Variant.Is*` answers that type (record/flowfields/R6986BigIntegerCount.al:173-178, types/TestTypeSystemContracts.al:175-181).
+- `TransferFields` moves the size between fields of the same type. Between fields of different types the rule
+  `TransferFields` already has for them decides before any value is read (a refusal, or the type error).
 - Already refused before this amendment, kept: `TestField`, `FieldError`, `Format` of the field and of `FieldRef.Value`, a
   report column, an XmlPort field, `JsonObject.Add`, `IsDirty`, `TransferFields` into a field of another type.
 

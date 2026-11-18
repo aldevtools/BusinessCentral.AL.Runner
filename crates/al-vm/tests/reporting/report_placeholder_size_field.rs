@@ -297,7 +297,8 @@ codeunit 50990 "PSF Tests"
         exit(R.Count());
     end;
 
-    // Record comparison by value: a page compares its row with xRec and the stored row, IsDirty with the row read.
+    // A page that shows a row holding the size and compares nothing (the page's comparisons: page_placeholder_size.rs of the
+    // al-test-cli suite). IsDirty compares the record with the row read.
     procedure PageWithoutTheField(): Text
     var R: Record "PSF Row"; P: TestPage "PSF Id Card";
     begin
@@ -450,7 +451,6 @@ fn placeholder_size_in_a_field_is_refused_by_exports_and_pages() {
 
 #[test]
 fn placeholder_size_in_a_field_is_refused_by_a_record_comparison() {
-    assert_reads_refused(&["PageWithoutTheField"]);
     // IsDirty refuses a field whose kind it does not compare (`isdirty.rs`, main's refusal, kept).
     assert!(matches!(run("IsDirtyOfRecord"), Err(Signal::Unsupported(_))));
 }
@@ -459,4 +459,5 @@ fn placeholder_size_in_a_field_is_refused_by_a_record_comparison() {
 fn placeholder_size_leaves_an_ordinary_number_in_the_same_field() {
     assert_eq!(al_testkit::text(run("OrdinaryNumberInField")), "1|7|7");
     assert_eq!(al_testkit::text(run("PageOnOrdinaryRow")), "7");
+    assert_eq!(al_testkit::text(run("PageWithoutTheField")), "1");
 }
