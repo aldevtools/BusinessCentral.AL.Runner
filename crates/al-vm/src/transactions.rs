@@ -36,6 +36,8 @@ pub(crate) struct UsedTry {
     world: usize,
     /// `Codeunit.Run` calls begun inside the call that have not ended.
     runs: usize,
+    /// The number of frames when the call began: the TryFunction's own frame is at this index.
+    frame: usize,
 }
 
 /// The `[CommitBehavior(...)]` in force for the dynamic extent of a procedure.
@@ -408,7 +410,13 @@ impl Session {
             scope,
             world: self.tx.tx_world,
             runs: 0,
+            frame: self.frames.len(),
         });
+    }
+
+    /// The routine running now is a TryFunction whose result its caller uses: the innermost such call made the current frame.
+    pub(crate) fn in_own_used_try(&self) -> bool {
+        (self.tx.used_tries.last()).is_some_and(|t| t.frame + 1 == self.frames.len())
     }
 
     /// Whether routine `r` of object `o` is a `[Test]` method of a test codeunit.

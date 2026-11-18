@@ -93,6 +93,11 @@ report 50988 "XMS Call Column"
     UsageCategory = None; UseRequestPage = false; ExcelLayoutMultipleDataSheets = true;
     dataset {{ dataitem(Num; "XMS Num") {{ column(Number; Number) {{ }} column(Text; Format(Number)) {{ }} }} }}
 }}
+report 50995 "XMS No View"
+{{
+    UsageCategory = None; UseRequestPage = false; ExcelLayoutMultipleDataSheets = true;
+    dataset {{ dataitem(Num; "XMS Num") {{ column(Number; Number) {{ }} column(Doubled; Number * 2) {{ }} }} }}
+}}
 report 50996 "XMS Use Temporary"
 {{
     UsageCategory = None; UseRequestPage = false; ExcelLayoutMultipleDataSheets = true;
@@ -256,6 +261,43 @@ codeunit 50965 "XMS Tests"
     procedure SaveXmlNested(): Text begin exit(SaveFacts(Report::"XMS Nested", ReportFormat::Xml)); end;
     procedure SaveXmlNoItems(): Text begin exit(SaveFacts(Report::"XMS No Items", ReportFormat::Xml)); end;
     procedure SaveXmlCallColumn(): Text begin exit(SaveFacts(Report::"XMS Call Column", ReportFormat::Xml)); end;
+    procedure SaveXmlNoView(): Text begin exit(SaveFacts(Report::"XMS No View", ReportFormat::Xml)); end;
+    procedure RunNoView(): Text begin exit(RunFacts(Report::"XMS No View", false)); end;
+    // The measured calls outside the probe's context: a TryFunction whose result is used, the call in its own body.
+    procedure SaveXmlBare(): Text
+    var Tmp: Record "XMS Blob" temporary; Out: OutStream;
+    begin
+        Setup();
+        Tmp.Data.CreateOutStream(Out);
+        exit(Format(Report.SaveAs(Report::"XMS Multi", '', ReportFormat::Xml, Out)));
+    end;
+    procedure RunBare(): Text begin Setup(); Report.Run(Report::"XMS Multi", false); exit('Yes'); end;
+    procedure RunAssertError(): Text begin Setup(); asserterror Report.Run(Report::"XMS Multi", false); exit(GetLastErrorCode()); end;
+    procedure SaveXmlTryResultDropped(): Text
+    var Tmp: Record "XMS Blob" temporary; Saved: Boolean;
+    begin
+        Setup();
+        TrySave(Report::"XMS Multi", ReportFormat::Xml, Tmp, Saved);
+        exit(Format(Saved));
+    end;
+    [TryFunction]
+    local procedure TrySaveThroughHelper(Id: Integer; var Tmp: Record "XMS Blob" temporary; var Saved: Boolean)
+    begin
+        SaveHelper(Id, Tmp, Saved);
+    end;
+    local procedure SaveHelper(Id: Integer; var Tmp: Record "XMS Blob" temporary; var Saved: Boolean)
+    var Out: OutStream;
+    begin
+        Tmp.Data.CreateOutStream(Out);
+        Saved := Report.SaveAs(Id, '', ReportFormat::Xml, Out);
+    end;
+    procedure SaveXmlThroughHelper(): Text
+    var Tmp: Record "XMS Blob" temporary; Saved: Boolean;
+    begin
+        Setup();
+        if TrySaveThroughHelper(Report::"XMS Multi", Tmp, Saved) then;
+        exit(Format(Saved));
+    end;
     procedure SaveXmlUseTemporary(): Text begin exit(SaveFacts(Report::"XMS Use Temporary", ReportFormat::Xml)); end;
     procedure RunUseTemporary(): Text begin exit(RunFacts(Report::"XMS Use Temporary", false)); end;
     procedure SaveXmlNewPage(): Text begin exit(SaveFacts(Report::"XMS New Page", ReportFormat::Xml)); end;
@@ -578,6 +620,13 @@ fn multiple_data_sheets_shapes_not_measured_refuse() {
         "SaveXmlNested",
         "SaveXmlNoItems",
         "SaveXmlCallColumn",
+        "SaveXmlNoView",
+        "RunNoView",
+        "SaveXmlBare",
+        "RunBare",
+        "RunAssertError",
+        "SaveXmlTryResultDropped",
+        "SaveXmlThroughHelper",
         "SaveXmlUseTemporary",
         "RunUseTemporary",
         "SaveXmlNewPage",

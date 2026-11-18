@@ -108,7 +108,8 @@ impl Session {
 
     /// The report declaring `ExcelLayoutMultipleDataSheets = true` that the call `id` with `args` asks for as the probe
     /// measured it, by equality on each fact of the probe (ExcelMultipleDataSheetsReport.al): the call ([`measured_call`],
-    /// with the answer of a SaveAs used) and the report ([`measured_report`]).
+    /// with the answer of a SaveAs used), made in the body of a TryFunction whose caller uses its result (TrySave, TryRun
+    /// and TryRunModal, :127-146, called at :157, :198, :200, :241), and the report ([`measured_report`]).
     fn excel_sheets_admits(&self, id: al_ir::BuiltinId, args: &[Value]) -> Option<usize> {
         let objects = &self.engine.program.objects;
         let Some(Value::Integer(n)) = args.first() else {
@@ -118,7 +119,8 @@ impl Session {
         let report = objects[object].report.as_ref()?;
         let measured = report.excel_multiple_data_sheets
             && measured_report(objects, object, report)
-            && measured_call(id, args, &report.default_layout_kind, self.ret_used);
+            && measured_call(id, args, &report.default_layout_kind, self.ret_used)
+            && self.in_own_used_try();
         measured.then_some(object)
     }
 
@@ -143,8 +145,8 @@ impl Session {
             .is_some_and(|w| w.upgrade().is_some_and(|c| Rc::ptr_eq(&c, inst)));
         (!claimed).then(|| {
             "ExcelLayoutMultipleDataSheets = true, outside the measured calls (the static Report.SaveAs(Id, '', Xml or Excel, \
-             OutStream) with its answer used and Report.Run or RunModal(Id, false) of a report declared as the probe's reports \
-             are; not pinned)"
+             OutStream) with its answer used and Report.Run or RunModal(Id, false), in a TryFunction whose result is used, of a \
+             report declared as the probe's reports are; not pinned)"
                 .to_string()
         })
     }
@@ -216,7 +218,7 @@ fn only_column_routines(objects: &al_ir::Objects, object: usize, r: &al_ir::Repo
 }
 
 /// The dataset of the probe's reports (ExcelMultipleDataSheetsReport.al:44-54): one top-level data item or more, each
-/// stating no property but `DataItemTableView` (:46, :52), so no link, `UseTemporary`, request filter, `MaxIteration`,
+/// stating `DataItemTableView` and no other property (:46, :52), so no link, `UseTemporary`, request filter, `MaxIteration`,
 /// `PrintOnlyIfDetail`, `CalcFields`, page or obsolescence property, and no nested item; columns stating no property
 /// (:47-48, :53), each a field of the item (`column(Number; Number)`) or an expression of operators over constants and
 /// fields of the item's record (`column(Doubled; Number * 2)`), so no call. The tables are not compared.
@@ -232,7 +234,7 @@ fn measured_dataset(objects: &al_ir::Objects, object: usize, r: &al_ir::Report) 
     };
     let item_properties = |i: &al_ir::ReportItem| {
         let stated: Vec<&str> = i.stated_properties.iter().map(String::as_str).collect();
-        matches!(stated.as_slice(), [] | ["dataitemtableview"])
+        stated == ["dataitemtableview"]
     };
     !r.items.is_empty()
         && (r.items.iter()).all(|i| i.parent.is_none() && item_properties(i) && i.columns.iter().all(column))
