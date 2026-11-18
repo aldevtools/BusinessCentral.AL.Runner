@@ -968,12 +968,16 @@ pub struct Session {
     pub(crate) stamp_validating: Vec<usize>,
     /// The call site named for the Validate about to start, with its record's handle (`Session::validate_at`).
     pub(crate) validate_site: Option<(usize, crate::records::ValidateSite)>,
-    /// The Validates running now, innermost last: the record's handle and the call site (`Session::take_validate_site`).
-    pub(crate) validate_sites: Vec<(usize, Option<crate::records::ValidateSite>)>,
+    /// The Validates running now, innermost last: the record's handle, the call site (`Session::take_validate_site`) and the
+    /// depth of `call_stack` its trigger runs at (the frame's index from the outside in).
+    pub(crate) validate_sites: Vec<(usize, Option<crate::records::ValidateSite>, usize)>,
     /// The table procedures that run on a record by a plain call (no operation of the record called them), innermost
     /// last: the record's handle, the depth of `call_stack` inside the procedure and its blank xRec. A Validate of that
     /// record in the procedure's own body passes this xRec (`RecordOp::Validate`).
     pub(crate) plain_proc_xrec: Vec<(usize, usize, crate::records::Rec)>,
+    /// The `call_stack` index of each frame an interface method call entered (`run_iface`), innermost last: the codeunit
+    /// procedure is reached through an interface (records/running_call_xrec.rs tells the chains apart by it).
+    pub(crate) iface_frames: Vec<usize>,
     pub(crate) cx: al_data::AccessContext,
     /// The tables that held a row when the install baseline was captured (none without one).
     pub(crate) baseline_rows: std::collections::BTreeSet<u32>,
@@ -1392,6 +1396,7 @@ impl Session {
             validate_site: None,
             validate_sites: Vec::new(),
             plain_proc_xrec: Vec::new(),
+            iface_frames: Vec::new(),
             cx: al_data::AccessContext {
                 company: company.into(),
                 user: user.into(),

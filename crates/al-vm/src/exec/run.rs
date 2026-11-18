@@ -690,7 +690,10 @@ impl Session {
         for &r in &site.arg_regs {
             values.push(take(f, r, nl));
         }
-        self.finish_call(object, routine, inst, &site.args, values, false, f)
+        self.iface_frames.push(self.call_stack.len());
+        let r = self.finish_call(object, routine, inst, &site.args, values, false, f);
+        self.iface_frames.pop();
+        r
     }
 
     #[inline(never)]
