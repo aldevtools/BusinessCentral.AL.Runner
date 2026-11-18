@@ -28,8 +28,13 @@
 # the given corpus pull requests, and the oracle is the current oracle with the codeunits each pull request's own CI
 # run ran replaced by that run's results (tools/corpus_bump_pr.py lists when it refuses). Steps 6 and 7 are the same.
 # --body FILE writes the bump pull request body (which corpus runs the oracle came from) to FILE.
+# A bump from a run (not --from-pr) also passes the provenance checks of ADR-077 (tools/corpus_bump_provenance.py): the
+# run is green or the nightly exception, its results manifest is of its latest attempt, and its JUnit files pass the
+# checks of decision 5. They run in a dry run too, on the downloaded files.
 # For tests: CORPUS_BUMP_GH (the gh to call), CORPUS_BUMP_CORPUS (the corpus repository),
-# CORPUS_BUMP_NO_FETCH=1 (do not fetch the corpus branch), CORPUS_BUMP_LISTS=0 (do not update the not-passing lists).
+# CORPUS_BUMP_NO_FETCH=1 (do not fetch the corpus branch), CORPUS_BUMP_LISTS=0 (do not update the not-passing lists),
+# CORPUS_BUMP_PIN (the old pin, default the corpus commit HEAD pins) and CORPUS_BUMP_ORACLE (the oracle folder the
+# provenance checks compare with, default oracle/).
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$(dirname "$here")"
@@ -204,14 +209,16 @@ if [ -n "$prs" ]; then
   exit 0
 fi
 
-# 1. The run.
-info="$("$gh" run view "$run" -R "$repo" --json status,conclusion,headSha)"
-read -r status conclusion sha < <(python3 -c '
-import json, sys
-r = json.loads(sys.argv[1])
-print(r.get("status", ""), r.get("conclusion", ""), r.get("headSha", ""))' "$info")
-[ "$status" = completed ] || die "run $run is not completed (status: ${status:-none})"
-[ "$conclusion" = success ] || die "run $run is not green (conclusion: ${conclusion:-none})"
+# 1. The run: green (or the nightly exception) and its results manifest, ADR-077 (tools/corpus_bump_provenance.py run).
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+"$gh" run view "$run" -R "$repo" \
+  --json databaseId,status,conclusion,headSha,attempt,event,headBranch,workflowDatabaseId > "$tmp/run.json"
+arts="$("$gh" api "repos/$repo/actions/runs/$run/artifacts?per_page=100")"
+printf '%s\n' "$arts" > "$tmp/artifacts.json"
+CORPUS_BUMP_GH="$gh" python3 -I "$here/corpus_bump_provenance.py" run --repo "$repo" --run "$run" \
+  --run-json "$tmp/run.json" --artifacts "$tmp/artifacts.json" --corpus "$corpus" --state "$tmp/provenance.json"
+sha="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get("headSha", ""))' "$tmp/run.json")"
 [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || die "run $run has no head commit"
 if [ "${CORPUS_BUMP_NO_FETCH:-0}" != 1 ]; then
   git -C "$corpus" fetch -q origin "$branch"
@@ -229,12 +236,9 @@ if ! git -C "$corpus" rev-list --first-parent "$ref" | grep -x "$sha" >/dev/null
   [ "$(git -C "$corpus" rev-parse "$merge^{tree}")" = "$(git -C "$corpus" rev-parse "$sha^{tree}")" ] \
     || die "commit $sha of run $run came into $branch with merge ${merge:0:7}, whose files differ from it ($branch had commits the run's commit lacks): merge origin/$branch into the bump branch, run CI on the pull request again and bump from that run"
 fi
-echo "run $run: green, commit $sha on $branch"
+echo "run $run: commit $sha on $branch"
 
 # 2. The artifacts: per leg the larger is the oracle, the smaller the OnPrem file.
-arts="$("$gh" api "repos/$repo/actions/runs/$run/artifacts?per_page=100")"
-tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
 # The XML file name an artifact holds (junit-al-language.xml, -onprem.xml, -onprem-dotnet.xml).
 xml_of() {
   local d="$tmp/role-$1"
@@ -303,8 +307,40 @@ print("\n".join(str(x["id"]) for x in a))' "$arts" "$leg")
   echo "$line"
 done
 
-old="$(git -C "$root" ls-tree HEAD corpus 2>/dev/null | awk '{print $3}')"
+old="${CORPUS_BUMP_PIN:-$(git -C "$root" ls-tree HEAD corpus 2>/dev/null | awk '{print $3}')}"
 old="${old:-$(git -C "$corpus" rev-parse HEAD)}"
+
+# The JUnit files, downloaded before anything changes: the provenance checks read them, also in a dry run.
+# new/<major>/<oracle file name>; files.txt has per file the leg, its path and the JUnit file name the artifact held.
+fetch_xml() { # leg, artifact id, oracle file name
+  local leg="$1" id="$2" dest="$tmp/new/${1%%.*}/$3" d="$tmp/$2"
+  mkdir -p "$d" "$(dirname "$dest")"
+  "$gh" api "repos/$repo/actions/artifacts/$id/zip" > "$d/a.zip" || die "downloading artifact $id failed (the gh error is above)"
+  (cd "$d" && unzip -q a.zip)
+  local xml
+  xml="$(find "$d" -name '*.xml' | head -n 2)"
+  [ "$(printf '%s\n' "$xml" | grep -c .)" = 1 ] || die "artifact $id does not hold exactly one XML file"
+  cp "$xml" "$dest"
+  printf '%s %s %s\n' "$leg" "$dest" "$(basename "$xml")" >> "$tmp/files.txt"
+}
+: > "$tmp/files.txt"
+for leg in $legs; do
+  fetch_xml "$leg" "${oracle_id[$leg]}" junit.xml
+  fetch_xml "$leg" "${onprem_id[$leg]}" junit-onprem.xml
+  # The DotNet file is the oracle of the onprem-dotnet suite of oracle.toml.
+  if [ "${dotnet_id[$leg]}" != 0 ]; then fetch_xml "$leg" "${dotnet_id[$leg]}" junit-dotnet.xml; fi
+  # The TestLibraries file is the oracle of the testlibraries suite.
+  if [ "${testlib_id[$leg]}" != 0 ]; then fetch_xml "$leg" "${testlib_id[$leg]}" junit-testlibraries.xml; fi
+  # The Isolation Disabled file is the oracle of the isolation-disabled suite (corpus_bump_edit.py adds the suite).
+  if [ "${isol_id[$leg]}" != 0 ]; then fetch_xml "$leg" "${isol_id[$leg]}" junit-isolation-disabled.xml; fi
+  # The TryWrites file is the oracle of the trywrite-allowed suite (corpus_bump_edit.py adds the suite).
+  if [ "${tryw_id[$leg]}" != 0 ]; then fetch_xml "$leg" "${tryw_id[$leg]}" junit-trywrite-allowed.xml; fi
+done
+# The checks of the files (ADR-077 decisions 4, 5 and 7): the oracle.toml fields go to provenance-summary.json.
+CORPUS_BUMP_GH="$gh" python3 -I "$here/corpus_bump_provenance.py" files --state "$tmp/provenance.json" \
+  --corpus "$corpus" --sha "$sha" --old "$old" --oracle "${CORPUS_BUMP_ORACLE:-$root/oracle}" \
+  --list "$tmp/files.txt" --summary "$tmp/provenance-summary.json"
+
 if git -C "$corpus" cat-file -e "$old^{commit}" 2>/dev/null; then
   echo "corpus files added since the old pin ${old:0:7}:"
   git -C "$corpus" diff --name-only --diff-filter=A "$old" "$sha" -- tests | sed 's/^/  /'
@@ -337,28 +373,9 @@ done
 git -C "$corpus" checkout -q "$sha"
 
 # 4. The oracle files, copied unchanged.
-fetch_xml() { # artifact id, destination
-  local id="$1" dest="$2" d="$tmp/$1"
-  mkdir -p "$d"
-  "$gh" api "repos/$repo/actions/artifacts/$id/zip" > "$d/a.zip" || die "downloading artifact $id failed (the gh error is above)"
-  (cd "$d" && unzip -q a.zip)
-  local xml
-  xml="$(find "$d" -name '*.xml' | head -n 2)"
-  [ "$(printf '%s\n' "$xml" | grep -c .)" = 1 ] || die "artifact $id does not hold exactly one XML file"
-  cp "$xml" "$dest"
-}
 for leg in $legs; do
   major="${leg%%.*}"
-  fetch_xml "${oracle_id[$leg]}" "$root/oracle/$major/junit.xml"
-  fetch_xml "${onprem_id[$leg]}" "$root/oracle/$major/junit-onprem.xml"
-  # The DotNet file is the oracle of the onprem-dotnet suite of oracle.toml.
-  if [ "${dotnet_id[$leg]}" != 0 ]; then fetch_xml "${dotnet_id[$leg]}" "$root/oracle/$major/junit-dotnet.xml"; fi
-  # The TestLibraries file is the oracle of the testlibraries suite.
-  if [ "${testlib_id[$leg]}" != 0 ]; then fetch_xml "${testlib_id[$leg]}" "$root/oracle/$major/junit-testlibraries.xml"; fi
-  # The Isolation Disabled file is the oracle of the isolation-disabled suite (corpus_bump_edit.py adds the suite).
-  if [ "${isol_id[$leg]}" != 0 ]; then fetch_xml "${isol_id[$leg]}" "$root/oracle/$major/junit-isolation-disabled.xml"; fi
-  # The TryWrites file is the oracle of the trywrite-allowed suite (corpus_bump_edit.py adds the suite).
-  if [ "${tryw_id[$leg]}" != 0 ]; then fetch_xml "${tryw_id[$leg]}" "$root/oracle/$major/junit-trywrite-allowed.xml"; fi
+  cp "$tmp/new/$major/"*.xml "$root/oracle/$major/"
 done
 
 # 5. oracle.toml and README.md.
@@ -381,6 +398,7 @@ done
 DOTNET_IDS="27=${dotnet_id[27.5]} 28=${dotnet_id[28.5]} 29=${dotnet_id[29.0]}" \
   TESTLIB_IDS="27=${testlib_id[27.5]} 28=${testlib_id[28.5]} 29=${testlib_id[29.0]}" \
   ISOL_IDS="27=${isol_id[27.5]} 28=${isol_id[28.5]} 29=${isol_id[29.0]}" \
-  TRYW_IDS="27=${tryw_id[27.5]} 28=${tryw_id[28.5]} 29=${tryw_id[29.0]}" python3 "$here/corpus_bump_edit.py" "$root" "$sha" "$run" "${args[@]}"
+  TRYW_IDS="27=${tryw_id[27.5]} 28=${tryw_id[28.5]} 29=${tryw_id[29.0]}" \
+  PROVENANCE="$tmp/provenance-summary.json" python3 "$here/corpus_bump_edit.py" "$root" "$sha" "$run" "${args[@]}"
 
 finish "run $run"
