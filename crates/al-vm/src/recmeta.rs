@@ -1871,6 +1871,9 @@ impl Session {
         let Some(i) = t.fields.iter().position(|f| f.id == 2_000_000_000) else {
             return unsupported("GetBySystemId on a table without SystemId");
         };
+        if !rec.borrow().temporary {
+            self.refuse_unmeasured_read_while_deferred(t.object as usize, "GetBySystemId")?;
+        }
         // A Text argument binds to the Guid parameter as a Text assigns to a Guid
         // (PXEnumRecordRef.al:232 passes the null Guid as a text literal).
         let parsed = match args.first() {
