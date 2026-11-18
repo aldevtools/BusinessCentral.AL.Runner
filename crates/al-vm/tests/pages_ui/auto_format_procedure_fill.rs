@@ -570,6 +570,21 @@ fn next_after_the_open_refuses() {
 }
 
 #[test]
+fn a_go_to_record_after_a_second_row_came_refuses() {
+    // The view holds two rows when the GoToRecord fetches: only one is pinned, so it runs nothing and refuses.
+    refused(
+        run(
+            &[(
+                "CUSTOM",
+                "P.OpenView(); Other := T; Other.\"Code\" := 'T2'; Other.Insert(); P.GoToRecord(T);",
+            )],
+            "Custom",
+        ),
+        "a GoToRecord that fetched no row",
+    );
+}
+
+#[test]
 fn a_second_go_to_record_refuses() {
     refused(
         run(
