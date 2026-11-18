@@ -51,8 +51,10 @@ Facts read from the code on 2026-11-17:
    - for each reused suite, the files that declare its codeunit are identical between `source_commit` and the new pin;
    - for each reused suite, the corpus's own selection of the diff from `source_commit` to the new pin does not select
      its codeunit, and that diff is no full run for a reason other than the file cap or an empty selection (owner,
-     2026-11-18). The corpus `select-tests.py --check-reuse` of the new pin answers. A pin whose script lacks that mode
-     refuses every bump that holds a reused suite;
+     2026-11-18). Every in-place edit of a corpus fixture file (a change, deletion or move of a file under
+     `tests/<app>/_fixtures/`) is a full run, so it refuses every reused result from before it (owner, 2026-11-18).
+     The corpus `select-tests.py --check-reuse` of the new pin answers; it also refuses a test app or codeunit id it
+     cannot find at the pin. A pin whose script lacks that mode refuses every bump that holds a reused suite;
    - the chain is at most 20 runs;
    - the newest nightly comparison at or before the run's commit does not report a difference;
    - no codeunit of the current oracle is missing, unless the corpus diff deleted or renamed its file.

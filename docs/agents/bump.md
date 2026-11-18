@@ -56,7 +56,8 @@ source commit must be an ancestor of the run's commit, a suite of the run itself
 must name the run's commit, a reused codeunit's declaring files must be
 unchanged since its source commit, the corpus's `select-tests.py --check-reuse`
 at the new pin must keep every reused result (its selection of the diff since
-the source commit does not select the codeunit and is no full run), the chain
+the source commit does not select the codeunit and is no full run; every
+in-place edit of a corpus fixture file is one), the chain
 must be at most 20 runs, the newest nightly at or before the commit must be
 green and report no difference for every version, and no codeunit of the current oracle may go missing unless the corpus diff deleted
 or renamed its file. A run without a manifest passes only when no suite carries

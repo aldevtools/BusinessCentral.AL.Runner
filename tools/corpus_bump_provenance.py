@@ -370,7 +370,8 @@ def check_reuse_selection(corpus, sha, reused):
     """Decision 5: the corpus's selection rule, as the new pin has it, keeps every reused result. reused: {source commit:
     {test app dir: set of codeunits}}. select-tests.py --check-reuse refuses a codeunit of source commit S that the
     selection of S..SHA selects, and every codeunit of S when that span is a full run for a reason other than the file
-    cap or an empty selection; a pin whose script lacks the mode, or has no script, is refused too."""
+    cap or an empty selection (every in-place edit of a corpus fixture file is a full run); a pin whose script lacks the
+    mode, or has no script, is refused too."""
     if not reused:
         return
     folder = os.path.dirname(SELECT_TESTS)

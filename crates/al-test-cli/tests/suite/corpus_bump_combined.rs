@@ -1483,6 +1483,7 @@ fn a_pin_without_select_tests_is_refused_when_results_are_reused() {
     let mut s = Spec::full(&c, &c3);
     s.main[0].prov = prov(10, &c.c0, "27.5");
     s.manifest = Some(manifest(20, 1, &c3, "subset", 1, 1));
+    s.nightlies.push(night(26, &c3, Some("identical")));
     refused(&c, &s, "select-tests.py --check-reuse");
 }
 
