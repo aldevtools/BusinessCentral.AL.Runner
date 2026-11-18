@@ -338,3 +338,55 @@ fn a_value_with_no_comparable_form_inside_an_instance_is_named_with_its_path() {
         "{line}"
     );
 }
+
+/// [`MAIN`] with a login subscriber that leaves, in a SingleInstance codeunit, an instance holding an array of plain
+/// values (one element from the resource text) and an array of codeunit instances (each holding a temporary record).
+const ARRAYS_INSIDE: &str = r#"
+codeunit 77420 "RPL Array Registration"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterManualSetup', '', false, false)]
+    local procedure RegisterManualSetup() var Holder: Codeunit "RPL Array Holder";
+    begin Holder.Keep(StrLen(NavApp.GetResourceAsText('rpl.txt'))); end;
+}
+codeunit 77421 "RPL Array Holder"
+{
+    SingleInstance = true;
+    var Inner: Codeunit "RPL Array Inner";
+    procedure Keep(N: Integer) begin Inner.Fill(N); end;
+}
+codeunit 77422 "RPL Array Inner"
+{
+    var Values: array[5] of Integer; Helpers: array[2] of Codeunit "RPL Helper";
+    procedure Fill(N: Integer) begin Values[1] := 7; Values[2] := 7; Values[3] := N; Helpers[1].SetX(N); end;
+}
+"#;
+
+// An array a login leaves inside an instance compares element by element (plain values by value, instances by number,
+// runs of equal elements collapsed): equal sessions are equal, and another element is a session state difference that
+// names the array.
+#[test]
+fn arrays_the_login_leaves_compare_element_by_element() {
+    let (engine, l) = compiled_with(&format!("{MAIN}{ARRAYS_INSIDE}"));
+    run(&engine, &l, "RPL Tests A");
+    run(&engine, &l, "RPL Tests A");
+    let line = crate::login_replay::report(&engine).unwrap();
+    assert!(line.contains(", 1 compared, 0 differ"), "{line}");
+    set_resource(&engine, &l, Some("abcd"));
+    run(&engine, &l, "RPL Tests A");
+    let firsts = crate::login_replay::check(&engine).firsts();
+    let differences = crate::login_replay::differences(&firsts[0].1, &firsts[1].1);
+    assert!(differences.iter().any(|(kind, _)| *kind == 2), "{differences:?}");
+    // The instance of "RPL Array Inner" in each session: element [2] differs (the resource's length), the rest is equal
+    // and its equal runs are collapsed.
+    let inner = |k: usize| {
+        let lines = &firsts[k].1.state_lines().lines;
+        let line = lines
+            .iter()
+            .find(|l| l.starts_with("instance ") && l.contains(" codeunit 77422 "));
+        line.unwrap_or_else(|| panic!("{lines:?}")).clone()
+    };
+    let (a, b) = (inner(0), inner(1));
+    assert!(a.contains("array of 5 elements [[0..1]: "), "{a}");
+    assert!(a.contains(", [2]: ") && a.contains(", [3..4]: "), "{a}");
+    assert_ne!(a, b);
+}

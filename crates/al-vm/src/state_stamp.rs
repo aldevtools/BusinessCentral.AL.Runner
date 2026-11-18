@@ -309,6 +309,7 @@ struct Render<'a> {
 
 impl Render<'_> {
     /// `v` as text, by the first rule that fits:
+    /// - an array element by element ([`Render::array`]; on a real app an instance a login leaves holds one);
     /// - a codeunit instance by its number, and once its codeunit id and globals by these rules (on a real app a global of
     ///   a SingleInstance codeunit holds one after the login);
     /// - a value with a fingerprint by the fingerprint (`single_track::fp`);
@@ -319,6 +320,9 @@ impl Render<'_> {
     fn value(&mut self, v: &Value, depth: u8) -> Result<String, String> {
         if let Value::Codeunit(rc) = v {
             return self.instance(rc, depth);
+        }
+        if let Value::Array(a) = v {
+            return self.array(a, depth);
         }
         let what = match crate::single_track::fp(v, &self.session.engine) {
             crate::single_track::Fp::Val(bytes) => return Ok(format!("{bytes:?}")),
@@ -354,6 +358,35 @@ impl Render<'_> {
         let mut view = r.clone();
         view.temp_id = None;
         Ok(format!("temp record of table {n}: {view:?}"))
+    }
+
+    /// An array: `array of <n> elements [...]`, every element by these rules (an instance in it keeps its number), runs of
+    /// equal elements written once as `[a..b]: <element>` (exact: no element is sampled or left out). `Err`: the first
+    /// element with no comparable form (`array of <n> elements, element [<i>]: ...`).
+    fn array(&mut self, a: &Rc<RefCell<Vec<Value>>>, depth: u8) -> Result<String, String> {
+        let Ok(a) = a.try_borrow() else {
+            return Err("array (in use)".into());
+        };
+        if depth > 8 {
+            return Err(format!("array of {} elements: nested more than 8 deep", a.len()));
+        }
+        let mut runs: Vec<(usize, usize, String)> = Vec::new();
+        for (i, e) in a.iter().enumerate() {
+            let text = self
+                .value(e, depth + 1)
+                .map_err(|why| format!("array of {} elements, element [{i}]: {why}", a.len()))?;
+            match runs.last_mut() {
+                Some((_, last, same)) if *same == text => *last = i,
+                _ => runs.push((i, i, text)),
+            }
+        }
+        let runs: Vec<String> = (runs.into_iter())
+            .map(|(first, last, text)| match first == last {
+                true => format!("[{first}]: {text}"),
+                false => format!("[{first}..{last}]: {text}"),
+            })
+            .collect();
+        Ok(format!("array of {} elements [{}]", a.len(), runs.join(", ")))
     }
 
     /// A codeunit instance: `instance <n>`, and once `instance <n> codeunit <id> globals [...]`. `Err`: why it has no
