@@ -5,6 +5,7 @@ use crate::args::{DEFAULT_TOP, TestArgs};
 use crate::capture;
 use crate::coverage;
 use crate::output::{self, Counts};
+use crate::setup_timings::{Laps, Part, SetupParts};
 use crate::style;
 use crate::testdata;
 use al_bcdb_std::BackupProvider;
@@ -753,8 +754,8 @@ fn file_stamps(search: &[PathBuf], read: &[PathBuf]) -> Vec<(PathBuf, Option<(u6
 /// Where a server request spent its time, by phase (al-runner issue 5856).
 #[derive(Debug, Clone, Default)]
 pub struct RequestTimings {
-    /// Before the compile: the options, the apps' sources, the dependency packages, the test data.
-    pub setup: std::time::Duration,
+    /// Before the compile, by part (al-runner issue 8205); `SetupParts::total` is `setupMs`.
+    pub setup: SetupParts,
     /// Finding the kept compile, updating it, or compiling again.
     pub compile: std::time::Duration,
     /// Building the engine the tests run on from the compiled program, or setting up a kept one.
@@ -980,6 +981,49 @@ fn check_companies(a: &TestArgs, companies: &al_host::Companies, session: &str) 
     })
 }
 
+/// ADR-060 decision 2: `--license FILE`, else the license of the BC artifacts of the build (kept by a server for its
+/// next request of that build), else none. A file that cannot be read stops the run here, before anything is compiled.
+fn run_license(
+    a: &TestArgs,
+    warm: Option<&mut WarmCtx>,
+    dependencies: &deps::Dependencies,
+    chosen: &al_version::Chosen,
+    floor_versions: &al_version::AppVersions,
+    country: &str,
+) -> Result<al_testrun::license::LicenseUse, String> {
+    let u = match (&a.license, &dependencies.build) {
+        (Some(p), _) => return al_testrun::license::LicenseUse::from_file(p),
+        (None, None) => {
+            return Ok(al_testrun::license::LicenseUse::none(
+                "no BC artifact is used by this run",
+            ));
+        }
+        (None, Some(u)) => u,
+    };
+    let build = u.build.to_string();
+    if let Some((_, l)) = warm
+        .as_deref()
+        .and_then(|w| w.license.as_ref())
+        .filter(|(b, _)| *b == build)
+    {
+        return Ok(l.clone());
+    }
+    let fetch = al_deps::artifact::Fetch {
+        cache_root: al_deps::cache::cache_root_from_env(a.cache_dir.as_deref()),
+        download: !a.no_download,
+        query: target::build_query(a.bc_version.as_deref(), chosen, floor_versions),
+        local_artifacts: al_deps::cache::bcartifacts_sandbox_from_env(),
+        country: country.to_string(),
+    };
+    let l = al_testrun::license::LicenseUse::from_artifact(&al_deps::artifact::HttpCdn::from_env(), &fetch, &u.build)?;
+    if let Some(w) = warm
+        && l.license.is_some()
+    {
+        w.license = Some((build, l.clone()));
+    }
+    Ok(l)
+}
+
 fn test_inner(
     a: &TestArgs,
     mut warm: Option<&mut WarmCtx>,
@@ -989,6 +1033,7 @@ fn test_inner(
     process_ends_after: bool,
 ) -> Result<u8, String> {
     let started = Instant::now();
+    let mut laps = Laps::start(started);
     // The run seed (ADR-061): fixed once per run; a caller that did not fix it (a `serve` request without `seed`) gets
     // `--seed`, the environment's or a fresh one here.
     let ensured;
@@ -1064,12 +1109,14 @@ fn test_inner(
     for p in [&a.coverage_out, &a.coverage_json].into_iter().flatten() {
         write_file(p, "")?;
     }
+    laps.lap(Part::Options);
     // A backup named on the command line is opened before the long part: a wrong path or company
     // fails here. The cached artifact is chosen once the Microsoft apps are known.
     let mut test_data = match (a.wants_test_data(), &a.test_data_path) {
         (true, Some(p)) => Some(open_backup(a, p.clone())?),
         _ => None,
     };
+    laps.lap(Part::TestData);
     let mut data_notes: Vec<String> = Vec::new();
     let inputs = a
         .apps
@@ -1077,6 +1124,7 @@ fn test_inner(
         .map(|p| apps::load(p, a.bc_version.as_deref()))
         .collect::<Result<Vec<AppInput>, String>>()?;
     apps::distinct_ids(&inputs)?;
+    laps.lap(Part::Sources);
 
     // Which test codeunits there are, and which of them this run is about.
     let mut found: Vec<Found> = Vec::new();
@@ -1153,6 +1201,7 @@ fn test_inner(
         .iter()
         .map(|s| !found.iter().any(|f| f.tests.iter().any(|t| s.picks(f.id, t))))
         .collect();
+    laps.lap(Part::Selection);
 
     // The target: --bc-version, else the floor of the first app (ADR-015 3.2).
     let requested = a
@@ -1332,6 +1381,7 @@ fn test_inner(
         }
     };
     after_dependencies_load(a, &debug, &inputs, &dependencies)?;
+    laps.lap(Part::Dependencies);
     let microsoft = inputs.iter().any(|i| apps::is_microsoft(&i.manifest.publisher))
         || dependencies.manifests.iter().any(|m| apps::is_microsoft(&m.publisher));
     if should_choose_test_data(a, test_data.is_some(), microsoft) {
@@ -1387,42 +1437,9 @@ fn test_inner(
             ));
         }
     }
-    // ADR-060 decision 2: `--license FILE`, else the license of the BC artifacts of the build, else none. A file that
-    // cannot be read stops the run here, before anything is compiled.
-    let license = match (&a.license, &dependencies.build) {
-        (Some(p), _) => al_testrun::license::LicenseUse::from_file(p)?,
-        (None, Some(u)) => {
-            let kept = warm
-                .as_deref()
-                .and_then(|w| w.license.as_ref())
-                .filter(|(b, _)| *b == u.build.to_string())
-                .map(|(_, l)| l.clone());
-            match kept {
-                Some(l) => l,
-                None => {
-                    let fetch = al_deps::artifact::Fetch {
-                        cache_root: al_deps::cache::cache_root_from_env(a.cache_dir.as_deref()),
-                        download: !a.no_download,
-                        query: target::build_query(a.bc_version.as_deref(), &chosen, floor_versions),
-                        local_artifacts: al_deps::cache::bcartifacts_sandbox_from_env(),
-                        country: country.clone(),
-                    };
-                    let l = al_testrun::license::LicenseUse::from_artifact(
-                        &al_deps::artifact::HttpCdn::from_env(),
-                        &fetch,
-                        &u.build,
-                    )?;
-                    if let Some(w) = warm.as_deref_mut()
-                        && l.license.is_some()
-                    {
-                        w.license = Some((u.build.to_string(), l.clone()));
-                    }
-                    l
-                }
-            }
-        }
-        (None, None) => al_testrun::license::LicenseUse::none("no BC artifact is used by this run"),
-    };
+    laps.lap(Part::TestData);
+    let license = run_license(a, warm.as_deref_mut(), &dependencies, &chosen, floor_versions, &country)?;
+    laps.lap(Part::License);
     // The resolver repeats a note on each round of the artifact feed; say each once.
     let mut seen = BTreeSet::new();
     let mut hidden = 0;
@@ -1824,7 +1841,7 @@ fn test_inner(
             })
             .collect();
     }
-    let load_time = started.elapsed();
+    let setup = laps.finish();
     // A scratch run has a run of its own for every app; a test run has one for all of them.
     let suites: Vec<SuiteRun> = if a.execute {
         inputs
@@ -1961,6 +1978,7 @@ fn test_inner(
         }
         // The phases before the compile stopped ran (al-runner issue 8103).
         if a.timings {
+            eprintln!("{}", setup.line());
             print_compile_phases(p);
             print_compile_cache(p);
             eprintln!("time: total {}", secs(total_time));
@@ -2090,6 +2108,7 @@ fn test_inner(
     }
 
     if a.timings {
+        eprintln!("{}", setup.line());
         print_compile_phases(p);
         if let Some(cost) = test_data.as_ref().and_then(|(d, _)| d.provider.cost()) {
             eprintln!("test data: {cost}");
@@ -2433,7 +2452,7 @@ fn test_inner(
     if a.verbose {
         say!(
             "Time: load {}, compile {}, install baseline {}, run {} ({:.0} tests/s), total {}{}",
-            secs_w(load_time),
+            secs_w(setup.total()),
             secs_w(p.compile),
             secs_w(p.baseline),
             secs_w(p.tests),
@@ -2496,7 +2515,7 @@ fn test_inner(
     );
     if let Some(w) = warm {
         w.timings = Some(RequestTimings {
-            setup: load_time,
+            setup,
             compile: p.warm_compile.unwrap_or(p.compile),
             engine: p.engine,
             engine_kept: p.engine_kept,
