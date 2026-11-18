@@ -104,7 +104,7 @@ impl Schema {
 }
 
 impl Session {
-    pub(crate) fn report_builtin(
+    pub(super) fn report_builtin_call(
         &mut self,
         id: al_ir::BuiltinId,
         receiver: Option<Value>,
@@ -953,7 +953,11 @@ impl Session {
             object,
         };
         match &schema.engine.program.objects[object].report {
-            Some(r) => match r.run_refusal() {
+            Some(r) => match r
+                .run_refusal()
+                .cloned()
+                .or_else(|| self.excel_sheets_refusal(object, r))
+            {
                 None => {
                     for a in &r.assumes {
                         al_builtins::assumptions::assume(*a);
@@ -1496,7 +1500,6 @@ impl Session {
         if self.permissions.is_some() && inst.borrow().born.0 {
             self.permission_gate_execute(schema.object)?;
         }
-        property_gates::gate(schema, property_gates::Op::run(entry == Entry::Run, window))?;
         self.report.print_only_if_detail = false;
         // `window` says whether the request page opens: the instance's UseRequestPage, which falls
         // back on the report's property (record/TestTxModelReportRun.al:11, :60-61: a report with a
@@ -2698,7 +2701,7 @@ impl Session {
         if schema.report().processing_only {
             return self.save_of_processing_only(&inst, &schema, &format, at, quit, result_used);
         }
-        property_gates::save_as_declaration_refusals(&schema, &format)?;
+        property_gates::save_as_declaration_refusals(&schema)?;
         // The language and region of the run: the session's, or what the variable set (reports/W3ReportObjectIdPreviewLanguage.al:
         // 854-930, writer RB). Pinned: en-US; GlobalLanguage 1031 (:870); Language := 1031 on the variable (:893); FormatRegion :=
         // 'de-DE' on the variable (:912). The language changes the dataset's language and Format, not the column values; the

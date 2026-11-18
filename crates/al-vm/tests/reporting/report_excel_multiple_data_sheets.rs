@@ -31,6 +31,23 @@ report 50963 "XMS Multi Excel"
     {DATASET}
     rendering {{ layout(X) {{ Type = Excel; LayoutFile = 'XmsExcel.xlsx'; }} }}
 }}
+report 50967 "XMS Proc" {{ UsageCategory = None; UseRequestPage = false; ProcessingOnly = true; ExcelLayoutMultipleDataSheets = true; {DATASET} }}
+report 50968 "XMS Two Layouts"
+{{
+    UsageCategory = None; UseRequestPage = false; ExcelLayoutMultipleDataSheets = true; DefaultRenderingLayout = X;
+    {DATASET}
+    rendering {{ layout(X) {{ Type = Excel; LayoutFile = 'XmsExcel.xlsx'; }} layout(W) {{ Type = Word; LayoutFile = 'XmsWord.docx'; }} }}
+}}
+report 50969 "XMS Legacy"
+{{
+    UsageCategory = None; UseRequestPage = false; ExcelLayoutMultipleDataSheets = true; DefaultLayout = Word; WordLayout = 'XmsWord.docx';
+    {DATASET}
+}}
+report 50970 "XMS Extended" {{ UsageCategory = None; UseRequestPage = false; ExcelLayoutMultipleDataSheets = true; {DATASET} }}
+reportextension 50971 "XMS Ext" extends "XMS Extended"
+{{
+    rendering {{ layout(E) {{ Type = Excel; LayoutFile = 'XmsExt.xlsx'; }} }}
+}}
 table 50966 "XMS Num" {{ fields {{ field(1; Number; Integer) {{ }} }} keys {{ key(PK; Number) {{ }} }} }}
 table 50964 "XMS Blob" {{ fields {{ field(1; Id; Integer) {{ }} field(2; Data; Blob) {{ }} }} keys {{ key(PK; Id) {{ }} }} }}
 
@@ -104,6 +121,51 @@ codeunit 50965 "XMS Tests"
 
     procedure SaveExcelLayout(): Text begin exit(ExcelFacts(Report::"XMS Multi Excel")); end;
     procedure SaveExcelNoLayout(): Text begin exit(ExcelFacts(Report::"XMS Multi")); end;
+    // Every other call of a report with the property refuses (main's answer for the report), one per entry.
+    procedure VarRunWord() var R: Report "XMS Multi Word"; begin Setup(); R.UseRequestPage(false); R.Run(); end;
+    procedure VarRunNoLayout() var R: Report "XMS Multi"; begin Setup(); R.Run(); end;
+    procedure VarRunModalExcel() var R: Report "XMS Multi Excel"; begin Setup(); R.RunModal(); end;
+    procedure StaticRunWithPage() begin Setup(); Report.Run(Report::"XMS Multi Excel"); end;
+    procedure StaticRunRequestPage(): Text begin Setup(); exit(Report.RunRequestPage(Report::"XMS Multi Excel")); end;
+    procedure VarRunRequestPage(): Text var R: Report "XMS Multi"; begin Setup(); exit(R.RunRequestPage()); end;
+    procedure StaticExecute() begin Setup(); Report.Execute(Report::"XMS Multi", ''); end;
+    procedure StaticPrint() begin Setup(); Report.Print(Report::"XMS Multi", ''); end;
+    procedure RunProcessingOnly() begin Setup(); Report.Run(Report::"XMS Proc", false); end;
+    local procedure SaveFacts(Id: Integer; Fmt: ReportFormat): Text
+    var Tmp: Record "XMS Blob" temporary; Saved: Boolean;
+    begin
+        Setup();
+        if TrySave(Id, Fmt, Tmp, Saved) then;
+        exit(Format(Saved));
+    end;
+    procedure SavePdfNoLayout(): Text begin exit(SaveFacts(Report::"XMS Multi", ReportFormat::Pdf)); end;
+    procedure SaveExcelOfWord(): Text begin exit(SaveFacts(Report::"XMS Multi Word", ReportFormat::Excel)); end;
+    procedure SaveXmlProcessingOnly(): Text begin exit(SaveFacts(Report::"XMS Proc", ReportFormat::Xml)); end;
+    procedure SaveXmlTwoLayouts(): Text begin exit(SaveFacts(Report::"XMS Two Layouts", ReportFormat::Xml)); end;
+    procedure SaveXmlLegacyLayout(): Text begin exit(SaveFacts(Report::"XMS Legacy", ReportFormat::Xml)); end;
+    procedure SaveXmlExtended(): Text begin exit(SaveFacts(Report::"XMS Extended", ReportFormat::Xml)); end;
+    procedure SaveXmlOfVariable(): Text
+    var R: Report "XMS Multi"; Tmp: Record "XMS Blob" temporary; Out: OutStream;
+    begin
+        Setup();
+        Tmp.Data.CreateOutStream(Out);
+        exit(Format(R.SaveAs('', ReportFormat::Xml, Out)));
+    end;
+    procedure SaveXmlWithRecordRef(): Text
+    var Tmp: Record "XMS Blob" temporary; Out: OutStream; RR: RecordRef;
+    begin
+        Setup();
+        RR.Open(Database::"XMS Num");
+        Tmp.Data.CreateOutStream(Out);
+        exit(Format(Report.SaveAs(Report::"XMS Multi", '', ReportFormat::Xml, Out, RR)));
+    end;
+    procedure SaveXmlWithParameters(): Text
+    var Tmp: Record "XMS Blob" temporary; Out: OutStream;
+    begin
+        Setup();
+        Tmp.Data.CreateOutStream(Out);
+        exit(Format(Report.SaveAs(Report::"XMS Multi", '<?xml version="1.0" standalone="yes"?><ReportParameters/>', ReportFormat::Xml, Out)));
+    end;
     procedure SavePdfOfWord(): Text
     var Tmp: Record "XMS Blob" temporary; Saved: Boolean;
     begin
@@ -140,12 +202,35 @@ fn multiple_data_sheets_run_without_a_request_page_raises_as_measured() {
 #[test]
 fn multiple_data_sheets_saveas_excel_answers_as_measured() {
     assert_eq!(text("SaveExcelLayout"), "Yes|Yes|Yes");
+    assumptions::take_hits();
     assert_eq!(text("SaveExcelNoLayout"), "Yes|No|No");
+    assert!(assumptions::take_hits().contains(&Assumption::ExcelLayoutMultipleDataSheets));
 }
 
 #[test]
 fn multiple_data_sheets_shapes_not_measured_refuse() {
-    for p in ["RunWord", "SavePdfOfWord"] {
+    for p in [
+        "RunWord",
+        "SavePdfOfWord",
+        "VarRunWord",
+        "VarRunNoLayout",
+        "VarRunModalExcel",
+        "StaticRunWithPage",
+        "StaticRunRequestPage",
+        "VarRunRequestPage",
+        "StaticExecute",
+        "StaticPrint",
+        "RunProcessingOnly",
+        "SavePdfNoLayout",
+        "SaveExcelOfWord",
+        "SaveXmlProcessingOnly",
+        "SaveXmlTwoLayouts",
+        "SaveXmlLegacyLayout",
+        "SaveXmlExtended",
+        "SaveXmlOfVariable",
+        "SaveXmlWithRecordRef",
+        "SaveXmlWithParameters",
+    ] {
         match Built::from_source(&src()).run_in("XMS Tests", p) {
             Err(Signal::Unsupported(why)) => assert!(why.contains("ExcelLayoutMultipleDataSheets"), "{p}: {why}"),
             other => panic!("{p}: expected a refusal, got {other:?}"),
