@@ -508,33 +508,9 @@ impl CorpusRuntime {
         // How many apps, from the first of the program, the compile cache holds.
         let mut n_cached = 0;
         let order: Option<Vec<usize>> = if use_cache {
-            // Dependency apps first, Microsoft's before the others (the layers of the compile
-            // cache follow this order), then the dependency apps that stand on a workspace app,
-            // then the workspace's.
-            let in_order = |deps: Vec<usize>| -> Vec<usize> {
-                let dep_apps: Vec<&al_sema::workspace::AppSource> = deps.iter().map(|&i| &apps[i]).collect();
-                let dep_manifests: Vec<Manifest> = deps
-                    .iter()
-                    .map(|&i| manifests.get(i).cloned().unwrap_or_default())
-                    .collect();
-                crate::compile_cache::dependency_order(&dep_apps, &dep_manifests)
-                    .into_iter()
-                    .map(|k| deps[k])
-                    .collect()
-            };
-            let cached = in_order(
-                (0..n_apps)
-                    .filter(|&i| kinds[i] == al_sema::AppKind::Dependency && !on_workspace[i])
-                    .collect(),
-            );
-            n_cached = cached.len();
-            Some(
-                cached
-                    .into_iter()
-                    .chain(in_order((0..n_apps).filter(|&i| on_workspace[i]).collect()))
-                    .chain((0..n_apps).filter(|&i| kinds[i] != al_sema::AppKind::Dependency))
-                    .collect(),
-            )
+            let (order, cached) = cache_order(&apps, &kinds, manifests, &on_workspace);
+            n_cached = cached;
+            Some(order)
         } else if grow_order.is_some() {
             grow_order
         } else if let Grow::Keep(shared) = &*grow {
@@ -1051,13 +1027,7 @@ impl CorpusRuntime {
             (*baseline_wanted, *baseline, *compile_cache_skipped, *source_index);
         let baseline_note = baseline_note.clone();
         // The selection of this request, in program order: a warm compile may reach more than the request asks for.
-        let in_program_order = |v: &[(usize, u32)]| {
-            let mut new_of = vec![0; order.len()];
-            for (new, &old) in order.iter().enumerate() {
-                new_of[old] = new;
-            }
-            v.iter().map(|&(a, id)| (new_of[a], id)).collect::<Vec<_>>()
-        };
+        let in_program_order = |v: &[(usize, u32)]| in_program_order(order, v);
         // The selection the compile was made for: a warm server's request may select less of it.
         let compiled_only = opts_only.as_deref();
         let mut opts_only = match &opts.only {
@@ -2614,4 +2584,13 @@ fn note_leaks(units: &mut [Unit], carried: &[super::chain_walk::Carry], sees: &d
             }
         }
     }
+}
+
+/// Test codeunits as (caller app, id), in the program's app numbering (`order`: program app -> caller app).
+fn in_program_order(order: &[usize], v: &[(usize, u32)]) -> Vec<(usize, u32)> {
+    let mut new_of = vec![0; order.len()];
+    for (new, &old) in order.iter().enumerate() {
+        new_of[old] = new;
+    }
+    v.iter().map(|&(a, id)| (new_of[a], id)).collect()
 }

@@ -282,3 +282,38 @@ pub(crate) fn load_stored_workspace(
         Err(back) => Err(back),
     }
 }
+
+/// The program order of a compile with the compile cache, as caller indexes, and how many apps from the first the
+/// dependency layers hold: the dependency apps first, Microsoft's before the others (the layers follow this order), then
+/// the dependency apps that stand on a workspace app (`on_workspace`), then the workspace's.
+pub(crate) fn cache_order(
+    apps: &[al_sema::workspace::AppSource],
+    kinds: &[al_sema::AppKind],
+    manifests: &[Manifest],
+    on_workspace: &[bool],
+) -> (Vec<usize>, usize) {
+    let n_apps = apps.len();
+    let in_order = |deps: Vec<usize>| -> Vec<usize> {
+        let dep_apps: Vec<&al_sema::workspace::AppSource> = deps.iter().map(|&i| &apps[i]).collect();
+        let dep_manifests: Vec<Manifest> = deps
+            .iter()
+            .map(|&i| manifests.get(i).cloned().unwrap_or_default())
+            .collect();
+        crate::compile_cache::dependency_order(&dep_apps, &dep_manifests)
+            .into_iter()
+            .map(|k| deps[k])
+            .collect()
+    };
+    let cached = in_order(
+        (0..n_apps)
+            .filter(|&i| kinds[i] == al_sema::AppKind::Dependency && !on_workspace[i])
+            .collect(),
+    );
+    let n_cached = cached.len();
+    let order = cached
+        .into_iter()
+        .chain(in_order((0..n_apps).filter(|&i| on_workspace[i]).collect()))
+        .chain((0..n_apps).filter(|&i| kinds[i] != al_sema::AppKind::Dependency))
+        .collect();
+    (order, n_cached)
+}
