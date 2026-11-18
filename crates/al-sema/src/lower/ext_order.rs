@@ -17,7 +17,9 @@
 //! an order (al-runner issue 7358).
 //!
 //! Everything else is refused: apps on a path with ids against it, more than two apps where one pair has no path, and two
-//! apps without a path whose app id and app name sort differently.
+//! apps without a path whose app id and app name sort differently. The refusal stops the report's run, not a variable of the
+//! report: it is kept in `ir::Report::extension_order`, apart from `unsupported` (the reasons a variable is refused for), and
+//! `ir::Report::run_refusal` reads both where the report runs (al-vm `Session::report_schema`, al-testrun `written.rs`).
 
 use crate::workspace::Workspace;
 use al_builtins::assumptions::Assumption;
