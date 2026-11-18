@@ -141,6 +141,7 @@ impl Session {
             truncate_undo: _,
             validating: _,
             stamp_validating: _,
+            validate_events: _,
             validate_site: _,
             validate_sites: _,
             plain_proc_xrec: _,
@@ -301,6 +302,7 @@ impl Session {
             && self.truncate_undo.is_empty()
             && self.validating.is_empty()
             && self.stamp_validating.is_empty()
+            && self.validate_events.is_empty()
             && self.validate_site.is_none()
             && self.validate_sites.is_empty()
             && self.plain_proc_xrec.is_empty()

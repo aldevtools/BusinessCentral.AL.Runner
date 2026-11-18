@@ -35,6 +35,7 @@ mod sql_range_code;
 pub(crate) use insert_buffer::{InsertKind, InsertQueue};
 use sql_range::InsertShape;
 mod nested_validate;
+mod validate_event_xrec;
 pub(crate) use nested_validate::{BeforeImage, ProcXrec, ValidateSite, XREC_OF_RUNNING_CALL};
 mod by_value_view;
 pub(crate) use by_value_view::{BY_VALUE_VIEW, ByValueCall, primary_view};
@@ -1004,7 +1005,7 @@ impl Session {
             }
             e
         };
-        if let Err(e) = self.table_event(t, "onbeforevalidateevent", rec, Some(xrec), false, Some(&field.name)) {
+        if let Err(e) = self.validate_event(t, "onbeforevalidateevent", rec, xrec, field) {
             return Err(restore(rec, e, snapshot));
         }
         // The triggers table extensions attach to the field bracket its own OnValidate
@@ -1038,7 +1039,7 @@ impl Session {
                 return Err(restore(rec, e, snapshot));
             }
         }
-        self.table_event(t, "onaftervalidateevent", rec, Some(xrec), false, Some(&field.name))
+        self.validate_event(t, "onaftervalidateevent", rec, xrec, field)
             .map_err(|e| restore(rec, e, snapshot))
     }
 

@@ -123,7 +123,7 @@ impl Session {
     /// Whether the one Validate of the record at `handle` that runs now is a `Record.Validate` AL code called: the call site
     /// record/validate/XRecTableProcCalls.al measures (:160, :162, :177, :179, called from a test codeunit, no Validate of the
     /// record nested in another).
-    fn sole_validate_from_al(&self, handle: usize) -> bool {
+    pub(super) fn sole_validate_from_al(&self, handle: usize) -> bool {
         let mut running = self.validate_sites.iter().filter(|(h, _)| *h == handle);
         matches!(
             (running.next(), running.next()),
@@ -151,12 +151,19 @@ impl Session {
     ///
     /// Every other call from the table's or a table extension's own code keeps the blank xRec of a plain call, unprobed (OnInsert,
     /// OnModify, OnDelete, OnRename, OnBeforeValidate, another record variable, a table extension's own procedure, a table
-    /// extension's trigger at a call site that is not measured). A call from other code: [`Session::running_call_xrec`].
+    /// extension's trigger at a call site that is not measured). A subscriber of a validate event calling it on Rec:
+    /// [`Session::validate_event_xrec`]. A call from other code: [`Session::running_call_xrec`].
     pub(crate) fn table_proc_xrec(&mut self, object: usize, rc: &Rec, f: &Frame) -> ProcXrec {
-        match self.frame_xrec(object, rc, f) {
-            Some(x) => ProcXrec::Shared(x),
-            None => self.running_call_xrec(object, rc, f),
+        if let Some(x) = self.frame_xrec(object, rc, f) {
+            return ProcXrec::Shared(x);
         }
+        if let Some(x) = self.validate_event_xrec(object, rc, f) {
+            return ProcXrec::Shared(x);
+        }
+        if self.only_validate_event_xrec_runs(rc) {
+            return ProcXrec::Plain;
+        }
+        self.running_call_xrec(object, rc, f)
     }
 
     /// The caller's xRec of [`Session::table_proc_xrec`] that the code running in frame `f` holds (the cases listed there).
@@ -203,7 +210,7 @@ impl Session {
     }
 
     /// Whether object `x` is table `object` itself or one of its table extensions.
-    fn table_or_its_extension(&self, x: usize, object: usize) -> bool {
+    pub(super) fn table_or_its_extension(&self, x: usize, object: usize) -> bool {
         let objects = &self.engine.program.objects;
         x == object || (objects[x].kind == ObjKind::TableExtension && objects[x].extends_id == objects[object].id)
     }
@@ -245,7 +252,7 @@ impl Session {
     /// The xRecs of the calls running on the record variable `rc` of table `table`: of each instance (ADR-021) of the table
     /// and of its table extensions whose Rec slot holds `rc` (`enter_record` fills it while the call runs, `leave_record`
     /// empties it), with the instance's object.
-    fn running_xrecs(&self, table: usize, rc: &Rec) -> Vec<(usize, Rec)> {
+    pub(super) fn running_xrecs(&self, table: usize, rc: &Rec) -> Vec<(usize, Rec)> {
         let instances = rc.borrow().globals.instances();
         let objects = &self.engine.program.objects;
         let mut running = Vec::new();
