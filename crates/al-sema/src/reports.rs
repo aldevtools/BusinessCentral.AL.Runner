@@ -539,8 +539,8 @@ pub fn layout(obj: &ast::Object, timer_trigger: Option<&str>) -> Layout {
 }
 
 /// The reason for a report property the runtime does not take.
-fn unsupported_property(name: &str) -> String {
-    format!("report property {name} is not supported yet")
+fn unsupported_property(other: &str) -> String {
+    format!("report property {other} is not supported yet")
 }
 
 /// Why a variable of report `r` is refused: why the report cannot run (`ir::Report::unsupported`), else the reason of a
@@ -1162,6 +1162,7 @@ impl<'a> Owner<'a> {
                     field,
                     item_field,
                     include_caption,
+                    stated_properties: c.properties().map(|p| p.name().to_ascii_lowercase()).collect(),
                     // A bare field or one written with the own data item's name (also one named like its table,
                     // P138ColCaptionQualified.al:QS_Labels_DataItemNamedLikeTable); other items are resolved by `caption_sources`.
                     caption_table: field.or(item_field).and(table),
@@ -1357,6 +1358,7 @@ fn item_ir(
         max_iteration: prop("MaxIteration")
             .and_then(|v| v.trim().parse::<u32>().ok())
             .filter(|n| *n > 0),
+        stated_properties: sec.properties().map(|p| p.name().to_ascii_lowercase()).collect(),
     }
 }
 

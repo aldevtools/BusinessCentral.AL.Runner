@@ -1145,6 +1145,7 @@ fn walk_report_item<V: RefVisitor>(i: &mut ReportItem, parent: TableOf, v: &mut 
         max_iteration: _,
         print_only_if_detail: _,
         calc_fields,
+        stated_properties: _,
     } = i;
     let own = TableOf::object(*table);
     for f in calc_fields {
@@ -1168,6 +1169,7 @@ fn walk_report_column<V: RefVisitor>(c: &mut ReportColumn, table: TableOf, v: &m
         field,
         item_field,
         include_caption: _,
+        stated_properties: _,
         caption_table,
         caption_field,
         value_unsupported: _,

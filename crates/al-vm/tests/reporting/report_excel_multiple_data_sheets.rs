@@ -93,6 +93,26 @@ report 50988 "XMS Call Column"
     UsageCategory = None; UseRequestPage = false; ExcelLayoutMultipleDataSheets = true;
     dataset {{ dataitem(Num; "XMS Num") {{ column(Number; Number) {{ }} column(Text; Format(Number)) {{ }} }} }}
 }}
+report 50996 "XMS Use Temporary"
+{{
+    UsageCategory = None; UseRequestPage = false; ExcelLayoutMultipleDataSheets = true;
+    dataset {{ dataitem(Num; "XMS Num") {{ UseTemporary = true; column(Number; Number) {{ }} }} }}
+}}
+report 50997 "XMS New Page"
+{{
+    UsageCategory = None; UseRequestPage = false; ExcelLayoutMultipleDataSheets = true;
+    dataset {{ dataitem(Num; "XMS Num") {{ DataItemTableView = where(Number = const(7)); NewPagePerRecord = true; column(Number; Number) {{ }} }} }}
+}}
+report 50998 "XMS Caption False"
+{{
+    UsageCategory = None; UseRequestPage = false; ExcelLayoutMultipleDataSheets = true;
+    dataset {{ dataitem(Num; "XMS Num") {{ column(Number; Number) {{ IncludeCaption = false; }} }} }}
+}}
+report 50999 "XMS Column Obsolete"
+{{
+    UsageCategory = None; UseRequestPage = false; ExcelLayoutMultipleDataSheets = true;
+    dataset {{ dataitem(Num; "XMS Num") {{ column(Number; Number) {{ ObsoleteState = Pending; ObsoleteReason = 'x'; }} }} }}
+}}
 report 50989 "XMS With Procedure"
 {{
     UsageCategory = None; UseRequestPage = false; ExcelLayoutMultipleDataSheets = true;
@@ -236,6 +256,11 @@ codeunit 50965 "XMS Tests"
     procedure SaveXmlNested(): Text begin exit(SaveFacts(Report::"XMS Nested", ReportFormat::Xml)); end;
     procedure SaveXmlNoItems(): Text begin exit(SaveFacts(Report::"XMS No Items", ReportFormat::Xml)); end;
     procedure SaveXmlCallColumn(): Text begin exit(SaveFacts(Report::"XMS Call Column", ReportFormat::Xml)); end;
+    procedure SaveXmlUseTemporary(): Text begin exit(SaveFacts(Report::"XMS Use Temporary", ReportFormat::Xml)); end;
+    procedure RunUseTemporary(): Text begin exit(RunFacts(Report::"XMS Use Temporary", false)); end;
+    procedure SaveXmlNewPage(): Text begin exit(SaveFacts(Report::"XMS New Page", ReportFormat::Xml)); end;
+    procedure SaveXmlCaptionFalse(): Text begin exit(SaveFacts(Report::"XMS Caption False", ReportFormat::Xml)); end;
+    procedure SaveXmlColumnObsolete(): Text begin exit(SaveFacts(Report::"XMS Column Obsolete", ReportFormat::Xml)); end;
     [TryFunction]
     local procedure TrySaveDropped(Id: Integer; Fmt: ReportFormat; var Tmp: Record "XMS Blob" temporary)
     var Out: OutStream;
@@ -553,6 +578,11 @@ fn multiple_data_sheets_shapes_not_measured_refuse() {
         "SaveXmlNested",
         "SaveXmlNoItems",
         "SaveXmlCallColumn",
+        "SaveXmlUseTemporary",
+        "RunUseTemporary",
+        "SaveXmlNewPage",
+        "SaveXmlCaptionFalse",
+        "SaveXmlColumnObsolete",
         "SaveXmlAnswerDropped",
         "SaveExcelAnswerDropped",
         "SaveXmlOptionFormat",

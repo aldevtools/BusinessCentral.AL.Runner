@@ -215,38 +215,27 @@ fn only_column_routines(objects: &al_ir::Objects, object: usize, r: &al_ir::Repo
     (0..objects[object].routines.len()).all(|i| columns.contains(&i))
 }
 
-/// The dataset of the probe's reports (ExcelMultipleDataSheetsReport.al:47-60): one top-level data item or more, each with
-/// at most `DataItemTableView` (no link, request filter fields, `MaxIteration`, `PrintOnlyIfDetail`, `CalcFields` or nested
-/// item); columns without a property, each a field of the item (`column(Number; Number)`) or an expression of operators over
-/// constants and fields of the item's record (`column(Doubled; Number * 2)`), so no call. The tables are not compared.
+/// The dataset of the probe's reports (ExcelMultipleDataSheetsReport.al:44-54): one top-level data item or more, each
+/// stating no property but `DataItemTableView` (:46, :52), so no link, `UseTemporary`, request filter, `MaxIteration`,
+/// `PrintOnlyIfDetail`, `CalcFields`, page or obsolescence property, and no nested item; columns stating no property
+/// (:47-48, :53), each a field of the item (`column(Number; Number)`) or an expression of operators over constants and
+/// fields of the item's record (`column(Doubled; Number * 2)`), so no call. The tables are not compared.
 fn measured_dataset(objects: &al_ir::Objects, object: usize, r: &al_ir::Report) -> bool {
     let routines = &objects[object].routines;
     let column = |c: &al_ir::ReportColumn| {
-        let plain = c.unsupported.is_none()
-            && c.value_unsupported.is_none()
-            && !c.include_caption
-            && c.option_caption_ml.is_none()
-            && c.decimal_places.is_none()
-            && c.auto_format_type.is_none()
-            && c.auto_format_expression.is_none();
         let source = c.field.is_some()
             || c.routine.and_then(|i| routines.get(i)).is_some_and(|rt| {
                 rt.body
                     .read(|stmts| matches!(stmts, [al_ir::Stmt::Exit(Some(e))] if operators_only(e)))
             });
-        plain && source
+        c.stated_properties.is_empty() && c.unsupported.is_none() && c.value_unsupported.is_none() && source
+    };
+    let item_properties = |i: &al_ir::ReportItem| {
+        let stated: Vec<&str> = i.stated_properties.iter().map(String::as_str).collect();
+        matches!(stated.as_slice(), [] | ["dataitemtableview"])
     };
     !r.items.is_empty()
-        && r.items.iter().all(|i| {
-            i.parent.is_none()
-                && i.link.is_empty()
-                && i.link_item.is_none()
-                && i.request_filter_fields.is_none()
-                && i.max_iteration.is_none()
-                && !i.print_only_if_detail
-                && i.calc_fields.is_empty()
-                && i.columns.iter().all(column)
-        })
+        && (r.items.iter()).all(|i| i.parent.is_none() && item_properties(i) && i.columns.iter().all(column))
 }
 
 /// `e` is built of constants, fields of a global record and unary and binary operators only.
