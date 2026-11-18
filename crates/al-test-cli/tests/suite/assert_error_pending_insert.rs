@@ -1,4 +1,5 @@
-//! An `asserterror` whose body ends without an error while a duplicate-key Insert is still pending (al-runner issue 8267).
+//! An `asserterror` whose body ends, or is left by exit or break, without an error while an Insert error is deferred (al-runner
+//! issue 8267): a duplicate key, or a Date its SQL column cannot hold (records/sql_range.rs).
 //! The statement-form Insert of an existing key into a table without a Blob or AutoIncrement field returns without an error,
 //! and the next access to the table or a Commit raises it (record/TestRecordRuntimeTextsAndViews.al:189-210;
 //! record/duplicate-insert/Y7407DuplicateInsertBuffer.al:98-123, the statement after the Insert inside the asserterror is
