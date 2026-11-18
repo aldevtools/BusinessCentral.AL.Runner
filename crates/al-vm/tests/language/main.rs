@@ -123,6 +123,7 @@ mod format_recordid_number;
 mod format_second_dec;
 mod format_variant_number;
 mod get_omitted_init_value;
+mod global_language_kept_from_main;
 mod guid_max_str_len;
 mod guid_text_compare;
 mod guid_text_functions;
