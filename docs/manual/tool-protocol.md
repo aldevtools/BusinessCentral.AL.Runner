@@ -197,7 +197,7 @@ Differences a client must adapt to:
 1. **Test lines stream**, one per test as it finishes, then the summary.
 2. The server is **warm and in-process**: compiled dependency apps and test data stay in memory. Same sources as the
    last request: the compiled workspace is reused and `cached` is `true`, whatever the request selects (`test`,
-   `excludeTests`, `coverage`). The compile holds every test codeunit of the sources, so the first request compiles
+   `excludeTests`, `excludeTestsExact`, `coverage`). The compile holds every test codeunit of the sources, so the first request compiles
    all of them even when it selects one, and with `tdd` the summary's `generatedStubs` also lists the stubs of test
    codeunits the request does not select (a one-shot `al-runner test --tdd --test` compiles only the selected ones). A changed source always shows. When only the
    code of routines of codeunits, tables or table extensions changed, just those objects are compiled again and the
@@ -250,7 +250,7 @@ Differences a client must adapt to:
    keeps running whole codeunits (section 3).
 5. A request that cannot run answers one `{"error": "<reason>"}` line instead of a summary with exit code 2 or 3:
    for example `{"error":"/x: no such file or folder"}`, ``{"error":"unknown field `cobertura` for runTests"}``,
-   ``{"error":"`sourcePaths` needs at least one app folder"}``. A `test` or `excludeTests` that matches no test is not
+   ``{"error":"`sourcePaths` needs at least one app folder"}``. A `test`, `excludeTests` or `excludeTestsExact` that matches no test is not
    an error: it answers a summary with exit code 6, all counts 0, and the reason in `warnings`. With `entries`, an
    entry that matches no test gives the same signal on its `entrySummary`, and the request's exit code is 6.
 6. While a run is in progress `cancel` is answered at once. `shutdown` takes effect after the current test (see the

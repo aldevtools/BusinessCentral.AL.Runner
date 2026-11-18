@@ -59,6 +59,11 @@ struct Selection {
     parity: Option<Arc<al_testrun::disabled::DisabledTests>>,
 }
 
+/// The case folding of every test-name match (`--test`, `--test-exact`, both exclusions): Unicode lower case.
+fn fold(s: &str) -> String {
+    s.to_lowercase()
+}
+
 /// `Codeunit<ID>.<Method>`, the name AL Runner v2 reports and accepts.
 fn qualified(codeunit: u32, test: &str) -> String {
     format!("Codeunit{codeunit}.{test}")
@@ -77,18 +82,19 @@ impl Selection {
     /// A pattern with a dot is matched against the qualified name, one without against the method name; any case,
     /// as a substring.
     pub(crate) fn matches(pattern: &str, codeunit: u32, test: &str) -> bool {
-        let p = pattern.to_lowercase();
+        let p = fold(pattern);
         if p.contains('.') {
-            qualified(codeunit, test).to_lowercase().contains(&p)
+            fold(&qualified(codeunit, test)).contains(&p)
         } else {
-            test.to_lowercase().contains(&p)
+            fold(test).contains(&p)
         }
     }
 
     /// The match of `--test-exact` and `--exclude-test-exact`: NAME is the method name or the whole qualified name,
     /// any case. The one owner of "exactly".
     fn matches_exact(name: &str, codeunit: u32, test: &str) -> bool {
-        name.eq_ignore_ascii_case(test) || name.eq_ignore_ascii_case(&qualified(codeunit, test))
+        let name = fold(name);
+        name == fold(test) || name == fold(&qualified(codeunit, test))
     }
 
     fn picks(&self, codeunit: u32, test: &str) -> bool {
@@ -2776,6 +2782,20 @@ mod selection_tests {
         };
         assert!(!s.picks(50650, "Passes") && !s.picks(1, "OTHER"));
         assert!(s.picks(50650, "PassesToo") && s.picks(2, "Other") && s.active());
+    }
+
+    /// Issue 8059 review: "any case" folds as `--test` does (Unicode lower case), for `--test-exact` and both
+    /// exclusions alike.
+    #[test]
+    fn exact_names_fold_case_as_the_substring_form_does() {
+        assert!(Selection::matches("ändern", 1, "Ändern"));
+        let s = sel(&[], &["ändern"]);
+        assert!(s.picks(1, "Ändern") && !s.picks(1, "Andern"));
+        let s = Selection {
+            excludes_exact: vec!["codeunit1.ÄNDERN".into()],
+            ..Selection::default()
+        };
+        assert!(!s.picks(1, "Ändern"));
     }
 
     #[test]

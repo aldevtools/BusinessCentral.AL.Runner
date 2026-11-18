@@ -396,12 +396,7 @@ fn stability_args(a: &mut TestArgs) -> Result<(), String> {
     stability_matrix_args(a)?;
     let Some(st) = &a.stability else { return Ok(()) };
     let sel = st.config.selection.clone();
-    let cli_selects = !a.codeunits.is_empty()
-        || !a.filters.is_empty()
-        || !a.exact.is_empty()
-        || !a.excludes.is_empty()
-        || !a.excludes_exact.is_empty();
-    if !cli_selects {
+    if !a.selects_tests() {
         a.codeunits = sel.codeunits;
         a.exact = sel.tests;
         a.excludes = sel.exclude_tests;
@@ -521,6 +516,27 @@ fn stability_matrix_args(a: &mut TestArgs) -> Result<(), String> {
 }
 
 impl TestArgs {
+    /// Whether the command line selects tests: the one list of the options that do (`--codeunit`, `--filter`,
+    /// `--test-exact`, `--exclude-test`, `--exclude-test-exact`). A new selecting option is added here.
+    pub fn selects_tests(&self) -> bool {
+        let Self {
+            codeunits,
+            filters,
+            exact,
+            excludes,
+            excludes_exact,
+            ..
+        } = self;
+        [
+            codeunits.is_empty(),
+            filters.is_empty(),
+            exact.is_empty(),
+            excludes.is_empty(),
+            excludes_exact.is_empty(),
+        ]
+        .contains(&false)
+    }
+
     /// The country version of the run: `--country`, else `w1`.
     pub fn country(&self) -> &str {
         self.country.as_deref().unwrap_or("w1")
@@ -918,7 +934,7 @@ TEST SOURCES (ADR-052)
                          no-index warning prints `al-runner impact-index build PATH ...`. A source
                          that is compiled only (no AL source) or has such a dependency, depends on
                          the extension, is also an APP or is given twice: exit 2 before any test.
-                         --filter, --codeunit, --test-exact and --exclude-test apply to your own
+                         --filter, --codeunit, --test-exact, --exclude-test and --exclude-test-exact apply to your own
                          tests only. --output-json FILE: your own tests as a plain run writes them,
                          plus `sources` (per source: source, kind, testApps, mode, lanes, counts,
                          notSelected, exitCode, tests). --impact-json FILE: format 2, `sources`
@@ -1422,11 +1438,7 @@ fn parse_serve(args: Vec<String>) -> Result<Command, String> {
     };
     let t = *t;
     if t.apps.len() != 1
-        || !t.codeunits.is_empty()
-        || !t.filters.is_empty()
-        || !t.excludes.is_empty()
-        || !t.exact.is_empty()
-        || !t.excludes_exact.is_empty()
+        || t.selects_tests()
         || t.junit.is_some()
         || t.output_json.is_some()
         || t.coverage

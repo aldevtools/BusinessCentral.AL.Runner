@@ -508,6 +508,27 @@ fn the_missing_dependency_hint_names_an_al_runner_option() {
     assert_eq!(a.deps, vec![PathBuf::from("d1")], "{err}");
 }
 
+/// Issue 8059 review: an exact exclusion on the command line is a command-line selection. It replaces the selection of
+/// a stability config, and a server does not take it at start.
+#[test]
+fn an_exact_exclusion_is_a_command_line_selection() {
+    let d = tempfile::tempdir().unwrap();
+    let cfg = d.path().join("stability.cfg");
+    std::fs::write(
+        &cfg,
+        r#"{"format":1,"dimensions":{"order.methods":["reverse"]},"selection":{"codeunits":[50100]}}"#,
+    )
+    .unwrap();
+    let a = test_args(&format!("test A --stability {}", cfg.display()));
+    assert_eq!(a.codeunits, vec![50100]);
+    let a = test_args(&format!("test A --stability {} --exclude-test-exact X", cfg.display()));
+    assert!(
+        a.codeunits.is_empty(),
+        "the command line's selection wins over the config's"
+    );
+    assert!(p("serve --exclude-test-exact X").unwrap_err().contains("do not depend"));
+}
+
 #[test]
 fn the_flags_of_the_v2_tools_parse() {
     use al_testrun::isolation::TestIsolation as I;
