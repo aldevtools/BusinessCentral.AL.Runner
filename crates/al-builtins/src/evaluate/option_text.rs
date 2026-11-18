@@ -7,8 +7,9 @@ use crate::value::Value;
 use std::sync::Arc;
 
 /// An Option reads an ordinal or a member name (types/PROptionInteger.al:Option_InCaseAndLoopBounds: `1` is B, `C` is C).
-/// A variable: an ordinal of any size is kept (`3` of three members formats as `3`), a text that is neither an ordinal
-/// nor a member name is rejected, and the error names the members (P86Eval.al, codeunit "LT P86 Eval Option").
+/// A variable: an ordinal past the members is kept (`3` of three members formats as `3`, format-evaluate/P86Eval.al:1364,
+/// :1376) and one above i32 refuses; a text that is neither an ordinal nor a member name is rejected, and the error names
+/// the members (P86Eval.al, codeunit "LT P86 Eval Option").
 pub(super) fn variable(c: &mut dyn Ctx, members: &Arc<[String]>, text: &crate::text::Txt) -> Result<Parsed, Signal> {
     let t = trimmed(text);
     // The empty text, a blank text and NUL name the member declared as " " at any place (format-evaluate/format-matrix/
