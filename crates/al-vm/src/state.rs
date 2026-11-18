@@ -341,6 +341,7 @@ pub(crate) struct PageClients {
 }
 
 /// Event subscriptions and what the Event Subscription table reports.
+#[derive(Default)]
 pub(crate) struct EventState {
     /// Manual event subscriptions made by `BindSubscription`.
     pub(crate) bindings: Vec<dispatch::Binding>,
