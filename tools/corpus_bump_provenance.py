@@ -5,15 +5,18 @@
     corpus_bump_provenance.py files --state FILE --corpus DIR --sha SHA --old OLD --oracle DIR --list FILE --summary OUT
 
 run: before any JUnit file is downloaded. RUN-JSON is gh run view --json databaseId,status,conclusion,headSha,attempt,
-event,headBranch,workflowDatabaseId; ARTIFACTS the run's artifact listing. Checks that the run is green or is the nightly
-exception (decision 6), that its results manifest belongs to its latest attempt (decision 4), that it ran on master, the
-chain cap and the nightly comparison (decision 5). Writes the run id, the kind and the manifest to OUT.
+event,headBranch,workflowDatabaseId; ARTIFACTS the run's artifact listing; DIR the corpus, already fetched (the run's
+commit and the nightly runs' commits are read). Checks that the run's results manifest belongs to its latest attempt
+(decision 4), the chain cap, that the manifest's modes agree with its chains and counts, that the run is green or is the
+nightly exception (decision 6), that it is a push or schedule run on master, and the nightly comparison (decision 5).
+Writes the run id, its attempt, the kind and the manifest to OUT.
 
 files: after the JUnit files of the run are downloaded. LIST has one line per file: the BC version (27.5), the path of
 the downloaded file and the JUnit file name the artifact held (junit-al-language.xml). A run without a manifest is a full
 run from before ADR-077 only when no suite carries provenance properties (decision 4). A run with one: every suite has its
-properties and the manifest's BC build, every source commit is an ancestor of SHA, every reused codeunit's declaring files
-are the same at its source commit and at SHA, and no codeunit of the current oracle (ORACLE, the oracle folder) is missing
+properties and the manifest's BC build, every source commit is an ancestor of SHA, a suite of this run names SHA and an
+attempt of the run, a reused suite names an older run and its codeunit's declaring files are the same at its source
+commit and at SHA, each file's counts of fresh and reused codeunits are the manifest's, and no codeunit of the current oracle (ORACLE, the oracle folder) is missing
 unless the corpus diff OLD..SHA deleted or renamed its file (decision 5). Writes the oracle.toml fields of decision 7 per
 major to SUMMARY (corpus_bump_edit.py reads them); prints a warning when the CI build differs from oracle.toml bc_build.
 
@@ -37,6 +40,15 @@ CHAIN_MAX = 20
 COMPARISON_JOB = "Nightly comparison"
 # Decision 5: the nightly comparison's answer when the fresh and the reused results agree (per BC version).
 IDENTICAL = "identical"
+# The run modes of a manifest: "full" (every test ran, corpus provenance.py manifest) and "subset" (a run that reuses
+# results, ADR-077 context).
+MODES = ("full", "subset")
+# The app property of a suite (corpus provenance.py stamp: --app full or partial).
+APPS = ("full", "partial")
+# The jobs of corpus ci.yml a nightly run may skip: the coverage job runs only for pull_request (its "if").
+NIGHTLY_SKIPPED = ("Coverage facts must not shrink",)
+# The corpus writes a manifest for push runs (ci.yml, job "Results manifest") and for the nightly run (decision 6).
+EVENTS = ("push", "schedule")
 
 
 def refuse(msg):
@@ -78,7 +90,8 @@ def download_manifest(repo, artifacts):
 
 
 def check_manifest_belongs(run_id, run, manifest):
-    """Decision 4: the manifest counts only for the run's latest attempt (and its schema is the known one)."""
+    """Decision 4: the manifest counts only for the run's latest attempt (and its schema is the known one). RUN needs
+    headSha and attempt. The one check for the manifest of the run and of its nightly run."""
     if manifest.get("schema") != SCHEMA:
         refuse("run %s: results manifest schema %r, this check knows schema %d" % (run_id, manifest.get("schema"), SCHEMA))
     if manifest.get("run_id") != run_id:
@@ -92,14 +105,48 @@ def check_manifest_belongs(run_id, run, manifest):
         refuse("run %s: its results manifest names no BC version" % run_id)
 
 
+def version_is_full(v):
+    return v.get("mode") == "full" and v.get("chain") == 0 and all(
+        l.get("reused") == 0 for l in (v.get("legs") or {}).values())
+
+
+def check_manifest_shape(run_id, manifest):
+    """A version's mode is one of MODES and says full exactly when its chain is 0 and no leg reused a codeunit; the base
+    run is null exactly when every version is full. The files stage then checks the leg counts against the files."""
+    for v, e in sorted(manifest["versions"].items()):
+        if e.get("mode") not in MODES:
+            refuse("run %s, BC %s: mode %r, expected one of %s" % (run_id, v, e.get("mode"), ", ".join(MODES)))
+        if not isinstance(e.get("legs"), dict) or not e["legs"]:
+            refuse("run %s, BC %s: its results manifest names no leg" % (run_id, v))
+        for name, leg in sorted(e["legs"].items()):
+            if not all(isinstance(leg.get(k), int) and leg[k] >= 0 for k in ("fresh", "reused")):
+                refuse("run %s, BC %s, %s: fresh %r and reused %r are not counts"
+                       % (run_id, v, name, leg.get("fresh"), leg.get("reused")))
+        reused = sum(l["reused"] for l in e["legs"].values())
+        if (e["mode"] == "full") != (e["chain"] == 0 and reused == 0):
+            refuse("run %s, BC %s: mode %s with chain %d and %d reused codeunits" % (run_id, v, e["mode"], e["chain"], reused))
+    if (manifest.get("base_run") is None) != is_full(manifest):
+        refuse("run %s: base run %r, but %s" % (run_id, manifest.get("base_run"),
+                                               "every version is full" if is_full(manifest) else "a version reuses results"))
+
+
 def is_full(manifest):
-    """Every version of the manifest ran every test: mode full, no reused codeunit, no base run."""
-    return manifest.get("base_run") is None and all(
-        v.get("mode") == "full" and all(l.get("reused") == 0 for l in v.get("legs", {}).values())
-        for v in manifest["versions"].values())
+    """Every version of the manifest ran every test: mode full, chain 0, no reused codeunit (check_manifest_shape and
+    the files stage tie this to the files)."""
+    return all(version_is_full(v) for v in manifest["versions"].values())
 
 
 # ---------- run ----------
+
+def nightly_jobs_ok(jobs):
+    """Decision 6: every test leg and the manifest job succeeded and the comparison job is the one failure. A job may be
+    skipped only when it is one of NIGHTLY_SKIPPED."""
+    jobs = [(j.get("name") or "", j.get("conclusion")) for j in jobs]
+    ok = all(c == "success" or (n == COMPARISON_JOB and c == "failure") or (n in NIGHTLY_SKIPPED and c == "skipped")
+             for n, c in jobs)
+    return (ok and [n for n, _ in jobs].count(COMPARISON_JOB) == 1 and ("Results manifest", "success") in jobs
+            and any(n.startswith("BC ") and c == "success" for n, c in jobs))
+
 
 def check_green(repo, run_id, run, manifest):
     """Decision 5, first bullet, with the exception of decision 6. Returns "green" or "nightly"."""
@@ -110,8 +157,7 @@ def check_green(repo, run_id, run, manifest):
         return "green"
     if manifest is not None and run.get("event") == "schedule" and conclusion == "failure" and is_full(manifest):
         jobs = json.loads(gh("run", "view", str(run_id), "-R", repo, "--attempt", str(run.get("attempt")), "--json", "jobs"))
-        failed = [j for j in jobs.get("jobs", []) if j.get("conclusion") not in ("success", "skipped")]
-        if [(j.get("name"), j.get("conclusion")) for j in failed] == [(COMPARISON_JOB, "failure")]:
+        if nightly_jobs_ok(jobs.get("jobs", [])):
             print("run %s: the nightly full run, only its job %r failed (ADR-077 decision 6)" % (run_id, COMPARISON_JOB))
             return "nightly"
     refuse("run %s is not green (conclusion: %s)" % (run_id, conclusion or "none"))
@@ -126,20 +172,25 @@ def check_chain(run_id, manifest):
 
 
 def is_ancestor(corpus, a, b):
-    return git(corpus, "merge-base", "--is-ancestor", a, b, check=False).returncode == 0
+    """git merge-base --is-ancestor: exit 0 is yes, exit 1 is no; any other exit (a commit git cannot read) refuses."""
+    p = git(corpus, "merge-base", "--is-ancestor", a, b, check=False)
+    if p.returncode not in (0, 1):
+        refuse("git merge-base --is-ancestor %s %s failed: %s" % (a, b, p.stderr.strip()))
+    return p.returncode == 0
 
 
 def check_nightly_comparison(repo, corpus, run_id, run, manifest):
     """Decision 5: the newest nightly run at or before the run's commit does not report a difference.
 
-    Its manifest must be of its latest attempt and say IDENTICAL for every BC version. A nightly without that answer is
-    refused like a difference: nothing shows that the reused results agree. With no nightly at or before the commit, a
+    Its manifest must be of its latest attempt and say IDENTICAL for every BC version of the run's manifest, and the
+    nightly must have ended green. A nightly without that answer is refused like a difference: nothing shows that the
+    reused results agree. With no nightly at or before the commit, a
     full run passes (no comparison is open) and a run that reuses results is refused (nothing compared them)."""
     wf = run.get("workflowDatabaseId")
     if not wf:
         refuse("run %s: gh named no workflow, so its nightly runs cannot be listed" % run_id)
     nightlies = json.loads(gh("run", "list", "-R", repo, "--workflow", str(wf), "--event", "schedule", "--branch", BRANCH,
-                              "--status", "completed", "-L", "50", "--json", "databaseId,headSha,attempt,createdAt"))
+                              "--status", "completed", "-L", "50", "--json", "databaseId,headSha,attempt,conclusion,createdAt"))
     before = [n for n in nightlies if is_ancestor(corpus, n["headSha"], run["headSha"])]
     if not before:
         if is_full(manifest):
@@ -152,13 +203,15 @@ def check_nightly_comparison(repo, corpus, run_id, run, manifest):
     nm = download_manifest(repo, arts)
     if nm is None:
         refuse("run %s: the newest nightly run at or before its commit, %s, has no results manifest" % (run_id, nid))
-    if nm.get("schema") != SCHEMA or nm.get("run_id") != nid or nm.get("run_attempt") != n.get("attempt"):
-        refuse("run %s: the manifest of the nightly run %s is not of its latest attempt %r (schema %r, run %r, attempt %r)"
-               % (run_id, nid, n.get("attempt"), nm.get("schema"), nm.get("run_id"), nm.get("run_attempt")))
-    for v, e in sorted((nm.get("versions") or {"none": {}}).items()):
-        if e.get("comparison") != IDENTICAL:
+    check_manifest_belongs(nid, n, nm)
+    for v in sorted(manifest["versions"]):
+        cmp = (nm["versions"].get(v) or {}).get("comparison")
+        if cmp != IDENTICAL:
             refuse("run %s: the nightly run %s reports comparison %r for BC %s; a difference blocks the bump until it is "
-                   "classified (ADR-077 decision 5)" % (run_id, nid, e.get("comparison"), v))
+                   "classified (ADR-077 decision 5)" % (run_id, nid, cmp, v))
+    if n.get("conclusion") != "success":
+        refuse("run %s: the nightly run %s ended with conclusion %s, so its comparison does not count (ADR-077 decision 4)"
+               % (run_id, nid, n.get("conclusion")))
     print("run %s: nightly run %s at or before its commit reports no difference" % (run_id, nid))
 
 
@@ -171,13 +224,16 @@ def cmd_run(a):
         print("run %s: no results manifest, a full run from before ADR-077 only if no suite carries provenance" % run_id)
     else:
         check_manifest_belongs(run_id, run, manifest)
+        check_chain(run_id, manifest)
+        check_manifest_shape(run_id, manifest)
         kind = check_green(a.repo, run_id, run, manifest)
+        if run.get("event") not in EVENTS:
+            refuse("run %s: event %r, a results manifest comes only from %s" % (run_id, run.get("event"), " and ".join(EVENTS)))
         if run.get("headBranch") != BRANCH:
             refuse("run %s ran on branch %r, not on %s" % (run_id, run.get("headBranch"), BRANCH))
-        check_chain(run_id, manifest)
         if kind != "nightly":
             check_nightly_comparison(a.repo, a.corpus, run_id, run, manifest)
-    json.dump({"run_id": run_id, "kind": kind, "manifest": manifest}, open(a.state, "w"))
+    json.dump({"run_id": run_id, "attempt": run.get("attempt"), "kind": kind, "manifest": manifest}, open(a.state, "w"))
 
 
 # ---------- files ----------
@@ -201,23 +257,44 @@ def codeunit_of(suite):
     return int(m.group(1)) if m else None
 
 
+DECLARATION = re.compile(r"\s*codeunit\s+(\d+)(\s|$)", re.I)
+_trees = {}
+
+
+def tree(corpus, commit, app_dir):
+    """({codeunit: sorted files under app_dir that declare it}, {file: blob id}) at commit: one git grep and one git
+    ls-tree per commit and folder, kept for the whole check."""
+    key = (commit, app_dir)
+    if key not in _trees:
+        p = git(corpus, "grep", "-I", "-i", "-E", "--null", "-e", r"^[[:space:]]*codeunit[[:space:]]+[0-9]+([[:space:]]|$)",
+                commit, "--", app_dir, check=False)
+        if p.returncode not in (0, 1):
+            refuse("git grep at %s failed: %s" % (commit[:12], p.stderr.strip()))
+        decl = {}
+        for line in p.stdout.splitlines():
+            name, _, text = line.partition("\0")
+            m = DECLARATION.match(text)
+            if m:
+                decl.setdefault(int(m.group(1)), set()).add(name.split(":", 1)[1])
+        blobs = {}
+        for entry in git(corpus, "ls-tree", "-r", "-z", commit, "--", app_dir).stdout.split("\0"):
+            if "\t" in entry:
+                meta, path = entry.split("\t", 1)
+                blobs[path] = meta.split()[2]
+        _trees[key] = ({cu: sorted(fs) for cu, fs in decl.items()}, blobs)
+    return _trees[key]
+
+
 def declaring_files(corpus, commit, app_dir, cu):
     """The files under app_dir at commit that declare codeunit cu."""
-    p = git(corpus, "grep", "-l", "-i", "-E", r"^[[:space:]]*codeunit[[:space:]]+%d([[:space:]]|$)" % cu, commit, "--",
-            app_dir, check=False)
-    if p.returncode not in (0, 1):
-        refuse("git grep at %s failed: %s" % (commit[:12], p.stderr.strip()))
-    return sorted(line.split(":", 1)[1] for line in p.stdout.splitlines() if ":" in line)
-
-
-def blob(corpus, commit, path):
-    return git(corpus, "rev-parse", "%s:%s" % (commit, path)).stdout.strip()
+    return tree(corpus, commit, app_dir)[0].get(cu, [])
 
 
 def check_reused_unchanged(corpus, sha, app_dir, cu, source_commit, where):
     """Decision 5: the files that declare a reused codeunit are identical at its source commit and at the new pin."""
     then, now = declaring_files(corpus, source_commit, app_dir, cu), declaring_files(corpus, sha, app_dir, cu)
-    if not then or then != now or any(blob(corpus, source_commit, f) != blob(corpus, sha, f) for f in then):
+    blobs_then, blobs_now = tree(corpus, source_commit, app_dir)[1], tree(corpus, sha, app_dir)[1]
+    if not then or then != now or any(blobs_then.get(f) != blobs_now.get(f) for f in then):
         refuse("%s: codeunit %d is reused from commit %s, but the files that declare it differ at the new pin (%s then, %s now)"
                % (where, cu, source_commit[:12], ", ".join(then) or "none", ", ".join(now) or "none"))
 
@@ -246,7 +323,7 @@ def check_missing(corpus, old, sha, app_dir, old_file, new_ids, where):
 
 def cmd_files(a):
     state = json.load(open(a.state))
-    run_id, manifest = state["run_id"], state["manifest"]
+    run_id, attempt, manifest = state["run_id"], state["attempt"], state["manifest"]
     files = [line.split() for line in open(a.list) if line.strip()]
     if manifest is None:
         for leg, path, name in files:
@@ -268,6 +345,7 @@ def cmd_files(a):
         app_dir = entry["test_app_dir"]
         acc = per_version.setdefault(leg, {"fresh": 0, "reused": 0, "runs": set()})
         ids = set()
+        fresh = reused = 0
         for s in suites(path):
             where = "run %s, BC %s, %s, suite %s" % (run_id, leg, name, s.get("name"))
             p = props_of(s)
@@ -284,14 +362,29 @@ def cmd_files(a):
             if cu is None:
                 refuse("%s: not a codeunit suite" % where)
             ids.add(cu)
-            if not p["source_run"].isdigit():
-                refuse("%s: source run %r" % (where, p["source_run"]))
-            acc["runs"].add(int(p["source_run"]))
-            if int(p["source_run"]) == run_id:
-                acc["fresh"] += 1
+            if not p["source_run"].isdigit() or not p["source_attempt"].isdigit():
+                refuse("%s: source run %r, source attempt %r" % (where, p["source_run"], p["source_attempt"]))
+            if p["app"] not in APPS:
+                refuse("%s: app %r, expected one of %s" % (where, p["app"], ", ".join(APPS)))
+            src = int(p["source_run"])
+            acc["runs"].add(src)
+            if src == run_id:
+                # A suite of this run ran at the run's commit (corpus provenance.py manifest) in one of its attempts.
+                if c != a.sha:
+                    refuse("%s: names this run but source commit %s, the run's commit is %s" % (where, c[:12], a.sha[:12]))
+                if int(p["source_attempt"]) > attempt:
+                    refuse("%s: source attempt %s, the run is at attempt %s" % (where, p["source_attempt"], attempt))
+                fresh += 1
             else:
-                acc["reused"] += 1
+                if src >= run_id:
+                    refuse("%s: reused from run %d, which is not older than run %d" % (where, src, run_id))
+                reused += 1
                 check_reused_unchanged(a.corpus, a.sha, app_dir, cu, c, where)
+        if (fresh, reused) != (entry.get("fresh"), entry.get("reused")):
+            refuse("run %s, BC %s, %s: %d fresh and %d reused codeunits, the manifest names %r and %r"
+                   % (run_id, leg, name, fresh, reused, entry.get("fresh"), entry.get("reused")))
+        acc["fresh"] += fresh
+        acc["reused"] += reused
         old_file = os.path.join(a.oracle, leg.split(".")[0], os.path.basename(path))
         check_missing(a.corpus, a.old, a.sha, app_dir, old_file, ids, "run %s, BC %s, %s" % (run_id, leg, name))
     builds = {}

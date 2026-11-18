@@ -133,8 +133,36 @@ struct Spec {
     manifest: Option<serde_json::Value>,
     /// The jobs of the run's latest attempt: name and conclusion.
     jobs: Vec<(String, String)>,
-    /// The nightly runs, oldest first: id, commit, and the comparison of every version (None: no manifest).
-    nightlies: Vec<(u64, String, Option<String>)>,
+    /// The nightly runs, oldest first.
+    nightlies: Vec<Nightly>,
+    /// Write the manifest's per-leg counts from the suites (false: keep the counts the manifest has).
+    counts: bool,
+    /// Each leg also keeps the artifacts of an earlier attempt (so the roles are read from the XML file names).
+    rerun: bool,
+    /// The bump runs on a clone that has only `c0` and fetches the rest from the corpus (no CORPUS_BUMP_NO_FETCH).
+    fetch: bool,
+    /// A text replacement applied to every JUnit file of the run (from, to).
+    patch: Option<(String, String)>,
+}
+
+/// A nightly run: id, commit, its comparison for every version it names (None: no manifest), conclusion, versions.
+#[derive(Clone)]
+struct Nightly {
+    id: u64,
+    sha: String,
+    cmp: Option<String>,
+    conclusion: String,
+    versions: Vec<&'static str>,
+}
+
+fn night(id: u64, sha: &str, cmp: Option<&str>) -> Nightly {
+    Nightly {
+        id,
+        sha: sha.to_string(),
+        cmp: cmp.map(str::to_string),
+        conclusion: "success".into(),
+        versions: LEGS.to_vec(),
+    }
 }
 
 fn prov(run: u64, commit: &str, leg: &str) -> Option<(u64, String, String)> {
@@ -194,7 +222,11 @@ impl Spec {
             }],
             manifest: Some(manifest(20, 1, &c.c1, "subset", 1, 1)),
             jobs: vec![("BC 27.5 / 1".into(), "success".into())],
-            nightlies: vec![(15, c.c0.clone(), Some("identical".into()))],
+            nightlies: vec![night(15, &c.c0, Some("identical"))],
+            counts: true,
+            rerun: false,
+            fetch: false,
+            patch: None,
         }
     }
 
@@ -257,11 +289,37 @@ fn bump(c: &Corpus, s: &Spec) -> (i32, String) {
                     prov: x.prov.clone().map(|(r, c, b)| (r, c, b.replacen("27.5", leg, 1))),
                 })
                 .collect();
-            zip(id, name, &junit(&suites));
-            arts.push(format!(r#"{{"id":{id},"name":"junit-test-results-{leg}","size_in_bytes":{size},"created_at":"2026-11-17T10:00:00Z"}}"#));
+            for created in if s.rerun { &["09", "10"][..] } else { &["10"][..] } {
+                id += 1;
+                let mut x = junit(&suites);
+                if let Some((from, to)) = &s.patch {
+                    x = x.replace(from.as_str(), to);
+                }
+                zip(id, name, &x);
+                arts.push(format!(r#"{{"id":{id},"name":"junit-test-results-{leg}","size_in_bytes":{size},"created_at":"2026-11-17T{created}:00:00Z"}}"#));
+            }
         }
     }
     if let Some(m) = &s.manifest {
+        let mut m = m.clone();
+        if s.counts {
+            // The counts the corpus writes: per leg file, the suites of this run and the others.
+            for leg in LEGS {
+                for (name, suites) in [
+                    ("junit-al-language.xml", &s.main),
+                    ("junit-al-language-onprem.xml", &s.onprem),
+                ] {
+                    let fresh = suites
+                        .iter()
+                        .filter(|x| x.prov.as_ref().is_some_and(|p| p.0 == s.run))
+                        .count();
+                    if let Some(l) = m["versions"].get_mut(leg).and_then(|v| v["legs"].get_mut(name)) {
+                        l["fresh"] = serde_json::json!(fresh);
+                        l["reused"] = serde_json::json!(suites.len() - fresh);
+                    }
+                }
+            }
+        }
         id += 1;
         zip(id, "results-manifest.json", &m.to_string());
         arts.push(format!(
@@ -293,13 +351,18 @@ fn bump(c: &Corpus, s: &Spec) -> (i32, String) {
     )
     .unwrap();
     let mut list = Vec::new();
-    for (k, (nid, nsha, cmp)) in s.nightlies.iter().enumerate() {
-        list.push(serde_json::json!({"databaseId": nid, "headSha": nsha, "attempt": 1, "createdAt": format!("2026-11-1{k}T02:00:00Z")}));
+    for (k, n) in s.nightlies.iter().enumerate() {
+        let (nid, nsha) = (&n.id, &n.sha);
+        list.push(serde_json::json!({"databaseId": nid, "headSha": nsha, "attempt": 1, "conclusion": n.conclusion, "createdAt": format!("2026-11-1{k}T02:00:00Z")}));
         let mut a = Vec::new();
-        if let Some(cmp) = cmp {
+        if let Some(cmp) = &n.cmp {
             let mut m = manifest(*nid, 1, nsha, "full", 0, 0);
             for leg in LEGS {
-                m["versions"][leg]["comparison"] = serde_json::json!(cmp);
+                if n.versions.contains(&leg) {
+                    m["versions"][leg]["comparison"] = serde_json::json!(cmp);
+                } else {
+                    m["versions"].as_object_mut().unwrap().remove(leg);
+                }
             }
             id += 1;
             zip(id, "results-manifest.json", &m.to_string());
@@ -337,6 +400,7 @@ fn bump(c: &Corpus, s: &Spec) -> (i32, String) {
         &gh,
         format!(
             r#"#!/bin/bash
+echo "$*" >> {dd}/calls.log
 case "$*" in
   *"run view"*"--json jobs"*) cat {dd}/jobs-$3.json ;;
   *"run view"*) cat {dd}/view-$3.json ;;
@@ -350,13 +414,42 @@ esac
     )
     .unwrap();
     Command::new("chmod").arg("+x").arg(&gh).status().unwrap();
+    // The fetch case: a clone of the corpus that has only c0, whose origin has every commit.
+    let origin = c.dir.path().join("corpus");
+    let local = if s.fetch {
+        let clone = c.dir.path().join("clone");
+        let _ = std::fs::remove_dir_all(&clone);
+        git(
+            c.dir.path(),
+            &["clone", "-q", "--no-local", &origin.display().to_string(), "clone"],
+        );
+        git(&clone, &["checkout", "-q", "--detach", &c.c0]);
+        git(&clone, &["branch", "-f", "master", &c.c0]);
+        git(&clone, &["checkout", "-q", "master"]);
+        git(&clone, &["remote", "set-head", "origin", "-d"]);
+        for r in ["refs/remotes/origin/master", "refs/remotes/origin/side"] {
+            git(&clone, &["update-ref", "-d", r]);
+        }
+        git(&clone, &["reflog", "expire", "--expire=now", "--all"]);
+        git(&clone, &["gc", "-q", "--prune=now"]);
+        let has_c1 = Command::new("git")
+            .arg("-C")
+            .arg(&clone)
+            .args(["cat-file", "-e", &format!("{}^{{commit}}", c.c1)])
+            .output()
+            .unwrap();
+        assert!(!has_c1.status.success(), "the clone still has c1");
+        clone
+    } else {
+        origin
+    };
     for _ in 0..20 {
         let o = Command::new("bash")
             .arg(root().join("tools/corpus_bump.sh"))
             .args(["--dry-run", &s.run.to_string()])
             .env("CORPUS_BUMP_GH", &gh)
-            .env("CORPUS_BUMP_CORPUS", c.dir.path().join("corpus"))
-            .env("CORPUS_BUMP_NO_FETCH", "1")
+            .env("CORPUS_BUMP_CORPUS", &local)
+            .env("CORPUS_BUMP_NO_FETCH", if s.fetch { "0" } else { "1" })
             .env("CORPUS_BUMP_PIN", &c.c0)
             .env("CORPUS_BUMP_ORACLE", &oracle)
             .output()
@@ -554,7 +647,7 @@ fn a_missing_codeunit_whose_file_the_diff_kept_is_refused() {
 fn a_nightly_difference_blocks_a_combined_run() {
     let c = corpus();
     let mut s = Spec::combined(&c);
-    s.nightlies = vec![(15, c.c0.clone(), Some("differs".into()))];
+    s.nightlies = vec![night(15, &c.c0, Some("differs"))];
     refused(&c, &s, "the nightly run 15 reports comparison 'differs'");
 }
 
@@ -562,7 +655,7 @@ fn a_nightly_difference_blocks_a_combined_run() {
 fn a_nightly_difference_blocks_a_full_push_run() {
     let c = corpus();
     let mut s = Spec::full(&c, &c.c1);
-    s.nightlies = vec![(15, c.c0.clone(), Some("differs".into()))];
+    s.nightlies = vec![night(15, &c.c0, Some("differs"))];
     refused(&c, &s, "the nightly run 15 reports comparison 'differs'");
 }
 
@@ -570,7 +663,7 @@ fn a_nightly_difference_blocks_a_full_push_run() {
 fn a_nightly_without_a_manifest_blocks_the_bump() {
     let c = corpus();
     let mut s = Spec::combined(&c);
-    s.nightlies = vec![(15, c.c0.clone(), None)];
+    s.nightlies = vec![night(15, &c.c0, None)];
     refused(
         &c,
         &s,
@@ -583,10 +676,7 @@ fn only_the_newest_nightly_at_or_before_the_commit_counts() {
     // Nightly 16 on the side branch (not before the commit) says differs; nightly 15 on c0 is the one that counts.
     let c = corpus();
     let mut s = Spec::combined(&c);
-    s.nightlies = vec![
-        (15, c.c0.clone(), Some("identical".into())),
-        (16, c.side.clone(), Some("differs".into())),
-    ];
+    s.nightlies = vec![night(15, &c.c0, Some("identical")), night(16, &c.side, Some("differs"))];
     accepted(&c, &s);
 }
 
@@ -625,7 +715,7 @@ fn nightly(c: &Corpus) -> Spec {
         ("Nightly comparison".into(), "failure".into()),
         ("Coverage facts must not shrink".into(), "skipped".into()),
     ];
-    s.nightlies = vec![(20, c.c1.clone(), Some("differs".into()))];
+    s.nightlies = vec![night(20, &c.c1, Some("differs"))];
     s
 }
 
@@ -734,5 +824,239 @@ fn the_oracle_toml_gets_the_fields_of_decision_7() {
     let none = edit("{}");
     for ver in none["version"].as_array().unwrap() {
         assert!(ver.get("mode").is_none() && ver.get("ci_bc_build").is_none(), "{ver:?}");
+    }
+}
+
+// ---------- review round 1 ----------
+
+#[test]
+fn a_run_whose_commit_is_fetched_first_meets_the_open_nightly_difference() {
+    // The local corpus has only c0; the run's commit c1 comes with the fetch. The nightly on c0 says differs.
+    let c = corpus();
+    let mut s = Spec::full(&c, &c.c1);
+    s.fetch = true;
+    s.nightlies = vec![night(15, &c.c0, Some("differs"))];
+    refused(&c, &s, "the nightly run 15 reports comparison 'differs'");
+}
+
+#[test]
+fn a_combined_run_whose_commit_is_fetched_first_is_accepted() {
+    let c = corpus();
+    let mut s = Spec::combined(&c);
+    s.fetch = true;
+    accepted(&c, &s);
+}
+
+#[test]
+fn a_nightly_whose_commit_git_cannot_read_is_refused() {
+    let c = corpus();
+    let mut s = Spec::full(&c, &c.c1);
+    s.nightlies = vec![night(15, &"f".repeat(40), Some("identical"))];
+    refused(&c, &s, "git merge-base --is-ancestor");
+}
+
+#[test]
+fn a_nightly_manifest_that_lacks_a_version_of_the_run_is_refused() {
+    let c = corpus();
+    let mut s = Spec::combined(&c);
+    s.nightlies[0].versions = vec!["27.5"];
+    refused(&c, &s, "the nightly run 15 reports comparison None for BC 28.5");
+}
+
+#[test]
+fn a_nightly_exception_whose_files_hold_reused_results_is_refused() {
+    // The manifest says full and reused 0, but the files hold suites of run 10.
+    let c = corpus();
+    let mut s = nightly(&c);
+    s.counts = false;
+    s.main[1].prov = prov(10, &c.c0, "27.5");
+    refused(
+        &c,
+        &s,
+        "junit-al-language.xml: 2 fresh and 1 reused codeunits, the manifest names 2 and 0",
+    );
+}
+
+#[test]
+fn a_full_push_run_whose_files_are_all_reused_is_refused() {
+    let c = corpus();
+    let mut s = Spec::full(&c, &c.c1);
+    s.nightlies = vec![];
+    s.counts = false;
+    for x in s.main.iter_mut().chain(s.onprem.iter_mut()) {
+        x.prov = prov(10, &c.c0, "27.5");
+    }
+    s.main.retain(|x| x.cu != 50102);
+    refused(&c, &s, "the manifest names");
+}
+
+#[test]
+fn a_full_version_with_a_chain_is_refused() {
+    let c = corpus();
+    let mut s = Spec::full(&c, &c.c1);
+    s.manifest.as_mut().unwrap()["versions"]["29.0"]["chain"] = serde_json::json!(1);
+    refused(&c, &s, "BC 29.0: mode full with chain 1 and 0 reused codeunits");
+}
+
+#[test]
+fn a_suite_of_this_run_from_another_commit_is_refused() {
+    // Run 20 on c2: suite 50101 names run 20 but commit c0, so it would skip the reused-file check.
+    let c = corpus();
+    let mut s = Spec::combined(&c);
+    s.sha = c.c2.clone();
+    s.main[0].prov = prov(20, &c.c2, "27.5");
+    s.main[1].prov = prov(20, &c.c0, "27.5");
+    s.main[2].prov = prov(20, &c.c2, "27.5");
+    s.manifest = Some(manifest(20, 1, &c.c2, "subset", 1, 1));
+    refused(&c, &s, "names this run but source commit");
+}
+
+#[test]
+fn a_nightly_run_with_a_skipped_test_leg_is_refused() {
+    let c = corpus();
+    let mut s = nightly(&c);
+    s.jobs[0].1 = "skipped".into();
+    refused(&c, &s, "is not green (conclusion: failure)");
+}
+
+#[test]
+fn a_pull_request_run_with_a_manifest_is_refused() {
+    let c = corpus();
+    let mut s = Spec::combined(&c);
+    s.event = "pull_request".into();
+    refused(&c, &s, "event 'pull_request'");
+}
+
+#[test]
+fn a_workflow_dispatch_run_with_a_manifest_is_refused() {
+    let c = corpus();
+    let mut s = Spec::combined(&c);
+    s.event = "workflow_dispatch".into();
+    refused(&c, &s, "event 'workflow_dispatch'");
+}
+
+#[test]
+fn a_red_nightly_does_not_count() {
+    let c = corpus();
+    let mut s = Spec::combined(&c);
+    s.nightlies[0].conclusion = "failure".into();
+    refused(&c, &s, "the nightly run 15 ended with conclusion failure");
+}
+
+#[test]
+fn a_version_without_a_mode_is_refused() {
+    let c = corpus();
+    let mut s = Spec::combined(&c);
+    s.manifest.as_mut().unwrap()["versions"]["27.5"]
+        .as_object_mut()
+        .unwrap()
+        .remove("mode");
+    refused(&c, &s, "BC 27.5: mode None, expected one of full, subset");
+}
+
+#[test]
+fn a_version_with_an_unknown_mode_is_refused() {
+    let c = corpus();
+    let mut s = Spec::combined(&c);
+    s.manifest.as_mut().unwrap()["versions"]["27.5"]["mode"] = serde_json::json!("banana");
+    refused(&c, &s, "BC 27.5: mode 'banana', expected one of full, subset");
+}
+
+#[test]
+fn a_suite_of_a_later_attempt_than_the_run_is_refused() {
+    let c = corpus();
+    let mut s = Spec::combined(&c);
+    s.patch = Some((
+        r#"name="source_attempt" value="1""#.into(),
+        r#"name="source_attempt" value="9""#.into(),
+    ));
+    refused(&c, &s, "source attempt 9, the run is at attempt 1");
+}
+
+#[test]
+fn a_suite_of_an_unknown_app_is_refused() {
+    let c = corpus();
+    let mut s = Spec::combined(&c);
+    s.patch = Some((r#"value="full""#.into(), r#"value="bogus""#.into()));
+    refused(&c, &s, "app 'bogus', expected one of full, partial");
+}
+
+#[test]
+fn a_reused_suite_of_a_later_run_is_refused() {
+    let c = corpus();
+    let mut s = Spec::combined(&c);
+    s.main[1].prov = prov(99, &c.c0, "27.5");
+    refused(&c, &s, "reused from run 99, which is not older than run 20");
+}
+
+#[test]
+fn a_manifest_of_another_run_is_refused() {
+    let c = corpus();
+    let mut s = Spec::combined(&c);
+    s.manifest.as_mut().unwrap()["run_id"] = serde_json::json!(21);
+    refused(&c, &s, "its results manifest names run 21");
+}
+
+#[test]
+fn a_manifest_of_another_commit_is_refused() {
+    let c = corpus();
+    let mut s = Spec::combined(&c);
+    s.manifest.as_mut().unwrap()["commit"] = serde_json::json!(c.c0);
+    refused(&c, &s, "its results manifest names commit");
+}
+
+#[test]
+fn a_manifest_without_versions_is_refused() {
+    let c = corpus();
+    let mut s = Spec::combined(&c);
+    s.manifest.as_mut().unwrap()["versions"] = serde_json::json!({});
+    refused(&c, &s, "its results manifest names no BC version");
+}
+
+#[test]
+fn a_file_whose_version_the_manifest_lacks_is_refused() {
+    let c = corpus();
+    let mut s = Spec::combined(&c);
+    s.manifest.as_mut().unwrap()["versions"]
+        .as_object_mut()
+        .unwrap()
+        .remove("29.0");
+    refused(&c, &s, "its results manifest has no BC version 29.0");
+}
+
+#[test]
+fn a_file_whose_leg_the_manifest_lacks_is_refused() {
+    let c = corpus();
+    let mut s = Spec::combined(&c);
+    s.manifest.as_mut().unwrap()["versions"]["28.5"]["legs"]
+        .as_object_mut()
+        .unwrap()
+        .remove("junit-al-language-onprem.xml");
+    refused(&c, &s, "has no leg junit-al-language-onprem.xml for BC 28.5");
+}
+
+#[test]
+fn a_suite_that_is_not_a_codeunit_is_refused() {
+    let c = corpus();
+    let mut s = Spec::combined(&c);
+    s.patch = Some((
+        r#"testsuite name="Codeunit 50102""#.into(),
+        r#"testsuite name="Page 50102""#.into(),
+    ));
+    refused(&c, &s, "suite Page 50102: not a codeunit suite");
+}
+
+#[test]
+fn each_artifact_is_downloaded_once() {
+    // With the artifacts of an earlier attempt next to each leg's, the roles come from the XML file names.
+    let c = corpus();
+    let mut s = Spec::combined(&c);
+    s.rerun = true;
+    accepted(&c, &s);
+    let calls = std::fs::read_to_string(c.dir.path().join("gh/calls.log")).unwrap();
+    let zips: Vec<&str> = calls.lines().filter(|l| l.contains("/zip")).collect();
+    let mut seen = std::collections::HashSet::new();
+    for z in &zips {
+        assert!(seen.insert(*z), "downloaded twice: {z}\n{calls}");
     }
 }

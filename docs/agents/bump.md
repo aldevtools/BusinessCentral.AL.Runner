@@ -48,12 +48,15 @@ those on its branch; the bot never pushes to a branch that exists.
 
 A bump from a corpus run also checks where each result came from (ADR-077,
 `tools/corpus_bump_provenance.py`, also in `--dry-run`). The run must be green
-on `master`, or be the nightly full run whose only failed job is the
-comparison. Its `results-manifest` must be of the run's latest attempt. Every
-suite must carry its provenance and the manifest's BC build, every source
-commit must be an ancestor of the run's commit, a reused codeunit's declaring
-files must be unchanged since its source commit, the chain must be at most 20
-runs, the newest nightly at or before the commit must report no difference, and
+on `master` (a push or schedule run), or be the nightly full run whose only
+failed job is the comparison. Its `results-manifest` must be of the run's
+latest attempt, and its counts of fresh and reused codeunits must match the
+files. Every suite must carry its provenance and the manifest's BC build, every
+source commit must be an ancestor of the run's commit, a suite of the run itself
+must name the run's commit, a reused codeunit's declaring files must be
+unchanged since its source commit, the chain must be at most 20 runs, the newest
+nightly at or before the commit must be green and report no difference for
+every version, and
 no codeunit of the current oracle may go missing unless the corpus diff deleted
 or renamed its file. A run without a manifest passes only when no suite carries
 provenance (a run from before the corpus recorded it). The bump writes `mode`,

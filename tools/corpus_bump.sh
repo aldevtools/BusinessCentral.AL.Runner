@@ -9,7 +9,7 @@
 #      (junit-al-language.xml), the OnPrem file, the OnPrem DotNet file, the TestLibraries file, the
 #      Isolation Disabled file and the TryWrites file;
 #   3. move the corpus submodule to the run's commit;
-#   4. download each artifact by id and copy its XML unchanged to oracle/<major>/junit.xml,
+#   4. copy the XML of each artifact downloaded in step 2 unchanged to oracle/<major>/junit.xml,
 #      oracle/<major>/junit-onprem.xml, junit-dotnet.xml, junit-testlibraries.xml, junit-isolation-disabled.xml and
 #      junit-trywrite-allowed.xml;
 #   5. write the new pin, run and artifact ids into oracle/oracle.toml and oracle/README.md;
@@ -210,15 +210,13 @@ if [ -n "$prs" ]; then
   exit 0
 fi
 
-# 1. The run: green (or the nightly exception) and its results manifest, ADR-077 (tools/corpus_bump_provenance.py run).
+# 1. The run: its commit on master (the corpus fetched first: the provenance checks below read the run's commit and the
+# nightly runs' commits), then green (or the nightly exception) and its results manifest, ADR-077
+# (tools/corpus_bump_provenance.py run).
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 "$gh" run view "$run" -R "$repo" \
   --json databaseId,status,conclusion,headSha,attempt,event,headBranch,workflowDatabaseId > "$tmp/run.json"
-arts="$("$gh" api "repos/$repo/actions/runs/$run/artifacts?per_page=100")"
-printf '%s\n' "$arts" > "$tmp/artifacts.json"
-CORPUS_BUMP_GH="$gh" python3 -I "$here/corpus_bump_provenance.py" run --repo "$repo" --run "$run" \
-  --run-json "$tmp/run.json" --artifacts "$tmp/artifacts.json" --corpus "$corpus" --state "$tmp/provenance.json"
 sha="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get("headSha", ""))' "$tmp/run.json")"
 [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || die "run $run has no head commit"
 if [ "${CORPUS_BUMP_NO_FETCH:-0}" != 1 ]; then
@@ -237,15 +235,26 @@ if ! git -C "$corpus" rev-list --first-parent "$ref" | grep -x "$sha" >/dev/null
   [ "$(git -C "$corpus" rev-parse "$merge^{tree}")" = "$(git -C "$corpus" rev-parse "$sha^{tree}")" ] \
     || die "commit $sha of run $run came into $branch with merge ${merge:0:7}, whose files differ from it ($branch had commits the run's commit lacks): merge origin/$branch into the bump branch, run CI on the pull request again and bump from that run"
 fi
+arts="$("$gh" api "repos/$repo/actions/runs/$run/artifacts?per_page=100")"
+printf '%s\n' "$arts" > "$tmp/artifacts.json"
+CORPUS_BUMP_GH="$gh" python3 -I "$here/corpus_bump_provenance.py" run --repo "$repo" --run "$run" \
+  --run-json "$tmp/run.json" --artifacts "$tmp/artifacts.json" --corpus "$corpus" --state "$tmp/provenance.json"
 echo "run $run: commit $sha on $branch"
 
 # 2. The artifacts: per leg the larger is the oracle, the smaller the OnPrem file.
+# Each artifact is downloaded once, to $tmp/zip/<id>.zip; the role and the file are read from that copy.
+zip_of() {
+  local z="$tmp/zip/$1.zip"
+  mkdir -p "$tmp/zip"
+  [ -f "$z" ] || "$gh" api "repos/$repo/actions/artifacts/$1/zip" > "$z.part" || return 1
+  [ -f "$z" ] || mv "$z.part" "$z"
+  printf '%s\n' "$z"
+}
 # The XML file name an artifact holds (junit-al-language.xml, -onprem.xml, -onprem-dotnet.xml).
 xml_of() {
-  local d="$tmp/role-$1"
-  mkdir -p "$d"
-  "$gh" api "repos/$repo/actions/artifacts/$1/zip" > "$d/a.zip" || return 1
-  unzip -Z1 "$d/a.zip" | grep '\.xml$' | head -n 1
+  local z
+  z="$(zip_of "$1")" || return 1
+  unzip -Z1 "$z" | grep '\.xml$' | head -n 1
 }
 declare -A oracle_id onprem_id dotnet_id testlib_id isol_id tryw_id
 for leg in $legs; do
@@ -314,10 +323,10 @@ old="${old:-$(git -C "$corpus" rev-parse HEAD)}"
 # The JUnit files, downloaded before anything changes: the provenance checks read them, also in a dry run.
 # new/<major>/<oracle file name>; files.txt has per file the leg, its path and the JUnit file name the artifact held.
 fetch_xml() { # leg, artifact id, oracle file name
-  local leg="$1" id="$2" dest="$tmp/new/${1%%.*}/$3" d="$tmp/$2"
+  local leg="$1" id="$2" dest="$tmp/new/${1%%.*}/$3" d="$tmp/xml-$2" z
   mkdir -p "$d" "$(dirname "$dest")"
-  "$gh" api "repos/$repo/actions/artifacts/$id/zip" > "$d/a.zip" || die "downloading artifact $id failed (the gh error is above)"
-  (cd "$d" && unzip -q a.zip)
+  z="$(zip_of "$id")" || die "downloading artifact $id failed (the gh error is above)"
+  unzip -q "$z" -d "$d"
   local xml
   xml="$(find "$d" -name '*.xml' | head -n 2)"
   [ "$(printf '%s\n' "$xml" | grep -c .)" = 1 ] || die "artifact $id does not hold exactly one XML file"
