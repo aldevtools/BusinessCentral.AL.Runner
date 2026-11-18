@@ -842,75 +842,84 @@ fn a_record_field_with_an_option_caption_refuses() {
     refused("InterfaceCaptionField", "OptionCaption");
 }
 
-// An interface method's `var` parameter is gated as a procedure's.
+// An interface method's `var` parameter is gated as a procedure's (corpus PR 1439, OptionVarMemberlessCallers.al:511, :604).
 #[test]
 fn an_interface_call_reads_the_caller_s_members_from_the_measured_callers_only() {
     assert_eq!(assumed("InterfaceLocal"), "Second|1|Second");
-    refused("InterfaceGlobalRecordField", "another member list");
-    refused("InterfaceVarParameter", "another member list");
+    assert_eq!(assumed("InterfaceGlobalRecordField"), "First|0");
+    refused("InterfaceVarParameter", "a `var` parameter with members");
 }
 
-// After the routine stored into its memberless `var` parameter, a member-name read inside it is not measured; the caller's
-// read after the call is (OptionVarMemberLists.al:224, :364).
+// A store into the memberless `var` parameter keeps the caller's members, inside the routine and after it (corpus PR 1439,
+// OptionVarMemberlessWrites.al:112, :130, :250, :269, :472).
 #[test]
-fn a_name_read_after_the_routine_stored_into_the_parameter_refuses() {
-    for routine in [
-        "AssignThenFormatInside",
-        "AssignThenEvaluate",
-        "AssignThenHop",
-        "AssignOtherThenFormat",
-        "ArrayAssignThenFormatInside",
-    ] {
-        refused(routine, "after the routine stored into it");
-    }
+fn a_name_read_after_the_routine_stored_into_the_parameter_reads_the_caller_s_members() {
+    assert_eq!(assumed("AssignThenFormatInside"), "Second");
+    assert_eq!(assumed("AssignThenEvaluate"), "Third");
+    assert_eq!(assumed("AssignThenHop"), "Second|1");
+    assert_eq!(assumed("AssignOtherThenFormat"), "Third");
+    assert_eq!(assumed("ArrayAssignThenFormatInside"), "Second");
     assert_eq!(assumed("AssignThenOrdinal"), "1|Second");
 }
 
+// Clear keeps the caller's members (OptionVarMemberlessWrites.al:226, :496); an Option with other members stored into an
+// element of the array keeps them too (:472).
 #[test]
-fn clear_and_other_stores_into_a_memberless_var_parameter_refuse() {
-    refused("ClearInside", "Clear");
-    refused("ArrayClear", "Clear");
-    refused("ArrayAssignOther", "another Option");
+fn clear_and_other_stores_into_a_memberless_var_parameter_keep_the_caller_s_members() {
+    assert_eq!(assumed("ClearInside"), "First");
+    assert_eq!(assumed("ArrayClear"), "First");
+    assert_eq!(assumed("ArrayAssignOther"), "Second");
 }
 
-// Only an element of a `var` array parameter keeps the caller's members: a local array copied from one with members and a
-// by-value array parameter keep main's result.
+// A local array CopyArray filled and a by-value array parameter hold the caller's members too (OptionVarMemberlessWrites.al:551,
+// :568); the assignment of the whole array is not measured and refuses.
 #[test]
-fn an_array_that_is_no_var_parameter_keeps_main_s_result() {
-    assert_eq!(plain("LocalArrayCopy"), "1");
-    assert_eq!(plain("LocalCopyArray"), "1");
-    assert_eq!(plain("ByValueArrayParameter"), "1");
+fn a_copied_array_and_a_by_value_array_hold_the_caller_s_members() {
+    refused("LocalArrayCopy", "assignment of an array of Options with members");
+    assert_eq!(assumed("LocalCopyArray"), "Second");
+    assert_eq!(assumed("ByValueArrayParameter"), "Second");
 }
 
-// A publisher with members whose subscriber is declared without members: measured for a `var` parameter that stands for a
-// local (OptionVarMemberLists.al:531); other callers refuse when such a subscriber binds.
+// A publisher with members whose subscriber is declared without members: measured for a local (OptionVarMemberLists.al:531)
+// and a global (corpus PR 1439, OptionVarMemberlessCallers.al:249); a field whose captions differ from its members refuses
+// when such a subscriber binds (:290).
 #[test]
 fn a_memberless_subscriber_under_a_publisher_with_members_reads_measured_callers_only() {
     assert_eq!(assumed("MembersPublisherLocal"), "Second");
+    assert_eq!(assumed("MembersPublisherGlobal"), "First");
     refused("MembersPublisherCaptionField", "caller the probe does not measure");
-    refused("MembersPublisherGlobal", "caller the probe does not measure");
+}
+
+// Caller kinds corpus PR 1439 measured (OptionVarMemberlessCallers.al:117-215, :332, :353, :573;
+// OptionVarMemberlessWrites.al:411, :447). A publisher's parameter takes them as a procedure's does (:196).
+#[test]
+fn callers_corpus_pr_1439_measured_run() {
+    for (routine, shown) in [
+        ("PublisherWithOtherMembers", "A"),
+        ("GlobalRecordField", "First"),
+        ("GlobalArrayElement", "First"),
+        ("ByValueParameterCaller", "Second"),
+        ("ByValueToOtherMembers", "A"),
+        ("ByValueArrayToVarArray", "Second"),
+        ("NamedReturnCaller", "First"),
+        ("ByValueRecordField", "First|0"),
+        ("ByValueMemberlessToMembers", "First"),
+        ("LocalFieldToPublisher", "First"),
+        ("LocalElementToPublisher", "First"),
+        ("VarRecordField", "First|0"),
+        ("TableOwnField", "First"),
+    ] {
+        assert_eq!(assumed(routine), shown, "{routine}");
+    }
 }
 
 #[test]
 fn callers_the_probe_does_not_measure_refuse() {
+    refused("VarParameterWithMembersCaller", "a `var` parameter with members");
     for routine in [
-        "VarParameterWithMembersCaller",
         "GlobalToOtherMembers",
-        "PublisherWithOtherMembers",
-        "GlobalRecordField",
-        "GlobalArrayElement",
         "GlobalVarArray",
-        "ByValueParameterCaller",
-        "ByValueToOtherMembers",
-        "ByValueArrayToVarArray",
-        "NamedReturnCaller",
-        "ByValueRecordField",
-        "ByValueMemberlessToMembers",
-        "LocalFieldToPublisher",
-        "LocalElementToPublisher",
         "LocalArrayToPublisher",
-        "VarRecordField",
-        "TableOwnField",
         "MemberlessGlobalToMembers",
         "VarArrayHandedOn",
     ] {

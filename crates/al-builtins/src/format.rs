@@ -374,11 +374,6 @@ fn option_text(o: &i32, members: &Arc<[String]>, standard: i32) -> Result<String
         2 | 9 if !crate::sysenum::ordinals_hidden(members, standard) => o.to_string(),
         // `Option` declared without members is the one empty name: it shows the number
         // (types/decimal-integer/ScT70062.al:Option_Defaults `nomembers_len`, `nomembers_3`).
-        // After a routine stored into its `var` parameter declared without members while it held the caller's members:
-        // not measured (`option_members`).
-        _ if crate::option_members::is_stored(members) => {
-            return Err(FormatFail::Unsupported(crate::option_members::stored_refusal("Format")));
-        }
         _ if crate::option_members::memberless(members) => o.to_string(),
         // A member with a blank name shows as one space (types/decimal-integer/ScT70053.al:Option_Format `blank_len`).
         _ => match members.get(*o as usize) {

@@ -1199,16 +1199,10 @@ impl Lowerer<'_> {
     ///   on corpus master from PR 790).
     /// - `Clear` of a `[RunOnClient]` variable: it stays null (corpus master 92fdde19,
     ///   onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:454-480 Y16_RunOnClient_ClearAndVariant `cleared isnull=Yes`).
-    /// - `Clear` of a memberless `var` Option parameter refuses (`var_option_clear_refusal`).
     fn is_null_or_clear(&self, id: &str, args: &[SyntaxNode]) -> L<Option<ir::Expr>> {
         let [a] = args else {
             return Ok(None);
         };
-        if id == "System.Clear#1" {
-            if let Some(why) = self.var_option_clear_refusal(a) {
-                return Err(why);
-            }
-        }
         let shortcut = (id == "System.IsNull#1" || id == "System.Clear#1") && self.run_on_client_var(a).is_some();
         Ok(shortcut.then_some(ir::Expr::Const(ir::Const::Boolean(true))))
     }

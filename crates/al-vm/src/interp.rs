@@ -1849,9 +1849,9 @@ impl Session {
                     }
                     Err(e) => return Err(e),
                 };
-                let kept = self.option_element_store(base, &v, &el_ty, f, &arr.borrow()[flat]);
+                let kept = crate::var_option::element_store(&v, &el_ty, &arr.borrow()[flat]);
                 arr.borrow_mut()[flat] = match kept {
-                    Some(v) => v,
+                    Some(v) => v?,
                     None => ops::convert(v, &el_ty)?,
                 };
             }

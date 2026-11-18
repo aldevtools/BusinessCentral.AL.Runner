@@ -72,17 +72,14 @@ fn ordinal(t: &str) -> Option<u64> {
 /// `var_option::var_binding`), and the text is read against them as by any Option variable (`variable`): a name in any case
 /// and without its blanks, an ordinal past the members kept, a rejected text false with the result used and the value kept,
 /// as a statement the error that lists the caller's members, also for the empty text (assumption var-option-caller-members,
-/// corpus PR 1432, OptionVarMemberlessEvaluate.al:77-244, :170). After the routine stored into the parameter
-/// (`option_members::stored`): not measured, refused. A blank text is measured from callers whose members all have a name
+/// corpus PR 1432, OptionVarMemberlessEvaluate.al:77-244, :170), also after the routine stored into the parameter (corpus
+/// PR 1439, OptionVarMemberlessWrites.al:130, :162, :212). A blank text is measured from callers whose members all have a name
 /// (First,Second,Third, :170-185; " ",First, :286-325); from a caller with an empty member (`,A,B`, or a caller without
 /// members) it refuses.
 pub(super) fn memberless_var_parameter(a: &[Value]) -> Result<(), Signal> {
     let Value::Option(_, members) = &a[0] else {
         return Ok(());
     };
-    if crate::option_members::is_stored(members) {
-        return unsupported(crate::option_members::stored_refusal("Evaluate"));
-    }
     let blank = crate::native::text_of(&a[1]).is_some_and(|t| trimmed(&t).is_empty());
     if blank && members.iter().any(String::is_empty) {
         return unsupported(

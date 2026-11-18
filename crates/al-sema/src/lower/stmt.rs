@@ -1352,8 +1352,8 @@ impl Lowerer<'_> {
         for k in kids.iter().take(2) {
             self.security_filtering_array_refusal(k, "an array assignment")?;
         }
-        if let Some(why) = self.var_option_element_store_refusal(&kids[0], &kids[1]) {
-            return Err(why);
+        if let Some(stmt) = self.memberless_option_array_assign(n, kids) {
+            return stmt;
         }
         // `CurrFieldNo := FieldNo(X)` in table code sets the field number of the implicit Rec. Base Application's
         // `SelltoContactLookup` does it before it validates a field. The corpus pins reading CurrFieldNo
