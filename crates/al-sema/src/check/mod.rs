@@ -220,13 +220,19 @@ pub enum Res {
         with: usize,
         inner: Box<Res>,
     },
+    /// `inner`, resolved on an unprobed assumption the lowering marks when it reads the name (`Rec.Field` whose type is the
+    /// field's enum where the file names the enum's name otherwise, `check/field_enum.rs`).
+    Assumed {
+        assumption: al_builtins::assumptions::Assumption,
+        inner: Box<Res>,
+    },
 }
 
 impl Res {
-    /// What the name resolved to, without the `with` statement that supplied it.
+    /// What the name resolved to, without the `with` statement that supplied it and the assumption it rests on.
     pub fn inner(&self) -> &Res {
         match self {
-            Res::With { inner, .. } => inner,
+            Res::With { inner, .. } | Res::Assumed { inner, .. } => inner.inner(),
             r => r,
         }
     }
@@ -235,6 +241,16 @@ impl Res {
     pub fn with_stmt(&self) -> Option<usize> {
         match self {
             Res::With { with, .. } => Some(*with),
+            Res::Assumed { inner, .. } => inner.with_stmt(),
+            _ => None,
+        }
+    }
+
+    /// The unprobed assumption the resolution rests on, if any.
+    pub fn assumption(&self) -> Option<al_builtins::assumptions::Assumption> {
+        match self {
+            Res::Assumed { assumption, .. } => Some(*assumption),
+            Res::With { inner, .. } => inner.assumption(),
             _ => None,
         }
     }
@@ -1508,6 +1524,7 @@ pub(crate) use calls::BARE_REPORT_MEMBERS;
 mod conv;
 mod diag_index;
 mod enum_overload;
+mod field_enum;
 pub(crate) use enum_overload::EnumFit;
 mod fit;
 mod infer;

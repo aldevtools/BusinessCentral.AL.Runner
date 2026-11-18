@@ -56,6 +56,7 @@ mod duration_mod_format;
 mod enum_arithmetic;
 mod enum_in_set;
 mod enum_list_dictionary_list;
+mod enum_member_field_type;
 mod enum_named_blank_caption_evaluate;
 mod enum_overload_choice;
 mod erm_builtins;

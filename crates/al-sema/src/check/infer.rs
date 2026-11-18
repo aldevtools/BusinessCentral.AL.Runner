@@ -1690,7 +1690,7 @@ impl<'a> Checker<'a> {
                 self.currreport_request_options_page(sc, node, &kids[0], &base_ty, &mname);
                 self.al_codeunit_access(sc, node, &base_ty, &mname);
                 match self.member(sc, &base_ty, &mname) {
-                    Some(e) => e,
+                    Some(e) => self.field_member_type(sc, node, e),
                     None if self.tdd_member(sc, node, &kids[0], &base_ty, &mname) => E::Val(Ty::Unknown),
                     None if self.tdd_field(sc, node, &kids[0], &base_ty, &mname) => E::Val(Ty::Unknown),
                     None => {
@@ -1791,7 +1791,7 @@ impl<'a> Checker<'a> {
                     // (Base Application's "Find Record Management"). Its type is the option's.
                     E::Callable(c) => {
                         let t = self.pick(sc, &kids[0], &c, &[], &rhs);
-                        self.scope_member(sc, node, &t, &rhs);
+                        self.scope_member(sc, node, None, &t, &rhs);
                         E::Val(t)
                     }
                 }
@@ -1873,18 +1873,36 @@ impl<'a> Checker<'a> {
         }
     }
 
-    /// `T::Member` where `T` is the type of the left side: records the enum value or option member.
-    pub(crate) fn scope_member(&mut self, sc: &mut Scope, node: &SyntaxNode, t: &Ty, rhs: &str) {
+    /// `T::Member` where `T` is the type of the left side `left`: records the enum value or option member. A left side that is
+    /// a record field names a member of the field's own enum where the file reads the enum's name otherwise
+    /// ([`Self::field_enum_reading`]).
+    pub(crate) fn scope_member(
+        &mut self,
+        sc: &mut Scope,
+        node: &SyntaxNode,
+        left: Option<&SyntaxNode>,
+        t: &Ty,
+        rhs: &str,
+    ) {
         match t {
             Ty::Enum(name) => {
-                if let Some(ei) = self.resolve(sc, ObjKind::Enum, name) {
+                let reading = left.and_then(|l| self.field_enum_reading(sc, l));
+                let enum_index = match reading {
+                    Some(own) => {
+                        self.touch(own);
+                        Some(own)
+                    }
+                    None => self.resolve(sc, ObjKind::Enum, name),
+                };
+                if let Some(ei) = enum_index {
                     if let Some((v, _)) = self.members[ei]
                         .enum_values
                         .iter()
                         .find(|(_, n)| n.eq_ignore_ascii_case(rhs))
                     {
                         let value = *v as i32;
-                        self.record(sc, node, Res::EnumValue { object: ei, value });
+                        let res = Res::EnumValue { object: ei, value };
+                        self.record(sc, node, Self::assumed_if(reading.is_some(), res));
                     } else if self.tdd_enum_value(sc, node, ei, rhs) {
                         // `--tdd` (ADR-051 decision 10): the next compile declares the value.
                     } else if !self.ws.is_dependency(sc.oi) && !self.ws.is_dependency(ei) {
