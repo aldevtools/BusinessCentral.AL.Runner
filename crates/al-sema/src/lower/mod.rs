@@ -265,6 +265,11 @@ pub(crate) struct Lowerer<'a> {
     /// The Label-typed variables declared `TextConst`, by lowercase name (a Label and a TextConst share `Ty::Label`).
     global_textconsts: std::collections::HashSet<String>,
     local_textconsts: std::collections::HashSet<String>,
+    /// The Label and TextConst variables of the forms [`shared::plain_text_constant`] names, by lowercase name.
+    global_plain_text_constants: std::collections::HashSet<String>,
+    local_plain_text_constants: std::collections::HashSet<String>,
+    /// The Variant variables of the routine's `var` section, by lowercase name (no parameter, no named return value).
+    local_variant_vars: std::collections::HashSet<String>,
     /// The TextConst variables whose text depends on the language in force, by lowercase name: their texts by language
     /// code ([`shared::textconst_languages`]).
     global_textconst_languages: HashMap<String, Vec<(String, String)>>,

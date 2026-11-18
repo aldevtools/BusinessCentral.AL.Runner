@@ -14,6 +14,38 @@ pub(crate) enum OptionCaptions {
 }
 
 impl Lowerer<'_> {
+    /// Records what a local variable `n` of `r`, declared by `v` with type `ty`, is for the reads and conversions that ask:
+    /// its Label text (`label`) and XLIFF id, whether it is a TextConst, its texts by language, Locked, MaxLength, the plain
+    /// text constant forms, and whether it is a Variant.
+    fn note_local_var_facts(&mut self, r: &ast::Routine, v: &ast::VarDecl, n: &str, label: Option<&String>, ty: &Ty) {
+        let key = n.to_lowercase();
+        let t = v.type_ref();
+        if let Some(l) = label {
+            self.local_labels.insert(key.clone(), l.clone());
+            if let Some(id) = self.label_xliff_id(Some(r), n) {
+                self.local_label_xliff.insert(key.clone(), id);
+            }
+        }
+        if is_textconst(t.as_ref()) {
+            self.local_textconsts.insert(key.clone());
+        }
+        if let Some(texts) = t.as_ref().and_then(textconst_languages) {
+            self.local_textconst_languages.insert(key.clone(), texts);
+        }
+        if t.as_ref().is_some_and(label_locked) {
+            self.local_locked_labels.insert(key.clone());
+        }
+        if t.as_ref().is_some_and(plain_text_constant) {
+            self.local_plain_text_constants.insert(key.clone());
+        }
+        if matches!(ty, Ty::Variant) {
+            self.local_variant_vars.insert(key.clone());
+        }
+        if t.as_ref().is_some_and(label_maxlength) {
+            self.local_maxlength_labels.insert(key);
+        }
+    }
+
     pub(crate) fn routine(&mut self, r: &ast::Routine) -> ir::Routine {
         #[cfg(test)]
         if r.name() == "InjectedLowerPanic" {
@@ -38,6 +70,8 @@ impl Lowerer<'_> {
         self.local_labels.clear();
         self.local_label_xliff.clear();
         self.local_textconsts.clear();
+        self.local_plain_text_constants.clear();
+        self.local_variant_vars.clear();
         self.local_textconst_languages.clear();
         self.local_locked_labels.clear();
         self.local_maxlength_labels.clear();
@@ -104,24 +138,7 @@ impl Lowerer<'_> {
                 if let Some(Err(e)) = &declared {
                     self.reasons.push(format!("`{n}`: {e}"));
                 }
-                if let Some(l) = &label {
-                    self.local_labels.insert(n.to_lowercase(), l.clone());
-                    if let Some(id) = self.label_xliff_id(Some(r), &n) {
-                        self.local_label_xliff.insert(n.to_lowercase(), id);
-                    }
-                }
-                if is_textconst(v.type_ref().as_ref()) {
-                    self.local_textconsts.insert(n.to_lowercase());
-                }
-                if let Some(texts) = v.type_ref().as_ref().and_then(textconst_languages) {
-                    self.local_textconst_languages.insert(n.to_lowercase(), texts);
-                }
-                if v.type_ref().as_ref().is_some_and(label_locked) {
-                    self.local_locked_labels.insert(n.to_lowercase());
-                }
-                if v.type_ref().as_ref().is_some_and(label_maxlength) {
-                    self.local_maxlength_labels.insert(n.to_lowercase());
-                }
+                self.note_local_var_facts(r, &v, &n, label.as_ref(), &ty);
                 if let Some(why) = refusal {
                     self.reasons.push(format!("`{n}`: {why}"));
                 }
@@ -1238,7 +1255,7 @@ impl Lowerer<'_> {
                 Some(e) => self.expr_into(&self.ret_decl.clone().unwrap_or(Ty::Boolean), e).and_then(|v| {
                     if let Some(decl) = self.ret_decl.clone() {
                         self.refuse_session_ending_ternary(&decl, e)?;
-                        self.refuse_textconst_into_variant(&decl, e)?;
+                        self.text_constant_into_variant(&decl, e, super::convert::TextConstantSite::Other)?;
                     }
                     // A DotNet result must fit the return type exactly (ADR-014). An interface
                     // result takes what an interface variable takes: a codeunit that implements
@@ -1761,7 +1778,9 @@ impl Lowerer<'_> {
                 ));
             }
         }
-        self.refuse_textconst_into_variant(&target_ty, &kids[1])?;
+        if let Some(text_constant) = self.text_constant_assigned(op_kind, kids, &target_ty, &value)? {
+            return Ok(ir::Stmt::Assign(place, text_constant));
+        }
         // A Byte assigned to a character of a Text or Code goes in unconverted: the runtime maps a byte from 0x80 up to the
         // character Format shows for it (al-language-onprem/types/ByteFormat.al:13-31, `Interp::write_char`).
         let byte_into_text_char = matches!(op_kind, Some(SyntaxKind::Assign) | None)

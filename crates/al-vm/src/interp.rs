@@ -552,8 +552,10 @@ impl Session {
     #[inline(always)]
     pub(crate) fn binary_op(op: ir::BinOp, l: &Value, r: &Value) -> Result<Value, Signal> {
         use ir::BinOp as B;
-        if matches!(l, Value::SqlCount(_)) || matches!(r, Value::SqlCount(_)) {
-            return Self::sql_count_op(op, l, r);
+        if matches!(l, Value::SqlCount(_) | Value::TextConst(..))
+            || matches!(r, Value::SqlCount(_) | Value::TextConst(..))
+        {
+            return Self::special_operand_op(op, l, r);
         }
         Ok(match op {
             B::Add => ops::arith(ops::Arith::Add, l, r)?,
@@ -578,6 +580,20 @@ impl Session {
             B::DotNetGt => Value::Boolean(dotnet::dotnet_order(l, r)? == Ordering::Greater),
             B::DotNetGe => Value::Boolean(dotnet::dotnet_order(l, r)? != Ordering::Less),
         })
+    }
+
+    /// An operator with a SQL counter value or a TextConstant a Variant held on either side. A TextConstant operand is read
+    /// first (`al_builtins::conv::text_constant`: a Label is its Text, a TextConst is refused).
+    #[cold]
+    #[inline(never)]
+    fn special_operand_op(op: ir::BinOp, l: &Value, r: &Value) -> Result<Value, Signal> {
+        use al_builtins::conv::text_constant::{Reader, read};
+        if matches!(l, Value::TextConst(..)) || matches!(r, Value::TextConst(..)) {
+            let l = read(l.clone(), Reader::Operator)?;
+            let r = read(r.clone(), Reader::Operator)?;
+            return Self::binary_op(op, &l, &r);
+        }
+        Self::sql_count_op(op, l, r)
     }
 
     /// An operator with a SQL counter value on either side (`al_builtins::sqlcount`).

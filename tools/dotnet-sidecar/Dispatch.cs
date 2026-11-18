@@ -387,6 +387,7 @@ public sealed class Server
         if (bridges.Count > 0) streams["bridges"] = bridges;
         var written = marshal.DrainBridges();
         if (written.Count > 0) streams["written"] = written;
+        if (marshal.Overwritten.Count > 0) streams["overwritten"] = marshal.Overwritten.DeepClone();
         if (streams.Count > 0) reply["streams"] = streams;
         return reply;
     }

@@ -50,6 +50,7 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
     ("Dialog.ErrorComputed#1", error_text_computed),
     ("Record.FieldErrorConstant#1", field_error_constant),
     ("Record.FieldErrorComputed#1", field_error_computed),
+    ("ErrorInfo.CreateLiteral#1", crate::errorinfo::create_literal),
     ("Dialog.Error#1", crate::errorinfo::raise),
     ("Session.GetExecutionContext#1", execution_context),
     ("Session.GetCurrentModuleExecutionContext#1", execution_context),
@@ -420,11 +421,18 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
     // A Variant assigned to an Integer: a BigInteger or a Duration beyond the Integer range raises TypeConversion:Overflow
     // (types/variant/VaTConvert.al:183-184; types/duration/D_Duration.al:226). Everything
     // else converts as any value does.
-    // The text of a Label handed to a Variant by a conditional expression: the Variant holds a TextConstant, answering
-    // IsTextConstant and no IsText (types/Y81LabelVariant.al; needs corpus bump).
-    ("Variant.FromTextConstant#1", |_, _, a| match a.first() {
-        Some(Value::Text(t) | Value::Code(t) | Value::TextConst(t)) => Ok(Value::TextConst(t.clone())),
-        _ => unsupported("a TextConstant from a value that is no text"),
+    // The text of a Label or TextConst going into a Variant where the lowering says (`Lowerer::text_constant_into_variant`,
+    // a Label by a conditional expression: types/Y81LabelVariant.al): the Variant holds a TextConstant, answering
+    // IsTextConstant and no IsText. A second argument `true` says the declaration is a TextConst.
+    ("Variant.FromTextConstant#1", |_, _, a| {
+        let from = match a.get(1) {
+            Some(Value::Boolean(true)) => crate::value::TextConstFrom::TextConst,
+            _ => crate::value::TextConstFrom::Label,
+        };
+        match a.first() {
+            Some(Value::Text(t) | Value::Code(t) | Value::TextConst(t, _)) => Ok(Value::TextConst(t.clone(), from)),
+            _ => unsupported("a TextConstant from a value that is no text"),
+        }
     }),
     ("Variant.IntoInteger#1", |_, _, a| {
         let v = a.first().cloned().unwrap_or(Value::Null);

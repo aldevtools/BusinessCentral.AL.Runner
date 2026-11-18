@@ -211,7 +211,7 @@ fn encode_in(v: &Value, out: &mut Vec<u8>) -> bool {
         // A placeholder's size answers only in the session that wrote the placeholder.
         Value::SqlCount(_)
         | Value::PlaceholderSize(_)
-        | Value::TextConst(_)
+        | Value::TextConst(..)
         | Value::List(_)
         | Value::Dictionary(_)
         | Value::Array(_)
