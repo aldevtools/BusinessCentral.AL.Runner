@@ -646,7 +646,7 @@ fn issue_8189_neighbors_refuse_a_read_of_xrec_or_keep_main() {
     let want = [
         // The codeunit called straight from the trigger: the trigger's xRec, flagged (al-runner issue 8284,
         // record/validate/XRecTableProcThroughCodeunit.al CodeunitFromTriggerDirectly_AfterGet, record/validate/
-        // XRecTableProcThroughSubscriber.al:620), whether the procedure reads it or not.
+        // XRecTableProcThroughSubscriber.al:764), whether the procedure reads it or not.
         ("DirectFromTrigger_ReadsXRec_Flagged", PASS, true),
         ("DirectFromTrigger_NoXRecRead_Runs", PASS, true),
         // The Validate runs; only a read of the xRec it hands on refuses.
@@ -855,7 +855,7 @@ fn issue_8189_get_of_a_written_row_and_running_extension_triggers_refuse() {
         ("ExtTrigger_Codeunit_BaseProc_ReadsXRec_Refused", XREC_REFUSED, false),
         // The called procedure is one of a table extension: the base trigger's xRec, flagged (al-runner issue 8284,
         // record/validate/XRecTableProcThroughCodeunit.al BaseField_Codeunit_ExtProc, record/validate/
-        // XRecTableProcThroughSubscriber.al:503).
+        // XRecTableProcThroughSubscriber.al:647).
         ("BaseTrigger_Codeunit_ExtProc_ReadsXRec_Flagged", PASS, true),
         // A table extension's procedure that the codeunit calls (flagged, as above) calls another table extension's
         // procedure: a plain call from table extension code, as on main.

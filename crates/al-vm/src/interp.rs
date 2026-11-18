@@ -751,12 +751,18 @@ impl Session {
                         }
                         _ => None,
                     };
-                    // Under a nested Validate the procedure may read the shared xRec, not write it: a field assignment (the
-                    // `assigned` mark, cleared for the call) or any other change refuses on every way out.
+                    // Under a nested Validate the procedure may read the shared xRec, not change it: other values, another view
+                    // (`XrecView`: filters, marks, key, sort), or a first assignment (the `assigned` mark set where it was clear,
+                    // which `AreFieldsLoaded` reads) refuse on every way out.
                     let read_only = match &proc_xrec {
                         crate::records::ProcXrec::SharedReadOnly(x) => {
-                            let was = std::mem::replace(&mut x.borrow_mut().assigned, false);
-                            Some((x.clone(), x.borrow().fields.clone(), was))
+                            let xs = x.borrow();
+                            Some((
+                                x.clone(),
+                                xs.fields.clone(),
+                                crate::records::XrecView::of(&xs),
+                                xs.assigned,
+                            ))
                         }
                         _ => None,
                     };
@@ -784,12 +790,13 @@ impl Session {
                         self.plain_proc_xrec.pop();
                     }
                     Self::leave_record(&inst, saved);
-                    if let Some((x, fields, was)) = read_only {
-                        let mut xs = x.borrow_mut();
-                        let written = xs.assigned || !Self::same_values(&xs.fields, &fields);
-                        xs.assigned |= was;
-                        if written {
-                            return Err(Signal::unsupported(crate::records::XREC_ASSIGNED_UNDER_NESTED_VALIDATE));
+                    if let Some((x, fields, view, assigned)) = read_only {
+                        let xs = x.borrow();
+                        if (xs.assigned && !assigned)
+                            || !crate::records::XrecView::of(&xs).same(&view)
+                            || !Self::same_values(&xs.fields, &fields)
+                        {
+                            return Err(Signal::unsupported(crate::records::XREC_CHANGED_UNDER_NESTED_VALIDATE));
                         }
                     }
                     return r;

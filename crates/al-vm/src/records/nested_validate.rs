@@ -27,8 +27,8 @@ pub(crate) enum ProcXrec {
     /// The caller's xRec handle, shared.
     Shared(Rec),
     /// The running trigger's xRec handle, shared for reading: a Validate the table's own code nested runs, whose xRec here is a
-    /// copy of the outer Validate's, so an assignment to it refuses when the call returns (`running_call_xrec.rs`
-    /// `XREC_ASSIGNED_UNDER_NESTED_VALIDATE`).
+    /// copy of the outer Validate's, so an assignment to it or a filter on it refuses when the call returns
+    /// (`running_call_xrec.rs` `XREC_CHANGED_UNDER_NESTED_VALIDATE`).
     SharedReadOnly(Rec),
     /// The blank xRec of a plain call (`enter_record`).
     Plain,
@@ -57,6 +57,18 @@ pub(crate) enum ValidateSite {
     PartLink,
     /// The filter value stamped on the blank Rec an action left.
     ActionStamp,
+}
+
+/// A Validate that runs (`Session::validate_sites`).
+pub(crate) struct ValidateRun {
+    /// The record's handle.
+    pub(crate) handle: usize,
+    /// The call site (`Session::take_validate_site`).
+    pub(crate) site: Option<ValidateSite>,
+    /// The depth of `call_stack` its trigger runs at (the frame's index from the outside in).
+    pub(crate) depth: usize,
+    /// The xRec it hands its trigger and events.
+    pub(crate) xrec: Rec,
 }
 
 impl Session {
@@ -104,11 +116,12 @@ impl Session {
     }
 
     /// Runs `hooks` (the triggers and events of a Validate) with the Validate noted as running: its `entry` (`take_validate_site`)
-    /// in `validate_sites` with the depth of the call stack its trigger runs at, and, for the outermost Validate of the record,
-    /// its before-image `outermost` in `validating`.
+    /// in `validate_sites` with the depth of the call stack its trigger runs at and the xRec `xrec` it hands its trigger, and,
+    /// for the outermost Validate of the record, its before-image `outermost` in `validating`.
     pub(crate) fn while_validating<T>(
         &mut self,
         entry: (usize, Option<ValidateSite>),
+        xrec: &Rec,
         outermost: Option<BeforeImage>,
         hooks: impl FnOnce(&mut Self) -> Result<T, Signal>,
     ) -> Result<T, Signal> {
@@ -116,7 +129,12 @@ impl Session {
         if let Some(before) = outermost {
             self.validating.push((entry.0, before));
         }
-        self.validate_sites.push((entry.0, entry.1, self.call_stack.len()));
+        self.validate_sites.push(ValidateRun {
+            handle: entry.0,
+            site: entry.1,
+            depth: self.call_stack.len(),
+            xrec: xrec.clone(),
+        });
         let r = hooks(self);
         self.validate_sites.pop();
         if pushed {
@@ -140,9 +158,16 @@ impl Session {
     /// The depth of the call stack the trigger of the one Validate of the record at `handle` runs at, when that Validate is a
     /// `Record.Validate` AL code called and no other Validate of the record runs.
     fn sole_validate_from_al_depth(&self, handle: usize) -> Option<usize> {
-        let mut running = self.validate_sites.iter().filter(|(h, ..)| *h == handle);
+        let mut running = self.validate_sites.iter().filter(|v| v.handle == handle);
         match (running.next(), running.next()) {
-            (Some(&(_, Some(ValidateSite::AlRecordValidate), depth)), None) => Some(depth),
+            (
+                Some(&ValidateRun {
+                    site: Some(ValidateSite::AlRecordValidate),
+                    depth,
+                    ..
+                }),
+                None,
+            ) => Some(depth),
             _ => None,
         }
     }

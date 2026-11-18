@@ -970,9 +970,8 @@ pub struct Session {
     pub(crate) stamp_validating: Vec<usize>,
     /// The call site named for the Validate about to start, with its record's handle (`Session::validate_at`).
     pub(crate) validate_site: Option<(usize, crate::records::ValidateSite)>,
-    /// The Validates running now, innermost last: the record's handle, the call site (`Session::take_validate_site`) and the
-    /// depth of `call_stack` its trigger runs at (the frame's index from the outside in).
-    pub(crate) validate_sites: Vec<(usize, Option<crate::records::ValidateSite>, usize)>,
+    /// The Validates running now, innermost last (`Session::while_validating`).
+    pub(crate) validate_sites: Vec<crate::records::ValidateRun>,
     /// The table procedures that run on a record by a plain call (no operation of the record called them), innermost
     /// last: the record's handle, the depth of `call_stack` inside the procedure and its blank xRec. A Validate of that
     /// record in the procedure's own body passes this xRec (`RecordOp::Validate`).

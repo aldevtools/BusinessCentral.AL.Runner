@@ -270,8 +270,11 @@ table 50202 "XS Line"
                 if Log.Mode() = '' then
                     exit;
                 Log.Add('T x=' + Log.Fmt(xRec));
+                if Log.Mode() = 'nested-inner-assign' then
+                    xRec.Series := 'INN';
                 case Log.Mode() of
-                    'sub', 'nested', 'nested0', 'nested1', 'nested3', 'nested4', 'sub-assign', 'nested-assign', 'nested-assign-err', 'nested-assign-restore', 'nested-cu', 'nested-peer', 'nested-ext', 'sub-manual':
+                    'sub', 'nested', 'nested0', 'nested1', 'nested3', 'nested4', 'sub-assign', 'nested-assign', 'nested-assign-err', 'nested-assign-restore', 'nested-cu', 'nested-peer', 'nested-ext', 'sub-manual',
+                    'nested-outer-assign', 'nested-inner-assign', 'nested-filter', 'nested-marked', 'nested-recproc', 'nested-onearg', 'sub-proc-val':
                         OnModeElse(Rec);
                     'sub-two':
                         OnModeTwo(Rec, OtherRow);
@@ -286,6 +289,8 @@ table 50202 "XS Line"
                 end;
                 if Log.Mode() in ['sub-assign', 'nested-assign'] then
                     Log.Add('T after x=' + Log.Fmt(xRec));
+                if Log.Mode() = 'nested-filter' then
+                    Log.Add('T filters=' + xRec.GetFilters());
             end;
         }
         field(3; Series; Code[20]) { }
@@ -297,12 +302,16 @@ table 50202 "XS Line"
                 Helper: Codeunit "XS Helper";
                 Peer: Record "XS Line";
             begin
-                if not (Log.Mode() in ['nested', 'nested0', 'nested1', 'nested3', 'nested4', 'nested-assign', 'nested-assign-err', 'nested-assign-restore', 'nested-cu', 'nested-peer']) then
+                if not (Log.Mode() in ['nested', 'nested0', 'nested1', 'nested3', 'nested4', 'nested-assign', 'nested-assign-err', 'nested-assign-restore', 'nested-cu', 'nested-peer',
+                    'nested-outer-assign', 'nested-inner-assign', 'nested-filter', 'nested-marked', 'nested-recproc', 'nested-onearg'])
+                then
                     exit;
                 Log.Add('I x=' + Log.Fmt(xRec));
                 Series := 'MID';
+                if Log.Mode() = 'nested-outer-assign' then
+                    xRec.Series := 'OUT';
                 case Log.Mode() of
-                    'nested', 'nested-assign', 'nested-assign-err', 'nested-assign-restore':
+                    'nested', 'nested-assign', 'nested-assign-err', 'nested-assign-restore', 'nested-outer-assign', 'nested-inner-assign', 'nested-filter', 'nested-marked':
                         CopyFromItem();
                     'nested0':
                         Validate(Mode, Mode::Production);
@@ -316,9 +325,18 @@ table 50202 "XS Line"
                         Helper.ValidateMode(Rec);
                     'nested-peer':
                         Peer.ValidateModeOn(Rec);
+                    'nested-recproc':
+                        Rec.UpdateMode();
+                    'nested-onearg':
+                        begin
+                            Mode := Mode::Production;
+                            Validate(Mode);
+                        end;
                 end;
-                if Log.Mode() = 'nested-assign' then
+                if Log.Mode() in ['nested-assign', 'nested-outer-assign', 'nested-inner-assign'] then
                     Log.Add('I after x=' + Log.Fmt(xRec));
+                if Log.Mode() = 'nested-filter' then
+                    Log.Add('I filters=' + xRec.GetFilters());
             end;
         }
         field(5; ViaCodeunit; Boolean)
@@ -348,7 +366,20 @@ table 50202 "XS Line"
                         end;
                     'modify-event':
                         Rec.Modify(true);
+                    'cu-try':
+                        if Helper.TryCallExt(Rec) then
+                            Log.Add('try ok');
                 end;
+            end;
+        }
+        field(6; Other; Integer)
+        {
+            trigger OnValidate()
+            var
+                Log: Codeunit "XS Log";
+            begin
+                if Log.Mode() <> '' then
+                    Log.Add('O x=' + Log.Fmt(xRec));
             end;
         }
     }
@@ -359,7 +390,7 @@ table 50202 "XS Line"
     local procedure StartFromItem() begin PrepareFromItem(); end;
     local procedure PrepareFromItem() begin CopyFromItem(); end;
     local procedure CopyFromItem() begin UpdateMode(); end;
-    local procedure UpdateMode() begin Validate(Mode, Mode::Production); end;
+    procedure UpdateMode() begin Validate(Mode, Mode::Production); end;
     local procedure RaiseFromProc() begin OnModeElse(Rec); end;
 
     procedure ValidateModeOn(var Target: Record "XS Line")
@@ -401,6 +432,9 @@ tableextension 50203 "XS Line Ext" extends "XS Line"
     procedure ExtAssign() var Log: Codeunit "XS Log"; begin Log.Add('XS x=' + Log.Fmt(xRec)); xRec.Series := 'SET'; end;
     procedure ExtAssignThenError() begin xRec.Series := 'SET'; Error('stop'); end;
     procedure ExtAssignAndRestore() var Old: Code[20]; begin Old := xRec.Series; xRec.Series := 'SET'; xRec.Series := Old; end;
+    procedure ExtFilter() var Log: Codeunit "XS Log"; begin xRec.SetRange(Series, 'F'); Log.Add('XF filters=' + xRec.GetFilters()); end;
+    procedure ExtValidateOther() begin Rec.Validate(Other, 5); end;
+    procedure ExtMarkedOnly() begin xRec.MarkedOnly(true); end;
 }
 
 interface "XS IMover"
@@ -432,6 +466,18 @@ codeunit 50204 "XS Subscriber"
         end;
         if Log.Mode() = 'nested-assign-restore' then begin
             Line.ExtAssignAndRestore();
+            exit;
+        end;
+        if Log.Mode() = 'nested-filter' then begin
+            Line.ExtFilter();
+            exit;
+        end;
+        if Log.Mode() = 'nested-marked' then begin
+            Line.ExtMarkedOnly();
+            exit;
+        end;
+        if Log.Mode() = 'sub-proc-val' then begin
+            Line.ExtValidateOther();
             exit;
         end;
         Line.ExtRead('X');
@@ -491,6 +537,7 @@ codeunit 50206 "XS Helper"
     procedure CallBase(var Line: Record "XS Line") begin Line.TableRead('CP'); end;
     procedure CallExtAssign(var Line: Record "XS Line") begin Line.ExtAssign(); end;
     procedure ValidateMode(var Line: Record "XS Line") begin Line.Validate(Mode, Line.Mode::Production); end;
+    [TryFunction] procedure TryCallExt(var Line: Record "XS Line") begin Line.ExtRead('CT'); end;
 }
 
 codeunit 50207 "XS Tests"
@@ -565,7 +612,8 @@ codeunit 50207 "XS Tests"
     [Test] procedure Nested_AfterGet() var L: Record "XS Line"; begin AfterGet(L); ValidateItem(L, 'nested', 'I x=0/NEW/I1;T x=0/NEW/I1;X x=0/NEW/I1;P x=0/NEW/I1;'); end;
     [Test] procedure RefusedAssign_Nested() var L: Record "XS Line"; begin AfterInsert(L); ValidateItem(L, 'nested-assign', 'I x=0/NEW/I1;T x=0/NEW/I1;XS x=0/NEW/I1;T after x=0/SET/I1;I after x=0/SET/I1;'); end;
     [Test] procedure RefusedAssign_Nested_ErrorCaughtAfterAssign() var L: Record "XS Line"; begin AfterInsert(L); ValidateItem(L, 'nested-assign-err', ''); end;
-    [Test] procedure RefusedAssign_Nested_AssignedAndRestored() var L: Record "XS Line"; begin AfterInsert(L); ValidateItem(L, 'nested-assign-restore', ''); end;
+    // The value assigned back: neither trigger can tell (the record was assigned before, so `AreFieldsLoaded` reads the same).
+    [Test] procedure Nested_AssignedAndRestored() var L: Record "XS Line"; begin AfterInsert(L); ValidateItem(L, 'nested-assign-restore', 'I x=0/NEW/I1;T x=0/NEW/I1;'); end;
     [Test] procedure Refused_Codeunit_ThroughInterfaceFromTrigger() var L: Record "XS Line"; begin AfterInsert(L); ValidateViaCodeunit(L, 'cu-iface', ''); end;
     [Test] procedure Codeunit_ExtProc() var L: Record "XS Line"; begin AfterInsert(L); ValidateViaCodeunit(L, 'cu-ext', 'V x=0/NEW/I1;C x=0/NEW/I1;'); end;
     [Test] procedure Codeunit_BaseProc() var L: Record "XS Line"; begin AfterInsert(L); ValidateViaCodeunit(L, 'cu-base', 'V x=0/NEW/I1;CP x=0/NEW/I1;'); end;
@@ -603,14 +651,29 @@ codeunit 50207 "XS Tests"
     [Test] procedure Refused_Nested_FromExtensionTrigger() var L: Record "XS Line"; begin AfterInsert(L); Log.Set('nested-ext'); L.Validate(ExtTrig, 1); end;
     [Test] procedure Refused_Codeunit_ReadByFindFirst() var L: Record "XS Line"; R: Record "XS Line"; begin AfterInsert(L); R.FindFirst(); ValidateViaCodeunit(R, 'cu-ext', ''); end;
     [Test] procedure Refused_TableEventSubscriberAboveTrigger() var L: Record "XS Line"; begin AfterInsert(L); ValidateViaCodeunit(L, 'modify-event', ''); end;
+    [Test] procedure Nested_RecDotProcedure() var L: Record "XS Line"; begin AfterInsert(L); ValidateItem(L, 'nested-recproc', 'I x=0/NEW/I1;T x=0/NEW/I1;X x=0/NEW/I1;P x=0/NEW/I1;'); end;
+    [Test] procedure Nested_OneArgumentValidate() var L: Record "XS Line"; begin AfterInsert(L); ValidateItem(L, 'nested-onearg', 'I x=0/NEW/I1;T x=0/NEW/I1;X x=0/NEW/I1;P x=0/NEW/I1;'); end;
+    [Test] procedure Nested_Temporary() var L: Record "XS Line" temporary; begin AfterInsert(L); ValidateItem(L, 'nested', 'I x=0/NEW/I1;T x=0/NEW/I1;X x=0/NEW/I1;P x=0/NEW/I1;'); end;
+    [Test] procedure Nested_FreshRecord() var L: Record "XS Line"; begin Log.Set(''); L.DeleteAll(); L."Line No." := 1; L.Series := 'NEW'; L."Item No." := 'I1'; ValidateItem(L, 'nested', 'I x=0/NEW/I1;T x=0/NEW/I1;X x=0/NEW/I1;P x=0/NEW/I1;'); end;
+    [Test] procedure Sub_ProcedureValidatesOtherField() var L: Record "XS Line"; begin AfterInsert(L); ValidateMode(L, 'sub-proc-val', 'T x=0/NEW/I1;O x=0/NEW/I1;'); end;
+    [Test] procedure Codeunit_TryFunction() var L: Record "XS Line"; begin AfterInsert(L); ValidateViaCodeunit(L, 'cu-try', 'V x=0/NEW/I1;CT x=0/NEW/I1;try ok;'); end;
+    // BC keeps one xRec for both Validates (I x=0/NEW/I1;T x=0/OUT/I1;X x=0/OUT/I1;...); the runner keeps two.
+    [Test] procedure Refused_Nested_OuterAssignsXRecFirst() var L: Record "XS Line"; begin AfterInsert(L); ValidateItem(L, 'nested-outer-assign', ''); end;
+    // BC: the procedures and the outer trigger read the inner trigger's assignment (X x=0/INN/I1;...;I after x=0/INN/I1).
+    [Test] procedure Refused_Nested_InnerAssignsXRecFirst() var L: Record "XS Line"; begin AfterInsert(L); ValidateItem(L, 'nested-inner-assign', ''); end;
+    // BC: the filter shows in both triggers (T filters=Series: F;I filters=Series: F).
+    // Not measured: any other change of the shared xRec's view refuses the same way.
+    [Test] procedure RefusedAssign_Nested_ProcedureMarksXRec() var L: Record "XS Line"; begin AfterInsert(L); ValidateItem(L, 'nested-marked', ''); end;
+    [Test] procedure RefusedAssign_Nested_ProcedureFiltersXRec() var L: Record "XS Line"; begin AfterInsert(L); ValidateItem(L, 'nested-filter', ''); end;
 }
 "##;
 
 /// The refusal reason of a read of the running call's xRec in a shape no corpus cell measured.
 const XREC_REFUSED: &str = "xRec in a table procedure called through other code";
-/// The refusal reason of an assignment to the xRec a procedure shares under a Validate the table's own code nested: BC shows
-/// it to both triggers (record/validate/XRecTableProcThroughSubscriber.al:606), the runner keeps the outer trigger's apart.
-const ASSIGN_REFUSED: &str = "an assignment to xRec in a table procedure called through an event subscriber";
+/// The refusal reason of a change to the xRec a procedure shares under a Validate the table's own code nested: BC shows it
+/// to both triggers (record/validate/XRecTableProcThroughSubscriber.al:750, :1070), the runner keeps the outer trigger's
+/// apart.
+const ASSIGN_REFUSED: &str = "a change to xRec (an assignment, a filter or another view of it) in a table procedure called through an event subscriber";
 
 #[test]
 fn measured_chains_share_the_trigger_xrec_and_their_neighbors_refuse() {
@@ -631,6 +694,6 @@ fn measured_chains_share_the_trigger_xrec_and_their_neighbors_refuse() {
             wrong.push(format!("{name}: {outcome} {hits:?}"));
         }
     }
-    assert_eq!(o.len(), 34);
+    assert_eq!(o.len(), 44);
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
