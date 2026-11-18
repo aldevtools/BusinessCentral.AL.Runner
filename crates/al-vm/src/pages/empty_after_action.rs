@@ -113,4 +113,57 @@ impl Session {
             "an action left the list's view without rows: the row it stood on left the view and no row is left (not pinned)",
         )
     }
+
+    /// The row the list stood on left the view (the action changed it so that the page's filters no longer hold it): the reads
+    /// from the start of the view after the action keep the client on it, where BC reads the view again and First() finds no row
+    /// (the reporter's repro of al-runner issue 8343 on BC 29.1, a Worksheet with OnAfterGetRecord). Not pinned: refused.
+    pub(super) fn refuse_reads_from_start_after_view_left(&mut self, rec: &Rec) -> Result<(), Signal> {
+        if self.row_left_view(rec)? {
+            return unsupported(
+                "the reads after an action of a list whose filters no longer hold the row it stands on, from the start of its view (not pinned)",
+            );
+        }
+        Ok(())
+    }
+
+    /// An action stored more than one row into an empty top-level AutoSplitKey Worksheet over a table that is not temporary,
+    /// standing on its new-row line (`edit_list`: the `EmptyShape::EditList` shape), and also put Rec on a stored row
+    /// (`Rec.FindSet()`): BC's next New() takes the key between that row and the next one (the reporter's repro of al-runner issue
+    /// 8344 on BC 29.1, 15000 between 10000 and 20000), where the runtime went on as after any action and New() took a key that is
+    /// stored. What the list holds then is not pinned: refused. A temporary Worksheet and a part keep their paths.
+    pub(super) fn refuse_rows_stored_with_rec_on_one(
+        &mut self,
+        st: &St,
+        rec: &Rec,
+        edit_list: bool,
+        worksheet: bool,
+    ) -> Result<(), Signal> {
+        let shape = edit_list && worksheet && st.borrow().host.is_none() && self.has_auto_split_key(st);
+        if shape && !rec.borrow().temporary && self.stored_row(rec)?.is_some() {
+            return unsupported(
+                "an action that stored rows into an empty list standing on its new-row line and left Rec on a stored row (not pinned)",
+            );
+        }
+        Ok(())
+    }
+
+    /// Whether the view of `rec` holds a row before the row it stands on (asked of the table; Rec is put back).
+    pub(super) fn has_row_before(&mut self, rec: &Rec) -> Result<bool, Signal> {
+        let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+        self.ret_used = true;
+        Ok(matches!(self.record_op(RecordOp::Next, &probe, &mut [Value::Integer(-1)])?, Value::Integer(n) if n != 0))
+    }
+
+    /// Whether the view of `rec` (its filters, read from the table) no longer holds the row `rec` stands on, as a second
+    /// variable with the same filters sees it: without the record's own position, which lets `Find('=')` find a row its
+    /// variable moved out of the filter (record/TestFindSetSortKeyModify.al:OwnFilter_ModifiedOutOfIt_FindStillFindsTheRow).
+    pub(super) fn row_left_view(&mut self, rec: &Rec) -> Result<bool, Signal> {
+        let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+        probe.borrow_mut().position = None;
+        self.ret_used = true;
+        Ok(!matches!(
+            self.record_op(RecordOp::Find, &probe, &mut [Value::Text("=".into())])?,
+            Value::Boolean(true)
+        ))
+    }
 }

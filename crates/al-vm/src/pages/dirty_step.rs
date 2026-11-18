@@ -136,11 +136,15 @@ impl Session {
             let s = st.borrow();
             s.open && s.dirty && !s.draft && s.cursor == Cursor::Row && s.host.is_none()
         };
-        if edited
-            && self.has_source(st)
-            && !self.declares(st, "onaftergetrecord")
-            && !self.declares(st, "onaftergetcurrrecord")
-        {
+        if edited && self.has_source(st) {
+            // A page with a row trigger that reaches here (the shapes `action_invoke` pins save on their own paths): the
+            // reporter of al-runner issue 8342 measured on BC 29.1 that a Worksheet with OnAfterGetCurrRecord alone saves the
+            // edit before the action runs, where this path saved nothing. Not pinned: refused.
+            if self.declares(st, "onaftergetrecord") || self.declares(st, "onaftergetcurrrecord") {
+                return unsupported(
+                    "an action on a row edited through the TestPage, on a page with a row trigger whose save before the action is not pinned",
+                );
+            }
             self.save_row(st)?;
         }
         // The refresh the action asks for reads the row again.

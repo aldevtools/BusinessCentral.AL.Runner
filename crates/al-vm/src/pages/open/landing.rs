@@ -372,7 +372,17 @@ impl Session {
             // read blank and are not editable (pages/properties/PageTypesEmptyTable.al:Card_OpenEdit_EmptyTable,
             // Document_OpenEdit_EmptyTable, ListPlus_OpenEdit_EmptyTable; the same pages opened with OpenView run OnOpenPage only,
             // *_OpenView_EmptyTable).
-            self.land_on_new_line(st)?;
+            // An error those triggers raise there: the reporter of al-runner issue 8340 measured an OnNewRecord that raises an error
+            // on a Card opened with OpenEdit over an empty table, and the open succeeded on BC 29.1. Whether the error is swallowed
+            // or the trigger does not run there is not pinned, so the open is refused (no corpus case raises an error there).
+            if let Err(e) = self.land_on_new_line(st) {
+                return match e {
+                    Signal::Error(_) => unsupported(
+                        "an error raised by OnNewRecord or OnAfterGetCurrRecord at the open of a page over an empty view (whether BC raises it is not pinned)",
+                    ),
+                    other => Err(other),
+                };
+            }
             {
                 let mut s = st.borrow_mut();
                 s.cursor = Cursor::None;

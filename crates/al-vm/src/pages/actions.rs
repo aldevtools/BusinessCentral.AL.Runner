@@ -1732,6 +1732,7 @@ impl Session {
             // registered assumption `empty-worksheet-filled-by-action`; a view longer than a window is refused.
             let worksheet =
                 self.engine.object_facts[st.borrow().object as usize].page_type == Some(al_ir::PageType::Worksheet);
+            self.refuse_rows_stored_with_rec_on_one(st, &rec, shape == EmptyShape::EditList, worksheet)?;
             if shape != EmptyShape::EditList || !worksheet || self.stored_row(&rec)?.is_some() {
                 return Ok(false);
             }
@@ -2013,13 +2014,6 @@ impl Session {
         Ok(())
     }
 
-    /// Whether the view of `rec` holds a row before the row it stands on (asked of the table; Rec is put back).
-    fn has_row_before(&mut self, rec: &Rec) -> Result<bool, Signal> {
-        let probe = Rc::new(RefCell::new(rec.borrow().clone()));
-        self.ret_used = true;
-        Ok(matches!(self.record_op(RecordOp::Next, &probe, &mut [Value::Integer(-1)])?, Value::Integer(n) if n != 0))
-    }
-
     /// The reads of an action that did not call `CurrPage.Update`, before the refresh's own (see
     /// `action_invoke`).
     pub(super) fn read_page_again(&mut self, st: &St) -> Result<(), Signal> {
@@ -2070,6 +2064,7 @@ impl Session {
         if !first {
             return self.read_list_again_from_row(st, &rec, &key);
         }
+        self.refuse_reads_from_start_after_view_left(&rec)?;
         st.borrow_mut().landing_first = true;
         let r = self.populate_window(st);
         st.borrow_mut().landing_first = false;

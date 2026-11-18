@@ -1388,8 +1388,23 @@ impl Tree {
                 into.push(idx);
                 return;
             }
-            // A separator carries no behaviour of its own.
-            "separator" => return,
+            // A separator carries no behaviour of its own and is no control of the page, but alc takes it as the anchor of
+            // `addafter`/`addbefore` (al-runner issue 8078: Base Application's "Purchase Return Order" declares
+            // `separator(Action134)`, and an extension that adds an action after it compiles): it stays in the tree as an anchor.
+            "separator" => {
+                let idx = self.nodes.len();
+                self.nodes.push(Node {
+                    name: arg0,
+                    kind: K::Action,
+                    section: s.clone(),
+                    owner,
+                    modifies: Vec::new(),
+                    children: Vec::new(),
+                    anchor_only: true,
+                });
+                into.push(idx);
+                return;
+            }
             other => {
                 self.reasons
                     .push(format!("page control kind `{other}` is not supported yet"));
@@ -2480,6 +2495,26 @@ mod tests {
         assert!(l.reasons.is_empty(), "{:?}", l.reasons);
         // A label is a control (testpage/TestPageLabelControlContracts.al); the others are not.
         assert_eq!(names(&l), ["A", "Hint", "AfterNotes", "Flow"]);
+    }
+
+    // al-runner issue 8078: an extension anchored on a separator of the base page (Base Application's "Purchase Return Order"
+    // declares `separator(Action134)` in an action group). The separator is no control; the added action comes after it.
+    #[test]
+    fn a_separator_is_not_a_control_but_still_an_anchor() {
+        let base = "page 50100 P { layout { area(Content) { field(A; Rec.A) { } } } actions { area(Processing) { group(Functions) { action(Send) { } separator(Action134) { } } } } }";
+        let ext = "pageextension 50101 E extends P { actions { addafter(Action134) { action(Extra) { } } addbefore(Action134) { action(Before) { } } } }";
+        let l = merged(base, &[ext]);
+        assert!(l.reasons.is_empty(), "{:?}", l.reasons);
+        assert_eq!(
+            names(&l),
+            [
+                "A",
+                "Functions",
+                "Functions>Send",
+                "Functions>Before",
+                "Functions>Extra"
+            ]
+        );
     }
 
     // A customaction (or a label, a systempart, a usercontrol) stays in the tree as an anchor and is no control
