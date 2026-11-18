@@ -208,6 +208,7 @@ impl Session {
     ) -> Result<Value, Signal> {
         let test_close = std::mem::take(&mut self.pages.test_close);
         self.require_open(st)?;
+        self.code_inserted_row_at_close(st)?;
         st.borrow_mut().close_vetoed = false;
         self.note_relation_close(st, action, test_close, via_action);
         let page_run = self.page_run_close(st, action, via_action, test_close)?;

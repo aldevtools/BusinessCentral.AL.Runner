@@ -211,7 +211,11 @@ impl Session {
         result: Result<(), Signal>,
     ) -> Result<Option<Vec<Value>>, Signal> {
         match result {
-            Ok(()) => self.validate_step_end(st),
+            Ok(()) => {
+                let end = self.validate_step_end(st);
+                self.code_inserted_step_end(st)?;
+                end
+            }
             Err(e) => {
                 let step = st.borrow_mut().validate_step.take();
                 if let Some(step) = step.filter(|s| s.pinned) {

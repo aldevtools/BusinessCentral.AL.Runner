@@ -1,4 +1,4 @@
-//! The reporter's repros of al-runner issues 6114 to 6119, 7958 and 8186 (green on real BC), run here until the corpus writer's pins land:
+//! The reporter's repros of al-runner issues 6114 to 6119, 7958, 8186 and 8285 (green on real BC), run here until the corpus writer's pins land:
 //! copies of the app and test files in fixtures/outside-fb, with a stand-in for Microsoft's Library Assert. Each test names
 //! the outcome every test codeunit of a repro must have. Delete this file and the fixtures when the pins are in the corpus.
 
@@ -206,7 +206,8 @@ fn issue_8186_code_inserted_new_line_lands_on_the_row() {
     }
 }
 
-/// The shapes the probe does not measure keep the refusal: DelayedInsert, a Worksheet, `Update(true)` written out, a page with a
+/// The shapes the probe does not measure keep the refusal: DelayedInsert, a Worksheet, `Update(true)` written out under the
+/// unfiltered `Page.RunModal` (under OpenEdit corpus pull request 1436 measures it: list-new-line-code-insert-save), a page with a
 /// part.
 #[test]
 fn issue_8186_unmeasured_neighbors_stay_refused() {
@@ -242,7 +243,16 @@ fn issue_8186_unmeasured_neighbors_stay_refused() {
                 n.starts_with("ListNewLine_FieldValidateInserts") || n.starts_with("ListNewLine_RunModal_")
             })
             .filter(|(n, _, _)| what != "Update(true)" || !n.contains("UpdateFalse"))
-            .filter(|(_, r, _)| !matches!(r, Outcome::NotRun(_)))
+            .filter(
+                |(n, r, marks)| match what == "Update(true)" && n.starts_with("ListNewLine_FieldValidateInserts") {
+                    // ListNewLineSaveRecordUpdate.al:494-526 measures Update(true) on this page under OpenEdit.
+                    true => {
+                        *r != Outcome::Pass
+                            || !marks.contains(&al_builtins::assumptions::Assumption::ListNewLineCodeInsertSave)
+                    }
+                    false => !matches!(r, Outcome::NotRun(_)),
+                },
+            )
             .collect();
         assert!(split.is_empty(), "{what}: {split:#?}");
     }
@@ -414,4 +424,250 @@ fn issue_8186_reopen_forgets_the_landing() {
         .find(|(n, _, _)| n == "ReopenAfterTheLanding_PreviousSaves")
         .expect("the test");
     assert_eq!(*r, Outcome::Pass);
+}
+
+const ISSUE_8285_PROBE: &str = include_str!("../fixtures/outside-fb/Issue8285Probe.al");
+const ISSUE_8285_NEIGHBORS: &str = include_str!("../fixtures/outside-fb/Issue8285Neighbors.al");
+
+/// The corpus probe of issue 8285 (corpus pull request 1436, open: tests/al-language/pages/currpage/ListNewLineSaveRecordUpdate.al,
+/// measured on BC 29.1) and the reporter's repro: `CurrPage.SaveRecord()` then `CurrPage.Update(false)`, and `CurrPage.Update(true)`,
+/// on the new line the table field inserted, also on the host with a CardPart FactBox. Every test passes, flagged by
+/// list-new-line-code-insert-save.
+#[test]
+fn issue_8285_save_record_and_update_true_land_on_the_row() {
+    use al_builtins::assumptions::Assumption::ListNewLineCodeInsertSave;
+    for (src, codeunit) in [
+        (ISSUE_8285_PROBE, "LT NS Tests"),
+        (
+            include_str!("../fixtures/outside-fb/Issue8285.al"),
+            "Repro New Line Update Tests",
+        ),
+    ] {
+        let o = issue_8186_outcomes(src, codeunit);
+        let bad: Vec<_> = o
+            .iter()
+            .filter(|(_, r, marks)| *r != Outcome::Pass || !marks.contains(&ListNewLineCodeInsertSave))
+            .collect();
+        assert!(bad.is_empty(), "{codeunit}: {bad:#?}");
+    }
+}
+
+/// The outcome and marks of each test of `codeunit` in Issue8285Neighbors.al, with the probe's objects; `host` changes the
+/// FactBox host page 97483 (the part of the file from its declaration on), `probe` the probe's objects.
+fn issue_8285_neighbor_outcomes(
+    codeunit: &str,
+    probe: impl Fn(&str) -> String,
+    host: impl Fn(&str) -> String,
+) -> Vec<(String, Outcome, Vec<al_builtins::assumptions::Assumption>)> {
+    let at = ISSUE_8285_NEIGHBORS.find("page 97483").expect("the host page");
+    let (before, from_host) = ISSUE_8285_NEIGHBORS.split_at(at);
+    let src = format!("{}\n{before}{}", probe(ISSUE_8285_PROBE), host(from_host));
+    issue_8186_outcomes(&src, codeunit)
+}
+
+fn same(s: &str) -> String {
+    s.to_string()
+}
+
+/// The refusal of a call off the FactBox host's row that the probe does not measure.
+const FACTBOX_MOVE_REFUSAL: &str =
+    "a call that leaves the row a List page with a CardPart FactBox made of its new line";
+
+/// Call sequences the probe does not measure are refused: SaveRecord without the Update(false) after it, SaveRecord then
+/// Update() or Update(true), two SaveRecord calls, an error after SaveRecord and Update(false) (`asserterror` around the
+/// SetValue). Main answers the first and the last without the modify BC runs at the SaveRecord (ListNewLineSaveRecordUpdate.al:445
+/// `P.MOD(X/);T.M(X/);P.SR;`). `Update(true)` on the page without AutoSplitKey keeps main's refusal.
+#[test]
+fn issue_8285_unmeasured_calls_are_refused() {
+    use al_builtins::assumptions::Assumption::ListNewLineCodeInsertSave;
+    let o = issue_8285_neighbor_outcomes("LT NS Neighbor Tests", same, same);
+    for (name, why) in [
+        (
+            "SaveRecordWithoutUpdate",
+            "the validation ended without the CurrPage.Update(false)",
+        ),
+        (
+            "SaveRecordThenUpdate",
+            "CurrPage.Update() or Update(true) after CurrPage.SaveRecord",
+        ),
+        (
+            "SaveRecordThenUpdateTrue",
+            "CurrPage.Update() or Update(true) after CurrPage.SaveRecord",
+        ),
+        ("SaveRecordTwice", "a second CurrPage.SaveRecord"),
+        ("ErrorAfterSaveRecord", "an error ended the validation"),
+        ("UpdateTrueWithoutAutoSplitKey", MAIN_8186_REFUSAL),
+    ] {
+        let (_, r, marks) = o.iter().find(|(n, _, _)| n == name).expect("the test");
+        assert!(matches!(r, Outcome::NotRun(w) if w.contains(why)), "{name}: {r:?}");
+        if why == MAIN_8186_REFUSAL {
+            assert!(!marks.contains(&ListNewLineCodeInsertSave), "{name}: {marks:?}");
+        }
+    }
+}
+
+/// On the FactBox host the landing ends only as measured: the Close after the Value SetValue passes, flagged; Next as the first
+/// move (with a row before and on an empty view), Previous or Close with no SetValue since, and a GoToRecord before the Close
+/// are refused (main refuses each of them at the landing). Two rows before the line keep main's refusal.
+#[test]
+fn issue_8285_factbox_host_leaves_the_row_only_as_measured() {
+    use al_builtins::assumptions::Assumption::ListNewLineCodeInsertSave;
+    let o = issue_8285_neighbor_outcomes("LT NS Host Neighbor Tests", same, same);
+    let find = |name: &str| o.iter().find(|(n, _, _)| n == name).expect("the test");
+    let (_, r, marks) = find("Host_RowBefore_Close");
+    assert!(
+        *r == Outcome::Pass && marks.contains(&ListNewLineCodeInsertSave),
+        "{r:?} {marks:?}"
+    );
+    for name in [
+        "Host_RowBefore_NextFirst",
+        "Host_EmptyView_NextFirst",
+        "Host_RowBefore_PreviousWithoutEdit",
+        "Host_RowBefore_CloseWithoutEdit",
+        "Host_RowBefore_GoToRecordThenClose",
+    ] {
+        let (_, r, _) = find(name);
+        assert!(
+            matches!(r, Outcome::NotRun(w) if w.contains(FACTBOX_MOVE_REFUSAL)),
+            "{name}: {r:?}"
+        );
+    }
+    let o = issue_8285_neighbor_outcomes("LT NS Host Rows Tests", same, same);
+    let (_, r, marks) = &o[0];
+    assert!(
+        matches!(r, Outcome::NotRun(w) if w.contains(MAIN_8186_REFUSAL)) && !marks.contains(&ListNewLineCodeInsertSave),
+        "{r:?} {marks:?}"
+    );
+}
+
+/// Facts of the FactBox host and its part the probe does not vary keep main's refusal, without the mark: a part trigger, a
+/// ListPart, a property on the part page or on its field, a link on one key field, UpdatePropagation, a second part, an
+/// OnAfterGetCurrRecord on the host, Editable = false on a host control, and CurrPage.Update(false) or Update(true) without the
+/// SaveRecord on the host.
+#[test]
+fn issue_8285_unmeasured_factbox_shapes_keep_main_refusal() {
+    use al_builtins::assumptions::Assumption::ListNewLineCodeInsertSave;
+    let peek = "page 97475 \"LT NS Peek\"\n{\n    PageType = CardPart;";
+    let link = "SubPageLink = \"Group Code\" = field(\"Group Code\"), \"Entry No.\" = field(\"Entry No.\");";
+    let host_save = "CurrPage.SaveRecord();\n                        CurrPage.Update(false);";
+    let host_agr = "    trigger OnAfterGetRecord()\n    begin\n        Log.Add('P.AGR(' + Rec.Name + ')');\n    end;";
+    let second_part = "        area(FactBoxes)\n        {";
+    // What a variant is called, and how it changes the source.
+    type Variant = (&'static str, Box<dyn Fn(&str) -> String>);
+    let probe_variants: [Variant; 4] = [
+        (
+            "a part trigger",
+            Box::new(move |s: &str| {
+                s.replacen(
+                    peek,
+                    &format!("{peek}\n    trigger OnAfterGetCurrRecord()\n    begin\n    end;\n"),
+                    1,
+                )
+            }),
+        ),
+        (
+            "a ListPart",
+            Box::new(move |s: &str| s.replacen(peek, &peek.replace("CardPart", "ListPart"), 1)),
+        ),
+        (
+            "a part page property",
+            Box::new(move |s: &str| s.replacen(peek, &format!("{peek}\n    Editable = false;"), 1)),
+        ),
+        (
+            "a part field property",
+            Box::new(|s: &str| {
+                s.replacen(
+                    "            field(Name; Rec.Name) { ApplicationArea = All; }\n            field(Value; Rec.Value) { ApplicationArea = All; }\n        }\n    }\n}",
+                    "            field(Name; Rec.Name) { ApplicationArea = All; Editable = false; }\n            field(Value; Rec.Value) { ApplicationArea = All; }\n        }\n    }\n}",
+                    1,
+                )
+            }),
+        ),
+    ];
+    let host_variants: [Variant; 7] = [
+        (
+            "a link on one field",
+            Box::new(move |s: &str| s.replacen(link, "SubPageLink = \"Entry No.\" = field(\"Entry No.\");", 1)),
+        ),
+        (
+            "UpdatePropagation",
+            Box::new(move |s: &str| s.replacen(link, &format!("{link}\n                UpdatePropagation = Both;"), 1)),
+        ),
+        (
+            "a second part",
+            Box::new(move |s: &str| {
+                s.replacen(
+                    second_part,
+                    &format!(
+                        "{second_part}\n            part(Peek2; \"LT NS Peek\") {{ ApplicationArea = All; {link} }}"
+                    ),
+                    1,
+                )
+            }),
+        ),
+        (
+            "OnAfterGetCurrRecord on the host",
+            Box::new(move |s: &str| {
+                s.replacen(
+                    host_agr,
+                    &format!("{host_agr}\n\n    trigger OnAfterGetCurrRecord()\n    begin\n    end;"),
+                    1,
+                )
+            }),
+        ),
+        (
+            "Editable = false on a host control",
+            Box::new(|s: &str| {
+                s.replacen(
+                    "field(Value; Rec.Value) { ApplicationArea = All; }",
+                    "field(Value; Rec.Value) { ApplicationArea = All; Editable = false; }",
+                    1,
+                )
+            }),
+        ),
+        (
+            "Update(false) alone",
+            Box::new(move |s: &str| s.replacen(host_save, "CurrPage.Update(false);", 1)),
+        ),
+        (
+            "Update(true) alone",
+            Box::new(move |s: &str| s.replacen(host_save, "CurrPage.Update(true);", 1)),
+        ),
+    ];
+    // Main's outcome of each variant: its refusal at the landing; `Update(false)` alone fails, as on main, when the close inserts
+    // the line a second time.
+    let check = |what: &str, o: Vec<(String, Outcome, Vec<al_builtins::assumptions::Assumption>)>| {
+        let (_, r, marks) = o
+            .iter()
+            .find(|(n, _, _)| n == "Host_RowBefore_Close")
+            .expect("the test");
+        let main = match what {
+            "Update(false) alone" => matches!(r, Outcome::Fail(w) if w.contains("already exists")),
+            _ => matches!(r, Outcome::NotRun(w) if w.contains(MAIN_8186_REFUSAL)),
+        };
+        assert!(
+            main && !marks.contains(&ListNewLineCodeInsertSave),
+            "{what}: {r:?} {marks:?}"
+        );
+    };
+    for (what, change) in &probe_variants {
+        let changed = change(ISSUE_8285_PROBE);
+        assert_ne!(changed, ISSUE_8285_PROBE, "{what}");
+        check(
+            what,
+            issue_8285_neighbor_outcomes("LT NS Host Neighbor Tests", |s| change(s), same),
+        );
+    }
+    for (what, change) in &host_variants {
+        let at = ISSUE_8285_NEIGHBORS.find("page 97483").expect("the host page");
+        assert_ne!(
+            change(&ISSUE_8285_NEIGHBORS[at..]),
+            &ISSUE_8285_NEIGHBORS[at..],
+            "{what}"
+        );
+        check(
+            what,
+            issue_8285_neighbor_outcomes("LT NS Host Neighbor Tests", same, |s| change(s)),
+        );
+    }
 }

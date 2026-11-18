@@ -108,6 +108,19 @@ pub struct WindowRow {
     pub shown: Vec<Value>,
 }
 
+/// The row a List page left its new line for after the table field's OnValidate inserted it (`code_inserted_new_line.rs`).
+#[derive(Debug, Clone)]
+pub struct CodeInsertedRow {
+    /// Its primary key.
+    pub key: Vec<Value>,
+    /// The number of test calls when the page landed on it.
+    pub calls: usize,
+    /// The assumption the landing ran under.
+    pub assumption: al_builtins::assumptions::Assumption,
+    /// The refresh read another row after it, so the page reads it again before it leaves it (the FactBox host).
+    pub read_before_leave: bool,
+}
+
 /// Where the test client's cursor stands on a page (ADR-012).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Cursor {
@@ -908,9 +921,11 @@ pub struct PageState {
     pub refresh_update_false: bool,
     /// The refresh about to run starts from a new line the table code inserted inside the validation (`code_inserted_new_line.rs`).
     pub refresh_from_code_inserted_line: bool,
-    /// The key of the row that refresh landed on and the number of test calls then, until the next move
-    /// (`code_inserted_new_line.rs`).
-    pub code_inserted_row: Option<(Vec<Value>, usize)>,
+    /// The row the page left its new line for, until the next move (`code_inserted_new_line.rs`).
+    pub code_inserted_row: Option<CodeInsertedRow>,
+    /// `CurrPage.SaveRecord` left such a new line for its row inside the validation running now; the `CurrPage.Update(false)` it
+    /// awaits asks the refresh (`code_inserted_new_line.rs`).
+    pub code_inserted_saved: bool,
     /// The store's write mark (`Session::write_mark`) when the page control's own OnValidate began, while it runs
     /// (`code_inserted_new_line.rs` `run_control_onvalidate`).
     pub control_onvalidate_writes: Option<(i64, u64)>,
@@ -1090,6 +1105,7 @@ impl PageState {
     pub(crate) fn forget_code_inserted_line(&mut self) {
         self.refresh_from_code_inserted_line = false;
         self.code_inserted_row = None;
+        self.code_inserted_saved = false;
     }
 
     /// The page opens: the captions its controls and fields resolved on the last run are gone.
