@@ -489,6 +489,11 @@ fn neighbors_of_the_sort_the_open_and_the_handed_record_keep_mains_refusal() {
             "TPV7821_Base_OneLine_PageRun",
         ),
         (
+            "SetLoadFields on the record",
+            variant(&[(filtered, &before_find("        Line.SetLoadFields(Quantity);\n"))]),
+            "TPV7821_Base_OneLine_PageRun",
+        ),
+        (
             "ReadIsolation set",
             variant(&[(
                 filtered,

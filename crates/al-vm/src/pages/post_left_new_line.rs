@@ -609,13 +609,15 @@ fn fresh_from_reset(r: &al_builtins::value::RecordState) -> bool {
 
 /// Whether `h`, the record handed to Page.Run, is as InsertLines leaves it (testpage/R7821JournalPostVariants.al:280-297):
 /// fresh from Reset (`fresh_from_reset`), filtered to batch B1 in filter group 0 with filter group 0 current, ReadIsolation
-/// and SecurityFiltering as declared, no SetAutoCalcFields, and its fields those of `row`, the stored row FindFirst read.
+/// and SecurityFiltering as declared, no SetAutoCalcFields and no SetLoadFields, and its fields those of `row`, the stored row
+/// FindFirst read.
 fn handed_as_inserted(h: &al_builtins::value::RecordState, row: &[Value]) -> bool {
     fresh_from_reset(h)
         && matches!(h.filters.as_slice(), [f] if batch_b1_in(f, 0))
         && (h.filter_group, h.read_isolation) == (0, 0)
         && h.security_filtering == h.declared_security_filtering
         && h.auto_calc.is_empty()
+        && (h.load.request.is_none(), h.load.partial) == (true, false)
         && h.fields.len() == row.len()
         && h.fields.iter().zip(row).all(|(a, b)| a.identical(b))
 }
