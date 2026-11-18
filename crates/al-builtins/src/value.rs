@@ -174,9 +174,10 @@ pub enum Value {
     /// A value read from `SessionInformation.SqlStatementsExecuted()` or `SqlRowsRead()`, or computed from such reads
     /// (issue 5580): a BigInteger whose number is the runtime's model, so only the uses `sqlcount` lists are answered.
     SqlCount(SqlCount),
-    /// The byte size of a placeholder report output (`Blob.Length`, `File.Len`), with the placeholder's mark: an Integer known only
-    /// to be greater than 0, so only a comparison with 0 is answered (`crate::placeholder_output::size`).
-    PlaceholderSize(std::sync::Arc<str>),
+    /// The byte size of a placeholder report output (`Blob.Length`, `File.Len`), with the placeholder's mark and the number type of
+    /// the slot that holds it: a number known only to be greater than 0, so only a comparison with 0 is answered
+    /// (`crate::placeholder_output::size`).
+    PlaceholderSize(std::sync::Arc<str>, SqlType),
 }
 
 /// A counter value (`Value::SqlCount`, see `crate::sqlcount`).
@@ -190,7 +191,8 @@ pub struct SqlCount {
     pub ty: SqlType,
 }
 
-/// The number type a counter value has (`SqlCount::ty`).
+/// The number type a counter value (`SqlCount::ty`) or a placeholder's size (`Value::PlaceholderSize`) has: the type of the
+/// slot that holds it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub enum SqlType {
     Integer,
@@ -1852,8 +1854,16 @@ impl Value {
             Value::DotNet(_) => k == "dotnet",
             // Never reached: a read of an unknown column is refused before its value reaches a Variant.
             Value::Unknown(_) => false,
-            // An Integer, as Blob.Length is.
-            Value::PlaceholderSize(_) => k == "integer",
+            // The type of the slot that held it: an Integer as Blob.Length returns it, a BigInteger or Decimal field or variable
+            // its own type (record/flowfields/R6986BigIntegerCount.al:173-178: a field's value answers the field's type;
+            // types/TestTypeSystemContracts.al:175-181: a Variant answers the type of the variable assigned to it).
+            Value::PlaceholderSize(_, ty) => {
+                k == match ty {
+                    SqlType::Integer => "integer",
+                    SqlType::BigInteger => "biginteger",
+                    SqlType::Decimal => "decimal",
+                }
+            }
             // A BigInteger (session-system/session/SqlCounters.al:87-103).
             Value::SqlCount(c) => {
                 k == match c.ty {

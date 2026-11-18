@@ -320,7 +320,7 @@ fn format_unread(v: &Value, length: i32, standard: i32) -> Option<Result<String,
             Some(Ok(crate::native::SQL_COUNT_TEXT_MARK.to_string()))
         }
         // A placeholder's size: its digits would be the placeholder's (`placeholder_output::size`).
-        Value::PlaceholderSize(m) => Some(Err(FormatFail::Unsupported(
+        Value::PlaceholderSize(m, _) => Some(Err(FormatFail::Unsupported(
             crate::placeholder_output::size_refusal_text(m, "Format"),
         ))),
         Value::SqlCount(_) => Some(Err(FormatFail::Unsupported(crate::sqlcount::refusal_text(

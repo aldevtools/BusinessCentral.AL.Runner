@@ -257,6 +257,27 @@ codeunit 50990 "PSF Tests"
         exit(P.Amount.Value());
     end;
 
+    // A Variant answers the type of the slot that held the size: the field's or the variable's.
+    local procedure Kind(V: Variant): Text
+    var K: Text;
+    begin
+        if V.IsInteger() then K += 'I';
+        if V.IsBigInteger() then K += 'B';
+        if V.IsDecimal() then K += 'D';
+        exit(K);
+    end;
+    procedure KindsOfSize(): Text
+    var R: Record "PSF Row"; RR: RecordRef; D: Decimal; B: BigInteger; N: Integer; V: Variant;
+    begin
+        R.DeleteAll(); R.Id := 1; R.Amount := Size(); R.Big := Size(); R.Dec := Size(); R.Insert();
+        R.Get(1);
+        RR.GetTable(R);
+        D := Size(); B := Size(); N := Size();
+        V := RR.Field(3).Value;
+        exit(Kind(R.Amount) + '|' + Kind(R.Big) + '|' + Kind(R.Dec) + '|' + Kind(V) + '|' + Kind(RR.Field(4).Value) + '|'
+            + Kind(N) + '|' + Kind(B) + '|' + Kind(D) + '|' + Kind(Size()));
+    end;
+
     // A Rename writes the row with the size in it: a later filter, range, sort or filtered DeleteAll on that field refuses.
     local procedure Renamed(var R: Record "PSF Row")
     begin
@@ -375,6 +396,11 @@ fn placeholder_size_in_a_field_is_refused_by_a_filter_or_a_key() {
         "KeyHoldingField",
         "FlowExistWhereField",
     ]);
+}
+
+#[test]
+fn placeholder_size_in_a_variant_answers_the_type_of_its_slot() {
+    assert_eq!(al_testkit::text(run("KindsOfSize")), "I|B|D|B|D|I|B|D|I");
 }
 
 #[test]

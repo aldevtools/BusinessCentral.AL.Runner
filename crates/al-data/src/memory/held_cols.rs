@@ -9,7 +9,7 @@ use super::*;
 fn unread(v: &Value) -> Option<String> {
     match v {
         Value::Unknown(why) => Some(why.to_string()),
-        Value::PlaceholderSize(m) => Some(al_builtins::placeholder_output::size_refusal_text(
+        Value::PlaceholderSize(m, _) => Some(al_builtins::placeholder_output::size_refusal_text(
             m,
             "a record filter or sort on a field holding the value",
         )),

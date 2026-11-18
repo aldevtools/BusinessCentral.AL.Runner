@@ -158,7 +158,7 @@ impl FilterExpr {
     pub fn placeholder_size(&self) -> Option<&std::sync::Arc<str>> {
         fn held(v: &Value) -> Option<&std::sync::Arc<str>> {
             match v {
-                Value::PlaceholderSize(m) => Some(m),
+                Value::PlaceholderSize(m, _) => Some(m),
                 _ => None,
             }
         }

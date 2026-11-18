@@ -156,7 +156,7 @@ pub fn pdf_read(v: &Value, read: PdfRead) -> Option<Result<PdfAnswer, Signal>> {
 /// is refused with [`size_refusal`].
 pub fn size(mark: &Arc<str>) -> Value {
     SIZE_MADE.store(true, std::sync::atomic::Ordering::Relaxed);
-    Value::PlaceholderSize(mark.clone())
+    Value::PlaceholderSize(mark.clone(), crate::value::SqlType::Integer)
 }
 
 /// Set by [`size`] and never cleared: whether a placeholder's size may exist in this process. A size can be held in a
@@ -172,11 +172,11 @@ pub fn sizes_made() -> bool {
 /// Refuses a builtin or a .NET member (`name`, a builtin id name or `DotNet Type.Member`) given a placeholder's size as its
 /// receiver or an argument. The callee would compare the size with its own code and not through [`size_order`] (a record
 /// filter counts a value it cannot compare as not passing, a List or Dictionary as not equal) or read its number, so the
-/// answer would be made up. The one allowed use: `Variant.Is*` on a Variant that holds it, which asks only the type, an Integer
-/// as `Blob.Length` and `File.Len` return (`Value::is_kind`); Library Assert's `AreEqual`/`AreNotEqual` ask it.
+/// answer would be made up. The one allowed use: `Variant.Is*` on a Variant that holds it, which asks only the type of the slot
+/// that held it (`Value::is_kind`); Library Assert's `AreEqual`/`AreNotEqual` ask it.
 pub fn size_guard(name: &str, recv: Option<&Value>, args: &[Value]) -> Result<(), Signal> {
     let held = |v: Option<&Value>| match v {
-        Some(Value::PlaceholderSize(m)) => Some(m.clone()),
+        Some(Value::PlaceholderSize(m, _)) => Some(m.clone()),
         _ => None,
     };
     if let Some(m) = args.iter().find_map(|v| held(Some(v))) {
@@ -206,18 +206,26 @@ pub fn size_refusal_text(mark: &str, what: &str) -> String {
 /// refuses a filter or a sort on such a field itself (al-data `MemStore::unknown_read`), and `format` refuses `Format`.
 pub fn size_read(v: &Value, what: &str) -> Result<(), Signal> {
     match v {
-        Value::PlaceholderSize(m) => Err(size_refusal(m, what)),
+        Value::PlaceholderSize(m, _) => Err(size_refusal(m, what)),
         _ => Ok(()),
     }
 }
 
-/// A size held in a slot of type `t`: an Integer, BigInteger, Decimal or Variant keeps it; any other type would read it.
+/// A size held in a slot of type `t`: an Integer, BigInteger or Decimal keeps it with the slot's type, a Variant as it is
+/// (`Value::is_kind` answers that type); any other type would read it.
 pub fn size_convert(v: Value, t: &RtType) -> Result<Value, Signal> {
-    match (&v, t) {
-        (Value::PlaceholderSize(_), RtType::Integer | RtType::BigInteger | RtType::Decimal | RtType::Variant) => Ok(v),
-        (Value::PlaceholderSize(m), _) => Err(size_refusal(m, "a conversion to another type")),
-        _ => Ok(v),
-    }
+    use crate::value::SqlType;
+    let Value::PlaceholderSize(m, _) = &v else {
+        return Ok(v);
+    };
+    let ty = match t {
+        RtType::Variant => return Ok(v),
+        RtType::Integer => SqlType::Integer,
+        RtType::BigInteger => SqlType::BigInteger,
+        RtType::Decimal => SqlType::Decimal,
+        _ => return Err(size_refusal(m, "a conversion to another type")),
+    };
+    Ok(Value::PlaceholderSize(m.clone(), ty))
 }
 
 /// The order of `l` and `r` where either is a placeholder's size: greater than the number 0, and refused against anything else.
@@ -229,9 +237,9 @@ pub fn size_order(l: &Value, r: &Value) -> Result<Ordering, Signal> {
         _ => false,
     };
     match (l, r) {
-        (Value::PlaceholderSize(_), o) if zero(o) => Ok(Ordering::Greater),
-        (o, Value::PlaceholderSize(_)) if zero(o) => Ok(Ordering::Less),
-        (Value::PlaceholderSize(m), _) | (_, Value::PlaceholderSize(m)) => {
+        (Value::PlaceholderSize(..), o) if zero(o) => Ok(Ordering::Greater),
+        (o, Value::PlaceholderSize(..)) if zero(o) => Ok(Ordering::Less),
+        (Value::PlaceholderSize(m, _), _) | (_, Value::PlaceholderSize(m, _)) => {
             Err(size_refusal(m, "a comparison other than with 0"))
         }
         _ => unreachable!("size_order is called with a placeholder size"),
