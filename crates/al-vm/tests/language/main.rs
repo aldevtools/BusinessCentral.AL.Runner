@@ -72,6 +72,7 @@ mod evaluate_date_suffix_texts;
 mod evaluate_datetime_iso_space;
 mod evaluate_duration;
 mod evaluate_guid_fieldref;
+mod evaluate_memberless_var_option;
 mod evaluate_option_captions;
 mod evaluate_option_no_caption;
 mod evaluate_option_rejects;

@@ -603,9 +603,6 @@ impl Lowerer<'_> {
                     .by_id(&id)
                     .ok_or_else(|| format!("{id} not in catalog"))?
                     .clone();
-                // Evaluate into an Option variable: a variable has no OptionCaption, so a text that is neither an ordinal nor a
-                // member name is a plain rejection (P86Eval.al:Eval Option, `Bet`, `-1`, `1,0`). A field may name a member by its
-                // caption, which the value does not carry, so a field keeps the id that refuses it.
                 if id == "System.Format#1" || id == "System.Format#2" {
                     if let Some(why) = args.first().and_then(|a| self.decimal_field_format_unpinned(a)) {
                         return Ok(ir::Expr::Refused(why));
@@ -643,29 +640,8 @@ impl Lowerer<'_> {
                 } else {
                     None
                 };
-                let emit_id = if option_captions.is_some() {
-                    "System.EvaluateOptionField#1".to_string()
-                } else if id == "System.Evaluate#1"
-                    && args.first().is_some_and(|a| {
-                        // An element of an Option array variable reads as the variable does: an unknown name answers false
-                        // and keeps the element (types/arrays/PnC14OptionArray.al:51-78,
-                        // OptionArray_Evaluate_And_Out_Of_Range).
-                        let var = if a.kind() == SyntaxKind::IndexExpr {
-                            a.children().next()
-                        } else {
-                            Some(a.clone())
-                        };
-                        matches!(self.ty_of(a), Ty::Option(_))
-                            && var.is_some_and(|v| matches!(self.res(&v), Some(Res::Local(_) | Res::Global(_))))
-                    })
-                {
-                    "System.EvaluateVariableOption#1".to_string()
-                } else if id == "System.Evaluate#1"
-                    && args
-                        .first()
-                        .is_some_and(|a| matches!(self.ty_of(a), Ty::Text(Some(_)) | Ty::Code(Some(_))))
-                {
-                    "System.EvaluateBounded#1".to_string()
+                let emit_id = if id == "System.Evaluate#1" {
+                    self.evaluate_id(args.first(), option_captions.is_some()).to_string()
                 } else if id == "Dialog.Error#2" && args.first().is_some_and(|a| a.kind() != SyntaxKind::Literal) {
                     self.error_variant_id(args)
                 } else if id.starts_with("ErrorInfo.Create#")

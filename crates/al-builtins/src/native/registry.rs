@@ -30,6 +30,14 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
         "System.EvaluateVariableOption#1",
         crate::evaluate::evaluate_variable_option,
     ),
+    (
+        "System.EvaluateMemberlessVarOption#1",
+        crate::evaluate::evaluate_memberless_var_option,
+    ),
+    (
+        "System.EvaluateMemberlessVarOptionElement#1",
+        crate::evaluate::evaluate_memberless_var_option_element,
+    ),
     ("System.EvaluateBounded#1", crate::evaluate::evaluate_bounded),
     ("System.EvaluateOptionField#1", crate::evaluate::evaluate_option_field),
     ("Blob.LengthSign#1", crate::stream::blob_length_sign),
