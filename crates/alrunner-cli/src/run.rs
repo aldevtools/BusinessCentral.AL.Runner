@@ -53,6 +53,8 @@ struct Selection {
     filters: Vec<String>,
     exact: Vec<String>,
     excludes: Vec<String>,
+    /// `--exclude-test-exact NAME`: left out when NAME is the test's method name or qualified name (issue 8059).
+    excludes_exact: Vec<String>,
     /// `--parity`: the tests Microsoft turns off are not picked.
     parity: Option<Arc<al_testrun::disabled::DisabledTests>>,
 }
@@ -65,7 +67,7 @@ fn qualified(codeunit: u32, test: &str) -> String {
 impl Selection {
     /// Whether the run is narrowed by anything.
     fn active(&self) -> bool {
-        !self.includes_none() || !self.excludes.is_empty() || self.parity.is_some()
+        !self.includes_none() || !self.excludes.is_empty() || !self.excludes_exact.is_empty() || self.parity.is_some()
     }
 
     fn includes_none(&self) -> bool {
@@ -83,12 +85,15 @@ impl Selection {
         }
     }
 
+    /// The match of `--test-exact` and `--exclude-test-exact`: NAME is the method name or the whole qualified name,
+    /// any case. The one owner of "exactly".
+    fn matches_exact(name: &str, codeunit: u32, test: &str) -> bool {
+        name.eq_ignore_ascii_case(test) || name.eq_ignore_ascii_case(&qualified(codeunit, test))
+    }
+
     fn picks(&self, codeunit: u32, test: &str) -> bool {
         let by_filter = self.filters.iter().any(|f| Self::matches(f, codeunit, test));
-        let by_exact = self
-            .exact
-            .iter()
-            .any(|e| e.eq_ignore_ascii_case(test) || e.eq_ignore_ascii_case(&qualified(codeunit, test)));
+        let by_exact = self.exact.iter().any(|e| Self::matches_exact(e, codeunit, test));
         // `--test` with `--test-exact` narrows to the tests both match, as AL Runner v2 did, so that a tool that
         // sends both selects no more than either alone (issue 5612). Each alone selects what it matches.
         let by_name = match (self.filters.is_empty(), self.exact.is_empty()) {
@@ -98,6 +103,10 @@ impl Selection {
         let included = self.includes_none() || self.codeunits.contains(&codeunit) || by_name;
         included
             && !self.excludes.iter().any(|x| Self::matches(x, codeunit, test))
+            && !self
+                .excludes_exact
+                .iter()
+                .any(|x| Self::matches_exact(x, codeunit, test))
             && !self.parity.as_ref().is_some_and(|d| d.is_disabled(codeunit, test))
     }
 }
@@ -779,6 +788,8 @@ pub struct Entry {
     /// As `--test` and `--exclude`, for this entry.
     pub filters: Vec<String>,
     pub excludes: Vec<String>,
+    /// As `--exclude-test-exact`, for this entry.
+    pub excludes_exact: Vec<String>,
     /// Resource name (relative to the resource folder) -> the text the entry's run reads in place of the file's.
     pub resources: std::collections::BTreeMap<String, String>,
     /// As `--test-timeout-secs`, for this entry (al-runner issue 8125). `None`: the request's limit.
@@ -1097,6 +1108,7 @@ fn test_inner(
         codeunits: a.codeunits.clone(),
         exact: a.exact.clone(),
         excludes: a.excludes.clone(),
+        excludes_exact: a.excludes_exact.clone(),
         parity: a.parity.then(|| disabled.clone()).flatten(),
         // `--explain NAME --codeunit ID` explains the test of that one codeunit; the name alone
         // selects every codeunit that has a test of that name.
@@ -1124,6 +1136,7 @@ fn test_inner(
         .map(|e| Selection {
             filters: e.filters.clone(),
             excludes: e.excludes.clone(),
+            excludes_exact: e.excludes_exact.clone(),
             ..selection.clone()
         })
         .collect();
@@ -2754,6 +2767,17 @@ mod selection_tests {
 
     /// Issue 5612: `--test` with `--test-exact` narrows to the tests both match, as in AL Runner v2
     /// (`TestExactFlagTests.TestAndTestExact_Together_AreTheIntersection` on the `v2` branch).
+    /// Issue 8059: an exact exclusion matches the method name or the whole qualified name, any case, and no part of one.
+    #[test]
+    fn exact_exclusion_matches_the_whole_name_only() {
+        let s = Selection {
+            excludes_exact: vec!["passes".into(), "Codeunit1.Other".into()],
+            ..Selection::default()
+        };
+        assert!(!s.picks(50650, "Passes") && !s.picks(1, "OTHER"));
+        assert!(s.picks(50650, "PassesToo") && s.picks(2, "Other") && s.active());
+    }
+
     #[test]
     fn test_and_test_exact_together_select_the_tests_both_match() {
         let s = sel(&["Codeunit50650.Passes"], &["Codeunit50650.Passes"]);

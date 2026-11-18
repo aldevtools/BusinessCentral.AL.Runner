@@ -518,6 +518,9 @@ fn the_flags_of_the_v2_tools_parse() {
     assert_eq!(a.isolation, Some(I::Function));
     assert_eq!(a.excludes, vec!["Codeunit1.X", "Y"]);
     assert_eq!(a.exact, vec!["Codeunit1.Z"]);
+    let a2 = test_args("test A --exclude-test-exact Codeunit1.X --exclude-test-exact Y");
+    assert_eq!(a2.excludes_exact, vec!["Codeunit1.X", "Y"]);
+    assert!(a2.excludes.is_empty());
     assert_eq!(a.defines, vec!["FOO", "A", "B"]);
     assert_eq!(a.test_timeout_secs, Some(7));
     assert_eq!(a.filters, vec!["Codeunit1.Z"]);
