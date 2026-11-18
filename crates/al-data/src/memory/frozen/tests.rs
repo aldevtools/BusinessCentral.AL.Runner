@@ -183,7 +183,10 @@ fn freeze_names_the_table_field_and_kind_that_block_it() {
         }
     );
     assert_eq!(not_shareable(&Value::Integer(1)), None);
-    assert_eq!(not_shareable(&Value::TextConst("x".into(), al_builtins::value::TextConstFrom::Label)), Some("TextConst"));
+    assert_eq!(
+        not_shareable(&Value::TextConst("x".into(), al_builtins::value::TextConstFrom::Label)),
+        Some("TextConst")
+    );
 }
 
 #[test]

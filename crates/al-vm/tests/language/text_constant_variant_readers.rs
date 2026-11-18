@@ -3,8 +3,8 @@
 //! types/variant/VariantIsMatrix.al:224-243); every other reader of a Label gets the Text it got before the TextConstant
 //! existed; every other reader of a TextConst is refused.
 
-use al_builtins::value::Value;
 use al_builtins::native::Signal;
+use al_builtins::value::Value;
 
 fn out(r: Result<Value, Signal>) -> String {
     match r {
@@ -63,8 +63,14 @@ fn a_label_text_constant_reads_as_its_text_outside_the_kind_tests() {
         ("Error('R=[' + Format(V, 5) + ']');", "R=[abc  ]"),
         ("Error('R=[' + Format(V, 2) + ']');", "R=[ab]"),
         ("Row.Name := V; Error('R=' + Row.Name);", "R=abc"),
-        ("RR.Open(Database::\"TC Row\"); FR := RR.Field(1); FR.Value := V; Error('R=' + Format(FR.Value));", "R=abc"),
-        ("RR.Open(Database::\"TC Row\"); FR := RR.Field(1); FR.SetFilter(V); Error('R=' + FR.GetFilter());", "R=abc"),
+        (
+            "RR.Open(Database::\"TC Row\"); FR := RR.Field(1); FR.Value := V; Error('R=' + Format(FR.Value));",
+            "R=abc",
+        ),
+        (
+            "RR.Open(Database::\"TC Row\"); FR := RR.Field(1); FR.SetFilter(V); Error('R=' + FR.GetFilter());",
+            "R=abc",
+        ),
         ("Error('R=' + Format(StrLen(V)));", "R=3"),
         ("T := V; Error('R=' + T);", "R=abc"),
     ];
@@ -148,7 +154,10 @@ fn a_text_constant_goes_into_a_variant_only_at_the_pinned_sites() {
         let r = sites(subtype, attrs, LABEL, "V := Simple; Error(Shape(V));");
         assert_eq!(r, "T:abc", "{subtype} {attrs}");
         let r = sites(subtype, attrs, TEXTCONST, "V := Simple; Error(Shape(V));");
-        assert!(r.starts_with("refused:") && r.contains("TextConst"), "{subtype} {attrs}: {r}");
+        assert!(
+            r.starts_with("refused:") && r.contains("TextConst"),
+            "{subtype} {attrs}: {r}"
+        );
     }
     // A TextConst at an unpinned site or of an unpinned form is refused.
     for (decl, body) in [
@@ -161,7 +170,10 @@ fn a_text_constant_goes_into_a_variant_only_at_the_pinned_sites() {
         ("TextConst ENU = ''", "V := Simple; Error(Shape(V));"),
     ] {
         let r = run(decl, body);
-        assert!(r.starts_with("refused:") && r.contains("TextConst"), "{decl} {body}: {r}");
+        assert!(
+            r.starts_with("refused:") && r.contains("TextConst"),
+            "{decl} {body}: {r}"
+        );
     }
     // A TextConst read as a text stays supported.
     assert_eq!(run(TEXTCONST, "Error(Simple);"), "abc");

@@ -1555,10 +1555,19 @@ fn an_outstream_argument_is_bridged_and_the_bytes_dotnet_wrote_are_appended_to_t
 fn a_reply_naming_an_unknown_stream_bridge_is_refused() {
     for (effects, want) in [
         (
-            StreamEffects { written: vec![(77, b"x".to_vec())], ..Default::default() },
+            StreamEffects {
+                written: vec![(77, b"x".to_vec())],
+                ..Default::default()
+            },
             "bytes for an unknown stream bridge 77",
         ),
-        (StreamEffects { overwritten: vec![77], ..Default::default() }, "an unknown stream bridge 77"),
+        (
+            StreamEffects {
+                overwritten: vec![77],
+                ..Default::default()
+            },
+            "an unknown stream bridge 77",
+        ),
     ] {
         let host = Fake::new(move |r| match r {
             Req::Invoke(_, m, _) if m == "Touch" => Ok(DotNetReply {

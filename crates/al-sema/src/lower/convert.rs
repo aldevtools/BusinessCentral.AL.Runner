@@ -348,7 +348,10 @@ impl<'a> Lowerer<'a> {
         Ok(ir::Expr::Builtin {
             id: super::call::builtin_id("Variant.FromTextConstant#1")?,
             receiver: None,
-            args: vec![ir::Arg::Value(value), ir::Arg::Value(ir::Expr::Const(ir::Const::Boolean(textconst)))],
+            args: vec![
+                ir::Arg::Value(value),
+                ir::Arg::Value(ir::Expr::Const(ir::Const::Boolean(textconst))),
+            ],
             ret_used: true,
         })
     }

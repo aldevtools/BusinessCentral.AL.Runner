@@ -1475,7 +1475,9 @@ impl Session {
                     // A Blob whose handed-back bytes .NET wrote over holds bytes that are not known (al-runner issue 7947), and BC
                     // hands .NET that Blob's own stream: refused.
                     if blob.borrow().render_pending.as_deref() == Some(al_builtins::stream::DOTNET_BRIDGE_OVERWRITTEN) {
-                        return unsupported("an OutStream of a Blob whose bytes a DotNet call wrote over, handed to .NET");
+                        return unsupported(
+                            "an OutStream of a Blob whose bytes a DotNet call wrote over, handed to .NET",
+                        );
                     }
                     book.outs.push((arg, blob.clone()));
                     // BC hands .NET the Blob's own stream: a ZipArchive in Read mode over an OutStream AL copied a zip into reads

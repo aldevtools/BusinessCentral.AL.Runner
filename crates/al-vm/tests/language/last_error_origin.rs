@@ -329,8 +329,14 @@ fn info_after(create: &str, after: &str) -> Result<al_builtins::value::Value, Si
 fn a_fielderror_errorinfo_answers_only_when_nothing_was_set_after_create() {
     // The pin sets nothing after Create (errors/last-error/SnLastErrorTextMoreForms.al:121-133, :161, :164).
     let pinned = [
-        ("ErrorInfo.Create('not allowed')", "FieldError on field LO Info Row.Name"),
-        ("ErrorInfo.Create()", "FieldError for incorrect value of LO Info Row.Name"),
+        (
+            "ErrorInfo.Create('not allowed')",
+            "FieldError on field LO Info Row.Name",
+        ),
+        (
+            "ErrorInfo.Create()",
+            "FieldError for incorrect value of LO Info Row.Name",
+        ),
     ];
     for (create, want) in pinned {
         // A read changes nothing.

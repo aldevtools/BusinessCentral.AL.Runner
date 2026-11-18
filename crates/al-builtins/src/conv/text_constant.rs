@@ -54,7 +54,10 @@ pub fn read(v: Value, reader: Reader<'_>) -> Result<Value, Signal> {
 /// format (VaTTextConst.al:144-151 `format`), `Clear(V)`, which empties the Variant whatever it holds (al-vm
 /// `exec/run.rs`, `SYSTEM_CLEAR_1`), and `Variant.Into#1`, the lowering's read into a typed slot (`variant_into`).
 fn reads_itself(name: &str, count: usize) -> bool {
-    matches!((name, count), ("System.Format#1", 1) | ("System.Clear#1", 1) | ("Variant.Into#1", _))
+    matches!(
+        (name, count),
+        ("System.Format#1", 1) | ("System.Clear#1", 1) | ("Variant.Into#1", _)
+    )
 }
 
 /// The arguments `args` of builtin `name` as it gets them (`read` for each by-value one); `by_ref(i)` says whether
