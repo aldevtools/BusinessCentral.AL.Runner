@@ -151,6 +151,8 @@ impl Engine {
             kept: None,
             strict: true,
             path: Vec::new(),
+            top: (object, routine),
+            rec_guarded: 0,
         };
         // The page's own instance outlives the run.
         let found = w.routine(object, routine, Inst::Lasting).err();

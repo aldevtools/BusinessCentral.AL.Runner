@@ -2806,9 +2806,6 @@ impl Session {
         } else {
             crate::group1_sessions::Group1Use::Own
         };
-        if let Some(why) = self.caption_write_refusal(method) {
-            return unsupported(why);
-        }
         // ADR-062: a denial of a method AL code calls raises BC's error where its shape is pinned.
         if self.permission_checks() {
             self.permission_from_al = true;
