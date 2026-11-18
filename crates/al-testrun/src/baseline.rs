@@ -582,6 +582,26 @@ pub(crate) fn tables_written_or_loaded(lowered: &Lowered, object: usize, routine
     tables_written_in(lowered, object, routine, true)
 }
 
+/// The tables the `RecordRef`s of routine `r` of `o` can open, by its own body ([`RecRefWrites::opens`]), whether or not
+/// they write; `None` when one can open a table `opens` may not hold ([`RecRefWrites::any_table`]; a write through a
+/// parameter counts as one from outside, as for a root). For `runtime/table_reads.rs`.
+pub(crate) fn recordref_opens(lowered: &Lowered, o: usize, r: usize) -> Option<BTreeSet<u32>> {
+    let obj = &lowered.program.objects[o];
+    let rt = &obj.routines[r];
+    let (mut out, mut recref) = (BTreeSet::new(), RecRefWrites::default());
+    WriteWalk {
+        locals: &rt.locals,
+        root_params: rt.params,
+        globals: &obj.globals,
+        heads: lowered.program.objects.heads(),
+        loads: true,
+        out: &mut out,
+        recref: &mut recref,
+    }
+    .stmts(&rt.body);
+    if recref.any_table { None } else { Some(recref.opens) }
+}
+
 use al_builtins::value::RtType;
 use al_ir::{Arg, Expr, Place, Stmt};
 

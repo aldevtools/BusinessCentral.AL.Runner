@@ -1189,6 +1189,8 @@ mod group1_sessions_tests;
 mod grow;
 mod handlers;
 mod install_once;
+#[cfg(test)]
+mod install_reads_tests;
 mod install_snapshot;
 #[cfg(test)]
 mod install_unknown_tests;
@@ -1221,6 +1223,7 @@ mod strict_walk;
 mod suite_rows;
 #[cfg(test)]
 mod suite_rows_tests;
+mod table_reads;
 mod test_handlers;
 mod test_marks;
 #[cfg(test)]

@@ -524,7 +524,7 @@ fn print_facts(lowered: &Lowered, events: &al_vm::events::Registry, f: &InstallF
 /// Runs the install code of the apps under test, one app after the other in dependency order (decision 3, steps 4a and
 /// 4b; amendment 1, A3 and A4). Returned, per routine that could not run: the tables it touches and why, so tests that
 /// touch them are reported not run. Each routine commits when it ends; one that stops is rolled back.
-pub(crate) fn run_apps_under_test(lowered: &Lowered, session: &mut Session) -> Vec<(BTreeSet<u32>, String)> {
+pub(crate) fn run_apps_under_test(lowered: &Lowered, session: &mut Session) -> Vec<al_vm::SkippedInstall> {
     let engine = session.engine.clone();
     ensure_facts(&engine, lowered);
     let mut skipped = Vec::new();
@@ -589,7 +589,7 @@ struct UnderTestInstalls<'a> {
     lowered: &'a Lowered,
     plans: &'a [AppInstall],
     company: &'a str,
-    skipped: &'a mut Vec<(BTreeSet<u32>, String)>,
+    skipped: &'a mut Vec<al_vm::SkippedInstall>,
 }
 
 impl crate::install_orders::AppInstalls for UnderTestInstalls<'_> {
@@ -610,7 +610,7 @@ impl crate::install_orders::AppInstalls for UnderTestInstalls<'_> {
     }
 
     fn refuse(&mut self, tables: BTreeSet<u32>, why: String) {
-        self.skipped.push((tables, why));
+        self.skipped.push(al_vm::SkippedInstall::new(tables, why));
     }
 
     fn note(&mut self, _line: String) {}
@@ -623,7 +623,7 @@ fn install_app_under_test(
     app: &AppInstall,
     k: usize,
     company: &str,
-    skipped: &mut Vec<(BTreeSet<u32>, String)>,
+    skipped: &mut Vec<al_vm::SkippedInstall>,
 ) {
     let engine = session.engine.clone();
     let company = company.to_string();
@@ -801,7 +801,7 @@ pub(crate) fn group1_trigger_shape(lowered: &Lowered, measured: bool, (oi, ri): 
 fn refuse(
     lowered: &Lowered,
     session: &mut Session,
-    skipped: &mut Vec<(BTreeSet<u32>, String)>,
+    skipped: &mut Vec<al_vm::SkippedInstall>,
     in_company: &str,
     session_company: &str,
     what: ((usize, usize), String),
@@ -811,13 +811,25 @@ fn refuse(
     // A routine the compile for a selection left out: the run is redone on the full run's compile, whatever the tests
     // touch (al-runner issue 6924).
     crate::runtime::narrowing::note_install(&engine, &why);
-    let at_home = in_session_company(in_company, session_company);
-    let tables = refused_tables(&engine, lowered, (oi, ri), at_home);
-    if at_home {
-        skipped.push((tables, why));
+    if in_session_company(in_company, session_company) {
+        skipped.push(skipped_at_home(&engine, lowered, (oi, ri), why));
     } else {
+        let tables = refused_tables(&engine, lowered, (oi, ri), false);
         refuse_in_other_company(lowered, session, skipped, in_company, tables, why);
     }
+}
+
+/// What [`refuse`] records in the session company or the per-database part for install code `(oi, ri)` that could not
+/// run (`why`): the tables it touches ([`touched`]), apart. Those it touches when its reach leaves out the subscribers of
+/// the ten table events of a table it only reads in a measured shape (`runtime::subscribers_reached_reading`) are
+/// `tables`; those only the full reach adds are `assumed` (assumption `table-reads-raise-no-table-event`, corpus PR
+/// 1431, open; its readers: `runtime::Assumed`).
+fn skipped_at_home(engine: &Engine, lowered: &Lowered, (oi, ri): (usize, usize), why: String) -> al_vm::SkippedInstall {
+    let all = touched(engine, lowered, oi, ri);
+    let reading = crate::runtime::subscribers_reached_reading(engine, lowered, &[(oi, ri)]);
+    let tables = touched_through(lowered, oi, ri, reading);
+    let assumed = all.difference(&tables).copied().collect();
+    al_vm::SkippedInstall { tables, assumed, why }
 }
 
 /// The tables [`refuse`] names for install code `(oi, ri)` from its static reach: in the session company or the
@@ -846,7 +858,7 @@ fn in_session_company(in_company: &str, session_company: &str) -> bool {
 fn refuse_in_other_company(
     lowered: &Lowered,
     session: &mut Session,
-    skipped: &mut Vec<(BTreeSet<u32>, String)>,
+    skipped: &mut Vec<al_vm::SkippedInstall>,
     in_company: &str,
     mut written: BTreeSet<u32>,
     why: String,
@@ -861,7 +873,7 @@ fn refuse_in_other_company(
         session.mark_company_unknown(in_company, t, why.clone());
     }
     if !shared.is_empty() {
-        skipped.push((shared, why));
+        skipped.push(al_vm::SkippedInstall::new(shared, why));
     }
 }
 
@@ -1081,7 +1093,7 @@ fn company_open_subscribers(
 fn company_open(
     lowered: &Lowered,
     session: &mut Session,
-    skipped: &[(BTreeSet<u32>, String)],
+    skipped: &[al_vm::SkippedInstall],
     with_dependencies: bool,
 ) -> Result<(), Stopped> {
     let engine = session.engine.clone();
@@ -1232,9 +1244,9 @@ pub(crate) fn test_session_company_open(
     lowered: &Lowered,
     session: &mut Session,
     disabled: bool,
-    skipped: &[(BTreeSet<u32>, String)],
+    skipped: &[al_vm::SkippedInstall],
 ) -> Result<CompanyOpenWrites, NotOpened> {
-    match crate::runtime::watching_skipped_installs(lowered, session, skipped, |s| {
+    match crate::runtime::watching_skipped_installs(lowered, session, skipped, crate::runtime::Assumed::Marked, |s| {
         let opened = open_test_session_company(lowered, s, disabled);
         // The window the partner dependency apps' login subscribers opened (`partner_login::PartnerLogin::watch_after`)
         // closes on every exit.
@@ -1867,7 +1879,7 @@ impl Stopped {
         &self,
         lowered: &Lowered,
         session: &mut Session,
-        skipped: &mut Vec<(BTreeSet<u32>, String)>,
+        skipped: &mut Vec<al_vm::SkippedInstall>,
         (in_company, session_company): (&str, &str),
         refused: &[(usize, usize)],
     ) -> Option<String> {
@@ -1890,7 +1902,7 @@ impl Stopped {
         if at_home {
             written.retain(|&x| !crate::runtime::listed_from_objects(lowered, x));
             if !written.is_empty() {
-                skipped.push((written, why));
+                skipped.push(al_vm::SkippedInstall::new(written, why));
             }
         } else {
             refuse_in_other_company(lowered, session, skipped, in_company, written, why);
@@ -1910,13 +1922,13 @@ impl Stopped {
 fn watching_skipped(
     lowered: &Lowered,
     session: &mut Session,
-    skipped: &[(BTreeSet<u32>, String)],
+    skipped: &[al_vm::SkippedInstall],
     roots: &[(usize, usize)],
     run: impl FnOnce(&mut Session) -> Result<(), Stopped>,
 ) -> Result<(), Stopped> {
     let before = session.carried_state();
     let mark = session.store_mut().change_counter();
-    match crate::runtime::watching_skipped_installs(lowered, session, skipped, run) {
+    match crate::runtime::watching_skipped_installs(lowered, session, skipped, crate::runtime::Assumed::Refused, run) {
         (Ok(()), Some(why)) => Err(Stopped {
             why,
             root: roots[0],
@@ -1998,6 +2010,21 @@ fn run_install_code(
 
 /// The tables a routine that could not run touches, with those of the event subscribers it would have set off.
 fn touched(engine: &Engine, lowered: &Lowered, oi: usize, ri: usize) -> BTreeSet<u32> {
+    touched_through(
+        lowered,
+        oi,
+        ri,
+        crate::runtime::subscribers_reached(engine, lowered, oi, ri),
+    )
+}
+
+/// [`touched`] with the event subscribers `subscribers` it would have set off.
+fn touched_through(
+    lowered: &Lowered,
+    oi: usize,
+    ri: usize,
+    subscribers: impl IntoIterator<Item = (usize, usize)>,
+) -> BTreeSet<u32> {
     // A record declared temporary adds no row to its table (`runtime::tables_touched_not_temporary`; review of al-runner
     // PR 8119, probe n3_temp_only).
     let mut t = crate::runtime::tables_touched_not_temporary(lowered, oi, ri);
@@ -2005,7 +2032,7 @@ fn touched(engine: &Engine, lowered: &Lowered, oi: usize, ri: usize) -> BTreeSet
     // variable (al-runner issue 7359: a test that reads the rows the refused load would have put there), and those it
     // writes through a RecordRef (probe n19d of the review of al-runner PR 8119), its subscribers' too.
     t.extend(crate::baseline::tables_written_or_loaded(lowered, oi, ri));
-    for (so, sr) in crate::runtime::subscribers_reached(engine, lowered, oi, ri) {
+    for (so, sr) in subscribers {
         t.extend(crate::runtime::tables_touched_not_temporary(lowered, so, sr));
         t.extend(crate::baseline::tables_written_or_loaded(lowered, so, sr));
     }

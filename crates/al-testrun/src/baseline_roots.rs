@@ -36,7 +36,7 @@ pub(crate) struct RootRun<'a> {
     pub steps_built: usize,
     pub step_failed: bool,
     /// Tables whose rows depend on the install order of partner apps, and why (`install_orders.rs`).
-    pub refused: Vec<(BTreeSet<u32>, String)>,
+    pub refused: Vec<al_vm::SkippedInstall>,
     /// The app whose install session holds a language or WorkDate the runner does not know, and why
     /// (`stopped_state::roll_back_stopped_install`): its later install roots are not run.
     pub unknown_session: Option<(u32, String)>,
@@ -227,7 +227,7 @@ impl crate::install_orders::AppInstalls for DependencyInstalls<'_, '_> {
     }
 
     fn refuse(&mut self, tables: BTreeSet<u32>, why: String) {
-        self.run.refused.push((tables, why));
+        self.run.refused.push(al_vm::SkippedInstall::new(tables, why));
     }
 
     fn note(&mut self, line: String) {
