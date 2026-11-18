@@ -252,7 +252,7 @@ def check_first_nightly_after(repo, corpus, run_id, run, manifest):
     the one created first must have ended, check_nightly_identical must hold for it with every BC version of the run's
     manifest, and for each of those versions its comparison_detail.compared_run must be this run (corpus PR 1440,
     .github/scripts/compare-results.py:134 at 2ff21242, the base run of the comparison). So a nightly that compared an
-    older, a later or no run confirms nothing about this one. With no such nightly yet the run is refused; a first
+    older, a later or no run confirms nothing about this one; a compared_attempt that is not this run's attempt does too. With no such nightly yet the run is refused; a first
     nightly that refuses keeps refusing the run, because the first nightly after it does not change."""
     nightlies = list_nightlies(repo, run_id, run, completed=False)
     after = [n for n in nightlies if is_ancestor(corpus, run["headSha"], n["headSha"])]
@@ -274,6 +274,14 @@ def check_first_nightly_after(repo, corpus, run_id, run, manifest):
         if compared != run_id:
             refuse("run %s: %s, %s, compared run %r for BC %s, not this run (ADR-077 decision 6)"
                    % (run_id, which, n["databaseId"], compared, v))
+        # comparison_detail.compared_attempt: the attempt of the compared run that the nightly downloaded (corpus PR
+        # 1443, compare-results.py result()). A manifest from before that PR has no such key: the answer is the one it
+        # had. When the key is there, it must be the attempt of the run bumped (a "Re-run all jobs" after the nightly
+        # compared it makes a new attempt that no nightly compared).
+        detail = (nm["versions"].get(v) or {}).get("comparison_detail") or {}
+        if "compared_attempt" in detail and detail["compared_attempt"] != run.get("attempt"):
+            refuse("run %s: %s, %s, compared attempt %r of this run for BC %s, the run is at attempt %r (ADR-077 decision 6)"
+                   % (run_id, which, n["databaseId"], detail["compared_attempt"], v, run.get("attempt")))
     print("run %s: %s, %s, compared this run and reports no difference" % (run_id, which, n["databaseId"]))
 
 

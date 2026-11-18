@@ -63,7 +63,9 @@ Facts read from the code on 2026-11-17:
    that reuses results is, among the nightly runs whose commit is the run's commit or a descendant of it, the one
    created first. The run is accepted only when that nightly has ended green, has a manifest of its latest attempt,
    and for every BC version of the run reports `identical` and names this run as the run it compared
-   (`comparison_detail.compared_run`, corpus PR 1440). So only the run that the nightly compared can be bumped as a
+   (`comparison_detail.compared_run`, corpus PR 1440) and, when the nightly's manifest has `comparison_detail.compared_attempt`
+   (corpus PR 1443), the attempt of this run that it downloaded is the attempt now bumped; a manifest without that key keeps the
+   answer it had. So only the run that the nightly compared can be bumped as a
    combined run; a nightly that reports a difference blocks it. While no nightly after the run exists, the run is
    refused until the next nightly ends. A first nightly that is red, cancelled, reports a difference or compared another
    run keeps refusing the run, because the first nightly after the run does not change. Only a re-run of that nightly

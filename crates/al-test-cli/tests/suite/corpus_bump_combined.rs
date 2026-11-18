@@ -994,6 +994,57 @@ fn a_nightly_that_compared_no_run_does_not_confirm_a_combined_run() {
     );
 }
 
+/// Run 20 re-run with "Re-run all jobs": attempt 2 and a manifest of attempt 2.
+fn combined_at_attempt_2(c: &Corpus) -> Spec {
+    let mut s = Spec::combined(c);
+    s.attempt = 2;
+    s.manifest = Some(manifest(20, 2, &c.c1, "subset", 1, 1));
+    s
+}
+
+#[test]
+fn a_nightly_that_compared_attempt_1_does_not_confirm_a_re_run_attempt_2() {
+    // Corpus PR 1443, comparison_detail.compared_attempt: the nightly compared attempt 1 of run 20.
+    let c = corpus();
+    let mut s = combined_at_attempt_2(&c);
+    s.nightlies[1].detail = serde_json::json!({"compared_run": 20, "compared_attempt": 1, "compared": 4});
+    refused(
+        &c,
+        &s,
+        "the first nightly run at or after its commit, 25, compared attempt 1 of this run for BC 27.5, the run is at attempt 2",
+    );
+}
+
+#[test]
+fn a_nightly_that_compared_attempt_2_confirms_a_re_run_attempt_2() {
+    let c = corpus();
+    let mut s = combined_at_attempt_2(&c);
+    s.nightlies[1].detail = serde_json::json!({"compared_run": 20, "compared_attempt": 2, "compared": 4});
+    accepted(&c, &s);
+}
+
+#[test]
+fn a_nightly_without_compared_attempt_keeps_main_answer_for_a_re_run_attempt_2() {
+    // A manifest written before corpus PR 1443 has no compared_attempt: the answer is the one it had.
+    let c = corpus();
+    let s = combined_at_attempt_2(&c);
+    accepted(&c, &s);
+}
+
+#[test]
+fn a_nightly_that_compared_another_attempt_than_the_run_refuses_for_one_version_only() {
+    // BC 29.0's detail names attempt 1; BC 27.5's names attempt 2.
+    let c = corpus();
+    let mut s = combined_at_attempt_2(&c);
+    s.nightlies[1].detail = serde_json::json!({"compared_run": 20, "compared_attempt": 2, "compared": 4});
+    s.nightlies[1].detail_29 = Some(serde_json::json!({"compared_run": 20, "compared_attempt": 1, "compared": 4}));
+    refused(
+        &c,
+        &s,
+        "compared attempt 1 of this run for BC 29.0, the run is at attempt 2",
+    );
+}
+
 #[test]
 fn a_nightly_without_a_comparison_detail_does_not_confirm_a_combined_run() {
     let c = corpus();
