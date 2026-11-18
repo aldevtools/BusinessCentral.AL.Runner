@@ -2697,15 +2697,7 @@ impl Session {
         if schema.report().processing_only {
             return self.save_of_processing_only(&inst, &schema, &format, at, quit, result_used);
         }
-        if let Some(why) = schema.report().dataset_unsupported.first() {
-            return unsupported(format!("Report.SaveAs of \"{}\": {why}", schema.name()));
-        }
-        if schema.report().transaction_type.is_some() {
-            return unsupported(format!(
-                "Report.SaveAs of \"{}\", which declares a TransactionType (what SaveAs does with it is not pinned)",
-                schema.name()
-            ));
-        }
+        property_gates::save_as_declaration_refusals(&schema)?;
         // The language and region of the run: the session's, or what the variable set (reports/W3ReportObjectIdPreviewLanguage.al:
         // 854-930, writer RB). Pinned: en-US; GlobalLanguage 1031 (:870); Language := 1031 on the variable (:893); FormatRegion :=
         // 'de-DE' on the variable (:912). The language changes the dataset's language and Format, not the column values; the
@@ -4014,6 +4006,7 @@ pub(crate) mod format_region;
 #[cfg(test)]
 mod header_tests;
 mod html_record;
+mod property_gates;
 mod request_caption;
 mod request_flag;
 use request_flag::{REQUEST_PAGE_OFF, REQUEST_PAGE_OFF_UNPINNED_GETTER, REQUEST_PAGE_ON, REQUEST_PAGE_UNPINNED_GETTER};
