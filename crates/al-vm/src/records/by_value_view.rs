@@ -224,7 +224,7 @@ impl Session {
     /// The publisher of one raise (`publisher`: the routine `publish` raises; `None` for an event the platform raises) and
     /// whether its own facts are those of the cell corpus PR 1430 measured (assumption `by-value-record-no-filters`,
     /// record/filters/ByValueRecordView.al:286-296), every fact by equality: a codeunit (:286) that does not state
-    /// `SingleInstance = true` (:287), the event declared `[IntegrationEvent(false, false)]` with IncludeSender,
+    /// `SingleInstance = true` (it states no property, :286-296), the event declared `[IntegrationEvent(false, false)]` with IncludeSender,
     /// GlobalVarAccess and Isolated off and no `[CommitBehavior]` attribute (:293), raised by a call of the publisher
     /// procedure (:290).
     pub(crate) fn event_publisher(&self, publisher: Option<(usize, usize)>) -> Option<EventPublisher> {
