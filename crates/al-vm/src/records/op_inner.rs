@@ -1617,6 +1617,9 @@ impl Session {
                             .setfilter_empty_or_side(from_al, &t, pos, rec, args)
                             .unwrap_or_else(|| Signal::unsupported(format!("SetFilter: {e}"))));
                     }
+                    Err(e) if e.starts_with(al_builtins::filter::OPTION_NEGATIVE) => {
+                        return Err(self.option_negative_error(shape.as_ref(), &t, pos, &e));
+                    }
                     Err(e) if e.starts_with(al_builtins::filter::OPTION_NOT_MEMBER) => {
                         return Err(self.option_non_member_error(shape.as_ref(), &t, pos, &e));
                     }
