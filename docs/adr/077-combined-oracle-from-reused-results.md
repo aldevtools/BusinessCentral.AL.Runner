@@ -115,7 +115,7 @@ Facts read from the code on 2026-11-17:
   as the suite without it.
 - `corpus_harness.rs`: pin mismatch still exits 2.
 - `corpus_bump_combined.rs` (owner decision 2026-11-18): a combined run is refused when no nightly run at or after its
-  commit exists, when the first one differs, has not ended, ended red or cancelled, has no manifest, has a manifest of an
+  commit exists, when the first one reports any answer but `identical`, has not ended, ended red or cancelled, has no manifest, has a manifest of an
   earlier attempt or lacks a version, and when every listed nightly is after it; a difference in a later nightly after an
   identical first one does not block it; a nightly at the run's commit counts as the first after it; a full push run
   keeps its answer whatever the nightlies after it say.

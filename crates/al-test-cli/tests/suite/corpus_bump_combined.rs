@@ -861,6 +861,28 @@ fn a_first_nightly_after_a_combined_run_that_lacks_a_version_is_refused() {
 }
 
 #[test]
+fn a_red_first_nightly_after_a_combined_run_without_a_manifest_is_refused() {
+    // A reused pass that fails fresh makes a nightly leg red, and a red nightly writes no manifest (corpus PR 1440).
+    let c = corpus();
+    let mut s = Spec::combined(&c);
+    s.nightlies[1].cmp = None;
+    s.nightlies[1].conclusion = "failure".into();
+    refused(
+        &c,
+        &s,
+        "the first nightly run at or after its commit, 25, has no results manifest",
+    );
+}
+
+#[test]
+fn a_first_nightly_after_a_combined_run_with_another_answer_than_identical_is_refused() {
+    let c = corpus();
+    let mut s = Spec::combined(&c);
+    s.nightlies[1].cmp = Some("incomplete".into());
+    refused(&c, &s, "the nightly run 25 reports comparison 'incomplete' for BC 27.5");
+}
+
+#[test]
 fn a_listing_of_only_nightlies_after_a_combined_run_is_refused() {
     // gh lists the newest 50 nightly runs; all are after the run, so an older one may be the first after it.
     let c = corpus();
