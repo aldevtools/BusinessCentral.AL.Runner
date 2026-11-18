@@ -104,12 +104,41 @@ fn a_textconst_text_constant_is_read_only_by_the_pinned_readers() {
     }
 }
 
+/// A test codeunit whose [Test] procedure `F` runs `body` after `V := Src`, with a List `Li` and a Dictionary `D` that
+/// each hold the Variant 'new'.
+fn run_collections(decl: &str, body: &str) -> String {
+    let src = format!(
+        "codeunit 50302 T {{ Subtype = Test; var Src: {decl}; \
+         [Test] procedure F() var V: Variant; X: Variant; Li: List of [Variant]; D: Dictionary of [Text, Variant]; \
+         begin X := 'new'; Li.Add(X); D.Add('k', X); V := Src; {body} \
+         if V.IsTextConstant() then Error('TC:' + Format(V)); if V.IsText() then Error('T:' + Format(V)); Error('?'); end; }}"
+    );
+    out(al_testkit::run_in(&src, "T", "F"))
+}
+
 #[test]
-fn a_text_constant_handed_by_reference_to_a_builtin_is_refused() {
-    // The builtin may write the argument back; what the Variant holds then is not pinned.
-    for decl in [LABEL, TEXTCONST] {
-        let r = run(decl, "Evaluate(V, 'xyz'); Error('R=done');");
-        assert!(r.starts_with("refused:") && r.contains("by reference"), "{decl}: {r}");
+fn a_label_text_constant_compares_as_its_text() {
+    // Before the TextConstant existed a Label in a Variant was a Text, and an operator compared it as one.
+    for (body, want) in [
+        ("if V = 'abc' then Error('R=eq'); Error('R=ne');", "R=eq"),
+        ("if V <> '' then Error('R=ne'); Error('R=eq');", "R=ne"),
+        ("if V < 'abd' then Error('R=lt'); Error('R=ge');", "R=lt"),
+    ] {
+        assert_eq!(run(LABEL, body), want, "{body}");
+    }
+    let r = run(TEXTCONST, "if V = 'abc' then Error('R=eq'); Error('R=ne');");
+    assert!(r.starts_with("refused:") && r.contains("TextConst"), "{r}");
+}
+
+#[test]
+fn a_label_text_constant_handed_by_reference_to_a_builtin_is_a_text() {
+    // A Label goes to the builtin as the Text it was before the TextConstant existed; the builtin writes the Variant back.
+    assert_eq!(run_collections(LABEL, "Li.Get(1, V);"), "T:new");
+    assert_eq!(run_collections(LABEL, "D.Get('k', V);"), "T:new");
+    // A TextConst by reference: the builtin may write the argument back, and what the Variant holds then is not pinned.
+    for body in ["Li.Get(1, V);", "D.Get('k', V);", "Evaluate(V, 'xyz');"] {
+        let r = run_collections(TEXTCONST, body);
+        assert!(r.starts_with("refused:") && r.contains("by reference"), "{body}: {r}");
     }
 }
 
