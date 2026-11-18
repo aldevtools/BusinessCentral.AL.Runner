@@ -820,6 +820,8 @@ pub struct Session {
     /// The objects of the routines on the call stack, innermost last (builtins scoped to an app,
     /// `NavApp.GetCallerModuleInfo`).
     pub(crate) frames: Vec<usize>,
+    /// Set by `exec/run.rs` `run_iface` around an interface call, taken by the callee's frame (`records::ByValueCall`).
+    pub(crate) next_interface_call: bool,
     /// The state of each table element without LinkTable right below another table element at the end of its last pass of the
     /// running export, by (xmlport instance address, node) (`xmlports.rs` `xp_unlinked_pass_start`).
     pub(crate) xp_unlinked_passes: Vec<(usize, usize, xmlports::UnlinkedPass)>,
@@ -1405,6 +1407,7 @@ impl Session {
             error_finals: None,
             var_alias_watch: Vec::new(),
             frames: Vec::new(),
+            next_interface_call: false,
             call_stack: Vec::new(),
             error_raised_in: None,
             runner_frames: String::new(),
@@ -2446,6 +2449,12 @@ impl Session {
     ) -> Result<(Value, Vec<Value>), Signal> {
         let aliases = std::mem::take(&mut self.events.next_aliases);
         let subscriber = std::mem::take(&mut self.events.next_is_subscriber);
+        let by_value = records::ByValueCall::new(
+            object,
+            &instance,
+            subscriber,
+            std::mem::take(&mut self.next_interface_call),
+        );
         let measured_event = std::mem::take(&mut self.events.next_blob_event);
         self.note_routine(object, routine);
         if self.coverage.cells.is_some() {
@@ -2509,7 +2518,7 @@ impl Session {
                     if rc.borrow().temporary
                         && matches!(r.locals[i].ty, RtType::Record(t, false) if !self.engine.object_facts[t as usize].temporary()) =>
                 {
-                    self.temporary_into_stored_param(&rc, object)
+                    self.temporary_into_stored_param(&rc, &by_value)
                 }
                 // A record of the stored table handed by value to a parameter declared `temporary` gives the callee a temporary
                 // record with the record's values over an empty table of its own (events/ClEventLeads.al:70
@@ -2543,7 +2552,7 @@ impl Session {
                     st.unpinned_buffer = Some(crate::records::RUN_PAGE_LINK_VARIANT);
                     Value::Record(Rc::new(RefCell::new(st)))
                 }
-                (Value::Record(rc), false) => self.record_param_copy(&rc, &r.locals[i].ty, object, subscriber),
+                (Value::Record(rc), false) => self.record_param_copy(&rc, &r.locals[i].ty, &by_value),
                 // A RecordRef handed by value to a RecordRef or Variant parameter, or bound to a `var` Variant parameter
                 // (`VariantRefs::param_value`).
                 (Value::Library(al_builtins::library_kind::LibraryKind::RecordRef, h), by_var)

@@ -8,7 +8,7 @@ use al_testrun::isolation::TestIsolation;
 
 /// Each test of codeunit `codeunit` in `src`, each rolled back on its own: its outcome (debug form) and whether it ran through
 /// an assumption.
-fn run(src: &str, codeunit: &str) -> Vec<(String, String, bool)> {
+pub(crate) fn run(src: &str, codeunit: &str) -> Vec<(String, String, bool)> {
     let l = compile(src);
     let engine = al_vm::Engine::new(l.program.clone(), blocked(&l));
     let oi = l
@@ -858,13 +858,13 @@ fn issue_8189_get_of_a_written_row_and_running_extension_triggers_refuse() {
 }
 
 /// A test outcome that passes, and the start of each refusal reason the neighbor tests expect.
-const PASS: &str = "Pass";
+pub(crate) const PASS: &str = "Pass";
 const XREC_REFUSED: &str = "xRec in a table procedure called through other code";
-const VIEW_REFUSED: &str = "a record handed by value whose view the probe did not measure";
+pub(crate) const VIEW_REFUSED: &str = "a record handed by value whose view the probe did not measure";
 
 /// Asserts each `(name, outcome, flagged)` of `want` on the outcomes `o` of `run`: [`PASS`] is a pass, a refusal reason is
 /// `NotRun` with a text that names it. Lists every test that differs.
-fn check(o: &[(String, String, bool)], want: &[(&str, &str, bool)]) {
+pub(crate) fn check(o: &[(String, String, bool)], want: &[(&str, &str, bool)]) {
     let mut wrong = Vec::new();
     for &(name, outcome, flagged) in want {
         let got = o

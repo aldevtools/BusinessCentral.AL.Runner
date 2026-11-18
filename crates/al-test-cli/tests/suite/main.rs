@@ -29,6 +29,7 @@ mod bucket_lowering;
 mod bucket_misc;
 mod bucket_service_misc;
 mod bump21_unbuilt;
+mod by_value_dispatch;
 mod caller_modules_test_runner;
 mod caption_class_empty_count;
 mod caption_class_goto;
