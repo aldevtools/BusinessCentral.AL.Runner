@@ -251,9 +251,10 @@ def check_first_nightly_after(repo, corpus, run_id, run, manifest):
     it and found no difference. Among the nightly runs of any status whose commit is the run's commit or a descendant,
     the one created first must have ended, check_nightly_identical must hold for it with every BC version of the run's
     manifest, and for each of those versions its comparison_detail.compared_run must be this run (corpus PR 1440,
-    .github/scripts/compare-results.py:134 at 2ff21242, the base run of the comparison). So a nightly that compared an
-    older, a later or no run confirms nothing about this one; a compared_attempt that is not this run's attempt does too. With no such nightly yet the run is refused; a first
-    nightly that refuses keeps refusing the run, because the first nightly after it does not change."""
+    .github/scripts/compare-results.py:134 at 2ff21242, the base run of the comparison) and its compared_attempt this
+    run's attempt (see the comment below). So a nightly that compared an older, a later or no run, or another attempt
+    of this run, confirms nothing about it. With no such nightly yet the run is refused; a first nightly that
+    refuses keeps refusing the run, because the first nightly after it does not change."""
     nightlies = list_nightlies(repo, run_id, run, completed=False)
     after = [n for n in nightlies if is_ancestor(corpus, run["headSha"], n["headSha"])]
     if len(nightlies) >= NIGHTLY_LIMIT:
@@ -270,18 +271,18 @@ def check_first_nightly_after(repo, corpus, run_id, run, manifest):
         refuse("run %s: %s, %s, has not ended (status %s)" % (run_id, which, n["databaseId"], n.get("status")))
     nm = check_nightly_identical(repo, run_id, n, manifest["versions"], which, 6)
     for v in sorted(manifest["versions"]):
-        compared = ((nm["versions"].get(v) or {}).get("comparison_detail") or {}).get("compared_run")
-        if compared != run_id:
-            refuse("run %s: %s, %s, compared run %r for BC %s, not this run (ADR-077 decision 6)"
-                   % (run_id, which, n["databaseId"], compared, v))
-        # comparison_detail.compared_attempt: the attempt of the compared run that the nightly downloaded (corpus PR
-        # 1443, compare-results.py result()). A manifest from before that PR has no such key: the answer is the one it
-        # had. When the key is there, it must be the attempt of the run bumped (a "Re-run all jobs" after the nightly
-        # compared it makes a new attempt that no nightly compared).
         detail = (nm["versions"].get(v) or {}).get("comparison_detail") or {}
-        if "compared_attempt" in detail and detail["compared_attempt"] != run.get("attempt"):
+        if detail.get("compared_run") != run_id:
+            refuse("run %s: %s, %s, compared run %r for BC %s, not this run (ADR-077 decision 6)"
+                   % (run_id, which, n["databaseId"], detail.get("compared_run"), v))
+        # compared_attempt: the attempt of the compared run that the nightly downloaded (corpus PR 1443, branch
+        # nightly-compared-attempt, .github/scripts/compare-results.py:138 at ea48d31c). It must be an integer equal to
+        # the attempt bumped; a missing or null key refuses (a "Re-run all jobs" after the nightly compared the run
+        # makes an attempt that no nightly compared).
+        attempt = detail.get("compared_attempt")
+        if type(attempt) is not int or attempt != run.get("attempt"):
             refuse("run %s: %s, %s, compared attempt %r of this run for BC %s, the run is at attempt %r (ADR-077 decision 6)"
-                   % (run_id, which, n["databaseId"], detail["compared_attempt"], v, run.get("attempt")))
+                   % (run_id, which, n["databaseId"], attempt, v, run.get("attempt")))
     print("run %s: %s, %s, compared this run and reports no difference" % (run_id, which, n["databaseId"]))
 
 
