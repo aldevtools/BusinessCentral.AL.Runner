@@ -73,11 +73,25 @@ fn ordinal(t: &str) -> Option<u64> {
 /// before; every other source would need the caller's members (a member name, a blank text, the error that lists them)
 /// and refuses. Not pinned.
 pub(super) fn memberless_var_parameter(source: &Value) -> Result<(), Signal> {
+    ordinal_or(
+        source,
+        "Evaluate of a text that is not an ordinal into a `var` Option parameter declared without members: the caller's members are not handed to the parameter (al-runner issue 7994, not pinned)",
+    )
+}
+
+/// The same for an element of a `var` array parameter of such Options: the element has the caller's members for the
+/// Evaluate, but the store back drops them, so the caller would show the number (al-runner issue 8291). Not pinned.
+pub(super) fn memberless_var_array_element(source: &Value) -> Result<(), Signal> {
+    ordinal_or(
+        source,
+        "Evaluate of a text that is not an ordinal into an element of a `var` array of Options declared without members: the caller's members are read for the Evaluate, but the store drops them, so the caller would show the number (al-runner issue 8291, not pinned)",
+    )
+}
+
+fn ordinal_or(source: &Value, refusal: &str) -> Result<(), Signal> {
     match crate::native::text_of(source) {
         Some(text) if ordinal(trimmed(&text)).is_some() => Ok(()),
-        _ => unsupported(
-            "Evaluate of a text that is not an ordinal into a `var` Option parameter declared without members: the caller's members are not handed to the parameter (al-runner issue 7994, not pinned)",
-        ),
+        _ => unsupported(refusal),
     }
 }
 

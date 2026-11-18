@@ -1,8 +1,9 @@
 //! `Evaluate` into a `var` Option parameter declared without members, or into an element of a `var` array of such Options
 //! (al-runner issue 7994). BC reads the caller's members there (Microsoft's System Application test `Json Test`.
 //! TestGetEnumPropertyValueFromJObjectByName passes on BC 28.4); the parameter holds none in the runner, so a text that is
-//! not an ordinal refuses, whatever the caller: a variable with members, a record field, a variable without members, an
-//! array without members, and an event subscriber. The neighbors keep their results.
+//! not an ordinal refuses, whatever the caller: a variable with members, a record field, a variable without members, and
+//! an event subscriber. An array element has the caller's members for the Evaluate, but the store back drops them and the
+//! caller would show the number (issue 8291), so it refuses with that reason. The neighbors keep their results.
 
 use al_builtins::native::Signal;
 use al_testkit::text;
@@ -68,7 +69,7 @@ codeunit 69810 C
     end;
 
     procedure ArrayElementByMemberName(): Text
-    var A: array[2] of Option;
+    var A: array[2] of Option First,Second,Third;
     begin
         EvaluateIntoElement(A, 'Second');
         exit(Format(A[1]));
@@ -176,8 +177,14 @@ fn a_blank_text_is_refused() {
 }
 
 #[test]
-fn a_member_name_into_an_element_of_a_var_array_is_refused() {
-    refused("ArrayElementByMemberName");
+fn a_member_name_into_an_element_of_a_var_array_is_refused_with_its_own_reason() {
+    match al_testkit::run_in(SRC, "C", "ArrayElementByMemberName") {
+        Err(Signal::Unsupported(why)) => {
+            assert!(why.contains("the store drops them"), "{why}");
+            assert!(why.contains("issue 8291"), "{why}");
+        }
+        other => panic!("expected a refusal, got {other:?}"),
+    }
 }
 
 #[test]

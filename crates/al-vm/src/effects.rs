@@ -39,6 +39,7 @@ const PLAIN_SYSTEM: &[&str] = &[
     "Evaluate",
     "EvaluateBounded",
     "EvaluateMemberlessVarOption",
+    "EvaluateMemberlessVarOptionElement",
     "EvaluateOptionField",
     "EvaluateVariableOption",
     "Format",
