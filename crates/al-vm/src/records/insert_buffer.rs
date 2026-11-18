@@ -15,7 +15,11 @@
 //!   counted, sends nothing and raises nothing here. Its duplicate key stays pending as before the queue (an XmlPort import:
 //!   xmlports/import/XpTImportBasic.al Import_DuplicateKeyExisting, Import_DuplicateKeyWithinInput);
 //! - a valid row that sends the queue while a duplicate is pending (`K1, K2, K1, K3, K4`): in every measured cell the Insert
-//!   that sends the queue is itself a duplicate. Whether the valid row stays written is not known: refused.
+//!   that sends the queue is itself a duplicate. Whether the valid row stays written is not known: refused;
+//! - the end of an `asserterror` body that raised nothing while a duplicate is pending (al-runner issue 8267): in every
+//!   measured cell the duplicate comes out inside the body, at a read of the table (Y7407DuplicateInsertBuffer.al:98-105,
+//!   :386) or at the Insert that sends the queue (:277, :301). Whether the end of the body sends the queue, so that the
+//!   asserterror catches the duplicate, is not known: refused (`refuse_pending_at_assert_end`).
 
 use super::*;
 use crate::state::WriteOfAl;
@@ -101,6 +105,19 @@ impl Session {
     pub(super) fn defer_insert(&mut self, rec: &Rec, object: u32, e: AlError) {
         self.tx.deferred_insert.get_or_insert((object as usize, e));
         self.tx.deferred_by = Some(Rc::as_ptr(rec) as usize);
+    }
+
+    /// The end of an `asserterror` body that raised nothing (`op_assert`): a duplicate-key Insert still pending here is refused.
+    /// In every measured cell the duplicate comes out inside the body, at a read or at the Insert that sends the queue
+    /// (Y7407DuplicateInsertBuffer.al:98-105, :277, :301, :386). No cell ends the body with it pending.
+    pub(crate) fn refuse_pending_at_assert_end(&self) -> Result<(), Signal> {
+        match &self.tx.deferred_insert {
+            Some((t, _)) => unsupported(format!(
+                "an asserterror whose body ends without an error while a duplicate-key Insert into {} is pending: whether the asserterror catches it is not pinned (docs/probes-needed.md)",
+                self.engine.program.objects[*t].name
+            )),
+            None => Ok(()),
+        }
     }
 
     /// Whether an unguarded Insert of AL code into `rec`'s table is queued by the platform: a database table without a Blob or

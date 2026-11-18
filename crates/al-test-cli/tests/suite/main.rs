@@ -11,6 +11,7 @@ mod allobj_tabledata_rows;
 mod application_area_assign;
 mod areas_changed_while_page_open;
 mod array_size_mismatch;
+mod assert_error_pending_insert;
 mod auto_format_writer_tiers;
 mod autoformat_units;
 mod awaiting_assumptions;
