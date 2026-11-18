@@ -1616,6 +1616,16 @@ pub struct Field {
     pub caption_modified: bool,
 }
 
+impl Field {
+    /// The unprobed assumption a condition of the field's relation rests on (`RelationCond::assumes`), if any.
+    pub fn relation_condition_assumption(&self) -> Option<al_builtins::assumptions::Assumption> {
+        self.relation_arms
+            .iter()
+            .flat_map(|arm| &arm.conditions)
+            .find_map(|c| c.assumes)
+    }
+}
+
 /// One arm of a `TableRelation`: `if (Kind = const(A)) Table.Field where(...)`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RelationArm {

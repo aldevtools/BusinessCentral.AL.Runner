@@ -486,34 +486,16 @@ impl Lowerer<'_> {
         arms
     }
 
-    /// The constant of a `Field = const(x)` condition, typed by the field. An Enum field's enum is named in `file`, the file
-    /// that set the relation.
-    pub(crate) fn condition_const(&self, file: usize, text: &str, ty: &Ty) -> Option<ir::Const> {
-        if let Ty::Enum(name) = ty {
-            // A dependency's file resolves the enum among the apps it saw (its `using`s included), so that an
-            // enum of another namespace is found (Gen. Journal Line."IC Account No.", issue 23).
-            let Resolution::Found(e) =
-                self.ws
-                    .resolve_relation_target(file, ObjKind::Enum, &crate::types::qualified_parts(name))
-            else {
-                return None;
-            };
-            let (value, _) = self.members[e]
-                .enum_values
-                .iter()
-                // Both sides trimmed: the blank member `" "` is named `" "` in `const(" ")`
-                // (Base Application "Standard Service Line"."No.").
-                .find(|(_, n)| n.trim().eq_ignore_ascii_case(text.trim()))?;
-            return Some(ir::Const::Enum(e as u32, *value as i32));
-        }
-        init_const(text, ty)
-    }
-
     /// The constant of the `const(x)` condition on field `pos` of table `oi`, in a relation that object `setter` set (the table
-    /// or one of its extensions), with the assumption it rests on. The enum of an Enum field is named in `setter`'s file. A table
-    /// extension's file that cannot name the enum of a field the table declares (its namespace has no `using` of the enum's:
-    /// Base Application's "Mfg. Item Journal Line" on Item Journal Line."Order Type", al-runner issue 8297) names it as the
-    /// table's file does (assumption relation-condition-enum-of-declaring-file).
+    /// or one of its extensions), with the assumption it rests on. An Enum member is a value of the field's own enum, the one
+    /// [`Self::field_rt`] gives. How the setter's file names that enum decides whether that is pinned:
+    /// * the file names the field's enum: pinned (record/table-relation/TableRelationArms.al and the rest of that folder);
+    /// * a table extension's file that cannot name it (no `using` of its namespace: Base Application's "Mfg. Item Journal
+    ///   Line" on Item Journal Line."Order Type", al-runner issue 8297), or whose own namespace declares another enum of that
+    ///   name, on a field the table declares: the member is still the field's enum's (corpus PR 1437,
+    ///   table-objects/extensions/ExtRelationEnumNamespace_Tests.al), under assumption relation-condition-enum-of-declaring-file;
+    /// * a file that names another enum of that name any other way keeps main's answer, that enum's member; a name the file
+    ///   finds twice is not understood.
     fn relation_condition_const(
         &self,
         oi: usize,
@@ -522,31 +504,54 @@ impl Lowerer<'_> {
         text: &str,
     ) -> Option<(ir::Const, Option<al_builtins::assumptions::Assumption>)> {
         let field = &self.members[oi].fields[pos];
-        let file = self.ws.objects[setter].file;
-        if let Some(c) = self.condition_const(file, text, &field.ty) {
-            return Some((c, None));
-        }
         let Ty::Enum(name) = &field.ty else {
-            return None;
+            return init_const(text, &field.ty).map(|c| (c, None));
         };
-        let unnamed = !matches!(
-            self.ws
-                .resolve_relation_target(file, ObjKind::Enum, &crate::types::qualified_parts(name)),
-            Resolution::Found(_)
-        );
-        let table_file = self.ws.objects[oi].file;
-        if !unnamed
-            || self.ws.objects[setter].kind != ObjKind::TableExtension
-            || field.declared_in != Some(oi)
-            || table_file == file
+        // Both sides trimmed: the blank member `" "` is named `" "` in `const(" ")` (Base Application
+        // "Standard Service Line"."No.").
+        let member = |e: usize| {
+            self.members[e]
+                .enum_values
+                .iter()
+                .find(|(_, n)| n.trim().eq_ignore_ascii_case(text.trim()))
+                .map(|(v, _)| ir::Const::Enum(e as u32, *v as i32))
+        };
+        let file = self.ws.objects[setter].file;
+        let own = match self.field_rt(oi, field) {
+            RtType::Enum(e) => Some(e as usize),
+            _ => None,
+        };
+        let measured = self.ws.objects[setter].kind == ObjKind::TableExtension && field.declared_in == Some(oi);
+        let assumed = |e: usize| {
+            member(e).map(|c| {
+                (
+                    c,
+                    Some(al_builtins::assumptions::Assumption::RelationConditionEnumOfDeclaringFile),
+                )
+            })
+        };
+        // A dependency's file resolves the enum among the apps it saw (its `using`s included), so that an enum of another
+        // namespace is found (Gen. Journal Line."IC Account No.", issue 23).
+        match self
+            .ws
+            .resolve_relation_target(file, ObjKind::Enum, &crate::types::qualified_parts(name))
         {
-            return None;
+            Resolution::Found(e) if Some(e) == own => member(e).map(|c| (c, None)),
+            Resolution::Found(e) => match own {
+                Some(own) if measured && self.own_namespace_declares(file, e) => assumed(own),
+                _ => member(e).map(|c| (c, None)),
+            },
+            Resolution::Missing => own.filter(|_| measured).and_then(assumed),
+            Resolution::Ambiguous(_) => None,
         }
-        let c = self.condition_const(table_file, text, &field.ty)?;
-        Some((
-            c,
-            Some(al_builtins::assumptions::Assumption::RelationConditionEnumOfDeclaringFile),
-        ))
+    }
+
+    /// Object `object` is declared in the namespace `file` declares (not the global one).
+    fn own_namespace_declares(&self, file: usize, object: usize) -> bool {
+        match (&self.ws.files[file].namespace, &self.ws.objects[object].namespace) {
+            (Some(a), Some(b)) => a.eq_ignore_ascii_case(b),
+            _ => false,
+        }
     }
 
     /// The position of field `id`.
