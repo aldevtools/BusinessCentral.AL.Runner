@@ -421,3 +421,54 @@ fn strict_order_chains_the_numbers_to_a_handler_and_a_recordref_reader() {
     assert!(listed.contains(&60479), "{listed:?}");
     assert!(!listed.contains(&60477), "{listed:?}");
 }
+
+/// Review of al-runner PR 8363 (probe roots): a codeunit that takes numbers in a message handler, and one that reads them in
+/// a confirm handler, join the chain as the takers and readers of a test body do: under `--strict-order` the handler taker
+/// draws 3 after the two takers and the confirm reader sees it; the default run lists both after the takers. A routine a
+/// test names in [HandlerFunctions] that is no handler function never runs (the test is refused), so it lists nothing.
+const HANDLER_TAKERS: &str = r#"
+codeunit 60485 "Order Handler Taker"
+{
+    Subtype = Test;
+    var Seen: BigInteger;
+    [Test] [HandlerFunctions('Msg')] procedure TakesInHandler() begin Message('x'); if Seen <> 3 then Error('handler taker %1', Seen); end;
+    [MessageHandler] procedure Msg(T: Text[1024]) begin Seen := NumberSequence.Next('ORDERSEQ'); end;
+}
+codeunit 60486 "Order Confirm Reader"
+{
+    Subtype = Test;
+    var Seen: BigInteger;
+    [Test] [HandlerFunctions('Conf')] procedure ReadsInConfirm() begin if Confirm('q') then; if Seen <> 3 then Error('confirm %1', Seen); end;
+    [ConfirmHandler] procedure Conf(Q: Text[1024]; var Reply: Boolean) begin Seen := NumberSequence.Current('ORDERSEQ'); Reply := true; end;
+}
+codeunit 60487 "Order Names A Plain Routine"
+{
+    Subtype = Test;
+    [Test] [HandlerFunctions('Plain')] procedure NamesAPlainRoutine() begin end;
+    procedure Plain() begin if NumberSequence.Current('ORDERSEQ') = 0 then; end;
+}
+"#;
+
+#[test]
+fn a_taker_and_a_reader_in_handlers_join_the_chain_and_a_named_plain_routine_does_not() {
+    let src = format!("{NUMBERS}{READERS}{HANDLER_TAKERS}");
+    let rt = run(&src, &strict());
+    for test in [
+        "TakesOne",
+        "TakesTwo",
+        "ReadsCurrent",
+        "TakesInHandler",
+        "ReadsInConfirm",
+    ] {
+        assert_eq!(
+            result(&rt, test).outcome,
+            Outcome::Pass,
+            "{test}: {:?}",
+            result(&rt, test)
+        );
+    }
+    let rt = run(&src, &RunOptions::default());
+    let listed: Vec<u32> = rt.phases.chain.numbers_order.iter().map(|n| n.codeunit).collect();
+    assert!(listed.contains(&60485) && listed.contains(&60486), "{listed:?}");
+    assert!(!listed.contains(&60487), "{listed:?}");
+}

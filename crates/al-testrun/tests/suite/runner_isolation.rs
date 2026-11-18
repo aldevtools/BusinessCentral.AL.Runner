@@ -339,7 +339,7 @@ codeunit 50735 "Old Sequence Failed"
 
 // al-runner issue 8152, the reporter's repro unchanged (a comment on the issue): a failed test that committed rows keyed by a
 // NumberSequence it inserted. Under Codeunit isolation the failed test is undone back to its last Commit()
-// (SdIsolCommitError.Codeunit.al:24-25, rows); what that leaves of a sequence inserted since the tests began is not measured,
+// (SdIsolCommitError.Codeunit.al:26-27 under runner 61301, E2 :43-49 and E3 :52-55, rows); what that leaves of a sequence inserted since the tests began is not measured,
 // so the later test that reaches the sequence is refused instead of drawing a number a committed row already holds.
 const REPRO_8152: &str = r#"
 table 50200 "Repro Sequenced Entry"
@@ -678,4 +678,164 @@ codeunit 50762 "Reads Storage"
     assert_eq!(outcome(&o, "SetsIt"), &Outcome::Pass, "{o:?}");
     assert_eq!(outcome(&o, "SeesTheRow"), &Outcome::Pass, "{o:?}");
     assert!(not_run(outcome(&o, "SeesTheKey"), "isolated storage"), "{o:?}");
+}
+
+// The probe of the review of al-runner PR 8363 (shapes A to I). A, B, D and H have no Commit() in a test method body:
+// the failed test takes a new sequence back (IsolProbeAfterRollback.Codeunit.al:58-69 S3 inserts, :77-78 S4 fails, :117-123
+// S8 finds it gone, under runner 61301). C, E, F and I have one, and the next reader of the new sequence is refused. The
+// runner's own commits (the end of a passing test, the commit after an AL runner's OnBeforeTestRun) are no Commit() of a
+// test body. G: Next on a sequence that was there before the tests is kept (SeqCarry.al:26-27).
+const SEQ_SHAPES: &str = r#"
+table 50300 "Seq Row" { fields { field(1; "Entry No."; Integer) { } } keys { key(PK; "Entry No.") { Clustered = true; } } }
+codeunit 50301 "Seq A"
+{
+    Subtype = Test;
+    [Test] procedure A1_PassInsertsAndNext() begin NumberSequence.Insert('SEQA', 1, 1); if NumberSequence.Next('SEQA') <> 1 then Error('A1'); end;
+    [Test] procedure A2_Fails() begin Error('A2 deliberate'); end;
+    [Test] procedure A3_ReadsExists() begin Error('OBS exists=%1', NumberSequence.Exists('SEQA')); end;
+    [Test] procedure A4_ReadsNothing() begin Error('OBS ran'); end;
+}
+codeunit 50302 "Seq B"
+{
+    Subtype = Test;
+    [Test] procedure B1_InsertsAndFails() begin NumberSequence.Insert('SEQB', 1, 1); NumberSequence.Next('SEQB'); Error('B1 deliberate'); end;
+    [Test] procedure B2_ReadsExists() begin Error('OBS exists=%1', NumberSequence.Exists('SEQB')); end;
+}
+codeunit 50303 "Seq C"
+{
+    Subtype = Test;
+    [Test] procedure C1_InsertsCommitsFails() var R: Record "Seq Row"; begin NumberSequence.Insert('SEQC', 1, 1); R."Entry No." := NumberSequence.Next('SEQC'); R.Insert(); Commit(); Error('C1 deliberate'); end;
+    [Test] procedure C2_ReadsExists() begin Error('OBS exists=%1', NumberSequence.Exists('SEQC')); end;
+    [Test] procedure C3_ReadsRowsOnly() var R: Record "Seq Row"; begin Error('OBS rows=%1', R.Count()); end;
+    [Test] procedure C4_FailsPlain() begin Error('C4 deliberate'); end;
+}
+codeunit 50304 "Seq D"
+{
+    Subtype = Test;
+    [Test] procedure D1_PassesEmpty() begin end;
+    [Test] procedure D2_InsertsAndFails() begin NumberSequence.Insert('SEQD', 1, 1); NumberSequence.Next('SEQD'); Error('D2 deliberate'); end;
+    [Test] procedure D3_ReadsExists() begin Error('OBS exists=%1', NumberSequence.Exists('SEQD')); end;
+}
+codeunit 50305 "Seq E"
+{
+    Subtype = Test;
+    [Test] procedure E1_CommitsARow() var R: Record "Seq Row"; begin R."Entry No." := 900; R.Insert(); Commit(); end;
+    [Test] procedure E2_InsertsAndFails() begin NumberSequence.Insert('SEQE', 1, 1); NumberSequence.Next('SEQE'); Error('E2 deliberate'); end;
+    [Test] procedure E3_ReadsExists() begin Error('OBS exists=%1', NumberSequence.Exists('SEQE')); end;
+}
+codeunit 50306 "Seq F"
+{
+    Subtype = Test;
+    [Test] procedure F1_InsertsCommits() begin NumberSequence.Insert('SEQF', 1, 1); NumberSequence.Next('SEQF'); Commit(); end;
+    [Test] procedure F2_Fails() begin Error('F2 deliberate'); end;
+    [Test] procedure F3_ReadsExists() begin Error('OBS exists=%1', NumberSequence.Exists('SEQF')); end;
+}
+codeunit 50307 "Seq G"
+{
+    Subtype = Test;
+    trigger OnRun() begin if not NumberSequence.Exists('SEQG') then NumberSequence.Insert('SEQG', 1, 1); end;
+    [Test] procedure G1_NextCommitFails() begin NumberSequence.Next('SEQG'); Commit(); Error('G1 deliberate'); end;
+    [Test] procedure G2_ReadsNext() begin Error('OBS next=%1', NumberSequence.Next('SEQG')); end;
+}
+codeunit 50308 "Seq H"
+{
+    Subtype = Test;
+    [Test] [TransactionModel(TransactionModel::AutoRollback)] procedure H1_InsertsAutoRollback() begin NumberSequence.Insert('SEQH', 1, 1); NumberSequence.Next('SEQH'); end;
+    [Test] procedure H2_Fails() begin Error('H2 deliberate'); end;
+    [Test] procedure H3_ReadsExists() begin Error('OBS exists=%1', NumberSequence.Exists('SEQH')); end;
+}
+codeunit 50309 "Seq I"
+{
+    Subtype = Test;
+    [Test] procedure I1_InsertsCommitsFails() begin NumberSequence.Insert('SEQI', 1, 1); NumberSequence.Next('SEQI'); Commit(); Error('I1 deliberate'); end;
+    [Test] procedure I2_PassesWithoutSequence() begin end;
+    [Test] procedure I3_FailsAgain() begin Error('I3 deliberate'); end;
+    [Test] procedure I4_ReadsExists() begin Error('OBS exists=%1', NumberSequence.Exists('SEQI')); end;
+}
+"#;
+
+/// The shapes of `SEQ_SHAPES` under al-runner's own runner with TestIsolation = Codeunit. An AL runner codeunit (130450,
+/// 61301) adds a platform commit before every test method (al_runner.rs, RpReader.Codeunit.al:73-98 P4): al-test-cli's
+/// `isolation_probe` test runs the pinned shape under runner 61301.
+fn seq_runs() -> Vec<(&'static str, Vec<(u32, String, Outcome)>)> {
+    vec![("builtin", run(SEQ_SHAPES, TestIsolation::Codeunit))]
+}
+
+#[test]
+fn without_a_commit_in_a_test_body_a_failed_test_takes_a_new_sequence_back() {
+    for (runner, o) in seq_runs() {
+        for (test, seen) in [
+            ("A3_ReadsExists", "OBS exists=No"),
+            ("A4_ReadsNothing", "OBS ran"),
+            ("B2_ReadsExists", "OBS exists=No"),
+            ("D3_ReadsExists", "OBS exists=No"),
+            ("H3_ReadsExists", "OBS exists=No"),
+            ("C3_ReadsRowsOnly", "OBS rows=1"),
+            ("C4_FailsPlain", "C4 deliberate"),
+            ("G2_ReadsNext", "OBS next=2"),
+        ] {
+            assert_eq!(outcome(&o, test), &Outcome::Fail(seen.into()), "{runner} {test}: {o:?}");
+        }
+        assert_eq!(outcome(&o, "A1_PassInsertsAndNext"), &Outcome::Pass, "{runner}: {o:?}");
+    }
+}
+
+#[test]
+fn after_a_commit_in_a_test_body_the_next_reader_of_a_new_sequence_is_refused() {
+    for (runner, o) in seq_runs() {
+        for (test, seq) in [
+            ("C2_ReadsExists", "'SEQC'"),
+            ("E3_ReadsExists", "'SEQE'"),
+            ("F3_ReadsExists", "'SEQF'"),
+            ("I4_ReadsExists", "'SEQI'"),
+        ] {
+            assert!(not_run(outcome(&o, test), seq), "{runner} {test}: {o:?}");
+        }
+        assert_eq!(
+            outcome(&o, "I2_PassesWithoutSequence"),
+            &Outcome::Pass,
+            "{runner}: {o:?}"
+        );
+    }
+}
+
+// Under a Disabled runner a codeunit that reaches isolated storage only in a handler function of its test, after an earlier
+// codeunit changed it, is refused as one that reads it in the test body (the test just above); a later codeunit whose
+// handler reaches no storage keeps its result.
+#[test]
+fn under_a_disabled_runner_a_storage_reader_in_a_handler_after_an_earlier_setter_is_refused() {
+    let src = r#"
+codeunit 50770 "Storage Setter"
+{
+    Subtype = Test;
+    [Test] procedure SetsKey() begin IsolatedStorage.Set('K', 'left', DataScope::Module); end;
+}
+codeunit 50771 "Handler Storage Reader"
+{
+    Subtype = Test;
+    var Seen: Text;
+    [Test] [HandlerFunctions('Msg')] procedure ReadsKeyInHandler() begin Message('x'); Error('OBS key=%1', Seen); end;
+    [MessageHandler] procedure Msg(T: Text[1024]) begin if not IsolatedStorage.Get('K', DataScope::Module, Seen) then Seen := 'none'; end;
+}
+codeunit 50772 "Handler Reads Nothing"
+{
+    Subtype = Test;
+    [Test] [HandlerFunctions('Msg')] procedure ReadsNothingInHandler() begin Message('x'); Error('OBS ran'); end;
+    [MessageHandler] procedure Msg(T: Text[1024]) begin end;
+}
+"#;
+    let o = run(src, TestIsolation::Disabled);
+    assert_eq!(outcome(&o, "SetsKey"), &Outcome::Pass, "{o:?}");
+    assert!(
+        not_run(
+            outcome(&o, "ReadsKeyInHandler"),
+            "Storage Setter, changed isolated storage or a number sequence"
+        ),
+        "{o:?}"
+    );
+    assert_eq!(
+        outcome(&o, "ReadsNothingInHandler"),
+        &Outcome::Fail("OBS ran".into()),
+        "{o:?}"
+    );
 }

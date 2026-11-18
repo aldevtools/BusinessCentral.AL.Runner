@@ -604,11 +604,7 @@ pub(crate) fn union_reach_has(
     fact(&walk_reach(events, lowered, index, roots, fact))
 }
 
-/// The reach facts of an unfinished test (the earlier side of [`ReachFacts::changes_read_by`]): the walk stops at
-/// the first part of the reach that is not known, because that alone decides both questions asked of it
-/// (`changes_read_by` and `random` answer from `unknown` before anything else). The rest of the facts are then
-/// incomplete and must not be read. A walk of the whole reach visits about 49 000 routines with Microsoft's apps
-/// (150 ms), once per unfinished test of a codeunit.
+/// The first report in the reach of routine `routine` of `object` that cannot run here, if any.
 pub(crate) fn report_that_cannot_run(
     events: &al_vm::events::Registry,
     lowered: &Lowered,
@@ -634,14 +630,19 @@ pub(crate) fn report_that_cannot_run(
     walk.out.report_cannot_run
 }
 
+/// The reach facts of an unfinished test, from its roots `roots` (the test and the handler functions it names,
+/// `handlers::test_roots`; the earlier side of [`ReachFacts::changes_read_by`]): the walk stops at
+/// the first part of the reach that is not known, because that alone decides both questions asked of it
+/// (`changes_read_by` and `random` answer from `unknown` before anything else). The rest of the facts are then
+/// incomplete and must not be read. A walk of the whole reach visits about 49 000 routines with Microsoft's apps
+/// (150 ms), once per unfinished test of a codeunit.
 pub(crate) fn unfinished_reach_facts(
     events: &al_vm::events::Registry,
     lowered: &Lowered,
     index: &ReachIndex,
-    object: usize,
-    routine: usize,
+    roots: &[(usize, usize)],
 ) -> ReachFacts {
-    walk_reach(events, lowered, index, &[(object, routine)], &|f| f.unknown.is_some())
+    walk_reach(events, lowered, index, roots, &|f| f.unknown.is_some())
 }
 
 /// The index in the body of test routine `routine` of `object` of the statement that holds the statement position

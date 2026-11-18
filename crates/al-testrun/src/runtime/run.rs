@@ -1,7 +1,8 @@
 //! Running the test codeunits of one compiled program, each test on a session of its own.
 use super::al_runner::run_unit;
 use super::written::{
-    self, ReachFacts, ReachIndex, reach_facts, remainder_reach_facts, settled_flags, unfinished_reach_facts,
+    self, ReachFacts, ReachIndex, remainder_reach_facts, settled_flags, unfinished_reach_facts,
+    union_reach_facts_skipping,
 };
 use super::*;
 // What a reader of a table a skipped install holds on assumption gets (`blocked.rs` `Assumed`).
@@ -527,11 +528,16 @@ fn run_codeunit_inner(
     // The tables an earlier Disabled codeunit left rows in (`Scratch::leak`): a read of one is noted, and the codeunit
     // then runs again from what that codeunit left (`corpus.rs`).
     let leak: BTreeSet<u32> = scratch.leak.as_deref().cloned().unwrap_or_default();
-    // The reach facts of a routine of this codeunit, for the writes of the Company Triggers subscribers.
+    // The reach facts of a routine of this codeunit and the handler functions it names, for the writes of the Company
+    // Triggers subscribers.
     let company_open_refuses = |r: usize| -> Option<String> {
         company_open.who.as_ref()?;
         let index = engine.derived(|| ReachIndex::new(&engine.events, lowered));
-        company_open.refuses(&reach_facts(&engine.events, lowered, &index, object, r), lowered)
+        let roots = super::handlers::test_roots(lowered, object, r);
+        company_open.refuses(
+            &union_reach_facts_skipping(&engine.events, lowered, &index, &roots, &[]),
+            lowered,
+        )
     };
     // A test codeunit with SingleInstance = true runs its tests on the session's single instance: a variable of its own type
     // and its manual subscriber share its globals, and the second test sees what the first left
@@ -657,6 +663,9 @@ fn run_codeunit_inner(
         let checkpoint = (isolation == TestIsolation::Function).then(|| Checkpoint::take(session));
         // Under Codeunit isolation a failed test takes back the NumberSequence.Insert calls since here (isolation::after_test).
         let sequences_at_start = (isolation == TestIsolation::Codeunit).then(|| session.sequences_at_start());
+        // Whether a commit ran inside a test method body of this codeunit since then (its AL Commit(), or one its code
+        // causes); the runner's own commits around the method do not count.
+        let mut body_committed = false;
         // MinimumActiveRowVersion across the tests (al-vm `min_row_version.rs`). When OnRun wrote rows, whether they belong to
         // the isolation transaction is not pinned, and no value is taken.
         if !execute && runner.none_handed_out(session, row_versions_from) {
@@ -880,18 +889,23 @@ fn run_codeunit_inner(
                                     &routine.name,
                                     at,
                                     &mut cases_ok,
-                                    |session| match &case {
-                                        None => session.call(object, r, instance.clone(), Vec::new()),
-                                        Some((source, index, id)) => data_driven::run_case(
-                                            session,
-                                            lowered,
-                                            object,
-                                            r,
-                                            instance.clone(),
-                                            source,
-                                            *index,
-                                            id,
-                                        ),
+                                    |session| {
+                                        let from = session.commits;
+                                        let ran = match &case {
+                                            None => session.call(object, r, instance.clone(), Vec::new()),
+                                            Some((source, index, id)) => data_driven::run_case(
+                                                session,
+                                                lowered,
+                                                object,
+                                                r,
+                                                instance.clone(),
+                                                source,
+                                                *index,
+                                                id,
+                                            ),
+                                        };
+                                        body_committed |= session.commits != from;
+                                        ran
                                     },
                                 )
                             })),
@@ -1155,7 +1169,10 @@ fn run_codeunit_inner(
                                     &rest.written,
                                 )
                             })
-                            .unwrap_or_else(|| unfinished_reach_facts(&engine.events, lowered, index, object, u.routine))
+                            .unwrap_or_else(|| {
+                                let roots = super::handlers::test_roots(lowered, object, u.routine);
+                                unfinished_reach_facts(&engine.events, lowered, index, &roots)
+                            })
                     });
                     // ADR-061: each test restarts `Random` from the run seed, so an earlier test's draws matter only when
                     // the sequence goes on past that restart, after a `Randomize(n)`; an earlier test that can call
@@ -1172,7 +1189,10 @@ fn run_codeunit_inner(
                             // An unknown part of the earlier reach answers without this test's reach.
                             let later = match facts.unknown {
                                 Some(_) => &ReachFacts::default(),
-                                None => mine.get_or_insert_with(|| reach_facts(&engine.events, lowered, index, object, r)),
+                                None => mine.get_or_insert_with(|| {
+                                    let roots = super::handlers::test_roots(lowered, object, r);
+                                    union_reach_facts_skipping(&engine.events, lowered, index, &roots, &[])
+                                }),
                             };
                             facts.changes_read_by(later, checkpoint.is_none(), drew, &settled, lowered).map(|what| {
                                 let how = match u.ended {
@@ -1253,6 +1273,7 @@ fn run_codeunit_inner(
                 runner_function,
                 sequences_at_start.as_ref(),
                 failed,
+                body_committed,
                 &routine.name,
             );
             if let (Outcome::Fail(_), Some(e)) = (&outcome, &failure) {
