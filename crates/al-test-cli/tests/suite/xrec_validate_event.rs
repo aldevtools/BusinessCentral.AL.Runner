@@ -175,7 +175,17 @@ table 50401 "VE Line"
     fields
     {
         field(1; "Line No."; Integer) { }
-        field(2; Mode; Option) { OptionMembers = Purchase,Production; }
+        field(2; Mode; Option)
+        {
+            OptionMembers = Purchase,Production;
+            trigger OnValidate()
+            var
+                Log: Codeunit "VE Log";
+            begin
+                if Log.Mode() = 'before-assign' then
+                    Log.Add('T=' + xRec.Series);
+            end;
+        }
         field(3; Series; Code[20]) { }
         field(4; Outer; Integer)
         {
@@ -186,6 +196,22 @@ table 50401 "VE Line"
         }
     }
     keys { key(PK; "Line No.") { Clustered = true; } }
+
+    trigger OnInsert()
+    var
+        Log: Codeunit "VE Log";
+    begin
+        if Log.Mode() = 'own-insert' then
+            Validate(Mode, Mode::Production);
+    end;
+
+    trigger OnModify()
+    var
+        Log: Codeunit "VE Log";
+    begin
+        if Log.Mode() = 'own-modify' then
+            Validate(Mode, Mode::Production);
+    end;
 
     procedure TableRead(Tag: Text) var Log: Codeunit "VE Log"; begin Log.Add(Tag + '=' + xRec.Series); end;
 }
@@ -240,6 +266,8 @@ codeunit 50404 "VE Subscriber"
     var
         Log: Codeunit "VE Log";
     begin
+        if Log.Mode() = 'before-assign' then
+            Rec.ExtAssign();
         if Log.Mode() <> 'before' then
             exit;
         Log.Add('B=' + xRec.Series);
@@ -252,9 +280,27 @@ codeunit 50404 "VE Subscriber"
     var
         Log: Codeunit "VE Log";
     begin
-        if Log.Mode() <> 'rec-only' then
+        if not (Log.Mode() in ['rec-only', 'own-modify', 'own-insert', 'modify-sub']) then
             exit;
         Rec.ExtRead('X');
+    end;
+
+    [EventSubscriber(ObjectType::Table, Database::"VE Line", 'OnBeforeValidateEvent', 'Mode', false, false)]
+    local procedure OnBeforeValidateModeRecOnly(var Rec: Record "VE Line")
+    var
+        Log: Codeunit "VE Log";
+    begin
+        if Log.Mode() = 'before-rec-only' then
+            Rec.ExtRead('X');
+    end;
+
+    [EventSubscriber(ObjectType::Table, Database::"VE Line", 'OnAfterModifyEvent', '', false, false)]
+    local procedure OnAfterModifyLine(var Rec: Record "VE Line"; var xRec: Record "VE Line"; RunTrigger: Boolean)
+    var
+        Log: Codeunit "VE Log";
+    begin
+        if Log.Mode() = 'modify-sub' then
+            Rec.Validate(Mode, Rec.Mode::Production);
     end;
 
     [EventSubscriber(ObjectType::Table, Database::"VE Line", 'OnAfterValidateEvent', 'Mode', false, false)]
@@ -286,6 +332,7 @@ page 50406 "VE Card"
     ApplicationArea = All;
     UsageCategory = None;
     layout { area(Content) { field(Mode; Rec.Mode) { ApplicationArea = All; } } }
+    actions { area(Processing) { action(SetProduction) { trigger OnAction() begin Rec.Validate(Mode, Rec.Mode::Production); end; } } }
 }
 
 codeunit 50407 "VE Tests"
@@ -331,17 +378,14 @@ codeunit 50407 "VE Tests"
     [Test] procedure RecOnlySubscriber() var L: Record "VE Line"; begin AfterInsert(L); ValidateMode(L, 'rec-only', 'X=NEW;'); end;
     [Test] procedure After_TemporaryRecord() var L: Record "VE Line" temporary; begin AfterInsert(L); ValidateMode(L, 'after', 'A=NEW;X=NEW;P=NEW;'); end;
     [Test] procedure After_ReadByFindFirst() var L: Record "VE Line"; R: Record "VE Line"; begin AfterInsert(L); R.FindFirst(); R.Series := 'NEW'; ValidateMode(R, 'after', 'A=NEW;X=NEW;P=NEW;'); end;
-    // The shared procedure hands Rec to a codeunit that calls a procedure on it: main's plain call (blank xRec), not a
-    // refusal; the test runs through the assumption all the same.
-    [Test] procedure After_DescendantThroughCodeunit_KeepsMainBlank() var L: Record "VE Line"; begin AfterInsert(L); ValidateMode(L, 'after-descendant', 'C=;'); end;
-
-    [Test] procedure KeepsMain_ThroughCodeunit() var L: Record "VE Line"; begin AfterInsert(L); ValidateMode(L, 'after-helper', 'C=;'); end;
-    [Test] procedure KeepsMain_OtherRecord() var L: Record "VE Line"; begin AfterInsert(L); ValidateMode(L, 'after-other', 'O=;'); end;
-    [Test] procedure KeepsMain_XRecByValue() var L: Record "VE Line"; begin AfterInsert(L); ValidateMode(L, 'xrec-by-value', 'X=;'); end;
-    [Test] procedure KeepsMain_ManualSubscriber() var L: Record "VE Line"; M: Codeunit "VE Manual Subscriber"; begin AfterInsert(L); BindSubscription(M); ValidateMode(L, 'manual', 'X=;'); end;
-    [Test] procedure KeepsMain_FieldRefValidate() var L: Record "VE Line"; R: RecordRef; begin AfterInsert(L); R.GetTable(L); Log.Set('rec-only'); R.Field(2).Validate(1); Check('X=;'); end;
+    [Test] procedure After_OneArgumentValidate() var L: Record "VE Line"; begin AfterInsert(L); L.Mode := L.Mode::Production; Log.Set('after'); L.Validate(Mode); Check('A=NEW;X=NEW;P=NEW;'); end;
+    [Test] procedure After_FromAfterModifySubscriber() var L: Record "VE Line"; begin AfterInsert(L); Log.Set('modify-sub'); L.Modify(true); Check('X=NEW;'); end;
+    [Test] procedure Before_RecOnlySubscriber() var L: Record "VE Line"; begin AfterInsert(L); ValidateMode(L, 'before-rec-only', 'X=NEW;'); end;
+    [Test] procedure Before_ProcAssigns_TriggerReadsAfter() var L: Record "VE Line"; begin AfterInsert(L); ValidateMode(L, 'before-assign', 'T=SET;'); end;
+    [Test] procedure After_FieldRefValidate() var L: Record "VE Line"; R: RecordRef; begin AfterInsert(L); R.GetTable(L); Log.Set('rec-only'); R.Field(2).Validate(1); Check('X=NEW;'); end;
+    // The page's record is the stored row: Series OLD.
     [Test]
-    procedure KeepsMain_TestPageSetValue()
+    procedure After_TestPageSetValue()
     var
         L: Record "VE Line";
         P: TestPage "VE Card";
@@ -351,15 +395,42 @@ codeunit 50407 "VE Tests"
         P.GoToRecord(L);
         Log.Set('rec-only');
         P.Mode.SetValue(L.Mode::Production);
-        Check('X=;');
+        Check('X=OLD;');
         P.Close();
     end;
+    [Test]
+    procedure After_PageAction()
+    var
+        L: Record "VE Line";
+        P: TestPage "VE Card";
+    begin
+        AfterInsert(L);
+        P.OpenEdit();
+        P.GoToRecord(L);
+        Log.Set('rec-only');
+        P.SetProduction.Invoke();
+        Check('X=OLD;');
+        P.Close();
+    end;
+
+    // Another record variable copied from Rec: main's plain call (a blank xRec), not measured for this shape; real BC's
+    // answer may differ.
+    [Test] procedure KeepsMain_OtherRecord() var L: Record "VE Line"; begin AfterInsert(L); ValidateMode(L, 'after-other', 'O=;'); end;
+
+    // Real BC hands the Validate's xRec (C=NEW, record/validate/XRecTableProcThroughSubscriber.al:1280); the runner refuses
+    // what it has not measured.
+    [Test] procedure Refused_DescendantThroughCodeunit() var L: Record "VE Line"; begin AfterInsert(L); ValidateMode(L, 'after-descendant', 'C=NEW;'); end;
+    [Test] procedure Refused_ThroughCodeunit() var L: Record "VE Line"; begin AfterInsert(L); ValidateMode(L, 'after-helper', 'C=NEW;'); end;
+    [Test] procedure Refused_XRecByValue() var L: Record "VE Line"; begin AfterInsert(L); ValidateMode(L, 'xrec-by-value', 'X=NEW;'); end;
+    [Test] procedure Refused_ManualSubscriber() var L: Record "VE Line"; M: Codeunit "VE Manual Subscriber"; begin AfterInsert(L); BindSubscription(M); ValidateMode(L, 'manual', 'X=NEW;'); end;
+    [Test] procedure Refused_ValidateFromOwnOnModify() var L: Record "VE Line"; begin AfterInsert(L); Log.Set('own-modify'); L.Modify(true); end;
+    [Test] procedure Refused_ValidateFromOwnOnInsert() var L: Record "VE Line"; begin Log.Set(''); L.DeleteAll(); L."Line No." := 1; L.Series := 'NEW'; Log.Set('own-insert'); L.Insert(true); end;
     [Test] procedure Refused_NestedInTrigger() var L: Record "VE Line"; begin AfterInsert(L); Log.Set('rec-only'); L.Validate(Outer, 1); end;
 }
 "##;
 
 #[test]
-fn validate_event_subscribers_share_the_validate_xrec_and_their_neighbors_keep_main() {
+fn validate_event_subscribers_share_the_validate_xrec_and_their_neighbors_refuse() {
     use Assumption::XrecTableProcFromValidateEvent as A;
     let o = run(EVENTS, "VE Tests");
     let mut wrong = Vec::new();
@@ -375,6 +446,6 @@ fn validate_event_subscribers_share_the_validate_xrec_and_their_neighbors_keep_m
             wrong.push(format!("{name}: {outcome} {hits:?}"));
         }
     }
-    assert_eq!(o.len(), 16);
+    assert_eq!(o.len(), 23);
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }

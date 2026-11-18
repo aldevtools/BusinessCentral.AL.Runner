@@ -124,11 +124,17 @@ impl Session {
     /// record/validate/XRecTableProcCalls.al measures (:160, :162, :177, :179, called from a test codeunit, no Validate of the
     /// record nested in another).
     pub(super) fn sole_validate_from_al(&self, handle: usize) -> bool {
+        matches!(self.sole_validate_site(handle), Some(ValidateSite::AlRecordValidate))
+    }
+
+    /// The call site of the one Validate of the record at `handle` that runs now; `None` when none runs, when one is nested
+    /// in another, or when the site is not named.
+    pub(super) fn sole_validate_site(&self, handle: usize) -> Option<&ValidateSite> {
         let mut running = self.validate_sites.iter().filter(|(h, _)| *h == handle);
-        matches!(
-            (running.next(), running.next()),
-            (Some((_, Some(ValidateSite::AlRecordValidate))), None)
-        )
+        match (running.next(), running.next()) {
+            (Some((_, Some(site))), None) => Some(site),
+            _ => None,
+        }
     }
 
     /// The caller's xRec that a procedure of table `object`, called on the record `rc` from the code running in frame `f`,
@@ -159,9 +165,6 @@ impl Session {
         }
         if let Some(x) = self.validate_event_xrec(object, rc, f) {
             return ProcXrec::Shared(x);
-        }
-        if self.only_validate_event_xrec_runs(rc) {
-            return ProcXrec::Plain;
         }
         self.running_call_xrec(object, rc, f)
     }
@@ -221,7 +224,8 @@ impl Session {
     ///   plain call, as `table_proc_xrec` lists (record/PWTableGlobals.al:196-260; al-test-cli suite `xrec_proc_call_scope.rs`).
     /// - Called from other code while triggers or procedures on the same record run further up: the instances of the record
     ///   variable (ADR-021) of its table and of its table extensions that hold `rc` as Rec, and those calls' xRecs
-    ///   (`running_xrecs`).
+    ///   (`running_xrecs`); while a validate event of `rc` is raised, also the xRec it hands its subscribers
+    ///   (`raised_validate_event_xrec`).
     /// - The shape al-runner issue 8189 measured (`through_codeunit_measured`): the xRec of the call running on the instance of
     ///   `object`, shared, on assumption `xrec-table-proc-through-codeunit` (the reporter's repro passes on real BC).
     /// - Any other shape, when one of those xRecs holds other values than the blank record a plain call gets: the blank xRec
@@ -235,7 +239,8 @@ impl Session {
         let blank = self.initial_fields(table);
         let not_blank = |x: &Rec| !Self::same_values(&x.borrow().fields, &blank);
         let running = self.running_xrecs(table, rc);
-        if !running.iter().any(|(_, x)| not_blank(x)) {
+        let event = self.raised_validate_event_xrec(rc);
+        if !running.iter().any(|(_, x)| not_blank(x)) && !event.as_ref().is_some_and(not_blank) {
             return ProcXrec::Plain;
         }
         let of_object = running.iter().find(|(o, _)| *o == object).map(|(_, x)| x.clone());

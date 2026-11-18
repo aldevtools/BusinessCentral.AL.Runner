@@ -4,7 +4,7 @@
 //! whose xRec it could share. `validate_events` notes the event while its subscribers run (`validate_event`, by
 //! `validate_hooks` in `records.rs`); `validate_event_xrec` takes it (by `table_proc_xrec` in `nested_validate.rs`).
 
-use crate::records::Rec;
+use crate::records::{Rec, ValidateSite};
 use crate::{Frame, Session};
 use al_builtins::assumptions::{self, Assumption};
 use al_builtins::native::Signal;
@@ -34,18 +34,23 @@ impl Session {
 
     /// The xRec a procedure of table `object` (or of one of its table extensions) runs with when the subscriber in frame `f`
     /// of the validate event being raised calls it on `rc`: the Validate's xRec, shared, so an assignment to it shows in the
-    /// subscriber's xRec parameter (record/validate/XRecTableProcThroughSubscriber.al:489 OnAfterValidateEvent after Insert,
-    /// :791 after Get, :808 on a fresh record, :867 on a temporary record, :881 after FindFirst, :825 the assignment, :839
-    /// OnBeforeValidateEvent, :853 a subscriber that does not declare xRec), on assumption
-    /// `xrec-table-proc-from-validate-event`. Every fact by equality:
+    /// subscriber's xRec parameter and in the trigger (record/validate/XRecTableProcThroughSubscriber.al:633
+    /// OnAfterValidateEvent after Insert, :935 after Get, :952 on a fresh record, :1011 on a temporary record, :1025 after
+    /// FindFirst, :969 the assignment, :983 OnBeforeValidateEvent, :1326 its assignment the trigger reads, :997 and :1312 a
+    /// subscriber that does not declare xRec), on assumption `xrec-table-proc-from-validate-event`. Every fact by equality:
     /// - the innermost event being raised is a validate event of `rc`, and `f` is the subscriber's frame the event put right
     ///   above the code that called the Validate (table events put no frame of their own between them);
     /// - `f` runs an event subscriber of a codeunit that is not bound manually; it declares Rec by `var`, holding `rc`, alone or
     ///   with xRec by `var` and CurrFieldNo, as the probe's subscribers do;
-    /// - the Validate is the one `Record.Validate` AL code called on the record (`sole_validate_from_al`).
+    /// - the Validate is the one Validate of the record that runs, and AL code called it as `Record.Validate` (:1192 from a
+    ///   page action, :1238 with one argument, :1294 from an OnAfterModifyEvent subscriber), as `FieldRef.Validate` (:1257) or
+    ///   as the write of a TestPage control (:1215 SetValue; not on the line a trapped static card's `New()` started);
+    /// - no trigger or procedure of the record's table or of its table extensions runs on the record (`running_xrecs`): the
+    ///   Validate called from one of them was not measured.
     ///
-    /// `None` for any other call, which keeps main's answer. The probe found the same xRec on every buffer it tried, so the
-    /// buffer is not a fact of the rule.
+    /// `None` for any other call; `running_call_xrec` then refuses a read of xRec while a validate event of `rc` is raised
+    /// (`raised_validate_event_xrec`). The probe found the same xRec on every buffer it tried, so the buffer is not a fact of
+    /// the rule.
     pub(super) fn validate_event_xrec(&self, object: usize, rc: &Rec, f: &Frame) -> Option<Rec> {
         let (handle, xrec, depth) = self.validate_events.last()?;
         let table = rc.borrow().table as usize;
@@ -73,27 +78,37 @@ impl Session {
             && sub.by_var.first() == Some(&true)
             && matches!(f.locals.first(), Some(Value::Record(p)) if Rc::ptr_eq(p, rc))
             && self.table_or_its_extension(object, table)
-            && self.sole_validate_from_al(*handle);
+            && self.sole_validate_measured_for_event(*handle)
+            && self.running_xrecs(table, rc).is_empty();
         (measured && assumptions::hit(Assumption::XrecTableProcFromValidateEvent)).then(|| xrec.clone())
     }
 
-    /// Whether, while a validate event of `rc` is raised, the only xRec holding other values than a blank record among the calls
-    /// running on `rc` is the one `validate_event_xrec` shared. A procedure called on `rc` from there through other code (a
-    /// codeunit the shared procedure calls) then gets main's plain call, as it did before the share made that xRec visible
-    /// (`running_call_xrec` would refuse it); not measured either way.
-    pub(super) fn only_validate_event_xrec_runs(&mut self, rc: &Rec) -> bool {
-        let Some((handle, xrec, _)) = self.validate_events.last().cloned() else {
-            return false;
-        };
-        if handle != Rc::as_ptr(rc) as usize {
-            return false;
-        }
-        let table = rc.borrow().table as usize;
-        let blank = self.initial_fields(table);
-        let running = self.running_xrecs(table, rc);
-        running.iter().any(|(_, x)| Rc::ptr_eq(x, &xrec))
-            && running
-                .iter()
-                .all(|(_, x)| Rc::ptr_eq(x, &xrec) || Self::same_values(&x.borrow().fields, &blank))
+    /// Whether the one Validate of the record at `handle` that runs now has a call site the probe measured for a validate
+    /// event's subscriber (`validate_event_xrec`).
+    fn sole_validate_measured_for_event(&self, handle: usize) -> bool {
+        matches!(
+            self.sole_validate_site(handle),
+            Some(
+                ValidateSite::AlRecordValidate
+                    | ValidateSite::FieldRef
+                    | ValidateSite::TestPageControl {
+                        new_line_of_trapped_static_card: false
+                    }
+            )
+        )
+    }
+
+    /// The xRec the innermost validate event of `rc` being raised hands its subscribers, if one is. Every procedure called on
+    /// `rc` while it is raised outside `validate_event_xrec`'s shape (through other code, from a subscriber bound manually or
+    /// declaring xRec by value, a Validate called from the record's own code, at another call site) is not measured; the
+    /// probe's neighbors read this xRec (record/validate/XRecTableProcThroughSubscriber.al:1280 through a table extension
+    /// procedure and a codeunit), never the blank one of a plain call.
+    pub(super) fn raised_validate_event_xrec(&self, rc: &Rec) -> Option<Rec> {
+        let handle = Rc::as_ptr(rc) as usize;
+        self.validate_events
+            .iter()
+            .rev()
+            .find(|(h, _, _)| *h == handle)
+            .map(|(_, x, _)| x.clone())
     }
 }
