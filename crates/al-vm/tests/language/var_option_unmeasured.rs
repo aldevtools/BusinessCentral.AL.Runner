@@ -16,7 +16,27 @@ table 69851 VRow
         field(2; Opt; Option) { OptionMembers = First,Second,Third; }
         field(3; OptCap; Option) { OptionMembers = First,Second,Third; OptionCaption = 'One,Two,Three'; }
         field(4; OptNum; Option) { OptionMembers = "0","1","2"; OptionCaption = '0,1,2'; }
+        field(5; Abc; Option) { OptionMembers = A,B,C; }
     }
+}
+
+table 69856 VBase
+{
+    fields { field(1; Id; Integer) { } }
+    keys { key(PK; Id) { } }
+    protected var
+        Mode: Option A,B,C;
+}
+
+tableextension 69857 VBaseExt extends VBase
+{
+    procedure UnheardBaseVar(): Text
+    var Pub: Codeunit VPub;
+    begin
+        Mode := Mode::B;
+        Pub.OnUnheardWithMembers(Mode);
+        exit(Format(Mode));
+    end;
 }
 
 codeunit 69852 VPub
@@ -48,6 +68,11 @@ codeunit 69852 VPub
 
     [IntegrationEvent(false, false)]
     procedure OnUnheardWithMembers(var Value: Option First,Second,Third)
+    begin
+    end;
+
+    [IntegrationEvent(false, false)]
+    procedure OnUnheardArray(var Value: array[2] of Option First,Second,Third)
     begin
     end;
 }
@@ -93,6 +118,7 @@ codeunit 69855 C
         GArr: array[2] of Option First,Second,Third;
         GArr0: array[2] of Option;
         GlobalPqr: Option P,Q,R;
+        GAbc: Option A,B,C;
 
     procedure LocalHop(): Text
     var Pub: Codeunit VPub; V: Option First,Second,Third; Seen: Text;
@@ -524,6 +550,81 @@ codeunit 69855 C
         exit(Format(A[2]) + '|' + Format(A[2], 0, 2));
     end;
 
+    procedure UnheardThenMemberlessVarParam(): Text
+    var Pub: Codeunit VPub; V: Option A,B,C;
+    begin
+        V := V::B;
+        Pub.OnUnheardWithMembers(V);
+        exit(FormatInsideVar(V) + '|' + Format(V, 0, 2));
+    end;
+
+    procedure UnheardFieldThenMemberless(): Text
+    var Pub: Codeunit VPub; Row: Record VRow;
+    begin
+        Row.Abc := Row.Abc::B;
+        Pub.OnUnheardWithMembers(Row.Abc);
+        exit(FormatInsideVar(Row.Abc) + '|' + Format(Row.Abc, 0, 2));
+    end;
+
+    procedure UnheardElementThenMemberless(): Text
+    var Pub: Codeunit VPub; Arr: array[2] of Option A,B,C;
+    begin
+        Arr[1] := Arr[1]::B;
+        Pub.OnUnheardWithMembers(Arr[1]);
+        exit(FormatInsideVar(Arr[1]) + '|' + Format(Arr[1], 0, 2));
+    end;
+
+    procedure UnheardGlobalThenMemberless(): Text
+    var Pub: Codeunit VPub;
+    begin
+        GAbc := GAbc::B;
+        Pub.OnUnheardWithMembers(GAbc);
+        exit(FormatInsideVar(GAbc) + '|' + Format(GAbc, 0, 2));
+    end;
+
+    procedure UnheardArrayOtherMembers(): Text
+    var Pub: Codeunit VPub; Arr: array[2] of Option A,B,C;
+    begin
+        Arr[1] := Arr[1]::B;
+        Pub.OnUnheardArray(Arr);
+        exit(FormatInsideVar(Arr[1]) + '|' + Format(Arr[1], 0, 2));
+    end;
+
+    procedure UnheardBaseTableVar(): Text
+    var R: Record VBase;
+    begin
+        exit(R.UnheardBaseVar());
+    end;
+
+    procedure UnheardThenEvaluateInside(): Text
+    var Pub: Codeunit VPub; V: Option A,B,C;
+    begin
+        V := V::B;
+        Pub.OnUnheardWithMembers(V);
+        EvaluateInsideVar(V, 'C');
+        exit(Format(V) + '|' + Format(V, 0, 2));
+    end;
+
+    local procedure EvaluateInsideVar(var Value: Option; T: Text)
+    begin
+        Evaluate(Value, T);
+    end;
+
+    procedure UnheardThenElementStore(): Text
+    var Arr: array[2] of Option A,B,C;
+    begin
+        exit(ElementFromUnheardLocal(Arr));
+    end;
+
+    local procedure ElementFromUnheardLocal(var A: array[2] of Option): Text
+    var Pub: Codeunit VPub; L: Option A,B,C;
+    begin
+        L := L::C;
+        Pub.OnUnheardWithMembers(L);
+        A[1] := L;
+        exit(Format(A[1]) + '|' + Format(A[1], 0, 2));
+    end;
+
     local procedure ByValueEvaluate(A: array[2] of Option): Text
     begin
         Evaluate(A[1], 'Third');
@@ -588,6 +689,7 @@ const SUBSCRIBER: &str = "an event subscriber's `var` Option parameter declared 
 const CALLER: &str = "from a caller the probe does not measure";
 const PUBLISHER: &str = "handed directly to an event publisher's";
 const ELEMENT: &str = "a store the probe does not measure into an element";
+const UNHEARD: &str = "which no subscriber hears, from a place the probe does not measure";
 
 // A memberless subscriber under a publisher with members runs only through the measured hop: a procedure's `var` parameter
 // with the publisher's members, handed a local or a field without OptionCaption of a local record
@@ -618,19 +720,42 @@ fn unmeasured_callers_of_a_memberless_subscriber_refuse() {
 }
 
 // A publisher called directly with a variable of another member list refuses when a subscriber hears it; no probe calls one
-// directly. One no subscriber hears gives main's result for every caller, unflagged: the parameter takes the publisher's
-// list and hands it back to the caller's variable. Called from a procedure the probes measure, only that call is flagged.
+// directly. After one no subscriber hears, the caller's variable has its own members, flagged: a declared list, or,
+// declared without members, the members it held before the call. An element that holds a caller's members refuses the
+// write-back, as after a procedure.
 #[test]
 fn a_publisher_called_directly_refuses_only_when_a_subscriber_hears_it() {
     refused("DirectLocalToMemberlessPublisher", PUBLISHER);
     refused("DirectByValueToMemberlessPublisher", PUBLISHER);
-    assert_eq!(clean("UnheardMemberlessPublisher"), "1|1@Three");
-    assert_eq!(clean("UnheardMembersPublisher"), "Second@Third");
-    assert_eq!(clean("UnheardFromParameters"), "1|1@1|1");
-    assert_eq!(assumed("UnheardFromMemberlessVarParam"), "1|1@1|1");
-    assert_eq!(assumed("UnheardFromVarArrayElement"), "2|2");
-    assert_eq!(clean("UnheardThroughVarParamSameMembers"), "Second|1@Second|1");
-    assert_eq!(clean("UnheardThroughMemberlessVarParamMemberless"), "Second|1@Second|1");
+    assert_eq!(assumed("UnheardMemberlessPublisher"), "Second|1@Three");
+    assert_eq!(assumed("UnheardMembersPublisher"), "1@R");
+    assert_eq!(assumed("UnheardFromParameters"), "Second|1@Second|1");
+    assert_eq!(assumed("UnheardFromMemberlessVarParam"), "Second|1@Second|1");
+    refused("UnheardFromVarArrayElement", ELEMENT);
+    assert_eq!(assumed("UnheardThroughVarParamSameMembers"), "B|1@B|1");
+    assert_eq!(assumed("UnheardThroughMemberlessVarParamMemberless"), "1|1@1|1");
+}
+
+// No later read meets a member list an unheard publisher left: a memberless `var` parameter reads the caller's own members
+// (OptionVarMemberLists.al:241), Evaluate takes the caller's member names (OptionVarMemberlessEvaluate.al:77), and an element
+// store from a variable declared with the held members takes the number (OVMW:780).
+#[test]
+fn no_read_after_an_unheard_publisher_sees_its_member_list() {
+    assert_eq!(assumed("UnheardThenMemberlessVarParam"), "B|1");
+    assert_eq!(assumed("UnheardThenEvaluateInside"), "C|2");
+    assert_eq!(assumed("UnheardThenElementStore"), "2|2");
+}
+
+// After an unheard publisher, a global has its own members, as a local (flagged); a field, an element of an array with
+// members and a whole array take their own members as on main (the usual conversion; the flag comes from the memberless
+// `var` parameter that reads them next, measured).
+#[test]
+fn other_places_handed_to_an_unheard_publisher_keep_main_or_refuse() {
+    assert_eq!(assumed("UnheardFieldThenMemberless"), "B|1");
+    assert_eq!(assumed("UnheardElementThenMemberless"), "B|1");
+    assert_eq!(assumed("UnheardArrayOtherMembers"), "B|1");
+    assert_eq!(assumed("UnheardGlobalThenMemberless"), "B|1");
+    refused("UnheardBaseTableVar", UNHEARD);
 }
 
 // No cell hands an interface method a by-value parameter or an array, or a procedure an element of a global array; a

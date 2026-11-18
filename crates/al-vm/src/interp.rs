@@ -827,8 +827,6 @@ impl Session {
         // A publisher's `var` argument that is a global of the caller's instance is that variable itself for its subscribers
         // (events/binding-senders/EventVarThroughSender.al): they alias it, see `Frame::aliases`.
         let facts = self.engine.routine_facts(object, routine);
-        // The store of the `var` arguments' final values (`var_option::call_back`).
-        let back = self.call_back(&facts, object, routine);
         if facts.publisher {
             self.var_option_publisher_refusal(object, routine, args, f)?;
             let by_var = &self.engine.program.objects[object].routines[routine].by_var;
@@ -909,9 +907,9 @@ impl Session {
         }
         if let Err(Signal::Error(_)) = &result {
             if let Some(finals) = self.error_finals.take() {
-                for (i, (a, v)) in args.iter().zip(finals).enumerate() {
+                for (a, v) in args.iter().zip(finals) {
                     if let ir::Arg::Ref(p) = a {
-                        self.write_back(p, v, f, back, (object, routine, i))?;
+                        self.write_back(p, v, f)?;
                     }
                 }
             }
@@ -930,9 +928,9 @@ impl Session {
             (r, _) => r?,
         };
         let mut finals = finals;
-        for (i, (a, v)) in args.iter().zip(finals.drain(..)).enumerate() {
+        for (a, v) in args.iter().zip(finals.drain(..)) {
             if let ir::Arg::Ref(p) = a {
-                self.write_back(p, v, f, back, (object, routine, i))?;
+                self.write_back(p, v, f)?;
             }
         }
         self.return_vec(finals);
@@ -1130,15 +1128,7 @@ impl Session {
     /// The final value of a by-reference parameter goes back to the caller's place. An `HttpContent` the callee only worked on is the
     /// caller's own object: writing it back would store a copy (an HttpContent is a value on assignment) and cut the headers handed
     /// out before from it.
-    /// `param`: the callee's object, routine and parameter index.
-    fn write_back(
-        &mut self,
-        p: &ir::Place,
-        v: Value,
-        f: &mut Frame,
-        how: Store,
-        param: (usize, usize, usize),
-    ) -> Result<(), Signal> {
+    fn write_back(&mut self, p: &ir::Place, v: Value, f: &mut Frame) -> Result<(), Signal> {
         if let Value::Library(n, cell) = &v {
             if n == "HttpContent" {
                 if let Ok(Value::Library(_, current)) = self.read(p, f) {
@@ -1150,24 +1140,15 @@ impl Session {
         }
         // A local or global Option variable, or an array of them, has its own members again (`var_option::written_back`).
         let v = match p {
-            ir::Place::Local(_) | ir::Place::Global(_)
-                if how == Store::CallBack && matches!(v, Value::Option(..) | Value::Array(_)) =>
-            {
+            ir::Place::Local(_) | ir::Place::Global(_) if matches!(v, Value::Option(..) | Value::Array(_)) => {
                 let ty = self.place_type(p, f);
-                let (object, routine, i) = param;
-                let engine = self.engine.clone();
-                match engine.program.objects[object].routines[routine].locals.get(i) {
-                    Some(param) => {
-                        crate::var_option::written_back(&v, &ty, &param.ty, || self.read(p, f).ok()).unwrap_or(v)
-                    }
-                    None => v,
-                }
+                crate::var_option::written_back(&v, &ty, || self.read(p, f).ok()).unwrap_or(v)
             }
             _ => v,
         };
         // A `var Text` parameter can stand for a variable of a declared length.
         let v = self.rendered_into_place(p, v, f)?;
-        self.write_as(p, v, f, how)
+        self.write_as(p, v, f, Store::CallBack)
     }
 
     /// The instance a call on codeunit value `i` runs on: the session's
@@ -1828,7 +1809,7 @@ impl Session {
             _ => v,
         };
         match p {
-            ir::Place::Local(i) => f.locals[*i] = self.option_param_store(*i, v, f, how),
+            ir::Place::Local(i) => f.locals[*i] = self.option_param_store(*i, v, f),
             ir::Place::Global(i) => self.put_global(*i, v, f, assign)?,
             ir::Place::BaseGlobal(i) => {
                 let base = self.base_instance(f)?;

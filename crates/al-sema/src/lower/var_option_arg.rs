@@ -147,8 +147,8 @@ impl Lowerer<'_> {
         }
         let call = match target {
             None => Call::Interface,
-            // An event publisher runs no code of its own: the run refuses the call where a subscriber hears it, and binds and
-            // hands back as on main where none does (al-vm `Session::var_option_publisher_refusal`, `unheard_publisher`).
+            // An event publisher runs no code of its own: the run refuses the call where a subscriber hears it, and where none
+            // does refuses the callers the probe does not measure (al-vm `Session::var_option_publisher_refusal`).
             Some((o, r))
                 if self.routine_has_attribute(o, r, &["IntegrationEvent", "BusinessEvent", "InternalEvent"]) =>
             {

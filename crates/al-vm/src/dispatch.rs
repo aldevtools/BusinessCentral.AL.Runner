@@ -79,8 +79,6 @@ impl Session {
         let r = &engine.program.objects[object].routines[routine];
         let blob_publisher = crate::blob_transfer::measured_publisher(engine.program.objects[object].kind, r);
         let mut values = Vec::with_capacity(r.params);
-        // A publisher no subscriber hears binds its `var` Option parameters as on main (`var_option::unheard_publisher`).
-        let unheard = self.unheard_publisher(true, object, routine);
         for (i, a) in args.into_iter().enumerate().take(r.params) {
             values.push(match (a, r.by_var.get(i).copied().unwrap_or(false)) {
                 (Value::Record(rc), false) => {
@@ -104,7 +102,7 @@ impl Session {
                     self.record_ref_into_record_param(&h, *table)?
                 }
                 // A `var` Option parameter with another member list than the value (`var_option`).
-                (a, true) if !unheard && let Some(v) = crate::var_option::var_binding(&a, &r.locals[i].ty, false) => v?,
+                (a, true) if let Some(v) = crate::var_option::var_binding(&a, &r.locals[i].ty, false) => v?,
                 (a, _) => ops::convert(a, &r.locals[i].ty)?,
             });
         }
