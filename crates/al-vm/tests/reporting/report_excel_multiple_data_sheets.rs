@@ -93,6 +93,19 @@ report 50988 "XMS Call Column"
     UsageCategory = None; UseRequestPage = false; ExcelLayoutMultipleDataSheets = true;
     dataset {{ dataitem(Num; "XMS Num") {{ column(Number; Number) {{ }} column(Text; Format(Number)) {{ }} }} }}
 }}
+report 50994 "XMS Init"
+{{
+    UsageCategory = None; UseRequestPage = false;
+    dataset {{ dataitem(Num; "XMS Num") {{ DataItemTableView = where(Number = const(7)); column(Number; Number) {{ }} }} }}
+    trigger OnInitReport()
+    var Tmp: Record "XMS Blob" temporary; Out: OutStream; Saved: Boolean;
+    begin
+        Tmp.Data.CreateOutStream(Out);
+        Saved := Report.SaveAs(Report::"XMS Multi", '', ReportFormat::Xml, Out);
+    end;
+    [TryFunction]
+    procedure T() begin end;
+}}
 report 50995 "XMS No View"
 {{
     UsageCategory = None; UseRequestPage = false; ExcelLayoutMultipleDataSheets = true;
@@ -273,6 +286,10 @@ codeunit 50965 "XMS Tests"
     end;
     procedure RunBare(): Text begin Setup(); Report.Run(Report::"XMS Multi", false); exit('Yes'); end;
     procedure RunAssertError(): Text begin Setup(); asserterror Report.Run(Report::"XMS Multi", false); exit(GetLastErrorCode()); end;
+    [TryFunction]
+    local procedure TryAssert(Id: Integer) begin asserterror Report.Run(Id, false); end;
+    procedure RunAssertErrorInTry(): Text begin Setup(); exit(Format(TryAssert(Report::"XMS Multi"))); end;
+    procedure SaveXmlInInitOfTry(): Text var R: Report "XMS Init"; begin Setup(); exit(Format(R.T())); end;
     procedure SaveXmlTryResultDropped(): Text
     var Tmp: Record "XMS Blob" temporary; Saved: Boolean;
     begin
@@ -625,6 +642,8 @@ fn multiple_data_sheets_shapes_not_measured_refuse() {
         "SaveXmlBare",
         "RunBare",
         "RunAssertError",
+        "RunAssertErrorInTry",
+        "SaveXmlInInitOfTry",
         "SaveXmlTryResultDropped",
         "SaveXmlThroughHelper",
         "SaveXmlUseTemporary",

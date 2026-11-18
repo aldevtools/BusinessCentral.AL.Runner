@@ -875,7 +875,7 @@ impl Session {
             self.watch_var_globals(object, routine, &inst, args, &values, f)
         };
         if try_call {
-            self.enter_used_try();
+            self.enter_used_try(object, routine);
         }
         let result = self.call_with_facts(object, routine, inst, values, facts);
         if try_call {
