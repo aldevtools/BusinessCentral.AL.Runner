@@ -2208,14 +2208,7 @@ impl Session {
     /// empty table of its own, the current values, no filters, the primary key ascending, no marks (see `call_inner`).
     fn temporary_param_copy(&mut self, rc: &Rc<RefCell<RecordState>>) -> Value {
         let mut st = rc.borrow().copy_as_new_variable();
-        st.key = 0;
-        st.adhoc = None;
-        st.ascending = true;
-        st.field_descending = 0;
-        st.marks.clear();
-        st.marked_only = false;
-        st.filters.clear();
-        st.filter_group = 0;
+        records::primary_view(&mut st);
         st.temporary = true;
         st.temp_id = Some(self.new_by_value_temp_id(rc));
         Value::Record(Rc::new(RefCell::new(st)))
@@ -2510,16 +2503,13 @@ impl Session {
                 // stored table, not a temporary one: IsTemporary is No, Count sees the stored rows, Insert, Modify and DeleteAll reach the
                 // stored table and the caller's temporary rows do not change
                 // (record/temporary/TempRecordByValue.al:TempRecord_ByValue_ToPersistentParameter, :TempRecord_ByValue_ModifyAndDeleteAll).
-                // The copy keeps the record's current values and filters (not pinned; a stored record's copy is in records/by_value_view.rs). A parameter declared `temporary` gets
-                // an independent empty buffer (record/TestTempTableContracts.al:141-148). Base Application's To-do.InsertTask relies on it.
+                // Its view: `records/by_value_view.rs`. A parameter declared `temporary` gets an independent empty buffer
+                // (record/TestTempTableContracts.al:141-148). Base Application's To-do.InsertTask relies on it.
                 (Value::Record(rc), false)
                     if rc.borrow().temporary
                         && matches!(r.locals[i].ty, RtType::Record(t, false) if !self.engine.object_facts[t as usize].temporary()) =>
                 {
-                    let mut st = rc.borrow().copy_as_new_variable();
-                    st.temporary = false;
-                    st.temp_id = None;
-                    Value::Record(Rc::new(RefCell::new(st)))
+                    self.temporary_into_stored_param(&rc, object)
                 }
                 // A record of the stored table handed by value to a parameter declared `temporary` gives the callee a temporary
                 // record with the record's values over an empty table of its own (events/ClEventLeads.al:70
@@ -2553,7 +2543,7 @@ impl Session {
                     st.unpinned_buffer = Some(crate::records::RUN_PAGE_LINK_VARIANT);
                     Value::Record(Rc::new(RefCell::new(st)))
                 }
-                (Value::Record(rc), false) => self.record_param_copy(&rc, &r.locals[i].ty, subscriber),
+                (Value::Record(rc), false) => self.record_param_copy(&rc, &r.locals[i].ty, object, subscriber),
                 // A RecordRef handed by value to a RecordRef or Variant parameter, or bound to a `var` Variant parameter
                 // (`VariantRefs::param_value`).
                 (Value::Library(al_builtins::library_kind::LibraryKind::RecordRef, h), by_var)

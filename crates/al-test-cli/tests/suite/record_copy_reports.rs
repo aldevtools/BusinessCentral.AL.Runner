@@ -860,7 +860,7 @@ fn issue_8189_get_of_a_written_row_and_running_extension_triggers_refuse() {
 /// A test outcome that passes, and the start of each refusal reason the neighbor tests expect.
 const PASS: &str = "Pass";
 const XREC_REFUSED: &str = "xRec in a table procedure called through other code";
-const VIEW_REFUSED: &str = "a record handed by value whose caller had filters outside filter group 0";
+const VIEW_REFUSED: &str = "a record handed by value whose view the probe did not measure";
 
 /// Asserts each `(name, outcome, flagged)` of `want` on the outcomes `o` of `run`: [`PASS`] is a pass, a refusal reason is
 /// `NotRun` with a text that names it. Lists every test that differs.
@@ -1252,23 +1252,23 @@ codeunit 50131 "BN Test"
     end;
 
     [Test]
-    procedure NoFilter_DeclaredKey_KeepsMainKey()
+    procedure NoFilter_DeclaredKey_PrimaryKey()
     var
         Line: Record "BN Row";
     begin
         Seed(Line);
         Line.SetCurrentKey(Name);
-        if Key(Line) <> 'Name' then
+        if Key(Line) <> 'Code' then
             Error('key %1', Key(Line));
     end;
 
     [Test]
-    procedure FilterGroupTwo_MethodsThatReadNoView_Run()
+    procedure FilterGroupThree_MethodsThatReadNoView_Run()
     var
         Line: Record "BN Row";
     begin
         Seed(Line);
-        Line.FilterGroup(2);
+        Line.FilterGroup(3);
         Line.SetRange(Status, Line.Status::Open);
         Line.FilterGroup(0);
         Line.Get('B');
@@ -1277,12 +1277,12 @@ codeunit 50131 "BN Test"
     end;
 
     [Test]
-    procedure FilterGroupTwo_CalcFields_NoFlowFilter_Runs()
+    procedure FilterGroupThree_CalcFields_NoFlowFilter_Runs()
     var
         Line: Record "BN Row";
     begin
         Seed(Line);
-        Line.FilterGroup(2);
+        Line.FilterGroup(3);
         Line.SetRange(Status, Line.Status::Open);
         Line.FilterGroup(0);
         if NamedCount(Line) <> 2 then
@@ -1290,37 +1290,37 @@ codeunit 50131 "BN Test"
     end;
 
     [Test]
-    procedure FilterGroupTwo_CalcFields_FlowFilter_Refused()
+    procedure FilterGroupThree_CalcFields_FlowFilter_Refused()
     var
         Line: Record "BN Row";
     begin
         Seed(Line);
         Line.SetFilter(NameFilter, 'z');
-        Line.FilterGroup(2);
+        Line.FilterGroup(3);
         Line.SetRange(Status, Line.Status::Open);
         Line.FilterGroup(0);
         Error('%1', NamedCount(Line));
     end;
 
     [Test]
-    procedure FilterGroupTwo_CopyFrom_Refused()
+    procedure FilterGroupThree_CopyFrom_Refused()
     var
         Line: Record "BN Row";
     begin
         Seed(Line);
-        Line.FilterGroup(2);
+        Line.FilterGroup(3);
         Line.SetRange(Code, 'A');
         Line.FilterGroup(0);
         Error('%1', CopyFrom(Line));
     end;
 
     [Test]
-    procedure FilterGroupTwo_CopyThenModify_Runs()
+    procedure FilterGroupThree_CopyThenModify_Runs()
     var
         Line: Record "BN Row";
     begin
         Seed(Line);
-        Line.FilterGroup(2);
+        Line.FilterGroup(3);
         Line.SetRange(Code, 'A');
         Line.FilterGroup(0);
         if not CopyThenModify(Line) then
@@ -1328,24 +1328,24 @@ codeunit 50131 "BN Test"
     end;
 
     [Test]
-    procedure FilterGroupTwo_CopyFiltersFrom_Refused()
+    procedure FilterGroupThree_CopyFiltersFrom_Refused()
     var
         Line: Record "BN Row";
     begin
         Seed(Line);
-        Line.FilterGroup(2);
+        Line.FilterGroup(3);
         Line.SetRange(Code, 'A');
         Line.FilterGroup(0);
         Error('%1', CopyFiltersFrom(Line));
     end;
 
     [Test]
-    procedure FilterGroupTwo_TransferFieldsFrom_Runs()
+    procedure FilterGroupThree_TransferFieldsFrom_Runs()
     var
         Line: Record "BN Row";
     begin
         Seed(Line);
-        Line.FilterGroup(2);
+        Line.FilterGroup(3);
         Line.SetRange(Code, 'A');
         Line.FilterGroup(0);
         if TransferFrom(Line) <> 'B' then
@@ -1353,24 +1353,24 @@ codeunit 50131 "BN Test"
     end;
 
     [Test]
-    procedure FilterGroupTwo_GetTable_Refused()
+    procedure FilterGroupThree_GetTable_Refused()
     var
         Line: Record "BN Row";
     begin
         Seed(Line);
-        Line.FilterGroup(2);
+        Line.FilterGroup(3);
         Line.SetRange(Code, 'A');
         Line.FilterGroup(0);
         Error('%1', GetTableFilters(Line));
     end;
 
     [Test]
-    procedure FilterGroupTwo_PageRun_Refused()
+    procedure FilterGroupThree_PageRun_Refused()
     var
         Line: Record "BN Row";
     begin
         Seed(Line);
-        Line.FilterGroup(2);
+        Line.FilterGroup(3);
         Line.SetRange(Code, 'A');
         Line.FilterGroup(0);
         RunPage(Line);
@@ -1430,24 +1430,24 @@ codeunit 50131 "BN Test"
     end;
 
     [Test]
-    procedure FilterGroupTwo_GetFilters_Refused()
+    procedure FilterGroupThree_GetFilters_Refused()
     var
         Line: Record "BN Row";
     begin
         Seed(Line);
-        Line.FilterGroup(2);
+        Line.FilterGroup(3);
         Line.SetRange(Status, Line.Status::Posted);
         Line.FilterGroup(0);
         Error('%1', Filters(Line));
     end;
 
     [Test]
-    procedure FilterGroupTwo_FieldRead_Runs()
+    procedure FilterGroupThree_FieldRead_Runs()
     var
         Line: Record "BN Row";
     begin
         Seed(Line);
-        Line.FilterGroup(2);
+        Line.FilterGroup(3);
         Line.SetRange(Status, Line.Status::Open);
         Line.FilterGroup(0);
         if FieldOnly(Line) <> 'B' then
@@ -1455,12 +1455,12 @@ codeunit 50131 "BN Test"
     end;
 
     [Test]
-    procedure FilterGroupTwo_ResetThenCount_Runs()
+    procedure FilterGroupThree_ResetThenCount_Runs()
     var
         Line: Record "BN Row";
     begin
         Seed(Line);
-        Line.FilterGroup(2);
+        Line.FilterGroup(3);
         Line.SetRange(Code, 'A');
         Line.FilterGroup(0);
         if ResetThenCount(Line) <> 2 then
@@ -1468,13 +1468,14 @@ codeunit 50131 "BN Test"
     end;
 
     [Test]
-    procedure Descending_GetFilters_Refused()
+    procedure Descending_GetFilters_Flagged()
     var
         Line: Record "BN Row";
     begin
         Seed(Line);
         Line.Ascending(false);
-        Error('%1', Filters(Line));
+        if Filters(Line) <> '' then
+            Error('%1', Filters(Line));
     end;
 
     [Test]
@@ -1489,14 +1490,14 @@ codeunit 50131 "BN Test"
     end;
 
     [Test]
-    procedure Temporary_KeepsMainFilters()
+    procedure Temporary_NoFilters_Flagged()
     var
         Line: Record "BN Row" temporary;
     begin
         Line.Code := 'A';
         Line.Insert();
         Line.SetRange(Code, 'A');
-        if TempFilters(Line) <> 'Code: A' then
+        if TempFilters(Line) <> '' then
             Error('%1', TempFilters(Line));
     end;
 }
@@ -1509,33 +1510,35 @@ fn issue_8185_neighbors_refuse_a_read_of_the_view_or_keep_main() {
         ("NoFilter_AdHocKey_PrimaryKey", PASS, false),
         // The copy does not take the FlowField key's mark (record/keys-sorting/PwFlowFieldKeyRule.al:249).
         ("NoFilter_RowDependentFlowFieldKey_PrimaryKey", PASS, false),
-        // A declared secondary key is not measured: main's view.
-        ("NoFilter_DeclaredKey_KeepsMainKey", PASS, false),
+        // A declared secondary key: the primary key (corpus PR 1430, ByValueRecordView.al ByValue_SecondaryKey_NoFilter).
+        ("NoFilter_DeclaredKey_PrimaryKey", PASS, true),
         // Only a read of the view marks the assumption, also on a copy handed on.
         ("GroupZero_FieldRead_NotFlagged", PASS, false),
         ("GroupZero_PassedOn_FindFirst_Flagged", PASS, true),
-        ("FilterGroupTwo_GetFilters_Refused", VIEW_REFUSED, false),
-        ("FilterGroupTwo_FieldRead_Runs", PASS, false),
-        ("FilterGroupTwo_ResetThenCount_Runs", PASS, false),
-        ("FilterGroupTwo_MethodsThatReadNoView_Run", PASS, false),
-        ("FilterGroupTwo_CalcFields_NoFlowFilter_Runs", PASS, false),
-        ("FilterGroupTwo_CalcFields_FlowFilter_Refused", VIEW_REFUSED, false),
+        ("FilterGroupThree_GetFilters_Refused", VIEW_REFUSED, false),
+        ("FilterGroupThree_FieldRead_Runs", PASS, false),
+        ("FilterGroupThree_ResetThenCount_Runs", PASS, false),
+        ("FilterGroupThree_MethodsThatReadNoView_Run", PASS, false),
+        ("FilterGroupThree_CalcFields_NoFlowFilter_Runs", PASS, false),
+        ("FilterGroupThree_CalcFields_FlowFilter_Refused", VIEW_REFUSED, false),
         // A hand-off of the copy to code that reads its view refuses; TransferFields reads its fields only.
         // Copy hands the copy's mark on: a read of the target's view refuses, its Modify runs (pages/link-filter/
         // LinkCopyRecordMethods.al:105-107 copies a by-value Rec and modifies the copy).
-        ("FilterGroupTwo_CopyFrom_Refused", VIEW_REFUSED, false),
-        ("FilterGroupTwo_CopyThenModify_Runs", PASS, false),
-        ("FilterGroupTwo_CopyFiltersFrom_Refused", VIEW_REFUSED, false),
-        ("FilterGroupTwo_TransferFieldsFrom_Runs", PASS, false),
-        ("FilterGroupTwo_GetTable_Refused", VIEW_REFUSED, false),
-        ("FilterGroupTwo_PageRun_Refused", VIEW_REFUSED, false),
+        ("FilterGroupThree_CopyFrom_Refused", VIEW_REFUSED, false),
+        ("FilterGroupThree_CopyThenModify_Runs", PASS, false),
+        ("FilterGroupThree_CopyFiltersFrom_Refused", VIEW_REFUSED, false),
+        ("FilterGroupThree_TransferFieldsFrom_Runs", PASS, false),
+        ("FilterGroupThree_GetTable_Refused", VIEW_REFUSED, false),
+        ("FilterGroupThree_PageRun_Refused", VIEW_REFUSED, false),
         ("GroupZero_PageRun_Flagged", PASS, true),
         // Copy hands the assumed view on: a later test that reads the kept copy is flagged too.
         ("GroupZero_CopyKept_Flagged", PASS, true),
         ("GroupZero_CopyKept_LaterRead_Flagged", PASS, true),
-        ("Descending_GetFilters_Refused", VIEW_REFUSED, false),
+        // Descending and a temporary record into a stored parameter: no filters (ByValueRecordView.al
+        // ByValue_Descending_NoFilter, ByValue_TemporaryToPlainParameter).
+        ("Descending_GetFilters_Flagged", PASS, true),
         ("ByVar_KeepsFilters", PASS, false),
-        ("Temporary_KeepsMainFilters", PASS, false),
+        ("Temporary_NoFilters_Flagged", PASS, true),
     ];
     check(&o, &want);
 }
@@ -1693,4 +1696,471 @@ fn issue_8006_reporter_repro_fails_the_modify_of_17530101d() {
         "{}",
         o[0].1
     );
+}
+
+/// al-runner issue 8248, the reporter's app as written. The first three tests end with Error on purpose to print a count; on BC
+/// 29.0 each prints `counts 2 of 2 rows`, and UniquenessCheckSeesTheLinkedRow passes.
+const ISSUE_8248: &str = r##"
+table 51260 "Repro Value"
+{
+    fields
+    {
+        field(1; ID; Integer) { }
+        field(2; Name; Text[50]) { }
+        field(3; "Store Filter"; Code[10]) { FieldClass = FlowFilter; }
+        field(4; "Link Id"; Integer)
+        {
+            FieldClass = FlowField;
+            CalcFormula = lookup("Repro Value Link"."Remote Id" where("Value ID" = field(ID), Store = field("Store Filter")));
+        }
+    }
+    keys { key(PK; ID) { Clustered = true; } }
+
+    procedure CountSameName(Copy: Record "Repro Value"): Integer
+    begin
+        // the way the base app checks uniqueness: a by-value copy, new filters only
+        Copy.SetFilter(ID, '<>%1', Copy.ID);
+        Copy.SetRange(Name, Copy.Name);
+        exit(Copy.Count());
+    end;
+}
+
+table 51261 "Repro Value Link"
+{
+    fields
+    {
+        field(1; "Value ID"; Integer) { }
+        field(2; Store; Code[10]) { }
+        field(3; "Remote Id"; Integer) { }
+    }
+    keys { key(PK; "Value ID", Store) { Clustered = true; } }
+}
+
+codeunit 51262 "Repro By-Value Filter Test"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    local procedure Setup(var Rec: Record "Repro Value")
+    var
+        Link: Record "Repro Value Link";
+    begin
+        Rec.DeleteAll();
+        Link.DeleteAll();
+        Rec.ID := 1; Rec.Name := 'Aquagrey'; Rec.Insert();
+        Link."Value ID" := 1; Link.Store := 'MAIN'; Link."Remote Id" := 77; Link.Insert();
+        Rec.ID := 2; Rec.Name := 'Aquagrey'; Rec.Insert();
+    end;
+
+    local procedure CountAll(Copy: Record "Repro Value"): Integer
+    begin
+        exit(Copy.Count());
+    end;
+
+    [Test]
+    procedure PlainFilterInByValueCopy()
+    var
+        Rec: Record "Repro Value";
+    begin
+        Setup(Rec);
+        Rec.SetRange(ID, 2);
+        Error('by-value copy counts %1 of 2 rows (plain filter ID=2 set in the caller)', CountAll(Rec));
+    end;
+
+    [Test]
+    procedure FlowFieldFilterInByValueCopy()
+    var
+        Rec: Record "Repro Value";
+    begin
+        Setup(Rec);
+        Rec.SetRange("Store Filter", 'MAIN');
+        Rec.SetRange("Link Id", 0);
+        Error('by-value copy counts %1 of 2 rows (FlowField filter Link Id=0 set in the caller)', CountAll(Rec));
+    end;
+
+    [Test]
+    procedure FilterGroupMinusOneInByValueCopy()
+    var
+        Rec: Record "Repro Value";
+    begin
+        Setup(Rec);
+        Rec.FilterGroup(-1);
+        Rec.SetFilter(ID, '2');
+        Rec.SetFilter(Name, 'Nothing');
+        Rec.FilterGroup(0);
+        Error('by-value copy counts %1 of 2 rows (filter group -1 set in the caller)', CountAll(Rec));
+    end;
+
+    [Test]
+    procedure UniquenessCheckSeesTheLinkedRow()
+    var
+        Rec: Record "Repro Value";
+    begin
+        Setup(Rec);
+        // the caller searched for an unlinked row with this name, then works on row 2
+        Rec.SetRange("Store Filter", 'MAIN');
+        Rec.SetRange("Link Id", 0);
+        Rec.Get(2);
+        if Rec.CountSameName(Rec) <> 1 then
+            Error('The uniqueness check found %1 rows named %2; the linked row 1 has the same name.', Rec.CountSameName(Rec), Rec.Name);
+    end;
+}
+"##;
+
+#[test]
+fn issue_8248_reporter_repro_gives_the_by_value_copy_no_filters() {
+    let o = run(ISSUE_8248, "Repro By-Value Filter Test");
+    let want = [
+        ("PlainFilterInByValueCopy", "by-value copy counts 2 of 2 rows"),
+        ("FlowFieldFilterInByValueCopy", "by-value copy counts 2 of 2 rows"),
+        ("FilterGroupMinusOneInByValueCopy", "by-value copy counts 2 of 2 rows"),
+        ("UniquenessCheckSeesTheLinkedRow", PASS),
+    ];
+    let mut wrong = Vec::new();
+    for (name, text) in want {
+        let (_, outcome, flagged) = o
+            .iter()
+            .find(|(n, ..)| n == name)
+            .unwrap_or_else(|| panic!("no test {name}"));
+        let ok = if text == PASS {
+            outcome.starts_with(PASS)
+        } else {
+            outcome.contains(text)
+        };
+        if !ok || !flagged {
+            wrong.push(format!("{name}: {outcome} (flagged {flagged})"));
+        }
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+/// The shapes of corpus PR 1430 (record/filters/ByValueRecordView.al) beyond issue 8185, and their neighbors, one fact flipped
+/// each.
+const BY_VALUE_VIEWS: &str = r##"
+table 50150 "BW Row"
+{
+    fields
+    {
+        field(1; "Code"; Code[10]) { }
+        field(2; Status; Option) { OptionMembers = Open,Posted; }
+        field(3; Name; Text[30]) { }
+        field(4; Amount; Decimal) { }
+    }
+    keys { key(PK; "Code") { Clustered = true; } key(ByName; Name) { } }
+
+    procedure FiltersOfOther(Other: Record "BW Other"): Text
+    begin
+        exit(Other.GetFilters());
+    end;
+}
+
+table 50151 "BW Other"
+{
+    fields { field(1; "Code"; Code[10]) { } field(2; Status; Option) { OptionMembers = Open,Posted; } }
+    keys { key(PK; "Code") { Clustered = true; } }
+}
+
+tableextension 50152 "BW Row Ext" extends "BW Row"
+{
+    procedure ExtFilters(Line: Record "BW Row"): Text
+    begin
+        exit(Line.GetFilters());
+    end;
+}
+
+page 50153 "BW Rows"
+{
+    PageType = List;
+    SourceTable = "BW Row";
+    layout { area(Content) { repeater(R) { field(Code; Rec.Code) { } } } }
+
+    procedure PageFilters(Line: Record "BW Row"): Text
+    begin
+        exit(Line.GetFilters());
+    end;
+
+    procedure PageKey(Line: Record "BW Row"): Text
+    begin
+        exit(Line.CurrentKey());
+    end;
+}
+
+codeunit 50154 "BW Callee"
+{
+    procedure Describe(Line: Record "BW Row"): Text
+    begin
+        exit('f={' + Line.GetFilters() + '} n=' + Format(Line.Count()) + ' key=' + Line.CurrentKey() + ' asc='
+            + Format(Line.Ascending()) + ' grp=' + Format(Line.FilterGroup()) + ' mo=' + Format(Line.MarkedOnly()));
+    end;
+
+    procedure Loaded(Line: Record "BW Row"): Text
+    begin
+        Line.FindFirst();
+        exit(Format(Line.AreFieldsLoaded(Amount)));
+    end;
+
+    procedure Temp(Line: Record "BW Row"): Text
+    begin
+        exit('temp=' + Format(Line.IsTemporary()) + ' f={' + Line.GetFilters() + '}');
+    end;
+}
+
+codeunit 50155 "BW Test"
+{
+    Subtype = Test;
+
+    var
+        Callee: Codeunit "BW Callee";
+
+    local procedure Seed(var Line: Record "BW Row")
+    begin
+        Line.DeleteAll();
+        Line.Code := 'A';
+        Line.Name := 'z';
+        Line.Insert();
+        Line.Code := 'B';
+        Line.Name := 'y';
+        Line.Status := Line.Status::Posted;
+        Line.Insert();
+    end;
+
+    local procedure Expect(Got: Text; Want: Text)
+    begin
+        if Got <> Want then
+            Error('%1', Got);
+    end;
+
+    local procedure InGroup(var Line: Record "BW Row"; Group: Integer)
+    begin
+        Line.FilterGroup(Group);
+        Line.SetRange(Status, Line.Status::Posted);
+        Line.FilterGroup(0);
+    end;
+
+    [Test]
+    procedure Group2_Flagged()
+    var
+        Line: Record "BW Row";
+    begin
+        Seed(Line);
+        InGroup(Line, 2);
+        Expect(Callee.Describe(Line), 'f={} n=2 key=Code asc=Yes grp=0 mo=No');
+    end;
+
+    [Test]
+    procedure Group4_Flagged()
+    var
+        Line: Record "BW Row";
+    begin
+        Seed(Line);
+        InGroup(Line, 4);
+        Expect(Callee.Describe(Line), 'f={} n=2 key=Code asc=Yes grp=0 mo=No');
+    end;
+
+    [Test]
+    procedure GroupMinus1_TwoFields_Flagged()
+    var
+        Line: Record "BW Row";
+    begin
+        Seed(Line);
+        Line.FilterGroup(-1);
+        Line.SetFilter(Code, 'B');
+        Line.SetFilter(Name, 'NOTHING');
+        Line.FilterGroup(0);
+        Expect(Callee.Describe(Line), 'f={} n=2 key=Code asc=Yes grp=0 mo=No');
+    end;
+
+    [Test]
+    procedure CallerStandsInGroup2_Flagged()
+    var
+        Line: Record "BW Row";
+    begin
+        Seed(Line);
+        Line.SetRange(Status, Line.Status::Posted);
+        Line.FilterGroup(2);
+        Line.SetRange(Status, Line.Status::Posted);
+        Expect(Callee.Describe(Line), 'f={} n=2 key=Code asc=Yes grp=0 mo=No');
+    end;
+
+    [Test]
+    procedure Descending_SecondaryKey_Marks_Flagged()
+    var
+        Line: Record "BW Row";
+    begin
+        Seed(Line);
+        Line.SetCurrentKey(Name);
+        Line.Ascending(false);
+        Line.Get('B');
+        Line.Mark(true);
+        Line.MarkedOnly(true);
+        Expect(Callee.Describe(Line), 'f={} n=2 key=Code asc=Yes grp=0 mo=No');
+    end;
+
+    [Test]
+    procedure DeclaredKey_NoFilter_Flagged()
+    var
+        Line: Record "BW Row";
+    begin
+        Seed(Line);
+        Line.SetCurrentKey(Name);
+        Expect(Callee.Describe(Line), 'f={} n=2 key=Code asc=Yes grp=0 mo=No');
+    end;
+
+    [Test]
+    procedure SetLoadFields_BeforeAnyRead_Flagged()
+    var
+        Line: Record "BW Row";
+    begin
+        Seed(Line);
+        Line.SetLoadFields(Name);
+        Line.SetRange(Status, Line.Status::Posted);
+        Expect(Callee.Loaded(Line), 'Yes');
+    end;
+
+    [Test]
+    procedure TemporaryToPlainParameter_Flagged()
+    var
+        Line: Record "BW Row" temporary;
+    begin
+        Line.Code := 'A';
+        Line.Insert();
+        Line.SetRange(Code, 'A');
+        Expect(Callee.Temp(Line), 'temp=No f={}');
+    end;
+
+    [Test]
+    procedure TemporaryToPlainParameter_NoFilter_NotFlagged()
+    var
+        Line: Record "BW Row" temporary;
+    begin
+        Line.Code := 'A';
+        Line.Insert();
+        Expect(Callee.Temp(Line), 'temp=No f={}');
+    end;
+
+    [Test]
+    procedure Group3_Refused()
+    var
+        Line: Record "BW Row";
+    begin
+        Seed(Line);
+        InGroup(Line, 3);
+        Expect(Callee.Describe(Line), '');
+    end;
+
+    [Test]
+    procedure CallerStandsInGroup4_Refused()
+    var
+        Line: Record "BW Row";
+    begin
+        Seed(Line);
+        Line.FilterGroup(4);
+        Expect(Callee.Describe(Line), '');
+    end;
+
+    [Test]
+    procedure FieldDescending_Refused()
+    var
+        Line: Record "BW Row";
+    begin
+        Seed(Line);
+        Line.SetAscending(Code, false);
+        Expect(Callee.Describe(Line), '');
+    end;
+
+    [Test]
+    procedure PageProcedure_Group0Filter_Refused()
+    var
+        Line: Record "BW Row";
+        Rows: Page "BW Rows";
+    begin
+        Seed(Line);
+        Line.SetRange(Code, 'A');
+        Expect(Rows.PageFilters(Line), '');
+    end;
+
+    [Test]
+    procedure PageProcedure_NoFilter_KeepsMain()
+    var
+        Line: Record "BW Row";
+        Rows: Page "BW Rows";
+    begin
+        Seed(Line);
+        Expect(Rows.PageKey(Line), 'Code');
+    end;
+
+    [Test]
+    procedure TableExtensionProcedure_Group0Filter_Refused()
+    var
+        Line: Record "BW Row";
+    begin
+        Seed(Line);
+        Line.SetRange(Code, 'A');
+        Expect(Line.ExtFilters(Line), '');
+    end;
+
+    [Test]
+    procedure TableProcedure_OtherTable_Refused()
+    var
+        Line: Record "BW Row";
+        Other: Record "BW Other";
+    begin
+        Seed(Line);
+        Other.SetRange(Code, 'A');
+        Expect(Line.FiltersOfOther(Other), '');
+    end;
+
+    [Test]
+    procedure ByVar_KeepsFilters()
+    var
+        Line: Record "BW Row";
+    begin
+        Seed(Line);
+        Line.SetRange(Code, 'A');
+        Expect(ByVar(Line), 'Code: A');
+    end;
+
+    local procedure ByVar(var Line: Record "BW Row"): Text
+    begin
+        exit(Line.GetFilters());
+    end;
+
+    // Last: the filter of group 1 it leaves is seen by every record of the table in the session.
+    [Test]
+    procedure Group1_Refused()
+    var
+        Line: Record "BW Row";
+    begin
+        Seed(Line);
+        InGroup(Line, 1);
+        Expect(Callee.Describe(Line), '');
+    end;
+}
+"##;
+
+#[test]
+fn by_value_views_of_the_probe_run_flagged_and_their_neighbors_refuse_or_keep_main() {
+    let o = run(BY_VALUE_VIEWS, "BW Test");
+    let want = [
+        ("Group2_Flagged", PASS, true),
+        ("Group4_Flagged", PASS, true),
+        ("GroupMinus1_TwoFields_Flagged", PASS, true),
+        ("CallerStandsInGroup2_Flagged", PASS, true),
+        ("Descending_SecondaryKey_Marks_Flagged", PASS, true),
+        ("DeclaredKey_NoFilter_Flagged", PASS, true),
+        ("SetLoadFields_BeforeAnyRead_Flagged", PASS, true),
+        ("TemporaryToPlainParameter_Flagged", PASS, true),
+        // No filter to drop: what main gave (record/temporary/TempRecordByValue.al pins the stored table).
+        ("TemporaryToPlainParameter_NoFilter_NotFlagged", PASS, false),
+        ("Group1_Refused", VIEW_REFUSED, false),
+        ("Group3_Refused", VIEW_REFUSED, false),
+        ("CallerStandsInGroup4_Refused", VIEW_REFUSED, false),
+        ("FieldDescending_Refused", VIEW_REFUSED, false),
+        ("PageProcedure_Group0Filter_Refused", VIEW_REFUSED, false),
+        ("PageProcedure_NoFilter_KeepsMain", PASS, false),
+        ("TableExtensionProcedure_Group0Filter_Refused", VIEW_REFUSED, false),
+        ("TableProcedure_OtherTable_Refused", VIEW_REFUSED, false),
+        ("ByVar_KeepsFilters", PASS, false),
+    ];
+    check(&o, &want);
 }
