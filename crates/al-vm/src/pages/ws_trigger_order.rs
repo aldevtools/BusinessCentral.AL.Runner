@@ -14,7 +14,7 @@
 //! same shape outside the cells refuses at the open where main's order is known to differ (`ws_open_neighbor`); every other page
 //! keeps main's path.
 
-use super::pinned_body::{Callees, callees_are, page_is, routine_text, table_is};
+use super::pinned_body::{Callees, Names, callees_are, page_is, routine_text, table_is};
 use super::pinned_shape::TestCall;
 use super::*;
 use al_builtins::page_op::PageMethod;
@@ -198,12 +198,13 @@ impl Session {
             let object = st.borrow().object as usize;
             let table = rec.borrow().table as usize;
             let mut callees = Callees::new();
+            let mut names = Names::default();
             let pin = if caption { CAP_PAGE } else { NOCAP_PAGE };
             let expression = !caption || probe_expression(&engine.program, object, &mut callees);
-            page_is(&engine, object, pin, &mut callees)
+            page_is(&engine, object, pin, &mut callees, &mut names)
                 && expression
-                && table_is(&engine, table, ROW_TABLE, &mut callees)
-                && callees_are(&engine, &callees, LOG_ADD)
+                && table_is(&engine, table, ROW_TABLE, &mut callees, &mut names)
+                && callees_are(&engine, &callees, LOG_ADD, &mut names)
         };
         if !probe_page && !self.neighbor_shape(st) {
             return Ok(None);

@@ -6,7 +6,7 @@
 //! DataCaptionExprPureOpen.al refuse with it), except the two opens of Microsoft's pages `data_caption_kept_open.rs` keeps under
 //! an assumption. Every other page keeps main's path (`data_caption_run.rs`, `caption_expr_list.rs`).
 
-use super::pinned_shape::{NextEnd, PinnedEnd};
+use super::pinned_shape::{NextEnd, PinnedEnd, Reads};
 use super::*;
 use crate::ui::UiKind;
 use al_builtins::filter::{FieldFilter, FilterExpr};
@@ -17,7 +17,7 @@ use al_builtins::page_op::PageMethod;
 const OPENED_END: PinnedEnd = PinnedEnd {
     reason: "a call of the test on a page whose DataCaptionExpression ran at the open as DataCaptionExprWorksheet.al measured, \
              other than Caption, a control's value read or Close (not pinned)",
-    reads: true,
+    reads: Reads::Any,
     caption: true,
     part_reads: false,
     one_action: false,
