@@ -44,6 +44,7 @@ mod consistent_guarded_run;
 mod control_add_in_calls;
 mod conversions;
 mod corpus_bump_bot;
+mod corpus_bump_combined;
 mod corpus_bump_from_pr;
 mod corpus_bump_script;
 mod data_caption_expression;
