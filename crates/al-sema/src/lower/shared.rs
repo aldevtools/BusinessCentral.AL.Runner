@@ -1219,8 +1219,9 @@ pub(crate) fn plain_text_constant(t: &ast::TypeRef) -> bool {
     }
 }
 
+/// A string literal with at least one character between its quotes (every pinned text has one, `Simple` of VaTTextConst.al:13 among them; the empty text of :16 never goes into a Variant).
 fn text_not_empty(t: &al_syntax::SyntaxToken) -> bool {
-    t.kind() == SyntaxKind::StringLit && t.text() != "''"
+    t.kind() == SyntaxKind::StringLit && t.text().len() >= 3
 }
 
 /// Whether a declaration is of type `TextConst`.
