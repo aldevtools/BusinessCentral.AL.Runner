@@ -400,3 +400,24 @@ fn strict_after_runs_the_listed_codeunits_again_over_the_same_compile() {
     assert_eq!(rt.outcome_in("", &case("ReadsTheFlag", 60472)), Outcome::Pass);
     assert_eq!(rt.phases.compiles, 1);
 }
+
+/// al-runner issue 8247: under `--strict-order` with Codeunit isolation a later codeunit reads the numbers an earlier
+/// codeunit took (Y35OnRunStorage.al:30-31) also in a message handler of its test and in a table event behind a RecordRef
+/// insert: the codeunit joins the chain whichever of its routines reads the sequence.
+#[test]
+fn strict_order_chains_the_numbers_to_a_handler_and_a_recordref_reader() {
+    let rt = run(&with_hidden_readers(), &strict());
+    for test in ["ReadsCurrent", "TakesTwo", "ReadsInHandler", "ReadsThroughRecRef"] {
+        assert_eq!(
+            result(&rt, test).outcome,
+            Outcome::Pass,
+            "{test}: {:?}",
+            result(&rt, test)
+        );
+    }
+    // The default run lists the handler reader after the taker too; a codeunit that reads nothing stays out.
+    let rt = run(&with_hidden_readers(), &RunOptions::default());
+    let listed: Vec<u32> = rt.phases.chain.numbers_order.iter().map(|n| n.codeunit).collect();
+    assert!(listed.contains(&60479), "{listed:?}");
+    assert!(!listed.contains(&60477), "{listed:?}");
+}

@@ -1,6 +1,49 @@
 //! The handler functions a test declares, bound for the length of the test.
 use super::*;
 
+/// The names a `[HandlerFunctions('A,B')]` attribute lists, or `None` when its argument is no text.
+fn handler_names(attr: &al_ir::Attribute) -> Option<Vec<String>> {
+    match attr.args.as_slice() {
+        [al_ir::Const::Text(list)] => Some(list.split(',').map(|n| n.trim().to_string()).collect()),
+        _ => None,
+    }
+}
+
+/// The routines test codeunit `oi` starts AL code from: its `[Test]` methods, its `OnRun` trigger with `onrun`, and the
+/// handler functions its tests name in `[HandlerFunctions]`, which the test runner calls while the test runs. The one root
+/// list of a test codeunit's static reach (`chain.rs`, `corpus.rs` `reaches_session_storage`, `strict_taint.rs`). A name
+/// that is no routine of the codeunit adds nothing: `resolve_handlers` refuses that test.
+pub(crate) fn unit_roots(lowered: &Lowered, oi: usize, onrun: bool) -> Vec<(usize, usize)> {
+    let o = &lowered.program.objects[oi];
+    let is_test = |r: &al_ir::Routine| r.attributes.iter().any(|a| a.name.eq_ignore_ascii_case("Test"));
+    let mut roots: Vec<usize> = (0..o.routines.len())
+        .filter(|&r| {
+            let routine = &o.routines[r];
+            is_test(routine) || (onrun && routine.is_trigger && routine.name.eq_ignore_ascii_case("OnRun"))
+        })
+        .collect();
+    let named: Vec<String> = o
+        .routines
+        .iter()
+        .filter(|r| is_test(r))
+        .flat_map(|r| {
+            r.attributes
+                .iter()
+                .filter(|a| a.name.eq_ignore_ascii_case("HandlerFunctions"))
+        })
+        .filter_map(handler_names)
+        .flatten()
+        .collect();
+    for name in named {
+        if let Some(hr) = o.routines.iter().position(|r| r.name.eq_ignore_ascii_case(&name)) {
+            if !roots.contains(&hr) {
+                roots.push(hr);
+            }
+        }
+    }
+    roots.into_iter().map(|r| (oi, r)).collect()
+}
+
 /// The handler functions test routine `test` of `object` declares with
 /// `[HandlerFunctions('A,B')]`, as (kind, routine index), or why the test
 /// cannot run with them. Handlers whose kind is not implemented are refused
@@ -17,9 +60,8 @@ pub(crate) fn resolve_handlers(lowered: &Lowered, object: usize, test: usize) ->
         .iter()
         .filter(|a| a.name.eq_ignore_ascii_case("HandlerFunctions"))
     {
-        let names: Vec<String> = match attr.args.as_slice() {
-            [al_ir::Const::Text(list)] => list.split(',').map(|n| n.trim().to_string()).collect(),
-            _ => return Err(format!("{} is not a list of handler names", attr.text)),
+        let Some(names) = handler_names(attr) else {
+            return Err(format!("{} is not a list of handler names", attr.text));
         };
         for name in names {
             let Some(hr) = obj.routines.iter().position(|r| r.name.eq_ignore_ascii_case(&name)) else {
