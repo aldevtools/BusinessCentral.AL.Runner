@@ -1206,6 +1206,7 @@ fn walk_report<V: RefVisitor>(r: &mut Report, v: &mut V) {
         bare_processing_only: _,
         output: _,
         unsupported: _,
+        extension_order: _,
         caption: _,
         caption_attributes: _,
         format_region: _,

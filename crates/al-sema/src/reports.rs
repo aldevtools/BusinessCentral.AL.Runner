@@ -951,7 +951,8 @@ pub struct Context<'a> {
     pub request_flag_slot: usize,
     /// (object, source offset) to routine index.
     pub routine_at: &'a crate::lower::RoutineAt,
-    /// Reportextensions that change what a run does: why the report cannot run yet.
+    /// Why the order of the reportextensions that change what a run does is not pinned (`lower/ext_order.rs`). It becomes
+    /// `ir::Report::extension_order`, which refuses a run of the report but not a variable of it.
     pub extension_reasons: Vec<String>,
     /// The unprobed assumptions the order of [`Context::extensions`] rests on.
     pub extension_assumes: Vec<al_builtins::assumptions::Assumption>,
@@ -1449,7 +1450,6 @@ pub fn build(cx: &Context, obj: &ast::Object, mut reasons: Vec<String>) -> ir::R
     }
     caption_sources(cx.members, &layout.items, &mut items);
     reasons.extend(layout.reasons.iter().cloned());
-    reasons.extend(cx.extension_reasons.iter().cloned());
     ir::Report {
         processing_only: layout.processing_only,
         use_request_page: layout.use_request_page,
@@ -1468,6 +1468,7 @@ pub fn build(cx: &Context, obj: &ast::Object, mut reasons: Vec<String>) -> ir::R
         bare_processing_only: bare_processing_report(obj),
         output: layout.output.clone(),
         unsupported: reasons,
+        extension_order: cx.extension_reasons.first().cloned(),
         caption: layout.caption.clone(),
         caption_attributes: layout.caption_attributes,
         format_region: layout.format_region.clone(),
