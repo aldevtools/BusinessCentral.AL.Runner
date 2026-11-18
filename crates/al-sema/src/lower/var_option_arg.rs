@@ -4,7 +4,8 @@
 //! OptionVarMemberLists.al and OptionVarMemberlessEvaluate.al; corpus PR 1439: OptionVarMemberlessCallers.al and
 //! OptionVarMemberlessWrites.al). This module refuses each pair of call kind (procedure, interface method) and caller the
 //! probes do not measure, leaves an event publisher called directly to the run (al-vm
-//! `Session::var_option_publisher_refusal`), and routes `A[i] := x` into an array of memberless Options to the run.
+//! `Session::var_option_publisher_refusal`), and routes `A[i] := x` into an array of memberless Options to the run, marking
+//! `x` when it is a variable of the routine's `var` section.
 use super::*;
 use al_builtins::option_members::memberless;
 
@@ -146,8 +147,8 @@ impl Lowerer<'_> {
         }
         let call = match target {
             None => Call::Interface,
-            // An event publisher runs no code of its own: the run refuses the call where a subscriber hears it and keeps
-            // main's result where none does (al-vm `Session::var_option_publisher_refusal`).
+            // An event publisher runs no code of its own: the run refuses the call where a subscriber hears it, and binds and
+            // hands back as on main where none does (al-vm `Session::var_option_publisher_refusal`, `unheard_publisher`).
             Some((o, r))
                 if self.routine_has_attribute(o, r, &["IntegrationEvent", "BusinessEvent", "InternalEvent"]) =>
             {
@@ -292,7 +293,9 @@ impl Lowerer<'_> {
     /// `A[i] := x` into an element of an array of Options declared without members, `x` an Integer or an Option: the value goes
     /// in unconverted, so that the run tells an Integer, an Option without members and an Option with its own members apart
     /// in an element that holds a caller's members (al-vm `var_option::element_store`, corpus PR 1439,
-    /// OptionVarMemberlessWrites.al:472); in any other element the run converts it as the assignment would. `A := B` of an
+    /// OptionVarMemberlessWrites.al:472); in any other element the run converts it as the assignment would. An Option `x` that is
+    /// a variable of the routine's `var` section goes in as `ir::Expr::VarSectionValue`: the measured stores take their value
+    /// from one (OVMW:762, :771, :780); the value of another place may hold another list than its declared one. `A := B` of an
     /// array of Options with members into one of Options without members refuses: the probe notes that BC does not compile
     /// it (AL0145, OptionVarMemberlessWrites.al:31) and measures CopyArray instead (:530, :551). `None`: another statement.
     pub(super) fn memberless_option_array_assign(
@@ -310,8 +313,22 @@ impl Lowerer<'_> {
                 )),
                 _ => None,
             },
-            (Ty::Option(m), Ty::Integer | Ty::Option(_)) if kids[0].kind() == SyntaxKind::IndexExpr && memberless(&m) => {
+            (Ty::Option(m), Ty::Integer) if kids[0].kind() == SyntaxKind::IndexExpr && memberless(&m) => {
                 Some(self.place(&kids[0]).and_then(|place| Ok(ir::Stmt::Assign(place, self.expr(&kids[1])?))))
+            }
+            (Ty::Option(m), Ty::Option(_)) if kids[0].kind() == SyntaxKind::IndexExpr && memberless(&m) => {
+                Some(self.place(&kids[0]).and_then(|place| {
+                    let value = self.expr(&kids[1])?;
+                    let value = match &value {
+                        ir::Expr::Load(p)
+                            if self.var_option_caller(&kids[1], &ir::Arg::Ref(p.clone())) == Caller::DeclaredLocal =>
+                        {
+                            ir::Expr::VarSectionValue(Box::new(value))
+                        }
+                        _ => value,
+                    };
+                    Ok(ir::Stmt::Assign(place, value))
+                }))
             }
             _ => None,
         }

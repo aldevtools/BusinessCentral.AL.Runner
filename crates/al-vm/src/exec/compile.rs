@@ -744,17 +744,8 @@ impl<'a> Compiler<'a> {
                 self.aux(AuxSite::FieldOf { pos: *pos }, d, a);
             }
             E::QueryColumn { query, column } => self.query_column(query, *column, d)?,
-            E::TddFit { max, why, inner } | E::FitOrRefuse { max, why, inner } => {
-                let a = self.expr_any(inner)?;
-                self.aux(
-                    AuxSite::Fit {
-                        max: *max,
-                        why: why.clone(),
-                    },
-                    d,
-                    a,
-                );
-            }
+            E::VarSectionValue(inner) => self.expr_into(inner, d)?,
+            E::TddFit { max, why, inner } | E::FitOrRefuse { max, why, inner } => self.fit_into(*max, why, inner, d)?,
             E::TddStub { stub, args, ty } => {
                 // The arguments run left to right for what they do, as a call's would; the stub reads none of them.
                 for a in args {
@@ -837,6 +828,14 @@ impl<'a> Compiler<'a> {
                 ir::Place::Index(Box::new(base), regs)
             }
         })
+    }
+
+    /// `ir::Expr::TddFit` and `ir::Expr::FitOrRefuse`: `inner`, refused when it is a text longer than `max`.
+    fn fit_into(&mut self, max: u32, why: &str, inner: &'a ir::Expr, d: u16) -> R<()> {
+        let a = self.expr_any(inner)?;
+        let why = why.to_string();
+        self.aux(AuxSite::Fit { max, why }, d, a);
+        Ok(())
     }
 
     /// A query column read; the site keeps the global slot when the query is a global variable (`query_reopen`).
@@ -1341,6 +1340,13 @@ impl<'a> Compiler<'a> {
                     && matches!(self.locals_ty.get(*i), Some(RtType::Option(m)) if al_builtins::option_members::memberless(m)) =>
             {
                 self.store_place(p, e, single)?;
+            }
+            // An element of an array of memberless Options stored from a variable of the `var` section (`var_option::element_store`).
+            ir::Place::Index(..) if let ir::Expr::VarSectionValue(inner) = e => {
+                let a = self.expr_copy(inner)?;
+                let rp = self.rplace(p)?;
+                let p = self.place(&rp);
+                self.emit(Op::StoreVarSectionValue { p, a });
             }
             // A local of a typed kind takes a proven value of that kind straight into its register.
             ir::Place::Local(i)

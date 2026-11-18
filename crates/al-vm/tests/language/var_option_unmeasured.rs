@@ -92,6 +92,7 @@ codeunit 69855 C
         GRow: Record VRow;
         GArr: array[2] of Option First,Second,Third;
         GArr0: array[2] of Option;
+        GlobalPqr: Option P,Q,R;
 
     procedure LocalHop(): Text
     var Pub: Codeunit VPub; V: Option First,Second,Third; Seen: Text;
@@ -370,6 +371,159 @@ codeunit 69855 C
         exit(Format(A[1]) + '|' + Format(A[1], 0, 2));
     end;
 
+    procedure VarArrayAssignOtherArrayElement(): Text
+    var Arr: array[2] of Option First,Second,Third; Other: array[2] of Option P,Q,R;
+    begin
+        Arr[1] := Arr[1]::First;
+        Other[2] := Other[2]::R;
+        exit(StoreFromOtherArray(Arr, Other));
+    end;
+
+    local procedure StoreFromOtherArray(var A: array[2] of Option; var B: array[2] of Option): Text
+    begin
+        A[1] := B[2];
+        exit(Format(A[1]) + '|' + Format(A[1], 0, 2));
+    end;
+
+    procedure VarArrayAssignVarParameter(): Text
+    var Arr: array[2] of Option First,Second,Third; V: Option P,Q,R;
+    begin
+        Arr[1] := Arr[1]::First;
+        V := V::R;
+        exit(StoreFromVarParameter(Arr, V));
+    end;
+
+    local procedure StoreFromVarParameter(var A: array[2] of Option; var Value: Option): Text
+    begin
+        A[1] := Value;
+        exit(Format(A[1]) + '|' + Format(A[1], 0, 2));
+    end;
+
+    procedure VarArrayAssignGlobal(): Text
+    var Arr: array[2] of Option First,Second,Third;
+    begin
+        Arr[1] := Arr[1]::First;
+        GlobalPqr := GlobalPqr::R;
+        exit(StoreFromGlobal(Arr));
+    end;
+
+    local procedure StoreFromGlobal(var A: array[2] of Option): Text
+    begin
+        A[1] := GlobalPqr;
+        exit(Format(A[1]) + '|' + Format(A[1], 0, 2));
+    end;
+
+    procedure VarArrayAssignLocal(): Text
+    var Arr: array[2] of Option First,Second,Third;
+    begin
+        Arr[1] := Arr[1]::First;
+        exit(StoreFromLocal(Arr));
+    end;
+
+    local procedure StoreFromLocal(var A: array[2] of Option): Text
+    var L: Option P,Q,R;
+    begin
+        L := L::R;
+        A[1] := L;
+        exit(Format(A[1]) + '|' + Format(A[1], 0, 2));
+    end;
+
+    procedure LocalArrayAssignVarParameter(): Text
+    var V: Option P,Q,R;
+    begin
+        V := V::R;
+        exit(LocalElementFromVarParameter(V));
+    end;
+
+    local procedure LocalElementFromVarParameter(var Value: Option): Text
+    var A: array[2] of Option;
+    begin
+        A[1] := Value;
+        exit(Format(A[1]) + '|' + Format(A[1], 0, 2));
+    end;
+
+    procedure UnheardFromParameters(): Text
+    var V: Option First,Second,Third; Seen: Text;
+    begin
+        V := V::Second;
+        UnheardNamedReturn(Seen);
+        exit(UnheardByValue(V) + '@' + Seen);
+    end;
+
+    local procedure UnheardByValue(Value: Option First,Second,Third): Text
+    var Pub: Codeunit VPub;
+    begin
+        Pub.OnUnheardMemberless(Value);
+        exit(Format(Value) + '|' + Format(Value, 0, 2));
+    end;
+
+    local procedure UnheardNamedReturn(var Seen: Text) Value: Option First,Second,Third
+    var Pub: Codeunit VPub;
+    begin
+        Value := Value::Second;
+        Pub.OnUnheardMemberless(Value);
+        Seen := Format(Value) + '|' + Format(Value, 0, 2);
+    end;
+
+    procedure UnheardFromMemberlessVarParam(): Text
+    var V: Option First,Second,Third; Inside: Text;
+    begin
+        V := V::Second;
+        Inside := HandOnToUnheard(V);
+        exit(Inside + '@' + Format(V) + '|' + Format(V, 0, 2));
+    end;
+
+    procedure UnheardThroughVarParamSameMembers(): Text
+    var V: Option A,B,C; Inside: Text;
+    begin
+        V := V::B;
+        Inside := HandOnSameMembersToUnheard(V);
+        exit(Inside + '@' + Format(V) + '|' + Format(V, 0, 2));
+    end;
+
+    local procedure HandOnSameMembersToUnheard(var Value: Option A,B,C): Text
+    var Pub: Codeunit VPub;
+    begin
+        Pub.OnUnheardWithMembers(Value);
+        exit(Format(Value) + '|' + Format(Value, 0, 2));
+    end;
+
+    procedure UnheardThroughMemberlessVarParamMemberless(): Text
+    var V: Option; Inside: Text;
+    begin
+        V := 1;
+        Inside := HandOnMemberlessToUnheardMembers(V);
+        exit(Inside + '@' + Format(V) + '|' + Format(V, 0, 2));
+    end;
+
+    local procedure HandOnMemberlessToUnheardMembers(var Value: Option): Text
+    var Pub: Codeunit VPub;
+    begin
+        Pub.OnUnheardWithMembers(Value);
+        exit(Format(Value) + '|' + Format(Value, 0, 2));
+    end;
+
+    local procedure HandOnToUnheard(var Value: Option): Text
+    var Pub: Codeunit VPub;
+    begin
+        Pub.OnUnheardMemberless(Value);
+        exit(Format(Value) + '|' + Format(Value, 0, 2));
+    end;
+
+    procedure UnheardFromVarArrayElement(): Text
+    var Arr: array[2] of Option First,Second,Third;
+    begin
+        Arr[2] := Arr[2]::Third;
+        exit(ElementToUnheard(Arr));
+    end;
+
+    local procedure ElementToUnheard(var A: array[2] of Option): Text
+    var Pub: Codeunit VPub;
+    begin
+        Pub.OnUnheardMemberless(A[2]);
+        exit(Format(A[2]) + '|' + Format(A[2], 0, 2));
+    end;
+
     local procedure ByValueEvaluate(A: array[2] of Option): Text
     begin
         Evaluate(A[1], 'Third');
@@ -464,13 +618,19 @@ fn unmeasured_callers_of_a_memberless_subscriber_refuse() {
 }
 
 // A publisher called directly with a variable of another member list refuses when a subscriber hears it; no probe calls one
-// directly. One no subscriber hears runs no code: the caller's variable keeps its value, main's result.
+// directly. One no subscriber hears gives main's result for every caller, unflagged: the parameter takes the publisher's
+// list and hands it back to the caller's variable. Called from a procedure the probes measure, only that call is flagged.
 #[test]
 fn a_publisher_called_directly_refuses_only_when_a_subscriber_hears_it() {
     refused("DirectLocalToMemberlessPublisher", PUBLISHER);
     refused("DirectByValueToMemberlessPublisher", PUBLISHER);
-    assert_eq!(run("UnheardMemberlessPublisher").0.unwrap(), "Second|1@Three");
-    assert_eq!(run("UnheardMembersPublisher").0.unwrap(), "1@R");
+    assert_eq!(clean("UnheardMemberlessPublisher"), "1|1@Three");
+    assert_eq!(clean("UnheardMembersPublisher"), "Second@Third");
+    assert_eq!(clean("UnheardFromParameters"), "1|1@1|1");
+    assert_eq!(assumed("UnheardFromMemberlessVarParam"), "1|1@1|1");
+    assert_eq!(assumed("UnheardFromVarArrayElement"), "2|2");
+    assert_eq!(clean("UnheardThroughVarParamSameMembers"), "Second|1@Second|1");
+    assert_eq!(clean("UnheardThroughMemberlessVarParamMemberless"), "Second|1@Second|1");
 }
 
 // No cell hands an interface method a by-value parameter or an array, or a procedure an element of a global array; a
@@ -493,13 +653,25 @@ fn measured_and_main_neighbors_keep_running() {
     assert_eq!(clean("FieldToOtherMembers"), "B@Second");
 }
 
-// `A[1] := A[2]` and `A[2] := A[2]` in a `var` array parameter of memberless Options keep the held members on a local BC
-// (corpus PR 1439 extension, OptionVarMemberlessElementStores.al:119, not pushed yet), unlike a variable declared with those
-// members (OVMW:780). The run cannot tell an element of the array from another value with that list: refused.
+// `A[1] := A[2]` and `A[2] := A[2]` in a `var` array parameter of memberless Options keep the held members on a local BC of the newest
+// supported major (corpus PR 1439 extension, local commit da4c8406, OptionVarMemberlessElementStores.al:77, not pushed yet), unlike a variable
+// declared with those members (OVMW:780). An element is no variable of the `var` section: refused.
 #[test]
 fn an_element_assigned_from_an_element_refuses() {
     refused("VarArrayAssignOtherElement", ELEMENT);
     refused("VarArrayAssignSameElement", ELEMENT);
+}
+
+// An Option stored into an element that holds a caller's members runs only from a variable of the routine's `var` section
+// (OVMW:762, :771, :780). From an element of another array, a memberless `var` parameter that holds another list, or a
+// global: refused. Into an element that holds no members the store converts as on main.
+#[test]
+fn an_element_assigned_from_an_unmeasured_place_refuses() {
+    refused("VarArrayAssignOtherArrayElement", ELEMENT);
+    refused("VarArrayAssignVarParameter", ELEMENT);
+    refused("VarArrayAssignGlobal", ELEMENT);
+    assert_eq!(assumed("VarArrayAssignLocal"), "Third|2");
+    assert_eq!(assumed("LocalArrayAssignVarParameter"), "2|2");
 }
 
 // Into a by-value array parameter or a local array CopyArray filled only an Integer store is measured (OVMW:833, :560); into a

@@ -46,11 +46,22 @@ pub(crate) fn var_binding(v: &Value, ty: &RtType, subscriber: bool) -> Option<Re
 /// without members, the members it holds (a memberless caller stays memberless, OptionVarMemberLists.al:432; a memberless
 /// `var` parameter handed on keeps its caller's, :364). After an empty body, `Value := 1` (:224), a write to another list
 /// (`Value::C` gives Third, :398), a TryFunction and an error after the write (:552, :566), a store of any Option and Clear
-/// (OVMW:226, :269). An array is not touched: its elements are the caller's (OVMW:472). `None`: `v` as it is.
-pub(crate) fn written_back(v: &Value, declared: &RtType, current: impl FnOnce() -> Option<Value>) -> Option<Value> {
-    let (Value::Option(o, has), RtType::Option(d)) = (v, declared) else {
+/// (OVMW:226, :269). An array is not touched: its elements are the caller's (OVMW:472). Only after a parameter `param`
+/// declared with members other than the variable's own (OVML:398, :432; OVMC:131, :215): after a
+/// memberless parameter or one with the variable's own list the value goes back as on main (an event publisher no subscriber
+/// hears may have left another list in it). `None`: `v` as it is.
+pub(crate) fn written_back(
+    v: &Value,
+    declared: &RtType,
+    param: &RtType,
+    current: impl FnOnce() -> Option<Value>,
+) -> Option<Value> {
+    let (Value::Option(o, has), RtType::Option(d), RtType::Option(p)) = (v, declared, param) else {
         return None;
     };
+    if memberless(p) || p == d {
+        return None;
+    }
     let own: Arc<[String]> = if memberless(d) {
         match current()? {
             Value::Option(_, m) => m,
@@ -59,7 +70,7 @@ pub(crate) fn written_back(v: &Value, declared: &RtType, current: impl FnOnce() 
     } else {
         d.clone()
     };
-    (own != *has).then(|| {
+    (own != *has && *p != own).then(|| {
         assume(Assumption::VarOptionCallerMembers);
         Value::Option(*o, own)
     })
@@ -96,10 +107,23 @@ fn option_members(t: &RtType) -> Option<Arc<[String]>> {
 pub(crate) enum Store {
     /// `A[i] := x` and every other write of a value (`Session::write`).
     Assign,
+    /// `A[i] := x`, `x` a variable of the running routine's `var` section, into an element of an array of memberless Options
+    /// (al-sema marks it: `ir::Expr::VarSectionValue`, `Session::store_var_section`).
+    AssignVarSection,
     /// The value a procedure's `var` parameter hands back to its argument (`Session::write_back`).
     CallBack,
+    /// The value an event publisher that no subscriber hears hands back to its argument: stored as on main
+    /// (`Session::unheard_publisher`).
+    UnheardPublisherBack,
     /// A builtin's write-back of its `var` argument.
     Builtin(BuiltinId),
+}
+
+impl Store {
+    /// Whether the store is an assignment: every store but a builtin's write-back.
+    pub(crate) fn assigns(self) -> bool {
+        !matches!(self, Store::Builtin(_))
+    }
 }
 
 /// The array an element store goes into, as far as the measured stores tell them apart.
@@ -122,11 +146,13 @@ pub(crate) enum ArrayOf {
 /// - an Integer assigned keeps the held members, with the ordinal: in a `var` array parameter (OVMW:790, :801), a by-value
 ///   array parameter (OVMW:833) and a local array CopyArray filled (OVMW:560, :813);
 /// - in a `var` array parameter only: Evaluate keeps them (OVME:552), and so does Clear of the element (OVMW:799); an Option
-///   assigned whose members share no name with the held ones and are as many keeps them with the ordinal (OVMW:762); an Option
-///   without members or with the held members name by name takes no members, the caller reads the number (OVMW:771, :780),
-///   except an element of the same array (refused, below).
+///   assigned from a variable of the routine's `var` section (`Store::AssignVarSection`): one whose members share no name with
+///   the held ones and are as many keeps them with the ordinal (OVMW:762); one without members or with the held members name
+///   by name takes no members, the caller reads the number (OVMW:771, :780).
 ///
-/// Every other store refuses: another store kind or value, or another array. `None`: the usual conversion.
+/// Every other store refuses: another store kind, another value or the value of another place (an element of an array, a
+/// `var` parameter, a global: it may hold another list than its own), or another array. `None`: the usual conversion, also
+/// for the write-back of an event publisher no subscriber hears (main's result, `Session::unheard_publisher`).
 pub(crate) fn element_store(
     v: &Value,
     el: &RtType,
@@ -137,7 +163,7 @@ pub(crate) fn element_store(
     let (RtType::Option(d), Value::Option(_, own)) = (el, current) else {
         return None;
     };
-    if !memberless(d) || memberless(own) {
+    if how == Store::UnheardPublisherBack || !memberless(d) || memberless(own) {
         return None;
     }
     assume(Assumption::VarOptionCallerMembers);
@@ -162,16 +188,12 @@ pub(crate) fn element_store(
         {
             kept(*o)
         }
-        (Store::Assign, Value::Option(o, m))
+        (Store::AssignVarSection, Value::Option(o, m))
             if var_array && m.len() == own.len() && !m.iter().any(|n| own.contains(n)) =>
         {
             kept(*o)
         }
-        // The held list itself: an element of the same array, which keeps the held members on a local BC (corpus PR 1439
-        // extension, OptionVarMemberlessElementStores.al:119, not pushed yet), unlike a variable declared with those members
-        // (OVMW:780). The run cannot tell an element from another value that carries this list: refused.
-        (Store::Assign, Value::Option(_, m)) if Arc::ptr_eq(m, own) => refused(),
-        (Store::Assign, Value::Option(o, m)) if var_array && (memberless(m) || m == own) => {
+        (Store::AssignVarSection, Value::Option(o, m)) if var_array && (memberless(m) || m == own) => {
             Ok(Value::Option(*o, d.clone()))
         }
         _ => refused(),
@@ -179,10 +201,10 @@ pub(crate) fn element_store(
 }
 
 impl crate::Session {
-    /// The value a store of an Option into local `i` of the routine running in `f` leaves there (`param_store`); any other value
-    /// is stored as is.
-    pub(crate) fn option_param_store(&self, i: usize, v: Value, f: &crate::Frame) -> Value {
-        if !matches!(v, Value::Option(..)) {
+    /// The value `how` leaves in local `i` of the routine running in `f` when it stores an Option there (`param_store`); any
+    /// other value, and the write-back of an event publisher no subscriber hears (as on main), is stored as is.
+    pub(crate) fn option_param_store(&self, i: usize, v: Value, f: &crate::Frame, how: Store) -> Value {
+        if how == Store::UnheardPublisherBack || !matches!(v, Value::Option(..)) {
             return v;
         }
         let r = &self.engine.program.objects[f.object].routines[f.routine];
@@ -276,7 +298,7 @@ impl crate::Session {
     /// parameters, or an array of them:
     /// - an argument whose declared member list differs from the parameter's, when a subscriber hears the event: the probes
     ///   raise every event through a procedure (OptionVarMemberLists.al:510, :531; OVMC:196-353), never directly. A call no
-    ///   subscriber hears runs no code and keeps main's result.
+    ///   subscriber hears binds and hands back as on main (`unheard_publisher`).
     /// - a parameter with members that a subscriber declares without members: the subscriber reads the publisher's members
     ///   (`var_binding`). Measured only through a procedure's `var` parameter with the publisher's members that its caller
     ///   handed a variable `option_hops_of` names (OptionVarMemberLists.al:531; OVMC:196, :249, :311). Every other argument
@@ -299,7 +321,7 @@ impl crate::Session {
             if let (Some(true), al_ir::Arg::Ref(p)) = (r.by_var.get(i).copied(), a)
                 && let Some(declared) = option_members(&slot.ty)
                 && option_members(&self.place_type(p, f)).is_some_and(|has| has != declared)
-                && self.event_heard(object, routine)
+                && self.publisher_heard(object, routine)
             {
                 return Err(Signal::unsupported(
                     "an Option variable handed directly to an event publisher's `var` Option parameter with another member list, which a subscriber hears (not measured, assumption var-option-caller-members)",
@@ -338,15 +360,30 @@ impl crate::Session {
             && self.field_property(&t, pos, "OptionCaptionML").is_none()
     }
 
-    /// Whether event publisher `routine` of `object` has a subscriber, bound or not.
-    fn event_heard(&self, object: usize, routine: usize) -> bool {
+    /// Whether event publisher `routine` of `object` has a subscriber, bound or not, or one the run cannot raise
+    /// (`Registry::is_subscribed`).
+    fn publisher_heard(&self, object: usize, routine: usize) -> bool {
         let events = &self.engine.events;
-        events.publishers.get(&(object, routine)).is_some_and(|p| {
-            events
-                .subscribers
-                .get(&(p.object, p.event.clone()))
-                .is_some_and(|subs| !subs.is_empty())
-        })
+        events
+            .publishers
+            .get(&(object, routine))
+            .is_some_and(|p| events.is_subscribed(p.object, &p.event))
+    }
+
+    /// Whether a call of routine `routine` of `object` (`publisher`: `RoutineFacts::publisher`) is one of an event publisher
+    /// that no subscriber hears. It runs no code. No probe measures it, so its `var` Option parameters bind and hand back as
+    /// on main: the parameter takes its own list and the caller's variable gets that value back as it is.
+    pub(crate) fn unheard_publisher(&self, publisher: bool, object: usize, routine: usize) -> bool {
+        publisher && !self.publisher_heard(object, routine)
+    }
+
+    /// The store of the final values of the `var` arguments of a call of routine `routine` of `object` (`Session::write_back`).
+    pub(crate) fn call_back(&self, facts: &crate::RoutineFacts, object: usize, routine: usize) -> Store {
+        if self.unheard_publisher(facts.publisher, object, routine) {
+            Store::UnheardPublisherBack
+        } else {
+            Store::CallBack
+        }
     }
 
     /// Whether a subscriber of event publisher `routine` of `object` declares its parameter `name` an Option without members.

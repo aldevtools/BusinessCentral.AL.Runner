@@ -2192,6 +2192,10 @@ pub enum Expr {
         why: String,
         inner: Box<Expr>,
     },
+    /// The value of `inner`, a load of a variable of the running routine's `var` section, stored into an element of an array
+    /// of Options declared without members: the run tells it from the value of another place, which may hold another member
+    /// list than its declared one (al-sema `memberless_option_array_assign`, al-vm `var_option::element_store`).
+    VarSectionValue(Box<Expr>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

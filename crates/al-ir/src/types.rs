@@ -126,6 +126,7 @@ pub fn kind_of(e: &Expr) -> u8 {
         Expr::TddFit { .. } => 24,
         Expr::FitOrRefuse { .. } => 25,
         Expr::ControlAddInCall { .. } => 26,
+        Expr::VarSectionValue(_) => 27,
     }
 }
 
@@ -335,7 +336,7 @@ pub fn children(e: &Expr, f: &mut dyn FnMut(&Expr)) {
                 f(a);
             }
         }
-        Expr::TddFit { inner, .. } | Expr::FitOrRefuse { inner, .. } => f(inner),
+        Expr::TddFit { inner, .. } | Expr::FitOrRefuse { inner, .. } | Expr::VarSectionValue(inner) => f(inner),
     }
 }
 

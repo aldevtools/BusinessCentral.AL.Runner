@@ -418,7 +418,8 @@ impl Walk<'_> {
             | Expr::DotNetCoerce(_, a)
             | Expr::DotNetOperand(a, _)
             | Expr::TddFit { inner: a, .. }
-            | Expr::FitOrRefuse { inner: a, .. } => self.expr(a, at, inst),
+            | Expr::FitOrRefuse { inner: a, .. }
+            | Expr::VarSectionValue(a) => self.expr(a, at, inst),
             Expr::Binary(_, a, b) | Expr::CharAt(a, b) => {
                 self.expr(a, at, inst)?;
                 self.expr(b, at, inst)
