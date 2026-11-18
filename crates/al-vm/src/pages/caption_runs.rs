@@ -117,6 +117,23 @@ impl Session {
         }
     }
 
+    /// The refusal of a Record write `method` that AL code runs while `pages.caption_dialogs` is `Refused` (the runs of a page whose
+    /// empty-record count is not pinned, whose walk let the write through: `effects::record_write_checked_at_run_time`); `None`
+    /// for any other method or mode, which keeps main's result.
+    pub(crate) fn caption_write_refusal(&self, method: al_builtins::record_op::RecordOp) -> Option<String> {
+        use al_builtins::record_op::RecordOp::{Delete, DeleteAll, Insert, Modify, ModifyAll, Rename};
+        if self.pages.caption_dialogs != CaptionDialogs::Refused
+            || !matches!(method, Insert | Modify | Delete | Rename | ModifyAll | DeleteAll)
+        {
+            return None;
+        }
+        Some(format!(
+            "{} raised by a CaptionClass expression on a page where BC's runs with that write are not measured \
+             (al-runner issue 7391)",
+            method.name()
+        ))
+    }
+
     /// The cells of record/captions/CaptionClassStateFreeCalls.al with their number of empty-record runs, three cycles alike on
     /// BC 27, 28 and 29. Every fact is the probe's, by equality:
     /// - the source table has six fields, of them the third to sixth with CaptionClass expressions of four different texts
@@ -265,7 +282,8 @@ impl Session {
             return unsupported(why);
         }
         // The count has a reader only through what an expression leaves behind: a write it keeps (`effects::Effect::Kept`).
-        // Expressions that leave nothing run without the mark (a dialog or an Error with a text refuses below).
+        // Expressions that leave nothing run without the mark (a dialog, an Error with a text or a Record write refuses below
+        // when a run executes it).
         if self.caption_class_keeps_effect(t, exprs) {
             al_builtins::assumptions::assume(
                 al_builtins::assumptions::Assumption::PageOpenCaptionClassEmptyRecordCount,
@@ -381,7 +399,8 @@ pub(crate) enum CaptionDialogs {
     #[default]
     Free,
     /// Every dialog (Message, Confirm, any other) and every Error with a text refuses: the runs of a page whose empty-record count
-    /// is not pinned (the walk of `effects.rs` let the expression reach them only on that condition), and every run of a
+    /// is not pinned (the walk of `effects.rs` let the expression reach them only on that condition; a Record write refuses too,
+    /// `Session::caption_write_refusal`), and every run of a
     /// `caption_state_free_pin` page but the open's row run of its Card.
     Refused,
     /// The open's row run of the Card of `caption_state_free_pin`: a Message and an Error with a text run, as the probe measured

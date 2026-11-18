@@ -17,6 +17,7 @@ mod bg_task_id;
 mod bg_task_test_page_calls;
 mod caption_class_counts;
 mod caption_class_empty;
+mod caption_class_runtime_writes;
 mod caption_expression_plain;
 mod clear_all_page_extension;
 mod clear_open_test_page;

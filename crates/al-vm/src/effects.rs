@@ -488,6 +488,7 @@ impl Walk<'_> {
                     && !self.as_integer_in_table_or_codeunit(*id, at)
                     && !get_table_on_local(*id, receiver.as_deref())
                     && !dialog_checked_at_run_time(*id)
+                    && !(!self.strict && record_write_checked_at_run_time(*id))
                 {
                     return Err(format!("calls {}", id.name().split('#').next().unwrap_or(id.name())));
                 }
@@ -529,6 +530,25 @@ fn dialog_checked_at_run_time(id: al_builtins::builtin_id::BuiltinId) -> bool {
             | "Dialog.ErrorComputed#1"
             | "Dialog.ErrorConstant#1"
             | "Dialog.ErrorNotLiteral#1"
+    )
+}
+
+/// The Record writes of AL code (Insert, Modify, Delete, Rename, ModifyAll, DeleteAll): whether a run executes one is a fact of
+/// the run, as for a dialog, so the walk of [`Engine::lasting_effect`] lets them through (al-runner issue 7391: a write the
+/// empty record of the open never reaches leaves nothing, so the number of runs has no reader). Each one refuses when a CaptionClass
+/// run under `pages::CaptionDialogs::Refused` executes it (`Session::caption_write_refusal`, called by `record_op_from_al`).
+/// The strict walk of the DataCaptionExpression open is left as it is.
+fn record_write_checked_at_run_time(id: al_builtins::builtin_id::BuiltinId) -> bool {
+    matches!(
+        id.name(),
+        "Record.Insert#1"
+            | "Record.Insert#2"
+            | "Record.Insert#3"
+            | "Record.Modify#1"
+            | "Record.Delete#1"
+            | "Record.Rename#1"
+            | "Record.ModifyAll#1"
+            | "Record.DeleteAll#1"
     )
 }
 
