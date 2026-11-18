@@ -61,6 +61,44 @@ reportextension 50975 "XMS Req Ext" extends "XMS Request Ext"
 {{
     requestpage {{ }}
 }}
+report 50979 "XMS Layout Caption"
+{{
+    UsageCategory = None; UseRequestPage = false; ExcelLayoutMultipleDataSheets = true; DefaultRenderingLayout = X;
+    {DATASET}
+    rendering {{ layout(X) {{ Type = Excel; LayoutFile = 'XmsExcel.xlsx'; Caption = 'Sheets'; }} }}
+}}
+report 50980 "XMS Both Defaults"
+{{
+    UsageCategory = None; UseRequestPage = false; ExcelLayoutMultipleDataSheets = true; DefaultLayout = Word; DefaultRenderingLayout = X;
+    {DATASET}
+    rendering {{ layout(X) {{ Type = Excel; LayoutFile = 'XmsExcel.xlsx'; }} }}
+}}
+report 50981 "XMS Caption" {{ UsageCategory = None; UseRequestPage = false; ExcelLayoutMultipleDataSheets = true; Caption = 'Cap'; {DATASET} }}
+report 50982 "XMS Transaction" {{ UsageCategory = None; UseRequestPage = false; ExcelLayoutMultipleDataSheets = true; TransactionType = Update; {DATASET} }}
+report 50983 "XMS Labels" {{ UsageCategory = None; UseRequestPage = false; ExcelLayoutMultipleDataSheets = true; {DATASET} labels {{ Lbl = 'Label'; }} }}
+report 50984 "XMS Global" {{ UsageCategory = None; UseRequestPage = false; ExcelLayoutMultipleDataSheets = true; {DATASET} var G: Integer; }}
+report 50985 "XMS Filter Fields"
+{{
+    UsageCategory = None; UseRequestPage = false; ExcelLayoutMultipleDataSheets = true;
+    dataset {{ dataitem(Num; "XMS Num") {{ RequestFilterFields = Number; column(Number; Number) {{ }} }} }}
+}}
+report 50986 "XMS Nested"
+{{
+    UsageCategory = None; UseRequestPage = false; ExcelLayoutMultipleDataSheets = true;
+    dataset {{ dataitem(Num; "XMS Num") {{ column(Number; Number) {{ }} dataitem(Inner; "XMS Num") {{ DataItemLink = Number = field(Number); column(InnerNumber; Number) {{ }} }} }} }}
+}}
+report 50987 "XMS No Items" {{ UsageCategory = None; UseRequestPage = false; ExcelLayoutMultipleDataSheets = true; dataset {{ }} }}
+report 50988 "XMS Call Column"
+{{
+    UsageCategory = None; UseRequestPage = false; ExcelLayoutMultipleDataSheets = true;
+    dataset {{ dataitem(Num; "XMS Num") {{ column(Number; Number) {{ }} column(Text; Format(Number)) {{ }} }} }}
+}}
+report 50989 "XMS With Procedure"
+{{
+    UsageCategory = None; UseRequestPage = false; ExcelLayoutMultipleDataSheets = true;
+    {DATASET}
+    procedure Foo(): Integer begin exit(41); end;
+}}
 table 50966 "XMS Num" {{ fields {{ field(1; Number; Integer) {{ }} }} keys {{ key(PK; Number) {{ }} }} }}
 table 50964 "XMS Blob" {{ fields {{ field(1; Id; Integer) {{ }} field(2; Data; Blob) {{ }} }} keys {{ key(PK; Id) {{ }} }} }}
 
@@ -186,12 +224,76 @@ codeunit 50965 "XMS Tests"
         Tmp.Data.CreateOutStream(Out);
         exit(Format(Report.SaveAs(Report::"XMS Multi", '<?xml version="1.0" standalone="yes"?><ReportParameters/>', ReportFormat::Xml, Out)));
     end;
+    procedure SaveXmlLayoutCaption(): Text begin exit(SaveFacts(Report::"XMS Layout Caption", ReportFormat::Xml)); end;
+    procedure SaveExcelLayoutCaption(): Text begin exit(SaveFacts(Report::"XMS Layout Caption", ReportFormat::Excel)); end;
+    procedure RunLayoutCaption(): Text begin exit(RunFacts(Report::"XMS Layout Caption", false)); end;
+    procedure SaveXmlBothDefaults(): Text begin exit(SaveFacts(Report::"XMS Both Defaults", ReportFormat::Xml)); end;
+    procedure SaveXmlCaption(): Text begin exit(SaveFacts(Report::"XMS Caption", ReportFormat::Xml)); end;
+    procedure RunTransaction(): Text begin exit(RunFacts(Report::"XMS Transaction", false)); end;
+    procedure SaveXmlLabels(): Text begin exit(SaveFacts(Report::"XMS Labels", ReportFormat::Xml)); end;
+    procedure SaveXmlGlobal(): Text begin exit(SaveFacts(Report::"XMS Global", ReportFormat::Xml)); end;
+    procedure SaveXmlFilterFields(): Text begin exit(SaveFacts(Report::"XMS Filter Fields", ReportFormat::Xml)); end;
+    procedure SaveXmlNested(): Text begin exit(SaveFacts(Report::"XMS Nested", ReportFormat::Xml)); end;
+    procedure SaveXmlNoItems(): Text begin exit(SaveFacts(Report::"XMS No Items", ReportFormat::Xml)); end;
+    procedure SaveXmlCallColumn(): Text begin exit(SaveFacts(Report::"XMS Call Column", ReportFormat::Xml)); end;
+    [TryFunction]
+    local procedure TrySaveDropped(Id: Integer; Fmt: ReportFormat; var Tmp: Record "XMS Blob" temporary)
+    var Out: OutStream;
+    begin
+        Tmp.Data.CreateOutStream(Out);
+        Report.SaveAs(Id, '', Fmt, Out);
+    end;
+    procedure SaveXmlAnswerDropped(): Text
+    var Tmp: Record "XMS Blob" temporary;
+    begin
+        Setup();
+        exit(Format(TrySaveDropped(Report::"XMS Multi", ReportFormat::Xml, Tmp)));
+    end;
+    procedure SaveExcelAnswerDropped(): Text
+    var Tmp: Record "XMS Blob" temporary;
+    begin
+        Setup();
+        exit(Format(TrySaveDropped(Report::"XMS Multi", ReportFormat::Excel, Tmp)));
+    end;
+    procedure SaveXmlOptionFormat(): Text
+    var Tmp: Record "XMS Blob" temporary; Out: OutStream; F: Option Xml,Pdf;
+    begin
+        Setup();
+        Tmp.Data.CreateOutStream(Out);
+        exit(Format(Report.SaveAs(Report::"XMS Multi", '', F, Out)));
+    end;
+    procedure MultiDataset(): Text begin exit(Dataset(Report::"XMS Multi", 'XMS Multi')); end;
+    procedure PlainDataset(): Text begin exit(Dataset(Report::"XMS Plain", 'XMS Plain')); end;
     procedure SavePdfOfWord(): Text
     var Tmp: Record "XMS Blob" temporary; Saved: Boolean;
     begin
         Setup();
         TrySave(Report::"XMS Multi Word", ReportFormat::Pdf, Tmp, Saved);
         exit(Format(Saved));
+    end;
+}}
+codeunit 50990 "XMS Variable Uses"
+{{
+    procedure Declared(): Text var R: Report "XMS Multi"; begin exit('x'); end;
+    procedure Language(): Text var R: Report "XMS Multi"; begin exit(Format(R.Language())); end;
+    procedure DefaultLayout(): Text var R: Report "XMS Multi Excel"; begin exit(Format(R.DefaultLayout())); end;
+    procedure ExcelLayout(): Text var R: Report "XMS Multi Excel"; InS: InStream; begin exit(Format(R.ExcelLayout(InS))); end;
+    procedure FormatRegion(): Text var R: Report "XMS Multi"; begin exit(R.FormatRegion()); end;
+    procedure Procedure(): Text var R: Report "XMS With Procedure"; begin exit(Format(R.Foo())); end;
+}}
+codeunit 50991 "XMS Handler Tests"
+{{
+    Subtype = Test;
+    [Test]
+    [HandlerFunctions('ExcelHandler')]
+    procedure RunWithReportHandler()
+    var T: Codeunit "XMS Tests";
+    begin
+        Error(T.RunExcel());
+    end;
+    [ReportHandler]
+    procedure ExcelHandler(var R: Report "XMS Multi Excel")
+    begin
     end;
 }}
 "#
@@ -201,6 +303,11 @@ codeunit 50965 "XMS Tests"
 /// A SubstituteReport subscriber whose body is `body` (`ReportId`, `RunMode` and `var NewReportId` in scope), and a
 /// SingleInstance log of the calls it saw.
 fn subscriber(body: &str) -> String {
+    subscriber_with("", body)
+}
+
+/// [`subscriber`] with the local variables `vars` (`Log` is always declared).
+fn subscriber_with(vars: &str, body: &str) -> String {
     format!(
         r#"
 codeunit 50976 "XMS Sub Log"
@@ -214,7 +321,7 @@ codeunit 50977 "XMS Substitute"
 {{
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"Reporting Triggers", 'SubstituteReport', '', false, false)]
     local procedure OnSubstitute(ReportId: Integer; RunMode: Option Normal,ParametersOnly,Execute,Print,SaveAs,RunModal; RequestPageXml: Text; RecordRef: RecordRef; var NewReportId: Integer)
-    var Log: Codeunit "XMS Sub Log"; V: Report "XMS Multi";
+    var Log: Codeunit "XMS Sub Log"; {vars}
     begin
         Log.Add(Format(ReportId) + ',' + Format(RunMode));
         {body}
@@ -234,6 +341,12 @@ codeunit 50978 "XMS Sub Tests"
         R := T.RunModalExcel();
         exit(R + '|' + Log.Get());
     end;
+    procedure SaveXml(): Text
+    var T: Codeunit "XMS Tests"; Log: Codeunit "XMS Sub Log"; R: Text;
+    begin
+        R := T.MultiDataset();
+        exit(CopyStr(R, 1, 3) + '|' + Format(R = T.PlainDataset()) + '|' + Log.Get());
+    end;
 }}
 "#
     )
@@ -245,6 +358,18 @@ fn text(proc: &str) -> String {
 
 fn with_subscriber(body: &str, proc: &str) -> Result<al_builtins::value::Value, Signal> {
     Built::from_source(&(src() + &subscriber(body))).run_in("XMS Sub Tests", proc)
+}
+
+/// The refusal of a report that declares the property, as main gives it for a variable of the report, or as the gate gives it
+/// for a call outside the measured ones.
+fn assert_refused(what: &str, r: Result<al_builtins::value::Value, Signal>) {
+    match r {
+        Err(Signal::Unsupported(why)) => assert!(
+            why.to_ascii_lowercase().contains("excellayoutmultipledatasheets"),
+            "{what}: {why}"
+        ),
+        other => panic!("{what}: expected a refusal, got {other:?}"),
+    }
 }
 
 const NO_LAYOUT: &str = "No|Report 50961 does not have a valid layout. Valid layout types are: Word, RDLC, Excel, and Custom.|ReportNoLayout";
@@ -304,10 +429,10 @@ fn multiple_data_sheets_run_admitted_when_a_subscriber_leaves_the_report() {
 /// refuses.
 #[test]
 fn multiple_data_sheets_run_refused_when_a_subscriber_sets_another_such_report() {
-    match with_subscriber("if ReportId = 50961 then NewReportId := 50963;", "RunNoLayout") {
-        Err(Signal::Unsupported(why)) => assert!(why.contains("ExcelLayoutMultipleDataSheets"), "{why}"),
-        other => panic!("expected a refusal, got {other:?}"),
-    }
+    assert_refused(
+        "substituted",
+        with_subscriber("if ReportId = 50961 then NewReportId := 50963;", "RunNoLayout"),
+    );
 }
 
 /// A subscriber that puts a report without the property in its place: that report runs as it does without this change.
@@ -330,10 +455,62 @@ fn multiple_data_sheets_run_substituted_by_a_report_without_it_keeps_that_report
 /// call runs refuses.
 #[test]
 fn multiple_data_sheets_variable_used_during_an_admitted_run_refuses() {
-    match with_subscriber("V.UseRequestPage(false);", "RunNoLayout") {
-        Err(Signal::Unsupported(why)) => assert!(why.contains("ExcelLayoutMultipleDataSheets"), "{why}"),
-        other => panic!("expected a refusal, got {other:?}"),
+    let src = src() + &subscriber_with("V: Report \"XMS Multi\";", "V.UseRequestPage(false);");
+    assert_refused(
+        "subscriber variable",
+        Built::from_source(&src).run_in("XMS Sub Tests", "RunNoLayout"),
+    );
+}
+
+/// SaveAs of these layouts raises no SubstituteReport in the runner, as for the report without the property
+/// (docs/probes-needed.md): a subscriber that would set another report is not asked, and the report asked for is saved.
+#[test]
+fn multiple_data_sheets_saveas_xml_does_not_ask_a_substituting_subscriber() {
+    assumptions::take_hits();
+    assert_eq!(
+        al_testkit::text(with_subscriber(
+            "if ReportId = 50961 then NewReportId := 50960;",
+            "SaveXml"
+        )),
+        "Yes|Yes|"
+    );
+    assert!(assumptions::take_hits().contains(&Assumption::ExcelLayoutMultipleDataSheets));
+}
+
+/// A variable of a report that declares the property refuses before the code runs, as on main: declared only, its getters,
+/// its layout streams and a procedure of the report. The probe used none.
+#[test]
+fn multiple_data_sheets_report_variable_refuses_as_on_main() {
+    for p in [
+        "Declared",
+        "Language",
+        "DefaultLayout",
+        "ExcelLayout",
+        "FormatRegion",
+        "Procedure",
+    ] {
+        assert_refused(p, Built::from_source(&src()).run_in("XMS Variable Uses", p));
     }
+}
+
+/// A [ReportHandler] for such a report takes a variable of it: the handler is refused before the run, so a test that binds it
+/// is not run, as on main.
+#[test]
+fn multiple_data_sheets_report_handler_is_not_run() {
+    let l = al_testkit::compile(&src());
+    let oi = (l.program.objects.iter())
+        .position(|o| o.name == "XMS Handler Tests")
+        .expect("codeunit");
+    let ri = (l.program.objects[oi].routines.iter())
+        .position(|r| r.name == "ExcelHandler")
+        .expect("handler");
+    let why = al_testkit::blocked(&l)[oi][ri]
+        .clone()
+        .expect("the handler is refused before the run");
+    assert!(
+        why.to_ascii_lowercase().contains("excellayoutmultipledatasheets"),
+        "{why}"
+    );
 }
 
 #[test]
@@ -364,11 +541,23 @@ fn multiple_data_sheets_shapes_not_measured_refuse() {
         "SaveXmlOfVariable",
         "SaveXmlWithRecordRef",
         "SaveXmlWithParameters",
+        "SaveXmlLayoutCaption",
+        "SaveExcelLayoutCaption",
+        "RunLayoutCaption",
+        "SaveXmlBothDefaults",
+        "SaveXmlCaption",
+        "RunTransaction",
+        "SaveXmlLabels",
+        "SaveXmlGlobal",
+        "SaveXmlFilterFields",
+        "SaveXmlNested",
+        "SaveXmlNoItems",
+        "SaveXmlCallColumn",
+        "SaveXmlAnswerDropped",
+        "SaveExcelAnswerDropped",
+        "SaveXmlOptionFormat",
     ] {
-        match Built::from_source(&src()).run_in("XMS Tests", p) {
-            Err(Signal::Unsupported(why)) => assert!(why.contains("ExcelLayoutMultipleDataSheets"), "{p}: {why}"),
-            other => panic!("{p}: expected a refusal, got {other:?}"),
-        }
+        assert_refused(p, Built::from_source(&src()).run_in("XMS Tests", p));
     }
 }
 

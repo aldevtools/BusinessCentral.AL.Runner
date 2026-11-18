@@ -639,6 +639,9 @@ pub struct Report {
     /// `ExcelLayoutMultipleDataSheets = true`.
     #[serde(default)]
     pub excel_multiple_data_sheets: bool,
+    /// The report declares a global variable (a `var` section of its own).
+    #[serde(default)]
+    pub declares_globals: bool,
     /// The request page's `AboutTitle` and `AboutText` when they are plain text literals.
     #[serde(default)]
     pub about_title: Option<String>,
