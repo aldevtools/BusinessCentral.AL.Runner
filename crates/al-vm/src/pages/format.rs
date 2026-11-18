@@ -267,8 +267,8 @@ impl Session {
         // A table field's AutoFormatExpression that is an expression, read through a control that names no expression of its
         // own: a field of the row is evaluated with the control's row (format-evaluate/QiTableFieldAutoFormat.al;
         // control expressions: format-evaluate/autoformat/PWAutoFormatTypes.al:19-22, AutoFormatCard.Page.al:53; literal field expressions:
-        // pages/run-modal/P113AutoFormat.al). A procedure call and any other expression are refused.
-        // `field_expression` is its text.
+        // pages/run-modal/P113AutoFormat.al). A procedure call takes what the page's fetch gave (`format_procedure.rs`); any other
+        // expression is refused. `field_expression` is its text.
         let mut field_expression = None;
         if ctl.prop("autoformatexpression").is_none() {
             if let Some(f) = format_field.as_ref() {
@@ -277,16 +277,10 @@ impl Session {
                     // BC runs an expression that calls a procedure when the page fetches the row (open, Next,
                     // GoToRecord), not when the text is read (format-evaluate/QiTableFieldAutoFormat.al:421
                     // QI_Type10Procedure_Card_Calls `after-open` fmt();fmt(A);, `after-t10-read` empty). Evaluated on read,
-                    // its side effects and errors would come at the wrong time, so it is refused.
-                    // A pinned fill ran it and kept its text (`format_procedure.rs`, AutoFormatProcedureControl.al:14-16).
-                    if text.as_deref().is_some_and(|e| e.contains('(')) {
-                        let Some(kept) = self.format_procedure_text(st, idx) else {
-                            return unsupported(format!(
-                                "a control over table field {} whose AutoFormatExpression calls a procedure (BC runs it when the row is fetched; not modelled)",
-                                f.name
-                            ));
-                        };
-                        field_expression = Some(kept);
+                    // its side effects and errors would come at the wrong time: the read takes what the fetch kept, and refuses
+                    // when no pinned fetch ran it (`format_procedure.rs`, AutoFormatProcedureControl.al:14-16).
+                    if text.as_deref().is_some_and(super::format_procedure::calls_procedure) {
+                        field_expression = Some(self.format_procedure_text(st, idx, &f.name)?);
                     } else {
                         if let Some(why) = f.auto_format_refusal.clone() {
                             return unsupported(why);

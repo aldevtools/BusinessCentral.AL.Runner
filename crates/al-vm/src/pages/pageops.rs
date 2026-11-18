@@ -14,10 +14,14 @@ impl Session {
             self.clientless_page_guard(method, recv.as_deref(), args)?;
         }
         match recv.as_deref() {
-            Some(Value::TestPage(st)) => self.request_ok_only_step(st_of(st), method, None)?,
+            Some(Value::TestPage(st)) => {
+                self.request_ok_only_step(st_of(st), method, None)?;
+                self.format_procedure_step(st_of(st), method, None)?;
+            }
             Some(Value::TestControl(c)) => {
                 let c = control_of(c);
                 self.request_ok_only_step(&c.page, method, Some(&c.target))?;
+                self.format_procedure_step(&c.page, method, Some(&c.target))?;
             }
             _ => {}
         }

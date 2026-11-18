@@ -47,7 +47,7 @@ impl Session {
         self.pages.close_save_error = None;
         self.pages.test_close = true;
         let page_run = self.page_run_close(st, action, false, true)?;
-        let format_procedures = self.format_procedures_close_saves(st);
+        let format_procedures = self.format_procedures_close_saves(st)?;
         let (r, origin) = self.traced(st, |s| s.close_with(st, action, false, false));
         if let Some(r) = self.after_failed_close_save(st, &r) {
             return r;
@@ -108,9 +108,7 @@ impl Session {
                 };
             }
             self.mark_closed_by_test(st);
-            if format_procedures {
-                self.format_procedures_after_close(st)?;
-            }
+            self.format_procedures_after_close(st, format_procedures)?;
         }
         r
     }
