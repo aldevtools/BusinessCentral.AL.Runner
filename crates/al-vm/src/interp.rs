@@ -1,5 +1,7 @@
 use super::*;
 use crate::blob_transfer::{BlobMove, FieldKind, Holder};
+use crate::var_option::Store;
+use al_builtins::builtin_id::BuiltinId;
 
 /// The start of the refusal of an index with fewer positions than the array has dimensions.
 const ROW_REFUSAL: &str = "a row of a ";
@@ -73,6 +75,7 @@ impl Session {
     pub(crate) fn run_native(
         &mut self,
         native: al_builtins::native::NativeFn,
+        id: BuiltinId,
         class: al_builtins::builtin_id::Class,
         receiver: Option<&ir::Arg>,
         args: &[ir::Arg],
@@ -112,7 +115,7 @@ impl Session {
         // ADR-068 item 3: a builtin that read a text with half of a surrogate pair without an audit refuses.
         al_builtins::text::check_unaudited()?;
         if let (Some(ir::Arg::Ref(p)), Some(v)) = (receiver, recv) {
-            self.write_native_back(p, v, f)?;
+            self.write_native_back(p, v, f, id)?;
         }
         for (a, v) in args.iter().zip(values.drain(..)) {
             if let ir::Arg::Ref(p) = a {
@@ -122,7 +125,7 @@ impl Session {
                 } else {
                     self.fit_ref_number(p, v, f)?
                 };
-                self.write_native_back(p, v, f)?;
+                self.write_native_back(p, v, f, id)?;
             }
         }
         self.return_vec(values);
@@ -824,7 +827,9 @@ impl Session {
         // A publisher's `var` argument that is a global of the caller's instance is that variable itself for its subscribers
         // (events/binding-senders/EventVarThroughSender.al): they alias it, see `Frame::aliases`.
         let facts = self.engine.routine_facts(object, routine);
+        let mut kept = Vec::new();
         if facts.publisher {
+            kept = self.var_option_publisher_args(object, routine, args, &values, f)?;
             let by_var = &self.engine.program.objects[object].routines[routine].by_var;
             self.events.var_origins = args
                 .iter()
@@ -850,6 +855,11 @@ impl Session {
         let own_aliases = self.set_alias_live(f, false);
         // Only a routine that reads MaxStrLen of a `var` parameter, or hands one on, gets them (known at lowering), so other
         // calls pay nothing. An event's subscribers get the lengths of the publisher's arguments (`publish`).
+        // A procedure's `var` Option parameter with members learns whether its caller's variable is one the probes measure
+        // handing on to an event publisher (`var_option::option_hops_of`); not through an interface.
+        if facts.option_hops && !self.next_interface_call {
+            self.events.next_option_hops = self.option_hops_of(object, routine, args, &values, f);
+        }
         let var_lens = facts.var_lens;
         if var_lens {
             self.events.next_var_lens = self.var_lens_of(object, routine, args, f);
@@ -877,6 +887,9 @@ impl Session {
             // A call refused before its frame was made leaves them behind.
             self.events.next_aliases.clear();
         }
+        if facts.option_hops {
+            self.events.next_option_hops.clear();
+        }
         if var_lens {
             self.events.next_var_lens.clear();
         } else if facts.publisher {
@@ -895,11 +908,7 @@ impl Session {
         }
         if let Err(Signal::Error(_)) = &result {
             if let Some(finals) = self.error_finals.take() {
-                for (a, v) in args.iter().zip(finals) {
-                    if let ir::Arg::Ref(p) = a {
-                        self.write_back(p, v, f)?;
-                    }
-                }
+                self.write_backs(args, finals.into_iter(), &kept, f)?;
             }
         }
         let (ret, finals) = match (result, try_call) {
@@ -916,11 +925,7 @@ impl Session {
             (r, _) => r?,
         };
         let mut finals = finals;
-        for (a, v) in args.iter().zip(finals.drain(..)) {
-            if let ir::Arg::Ref(p) = a {
-                self.write_back(p, v, f)?;
-            }
-        }
+        self.write_backs(args, finals.drain(..), &kept, f)?;
         self.return_vec(finals);
         Ok(ret)
     }
@@ -1116,6 +1121,25 @@ impl Session {
     /// The final value of a by-reference parameter goes back to the caller's place. An `HttpContent` the callee only worked on is the
     /// caller's own object: writing it back would store a copy (an HttpContent is a value on assignment) and cut the headers handed
     /// out before from it.
+    /// Stores the final values of a call's `var` arguments back into the caller's places, except the arguments in `kept`:
+    /// those an event publisher no subscriber hears leaves as they were (`var_option::unheard_publisher_caller`).
+    fn write_backs(
+        &mut self,
+        args: &[ir::Arg],
+        finals: impl Iterator<Item = Value>,
+        kept: &[usize],
+        f: &mut Frame,
+    ) -> Result<(), Signal> {
+        for (i, (a, v)) in args.iter().zip(finals).enumerate() {
+            if let ir::Arg::Ref(p) = a
+                && !kept.contains(&i)
+            {
+                self.write_back(p, v, f)?;
+            }
+        }
+        Ok(())
+    }
+
     fn write_back(&mut self, p: &ir::Place, v: Value, f: &mut Frame) -> Result<(), Signal> {
         if let Value::Library(n, cell) = &v {
             if n == "HttpContent" {
@@ -1126,20 +1150,24 @@ impl Session {
                 }
             }
         }
+        // A local or global Option variable, or an array of them, has its own members again (`var_option::written_back`).
+        let v = match p {
+            ir::Place::Local(_) | ir::Place::Global(_) if matches!(v, Value::Option(..) | Value::Array(_)) => {
+                let ty = self.place_type(p, f);
+                crate::var_option::written_back(&v, &ty, || self.read(p, f).ok()).unwrap_or(v)
+            }
+            _ => v,
+        };
         // A `var Text` parameter can stand for a variable of a declared length.
         let v = self.rendered_into_place(p, v, f)?;
-        self.write(p, v, f)
+        self.write_as(p, v, f, Store::CallBack)
     }
 
     /// The instance a call on codeunit value `i` runs on: the session's
     /// singleton for `SingleInstance = true` codeunits, `i` itself otherwise.
     pub(crate) fn shared_instance(&mut self, i: Rc<RefCell<Instance>>) -> Rc<RefCell<Instance>> {
         let object = i.borrow().object as usize;
-        let single = self.engine.program.objects[object]
-            .properties
-            .iter()
-            .any(|(k, v)| k.eq_ignore_ascii_case("SingleInstance") && v.trim().eq_ignore_ascii_case("true"));
-        if !single {
+        if !self.engine.object_facts[object].single_instance {
             return i;
         }
         if !self.singletons.contains_key(&object) {
@@ -1521,13 +1549,14 @@ impl Session {
     }
 
     pub(crate) fn write(&mut self, p: &ir::Place, v: Value, f: &mut Frame) -> Result<(), Signal> {
-        self.write_as(p, v, f, true)
+        self.write_as(p, v, f, Store::Assign)
     }
 
     /// The write-back of a builtin's by-reference receiver or argument (`run_native`): a Blob it hands back is stored as the
     /// buffer it is, never copied (a stream `CreateOutStream` created on it writes there; `blob_transfer::moved`).
-    fn write_native_back(&mut self, p: &ir::Place, v: Value, f: &mut Frame) -> Result<(), Signal> {
-        self.write_as(p, v, f, false)
+    fn write_native_back(&mut self, p: &ir::Place, v: Value, f: &mut Frame, id: BuiltinId) -> Result<(), Signal> {
+        let v = crate::var_option::cleared_array(v, &self.place_type(p, f), id);
+        self.write_as(p, v, f, Store::Builtin(id))
     }
 
     /// Global `i` of the running instance takes `v` as it is: the end of [`Self::write_as`] (and of a Variant's shared record,
@@ -1549,8 +1578,9 @@ impl Session {
         Ok(())
     }
 
-    /// [`Self::write`]; `assign` is false for a builtin's write-back.
-    fn write_as(&mut self, p: &ir::Place, v: Value, f: &mut Frame, assign: bool) -> Result<(), Signal> {
+    /// [`Self::write`]; `how` names the store: a builtin's write-back is no assignment.
+    pub(crate) fn write_as(&mut self, p: &ir::Place, v: Value, f: &mut Frame, how: Store) -> Result<(), Signal> {
+        let assign = how.assigns();
         // A column a platform row leaves unknown never reaches a variable: every read of one is refused where it happens; this
         // catches a reader that missed it.
         if let Value::Unknown(why) = &v {
@@ -1792,7 +1822,7 @@ impl Session {
             _ => v,
         };
         match p {
-            ir::Place::Local(i) => f.locals[*i] = v,
+            ir::Place::Local(i) => f.locals[*i] = self.option_param_store(*i, v, f),
             ir::Place::Global(i) => self.put_global(*i, v, f, assign)?,
             ir::Place::BaseGlobal(i) => {
                 let base = self.base_instance(f)?;
@@ -1840,7 +1870,8 @@ impl Session {
                     }
                     Err(e) => return Err(e),
                 };
-                arr.borrow_mut()[flat] = ops::convert(v, &el_ty)?;
+                let value = self.element_value(v, &el_ty, &arr.borrow()[flat], how, base, f)?;
+                arr.borrow_mut()[flat] = value;
             }
             ir::Place::Field(..) => unreachable!("handled above"),
         }

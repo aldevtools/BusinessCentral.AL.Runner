@@ -341,6 +341,7 @@ pub(crate) struct PageClients {
 }
 
 /// Event subscriptions and what the Event Subscription table reports.
+#[derive(Default)]
 pub(crate) struct EventState {
     /// Manual event subscriptions made by `BindSubscription`.
     pub(crate) bindings: Vec<dispatch::Binding>,
@@ -369,6 +370,12 @@ pub(crate) struct EventState {
     pub(crate) next_aliases: Vec<(usize, Rc<RefCell<crate::Instance>>, usize)>,
     /// Set just before a subscriber is called, taken by its frame: the call is an event subscriber dispatch.
     pub(crate) next_is_subscriber: bool,
+    /// Set by `publish` just before the raise: the publisher routine (object, routine); taken by `raise_to_subscribers`
+    /// for `Session::event_publisher`.
+    pub(crate) by_value_publisher: Option<(usize, usize)>,
+    /// Set just before a subscriber is called, taken by its frame (`records::ByValueCall`), cleared after the call: per
+    /// subscriber parameter, what `Session::event_args` says of it.
+    pub(crate) next_event_args: Vec<crate::records::EventArg>,
     /// Set by `publish` for a publisher `blob_transfer::measured_publisher` names and by `table_event` for an event
     /// `blob_transfer::measured_table_event` names, just before the raise; taken by `raise_to_subscribers`.
     pub(crate) blob_publisher: Option<crate::blob_transfer::BlobEvent>,
@@ -381,6 +388,8 @@ pub(crate) struct EventState {
     pub(crate) subscriber_stack: Vec<Option<(usize, usize, usize)>>,
     /// Set by `finish_call` just before the call, taken by the callee's frame (`Frame::var_lens`).
     pub(crate) next_var_lens: Vec<Option<i32>>,
+    /// Set by `finish_call` just before the call, taken by the callee's frame (`Frame::option_hops`).
+    pub(crate) next_option_hops: Vec<bool>,
     /// The declared lengths of a publisher's `var` Text and Code arguments (`var_lens_of`), set by `finish_call` just before
     /// the publisher runs and taken by `publish`, which hands them to the subscribers that read them.
     pub(crate) publisher_var_lens: Vec<Option<i32>>,

@@ -32,8 +32,20 @@ pub struct Publisher {
     pub object: usize,
     /// Lower-case event name.
     pub event: String,
+    /// The attribute that declares the event.
+    pub kind: EventKind,
     pub include_sender: bool,
+    /// `IntegrationEvent(IncludeSender, GlobalVarAccess)`: GlobalVarAccess (`false` for the other kinds).
+    pub global_var_access: bool,
     pub isolated: bool,
+}
+
+/// The attribute that declares an event publisher.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EventKind {
+    Integration,
+    Business,
+    Internal,
 }
 
 #[derive(Debug)]
@@ -235,11 +247,10 @@ fn witnesses(heads: &[ir::ObjectHead], oi: usize, r: &ir::EventRoutine) -> Vec<u
     let mut witnesses = vec![oi];
     for &c in &r.codeunit_slots {
         let c = c as usize;
-        if heads.get(c).is_some_and(|x| {
-            x.properties
-                .iter()
-                .any(|(k, v)| k.eq_ignore_ascii_case("SingleInstance") && v.trim().eq_ignore_ascii_case("true"))
-        }) && !witnesses.contains(&c)
+        if heads
+            .get(c)
+            .is_some_and(|x| ir::ObjectFacts::of_properties(&x.properties).single_instance)
+            && !witnesses.contains(&c)
         {
             witnesses.push(c);
         }
@@ -352,17 +363,21 @@ impl Registry {
                         "integrationevent" | "businessevent" | "internalevent" => {
                             // IntegrationEvent(IncludeSender, GlobalVarAccess[, Isolated]);
                             // BusinessEvent / InternalEvent(IncludeSender[, Isolated]).
-                            let isolated = if name == "integrationevent" {
-                                flag(&args, 2)
-                            } else {
-                                flag(&args, 1)
+                            let kind = match name.as_str() {
+                                "integrationevent" => EventKind::Integration,
+                                "businessevent" => EventKind::Business,
+                                _ => EventKind::Internal,
                             };
+                            let integration = kind == EventKind::Integration;
+                            let isolated = if integration { flag(&args, 2) } else { flag(&args, 1) };
                             reg.publishers.insert(
                                 (oi, ri),
                                 Publisher {
                                     object: base_of.get(&oi).copied().unwrap_or(oi),
                                     event: r.name.to_lowercase(),
+                                    kind,
                                     include_sender: flag(&args, 0),
+                                    global_var_access: integration && flag(&args, 1),
                                     isolated,
                                 },
                             );

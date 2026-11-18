@@ -1006,6 +1006,8 @@ pub struct PageState {
     /// and for a page the test opened. Set and cleared where `caught_by_trap` is (`PageRun::catch_by_trap`, RunObject, the test's
     /// own opens).
     pub trapped_run: Option<super::page_run_close::PageRunCall>,
+    /// What the page was when its last open ended (`post_left_new_line.rs`, `Session::note_open_end`).
+    pub open_end: Option<crate::pages::post_left_new_line::OpenEnd>,
 }
 
 // The page instance holds `CurrPage`, which points back here: print only the facts.
@@ -1121,6 +1123,7 @@ impl PageState {
         self.tree_calls = Vec::new();
         self.tree_calls_unknown = false;
         self.tree_calls_mark = None;
+        self.open_end = None;
         self.empty_list_landing = None;
         self.factbox_line = Default::default();
         self.factbox_blank_landing = false;

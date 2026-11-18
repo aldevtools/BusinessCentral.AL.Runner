@@ -727,7 +727,9 @@ impl WriteWalk<'_> {
             | Expr::Fail { .. }
             | Expr::ControlAddInCall { .. } => {}
             Expr::TddStub { args, .. } => args.iter().for_each(|a| self.expr(a)),
-            Expr::TddFit { inner, .. } | Expr::FitOrRefuse { inner, .. } => self.expr(inner),
+            Expr::TddFit { inner, .. } | Expr::FitOrRefuse { inner, .. } | Expr::VarSectionValue(inner) => {
+                self.expr(inner)
+            }
             Expr::Load(p) => self.place(p),
             Expr::Unary(_, a) | Expr::Convert(_, a) | Expr::DotNetCoerce(_, a) | Expr::DotNetOperand(a, _) => {
                 self.expr(a)
