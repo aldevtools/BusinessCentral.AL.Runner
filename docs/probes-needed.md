@@ -794,6 +794,36 @@ No probe is written yet, so every shape below is REFUSED.
   session is REFUSED. A stopped Company-Initialize keeps its rows and its session state (main's behavior). The state at
   the start of the next app's install session is carried from the previous one (main's behavior), not probed.
 
+## Permissions and session (al-runner PR 8240, 2026-11-17)
+
+- **Static Query.SaveAs under a set that denies the query: REFUSED, probe wanted.** The static
+  `Query.SaveAsCsv(Id, ..)` and `Query.SaveAsXml(Id, ..)` of a query whose permission set grants neither Execute on
+  the query nor Read on its table refuse (`queries.rs` `query_rows`). The instance forms keep main's answer
+  (the denial of security/permissions/Y24PermExecute.al). Cells: static and instance SaveAsCsv and SaveAsXml under
+  no Execute and no Read; Execute without Read; Read without Execute; the return value used and unused; the error
+  text and code after each.
+- **Filter group 1 read by another record variable: REFUSED outside the measured pairs, probe wanted.** Pinned
+  (record/filters/FilterGroupOtherVariable.al:177-186, :612-622, :730-746, :826-900): the reader has no filter, key,
+  view or mark of its own; the setter and reader kinds and the calls listed in `group1_sessions.rs`
+  `measured_read`; a field outside the primary key; a table with no event subscriber and no global trigger. Cells
+  wanted: each call with each setter and reader kind (Record, temporary Record, RecordRef); a reader with its own
+  filter in group 0 or a SetCurrentKey; a reader in another current filter group; `Next(2)` and `FindSet(true)`;
+  a write with `RunTrigger = true` and with a subscriber; a filter on a primary key field; a report data item that
+  reads the table.
+- **GetUrl with 5 arguments for an API page, a Card page and a closed RecordRef: REFUSED, probe wanted.** Pinned
+  (session-system/session/GetUrlServiceClientRecord.al:36-38, :176; al-language-onprem
+  session-system/server-system-functions/PGetUrl.al:198-209): a List page whose
+  source table is the record's table, and a compiled codeunit. Cells: ClientType::Api and ODataV4 for an API page;
+  a Card page; an unknown codeunit id; a RecordRef that is not open, for each service client type; a codeunit with an open RecordRef (the corpus runs the codeunit with a Record only, :177); the same with 4
+  and 6 arguments.
+- **Guarded Codeunit.Run with a record argument that leaves a mark: REFUSED, probe wanted.** Pinned
+  (errors/ConsistentGuardedRun.al): `Codeunit.Run(Id)` without a record. Cells: `Codeunit.Run(Id, Rec)`
+  after `Consistent(false)`; the answer, `GetLastErrorText` and `GetLastErrorCode` after it, and the error code
+  after a guarded run without a record (the runner answers the Commit code, errors/CuCommitTests.al:416).
+- **RecordRef.GetTable of a Variant that holds a RecordId whose row does not exist: REFUSED, probe wanted.** Pinned
+  (recordref-fieldref/recordref/GetTableVariantKinds.al:127-128, :139): table 60000, key 1, while the row exists. Cells: the
+  row deleted before the call; another key; another table.
+
 ## Assumptions in force (generated from the registry)
 
 Owner rule of 2026-10-15 (CLAUDE.md hard rule 3): behavior a Microsoft test needs may be implemented before its probe, and every test that passes through such behavior is reported as a FLAGGED pass. The registry is `crates/al-builtins/src/assumptions.rs`; each code path marks its entry when it runs. This table is generated from it (do not edit it by hand: `UPDATE_ASSUMPTIONS_DOC=1 cargo test -p al-builtins assumptions` rewrites it). `alrunner test --top-assumptions` ranks the entries by flagged passes, `--list-assumptions` prints them with the hit counts of the last run. When a probe pins an entry, delete it from the registry; the compiler names every place that still marks it.

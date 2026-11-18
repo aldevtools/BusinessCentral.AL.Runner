@@ -116,6 +116,7 @@ pub(super) fn events_as_new(e: &EventState) -> bool {
         install_written,
         install_rows,
         setup_no_ops,
+        db_setup_table,
         trial,
         global_setups,
     } = e;
@@ -161,6 +162,7 @@ pub(super) fn events_as_new(e: &EventState) -> bool {
         && install_written.is_none()
         && install_rows.is_none()
         && setup_no_ops.is_empty()
+        && db_setup_table.is_none()
         && !allowed
         && picked.is_empty()
         && *depth == 0
