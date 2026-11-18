@@ -58,6 +58,13 @@ Facts read from the code on 2026-11-17:
    first bullet and the comparison bullet of decision 5; every other bullet still applies. The exception names the
    nightly run only: a push run that is full for every version stays blocked while a difference is open. The corpus
    therefore writes the manifest of a nightly run whether or not its comparison passes.
+
+   **A later nightly difference also blocks the combined runs before it** (owner, 2026-11-18). A run that reuses
+   results is accepted only when the first nightly run at or after its commit (by commit order, then by time) exists,
+   has ended green, has a manifest of its latest attempt, and reports `identical` for every BC version of the run.
+   So a nightly that reports a difference blocks every combined run made before it, back to the last nightly before it
+   that reported `identical`. While no nightly after the run exists, the run is refused; it waits for the next nightly,
+   at most a day. A full push run and the nightly run itself keep the rules above.
 7. **`oracle.toml` records**, per version: `mode`, the counts of fresh and reused codeunits, the oldest source run,
    and `ci_bc_build`. The bump prints a warning when `ci_bc_build` differs from `bc_build`.
 8. **The pin check does not change.** The CLI still exits 2 when the pin and `oracle.toml` disagree. The rule for an
@@ -107,3 +114,8 @@ Facts read from the code on 2026-11-17:
 - `al-test-cli/src/oracle.rs` unit test: a suite with a `<properties>` child gives the same cases and the same clock
   as the suite without it.
 - `corpus_harness.rs`: pin mismatch still exits 2.
+- `corpus_bump_combined.rs` (owner decision 2026-11-18): a combined run is refused when no nightly run at or after its
+  commit exists, when the first one differs, has not ended, ended red or cancelled, has no manifest, has a manifest of an
+  earlier attempt or lacks a version, and when every listed nightly is after it; a difference in a later nightly after an
+  identical first one does not block it; a nightly at the run's commit counts as the first after it; a full push run
+  keeps its answer whatever the nightlies after it say.

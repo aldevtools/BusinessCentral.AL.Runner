@@ -145,14 +145,17 @@ struct Spec {
     patch: Option<(String, String)>,
 }
 
-/// A nightly run: id, commit, its comparison for every version it names (None: no manifest), conclusion, versions.
+/// A nightly run: id, commit, its comparison for every version it names (None: no manifest), status, conclusion,
+/// versions, and its latest attempt (its manifest is always of attempt 1).
 #[derive(Clone)]
 struct Nightly {
     id: u64,
     sha: String,
     cmp: Option<String>,
+    status: String,
     conclusion: String,
     versions: Vec<&'static str>,
+    attempt: u32,
 }
 
 fn night(id: u64, sha: &str, cmp: Option<&str>) -> Nightly {
@@ -160,8 +163,10 @@ fn night(id: u64, sha: &str, cmp: Option<&str>) -> Nightly {
         id,
         sha: sha.to_string(),
         cmp: cmp.map(str::to_string),
+        status: "completed".into(),
         conclusion: "success".into(),
         versions: LEGS.to_vec(),
+        attempt: 1,
     }
 }
 
@@ -192,7 +197,8 @@ fn manifest(run: u64, attempt: u32, sha: &str, mode: &str, chain: u32, reused: u
 }
 
 impl Spec {
-    /// Run 20 on `c1`: 50100 and 50102 fresh, 50101 and 60100 reused from run 10 on `c0`; nightly 15 on `c0` identical.
+    /// Run 20 on `c1`: 50100 and 50102 fresh, 50101 and 60100 reused from run 10 on `c0`; nightly 15 on `c0` (the
+    /// newest before it) and nightly 25 on `c2` (the first after it) identical.
     fn combined(c: &Corpus) -> Spec {
         let leg = "27.5";
         Spec {
@@ -222,7 +228,7 @@ impl Spec {
             }],
             manifest: Some(manifest(20, 1, &c.c1, "subset", 1, 1)),
             jobs: vec![("BC 27.5 / 1".into(), "success".into())],
-            nightlies: vec![night(15, &c.c0, Some("identical"))],
+            nightlies: vec![night(15, &c.c0, Some("identical")), night(25, &c.c2, Some("identical"))],
             counts: true,
             rerun: false,
             fetch: false,
@@ -353,7 +359,7 @@ fn bump(c: &Corpus, s: &Spec) -> (i32, String) {
     let mut list = Vec::new();
     for (k, n) in s.nightlies.iter().enumerate() {
         let (nid, nsha) = (&n.id, &n.sha);
-        list.push(serde_json::json!({"databaseId": nid, "headSha": nsha, "attempt": 1, "conclusion": n.conclusion, "createdAt": format!("2026-11-1{k}T02:00:00Z")}));
+        list.push(serde_json::json!({"databaseId": nid, "headSha": nsha, "attempt": n.attempt, "status": n.status, "conclusion": n.conclusion, "createdAt": format!("2026-11-{:02}T02:00:00Z", 10 + k)}));
         let mut a = Vec::new();
         if let Some(cmp) = &n.cmp {
             let mut m = manifest(*nid, 1, nsha, "full", 0, 0);
@@ -378,7 +384,19 @@ fn bump(c: &Corpus, s: &Spec) -> (i32, String) {
             .unwrap();
         }
     }
-    std::fs::write(d.join("list.json"), serde_json::Value::Array(list).to_string()).unwrap();
+    // As gh run list -L 50 answers: the newest 50, with --status completed only completed runs.
+    list.reverse();
+    let newest = |completed: bool| {
+        let l: Vec<_> = list
+            .iter()
+            .filter(|n| !completed || n["status"] == "completed")
+            .take(50)
+            .cloned()
+            .collect();
+        serde_json::Value::Array(l).to_string()
+    };
+    std::fs::write(d.join("list.json"), newest(true)).unwrap();
+    std::fs::write(d.join("list-all.json"), newest(false)).unwrap();
     // The old oracle: codeunits 50100, 50101 and 50103 (D.al, deleted by c1) and 60100; oracle.toml with the CI builds.
     let oracle = d.join("oracle");
     let mut toml = String::new();
@@ -404,7 +422,8 @@ echo "$*" >> {dd}/calls.log
 case "$*" in
   *"run view"*"--json jobs"*) cat {dd}/jobs-$3.json ;;
   *"run view"*) cat {dd}/view-$3.json ;;
-  *"run list"*) cat {dd}/list.json ;;
+  *"run list"*"--status completed"*) cat {dd}/list.json ;;
+  *"run list"*) cat {dd}/list-all.json ;;
   */zip*) id=$(echo "$*" | sed 's#.*/artifacts/\([0-9]*\)/zip.*#\1#'); cat {dd}/$id.zip ;;
   *"/artifacts?"*) id=${{2#*runs/}}; cat {dd}/arts-${{id%%/*}}.json ;;
   *) echo "unexpected gh $*" >&2; exit 9 ;;
@@ -674,9 +693,14 @@ fn a_nightly_without_a_manifest_blocks_the_bump() {
 #[test]
 fn only_the_newest_nightly_at_or_before_the_commit_counts() {
     // Nightly 16 on the side branch (not before the commit) says differs; nightly 15 on c0 is the one that counts.
+    // Nightly 25 on c2 is the first after the commit (owner decision 2026-11-18).
     let c = corpus();
     let mut s = Spec::combined(&c);
-    s.nightlies = vec![night(15, &c.c0, Some("identical")), night(16, &c.side, Some("differs"))];
+    s.nightlies = vec![
+        night(15, &c.c0, Some("identical")),
+        night(16, &c.side, Some("differs")),
+        night(25, &c.c2, Some("identical")),
+    ];
     accepted(&c, &s);
 }
 
@@ -702,6 +726,170 @@ fn a_full_push_run_with_no_nightly_before_it_is_accepted() {
         out.contains("no nightly run at or before its commit, a full run"),
         "{out}"
     );
+}
+
+// ---------- the first nightly after a combined run (owner decision 2026-11-18) ----------
+
+#[test]
+fn a_combined_run_with_no_nightly_after_it_is_refused() {
+    let c = corpus();
+    let mut s = Spec::combined(&c);
+    s.nightlies.truncate(1);
+    refused(
+        &c,
+        &s,
+        "reuses results and no nightly run at or after its commit has compared them yet",
+    );
+}
+
+#[test]
+fn a_nightly_off_master_is_not_after_a_combined_run() {
+    let c = corpus();
+    let mut s = Spec::combined(&c);
+    s.nightlies[1].sha = c.side.clone();
+    refused(
+        &c,
+        &s,
+        "reuses results and no nightly run at or after its commit has compared them yet",
+    );
+}
+
+#[test]
+fn a_later_nightly_difference_blocks_an_earlier_combined_run() {
+    let c = corpus();
+    let mut s = Spec::combined(&c);
+    s.nightlies[1].cmp = Some("differs".into());
+    refused(&c, &s, "the nightly run 25 reports comparison 'differs' for BC 27.5");
+}
+
+#[test]
+fn only_the_first_nightly_after_a_combined_run_counts() {
+    // Nightly 25 differs, nightly 26 after it is identical: 25 is the first after the run.
+    let c = corpus();
+    let mut s = Spec::combined(&c);
+    s.nightlies[1].cmp = Some("differs".into());
+    s.nightlies.push(night(26, &c.c2, Some("identical")));
+    refused(&c, &s, "the nightly run 25 reports comparison 'differs' for BC 27.5");
+}
+
+#[test]
+fn a_difference_after_the_first_identical_nightly_does_not_block_the_run_before_it() {
+    // Nightly 25 (the first after the run) is identical; nightly 26 differs and blocks only the runs after 25.
+    let c = corpus();
+    let mut s = Spec::combined(&c);
+    s.nightlies.push(night(26, &c.c2, Some("differs")));
+    let out = accepted(&c, &s);
+    assert!(
+        out.contains("the first nightly run at or after its commit, 25, reports no difference"),
+        "{out}"
+    );
+}
+
+#[test]
+fn a_nightly_at_the_commit_of_a_combined_run_is_the_first_after_it() {
+    let c = corpus();
+    let mut s = Spec::combined(&c);
+    s.nightlies[1] = night(25, &c.c1, Some("identical"));
+    let out = accepted(&c, &s);
+    assert!(
+        out.contains("the first nightly run at or after its commit, 25, reports no difference"),
+        "{out}"
+    );
+}
+
+#[test]
+fn a_running_first_nightly_after_a_combined_run_is_refused() {
+    // Nightly 25 is still running (gh lists it without --status completed only); nightly 26 has ended identical.
+    let c = corpus();
+    let mut s = Spec::combined(&c);
+    s.nightlies[1].status = "in_progress".into();
+    s.nightlies[1].conclusion = "".into();
+    s.nightlies.push(night(26, &c.c2, Some("identical")));
+    refused(
+        &c,
+        &s,
+        "the first nightly run at or after its commit, 25, has not ended (status in_progress)",
+    );
+}
+
+#[test]
+fn a_red_first_nightly_after_a_combined_run_is_refused() {
+    let c = corpus();
+    let mut s = Spec::combined(&c);
+    s.nightlies[1].conclusion = "failure".into();
+    refused(&c, &s, "the nightly run 25 ended with conclusion failure");
+}
+
+#[test]
+fn a_cancelled_first_nightly_after_a_combined_run_is_refused() {
+    let c = corpus();
+    let mut s = Spec::combined(&c);
+    s.nightlies[1].conclusion = "cancelled".into();
+    refused(&c, &s, "the nightly run 25 ended with conclusion cancelled");
+}
+
+#[test]
+fn a_first_nightly_after_a_combined_run_without_a_manifest_is_refused() {
+    let c = corpus();
+    let mut s = Spec::combined(&c);
+    s.nightlies[1].cmp = None;
+    refused(
+        &c,
+        &s,
+        "the first nightly run at or after its commit, 25, has no results manifest",
+    );
+}
+
+#[test]
+fn a_first_nightly_after_a_combined_run_whose_manifest_is_of_an_earlier_attempt_is_refused() {
+    let c = corpus();
+    let mut s = Spec::combined(&c);
+    s.nightlies[1].attempt = 2;
+    refused(
+        &c,
+        &s,
+        "run 25: its results manifest is of attempt 1, the run's latest attempt is 2",
+    );
+}
+
+#[test]
+fn a_first_nightly_after_a_combined_run_that_lacks_a_version_is_refused() {
+    let c = corpus();
+    let mut s = Spec::combined(&c);
+    s.nightlies[1].versions = vec!["27.5", "29.0"];
+    refused(&c, &s, "the nightly run 25 reports comparison None for BC 28.5");
+}
+
+#[test]
+fn a_listing_of_only_nightlies_after_a_combined_run_is_refused() {
+    // gh lists the newest 50 nightly runs; all are after the run, so an older one may be the first after it.
+    let c = corpus();
+    let mut s = Spec::combined(&c);
+    s.nightlies.truncate(1);
+    for id in 30..80 {
+        let mut n = night(id, &c.c2, Some("identical"));
+        n.status = "queued".into();
+        n.conclusion = "".into();
+        s.nightlies.push(n);
+    }
+    refused(&c, &s, "all 50 nightly runs gh listed are at or after its commit");
+}
+
+#[test]
+fn a_full_push_run_keeps_its_answer_when_a_later_nightly_differs() {
+    // The rule names runs that reuse results; a full push run is checked against the nightly before it only.
+    let c = corpus();
+    let mut s = Spec::full(&c, &c.c1);
+    s.nightlies[1].cmp = Some("differs".into());
+    accepted(&c, &s);
+}
+
+#[test]
+fn a_full_push_run_with_no_nightly_after_it_is_accepted() {
+    let c = corpus();
+    let mut s = Spec::full(&c, &c.c1);
+    s.nightlies.truncate(1);
+    accepted(&c, &s);
 }
 
 /// The nightly full run on c1 whose comparison failed: all its results are fresh (decision 6).

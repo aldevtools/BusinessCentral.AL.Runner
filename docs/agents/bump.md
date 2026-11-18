@@ -63,7 +63,11 @@ provenance (a run from before the corpus recorded it). The bump writes `mode`,
 `fresh`, `reused`, `oldest_source_run` and `ci_bc_build` into each
 `[[version]]` of `oracle.toml` and warns when `ci_bc_build` differs from
 `bc_build`. The bump bot finds only green push runs, so a bump from the
-nightly exception is run by hand.
+nightly exception is run by hand. A run that reuses results also waits for the
+first nightly at or after its commit: that nightly must have ended green, with a
+manifest of its latest attempt that reports no difference for every version
+(owner, 2026-11-18). A difference there blocks every combined run before it,
+back to the last identical nightly, so the bot walks back past them.
 
 A bump need not wait for the corpus master run (about 55 minutes after a corpus
 pull request merges; owner, 2026-11-05): `tools/corpus_bump.sh --from-pr

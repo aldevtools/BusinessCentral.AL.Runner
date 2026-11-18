@@ -8,7 +8,8 @@ run: before any JUnit file is downloaded. RUN-JSON is gh run view --json databas
 event,headBranch,workflowDatabaseId; ARTIFACTS the run's artifact listing; DIR the corpus, already fetched (the run's
 commit and the nightly runs' commits are read). Checks that the run's results manifest belongs to its latest attempt
 (decision 4), the chain cap, that the manifest's modes agree with its chains and counts, that the run is green or is the
-nightly exception (decision 6), that it is a push or schedule run on master, and the nightly comparison (decision 5).
+nightly exception (decision 6), that it is a push or schedule run on master, the nightly comparison (decision 5) and, for
+a run that reuses results, the first nightly run after it (decision 6, owner 2026-11-18).
 Writes the run id, its attempt, the kind and the manifest to OUT.
 
 files: after the JUnit files of the run are downloaded. LIST has one line per file: the BC version (27.5), the path of
@@ -40,6 +41,8 @@ CHAIN_MAX = 20
 COMPARISON_JOB = "Nightly comparison"
 # Decision 5: the nightly comparison's answer when the fresh and the reused results agree (per BC version).
 IDENTICAL = "identical"
+# How many nightly runs one gh run list reads (the newest first).
+NIGHTLY_LIMIT = 50
 # The run modes of a manifest: "full" (every test ran, corpus provenance.py manifest) and "subset" (a run that reuses
 # results, ADR-077 context).
 MODES = ("full", "subset")
@@ -179,18 +182,42 @@ def is_ancestor(corpus, a, b):
     return p.returncode == 0
 
 
-def check_nightly_comparison(repo, corpus, run_id, run, manifest):
-    """Decision 5: the newest nightly run at or before the run's commit does not report a difference.
-
-    Its manifest must be of its latest attempt and say IDENTICAL for every BC version of the run's manifest, and the
-    nightly must have ended green. A nightly without that answer is refused like a difference: nothing shows that the
-    reused results agree. With no nightly at or before the commit, a
-    full run passes (no comparison is open) and a run that reuses results is refused (nothing compared them)."""
+def list_nightlies(repo, run_id, run, completed):
+    """The nightly runs of the run's workflow on master, the newest NIGHTLY_LIMIT; with completed only ended ones."""
     wf = run.get("workflowDatabaseId")
     if not wf:
         refuse("run %s: gh named no workflow, so its nightly runs cannot be listed" % run_id)
-    nightlies = json.loads(gh("run", "list", "-R", repo, "--workflow", str(wf), "--event", "schedule", "--branch", BRANCH,
-                              "--status", "completed", "-L", "50", "--json", "databaseId,headSha,attempt,conclusion,createdAt"))
+    status = ["--status", "completed"] if completed else []
+    return json.loads(gh("run", "list", "-R", repo, "--workflow", str(wf), "--event", "schedule", "--branch", BRANCH,
+                         *status, "-L", str(NIGHTLY_LIMIT),
+                         "--json", "databaseId,headSha,attempt,status,conclusion,createdAt"))
+
+
+def check_nightly_identical(repo, run_id, n, versions, which, decision):
+    """The one reading of a nightly run's answer: its manifest is of its latest attempt (check_manifest_belongs), says
+    IDENTICAL for every BC version in versions, and the nightly ended green. A nightly without that answer is refused like
+    a difference: nothing shows that the reused results agree. which names the nightly in the refusal."""
+    nid = n["databaseId"]
+    arts = json.loads(gh("api", "repos/%s/actions/runs/%s/artifacts?per_page=100" % (repo, nid)))
+    nm = download_manifest(repo, arts)
+    if nm is None:
+        refuse("run %s: %s, %s, has no results manifest" % (run_id, which, nid))
+    check_manifest_belongs(nid, n, nm)
+    for v in sorted(versions):
+        cmp = (nm["versions"].get(v) or {}).get("comparison")
+        if cmp != IDENTICAL:
+            refuse("run %s: the nightly run %s reports comparison %r for BC %s; a difference blocks the bump until it is "
+                   "classified (ADR-077 decision %d)" % (run_id, nid, cmp, v, decision))
+    if n.get("conclusion") != "success":
+        refuse("run %s: the nightly run %s ended with conclusion %s, so its comparison does not count (ADR-077 decision 4)"
+               % (run_id, nid, n.get("conclusion")))
+
+
+def check_nightly_comparison(repo, corpus, run_id, run, manifest):
+    """Decision 5: the newest nightly run at or before the run's commit does not report a difference
+    (check_nightly_identical, for every BC version of the run's manifest). With no nightly at or before the commit, a
+    full run passes (no comparison is open) and a run that reuses results is refused (nothing compared them)."""
+    nightlies = list_nightlies(repo, run_id, run, completed=True)
     before = [n for n in nightlies if is_ancestor(corpus, n["headSha"], run["headSha"])]
     if not before:
         if is_full(manifest):
@@ -198,21 +225,35 @@ def check_nightly_comparison(repo, corpus, run_id, run, manifest):
             return
         refuse("run %s reuses results and no nightly run at or before its commit compared them" % run_id)
     n = max(before, key=lambda r: r.get("createdAt", ""))
-    nid = n["databaseId"]
-    arts = json.loads(gh("api", "repos/%s/actions/runs/%s/artifacts?per_page=100" % (repo, nid)))
-    nm = download_manifest(repo, arts)
-    if nm is None:
-        refuse("run %s: the newest nightly run at or before its commit, %s, has no results manifest" % (run_id, nid))
-    check_manifest_belongs(nid, n, nm)
-    for v in sorted(manifest["versions"]):
-        cmp = (nm["versions"].get(v) or {}).get("comparison")
-        if cmp != IDENTICAL:
-            refuse("run %s: the nightly run %s reports comparison %r for BC %s; a difference blocks the bump until it is "
-                   "classified (ADR-077 decision 5)" % (run_id, nid, cmp, v))
-    if n.get("conclusion") != "success":
-        refuse("run %s: the nightly run %s ended with conclusion %s, so its comparison does not count (ADR-077 decision 4)"
-               % (run_id, nid, n.get("conclusion")))
-    print("run %s: nightly run %s at or before its commit reports no difference" % (run_id, nid))
+    check_nightly_identical(repo, run_id, n, manifest["versions"], "the newest nightly run at or before its commit", 5)
+    print("run %s: nightly run %s at or before its commit reports no difference" % (run_id, n["databaseId"]))
+
+
+def reuses_results(manifest):
+    """A version of the manifest is a subset run (check_manifest_shape ties mode subset to reused results)."""
+    return any(v.get("mode") == "subset" for v in manifest["versions"].values())
+
+
+def check_first_nightly_after(repo, corpus, run_id, run, manifest):
+    """Decision 6 (owner, 2026-11-18): a later nightly that reports a difference also blocks the runs that reuse results
+    made before it. The first nightly run at or after the run's commit (the oldest by createdAt among the nightlies of
+    any status whose commit has the run's commit as ancestor) must have ended, and check_nightly_identical holds for it
+    with every BC version of the run's manifest. A difference there so blocks every such run back to the identical
+    nightly before it. With no such nightly yet the run is refused: the next nightly answers within a day."""
+    nightlies = list_nightlies(repo, run_id, run, completed=False)
+    after = [n for n in nightlies if is_ancestor(corpus, run["headSha"], n["headSha"])]
+    if len(nightlies) >= NIGHTLY_LIMIT and len(after) == len(nightlies):
+        refuse("run %s: all %d nightly runs gh listed are at or after its commit, so the first one after it may be older "
+               "than the listing" % (run_id, len(nightlies)))
+    if not after:
+        refuse("run %s reuses results and no nightly run at or after its commit has compared them yet; the next nightly "
+               "run answers (ADR-077 decision 6)" % run_id)
+    n = min(after, key=lambda r: r.get("createdAt", ""))
+    which = "the first nightly run at or after its commit"
+    if n.get("status") != "completed":
+        refuse("run %s: %s, %s, has not ended (status %s)" % (run_id, which, n["databaseId"], n.get("status")))
+    check_nightly_identical(repo, run_id, n, manifest["versions"], which, 6)
+    print("run %s: %s, %s, reports no difference" % (run_id, which, n["databaseId"]))
 
 
 def cmd_run(a):
@@ -233,6 +274,8 @@ def cmd_run(a):
             refuse("run %s ran on branch %r, not on %s" % (run_id, run.get("headBranch"), BRANCH))
         if kind != "nightly":
             check_nightly_comparison(a.repo, a.corpus, run_id, run, manifest)
+        if kind == "green" and reuses_results(manifest):
+            check_first_nightly_after(a.repo, a.corpus, run_id, run, manifest)
     json.dump({"run_id": run_id, "attempt": run.get("attempt"), "kind": kind, "manifest": manifest}, open(a.state, "w"))
 
 
