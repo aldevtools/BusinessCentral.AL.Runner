@@ -715,6 +715,50 @@ codeunit 69840 C
         exit(Seen);
     end;
 
+    procedure VarArrayStoreShorterOption(): Text
+    var Arr: array[2] of Option First,Second,Third;
+    begin
+        exit(StoreShorterOption(Arr));
+    end;
+
+    local procedure StoreShorterOption(var A: array[2] of Option): Text
+    var Two: Option X,Y;
+    begin
+        Two := Two::Y;
+        A[1] := Two;
+        exit(Format(A[1]));
+    end;
+
+    procedure RecordArrayElementFieldToMembersPublisher(): Text
+    var
+        Publisher: Codeunit Publisher;
+        Rows: array[2] of Record Row;
+        Seen: Text;
+    begin
+        Rows[1].Opt := Rows[1].Opt::Second;
+        Publisher.OnWithMembers(Rows[1].Opt, false, Seen);
+        exit(Seen);
+    end;
+
+    procedure RecordArrayElementField(): Text
+    var Rows: array[2] of Record Row;
+    begin
+        Rows[1].Opt := Rows[1].Opt::Second;
+        exit(FormatInsideVar(Rows[1].Opt));
+    end;
+
+    procedure NamedReturnRecordField(): Text
+    begin
+        NamedReturnRecord();
+        exit(GSeen);
+    end;
+
+    local procedure NamedReturnRecord() R: Record Row
+    begin
+        R.Opt := R.Opt::Second;
+        GSeen := FormatInsideVar(R.Opt);
+    end;
+
     local procedure FormatInsideVar(var Value: Option): Text
     begin
         exit(Format(Value) + '|' + StrSubstNo('%1', Value) + '|' + Format(Value, 0, 2));
@@ -1256,6 +1300,13 @@ fn base_application_shapes_run() {
 // hop through other members a rejected Evaluate sets the first member, :387, which the run cannot tell from a direct caller).
 #[test]
 fn caption_fields_and_var_parameters_with_members_refuse() {
+    refused("RecordArrayElementField", "caller the probe does not measure");
+    refused("NamedReturnRecordField", "caller the probe does not measure");
+    refused(
+        "RecordArrayElementFieldToMembersPublisher",
+        "from a caller the probe does not measure",
+    );
+    refused("VarArrayStoreShorterOption", "of a value the probe does not measure");
     for routine in [
         "ByValueRecordCaptionField",
         "EventCaptionFieldMemberlessPublisher",

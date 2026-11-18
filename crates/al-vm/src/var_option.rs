@@ -125,8 +125,8 @@ impl crate::Session {
     /// The refusal of a call of event publisher `routine` of `object` that hands `args` (with `values`, from frame `f`) to a
     /// `var` Option parameter with members that a subscriber declares without members: the subscriber reads the publisher's
     /// members (`var_binding`). Measured for a variable of the caller's `var` section (OptionVarMemberLists.al:531), a global
-    /// (OVMC:249), a parameter passed by value (OVMC:196) and a record field whose captions are its members (OVMC:311); a
-    /// `var` parameter handed on runs as before. From any other caller (a field whose captions differ, OVMC:290, an array
+    /// (OVMC:249), a parameter passed by value (OVMC:196) and a field whose captions are its members, of a local record other
+    /// than the named return value or of a global record (OVMC:311); a `var` parameter handed on runs as before. From any other caller (a field whose captions differ, OVMC:290, an array
     /// element, a named return value) the call refuses when such a subscriber exists.
     pub(crate) fn var_option_subscriber_refusal(
         &mut self,
@@ -150,7 +150,14 @@ impl crate::Session {
             let measured = match a {
                 al_ir::Arg::Ref(al_ir::Place::Local(s)) => Some(*s) != ret_local,
                 al_ir::Arg::Ref(al_ir::Place::Global(_)) => true,
-                al_ir::Arg::Ref(al_ir::Place::Field(base, pos)) => self.captions_are_members(base, *pos, f),
+                al_ir::Arg::Ref(al_ir::Place::Field(base, pos)) => {
+                    let record = match base.as_ref() {
+                        al_ir::Place::Local(s) => Some(*s) != ret_local,
+                        al_ir::Place::Global(_) => true,
+                        _ => false,
+                    };
+                    record && self.captions_are_members(base, *pos, f)
+                }
                 _ => false,
             };
             if candidate && !measured && self.memberless_subscriber_param(object, routine, &slot.name) {

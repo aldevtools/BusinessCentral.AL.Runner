@@ -21,7 +21,8 @@ enum Caller {
     MemberlessVarParameter,
     /// A parameter of the routine passed by `var` and declared with members.
     VarParameterWithMembers,
-    /// A field of a record, without OptionCaption or OptionCaptionML, or with an OptionCaption that names each member as it is.
+    /// A field of a local record (not the named return value) or of a global record, without OptionCaption or OptionCaptionML,
+    /// or with an OptionCaption that names each member as it is.
     Field,
     /// An Option field whose OptionCaption or OptionCaptionML differs from its members: the callee would read its captions,
     /// which the value does not carry.
@@ -129,12 +130,23 @@ impl Lowerer<'_> {
                 _ => Caller::Other,
             },
             ir::Place::Global(_) => Caller::Global,
+            ir::Place::Field(base, _) if !self.measured_record(base) => Caller::Other,
             ir::Place::Field(..) if self.option_caption_owner(a).is_some() && !self.captions_name_members(a) => {
                 Caller::CaptionField
             }
             ir::Place::Field(..) => Caller::Field,
             ir::Place::Index(base, _) if declared_or_by_value(self, base) => Caller::Element,
             _ => Caller::Other,
+        }
+    }
+
+    /// Whether `base` is a record the probe hands a field of: a local of the routine (its `var` section, a `var` or by-value
+    /// parameter, Rec) other than the named return value, or a global (OVMC:179, :332, :419, :511; OVMW:411, :447).
+    fn measured_record(&self, base: &ir::Place) -> bool {
+        match base {
+            ir::Place::Local(s) => Some(*s) != self.named_ret,
+            ir::Place::Global(_) => true,
+            _ => false,
         }
     }
 
