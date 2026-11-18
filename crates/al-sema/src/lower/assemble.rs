@@ -997,7 +997,7 @@ pub(crate) fn lower_core(
             .cloned()
             .collect(),
         pos_ranges: Vec::new(),
-        checker_diags: checked.from_checker.clone(),
+        checker_diags: sorted_diagnostics(&checked.from_checker),
         skipped: checked.skipped.clone(),
         left_out: (0..ws.objects.len()).map(|oi| checked.is_left_out(oi)).collect(),
         tdd_sites,
@@ -2638,4 +2638,13 @@ fn with_request_page_slots(
         }
     }
     slots
+}
+
+/// The checker's diagnostics in one order: the demand threads report them in the order they finish, and a compile must
+/// be deterministic (ADR-022 decision 5; the workspace layer's equality test found two fresh compiles of the corpus that
+/// differed here).
+fn sorted_diagnostics(d: &[crate::workspace::Diagnostic]) -> Vec<crate::workspace::Diagnostic> {
+    let mut d = d.to_vec();
+    d.sort();
+    d
 }

@@ -277,6 +277,22 @@ fn print_compile_phases(p: &al_testrun::runtime::Phases) {
 
 /// The `--timings` lines of the compile cache.
 fn print_compile_cache(p: &al_testrun::runtime::Phases) {
+    // The workspace layer (ADR-022 amendment 2026-11-15): `workspaceCache` of serve's timings.
+    if let Some(w) = &p.workspace_cache {
+        eprintln!(
+            "compile cache: workspace layer {}, {:.1} MB, open {}, store {}{}{}",
+            w.state.as_str(),
+            w.bytes as f64 / 1e6,
+            secs(w.open),
+            secs(w.store),
+            w.file.as_ref().map_or(String::new(), |f| format!("; {}", f.display())),
+            if w.notes.is_empty() {
+                String::new()
+            } else {
+                format!(" ({})", w.notes.join("; "))
+            }
+        );
+    }
     if let Some(c) = &p.cache {
         eprintln!(
             "compile cache: {}; {} {}",
@@ -599,6 +615,9 @@ pub struct RequestTimings {
     pub coverage: std::time::Duration,
     /// Per pass (one per entry of the request): the threads' baseline copy and the pass's wall time.
     pub passes: Vec<al_testrun::runtime::PassTime>,
+    /// What the workspace layer of the compile cache did, when this request compiled (`read`, `built`, `miss`, `off`;
+    /// ADR-022 amendment 2026-11-15). `None`: the request used the kept compile, or the run did not ask for the layer.
+    pub workspace_cache: Option<&'static str>,
 }
 
 /// One entry of a server request (`WarmCtx::entries`).
@@ -664,64 +683,42 @@ impl Report {
     }
 }
 
-/// Everything the compile depends on but the selection and the text of the workspace files: the workspace file names,
-/// the manifests (resources, layout files, `app.json`), the dependency apps, the symbols, the target.
+/// Everything the compile depends on but the selection and the text of the workspace files: the key of the workspace
+/// layer of the compile cache without the texts (`al_testrun::workspace_cache::warm_key`, one owner of the field list),
+/// over the dependency apps as `workspace_cache::dependency_digest` takes them. The resource files are not in it: they
+/// are run-time data, which each request hands to the program as they are then (issue 5635).
 fn warm_key(
     inputs: &[AppInput],
     dependencies: &al_testrun::deps::Dependencies,
     symbols: &BTreeSet<String>,
-    target: &str,
+    target: &al_version::Target,
+    compile_options: &str,
 ) -> String {
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    for i in inputs {
-        i.source.id.hash(&mut h);
-        i.source.dependencies.hash(&mut h);
-        // The names of the files, not their text: a change of text is the warm compile's to take in.
-        for (path, _) in &i.source.files {
-            path.hash(&mut h);
-        }
-        // What the app's manifest gives the program beside its code: a change to a layout file or `app.json` is a new
-        // key, as the warm compile takes in only source text (issue 5604). The resource files are not: they are
-        // run-time data, which each request hands to the program as they are then (issue 5635).
-        let m = &i.manifest;
-        (
-            &m.publisher,
-            &m.version,
-            m.include_source,
-            &m.target,
-            &m.symbols,
-            &m.layout_files,
-            m.package_data,
-            &m.package_data_files,
-        )
-            .hash(&mut h);
-        i.symbols.hash(&mut h);
-        let j = &i.json;
-        (&j.id, &j.name, &j.publisher, j.version.to_string()).hash(&mut h);
-        (
-            j.platform.as_ref().map(ToString::to_string),
-            j.application.as_ref().map(ToString::to_string),
-        )
-            .hash(&mut h);
-    }
-    for (app, lazy) in dependencies.apps.iter().zip(&dependencies.lazy) {
-        app.id.hash(&mut h);
-        app.files.len().hash(&mut h);
-        match lazy {
-            Some(l) => l.identity.hash(&mut h),
-            None => {
-                for (path, text) in &app.files {
-                    path.hash(&mut h);
-                    text.len().hash(&mut h);
-                }
-            }
-        }
-    }
-    dependencies.summary.hash(&mut h);
-    symbols.hash(&mut h);
-    target.hash(&mut h);
-    format!("{:016x}", h.finish())
+    use al_testrun::workspace_cache as wc;
+    let json: Vec<String> = inputs.iter().map(app_json_text).collect();
+    let apps: Vec<(&al_sema::workspace::AppSource, &al_testrun::runtime::Manifest, &str)> = inputs
+        .iter()
+        .zip(&json)
+        .map(|(i, j)| (&i.source, &i.manifest, j.as_str()))
+        .collect();
+    let deps = wc::dependency_digest(&dependencies.apps, &dependencies.lazy, &dependencies.summary);
+    wc::warm_key(&apps, deps, symbols, &format!("{target:?}"), compile_options)
+}
+
+/// What an app's app.json gives the compile that its manifest does not (`WorkspaceCacheOptions::app_json`): its id,
+/// name, publisher and version as written, `platform`, `application` and `preprocessorSymbols`.
+pub(crate) fn app_json_text(i: &AppInput) -> String {
+    let j = &i.json;
+    format!(
+        "{} {} {} {} platform {:?} application {:?} symbols {:?}",
+        j.id,
+        j.name,
+        j.publisher,
+        j.version,
+        j.platform.as_ref().map(ToString::to_string),
+        j.application.as_ref().map(ToString::to_string),
+        i.symbols
+    )
 }
 
 pub fn test_with(a: &TestArgs, warm: Option<&mut WarmCtx>) -> Result<u8, String> {
@@ -1668,6 +1665,7 @@ fn test_inner(
         run_only: run_only_picks(a, &selection, &found),
         test_data: test_data.as_ref().map(|(d, _)| d.clone()),
         company_data: company_data.clone(),
+        workspace_cache: workspace_cache_options(a, &inputs),
         compile_cache: compile_cache_on.then(|| al_testrun::compile_cache::CompileCache {
             dir: al_testrun::compile_cache::CompileCache::under(&al_deps::cache::cache_root_from_env(
                 a.cache_dir.as_deref(),
@@ -1755,8 +1753,8 @@ fn test_inner(
         }
         Some(w) => {
             // The options that change what the compile holds (`run_inputs.rs`) are part of the key.
-            let target_key = crate::run_inputs::RunInputs::of(a).compile_key(&chosen.target);
-            let key = warm_key(&inputs, &dependencies, &symbols, &target_key);
+            let compile_options = crate::run_inputs::RunInputs::of(a).compile_text();
+            let key = warm_key(&inputs, &dependencies, &symbols, &chosen.target, &compile_options);
             let files: Vec<al_testrun::runtime::FileChange> = inputs
                 .iter()
                 .enumerate()
@@ -2328,6 +2326,7 @@ fn test_inner(
             tests: p.tests,
             coverage: coverage_time,
             passes: p.passes.clone(),
+            workspace_cache: workspace_cache_state(p, w.used),
         });
         w.report = Some(Report {
             doc: serde_json::from_str(&crate::unpinned::json(
@@ -2723,4 +2722,30 @@ mod entry_resource_tests {
             .sum();
         assert_eq!(held, 64 * 6);
     }
+}
+
+/// The workspace layer of the compile cache for a run (ADR-022 amendment 2026-11-15): on with the compile cache (the
+/// layer itself turns off with `ALRUNNER_NO_WORKSPACE_CACHE`, `al_testrun::workspace_cache::switched_off`).
+fn workspace_cache_options(
+    a: &TestArgs,
+    inputs: &[AppInput],
+) -> Option<al_testrun::workspace_cache::WorkspaceCacheOptions> {
+    Some(al_testrun::workspace_cache::WorkspaceCacheOptions {
+        compile_options: crate::run_inputs::RunInputs::of(a).compile_text(),
+        app_json: inputs.iter().map(app_json_text).collect(),
+        write_now: false,
+    })
+}
+
+/// What the workspace layer did for a request of a server (`RequestTimings::workspace_cache`): said only when the
+/// request compiled (`WarmUse::Compiled`); a request on the kept compile used no cache.
+fn workspace_cache_state(
+    p: &al_testrun::runtime::Phases,
+    used: Option<al_testrun::runtime::WarmUse>,
+) -> Option<&'static str> {
+    let compiled = used == Some(al_testrun::runtime::WarmUse::Compiled);
+    p.workspace_cache
+        .as_ref()
+        .filter(|_| compiled)
+        .map(|r| r.state.as_str())
 }

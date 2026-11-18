@@ -442,6 +442,11 @@ impl Entry {
 }
 
 impl Entry {
+    /// The digest of the key the file was opened for (checked at open).
+    pub fn digest(&self) -> [u8; 32] {
+        self.bytes[12..44].try_into().expect("checked at open")
+    }
+
     /// How many objects the layers below this one hold (0 for the first layer).
     pub fn base_len(&self) -> usize {
         self.index.base_len as usize

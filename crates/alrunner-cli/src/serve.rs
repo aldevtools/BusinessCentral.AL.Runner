@@ -724,6 +724,9 @@ fn timings_json(t: &run::RequestTimings, wall: std::time::Duration) -> Value {
     if t.engine_kept {
         v["engineKept"] = json!(true);
     }
+    if let Some(state) = t.workspace_cache {
+        v["workspaceCache"] = json!(state);
+    }
     if t.passes.len() == 1 {
         v["resetMs"] = json!(ms(t.passes[0].reset));
     }

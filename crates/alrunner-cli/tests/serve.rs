@@ -2849,3 +2849,72 @@ fn a_coverage_request_after_one_without_coverage_gives_the_coverage_of_a_first_r
     s.send(json!({"command": "shutdown"}));
     assert_eq!(s.line(), json!({"status": "shutting down"}));
 }
+
+/// Removes what differs between two runs of the same request on purpose: the timings, the wall time, `cached` and the
+/// fresh seed of each daemon.
+fn without_times(lines: &[Value]) -> Vec<Value> {
+    lines
+        .iter()
+        .map(|l| {
+            let mut l = l.clone();
+            if let Some(o) = l.as_object_mut() {
+                for k in ["timings", "wallSeconds", "durationMs", "cached", "elapsedMs", "seed"] {
+                    o.remove(k);
+                }
+            }
+            l
+        })
+        .collect()
+}
+
+/// ADR-022 amendment 2026-11-15 (issue 8143): a restarted daemon over the same workspace (two `sourcePaths`) and the same
+/// cache folder reads the compiled workspace from the workspace layer (`workspaceCache: "read"`) and answers as the first
+/// daemon did.
+#[test]
+fn a_restarted_daemon_reads_the_compiled_workspace_and_answers_the_same() {
+    let d = tempfile::tempdir().unwrap();
+    let lib = d.path().join("lib");
+    write(
+        &lib,
+        "app.json",
+        r#"{"id":"22222222-0000-0000-0000-000000000001","name":"Lib","publisher":"Test","version":"1.0.0.0","dependencies":[]}"#,
+    );
+    write(
+        &lib,
+        "src/Lib.al",
+        "codeunit 50300 Lib { procedure Twice(X: Integer): Integer begin exit(X * 2); end; }\n",
+    );
+    let tests = d.path().join("tests");
+    write(
+        &tests,
+        "app.json",
+        r#"{"id":"22222222-0000-0000-0000-000000000002","name":"LibTests","publisher":"Test","version":"1.0.0.0","dependencies":[{"id":"22222222-0000-0000-0000-000000000001","name":"Lib","publisher":"Test","version":"1.0.0.0"}]}"#,
+    );
+    write(
+        &tests,
+        "src/T.al",
+        &MIXED.replace("Error('boom %1', 5);", "if 0 = 1 then; Error('boom %1', 5);"),
+    );
+    let cache = d.path().join("cache").to_string_lossy().to_string();
+    let request = json!({"command": "runTests", "sourcePaths": [lib, tests]});
+    let mut answers = Vec::new();
+    for daemon in 0..2 {
+        let mut s = Server::start(&["--no-download", "--no-test-data", "--cache-dir", &cache]);
+        assert_eq!(s.line(), json!({"ready": true}));
+        s.send(request.clone());
+        let lines = s.until_summary();
+        let summary = lines.last().unwrap().clone();
+        let want = if daemon == 0 { "built" } else { "read" };
+        assert_eq!(
+            summary["timings"]["workspaceCache"],
+            json!(want),
+            "daemon {daemon}: {summary}"
+        );
+        assert_eq!(summary["cached"], json!(false), "{summary}");
+        s.send(json!({"command": "shutdown"}));
+        s.line();
+        s.child.wait().unwrap();
+        answers.push(without_times(&lines));
+    }
+    assert_eq!(answers[0], answers[1]);
+}

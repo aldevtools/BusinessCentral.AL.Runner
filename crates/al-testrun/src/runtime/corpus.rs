@@ -671,7 +671,41 @@ impl CorpusRuntime {
         // A grown compile is the complete compile of its pass (its baseline is weighed on it below).
         let growing = matches!(grow, Grow::From(..));
         let mut grow_kept = None;
-        if try_skip
+        // The workspace layer of the compile cache (ADR-022 amendment 2026-11-15): a compile read from it is the compile.
+        let mut layer = workspace_layer::Layer::plan(&workspace_layer::LayerInputs {
+            opts,
+            apps: &apps,
+            kinds: &kinds,
+            manifests,
+            symbols,
+            target,
+            roots: &roots,
+            n_cached,
+            use_cache,
+            identities: &identities,
+            order: &order,
+            suites,
+            lean,
+            try_skip,
+            baseline_wanted,
+            growing: !matches!(grow, Grow::Off),
+        });
+        let hit = layer.read(
+            &mut apps,
+            &mut kinds,
+            manifests,
+            symbols,
+            target,
+            n_cached,
+            &lazy,
+            &identities,
+            &catalog,
+        );
+        if let Some(d) = hit.as_ref().map(|h| h.decided.clone()) {
+            (baseline, baseline_note, compiles) = (d.baseline, d.baseline_note, d.compiles);
+        }
+        if hit.is_none()
+            && try_skip
             && !require_cache
             && !growing
             && crate::observe::text_looks_pure(&apps, &kinds, symbols, only.as_deref())
@@ -777,9 +811,10 @@ impl CorpusRuntime {
                 break;
             }
         }
-        let (ws, mut lowered, cache_report, layers) = match compiled {
-            Some((ws, lowered)) => (ws, lowered, None, None),
-            None => match opts.compile_cache.as_ref().filter(|_| use_cache) {
+        let (ws, mut lowered, cache_report, layers) = match (hit, compiled) {
+            (Some(h), _) => (h.ws, h.lowered, h.cache_report, h.layers),
+            (None, Some((ws, lowered))) => (ws, lowered, None, None),
+            (None, None) => match opts.compile_cache.as_ref().filter(|_| use_cache) {
                 Some(cc) => {
                     let (ws, lowered, report, layers) = compile_with_cache(
                         cc,
@@ -906,6 +941,10 @@ impl CorpusRuntime {
                 eprintln!("{}", crate::reach::report(&ws, &lowered));
             }
         }
+        // The workspace layer stores the program as the compile made it, before the run applies the manifests.
+        let pre_apply = layer
+            .wants_store()
+            .then(|| (lowered.program.apps.clone(), lowered.program.sources.clone()));
         // Nothing else holds the program yet (a kept compile leaves it to the run, `al_sema::lower::Growable`), so this
         // does not copy it.
         super::apply_manifests::apply(&mut lowered.program, manifests, &opts.layout_sources);
@@ -934,10 +973,11 @@ impl CorpusRuntime {
             let out = lowered.left_out.iter().filter(|l| **l).count();
             (out > 0).then_some((out, all))
         };
-        Ok(Compiled {
+        let mut compiled = Compiled {
             ws,
             lowered,
             cache_report,
+            workspace_cache: None,
             baseline_wanted,
             baseline,
             baseline_note,
@@ -959,7 +999,9 @@ impl CorpusRuntime {
             kept: Default::default(),
             grow_kept,
             uncovered,
-        })
+        };
+        layer.finish(&mut compiled, pre_apply);
+        Ok(compiled)
     }
 
     /// The run phase: engine, install baseline, the test codeunits. Leaves `compiled` as it was, so a warm
@@ -988,6 +1030,7 @@ impl CorpusRuntime {
             ws,
             lowered,
             cache_report,
+            workspace_cache,
             baseline_wanted,
             baseline,
             baseline_note,
@@ -1047,6 +1090,7 @@ impl CorpusRuntime {
                     compile: *compile_phase,
                     compile_parts: lowered.timings,
                     cache: cache_report.clone(),
+                    workspace_cache: workspace_cache.clone(),
                     lean: *lean,
                     compiles: *compiles,
                     ..Default::default()
@@ -1894,6 +1938,7 @@ impl CorpusRuntime {
                 suites: suite_times,
                 compile_parts,
                 cache: cache_report.clone(),
+                workspace_cache: workspace_cache.clone(),
                 engine: engine_time,
                 baseline_skipped,
                 install_runs,

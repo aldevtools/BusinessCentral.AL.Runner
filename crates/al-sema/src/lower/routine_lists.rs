@@ -232,3 +232,18 @@ impl serde::Serialize for Calls {
         s.collect_seq((0..self.len()).map(|o| self.of(o)))
     }
 }
+
+impl Refusals {
+    /// The lists of the objects lowered here (empty for an object the cache supplies), for a stored compile.
+    pub(crate) fn own(&self) -> &[Vec<Vec<Refusal>>] {
+        &self.own
+    }
+}
+
+impl Calls {
+    /// The calls and the counts of direct calls of the objects lowered here (empty for an object the cache supplies),
+    /// for a stored compile.
+    pub(crate) fn own(&self) -> (&[Vec<Vec<(usize, usize)>>], &[Vec<u32>]) {
+        (&self.own, &self.ndirect)
+    }
+}

@@ -419,18 +419,14 @@ impl RunInputs {
         Ok(h.finalize().into())
     }
 
-    /// The options the compile depends on, as text.
-    fn compile_text(&self) -> String {
+    /// The options the compile depends on, as text: in the key of a kept compile (`run::warm_key`) and of the workspace
+    /// layer of the compile cache (`WorkspaceCacheOptions::compile_options`).
+    pub fn compile_text(&self) -> String {
         self.compile
             .iter()
             .map(|(name, value)| format!("{name}={value}"))
             .collect::<Vec<_>>()
             .join(" ")
-    }
-
-    /// The target and the options the compile depends on, for the key of a kept compile (`run::warm_key`).
-    pub fn compile_key(&self, target: &al_version::Target) -> String {
-        format!("{target:?} {}", self.compile_text())
     }
 }
 
