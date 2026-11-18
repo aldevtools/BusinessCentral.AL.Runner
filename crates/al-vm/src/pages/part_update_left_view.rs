@@ -52,8 +52,8 @@ impl Session {
 
     /// Refuses test call `m` on part `st` while the refresh its `update_left_view` Update asked for waits. Kept: the calls that
     /// read no row (`Filter` and its `GetFilter`, `CurrentKey` and `Ascending`, `GetField`, `Caption`, `Visible`, `Editable`,
-    /// `Enabled`). The test's own `Filter.SetFilter` reads the part's
-    /// rows again from the view as before, and clears `update_left_view`.
+    /// `Enabled`). The test's own `Filter.SetFilter` reads the part's rows again from the view as before, and clears
+    /// `update_left_view`.
     pub(super) fn refuse_row_access_on_part_left_by_its_view(&self, st: &St, m: PageMethod) -> Result<(), Signal> {
         let waits = {
             let s = st.borrow();
