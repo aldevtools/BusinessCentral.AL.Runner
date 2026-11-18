@@ -825,6 +825,10 @@ No probe is written yet, so every shape below is REFUSED.
   (recordref-fieldref/recordref/GetTableVariantKinds.al:127-128, :139): table 60000, key 1, while the row exists. Cells: the
   row deleted before the call; another key; another table.
 
+## Journal Post that leaves another key on the new-row line: unmeasured variants (al-runner issue 7821)
+
+The cells of testpage/R7821JournalPostVariants.al run (`al-vm/src/pages/post_left_new_line.rs` `VARIANT_CELLS`); every other shape is REFUSED at the Post. Probe wanted: the reporter's real shape (page 99000823 Output Journal with codeunit 241 "Item Jnl.-Post"); OpenEdit with two and three rows; the A1 row with OpenEdit; the logging subscriber with OpenEdit; the base page in an app without the two subscriber codeunits (one, two and three rows, the other row); the Batch Name page with two rows or another row; a write, bind or unbind between the open and the Post; the record handed to Page.Run with a field value not stored, another current filter group, SetAscending, ReadIsolation, another key or descending; the Post followed by no read, by other reads, or by no Close.
+
 ## Assumptions in force (generated from the registry)
 
 Owner rule of 2026-10-15 (CLAUDE.md hard rule 3): behavior a Microsoft test needs may be implemented before its probe, and every test that passes through such behavior is reported as a FLAGGED pass. The registry is `crates/al-builtins/src/assumptions.rs`; each code path marks its entry when it runs. This table is generated from it (do not edit it by hand: `UPDATE_ASSUMPTIONS_DOC=1 cargo test -p al-builtins assumptions` rewrites it). `alrunner test --top-assumptions` ranks the entries by flagged passes, `--list-assumptions` prints them with the hit counts of the last run. When a probe pins an entry, delete it from the registry; the compiler names every place that still marks it.

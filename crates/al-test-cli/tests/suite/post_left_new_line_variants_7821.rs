@@ -427,3 +427,124 @@ fn the_probe_passes_with_the_table_named_without_quotes() {
         assert!(marks.is_empty(), "{name}: {marks:?}");
     }
 }
+
+/// Facts of a Page.Run or OpenEdit cell that `new_line_post_start` must see by equality: the sort of Rec (a record fresh from
+/// Reset, :280, in its primary key ascending), no marks, no write to the store and no bind or unbind between the end of the open
+/// and the Post (the corpus file writes and binds only before the open, :319-330), and the record handed to Page.Run as
+/// InsertLines leaves it (:296-297: on a stored row, unchanged, filter group 0, no SetAscending, ReadIsolation default). One of
+/// them changed: the Post keeps main's refusal and takes no assumption.
+#[test]
+fn neighbors_of_the_sort_the_open_and_the_handed_record_keep_mains_refusal() {
+    let filtered = "        Line.SetRange(\"Batch Name\", 'B1');\n        Line.FindFirst();";
+    let after_find =
+        |extra: &str| format!("        Line.SetRange(\"Batch Name\", 'B1');\n        Line.FindFirst();\n{extra}");
+    let before_find =
+        |extra: &str| format!("        Line.SetRange(\"Batch Name\", 'B1');\n{extra}        Line.FindFirst();");
+    let after_open = "        Log.Take();\n        Worksheet.Post.Invoke();";
+    let insert_b2 = "        Line.Reset();\n        Line.Init();\n        Line.\"Batch Name\" := 'B2';\n        Line.\"Line No.\" := 10000;\n        \
+                     Line.Quantity := 100;\n        Line.Insert();\n";
+    let then_post = |extra: &str| format!("{extra}{after_open}");
+    let cases: Vec<(&str, String, &str)> = vec![
+        (
+            "one row, Ascending(false)",
+            variant(&[(filtered, &before_find("        Line.Ascending(false);\n"))]),
+            "TPV7821_Base_OneLine_PageRun",
+        ),
+        (
+            "one row, Ascending(false), Batch Name page",
+            variant(&[(filtered, &before_find("        Line.Ascending(false);\n"))]),
+            "TPV7821_ExtraField_OneLine_PageRun",
+        ),
+        (
+            "two rows, SetCurrentKey(Quantity)",
+            variant(&[(filtered, &before_find("        Line.SetCurrentKey(Quantity);\n"))]),
+            "TPV7821_TwoLines_PageRun",
+        ),
+        (
+            "a marked record",
+            variant(&[(filtered, &after_find("        Line.Mark(true);"))]),
+            "TPV7821_Base_OneLine_PageRun",
+        ),
+        (
+            "a field value not stored",
+            variant(&[(filtered, &after_find("        Line.Quantity := 5;"))]),
+            "TPV7821_Base_OneLine_PageRun",
+        ),
+        (
+            "filter group 4 left current",
+            variant(&[(filtered, &after_find("        Line.FilterGroup(4);"))]),
+            "TPV7821_Base_OneLine_PageRun",
+        ),
+        (
+            "the record on a key no row has",
+            variant(&[(filtered, &after_find("        Line.\"Line No.\" := 5;"))]),
+            "TPV7821_Base_OneLine_PageRun",
+        ),
+        (
+            "SetAscending of Line No.",
+            variant(&[(
+                filtered,
+                &before_find("        Line.SetAscending(\"Line No.\", false);\n"),
+            )]),
+            "TPV7821_Base_OneLine_PageRun",
+        ),
+        (
+            "ReadIsolation set",
+            variant(&[(
+                filtered,
+                &after_find("        Line.ReadIsolation := IsolationLevel::ReadCommitted;"),
+            )]),
+            "TPV7821_Base_OneLine_PageRun",
+        ),
+        (
+            "the B2 row inserted after the open",
+            variant(&[(after_open, &then_post(insert_b2))]),
+            "TPV7821_Base_OneLine_PageRun",
+        ),
+        (
+            "the B2 row inserted after OpenEdit",
+            variant(&[
+                (after_open, &then_post(insert_b2)),
+                (
+                    "        RunWks(Observer, 1, '', false, 1);",
+                    "        RunWks(Observer, 1, '', false, 0);",
+                ),
+            ]),
+            "TPV7821_ActionSubs_OneLine_OpenEdit",
+        ),
+        (
+            "the B2 row deleted after the open",
+            variant(&[(
+                after_open,
+                &then_post("        Line.Reset();\n        Line.Get('B2', 10000);\n        Line.Delete();\n"),
+            )]),
+            "TPV7821_OtherBatchAfter_OneLine_PageRun",
+        ),
+        (
+            "a Modify that keeps the values after the open",
+            variant(&[(after_open, &then_post("        Line.Modify();\n"))]),
+            "TPV7821_Base_OneLine_PageRun",
+        ),
+        (
+            "the counting codeunit bound after the open",
+            variant(&[(after_open, &then_post("        BindSubscription(Subs);\n"))]),
+            "TPV7821_Base_OneLine_PageRun",
+        ),
+        (
+            "the counting codeunit unbound after the open",
+            variant(&[(
+                after_open,
+                &then_post("        if Subscribers = 1 then\n            UnbindSubscription(Subs);\n"),
+            )]),
+            "TPV7821_ActionSubs_OneLine_PageRun",
+        ),
+    ];
+    let ran: Vec<String> = cases
+        .into_iter()
+        .filter_map(|(what, src, test)| {
+            let (o, marks) = outcome(&src, test);
+            (!refused_at_post(&o) || !marks.is_empty()).then(|| format!("{what}: {o:?} {marks:?}"))
+        })
+        .collect();
+    assert!(ran.is_empty(), "{ran:#?}");
+}

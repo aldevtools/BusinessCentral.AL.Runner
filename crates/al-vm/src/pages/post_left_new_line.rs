@@ -194,6 +194,17 @@ pub(super) struct PostStart {
     run_filter: bool,
 }
 
+/// What the page was when its open ended (`Session::open_page`), for `new_line_post_start` only: the corpus file writes,
+/// binds and hands its record only before the open (testpage/R7821JournalPostVariants.al:319-330).
+pub(crate) struct OpenEnd {
+    /// The store's change counter: every write to the store, a Modify that changes nothing too, hands out a number.
+    mark: u64,
+    /// The bound subscriber instances, oldest binding first. A `Weak` keeps its allocation, so no later instance shares it.
+    bound: Vec<std::rc::Weak<std::cell::RefCell<al_builtins::value::Instance>>>,
+    /// The record AL code handed to `Page.Run`, as it was handed; `None` for an open without one (the test's OpenEdit).
+    handed: Option<al_builtins::value::RecordState>,
+}
+
 impl PageText {
     /// The fields of Rec, by position, whose `Value()` the corpus file reads after the Post: Line No. (:334, :364) and, on the
     /// Batch Name page, Batch Name (:365). `LINE_TABLE` fixes the positions.
@@ -298,13 +309,39 @@ impl Session {
         }
     }
 
+    /// The open of page `st` ended (`Session::open_page`); `handed` is the record AL code handed to it, as it was handed.
+    pub(super) fn note_open_end(&mut self, st: &St, handed: Option<al_builtins::value::RecordState>) {
+        self.events.bindings.retain(|b| b.instance.strong_count() > 0);
+        let bound = self.events.bindings.iter().map(|b| b.instance.clone()).collect();
+        st.borrow_mut().open_end = Some(OpenEnd {
+            mark: self.store.change_counter(),
+            bound,
+            handed,
+        });
+    }
+
+    /// Whether nothing was written to the store and nothing bound or unbound since the open ended as `end` says.
+    fn unchanged_since_open(&mut self, end: &OpenEnd) -> bool {
+        self.events.bindings.retain(|b| b.instance.strong_count() > 0);
+        let now = &self.events.bindings;
+        end.mark == self.store.change_counter()
+            && now.len() == end.bound.len()
+            && now
+                .iter()
+                .zip(&end.bound)
+                .all(|(b, w)| std::rc::Weak::ptr_eq(&b.instance, w))
+    }
+
     /// The page's Rec and its view as every variant cell has them when an action of list `st` starts, `None` otherwise; `held`
     /// are the keys of the rows the list holds then. Required, each by equality:
-    /// - Rec is a stored record (:313 `Line: Record`, not temporary), not restricted to marks;
+    /// - Rec is a stored record (:313 `Line: Record`, not temporary), of the session company, with no mark and not restricted to
+    ///   marks, in its primary key ascending with no SetAscending (:280 `Reset`; nothing sorts it after);
     /// - its filters: batch B1 in filter group 2 (OnOpenPage, :94-99), and for a Page.Run cell batch B1 in filter group 0 (the
     ///   record's `SetRange`, :296), nothing else;
     /// - the view holds one to three rows, the lines i * 10000 of batch B1 with Quantity 300 (:282-288);
-    /// - the list holds them all and Rec stands on the first (:297 `FindFirst`; OpenEdit opens on it).
+    /// - the list holds them all and Rec stands on the first (:297 `FindFirst`; OpenEdit opens on it);
+    /// - nothing was written to the store and nothing bound or unbound since the open ended (:319-332);
+    /// - a Page.Run cell got the record as InsertLines leaves it (`handed_as_inserted`), an OpenEdit cell got none.
     pub(super) fn new_line_post_start(
         &mut self,
         st: &St,
@@ -314,10 +351,13 @@ impl Session {
         let rec = self.page_rec(st);
         let run_filter = {
             let r = rec.borrow();
-            match (r.temporary, r.marked_only, r.filters.as_slice()) {
-                (false, false, [f]) if batch_b1_in(f, 2) => false,
-                (false, false, [a, b]) if [(a, 0), (b, 2)].iter().all(|(f, g)| batch_b1_in(f, *g)) => true,
-                (false, false, [a, b]) if [(a, 2), (b, 0)].iter().all(|(f, g)| batch_b1_in(f, *g)) => true,
+            if !fresh_from_reset(&r) {
+                return Ok(None);
+            }
+            match r.filters.as_slice() {
+                [f] if batch_b1_in(f, 2) => false,
+                [a, b] if [(a, 0), (b, 2)].iter().all(|(f, g)| batch_b1_in(f, *g)) => true,
+                [a, b] if [(a, 2), (b, 0)].iter().all(|(f, g)| batch_b1_in(f, *g)) => true,
                 _ => return Ok(None),
             }
         };
@@ -325,7 +365,16 @@ impl Session {
         let lines = (1..=3).contains(&rows.len()) && rows.iter().zip(1..).all(|(row, i)| line_row(row, i * 10000));
         let on_first = rows.first().is_some_and(|row| same_key(&rec.borrow().fields, row));
         let held_all = held.len() == rows.len() && held.iter().zip(&rows).all(|(key, row)| same_key(key, row));
-        Ok((lines && held_all && on_first).then_some(PostStart {
+        let Some(end) = st.borrow_mut().open_end.take() else {
+            return Ok(None);
+        };
+        let handed_ok = match (end.handed.as_ref(), run_filter) {
+            (None, false) => true,
+            (Some(h), true) => rows.first().is_some_and(|row| handed_as_inserted(h, row)),
+            _ => false,
+        } && self.unchanged_since_open(&end);
+        st.borrow_mut().open_end = Some(end);
+        Ok((lines && held_all && on_first && handed_ok).then_some(PostStart {
             rows: rows.len(),
             run_filter,
         }))
@@ -445,7 +494,7 @@ impl Session {
     }
 }
 
-/// The two codeunits (counting, logging) when the subscribers of page `object` are exactly the ones corpus PR 1384 declares:
+/// The two codeunits (counting, logging) when the subscribers of page `object` are exactly the ones the corpus file declares:
 /// OnBeforeActionEvent and OnAfterActionEvent of Post, each with one subscriber of a counting codeunit
 /// (`COUNTING_SUBSCRIBER`) and one of another, logging codeunit (`LOGGING_BEFORE`, `LOGGING_AFTER`), both manual, no
 /// parameter, no other property on either codeunit (`only_manual_instance`), and no subscriber declared but not compiled
@@ -539,6 +588,36 @@ fn batch_b1_in(f: &al_builtins::filter::FieldFilter, group: i32) -> bool {
 fn line_row(row: &[Value], line: i32) -> bool {
     matches!(row, [Value::Code(batch), Value::Integer(l), Value::Decimal(q), ..]
         if batch.as_str() == "B1" && *l == line && *q == rust_decimal::Decimal::from(300))
+}
+
+/// Whether record `r` is a stored record of the session company as `Reset` leaves its sort and marks: the primary key
+/// ascending, no SetAscending, no mark, not restricted to marks (testpage/R7821JournalPostVariants.al:280, :313).
+fn fresh_from_reset(r: &al_builtins::value::RecordState) -> bool {
+    matches!(
+        (
+            r.temporary,
+            r.company.as_ref(),
+            r.key,
+            r.adhoc.as_ref(),
+            r.ascending,
+            r.field_descending,
+            r.marked_only
+        ),
+        (false, None, 0, None, true, 0, false)
+    ) && r.marks.is_empty()
+}
+
+/// Whether `h`, the record handed to Page.Run, is as InsertLines leaves it (testpage/R7821JournalPostVariants.al:280-297):
+/// fresh from Reset (`fresh_from_reset`), filtered to batch B1 in filter group 0 with filter group 0 current, ReadIsolation
+/// and SecurityFiltering as declared, no SetAutoCalcFields, and its fields those of `row`, the stored row FindFirst read.
+fn handed_as_inserted(h: &al_builtins::value::RecordState, row: &[Value]) -> bool {
+    fresh_from_reset(h)
+        && matches!(h.filters.as_slice(), [f] if batch_b1_in(f, 0))
+        && (h.filter_group, h.read_isolation) == (0, 0)
+        && h.security_filtering == h.declared_security_filtering
+        && h.auto_calc.is_empty()
+        && h.fields.len() == row.len()
+        && h.fields.iter().zip(row).all(|(a, b)| a.identical(b))
 }
 
 /// Whether `a` and `b` start with the same primary key ("Batch Name", "Line No.", `LINE_TABLE`), values by `Value::identical`.
