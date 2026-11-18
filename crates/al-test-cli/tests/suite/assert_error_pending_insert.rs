@@ -147,11 +147,17 @@ fn of(out: &[(String, Outcome)], n: &str) -> Outcome {
         .unwrap_or_else(|| panic!("no outcome for {n}: {out:?}"))
 }
 
-fn refused(o: Outcome) {
+/// The reason of a refusal; panics on any other outcome.
+fn reason(o: Outcome) -> String {
     match o {
-        Outcome::NotRun(r) => assert!(r.contains("asserterror"), "{r}"),
+        Outcome::NotRun(r) => r,
         other => panic!("expected a refusal, got {other:?}"),
     }
+}
+
+fn refused(o: Outcome) {
+    let r = reason(o);
+    assert!(r.contains("asserterror"), "{r}");
 }
 
 #[test]
@@ -168,14 +174,130 @@ fn a_duplicate_pending_from_before_an_assert_error_that_raises_nothing_is_refuse
     refused(of(&out, "PendingBeforeAnAssertErrorThatRaisesNothing"));
 }
 
+/// An asserterror body left by exit or by break while the duplicate is pending; one table per test, so that the first refusal
+/// does not mark the second test as not trusted.
+const LEAVES: &str = r#"
+table 51904 "Dup Exit Row"
+{
+    fields { field(1; Code; Code[20]) { } }
+    keys { key(PK; Code) { Clustered = true; } }
+}
+table 51905 "Dup Break Row"
+{
+    fields { field(1; Code; Code[20]) { } }
+    keys { key(PK; Code) { Clustered = true; } }
+}
+codeunit 51953 "Dup Leaves"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure LeftByExitWithTheDuplicatePending()
+    var
+        R: Record "Dup Exit Row";
+        R2: Record "Dup Exit Row";
+    begin
+        R.Code := 'A';
+        R.Insert();
+        R2.Code := 'A';
+        asserterror begin
+            R2.Insert();
+            exit;
+        end;
+    end;
+
+    [Test]
+    procedure LeftByBreakWithTheDuplicatePending()
+    var
+        R: Record "Dup Break Row";
+        R2: Record "Dup Break Row";
+    begin
+        R.Code := 'A';
+        R.Insert();
+        R2.Code := 'A';
+        repeat
+            asserterror begin
+                R2.Insert();
+                break;
+            end;
+        until true;
+    end;
+
+    [Test]
+    procedure LeftByExitNothingPending()
+    var
+        I: Integer;
+    begin
+        asserterror begin
+            I := 1;
+            exit;
+        end;
+    end;
+}
+"#;
+
+#[test]
+fn an_assert_error_body_left_by_exit_or_break_with_the_duplicate_pending_is_refused() {
+    let out = outcomes_in(LEAVES, "Dup Leaves");
+    for n in [
+        "LeftByExitWithTheDuplicatePending",
+        "LeftByBreakWithTheDuplicatePending",
+    ] {
+        let r = reason(of(&out, n));
+        assert!(r.starts_with("an asserterror whose body"), "{n}: {r}");
+    }
+    // Main's result, kept: nothing is deferred, so exit leaves the test as before.
+    assert_eq!(of(&out, "LeftByExitNothingPending"), Outcome::Pass);
+}
+
+/// A deferred Insert error of the other kind: a Date the SQL column cannot hold (records/sql_range.rs `insert_sql_range`).
+const DATE_KIND: &str = r#"
+table 51903 "Dup Dated Row"
+{
+    fields { field(1; Code; Code[20]) { } field(2; Dt; Date) { } }
+    keys { key(PK; Code) { Clustered = true; } }
+}
+codeunit 51952 "Dup Dated"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure DateTheColumnCannotHoldPending()
+    var
+        D: Record "Dup Dated Row";
+    begin
+        D.Code := 'A';
+        D.Dt := 17000101D;
+        asserterror D.Insert();
+    end;
+}
+"#;
+
+#[test]
+fn the_refusal_names_both_kinds_of_deferred_insert_error() {
+    let out = outcomes_in(DATE_KIND, "Dup Dated");
+    let r = reason(of(&out, "DateTheColumnCannotHoldPending"));
+    assert!(r.contains("Dup Dated Row"), "{r}");
+    assert!(
+        r.contains("a duplicate key, or a value its SQL column cannot hold"),
+        "{r}"
+    );
+}
+
+/// Main's result, kept for the duplicate kind (probe queued, docs/probes-needed.md): the error of the body is caught and the
+/// pending Insert error is dropped. Pinned for the other kind only: with a deferred SQL-range Insert error, a read of another
+/// table raises nothing and the following Error() is what the asserterror catches (record/filters/SqlDateFloor1753.al:1920-1935).
+#[test]
+fn a_body_that_raises_another_error_with_the_duplicate_pending_keeps_main_s_result() {
+    let out = outcomes_in(NEIGHBORS, "Dup Neighbors");
+    assert_eq!(of(&out, "PendingBeforeAnAssertErrorThatRaises"), Outcome::Pass);
+}
+
 #[test]
 fn the_measured_neighbors_keep_their_results() {
     let out = outcomes_in(NEIGHBORS, "Dup Neighbors");
     assert_eq!(of(&out, "ReadInsideTheAssertError"), Outcome::Pass);
     assert_eq!(of(&out, "BlobTableRaisesAtTheInsert"), Outcome::Pass);
-    // Main's result, kept: a caught error rolls the transaction back (record/TestRecordRuntimeTextsAndViews.al:17) and the runner
-    // drops the pending duplicate with it.
-    assert_eq!(of(&out, "PendingBeforeAnAssertErrorThatRaises"), Outcome::Pass);
     assert_eq!(
         of(&out, "NothingPendingAssertErrorRaisesNothing"),
         Outcome::Fail("An error was expected inside an ASSERTERROR statement.".into())

@@ -476,7 +476,8 @@ impl Session {
         }
     }
 
-    /// `asserterror`: runs the body `pc..stop`; returns where the code goes on.
+    /// `asserterror`: runs the body `pc..stop`; returns where the code goes on. Every leave of the body without an error (its end,
+    /// a jump, exit, break, continue) passes `refuse_pending_at_assert_end`.
     #[inline(never)]
     fn op_assert(&mut self, chunk: &Chunk, f: &mut Frame, pc: usize, stop: usize, from: u16) -> Result<usize, Signal> {
         let nl = chunk.nlocals;
@@ -491,7 +492,10 @@ impl Session {
                     ..Default::default()
                 })))
             }
-            Ok(at) => Ok(at),
+            Ok(at) => {
+                self.refuse_pending_at_assert_end()?;
+                Ok(at)
+            }
             Err(Signal::Error(mut e)) => {
                 self.guarded_bodies_leave_pin();
                 self.trapped_error_rollback(&e, crate::records::TrappedRollback::AssertError)?;
@@ -504,6 +508,10 @@ impl Session {
                     f.locals[r] = Value::Null;
                 }
                 Ok(stop)
+            }
+            Err(leave @ (Signal::Exit(_) | Signal::Break | Signal::Continue)) => {
+                self.refuse_pending_at_assert_end()?;
+                Err(leave)
             }
             Err(other) => Err(other),
         }
