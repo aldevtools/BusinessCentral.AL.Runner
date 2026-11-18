@@ -123,7 +123,8 @@ pub(crate) enum ArrayOf {
 ///   array parameter (OVMW:833) and a local array CopyArray filled (OVMW:560, :813);
 /// - in a `var` array parameter only: Evaluate keeps them (OVME:552), and so does Clear of the element (OVMW:799); an Option
 ///   assigned whose members share no name with the held ones and are as many keeps them with the ordinal (OVMW:762); an Option
-///   without members or with the held members name by name takes no members, the caller reads the number (OVMW:771, :780).
+///   without members or with the held members name by name takes no members, the caller reads the number (OVMW:771, :780),
+///   except an element of the same array (refused, below).
 ///
 /// Every other store refuses: another store kind or value, or another array. `None`: the usual conversion.
 pub(crate) fn element_store(
@@ -142,6 +143,11 @@ pub(crate) fn element_store(
     assume(Assumption::VarOptionCallerMembers);
     let var_array = array == ArrayOf::VarParameter;
     let kept = |o: i32| Ok(Value::Option(o, own.clone()));
+    let refused = || {
+        Err(Signal::unsupported(
+            "a store the probe does not measure into an element of an array of Options declared without members that holds its caller's members (assumption var-option-caller-members)",
+        ))
+    };
     Some(match (how, v) {
         (Store::Assign, Value::Integer(o))
             if matches!(
@@ -161,12 +167,14 @@ pub(crate) fn element_store(
         {
             kept(*o)
         }
+        // The held list itself: an element of the same array, which keeps the held members on a local BC (corpus PR 1439
+        // extension, OptionVarMemberlessElementStores.al:119, not pushed yet), unlike a variable declared with those members
+        // (OVMW:780). The run cannot tell an element from another value that carries this list: refused.
+        (Store::Assign, Value::Option(_, m)) if Arc::ptr_eq(m, own) => refused(),
         (Store::Assign, Value::Option(o, m)) if var_array && (memberless(m) || m == own) => {
             Ok(Value::Option(*o, d.clone()))
         }
-        _ => Err(Signal::unsupported(
-            "a store the probe does not measure into an element of an array of Options declared without members that holds its caller's members (assumption var-option-caller-members)",
-        )),
+        _ => refused(),
     })
 }
 

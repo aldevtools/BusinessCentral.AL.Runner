@@ -493,12 +493,13 @@ fn measured_and_main_neighbors_keep_running() {
     assert_eq!(clean("FieldToOtherMembers"), "B@Second");
 }
 
-// `A[1] := A[2]` and `A[1] := A[1]` in a `var` array parameter of memberless Options store an Option with the held members:
-// the number, as for a variable declared with those members (OVMW:780).
+// `A[1] := A[2]` and `A[2] := A[2]` in a `var` array parameter of memberless Options keep the held members on a local BC
+// (corpus PR 1439 extension, OptionVarMemberlessElementStores.al:119, not pushed yet), unlike a variable declared with those
+// members (OVMW:780). The run cannot tell an element of the array from another value with that list: refused.
 #[test]
-fn an_element_assigned_from_an_element_takes_the_number() {
-    assert_eq!(assumed("VarArrayAssignOtherElement"), "2|2@2|2");
-    assert_eq!(assumed("VarArrayAssignSameElement"), "2|2@2|2");
+fn an_element_assigned_from_an_element_refuses() {
+    refused("VarArrayAssignOtherElement", ELEMENT);
+    refused("VarArrayAssignSameElement", ELEMENT);
 }
 
 // Into a by-value array parameter or a local array CopyArray filled only an Integer store is measured (OVMW:833, :560); into a
