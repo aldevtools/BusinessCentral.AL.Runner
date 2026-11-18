@@ -83,12 +83,13 @@ pub(crate) fn param_store(v: Value, declared: &RtType, var_param: bool, current:
     }
 }
 
-/// The refusal of place `p` handed to a `var` parameter of type `param` with another member list of an event publisher no
-/// subscriber hears, which runs no code: after the call the caller's variable has its own members. Runs for a local of the
-/// running routine and a global of its object (`written_back`, flagged; not measured yet: the probe written for it,
-/// OptionVarMemberlessUnheard.al, waits for its observation), and, as on main, for a field and an array element, which take
-/// their own type on the write-back, and for an array parameter. Every other place refuses: a global of a base object, of
-/// another extension or of a record's instance.
+/// The refusal of place `p` handed to a `var` parameter of type `param` with another member list of an event publisher
+/// no subscriber hears, which runs no code: after the call the caller's variable has its own members. Runs for a
+/// variable of the running routine (a local, a parameter, a named return value) and a global of its object
+/// (`written_back`, flagged; not measured yet: the probe written for it, OptionVarMemberlessUnheard.al, waits for its
+/// observation), and, as on main, for a field and an array element, which take their own type on the write-back, and
+/// for an array parameter. Every other place refuses: a global of a base object, of another extension or of a record's
+/// instance.
 fn unheard_publisher_caller(p: &al_ir::Place, param: &RtType) -> Result<(), Signal> {
     match (p, param) {
         (al_ir::Place::Local(_) | al_ir::Place::Global(_), RtType::Option(_)) => {
