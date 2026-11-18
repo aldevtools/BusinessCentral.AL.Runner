@@ -74,10 +74,15 @@ fn compiled() -> (Arc<Engine>, al_sema::lower::Lowered) {
 
 /// Runs test codeunit `name` once on `engine` with the check on; every test must pass.
 fn run(engine: &Arc<Engine>, l: &al_sema::lower::Lowered, name: &str) {
+    run_with(engine, l, name, RunOptions::default());
+}
+
+/// [`run`] with the session flags of `opts` (`SessionFlags::of`).
+fn run_with(engine: &Arc<Engine>, l: &al_sema::lower::Lowered, name: &str, opts: RunOptions) {
     let mut scratch = Scratch {
         flags: super::session_flags::SessionFlags::of(&RunOptions {
             login_replay_check: true,
-            ..Default::default()
+            ..opts
         }),
         ..Default::default()
     };
@@ -207,5 +212,44 @@ fn temporary_records_the_login_leaves_compare_by_their_rows_and_view_and_a_share
             .lines
             .iter()
             .any(|l| l.contains(" temp table 1 ") || l.contains(" temp record of table 1:"))
+    );
+}
+
+// A serve request's session flags and license reach the login code (a permission error, an unhandled UI call) while the
+// engine and its check outlive the request: on one engine, a session with another flag or another license has a key of
+// its own, it is not compared with the sessions before.
+#[test]
+fn another_session_flag_or_license_is_another_key() {
+    let (mut engine, l) = compiled();
+    run(&engine, &l, "RPL Tests A");
+    let flag = |o: RunOptions| run_with(&engine, &l, "RPL Tests A", o);
+    flag(RunOptions {
+        ignore_permission_mock: true,
+        ..Default::default()
+    });
+    flag(RunOptions {
+        dev_endpoint_ui: true,
+        ..Default::default()
+    });
+    let everything: &[(i64, i64, u32)] = &[(0, 2_000_000_000, 0b1_1111)];
+    let license = al_host::license::parse(&al_host::license::synthetic::file(
+        "X",
+        "1/1/2040",
+        &[
+            ("TableData", everything),
+            ("Codeunit", everything),
+            ("Page", everything),
+        ],
+    ))
+    .unwrap();
+    Arc::get_mut(&mut engine).expect("no session holds the engine").license = Some(Arc::new(license));
+    run(&engine, &l, "RPL Tests A");
+    run(&engine, &l, "RPL Tests A");
+    assert_eq!(
+        crate::login_replay::report(&engine).as_deref(),
+        Some(
+            "login replay check: 5 sessions over 4 keys (a key seen before: 1 sessions, 20%), 1 compared, 0 differ; \
+             across test codeunits: 0 compared, 0 differ"
+        )
     );
 }

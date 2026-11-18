@@ -47,11 +47,20 @@ pub(crate) struct Key {
     /// The session has a client (BC's login code runs only then), runs without one (`--no-client`), and runs under
     /// RequiredTestIsolation = Disabled: these choose what the login does (`install::open_test_session_company`).
     client: (bool, bool, bool),
+    /// The run options every test session takes as they are (`runtime::session_flags::SessionFlags`: `--permissions off`,
+    /// `--ignore-permission-mock`, `--dev-endpoint-ui`, ...): they change what the login code may do (a permission error,
+    /// an unhandled UI call), and a serve request sets them while the engine and its check outlive it. The whole value,
+    /// so a flag added later is a key field without a change here.
+    flags: crate::runtime::session_flags::SessionFlags,
+    /// The license the session runs under (ADR-060, `Engine::license`, chosen per request): the permission checks of the
+    /// login code read it. Compared by content.
+    license: Option<std::sync::Arc<al_host::license::License>>,
 }
 
 impl Key {
-    /// The key of `session` before it opens the company; `disabled`: RequiredTestIsolation = Disabled.
-    pub(crate) fn of(session: &mut Session, disabled: bool) -> Key {
+    /// The key of `session` before it opens the company; `disabled`: RequiredTestIsolation = Disabled; `flags`: the run options
+    /// the session took.
+    pub(crate) fn of(session: &mut Session, disabled: bool, flags: crate::runtime::session_flags::SessionFlags) -> Key {
         let store = session.store_mut();
         let database = digest(&committed_rows(store));
         let uncommitted = store.has_uncommitted();
@@ -87,6 +96,8 @@ impl Key {
                 session.is_clientless_session(),
                 disabled,
             ),
+            flags,
+            license: session.engine.license.clone(),
         }
     }
 }
@@ -300,6 +311,8 @@ mod tests {
             test_codeunit: Some(test_codeunit),
             resources: 3,
             client: (true, false, false),
+            flags: Default::default(),
+            license: None,
         }
     }
 

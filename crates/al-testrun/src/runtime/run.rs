@@ -211,7 +211,7 @@ fn open_company(
     let replay_key = scratch
         .flags
         .login_replay_check()
-        .then(|| crate::login_replay::Key::of(session, disabled));
+        .then(|| crate::login_replay::Key::of(session, disabled, scratch.flags));
     // Base Application's login code sets WorkDate when the session opens the company (`install::login_work_date`).
     // It runs before the workspace's own Company Triggers subscribers: the order of the two is not pinned
     // (docs/probes-needed.md, WorkDate row).
