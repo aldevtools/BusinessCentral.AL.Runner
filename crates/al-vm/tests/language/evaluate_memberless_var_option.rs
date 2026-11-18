@@ -1,38 +1,84 @@
-//! `Evaluate` into a `var` Option parameter declared without members (al-runner issue 7994). BC reads the caller's members
-//! there (Microsoft's System Application test `Json Test`.TestGetEnumPropertyValueFromJObjectByName passes on BC 28.4); the
-//! parameter holds none in the runner, so a text that is not an ordinal refuses. The neighbors keep their results.
+//! `Evaluate` into a `var` Option parameter declared without members, or into an element of a `var` array of such Options
+//! (al-runner issue 7994). BC reads the caller's members there (Microsoft's System Application test `Json Test`.
+//! TestGetEnumPropertyValueFromJObjectByName passes on BC 28.4); the parameter holds none in the runner, so a text that is
+//! not an ordinal refuses, whatever the caller: a variable with members, a record field, a variable without members, an
+//! array without members, and an event subscriber. The neighbors keep their results.
 
 use al_builtins::native::Signal;
 use al_testkit::text;
 
 const SRC: &str = r#"
+table 69811 Row
+{
+    fields
+    {
+        field(1; Id; Integer) { }
+        field(2; Opt; Option) { OptionMembers = First,Second,Third; }
+    }
+}
+
 codeunit 69810 C
 {
-    procedure ByMemberName(): Text
+    procedure LocalByMemberName(): Text
     var Value: Option First,Second,Third;
     begin
         EvaluateInto(Value, 'Second');
-        exit(Format(Value, 0, 2));
+        exit(Format(Value));
     end;
 
-    procedure ByMemberNameResultUsed(): Text
-    var Value: Option First,Second,Third;
+    procedure SubscriberByMemberName(): Text
+    var Value: Option;
     begin
-        exit(Format(TryEvaluateInto(Value, 'Second')));
+        OnEvaluate(Value);
+        exit(Format(Value));
     end;
 
-    procedure BlankText(): Text
-    var Value: Option " ",First;
+    procedure FieldByMemberName(): Text
+    var R: Record Row;
+    begin
+        EvaluateInto(R.Opt, 'Second');
+        exit(Format(R.Opt));
+    end;
+
+    procedure FieldByMemberNameResultUsed(): Text
+    var R: Record Row;
+    begin
+        exit(Format(TryEvaluateInto(R.Opt, 'Second')));
+    end;
+
+    procedure MemberlessBlankText(): Text
+    var Value: Option;
     begin
         EvaluateInto(Value, '');
-        exit(Format(Value, 0, 2));
+        exit(Format(Value));
     end;
 
-    procedure ByOrdinal(): Text
-    var Value: Option First,Second,Third;
+    procedure FieldByOrdinal(): Text
+    var R: Record Row;
+    begin
+        EvaluateInto(R.Opt, '1');
+        exit(Format(R.Opt) + '|' + Format(R.Opt, 0, 2));
+    end;
+
+    procedure MemberlessByOrdinal(): Text
+    var Value: Option;
     begin
         EvaluateInto(Value, '1');
-        exit(Format(Value, 0, 2));
+        exit(Format(Value) + '|' + Format(Value, 0, 2));
+    end;
+
+    procedure ArrayElementByMemberName(): Text
+    var A: array[2] of Option;
+    begin
+        EvaluateIntoElement(A, 'Second');
+        exit(Format(A[1]));
+    end;
+
+    procedure ArrayElementByOrdinal(): Text
+    var A: array[2] of Option;
+    begin
+        EvaluateIntoElement(A, '1');
+        exit(Format(A[1]) + '|' + Format(A[1], 0, 2));
     end;
 
     procedure ByValueParameter(): Text
@@ -66,6 +112,11 @@ codeunit 69810 C
         exit(Evaluate(Value, T));
     end;
 
+    local procedure EvaluateIntoElement(var A: array[2] of Option; T: Text)
+    begin
+        Evaluate(A[1], T);
+    end;
+
     local procedure EvaluateByValue(Value: Option; T: Text)
     begin
         Evaluate(Value, T);
@@ -74,6 +125,20 @@ codeunit 69810 C
     local procedure EvaluateIntoDeclared(var Value: Option First,Second,Third; T: Text)
     begin
         Evaluate(Value, T);
+    end;
+
+    [IntegrationEvent(false, false)]
+    local procedure OnEvaluate(var Value: Option)
+    begin
+    end;
+}
+
+codeunit 69812 Subs
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::C, 'OnEvaluate', '', false, false)]
+    local procedure EvaluateOnEvent(var Value: Option)
+    begin
+        Evaluate(Value, 'Second');
     end;
 }
 "#;
@@ -86,23 +151,48 @@ fn refused(routine: &str) {
 }
 
 #[test]
-fn a_member_name_of_the_caller_is_refused() {
-    refused("ByMemberName");
+fn a_member_name_of_a_caller_with_members_is_refused() {
+    refused("LocalByMemberName");
+}
+
+#[test]
+fn a_member_name_in_an_event_subscriber_is_refused() {
+    refused("SubscriberByMemberName");
+}
+
+#[test]
+fn a_member_name_of_a_record_field_caller_is_refused() {
+    refused("FieldByMemberName");
 }
 
 #[test]
 fn a_member_name_with_the_result_used_is_refused() {
-    refused("ByMemberNameResultUsed");
+    refused("FieldByMemberNameResultUsed");
 }
 
 #[test]
 fn a_blank_text_is_refused() {
-    refused("BlankText");
+    refused("MemberlessBlankText");
 }
 
 #[test]
-fn an_ordinal_keeps_main_s_result() {
-    assert_eq!(text(al_testkit::run_in(SRC, "C", "ByOrdinal")), "1");
+fn a_member_name_into_an_element_of_a_var_array_is_refused() {
+    refused("ArrayElementByMemberName");
+}
+
+#[test]
+fn an_ordinal_keeps_main_s_result_for_a_record_field_caller() {
+    assert_eq!(text(al_testkit::run_in(SRC, "C", "FieldByOrdinal")), "Second|1");
+}
+
+#[test]
+fn an_ordinal_keeps_main_s_result_for_a_caller_without_members() {
+    assert_eq!(text(al_testkit::run_in(SRC, "C", "MemberlessByOrdinal")), "1|1");
+}
+
+#[test]
+fn an_ordinal_into_an_element_of_a_var_array_keeps_main_s_result() {
+    assert_eq!(text(al_testkit::run_in(SRC, "C", "ArrayElementByOrdinal")), "1|1");
 }
 
 #[test]

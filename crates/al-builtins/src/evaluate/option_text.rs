@@ -55,7 +55,9 @@ fn trimmed(text: &crate::text::Txt) -> &str {
     if text.as_str() == "\0" { "" } else { text.trim() }
 }
 
-/// The ordinal a trimmed text gives a variable: digits after an optional `+`, of any size (P86Eval.al).
+/// The ordinal a trimmed text gives a variable: digits after an optional `+` that fit a u64 (`3` of three members,
+/// format-evaluate/P86Eval.al:1364, :1376; `00`, `+1` and ` 1 `, :1450-1454, :1462-1466). A longer text is no ordinal;
+/// `variable` refuses one above i32.
 fn ordinal(t: &str) -> Option<u64> {
     if t.starts_with(|ch: char| ch.is_ascii_digit() || ch == '+') {
         t.parse::<u64>().ok()

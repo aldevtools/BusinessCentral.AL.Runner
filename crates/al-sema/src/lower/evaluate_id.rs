@@ -35,15 +35,22 @@ impl Lowerer<'_> {
         "System.Evaluate#1"
     }
 
-    /// The target is a `var` parameter declared `Option` without members, named directly (al-runner issue 7994; the type
-    /// reads as one nameless member, as `Option ""` does, `ast::TypeRef::option_members`). BC
-    /// reads the caller's members there (Microsoft's System Application test `Json Test`.
+    /// The target is a `var` parameter declared `Option` without members, named directly, or an element of a `var` array
+    /// parameter of such Options (al-runner issue 7994; the type reads as one nameless member, as `Option ""` does,
+    /// `ast::TypeRef::option_members`). BC reads the caller's members there (Microsoft's System Application test `Json Test`.
     /// TestGetEnumPropertyValueFromJObjectByName passes on BC 28.4, measured in the issue); the runner hands the
     /// parameter none, so `evaluate_memberless_var_option` refuses what would need them.
     fn memberless_var_option_parameter(&self, a: &SyntaxNode) -> bool {
-        a.kind() == SyntaxKind::NameRef
-            && matches!(self.ty_of(a), Ty::Option(m) if m.len() == 1 && m[0].is_empty())
-            && matches!(self.res(a), Some(Res::Local(name))
-                if self.locals.get(name).is_some_and(|i| self.var_params.get(*i).copied() == Some(true)))
+        let name = match a.kind() {
+            SyntaxKind::NameRef => a.clone(),
+            SyntaxKind::IndexExpr => match a.children().next() {
+                Some(n) if n.kind() == SyntaxKind::NameRef => n,
+                _ => return false,
+            },
+            _ => return false,
+        };
+        matches!(self.ty_of(a), Ty::Option(m) if m.len() == 1 && m[0].is_empty())
+            && matches!(self.res(&name), Some(Res::Local(n))
+                if self.locals.get(n).is_some_and(|i| self.var_params.get(*i).copied() == Some(true)))
     }
 }
