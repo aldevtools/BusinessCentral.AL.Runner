@@ -426,6 +426,11 @@ Risks:
   summary counts it apart from clean passes. `--junit` adds a `dev_endpoint_ui`
   property with the answered calls, and `--output-json` adds `uiAnswered` to the
   test.
+- Microsoft's Test Runner app empties the session's application areas before
+  every test, and al-runner does the same. The dev-endpoint test runner does
+  not, and what the areas hold there is not measured yet. With the flag, a test
+  that reads them (`ApplicationArea()`, or opening a page) before it sets them
+  with `ApplicationArea(...)` is not run.
 
 In `serve`, the `runTests` field `devEndpointUi` does the same.
 

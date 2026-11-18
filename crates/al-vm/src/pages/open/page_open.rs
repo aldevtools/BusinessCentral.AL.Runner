@@ -271,6 +271,30 @@ impl Session {
         r
     }
 
+    /// After OnInit: the handler of `bind` for the page `st` opens, and whether the open is unattended (a RunObject
+    /// action that found no handler).
+    fn bind_open_handler(
+        &mut self,
+        st: &St,
+        mode: PageMode,
+        bind: Option<UiKind>,
+    ) -> Result<(Option<Handler>, bool), Signal> {
+        let Some(kind) = bind else {
+            return Ok((None, false));
+        };
+        if !self.pages.lenient_bind {
+            return Ok((Some(self.bind_page_handler(kind, st.borrow().object)?), false));
+        }
+        // A RunObject action opens the page, runs OnInit and OnOpenPage, and only then
+        // looks for a handler; with none it goes no further, so the first row is never
+        // read (testpage/TestPageRunObjectContracts.al:330-346: "card.OnInit;card.OnOpenPage;").
+        // A page opened in Create mode reads its new row first (:testpage/TestPageCreateModeNewRecordArgs.al:273-296).
+        let object = st.borrow().object;
+        let handler = self.try_bind_page_handler(kind, object)?;
+        let unattended = handler.is_none() && mode != PageMode::New;
+        Ok((handler, unattended))
+    }
+
     /// The object index of the source table of the page `st` runs; `None` for a page without one.
     fn page_source_table(&self, st: &St) -> Option<usize> {
         let engine = self.engine();
@@ -517,19 +541,10 @@ impl Session {
             // The parts' OnInit runs between the host's OnInit and its OnOpenPage (corpus
             // testpage/parts/TestPartTriggerOrderAndRefresh.al:236-247).
             self.init_parts(st)?;
-            let mut unattended = false;
-            if let Some(kind) = bind {
-                if self.pages.lenient_bind {
-                    // A RunObject action opens the page, runs OnInit and OnOpenPage, and only then
-                    // looks for a handler; with none it goes no further, so the first row is never
-                    // read (testpage/TestPageRunObjectContracts.al:330-346: "card.OnInit;card.OnOpenPage;").
-                    // A page opened in Create mode reads its new row first (:testpage/TestPageCreateModeNewRecordArgs.al:273-296).
-                    let object = st.borrow().object;
-                    handler = self.try_bind_page_handler(kind, object)?;
-                    unattended = handler.is_none() && mode != PageMode::New;
-                } else {
-                    handler = Some(self.bind_page_handler(kind, st.borrow().object)?);
-                }
+            let (bound, unattended) = self.bind_open_handler(st, mode, bind)?;
+            handler = bound;
+            if !as_part && !unattended {
+                self.check_application_areas_read()?;
             }
             // The parameters string of `Report.RunRequestPage(Id, Parameters)`, after OnInit (see `run_request_page`).
             let seed = st.borrow_mut().request_seed.take();

@@ -21,6 +21,7 @@ mod datatransfer_clear;
 mod datatransfer_install;
 mod datatransfer_other_app_ext;
 mod demo_row_tables;
+mod dev_endpoint_areas;
 mod dev_endpoint_ui;
 mod entries;
 mod execute;

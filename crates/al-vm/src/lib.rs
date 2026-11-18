@@ -25,6 +25,7 @@ mod package_data;
 mod partial_gone;
 mod placeholder_files;
 mod run_restore;
+mod session_areas;
 mod session_language;
 pub mod single_track;
 mod single_unmeasured;
@@ -1152,10 +1153,11 @@ pub struct Session {
     pub(crate) part_sync_keeps_same_link: Option<bool>,
     /// The host session behind `DotNet` values; ends with the session (ADR-014 section 6).
     pub(crate) dotnet: dotnet::DotNetState,
-    /// The session's application areas as `ApplicationArea()` reads them: `#Basic,#Suite`, or the
-    /// empty text, which enables every area. The test runner empties it before each test method
-    /// (corpus session-system/TestSessionApplicationAreaTestBoundary.al:67552).
+    /// The session's application areas: `#Basic,#Suite`, or the empty text, which enables every area. Read and
+    /// written through `session_areas.rs`.
     pub application_areas: String,
+    /// `ApplicationArea(Text)` ran since the runner's reset before the test method (`session_areas.rs`).
+    pub(crate) application_areas_set_in_test: bool,
     /// The clock and the identity (ADR-006).
     pub(crate) host: al_host::Host,
     /// The companies the run declared, the session company first (ADR-046 decision 2, `--companies`); empty for the
@@ -1500,6 +1502,7 @@ impl Session {
             part_sync_keeps_same_link: None,
             dotnet: Default::default(),
             application_areas: String::new(),
+            application_areas_set_in_test: false,
             tx: TxState {
                 committed_row_version: restored_row_version,
                 ..TxState::fresh()
@@ -1533,7 +1536,7 @@ impl Session {
         self.runner_permission_sets = runner;
         self.shadow_roles = shadow_roles;
         self.shadow_begin();
-        self.application_areas.clear();
+        self.reset_application_areas();
         self.isolated_set_in_test.clear();
         self.demo_written.clear();
         self.gl_setup_written = false;
