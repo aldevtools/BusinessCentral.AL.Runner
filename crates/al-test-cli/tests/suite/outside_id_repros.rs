@@ -218,3 +218,120 @@ fn issue_8344_neighbor_without_find_set_keeps_mains_refusal() {
         "TestPage.New after an action stored a row behind the new-row line",
     );
 }
+
+/// Issue 8343 with OnAfterGetCurrRecord in place of OnAfterGetRecord (the issue says it fails the same way): refused.
+#[test]
+fn issue_8343_with_on_after_get_curr_record_alone_is_refused() {
+    let src = with(
+        include_str!("../fixtures/outside-id/Issue8343.al"),
+        &[("trigger OnAfterGetRecord()", "trigger OnAfterGetCurrRecord()")],
+    );
+    let o = outcomes(&src, "ALR P RefreshAfterAction");
+    refused(
+        &o,
+        "FirstAfterActionOnPageWithOnAfterGetRecord",
+        "whose filters no longer hold the row",
+    );
+}
+
+/// Neighbor of issue 8343: the same Worksheet without a row trigger finds no row after the action, as on main (the reporter:
+/// it passes on BC 29.1).
+#[test]
+fn issue_8343_neighbor_without_row_trigger_keeps_mains_result() {
+    let src = with(
+        include_str!("../fixtures/outside-id/Issue8343.al"),
+        &[("    trigger OnAfterGetRecord()\n    begin\n    end;\n", "")],
+    );
+    let o = outcomes(&src, "ALR P RefreshAfterAction");
+    assert_eq!(
+        outcome_of(&o, "FirstAfterActionOnPageWithOnAfterGetRecord"),
+        Outcome::Pass
+    );
+}
+
+/// Issue 8344 on a List page: New() takes a stored key there too: refused.
+#[test]
+fn issue_8344_on_a_list_is_refused() {
+    let src = with(
+        include_str!("../fixtures/outside-id/Issue8344.al"),
+        &[("PageType = Worksheet;", "PageType = List;")],
+    );
+    let o = outcomes(&src, "ALR P AutoSplitKeyAfterFindSet");
+    refused(&o, "NewLineAfterActionPositionedOnFirstRow", "left Rec on a stored row");
+}
+
+/// Issue 8339: a page extension field bound to the base page's protected Text variable, and SetValue of an Integer into the
+/// Text variable: refused.
+#[test]
+fn issue_8339_base_variable_and_non_text_value_are_refused() {
+    let src = format!(
+        "{}\n{}",
+        with(
+            include_str!("../fixtures/outside-id/Issue8339.al"),
+            &[(
+                "    }\n    var\n        CompName: Text[30];\n}\n\nreport",
+                "    }\n    protected var\n        CompName: Text[30];\n}\n\nreport"
+            )],
+        ),
+        r#"
+pageextension 50203 "ALR Probe Company Pick Ext" extends "ALR Probe Company Pick"
+{
+    layout { addlast(Content) { field(ExtCompanyField; CompName) { TableRelation = Company; } } }
+}
+
+codeunit 50219 "ALR P CompanyRelationMore"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure ExtensionFieldOnBaseVariable()
+    var
+        CompanyPick: TestPage "ALR Probe Company Pick";
+    begin
+        CompanyPick.OpenEdit();
+        CompanyPick.ExtCompanyField.SetValue(UpperCase(CompanyName()));
+        CompanyPick.Close();
+    end;
+
+    [Test]
+    procedure IntegerIntoTextVariable()
+    var
+        CompanyPick: TestPage "ALR Probe Company Pick";
+    begin
+        CompanyPick.OpenEdit();
+        CompanyPick.CompanyNameField.SetValue(42);
+        CompanyPick.Close();
+    end;
+}
+"#
+    );
+    let o = outcomes(&src, "ALR P CompanyRelationMore");
+    refused(&o, "ExtensionFieldOnBaseVariable", RELATION_TEXT);
+    refused(&o, "IntegerIntoTextVariable", RELATION_TEXT);
+}
+
+const OPEN_ERROR: &str = "an error raised by OnNewRecord or OnAfterGetCurrRecord at the open";
+
+/// Issue 8340 on a List, a Worksheet and a Document page: the same error at the open over an empty table: refused.
+#[test]
+fn issue_8340_on_list_worksheet_and_document_is_refused() {
+    let repeater = (
+        "            field(\"Code\"; Rec.\"Code\") { }\n            field(Description; Rec.Description) { }\n",
+        "            repeater(R)\n            {\n                field(\"Code\"; Rec.\"Code\") { }\n                field(Description; Rec.Description) { }\n            }\n",
+    );
+    for ty in ["List", "Worksheet"] {
+        let to = format!("PageType = {ty};");
+        let src = with(
+            include_str!("../fixtures/outside-id/Issue8340.al"),
+            &[("PageType = Card;", to.as_str()), repeater],
+        );
+        let o = outcomes(&src, "ALR P OpenEditOnEmptyCard");
+        refused(&o, "OpenEditOnEmptyCard", OPEN_ERROR);
+    }
+    let src = with(
+        include_str!("../fixtures/outside-id/Issue8340.al"),
+        &[("PageType = Card;", "PageType = Document;")],
+    );
+    let o = outcomes(&src, "ALR P OpenEditOnEmptyCard");
+    refused(&o, "OpenEditOnEmptyCard", OPEN_ERROR);
+}

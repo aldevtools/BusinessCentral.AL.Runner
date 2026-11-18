@@ -9,6 +9,11 @@
 //!
 //! Pinned for a list whose view had no filter before the action, read from a row of fewer rows than a window; any other shape is
 //! refused.
+//!
+//! Also the refusals of two shapes after an action that no corpus case pins: the first row of a list moved out of its view
+//! (al-runner issue 8343, `refuse_first_row_left_view_after_action`, with `stands_on_first_of_view`, `has_row_before`,
+//! `row_left_view`), and rows stored into an empty AutoSplitKey list with Rec left on one (al-runner issue 8344,
+//! `refuse_rows_stored_with_rec_on_one`).
 
 use super::*;
 use al_builtins::record_op::RecordOp;
@@ -114,11 +119,46 @@ impl Session {
         )
     }
 
-    /// The row the list stood on left the view (the action changed it so that the page's filters no longer hold it): the reads
-    /// from the start of the view after the action keep the client on it, where BC reads the view again and First() finds no row
-    /// (the reporter's repro of al-runner issue 8343 on BC 29.1, a Worksheet with OnAfterGetRecord). Not pinned: refused.
-    pub(super) fn refuse_reads_from_start_after_view_left(&mut self, rec: &Rec) -> Result<(), Signal> {
-        if self.row_left_view(rec)? {
+    /// Whether the list stands on the first row of a window read from the start of its view, and the action put no row before
+    /// it; an action that changed the view can put rows before it, and then the list reads as on a later row (al-runner issue
+    /// 6470: testpage/Y15ActionWidensView.al:199 `after action` `A20/6 28:A20-A01`).
+    pub(super) fn stands_on_first_of_view(&mut self, st: &St, rec: &Rec, key: &[Value]) -> Result<bool, Signal> {
+        let first = {
+            let s = st.borrow();
+            s.window_from_start
+                && s.window.len() < Self::WINDOW
+                && s.window.first().is_some_and(|w| Self::same_key(&w.key, key))
+        };
+        Ok(first && !(self.view_changed_by_action(st) && self.has_row_before(rec)?))
+    }
+
+    /// The refresh after an action (before its reads) of a top-level list that reads its rows from the table and declares
+    /// exactly one of OnAfterGetRecord and OnAfterGetCurrRecord, standing on the stored first row of a window read from the
+    /// start, which the action moved out of the view (the page's filters no longer hold it): BC reads the view again and
+    /// First() finds no row, where the runtime kept the client on the row (al-runner issue 8343, the reporter's repro on BC
+    /// 29.1 with OnAfterGetRecord; the issue says OnAfterGetCurrRecord alone fails the same way). Not pinned: refused, with
+    /// CurrPage.Update(false), Update(true) or none. A list without row triggers, with both, or on a later row keeps its path.
+    pub(super) fn refuse_first_row_left_view_after_action(&mut self, st: &St) -> Result<(), Signal> {
+        let on_stored_row = {
+            let s = st.borrow();
+            s.open && s.host.is_none() && s.cursor == Cursor::Row && !s.draft
+        };
+        let one_row_trigger = matches!(
+            (
+                self.declares(st, "onaftergetrecord"),
+                self.declares(st, "onaftergetcurrrecord")
+            ),
+            (true, false) | (false, true)
+        );
+        if !(on_stored_row && one_row_trigger && self.is_list(st) && self.has_source(st)) {
+            return Ok(());
+        }
+        let rec = self.page_rec(st);
+        if self.stored_row(&rec)?.is_none() {
+            return Ok(());
+        }
+        let key = self.row_key(&rec)?;
+        if self.stands_on_first_of_view(st, &rec, &key)? && self.row_left_view(&rec)? {
             return unsupported(
                 "the reads after an action of a list whose filters no longer hold the row it stands on, from the start of its view (not pinned)",
             );
@@ -126,19 +166,19 @@ impl Session {
         Ok(())
     }
 
-    /// An action stored more than one row into an empty top-level AutoSplitKey Worksheet over a table that is not temporary,
-    /// standing on its new-row line (`edit_list`: the `EmptyShape::EditList` shape), and also put Rec on a stored row
-    /// (`Rec.FindSet()`): BC's next New() takes the key between that row and the next one (the reporter's repro of al-runner issue
-    /// 8344 on BC 29.1, 15000 between 10000 and 20000), where the runtime went on as after any action and New() took a key that is
-    /// stored. What the list holds then is not pinned: refused. A temporary Worksheet and a part keep their paths.
+    /// An action stored more than one row into an empty top-level AutoSplitKey list (a Worksheet or a List) over a table that is
+    /// not temporary, standing on its new-row line (`edit_list`: the `EmptyShape::EditList` shape), and also put Rec on a stored
+    /// row (`Rec.FindSet()`): BC's next New() takes the key between that row and the next one (the reporter's repro of al-runner
+    /// issue 8344 on BC 29.1, a Worksheet, 15000 between 10000 and 20000), where the runtime went on as after any action and New()
+    /// took a key that is stored, on a List too. What the list holds then is not pinned: refused. A temporary table and a part
+    /// keep their paths.
     pub(super) fn refuse_rows_stored_with_rec_on_one(
         &mut self,
         st: &St,
         rec: &Rec,
         edit_list: bool,
-        worksheet: bool,
     ) -> Result<(), Signal> {
-        let shape = edit_list && worksheet && st.borrow().host.is_none() && self.has_auto_split_key(st);
+        let shape = edit_list && st.borrow().host.is_none() && self.has_auto_split_key(st);
         if shape && !rec.borrow().temporary && self.stored_row(rec)?.is_some() {
             return unsupported(
                 "an action that stored rows into an empty list standing on its new-row line and left Rec on a stored row (not pinned)",

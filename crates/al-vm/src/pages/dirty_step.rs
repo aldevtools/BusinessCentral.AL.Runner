@@ -137,15 +137,23 @@ impl Session {
             s.open && s.dirty && !s.draft && s.cursor == Cursor::Row && s.host.is_none()
         };
         if edited && self.has_source(st) {
-            // A page with a row trigger that reaches here (the shapes `action_invoke` pins save on their own paths): the
-            // reporter of al-runner issue 8342 measured on BC 29.1 that a Worksheet with OnAfterGetCurrRecord alone saves the
-            // edit before the action runs, where this path saved nothing. Not pinned: refused.
-            if self.declares(st, "onaftergetrecord") || self.declares(st, "onaftergetcurrrecord") {
+            // A page that declares no part, with a row trigger that reaches here (the shapes `action_invoke` pins save on their own paths):
+            // the reporter of al-runner issue 8342 measured on BC 29.1 that a Worksheet without parts with OnAfterGetCurrRecord
+            // alone saves the edit before the action runs, where this path saved nothing. Not pinned: refused. A page that declares
+            // a part (shown or hidden), with a row trigger, keeps the earlier path, which saves nothing here (not pinned either).
+            let row_trigger = self.declares(st, "onaftergetrecord") || self.declares(st, "onaftergetcurrrecord");
+            let declares_part = page_of(&self.engine(), st)
+                .controls
+                .iter()
+                .any(|c| c.kind == ir::ControlKind::Part);
+            if row_trigger && !declares_part {
                 return unsupported(
                     "an action on a row edited through the TestPage, on a page with a row trigger whose save before the action is not pinned",
                 );
             }
-            self.save_row(st)?;
+            if !row_trigger {
+                self.save_row(st)?;
+            }
         }
         // The refresh the action asks for reads the row again.
         st.borrow_mut().refresh = true;

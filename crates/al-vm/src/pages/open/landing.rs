@@ -350,7 +350,7 @@ impl Session {
             if st.borrow().host.is_some() {
                 self.land_on_part_open_line(st)?;
             } else {
-                self.land_on_new_line(st)?;
+                self.land_on_new_line_over_empty_view(st)?;
             }
             // A list with no row but the blank line reads it twice, as a list of one row reads its row (misc/lt-probes-needed-3/
             // PnC07TestPage.al:New_OnEmptyPage `OnNewRecord` three times with the New() call, misc/lt-probes-needed-7/
@@ -361,7 +361,7 @@ impl Session {
                 let table = self.page_rec(st).borrow().table as usize;
                 let blank = self.initial_fields(table);
                 self.set_xrec_fields(st, blank.clone());
-                self.land_on_new_line(st)?;
+                self.land_on_new_line_over_empty_view(st)?;
                 let stamped = !Self::same_values(&self.page_rec(st).borrow().fields, &blank);
                 st.borrow_mut().split_starts_low = stamped;
             }
@@ -372,17 +372,8 @@ impl Session {
             // read blank and are not editable (pages/properties/PageTypesEmptyTable.al:Card_OpenEdit_EmptyTable,
             // Document_OpenEdit_EmptyTable, ListPlus_OpenEdit_EmptyTable; the same pages opened with OpenView run OnOpenPage only,
             // *_OpenView_EmptyTable).
-            // An error those triggers raise there: the reporter of al-runner issue 8340 measured an OnNewRecord that raises an error
-            // on a Card opened with OpenEdit over an empty table, and the open succeeded on BC 29.1. Whether the error is swallowed
-            // or the trigger does not run there is not pinned, so the open is refused (no corpus case raises an error there).
-            if let Err(e) = self.land_on_new_line(st) {
-                return match e {
-                    Signal::Error(_) => unsupported(
-                        "an error raised by OnNewRecord or OnAfterGetCurrRecord at the open of a page over an empty view (whether BC raises it is not pinned)",
-                    ),
-                    other => Err(other),
-                };
-            }
+            // An error those triggers raise there: `land_on_new_line_over_empty_view`.
+            self.land_on_new_line_over_empty_view(st)?;
             {
                 let mut s = st.borrow_mut();
                 s.cursor = Cursor::None;
@@ -494,6 +485,20 @@ impl Session {
         ) && self.tree_indentation(st).is_none()
             && !self.repeater_says_editable(st)
             && flag_denied(&self.engine(), object, "InsertAllowed").unwrap_or(false)
+    }
+
+    /// The landing of a top-level page on its new-row line or blank record over an empty view. OnNewRecord runs there
+    /// (pages/properties/PageTypesEmptyTable.al:260 Card_OpenEdit_EmptyTable). An error it or OnAfterGetCurrRecord raises
+    /// there: the reporter of al-runner issue 8340 measured an OnNewRecord that raises an error on a Card opened with OpenEdit
+    /// over an empty table, and the open succeeded on BC 29.1. What becomes of the error is not pinned (no corpus case raises
+    /// one there), so it is refused, on every page type, also when a filter emptied the view after the open.
+    fn land_on_new_line_over_empty_view(&mut self, st: &St) -> Result<(), Signal> {
+        match self.land_on_new_line(st) {
+            Err(Signal::Error(_)) => unsupported(
+                "an error raised by OnNewRecord or OnAfterGetCurrRecord at the open of a page over an empty view, or at a read of it after a filter emptied it (what BC does with the error is not pinned)",
+            ),
+            other => other,
+        }
     }
 
     pub(in crate::pages) fn land_on_new_line(&mut self, st: &St) -> Result<(), Signal> {
