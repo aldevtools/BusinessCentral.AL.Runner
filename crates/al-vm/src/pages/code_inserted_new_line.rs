@@ -13,7 +13,7 @@
 //! (`code_inserted_step_end`).
 
 use super::pinned_shape::TestCall;
-use super::state::CodeInsertedRow;
+use super::state::{CodeInsertedRow, FactboxStep};
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::filter::FilterExpr;
@@ -472,6 +472,7 @@ impl Session {
             calls,
             assumption,
             read_before_leave: false,
+            factbox: FactboxStep::Off,
         });
         Ok(())
     }
@@ -489,9 +490,11 @@ impl Session {
     ) -> Result<(), Signal> {
         let factbox = matches!(self.code_inserted_page(st)?, Some((Triggers::FactboxHost, _)));
         self.reread_view_from_row(st, without_curr, without_parts, !factbox)?;
-        if factbox && self.view_row_count(st)? > 1 {
+        if factbox {
+            let row_before = self.view_row_count(st)? > 1;
             if let Some(row) = st.borrow_mut().code_inserted_row.as_mut() {
-                row.read_before_leave = true;
+                row.read_before_leave = row_before;
+                row.factbox = FactboxStep::Landed;
             }
         }
         Ok(())
@@ -523,20 +526,20 @@ impl Session {
         };
         let previous = how == PageMethod::Previous
             && st.borrow().cursor == Cursor::Row
-            && self.only_fields_since(st, &row, &[&[TestCall::Page(PageMethod::Previous)]])
             && Self::same_key(&row.key, &self.row_key(&self.page_rec(st))?);
-        if row.read_before_leave {
-            if !(previous && self.wrote_since(st, &row)) {
+        if row.factbox != FactboxStep::Off {
+            // `refuse_off_factbox_row` let only the measured calls through: the Value SetValue, then this Previous.
+            if !(previous && row.factbox == FactboxStep::Typed) {
                 return unsupported(MOVE_OFF_FACTBOX_ROW);
             }
-            self.read_code_inserted_row_again(st, &row)?;
+            if row.read_before_leave {
+                self.read_code_inserted_row_again(st, &row)?;
+                return Ok(None);
+            }
+        } else if !(previous && self.only_fields_since(st, &row)) {
             return Ok(None);
         }
-        let factbox = matches!(self.code_inserted_page(st)?, Some((Triggers::FactboxHost, _)));
-        if !previous || self.view_row_count(st)? != 1 || (factbox && !self.wrote_since(st, &row)) {
-            if factbox {
-                return unsupported(MOVE_OFF_FACTBOX_ROW);
-            }
+        if self.view_row_count(st)? != 1 {
             return Ok(None);
         }
         assume(row.assumption);
@@ -548,28 +551,26 @@ impl Session {
     /// reads the row again before the close saves it (ListNewLineSaveRecordUpdate.al:784 `close=P.AGR(X/);T.M(X/V);`, :801 with
     /// OK), on an empty view it does not (:816 `close=T.M(X/V);`). Other pages close as before.
     pub(super) fn code_inserted_row_at_close(&mut self, st: &St) -> Result<(), Signal> {
+        if st.borrow().code_inserted_saved {
+            st.borrow_mut().forget_code_inserted_line();
+            return unsupported(
+                "the page closed after CurrPage.SaveRecord moved it from its new line onto the row the table field inserted, \
+                 before the CurrPage.Update(false) after it (not measured)",
+            );
+        }
         let Some(row) = st.borrow_mut().code_inserted_row.take() else {
             return Ok(());
         };
-        let factbox = matches!(self.code_inserted_page(st)?, Some((Triggers::FactboxHost, _)));
-        if !factbox {
-            return Ok(());
+        match row.factbox {
+            FactboxStep::Off => Ok(()),
+            FactboxStep::Typed | FactboxStep::OkAsked if st.borrow().cursor == Cursor::Row => {
+                if row.read_before_leave {
+                    self.read_code_inserted_row_again(st, &row)?;
+                }
+                Ok(())
+            }
+            _ => unsupported(MOVE_OFF_FACTBOX_ROW),
         }
-        // `Close()`, or `OK().Invoke()`.
-        let closes: [&[TestCall]; 2] = [
-            &[TestCall::Page(PageMethod::Close)],
-            &[TestCall::Page(PageMethod::OK), TestCall::Other(PageMethod::Invoke)],
-        ];
-        if !(st.borrow().cursor == Cursor::Row
-            && self.only_fields_since(st, &row, &closes)
-            && self.wrote_since(st, &row))
-        {
-            return unsupported(MOVE_OFF_FACTBOX_ROW);
-        }
-        if row.read_before_leave {
-            self.read_code_inserted_row_again(st, &row)?;
-        }
-        Ok(())
     }
 
     /// The FactBox host, whose refresh read another row last (`code_inserted_refresh`), reads the row it stands on again before
@@ -581,37 +582,94 @@ impl Session {
         let Some(stored) = self.stored_row(&rec)? else {
             return unsupported(MOVE_OFF_FACTBOX_ROW);
         };
-        let typed = std::mem::replace(&mut rec.borrow_mut().fields, stored);
+        let typed = std::mem::replace(&mut rec.borrow_mut().fields, stored.clone());
         let read = self.page_trigger(st, "onaftergetrecord", vec![]);
+        let unchanged = Self::same_values(&rec.borrow().fields, &stored);
         rec.borrow_mut().fields = typed;
-        read.map(|_| ())
+        read?;
+        if !unchanged {
+            return unsupported(
+                "the OnAfterGetRecord of a List page with a CardPart FactBox changed Rec when it read the row its new line \
+                 became again before the save (not measured)",
+            );
+        }
+        Ok(())
     }
 
-    /// Whether the test wrote a control of `st` since the landing on `row`: every measured move off the FactBox host's row follows
-    /// the SetValue on Value (ListNewLineSaveRecordUpdate.al:404-416).
-    fn wrote_since(&self, st: &St, row: &CodeInsertedRow) -> bool {
-        Self::test_calls(st).is_some_and(|c| {
-            c.get(row.calls..)
-                .unwrap_or_default()
-                .iter()
-                .any(|t| matches!(t, TestCall::Write(_)))
+    /// Whether the test's calls on `st` since the landing on `row` are control reads and writes, then this `Previous()`.
+    fn only_fields_since(&self, st: &St, row: &CodeInsertedRow) -> bool {
+        Self::test_calls(st).is_some_and(|c| match c.get(row.calls..).unwrap_or_default() {
+            [fields @ .., TestCall::Page(PageMethod::Previous)] => {
+                fields.iter().all(|t| matches!(t, TestCall::Read | TestCall::Write(_)))
+            }
+            _ => false,
         })
     }
 
-    /// Whether the test's calls on `st` since the landing on `row` are control reads and writes, then one of `tails`.
-    fn only_fields_since(&self, st: &St, row: &CodeInsertedRow, tails: &[&[TestCall]]) -> bool {
-        Self::test_calls(st).is_some_and(|c| {
-            let since = c.get(row.calls..).unwrap_or_default();
-            tails.iter().any(|tail| {
-                since.ends_with(tail)
-                    && since[..since.len() - tail.len()]
-                        .iter()
-                        .all(|t| matches!(t, TestCall::Read | TestCall::Write(_)))
+    /// The test's `call` on `st` or one of its parts while the FactBox host stands on the row its new line became
+    /// (`FactboxStep`): only the calls ListNewLineSaveRecordUpdate.al:394-418 and :739-829 make are let through, reads of the
+    /// host's and the part's controls, then one SetValue of a host control without code (`control_without_code`, :404), then
+    /// `Previous()` (:411, `previous_on_code_inserted_row`), `Close()` or `OK()` and its `Invoke` (`code_inserted_row_at_close`).
+    /// Every other call is refused. Calls of page code (`None`) go on.
+    pub(super) fn refuse_off_factbox_row(&self, st: &St, call: Option<TestCall>) -> Result<(), Signal> {
+        let (root, part) = Self::tree_root(st);
+        let Some(step) = root.borrow().code_inserted_row.as_ref().map(|r| r.factbox) else {
+            return Ok(());
+        };
+        let Some(call) = call else {
+            return Ok(());
+        };
+        let next = match (step, call, part) {
+            (FactboxStep::Off, _, _) => return Ok(()),
+            (_, TestCall::Read, _) => step,
+            (FactboxStep::Landed, TestCall::Write(i), None) if self.control_without_code(&root, i) => {
+                FactboxStep::Typed
+            }
+            (FactboxStep::Typed, TestCall::Page(PageMethod::Previous | PageMethod::Close), None) => step,
+            (FactboxStep::Typed, TestCall::Page(PageMethod::OK), None) => FactboxStep::OkAsked,
+            (FactboxStep::OkAsked, TestCall::Other(PageMethod::Invoke), None) => step,
+            _ => {
+                root.borrow_mut().forget_code_inserted_line();
+                return unsupported(MOVE_OFF_FACTBOX_ROW);
+            }
+        };
+        if let Some(row) = root.borrow_mut().code_inserted_row.as_mut() {
+            row.factbox = next;
+        }
+        Ok(())
+    }
+
+    /// Whether control `idx` of `st` is bound to a field of Rec outside the primary key, and neither the control nor the field
+    /// runs code when it is written: no trigger, no TableRelation (the Value control, ListNewLineSaveRecordUpdate.al:234, of
+    /// field :43).
+    fn control_without_code(&self, st: &St, idx: usize) -> bool {
+        let engine = self.engine();
+        let Some(control) = page_of(&engine, st).controls.get(idx) else {
+            return false;
+        };
+        let ir::Binding::Field(f) = control.binding else {
+            return false;
+        };
+        let rec = self.page_rec(st);
+        let Ok(table) = self.table(&rec) else {
+            return false;
+        };
+        let field = engine.program.objects[table.object as usize]
+            .table
+            .as_ref()
+            .and_then(|t| t.fields.get(f));
+        control.triggers.is_empty()
+            && control.ext_triggers.is_empty()
+            && !table.keys[0].contains(&f)
+            && field.is_some_and(|d| {
+                d.on_validate.is_none()
+                    && d.ext_before_validate.is_empty()
+                    && d.ext_after_validate.is_empty()
+                    && !d.relation
             })
-        })
     }
 }
 
 /// The refusal of a call that leaves the FactBox host's row other than as measured.
-const MOVE_OFF_FACTBOX_ROW: &str = "a call that leaves the row a List page with a CardPart FactBox made of its new line, other than \
-                                    Previous(), Close() and OK() after a SetValue and control reads (not measured)";
+const MOVE_OFF_FACTBOX_ROW: &str = "a call on a List page with a CardPart FactBox, on the row its new line became, other than control \
+                                    reads, one SetValue, then Previous(), Close() or OK() (not measured)";

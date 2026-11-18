@@ -470,12 +470,11 @@ fn same(s: &str) -> String {
 }
 
 /// The refusal of a call off the FactBox host's row that the probe does not measure.
-const FACTBOX_MOVE_REFUSAL: &str =
-    "a call that leaves the row a List page with a CardPart FactBox made of its new line";
+const FACTBOX_MOVE_REFUSAL: &str = "a call on a List page with a CardPart FactBox, on the row its new line became";
 
 /// Call sequences the probe does not measure are refused: SaveRecord without the Update(false) after it, SaveRecord then
 /// Update() or Update(true), two SaveRecord calls, an error after SaveRecord and Update(false) (`asserterror` around the
-/// SetValue). Main answers the first and the last without the modify BC runs at the SaveRecord (ListNewLineSaveRecordUpdate.al:445
+/// SetValue), SaveRecord then CurrPage.Close(). Main answers the first and the last without the modify BC runs at the SaveRecord (ListNewLineSaveRecordUpdate.al:445
 /// `P.MOD(X/);T.M(X/);P.SR;`). `Update(true)` on the page without AutoSplitKey keeps main's refusal.
 #[test]
 fn issue_8285_unmeasured_calls_are_refused() {
@@ -496,6 +495,7 @@ fn issue_8285_unmeasured_calls_are_refused() {
         ),
         ("SaveRecordTwice", "a second CurrPage.SaveRecord"),
         ("ErrorAfterSaveRecord", "an error ended the validation"),
+        ("SaveRecordThenClose", "the page closed after CurrPage.SaveRecord"),
         ("UpdateTrueWithoutAutoSplitKey", MAIN_8186_REFUSAL),
     ] {
         let (_, r, marks) = o.iter().find(|(n, _, _)| n == name).expect("the test");
@@ -507,8 +507,9 @@ fn issue_8285_unmeasured_calls_are_refused() {
 }
 
 /// On the FactBox host the landing ends only as measured: the Close after the Value SetValue passes, flagged; Next as the first
-/// move (with a row before and on an empty view), Previous or Close with no SetValue since, and a GoToRecord before the Close
-/// are refused (main refuses each of them at the landing). Two rows before the line keep main's refusal.
+/// move (with a row before and on an empty view), Previous or Close with no SetValue since, a GoToRecord, a second SetValue on
+/// Name and a SetValue on the part are refused at that call (main refuses each of them at the landing). Two rows before the
+/// line keep main's refusal.
 #[test]
 fn issue_8285_factbox_host_leaves_the_row_only_as_measured() {
     use al_builtins::assumptions::Assumption::ListNewLineCodeInsertSave;
@@ -524,7 +525,9 @@ fn issue_8285_factbox_host_leaves_the_row_only_as_measured() {
         "Host_EmptyView_NextFirst",
         "Host_RowBefore_PreviousWithoutEdit",
         "Host_RowBefore_CloseWithoutEdit",
-        "Host_RowBefore_GoToRecordThenClose",
+        "Host_RowBefore_GoToRecord",
+        "Host_RowBefore_SecondNameSetValue",
+        "Host_RowBefore_PartWrite",
     ] {
         let (_, r, _) = find(name);
         assert!(
@@ -670,4 +673,19 @@ fn issue_8285_unmeasured_factbox_shapes_keep_main_refusal() {
             issue_8285_neighbor_outcomes("LT NS Host Neighbor Tests", same, |s| change(s)),
         );
     }
+}
+
+/// An OnAfterGetRecord on the FactBox host that changes Rec: the read of the stored row before the close is not measured with
+/// it, and refused there.
+#[test]
+fn issue_8285_factbox_host_trigger_that_changes_rec_is_refused_at_the_read() {
+    let agr = "        Log.Add('P.AGR(' + Rec.Name + ')');";
+    let o = issue_8285_neighbor_outcomes("LT NS Host Neighbor Tests", same, |s| {
+        s.replacen(agr, &format!("{agr}\n        Rec.Value := 'Z';"), 1)
+    });
+    let (_, r, _) = o
+        .iter()
+        .find(|(n, _, _)| n == "Host_RowBefore_Close")
+        .expect("the test");
+    assert!(matches!(r, Outcome::NotRun(w) if w.contains("changed Rec")), "{r:?}");
 }

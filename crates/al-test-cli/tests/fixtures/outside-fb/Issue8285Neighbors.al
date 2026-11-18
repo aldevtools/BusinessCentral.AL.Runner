@@ -49,6 +49,11 @@ page 97480 "LT NS Calls"
                                     CurrPage.Update(false);
                                     Error('Boom after the update');
                                 end;
+                            6:
+                                begin
+                                    CurrPage.SaveRecord();
+                                    CurrPage.Close();
+                                end;
                         end;
                     end;
                 }
@@ -265,6 +270,18 @@ codeunit 97484 "LT NS Neighbor Tests"
     end;
 
     [Test]
+    procedure SaveRecordThenClose()
+    var
+        Lines: TestPage "LT NS Calls";
+    begin
+        Initialize(1, 6);
+        Lines.OpenEdit();
+        Lines.New();
+        Lines.Name.SetValue('X');
+        CheckRows('A1/,X/,');
+    end;
+
+    [Test]
     procedure UpdateTrueWithoutAutoSplitKey()
     var
         Lines: TestPage "LT NS Lines No Split";
@@ -394,7 +411,7 @@ codeunit 97485 "LT NS Host Neighbor Tests"
     end;
 
     [Test]
-    procedure Host_RowBefore_GoToRecordThenClose()
+    procedure Host_RowBefore_GoToRecord()
     var
         Lines: TestPage "LT NS Host";
         Line: Record "LT NS Line";
@@ -406,8 +423,30 @@ codeunit 97485 "LT NS Host Neighbor Tests"
         Lines.Value.SetValue('V');
         Line.FindFirst();
         Lines.GoToRecord(Line);
-        Lines.Close();
-        CheckRows('A1/,X/V,');
+    end;
+
+    [Test]
+    procedure Host_RowBefore_SecondNameSetValue()
+    var
+        Lines: TestPage "LT NS Host";
+    begin
+        Initialize(1, 0);
+        Lines.OpenEdit();
+        Lines.New();
+        Lines.Name.SetValue('X');
+        Lines.Name.SetValue('Y');
+    end;
+
+    [Test]
+    procedure Host_RowBefore_PartWrite()
+    var
+        Lines: TestPage "LT NS Host";
+    begin
+        Initialize(1, 0);
+        Lines.OpenEdit();
+        Lines.New();
+        Lines.Name.SetValue('X');
+        Lines.Peek.Value.SetValue('P');
     end;
 }
 

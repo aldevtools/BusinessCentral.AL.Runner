@@ -276,6 +276,7 @@ impl Session {
         self.end_read_at_test_call(st, call);
         Self::end_deferred_host_reread(st, call, method.method());
         Self::refuse_after_pinned_end(st, call)?;
+        self.refuse_off_factbox_row(st, call)?;
         Self::refuse_ws_trigger_order_step(st, call)?;
         if call.is_none() {
             // Page code calls a method of the page (`CurrPage.Update`): no List-host cell does (`empty_part_rec`).
@@ -365,6 +366,7 @@ impl Session {
         self.end_read_at_test_call(st, call);
         Self::end_deferred_host_reread(st, call, method.method());
         Self::refuse_after_pinned_end(st, call)?;
+        self.refuse_off_factbox_row(st, call)?;
         let control = match c.target {
             ControlTarget::Control(i) => Some(i),
             _ => None,

@@ -119,6 +119,22 @@ pub struct CodeInsertedRow {
     pub assumption: al_builtins::assumptions::Assumption,
     /// The refresh read another row after it, so the page reads it again before it leaves it (the FactBox host).
     pub read_before_leave: bool,
+    /// Where the test stands in the calls measured on the FactBox host after the landing (`refuse_off_factbox_row`).
+    pub factbox: FactboxStep,
+}
+
+/// The calls measured on the FactBox host after the page left its new line for the row (`code_inserted_new_line.rs`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FactboxStep {
+    /// Not the FactBox host: the gate lets every call through.
+    #[default]
+    Off,
+    /// The landing: reads, and one SetValue of a control without code.
+    Landed,
+    /// After that SetValue: reads, then `Previous()`, `Close()` or `OK()`.
+    Typed,
+    /// After `OK()`: its `Invoke`.
+    OkAsked,
 }
 
 /// Where the test client's cursor stands on a page (ADR-012).
