@@ -492,10 +492,8 @@ impl Session {
                     ..Default::default()
                 })))
             }
-            Ok(at) => {
-                self.refuse_pending_at_assert_end()?;
-                Ok(at)
-            }
+            // An `exit` with a value that left the body (the lowering refuses every other leave, al-sema `leaves_assert_error`).
+            Ok(_) | Err(Signal::Exit(_)) => Err(Signal::unsupported(ir::ASSERT_ERROR_LEAVE)),
             Err(Signal::Error(mut e)) => {
                 self.guarded_bodies_leave_pin();
                 self.trapped_error_rollback(&e, crate::records::TrappedRollback::AssertError)?;
@@ -508,10 +506,6 @@ impl Session {
                     f.locals[r] = Value::Null;
                 }
                 Ok(stop)
-            }
-            Err(leave @ (Signal::Exit(_) | Signal::Break | Signal::Continue)) => {
-                self.refuse_pending_at_assert_end()?;
-                Err(leave)
             }
             Err(other) => Err(other),
         }

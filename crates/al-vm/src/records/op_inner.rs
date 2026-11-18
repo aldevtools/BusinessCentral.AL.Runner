@@ -108,26 +108,8 @@ impl Session {
         // The next access of the table raises a deferred duplicate-key Insert, an Insert of another row not (the buffered inserts
         // stay buffered: record/P146TableExtProtected.al:P146_Triggers_BaseThenExtension, where
         // `R2.Insert(true)` succeeds and the next Modify raises it).
-        if matches!(
-            method,
-            RecordOp::Modify
-                | RecordOp::Delete
-                | RecordOp::DeleteAll
-                | RecordOp::ModifyAll
-                | RecordOp::Rename
-                | RecordOp::Truncate
-                | RecordOp::Get
-                | RecordOp::LoadFields
-                | RecordOp::Find
-                | RecordOp::FindFirst
-                | RecordOp::FindLast
-                | RecordOp::FindSet
-                | RecordOp::Next
-                | RecordOp::Count
-                | RecordOp::IsEmpty
-                | RecordOp::CalcFields
-                | RecordOp::CalcSums
-        ) && !rec.borrow().temporary
+        if insert_buffer::sends_queue(method)
+            && !rec.borrow().temporary
             && self
                 .tx
                 .deferred_insert
@@ -562,6 +544,14 @@ impl Session {
                 // A unique secondary key refuses the row after its AutoIncrement value was taken
                 // (corpus record/TestAutoIncrementExplicitKey.al:131,163).
                 if let Some(unique_key) = self.unique_violation(rec, &t, &row, None)? {
+                    // A table whose statement-form Insert the platform queues (al-runner issue 8287): whether the unique key's
+                    // error comes at the Insert or with the queue is not pinned.
+                    if !self.ret_used && self.insert_is_queued(rec) {
+                        return unsupported(format!(
+                            "an Insert in its statement form into {}, a table without a Blob or AutoIncrement field, that breaks a unique secondary key: whether it raises at the Insert or when the insert queue is sent is not pinned (docs/probes-needed.md)",
+                            t.name
+                        ));
+                    }
                     Self::restore_row_version(rec, old_version);
                     Self::unstamp(rec, stamped);
                     if let Some(a) = auto {

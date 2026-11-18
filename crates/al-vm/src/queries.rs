@@ -201,6 +201,11 @@ impl Session {
         for a in &def.assumes {
             al_builtins::assumptions::assume(*a);
         }
+        if matches!(method, "Open" | "Read" | "SaveAsXml" | "SaveAsJson" | "SaveAsCsv") {
+            for item in &def.items {
+                self.refuse_unmeasured_read_while_deferred(item.table, &format!("Query.{method}"))?;
+            }
+        }
         if qs.borrow().in_before_open {
             match method {
                 // CurrQuery.Open and CurrQuery.Close inside OnBeforeOpen raise; the trigger does not run again

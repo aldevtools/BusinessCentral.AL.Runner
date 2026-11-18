@@ -2200,6 +2200,11 @@ pub enum SetElem {
     Range(Option<Expr>, Option<Expr>),
 }
 
+/// The refusal of an `asserterror` body that a statement of its own leaves by exit, break or continue (al-runner issue 8289):
+/// no corpus test measures it. The lowering refuses an `exit` without a value, a `break` and a `continue`; the VM refuses an
+/// `exit` with a value whose value raised nothing.
+pub const ASSERT_ERROR_LEAVE: &str = "an asserterror body left by exit, break or continue: whether the asserterror then raises its own error is not pinned";
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Stmt {
     Assign(Place, Expr),

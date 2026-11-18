@@ -1,5 +1,6 @@
-//! An `asserterror` whose body ends, or is left by exit or break, without an error while an Insert error is deferred (al-runner
-//! issue 8267): a duplicate key, or a Date its SQL column cannot hold (records/sql_range.rs).
+//! An `asserterror` whose body ends without an error while an Insert error is deferred (al-runner issue 8267): a duplicate
+//! key, or a Date its SQL column cannot hold (records/sql_range.rs). A body left by exit, break or continue is refused by the
+//! lowering (assert_error_leaves.rs).
 //! The statement-form Insert of an existing key into a table without a Blob or AutoIncrement field returns without an error,
 //! and the next access to the table or a Commit raises it (record/TestRecordRuntimeTextsAndViews.al:189-210;
 //! record/duplicate-insert/Y7407DuplicateInsertBuffer.al:98-123, the statement after the Insert inside the asserterror is
@@ -173,82 +174,6 @@ fn issue_8267_an_assert_error_that_ends_with_its_duplicate_insert_pending_is_ref
 fn a_duplicate_pending_from_before_an_assert_error_that_raises_nothing_is_refused() {
     let out = outcomes_in(NEIGHBORS, "Dup Neighbors");
     refused(of(&out, "PendingBeforeAnAssertErrorThatRaisesNothing"));
-}
-
-/// An asserterror body left by exit or by break while the duplicate is pending; one table per test, so that the first refusal
-/// does not mark the second test as not trusted.
-const LEAVES: &str = r#"
-table 51904 "Dup Exit Row"
-{
-    fields { field(1; Code; Code[20]) { } }
-    keys { key(PK; Code) { Clustered = true; } }
-}
-table 51905 "Dup Break Row"
-{
-    fields { field(1; Code; Code[20]) { } }
-    keys { key(PK; Code) { Clustered = true; } }
-}
-codeunit 51953 "Dup Leaves"
-{
-    Subtype = Test;
-
-    [Test]
-    procedure LeftByExitWithTheDuplicatePending()
-    var
-        R: Record "Dup Exit Row";
-        R2: Record "Dup Exit Row";
-    begin
-        R.Code := 'A';
-        R.Insert();
-        R2.Code := 'A';
-        asserterror begin
-            R2.Insert();
-            exit;
-        end;
-    end;
-
-    [Test]
-    procedure LeftByBreakWithTheDuplicatePending()
-    var
-        R: Record "Dup Break Row";
-        R2: Record "Dup Break Row";
-    begin
-        R.Code := 'A';
-        R.Insert();
-        R2.Code := 'A';
-        repeat
-            asserterror begin
-                R2.Insert();
-                break;
-            end;
-        until true;
-    end;
-
-    [Test]
-    procedure LeftByExitNothingPending()
-    var
-        I: Integer;
-    begin
-        asserterror begin
-            I := 1;
-            exit;
-        end;
-    end;
-}
-"#;
-
-#[test]
-fn an_assert_error_body_left_by_exit_or_break_with_the_duplicate_pending_is_refused() {
-    let out = outcomes_in(LEAVES, "Dup Leaves");
-    for n in [
-        "LeftByExitWithTheDuplicatePending",
-        "LeftByBreakWithTheDuplicatePending",
-    ] {
-        let r = reason(of(&out, n));
-        assert!(r.starts_with("an asserterror whose body"), "{n}: {r}");
-    }
-    // Main's result, kept: nothing is deferred, so exit leaves the test as before.
-    assert_eq!(of(&out, "LeftByExitNothingPending"), Outcome::Pass);
 }
 
 /// A deferred Insert error of the other kind: a Date the SQL column cannot hold (records/sql_range.rs `insert_sql_range`).

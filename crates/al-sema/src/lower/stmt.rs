@@ -1294,7 +1294,13 @@ impl Lowerer<'_> {
             },
             BreakStmt => Ok(ir::Stmt::Break),
             ContinueStmt => self.continue_stmt(),
-            AssertErrorStmt => Ok(ir::Stmt::AssertError(self.stmt_or_empty(kids.first()))),
+            AssertErrorStmt => {
+                let body = self.stmt_or_empty(kids.first());
+                match leaves_assert_error(&body, false) {
+                    true => Err(ir::ASSERT_ERROR_LEAVE.into()),
+                    false => Ok(ir::Stmt::AssertError(body)),
+                }
+            }
             other => Err(format!("statement {other:?} is not lowered yet")),
         };
         match r {
@@ -2467,4 +2473,26 @@ fn subscriber_publisher_parts(text: &str) -> Option<Vec<String>> {
         return (is_ident && parts.iter().all(|p| !p.is_empty())).then_some(parts);
     }
     (text.bytes().all(|b| b.is_ascii_digit()) && text.parse::<u32>().is_ok()).then(|| vec![text.to_string()])
+}
+
+/// Whether a statement of `body`, the body of an `asserterror`, leaves it (al-runner issue 8289, `ir::ASSERT_ERROR_LEAVE`):
+/// an `exit` without a value, or a `break` or `continue` outside a loop of the body (`in_loop`: the statements are inside
+/// such a loop). An `exit` with a value leaves only when its value raises nothing: the VM refuses it then (`op_assert`). A
+/// procedure the body calls has its own exit.
+fn leaves_assert_error(body: &[ir::Stmt], in_loop: bool) -> bool {
+    use ir::Stmt;
+    body.iter().any(|s| match s {
+        Stmt::Exit(None) => true,
+        Stmt::Exit(Some(_)) => false,
+        Stmt::Break | Stmt::Continue => !in_loop,
+        Stmt::If(_, a, b) => leaves_assert_error(a, in_loop) || leaves_assert_error(b, in_loop),
+        Stmt::Case {
+            branches, otherwise, ..
+        } => branches.iter().any(|(_, b)| leaves_assert_error(b, in_loop)) || leaves_assert_error(otherwise, in_loop),
+        Stmt::AssertError(b) => leaves_assert_error(b, in_loop),
+        Stmt::While(_, b) | Stmt::Repeat(b, _) | Stmt::For { body: b, .. } | Stmt::Foreach { body: b, .. } => {
+            leaves_assert_error(b, true)
+        }
+        Stmt::Assign(..) | Stmt::Expr(_) | Stmt::Pos(_) | Stmt::Assume(_) | Stmt::TddMark(_) => false,
+    })
 }
