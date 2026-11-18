@@ -157,6 +157,7 @@ mod page_bare_run_modal;
 mod page_global_binding;
 mod page_object_id;
 mod page_open_record;
+mod page_placeholder_size;
 mod page_run_close;
 mod page_run_field_arg;
 mod page_run_fqn_handlers;
