@@ -2318,3 +2318,126 @@ fn the_companies_field_is_the_companies_flag_for_one_request() {
     );
     assert_eq!(o.0, "pass", "{o:?}");
 }
+
+/// Al-runner issue 8206: a dependency with install code (a row `INSTALL`), and an app under test with a resource file
+/// `flag.txt` whose test fails with the flag text and the row count in its message. With `install_reads_resource`, the
+/// app's own install code (which the install baseline runs too) adds a row holding the text of `flag.txt`.
+fn resource_baseline_apps(root: &Path, install_reads_resource: bool) -> (PathBuf, PathBuf) {
+    let dep = root.join("dep");
+    write(
+        &dep,
+        "app.json",
+        r#"{"id":"82060000-0000-0000-0000-000000000001","name":"Install Dep","publisher":"Someone","version":"1.0.0.0","dependencies":[]}"#,
+    );
+    write(
+        &dep,
+        "src/Dep.al",
+        "table 50830 Installed { fields { field(1; K; Code[20]) { } } keys { key(PK; K) { } } }
+codeunit 50831 \"Dep Install\" { Subtype = Install;
+    trigger OnInstallAppPerCompany() var S: Record Installed; begin S.K := 'INSTALL'; S.Insert(); end; }",
+    );
+    let main = root.join("main");
+    write(
+        &main,
+        "app.json",
+        r#"{"id":"82060000-0000-0000-0000-000000000002","name":"Resource Tests","publisher":"Test","version":"1.0.0.0","resourceFolders":["res"],"dependencies":[{"id":"82060000-0000-0000-0000-000000000001","name":"Install Dep","publisher":"Someone","version":"1.0.0.0"}]}"#,
+    );
+    write(&main, "res/flag.txt", "off");
+    let install = if install_reads_resource {
+        "codeunit 50833 \"Reads Flag\" { Subtype = Install;
+    trigger OnInstallAppPerCompany() var S: Record Installed; begin
+        S.K := CopyStr(NavApp.GetResourceAsText('flag.txt'), 1, 20); S.Insert(); end; }\n"
+    } else {
+        ""
+    };
+    write(
+        &main,
+        "src/T.al",
+        &format!(
+            "codeunit 50832 \"Resource Tests\" {{ Subtype = Test;
+    [Test] procedure Flag() var S: Record Installed; begin
+        Error('flag=%1 rows=%2', NavApp.GetResourceAsText('flag.txt'), S.Count()); end; }}\n{install}"
+        ),
+    );
+    (main, dep)
+}
+
+/// The test lines of a request (name, status, message) and its summary's `baselineSource`.
+fn outcomes_and_source(s: &mut Server, req: Value) -> (Vec<(String, String, String)>, Value) {
+    s.send(req);
+    let lines = s.until_summary();
+    let tests = lines
+        .iter()
+        .filter(|l| l["type"] == "test")
+        .map(|l| {
+            let text = |k: &str| l[k].as_str().unwrap_or_default().to_string();
+            (text("name"), text("status"), text("message"))
+        })
+        .collect();
+    let summary = lines.last().unwrap();
+    assert!(summary["type"] == "summary", "{lines:?}");
+    (tests, summary["timings"]["baselineSource"].clone())
+}
+
+/// Al-runner issue 8206: a kept daemon takes the kept install baseline for entries with `resources`, and every request
+/// gives what a fresh daemon gives for it: the entries' texts (the same or another), a resource file changed on disk,
+/// and install code that reads a resource (where a fresh run refuses an entry with resources of its own).
+#[test]
+fn entries_with_resources_take_the_kept_baseline_and_give_what_a_fresh_daemon_gives() {
+    for install_reads_resource in [false, true] {
+        let d = tempfile::tempdir().unwrap();
+        let (main, dep) = resource_baseline_apps(d.path(), install_reads_resource);
+        let dep = dep.to_string_lossy().to_string();
+        let start = |cache: &Path| {
+            let cache = cache.to_string_lossy().to_string();
+            let mut s = Server::start(&["--no-download", "--no-test-data", "--dep", &dep, "--cache-dir", &cache]);
+            s.line();
+            s
+        };
+        let request = |text: Option<&str>| {
+            let mut req = json!({"command": "runTests", "sourcePaths": [main], "testIsolation": "test"});
+            if let Some(t) = text {
+                req["entries"] = json!([{"id": "e0", "resources": {"flag.txt": t}, "test": "Codeunit50832."}]);
+            }
+            req
+        };
+        let mut kept = start(&d.path().join("kept-cache"));
+        let steps: [(Option<&str>, Option<&str>); 5] = [
+            (Some("on"), None),
+            (Some("on"), None),
+            (Some("other"), None),
+            (None, None),
+            // The app's own resource file changes on disk: a new compile and a new baseline.
+            (Some("on"), Some("changed")),
+        ];
+        let mut sources = Vec::new();
+        for (n, (text, on_disk)) in steps.into_iter().enumerate() {
+            if let Some(t) = on_disk {
+                write(&main, "res/flag.txt", t);
+            }
+            let (got, source) = outcomes_and_source(&mut kept, request(text));
+            let mut fresh = start(&d.path().join(format!("fresh-cache-{n}")));
+            let (want, fresh_source) = outcomes_and_source(&mut fresh, request(text));
+            assert_eq!(fresh_source, "ran", "a fresh daemon runs the install code");
+            assert_eq!(
+                got, want,
+                "step {n} (install reads a resource: {install_reads_resource})"
+            );
+            // What a fresh run gives: the entry's text and the install row, or, when the install code read a resource
+            // and the entry has resources of its own, the test not run (issue 5635).
+            let message = &want[0].2;
+            let expected = match (install_reads_resource, text) {
+                (true, Some(_)) => "the install code read a resource file".to_string(),
+                (false, Some(t)) => format!("flag={t} rows=1"),
+                (reads, None) => format!("flag=off rows={}", 1 + usize::from(reads)),
+            };
+            assert!(message.contains(&expected), "step {n}: {message}");
+            sources.push(source);
+        }
+        assert_eq!(
+            sources,
+            [json!("ran"), json!("kept"), json!("kept"), json!("kept"), json!("ran")],
+            "install reads a resource: {install_reads_resource}"
+        );
+    }
+}
