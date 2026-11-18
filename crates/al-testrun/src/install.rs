@@ -171,10 +171,7 @@ pub(crate) fn install_code_of(
 }
 
 fn is_single_instance(o: &al_ir::ObjectHead) -> bool {
-    o.is_kind(al_ir::ObjKind::Codeunit)
-        && o.properties
-            .iter()
-            .any(|(k, v)| k.eq_ignore_ascii_case("SingleInstance") && v.trim().eq_ignore_ascii_case("true"))
+    o.is_kind(al_ir::ObjKind::Codeunit) && al_ir::ObjectFacts::of_properties(&o.properties).single_instance
 }
 
 fn per_company(o: &al_ir::ObjectHead) -> bool {

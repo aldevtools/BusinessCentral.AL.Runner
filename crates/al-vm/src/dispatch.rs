@@ -180,6 +180,7 @@ impl Session {
         self.profile_enter(object, routine, true);
         self.events.publish_frame = true;
         self.events.blob_publisher = blob_publisher;
+        self.events.by_value_publisher = Some((object, routine));
         self.events.sender_refused = sender_refused;
         self.events.var_origins = origins;
         self.events.publisher_var_lens = lens;
@@ -250,6 +251,8 @@ impl Session {
         let engine = self.engine.clone();
         let sender_refused = self.events.sender_refused.take();
         let blob_publisher = std::mem::take(&mut self.events.blob_publisher);
+        let by_value_publisher = self.events.by_value_publisher.take();
+        let by_value_publisher = self.event_publisher(by_value_publisher);
         let origins = std::mem::take(&mut self.events.var_origins);
         // The declared lengths of the publisher's `var` Text and Code arguments: a subscriber's `var` parameter reports the
         // length of the publisher's argument (text/text-methods/MaxStrLen.Codeunit.al:172-201,
@@ -348,6 +351,7 @@ impl Session {
                     .collect();
             }
             self.events.next_is_subscriber = true;
+            self.events.next_event_args = self.event_args(by_value_publisher.as_ref(), &s, &map);
             self.events.next_blob_event = crate::blob_transfer::measured_subscriber(blob_publisher, s.manual);
             let manual_inst = s.manual.then(|| inst.clone());
             // What the event recursion error would name (see `Session::call`): the publisher and the subscriber routine, for the
@@ -374,6 +378,7 @@ impl Session {
                     Err(_why) => {
                         self.events.next_is_subscriber = false;
                         self.events.next_blob_event = false;
+                        self.events.next_event_args.clear();
                         self.events.next_aliases.clear();
                         self.events.next_var_lens.clear();
                         let app = engine.program.objects[s.object].app;
@@ -399,6 +404,7 @@ impl Session {
                 }
             }
             self.events.next_aliases.clear();
+            self.events.next_event_args.clear();
             self.events.next_var_lens.clear();
             let (_, finals) = match called {
                 Err(Signal::Error(e)) if isolate => {

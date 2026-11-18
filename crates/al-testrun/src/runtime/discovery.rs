@@ -280,9 +280,7 @@ fn on_run_of(o: &al_ir::Object) -> Option<usize> {
 
 /// Whether `o` is a codeunit with `SingleInstance = true`.
 fn single_instance(o: &al_ir::Object) -> bool {
-    o.properties
-        .iter()
-        .any(|(k, v)| k.eq_ignore_ascii_case("SingleInstance") && v.trim().eq_ignore_ascii_case("true"))
+    al_ir::ObjectFacts::of_properties(&o.properties).single_instance
 }
 
 /// What the last discovery pass on this thread found besides what it left in the database ([`run_pass`]).
