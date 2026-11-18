@@ -2521,7 +2521,7 @@ impl Session {
                     if rc.borrow().temporary
                         && matches!(r.locals[i].ty, RtType::Record(t, false) if !self.engine.object_facts[t as usize].temporary()) =>
                 {
-                    self.temporary_into_stored_param(&rc, &by_value)
+                    self.temporary_into_stored_param(&rc, &by_value, i)
                 }
                 // A record of the stored table handed by value to a parameter declared `temporary` gives the callee a temporary
                 // record with the record's values over an empty table of its own (events/ClEventLeads.al:70

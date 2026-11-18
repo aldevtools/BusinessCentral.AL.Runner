@@ -148,7 +148,7 @@ codeunit 50166 "BD Test"
         Line.Insert();
         Line.SetRange(Code, 'A');
         Publisher.Raise(Line);
-        Expect(Subscriber.Take(), 'temp=No f={Code: A}');
+        Expect(Subscriber.Take(), '');
     end;
 
     [Test]

@@ -252,6 +252,7 @@ impl Session {
         let sender_refused = self.events.sender_refused.take();
         let blob_publisher = std::mem::take(&mut self.events.blob_publisher);
         let by_value_publisher = self.events.by_value_publisher.take();
+        let by_value_publisher = self.event_publisher(by_value_publisher);
         let origins = std::mem::take(&mut self.events.var_origins);
         // The declared lengths of the publisher's `var` Text and Code arguments: a subscriber's `var` parameter reports the
         // length of the publisher's argument (text/text-methods/MaxStrLen.Codeunit.al:172-201,
@@ -350,7 +351,7 @@ impl Session {
                     .collect();
             }
             self.events.next_is_subscriber = true;
-            self.events.next_event_args = self.measured_event_args(by_value_publisher, &s, &map);
+            self.events.next_event_args = self.event_args(by_value_publisher.as_ref(), &s, &map);
             self.events.next_blob_event = crate::blob_transfer::measured_subscriber(blob_publisher, s.manual);
             let manual_inst = s.manual.then(|| inst.clone());
             // What the event recursion error would name (see `Session::call`): the publisher and the subscriber routine, for the

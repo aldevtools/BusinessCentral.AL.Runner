@@ -247,11 +247,10 @@ fn witnesses(heads: &[ir::ObjectHead], oi: usize, r: &ir::EventRoutine) -> Vec<u
     let mut witnesses = vec![oi];
     for &c in &r.codeunit_slots {
         let c = c as usize;
-        if heads.get(c).is_some_and(|x| {
-            x.properties
-                .iter()
-                .any(|(k, v)| k.eq_ignore_ascii_case("SingleInstance") && v.trim().eq_ignore_ascii_case("true"))
-        }) && !witnesses.contains(&c)
+        if heads
+            .get(c)
+            .is_some_and(|x| ir::ObjectFacts::of_properties(&x.properties).single_instance)
+            && !witnesses.contains(&c)
         {
             witnesses.push(c);
         }

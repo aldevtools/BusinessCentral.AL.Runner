@@ -349,9 +349,7 @@ fn keyed_on_own_object(lowered: &Lowered, object: usize, routine: usize, args: &
 /// Whether object `o` is a SingleInstance codeunit: only its globals outlive the call that set them.
 pub(crate) fn single_instance(lowered: &Lowered, o: usize) -> bool {
     let obj = &lowered.program.objects[o];
-    obj.is_kind(al_ir::ObjKind::Codeunit)
-        && (obj.properties.iter())
-            .any(|(k, v)| k.eq_ignore_ascii_case("SingleInstance") && v.trim().eq_ignore_ascii_case("true"))
+    obj.is_kind(al_ir::ObjKind::Codeunit) && al_ir::ObjectFacts::of_properties(&obj.properties).single_instance
 }
 
 /// The automatic subscribers of the dependency apps (Microsoft's and any other) to the login events (object, routine).

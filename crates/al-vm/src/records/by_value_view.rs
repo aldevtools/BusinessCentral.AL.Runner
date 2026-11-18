@@ -2,7 +2,7 @@
 //! parameter is not declared temporary and is of a table that is not TableType = Temporary. Entry:
 //! `Session::record_param_copy` for a record of a stored table, `Session::temporary_into_stored_param` for a temporary one (by
 //! the parameter binding of `call_inner` in `lib.rs`, which describes the call in a [`ByValueCall`]; for a subscriber,
-//! `dispatch.rs` `raise_to_subscribers` asks [`Session::measured_event_args`] which parameters were measured). What a copy whose view is not pinned
+//! `dispatch.rs` `raise_to_subscribers` asks [`Session::event_args`] what was measured of each parameter). What a copy whose view is not pinned
 //! answers afterwards: its own record methods (`Session::by_value_view_runs`, by `record_op_inner`), and every hand-off of it to
 //! code that reads its view (`Session::by_value_view_handed`: a record method with it as the source, `RecordRef.GetTable`, a
 //! page, report, XmlPort or FilterPageBuilder it is handed to); Copy and CopyFilters hand its marks to their target.
@@ -19,7 +19,29 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 /// The `RecordState::unpinned_buffer` reason of a by-value copy whose view [`Session::by_value_view`] does not decide.
-pub(crate) const BY_VALUE_VIEW: &str = "a record handed by value whose view the probe did not measure (a filter in filter group 1 or in a group other than -1, 0, 2 and 4, the caller standing in a group other than 0 and 2, a field sorted descending by SetAscending, a SetLoadFields after a read, SetAutoCalcFields or ReadIsolation on the record, a call through an interface, a parameter of an object other than a codeunit or of a table procedure other than Row.Proc(Row) from a codeunit, or an event subscriber's parameter other than a by-value one of a codeunit's IntegrationEvent(false, false) whose record has filters in group 0 only and the plain view): what the copy's view holds is not pinned";
+pub(crate) const BY_VALUE_VIEW: &str = "a record handed by value whose view the probe did not measure (a filter in filter group 1 or in a group other than -1, 0, 2 and 4, the caller standing in a group other than 0 and 2, a field sorted descending by SetAscending, a SetLoadFields after a read, SetAutoCalcFields or ReadIsolation on the record, a call through an interface, a parameter of an object other than a codeunit or of a table procedure other than Row.Proc(Row) from a codeunit, or an event subscriber's parameter whose publisher parameter is a by-value Record, other than one of a codeunit's IntegrationEvent(false, false) whose record has filters in group 0 only and the plain view): what the copy's view holds is not pinned";
+
+/// What corpus PR 1430 measured of one Record parameter of an event subscriber ([`Session::event_args`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum EventArg {
+    /// The parameter of the measured cell (record/filters/ByValueRecordView.al:286-308): the publisher, its parameter and the
+    /// subscriber have every fact [`Session::event_args`] names.
+    Measured,
+    /// The publisher's parameter is a by-value Record, the fact the cell measured (:294), but another fact of the publisher
+    /// or the subscriber is not the cell's.
+    PublisherByValue,
+    /// Every other parameter: the publisher's parameter is `var` or not a Record, the subscriber's parameter takes the
+    /// sender, or the platform raises the event (its Rec and xRec are `var`). Not measured; the copy keeps main's view.
+    Main,
+}
+
+/// The publisher routine of one raise (`publish` sets it) and whether its own facts are the measured cell's. Made once per
+/// raise by [`Session::event_publisher`]; [`Session::event_args`] reads it for each subscriber.
+pub(crate) struct EventPublisher {
+    object: usize,
+    routine: usize,
+    measured: bool,
+}
 
 /// How the procedure a record is handed to by value is reached.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -33,24 +55,24 @@ pub(crate) enum Dispatch {
 }
 
 /// The call a by-value Record parameter belongs to: the callee's object, the instance the procedure runs on (a table
-/// procedure's holds its `Rec`, `enter_record`), how it is reached and, for a subscriber, which of its parameters
-/// [`Session::measured_event_args`] names. Made once per call by `call_inner` in `lib.rs`.
+/// procedure's holds its `Rec`, `enter_record`), how it is reached and, for a subscriber, what
+/// [`Session::event_args`] says of each of its parameters. Made once per call by `call_inner` in `lib.rs`.
 pub(crate) struct ByValueCall<'a> {
     callee: usize,
     instance: &'a Rc<RefCell<Instance>>,
     dispatch: Dispatch,
-    event_args: Vec<bool>,
+    event_args: Vec<EventArg>,
 }
 
 impl<'a> ByValueCall<'a> {
     /// `subscriber` and `interface`: the call is an event raise or an interface call; `event_args`: per parameter of a
-    /// subscriber, whether [`Session::measured_event_args`] names it (each taken once, at the call).
+    /// subscriber, what [`Session::event_args`] says of it (each taken once, at the call).
     pub(crate) fn new(
         callee: usize,
         instance: &'a Rc<RefCell<Instance>>,
         subscriber: bool,
         interface: bool,
-        event_args: Vec<bool>,
+        event_args: Vec<EventArg>,
     ) -> Self {
         let dispatch = match (subscriber, interface) {
             (true, _) => Dispatch::Subscriber,
@@ -63,6 +85,11 @@ impl<'a> ByValueCall<'a> {
             dispatch,
             event_args,
         }
+    }
+
+    /// What [`Session::event_args`] says of parameter `index` of a subscriber; [`EventArg::Main`] for one it left out.
+    fn event_arg(&self, index: usize) -> EventArg {
+        self.event_args.get(index).copied().unwrap_or(EventArg::Main)
     }
 }
 
@@ -144,24 +171,25 @@ fn fresh_view(s: &RecordState) -> bool {
     s.filters.is_empty() && group0_view(s)
 }
 
-/// The view of `copy`, the by-value copy of `s` for a Record parameter of an event subscriber; `measured`: the parameter is
-/// one [`Session::measured_event_args`] names.
+/// The view of `copy`, the by-value copy of `s` for a Record parameter of an event subscriber, of which
+/// [`Session::event_args`] says `arg`.
+/// - [`EventArg::Main`]: the copy keeps main's view (not measured).
 /// - `s` has the view of a fresh record ([`fresh_view`]): the copy keeps it (main; there is nothing to drop).
-/// - A measured parameter and the view [`group0_view`] names: the view of [`primary_view`]
+/// - [`EventArg::Measured`] and the view [`group0_view`] names: the view of [`primary_view`]
 ///   (record/filters/ByValueRecordView.al:975 `sub f={} n=3;`), marked `RecordState::view_assumption` as in
 ///   [`Session::by_value_view`].
-/// - Else the copy keeps main's view and is marked [`BY_VALUE_VIEW`]: a read of its view refuses. A copy of a marked `s`
-///   keeps main's view and the mark.
-fn subscriber_view(s: &RecordState, copy: &Rec, measured: bool) {
+/// - Else (the publisher's parameter is a by-value Record) the copy keeps main's view and is marked [`BY_VALUE_VIEW`]: a
+///   read of its view refuses. A copy of a marked `s` keeps main's view and the mark.
+fn subscriber_view(s: &RecordState, copy: &Rec, arg: EventArg) {
     let mut c = copy.borrow_mut();
-    match s.unpinned_buffer {
-        None if fresh_view(s) => {}
-        None if measured && group0_view(s) => {
+    match (s.unpinned_buffer, arg) {
+        (Some(_), _) | (None, EventArg::Main) => {}
+        (None, _) if fresh_view(s) => {}
+        (None, EventArg::Measured) if group0_view(s) => {
             primary_view(&mut c);
             c.view_assumption = true;
         }
-        None => c.unpinned_buffer = Some(BY_VALUE_VIEW),
-        Some(_) => {}
+        (None, EventArg::Measured | EventArg::PublisherByValue) => c.unpinned_buffer = Some(BY_VALUE_VIEW),
     }
 }
 
@@ -193,46 +221,70 @@ impl Session {
         v
     }
 
-    /// Per parameter of subscriber `s` (`map`: the publisher's parameter each one takes), whether it is the event argument
-    /// corpus PR 1430 measured (assumption `by-value-record-no-filters`, record/filters/ByValueRecordView.al:286-308,
-    /// `ByValue_EventSubscriberParameter` :964-978). Every fact by equality: `publisher` is the routine `publish` raises (a
-    /// call of the publisher procedure, :290), of a codeunit (:286), declared `[IntegrationEvent(false, false)]` with
-    /// IncludeSender, GlobalVarAccess and Isolated off (:293); its parameter is a Record of a table that is not TableType =
-    /// Temporary, passed by value (:294); `s` is of a codeunit that states neither `EventSubscriberInstance = Manual` nor
-    /// `SingleInstance = true` (:299-301), and its parameter is a Record of the same table, by value (:302). Every other
-    /// parameter, and every parameter of an event the platform raises (`publisher` `None`), is `false`.
-    pub(crate) fn measured_event_args(
-        &self,
-        publisher: Option<(usize, usize)>,
-        s: &Subscriber,
-        map: &[Option<usize>],
-    ) -> Vec<bool> {
+    /// The publisher of one raise (`publisher`: the routine `publish` raises; `None` for an event the platform raises) and
+    /// whether its own facts are those of the cell corpus PR 1430 measured (assumption `by-value-record-no-filters`,
+    /// record/filters/ByValueRecordView.al:286-296), every fact by equality: a codeunit (:286) that does not state
+    /// `SingleInstance = true` (:287), the event declared `[IntegrationEvent(false, false)]` with IncludeSender,
+    /// GlobalVarAccess and Isolated off and no `[CommitBehavior]` attribute (:293), raised by a call of the publisher
+    /// procedure (:290).
+    pub(crate) fn event_publisher(&self, publisher: Option<(usize, usize)>) -> Option<EventPublisher> {
+        let (object, routine) = publisher?;
         let engine = &self.engine;
-        let objects = &engine.program.objects;
-        let Some((po, pr)) = publisher else {
-            return Vec::new();
-        };
-        let measured_publisher = objects[po].kind == ObjKind::Codeunit
-            && engine.events.publishers.get(&(po, pr)).is_some_and(|p| {
+        let measured = engine.program.objects[object].kind == ObjKind::Codeunit
+            && !engine.object_facts[object].single_instance
+            && engine.routine_facts(object, routine).commit_behavior.is_none()
+            && engine.events.publishers.get(&(object, routine)).is_some_and(|p| {
                 p.kind == EventKind::Integration && !p.include_sender && !p.global_var_access && !p.isolated
             });
+        Some(EventPublisher {
+            object,
+            routine,
+            measured,
+        })
+    }
+
+    /// Per parameter of subscriber `s` (`map`: the publisher's parameter each one takes) of the raise of `publisher`
+    /// ([`Session::event_publisher`]), what corpus PR 1430 measured of it (record/filters/ByValueRecordView.al:286-308,
+    /// `ByValue_EventSubscriberParameter` :964-978). [`EventArg::Measured`], every fact by equality: the publisher's own
+    /// facts are the cell's ([`EventPublisher`]); its parameter is a Record of a table that is not TableType = Temporary,
+    /// passed by value (:294); `s` is of a codeunit that states neither `EventSubscriberInstance = Manual` nor
+    /// `SingleInstance = true` (:299-301), and its parameter is a Record of the same table, by value (:302).
+    /// [`EventArg::PublisherByValue`]: the publisher's parameter is a by-value Record, another fact differs.
+    /// [`EventArg::Main`]: every other parameter, and each one of an event the platform raises (`publisher` `None`); an
+    /// empty list when no parameter is anything else.
+    pub(crate) fn event_args(
+        &self,
+        publisher: Option<&EventPublisher>,
+        s: &Subscriber,
+        map: &[Option<usize>],
+    ) -> Vec<EventArg> {
+        let Some(publisher) = publisher else {
+            return Vec::new();
+        };
+        let engine = &self.engine;
+        let objects = &engine.program.objects;
+        let p = &objects[publisher.object].routines[publisher.routine];
+        let by_value_record =
+            |j: usize| p.by_var.get(j) == Some(&false) && matches!(p.locals[j].ty, RtType::Record(..));
+        if !map.iter().any(|m| m.is_some_and(by_value_record)) {
+            return Vec::new();
+        }
         let sub = &objects[s.object];
         let measured_subscriber =
             sub.kind == ObjKind::Codeunit && !s.manual && !engine.object_facts[s.object].single_instance;
-        if !(measured_publisher && measured_subscriber) {
-            return Vec::new();
-        }
-        let p = &objects[po].routines[pr];
         let r = &sub.routines[s.routine];
         map.iter()
             .enumerate()
-            .map(|(i, m)| {
-                m.is_some_and(|j| {
-                    matches!(p.locals[j].ty, RtType::Record(t, false) if !engine.object_facts[t as usize].temporary())
-                        && p.by_var.get(j) == Some(&false)
+            .map(|(i, m)| match *m {
+                Some(j) if by_value_record(j) => {
+                    let measured = publisher.measured
+                        && measured_subscriber
+                        && matches!(p.locals[j].ty, RtType::Record(t, false) if !engine.object_facts[t as usize].temporary())
                         && r.by_var.get(i) == Some(&false)
-                        && r.locals[i].ty == p.locals[j].ty
-                })
+                        && r.locals[i].ty == p.locals[j].ty;
+                    if measured { EventArg::Measured } else { EventArg::PublisherByValue }
+                }
+                _ => EventArg::Main,
             })
             .collect()
     }
@@ -263,8 +315,8 @@ impl Session {
     /// hands it. The entry is one allowlist: `source` is not temporary and of no other company, the parameter is a
     /// Record of the same table, not temporary and of a table that is not TableType = Temporary, and `source` carries no
     /// link filter. Every other copy keeps main's view (`record_by_value`).
-    /// - An event subscriber's copy: [`subscriber_view`], told whether [`Session::measured_event_args`] names parameter
-    ///   `index`. The cases below are for a call by name or through an interface.
+    /// - An event subscriber's copy: [`subscriber_view`], told what [`Session::event_args`] says of parameter `index`.
+    ///   The cases below are for a call by name or through an interface.
     /// - Caller in filter group 0, ascending, no marks, MarkedOnly off, no filter, on the primary key or an ad hoc key
     ///   (`RecordState::adhoc`), any callee: the copy has the primary key, also after an ad hoc key on a normal field, on a
     ///   FlowField whose value depends on the row (whose `FLOWFIELD_KEY` mark it does not take) or on a FlowField and then
@@ -289,7 +341,7 @@ impl Session {
             return;
         }
         if call.dispatch == Dispatch::Subscriber {
-            subscriber_view(&s, copy, call.event_args.get(index) == Some(&true));
+            subscriber_view(&s, copy, call.event_arg(index));
             return;
         }
         let measured = self.measured_callee(call, param, source);
@@ -325,9 +377,10 @@ impl Session {
     /// 1430, record/filters/ByValueRecordView.al `ByValue_TemporaryToPlainParameter`: `temp=No f={}`): a codeunit's procedure
     /// called by name, the caller with at least one filter and the view [`group0_view`] names. That copy has no filters,
     /// marked as in [`Session::by_value_view`]. The same shape through an interface call is marked [`BY_VALUE_VIEW`]. An event
-    /// subscriber's copy is not measured: one without the view of a fresh record ([`fresh_view`]) is marked
-    /// [`BY_VALUE_VIEW`]. Every other copy keeps the caller's view (main; not pinned).
-    pub(crate) fn temporary_into_stored_param(&self, rc: &Rec, call: &ByValueCall) -> Value {
+    /// subscriber's copy is not measured: parameter `index`, whose publisher parameter is a by-value Record
+    /// ([`EventArg::Measured`] or [`EventArg::PublisherByValue`]), without the view of a fresh record ([`fresh_view`]), is
+    /// marked [`BY_VALUE_VIEW`]. Every other copy keeps the caller's view (main; not pinned).
+    pub(crate) fn temporary_into_stored_param(&self, rc: &Rec, call: &ByValueCall, index: usize) -> Value {
         let mut st = rc.borrow().copy_as_new_variable();
         st.temporary = false;
         st.temp_id = None;
@@ -344,7 +397,13 @@ impl Session {
                 st.view_assumption = true;
             }
             (true, Dispatch::Interface) => st.unpinned_buffer = Some(BY_VALUE_VIEW),
-            (_, Dispatch::Subscriber) if unmarked && !fresh_view(&st) => st.unpinned_buffer = Some(BY_VALUE_VIEW),
+            (_, Dispatch::Subscriber)
+                if unmarked
+                    && matches!(call.event_arg(index), EventArg::Measured | EventArg::PublisherByValue)
+                    && !fresh_view(&st) =>
+            {
+                st.unpinned_buffer = Some(BY_VALUE_VIEW)
+            }
             (_, Dispatch::Subscriber) | (false, _) => {}
         }
         Value::Record(Rc::new(RefCell::new(st)))
