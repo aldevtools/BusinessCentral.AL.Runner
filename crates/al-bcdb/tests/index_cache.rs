@@ -4,9 +4,12 @@
 
 mod common;
 use al_bcdb::bak::BakSource;
+use al_bcdb::catalog::SqlSequence;
 use al_bcdb::io::ByteSource;
 use al_bcdb::pagefile::{IndexStore, PageFile};
 use al_bcdb::source::read_all;
+use al_bcdb::types::SysColumn;
+use al_bcdb::value::Value;
 use common::*;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -119,17 +122,138 @@ fn a_table_reads_the_same_rows_through_a_saved_map() {
         framing_reads.load(Ordering::SeqCst),
         "with the map and the catalog kept, an open reads the container's framing and no page"
     );
+    assert_eq!(dump(&a), dump(&b));
+}
+
+/// What a source gives a run: every table (name, columns, rows or the reader's error), the sequences and the last
+/// row version. The equality oracle of a kept index: an open through it must give what a fresh open gives.
+#[derive(Debug, PartialEq)]
+struct Dump {
+    tables: Vec<(String, Vec<SysColumn>, Result<Vec<Vec<Value>>, String>)>,
+    sequences: Result<Vec<SqlSequence>, String>,
+    last_row_version: Result<Option<u64>, String>,
+}
+
+fn dump(s: &BakSource) -> Dump {
     use al_bcdb::BcSource;
-    for (x, y) in a.tables().unwrap().iter().zip(b.tables().unwrap()) {
-        assert_eq!(x.name, y.name);
-        let cols = a.columns(x).unwrap();
-        assert_eq!(
-            read_all(&a, x, &cols).unwrap(),
-            read_all(&b, y, &cols).unwrap(),
-            "{}",
-            x.name
-        );
+    let tables = s
+        .tables()
+        .unwrap()
+        .iter()
+        .map(|t| {
+            let cols = s.columns(t).unwrap();
+            let rows = read_all(s, t, &cols).map_err(|e| e.to_string());
+            (t.name.clone(), cols, rows)
+        })
+        .collect();
+    Dump {
+        tables,
+        sequences: s.sequences().map_err(|e| e.to_string()),
+        last_row_version: s.last_row_version().map_err(|e| e.to_string()),
     }
+}
+
+#[test]
+fn a_kept_index_reads_what_a_fresh_open_reads() {
+    let fresh = dump(&BakSource::open(Box::new(fixture_bytes("typeprobe.bak"))).unwrap());
+    assert!(fresh.tables.len() > 3);
+    let store = Memory::default();
+    let (src, _) = counting();
+    let built = BakSource::open_indexed(src, &store).unwrap();
+    assert_eq!(store.saves.load(Ordering::SeqCst), 1, "the first open builds the index");
+    assert_eq!(dump(&built), fresh, "built");
+    let (src, _) = counting();
+    let read = BakSource::open_indexed(src, &store).unwrap();
+    assert_eq!(store.saves.load(Ordering::SeqCst), 1, "the second open reads it");
+    assert_eq!(dump(&read), fresh, "read");
+}
+
+/// The offsets of a saved page map: the header is the magic, the version, the file length, the region count and one
+/// pair per region, then five counts, the last of them the number of offsets that follow.
+fn map_offsets(map: &[u8]) -> std::ops::Range<usize> {
+    let regions = u32::from_le_bytes(map[20..24].try_into().unwrap()) as usize;
+    let start = 24 + 16 * regions + 40;
+    let n = u64::from_le_bytes(map[start - 8..start].try_into().unwrap()) as usize;
+    start..start + 8 * n
+}
+
+#[test]
+fn a_kept_map_with_two_page_offsets_swapped_is_rebuilt() {
+    let store = Memory::default();
+    let (src, _) = counting();
+    let fresh = PageFile::open_indexed(src, &store).unwrap();
+    let good = store.saved.lock().unwrap().clone().unwrap();
+    // The first two mapped offsets, swapped: each still lies inside the file and the mapped count is unchanged.
+    let offsets = map_offsets(&good);
+    let mapped: Vec<usize> = (offsets.start..offsets.end)
+        .step_by(8)
+        .filter(|&at| good[at..at + 8] != [0xff; 8])
+        .take(2)
+        .collect();
+    let mut bad = good.clone();
+    let (x, y) = (mapped[0], mapped[1]);
+    bad[x..x + 8].copy_from_slice(&good[y..y + 8]);
+    bad[y..y + 8].copy_from_slice(&good[x..x + 8]);
+    *store.saved.lock().unwrap() = Some(bad);
+    let (src, _) = counting();
+    let again = PageFile::open_indexed(src, &store).unwrap();
+    assert_eq!(
+        store.saves.load(Ordering::SeqCst),
+        2,
+        "the damaged map is rebuilt and saved again"
+    );
+    assert_eq!(store.saved.lock().unwrap().clone().unwrap(), good);
+    for pid in 0..fresh.file_pages() as i32 {
+        let (a, b) = (fresh.try_page(1, pid).unwrap(), again.try_page(1, pid).unwrap());
+        assert_eq!(a.as_deref(), b.as_deref(), "page {pid}");
+    }
+}
+
+#[test]
+fn a_flipped_byte_anywhere_in_a_kept_index_is_a_miss() {
+    let store = Memory::default();
+    let (src, _) = counting();
+    BakSource::open_indexed(src, &store).unwrap();
+    let good = store.saved.lock().unwrap().clone().unwrap();
+    let mut taken = Vec::new();
+    for at in (0..good.len()).step_by(37) {
+        let mut bad = good.clone();
+        bad[at] ^= 0x20;
+        *store.saved.lock().unwrap() = Some(bad);
+        let (src, _) = counting();
+        BakSource::open_indexed(src, &store).unwrap();
+        if store.saved.lock().unwrap().as_deref() != Some(&good[..]) {
+            taken.push(at);
+        }
+    }
+    assert!(
+        taken.is_empty(),
+        "{} of {} flipped positions were taken as a kept index, the first at {:?}",
+        taken.len(),
+        good.len().div_ceil(37),
+        &taken[..taken.len().min(5)]
+    );
+}
+
+#[test]
+fn a_version_1_map_is_rebuilt() {
+    let store = Memory::default();
+    let (src, _) = counting();
+    PageFile::open_indexed(src, &store).unwrap();
+    let good = store.saved.lock().unwrap().clone().unwrap();
+    assert_eq!(
+        u32::from_le_bytes(good[8..12].try_into().unwrap()),
+        2,
+        "a map is saved as version 2"
+    );
+    // The layout of version 1: the same header and offsets, without the trailing checksum.
+    let mut old = good[..good.len() - 8].to_vec();
+    old[8..12].copy_from_slice(&1u32.to_le_bytes());
+    *store.saved.lock().unwrap() = Some(old);
+    let (src, _) = counting();
+    PageFile::open_indexed(src, &store).unwrap();
+    assert_eq!(store.saves.load(Ordering::SeqCst), 2, "a version 1 map is rebuilt");
+    assert_eq!(store.saved.lock().unwrap().clone().unwrap(), good);
 }
 
 #[test]
