@@ -33,6 +33,7 @@ mod stability;
 mod stability_si;
 mod style;
 mod test_suites;
+mod test_events;
 mod testdata;
 mod unpinned;
 mod version;

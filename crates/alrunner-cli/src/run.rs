@@ -98,6 +98,12 @@ impl Selection {
         name == fold(test) || name == fold(&qualified(codeunit, test))
     }
 
+    /// `picks` as a shared callback: which tests a server request tells, and whose failure trips its stop.
+    fn counts(&self) -> al_testrun::failure_stop::Counts {
+        let s = self.clone();
+        Arc::new(move |codeunit, test| s.picks(codeunit, test))
+    }
+
     fn picks(&self, codeunit: u32, test: &str) -> bool {
         let by_filter = self.filters.iter().any(|f| Self::matches(f, codeunit, test));
         let by_exact = self.exact.iter().any(|e| Self::matches_exact(e, codeunit, test));
@@ -1119,10 +1125,8 @@ fn entry_runs(
     inputs: &[AppInput],
     request_hooks: &al_testrun::events::Hooks,
 ) -> Vec<al_testrun::runtime::EntryRun> {
-    let cfg = a.capture;
-    let paths: Vec<PathBuf> = inputs.iter().map(|i| i.path.clone()).collect();
-    let cwd = std::env::current_dir().unwrap_or_default();
-    let next_loop = Arc::new(std::sync::atomic::AtomicU32::new(0));
+    let stream = crate::test_events::Stream::new(w.on_test.clone(), a.capture, inputs);
+    let mut stops = crate::first_failure::Stops::new(w.stop_at_first_failure);
     w.entries
         .iter()
         .zip(entry_selections)
@@ -1156,28 +1160,13 @@ fn entry_runs(
                     .map(|i| i.manifest.resources.as_slice())
                     .collect::<Vec<_>>(),
             );
-            let pick = sel.clone();
-            let forward = w.on_test.clone();
-            let (paths, cwd, next_loop) = (paths.clone(), cwd.clone(), next_loop.clone());
             al_testrun::runtime::EntryRun {
                 only: Some(units),
                 run_only,
                 hooks: al_testrun::events::Hooks {
-                    on_test: forward.map(|f| {
-                        Arc::new(move |mut e: al_testrun::events::TestEvent| {
-                            if pick.picks(e.codeunit, &e.test) {
-                                e.entry = Some(k);
-                                let json = e.captured.as_ref().map(|c| {
-                                    let base = next_loop
-                                        .fetch_add(c.captured.loops.len() as u32, std::sync::atomic::Ordering::SeqCst);
-                                    capture::json(c, cfg, base, &|app: usize, file: &str| {
-                                        coverage::label(&paths[app], file, &cwd)
-                                    })
-                                });
-                                f(e, json)
-                            }
-                        }) as Arc<dyn Fn(al_testrun::events::TestEvent) + Send + Sync>
-                    }),
+                    on_test: stream.as_ref().map(|s| s.on_test(sel.counts(), Some(k))),
+                    // `stopAtFirstFailure` (upstream issue 8210): the entry's stop, shared with its group or request.
+                    stop_at_failure: stops.of_entry(e.stop_group.as_deref(), sel.counts()),
                     ..request_hooks.clone()
                 },
                 resources,
@@ -1795,34 +1784,15 @@ fn test_inner(
     };
     laps.lap(Part::Affected);
     let hooks = match warm.as_deref() {
-        Some(w) => {
-            let pick = selection.clone();
-            let forward = w.on_test.clone();
-            let cfg = a.capture;
-            let paths: Vec<PathBuf> = inputs.iter().map(|i| i.path.clone()).collect();
-            let cwd = std::env::current_dir().unwrap_or_default();
-            // Loop ids are not repeated within a request, whatever test they come from.
-            let next_loop = Arc::new(std::sync::atomic::AtomicU32::new(0));
-            al_testrun::events::Hooks {
-                on_test: forward.map(|f| {
-                    Arc::new(move |e: al_testrun::events::TestEvent| {
-                        if pick.picks(e.codeunit, &e.test) {
-                            let json = e.captured.as_ref().map(|c| {
-                                let base = next_loop
-                                    .fetch_add(c.captured.loops.len() as u32, std::sync::atomic::Ordering::SeqCst);
-                                capture::json(c, cfg, base, &|app: usize, file: &str| {
-                                    coverage::label(&paths[app], file, &cwd)
-                                })
-                            });
-                            f(e, json)
-                        }
-                    }) as Arc<dyn Fn(al_testrun::events::TestEvent) + Send + Sync>
-                }),
-                on_start: w.on_start.clone(),
-                cancel: w.cancel.clone(),
-                ..Default::default()
-            }
-        }
+        Some(w) => al_testrun::events::Hooks {
+            on_test: crate::test_events::Stream::new(w.on_test.clone(), a.capture, &inputs)
+                .map(|s| s.on_test(selection.counts(), None)),
+            on_start: w.on_start.clone(),
+            cancel: w.cancel.clone(),
+            // `stopAtFirstFailure` (upstream issue 8210): a failure of a test the request selected stops it.
+            stop_at_failure: crate::first_failure::Stops::new(w.stop_at_first_failure).of_request(selection.counts()),
+            ..Default::default()
+        },
         None => match &debug {
             // `al-runner debug` (ADR-048): each selected test is told as it finishes, and the sessions get a debugger.
             Some(d) => {

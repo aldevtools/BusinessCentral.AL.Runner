@@ -33,21 +33,20 @@ const RUNS_AGAIN: &str = "a failed test codeunit may run again there, so the fir
 
 /// The combinations of a request that are an `error`.
 pub fn check(scope: Option<StopScope>, args: &TestArgs, entries: &[run::Entry]) -> Result<(), String> {
-    let Some(scope) = scope else {
-        return match entries.iter().any(|e| e.stop_group.is_some()) {
-            true => Err("`stopGroup` needs `stopAtFirstFailure: \"group\"`".into()),
-            false => Ok(()),
-        };
-    };
-    let refused = |with: &str, why: &str| Err(format!("`stopAtFirstFailure` cannot be combined with {with}: {why}"));
-    if scope == StopScope::Request && entries.iter().any(|e| e.stop_group.is_some()) {
-        return Err("`stopGroup` needs `stopAtFirstFailure: \"group\"`".into());
-    }
-    if scope == StopScope::Group && entries.is_empty() {
-        return Err(
+    let grouped = entries.iter().any(|e| e.stop_group.is_some());
+    match scope {
+        None | Some(StopScope::Request) if grouped => Err("`stopGroup` needs `stopAtFirstFailure: \"group\"`".into()),
+        None => Ok(()),
+        Some(StopScope::Group) if entries.is_empty() => Err(
             "`stopAtFirstFailure: \"group\"` needs `entries`: a group is the entries with the same `stopGroup`".into(),
-        );
+        ),
+        Some(_) => check_args(args),
     }
+}
+
+/// The request fields a stop cannot be combined with.
+fn check_args(args: &TestArgs) -> Result<(), String> {
+    let refused = |with: &str, why: &str| Err(format!("`stopAtFirstFailure` cannot be combined with {with}: {why}"));
     // Under strict order a failed codeunit may run again serially (al-testrun `runtime/single_lane.rs`), and its result
     // may change.
     if args.strict_order {
@@ -105,5 +104,32 @@ impl Stops {
                 Some(stop.counting(counts))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn all() -> Counts {
+        std::sync::Arc::new(|_, _| true)
+    }
+
+    #[test]
+    fn without_the_field_a_request_has_no_stop() {
+        let mut s = Stops::new(None);
+        assert!(s.of_request(all()).is_none());
+        assert!(s.of_entry(None, all()).is_none());
+    }
+
+    #[test]
+    fn group_stops_are_one_per_key_and_an_entry_without_a_key_has_its_own() {
+        let mut s = Stops::new(Some(StopScope::Group));
+        assert!(s.of_request(all()).is_none(), "a group stop needs entries");
+        s.of_entry(Some("m1"), all()).unwrap();
+        s.of_entry(Some("m1"), all()).unwrap();
+        s.of_entry(None, all()).unwrap();
+        s.of_entry(Some("m2"), all()).unwrap();
+        assert_eq!(s.groups.len(), 2);
     }
 }
