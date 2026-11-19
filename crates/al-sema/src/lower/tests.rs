@@ -2354,6 +2354,81 @@ pageextension 50102 X extends P {
     assert_eq!(body(x, "XBare"), body(x, "XQual"));
 }
 
+/// al-runner issue 8193: a page that declares its own `Caption()` (no parameter) and assigns `CurrPage.Caption := ...`, as
+/// Base Application's page 5911 "Service Comment Sheet" does. alc compiles it, and no procedure without a parameter can take the
+/// assigned value, so the assignment is the platform setter: it lowers to the same IR as on a page without the procedure.
+/// The bare `Caption()` call stays the page's own procedure.
+#[test]
+fn currpage_caption_assignment_beside_an_own_caption_procedure_is_the_platform_setter() {
+    let src = r#"
+table 50100 T { fields { field(1; No; Code[20]) { } } }
+page 50100 P {
+    SourceTable = T;
+    Caption = 'Entries';
+    var S: Text;
+    trigger OnAfterGetCurrRecord() begin CurrPage.Caption := Caption() + S; end;
+    procedure Caption(): Text begin exit('X '); end;
+}
+page 50101 Q {
+    SourceTable = T;
+    Caption = 'Entries';
+    var S: Text;
+    trigger OnAfterGetCurrRecord() begin CurrPage.Caption := MakeCaption() + S; end;
+    procedure MakeCaption(): Text begin exit('X '); end;
+}"#;
+    let (ws, l) = lower_src(src);
+    let reasons: Vec<&Refusal> = l.unsupported.iter().flatten().flatten().collect();
+    assert!(reasons.is_empty(), "{reasons:?}");
+    let obj = |name: &str| {
+        let i = ws.objects.iter().position(|o| o.name.as_str() == name).unwrap();
+        &l.program.objects[i]
+    };
+    let body = |o: &ir::Object, r: &str| format!("{:?}", o.routines.iter().find(|x| x.name == r).unwrap().body);
+    let p = body(obj("P"), "OnAfterGetCurrRecord");
+    let q = body(obj("Q"), "OnAfterGetCurrRecord");
+    assert!(p.contains("Page.Caption"), "{p}");
+    // Only the called procedure differs: the setter call around it is the same.
+    let setter_part = |s: &str| s.split("Call {").next().unwrap().to_string();
+    assert_eq!(setter_part(&p), setter_part(&q));
+}
+
+/// Neighbors of issue 8193 keep main's result: a page procedure `Caption(NewCaption: Text)` that takes the value is still
+/// what `CurrPage.Caption := ...` calls (assumption `procedure-assign-is-call`), and an own `Editable()` beside
+/// `CurrPage.Editable := ...` stays refused (no case measures it).
+#[test]
+fn currpage_property_assignment_neighbors_of_issue_8193_keep_their_resolution() {
+    let src = r#"
+table 50100 T { fields { field(1; No; Code[20]) { } } }
+page 50100 P {
+    SourceTable = T;
+    trigger OnOpenPage() begin CurrPage.Caption := 'A'; end;
+    procedure Caption(NewCaption: Text) begin end;
+}
+page 50101 E {
+    SourceTable = T;
+    trigger OnOpenPage() begin CurrPage.Editable := false; end;
+    procedure Editable(): Boolean begin exit(true); end;
+}"#;
+    let (ws, l) = lower_src(src);
+    let at = |name: &str| ws.objects.iter().position(|o| o.name.as_str() == name).unwrap();
+    let p = format!(
+        "{:?}",
+        l.program.objects[at("P")]
+            .routines
+            .iter()
+            .find(|x| x.name == "OnOpenPage")
+            .unwrap()
+            .body
+    );
+    assert!(!p.contains("Page.Caption"), "{p}");
+    let refused: Vec<String> = l.unsupported[at("E")]
+        .iter()
+        .flatten()
+        .map(|r| format!("{r:?}"))
+        .collect();
+    assert!(refused.iter().any(|r| r.contains("too many arguments")), "{refused:?}");
+}
+
 /// al-runner issue 6283: a bare `RunModal()` in a page procedure is the page's own `RunModal`, as the bare `LookupMode(true)`
 /// before it is (issue 6021). It lowers to the same IR as the `CurrPage.RunModal()` form (pinned by
 /// ui-handlers/WbBareRunModal.al:35-43).

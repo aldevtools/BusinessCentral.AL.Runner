@@ -756,6 +756,14 @@ impl<'a> Checker<'a> {
                     }
                 }
             }
+            if let Some(caption) = self.currpage_caption_beside_own_procedure(sc, target, &visible) {
+                let arg = self.ty(sc, rhs);
+                let _ = self.pick(sc, target, &[caption], &[arg], &name_of(target));
+                let r = target.text_range();
+                self.types
+                    .insert((sc.file, r.start().into(), r.end().into()), Ty::Unknown);
+                return Ty::Unknown;
+            }
             if !visible.is_empty()
                 && (visible.iter().all(|c| setter(c) && c.min == 1 && c.max >= 1) || visible.iter().all(builtin_setter))
             {
@@ -770,6 +778,40 @@ impl<'a> Checker<'a> {
             }
         }
         self.ty_of_inferred(sc, target, e)
+    }
+
+    /// The platform setter `Page.Caption(NewCaption)` for `CurrPage.Caption := v` in a page that declares its own `Caption()`
+    /// without a parameter (al-runner issue 8193): Base Application's page 5911 "Service Comment Sheet" has this shape and alc
+    /// compiles it, and a procedure without a parameter cannot take the assigned value, so the setter is the only reading. What
+    /// the setter does is pinned by testpage/TestPageCaption_Page.al:44 with TestPageCaption_Tests.al:53-62.
+    /// Only this shape is accepted: the running page's `CurrPage` in a page (not a page extension, not a page variable),
+    /// the member `Caption`, and only own procedures without parameters beside the platform's one-argument form. Every
+    /// other mix keeps its resolution.
+    fn currpage_caption_beside_own_procedure(
+        &self,
+        sc: &Scope,
+        target: &SyntaxNode,
+        visible: &[&Cand],
+    ) -> Option<Cand> {
+        let in_page = self.ws.objects[sc.oi].kind == ObjKind::Page;
+        let currpage = target.kind() == SyntaxKind::MemberExpr
+            && target
+                .children()
+                .next()
+                .is_some_and(|r| r.kind() == SyntaxKind::NameRef && name_of(&r).eq_ignore_ascii_case("CurrPage"))
+            && !sc.vars.iter().any(|frame| frame.contains_key("currpage"));
+        let caption = member_name(target).eq_ignore_ascii_case("Caption");
+        // The page's own procedures hide the platform form of the same arity (`member`), so the setter is not among
+        // `visible`: it is taken from the catalog.
+        let own_without_parameter =
+            |c: &&Cand| matches!(c.target, Res::Proc { object, .. } if object == sc.oi) && c.min == 0 && c.max == 0;
+        if !(in_page && currpage && caption && !visible.is_empty() && visible.iter().all(own_without_parameter)) {
+            return None;
+        }
+        let page = Ty::Object(ObjKind::Page, self.ws.objects[sc.oi].name.as_str().into());
+        self.catalog_cands("Page", "Caption", true, &page)
+            .into_iter()
+            .find(|c| matches!(&c.target, Res::Builtin(id) if id == "Page.Caption#1"))
     }
 
     /// The compile error of the assignment form `X.M := v` of the builtin method `M` (the candidates `visible`), where alc
