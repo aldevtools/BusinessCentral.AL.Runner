@@ -1049,10 +1049,7 @@ impl Workspace {
             .get_or_init(|| {
                 let (kept, flake) = settle(self.parse_lazy(fi, f, false), || self.parse_lazy(fi, f, true));
                 if let Some(note) = flake {
-                    self.flakes
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .push(format!("{}: {note}", f.path));
+                    self.note_parse_flake(format!("{}: {note}", f.path));
                 }
                 let (green, synthetic) = kept.green;
                 let _ = f.synthetic.set(synthetic);
@@ -1096,6 +1093,10 @@ impl Workspace {
             green: (parsed.green.expect("a parsed file has a tree"), synthetic),
             problem,
         }
+    }
+    /// Records a file whose second parse did not give the result of the first ([`Workspace::parse_flakes`]).
+    pub fn note_parse_flake(&self, note: String) {
+        self.flakes.lock().unwrap_or_else(|e| e.into_inner()).push(note);
     }
 
     /// Files whose second parse did not give the result of the first (a defect: a parse is a function of

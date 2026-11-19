@@ -322,13 +322,7 @@ impl Layer {
     /// the entry is encoded and written after the run (`workspace_cache::defer_write`) unless the options ask to write it now.
     pub(super) fn finish(mut self, c: &mut Compiled, pre_apply: Option<(Vec<al_ir::AppInfo>, Vec<al_ir::SourceFile>)>) {
         if let (Some(plan), Some((apps, sources))) = (self.plan.take(), pre_apply) {
-            let storable = match (plan.key.below != [0; 32], c.cache_report.is_some(), c.incr.is_some()) {
-                (false, false, false) | (true, true, true) => Ok(()),
-                // The compile of selected tests free of data, without the dependency layers, is the compile.
-                (true, false, false) if c.compile_cache_skipped => Ok(()),
-                _ => Err("the dependency layers did not fit; compiled without them".to_string()),
-            };
-            match storable.and_then(|()| Self::store(&plan, c, apps, sources)) {
+            match storable(c, plan.key.below != [0; 32]).and_then(|()| Self::store(&plan, c, apps, sources)) {
                 Ok(job) => {
                     let started = Instant::now();
                     if let Some(r) = self.report.as_mut() {
@@ -400,5 +394,49 @@ impl Layer {
             crate::cache_gc::limit_workspace_entries(&dir, false);
             written.map_or(0, |_| bytes.len())
         })
+    }
+}
+
+/// Whether the fresh compile `c` is one the layer covers (`layered`: the run has dependency layers): a complete compile
+/// of the workspace on the layers, of a workspace without dependency apps, or of selected tests free of data (which used
+/// no layer). A compile in which a file's second parse did not give the first's result is never stored: a parse is a
+/// function of the text, and a compile that met a defect of it is not one to repeat (second review LOW 4).
+fn storable(c: &Compiled, layered: bool) -> Result<(), String> {
+    if !c.ws.parse_flakes().is_empty() {
+        return Err("a file's second parse did not give the result of the first".into());
+    }
+    match (layered, c.cache_report.is_some(), c.incr.is_some()) {
+        (false, false, false) | (true, true, true) => Ok(()),
+        // The compile of selected tests free of data, without the dependency layers, is the compile.
+        (true, false, false) if c.compile_cache_skipped => Ok(()),
+        _ => Err("the dependency layers did not fit; compiled without them".into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_compile_with_a_parse_flake_is_not_stored() {
+        let app = al_sema::workspace::AppSource {
+            id: "a".into(),
+            name: "a".into(),
+            dependencies: Vec::new(),
+            files: vec![("a.al".into(), "codeunit 50100 A { procedure P() begin end; }".into())],
+        };
+        let c = CorpusRuntime::compile_suites(
+            vec![app],
+            vec![al_sema::AppKind::Workspace],
+            &[Manifest::default()],
+            &BTreeSet::new(),
+            None,
+            &[SuiteRun::everything()],
+            &RunOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(storable(&c, false), Ok(()));
+        c.ws.note_parse_flake("a.al: first and second parse differ".into());
+        assert!(storable(&c, false).unwrap_err().contains("second parse"));
     }
 }
