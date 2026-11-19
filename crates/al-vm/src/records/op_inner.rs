@@ -1232,7 +1232,7 @@ impl Session {
                     // events/TestProbeEventContracts.al:RecordErrors_GetMissing_TestField_Modify (FindFirst, FindLast, FindSet
                     // with a filter): the text lists the filters; without one it is not pinned.
                     None => {
-                        let filters = self.get_filters(rec, &t)?;
+                        let filters = self.get_filters(rec, &t, false)?;
                         // Without a filter the table itself is empty, on every version: FindFirst and FindLast
                         // record/filters/P68C_EmptyFinds.al:215-250 ( passes on the BC 27 oracle
                         // too), FindSet ErTTriggerErrors.al:140-147 and P68C_EmptyFinds.al:202-204.
