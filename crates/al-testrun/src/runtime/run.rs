@@ -753,8 +753,9 @@ fn run_codeunit_inner(
             }
             let last_case =
                 !matches!(queue.front(), Some(n) if n.routine == r && matches!(n.step, data_driven::Step::Case { .. }));
-            // A cancelled run starts no further test (the one running finishes), nor does one stopped at its memory limit.
-            if crate::events::cancelled() || crate::events::halted().is_some() {
+            // A cancelled run starts no further test (the one running finishes), nor does one stopped at its memory limit
+            // or at a failed test (`events::stopped`).
+            if crate::events::cancelled() || crate::events::stopped().is_some() {
                 break;
             }
             crate::events::starting(obj.id.unwrap_or(0), &obj.routines[r].name);

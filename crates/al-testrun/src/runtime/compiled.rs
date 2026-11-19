@@ -312,7 +312,7 @@ impl Pass {
             return vec![Pass {
                 only: only.clone(),
                 run_only: opts.run_only.clone(),
-                hooks: memory.hooks(&opts.hooks),
+                hooks: pass_hooks(opts, memory, &opts.hooks),
                 resources: Default::default(),
                 limit: opts.test_time_limit,
             }];
@@ -331,12 +331,23 @@ impl Pass {
             .map(|e| Pass {
                 only: e.only.as_deref().map(&in_program_order).or_else(|| only.clone()),
                 run_only: e.run_only.clone(),
-                hooks: memory.hooks(&e.hooks),
+                hooks: pass_hooks(opts, memory, &e.hooks),
                 resources: resources(e),
                 limit: e.test_time_limit.unwrap_or(opts.test_time_limit),
             })
             .collect()
     }
+}
+
+/// The hooks of a pass: `hooks` with the run's memory stop. Under `RunOptions::strict_order` a failed codeunit may run
+/// again serially (`single_lane.rs`) and its result change, so no first failure is final: the pass has no
+/// `stop_at_failure`.
+fn pass_hooks(opts: &RunOptions, memory: &super::memory::Plan, hooks: &crate::events::Hooks) -> crate::events::Hooks {
+    let mut h = memory.hooks(hooks);
+    if opts.strict_order {
+        h.stop_at_failure = None;
+    }
+    h
 }
 
 /// What [`RunOptions::debug_ready`] sees of the compile.

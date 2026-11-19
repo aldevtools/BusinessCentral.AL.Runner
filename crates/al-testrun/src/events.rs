@@ -199,6 +199,22 @@ pub fn halted() -> Option<String> {
     })
 }
 
+/// The reason of the tests not reached once the run stopped: at its hard memory limit (`halted`), or at a failed test
+/// (`Hooks::stop_at_failure`); `None` while it runs on. A stop at a failed test does not stop the running test, so
+/// what labels a stopped test reads `halted` alone.
+pub(crate) fn stopped() -> Option<String> {
+    halted().or_else(|| {
+        CURRENT.with(|c| {
+            c.borrow()
+                .0
+                .stop_at_failure
+                .as_ref()
+                .filter(|s| s.is_set())
+                .map(|s| s.reason().to_string())
+        })
+    })
+}
+
 /// The flag of `Hooks::halt`, which the watchdog of a running test reads.
 pub(crate) fn halt_flag() -> Option<Arc<AtomicBool>> {
     CURRENT.with(|c| c.borrow().0.halt.as_ref().map(|h| h.flag()))
@@ -230,16 +246,24 @@ pub(crate) fn starting(codeunit: u32, test: &str) {
     }
 }
 
+/// Whether the outcomes of the tests are to be reported: to the `on_test` hook, or to a `stop_at_failure`.
 pub(crate) fn wants_events() -> bool {
-    CURRENT.with(|c| c.borrow().0.on_test.is_some())
+    CURRENT.with(|c| {
+        let c = c.borrow();
+        c.0.on_test.is_some() || c.0.stop_at_failure.is_some()
+    })
 }
 
+/// The one place every test outcome passes as soon as it is known: the stop at a failed test hears it, then the hook.
 pub(crate) fn report(e: TestEvent) {
-    let hook = CURRENT.with(|c| {
+    let (hook, stop) = CURRENT.with(|c| {
         let mut c = c.borrow_mut();
         c.1.push(e.test.clone());
-        c.0.on_test.clone()
+        (c.0.on_test.clone(), c.0.stop_at_failure.clone())
     });
+    if let Some(s) = stop {
+        s.observe(e.codeunit, &e.test, &e.outcome);
+    }
     if let Some(h) = hook {
         h(e);
     }

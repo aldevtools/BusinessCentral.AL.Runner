@@ -32,8 +32,8 @@ pub struct FailureStop {
     scope: StopScope,
     /// `None`: every test's failure trips it.
     counts: Option<Counts>,
-    /// A handle whose own observations never trip the stop.
-    listens_only: bool,
+    /// Whether this handle's own observations may trip the stop (`listening` clears it).
+    may_trip: bool,
 }
 
 impl std::fmt::Debug for FailureStop {
@@ -42,7 +42,7 @@ impl std::fmt::Debug for FailureStop {
             .field("tripped", &self.is_set())
             .field("scope", &self.scope)
             .field("counts", &self.counts.is_some())
-            .field("listens_only", &self.listens_only)
+            .field("may_trip", &self.may_trip)
             .finish()
     }
 }
@@ -53,7 +53,7 @@ impl FailureStop {
             tripped: Arc::new(AtomicBool::new(false)),
             scope,
             counts: None,
-            listens_only: false,
+            may_trip: true,
         }
     }
 
@@ -68,7 +68,7 @@ impl FailureStop {
     /// The same stop, never tripped through this handle (a unit whose result is not final).
     pub(crate) fn listening(&self) -> FailureStop {
         FailureStop {
-            listens_only: true,
+            may_trip: false,
             ..self.clone()
         }
     }
@@ -86,11 +86,64 @@ impl FailureStop {
         }
     }
 
-    /// The one rule of which outcome trips a stop.
-    pub fn trips(_outcome: &Outcome) -> bool {
-        false
+    /// The one rule of which outcome trips a stop: a failed test (a `test` line with status `fail`). A test that is not
+    /// run (a refusal, a time limit, a runtime panic) does not.
+    pub fn trips(outcome: &Outcome) -> bool {
+        matches!(outcome, Outcome::Fail(_))
     }
 
-    /// Hears the outcome of test `test` of codeunit `codeunit` as soon as it is known.
-    pub(crate) fn observe(&self, _codeunit: u32, _test: &str, _outcome: &Outcome) {}
+    /// Hears the outcome of test `test` of codeunit `codeunit` as soon as it is known (`events::report`).
+    pub(crate) fn observe(&self, codeunit: u32, test: &str, outcome: &Outcome) {
+        if self.may_trip && Self::trips(outcome) && self.counts.as_ref().is_none_or(|c| c(codeunit, test)) {
+            self.tripped.store(true, Ordering::SeqCst);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_failure_trips() {
+        assert!(FailureStop::trips(&Outcome::Fail("x".into())));
+        assert!(!FailureStop::trips(&Outcome::Pass));
+        assert!(!FailureStop::trips(&Outcome::NotRun("refused".into())));
+    }
+
+    #[test]
+    fn a_failure_trips_the_stop_and_every_handle_sees_it() {
+        let stop = FailureStop::new(StopScope::Request);
+        let counted = stop.counting(Arc::new(|_, _| true));
+        let listener = stop.listening();
+        counted.observe(1, "T", &Outcome::Pass);
+        counted.observe(1, "T", &Outcome::NotRun("refused".into()));
+        assert!(!stop.is_set());
+        counted.observe(1, "T", &Outcome::Fail("x".into()));
+        assert!(stop.is_set() && counted.is_set() && listener.is_set());
+    }
+
+    #[test]
+    fn a_listening_handle_never_trips_the_stop() {
+        let stop = FailureStop::new(StopScope::Group);
+        stop.listening().observe(1, "T", &Outcome::Fail("x".into()));
+        assert!(!stop.is_set());
+    }
+
+    #[test]
+    fn a_failure_counting_does_not_pick_does_not_trip() {
+        let stop = FailureStop::new(StopScope::Request);
+        let counted = stop.counting(Arc::new(|cu, t: &str| cu == 2 && t == "Picked"));
+        counted.observe(1, "Picked", &Outcome::Fail("x".into()));
+        counted.observe(2, "Other", &Outcome::Fail("x".into()));
+        assert!(!stop.is_set());
+        counted.observe(2, "Picked", &Outcome::Fail("x".into()));
+        assert!(stop.is_set());
+    }
+
+    #[test]
+    fn the_reason_is_the_scope_s() {
+        assert_eq!(FailureStop::new(StopScope::Request).reason(), REASON_REQUEST);
+        assert_eq!(FailureStop::new(StopScope::Group).reason(), REASON_GROUP);
+    }
 }

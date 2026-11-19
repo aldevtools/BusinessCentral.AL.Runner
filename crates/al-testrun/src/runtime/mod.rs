@@ -685,6 +685,21 @@ pub(crate) struct Unit {
     installs: Arc<install_once::RunInstalls>,
 }
 
+impl Unit {
+    /// The hooks the unit runs with. A unit whose first result can be replaced or refused after it ran is not final:
+    /// it runs after a codeunit with TestIsolation Disabled left rows (`leak`; run again, `corpus.rs`
+    /// `run_compiled_kept`), its `OnRun` carries state to the later codeunits (`carry`; refused in the chain,
+    /// `chain_walk.rs`), or it runs under TestIsolation Disabled. Such a unit still stops once the run stopped at a
+    /// failed test, but its own failures do not trip `Hooks::stop_at_failure`.
+    fn run_hooks(&self) -> crate::events::Hooks {
+        let mut h = self.hooks.clone();
+        if self.leak.is_some() || self.carry.is_some() || self.isolation == TestIsolation::Disabled {
+            h.stop_at_failure = h.stop_at_failure.map(|s| s.listening());
+        }
+        h
+    }
+}
+
 /// What a scratch run or a capture leaves besides outcomes, per test.
 #[derive(Default)]
 pub(crate) struct Scratch {
@@ -833,10 +848,11 @@ pub(crate) struct UnitResult {
     sidecar_start: std::time::Duration,
 }
 
-/// ADR-066 amendment 10, decision 6: once the run stopped at its hard memory limit, the tests of `u` that have no
-/// outcome are not run, with the limit as the reason (the tests already done keep theirs).
+/// ADR-066 amendment 10, decision 6: once the run stopped at its hard memory limit, or at a failed test
+/// (`events::stopped`), the tests of `u` that have no outcome are not run, with the stop's reason (the tests already
+/// done keep theirs).
 fn not_reached(lowered: &Lowered, u: &Unit, mut done: UnitOutcomes) -> UnitOutcomes {
-    let Some(why) = crate::events::halted() else {
+    let Some(why) = crate::events::stopped() else {
         return done;
     };
     let o = &lowered.program.objects[u.oi];
@@ -867,16 +883,13 @@ fn run_unit(
     limit: Option<std::time::Duration>,
 ) -> UnitResult {
     let started = std::time::Instant::now();
-    let clock_start = u.clock_start;
     crate::dotnet::take_start_time();
     let baseline = baseline.filter(|_| !u.without_baseline);
-    crate::events::install(u.hooks.clone());
+    crate::events::install(u.run_hooks());
     // A crash of the process names this codeunit (and, once it starts, the test).
     crate::crash::running(u.id, "");
-    // A cancelled run starts no further codeunit, nor does a run stopped at its memory limit (its tests are reported
-    // as not run below).
-    if crate::events::cancelled() || crate::events::halted().is_some() {
-        crate::crash::idle();
+    // A cancelled run starts no further codeunit, nor does a stopped one (`events::stopped`): its tests are not run.
+    let result = if crate::events::cancelled() || crate::events::stopped().is_some() {
         let empty = (
             Vec::new(),
             Vec::new(),
@@ -885,18 +898,37 @@ fn run_unit(
             Vec::new(),
             Scratch::default(),
         );
-        let result = Ok(not_reached(lowered, u, empty));
-        crate::events::uninstall();
-        return UnitResult {
-            si: u.si,
-            oi: u.oi,
-            id: u.id,
-            result,
-            took: started.elapsed(),
-            sidecar_start: std::time::Duration::ZERO,
-        };
+        Ok(empty)
+    } else {
+        run_contained(engine, lowered, baseline, u, observe, limit)
+    };
+    let result = result.map(|done| not_reached(lowered, u, done));
+    report_unreported(lowered, u, &result);
+    let took = started.elapsed();
+    let sidecar_start = crate::dotnet::take_start_time();
+    crate::crash::idle();
+    crate::events::uninstall();
+    UnitResult {
+        si: u.si,
+        oi: u.oi,
+        id: u.id,
+        result,
+        took,
+        sidecar_start,
     }
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+}
+
+/// Runs the tests of `u`; a Rust panic is the `Err` of its message.
+fn run_contained(
+    engine: &Arc<Engine>,
+    lowered: &Lowered,
+    baseline: Option<&al_vm::Baseline>,
+    u: &Unit,
+    observe: Option<&mut Observer>,
+    limit: Option<std::time::Duration>,
+) -> Result<UnitOutcomes, String> {
+    let clock_start = u.clock_start;
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut stacks = Vec::new();
         let mut times = Vec::new();
         let mut hits = Vec::new();
@@ -949,9 +981,11 @@ fn run_unit(
             .cloned()
             .or_else(|| p.downcast_ref::<&str>().map(|s| s.to_string()))
             .unwrap_or_default()
-    });
-    let result = result.map(|done| not_reached(lowered, u, done));
-    // Tests the loop did not report as they finished (a codeunit refused as a whole, a panic) are reported now.
+    })
+}
+
+/// Tests the loop did not report as they finished (a codeunit refused or skipped as a whole, a panic) are reported now.
+fn report_unreported(lowered: &Lowered, u: &Unit, result: &Result<UnitOutcomes, String>) {
     if crate::events::wants_events() {
         let have = crate::events::reported();
         let name = lowered.program.objects[u.oi].name.clone();
@@ -971,7 +1005,7 @@ fn run_unit(
                 slept_ms: 0,
                 assumptions,
             };
-        match &result {
+        match result {
             Ok((done, stacks, times, hits, covs, _)) => {
                 for (test, outcome) in done.iter().filter(|(t, _)| !have.contains(t)) {
                     let stack = stacks.iter().find(|(n, _)| n == test).map(|(_, s)| s.clone());
@@ -1009,18 +1043,6 @@ fn run_unit(
                 }
             }
         }
-    }
-    let took = started.elapsed();
-    let sidecar_start = crate::dotnet::take_start_time();
-    crate::crash::idle();
-    crate::events::uninstall();
-    UnitResult {
-        si: u.si,
-        oi: u.oi,
-        id: u.id,
-        result,
-        took,
-        sidecar_start,
     }
 }
 
