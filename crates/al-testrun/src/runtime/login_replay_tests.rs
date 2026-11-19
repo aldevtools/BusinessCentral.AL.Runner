@@ -621,8 +621,8 @@ fn assert_planted_state(planted: &[(String, Vec<(usize, String)>)], what: &str) 
 }
 
 /// "RPL Gap" holds an instance it may call, and binds one of two instances of a manual subscriber (it calls both, so both
-/// are initialized): text length 1 binds
-/// the first, 2 also calls the held instance (it is then initialized), 3 binds the second.
+/// are initialized): text length 1 binds the first, 2 also calls the held instance (it is then initialized), 3 binds the
+/// second.
 const GAP_INSTANCES: &str = r#"
 codeunit 77462 "RPL Gap"
 {
@@ -652,4 +652,25 @@ fn an_instance_s_own_facts_and_the_instance_a_binding_holds_are_compared() {
     let planted = planted(GAP_INSTANCES, "a", &["ab", "abc"]);
     assert_planted_state(&planted[..1], "instance ");
     assert_planted_state(&planted[1..], "bindings ");
+}
+
+/// "RPL Gap" writes a row of its table; its `GetDatabaseTableTriggerSetup` subscriber enables OnDatabaseModify for the
+/// table when the text is longer than 1 (no Modify follows: only the setup BC asked differs).
+const GAP_GLOBAL_SETUPS: &str = r#"
+table 77465 "RPL Gap Row" { fields { field(1; K; Integer) { } } keys { key(PK; K) { Clustered = true; } } }
+codeunit 77462 "RPL Gap"
+{
+    procedure Plant(N: Integer) var R: Record "RPL Gap Row"; begin R.K := 1; R.Insert(); end;
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Global Triggers", 'GetDatabaseTableTriggerSetup', '', false, false)]
+    local procedure Setup(TableId: Integer; var OnDatabaseInsert: Boolean; var OnDatabaseModify: Boolean; var OnDatabaseDelete: Boolean; var OnDatabaseRename: Boolean)
+    begin
+        if TableId = Database::"RPL Gap Row" then OnDatabaseModify := StrLen(NavApp.GetResourceAsText('rpl.txt')) > 1;
+    end;
+}
+"#;
+
+// The Global Triggers setup BC asked per table (a later first write asks only for a table not asked yet) is compared.
+#[test]
+fn the_global_trigger_setups_asked_are_compared() {
+    assert_planted_state(&planted(GAP_GLOBAL_SETUPS, "a", &["ab"]), "global setups ");
 }

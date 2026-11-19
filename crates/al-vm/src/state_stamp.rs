@@ -244,9 +244,9 @@ impl Session {
 
     /// What [`LeftStamp`] takes (the session language, WorkDate, number sequences, isolated storage, the SingleInstance
     /// codeunits' globals, the manual bindings, the `Random` sequence, the group 1 filters), plus the counters code
-    /// advances (the clock, the Guid and SystemId draws and their key, the row versions) and the last error, as lines
-    /// that compare across sessions: an instance is named by its codeunit id, not by its address (al-testrun
-    /// `login_replay.rs`, al-runner issue 8211).
+    /// advances (the clock, the Guid and SystemId draws and their key, the row versions), the last error and the facts of
+    /// `state_facts.rs`, as lines that compare across sessions: an instance is named by a number by first sight, not by its
+    /// address (al-testrun `login_replay.rs`, al-runner issue 8211).
     pub fn state_lines(&mut self) -> StateLines {
         let stamp = self.left_stamp();
         let id = |o: usize| self.engine.program.objects[o].id.unwrap_or(0);
@@ -294,6 +294,7 @@ impl Session {
         let autoinc: BTreeMap<&(String, u32), &i64> = self.autoinc.iter().collect();
         out.lines.push(format!("autoincrement {}", content(&autoinc)));
         out.lines.push(format!("last error {}", content(&self.last_error)));
+        self.fact_lines(&mut out.lines, &mut out.opaque);
         out
     }
 }
