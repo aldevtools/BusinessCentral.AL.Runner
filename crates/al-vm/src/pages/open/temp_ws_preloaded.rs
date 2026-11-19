@@ -41,7 +41,7 @@ impl Session {
                 && !s.lookup
                 && !s.opened_by_test
                 && !s.run_by_currpage
-                && s.run_static != Some(true)
+                && s.modal_run != ModalRun::Static
                 && s.set_record.is_none()
                 && s.test_calls.is_empty()
         };

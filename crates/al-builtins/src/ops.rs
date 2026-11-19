@@ -12,6 +12,9 @@ use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::rc::Rc;
 
+mod quotient;
+use quotient::whole_quotient;
+
 /// [`convert`] with a value of the plain type it goes into handled here: what every argument, return value and typed
 /// assignment of ordinary code meets, without the call. The same result as `convert` (a Decimal of more than 18
 /// significant digits takes `convert`'s path, which keeps 18).
@@ -860,11 +863,14 @@ fn duration_divide(op: Arith, a: i64, r: &Value) -> Result<Value, Signal> {
                 .map(Value::BigInteger)
                 .ok_or_else(|| Signal::Unsupported("Duration overflow (error text not pinned yet)".into()));
         }
-        let q = Decimal::from(a)
-            .checked_div(Decimal::from(b))
-            .and_then(|q| q.round_sf_with_strategy(18, rust_decimal::RoundingStrategy::MidpointAwayFromZero))
-            .ok_or_else(|| Signal::Unsupported("decimal overflow".into()))?;
-        return Ok(Value::Decimal(q));
+    }
+    // The quotient is a Decimal and never raises (`slash-int` is `22500`, ExpressionBinaryDateTimeOperands.al:
+    // P195_Binary_DurationOperands); only an assignment into a Duration does when it has a fraction (D_Duration.al:358-362
+    // `asserterror D := D1 / 7`, `Dec := D1 / D2`). The milliseconds, and a BigInteger divisor, may have 19 digits.
+    if op == Arith::Div {
+        let keep_r = by_duration || matches!(r, Value::BigInteger(_));
+        let l = (&Value::Duration(a), Decimal::from(a), true);
+        return whole_quotient(l, (r, Decimal::from(b), keep_r)).map(Value::Decimal);
     }
     match op {
         // The result formats as a Decimal (`D1 div 7` is '12,857' in Format; D_Duration.al:369).
@@ -872,14 +878,6 @@ fn duration_divide(op: Arith, a: i64, r: &Value) -> Result<Value, Signal> {
         // The remainder is a whole number that formats without a thousands separator: `3600000 mod 1000000` is '600000', not
         // '600,000' (types/date-time/Arithmetic.al:Duration_Arithmetic `A mod 1000000`, :393).
         Arith::Mod => Ok(Value::BigInteger(a % b)),
-        // The quotient is a number too (`slash-int` is `22500`, ExpressionBinaryDateTimeOperands.al:P195_Binary_DurationOperands).
-        // The quotient is a Decimal and never raises; only an assignment into a Duration does when it has a fraction
-        // (D_Duration.al:358-362 `asserterror D := D1 / 7`, `Dec := D1 / D2`).
-        Arith::Div => Decimal::from(a)
-            .checked_div(Decimal::from(b))
-            .and_then(|q| q.round_sf_with_strategy(18, rust_decimal::RoundingStrategy::MidpointAwayFromZero))
-            .map(Value::Decimal)
-            .ok_or_else(|| Signal::Unsupported("decimal overflow".into())),
         _ => unsupported("Duration arithmetic (not pinned)".to_string()),
     }
 }
@@ -903,7 +901,7 @@ fn arith_not_number(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
                 if b.is_zero() {
                     return raise("Attempted to divide by zero.", "AL:DivideByZero");
                 }
-                return quotient(Decimal::from(*d), *b).map(V::Decimal);
+                return whole_quotient((l, Decimal::from(*d), true), (r, *b, false)).map(V::Decimal);
             }
         }
     }
@@ -1219,21 +1217,10 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
         Arith::Add => a.checked_add(b),
         Arith::Sub => a.checked_sub(b),
         Arith::Mul => a.checked_mul(b),
+        // A BigInteger beside a whole number (with a Decimal it is kept to 18 digits above).
         Arith::Div => {
-            let q = quotient(a, b)?;
-            // A BigInteger beside a whole number: whether it is kept to 18 digits first is pinned only where the
-            // quotient is the same either way (types/decimal-integer/DecimalDigits.al:309-310 `b62p1 / 3 back`).
-            if any_big && !any_dec {
-                let (ka, kb) = (kept(l, a), kept(r, b));
-                if (ka, kb) != (a, b) && quotient(ka, kb)? != q {
-                    return unsupported(format!(
-                        "the quotient of {l} and {r}, a BigInteger of more than 18 digits (not pinned)",
-                        l = l.describe(),
-                        r = r.describe()
-                    ));
-                }
-            }
-            return Ok(V::Decimal(q));
+            let big = |v: &Value| !any_dec && matches!(v, V::BigInteger(_));
+            return whole_quotient((l, a, big(l)), (r, b, big(r))).map(V::Decimal);
         }
         Arith::IntDiv => (a / b).trunc().into(),
         Arith::Mod => Some(a % b),
@@ -1273,16 +1260,6 @@ pub fn over_18_digits(d: Decimal) -> bool {
     // A mantissa of at most 18 digits needs no normalize (the hot path of Decimal arithmetic).
     d.mantissa().unsigned_abs() > 999_999_999_999_999_999
         && d.normalize().mantissa().unsigned_abs() > 999_999_999_999_999_999
-}
-
-/// A quotient keeps 18 significant digits, rounded at the last one
-/// (types/TestDateRoundFormatStringContracts.al:Decimal_Division_KeepsEighteenSignificantDigits), and carries no
-/// trailing zeros (types/decimal-integer/ScT70056.al:Integer_DivisionResult `value 3.5`).
-fn quotient(a: Decimal, b: Decimal) -> Result<Decimal, Signal> {
-    a.checked_div(b)
-        .and_then(|q| q.round_sf_with_strategy(18, rust_decimal::RoundingStrategy::MidpointAwayFromZero))
-        .map(|q| q.normalize())
-        .ok_or_else(|| Signal::Unsupported("decimal overflow".into()))
 }
 
 /// A Decimal of more than 18 significant digits rounded at the 18th, half away from zero; a shorter one (trailing zeros
@@ -2940,36 +2917,5 @@ mod tests {
             compare_operator(&Value::Integer(0), &Value::Enum(7, 5), false).unwrap(),
             Ordering::Equal
         );
-    }
-
-    /// A BigInteger of more than 18 digits divided by a number: the quotient is answered only where it does not depend
-    /// on whether the BigInteger is first kept to 18 digits (types/decimal-integer/DecimalDigits.al:309-310 `b62p1 / 3 back`);
-    /// `9223372036854775807L / 2` is not pinned (issue 8349) and refuses.
-    #[test]
-    fn a_biginteger_quotient_that_depends_on_the_kept_digits_refuses() {
-        use super::{Arith, arith};
-        use crate::value::Value;
-        let q = |a: i64, b: i32| arith(Arith::Div, &Value::BigInteger(a), &Value::Integer(b));
-        assert!(matches!(
-            q(9_223_372_036_854_775_807, 2),
-            Err(super::Signal::Unsupported(_))
-        ));
-        assert!(matches!(
-            q(-9_223_372_036_854_775_807, 2),
-            Err(super::Signal::Unsupported(_))
-        ));
-        let third = rust_decimal::Decimal::from(1_537_228_672_809_129_300_i64);
-        assert!(matches!(q(4_611_686_018_427_387_905, 3), Ok(Value::Decimal(d)) if d == third));
-        assert!(matches!(q(7, 2), Ok(Value::Decimal(d)) if d == rust_decimal::Decimal::new(35, 1)));
-        // The BigInteger of 19 digits on the right side.
-        let r = |a: i64| {
-            arith(
-                Arith::Div,
-                &Value::BigInteger(a),
-                &Value::BigInteger(4_611_686_018_427_387_905),
-            )
-        };
-        assert!(matches!(r(999_999_999_999_999_999), Err(super::Signal::Unsupported(_))));
-        assert!(matches!(r(500_000_000_000_000_000), Ok(Value::Decimal(_))));
     }
 }
