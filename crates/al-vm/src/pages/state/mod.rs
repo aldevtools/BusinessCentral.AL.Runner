@@ -7,6 +7,9 @@
 //! out of a value this code owns with `into_st`, and build a value with `page_value` (one new reference, as
 //! `Value::TestPage(st.clone())` was).
 
+mod close;
+pub use close::CloseOutcome;
+
 use al_builtins::page_handle::{ControlHandle, PageHandle};
 use al_builtins::value::{Instance, RecordState, RunPageLinkFill, Value};
 use std::cell::RefCell;
@@ -433,16 +436,8 @@ pub struct PageState {
     /// (corpus testpage/TestPageFailedInsert_Tests.al:1-30): `refused` keeps the line, `pending`
     /// is the line left behind by Previous()/First(), whose insert fails again at Close().
     pub refused: bool,
-    /// The last close was refused because OnQueryClosePage raised an error (shown as a message).
-    pub close_error: bool,
-    /// A `TestPage.Close()` of this Card failed on the save of its row (al-vm `pages/close_save_failed.rs`).
-    pub close_save_failed: bool,
-    /// The last close was refused because the page's own OnQueryClosePage answered false.
-    pub close_vetoed: bool,
-    /// A `TestPage.Close()` in the modal page's handler was refused by OnQueryClosePage and closed the TestPage all the same.
-    pub test_close_vetoed: bool,
-    /// A `TestPage.Close()` in the modal page's handler closed the page (no veto).
-    pub test_closed_in_handler: bool,
+    /// How the last close ended (`close.rs`).
+    pub close: CloseOutcome,
     /// How the current modal run started: `Some(true)` the static `Page.RunModal(Id)`, `Some(false)` a Page variable's
     /// `RunModal()`, `None` any other run (an action, a lookup).
     pub run_static: Option<bool>,
