@@ -379,7 +379,6 @@ impl Session {
                 let Some(b) = &r.load.buffer else {
                     // Nothing was fetched (record/TestRecordPartialLoad.al:102-141). A buffer that
                     // was filled by hand is not pinned.
-                    let fresh = self.initial_fields(t.object as usize);
                     // A record filled by assignment, Validate or Insert and never fetched reports every field
                     // loaded, whichever field was assigned; after Init it reports none
                     // (record/load-fields/AreFieldsLoadedUnfetched.al:42-68 assigned,
@@ -387,10 +386,7 @@ impl Session {
                     // Any assignment counts, a field assigned its own default value too
                     // (record/load-fields/AreFieldsLoadedDefault.al:57-88, :122-137). Insert, Modify and
                     // Validate are read from the buffer differing from a fresh one.
-                    let filled = r.assigned
-                        || fresh.len() != r.fields.len()
-                        || fresh.iter().zip(r.fields.iter()).any(|(a, b)| !a.identical(b));
-                    return Ok(Value::Boolean(filled));
+                    return Ok(Value::Boolean(!self.untouched_since_fresh(t, &r)));
                 };
                 // A Blob reads as loaded on a record that holds a partial fetch, requested or not (record/
                 // lt-loadfields-pagesource-validate/P81LoadFields.al:172-190 LoadFields_Name_Get_LoadedFlags `a_loaded_Notes`,
@@ -404,15 +400,16 @@ impl Session {
                 };
                 let partial = !matches!(b.have, FieldSet::All);
                 // After Clear a partial buffer holds no field (errors/PnBErrorsCollections.al:640-674
-                // SetLoadFields_ThenRead_AndClear `afterClear.name` No), and so does a whole fetched row that nothing was
-                // assigned to since (record/load-fields/Y87RecordRefLoadFields.al codeunit 94656 Rec_AfterClearOfFetched
-                // `NoNoNoNoNoNo`). A field assigned after the Clear of a whole row is not pinned (al-runner issue 7632).
-                if b.cleared && (partial || !r.assigned) {
-                    return Ok(Value::Boolean(false));
-                }
-                if b.cleared && r.assigned {
+                // SetLoadFields_ThenRead_AndClear `afterClear.name` No), and so does a whole fetched row (record/load-fields/
+                // Y87RecordRefLoadFields.al codeunit 94656 Rec_AfterClearOfFetched `NoNoNoNoNoNo`). Neither pin writes to the
+                // record after the Clear; any write since (an assignment, Validate, TransferFields, FieldRef.Value, Insert)
+                // is not pinned (al-runner issue 7632).
+                if b.cleared {
+                    if self.untouched_since_fresh(t, &r) {
+                        return Ok(Value::Boolean(false));
+                    }
                     return unsupported(
-                        "AreFieldsLoaded after Clear of a fetched whole row and an assignment (not pinned)",
+                        "AreFieldsLoaded after Clear of a fetched record and a write to it (not pinned)",
                     );
                 }
                 let mut all = true;
@@ -431,6 +428,14 @@ impl Session {
             }
             _ => unreachable!(),
         }
+    }
+
+    /// Whether nothing was written to `r` since it was fresh: no field assignment and every field identical to a fresh
+    /// record's. A Validate, TransferFields, Insert or Modify that changed a field shows as a buffer that differs from a
+    /// fresh one; one that wrote only fresh values does not.
+    fn untouched_since_fresh(&mut self, t: &TableDef, r: &al_builtins::value::RecordState) -> bool {
+        let fresh = self.initial_fields(t.object as usize);
+        !r.assigned && fresh.len() == r.fields.len() && fresh.iter().zip(r.fields.iter()).all(|(a, b)| a.identical(b))
     }
 
     /// `Record.LoadFields(Fields)`: on a record that was never fetched it does not read the row (the buffer keeps
