@@ -83,6 +83,8 @@ pub(crate) struct TxState {
     pub(crate) immediate_errors: bool,
     /// Try functions on the call stack (Truncate is refused inside them).
     pub(crate) try_depth: usize,
+    /// `asserterror` statements whose body is running.
+    pub(crate) assert_depth: usize,
     /// The TryFunction calls on the call stack whose result is used, innermost last: a write inside one fails with
     /// TryFunctionWrite (`transactions::try_write_error`).
     pub(crate) used_tries: Vec<transactions::UsedTry>,
@@ -220,6 +222,7 @@ impl TxState {
             deferred_raised: 0,
             immediate_errors: false,
             try_depth: 0,
+            assert_depth: 0,
             used_tries: Vec::new(),
             guarded_runs: Vec::new(),
             guarded_bodies: Vec::new(),
@@ -503,6 +506,9 @@ pub(crate) struct ReportState {
     /// Report variables whose `RunModal` ran to its end: a second `RunModal` and a `RunRequestPage` on one raise
     /// ObjectHasAlreadyBeenRun (see `reports.rs`, `REPORT_RUN_1 | REPORT_RUNMODAL_1`).
     pub(crate) report_run_modal_done: Vec<std::rc::Weak<RefCell<Instance>>>,
+    /// The `ExcelLayoutMultipleDataSheets = true` admission of the running report call (`reports/excel_sheets.rs`: set and
+    /// restored around each report call that runs a report or reads its layout).
+    pub(crate) excel_sheets: crate::reports::ExcelSheetsAdmission,
     /// Report instances whose Run, RunModal or Execute is running now, innermost last (`RunningReport`).
     pub(crate) report_running: Vec<RunningReport>,
     /// `RequestOptionsPage.Caption` set by the code of a report outside its request page's OnOpenPage, by report instance: the

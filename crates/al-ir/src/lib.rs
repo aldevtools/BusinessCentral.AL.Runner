@@ -636,6 +636,12 @@ pub struct Report {
     /// The `FormatRegion` property: the culture of a SaveAs Xml dataset and of `Format` while it is written.
     #[serde(default)]
     pub format_region: Option<String>,
+    /// `ExcelLayoutMultipleDataSheets = true`.
+    #[serde(default)]
+    pub excel_multiple_data_sheets: bool,
+    /// The report declares a global variable (a `var` section of its own).
+    #[serde(default)]
+    pub declares_globals: bool,
     /// The request page's `AboutTitle` and `AboutText` when they are plain text literals.
     #[serde(default)]
     pub about_title: Option<String>,
@@ -721,6 +727,9 @@ pub struct ReportColumn {
     /// `IncludeCaption = true`: the dataset's Labels block carries `<Name>Caption`.
     #[serde(default)]
     pub include_caption: bool,
+    /// The names of the properties the column states, lowercase, in source order.
+    #[serde(default)]
+    pub stated_properties: Vec<String>,
     /// The table (object index) and the field position whose Caption an `IncludeCaption` label shows: the field the source names,
     /// bare or written with the name of the own, the parent, a child or an earlier top-level data item
     /// (streams/P138ColCaptionQualified.al, QS_* tests). `None` for any other source.
@@ -891,6 +900,9 @@ pub struct ReportItem {
     /// `CalcFields`: the field positions of the FlowFields calculated for each row, before the row's triggers.
     #[serde(default)]
     pub calc_fields: Vec<usize>,
+    /// The names of the properties the data item states, lowercase, in source order.
+    #[serde(default)]
+    pub stated_properties: Vec<String>,
 }
 
 /// The direction an xmlport declares (`Direction`, default `Both`).
