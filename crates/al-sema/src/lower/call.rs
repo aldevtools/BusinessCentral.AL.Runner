@@ -394,8 +394,7 @@ impl Lowerer<'_> {
                 let instance = match &receiver_node {
                     // `this.Proc()` runs on the current instance, like a bare call.
                     Some(r)
-                        if r.kind() == SyntaxKind::NameRef
-                            && r.text_string().trim().eq_ignore_ascii_case("this") =>
+                        if r.kind() == SyntaxKind::NameRef && r.text_string().trim().eq_ignore_ascii_case("this") =>
                     {
                         if object != self.oi {
                             return Err("`this` calls a procedure of another object".into());
@@ -430,7 +429,9 @@ impl Lowerer<'_> {
                     // A table extension calling its table's procedure: on the same Rec.
                     None if self.table_of[object].is_some() && self.rec_slot.is_some() => {
                         self.report_item_same_name_refusal(node)?;
-                        Some(Box::new(ir::Expr::Load(ir::Place::Global(self.rec_slot.expect("checked")))))
+                        Some(Box::new(ir::Expr::Load(ir::Place::Global(
+                            self.rec_slot.expect("checked"),
+                        ))))
                     }
                     None => return Err("implicit calls into another object are not lowered yet".into()),
                 };
@@ -505,7 +506,12 @@ impl Lowerer<'_> {
                             .get(object)
                             .get(routine)
                             .is_some_and(|r| r.is_local() && r.attributes().next().is_none());
-                        let site = if receiver_node.is_none() && instance.is_none() && object == self.oi && local_proc && !try_call {
+                        let site = if receiver_node.is_none()
+                            && instance.is_none()
+                            && object == self.oi
+                            && local_proc
+                            && !try_call
+                        {
                             super::convert::TextConstantSite::ArgumentOfSameObjectProcedure
                         } else {
                             super::convert::TextConstantSite::Other
@@ -524,7 +530,8 @@ impl Lowerer<'_> {
                         if try_call
                             && ((matches!(p.ty, Ty::Text(_) | Ty::Code(_))
                                 && matches!(self.ty_ref(a), Ty::Text(_) | Ty::Code(_)))
-                                || (matches!(p.ty, Ty::Integer) && matches!(self.ty_ref(a), Ty::Decimal | Ty::BigInteger)))
+                                || (matches!(p.ty, Ty::Integer)
+                                    && matches!(self.ty_ref(a), Ty::Decimal | Ty::BigInteger)))
                         {
                             out.push(ir::Arg::Value(value));
                             continue;
@@ -621,20 +628,16 @@ impl Lowerer<'_> {
             // action's trigger, which a test that only opens an Item Card never invokes. What the call writes is not pinned (the
             // corpus skips it: streams/media/P102Media.al line 5).
             // `MediaSet.ExportFile` runs in the company build only (al-builtins media.rs `set_export_file`).
-            Some(Res::Builtin(id)) if id == "Media.ExportFile#1" => {
-                Ok(ir::Expr::Refused(format!(
-                    "builtin {id}: what a media export writes to the server's file system is not pinned (docs/probes-needed.md)"
-                )))
-            }
+            Some(Res::Builtin(id)) if id == "Media.ExportFile#1" => Ok(ir::Expr::Refused(format!(
+                "builtin {id}: what a media export writes to the server's file system is not pinned (docs/probes-needed.md)"
+            ))),
             // The Layout of a Report Layout List row: its HasValue is No for a built-in layout (reports/PZReportLayoutMedia.al:51-53),
             // and its export writes the layout file of the app's package (reports/layouts-saveas/Y17LayoutExportTests.al:70,
             // corpus master). The VM looks the layout up by the row's report id and name (`Report.LayoutListExportStream#1`, the row
             // as its receiver); an empty Media field of another table exports nothing (al-builtins media.rs `media_export`).
             Some(Res::Builtin(id))
                 if id == "Media.ExportStream#1"
-                    && receiver_node
-                        .as_ref()
-                        .is_some_and(|r| self.report_layout_list_field(r)) =>
+                    && receiver_node.as_ref().is_some_and(|r| self.report_layout_list_field(r)) =>
             {
                 let row = receiver_node
                     .as_ref()
@@ -681,9 +684,7 @@ impl Lowerer<'_> {
                 let auto_format_field = if id == "System.Format#1" && decimal_field_places.is_none() {
                     match &without_expression {
                         Some((record, pos, kind)) => Some((record.clone(), *pos, *kind)),
-                        None => args
-                            .first()
-                            .and_then(|a| self.auto_format_expression_field(a)),
+                        None => args.first().and_then(|a| self.auto_format_expression_field(a)),
                     }
                 } else {
                     None
@@ -703,7 +704,10 @@ impl Lowerer<'_> {
                     self.error_variant_id(args)
                 } else if id.starts_with("ErrorInfo.Create#")
                     && args.len() == 1
-                    && matches!(self.error_text_form(&args[0]), al_builtins::native::ErrorTextForm::Literal)
+                    && matches!(
+                        self.error_text_form(&args[0]),
+                        al_builtins::native::ErrorTextForm::Literal
+                    )
                 {
                     // The form of the message is what `GetLastErrorText(true)` after `FieldError(Field, ErrorInfo)` answers
                     // by (errors/last-error/SnLastErrorTextMoreForms.al:130, :161).
@@ -787,7 +791,10 @@ impl Lowerer<'_> {
                         && self.ws.objects[self.oi].kind == ObjKind::Codeunit
                         && (callee.kind() == SyntaxKind::NameRef
                             || callee.kind() == SyntaxKind::MemberExpr
-                                && callee.children().next().is_some_and(|r| crate::check::is_this_keyword(&r))) =>
+                                && callee
+                                    .children()
+                                    .next()
+                                    .is_some_and(|r| crate::check::is_this_keyword(&r))) =>
                     {
                         Some(Box::new(ir::Arg::Value(ir::Expr::ThisInstance)))
                     }
@@ -798,7 +805,10 @@ impl Lowerer<'_> {
                         && callee.kind() == SyntaxKind::NameRef
                         && matches!(self.ws.objects[self.oi].kind, ObjKind::Page | ObjKind::PageExtension) =>
                     {
-                        let slot = self.globals.get("currpage").ok_or("`CurrPage` is not lowered for this object")?;
+                        let slot = self
+                            .globals
+                            .get("currpage")
+                            .ok_or("`CurrPage` is not lowered for this object")?;
                         Some(Box::new(ir::Arg::Ref(ir::Place::Global(*slot))))
                     }
                     // A bare report method in a report's or report extension's procedure is the `CurrReport.` form: the VM
@@ -811,7 +821,10 @@ impl Lowerer<'_> {
                     None if sig.instance
                         && sig.receiver == "Report"
                         && callee.kind() == SyntaxKind::NameRef
-                        && matches!(self.ws.objects[self.oi].kind, ObjKind::Report | ObjKind::ReportExtension) =>
+                        && matches!(
+                            self.ws.objects[self.oi].kind,
+                            ObjKind::Report | ObjKind::ReportExtension
+                        ) =>
                     {
                         self.bare_report_receiver(node, &sig.name, args.is_empty())?
                     }
@@ -835,7 +848,13 @@ impl Lowerer<'_> {
                         id == "System.Clear#1" && matches!(self.ty_ref(a), Ty::DotNet(al) if !al.is_empty());
                     if let (false, Ty::DotNet(alias)) = (clears_dotnet, self.ty_of(a)) {
                         let receiver_ty = receiver_node.as_ref().map(|r| self.ty_of(r));
-                        out.push(ir::Arg::Value(self.dotnet_builtin_arg(&id, p, a, &alias, receiver_ty)?));
+                        out.push(ir::Arg::Value(self.dotnet_builtin_arg(
+                            &id,
+                            p,
+                            a,
+                            &alias,
+                            receiver_ty,
+                        )?));
                         continue;
                     }
                     // A bare control name in a field position of a test page method.
@@ -1042,7 +1061,9 @@ impl Lowerer<'_> {
                     }
                     out.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Text(captions))));
                     match kind {
-                        super::stmt::OptionCaptions::Ml => out.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(1)))),
+                        super::stmt::OptionCaptions::Ml => {
+                            out.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(1))))
+                        }
                         super::stmt::OptionCaptions::None => {
                             out.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(2))))
                         }
@@ -1060,7 +1081,9 @@ impl Lowerer<'_> {
                 }
                 // The record and the field's position go along: the places come from the field's AutoFormatExpression when it runs.
                 // A sixth argument: the AutoFormatType of a field without an expression (`auto_format_field_without_expression`), else 0.
-                if let (true, Some((record, pos, kind))) = (emit_id == "System.FormatAutoFormatField#1", auto_format_field) {
+                if let (true, Some((record, pos, kind))) =
+                    (emit_id == "System.FormatAutoFormatField#1", auto_format_field)
+                {
                     while out.len() < 3 {
                         out.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(0))));
                     }
@@ -1084,56 +1107,13 @@ impl Lowerer<'_> {
                     ret_used: true,
                 };
                 match args.first() {
-                    Some(a) if id == "System.Format#1" || id == "System.Format#2" => self.auto_format_writer_guard(a, lowered),
+                    Some(a) if id == "System.Format#1" || id == "System.Format#2" => {
+                        self.auto_format_writer_guard(a, lowered)
+                    }
                     _ => Ok(lowered),
                 }
             }
-            // The checker refused a builtin of a newer runtime (ADR-015 3.3): say why.
-            None if self.runtime_refusal(node).is_some() => Err(self.runtime_refusal(node).unwrap_or_default()),
-            // `Window.Open(..)` in a report extension, where `Window` is a variable of the base report.
-            None if self.base_member(callee).is_some() => Err(self.base_member(callee).unwrap_or_default()),
-            // `CurrPage.<AddIn>.Method()`: the add-in was never created, so the call raises an error when it runs (ADR-027
-            // section 3 row 18; corpus testpage/ACControlAddIn.al TZ_*), and code that never reaches it runs (Base Application's
-            // "Item Tracking Lines" calls its barcode add-in only after the client said it is supported).
-            None if callee.kind() == SyntaxKind::MemberExpr
-                && callee.children().next().and_then(|b| self.usercontrol_name(&b)).is_some() =>
-            {
-                let control = callee
-                    .children()
-                    .next()
-                    .and_then(|b| self.usercontrol_name(&b))
-                    .unwrap_or_default();
-                Ok(self.control_add_in_call(node, control, args))
-            }
-            // A procedure of a control add-in called through a `ControlAddIn` variable or parameter (al-runner issue 6154: a page
-            // part keeps the add-in its host page handed it, and a flag guards every call). Which add-in such a variable holds,
-            // and what the call does in a test session, is not pinned: the call refuses when it runs, and code that does not
-            // reach it runs.
-            None if receiver_node
-                .as_ref()
-                .is_some_and(|r| matches!(self.ty_of(r), Ty::Builtin(ref n) if n.eq_ignore_ascii_case("ControlAddIn"))) =>
-            {
-                Ok(ir::Expr::Refused(format!(
-                    "call `{}`: a procedure of a control add-in held by a ControlAddIn variable (not pinned)",
-                    node.text()
-                )))
-            }
-            // `--tdd`: `Target.Missing().Insert()`, a stub site used as a receiver, says why it is refused. The stub site is a
-            // call with no callee the checker resolved (see `tdd_stub`).
-            None if receiver_node.as_ref().is_some_and(|r| {
-                matches!(self.res(r), Some(Res::TddStub(s)) if matches!(s.ret, crate::check::tdd::TddRet::Refused(_)))
-            }) =>
-            {
-                self.unresolved_call = true;
-                match receiver_node.as_ref().and_then(|r| self.res(r)) {
-                    Some(Res::TddStub(site)) => match &site.ret {
-                        crate::check::tdd::TddRet::Refused(why) => Err(why.clone()),
-                        _ => unreachable!("checked"),
-                    },
-                    _ => unreachable!("checked"),
-                }
-            }
-            None => Err(self.unresolved_call(node)),
+            None => self.no_callee(node, callee, receiver_node.as_ref(), args),
             Some(r) => Err(format!(
                 "call `{}` to {} is not lowered yet",
                 node.text(),
@@ -1402,6 +1382,63 @@ fn is_request_options_page(text: &str) -> bool {
 }
 
 impl Lowerer<'_> {
+    /// A call the checker resolved no callee for (the `None` arm of `call`): what is pinned about such a call, else the
+    /// refusal of `unresolved_call`.
+    fn no_callee(
+        &mut self,
+        node: &SyntaxNode,
+        callee: &SyntaxNode,
+        receiver_node: Option<&SyntaxNode>,
+        args: &[SyntaxNode],
+    ) -> L<ir::Expr> {
+        // The checker refused a builtin of a newer runtime (ADR-015 3.3): say why.
+        if let Some(why) = self.runtime_refusal(node) {
+            return Err(why);
+        }
+        // `Window.Open(..)` in a report extension, where `Window` is a variable of the base report.
+        if let Some(why) = self.base_member(callee) {
+            return Err(why);
+        }
+        // `CurrPage.<AddIn>.Method()`: the add-in was never created, so the call raises an error when it runs (ADR-027
+        // section 3 row 18; corpus testpage/ACControlAddIn.al TZ_*), and code that never reaches it runs (Base Application's
+        // "Item Tracking Lines" calls its barcode add-in only after the client said it is supported).
+        if callee.kind() == SyntaxKind::MemberExpr {
+            if let Some(control) = callee.children().next().and_then(|b| self.usercontrol_name(&b)) {
+                return Ok(self.control_add_in_call(node, control, args));
+            }
+        }
+        // A procedure of a control add-in called through a `ControlAddIn` variable or parameter (al-runner issue 6154: a page
+        // part keeps the add-in its host page handed it, and a flag guards every call). Which add-in such a variable holds,
+        // and what the call does in a test session, is not pinned: the call refuses when it runs, and code that does not
+        // reach it runs.
+        if receiver_node
+            .is_some_and(|r| matches!(self.ty_of(r), Ty::Builtin(ref n) if n.eq_ignore_ascii_case("ControlAddIn")))
+        {
+            return Ok(ir::Expr::Refused(format!(
+                "call `{}`: a procedure of a control add-in held by a ControlAddIn variable (not pinned)",
+                node.text()
+            )));
+        }
+        // `--tdd`: `Target.Missing().Insert()`, a stub site used as a receiver, says why it is refused. The stub site is a
+        // call with no callee the checker resolved (see `tdd_stub`).
+        if let Some(why) = self.refused_stub(receiver_node) {
+            self.unresolved_call = true;
+            return Err(why);
+        }
+        Err(self.unresolved_call(node))
+    }
+
+    /// `--tdd`: the reason the checker gave for refusing `receiver`, when it is a refused stub site.
+    fn refused_stub(&self, receiver: Option<&SyntaxNode>) -> Option<String> {
+        match receiver.and_then(|r| self.res(r)) {
+            Some(Res::TddStub(site)) => match &site.ret {
+                crate::check::tdd::TddRet::Refused(why) => Some(why.clone()),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
     /// The reason that refuses a call the checker resolved no callee for. The object is noted
     /// (`Lowered::unresolved_calls`): after a declaration of a codeunit changes, such a call may resolve to it, and the
     /// incremental compile cannot tell (`incremental::readers`).
