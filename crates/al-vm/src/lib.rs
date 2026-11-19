@@ -320,11 +320,12 @@ pub struct InstallFacts {
     /// in one part writes (A2 item d). A read of `SystemRowVersion`, `SystemCreatedAt` or `SystemModifiedAt` of a row
     /// install code wrote is refused.
     pub row_order: std::collections::HashMap<usize, String>,
-    /// Table object -> (app under test, the assumption its install rows rely on): the install session of an app under test
-    /// raises Company Triggers OnCompanyOpen(Completed) to the subscribers of every installed app (ADR-046 amendment 1, A4
-    /// item 4, owner decision 2026-10-19), an assumption until probe Q3. A test that touches the table outside install code
-    /// is a flagged pass.
-    pub assumed: std::collections::HashMap<usize, (usize, al_builtins::assumptions::Assumption)>,
+    /// Table object -> the assumptions its install rows rely on: the install session of an app under test raises Company
+    /// Triggers OnCompanyOpen(Completed) to the subscribers of every installed app (ADR-046 amendment 1, A4 item 4, owner
+    /// decision 2026-10-19), an assumption until probe Q3; the install order of ids above the probed range; an install
+    /// subscriber written with the bare id (al-testrun `install::assume_by_id_install_tables`). A test that touches the
+    /// table outside install code is a flagged pass, through each of them.
+    pub assumed: std::collections::HashMap<usize, std::collections::BTreeSet<al_builtins::assumptions::Assumption>>,
 }
 
 /// The codeunit objects with one id, first in program order.

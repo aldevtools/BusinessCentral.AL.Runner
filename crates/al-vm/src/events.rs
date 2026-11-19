@@ -77,7 +77,7 @@ pub struct Registry {
     /// (publisher object, lower-case event name) of the events a subscriber written with a bare publisher id is bound to
     /// ([`by_id_measured`]): asking for their subscribers marks the assumption `subscriber-publisher-by-id`.
     by_id_assumed: std::collections::HashSet<(usize, String)>,
-    /// (object, routine) of the `install_subscribers` written with a bare publisher id ([`Registry::note_install_subscriber`]).
+    /// (object, routine) of the `install_subscribers` written with a bare publisher id ([`Registry::is_by_id_install`]).
     by_id_install: std::collections::HashSet<(usize, usize)>,
     /// (lower-case codeunit, lower-case event) -> subscribers of events the runtime does not raise: every event of `UI Helper
     /// Triggers`, of `Reporting Triggers` and Base Application's `ReportManagement`, and OnResolveAutoFormat and
@@ -472,15 +472,17 @@ fn bare_id(written: &str) -> Option<&str> {
 /// the assumption `subscriber-publisher-by-id` covers: BC binds it as it binds the name form (corpus PR 1466,
 /// tests/al-language/events/subscriber-by-id/SbiSubscriberByIdTests.al, local runs on every verified BC major). The measured
 /// shapes, each fact by equality; every other one refuses (`MissingWhy::PublisherByIdNotMeasured`):
-/// - a publisher object of the subscriber's own app (the probe's publishers and subscribers share one app): a codeunit's own
-///   IntegrationEvent or BusinessEvent (:23, :36, :47, :65), a report's own IntegrationEvent (:133), a table's
-///   OnBeforeInsertEvent, OnAfterInsertEvent, OnAfterModifyEvent, OnAfterDeleteEvent and OnAfterValidateEvent (:78), a
-///   page's OnOpenPageEvent and OnAfterValidateEvent (:109);
 /// - the platform codeunits Global Triggers 2000000002 GetDatabaseTableTriggerSetup and OnDatabaseInsert (:144), Caption
 ///   Class 42 OnResolveCaptionClass and OnAfterCaptionClassResolve (:186), Company Triggers 2000000003 OnCompanyOpen and
-///   OnCompanyOpenCompleted (:265), Extension Triggers 2000000010 OnInstallAppPerDatabase and OnInstallAppPerCompany (:276).
+///   OnCompanyOpenCompleted (:265), Extension Triggers 2000000010 OnInstallAppPerDatabase and OnInstallAppPerCompany (:276);
+/// - for a subscriber of the app under test only (the probe's subscribers are all in its one app, the app under test; a
+///   dependency app's subscriber to these is not measured): a publisher object of the subscriber's own app, being a
+///   codeunit's own IntegrationEvent or BusinessEvent (:23, :36, :47, :65), a report's own IntegrationEvent (:133), a
+///   table's OnBeforeInsertEvent, OnAfterInsertEvent, OnAfterModifyEvent, OnAfterDeleteEvent and OnAfterValidateEvent
+///   (:78), a page's OnOpenPageEvent and OnAfterValidateEvent (:109); the System Application's codeunit 45 "Auto Format"
+///   OnResolveAutoFormat and OnAfterResolveAutoFormat (:201).
 fn by_id_measured(
-    heads: &[ir::ObjectHead],
+    (heads, apps): (&[ir::ObjectHead], &[ir::AppInfo]),
     o: &ir::ObjectHead,
     kind: ObjKind,
     id: &str,
@@ -497,10 +499,15 @@ fn by_id_measured(
     if platform.contains(&event) {
         return true;
     }
-    let Some(p) = found
-        .and_then(|t| heads.get(t))
-        .filter(|p| p.app == o.app && p.kind == kind)
-    else {
+    // AppInfo::dependency has two states: a dependency app or the app under test.
+    let of_app_under_test = apps.get(o.app as usize).is_some_and(|a| !a.dependency);
+    let found = found.and_then(|t| heads.get(t)).filter(|_| of_app_under_test);
+    if (kind, id) == (ObjKind::Codeunit, "45")
+        && found.is_some_and(|p| p.id == Some(45) && p.name.eq_ignore_ascii_case("Auto Format"))
+    {
+        return ["onresolveautoformat", "onafterresolveautoformat"].contains(&event);
+    }
+    let Some(p) = found.filter(|p| p.app == o.app && p.kind == kind) else {
         return false;
     };
     let own_event = |attributes: &[&str]| {
@@ -607,7 +614,8 @@ impl Registry {
                                 continue;
                             };
                             let by_id = bare_id(&args[1]);
-                            let measured = by_id.is_some_and(|id| by_id_measured(heads, o, kind, id, &event, found));
+                            let measured = by_id
+                                .is_some_and(|id| by_id_measured((heads, &program.apps), o, kind, id, &event, found));
                             // The page client raises the caption class event under a key of its own,
                             // whether or not the codeunit is compiled.
                             if kind == ObjKind::Codeunit
@@ -937,7 +945,7 @@ impl Registry {
     }
 
     /// Subscriber `(object, routine)`, written with the bare publisher id `id` in a shape [`by_id_measured`] covers and bound to
-    /// `found`: every key it receives `event` under marks the assumption (`note_scope`, [`Registry::note_install_subscriber`]).
+    /// `found`: every key it receives `event` under marks the assumption (`note_scope`, [`Registry::is_by_id_install`]).
     fn note_by_id(&mut self, (object, routine): (usize, usize), id: &str, found: Option<usize>, event: &str) {
         let platform = match id {
             "2000000002" => Some(self.global_key),
@@ -954,12 +962,10 @@ impl Registry {
         }
     }
 
-    /// Marks `subscriber-publisher-by-id` when install subscriber `(object, routine)` (`install_subscribers`) is written with
-    /// the bare id of Extension Triggers: al-testrun `install` calls this for each one it runs.
-    pub fn note_install_subscriber(&self, object: usize, routine: usize) {
-        if self.by_id_install.contains(&(object, routine)) {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::SubscriberPublisherById);
-        }
+    /// Whether install subscriber `(object, routine)` (`install_subscribers`) is written with the bare id of Extension
+    /// Triggers: the tables it writes mark `subscriber-publisher-by-id` (al-testrun `install::assume_by_id_install_tables`).
+    pub fn is_by_id_install(&self, object: usize, routine: usize) -> bool {
+        self.by_id_install.contains(&(object, routine))
     }
 
     /// The publisher object that subscriber attribute `a` of routine `r` of object `oi` (kind `kind` named in its first argument)

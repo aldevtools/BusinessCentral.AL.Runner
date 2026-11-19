@@ -46,6 +46,7 @@ mod install_partner_order;
 mod install_refused_package_data_rows;
 mod install_stopped_rows;
 mod install_stopped_session_state;
+mod install_subscriber_by_id;
 mod install_trigger_setup_order;
 mod install_try_write_allowed;
 mod lean_selection;

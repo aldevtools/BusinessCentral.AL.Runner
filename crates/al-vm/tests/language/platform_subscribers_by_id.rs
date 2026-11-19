@@ -369,3 +369,85 @@ codeunit 50322 OSubLow
 "#;
     assert_eq!(text(run_in(src, "OPub", "Fire")), "low.Y;low.Z;high.A;high.B;");
 }
+
+/// An own codeunit publisher and its bare-id subscriber, both in one app.
+const OWN_PUB_SUB: &str = r#"
+codeunit 50200 Pub
+{
+    [IntegrationEvent(false, false)] procedure OnWork(var Log: Text) begin end;
+    procedure Go(): Text var L: Text; begin OnWork(L); exit(L); end;
+}
+codeunit 50201 Sub
+{
+    [EventSubscriber(ObjectType::Codeunit, 50200, 'OnWork', '', false, false)]
+    local procedure W(var Log: Text) begin Log += 'ran'; end;
+}
+"#;
+
+const CALL_GO: &str = r#"
+codeunit 50100 C
+{
+    procedure F(): Text var P: Codeunit Pub; begin exit(P.Go()); end;
+}
+"#;
+
+/// The probe measured publisher and bare-id subscriber in one app, the app under test: there it runs, flagged.
+#[test]
+fn a_bare_id_subscriber_to_its_own_app_publisher_in_the_app_under_test_runs_flagged() {
+    use al_builtins::assumptions::{Assumption, take_hits};
+    let _ = take_hits();
+    assert_eq!(
+        text(run_with_dependency("", &format!("{OWN_PUB_SUB}{CALL_GO}"), "C", "F")),
+        "ran"
+    );
+    assert!(take_hits().contains(&Assumption::SubscriberPublisherById));
+}
+
+/// The same pair in a dependency app is not measured: raising the event refuses.
+#[test]
+fn a_bare_id_subscriber_to_its_own_app_publisher_in_a_dependency_refuses_the_raise() {
+    let m = refused(run_with_dependency(OWN_PUB_SUB, CALL_GO, "C", "F"));
+    assert!(m.contains("by the id 50200"), "{m}");
+}
+
+/// A stand-in for the System Application's codeunit 45 "Auto Format" in a dependency app, with the event it raises.
+const AUTO_FORMAT: &str = r#"
+codeunit 45 "Auto Format"
+{
+    [IntegrationEvent(false, false)] procedure OnResolveAutoFormat(var Log: Text) begin end;
+    procedure Go(): Text var L: Text; begin OnResolveAutoFormat(L); exit(L); end;
+}
+"#;
+
+const AUTO_FORMAT_SUB: &str = r#"
+codeunit 50201 Sub
+{
+    [EventSubscriber(ObjectType::Codeunit, 45, 'OnResolveAutoFormat', '', false, false)]
+    local procedure W(var Log: Text) begin Log += 'ran'; end;
+}
+"#;
+
+const CALL_AUTO_FORMAT: &str = r#"
+codeunit 50100 C
+{
+    procedure F(): Text var P: Codeunit "Auto Format"; begin exit(P.Go()); end;
+}
+"#;
+
+/// A subscriber of the app under test to Auto Format 45 by the bare id: measured (SbiSubscriberByIdTests.al:201), runs flagged.
+#[test]
+fn a_bare_id_auto_format_subscriber_of_the_app_under_test_runs_flagged() {
+    use al_builtins::assumptions::{Assumption, take_hits};
+    let _ = take_hits();
+    let ws = format!("{AUTO_FORMAT_SUB}{CALL_AUTO_FORMAT}");
+    assert_eq!(text(run_with_dependency(AUTO_FORMAT, &ws, "C", "F")), "ran");
+    assert!(take_hits().contains(&Assumption::SubscriberPublisherById));
+}
+
+/// The same subscriber in the dependency app: not measured, the raise refuses.
+#[test]
+fn a_bare_id_auto_format_subscriber_of_a_dependency_refuses_the_raise() {
+    let dep = format!("{AUTO_FORMAT}{AUTO_FORMAT_SUB}");
+    let m = refused(run_with_dependency(&dep, CALL_AUTO_FORMAT, "C", "F"));
+    assert!(m.contains("by the id 45"), "{m}");
+}
