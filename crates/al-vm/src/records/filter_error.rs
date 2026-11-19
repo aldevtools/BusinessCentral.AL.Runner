@@ -39,12 +39,12 @@ impl Session {
     /// text. 1030, 1036, 1044, 1053: the language's text as measured (assumption `date-filter-error-by-language`, corpus PR 1428
     /// FilterGlobalLanguageDateBool.al:229-372 at 04e1fa0a), which quotes the filter as written. Every other language refuses.
     pub(crate) fn date_filter_error_in_language(&self, t: &TableDef, pos: usize, value: &str) -> Signal {
-        if self.global_language.get() == 1031 {
+        if self.global_language() == 1031 {
             return self.german_date_filter_error(t, pos, value, value);
         }
         let (shown, bad) = (value, value); // the filter as written is the one value
         let (field, table) = (self.field_caption(t, pos), self.caption(t));
-        let message = match self.global_language.get() {
+        let message = match self.global_language() {
             1030 => format!(
                 "Filteret \"{shown}\" er ikke gyldigt for feltet {field} i tabellen {table}. Formatet for Date '{bad}' stemmer ikke overens med enhedens datoindstillinger.\\\\Kontroller, at dagen, måneden og året er i den rigtige rækkefølge, og brug den korrekte separator (f.eks. - eller /). Du kan også altid bruge formatet 'åååå-mm-dd'."
             ),
@@ -82,7 +82,7 @@ impl Session {
         ty: &RtType,
     ) -> Result<(), Signal> {
         match al_builtins::filter::set_filter_text_error(text, ty) {
-            Some(reason) if self.global_language.get() == 1033 => Err(self.filter_error(t, pos, text, reason)),
+            Some(reason) if self.global_language() == 1033 => Err(self.filter_error(t, pos, text, reason)),
             _ => Ok(()),
         }
     }

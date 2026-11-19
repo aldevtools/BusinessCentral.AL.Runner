@@ -217,8 +217,6 @@ impl Session {
             part_sync_keeps_same_link: _,
             dotnet: _,
             application_areas: _,
-            // Cleared with the areas before each test method; a read outside a test method does not look at it.
-            application_areas_set_in_test: _,
             // Its files are checked below (`FileSystem::changed`); its clock, identity and seeds are made from the same
             // scratch settings in every session of the run (al-testrun `install_once.rs` `Key`).
             host: _,
@@ -268,7 +266,7 @@ impl Session {
         }
         Some(InstallLeft {
             carried: crate::CarriedState {
-                language: self.global_language.get(),
+                language: self.global_language(),
                 work_date: self.work_date,
             },
             clock_ms: self.waited_ms,

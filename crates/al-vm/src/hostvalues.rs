@@ -209,7 +209,7 @@ impl Session {
             ids::SYSTEM_TEMPORARYPATH_1 => Ok(Value::Text("\\TEMP\\".into())),
             ids::SYSTEM_WINDOWSLANGUAGE_1 => Ok(Value::Integer(self.host.identity.windows_language())),
             ids::SYSTEM_GLOBALLANGUAGE_1 => match args.first() {
-                None => Ok(Value::Integer(self.global_language.get())),
+                None => Ok(Value::Integer(self.global_language())),
                 // These ids raise NotSupportedLanguage and leave the language as it was
                 // (metadata/platform-tables/PlTSession.al:245-266, GlobalLanguage_InvalidIds: 0, -1, 99999;
                 // :326-360, GlobalLanguage_PositiveIds: 1000, 4096, 8192, 9999, 32767, 65535). Other ids are set as before.
@@ -222,7 +222,7 @@ impl Session {
                     ))
                 }
                 Some(Value::Integer(n)) if *n > 0 => {
-                    if self.global_language.get() != *n {
+                    if self.global_language() != *n {
                         self.events.caption_context_revision += 1;
                     }
                     self.set_language(*n);

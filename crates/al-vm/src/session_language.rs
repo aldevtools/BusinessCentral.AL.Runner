@@ -6,7 +6,7 @@
 
 use crate::Session;
 
-/// The session's `GlobalLanguage`; read with [`SessionLanguage::get`], changed only by [`Session::set_language`].
+/// The session's `GlobalLanguage`; read with [`Session::global_language`], changed only by [`Session::set_language`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct SessionLanguage(i32);
 
@@ -15,13 +15,14 @@ impl SessionLanguage {
     pub(crate) fn unset() -> SessionLanguage {
         SessionLanguage(0)
     }
-
-    pub(crate) fn get(self) -> i32 {
-        self.0
-    }
 }
 
 impl Session {
+    /// The session's `GlobalLanguage`.
+    pub(crate) fn global_language(&self) -> i32 {
+        self.global_language.0
+    }
+
     /// Sets the session language to `language` and every copy of it.
     pub fn set_language(&mut self, language: i32) {
         self.global_language = SessionLanguage(language);

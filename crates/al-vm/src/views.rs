@@ -196,11 +196,11 @@ impl Session {
         // A closing date under another language than English: Format marks it with the letter of the language (assumption
         // `closing-date-letter-by-language`); what GetFilter, GetFilters and GetView show there is not measured.
         if let Value::Date(_, true) = v
-            && self.global_language.get() != 1033
+            && self.global_language() != 1033
         {
             return unsupported(format!(
                 "the filter text of a closing date under GlobalLanguage {} (not measured)",
-                self.global_language.get()
+                self.global_language()
             ));
         }
         let text = self.message_value(v)?;

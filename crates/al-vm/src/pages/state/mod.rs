@@ -875,6 +875,9 @@ pub struct PageState {
     /// The session's application areas when the page opened: controls whose area they do not
     /// enable are not on the page.
     pub areas: String,
+    /// The areas the page opened with are not measured (`--dev-endpoint-ui` before the test set them,
+    /// `session_areas.rs`): a reader whose answer they decide refuses (`pages/areas.rs`).
+    pub areas_unknown: bool,
     /// The permission sets the session held when the page opened (AccessByPermission is decided against them, ADR-062 stage 3).
     pub permission_roles: Vec<String>,
     /// The positions of the FlowFields whose page controls the session's permission sets leave off the page (ADR-062 stage 2).

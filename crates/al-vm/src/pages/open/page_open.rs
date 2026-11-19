@@ -391,7 +391,11 @@ impl Session {
             reset_row_line_flags(&mut s);
             s.parts = Vec::new();
             s.closed_parts = Vec::new();
-            s.areas = self.application_areas.clone();
+            // The page is built from the areas it opens with; whether they are known is decided here too, before OnInit
+            // can set the session's areas (`session_areas.rs`).
+            let (areas, known) = self.page_application_areas();
+            s.areas = areas;
+            s.areas_unknown = !known;
         }
         if let Err(e) = self.create_parts(st) {
             self.mark_closed(st);
@@ -543,9 +547,6 @@ impl Session {
             self.init_parts(st)?;
             let (bound, unattended) = self.bind_open_handler(st, mode, bind)?;
             handler = bound;
-            if !as_part && !unattended {
-                self.check_application_areas_read()?;
-            }
             // The parameters string of `Report.RunRequestPage(Id, Parameters)`, after OnInit (see `run_request_page`).
             let seed = st.borrow_mut().request_seed.take();
             if let Some(xml) = seed {

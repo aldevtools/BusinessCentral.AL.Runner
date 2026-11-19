@@ -1,8 +1,8 @@
 //! `--dev-endpoint-ui` and the session's application areas (al-runner issue 8333). Microsoft's Test Runner app empties
 //! them before every test method (ALTestRunnerResetEnvironment.Codeunit.al:27; corpus permissions/testpermissions/BaTpEnv.al:53-55
 //! reads the empty text at the start of a test), which the default mode models. The dev-endpoint test runner skips
-//! that step, and what the areas hold there is not measured: under the flag, a read of the areas in a test that has
-//! not set them is refused. Off, every test keeps main's result.
+//! that step, and what the areas hold there is not measured: under the flag, `ApplicationArea()` before the test set
+//! them is refused, and so is a page reader whose answer they decide. Off, every test keeps main's result.
 
 use al_sema::workspace::AppSource;
 use al_testrun::Outcome;
@@ -23,6 +23,107 @@ page 50972 "Dev Endpoint Areas Card"
         InfoText: Text;
 }
 
+page 50974 "Dev Endpoint Mixed Card"
+{
+    PageType = Card;
+    layout
+    {
+        area(Content)
+        {
+            field(InAll; AllText) { ApplicationArea = All; }
+            field(InAllAndBasic; BothText) { ApplicationArea = Basic, All; }
+            field(InArea; AreaText) { ApplicationArea = Manufacturing; }
+            field(NoArea; NoAreaText) { }
+        }
+    }
+    var
+        AllText: Text;
+        BothText: Text;
+        AreaText: Text;
+        NoAreaText: Text;
+}
+
+page 50975 "Dev Endpoint Init Sets Card"
+{
+    PageType = Card;
+    layout
+    {
+        area(Content)
+        {
+            field(InBasic; BasicText) { ApplicationArea = Basic; }
+        }
+    }
+    var
+        BasicText: Text;
+
+    trigger OnInit()
+    begin
+        ApplicationArea('#Basic');
+    end;
+}
+
+page 50976 "Dev Endpoint Group Card"
+{
+    PageType = Card;
+    layout
+    {
+        area(Content)
+        {
+            group(InBasicGroup)
+            {
+                ApplicationArea = Basic;
+                field(InGroup; GroupText) { ApplicationArea = All; }
+            }
+        }
+    }
+    var
+        GroupText: Text;
+}
+
+page 50977 "Dev Endpoint Part"
+{
+    PageType = CardPart;
+    layout
+    {
+        area(Content)
+        {
+            field(PartInfo; PartText) { ApplicationArea = All; }
+        }
+    }
+    var
+        PartText: Text;
+}
+
+page 50978 "Dev Endpoint All Part Host"
+{
+    PageType = Card;
+    layout
+    {
+        area(Content)
+        {
+            field(HostInfo; HostText) { ApplicationArea = All; }
+            part(Sub; "Dev Endpoint Part") { ApplicationArea = All; }
+        }
+    }
+    var
+        HostText: Text;
+}
+
+page 50979 "Dev Endpoint Basic Part Host"
+{
+    PageType = Card;
+    layout
+    {
+        area(Content)
+        {
+            field(HostInfo; HostText) { ApplicationArea = All; }
+            part(Sub; "Dev Endpoint Part") { ApplicationArea = Basic; }
+        }
+    }
+    var
+        HostText: Text;
+}
+
 codeunit 50971 "Dev Endpoint Areas"
 {
     Subtype = Test;
@@ -40,6 +141,8 @@ codeunit 50971 "Dev Endpoint Areas"
         Card: TestPage "Dev Endpoint Areas Card";
     begin
         Card.OpenView();
+        if Card.Info.Value <> '' then
+            Error('info %1', Card.Info.Value);
         Card.Close();
     end;
 
@@ -86,6 +189,162 @@ codeunit 50971 "Dev Endpoint Areas"
     procedure NoRead()
     begin
     end;
+
+    [Test]
+    procedure Mixed_ControlsWithAll_NotSet()
+    var
+        Card: TestPage "Dev Endpoint Mixed Card";
+    begin
+        Card.OpenView();
+        Card.InAll.SetValue('a');
+        Card.InAllAndBasic.SetValue('b');
+        Card.Close();
+    end;
+
+    [Test]
+    procedure Mixed_ControlInOtherArea_NotSet()
+    var
+        Card: TestPage "Dev Endpoint Mixed Card";
+    begin
+        Card.OpenView();
+        Card.InArea.SetValue('c');
+        Card.Close();
+    end;
+
+    [Test]
+    procedure Mixed_ControlWithoutArea_NotSet()
+    var
+        Card: TestPage "Dev Endpoint Mixed Card";
+    begin
+        Card.OpenView();
+        Card.NoArea.SetValue('d');
+        Card.Close();
+    end;
+
+    [Test]
+    procedure Mixed_ControlInOtherArea_AfterSet()
+    var
+        Card: TestPage "Dev Endpoint Mixed Card";
+    begin
+        ApplicationArea('#Manufacturing');
+        Card.OpenView();
+        Card.InArea.SetValue('c');
+        Card.Close();
+    end;
+
+    [Test]
+    procedure OnInitSets_ControlRead()
+    var
+        Card: TestPage "Dev Endpoint Init Sets Card";
+    begin
+        Card.OpenView();
+        Card.InBasic.SetValue('e');
+        Card.Close();
+    end;
+
+    [Test]
+    procedure GroupInOtherArea_NotSet()
+    var
+        Card: TestPage "Dev Endpoint Group Card";
+    begin
+        Card.OpenView();
+        Card.InGroup.SetValue('f');
+        Card.Close();
+    end;
+
+    [Test]
+    procedure PartWithAll_NotSet()
+    var
+        Host: TestPage "Dev Endpoint All Part Host";
+    begin
+        Host.OpenView();
+        Host.Sub.PartInfo.SetValue('g');
+        Host.Close();
+    end;
+
+    [Test]
+    procedure PartInOtherArea_NotSet()
+    var
+        Host: TestPage "Dev Endpoint Basic Part Host";
+    begin
+        Host.OpenView();
+        Host.HostInfo.SetValue('h');
+        Host.Close();
+    end;
+
+    [Test]
+    [HandlerFunctions('ModalReadsAll')]
+    procedure RunModalHandled_ControlWithAll_NotSet()
+    begin
+        Page.RunModal(Page::"Dev Endpoint Mixed Card");
+    end;
+
+    [Test]
+    [HandlerFunctions('ModalReadsOtherArea')]
+    procedure RunModalHandled_ControlInOtherArea_NotSet()
+    begin
+        Page.RunModal(Page::"Dev Endpoint Mixed Card");
+    end;
+
+    [ModalPageHandler]
+    procedure ModalReadsAll(var Card: TestPage "Dev Endpoint Mixed Card")
+    begin
+        Card.InAll.SetValue('i');
+    end;
+
+    [ModalPageHandler]
+    procedure ModalReadsOtherArea(var Card: TestPage "Dev Endpoint Mixed Card")
+    begin
+        Card.InArea.SetValue('j');
+    end;
+
+    [Test]
+    procedure TrapRun_ControlWithAll_NotSet()
+    var
+        Card: TestPage "Dev Endpoint Mixed Card";
+    begin
+        Card.Trap();
+        Page.Run(Page::"Dev Endpoint Mixed Card");
+        Card.InAll.SetValue('k');
+        Card.Close();
+    end;
+
+    [Test]
+    procedure TrapRun_ControlInOtherArea_NotSet()
+    var
+        Card: TestPage "Dev Endpoint Mixed Card";
+    begin
+        Card.Trap();
+        Page.Run(Page::"Dev Endpoint Mixed Card");
+        Card.InArea.SetValue('l');
+        Card.Close();
+    end;
+
+    [Test]
+    procedure RunUnhandled_NotSet()
+    begin
+        Page.Run(Page::"Dev Endpoint Mixed Card");
+    end;
+}
+
+codeunit 50973 "Dev Endpoint Areas OnRun"
+{
+    Subtype = Test;
+
+    var
+        AtRun: Text;
+
+    trigger OnRun()
+    begin
+        AtRun := ApplicationArea();
+    end;
+
+    [Test]
+    procedure AfterOnRunRead()
+    begin
+        if AtRun <> '' then
+            Error('areas %1', AtRun);
+    end;
 }
 "#;
 
@@ -117,33 +376,65 @@ fn result<'a>(rt: &'a CorpusRuntime, test: &str) -> &'a TestResult {
         .unwrap_or_else(|| panic!("{test} did not run"))
 }
 
-const ALL: [&str; 8] = [
-    "ReadAreas_NotSet",
+/// What the default mode and the flag both answer: every test that opens no page, or reads only controls whose area list
+/// has `All` (on the page for every area text, pages/application-area/W2AppAreas.al:42 AllCtl, 'found' at :194, :246),
+/// or sets the areas before the page copies them.
+const KEPT: [&str; 11] = [
     "OpenTestPage_NotSet",
     "SetsAreas",
-    "ReadAreas_SetInEarlierTest",
     "ReadAreas_AfterSet",
     "ReadAreas_AfterSetEmpty",
     "OpenTestPage_AfterSet",
     "NoRead",
+    "Mixed_ControlsWithAll_NotSet",
+    "Mixed_ControlInOtherArea_AfterSet",
+    "PartWithAll_NotSet",
+    "RunModalHandled_ControlWithAll_NotSet",
+    "TrapRun_ControlWithAll_NotSet",
 ];
 
-/// Off, the runner models the Test Runner app: every test starts with the empty text and passes, a test after one that
-/// set the areas included (BaTpEnv.al:53-55; session-system/TestSessionApplicationAreaTestBoundary.al:56-59).
+/// Under the flag, refused: `ApplicationArea()` before the test set the areas (also in a test codeunit's OnRun), and a
+/// page reader whose answer the unknown areas decide (a control or part whose area list has no `All`, a group that states
+/// an area without `All`), also on a page whose OnInit sets the areas after the page copied them.
+const REFUSED: [&str; 10] = [
+    "ReadAreas_NotSet",
+    "ReadAreas_SetInEarlierTest",
+    "Mixed_ControlInOtherArea_NotSet",
+    "Mixed_ControlWithoutArea_NotSet",
+    "OnInitSets_ControlRead",
+    "GroupInOtherArea_NotSet",
+    "PartInOtherArea_NotSet",
+    "RunModalHandled_ControlInOtherArea_NotSet",
+    "TrapRun_ControlInOtherArea_NotSet",
+    "AfterOnRunRead",
+];
+
+/// Off, the runner models the Test Runner app: every test starts with the empty text, a test after one that set the
+/// areas included (BaTpEnv.al:53-55; session-system/TestSessionApplicationAreaTestBoundary.al:53-59), so every page shows
+/// every control and every test passes but the page run that no handler takes.
 #[test]
 fn off_every_test_starts_with_no_areas() {
     let rt = run(false);
-    for test in ALL {
-        assert_eq!(result(&rt, test).outcome, Outcome::Pass, "{test}");
+    for r in rt.results().iter().filter(|r| r.test != "RunUnhandled_NotSet") {
+        assert_eq!(r.outcome, Outcome::Pass, "{}", r.test);
     }
+    assert_eq!(rt.results().len(), 22);
+    assert_eq!(
+        result(&rt, "RunUnhandled_NotSet").outcome,
+        Outcome::Fail("Unhandled UI: Page 50974".into())
+    );
 }
 
-/// On, a read of the areas (`ApplicationArea()`, a page open) in a test that has not set them is refused, also when an
-/// earlier test set them.
+/// On, a page run that no handler takes shows no control: it keeps the dev-endpoint answer it has on main.
 #[test]
-fn on_a_read_before_the_test_sets_the_areas_is_refused() {
+fn on_an_unhandled_page_run_keeps_the_dev_endpoint_answer() {
+    assert_eq!(result(&run(true), "RunUnhandled_NotSet").outcome, Outcome::Pass);
+}
+
+#[test]
+fn on_a_read_the_unknown_areas_decide_is_refused() {
     let rt = run(true);
-    for test in ["ReadAreas_NotSet", "OpenTestPage_NotSet", "ReadAreas_SetInEarlierTest"] {
+    for test in REFUSED.into_iter().filter(|t| *t != "AfterOnRunRead") {
         let r = result(&rt, test);
         assert!(
             matches!(&r.outcome, Outcome::NotRun(m) if m.contains("--dev-endpoint-ui")),
@@ -151,19 +442,14 @@ fn on_a_read_before_the_test_sets_the_areas_is_refused() {
             r.outcome
         );
     }
+    // The read in OnRun refuses the test codeunit's run.
+    assert!(matches!(&result(&rt, "AfterOnRunRead").outcome, Outcome::NotRun(_)));
 }
 
-/// On, a test that sets the areas before it reads them, or reads none, keeps the result it has with the flag off.
 #[test]
-fn on_a_test_that_sets_the_areas_first_keeps_its_result() {
+fn on_a_read_the_unknown_areas_cannot_change_keeps_the_result_off() {
     let (off, on) = (run(false), run(true));
-    for test in [
-        "SetsAreas",
-        "ReadAreas_AfterSet",
-        "ReadAreas_AfterSetEmpty",
-        "OpenTestPage_AfterSet",
-        "NoRead",
-    ] {
+    for test in KEPT {
         assert_eq!(result(&on, test).outcome, result(&off, test).outcome, "{test}");
     }
 }

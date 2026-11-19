@@ -1526,7 +1526,7 @@ impl Session {
         }
         if bare_ext
             || self.control_eliminated(st, idx)
-            || self.off_page(st, idx)
+            || self.off_page(st, idx)?
             || self.action_without_behaviour(st, idx)
             || self.no_source_dialog_action_absent(st, idx)
         {

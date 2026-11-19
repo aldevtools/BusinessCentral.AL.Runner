@@ -1153,11 +1153,8 @@ pub struct Session {
     pub(crate) part_sync_keeps_same_link: Option<bool>,
     /// The host session behind `DotNet` values; ends with the session (ADR-014 section 6).
     pub(crate) dotnet: dotnet::DotNetState,
-    /// The session's application areas: `#Basic,#Suite`, or the empty text, which enables every area. Read and
-    /// written through `session_areas.rs`.
-    pub application_areas: String,
-    /// `ApplicationArea(Text)` ran since the runner's reset before the test method (`session_areas.rs`).
-    pub(crate) application_areas_set_in_test: bool,
+    /// The session's application areas, read and written only through `session_areas.rs`.
+    pub(crate) application_areas: session_areas::SessionAreas,
     /// The clock and the identity (ADR-006).
     pub(crate) host: al_host::Host,
     /// The companies the run declared, the session company first (ADR-046 decision 2, `--companies`); empty for the
@@ -1501,8 +1498,7 @@ impl Session {
             host_move_running: None,
             part_sync_keeps_same_link: None,
             dotnet: Default::default(),
-            application_areas: String::new(),
-            application_areas_set_in_test: false,
+            application_areas: session_areas::SessionAreas::default(),
             tx: TxState {
                 committed_row_version: restored_row_version,
                 ..TxState::fresh()
@@ -1932,7 +1928,7 @@ impl Session {
     /// (`GlobalLanguage`) and WorkDate (`restore_carried` puts it back).
     pub fn carried_state(&self) -> CarriedState {
         CarriedState {
-            language: self.global_language.get(),
+            language: self.global_language(),
             work_date: self.work_date,
         }
     }
@@ -2770,7 +2766,7 @@ impl Session {
     /// German text for Code are not pinned and are refused.
     pub(crate) fn variant_to_text_error(&self, code: bool) -> Signal {
         let kind = if code { "NavCode" } else { "NavText" };
-        match (self.global_language.get(), code) {
+        match (self.global_language(), code) {
             (1033, _) => crate::transactions::al_error_code(
                 &format!(
                     "The expression Microsoft.Dynamics.Nav.Runtime.NavIndirectValue cannot be type-converted to a Microsoft.Dynamics.Nav.Runtime.{kind} value."

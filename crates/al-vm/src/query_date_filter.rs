@@ -70,7 +70,7 @@ impl crate::Session {
         al_builtins::filter::DateFilterContext {
             today: self.today_day_number(),
             work_date: self.work_date_day().unwrap_or_else(|| self.today_day_number()),
-            language: self.global_language.get(),
+            language: self.global_language(),
             fiscal_year: None,
         }
     }
@@ -126,11 +126,7 @@ impl crate::Session {
             al_builtins::filter::parse_filter_with(text, &[], &RtType::Date, enums)
         }) {
             Ok(e) if pinned_text_date_shape(text) => Ok(e),
-            Err(e)
-                if letters
-                    && e.starts_with(al_builtins::filter::INVALID_DATE)
-                    && self.global_language.get() == 1033 =>
-            {
+            Err(e) if letters && e.starts_with(al_builtins::filter::INVALID_DATE) && self.global_language() == 1033 => {
                 let bad = &e[al_builtins::filter::INVALID_DATE.len()..];
                 Err(Signal::Error(Box::new(AlError {
                     message: format!("The format of the Date '{bad}'{NO_MATCH}"),

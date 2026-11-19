@@ -114,7 +114,7 @@ impl Session {
         group == 0
             && !temporary
             && !filtered
-            && self.global_language.get() == 1033
+            && self.global_language() == 1033
             && object.id.is_some_and(|id| id < 2_000_000_000)
             && matches!(
                 self.engine.object_facts[t.object as usize].table_type,

@@ -406,18 +406,27 @@ impl Session {
         // A part whose Visible expression came out false is in the test page too, answering Visible() No and First() Yes
         // (testpage/PnGPartTriggers.al:HiddenPartExpression); only a literal `Visible = false` leaves it out
         // (testpart/TestPartNotOnThePage, which never creates the part).
-        let found = found.or_else(|| {
+        let found = match found {
+            Some(c) => Some(c),
             // Test code finds it only when the Visible expression hid it; a part a literal `Visible = false` left out, which page
             // code created on first reach, stays "not found" (misc/lt-probes-needed-9/P99InvisiblePart.al:P99_StaticInvisible).
-            st.borrow()
-                .hidden_parts
-                .iter()
-                .find(|(i, _)| *i == control)
-                .map(|(_, c)| c.clone())
-                // A part the session's application areas removed is not on the test page either (types/operators-expressions/
-                // P142HiddenPartArea.al:P142_ServiceAreaPartRemoved: `The part with ID = n was not found on the page.`).
-                .filter(|_| runtime || !(self.part_eliminated(st, control) || self.off_page(st, control)))
-        });
+            None => {
+                let hidden = st
+                    .borrow()
+                    .hidden_parts
+                    .iter()
+                    .find(|(i, _)| *i == control)
+                    .map(|(_, c)| c.clone());
+                match hidden {
+                    // A part the session's application areas removed is not on the test page either (types/operators-expressions/
+                    // P142HiddenPartArea.al:P142_ServiceAreaPartRemoved: `The part with ID = n was not found on the page.`).
+                    Some(c) if runtime || !(self.part_eliminated(st, control) || self.off_page(st, control)?) => {
+                        Some(c)
+                    }
+                    _ => None,
+                }
+            }
+        };
         // A part the control tree dropped (Visible = false, or an ApplicationArea the session does not enable) is
         // still there for the page's own code: Base Application's Sales Credit Memo calls
         // `CurrPage.IncomingDocAttachFactBox.Page.LoadDataFromRecord(Rec)` in OnAfterGetCurrRecord. It is created on the first such reach, not opened, and kept out of the tree (corpus pages/parts/HiddenPartCurrPageEditable.al: Editable_LiteralInvisible_OpenEdit, Editable_ExprInvisible_OpenEdit).

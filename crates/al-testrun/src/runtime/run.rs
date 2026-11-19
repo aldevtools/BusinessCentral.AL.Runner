@@ -831,7 +831,7 @@ fn run_codeunit_inner(
                             runner_refused = Some(why.clone());
                         }
                         // The AL test runner enables every application area before each test method
-                        // (corpus session-system/TestSessionApplicationAreaTestBoundary.al:67552).
+                        // (corpus session-system/TestSessionApplicationAreaTestBoundary.al:115-119, :131-134).
                         session.start_test_method();
                         let model = models.get(&r).copied().unwrap_or_default();
                         // TransactionModel::None is handled before the method body: every active

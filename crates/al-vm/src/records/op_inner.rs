@@ -1491,7 +1491,7 @@ impl Session {
                         .is_subscribed(crate::events::FILTER_HELPER_TRIGGERS, "makedatefilter")
                 {
                     // Outside the pinned shape (an English session, no placeholders) the event is not raised, as before.
-                    if self.global_language.get() == 1033 && args.len() <= 2 {
+                    if self.global_language() == 1033 && args.len() <= 2 {
                         if let Some(fixed) = self.repair_date_filter_text(&text, &|t| parse(t).is_ok())? {
                             parsed = parse(&fixed);
                         }
@@ -1522,7 +1522,7 @@ impl Session {
                                     text.trim()
                                 ));
                             }
-                            if self.global_language.get() == 1033 && args.len() <= 2 {
+                            if self.global_language() == 1033 && args.len() <= 2 {
                                 let failing = parsed
                                     .as_ref()
                                     .err()
@@ -1541,7 +1541,7 @@ impl Session {
                                 return unsupported(format!(
                                     "SetFilter of `{}` with {event} subscribers in session language {} or with placeholders (not pinned)",
                                     text.trim(),
-                                    self.global_language.get()
+                                    self.global_language()
                                 ));
                             }
                         }
@@ -1551,9 +1551,7 @@ impl Session {
                     Ok(e) => e,
                     // record/crud/RcAFilters.al:SetFilter_Integer_Invalid, events/platform-triggers/PtObserve.al:Bad_Int,
                     // Bad_Decimal, Bad_Time, Bad_DateTime m0.
-                    Err(e)
-                        if e.starts_with(al_builtins::filter::NOT_EVALUATED) && self.global_language.get() == 1033 =>
-                    {
+                    Err(e) if e.starts_with(al_builtins::filter::NOT_EVALUATED) && self.global_language() == 1033 => {
                         let (type_name, value) = e[al_builtins::filter::NOT_EVALUATED.len()..]
                             .split_once('\t')
                             .expect("type and value");
@@ -1564,16 +1562,14 @@ impl Session {
                     // (record/filters/W4Filters.al:694 `num_star_after`).
                     Err(e)
                         if e.starts_with(al_builtins::filter::VARIABLE_NOT_UNDERSTOOD)
-                            && self.global_language.get() == 1033 =>
+                            && self.global_language() == 1033 =>
                     {
                         let value = &e[al_builtins::filter::VARIABLE_NOT_UNDERSTOOD.len()..];
                         let reason = format!("The variable \"{value}\" was not understood.");
                         return Err(self.filter_error(&t, pos, text.trim(), &reason));
                     }
                     // The German error of a date no Date filter reads (P143Date_DePlain.al, _DeRanges.al, _DeFormulas.al).
-                    Err(e)
-                        if e.starts_with(al_builtins::filter::INVALID_DATE) && self.global_language.get() == 1033 =>
-                    {
+                    Err(e) if e.starts_with(al_builtins::filter::INVALID_DATE) && self.global_language() == 1033 => {
                         // P81DateFilters.al:SetFilter_Date_InvalidTexts.
                         let bad = &e[al_builtins::filter::INVALID_DATE.len()..];
                         let reason = format!(
@@ -1581,9 +1577,7 @@ impl Session {
                         );
                         return Err(self.filter_error(&t, pos, text.trim(), &reason));
                     }
-                    Err(e)
-                        if e.starts_with(al_builtins::filter::FILTER_SYNTAX) && self.global_language.get() == 1033 =>
-                    {
+                    Err(e) if e.starts_with(al_builtins::filter::FILTER_SYNTAX) && self.global_language() == 1033 => {
                         let inner = &e[al_builtins::filter::FILTER_SYNTAX.len()..];
                         let (shown, inner) = match inner.strip_prefix(al_builtins::filter::AS_WRITTEN) {
                             Some(i) => (text.as_str(), i),

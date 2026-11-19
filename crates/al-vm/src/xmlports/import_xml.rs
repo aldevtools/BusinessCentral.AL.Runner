@@ -1198,7 +1198,7 @@ impl Session {
                     Err(Signal::Error(_)) if matches!(ty, RtType::Date) => {
                         // In German the same text in German (xmlports/shapes-properties/Y83XpMiscTests.al:DateDecimal_XML_German,
                         // needs the corpus bump; the text as Evaluate gives it, format-evaluate/EvalLastError.al:463-481).
-                        let message = if self.global_language.get() == 1031 {
+                        let message = if self.global_language() == 1031 {
                             format!(
                                 "Das Format Date \u{201e}{text}\u{201c} stimmt nicht mit den Datumseinstellungen Ihres Ger\u{e4}ts \u{fc}berein.\\\\Stellen Sie sicher, dass Tag, Monat und Jahr die richtige Reihenfolge aufweisen und das richtige Trennzeichen verwendet wird (z. b. - oder /). Alternativ k\u{f6}nnen Sie das Format \u{201e}jjjj-mm-tt\u{201c} verwenden."
                             )

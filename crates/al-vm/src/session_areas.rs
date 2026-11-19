@@ -1,39 +1,54 @@
-//! The session's application areas: the one place AL code reads and writes them (`ApplicationArea()`,
-//! `ApplicationArea(Text)`, a page open), and the runner's reset before each test method.
+//! The session's application areas: their one owner (`ApplicationArea()`, `ApplicationArea(Text)`, the copy a page
+//! takes when it opens, the runner's reset before each test method), and whether their value is known.
 //!
 //! Microsoft's Test Runner app empties the areas before every test method (ALTestRunnerResetEnvironment.Codeunit.al:27);
 //! a test reads the empty text at its start (corpus permissions/testpermissions/BaTpEnv.al:53) and not the areas an
 //! earlier test set (session-system/TestSessionApplicationAreaTestBoundary.al:53-59). Under `--dev-endpoint-ui` the
 //! runner models BC's dev-endpoint test runner, which skips that reset; what the areas hold there is not measured
-//! (al-runner issue 8333), so a read in a test that has not set them is refused.
+//! (al-runner issue 8333), so they are known only after the test method set them. `ApplicationArea()` refuses an
+//! unknown value here; a page keeps whether its copy was known, and its readers refuse only where the value decides
+//! the answer (`pages/areas.rs`).
 
 use crate::Session;
 use al_builtins::describe::Describe;
 use al_builtins::native::{Signal, unsupported};
 use al_builtins::value::Value;
 
+/// The refusal of a read whose answer depends on areas that are not known.
+pub(crate) const AREAS_UNKNOWN: &str = "a read of the application areas under --dev-endpoint-ui before the test set them \
+     (ApplicationArea(), or a page control whose area list has no All): the dev-endpoint test runner does not empty them \
+     before a test, and what they hold there is not measured (al-runner issue 8333)";
+
+/// The session's areas: `#Basic,#Suite`, or the empty text, which enables every area.
+#[derive(Debug, Default)]
+pub(crate) struct SessionAreas {
+    text: String,
+    /// `ApplicationArea(Text)` ran since the runner's reset before the test method.
+    set_in_test: bool,
+}
+
+impl SessionAreas {
+    /// No areas set (the state the install code must leave, `install_left.rs`).
+    pub(crate) fn is_empty(&self) -> bool {
+        self.text.is_empty()
+    }
+}
+
 impl Session {
     /// The runner's reset before a test method: no areas, and none set by the test yet.
     pub(crate) fn reset_application_areas(&mut self) {
-        self.application_areas.clear();
-        self.application_areas_set_in_test = false;
+        self.application_areas = SessionAreas::default();
     }
 
-    /// Refuses a read of the areas by AL code (`ApplicationArea()`, a page whose controls can be read) that is not
-    /// measured: under `--dev-endpoint-ui`, outside a test method or before the test method set them. A page open
-    /// checks after its handler lookup: a part is covered by its host, and an open that found no handler (Unhandled
-    /// UI, an unattended open) shows no control.
-    pub(crate) fn check_application_areas_read(&self) -> Result<(), Signal> {
-        let measured =
-            !self.ui_state.dev_endpoint.on || (self.ui_state.scope.is_some() && self.application_areas_set_in_test);
-        if !measured {
-            return unsupported(
-                "a read of the application areas (ApplicationArea(), a page open) under --dev-endpoint-ui before the test \
-                 set them: the dev-endpoint test runner does not empty them before a test, and what they hold there is \
-                 not measured (al-runner issue 8333)",
-            );
-        }
-        Ok(())
+    /// Whether the areas AL code would read now are measured: always without `--dev-endpoint-ui`; under it, only in a
+    /// test method that set them.
+    fn application_areas_known(&self) -> bool {
+        !self.ui_state.dev_endpoint.on || (self.ui_state.scope.is_some() && self.application_areas.set_in_test)
+    }
+
+    /// The areas a page copies when it opens, and whether they are known (see [`Self::application_areas_known`]).
+    pub(crate) fn page_application_areas(&self) -> (String, bool) {
+        (self.application_areas.text.clone(), self.application_areas_known())
     }
 
     /// `ApplicationArea()` reads the session's areas, `ApplicationArea(Text)` sets them
@@ -41,8 +56,10 @@ impl Session {
     pub(crate) fn application_area(&mut self, set: Option<Value>) -> Result<Value, Signal> {
         match set {
             None => {
-                self.check_application_areas_read()?;
-                Ok(Value::Text(self.application_areas.clone().into()))
+                if !self.application_areas_known() {
+                    return unsupported(AREAS_UNKNOWN);
+                }
+                Ok(Value::Text(self.application_areas.text.clone().into()))
             }
             Some(Value::Text(t) | Value::Code(t)) => {
                 // Tags are `#` and letters or digits, separated by commas (metadata/platform-tables/PlTSession.al:
@@ -62,8 +79,10 @@ impl Session {
                         ..Default::default()
                     })));
                 }
-                self.application_areas = t.to_string();
-                self.application_areas_set_in_test = true;
+                self.application_areas = SessionAreas {
+                    text: t.to_string(),
+                    set_in_test: true,
+                };
                 Ok(Value::Null)
             }
             Some(other) => Err(Signal::unsupported(format!("ApplicationArea({})", other.describe()))),
