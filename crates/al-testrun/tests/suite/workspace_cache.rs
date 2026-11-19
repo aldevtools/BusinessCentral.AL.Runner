@@ -118,6 +118,7 @@ fn layer(write_now: bool) -> Option<WorkspaceCacheOptions> {
         compile_options: "execute=false tdd=false".into(),
         app_json: Vec::new(),
         write_now,
+        verbose: false,
     })
 }
 

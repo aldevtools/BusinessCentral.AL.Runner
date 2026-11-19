@@ -39,6 +39,7 @@ struct Plan {
     cc: CompileCache,
     key: WorkspaceKey,
     write_now: bool,
+    verbose: bool,
 }
 
 /// A compile read from the entry.
@@ -136,6 +137,7 @@ impl Layer {
                 cc: cache,
                 key,
                 write_now: options.write_now,
+                verbose: options.verbose,
             }),
             report: Some(WorkspaceReport {
                 state: WorkspaceState::Miss,
@@ -152,11 +154,13 @@ impl Layer {
         }
     }
 
-    /// An entry that cannot be used: removed, and said on stderr (decision 10). The run compiles fresh.
+    /// An entry that cannot be used: removed, and with `--verbose` said on stderr (decision 10). The run compiles fresh.
     fn refuse(&mut self, path: &std::path::Path, why: String) {
         cc::remove_entry(path);
         let why = format!("{} ignored and removed: {why}", path.display());
-        eprintln!("workspace cache: {why}");
+        if self.plan.as_ref().is_some_and(|p| p.verbose) {
+            eprintln!("workspace cache: {why}");
+        }
         self.note(why);
     }
 
@@ -315,7 +319,7 @@ impl Layer {
     /// Stores the fresh compile `c` (decision 6) when it is one the layer covers (a complete compile of the workspace on
     /// the dependency layers, of a workspace without dependency apps, or of selected tests free of data, which used no
     /// layer), and sets its report. The parts are taken now;
-    /// the entry is encoded and written on a thread of its own unless the options ask to write it now.
+    /// the entry is encoded and written after the run (`workspace_cache::defer_write`) unless the options ask to write it now.
     pub(super) fn finish(mut self, c: &mut Compiled, pre_apply: Option<(Vec<al_ir::AppInfo>, Vec<al_ir::SourceFile>)>) {
         if let (Some(plan), Some((apps, sources))) = (self.plan.take(), pre_apply) {
             let storable = match (plan.key.below != [0; 32], c.cache_report.is_some(), c.incr.is_some()) {
@@ -337,7 +341,7 @@ impl Layer {
                             r.bytes = bytes;
                         }
                     } else {
-                        wc::spawn_write(move || {
+                        wc::defer_write(move || {
                             job();
                         });
                     }
@@ -370,7 +374,6 @@ impl Layer {
             decided: Decided {
                 baseline: c.baseline,
                 baseline_note: c.baseline_note.clone(),
-                compiles: c.compiles,
                 compile_cache_skipped: c.compile_cache_skipped,
             },
         };

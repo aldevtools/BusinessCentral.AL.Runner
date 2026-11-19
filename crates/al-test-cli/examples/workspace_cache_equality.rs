@@ -70,6 +70,7 @@ fn main() {
                 compile_options: String::new(),
                 app_json: Vec::new(),
                 write_now: true,
+                verbose: false,
             }),
             lazy: lazy.clone(),
             ..Default::default()

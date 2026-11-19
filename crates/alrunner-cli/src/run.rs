@@ -280,9 +280,14 @@ fn print_compile_cache(p: &al_testrun::runtime::Phases) {
     // The workspace layer (ADR-022 amendment 2026-11-15): `workspaceCache` of serve's timings.
     if let Some(w) = &p.workspace_cache {
         eprintln!(
-            "compile cache: workspace layer {}, {:.1} MB, open {}, store {}{}{}",
+            "compile cache: workspace layer {}, {}, open {}, store {}{}{}",
             w.state.as_str(),
-            w.bytes as f64 / 1e6,
+            // An entry written after the run (decision 6) has no size yet.
+            if w.bytes == 0 && w.state == al_testrun::workspace_cache::WorkspaceState::Built {
+                "written after the run".to_string()
+            } else {
+                format!("{:.1} MB", w.bytes as f64 / 1e6)
+            },
             secs(w.open),
             secs(w.store),
             w.file.as_ref().map_or(String::new(), |f| format!("; {}", f.display())),
@@ -2733,6 +2738,7 @@ fn workspace_cache_options(
         compile_options: crate::run_inputs::RunInputs::of(a).compile_text(),
         app_json: inputs.iter().map(app_json_text).collect(),
         write_now: false,
+        verbose: a.verbose,
     })
 }
 

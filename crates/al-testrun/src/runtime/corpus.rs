@@ -675,7 +675,8 @@ impl CorpusRuntime {
             &catalog,
         );
         if let Some((d, index)) = hit.as_ref().map(|h| (h.decided.clone(), h.source_index)) {
-            (baseline, baseline_note, compiles) = (d.baseline, d.baseline_note, d.compiles);
+            // A read compiles nothing (and so never says the compile was made twice).
+            (baseline, baseline_note, compiles) = (d.baseline, d.baseline_note, 0);
             (compile_cache_skipped, source_index) = (d.compile_cache_skipped, index);
         }
         if hit.is_none()

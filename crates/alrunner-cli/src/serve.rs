@@ -209,6 +209,9 @@ pub fn serve(daemon: &[String]) -> Result<(), String> {
             "" => error("a request needs a `command`"),
             other => error(format!("unknown command `{other}`")),
         }
+        // The workspace layer entries of the request's compile are written now, after its response (ADR-022 amendment
+        // 2026-11-15, decision 6).
+        al_testrun::workspace_cache::start_writes();
         n += 1;
         eprintln!("[server] request {n} done");
     }

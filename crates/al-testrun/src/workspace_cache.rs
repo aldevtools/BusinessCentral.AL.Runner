@@ -25,9 +25,11 @@ pub struct WorkspaceCacheOptions {
     /// Per app as the caller numbers them: what its app.json says that the manifest does not (`platform`, `application`,
     /// its `preprocessorSymbols`), as text. Missing: empty.
     pub app_json: Vec<String>,
-    /// Write the entry before the compile returns instead of on a background thread (tests, and the measurement of the
-    /// encode time).
+    /// Write the entry before the compile returns instead of after the run (tests, and the measurement of the encode
+    /// time).
     pub write_now: bool,
+    /// Say on stderr why an entry was refused and removed (`--verbose`; decision 10).
+    pub verbose: bool,
 }
 
 /// What the workspace layer did for a compile.
@@ -440,7 +442,6 @@ pub fn warm_key(
 pub struct Decided {
     pub baseline: bool,
     pub baseline_note: Option<String>,
-    pub compiles: usize,
     /// The compile of the weighing is the compile: the selected tests are free of data, compiled without the dependency
     /// layers (`Compiled::compile_cache_skipped`).
     pub compile_cache_skipped: bool,
@@ -458,24 +459,49 @@ pub struct WorkspaceExtra {
     pub decided: Decided,
 }
 
-/// The writes of entries that run on a thread of their own (decision 6), for [`wait_for_writes`].
-static PENDING: std::sync::Mutex<Vec<std::thread::JoinHandle<()>>> = std::sync::Mutex::new(Vec::new());
+/// A write of an entry that waits for the end of the run (decision 6).
+type Job = Box<dyn FnOnce() + Send>;
 
-/// Runs `write` on a thread of its own, off the critical path.
-pub(crate) fn spawn_write(write: impl FnOnce() + Send + 'static) {
+/// The writes this process deferred, in the order the compiles made them.
+static DEFERRED: std::sync::Mutex<Vec<Job>> = std::sync::Mutex::new(Vec::new());
+/// The writer threads [`start_writes`] started and nothing joined yet.
+static WRITERS: std::sync::Mutex<Vec<std::thread::JoinHandle<()>>> = std::sync::Mutex::new(Vec::new());
+
+/// Defers `write` to the end of the run (decision 6): the encode and the write wait until the results are printed
+/// (`al-runner test`, [`wait_for_writes`]) or the response is sent (serve, [`start_writes`]), so they do not share the
+/// cores with the tests.
+pub(crate) fn defer_write(write: impl FnOnce() + Send + 'static) {
+    DEFERRED.lock().unwrap_or_else(|e| e.into_inner()).push(Box::new(write));
+}
+
+/// Starts the deferred writes on a thread of their own, in order (serve, after the response of a request is sent), and
+/// joins the writer threads that finished (review LOW 6: the list does not grow with the requests).
+pub fn start_writes() {
+    let jobs: Vec<Job> = std::mem::take(&mut *DEFERRED.lock().unwrap_or_else(|e| e.into_inner()));
+    let mut writers = WRITERS.lock().unwrap_or_else(|e| e.into_inner());
+    let (done, running): (Vec<_>, Vec<_>) = std::mem::take(&mut *writers).into_iter().partition(|h| h.is_finished());
+    for h in done {
+        let _ = h.join();
+    }
+    *writers = running;
+    if jobs.is_empty() {
+        return;
+    }
     let handle = std::thread::Builder::new()
         .name("workspace-cache-write".into())
-        .spawn(write);
+        .spawn(move || jobs.into_iter().for_each(|job| job()));
     if let Ok(h) = handle {
-        PENDING.lock().unwrap_or_else(|e| e.into_inner()).push(h);
+        writers.push(h);
     }
 }
 
-/// Waits for the writes of entries this process started (`al-runner test` before it exits, after the results are
-/// printed; serve when it shuts down). A write that did not finish leaves no file (temporary file, rename).
+/// Runs the deferred writes and waits for every write of this process (`al-runner test` before it exits, after the
+/// results are printed; serve when it shuts down). A write that did not finish leaves no file (temporary file, rename).
 pub fn wait_for_writes() {
-    let pending: Vec<_> = std::mem::take(&mut *PENDING.lock().unwrap_or_else(|e| e.into_inner()));
-    for h in pending {
+    let jobs: Vec<Job> = std::mem::take(&mut *DEFERRED.lock().unwrap_or_else(|e| e.into_inner()));
+    jobs.into_iter().for_each(|job| job());
+    let writers: Vec<_> = std::mem::take(&mut *WRITERS.lock().unwrap_or_else(|e| e.into_inner()));
+    for h in writers {
         let _ = h.join();
     }
 }
@@ -502,7 +528,8 @@ pub fn canonical_dump(c: &Compiled) -> String {
         // A measurement.
         compile_time: _,
         lean,
-        compiles,
+        // How many compiles the run took: a measurement of work (a read compiles nothing), like the timings.
+        compiles: _,
         incr,
         // The engines a warm server keeps after a run: none after a compile.
         kept: _,
@@ -515,7 +542,7 @@ pub fn canonical_dump(c: &Compiled) -> String {
         out,
         "compiled baseline_wanted {baseline_wanted} baseline {baseline} note {baseline_note:?} order {order:?} \
          suites {suites:?} only {opts_only:?} skipped {compile_cache_skipped} source_index {source_index:?} lean {lean:?} \
-         compiles {compiles} grow_kept {} uncovered {uncovered:?}",
+         grow_kept {} uncovered {uncovered:?}",
         grow_kept.is_some()
     );
     let _ = writeln!(
