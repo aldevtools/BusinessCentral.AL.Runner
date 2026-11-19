@@ -432,7 +432,7 @@ impl Session {
             .as_ref()
             .expect("table");
         let flow_filter = |f: &FieldFilter| schema.fields[f.field].flow_filter;
-        let flow_field = |f: &FieldFilter| !schema.fields[f.field].stored && !schema.fields[f.field].flow_filter;
+        let flow_field = |f: &FieldFilter| schema.fields[f.field].calc.is_some();
         let pair = filters
             .iter()
             .enumerate()

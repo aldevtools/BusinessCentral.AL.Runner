@@ -2058,10 +2058,11 @@ impl Session {
     }
 
     /// `ModifyAll` of an audit field. SystemCreatedAt, SystemCreatedBy and SystemModifiedAt over one row of a table without a
-    /// Caption, with no RunTrigger argument, of a record that is not temporary: the "cannot change" error with code DB:Ok
+    /// Caption whose Modify runs no trigger, event subscriber or global trigger (table 61800, :17-27), with no RunTrigger
+    /// argument, of a record that is not temporary: the "cannot change" error with code DB:Ok
     /// (record/system-fields/AssignedAuditFields.al:594-631, ModifyAll_CreatedAt). Every other shape of the four audit fields
-    /// is refused: SystemModifiedBy, no or several rows, a RunTrigger argument, a temporary record and a table Caption are not
-    /// measured. Any other field: `Ok`.
+    /// is refused: SystemModifiedBy, no or several rows, a RunTrigger argument, a temporary record, a table Caption and a
+    /// table with a Modify trigger or subscriber are not measured. Any other field: `Ok`.
     fn modify_all_audit_field(
         &self,
         rec: &Rec,
@@ -2087,12 +2088,13 @@ impl Session {
             && rows == 1
             && args.len() == 2
             && !rec.borrow().temporary
-            && self.caption(t) == table;
+            && self.caption(t) == table
+            && self.audit_write_plain(t, crate::globaltriggers::GlobalOp::Modify, false);
         if measured {
             return Err(error(cannot_change_value_text(&field, &table), "DB:Ok"));
         }
         unsupported(format!(
-            "ModifyAll of {field} outside the measured shape (SystemCreatedAt, SystemCreatedBy or SystemModifiedAt over one row of a table without a Caption, no RunTrigger argument, not temporary)"
+            "ModifyAll of {field} outside the measured shape (SystemCreatedAt, SystemCreatedBy or SystemModifiedAt over one row of a table without a Caption, no trigger or subscriber, no RunTrigger argument, not temporary)"
         ))
     }
 

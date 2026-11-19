@@ -24,6 +24,25 @@ table 50331 B
     keys { key(PK; Id) { } }
 }
 
+table 50333 W
+{
+    fields { field(1; Id; Integer) { } }
+    keys { key(PK; Id) { } }
+    trigger OnModify() begin end;
+}
+
+table 50334 S
+{
+    fields { field(1; Id; Integer) { } }
+    keys { key(PK; Id) { } }
+}
+
+codeunit 50335 Sub
+{
+    [EventSubscriber(ObjectType::Table, Database::S, 'OnAfterModifyEvent', '', false, false)]
+    local procedure AfterModify(var Rec: Record S) begin end;
+}
+
 codeunit 50332 T
 {
     local procedure Seed(N: Integer)
@@ -112,6 +131,22 @@ codeunit 50332 T
         P.ModifyAll(SystemCreatedAt, CreateDateTime(20200102D, 120000T));
     end;
 
+    procedure TableWithOnModify()
+    var
+        P: Record W;
+    begin
+        P.Id := 1; P.Insert();
+        P.ModifyAll(SystemCreatedAt, CreateDateTime(20200102D, 120000T));
+    end;
+
+    procedure TableWithSubscriber()
+    var
+        P: Record S;
+    begin
+        P.Id := 1; P.Insert();
+        P.ModifyAll(SystemCreatedAt, CreateDateTime(20200102D, 120000T));
+    end;
+
     procedure OtherField(): Text
     var
         P: Record A;
@@ -147,6 +182,8 @@ fn modifyall_of_an_audit_field_outside_the_measured_shape_refuses() {
         "RunTrigger",
         "Temporary",
         "TableCaption",
+        "TableWithOnModify",
+        "TableWithSubscriber",
     ] {
         match run_in(SRC, "T", routine) {
             Err(Signal::Unsupported(why)) => assert!(why.contains("outside the measured shape"), "{routine}: {why}"),
