@@ -147,15 +147,15 @@ pub(crate) fn al_error_code(message: &str, code: &str) -> Signal {
     }))
 }
 
-/// The emit version BC reports in a missing-object error. Only the measured builds are known
-/// (BC 27.5 is 27024 and BC 28.1 is 28014, read off the service tier by AL Runner v2:
-/// tests/runner-extras/object-metadata-system-table/OmstTests.Codeunit.al); any other build gets
-/// `<major>000`, which keeps the shape the corpus asserts (a number).
-fn emit_version(major: u16) -> u32 {
-    match major {
-        27 => 27024,
-        28 => 28014,
-        m => u32::from(m) * 1000,
+/// The emit version BC writes in a missing-object error, for the builds the corpus recorded it on
+/// (errors/error-texts/AzErrorTexts.al:125: 27025 on 27.5, 28015 on 28.5, 29022 on 29.0). An engine without a target
+/// runs as BC 29.0, as the version gates do. `None`: the number of any other build is not recorded.
+fn emit_version(bc: Option<&al_version::BcVersion>) -> Option<u32> {
+    match bc.map(|v| (v.major, v.minor)) {
+        Some((27, 5)) => Some(27025),
+        Some((28, 5)) => Some(28015),
+        Some((29, 0)) | None => Some(29022),
+        Some(_) => None,
     }
 }
 
@@ -212,12 +212,17 @@ impl Session {
         if let Some(why) = self.missing_may_be_skipped(kind, id) {
             return Signal::unsupported(why);
         }
-        let major = self.engine.target.as_ref().map_or(29, |t| t.bc.major);
+        let bc = self.engine.target.as_ref().map(|t| &t.bc);
+        let Some(emit_version) = emit_version(bc) else {
+            let v = bc.map(|v| format!("{}.{}", v.major, v.minor)).unwrap_or_default();
+            return Signal::unsupported(format!(
+                "the emit version BC {v} writes in the error for a missing {kind} object is not recorded (only 27.5, 28.5 and 29.0 are)"
+            ));
+        };
         al_error_code(
             &format!(
                 "You tried to invoke the {kind} object with the ID {id} from the object {caller}. \
-                 An object with that ID does not exist in the current application compiled with emit version {}.",
-                emit_version(major)
+                 An object with that ID does not exist in the current application compiled with emit version {emit_version}."
             ),
             "AL:MetadataNotFound",
         )

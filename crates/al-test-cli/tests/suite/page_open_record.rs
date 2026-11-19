@@ -159,7 +159,7 @@ fn a_missing_page_run_in_a_try_function_names_the_test_codeunit() {
         "[Test]
         procedure Missing() begin
             if TryRun(62999) then Error('ran');
-            Check('You tried to invoke the Page object with the ID 62999 from the object T. An object with that ID does not exist in the current application compiled with emit version 29000.', GetLastErrorText());
+            Check('You tried to invoke the Page object with the ID 62999 from the object T. An object with that ID does not exist in the current application compiled with emit version 29022.', GetLastErrorText());
         end;
         [TryFunction] local procedure TryRun(Id: Integer) begin Page.Run(Id); end;",
     );

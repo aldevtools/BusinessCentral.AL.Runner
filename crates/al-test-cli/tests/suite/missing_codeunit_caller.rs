@@ -17,14 +17,14 @@ codeunit 69996 "MC Tests"
     var Ok: Boolean;
     begin
         asserterror Ok := Codeunit.Run(80748);
-        Check('You tried to invoke the CodeUnit object with the ID 80748 from the object Test Runner - Mgt. An object with that ID does not exist in the current application compiled with emit version 29000.', GetLastErrorText());
+        Check('You tried to invoke the CodeUnit object with the ID 80748 from the object Test Runner - Mgt. An object with that ID does not exist in the current application compiled with emit version 29022.', GetLastErrorText());
         Check('AL:MetadataNotFound', GetLastErrorCode());
     end;
     [Test] procedure ViaHelper()
     var H: Codeunit "MC Helper";
     begin
         asserterror H.RunMissing(80748);
-        Check('You tried to invoke the CodeUnit object with the ID 80748 from the object MC Tests. An object with that ID does not exist in the current application compiled with emit version 29000.', GetLastErrorText());
+        Check('You tried to invoke the CodeUnit object with the ID 80748 from the object MC Tests. An object with that ID does not exist in the current application compiled with emit version 29022.', GetLastErrorText());
     end;
 }
 "#;
