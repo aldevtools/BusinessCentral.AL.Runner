@@ -1487,9 +1487,9 @@ mod tests {
         };
         assert!(p.host_key().contains("environment=onprem"), "{}", p.host_key());
         assert!(!p.is_base());
-        let host = crate::host::host_perturbed(Some(0), &p);
+        let host = crate::host::host_perturbed(crate::host::RunClock::At(0), &p);
         assert_eq!(host.identity.environment(), al_host::Environment::OnPrem);
-        let host = crate::host::host_perturbed(Some(0), &Perturb::default());
+        let host = crate::host::host_perturbed(crate::host::RunClock::At(0), &Perturb::default());
         assert_eq!(host.identity.environment(), al_host::Environment::Saas);
     }
 

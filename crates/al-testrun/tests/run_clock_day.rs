@@ -3,14 +3,14 @@
 //! kept past midnight must answer `Today` with the new day, as a daemon started after midnight does.
 //!
 //! The kept process stands in for a daemon whose earlier request began yesterday ([`as_if_a_run_began_yesterday`]).
-//! Every AL run happens in a child process (this test starts itself with `RUN_CLOCK_DAY_MODE` set), so the parent's
-//! own state cannot decide what a child sees.
+//! The process tests run their AL runs in child processes (this test starts itself with `RUN_CLOCK_DAY_MODE` set), so
+//! the parent's own state cannot decide what a child sees. The warm test runs the requests of a server (`Warm::run`).
 
 use al_sema::workspace::AppSource;
 use al_testrun::Outcome;
 use al_testrun::compile_cache::CompileCache;
-use al_testrun::host::{SystemClock, run_clock_start};
-use al_testrun::runtime::{CorpusRuntime, Manifest, RunOptions, SuiteRun};
+use al_testrun::host::{RunClock, SystemClock, run_clock_start};
+use al_testrun::runtime::{CorpusRuntime, FileChange, Manifest, RunOptions, SuiteRun, Warm};
 use std::path::Path;
 
 const DAY: i64 = 86_400_000;
@@ -80,22 +80,27 @@ fn manifest(publisher: &str) -> Manifest {
     }
 }
 
-/// The message of `ShowClock`: the program alone, or over the stamping dependency with the install baseline kept in
-/// `cache`.
-fn show_clock(cache: Option<&Path>, opts: RunOptions) -> String {
-    let (apps, kinds, manifests) = match cache {
-        None => (
+type Program = (Vec<AppSource>, Vec<al_sema::AppKind>, Vec<Manifest>);
+
+/// The program alone, or (`stamping`) over the stamping dependency.
+fn program(stamping: bool) -> Program {
+    match stamping {
+        false => (
             vec![app("main", &[], SHOW_CLOCK)],
             vec![al_sema::AppKind::Workspace],
             vec![manifest("Probe")],
         ),
-        Some(_) => (
+        true => (
             vec![app("main", &["base"], SHOW_STAMP), app("base", &[], STAMPING_DEP)],
             vec![al_sema::AppKind::Workspace, al_sema::AppKind::Dependency],
             vec![manifest("Me"), manifest("Microsoft")],
         ),
-    };
-    let opts = RunOptions {
+    }
+}
+
+/// `opts` with the install baseline kept in `cache`.
+fn cached(cache: Option<&Path>, opts: RunOptions) -> RunOptions {
+    RunOptions {
         compile_cache: cache.map(|dir| CompileCache {
             dir: dir.to_path_buf(),
             require: false,
@@ -103,18 +108,11 @@ fn show_clock(cache: Option<&Path>, opts: RunOptions) -> String {
             country: String::new(),
         }),
         ..opts
-    };
-    let rt = CorpusRuntime::try_run_suites_with(
-        apps,
-        kinds,
-        &manifests,
-        &Default::default(),
-        None,
-        Default::default(),
-        &[SuiteRun::everything()],
-        &opts,
-    )
-    .expect("the run starts");
+    }
+}
+
+/// The message of `ShowClock` in `rt`.
+fn message(rt: &CorpusRuntime) -> String {
     let outcome = rt
         .results()
         .iter()
@@ -127,15 +125,47 @@ fn show_clock(cache: Option<&Path>, opts: RunOptions) -> String {
     }
 }
 
+/// The message of `ShowClock`: the program alone, or over the stamping dependency with the install baseline kept in
+/// `cache`.
+fn show_clock(cache: Option<&Path>, opts: RunOptions) -> String {
+    let (apps, kinds, manifests) = program(cache.is_some());
+    let opts = cached(cache, opts);
+    let rt = CorpusRuntime::try_run_suites_with(
+        apps,
+        kinds,
+        &manifests,
+        &Default::default(),
+        None,
+        Default::default(),
+        &[SuiteRun::everything()],
+        &opts,
+    )
+    .expect("the run starts");
+    message(&rt)
+}
+
+/// The clock of a run that began yesterday at this time.
+fn yesterday() -> RunClock {
+    RunClock::At(run_clock_start(SystemClock::wall()) - DAY)
+}
+
 /// This process ran a run that began yesterday, as a daemon whose earlier request began before midnight did.
 fn as_if_a_run_began_yesterday(cache: Option<&Path>) {
-    let _ = cache;
-    assert!(SystemClock::begin_at(run_clock_start(SystemClock::wall()) - DAY));
+    let opts = RunOptions {
+        run_clock: Some(yesterday()),
+        ..Default::default()
+    };
+    let _ = show_clock(cache, opts);
 }
 
 /// The wall clock's UTC day as AL formats a date (`Format(Today, 0, 9)`).
 fn today_text() -> String {
-    let days = SystemClock::wall().div_euclid(DAY);
+    date_text(SystemClock::wall())
+}
+
+/// The UTC day of `ms` (Unix milliseconds) as AL formats a date.
+fn date_text(ms: i64) -> String {
+    let days = ms.div_euclid(DAY);
     // Civil date from days since 1970-01-01 (Howard Hinnant's algorithm).
     let z = days + 719_468;
     let era = z.div_euclid(146_097);
@@ -246,4 +276,60 @@ fn a_baseline_file_a_kept_process_wrote_today_holds_todays_instant() {
         "{}",
         reader[0]
     );
+}
+
+/// One request of a server over the stamping program: `ShowClock`'s message and where the install baseline came from.
+fn request(warm: &mut Warm, cache: &Path, run_clock: Option<RunClock>) -> (String, String) {
+    let changes = [FileChange {
+        app: 0,
+        path: "main.al",
+        text: SHOW_STAMP,
+    }];
+    let opts = cached(
+        Some(cache),
+        RunOptions {
+            run_clock,
+            ..Default::default()
+        },
+    );
+    let (rt, _) = warm
+        .run(
+            "k",
+            &changes,
+            || program(true),
+            &Default::default(),
+            None,
+            Default::default(),
+            &[SuiteRun::everything()],
+            &opts,
+        )
+        .expect("the request runs");
+    (message(&rt), format!("{:?}", rt.phases.baseline_source))
+}
+
+#[test]
+fn a_servers_request_reads_the_day_it_began_and_not_an_earlier_requests() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut warm = Warm::new();
+    let Some((before, after, again, day)) = on_one_day(|day| {
+        // A request that began yesterday keeps its day, though the wall clock is past midnight now.
+        let before = request(&mut warm, dir.path(), Some(yesterday()));
+        let after = request(&mut warm, dir.path(), None);
+        let again = request(&mut warm, dir.path(), None);
+        (before, after, again, day.to_string())
+    }) else {
+        return;
+    };
+    let yday = date_text(SystemClock::wall() - DAY);
+    assert_eq!(
+        before.0,
+        format!("Today={yday} Stamp={yday}T12:34:56.789Z"),
+        "{before:?}"
+    );
+    assert_eq!(before.1, "Some(\"ran\")");
+    // The next request, today, takes neither yesterday's clock nor yesterday's baseline (the day is in its key).
+    assert_eq!(after.0, format!("Today={day} Stamp={day}T12:34:56.789Z"), "{after:?}");
+    assert_eq!(after.1, "Some(\"ran\")");
+    // And the request after it takes today's baseline, kept by the server.
+    assert_eq!(again, (after.0.clone(), "Some(\"kept\")".to_string()));
 }

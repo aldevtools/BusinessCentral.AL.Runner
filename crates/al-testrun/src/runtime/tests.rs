@@ -2601,7 +2601,7 @@ fn a_codeunit_run_with_a_clock_start_sees_that_day_as_today() {
     let oi = l.program.objects.iter().position(|o| o.id == Some(60160)).unwrap();
     let mut scratch = Scratch {
         // 2026-10-15T22:00:23Z
-        clock_start: Some(1_792_101_623_000),
+        clock: crate::host::RunClock::At(1_792_101_623_000),
         ..Default::default()
     };
     let done = run_codeunit_core(

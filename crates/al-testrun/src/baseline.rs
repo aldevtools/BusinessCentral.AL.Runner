@@ -180,9 +180,15 @@ pub(crate) fn step_routine(
     }
 }
 
-/// Runs the baseline on a fresh session of `engine`. `None`: no dependency app has anything to run.
-pub fn run(engine: &Arc<Engine>, lowered: &Lowered, company: Option<&CompanyData>) -> Option<BaselineRun> {
-    run_traced(engine, lowered, false, company, &Default::default())
+/// Runs the baseline on a fresh session of `engine`, on the run clock `clock`. `None`: no dependency app has anything to
+/// run.
+pub fn run(
+    engine: &Arc<Engine>,
+    lowered: &Lowered,
+    company: Option<&CompanyData>,
+    clock: crate::host::RunClock,
+) -> Option<BaselineRun> {
+    run_traced(engine, lowered, false, company, &Default::default(), clock)
 }
 
 /// [`run`], and with `trace` what the install code raised and touched (`BaselineRun::trace`, ADR-043 step 2).
@@ -196,8 +202,9 @@ pub fn run_traced(
     trace: bool,
     company: Option<&CompanyData>,
     perturb: &crate::stability::Perturb,
+    clock: crate::host::RunClock,
 ) -> Option<BaselineRun> {
-    run_traced_halting(engine, lowered, trace, company, perturb, None)
+    run_traced_halting(engine, lowered, trace, company, perturb, clock, None)
 }
 
 /// [`run_traced`] that stops its install code once `halt` is set: the run stopped at its hard memory limit (ADR-066
@@ -208,6 +215,7 @@ pub fn run_traced_halting(
     trace: bool,
     company: Option<&CompanyData>,
     perturb: &crate::stability::Perturb,
+    clock: crate::host::RunClock,
     halt: Option<Arc<std::sync::atomic::AtomicBool>>,
 ) -> Option<BaselineRun> {
     let objs = &lowered.program.objects;
@@ -325,8 +333,8 @@ pub fn run_traced_halting(
 
     crate::install::ensure_facts(engine, lowered);
     // A variant of a stability run (ADR-058 section 7): install code sees the variant's host values (clock, seeds,
-    // identity, company), as the tests do.
-    let host = crate::host::host_perturbed(None, perturb);
+    // identity, company), as the tests do. The run's clock, as the tests' sessions have it (`RunClock`).
+    let host = crate::host::host_perturbed(clock, perturb);
     // The company data codeunit reads its resource files through `File`; the rest of the install code sees them too,
     // as every session of BCApps' CI server does once the files are in the user folder.
     let host = match company.and_then(|c| c.resources.clone()) {
