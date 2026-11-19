@@ -77,7 +77,7 @@ impl Session {
         });
         let Some(bytes) = held.or(served.flatten()) else {
             return unsupported(format!(
-                "Media.ExportStream of the Layout of a Report Layout List row: the layout file {} of layout '{}' is not held by its app (a Microsoft app read from a compiled package keeps no layout files)",
+                "Media.ExportStream of the Layout of a Report Layout List row: the layout file {} of layout '{}' is not held by its app (no such file in the app's folder, or an app read from a package that keeps no layout files)",
                 found.path, found.name
             ));
         };

@@ -63,7 +63,8 @@ pub struct Manifest {
     /// `preprocessorSymbols` of the app's own app.json. A dependency app is compiled with these;
     /// the project's symbols apply to the workspace apps only (the publisher compiled the dependency).
     pub symbols: Vec<String>,
-    /// The files the app's reports name with `LayoutFile`: path relative to the app (`/` separators), content.
+    /// The files the app's reports name with `LayoutFile` and the legacy `RDLCLayout`, `WordLayout` and `ExcelLayout`
+    /// properties: path relative to the app (`/` separators), content.
     pub layout_files: Vec<(String, Vec<u8>)>,
     /// `idRanges` of the app's own app.json (`from`, `to`): the ids `--tdd` gives stub declarations (ADR-051 decision 10).
     pub id_ranges: Vec<(u32, u32)>,
@@ -105,8 +106,9 @@ fn lexical(path: &std::path::Path) -> Vec<String> {
     parts
 }
 
-/// The files the `.al` files of `dir` name with `LayoutFile = '...'`, read where they exist: the path is relative to `dir`
-/// (the written path from the app's folder), content bytes.
+/// The files the `.al` files of `dir` name with `LayoutFile = '...'` and with the legacy report properties `RDLCLayout`,
+/// `WordLayout` and `ExcelLayout` (Y17LayoutExportTests.al:105-124 Export_LegacyProperties exports their bytes), read
+/// where they exist: the path is relative to `dir` (the written path from the app's folder), content bytes.
 fn load_layout_files(dir: &std::path::Path) -> Vec<(String, Vec<u8>)> {
     let mut out: Vec<(String, Vec<u8>)> = Vec::new();
     let mut stack = vec![dir.to_path_buf()];
@@ -128,29 +130,32 @@ fn load_layout_files(dir: &std::path::Path) -> Vec<(String, Vec<u8>)> {
                 continue;
             };
             let lower = text.to_ascii_lowercase();
-            let mut from = 0;
-            while let Some(at) = lower[from..].find("layoutfile") {
-                let start = from + at + "layoutfile".len();
-                from = start;
-                let rest = text[start..].trim_start();
-                let Some(rest) = rest.strip_prefix('=') else { continue };
-                let Some(rest) = rest.trim_start().strip_prefix('\'') else {
-                    continue;
-                };
-                let Some(end) = rest.find('\'') else { continue };
-                let written = &rest[..end];
-                let target = dir.join(written);
-                let Ok(bytes) = std::fs::read(&target) else { continue };
-                let (root, full) = (lexical(dir), lexical(&target));
-                let rel = full[root.len().min(full.len())..].join("/");
-                if !out.iter().any(|(r, _)| *r == rel) {
-                    out.push((rel, bytes));
+            for property in ["layoutfile", "rdlclayout", "wordlayout", "excellayout"] {
+                let mut from = 0;
+                while let Some(at) = lower[from..].find(property) {
+                    from += at + property.len();
+                    if let Some((rel, bytes)) = layout_file_at(dir, &text[from..])
+                        && !out.iter().any(|(r, _)| *r == rel)
+                    {
+                        out.push((rel, bytes));
+                    }
                 }
             }
         }
     }
     out.sort();
     out
+}
+
+/// The file a property's value names when `rest` (the text after the property's name) is `= '<path>'` and the file exists:
+/// its path relative to `dir` (`/` separators) and its bytes.
+fn layout_file_at(dir: &std::path::Path, rest: &str) -> Option<(String, Vec<u8>)> {
+    let rest = rest.trim_start().strip_prefix('=')?.trim_start().strip_prefix('\'')?;
+    let written = &rest[..rest.find('\'')?];
+    let target = dir.join(written);
+    let bytes = std::fs::read(&target).ok()?;
+    let (root, full) = (lexical(dir), lexical(&target));
+    Some((full[root.len().min(full.len())..].join("/"), bytes))
 }
 
 impl Manifest {
