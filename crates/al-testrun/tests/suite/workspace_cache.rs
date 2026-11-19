@@ -531,3 +531,16 @@ fn a_dependency_file_that_does_not_parse_reads_as_fresh() {
         assert!(a == b, "{what}: {}", first_difference(&a, &b));
     }
 }
+
+/// Review MED 3: the apps the platform package's `InternalsVisibleTo` grants (read from every manifest, a dependency's
+/// too, which the dependency layer's key does not hold) are in the key.
+#[test]
+fn a_grant_of_internals_misses() {
+    let base = with_dependency();
+    let mut granted = base.clone();
+    granted.manifests[1].platform_internals_visible_to = vec![al_deps::package::InternalsGrant {
+        id: "main".into(),
+        publisher: "Me".into(),
+    }];
+    assert_misses(&base, &granted, "a grant");
+}

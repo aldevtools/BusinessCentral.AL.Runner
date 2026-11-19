@@ -196,6 +196,9 @@ pub struct WorkspaceKey {
     /// Not in the ADR text (prototype choice): what decides the compile's path in al-testrun besides the above (the
     /// lean selection, the weighing of the install baseline, `--require-compile-cache`, the suites, the program order).
     pub path: String,
+    /// Not in the ADR text (review MED 3): the ids of the apps the platform package grants its internals to
+    /// (`internals_grant::granted_app_ids`, sorted), read from every manifest, a dependency's too.
+    pub granted: Vec<String>,
 }
 
 fn put(h: &mut Sha256, bytes: &[u8]) {
@@ -213,7 +216,7 @@ fn hex(b: &[u8]) -> String {
 
 impl WorkspaceKey {
     /// The names of the fields, for the test that each has a miss test.
-    pub const FIELDS: [&'static str; 10] = [
+    pub const FIELDS: [&'static str; 11] = [
         "format",
         "runtime_build",
         "below",
@@ -224,6 +227,7 @@ impl WorkspaceKey {
         "roots",
         "env",
         "path",
+        "granted",
     ];
 
     /// The key's fields as named bytes; with `texts` false, the apps' source hashes are left out (`run::warm_key`, the
@@ -240,6 +244,7 @@ impl WorkspaceKey {
             roots,
             env,
             path,
+            granted,
         } = self;
         let mut a = Sha256::new();
         put(&mut a, &(apps.len() as u64).to_le_bytes());
@@ -272,6 +277,7 @@ impl WorkspaceKey {
             ("roots", roots.as_bytes().to_vec()),
             ("env", format!("{env:?}").into_bytes()),
             ("path", path.as_bytes().to_vec()),
+            ("granted", format!("{granted:?}").into_bytes()),
         ]
     }
 
@@ -428,6 +434,8 @@ pub fn warm_key(
         roots: String::new(),
         env: env_values(),
         path: String::new(),
+        // The grants come from the dependency packages, whose identities `dependencies` holds.
+        granted: Vec::new(),
     };
     hex(&key.digest_without_texts()[..8])
 }
@@ -548,6 +556,7 @@ mod tests {
             roots: "baseline true".into(),
             env: vec![("AL_NO_BASELINE".into(), None)],
             path: "lean false".into(),
+            granted: Vec::new(),
         }
     }
 
@@ -599,6 +608,7 @@ mod tests {
             ("roots", |k| k.roots = "baseline false".into()),
             ("env", |k| k.env[0].1 = Some(Vec::new())),
             ("path", |k| k.path = "lean true".into()),
+            ("granted", |k| k.granted.push("main".into())),
         ];
         let names: Vec<&str> = changes.iter().map(|(n, _)| *n).collect();
         assert_eq!(names, WorkspaceKey::FIELDS, "one change per field of the key");

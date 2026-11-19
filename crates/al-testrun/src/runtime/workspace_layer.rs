@@ -125,6 +125,11 @@ impl Layer {
                 i.baseline_wanted,
                 i.n_cached
             ),
+            granted: {
+                let mut ids = super::internals_grant::granted_app_ids(i.apps, i.manifests);
+                ids.sort();
+                ids
+            },
         };
         Layer {
             plan: Some(Plan {
