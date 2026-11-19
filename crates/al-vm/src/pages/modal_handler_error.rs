@@ -66,7 +66,7 @@ impl Session {
         let a = self.unattended_action(st);
         let lookup = st.borrow().lookup;
         match self.close_with(st, a, false, false) {
-            Ok(_) if st.borrow().open && st.borrow().close_vetoed => self.refuse_unpinned_modal_veto(st),
+            Ok(_) if st.borrow().open && st.borrow().close.vetoed() => self.refuse_unpinned_modal_veto(st),
             // Allowed in lookup mode: the part answers None, the page LookupCancel, the page closes and RunModal raises the
             // handler's error, also an error of a page action the handler invoked (ui-handlers/WbModalHandlerCloseTests.al:9-39
             // `Part:None|Page:LookupCancel`, al-runner issue 6291). Outside lookup mode it is not pinned.
