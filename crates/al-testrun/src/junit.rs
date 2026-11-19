@@ -167,9 +167,10 @@ pub fn write_with_baseline(
             match (dialect, c.outcome) {
                 (_, Outcome::Pass) if props.is_empty() => s.push_str(&format!("{head} />\n")),
                 (_, Outcome::Pass) => s.push_str(&format!("{head}>{props}</testcase>\n")),
-                (Dialect::Oracle, Outcome::Fail(m)) => {
-                    s.push_str(&format!("{head}>{props}<failure message=\"{}\" /></testcase>\n", esc(m)))
-                }
+                (Dialect::Oracle, Outcome::Fail(m)) => s.push_str(&format!(
+                    "{head}>{props}<failure message=\"{}\" /></testcase>\n",
+                    esc(m)
+                )),
                 (Dialect::Runner, Outcome::Fail(m)) if c.stack.is_empty() => s.push_str(&format!(
                     "{head}>{props}<failure message=\"{}\" /></testcase>\n",
                     esc(m)
@@ -179,9 +180,10 @@ pub fn write_with_baseline(
                     esc(m),
                     esc(&c.stack)
                 )),
-                (_, Outcome::NotRun(m)) => {
-                    s.push_str(&format!("{head}>{props}<skipped message=\"{}\" /></testcase>\n", esc(m)))
-                }
+                (_, Outcome::NotRun(m)) => s.push_str(&format!(
+                    "{head}>{props}<skipped message=\"{}\" /></testcase>\n",
+                    esc(m)
+                )),
             }
         }
         s.push_str("  </testsuite>\n");
@@ -457,8 +459,15 @@ mod tests {
     #[test]
     fn assumption_marks_stay_on_every_outcome_in_both_dialects() {
         let marks: Vec<Assumption> = Assumption::ALL.iter().copied().take(1).collect();
-        let want = format!("<property name=\"assumptions\" value=\"{}\" />", crate::flagged::id_list(&marks));
-        let outcomes = [Outcome::Pass, Outcome::Fail("f".into()), Outcome::NotRun("refused".into())];
+        let want = format!(
+            "<property name=\"assumptions\" value=\"{}\" />",
+            crate::flagged::id_list(&marks)
+        );
+        let outcomes = [
+            Outcome::Pass,
+            Outcome::Fail("f".into()),
+            Outcome::NotRun("refused".into()),
+        ];
         let suites = [Suite {
             name: "C".into(),
             codeunit: 1,

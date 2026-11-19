@@ -202,7 +202,10 @@ fn run() -> Result<ExitCode, String> {
 
 /// The newest of `versions` (al-runner issue 7625): `--all-versions` sorts them by ascending major.
 fn newest_version<'a>(versions: &[&'a config::VersionEntry]) -> &'a config::VersionEntry {
-    versions.iter().max_by_key(|v| v.major).expect("at least one version is selected")
+    versions
+        .iter()
+        .max_by_key(|v| v.major)
+        .expect("at least one version is selected")
 }
 
 /// `--awaiting-assumptions`: the assumptions that wait for a corpus pin, against the pinned corpus (`awaiting.rs`).
@@ -2017,7 +2020,10 @@ mod tests {
     /// al-runner issue 7625: under `--all-versions` the versions are sorted ascending; the newest is the last.
     #[test]
     fn the_newest_version_is_the_highest_major() {
-        let cfg = config::OracleFile::parse(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../oracle/oracle.toml")).unwrap()).unwrap();
+        let cfg = config::OracleFile::parse(
+            &std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../oracle/oracle.toml")).unwrap(),
+        )
+        .unwrap();
         let mut v: Vec<&config::VersionEntry> = cfg.versions.iter().collect();
         v.sort_by_key(|v| v.major);
         let top = cfg.versions.iter().map(|v| v.major).max().unwrap();
@@ -2033,7 +2039,13 @@ mod tests {
         let second = d.path().join("second.txt");
         std::fs::write(&first, "1 A\n").unwrap();
         std::fs::write(&second, "not a line\n").unwrap();
-        let all = vec![oracle::OracleCase { id: oracle::CaseId { codeunit: 1, name: "A".into() }, bc_failed: false }];
+        let all = vec![oracle::OracleCase {
+            id: oracle::CaseId {
+                codeunit: 1,
+                name: "A".into(),
+            },
+            bc_failed: false,
+        }];
         let target = |path: &Path| Target {
             label: "27.5".into(),
             major: 27,
@@ -2045,7 +2057,10 @@ mod tests {
             area_of: Box::new(|_| None),
             selected: Box::new(|_| true),
         };
-        let args = Args { prune_not_passing: true, ..Args::default() };
+        let args = Args {
+            prune_not_passing: true,
+            ..Args::default()
+        };
         assert!(check_lists(&args, d.path(), &[target(&first), target(&second)]).is_err());
         assert_eq!(std::fs::read_to_string(&first).unwrap(), "1 A\n");
         // Neighbor: without the error the stale line is pruned, as before.

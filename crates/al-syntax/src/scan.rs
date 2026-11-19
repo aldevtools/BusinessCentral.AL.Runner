@@ -588,10 +588,12 @@ mod tests {
     /// reader gives it; a `Subtype = Install` comparison inside a routine is code, not the property.
     #[test]
     fn install_and_manual_subscribers_follow_the_property_scan() {
-        let f = s("codeunit 60 Q { Subtype = \"Install\"; EventSubscriberInstance = \"Manual\"; }\
+        let f = s(
+            "codeunit 60 Q { Subtype = \"Install\"; EventSubscriberInstance = \"Manual\"; }\
                    codeunit 61 P { Subtype = Install; EventSubscriberInstance = Manual; }\
                    codeunit 62 C { procedure P() var Subtype: Integer; Install: Integer; begin if Subtype = Install then; end; }\
-                   codeunit 63 N { Subtype = Normal; }");
+                   codeunit 63 N { Subtype = Normal; }",
+        );
         let flags: Vec<(bool, bool)> = f.objects.iter().map(|o| (o.install, o.manual_subscribers)).collect();
         assert_eq!(flags, [(true, true), (true, true), (false, false), (false, false)]);
     }
