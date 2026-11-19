@@ -93,7 +93,7 @@ pub fn prepare(root: &Path, major: u16, app: Option<&Path>) -> Result<Prepared, 
         manifests,
         lazy,
         symbols: al_version::corpus_symbols(major),
-        target: al_version::Target::for_bc(al_version::BcVersion::parse(build).map_err(|e| format!("{e:?}"))?),
+        target: al_version::Target::for_bc(al_version::BcVersion::parse(build).map_err(|e| e.to_string())?),
     })
 }
 

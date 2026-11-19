@@ -101,8 +101,9 @@ pub fn open_workspace<T: serde::de::DeserializeOwned>(
         .checked_add(layer_len)
         .and_then(|l| l.checked_add(extra_len));
     if want != Some(bytes.len() as u64) {
+        let said = want.map_or_else(|| "more than a file can hold".to_string(), |w| w.to_string());
         return Err(CacheError::Truncated(format!(
-            "{} bytes, the header says {want:?}",
+            "{} bytes, the header says {said}",
             bytes.len()
         )));
     }
