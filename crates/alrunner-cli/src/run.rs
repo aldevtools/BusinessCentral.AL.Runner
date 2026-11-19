@@ -1028,6 +1028,12 @@ fn no_test_selected(a: &TestArgs, selected: bool, started: Instant, warm: Option
     Ok(6)
 }
 
+/// Of a selected codeunit only the selected tests run: `--run-selected-only` (issue 5611), and `--stop-after-first-failure`
+/// (issue 8210), so a test the selection leaves out cannot stop the run.
+fn selected_only(a: &TestArgs) -> bool {
+    a.run_selected_only || a.stop_after_first_failure
+}
+
 /// `--run-selected-only` (issue 5611): the selected tests of the selected codeunits (`RunOptions::run_only`); the rest do
 /// not run. `serve` only (issue 7207): exactly one picked test runs alone, as an entry's does.
 fn run_only_picks(
@@ -1043,7 +1049,7 @@ fn run_only_picks(
                 .filter(|(id, t)| selection.picks(*id, t))
                 .map(|(id, t)| (id, t.to_lowercase()))
                 .collect();
-            (a.run_selected_only || (a.single_test_alone && picked.len() == 1)).then(|| Arc::new(picked))
+            (selected_only(a) || (a.single_test_alone && picked.len() == 1)).then(|| Arc::new(picked))
         })
         .flatten()
 }
@@ -1144,7 +1150,7 @@ fn entry_runs(
                 .map(|(id, t)| (id, t.to_lowercase()))
                 .collect();
             let single_method = picked.len() == 1 && sel.active() && !a.execute;
-            let run_only = ((a.run_selected_only && sel.active()) || single_method).then(|| Arc::new(picked));
+            let run_only = ((selected_only(a) && sel.active()) || single_method).then(|| Arc::new(picked));
             let resources = e.resources_in(
                 &inputs
                     .iter()
@@ -1891,6 +1897,7 @@ fn test_inner(
         // `--ignore-permission-mock` (issue 5996): a test that lowers its permissions runs, flagged.
         ignore_permission_mock: a.ignore_permission_mock,
         skip_after_timeout: a.skip_after_timeout,
+        stop_after_first_failure: a.stop_after_first_failure, // issue 8210
         // `ALRUNNER_REPORT_UNPINNED_ERRORS=1` (issue 6487, opt-in): an unpinned error text fails the test, marked.
         report_unpinned_errors: crate::unpinned::enabled(),
         permissions_off: a.permissions_off, // `--permissions off` (ADR-062 section 5).

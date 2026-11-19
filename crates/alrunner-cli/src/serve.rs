@@ -46,6 +46,7 @@ const RUN_TESTS_FIELDS: &[&str] = &[
     "includeFailing",
     "strictEnvironment",
     "skipAfterTimeout",
+    "stopAfterFirstFailure",
     "testTimeoutSecs",
     "entries",
     "seed",
@@ -395,6 +396,10 @@ fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArg
     // Issue 7517: absent, the server's `--skip-after-timeout`.
     if fields.get("skipAfterTimeout").is_some_and(|v| !v.is_null()) {
         a.skip_after_timeout = flag(fields, "skipAfterTimeout")?;
+    }
+    // Issue 8210: absent, the server's `--stop-after-first-failure`.
+    if fields.get("stopAfterFirstFailure").is_some_and(|v| !v.is_null()) {
+        a.stop_after_first_failure = flag(fields, "stopAfterFirstFailure")?;
     }
     // Issue 8125: absent, the server's `--test-timeout-secs` or environment variable (`run::test_timeout_secs`).
     if let Some(n) = test_timeout_secs(fields)? {
@@ -1159,6 +1164,12 @@ mod tests {
         assert!(cov(json!("all")).is_err());
         let per_test = run(json!({"sourcePaths": ["/a"], "perTestCoverage": true})).unwrap().0;
         assert!(per_test.coverage && !per_test.coverage_hit_only);
+        // Issue 8210: `stopAfterFirstFailure` is `--stop-after-first-failure` for one request; absent, the server's setting.
+        let stop = |v: Value| run(json!({"sourcePaths": ["/a"], "stopAfterFirstFailure": v}));
+        assert!(stop(json!(true)).unwrap().0.stop_after_first_failure);
+        assert!(!stop(json!(false)).unwrap().0.stop_after_first_failure);
+        assert!(!run(json!({"sourcePaths": ["/a"]})).unwrap().0.stop_after_first_failure);
+        assert!(stop(json!("yes")).is_err());
         // ADR-066 amendment 4: `strictOrder` is `--strict-order` for one request.
         assert!(
             run(json!({"sourcePaths": ["/a"], "strictOrder": true}))

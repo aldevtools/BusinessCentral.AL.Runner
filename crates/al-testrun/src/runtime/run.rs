@@ -718,8 +718,9 @@ fn run_codeunit_inner(
         // The refusals of the keys and sequences an earlier codeunit's tests changed (isolation::after_test) end here: this
         // codeunit runs on what the earlier one left, as main ran it; whether BC leaves the same is not measured.
         session.clear_unmeasured();
-        // `--skip-after-timeout` (al-runner issue 7517): the test the time limit stopped; the tests after it are not run.
-        let mut stopped_at_limit: Option<String> = None;
+        // Why the later tests of this codeunit are not run: `--skip-after-timeout` (al-runner issue 7517) after the test the
+        // time limit stopped, `RunOptions::stop_after_first_failure` (al-runner issue 8210) after the first failed test.
+        let mut stopped: Option<String> = None;
         let mut queue = data_driven::queue(lowered, object, &tests, &data_driven);
         // The rows of `out` that are results of data-driven procedures: BC reports none of them when it ends the session.
         let mut data_driven_rows: Vec<usize> = Vec::new();
@@ -791,10 +792,8 @@ fn run_codeunit_inner(
             let mut skipped = false;
             let outcome = if let Some(o) = decided {
                 o
-            } else if let Some(n) = &stopped_at_limit {
-                Outcome::NotRun(format!(
-                    "an earlier test of this codeunit ({n}) was stopped at the time limit, and --skip-after-timeout does not run the rest of the codeunit"
-                ))
+            } else if let Some(why) = &stopped {
+                Outcome::NotRun(why.clone())
             } else if let Some(b) = case
                 .as_ref()
                 .and_then(|(src, ..)| blocked_site(lowered, src.object, src.get))
@@ -1139,7 +1138,12 @@ fn run_codeunit_inner(
                 && began
                 && matches!(&outcome, Outcome::NotRun(m) if m.starts_with(TIME_LIMIT_REASON))
             {
-                stopped_at_limit.get_or_insert_with(|| routine.name.clone());
+                stopped.get_or_insert_with(|| {
+                    format!(
+                        "an earlier test of this codeunit ({}) was stopped at the time limit, and --skip-after-timeout does not run the rest of the codeunit",
+                        routine.name
+                    )
+                });
             }
             let judged = match outcome {
                 Outcome::Fail(m) if !unfinished.is_empty() => Ok(("failure", m)),
@@ -1226,6 +1230,9 @@ fn run_codeunit_inner(
                 Err(o) => (o, None),
             };
             let ended = ended_of(&outcome, began, untrusted.is_some());
+            if scratch.stop_after_first_failure && matches!(outcome, Outcome::Fail(_)) {
+                stopped.get_or_insert_with(|| stopped_after_failure(obj.id.unwrap_or(0), &name));
+            }
             note_unfinished(scratch, ended, runner_refused.is_some(), test_no, &name);
             if let (Some(ended), Outcome::NotRun(why) | Outcome::Fail(why)) = (ended, &outcome) {
                 unfinished.push(Unfinished {
@@ -1757,6 +1764,13 @@ fn not_run_reason(r: Refusal) -> String {
         Some(why) if r == al_vm::STOPPED => why,
         _ => r.into_reason(),
     }
+}
+
+/// The reason of a test `RunOptions::stop_after_first_failure` does not run, after test `test` of codeunit `codeunit` failed.
+pub(crate) fn stopped_after_failure(codeunit: u32, test: &str) -> String {
+    format!(
+        "the test Codeunit{codeunit}.{test} failed before it, and stopAfterFirstFailure (--stop-after-first-failure) runs no test of its codeunit or of a later entry after a failure"
+    )
 }
 
 /// How the reason of a test the time limit stopped starts (the outputs turn it into `Test exceeded <N>s timeout.`).
