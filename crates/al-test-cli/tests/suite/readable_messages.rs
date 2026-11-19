@@ -65,6 +65,11 @@ const KEPT: &[(&str, &str, &str)] = &[
         "the assumption marks two sessions differ in, in the login replay check's report line (ALRUNNER_LOGIN_REPLAY_CHECK), not a message of a test",
     ),
     (
+        "al-testrun/src/login_replay.rs",
+        r#"open: format!("{wrote:?}"),"#,
+        "what the company open noted for the tests, compared across sessions by the login replay check (ALRUNNER_LOGIN_REPLAY_CHECK) and shown only in its report line",
+    ),
+    (
         "al-testrun/src/runtime/baseline_key.rs",
         r#"format!("{platform_internals_visible_to:?}").as_bytes(),"#,
         "a cache key text, not a message",

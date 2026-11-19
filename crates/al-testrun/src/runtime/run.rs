@@ -220,7 +220,7 @@ fn open_company(
     session.commit_transaction();
     let hits = al_builtins::assumptions::take_hit_bits();
     if let Some(key) = replay_key.filter(|_| wrote.raised) {
-        let state = crate::login_replay::LoginState::of(session, hits);
+        let state = crate::login_replay::LoginState::of(session, &wrote, hits);
         crate::login_replay::check(&engine).note(key, state);
     }
     // `workDate.offset` of a stability run (ADR-058): the work date the session starts with, after the login code set it;

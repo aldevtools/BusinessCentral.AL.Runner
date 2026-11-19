@@ -103,12 +103,15 @@ impl Key {
 }
 
 /// What a test session holds after the raised login: every committed row (system fields included), the session state
-/// (`Session::state_lines`) and the assumption marks the login made (a replayed flagged pass stays flagged).
+/// (`Session::state_lines`), the assumption marks the login made (a replayed flagged pass stays flagged) and what the
+/// company open noted for the tests of the codeunit (`install::CompanyOpenWrites`: a later test is watched or refused by
+/// it).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LoginState {
     rows: Vec<String>,
     state: al_vm::StateLines,
     hits: al_builtins::assumptions::HitBits,
+    open: String,
 }
 
 impl LoginState {
@@ -124,19 +127,25 @@ impl LoginState {
         &self.state
     }
 
-    /// What `session` holds now, with the marks `hits` the company open made.
-    pub(crate) fn of(session: &mut Session, hits: al_builtins::assumptions::HitBits) -> LoginState {
+    /// What `session` holds now, with the marks `hits` the company open made and what it noted (`wrote`).
+    pub(crate) fn of(
+        session: &mut Session,
+        wrote: &crate::install::CompanyOpenWrites,
+        hits: al_builtins::assumptions::HitBits,
+    ) -> LoginState {
         LoginState {
             rows: committed_rows(session.store_mut()),
             state: session.state_lines(),
             hits,
+            open: format!("{wrote:?}"),
         }
     }
 }
 
 /// The kinds of difference between two sessions' states, in the order [`differences`] looks at them: a value with no
-/// comparable form (which no replay could give back), the committed rows, the session state lines, the assumption marks.
-const KINDS: [&str; 4] = ["not comparable", "rows", "session state", "marks"];
+/// comparable form (which no replay could give back), the committed rows, the session state lines, the assumption marks,
+/// what the company open noted for the tests.
+const KINDS: [&str; 5] = ["not comparable", "rows", "session state", "marks", "open writes"];
 
 /// What differs between `a` and `b`, the states of two sessions of one key: per kind of [`KINDS`] that differs, its index
 /// and its first difference. One kind does not hide another.
@@ -166,6 +175,7 @@ pub(crate) fn differences(a: &LoginState, b: &LoginState) -> Vec<(usize, String)
         lines(&a.rows, &b.rows, "row"),
         lines(&a.state.lines, &b.state.lines, "session state"),
         (a.hits != b.hits).then(|| format!("assumption marks: {:?} | {:?}", a.hits, b.hits)),
+        (a.open != b.open).then(|| format!("open writes: {} | {}", a.open, b.open)),
     ]
     .into_iter()
     .enumerate()
@@ -353,6 +363,7 @@ mod tests {
                 opaque: Vec::new(),
             },
             hits: Default::default(),
+            open: String::new(),
         }
     }
 
@@ -431,15 +442,15 @@ mod tests {
             check.line().as_deref(),
             Some(
                 "login replay check: 3 sessions over 2 keys (a key seen before: 1 sessions, 33%), 1 compared, 0 differ; across test codeunits: 1 compared, \
-                 1 differ (not comparable 0, rows 1, session state 0, marks 0; first: row 1: r | other)"
+                 1 differ (not comparable 0, rows 1, session state 0, marks 0, open writes 0; first: row 1: r | other)"
             )
         );
         check.note(key(1), b);
         assert_eq!(
             check.line().as_deref(),
             Some(
-                "login replay check: 4 sessions over 2 keys (a key seen before: 2 sessions, 50%), 2 compared, 1 differ (not comparable 0, rows 1, session state 0, marks 0; first: row 1: r | other); across test \
-                 codeunits: 1 compared, 1 differ (not comparable 0, rows 1, session state 0, marks 0; first: row 1: r | other)"
+                "login replay check: 4 sessions over 2 keys (a key seen before: 2 sessions, 50%), 2 compared, 1 differ (not comparable 0, rows 1, session state 0, marks 0, open writes 0; first: row 1: r | other); across test \
+                 codeunits: 1 compared, 1 differ (not comparable 0, rows 1, session state 0, marks 0, open writes 0; first: row 1: r | other)"
             )
         );
     }
@@ -461,7 +472,7 @@ mod tests {
         let line = check.line().unwrap();
         assert!(
             line.contains(
-                "1 compared, 1 differ (not comparable 1, rows 1, session state 0, marks 0; first: not comparable: \
+                "1 compared, 1 differ (not comparable 1, rows 1, session state 0, marks 0, open writes 0; first: not comparable: \
                  codeunit 5 global 1: Codeunit instance)"
             ),
             "{line}"

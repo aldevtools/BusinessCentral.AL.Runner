@@ -609,7 +609,7 @@ fn planted(plant: &str, base: &str, others: &[&str]) -> Vec<(String, Vec<(usize,
 fn assert_planted_state(planted: &[(String, Vec<(usize, String)>)], what: &str) {
     for (line, differences) in planted {
         assert!(
-            line.contains("1 compared, 1 differ (not comparable 0, rows 0, session state 1, marks 0;"),
+            line.contains("1 compared, 1 differ (not comparable 0, rows 0, session state 1, marks 0, open writes 0;"),
             "{line}"
         );
         let state = differences.iter().find(|(kind, _)| *kind == 2);
@@ -784,4 +784,34 @@ codeunit 77462 "RPL Gap"
 #[test]
 fn the_commits_and_transaction_facts_the_login_leaves_are_compared() {
     assert_planted_state(&planted(GAP_COMMIT, "a", &["ab"]), "transaction ");
+}
+
+/// A Company Triggers subscriber of the app under test inserts and deletes a row when the text is longer than 1: the rows
+/// are the same after, the table it wrote is noted for the tests of the codeunit (`install::CompanyOpenWrites`).
+const GAP_OPEN_WRITES: &str = r#"
+table 77465 "RPL Gap Row" { fields { field(1; K; Integer) { } } keys { key(PK; K) { Clustered = true; } } }
+codeunit 77462 "RPL Gap"
+{
+    procedure Plant(N: Integer) begin end;
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Company Triggers", 'OnCompanyOpenCompleted', '', false, false)]
+    local procedure Opened() var R: Record "RPL Gap Row";
+    begin
+        if StrLen(NavApp.GetResourceAsText('rpl.txt')) > 1 then begin R.K := 1; R.Insert(); R.Delete(); end;
+    end;
+}
+"#;
+
+// What the company open noted for the tests of the codeunit (the tables its subscribers wrote) is compared, as a kind
+// of its own.
+#[test]
+fn what_the_company_open_noted_for_the_tests_is_compared() {
+    for (line, differences) in planted(GAP_OPEN_WRITES, "a", &["ab"]) {
+        assert!(line.contains(", open writes 1;"), "{line}");
+        assert!(
+            differences
+                .iter()
+                .any(|(_, d)| d.starts_with("open writes: ") && d.contains("Opened")),
+            "{differences:?}"
+        );
+    }
 }
