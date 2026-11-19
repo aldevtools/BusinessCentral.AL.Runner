@@ -1028,6 +1028,12 @@ fn no_test_selected(a: &TestArgs, selected: bool, started: Instant, warm: Option
     Ok(6)
 }
 
+/// Of a selected codeunit only the selected tests run: `--run-selected-only` (issue 5611), and `--stop-after-first-failure`
+/// (issue 8210), so a test the selection leaves out cannot stop the run.
+fn selected_only(a: &TestArgs) -> bool {
+    a.run_selected_only || a.stop_after_first_failure
+}
+
 /// `--run-selected-only` (issue 5611): the selected tests of the selected codeunits (`RunOptions::run_only`); the rest do
 /// not run. `serve` only (issue 7207): exactly one picked test runs alone, as an entry's does.
 fn run_only_picks(
@@ -1043,7 +1049,7 @@ fn run_only_picks(
                 .filter(|(id, t)| selection.picks(*id, t))
                 .map(|(id, t)| (id, t.to_lowercase()))
                 .collect();
-            (a.run_selected_only || (a.single_test_alone && picked.len() == 1)).then(|| Arc::new(picked))
+            (selected_only(a) || (a.single_test_alone && picked.len() == 1)).then(|| Arc::new(picked))
         })
         .flatten()
 }
@@ -1144,7 +1150,7 @@ fn entry_runs(
                 .map(|(id, t)| (id, t.to_lowercase()))
                 .collect();
             let single_method = picked.len() == 1 && sel.active() && !a.execute;
-            let run_only = ((a.run_selected_only && sel.active()) || single_method).then(|| Arc::new(picked));
+            let run_only = ((selected_only(a) && sel.active()) || single_method).then(|| Arc::new(picked));
             let resources = e.resources_in(
                 &inputs
                     .iter()
@@ -1891,6 +1897,7 @@ fn test_inner(
         // `--ignore-permission-mock` (issue 5996): a test that lowers its permissions runs, flagged.
         ignore_permission_mock: a.ignore_permission_mock,
         skip_after_timeout: a.skip_after_timeout,
+        stop_after_first_failure: a.stop_after_first_failure, // issue 8210
         // `ALRUNNER_REPORT_UNPINNED_ERRORS=1` (issue 6487, opt-in): an unpinned error text fails the test, marked.
         report_unpinned_errors: crate::unpinned::enabled(),
         permissions_off: a.permissions_off, // `--permissions off` (ADR-062 section 5).
@@ -2385,12 +2392,12 @@ fn test_inner(
         );
     }
 
-    let mut coverage_doc: Option<String> = None;
+    let mut coverage_doc: Option<serde_json::Value> = None;
     let coverage_started = std::time::Instant::now();
     // An impact run counts statements for its own report and writes no coverage file.
     if a.coverage && collect.is_none() {
         let cwd = std::env::current_dir().unwrap_or_default();
-        let labels = |app: usize, file: &str| coverage::label(&inputs[app].path, file, &cwd);
+        let labels = coverage::once_per_file(|app, file| coverage::label(&inputs[app].path, file, &cwd));
         let names: Vec<String> = inputs.iter().map(|i| i.json.name.clone()).collect();
         let statements = rt.coverage_statements();
         let cwd_text = cwd.to_string_lossy().replace('\\', "/");
@@ -2412,10 +2419,10 @@ fn test_inner(
             );
         }
         if a.coverage_json.is_some() || warm.is_some() {
-            coverage_doc = Some(coverage::json(statements, &results, &labels));
+            coverage_doc = Some(coverage::json(statements, &results, &labels, a.coverage_hit_only));
         }
         if let (Some(path), Some(doc)) = (&a.coverage_json, &coverage_doc) {
-            write_file(path, doc)?;
+            write_file(path, &coverage::pretty(doc))?;
         }
     }
     let coverage_time = coverage_started.elapsed();
@@ -2646,7 +2653,7 @@ fn test_inner(
                 doc
             })
             .unwrap_or_default(),
-            coverage: coverage_doc.as_deref().and_then(|d| serde_json::from_str(d).ok()),
+            coverage: coverage_doc,
             messages: results.iter().map(|r| r.messages.clone()).collect(),
             object_names: results.iter().map(|r| r.codeunit_name.clone()).collect(),
             captured: {

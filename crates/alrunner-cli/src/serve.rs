@@ -46,6 +46,7 @@ const RUN_TESTS_FIELDS: &[&str] = &[
     "includeFailing",
     "strictEnvironment",
     "skipAfterTimeout",
+    "stopAfterFirstFailure",
     "testTimeoutSecs",
     "entries",
     "seed",
@@ -281,6 +282,16 @@ fn flag(fields: &Map<String, Value>, name: &str) -> Result<bool, String> {
     }
 }
 
+/// `runTests`'s `coverage`: whether statements are counted, and whether the `coverage` list holds only those that ran
+/// (`"hit"`, issue 8244) rather than every statement with its runs.
+fn coverage_field(fields: &Map<String, Value>) -> Result<(bool, bool), String> {
+    match fields.get("coverage") {
+        Some(Value::String(s)) if s == "hit" => Ok((true, true)),
+        Some(Value::String(_)) => Err("`coverage` is true, false or \"hit\"".into()),
+        _ => Ok((flag(fields, "coverage")?, false)),
+    }
+}
+
 /// The `al-runner test` arguments for a request, and the warnings the request earns.
 fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArgs, Vec<String>), String> {
     let mut warnings = Vec::new();
@@ -337,7 +348,8 @@ fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArg
         }
         Some(_) => return Err("`testDriver` is `bc-linux` or `bccontainerhelper`".into()),
     }
-    a.coverage = flag(fields, "coverage")? || flag(fields, "perTestCoverage")?;
+    (a.coverage, a.coverage_hit_only) = coverage_field(fields)?;
+    a.coverage |= flag(fields, "perTestCoverage")?;
     a.profile = crate::profile::from_json(fields.get("profile").unwrap_or(&Value::Null))?;
     a.capture = al_vm::CaptureConfig {
         values: flag(fields, "captureValues")?,
@@ -384,6 +396,10 @@ fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArg
     // Issue 7517: absent, the server's `--skip-after-timeout`.
     if fields.get("skipAfterTimeout").is_some_and(|v| !v.is_null()) {
         a.skip_after_timeout = flag(fields, "skipAfterTimeout")?;
+    }
+    // Issue 8210: absent, the server's `--stop-after-first-failure`.
+    if fields.get("stopAfterFirstFailure").is_some_and(|v| !v.is_null()) {
+        a.stop_after_first_failure = flag(fields, "stopAfterFirstFailure")?;
     }
     // Issue 8125: absent, the server's `--test-timeout-secs` or environment variable (`run::test_timeout_secs`).
     if let Some(n) = test_timeout_secs(fields)? {
@@ -556,10 +572,7 @@ fn run_tests(base: &TestArgs, fields: &Map<String, Value>, ctx: &mut WarmCtx, fl
         v.clone_from(&ids);
     }
     ctx.entries = entries;
-    let (want_coverage, want_per_test) = (
-        flag(fields, "coverage").unwrap_or(false) || flag(fields, "perTestCoverage").unwrap_or(false),
-        flag(fields, "perTestCoverage").unwrap_or(false),
-    );
+    let (want_coverage, want_per_test) = (args.coverage, flag(fields, "perTestCoverage").unwrap_or(false));
     // A cancel that arrived while nothing ran was answered as a no-op: it does not stop the next run.
     flags.cancel.store(false, Ordering::SeqCst);
     flags
@@ -1141,6 +1154,22 @@ mod tests {
         );
         assert!(!run(json!({"sourcePaths": ["/a"]})).unwrap().0.skip_after_timeout);
         assert!(run(json!({"sourcePaths": ["/a"], "skipAfterTimeout": 1})).is_err());
+        // Issue 8244: `coverage: "hit"` is coverage of the statements that ran; other texts are refused.
+        let cov = |v: Value| run(json!({"sourcePaths": ["/a"], "coverage": v}));
+        let hit = cov(json!("hit")).unwrap().0;
+        assert!(hit.coverage && hit.coverage_hit_only);
+        let full = cov(json!(true)).unwrap().0;
+        assert!(full.coverage && !full.coverage_hit_only);
+        assert!(!cov(json!(false)).unwrap().0.coverage);
+        assert!(cov(json!("all")).is_err());
+        let per_test = run(json!({"sourcePaths": ["/a"], "perTestCoverage": true})).unwrap().0;
+        assert!(per_test.coverage && !per_test.coverage_hit_only);
+        // Issue 8210: `stopAfterFirstFailure` is `--stop-after-first-failure` for one request; absent, the server's setting.
+        let stop = |v: Value| run(json!({"sourcePaths": ["/a"], "stopAfterFirstFailure": v}));
+        assert!(stop(json!(true)).unwrap().0.stop_after_first_failure);
+        assert!(!stop(json!(false)).unwrap().0.stop_after_first_failure);
+        assert!(!run(json!({"sourcePaths": ["/a"]})).unwrap().0.stop_after_first_failure);
+        assert!(stop(json!("yes")).is_err());
         // ADR-066 amendment 4: `strictOrder` is `--strict-order` for one request.
         assert!(
             run(json!({"sourcePaths": ["/a"], "strictOrder": true}))

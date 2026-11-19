@@ -1397,11 +1397,7 @@ impl CorpusRuntime {
             // Writing the snapshot the test threads read (the first pass on several threads does it).
             let mut encode_time = std::time::Duration::ZERO;
             super::install_once::begin_pass(&engine, &pass.resources);
-            // The install code read resource files, and this entry has resource files of its own: its install baseline
-            // would be another one, which is not made per entry.
-            let refused = (install_read_resources && !pass.resources.is_empty()).then(|| {
-            "the install code read a resource file, and an entry with resource files of its own would need an install baseline of its own (al-runner issue 5635)".to_string()
-        });
+            let refused = pass_refused(install_read_resources, pass, opts, &list);
             let (opts_only, limit) = (&pass.only, pass.limit);
             // The test codeunits to run, in the order the report lists them.
             let mut units: Vec<Unit> = Vec::new();
@@ -1453,6 +1449,7 @@ impl CorpusRuntime {
                             flags: super::session_flags::SessionFlags::of(opts),
                             report_unpinned_errors: opts.report_unpinned_errors,
                             skip_after_timeout: opts.skip_after_timeout,
+                            stop_after_first_failure: opts.stop_after_first_failure,
                             perturb: opts.perturb.clone(),
                             run_seed: opts.run_seed,
                             runner: *runner,
@@ -2306,6 +2303,24 @@ fn run_serially<'a>(
 /// (ADR-074).
 fn hub_path(suite: &SuiteRun, opts: &RunOptions, driver: super::TestDriver) -> bool {
     suite.runner.is_none() && opts.required_isolation && opts.isolation.is_none() && driver.has_hub()
+}
+
+/// Why no test of `pass` runs, given the rows of the earlier passes (`earlier`): the install code read resource files and
+/// this entry has resource files of its own, so its install baseline would be another one, which is not made per entry;
+/// or `RunOptions::stop_after_first_failure` (al-runner issue 8210) and an earlier pass has a failed test.
+fn pass_refused(
+    install_read_resources: bool,
+    pass: &Pass,
+    opts: &RunOptions,
+    earlier: &[TestResult],
+) -> Option<String> {
+    if install_read_resources && !pass.resources.is_empty() {
+        return Some("the install code read a resource file, and an entry with resource files of its own would need an install baseline of its own (al-runner issue 5635)".to_string());
+    }
+    let failed = earlier.iter().find(|r| matches!(r.outcome, Outcome::Fail(_)));
+    failed
+        .filter(|_| opts.stop_after_first_failure)
+        .map(|r| super::run::stopped_after_failure(r.codeunit, &r.test))
 }
 
 /// The isolation of the runner the test codeunits of `suite` run under, or why none of them runs (`refused`). With
