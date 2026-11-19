@@ -276,7 +276,7 @@ fn print_compile_phases(p: &al_testrun::runtime::Phases) {
 }
 
 /// The `--timings` lines of the compile cache. `workspace`: the run's own report of the workspace layer
-/// ([`own_workspace_cache`]).
+/// (`workspace_layer::own_report`).
 fn print_compile_cache(
     p: &al_testrun::runtime::Phases,
     workspace: Option<&al_testrun::workspace_cache::WorkspaceReport>,
@@ -694,45 +694,6 @@ impl Report {
             warnings: vec![why.to_string()],
         }
     }
-}
-
-/// Everything the compile depends on but the selection and the text of the workspace files: the key of the workspace
-/// layer of the compile cache without the texts (`al_testrun::workspace_cache::warm_key`, one owner of the field list),
-/// over the dependency apps as `workspace_cache::dependency_digest` takes them. The resource files are not in it: they
-/// are run-time data, which each request hands to the program as they are then (issue 5635).
-fn warm_key(
-    inputs: &[AppInput],
-    dependencies: &al_testrun::deps::Dependencies,
-    symbols: &BTreeSet<String>,
-    target: &al_version::Target,
-    compile_options: &str,
-) -> String {
-    use al_testrun::workspace_cache as wc;
-    let json: Vec<String> = inputs.iter().map(app_json_text).collect();
-    let apps: Vec<(&al_sema::workspace::AppSource, &al_testrun::runtime::Manifest, &str)> = inputs
-        .iter()
-        .zip(&json)
-        .map(|(i, j)| (&i.source, &i.manifest, j.as_str()))
-        .collect();
-    let deps = wc::dependency_digest(&dependencies.apps, &dependencies.lazy, &dependencies.summary);
-    wc::warm_key(&apps, deps, symbols, &format!("{target:?}"), compile_options)
-}
-
-/// What an app's app.json gives the compile that its manifest does not (`WorkspaceCacheOptions::app_json`): its id,
-/// name, publisher and version as written, `platform`, `application` and `preprocessorSymbols`. Each value is quoted, so
-/// a space in one cannot read as the start of the next.
-pub(crate) fn app_json_text(i: &AppInput) -> String {
-    let j = &i.json;
-    format!(
-        "id {:?} name {:?} publisher {:?} version {:?} platform {:?} application {:?} symbols {:?}",
-        j.id,
-        j.name,
-        j.publisher,
-        j.version.to_string(),
-        j.platform.as_ref().map(ToString::to_string),
-        j.application.as_ref().map(ToString::to_string),
-        i.symbols
-    )
 }
 
 pub fn test_with(a: &TestArgs, warm: Option<&mut WarmCtx>) -> Result<u8, String> {
@@ -1678,7 +1639,7 @@ fn test_inner(
         run_only: run_only_picks(a, &selection, &found),
         test_data: test_data.as_ref().map(|(d, _)| d.clone()),
         company_data: company_data.clone(),
-        workspace_cache: workspace_cache_options(a, &inputs),
+        workspace_cache: crate::workspace_layer::options(a, &inputs),
         compile_cache: compile_cache_on.then(|| al_testrun::compile_cache::CompileCache {
             dir: al_testrun::compile_cache::CompileCache::under(&al_deps::cache::cache_root_from_env(
                 a.cache_dir.as_deref(),
@@ -1767,7 +1728,8 @@ fn test_inner(
         Some(w) => {
             // The options that change what the compile holds (`run_inputs.rs`) are part of the key.
             let compile_options = crate::run_inputs::RunInputs::of(a).compile_text();
-            let key = warm_key(&inputs, &dependencies, &symbols, &chosen.target, &compile_options);
+            let key =
+                crate::workspace_layer::warm_key(&inputs, &dependencies, &symbols, &chosen.target, &compile_options);
             let files: Vec<al_testrun::runtime::FileChange> = inputs
                 .iter()
                 .enumerate()
@@ -1834,7 +1796,7 @@ fn test_inner(
         if a.timings {
             eprintln!("{}", setup.line());
             print_compile_phases(p);
-            print_compile_cache(p, own_workspace_cache(p, warm.as_deref()));
+            print_compile_cache(p, crate::workspace_layer::own_report(p, warm.as_deref()));
             eprintln!("time: total {}", secs(total_time));
         }
         say!("{why}");
@@ -1967,7 +1929,7 @@ fn test_inner(
         if let Some(cost) = test_data.as_ref().and_then(|(d, _)| d.provider.cost()) {
             eprintln!("test data: {cost}");
         }
-        print_compile_cache(p, own_workspace_cache(p, warm.as_deref()));
+        print_compile_cache(p, crate::workspace_layer::own_report(p, warm.as_deref()));
         let slowest: Vec<String> = p
             .slowest
             .iter()
@@ -2339,7 +2301,7 @@ fn test_inner(
             tests: p.tests,
             coverage: coverage_time,
             passes: p.passes.clone(),
-            workspace_cache: own_workspace_cache(p, Some(w)).map(|r| r.state.as_str()),
+            workspace_cache: crate::workspace_layer::own_report(p, Some(w)).map(|r| r.state.as_str()),
         });
         w.report = Some(Report {
             doc: serde_json::from_str(&crate::unpinned::json(
@@ -2735,29 +2697,4 @@ mod entry_resource_tests {
             .sum();
         assert_eq!(held, 64 * 6);
     }
-}
-
-/// The workspace layer of the compile cache for a run (ADR-022 amendment 2026-11-15): on with the compile cache (the
-/// layer itself turns off with `ALRUNNER_NO_WORKSPACE_CACHE`, `al_testrun::workspace_cache::switched_off`).
-fn workspace_cache_options(
-    a: &TestArgs,
-    inputs: &[AppInput],
-) -> Option<al_testrun::workspace_cache::WorkspaceCacheOptions> {
-    Some(al_testrun::workspace_cache::WorkspaceCacheOptions {
-        compile_options: crate::run_inputs::RunInputs::of(a).compile_text(),
-        app_json: inputs.iter().map(app_json_text).collect(),
-        write_now: false,
-        verbose: a.verbose,
-    })
-}
-
-/// What the workspace layer did for this run's own compile (`--timings` and serve's `workspaceCache`): a one-shot run
-/// always compiled; a request of a server only when it compiled (`WarmUse::Compiled`). A request on the kept compile
-/// compiled nothing and used no cache, though its phases still hold the report of the compile it ran on.
-fn own_workspace_cache<'a>(
-    p: &'a al_testrun::runtime::Phases,
-    warm: Option<&WarmCtx>,
-) -> Option<&'a al_testrun::workspace_cache::WorkspaceReport> {
-    let compiled = warm.is_none_or(|w| w.used == Some(al_testrun::runtime::WarmUse::Compiled));
-    p.workspace_cache.as_ref().filter(|_| compiled)
 }

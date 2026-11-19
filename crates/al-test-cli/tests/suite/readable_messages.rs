@@ -480,12 +480,12 @@ const KEPT: &[(&str, &str, &str)] = &[
         "a line of the canonical dump of a compile (the workspace layer's equality oracle), compared, never shown",
     ),
     (
-        "alrunner-cli/src/run.rs",
+        "alrunner-cli/src/workspace_layer.rs",
         r#"wc::warm_key(&apps, deps, symbols, &format!("{target:?}"), compile_options)"#,
         "a text of the workspace layer's key, hashed, never shown",
     ),
     (
-        "alrunner-cli/src/run.rs",
+        "alrunner-cli/src/workspace_layer.rs",
         r#""id {:?} name {:?} publisher {:?} version {:?} platform {:?} application {:?} symbols {:?}","#,
         "the app.json facts in the key of a kept compile and of the workspace layer, hashed, never shown",
     ),

@@ -216,7 +216,7 @@ impl WorkspaceKey {
         "granted",
     ];
 
-    /// The key's fields as named bytes; with `texts` false, the apps' source hashes are left out (`run::warm_key`, the
+    /// The key's fields as named bytes; with `texts` false, the apps' source hashes are left out (`workspace_layer::warm_key`, the
     /// kept compile of serve, takes a changed text in as an edit).
     pub fn parts(&self, texts: bool) -> Vec<(&'static str, Vec<u8>)> {
         let WorkspaceKey {
@@ -383,7 +383,7 @@ pub fn roots_text(r: &al_sema::check::Roots) -> String {
     )
 }
 
-/// The digest of the dependency apps as the key of serve's kept compile holds them (`run::warm_key`): each app's id,
+/// The digest of the dependency apps as the key of serve's kept compile holds them (`workspace_layer::warm_key`): each app's id,
 /// file count and identity (a lazily read package) or file names and lengths, and the summary lines.
 pub fn dependency_digest(apps: &[AppSource], lazy: &[Option<al_sema::LazySource>], summary: &[String]) -> [u8; 32] {
     let mut h = Sha256::new();
@@ -404,7 +404,7 @@ pub fn dependency_digest(apps: &[AppSource], lazy: &[Option<al_sema::LazySource>
     h.finalize().into()
 }
 
-/// The key of serve's kept compile (`run::warm_key`, ADR-028): the [`WorkspaceKey`] of the workspace apps without the
+/// The key of serve's kept compile (`workspace_layer::warm_key`, ADR-028): the [`WorkspaceKey`] of the workspace apps without the
 /// texts of their files, over `dependencies` ([`dependency_digest`]) in place of the layer below, without the roots and
 /// the path (the kept compile is made without a selection). One owner of the field list for both keys.
 pub fn warm_key(
