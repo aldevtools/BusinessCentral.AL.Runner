@@ -77,7 +77,7 @@ fn new_origin() -> u64 {
 }
 
 /// The first bytes of a snapshot: what it is and which layout it has. A change of the layout changes the last digit.
-const MAGIC: &[u8; 8] = b"ALBASE\0\x08";
+const MAGIC: &[u8; 8] = b"ALBASE\0\x09";
 
 /// The order of a table's keys (`al_data::memory::PkStorage`): the count of its key fields (0 for text order), then one
 /// byte per field.
@@ -118,6 +118,12 @@ impl Baseline {
                     return None;
                 }
             }
+        }
+        let emptied = self.store.committed_emptied();
+        put_u32(&mut out, emptied.len() as u32);
+        for (company, object) in &emptied {
+            put_str(&mut out, company);
+            put_u32(&mut out, *object);
         }
         put_u64(&mut out, self.next_guid);
         put_i64(&mut out, self.next_row_version);
@@ -213,6 +219,11 @@ impl Baseline {
                 rows,
             });
         }
+        let mut emptied = Vec::new();
+        for _ in 0..r.u32()? {
+            let company = r.str()?;
+            emptied.push((company, r.u32()?));
+        }
         let next_guid = r.u64()?;
         let next_row_version = r.i64()?;
         let committed_row_version = r.i64()?;
@@ -277,7 +288,7 @@ impl Baseline {
             return None;
         }
         Some(Baseline {
-            store: al_data::memory::MemStore::from_exported(tables),
+            store: al_data::memory::MemStore::from_exported(tables, &emptied),
             next_guid,
             next_row_version,
             committed_row_version,
@@ -558,7 +569,7 @@ mod tests {
             )],
         };
         Baseline {
-            store: al_data::memory::MemStore::from_exported(vec![table]),
+            store: al_data::memory::MemStore::from_exported(vec![table], &[]),
             next_guid: 41,
             next_row_version: 1_000_000_007,
             committed_row_version: 1_000_000_001,
@@ -597,7 +608,8 @@ mod tests {
     fn summary(b: &Baseline) -> String {
         let rows = b.store.export_committed().expect("no backing");
         format!(
-            "{rows:?} {} {} {} {:?} {:?} {:?} {} {:?} {:?} {:?}",
+            "{rows:?} {:?} {} {} {} {:?} {:?} {:?} {} {:?} {:?} {:?}",
+            b.store.committed_emptied(),
             b.next_guid,
             b.next_row_version,
             b.committed_row_version,
