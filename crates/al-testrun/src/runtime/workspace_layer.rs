@@ -1,4 +1,4 @@
-//! The workspace layer in the compile of a run (ADR-022 amendment 2026-11-15, prototype): the key of the run, the read of
+//! The workspace layer in the compile of a run (ADR-022 amendment 2026-11-15): the key of the run, the read of
 //! an entry in place of the compile (decision 4), and the store of a fresh compile (decisions 6 and 9). The key, the
 //! entry's extra section and the report are `crate::workspace_cache`; the format is `al_cache::build_workspace`.
 

@@ -1,4 +1,4 @@
-//! The workspace layer of the compile cache (ADR-022 amendment 2026-11-15, prototype): a compile read from the entry is
+//! The workspace layer of the compile cache (ADR-022 amendment 2026-11-15): a compile read from the entry is
 //! byte-equal to a fresh compile of the same inputs (the canonical dump), any change of a key input misses, and an entry
 //! that is damaged, cut short or made by another build is a miss that never changes an outcome.
 

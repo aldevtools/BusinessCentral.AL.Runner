@@ -90,7 +90,7 @@ pub struct RunOptions {
     /// Use the compile cache of the dependency apps (ADR-022). `None`: the demand-driven compile
     /// of every run, which is the reference path.
     pub compile_cache: Option<crate::compile_cache::CompileCache>,
-    /// Use the workspace layer of the compile cache too (ADR-022 amendment 2026-11-15, prototype), with `compile_cache`.
+    /// Use the workspace layer of the compile cache too (ADR-022 amendment 2026-11-15), with `compile_cache`.
     /// `None`: off.
     pub workspace_cache: Option<crate::workspace_cache::WorkspaceCacheOptions>,
     /// A test that runs longer than this is stopped and reported as not run. `None`: no limit.

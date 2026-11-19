@@ -1,4 +1,4 @@
-//! The workspace layer of the compile cache (ADR-022 amendment 2026-11-15, Proposed; prototype): the compiled workspace
+//! The workspace layer of the compile cache (ADR-022 amendment 2026-11-15): the compiled workspace
 //! apps, stored on top of the dependency layers so that a run whose workspace did not change (a restarted `serve`
 //! daemon, an `al-runner test` rerun) reads its compile instead of parsing, checking and lowering it again.
 //!
@@ -189,8 +189,9 @@ pub struct WorkspaceKey {
     pub roots: String,
     /// 2.8: the values of the keyed environment switches ([`env_values`]).
     pub env: Vec<(String, Option<Vec<u8>>)>,
-    /// Not in the ADR text (prototype choice): what decides the compile's path in al-testrun besides the above (the
-    /// lean selection, the weighing of the install baseline, `--require-compile-cache`, the suites, the program order).
+    /// Not a field of decision 2: what else decides the compile in al-testrun (whether the install baseline is wanted and weighed,
+    /// which `--require-compile-cache` turns off, `lean` when it is, the suites, how many apps the layers below hold).
+    /// Without it a weighed compile or a lean selection could share a key with a compile that differs (decision 5).
     pub path: String,
     /// Not in the ADR text (review MED 3): the ids of the apps the platform package grants its internals to
     /// (`internals_grant::granted_app_ids`, sorted), read from every manifest, a dependency's too.
