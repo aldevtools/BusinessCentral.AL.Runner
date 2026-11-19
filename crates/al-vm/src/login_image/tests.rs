@@ -46,7 +46,7 @@ codeunit 50100 Keeper
         A: Codeunit Peer; B: Codeunit Peer; Sub1: Codeunit Sub;
         Rec: Record Row; T1: Record TRow temporary; T2: Record TRow temporary;
         Items: List of [Integer]; Dict: Dictionary of [Integer, Text]; Refs: array[3] of RecordRef;
-        V1: Variant; V2: Variant; J: JsonObject; Strm: InStream;
+        V1: Variant; V2: Variant; J: JsonObject; Strm: InStream; TB: Record Row temporary; RR: RecordRef;
 
     procedure FillTemps()
     begin
@@ -88,6 +88,16 @@ codeunit 50100 Keeper
     procedure MakeSequence() begin NumberSequence.Insert('S50', 5, 3); Commit(); end;
     procedure Schedule() begin TaskScheduler.CreateTask(50101, 0, true); end;
     procedure FillJson() begin J.Add('a', 1); end;
+    procedure InsertBlobTemp() begin TB.Id := 1; TB.Insert(); end;
+    procedure WriteBlobTemp(): Text
+    var O: OutStream; I: InStream; T: Text;
+    begin
+        TB.Data.CreateOutStream(O, TextEncoding::UTF8); O.WriteText('RT');
+        TB.CalcFields(Data); TB.Data.CreateInStream(I, TextEncoding::UTF8); I.ReadText(T);
+        exit(Format(TB.Data.HasValue()) + ':' + T);
+    end;
+    procedure NotedAndGone() var L: RecordRef; V: Variant; begin L.Open(50100); V := L; end;
+    procedure NotedAndHeld() begin RR.Open(50100); V1 := RR; end;
     procedure ReadAccent(): Text begin Rec.SetRange(Name, 'é'); T1.SetRange(Name, 'é'); exit(Format(Rec.Count()) + '|' + Format(T1.Count())); end;
 }
 "#;
@@ -721,8 +731,32 @@ fn the_size_counts_what_the_image_holds() {
     let size = image(&mut f.session).size();
     // Keeper, its three codeunit globals (A is the Peer set below, B and Sub1 are new instances) and the Peer's own `Back`.
     assert_eq!(size.instances, 5);
-    assert_eq!(size.temp_tables, 1);
+    // T1 and T2 share one table; TB, the temporary record of a table with a Blob field, is a second one (no rows).
+    assert_eq!(size.temp_tables, 2);
     assert_eq!(size.temp_rows, 3);
     assert!(size.rows_own_bytes <= size.rows_bytes);
     assert!(size.nodes >= size.instances + size.temp_tables);
+}
+
+// A temporary record of a table with a Blob field, after an Insert from AL while its Blob is empty, is imaged: the token's
+// empty-Blob insert note goes with the table, so the twin's next Blob write behaves as the original's.
+#[test]
+fn a_temporary_record_with_a_blob_field_inserted_from_al_round_trips() {
+    let mut f = fx();
+    f.run("InsertBlobTemp");
+    let mut twin = round_trip(&mut f.session);
+    let ours = f.run("WriteBlobTemp");
+    assert_eq!(ours, outcome(&mut twin, f.keeper, "WriteBlobTemp"));
+}
+
+// RecordRef handles a Variant took are noted by the session; a session whose noted handles are all gone is imaged, and
+// one whose noted handle a global still holds is not.
+#[test]
+fn noted_recordref_handles_that_are_gone_do_not_refuse_and_held_ones_do() {
+    let mut f = fx();
+    f.run("NotedAndGone");
+    round_trip(&mut f.session);
+    let mut g = fx();
+    g.run("NotedAndHeld");
+    assert_eq!(refused(&mut g), NotImaged::Field("variant_refs"));
 }
