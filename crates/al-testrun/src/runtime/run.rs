@@ -794,7 +794,7 @@ fn run_codeunit_inner(
             let outcome = if let Some(o) = decided {
                 o
             } else if let Some(why) = &stopped {
-                Outcome::NotRun(why.clone())
+                scratch.skip(&name, why)
             } else if let Some(b) = case
                 .as_ref()
                 .and_then(|(src, ..)| blocked_site(lowered, src.object, src.get))
