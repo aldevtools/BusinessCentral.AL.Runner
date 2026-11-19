@@ -232,6 +232,7 @@ mod save_row_gone;
 mod saveasxml_y67_columns;
 mod savevalues_open_page_order;
 mod selection_filter_linked_part_no_row;
+mod send_checked_handler_error;
 mod single_instance_test_codeunit;
 mod split_key_reporter_repros;
 mod split_key_view_refusals;
