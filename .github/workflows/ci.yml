@@ -810,8 +810,8 @@ jobs:
       #                                         by range. They use fresh cache directories, so they check the
       #                                         protocol and the real archives, not a cache.
       #   workspace_cache_equality              ADR-022 amendment 2026-11-15: the corpus apps over the Microsoft apps of
-      #                                         BC 27, compiled fresh and read from the workspace layer, with all threads
-      #                                         and with one; the canonical dumps must be equal (about 2.5 min).
+      #                                         BC 27, one compile per process over one cache folder (fresh, built, read,
+      #                                         read and fresh with one thread); the canonical dumps must be equal.
       - name: Release tests (corpus_resolve_deps, platform_tables, corpus_harness, must_not_compile, workspace_cache_equality, network)
         run: |
           tools/run_test_binaries.sh --release -- \
