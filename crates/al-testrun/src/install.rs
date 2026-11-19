@@ -834,33 +834,35 @@ fn refused_tables(engine: &Engine, lowered: &Lowered, (oi, ri): (usize, usize), 
     if at_home {
         return touched(engine, lowered, oi, ri);
     }
-    tables_written_with_subscribers(engine, lowered, (oi, ri))
+    with_subscribers(engine, lowered, (oi, ri), crate::baseline::tables_written_or_loaded)
 }
 
-/// The tables install code `(oi, ri)` and the subscribers it reaches write, through a RecordRef too
-/// (`baseline::tables_written_or_loaded`).
-fn tables_written_with_subscribers(engine: &Engine, lowered: &Lowered, (oi, ri): (usize, usize)) -> BTreeSet<u32> {
-    let mut written = crate::baseline::tables_written_or_loaded(lowered, oi, ri);
+/// The tables `of` finds for install code `(oi, ri)` and for each subscriber it reaches.
+fn with_subscribers(
+    engine: &Engine,
+    lowered: &Lowered,
+    (oi, ri): (usize, usize),
+    of: fn(&Lowered, usize, usize) -> BTreeSet<u32>,
+) -> BTreeSet<u32> {
+    let mut tables = of(lowered, oi, ri);
     for (so, sr) in crate::runtime::subscribers_reached(engine, lowered, oi, ri) {
-        written.extend(crate::baseline::tables_written_or_loaded(lowered, so, sr));
+        tables.extend(of(lowered, so, sr));
     }
-    written
+    tables
 }
 
-/// Assumption `subscriber-publisher-by-id` for install code: an Extension Triggers install subscriber written with the bare
-/// id 2000000010 runs as the one that names the codeunit (corpus PR 1466, SbiSubscriberByIdTests.al:276; al-vm
-/// `Registry::is_by_id_install`). Its rows exist only through it, so every table it and the subscribers it reaches write
-/// marks a test that touches it (`InstallFacts::assumed`), for the dependency apps (the baseline runs their install code)
-/// and the apps under test ([`run_apps_under_test`]) alike.
+/// Assumption `subscriber-publisher-by-id` for install code: an Extension Triggers install subscriber of an app under test
+/// written with the bare id 2000000010 runs as the one that names the codeunit (corpus PR 1466, SbiSubscriberByIdTests.al:276;
+/// al-vm `Registry::is_by_id_install`; a dependency app's one refuses every test, `Registry::dependency_platform_by_id`). Its
+/// row changes exist only through it, so every table it and the subscribers it reaches insert into, modify, rename or delete
+/// from (`baseline::tables_changed_or_loaded`) marks a test that touches it (`InstallFacts::assumed`).
 fn assume_by_id_install_tables(engine: &Engine, lowered: &Lowered, out: &mut InstallFacts) {
-    for dependency in [true, false] {
-        for app in plan(lowered, &engine.events, dependency) {
-            let routines = app.company.iter().chain(&app.database);
-            for &(o, r) in routines.filter(|&&(o, r)| engine.events.is_by_id_install(o, r)) {
-                for t in tables_written_with_subscribers(engine, lowered, (o, r)) {
-                    let marks = out.assumed.entry(t as usize).or_default();
-                    marks.insert(al_builtins::assumptions::Assumption::SubscriberPublisherById);
-                }
+    for app in plan(lowered, &engine.events, false) {
+        let routines = app.company.iter().chain(&app.database);
+        for &(o, r) in routines.filter(|&&(o, r)| engine.events.is_by_id_install(o, r)) {
+            for t in with_subscribers(engine, lowered, (o, r), crate::baseline::tables_changed_or_loaded) {
+                let marks = out.assumed.entry(t as usize).or_default();
+                marks.insert(al_builtins::assumptions::Assumption::SubscriberPublisherById);
             }
         }
     }

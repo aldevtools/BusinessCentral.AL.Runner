@@ -79,6 +79,9 @@ pub struct Registry {
     by_id_assumed: std::collections::HashSet<(usize, String)>,
     /// (object, routine) of the `install_subscribers` written with a bare publisher id ([`Registry::is_by_id_install`]).
     by_id_install: std::collections::HashSet<(usize, usize)>,
+    /// (subscriber, bare id) of each dependency app's subscriber to a platform codeunit event of [`platform_by_id_events`] written
+    /// with the bare id, in program order ([`Registry::dependency_platform_by_id`]).
+    dependency_platform_by_id: Vec<(String, String)>,
     /// (lower-case codeunit, lower-case event) -> subscribers of events the runtime does not raise: every event of `UI Helper
     /// Triggers`, of `Reporting Triggers` and Base Application's `ReportManagement`, and OnResolveAutoFormat and
     /// OnAfterResolveAutoFormat of `Auto Format`. Where BC raises such an event, the runtime refuses
@@ -241,6 +244,7 @@ impl Default for Registry {
             scope_assumed: Default::default(),
             by_id_assumed: Default::default(),
             by_id_install: Default::default(),
+            dependency_platform_by_id: Vec::new(),
             unraised: HashMap::new(),
             absent: Vec::new(),
             install_subscribers: Vec::new(),
@@ -472,15 +476,15 @@ fn bare_id(written: &str) -> Option<&str> {
 /// the assumption `subscriber-publisher-by-id` covers: BC binds it as it binds the name form (corpus PR 1466,
 /// tests/al-language/events/subscriber-by-id/SbiSubscriberByIdTests.al, local runs on every verified BC major). The measured
 /// shapes, each fact by equality; every other one refuses (`MissingWhy::PublisherByIdNotMeasured`):
-/// - the platform codeunits Global Triggers 2000000002 GetDatabaseTableTriggerSetup and OnDatabaseInsert (:144), Caption
-///   Class 42 OnResolveCaptionClass and OnAfterCaptionClassResolve (:186), Company Triggers 2000000003 OnCompanyOpen and
-///   OnCompanyOpenCompleted (:265), Extension Triggers 2000000010 OnInstallAppPerDatabase and OnInstallAppPerCompany (:276);
-/// - for a subscriber of the app under test only (the probe's subscribers are all in its one app, the app under test; a
-///   dependency app's subscriber to these is not measured): a publisher object of the subscriber's own app, being a
+/// for a subscriber of the app under test only (the probe's subscribers are all in its one app, the app under test; a
+/// dependency app's subscriber is not measured):
+/// - the platform codeunits of [`platform_by_id_events`];
+/// - a publisher object of the subscriber's own app, being a
 ///   codeunit's own IntegrationEvent or BusinessEvent (:23, :36, :47, :65), a report's own IntegrationEvent (:133), a
 ///   table's OnBeforeInsertEvent, OnAfterInsertEvent, OnAfterModifyEvent, OnAfterDeleteEvent and OnAfterValidateEvent
-///   (:78), a page's OnOpenPageEvent and OnAfterValidateEvent (:109); the System Application's codeunit 45 "Auto Format"
-///   OnResolveAutoFormat and OnAfterResolveAutoFormat (:201).
+///   (:78), a page's OnOpenPageEvent and OnAfterValidateEvent (:109);
+/// - the System Application's codeunit 45 "Auto Format" (`al_ir::is_system_application_codeunit`) OnResolveAutoFormat and
+///   OnAfterResolveAutoFormat (:201).
 fn by_id_measured(
     (heads, apps): (&[ir::ObjectHead], &[ir::AppInfo]),
     o: &ir::ObjectHead,
@@ -489,22 +493,16 @@ fn by_id_measured(
     event: &str,
     found: Option<usize>,
 ) -> bool {
-    let platform: &[&str] = match (kind, id) {
-        (ObjKind::Codeunit, "2000000002") => &["getdatabasetabletriggersetup", "ondatabaseinsert"],
-        (ObjKind::Codeunit, "42") => &["onresolvecaptionclass", "onaftercaptionclassresolve"],
-        (ObjKind::Codeunit, "2000000003") => &["oncompanyopen", "oncompanyopencompleted"],
-        (ObjKind::Codeunit, "2000000010") => &["oninstallappperdatabase", "oninstallapppercompany"],
-        _ => &[],
-    };
-    if platform.contains(&event) {
-        return true;
-    }
     // AppInfo::dependency has two states: a dependency app or the app under test.
     let of_app_under_test = apps.get(o.app as usize).is_some_and(|a| !a.dependency);
+    if platform_by_id_events(kind, id).contains(&event) {
+        return of_app_under_test;
+    }
     let found = found.and_then(|t| heads.get(t)).filter(|_| of_app_under_test);
-    if (kind, id) == (ObjKind::Codeunit, "45")
-        && found.is_some_and(|p| p.id == Some(45) && p.name.eq_ignore_ascii_case("Auto Format"))
-    {
+    let system_application = |p: &ir::ObjectHead| {
+        (apps.get(p.app as usize)).is_some_and(|a| al_ir::is_system_application_codeunit("Auto Format", &p.name, &a.id))
+    };
+    if (kind, id) == (ObjKind::Codeunit, "45") && found.is_some_and(|p| p.id == Some(45) && system_application(p)) {
         return ["onresolveautoformat", "onafterresolveautoformat"].contains(&event);
     }
     let Some(p) = found.filter(|p| p.app == o.app && p.kind == kind) else {
@@ -529,6 +527,21 @@ fn by_id_measured(
         .contains(&event),
         ObjKind::Page => ["onopenpageevent", "onaftervalidateevent"].contains(&event),
         _ => false,
+    }
+}
+
+/// The events of the platform codeunit written as the bare id `id` (kind `kind`) that corpus PR 1466 measured a bare-id
+/// subscriber of the app under test to (SbiSubscriberByIdTests.al): Global Triggers 2000000002 GetDatabaseTableTriggerSetup and
+/// OnDatabaseInsert (:144), Caption Class 42 OnResolveCaptionClass and OnAfterCaptionClassResolve (:186), Company Triggers
+/// 2000000003 OnCompanyOpen and OnCompanyOpenCompleted (:265), Extension Triggers 2000000010 OnInstallAppPerDatabase and
+/// OnInstallAppPerCompany (:276).
+fn platform_by_id_events(kind: ObjKind, id: &str) -> &'static [&'static str] {
+    match (kind, id) {
+        (ObjKind::Codeunit, "2000000002") => &["getdatabasetabletriggersetup", "ondatabaseinsert"],
+        (ObjKind::Codeunit, "42") => &["onresolvecaptionclass", "onaftercaptionclassresolve"],
+        (ObjKind::Codeunit, "2000000003") => &["oncompanyopen", "oncompanyopencompleted"],
+        (ObjKind::Codeunit, "2000000010") => &["oninstallappperdatabase", "oninstallapppercompany"],
+        _ => &[],
     }
 }
 
@@ -616,6 +629,9 @@ impl Registry {
                             let by_id = bare_id(&args[1]);
                             let measured = by_id
                                 .is_some_and(|id| by_id_measured((heads, &program.apps), o, kind, id, &event, found));
+                            if reg.list_dependency_platform_by_id(&program.apps, (o, &r.name), (kind, by_id), &event) {
+                                continue;
+                            }
                             // The page client raises the caption class event under a key of its own,
                             // whether or not the codeunit is compiled.
                             if kind == ObjKind::Codeunit
@@ -960,6 +976,38 @@ impl Registry {
         for key in found.into_iter().chain(platform) {
             self.by_id_assumed.insert((key, event.to_string()));
         }
+    }
+
+    /// Lists subscriber routine `name` of object `o` when it is a dependency app's subscriber to an event of
+    /// [`platform_by_id_events`] written with the bare id `by_id` (kind `kind`): not measured, so it is registered nowhere
+    /// and every test refuses ([`Registry::dependency_platform_by_id`]). Whether it listed it.
+    fn list_dependency_platform_by_id(
+        &mut self,
+        apps: &[ir::AppInfo],
+        (o, name): (&ir::ObjectHead, &str),
+        (kind, by_id): (ObjKind, Option<&str>),
+        event: &str,
+    ) -> bool {
+        let Some(id) = by_id.filter(|&id| {
+            platform_by_id_events(kind, id).contains(&event) && apps.get(o.app as usize).is_some_and(|a| a.dependency)
+        }) else {
+            return false;
+        };
+        let subscriber = format!("{} \"{}\".{}", o.kind, o.name, name);
+        self.dependency_platform_by_id.push((subscriber, id.to_string()));
+        true
+    }
+
+    /// Why every test of the run is not run: a dependency app subscribes to a platform codeunit event by its bare id, which corpus
+    /// PR 1466 measured for a subscriber of the app under test only (SbiSubscriberByIdTests.al). Such a subscriber is
+    /// registered nowhere: it would act before or outside any one test (an install or company-open subscriber, Global Triggers,
+    /// Caption Class).
+    pub fn dependency_platform_by_id(&self) -> Option<String> {
+        let (subscriber, id) = self.dependency_platform_by_id.first()?;
+        Some(format!(
+            "{subscriber} of a dependency app subscribes to the platform codeunit {id} by its bare id; that BC binds it as it \
+             binds the name is measured for a subscriber of the app under test only (al-runner issue 8470)"
+        ))
     }
 
     /// Whether install subscriber `(object, routine)` (`install_subscribers`) is written with the bare id of Extension

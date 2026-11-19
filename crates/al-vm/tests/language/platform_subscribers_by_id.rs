@@ -54,6 +54,16 @@ fn a_make_int_filter_subscriber_written_with_the_codeunit_id_refuses_the_raise()
 
 /// Runs `proc` of `object` in a workspace app whose dependency app holds `dep`.
 fn run_with_dependency(dep: &str, ws: &str, object: &str, proc: &str) -> Result<al_builtins::value::Value, Signal> {
+    run_with_dependency_app("dep", dep, ws, (object, proc))
+}
+
+/// [`run_with_dependency`] with the dependency app's id `dep_id`.
+fn run_with_dependency_app(
+    dep_id: &str,
+    dep: &str,
+    ws: &str,
+    (object, proc): (&str, &str),
+) -> Result<al_builtins::value::Value, Signal> {
     use al_sema::workspace::{AppKind, AppSource};
     let app = |id: &str, deps: &[&str], src: &str| AppSource {
         id: id.into(),
@@ -62,7 +72,7 @@ fn run_with_dependency(dep: &str, ws: &str, object: &str, proc: &str) -> Result<
         files: vec![(format!("{id}.al"), src.to_string())],
     };
     let (w, l) = al_sema::lower::compile_apps_with(
-        vec![app("dep", &[], dep), app("ws", &["dep"], ws)],
+        vec![app(dep_id, &[], dep), app("ws", &[dep_id], ws)],
         vec![AppKind::Dependency, AppKind::Workspace],
         &Default::default(),
         None,
@@ -434,14 +444,24 @@ codeunit 50100 C
 }
 "#;
 
-/// A subscriber of the app under test to Auto Format 45 by the bare id: measured (SbiSubscriberByIdTests.al:201), runs flagged.
+/// A subscriber of the app under test to the System Application's Auto Format 45 by the bare id: measured
+/// (SbiSubscriberByIdTests.al:201), runs flagged.
 #[test]
 fn a_bare_id_auto_format_subscriber_of_the_app_under_test_runs_flagged() {
     use al_builtins::assumptions::{Assumption, take_hits};
     let _ = take_hits();
     let ws = format!("{AUTO_FORMAT_SUB}{CALL_AUTO_FORMAT}");
-    assert_eq!(text(run_with_dependency(AUTO_FORMAT, &ws, "C", "F")), "ran");
+    let got = run_with_dependency_app(al_ir::SYSTEM_APPLICATION_APP_ID, AUTO_FORMAT, &ws, ("C", "F"));
+    assert_eq!(text(got), "ran");
     assert!(take_hits().contains(&Assumption::SubscriberPublisherById));
+}
+
+/// A codeunit 45 "Auto Format" of an app other than the System Application is not measured: the raise refuses.
+#[test]
+fn a_bare_id_subscriber_to_another_apps_auto_format_45_refuses_the_raise() {
+    let ws = format!("{AUTO_FORMAT_SUB}{CALL_AUTO_FORMAT}");
+    let m = refused(run_with_dependency(AUTO_FORMAT, &ws, "C", "F"));
+    assert!(m.contains("by the id 45"), "{m}");
 }
 
 /// The same subscriber in the dependency app: not measured, the raise refuses.
