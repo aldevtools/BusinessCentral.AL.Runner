@@ -1491,16 +1491,9 @@ impl Session {
                 // A Date text with a piece no filter reads asks `MakeDateFilter` subscribers first.
                 if matches!(&parsed, Err(e) if e.starts_with(al_builtins::filter::INVALID_DATE))
                     && matches!(ty, RtType::Date)
-                    && self
-                        .engine
-                        .events
-                        .is_subscribed(crate::events::FILTER_HELPER_TRIGGERS, "makedatefilter")
                 {
-                    // Outside the pinned shape (an English session, no placeholders) the event is not raised, as before.
-                    if self.global_language == 1033 && args.len() <= 2 {
-                        if let Some(fixed) = self.repair_date_filter_text(&text, &|t| parse(t).is_ok())? {
-                            parsed = parse(&fixed);
-                        }
+                    if let Some(fixed) = self.date_filter_before_error(&text, args.len() > 2, &|t| parse(t).is_ok())? {
+                        parsed = parse(&fixed);
                     }
                 }
                 // An Integer or Time text of letters asks `MakeIntFilter` / `MakeTimeFilter` subscribers first (PtObserve.al:Bad_Int,

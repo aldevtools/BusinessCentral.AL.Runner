@@ -554,9 +554,15 @@ impl Session {
                     !use_names && record_form && matches!(t.fields[f.field].ty, RtType::Option(_) | RtType::Enum(_));
                 let text = if option_ordinals || numeric_option {
                     // A Date or DateTime value takes the XML form here too (events/platform-triggers/PtObserve.al:600
-                    // `WHERE(Field5=1(2020-01-01..))`); a Boolean of this form is not pinned and keeps its session form.
-                    let iso = !matches!(t.fields[f.field].ty, RtType::Boolean);
-                    self.filter_text_with(&ordinals(&f.expr), iso)?
+                    // `WHERE(Field5=1(2020-01-01..))`). A Boolean filter of a FilterPageBuilder's GetView(Name, false) is not
+                    // pinned (al-runner issue 7632).
+                    if matches!(t.fields[f.field].ty, RtType::Boolean) {
+                        return unsupported(format!(
+                            "FilterPageBuilder.GetView(Name, false) with a filter on the Boolean field {}: the text is not pinned",
+                            t.fields[f.field].name
+                        ));
+                    }
+                    self.filter_text_with(&ordinals(&f.expr), true)?
                 } else {
                     self.enum_ml_filter_check(t, f)?;
                     self.filter_text_with(&f.expr, true)?
