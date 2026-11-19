@@ -235,7 +235,7 @@ fn issue_8284_reporter_repro_hands_the_validate_xrec_through_a_subscriber_and_a_
     }
 }
 
-/// The cells of record/validate/XRecTableProcThroughSubscriber.al (corpus PR 1438, measured on a local Business Central
+/// The cells of record/validate/XRecTableProcThroughSubscriber.al (corpus PR 1438, merged, not pinned yet; measured on a local Business Central
 /// container) and their neighbors. Each test validates a record whose stored row holds 0/OLD/I1 and whose variable holds
 /// 0/NEW/I1 (Mode ordinal/Series/"Item No."), and checks the log of xRecs against what BC logged; a neighbor that is not
 /// measured refuses a read of xRec.
