@@ -94,6 +94,9 @@ pub struct Hooks {
     /// The run's stop for its hard memory limit (ADR-066 amendment 10, decision 6; `runtime::memory::Halt`): once set,
     /// the running test is stopped and no further test starts; the tests not reached are not run, with its reason.
     pub halt: Option<Arc<crate::runtime::memory::Halt>>,
+    /// `stopAtFirstFailure` (upstream issue 8210): once a failed test trips it, no further test starts; the running
+    /// ones finish and the tests not reached are not run, with its reason.
+    pub stop_at_failure: Option<crate::failure_stop::FailureStop>,
 }
 
 /// The wall time a debugger kept the tests stopped: the debugger calls `stop` when it stops a test and `resume` when it
@@ -157,6 +160,7 @@ impl std::fmt::Debug for Hooks {
             .field("cancel", &self.cancel.is_some())
             .field("debugger", &self.debugger.is_some())
             .field("halt", &self.halt.is_some())
+            .field("stop_at_failure", &self.stop_at_failure)
             .finish()
     }
 }

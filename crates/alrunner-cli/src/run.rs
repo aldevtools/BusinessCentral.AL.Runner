@@ -782,6 +782,8 @@ pub struct WarmCtx {
     /// The entries of the request (`runTests` with `entries`, issue 5635): each runs its own tests with its own
     /// resource files, over one compile and one install baseline. Empty: one run, as the arguments say.
     pub entries: Vec<Entry>,
+    /// `stopAtFirstFailure` of the request (upstream issue 8210); `None`: off. Set and cleared per request.
+    pub stop_at_first_failure: Option<crate::first_failure::StopScope>,
     /// Set from outside: the run stops after the current test.
     pub cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
     /// What the last run came to.
@@ -864,6 +866,9 @@ pub struct Entry {
     pub resources: std::collections::BTreeMap<String, String>,
     /// As `--test-timeout-secs`, for this entry (al-runner issue 8125). `None`: the request's limit.
     pub test_timeout_secs: Option<u64>,
+    /// `stopGroup` (upstream issue 8210): with `stopAtFirstFailure: "group"`, the entries with the same one stop
+    /// together. `None`: a group of its own.
+    pub stop_group: Option<String>,
 }
 
 impl Entry {

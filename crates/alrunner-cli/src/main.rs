@@ -11,6 +11,7 @@ mod coverage;
 mod debug;
 mod demotool;
 mod dev_endpoint_ui;
+mod first_failure;
 mod impact;
 mod impact_index;
 mod matrix;

@@ -22,6 +22,7 @@ pub mod dotnet_env;
 pub mod dotnet_runtime;
 pub mod events;
 pub mod explain;
+pub mod failure_stop;
 pub mod flagged;
 pub mod host;
 pub mod impact_static;
