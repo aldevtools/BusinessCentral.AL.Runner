@@ -182,6 +182,7 @@ impl Session {
         let cache = &mut self.pages.query_cache;
         let mut tables: Vec<u32> = self
             .tx
+            .open
             .writes
             .iter()
             .filter(|w| matches!(w.kind, K::ModifyAll | K::DeleteAll | K::Truncate))
@@ -225,7 +226,7 @@ impl Session {
         };
         // A lock the test session holds on another table (`TxState::lock_tx`) is not the read's: a worker reads outside the
         // test session's transaction (testpage/TestPageBgTaskTx_Tests.al).
-        Ok(plain && !self.tx.locked_tables.contains(&t.object) && !self.store_for(rec)?.is_virtual(t))
+        Ok(plain && !self.tx.open.locked_tables.contains(&t.object) && !self.store_for(rec)?.is_virtual(t))
     }
 
     /// The one value `f` is set to by `SetRange(F, V)` in filter group 0, if it is that.
