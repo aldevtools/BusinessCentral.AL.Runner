@@ -59,7 +59,8 @@ const FEATURE_KEY_TEXTS: &[(&str, &str, &str)] = &[
 /// `Mandatory By Version`, `Can Try`, `Is One Way` and `Data Update Required`, per major from record/PFFeatureKeyColumns.al
 /// (FeatureKey_RowsPerId_PerMeasuredVersion; the state is per tenant); `Enabled` and `Data Update Required` of the first major
 /// also record/TestFieldLenAndFeatureKeyContracts.al:83-125. The three lists are the newest minor of each major; 27.0 and
-/// 28.0 differ in one row, minors the corpus did not measure are refused. The Description columns are not pinned.
+/// 28.0 differ in one row. 29.1 is served on the assumption `feature-key-rows-container-measured` (al-runner issue
+/// 8192); other minors the corpus did not measure are refused. The Description columns are not pinned.
 pub(super) fn feature_key_rows(t: &TableDef, target: Option<&al_version::Target>) -> Vec<Entry> {
     // (ID, Enabled is All Users, Mandatory By Version major, Can Try, Is One Way, Data Update Required)
     type Row = (&'static str, bool, u32, bool, bool, bool);
@@ -147,11 +148,39 @@ pub(super) fn feature_key_rows(t: &TableDef, target: Option<&al_version::Target>
         ("SaveValueToDatabasePromptly", true, 30, true, false, false),
         ("SemanticMetadataSearch", true, 30, false, false, false),
     ];
+    // 29.1 (al-runner issue 8192): the 29.0 list plus NewNotificationBar, measured by a contributor on one BC 29.1 W1
+    // sandbox container (build 29.1.57326.58379, fresh tenant, 2026-11-18) with the RowText of
+    // record/PFFeatureKeyColumns.al. The corpus has not measured 29.1: every row runs on the assumption
+    // feature-key-rows-container-measured.
+    const ROWS_FOURTH: &[Row] = &[
+        ("AcceleratedDepreciation", false, 31, false, true, true),
+        ("AdvancedTellMe", true, 30, false, false, false),
+        ("ConcurrentInventoryPosting", true, 31, false, false, false),
+        ("ConcurrentJobPosting", true, 31, false, false, false),
+        ("ConcurrentResourcePosting", true, 31, false, false, false),
+        (
+            "DisableSoapWebServicesOnMicrosoftUIPages",
+            true,
+            29,
+            false,
+            false,
+            false,
+        ),
+        ("DocumentReportExperience", true, 31, false, false, false),
+        ("EXRPerformantTrialBalance", true, 31, true, false, false),
+        ("FinancialReportDefaults", true, 29, true, false, false),
+        ("FullTextSearch", false, 30, true, false, false),
+        ("NewNotificationBar", true, 30, true, false, false),
+        ("SalesPrices", false, 31, false, true, true),
+        ("SaveValueToDatabasePromptly", true, 30, true, false, false),
+        ("SemanticMetadataSearch", true, 30, false, false, false),
+    ];
     use al_version::FeatureKeyRows;
     let rows = match al_version::feature_key_rows(target) {
         Some(FeatureKeyRows::Bc27 | FeatureKeyRows::Bc27_0) => ROWS_FIRST,
         Some(FeatureKeyRows::Bc28 | FeatureKeyRows::Bc28_0) => ROWS_SECOND,
         Some(FeatureKeyRows::Bc29) => ROWS_THIRD,
+        Some(FeatureKeyRows::Bc29_1) => ROWS_FOURTH,
         None => {
             return vec![Entry::poisoned_prefix(
                 blank(t),
@@ -167,6 +196,8 @@ pub(super) fn feature_key_rows(t: &TableDef, target: Option<&al_version::Target>
         al_version::feature_key_rows(target),
         Some(FeatureKeyRows::Bc27_0 | FeatureKeyRows::Bc28_0)
     );
+    let assumed = matches!(al_version::feature_key_rows(target), Some(FeatureKeyRows::Bc29_1))
+        .then_some(al_builtins::assumptions::Assumption::FeatureKeyRowsContainerMeasured);
     rows.iter()
         .map(|&(id, all_users, version, can_try, one_way, data_update)| {
             let all_users = all_users != (flipped && id == "SemanticMetadataSearch");
@@ -197,7 +228,10 @@ pub(super) fn feature_key_rows(t: &TableDef, target: Option<&al_version::Target>
                     };
                 }
             }
-            Entry::ok(r)
+            match assumed {
+                Some(a) => Entry::ok(r).assuming(a),
+                None => Entry::ok(r),
+            }
         })
         .collect()
 }
