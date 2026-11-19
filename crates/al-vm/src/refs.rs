@@ -417,7 +417,7 @@ impl Session {
         if o.uncompiled {
             return unsupported("Evaluate into a RecordId of a table of an app that is not compiled");
         }
-        let table_no = o.id.unwrap_or(0);
+        let table_no = crate::object_ids::declared_id(o.id)?;
         let table_name = o.name.clone();
         let key = match key_text {
             None => Vec::new(),
@@ -1072,9 +1072,9 @@ impl Session {
         let rec = Self::open_ref(lib, &format!("RecordRef.{method}"))?;
         let t = self.table(&rec)?;
         match method {
-            "Number" => Ok(Value::Integer(
-                self.engine.program.objects[t.object as usize].id.unwrap_or(0) as i32,
-            )),
+            "Number" => Ok(Value::Integer(crate::object_ids::declared_id(
+                self.engine.program.objects[t.object as usize].id,
+            )? as i32)),
             "Name" => Ok(Value::Text(t.name.clone().into())),
             "Caption" => self.caption_checked(&t).map(|c| Value::Text(c.into())),
             // corpus recordref-fieldref/recordref/TestRecordRefGetSet.al:16-30 pins only that it is not empty.
@@ -1226,7 +1226,8 @@ impl Session {
                                 "RecordRef.Field({no}) of a removed field without an ObsoleteReason (the text is not pinned)"
                             ));
                         };
-                        let table_id = self.engine.program.objects[t.object as usize].id.unwrap_or(0);
+                        let table_id =
+                            crate::object_ids::declared_id(self.engine.program.objects[t.object as usize].id)?;
                         Err(crate::transactions::al_error_code(
                             &format!(
                                 "Field {} ({no}) of table {} ({table_id}) is obsoleted, reason: {reason}",

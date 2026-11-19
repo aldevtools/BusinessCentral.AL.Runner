@@ -1339,7 +1339,7 @@ impl Session {
         if self.permission_autocalc {
             return Ok(());
         }
-        let id = self.engine.program.objects.heads()[table].id.unwrap_or(0);
+        let id = crate::object_ids::declared_id(self.engine.program.objects.heads()[table].id)?;
         let access = Access {
             kind: 0,
             id,
@@ -1405,7 +1405,7 @@ impl Session {
             if let Some(t) = table {
                 accesses.push(Access {
                     kind: 1,
-                    id: self.engine.program.objects.heads()[t].id.unwrap_or(0),
+                    id: crate::object_ids::declared_id(self.engine.program.objects.heads()[t].id)?,
                     op: Op::Execute,
                 });
             }
@@ -1430,7 +1430,7 @@ impl Session {
     #[cold]
     #[inline(never)]
     pub(crate) fn permission_flowfield_off_page(&mut self, table: usize) -> Result<bool, Signal> {
-        let id = self.engine.program.objects.heads()[table].id.unwrap_or(0);
+        let id = crate::object_ids::declared_id(self.engine.program.objects.heads()[table].id)?;
         let access = Access {
             kind: 0,
             id,
@@ -1476,7 +1476,7 @@ impl Session {
 
     fn object_read_inner(&mut self, tables: &[usize]) -> Result<(), Signal> {
         for &table in tables {
-            let id = self.engine.program.objects.heads()[table].id.unwrap_or(0);
+            let id = crate::object_ids::declared_id(self.engine.program.objects.heads()[table].id)?;
             let access = Access {
                 kind: 0,
                 id,

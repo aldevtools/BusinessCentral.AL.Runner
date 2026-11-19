@@ -1545,7 +1545,7 @@ impl Session {
             let ctl_name = ctl.name.clone();
             let owner = ctl.owner;
             let object = st.borrow().object as usize;
-            let declaring = self.object_id_of(owner.unwrap_or(object) as u32);
+            let declaring = self.object_id_of(owner.unwrap_or(object) as u32)?;
             let id = control_id(declaring, &ctl_name);
             return Err(match what {
                 "action" => error_code(

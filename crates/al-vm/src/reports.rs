@@ -223,7 +223,7 @@ impl Session {
             // OnInitReport is not pinned: a report that declares one is refused.
             ids::REPORT_DEFAULTLAYOUT_1 => {
                 let object = self.report_variable_object(&receiver, "DefaultLayout")?;
-                let id = self.object_id_of(object as u32);
+                let id = self.object_id_of(object as u32)?;
                 self.report_builtin(ids::REPORT_DEFAULTLAYOUT_2, None, &[Value::Integer(id as i32)], running)
             }
             ids::REPORT_RDLCLAYOUT_1 | ids::REPORT_WORDLAYOUT_1 | ids::REPORT_EXCELLAYOUT_1 => {
@@ -424,7 +424,7 @@ impl Session {
                     Some(other) => return unsupported(format!("Report.ObjectId with {}", other.describe())),
                 };
                 if !names {
-                    return Ok(Value::Text(format!("Report {}", o.id.unwrap_or(0)).into()));
+                    return crate::object_ids::object_id_text("Report", o.id);
                 }
                 let caption = match o.properties.iter().find(|(k, _)| k.eq_ignore_ascii_case("Caption")) {
                     Some((_, v)) => match crate::recmeta::string_literal(v) {
@@ -1805,7 +1805,7 @@ impl Session {
         Ok(Some(al_builtins::native::AlError {
             message: format!(
                 "Report {} does not have a valid layout. Valid layout types are: Word, RDLC, Excel, and Custom.",
-                self.object_id_of(schema.object as u32)
+                self.object_id_of(schema.object as u32)?
             ),
             // The code is ReportNoLayout (pages/parts/P117NoLayout.al:57, streams/PnH6SaveAs.al:254, :389).
             code: "ReportNoLayout".into(),
@@ -2927,7 +2927,7 @@ impl Session {
     /// NewReportId -1 on entry, and a NewReportId a subscriber sets runs that report. Not pinned, and passed as BC most
     /// likely does (docs/probes-needed.md): RequestPageXml empty and RecordRef unopened.
     fn raise_substitute_report(&mut self, schema: &Schema, request_page_xml: Value) -> Result<Option<i32>, Signal> {
-        let report_id = self.object_id_of(schema.object as u32) as i32;
+        let report_id = self.object_id_of(schema.object as u32)? as i32;
         match self.raise_substitute(report_id, 4, request_page_xml)? {
             n if n == -1 || n == report_id => Ok(None),
             n => Ok(Some(n)),
@@ -3038,7 +3038,7 @@ impl Session {
         let source = LibraryValue::InStream(InState::live(document, Encoding::Utf8));
         let target = LibraryValue::OutStream(output.clone(), Encoding::Utf8, None);
         let mut args = vec![
-            Value::Integer(self.object_id_of(schema.object as u32) as i32),
+            Value::Integer(self.object_id_of(schema.object as u32)? as i32),
             al_builtins::json::unpinned_object("the ObjectPayload of OnDocumentReady is not pinned"),
             stream("InStream", source),
             stream("OutStream", target),
@@ -3223,7 +3223,7 @@ impl Session {
         Ok(Ok(format!(
             "[{{\"name\":{},\"tableid\":{},\"view\":{}}}]",
             lit(&item.name),
-            self.object_id_of(table),
+            self.object_id_of(table)?,
             lit(&view)
         )))
     }
@@ -3306,7 +3306,7 @@ impl Session {
              \"layoutmimetype\":{},\"layoutapplicationid\":{},\"reportrunid\":{}}}",
             filter_views,
             lit(&caption),
-            self.object_id_of(schema.object as u32),
+            self.object_id_of(schema.object as u32)?,
             lit(document_type),
             lit(&invoked_by),
             lit(&when),
@@ -3379,7 +3379,7 @@ impl Session {
         .collect();
         let payload = self.custom_layout_payload(schema, format, &layout, filter_views)?;
         let mut args = vec![
-            Value::Integer(self.object_id_of(schema.object as u32) as i32),
+            Value::Integer(self.object_id_of(schema.object as u32)? as i32),
             Value::Option(action, members),
             payload,
             stream(
@@ -3443,7 +3443,7 @@ impl Session {
             Some(Value::TestPage(st)) if st_of(&st).borrow().open && o.report.is_some() => into_st(st),
             _ => return unsupported(format!("{id} outside the code of an open request page (not pinned)")),
         };
-        let report_id = self.object_id_of(object as u32);
+        let report_id = self.object_id_of(object as u32)?;
         const EDITABLE_OFF: &str = "a request page whose code set RequestPage.Editable(false) (not pinned)";
         const LOOKUP_ON: &str = "a request page whose code set RequestPage.LookupMode(true) (not pinned)";
         let mark = |st: &Rc<RefCell<crate::pages::PageState>>, on: bool, why: &str| {
@@ -3745,7 +3745,7 @@ impl Session {
     /// The table id and the lower case GUID of the row `rec` stands on.
     fn dataset_identity(&self, rec: &Rec) -> Result<(u32, String), Signal> {
         let object = rec.borrow().table as usize;
-        let id = self.object_id_of(object as u32);
+        let id = self.object_id_of(object as u32)?;
         if id == INTEGER_TABLE {
             return Ok((id, String::new())); // no systemId (dataset.rs `begin`)
         }

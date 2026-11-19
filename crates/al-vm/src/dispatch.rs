@@ -785,7 +785,7 @@ impl Session {
                 } else {
                     // corpus record/TestTableEventSequenceContracts.al:BindSubscription_Manual_Twice_And_Static_Errors
                     Err(binding_error(
-                        self.engine.program.objects[object].id.unwrap_or(0),
+                        crate::object_ids::declared_id(self.engine.program.objects[object].id)?,
                         "The codeunit does not use manual binding",
                     ))
                 };
@@ -796,7 +796,7 @@ impl Session {
                     Ok(Value::Boolean(false))
                 } else {
                     Err(binding_error(
-                        self.engine.program.objects[object].id.unwrap_or(0),
+                        crate::object_ids::declared_id(self.engine.program.objects[object].id)?,
                         "The codeunit has already been bound.",
                     ))
                 };

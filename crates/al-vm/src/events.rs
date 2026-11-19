@@ -164,6 +164,9 @@ pub enum MissingWhy {
     PublisherNotPicked(String),
     /// The publisher argument as written: neither `<Kind>::<name>` nor an object id (`ir::PublisherRef::Unread`).
     PublisherNotRead(String),
+    /// The publisher written as the id (the second field) of a platform codeunit (the first field) whose events the runtime
+    /// raises to the subscribers that name it ([`platform_codeunit_by_id`]).
+    PlatformPublisherById(&'static str, String),
 }
 
 impl Missing {
@@ -182,6 +185,12 @@ impl Missing {
             MissingWhy::PublisherNotRead(written) => format!(
                 "event {event}: {} subscribes to the publisher {written}, an argument that is neither `<Kind>::<name>` nor an \
                  object id, so which object it names is not known",
+                self.subscriber
+            ),
+            MissingWhy::PlatformPublisherById(name, written) => format!(
+                "event {event}: {} subscribes to the platform codeunit {name} by its id {written}; the runtime raises that \
+                 codeunit's events only to subscribers that name it, and whether BC treats the id the same is not pinned \
+                 (al-runner issue 7644)",
                 self.subscriber
             ),
         }
@@ -238,6 +247,64 @@ impl Registry {
             .entry((target.to_ascii_lowercase(), event.to_string()))
             .or_default()
             .push(Unraised::of(heads, oi, o, r));
+    }
+}
+
+/// The platform codeunits whose subscribers the registry finds by the publisher name as written (`Registry::build`), with the
+/// key the runtime raises their events under (`None`: the events are only listed in `Registry::unraised`).
+const NAMED_PLATFORM_CODEUNITS: [(&str, Option<usize>); 4] = [
+    ("Filter Helper Triggers", Some(FILTER_HELPER_TRIGGERS)),
+    ("UI Helper Triggers", Some(UI_HELPER_TRIGGERS)),
+    ("Reporting Triggers", Some(REPORTING_TRIGGERS)),
+    ("ReportManagement", None),
+];
+
+/// The name of the codeunit of [`NAMED_PLATFORM_CODEUNITS`] that subscriber attribute `a` names by its id (`written`, digits
+/// only): the object the compile resolved the publisher to has that name. `None` for a publisher written by name and for any
+/// other object.
+fn platform_codeunit_by_id(heads: &[ir::ObjectHead], a: &ir::Attribute, written: &str) -> Option<&'static str> {
+    if written.is_empty() || !written.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let t = match &a.publisher {
+        ir::PublisherRef::Only(t) | ir::PublisherRef::Picked { object: t, .. } => *t as usize,
+        _ => return None,
+    };
+    let head = heads.get(t).filter(|h| h.kind == ObjKind::Codeunit)?;
+    NAMED_PLATFORM_CODEUNITS
+        .iter()
+        .find(|(name, _)| head.name.eq_ignore_ascii_case(name))
+        .map(|(name, _)| *name)
+}
+
+impl Registry {
+    /// A subscriber that names platform codeunit `name` by its id `written` ([`platform_codeunit_by_id`]): raising any event of
+    /// the codeunit under its runtime key refuses (`MissingWhy::PlatformPublisherById`), and the subscriber is listed in
+    /// `unraised` under the name as a subscriber written with it would be.
+    fn add_by_id_platform_subscriber(
+        &mut self,
+        heads: &[ir::ObjectHead],
+        (oi, o, r): (usize, &ir::ObjectHead, &ir::EventRoutine),
+        name: &'static str,
+        written: &str,
+        event: &str,
+    ) {
+        if let Some((_, Some(key))) = NAMED_PLATFORM_CODEUNITS.iter().find(|(n, _)| *n == name) {
+            self.missing
+                .entry((*key, event.to_string()))
+                .or_default()
+                .push(Missing {
+                    element: String::new(),
+                    subscriber: format!("{} \"{}\".{}", o.kind, o.name, r.name),
+                    why: MissingWhy::PlatformPublisherById(name, written.to_string()),
+                });
+        }
+        if name != "Filter Helper Triggers" {
+            self.unraised
+                .entry((name.to_ascii_lowercase(), event.to_string()))
+                .or_default()
+                .push(Unraised::of(heads, oi, o, r));
+        }
     }
 }
 
@@ -403,6 +470,12 @@ impl Registry {
                             };
                             // The runtime raises (or refuses where BC raises) this event without the publisher object.
                             let mut native = false;
+                            if kind == ObjKind::Codeunit {
+                                if let Some(name) = platform_codeunit_by_id(heads, a, &target) {
+                                    native = true;
+                                    reg.add_by_id_platform_subscriber(heads, (oi, o, r), name, &target, &event);
+                                }
+                            }
                             // The page client raises the caption class event under a key of its own,
                             // whether or not the codeunit is compiled.
                             if kind == ObjKind::Codeunit

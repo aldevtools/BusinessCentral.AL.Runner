@@ -611,16 +611,6 @@ impl Session {
         Ok(true)
     }
 
-    /// The declared id of the object at index `object`, as BC prints it (0 when it has none).
-    pub(crate) fn object_id_of(&self, object: u32) -> u32 {
-        self.engine
-            .program
-            .objects
-            .get(object as usize)
-            .and_then(|o| o.id)
-            .unwrap_or(0)
-    }
-
     /// The bound handler of `kind` for `page`, marked as used: `Unhandled UI` when there is none
     /// (corpus testpage/TestPageModalHandler_Tests.al:105, TestPageRunHandler_Tests.al:
     /// NonModalPageRunWithoutAHandlerIsRefused). BC looks the handler up before the page opens, so
@@ -632,7 +622,7 @@ impl Session {
         kind: UiKind,
         page: u32,
     ) -> Result<(usize, usize, Rc<RefCell<Instance>>), Signal> {
-        let shown_id = self.object_id_of(page);
+        let shown_id = self.object_id_of(page)?;
         let Some(scope) = self.ui_state.scope.as_mut() else {
             return Err(Signal::unsupported(format!(
                 "{} outside a test method (what the runner does then is not pinned)",
@@ -679,8 +669,12 @@ impl Session {
     /// The refusal for a page of `kind` that the test bound no handler for. Code and text:
     /// errors/TestUnhandledUiAndDialogDefaults.al:97-104, reports/TestReportRuntimeContracts.al:425-426.
     pub(crate) fn unhandled_page(&self, kind: UiKind, object: u32) -> Signal {
+        let id = match self.object_id_of(object) {
+            Ok(id) => id,
+            Err(refusal) => return refusal,
+        };
         Signal::Error(Box::new(AlError {
-            message: format!("Unhandled UI: {} {}", kind.label(), self.object_id_of(object)),
+            message: format!("Unhandled UI: {} {id}", kind.label()),
             code: "MissingUIHandler".into(),
             call_stack: String::new(),
             ..Default::default()
@@ -756,13 +750,13 @@ impl Session {
                 return Signal::unsupported(format!("a client callback ({what}) outside any routine (not pinned)"));
             };
             let captioned = o.properties.iter().any(|(k, _)| k.eq_ignore_ascii_case("Caption"));
-            if o.kind != al_ir::ObjKind::Codeunit || captioned || o.id.is_none() {
+            let (al_ir::ObjKind::Codeunit, false, Some(id)) = (o.kind, captioned, o.id) else {
                 return Signal::unsupported(format!(
                     "a client callback ({what}) from install code in {}: only the text for a codeunit without a Caption is pinned",
                     o.name
                 ));
-            }
-            text.push_str(&format!(" (CodeUnit {} {})", o.id.unwrap_or(0), o.name));
+            };
+            text.push_str(&format!(" (CodeUnit {id} {})", o.name));
         }
         text.push_str(&format!(". Client callbacks are not supported on {product}."));
         Signal::Error(Box::new(AlError {
@@ -800,7 +794,11 @@ impl Session {
                 Err(e) => e,
             });
         }
-        Some(self.callback_not_allowed(&format!("run page {} {}", o.id.unwrap_or(0), o.name), false))
+        let id = match crate::object_ids::declared_id(o.id) {
+            Ok(id) => id,
+            Err(refusal) => return Some(refusal),
+        };
+        Some(self.callback_not_allowed(&format!("run page {id} {}", o.name), false))
     }
 
     pub(crate) fn ui_message(&mut self, text: String) -> Result<(), Signal> {

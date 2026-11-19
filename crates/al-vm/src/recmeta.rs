@@ -1127,7 +1127,7 @@ impl Session {
                         let pos = arg_pos(plain, 0)?;
                         let collectible = al_builtins::errorinfo::set_origin_of(
                             &copy,
-                            self.engine.program.objects[t.object as usize].id.unwrap_or(0) as i32,
+                            crate::object_ids::declared_id(self.engine.program.objects[t.object as usize].id)? as i32,
                             t.fields[pos].id as i32,
                         );
                         // No Message on the ErrorInfo: the collected one says what the uncollected call raises. The

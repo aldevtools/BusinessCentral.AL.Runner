@@ -449,7 +449,7 @@ impl Session {
                 // `control_id` of the declaring object and the part's name (testpage/parts/TestTestPart.al:233).
                 let engine = self.engine();
                 let ctl = &page_of(&engine, st).controls[control];
-                let declaring = self.object_id_of(ctl.owner.unwrap_or(st.borrow().object as usize) as u32);
+                let declaring = self.object_id_of(ctl.owner.unwrap_or(st.borrow().object as usize) as u32)?;
                 Err(error_code(
                     format!(
                         "The part with ID = {} was not found on the page.",
