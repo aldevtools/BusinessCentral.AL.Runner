@@ -373,7 +373,13 @@ impl<'a> Walker<'a> {
             Value::Library(kind, cell) => node(self, Holder::Library(kind.clone(), cell.clone())),
             Value::Blob(b) => node(self, Holder::Blob(b.clone())),
             Value::Query(q) => node(self, Holder::Query(q.clone())),
-            Value::DotNet(_) => Err(deferred(path, "DotNet")),
+            // The check is the one owner of which objects have an exact form (state_render.rs): one it renders as opaque is
+            // an object of the .NET process, a handle of this session. One it renders exactly (an enum value, an object the
+            // runtime serves itself, such as `ALConfigSettings.Instance`) waits for its node (the first follow-up).
+            Value::DotNet(_) => match crate::state_render::Render::new(self.session).value(v, 0) {
+                Ok(_) => Err(deferred(path, "DotNet object the runtime serves")),
+                Err(_) => Err(never(path, "DotNet object of the .NET process")),
+            },
             Value::TestPage(_) => Err(never(path, "TestPage")),
             Value::TestControl(_) => Err(never(path, "TestControl")),
             Value::SqlCount(_) => Err(never(path, "SQL counter value")),
@@ -496,5 +502,125 @@ codeunit 50110 Holder
         assert!(std::rc::Rc::ptr_eq(&noted[0].0, &own), "the twin's own record");
         assert_ne!(std::rc::Rc::as_ptr(&noted[0].0), original, "not the original's");
         assert_eq!(noted[0].1, 1);
+    }
+
+    const KINDS: &str = r#"
+table 50111 KRow
+{
+    fields { field(1; Id; Integer) { } field(2; Data; Blob) { } field(3; Name; Text[20]) { } }
+    keys { key(PK; Id) { } }
+}
+codeunit 50111 Kinds
+{
+    SingleInstance = true;
+    var
+        L: List of [Text]; D: Dictionary of [Integer, Text]; A: array[2] of Integer; T: Record KRow temporary;
+        R: Record KRow; RR: RecordRef; J: JsonObject; JA: JsonArray; X: XmlDocument; N: Notification; E: ErrorInfo;
+        TB: TextBuilder; Req: HttpRequestMessage; H: HttpHeaders; C: Codeunit Kinds2; I: InStream; V: Variant;
+    procedure FillList() begin L.Add('a'); L.Add('é'); end;
+    procedure FillDict() begin D.Add(1, 'x'); end;
+    procedure FillArray() begin A[2] := 7; end;
+    procedure FillTemp() begin T.Id := 1; T.Name := 'n'; T.Insert(); T.SetRange(Id, 1); end;
+    procedure FillRecord() begin R.SetRange(Name, 'a'); R.SetCurrentKey(Id); end;
+    procedure FillRecordRef() begin RR.Open(50111); end;
+    procedure FillJson() begin J.Add('a', 1); end;
+    procedure FillJsonArray() begin JA.Add(1); end;
+    procedure FillXml() begin X := XmlDocument.Create(); end;
+    procedure FillNotification() begin N.Message('m'); end;
+    procedure FillErrorInfo() begin E.Message('m'); end;
+    procedure FillTextBuilder() begin TB.Append('t'); end;
+    procedure FillHttp() begin Req.Method('GET'); end;
+    procedure FillHeaders() begin Req.GetHeaders(H); end;
+    procedure FillCodeunit() begin C.Touch(); end;
+    procedure FillVariant() begin V := 5; end;
+    procedure Nothing() begin end;
+}
+codeunit 50112 Kinds2 { var M: Integer; procedure Touch() begin M := 1; end; }
+"#;
+
+    /// The shapes v1 of the image defers although the check renders them exactly (design decision 10): each its own
+    /// counted reason in the `login image:` line, each a follow-up.
+    const DEFERRED: [&str; 3] = [
+        "JsonObject (deferred)",
+        "JsonArray (deferred)",
+        "XmlDocument (deferred)",
+    ];
+    const DEFERRED_HTTP: [&str; 2] = ["HttpRequestMessage (deferred)", "HttpHeaders (deferred)"];
+
+    // The image refuses only what the login replay check has no exact form for: for each kind of value a SingleInstance
+    // global holds, when `Session::state_lines` names nothing as opaque (state_render.rs, the one owner of which values
+    // have an exact form), the image is taken, or refused with a v1 deferral named in `DEFERRED`. And when the check names
+    // a value as opaque, the image refuses too.
+    #[test]
+    fn the_image_refuses_only_what_the_check_has_no_exact_form_for() {
+        let l = al_testkit::compile(KINDS);
+        let engine = Engine::new(l.program.clone(), al_testkit::blocked(&l));
+        let at = engine.program.objects.iter().position(|o| o.name == "Kinds").unwrap();
+        let fills = [
+            "Nothing",
+            "FillList",
+            "FillDict",
+            "FillArray",
+            "FillTemp",
+            "FillRecord",
+            "FillRecordRef",
+            "FillJson",
+            "FillJsonArray",
+            "FillXml",
+            "FillNotification",
+            "FillErrorInfo",
+            "FillTextBuilder",
+            "FillHttp",
+            "FillHeaders",
+            "FillCodeunit",
+            "FillVariant",
+        ];
+        let mut seen = Vec::new();
+        for fill in fills {
+            let mut s = Session::new(engine.clone());
+            let ri = s.engine.program.objects[at]
+                .routines
+                .iter()
+                .position(|r| r.name == fill)
+                .unwrap();
+            let inst = s.codeunit_instance(at);
+            s.call(at, ri, inst, vec![]).unwrap_or_else(|e| panic!("{fill}: {e:?}"));
+            s.commit_transaction();
+            let exact = s.state_lines().opaque.is_empty();
+            let image = s.login_image(0);
+            match (&image, exact) {
+                (Ok(_), true) => {}
+                (Err(why), true) => {
+                    let why = why.reason();
+                    assert!(
+                        DEFERRED.contains(&why.as_str()) || DEFERRED_HTTP.contains(&why.as_str()),
+                        "{fill}: the check renders it exactly, the image refuses: {why}"
+                    );
+                }
+                (Ok(_), false) => panic!("{fill}: the check has no exact form for it, the image takes it"),
+                (Err(_), false) => {}
+            }
+            seen.push((fill, image.err().map(|w| w.reason())));
+        }
+        // A value the check renders as opaque (an open stream) is refused by both.
+        let mut s = Session::new(engine.clone());
+        let inst = s.codeunit_instance(at);
+        let stream = al_builtins::stream::InState::snapshot(b"x".to_vec(), Default::default());
+        let slot = s.engine.program.objects[at]
+            .globals
+            .iter()
+            .position(|g| g.name == "I")
+            .unwrap();
+        inst.borrow_mut().globals[slot] = Value::Library(
+            al_builtins::library_kind::LibraryKind::InStream,
+            std::rc::Rc::new(std::cell::RefCell::new(al_builtins::value::LibraryValue::InStream(
+                stream,
+            ))),
+        );
+        drop(inst);
+        s.commit_transaction();
+        assert!(!s.state_lines().opaque.is_empty());
+        assert!(s.login_image(0).is_err());
+        assert!(seen.iter().filter(|(_, why)| why.is_none()).count() >= 10, "{seen:?}");
     }
 }
