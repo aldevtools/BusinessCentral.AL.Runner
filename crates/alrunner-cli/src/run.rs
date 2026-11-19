@@ -427,9 +427,6 @@ struct DataChoice {
     notes: Vec<String>,
 }
 
-/// Finds and opens the demo backup (ADR-020): the build of the Microsoft apps first, on disk, then
-/// in the cache, then downloaded; see [`testdata::locate`]. A default run whose backup cannot be
-/// found or opened has test data off and says why; a run that asked for test data fails instead.
 /// The run's target once the Microsoft apps are loaded: the build they come from (`BcVersion::resolved_to`, al-runner
 /// issues 8209 and 8243). `fetched_demotool`: the release of the DemoTool the run fetched before this call
 /// (`fetch_demotool`), or `None` (`--demotool DIR`, no DemoTool). The run goes on when that release is the build's
@@ -451,13 +448,15 @@ fn settle_target(
     ))
 }
 
-/// `--company-data demotool`: the DemoTool, and the release fetched (`None` for `--demotool DIR`). That release is the
-/// minor of the build the Microsoft apps will come from when the artifact cache, the local artifacts or the feed name it
-/// before the dependencies load (`Provision::build_before_load`, the same choice the load makes), else the target's
-/// (al-runner issue 8243). A build of another major leaves the target's; `settle_target` stops that run.
+/// `--company-data demotool`: the DemoTool, and the release fetched (`None` for `--demotool DIR`). `minor_from_packages`:
+/// the Microsoft packages the project carries set the target's minor (`apps::BuildChoice::minor` is `Some`); the release
+/// is then the target's, as before. Else it is the minor of the build the artifact cache, the local artifacts or the feed
+/// name before the dependencies load (`Provision::build_before_load`), or the target's when they name none or a build of
+/// another major (al-runner issue 8243). When the apps then come from another build, `settle_target` stops the run.
 fn fetch_demotool(
     a: &TestArgs,
     bc: &al_version::BcVersion,
+    minor_from_packages: bool,
     provision: &Provision,
 ) -> Result<(crate::demotool::DemoTool, Option<(u32, u32)>), String> {
     // A lane of `--recipe microsoft` gets the DemoTool without the check of the command line (args.rs).
@@ -466,9 +465,14 @@ fn fetch_demotool(
     }
     let url = std::env::var("ALRUNNER_BCAPPS_URL").unwrap_or_else(|_| crate::bcapps::DEFAULT_URL.to_string());
     let target = (u32::from(bc.major), u32::from(bc.minor));
-    let fetched = a.demotool_dir.is_none().then(|| match provision.build_before_load() {
-        Some(b) if b.major() == target.0 => (target.0, b.minor()),
-        _ => target,
+    let fetched = a.demotool_dir.is_none().then(|| {
+        if minor_from_packages {
+            return target;
+        }
+        match provision.build_before_load() {
+            Some(b) if b.major() == target.0 => (target.0, b.minor()),
+            _ => target,
+        }
     });
     let (major, minor) = fetched.unwrap_or(target);
     let dt = crate::demotool::resolve(
@@ -485,6 +489,9 @@ fn fetch_demotool(
     Ok((dt, fetched))
 }
 
+/// Finds and opens the demo backup (ADR-020): the build of the Microsoft apps first, on disk, then
+/// in the cache, then downloaded; see [`testdata::locate`]. A default run whose backup cannot be
+/// found or opened has test data off and says why; a run that asked for test data fails instead.
 fn choose_test_data(
     a: &TestArgs,
     builds: &[String],
@@ -1312,7 +1319,7 @@ fn test_inner(
     // The release of the DemoTool the run fetched (`demotool::resolve`, not `--demotool DIR`).
     let mut fetched_demotool = None;
     let company_data = if a.company_demotool {
-        let (dt, release) = fetch_demotool(a, &chosen.target.bc, &provision)?;
+        let (dt, release) = fetch_demotool(a, &chosen.target.bc, choice.minor.is_some(), &provision)?;
         fetched_demotool = release;
         if !project.dependencies.iter().any(|d| d.id == dt.app.id) {
             project.dependencies.push(dt.dependency());
