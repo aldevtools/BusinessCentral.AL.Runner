@@ -602,10 +602,10 @@ pub struct RecordState {
     /// Every use of the record refuses with this reason: what its buffer holds is not pinned (the row a page closed on after
     /// `Page.RunModal(Id, Rec)` called as a statement, see `hand_back_selection`).
     pub unpinned_buffer: Option<&'static str>,
-    /// A by-value copy whose filters were dropped on the assumption `by-value-record-no-filters` (al-vm
-    /// `records/by_value_view.rs`): a read of its view marks the assumption. Clones of the state keep it; `Reset`, `SetView`
-    /// and `Clear` end it.
-    pub view_assumption: bool,
+    /// A by-value copy whose filters were dropped on an assumption (`by-value-record-no-filters` or
+    /// `by-value-table-proc-other-table`, al-vm `records/by_value_view.rs`): a read of its view marks it. Clones of the state
+    /// keep it; `Reset`, `SetView` and `Clear` end it.
+    pub view_assumption: Option<crate::assumptions::Assumption>,
     /// The filters an action's `RunPageLink` put on this Rec of the page it opened: a copy of Rec passed by value does not
     /// carry them (testpage/TestActionRunPageLinkFilterGroup.al:292-369, `filters=` in OnOpenPage and OnAfterGetCurrRecord).
     pub run_page_link: Option<Rc<Vec<crate::filter::FieldFilter>>>,
