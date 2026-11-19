@@ -45,6 +45,7 @@ pub mod runtime;
 pub mod seed;
 pub mod stability;
 mod stopped_state;
+pub mod switches;
 pub mod target;
 pub mod test_suites;
 pub mod workspace_cache;

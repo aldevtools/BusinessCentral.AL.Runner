@@ -262,7 +262,7 @@ pub fn info(dir: &Path, build: &str) -> Info {
 /// `ALRUNNER_NO_CACHE_PRUNE` is set. `None` when it did not run. A cleanup that ran out of time leaves the stamp
 /// alone, so the next run goes on.
 pub fn auto_prune(dir: &Path, build: &str) -> Option<Report> {
-    if std::env::var(NO_PRUNE_ENV).is_ok_and(|v| !v.is_empty() && v != "0") {
+    if crate::switches::on(NO_PRUNE_ENV) {
         return None;
     }
     let stamp = dir.join(STAMP);

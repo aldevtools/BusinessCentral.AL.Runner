@@ -21,7 +21,6 @@ use al_ir::ObjectHead;
 use al_sema::provided::{DepBlock, DepFacts, DepLayer, DepSet, DepSource, LayerSource};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 const MAGIC: &[u8; 8] = b"ALRCDEP\0";
 const HEADER: usize = 8 + 4 + 32 + 8 + 8 + 8 + 32 + 8 + 32;
@@ -109,9 +108,7 @@ fn chunks<T: Serialize + Sync>(items: &[T], n: usize) -> Vec<(usize, Vec<u8>)> {
         .collect()
 }
 
-fn sha(bytes: &[u8]) -> [u8; 32] {
-    Sha256::digest(bytes).into()
-}
+use crate::digest::sha;
 
 fn zstd_err(e: std::io::Error) -> CacheError {
     CacheError::Damaged(format!("zstd: {e}"))

@@ -1513,8 +1513,7 @@ fn test_inner(
             && std::env::var_os("AL_FORCE_BASELINE").is_none()
             && al_testrun::observe::text_looks_pure(&all_apps, &kinds, &symbols, opts_only.as_deref())
     };
-    let compile_cache_on =
-        !a.no_compile_cache && !std::env::var("ALRUNNER_NO_COMPILE_CACHE").is_ok_and(|v| !v.is_empty() && v != "0");
+    let compile_cache_on = !a.no_compile_cache && !al_testrun::switches::on("ALRUNNER_NO_COMPILE_CACHE");
     if !dependencies.apps.is_empty() && !looks_pure {
         // The Microsoft apps call .NET (Media, images). Without the compile cache the compile takes
         // seconds: start the helper processes now so the starts overlap it. With the cache the

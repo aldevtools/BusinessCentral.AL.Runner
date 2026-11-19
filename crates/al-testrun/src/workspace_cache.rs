@@ -141,8 +141,7 @@ pub fn env_values_with(get: &dyn Fn(&str) -> Option<std::ffi::OsString>) -> Vec<
 
 /// Whether a switch of [`EnvUse::Off`] is set, or [`SWITCH`].
 pub fn switched_off() -> Option<String> {
-    let set = |name: &str| std::env::var(name).is_ok_and(|v| !v.is_empty() && v != "0");
-    if set(SWITCH) {
+    if crate::switches::on(SWITCH) {
         return Some(format!("{SWITCH} is set"));
     }
     COMPILE_ENV
@@ -203,18 +202,7 @@ pub struct WorkspaceKey {
     pub granted: Vec<String>,
 }
 
-fn put(h: &mut Sha256, bytes: &[u8]) {
-    h.update((bytes.len() as u64).to_le_bytes());
-    h.update(bytes);
-}
-
-fn sha(bytes: &[u8]) -> [u8; 32] {
-    Sha256::digest(bytes).into()
-}
-
-fn hex(b: &[u8]) -> String {
-    b.iter().map(|b| format!("{b:02x}")).collect()
-}
+use al_cache::digest::{hex, put, sha};
 
 impl WorkspaceKey {
     /// The names of the fields, for the test that each has a miss test.

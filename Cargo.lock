@@ -246,6 +246,7 @@ version = "3.0.0-alpha.14"
 dependencies = [
  "al-bcdb-std",
  "al-builtins",
+ "al-cache",
  "al-deps",
  "al-host",
  "al-ir",

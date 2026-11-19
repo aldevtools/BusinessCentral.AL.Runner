@@ -84,10 +84,7 @@ fn hash_tree(path: &Path, rel: &str, h: &mut Sha256) -> Result<(), String> {
     Ok(())
 }
 
-fn put(h: &mut Sha256, bytes: &[u8]) {
-    h.update((bytes.len() as u64).to_le_bytes());
-    h.update(bytes);
-}
+use al_cache::digest::put;
 
 impl RunInputs {
     /// The inputs of the run `a`. Every field of `TestArgs` is named: an input in its class, the rest in an arm that

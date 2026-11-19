@@ -8,6 +8,7 @@
 //! This crate turns values into bytes and back. It reads no files and runs no processes
 //! (ADR-006); the caller reads, writes and renames the file.
 
+pub mod digest;
 mod format;
 mod index;
 mod key;

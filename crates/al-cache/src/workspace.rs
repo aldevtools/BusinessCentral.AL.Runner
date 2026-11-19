@@ -16,7 +16,6 @@
 
 use crate::{CacheError, Entry, Key};
 use al_sema::provided::DepLayer;
-use sha2::{Digest, Sha256};
 
 const MAGIC: &[u8; 8] = b"ALRCWSP\0";
 const HEADER: usize = 8 + 4 + 32 + 8 + 8 + 8 + 32 + 32;
@@ -31,9 +30,7 @@ pub fn carrier_key(digest: [u8; 32]) -> Key {
     Key::layered([0; 32], "workspace layer".into(), Vec::new(), digest)
 }
 
-fn sha(bytes: &[u8]) -> [u8; 32] {
-    Sha256::digest(bytes).into()
-}
+use crate::digest::sha;
 
 fn u64_at(b: &[u8], at: usize) -> u64 {
     u64::from_le_bytes(b[at..at + 8].try_into().expect("8 bytes"))
