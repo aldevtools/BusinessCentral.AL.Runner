@@ -20,10 +20,18 @@ fn the_index_state_is_built_then_read_and_off_without_a_directory() {
     let bak = fixture("typeprobe.bak");
     let first = BackupProvider::open_with_index_dir(&bak, Some("TP"), Some(dir.path())).unwrap();
     assert_eq!(first.index_state(), Some(IndexState::Built));
-    assert!(cost(&first).contains("(kept map and catalog built and saved)"), "{}", cost(&first));
+    assert!(
+        cost(&first).contains("(kept map and catalog built and saved)"),
+        "{}",
+        cost(&first)
+    );
     let second = BackupProvider::open_with_index_dir(&bak, Some("TP"), Some(dir.path())).unwrap();
     assert_eq!(second.index_state(), Some(IndexState::Read));
-    assert!(cost(&second).contains("(kept map and catalog used)"), "{}", cost(&second));
+    assert!(
+        cost(&second).contains("(kept map and catalog used)"),
+        "{}",
+        cost(&second)
+    );
     let none = BackupProvider::open(&bak, Some("TP")).unwrap();
     assert_eq!(none.index_state(), Some(IndexState::Off));
     assert!(cost(&none).contains("(map and catalog not kept)"), "{}", cost(&none));
@@ -31,5 +39,9 @@ fn the_index_state_is_built_then_read_and_off_without_a_directory() {
     let bacpac =
         BackupProvider::open_with_index_dir(&fixture("typeprobe.bacpac"), Some("TP"), Some(dir.path())).unwrap();
     assert_eq!(bacpac.index_state(), Some(IndexState::Off));
-    assert!(cost(&bacpac).contains("(map and catalog not kept)"), "{}", cost(&bacpac));
+    assert!(
+        cost(&bacpac).contains("(map and catalog not kept)"),
+        "{}",
+        cost(&bacpac)
+    );
 }

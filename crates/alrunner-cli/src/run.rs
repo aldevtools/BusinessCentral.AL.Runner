@@ -2579,12 +2579,7 @@ fn test_inner(
         })
     );
     if let Some(w) = warm {
-        w.timings = Some(RequestTimings::of(
-            setup,
-            p,
-            coverage_time,
-            test_data.as_ref().map(|(d, _)| d),
-        ));
+        w.timings = Some(RequestTimings::of(setup, p, coverage_time, test_data.as_ref()));
         w.report = Some(Report {
             doc: serde_json::from_str(&crate::unpinned::json(
                 crate::seed::json(

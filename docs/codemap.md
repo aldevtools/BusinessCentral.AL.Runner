@@ -39,7 +39,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `lob.rs` (217): Resolves off-row values. Entry: `LobReader` 29.
 - `model.rs` (530): Reading `model.xml`. Entry: `ModelScan` 17, `scan_streaming` 77, `split_name` 267.
 - `mtf.rs` (154): Structural parser for the Microsoft Tape Format (MTF) container a SQL Server native backup (`.bak`) is written in (port. Entry: `DataRegion` 36, `MtfFile` 44.
-- `pagefile.rs` (713): `IndexStore`, `open_indexed` (a kept page map, checked against the file's length and data regions). Maps SQL Server 8 KB pages inside a native full backup (`.bak`) to their file offsets by parsing the backup's structure,. Entry: `Page` 50, `PageFile` 52, `CrossCheck` 110.
+- `pagefile.rs` (713): `IndexStore`, `open_indexed` (a kept page map, checked against the file's length, data regions and its trailing checksum: a damaged map is a miss). Maps SQL Server 8 KB pages inside a native full backup (`.bak`) to their file offsets by parsing the backup's structure,. Entry: `Page` 50, `PageFile` 52, `CrossCheck` 110.
 - `query.rs` (814): `plan_read_table_in` (table list parsed once by the caller). The BC meaning layer over a [`BcSource`] (port of the shared part of `Program.cs`). Entry: `BcTable` 15, `is_guid` 30, `parse_table_name` 50, `collate_cmp` 126.
 - `records.rs` (425): Record parsers (port of `Records.cs`). Entry: `record_type` 10, `is_ghost_type` 14, `live_slot` 20, `FixedVar` 41.
 - `scsu.rs` (157): Decoder for SCSU (Standard Compression Scheme for Unicode), Unicode Technical Standard #6. Entry: `decode` 60.
@@ -60,7 +60,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 
 - `file.rs` (66): A file as a byte source (pread), the OS side of `al-bcdb` (ADR-006). Entry: `FileSource` 17.
 - `lib.rs` (9): The OS side of `al-bcdb`: file byte source and the backup table provider for `--test-data` (ADR-020).
-- `provider.rs` (455): `BackupProvider` (`open_with_index_dir` keeps the backup's index in the cache dir; `cost` for `--timings`): the rows of a restored company from a `.bak` or `.bacpac`, one table per `read`; picks the company, finds the table by AL name and declaring app id, merges `$ext` companions; `default_backup` finds the cached artifact. Entry: `BackupProvider` 23, `default_backup` 214.
+- `provider.rs` (455): `BackupProvider` (`open_with_index_dir` keeps the backup's index in the cache dir; `cost` for `--timings`; `index_state`: read, built or off, for serve's `timings.testDataIndex`): the rows of a restored company from a `.bak` or `.bacpac`, one table per `read`; picks the company, finds the table by AL name and declaring app id, merges `$ext` companions; `default_backup` finds the cached artifact. Entry: `BackupProvider` 23, `default_backup` 214.
 
 ### al-cache
 
@@ -178,7 +178,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `dotnet.rs` (238): The `DotNet` provider seam (ADR-014 section 2). Entry: `DotNetType` 10, `DotNetHandle` 26, `DotNetValue` 30, `DotNetArg` 65.
 - `render.rs` (~210): The report renderer seam (ADR-040 amendment 2026-11-13b): `ReportRenderer` (availability per `RenderNeed`, `merge_word`, `word_to_pdf`, `word_to_html`), `WordMerge`, `RenderFailure`, `RenderUnavailable`, `NoRenderer`.
 - `lib.rs` (350): The host seam: clock, identity, client type, file system (ADR-006). Entry: `Clock` 21, `Identity` 70, `ClientType` 54, `Host` 258.
-- `testdata.rs` (330): Test data capability (ADR-020): `TableProvider`, `Cell`, `TestData` (reads each table once for all threads) and `LoadStats` (the counts behind the summary line). Entry: `TableProvider`, `TestData`, `LoadStats`, `Summary`.
+- `testdata.rs` (330): Test data capability (ADR-020): `TableProvider` (`index_state`: how its kept index was obtained, `IndexState`), `Cell`, `TestData` (reads each table once for all threads) and `LoadStats` (the counts behind the summary line). Entry: `TableProvider`, `IndexState`, `TestData`, `LoadStats`, `Summary`.
 - `license.rs` (~400): A BC license file (`.bclicense`, ADR-060): `parse` (UTF-16 header, XML permission lists, no signature check), `License::levels`/`level` per list and number (Yes bits 1-16, Indirect bits 32-256), the limited-usage list, `synthetic::file` for tests. Entry: `parse`, `License`, `Level`.
 - `random.rs` (112): .NET's seeded `System.Random` for `Random` and `Randomize`. Entry: `NetRandom` 15.
 - `seed.rs`: the run seed's derivations per test method (ADR-061): `derive` (v2's FNV-1a), `derive_library`, `guid_key`.
@@ -391,7 +391,8 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `main.rs` (51): The `al-runner` binary: runs on a thread with a large stack, maps results to exit codes. Entry: `main`.
 - `profile.rs` (~200): `--profile PATH`, `--profile-mode`, `--profile-interval` (`Flags`, `Request`) and serve `profile` (`from_json`); `begin`/`end` around a run (`run.rs` `profiled`, from `test` and `test_with`), the `file://` links for the APPs given as folders (by app id from `app.json`), the files written for the serve summary (`take_written`). Entry: `Flags`, `begin`, `end`.
 - `output.rs` (182): Counts, exit codes (0, 1, 6, 7), the summary line, the one-line warnings shown by default (`baseline_warning`, `dependency_line_is_problem`; the rest is `--verbose`), JUnit XML of a run, and the `--output-json` document; `test_row` is the one builder of a test's JSON row, for the document and for serve's `test` lines (al-runner issue 7954). Entry: `exit_code`, `junit`, `json_tdd`, `test_row`.
-- `run.rs` (433): `al-runner test`: load APPs, select test codeunits, resolve dependencies, compile, run, print. A serve request keeps the dependency apps it read (`WarmCtx::dependencies`, checked by `file_stamps`) and says where its time went (`RequestTimings`, the summary's `timings`). Entry: `test`.
+- `run.rs` (433): `al-runner test`: load APPs, select test codeunits, resolve dependencies, compile, run, print. A serve request keeps the dependency apps it read (`WarmCtx::dependencies`, checked by `file_stamps`) and says where its time went (`request_timings.rs`, the summary's `timings`). Entry: `test`.
+- `request_timings.rs` (~80 with tests): Where a server request spent its time (al-runner issue 5856): `RequestTimings`, filled by `run.rs` `test_inner` through `RequestTimings::of` (the phases of the run, the setup parts, the coverage time and `testDataIndex` from the test data's `index_state`); `serve.rs` `timings_json` sends it as the summary's `timings`. Entry: `RequestTimings::of`.
 - `setup_timings.rs` (~170 with tests): The parts of a run's setup before the compile (al-runner issue 8205): `Part`, `Laps` (`run.rs` `test_inner` ends each part with `lap`; a part reached twice adds up), `SetupParts` (`total` is serve's `setupMs`, `keyed` its `setupParts`, `line` the `--timings` `setup:` line). A server request's entry runs are built by `run.rs` `entry_runs`. Entry: `Laps::start`, `Laps::finish`.
 
 ### al-version

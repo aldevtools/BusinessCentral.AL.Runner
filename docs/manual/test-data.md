@@ -31,6 +31,14 @@ tables the reader failed on (with its text), and columns left out.
 The reader behind this is `al-bcdb`, a Rust reader for `.bak` and `.bacpac` files
 that needs no SQL Server.
 
+## The kept index
+
+The page map, the catalog and the sequences of a backup are kept in `<cache>/backup-index/`, one file of about
+2 MB per backup (named for its path, length and modification time). It holds no rows. A kept index that is not
+byte for byte what was saved, or does not fit the backup, is a miss: it is built again and saved again. A
+`.bacpac`, and a run with `--no-compile-cache`, keep nothing. A serve summary says which case an open was in
+(`timings.testDataIndex`: `read`, `built` or `off`).
+
 ## Other countries
 
 `--country CODE` selects the country version (`us`, `gb`, `de`, and the other names

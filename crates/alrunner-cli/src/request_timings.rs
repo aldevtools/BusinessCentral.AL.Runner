@@ -30,12 +30,13 @@ pub struct RequestTimings {
 }
 
 impl RequestTimings {
-    /// The phases of a finished run `p`, with the setup parts and the coverage time the run measured itself.
+    /// The phases of a finished run `p`, with the setup parts and the coverage time the run measured itself, and the
+    /// test data it opened with its backup path (`run.rs` `open_backup`).
     pub fn of(
         setup: SetupParts,
         p: &al_testrun::runtime::Phases,
         coverage: std::time::Duration,
-        test_data: Option<&al_host::testdata::TestData>,
+        test_data: Option<&(al_host::testdata::TestData, std::path::PathBuf)>,
     ) -> RequestTimings {
         RequestTimings {
             setup,
@@ -47,7 +48,7 @@ impl RequestTimings {
             tests: p.tests,
             coverage,
             passes: p.passes.clone(),
-            test_data_index: test_data.and_then(|d| d.provider.index_state()).map(|s| s.key()),
+            test_data_index: test_data.and_then(|(d, _)| d.provider.index_state()).map(|s| s.key()),
         }
     }
 }
