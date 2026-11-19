@@ -981,6 +981,7 @@ pub(crate) fn lower_core(
         program: Default::default(),
         unsupported: Default::default(),
         refusal_at: Vec::new(),
+        unresolved_calls: Vec::new(),
         calls: Default::default(),
         dependency: (0..ws.objects.len()).map(|oi| ws.is_dependency(oi)).collect(),
         provided: (0..ws.objects.len()).map(prov).collect(),
@@ -1189,6 +1190,10 @@ pub(crate) fn lower_core(
         .iter()
         .map(|p| p.as_ref().map_or_else(Vec::new, |p| p.embeds.clone()))
         .collect();
+    out.unresolved_calls = pieces
+        .iter()
+        .map(|p| p.as_ref().is_some_and(|p| p.unresolved_call))
+        .collect();
     for (oi, piece) in pieces.into_iter().enumerate() {
         crate::halt::check(); // The export of a cache layer grows too (`halt.rs`).
         if let Some(p) = piece.as_ref().filter(|_| shared.active[oi]) {
@@ -1259,14 +1264,7 @@ pub(crate) fn lower_core(
                     .get(&oi)
                     .map(|v| v.iter().map(|&p| p as u32).collect())
                     .unwrap_or_default(),
-                ext_slots: {
-                    let mut v: Vec<(String, u32)> = shared.ext_slots[oi]
-                        .iter()
-                        .map(|(n, &i)| (n.clone(), i as u32))
-                        .collect();
-                    v.sort();
-                    v
-                },
+                ext_slots: sorted_ext_slots(&shared.ext_slots[oi]),
                 routine_offsets: shared.routine_offsets[oi].iter().map(|&o| o as u32).collect(),
                 routine_roles: shared.driven.routine_roles[oi].clone(),
                 fields: piece
@@ -1451,6 +1449,13 @@ pub(crate) fn lower_core(
     }
     out.program = std::sync::Arc::new(program);
     Ok(out)
+}
+
+/// The slots of an object's extension variables (`DepFacts::ext_slots`), by name.
+fn sorted_ext_slots<'a>(slots: impl IntoIterator<Item = (&'a String, &'a usize)>) -> Vec<(String, u32)> {
+    let mut v: Vec<(String, u32)> = slots.into_iter().map(|(n, &i)| (n.clone(), i as u32)).collect();
+    v.sort();
+    v
 }
 
 /// Keeps the routine bodies of the objects lowered here compact (`ir::Body::compact`): the lowering reads no body after
@@ -2416,6 +2421,9 @@ pub fn relower_objects(
         if let Some(slot) = old.refusal_at.get_mut(oi) {
             *slot = piece.refusal_at;
         }
+        if let Some(slot) = old.unresolved_calls.get_mut(oi) {
+            *slot = piece.unresolved_call;
+        }
         old.calls.replace(oi, piece.calls, piece.ndirect);
         replace.push((
             oi,
@@ -2457,13 +2465,17 @@ pub fn relower_objects(
         old.tdd_needs = crate::check::tdd_decl::needs(ws, &checked);
     }
     old.driven = Some(shared.driven.clone());
-    // The diagnostics: what the checker found in the files that did not change stays.
-    let dirty_files: std::collections::HashSet<&str> = dirty
+    // The diagnostics: what the checker found in the files that did not change stays. A file is its app and its path
+    // together (a path is relative to its app; two apps can hold the same one).
+    let dirty_files: std::collections::HashSet<(usize, &str)> = dirty
         .iter()
-        .map(|&oi| ws.files[ws.objects[oi].file].path.as_str())
+        .map(|&oi| {
+            let f = &ws.files[ws.objects[oi].file];
+            (f.app, f.path.as_str())
+        })
         .collect();
     let mut from_checker: Vec<crate::workspace::Diagnostic> = std::mem::take(&mut old.checker_diags);
-    from_checker.retain(|d| !dirty_files.contains(d.file.as_str()));
+    from_checker.retain(|d| !dirty_files.contains(&(d.app, d.file.as_str())));
     from_checker.extend(checked.from_checker.iter().cloned());
     let mut all: Vec<crate::workspace::Diagnostic> = from_checker.clone();
     all.extend(checked.from_codes.iter().cloned());
@@ -2500,6 +2512,8 @@ pub(crate) struct Piece {
     pub(crate) unsupported: Vec<Vec<Refusal>>,
     /// Per routine: where the statement is that gave its first reason (see `Lowered::refusal_at`).
     pub(crate) refusal_at: Vec<Option<ir::SrcPos>>,
+    /// A call of the object had no callee the checker resolved (see `Lowered::unresolved_calls`).
+    pub(crate) unresolved_call: bool,
     pub(crate) calls: Vec<Vec<(usize, usize)>>,
     /// With `Shared::export`: `calls` without what a page, report or xmlport variable drives.
     pub(crate) direct: Vec<Vec<(usize, usize)>>,

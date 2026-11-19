@@ -2537,3 +2537,225 @@ fn entries_with_resources_take_the_kept_baseline_and_give_what_a_fresh_daemon_gi
         );
     }
 }
+
+/// Al-runner issue 8244: `coverage: "hit"` lists in `coverage` only the statements the tests ran, each as the full list
+/// shows it, and `perTestCoverage` as without it. A coverage request keeps the install baseline of the server, and its
+/// coverage is the same as over a baseline it ran.
+#[test]
+fn coverage_hit_lists_the_statements_that_ran_and_a_coverage_request_keeps_the_baseline() {
+    let d = tempfile::tempdir().unwrap();
+    let (main, dep) = installing_apps(d.path());
+    let dep = dep.to_string_lossy().to_string();
+    let cache = d.path().join("cache").to_string_lossy().to_string();
+    let mut s = Server::start(&["--no-download", "--no-test-data", "--dep", &dep, "--cache-dir", &cache]);
+    s.line();
+    let mut run = |coverage: Value| {
+        s.send(
+            json!({"command": "runTests", "sourcePaths": [main], "test": "Codeunit50710.",
+            "coverage": coverage, "perTestCoverage": true}),
+        );
+        let lines = s.until_summary();
+        let summary = lines.last().unwrap().clone();
+        assert_eq!(
+            (summary["type"].as_str(), summary["passed"].as_u64()),
+            (Some("summary"), Some(1)),
+            "{lines:?}"
+        );
+        summary
+    };
+    let full = run(json!(true));
+    let hit = run(json!("hit"));
+    let again = run(json!(true));
+    assert_eq!(full["timings"]["baselineSource"], "ran", "{full}");
+    assert_eq!(hit["timings"]["baselineSource"], "kept", "{hit}");
+    assert_eq!(again["timings"]["baselineSource"], "kept", "{again}");
+    assert_eq!(again["coverage"], full["coverage"]);
+    assert_eq!(again["perTestCoverage"], full["perTestCoverage"]);
+    assert_eq!(hit["perTestCoverage"], full["perTestCoverage"]);
+    // The full list less its statements without a run, and less the files left with none.
+    let ran: Vec<Value> = full["coverage"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|f| {
+            let statements: Vec<Value> = f["statements"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|s| s["hits"] != 0)
+                .cloned()
+                .collect();
+            (!statements.is_empty()).then(|| json!({"file": f["file"], "statements": statements}))
+        })
+        .collect();
+    let all = |v: &Value| {
+        v.as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f["statements"].as_array().unwrap().len())
+            .sum::<usize>()
+    };
+    assert!(
+        all(&json!(ran)) > 0 && all(&json!(ran)) < all(&full["coverage"]),
+        "{full}"
+    );
+    assert_eq!(hit["coverage"], json!(ran), "{hit}");
+    s.send(json!({"command": "runTests", "sourcePaths": [main], "coverage": "all"}));
+    let lines = s.until_summary();
+    assert!(
+        lines.last().unwrap()["error"]
+            .as_str()
+            .is_some_and(|e| e.contains("`coverage`")),
+        "{lines:?}"
+    );
+    s.send(json!({"command": "shutdown"}));
+    assert_eq!(s.line(), json!({"status": "shutting down"}));
+}
+
+/// Al-runner issue 8210, the reporter's repro: with `stopAfterFirstFailure` each test codeunit stops at its first failing test. The
+/// rest of that entry and every later entry is not run, each with a `notRun` row whose message names the failed test.
+/// Without the field every test of every entry runs, as before.
+#[test]
+fn stop_after_first_failure_ends_the_request_at_its_first_failing_test() {
+    let d = tempfile::tempdir().unwrap();
+    let main = app(
+        d.path(),
+        "stopafterfail",
+        "codeunit 50110 \"Stop After Fail Tests\" { Subtype = Test;
+            [Test] procedure FailsFirst() begin Error('the first test fails'); end;
+            [Test] procedure SlowTwo() begin Burn(); end;
+            [Test] procedure SlowThree() begin Burn(); end;
+            [Test] procedure SlowFour() begin Burn(); end;
+            local procedure Burn() var i: Integer; x: Integer; begin for i := 1 to 3000 do x := (x + i) mod 7919; end; }",
+    );
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    s.line();
+    let entry = |id: &str| json!({"id": id, "test": "Codeunit50110."});
+    let mut rows = |stop: Option<bool>, entries: Vec<Value>| {
+        let mut req = json!({"command": "runTests", "sourcePaths": [main], "entries": entries});
+        if let Some(stop) = stop {
+            req["stopAfterFirstFailure"] = json!(stop);
+        }
+        s.send(req);
+        let lines = s.until_summary();
+        let tests: Vec<Value> = lines.iter().filter(|l| l["type"] == "test").cloned().collect();
+        (tests, lines)
+    };
+    let stopped = |t: &Value| {
+        t["notRun"] == true
+            && t["message"]
+                .as_str()
+                .is_some_and(|m| m.contains("Codeunit50110.FailsFirst") && m.contains("stopAfterFirstFailure"))
+    };
+    let (one, lines) = rows(Some(true), vec![entry("a")]);
+    assert_eq!(one.len(), 4, "{lines:?}");
+    assert_eq!(one[0]["status"], "fail", "{lines:?}");
+    assert!(one[1..].iter().all(stopped), "{lines:?}");
+    let (three, lines) = rows(Some(true), vec![entry("a"), entry("b"), entry("c")]);
+    assert_eq!(three.len(), 12, "{lines:?}");
+    assert_eq!(three[0]["status"], "fail", "{lines:?}");
+    assert!(three[1..].iter().all(stopped), "{lines:?}");
+    for stop in [None, Some(false)] {
+        let (all, lines) = rows(stop, vec![entry("a"), entry("b"), entry("c")]);
+        assert_eq!(all.len(), 12, "{lines:?}");
+        assert_eq!(all.iter().filter(|t| t["status"] == "pass").count(), 9, "{lines:?}");
+    }
+    s.send(json!({"command": "shutdown"}));
+    assert_eq!(s.line(), json!({"status": "shutting down"}));
+}
+
+/// Al-runner issue 8210: under `stopAfterFirstFailure` a selection runs only the tests it picks, as `runSelectedOnly`
+/// does, so a failing test the answer does not list cannot stop the run.
+#[test]
+fn stop_after_first_failure_runs_only_the_picked_tests() {
+    let d = tempfile::tempdir().unwrap();
+    let main = app(
+        d.path(),
+        "stoppicked",
+        "codeunit 50111 \"Stop Picked\" { Subtype = Test;
+            [Test] procedure A_FailsUnpicked() begin Error('not picked'); end;
+            [Test] procedure B_Picked() begin end;
+            [Test] procedure C_Picked() begin end; }",
+    );
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    s.line();
+    s.send(
+        json!({"command": "runTests", "sourcePaths": [main], "stopAfterFirstFailure": true,
+        "entries": [{"id": "e", "test": "Codeunit50111.", "excludeTests": ["FailsUnpicked"]},
+                    {"id": "f", "test": "Codeunit50111.", "excludeTests": ["FailsUnpicked"]}]}),
+    );
+    let lines = s.until_summary();
+    let tests: Vec<&Value> = lines.iter().filter(|l| l["type"] == "test").collect();
+    assert_eq!(tests.len(), 4, "{lines:?}");
+    assert!(tests.iter().all(|t| t["status"] == "pass"), "{lines:?}");
+    s.send(json!({"command": "shutdown"}));
+    assert_eq!(s.line(), json!({"status": "shutting down"}));
+}
+
+/// Al-runner issue 8334: a test the time limit stops in the middle of its work leaves nothing for the next test codeunit,
+/// the next entry or the next request: committed rows, WorkDate, a SingleInstance codeunit, NumberSequence and
+/// IsolatedStorage it set are gone, and the reader's answers equal those of a new daemon.
+#[test]
+fn a_daemon_after_a_test_timeout_answers_as_a_new_daemon() {
+    let d = tempfile::tempdir().unwrap();
+    let main = app(
+        d.path(),
+        "timeoutstate",
+        "table 50730 \"Timeout Row\" { fields { field(1; No; Integer) { } } keys { key(PK; No) { } } }
+codeunit 50731 \"Timeout Single\" { SingleInstance = true; var V: Integer;
+    procedure SetV(N: Integer) begin V := N; end; procedure GetV(): Integer begin exit(V); end; }
+codeunit 50732 Hanger { Subtype = Test;
+    [Test] procedure WritesThenHangs() var R: Record \"Timeout Row\"; S: Codeunit \"Timeout Single\"; i: Integer; begin
+        R.No := 1; R.Insert(); Commit(); R.No := 2; R.Insert();
+        WorkDate(20010101D); S.SetV(7);
+        NumberSequence.Insert('STATE8334'); IsolatedStorage.Set('state8334', 'x');
+        while true do i := (i + 1) mod 7919; end; }
+codeunit 50733 Reader { Subtype = Test;
+    [Test] procedure SeesNoState() var R: Record \"Timeout Row\"; S: Codeunit \"Timeout Single\"; begin
+        if not R.IsEmpty() then Error('rows leaked');
+        if WorkDate() = 20010101D then Error('WorkDate leaked');
+        if S.GetV() <> 0 then Error('SingleInstance leaked');
+        if NumberSequence.Exists('STATE8334') then Error('NumberSequence leaked');
+        if IsolatedStorage.Contains('state8334') then Error('IsolatedStorage leaked'); end; }\n",
+    );
+    let reader = |s: &mut Server| {
+        s.send(json!({"command": "runTests", "sourcePaths": [main], "test": "Codeunit50733."}));
+        let lines = s.until_summary();
+        let tests: Vec<Value> = lines
+            .iter()
+            .filter(|l| l["type"] == "test")
+            .map(|t| t["status"].clone())
+            .collect();
+        let summary = lines.last().unwrap().clone();
+        (
+            tests,
+            [
+                summary["exitCode"].clone(),
+                summary["passed"].clone(),
+                summary["total"].clone(),
+            ],
+        )
+    };
+    let mut fresh = Server::start(&["--no-download", "--no-test-data"]);
+    fresh.line();
+    let expected = reader(&mut fresh);
+    assert_eq!(expected.0, vec![json!("pass")], "{expected:?}");
+    fresh.send(json!({"command": "shutdown"}));
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    s.line();
+    s.send(
+        json!({"command": "runTests", "sourcePaths": [main], "testTimeoutSecs": 1,
+        "entries": [{"id": "h", "test": "Codeunit50732."}, {"id": "r", "test": "Codeunit50733."}]}),
+    );
+    let lines = s.until_summary();
+    let tests: Vec<&Value> = lines.iter().filter(|l| l["type"] == "test").collect();
+    assert_eq!(tests.len(), 2, "{lines:?}");
+    assert!(
+        tests[0]["notRun"] == true && tests[0]["message"].as_str().is_some_and(|m| m.contains("timeout")),
+        "{lines:?}"
+    );
+    assert_eq!(tests[1]["status"], "pass", "{lines:?}");
+    assert_eq!(reader(&mut s), expected);
+    s.send(json!({"command": "shutdown"}));
+    assert_eq!(s.line(), json!({"status": "shutting down"}));
+}
