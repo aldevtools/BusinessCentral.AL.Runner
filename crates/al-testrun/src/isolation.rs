@@ -141,7 +141,7 @@ impl Checkpoint {
 
 /// What the end of a test puts back besides its transaction, by the runner's TestIsolation. Under Function the
 /// checkpoint (with the isolated storage and the number sequences for a runner codeunit, `runner_function`). Under
-/// Codeunit (`sequences`) what a failed test leaves of the number sequences ([`CodeunitSequences::after_failure`];
+/// Codeunit (`sequences`) what a failed test leaves of the number sequences (`CodeunitSequences::after_test`;
 /// `trusted`: the failure is not judged not trusted).
 ///
 /// A key or a sequence whose state after that rollback is not measured (it was there before and the test changed it) is
