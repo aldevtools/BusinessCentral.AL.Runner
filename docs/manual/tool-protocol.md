@@ -232,7 +232,7 @@ Differences a client must adapt to:
    `testsMs` (the test codeunits, every entry), `coverageMs` (the coverage document) and `otherMs` (the rest: the report
    and the output). `baselineSource` is `ran` (the install code ran), `cache` (read from the compile cache folder) or
    `kept` (the baseline an earlier request over the same compile read), and is absent when no baseline was needed.
-   A request with coverage keeps and reads the baseline as one without: the install code is not counted (al-runner issue 8244).
+   A request with coverage keeps and reads the baseline as one without: the code of the install baseline is not counted (al-runner issue 8244). Without a baseline (no dependency app) the install code of the apps under test runs in each test codeunit's session and is counted, as before.
    `setupParts` splits `setupMs` into its parts, which add up to it (al-runner issue 8205): `optionsMs` (the run seed,
    the server address, the output paths), `sourcesMs` (reading the apps' `app.json` and source files), `selectionMs`
    (finding the test codeunits, the disabled tests and test suites, the request's and its entries' selection),
