@@ -736,6 +736,48 @@ mod tests {
         assert!(ordered_read_refused(&shared.store.as_database()), "the shared baseline");
     }
 
+    /// Table `Power BI Blob` (object 2000000144, a platform table of `al_builtins::platform::UNSEEDED_ROWS`), with only its key.
+    fn power_bi_blob() -> al_data::TableDef {
+        al_data::TableDef {
+            object: 2_000_000_144,
+            name: "Power BI Blob".into(),
+            fields: vec![al_data::FieldDef {
+                id: 1,
+                name: "Id".into(),
+                ty: al_builtins::value::RtType::Guid,
+                stored: true,
+                code_storage: Default::default(),
+            }],
+            keys: vec![vec![0]],
+            per_company: false,
+        }
+    }
+
+    // A platform table of `UNSEEDED_ROWS` that the session's own DeleteAll without filters emptied is read
+    // (`Session::is_unseeded`, al-vm records.rs; al-language-onprem/metadata/PtOnPremTables.al Y17_PowerBIBlob_BlobRoundTrip,
+    // corpus master 97c29f86). A baseline read back from its bytes (a thread's own copy, the shared baseline, the baseline
+    // cache) holds what the captured one holds, so it holds the mark too.
+    #[test]
+    fn a_baseline_read_back_from_bytes_keeps_the_tables_a_delete_all_emptied() {
+        use al_data::Store;
+        let cx = al_data::contract::cx("C");
+        let t = power_bi_blob();
+        let mut store = al_data::memory::MemStore::default().as_database();
+        store.delete_all(&cx, &t, &[]).unwrap();
+        store
+            .insert(&cx, &t, vec![al_builtins::value::Value::Guid([7; 16])])
+            .unwrap();
+        store.commit();
+        let mut b = sample();
+        b.store = store;
+        let answer = |s: &al_data::memory::MemStore| (s.emptied(&cx, &t), s.count(&cx, &t, &[]).unwrap());
+        assert_eq!(answer(&b.store), (true, 1), "the captured baseline");
+        let back = Baseline::from_bytes(&b.to_bytes().unwrap()).unwrap();
+        assert_eq!(answer(&back.store.as_database()), (true, 1), "read back from its bytes");
+        let shared = b.freeze().unwrap().thaw(None);
+        assert_eq!(answer(&shared.store.as_database()), (true, 1), "the shared baseline");
+    }
+
     // corpus record/TestSystemFieldStampsContracts.al:Insert_StampsBothFieldsWithTheUtcClock_SystemIdIsSetBeforeOnInsert:
     // the install ran on a clock its Sleep calls had moved forward; a session restored from its baseline stamps on the real clock.
     #[test]
