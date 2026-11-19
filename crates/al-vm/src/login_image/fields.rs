@@ -7,7 +7,9 @@
 //! - `plain`: imaged by value ([`PlainFields`]); the type is written next to the name, so a wrong one does not compile.
 //! - `linked`: imaged by hand, in `session_parts.rs` and the arena.
 //! - `fresh`: caches and scratch with no AL value; the thawn session keeps its new value.
-//! - `refuse`: must hold a new session's value (the predicate next to it), else the session has no image.
+//! - `refuse`: must hold a new session's value (the predicate next to it), else the session has no image. Install code
+//!   that ran in a session of its own is held to the same predicates (`Session::install_left`), except those marked
+//!   `[image_only]`.
 //! - `rest`: must be at rest ([`Session::at_rest`], the one owner of that rule), else no image.
 //! - `own`: made from the engine, the host or the run's session flags before any code runs; the thawn session keeps its
 //!   own. A predicate next to one is what the image requires of it.
@@ -112,14 +114,15 @@ macro_rules! session_fields {
             }
             refuse {
                 // `--explain`: the fault sites of the login code are that session's.
-                fault_trace => |s: &Session| !s.fault_trace,
+                fault_trace [image_only] => |s: &Session| !s.fault_trace,
                 isolated_set_in_test => |s: &Session| s.isolated_set_in_test.is_empty(),
                 unmeasured => |s: &Session| s.unmeasured.as_new(),
                 // A task holds code to run.
                 tasks => |s: &Session| s.tasks.as_new(),
                 sessions_started => |s: &Session| s.sessions_started == 0,
                 crm_stores => |s: &Session| s.crm_stores.is_empty(),
-                si_track => |s: &Session| s.si_track.is_none(),
+                // Set by al-testrun after install code ran (`start_singles`), not held of it.
+                si_track [image_only] => |s: &Session| s.si_track.is_none(),
                 singles_unclaimed => |s: &Session| s.singles_unclaimed.is_empty(),
                 seed_refusal => |s: &Session| s.seed_refusal.is_none(),
                 tx_model => |s: &Session| s.tx_model == crate::TxModel::default(),
@@ -134,7 +137,8 @@ macro_rules! session_fields {
                 shadow_lower_bound => |s: &Session| !s.shadow_lower_bound,
                 report_refusal_after_denial => |s: &Session| s.report_refusal_after_denial.is_none(),
                 scratch_messages => |s: &Session| s.scratch_messages.is_none(),
-                global_group1 => |s: &Session| s.global_group1.as_new(),
+                // Install code may leave an entry another record took back (`install_left` asks `is_empty`).
+                global_group1 [image_only] => |s: &Session| s.global_group1.as_new(),
                 capture => |s: &Session| s.capture.is_none(),
                 form => |s: &Session| s.form == crate::Form::Plain,
                 debug => |s: &Session| s.debug.is_none(),
@@ -149,8 +153,9 @@ macro_rules! session_fields {
                 render_pending_files => |s: &Session| s.render_pending_files.is_empty(),
                 placeholder_files => |s: &Session| s.placeholder_files.as_new(),
                 temp_blob_impl_fields => |s: &Session| s.temp_blob_impl_fields.as_new(),
-                // What the run saw of a RecordRef over the database Field table lives with its buffer.
-                relation_field_no_refs => |s: &Session| s.relation_field_no_refs.as_new(),
+                // What the run saw of a RecordRef over the database Field table lives with its buffer. Not held of
+                // install code: main's install_left does not ask it.
+                relation_field_no_refs [image_only] => |s: &Session| s.relation_field_no_refs.as_new(),
                 pages => |s: &Session| crate::install_left::clients::pages_as_new(&s.pages),
                 coverage => |s: &Session| crate::install_left::clients::coverage_as_new(&s.coverage),
                 report => |s: &Session| crate::install_left::clients::report_as_new(&s.report),
@@ -246,7 +251,7 @@ macro_rules! image_fields {
         plain { $($p:ident: $pt:ty,)* }
         linked { $($l:ident,)* }
         fresh { $($f:ident,)* }
-        refuse { $($r:ident => $rp:expr,)* }
+        refuse { $($r:ident $([$only:ident])? => $rp:expr,)* }
         rest { $($s:ident,)* }
         own { $($o:ident $(=> $op:expr)?,)* }
     ) => {
@@ -287,6 +292,30 @@ macro_rules! image_fields {
                 )?)*
                 None
             }
+
+            /// [`Session::refused_field`] without the predicates marked `[image_only]`: what install code that ran in a
+            /// session of its own must leave as a new session holds it, too (`Session::install_left`).
+            pub(crate) fn install_refused_field(&self) -> Option<&'static str> {
+                $(install_check!(self, $r $([$only])? => $rp);)*
+                $($(
+                    let holds: fn(&Session) -> bool = $op;
+                    if !holds(self) {
+                        return Some(stringify!($o));
+                    }
+                )?)*
+                None
+            }
+        }
+    };
+}
+
+/// One `refuse` predicate in [`Session::install_refused_field`]: none for a predicate marked `[image_only]`.
+macro_rules! install_check {
+    ($s:expr, $r:ident [image_only] => $rp:expr) => {};
+    ($s:expr, $r:ident => $rp:expr) => {
+        let holds: fn(&Session) -> bool = $rp;
+        if !holds($s) {
+            return Some(stringify!($r));
         }
     };
 }

@@ -343,25 +343,22 @@ impl Session {
             && !self.keyref_receiver_local
     }
 
-    /// The fields a test reads, and the owners' sub-states, hold what a new session holds.
+    /// The fields a test reads, and the owners' sub-states, hold what a new session holds: the `refuse` predicates of the
+    /// session image's field table (`login_image/fields.rs`, [`Session::install_refused_field`]), and the fields the image
+    /// holds by value but install code may not leave changed.
     fn holds_as_new(&self) -> bool {
         let fresh_guid_key = al_host::seed::fixed_guid_key(self.host.guid_seed.unwrap_or(self.host.random_seed));
         // State a test reads that a new session holds, by the reviewer's table of PR 8153 and the field list above.
-        self.last_error == al_builtins::native::AlError::default()
+        self.install_refused_field().is_none()
+            && self.last_error == al_builtins::native::AlError::default()
             && self.isolated_committed == self.isolated_storage
-            && self.isolated_set_in_test.is_empty()
-            && self.unmeasured.as_new()
-            && self.tasks.as_new()
-            && self.sessions_started == 0
             && self.demo_written.is_empty()
             && !self.gl_setup_written
             && !self.setup_caption_read_early
             && self.table_connections.is_empty()
             && self.default_table_connection.is_empty()
-            && self.crm_stores.is_empty()
             && self.sequences_changed.is_empty()
             && self.singletons.is_empty()
-            && self.singles_unclaimed.is_empty()
             && self.guid_key == fresh_guid_key
             && self.unseeded_base == self.host.random_seed
             && !self.randomized_with_seed
@@ -372,30 +369,14 @@ impl Session {
             && self.carried_draws == 0
             && self.unseeded_randomizes == 0
             && self.install_row_version == self.restored_row_version
-            && *self.cx.company == *self.host.identity.company_name()
-            && *self.cx.user == *self.host.identity.user_id()
             && self.baseline_origin.is_none()
-            && self.seed_refusal.is_none()
-            && self.tx_model == crate::TxModel::default()
             && !self.in_test_codeunit
             && !self.isolation_from_hub
             && !self.hub_disabled
-            && !self.runner_permission_step
-            && self.permission_roles.is_empty()
-            && self.permissions.is_none()
-            && !self.runner_permission_sets
-            && self.shadow_roles.is_empty()
-            && !self.shadow_active
-            && !self.shadow_lower_bound
-            && self.report_refusal_after_denial.is_none()
             && self.test_object.is_none()
             && self.http_policy.is_none()
-            && self.scratch_messages.is_none()
             && self.tdd_reached.is_empty()
             && self.global_group1.is_empty()
-            && self.capture.is_none()
-            && self.form == crate::Form::Plain
-            && self.debug.is_none()
             && self.media.objects.borrow().is_empty()
             && self.media.sets.borrow().is_empty()
             && self.media.removed.borrow().is_empty()
@@ -403,30 +384,15 @@ impl Session {
             && self.media_removed.0.is_empty()
             && self.media_removed.1.is_empty()
             && self.application_areas.is_empty()
-            && self.sleep_budget.is_none()
-            && self.slept_in_test == 0
             && self.encrypted.is_empty()
             && self.encryption_key == crate::EncryptionKey::Present
-            && self.temp_files == 0
-            && self.render_pending_files.is_empty()
             && self.clock_key == al_host::seed::clock_key(self.host.run_seed, 0, "")
             && self.caption_translations.is_empty()
             && self.ui_caption_translated.is_empty()
             && self.tx_left_as_after_commit()
-            && self.iso_min.as_new()
-            && self.runner_host.as_new()
             && self.blob_sources.as_new()
-            && self.error_scopes.as_new()
-            && self.variant_refs.as_new()
-            && self.dotnet.as_new()
-            && !self.host.files.changed()
-            && self.placeholder_files.as_new()
-            && self.temp_blob_impl_fields.as_new()
             && clients::ui_as_new(&self.ui_state)
-            && clients::pages_as_new(&self.pages)
             && clients::events_as_new(&self.events)
-            && clients::coverage_as_new(&self.coverage)
-            && clients::report_as_new(&self.report)
     }
 
     /// The transaction state after the install's last Commit: what a new session holds, except what the Commit sets
