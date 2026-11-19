@@ -235,6 +235,18 @@ fn numbers(s: &str, max: usize) -> Result<Vec<u16>, VersionError> {
         .collect()
 }
 
+/// The emit version BC writes in the error for an object no app declares ("... compiled with emit version N."), for the
+/// builds the corpus recorded it on (errors/error-texts/AzErrorTexts.al:125: 27025 on 27.5, 28015 on 28.5, 29022 on
+/// 29.0). No target runs as 29.0, as the gates do. `None`: the number of any other build is not recorded.
+pub fn missing_object_emit_version(target: Option<&Target>) -> Option<u32> {
+    match target.map(|t| (t.bc.major, t.bc.minor)) {
+        Some((27, 5)) => Some(27025),
+        Some((28, 5)) => Some(28015),
+        Some((29, 0)) | None => Some(29022),
+        Some(_) => None,
+    }
+}
+
 /// The `Microsoft.NETCore.App` major the service tier of BC `major` runs on, measured on the platform artifacts
 /// (`TargetFrameworkAttribute` of the service-tier assemblies; `"tfm"` of `Microsoft.Dynamics.Nav.Server.runtimeconfig.json`
 /// where the artifact has it): 27.5.46862.48827 and 28.1.49838.50621 target `net8.0`; 29.0.54011.56307's
@@ -273,6 +285,17 @@ mod tests {
 
     fn bc(s: &str) -> BcVersion {
         BcVersion::parse(s).unwrap()
+    }
+
+    #[test]
+    fn the_emit_version_is_the_one_recorded_for_the_build() {
+        let at = |s: &str| missing_object_emit_version(Some(&Target::for_bc(bc(s))));
+        assert_eq!(at("27.5.46862.58057"), Some(27025));
+        assert_eq!(at("28.5"), Some(28015));
+        assert_eq!(at("29.0"), Some(29022));
+        assert_eq!(missing_object_emit_version(None), Some(29022));
+        assert_eq!(at("28.4"), None);
+        assert_eq!(at("29.1"), None);
     }
 
     // al-runner issue 8209: `--bc-version 29`, `29.1` and the full build pick the same 29.1 build, so the target is that

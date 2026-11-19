@@ -147,18 +147,6 @@ pub(crate) fn al_error_code(message: &str, code: &str) -> Signal {
     }))
 }
 
-/// The emit version BC writes in a missing-object error, for the builds the corpus recorded it on
-/// (errors/error-texts/AzErrorTexts.al:125: 27025 on 27.5, 28015 on 28.5, 29022 on 29.0). An engine without a target
-/// runs as BC 29.0, as the version gates do. `None`: the number of any other build is not recorded.
-fn emit_version(bc: Option<&al_version::BcVersion>) -> Option<u32> {
-    match bc.map(|v| (v.major, v.minor)) {
-        Some((27, 5)) => Some(27025),
-        Some((28, 5)) => Some(28015),
-        Some((29, 0)) | None => Some(29022),
-        Some(_) => None,
-    }
-}
-
 impl Session {
     /// The error BC raises when code names an object that no app declares
     /// (codeunits/TestCodeunitRunErrorTextsAndModels.al:162-196 for `CodeUnit`,
@@ -212,11 +200,9 @@ impl Session {
         if let Some(why) = self.missing_may_be_skipped(kind, id) {
             return Signal::unsupported(why);
         }
-        let bc = self.engine.target.as_ref().map(|t| &t.bc);
-        let Some(emit_version) = emit_version(bc) else {
-            let v = bc.map(|v| format!("{}.{}", v.major, v.minor)).unwrap_or_default();
+        let Some(emit_version) = al_version::missing_object_emit_version(self.engine.target.as_ref()) else {
             return Signal::unsupported(format!(
-                "the emit version BC {v} writes in the error for a missing {kind} object is not recorded (only 27.5, 28.5 and 29.0 are)"
+                "the emit version this BC build writes in the error for a missing {kind} object is not recorded"
             ));
         };
         al_error_code(
