@@ -358,7 +358,7 @@ fn by_value_record_of_another_table_gets_a_fresh_view_from_measured_callers() {
         ("Reporter_FromCodeunit_Flagged", PASS, true),
         ("RichView_FromTestCodeunit_Flagged", PASS, true),
         // Main kept the declared secondary key here (no filter, plain view); BC gives the primary key
-        // (ByValueTableProcedureView.al:521-537).
+        // (ByValueTableProcedureView.al:528-544).
         ("SecondaryKey_NoFilter_Flagged", PASS, true),
         ("NormalTable_TemporaryVariable_Flagged", PASS, true),
         ("FromOtherTableProcedure_Flagged", PASS, true),
