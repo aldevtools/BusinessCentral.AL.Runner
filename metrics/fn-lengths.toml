@@ -5,7 +5,7 @@
 # at 250 lines or fewer, delete the row. Never raise a cap or add a row: extract steps into functions
 # of their own. Owner decides otherwise.
 "crates/al-builtins/src/format.rs::format_value" = 278
-"crates/al-builtins/src/ops.rs::arith_general" = 294
+"crates/al-builtins/src/ops.rs::arith_general" = 261
 "crates/al-deps/src/artifact.rs::load_with_artifacts" = 432
 "crates/alrunner-cli/src/args.rs::parse" = 433
 "crates/alrunner-cli/src/run.rs::test_inner" = 1395
