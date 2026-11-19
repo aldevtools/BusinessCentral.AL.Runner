@@ -80,7 +80,7 @@ fn assert_number_order(s: &MemStore, how: &str) {
 fn an_imported_table_keeps_the_number_order_of_its_key() {
     let s = store();
     assert_number_order(&s, "written");
-    let back = MemStore::from_exported(s.export_committed().unwrap());
+    let back = MemStore::from_exported(s.export_committed().unwrap(), &[]);
     assert_number_order(&back, "from_exported");
     let (one, emptied) = s.committed_table("C", 7).unwrap();
     let replaced = MemStore::default().with_committed_tables(vec![(one, emptied)], &[]);
@@ -92,7 +92,7 @@ fn an_imported_table_keeps_the_number_order_of_its_key() {
 #[test]
 fn a_row_change_replay_keeps_the_number_order_of_the_key() {
     let t = int_table();
-    let base = MemStore::from_exported(store().export_committed().unwrap());
+    let base = MemStore::from_exported(store().export_committed().unwrap(), &[]);
     let mut next = base.clone();
     next.insert(&cx("C"), &t, row("2", 1, 1)).unwrap();
     next.delete(&cx("C"), &t, &code("9")).unwrap();

@@ -121,7 +121,7 @@ impl MemStore {
             .filter(|s| !self.committed.contains_key(*s))
             .map(name)
             .collect();
-        out.emptied = self.committed_emptied.keys().map(name).collect();
+        out.emptied = self.committed_emptied();
         Some(out)
     }
 
@@ -154,11 +154,7 @@ impl MemStore {
             self.shapes.insert(slot.clone(), self.counter);
             self.tables.insert(slot, table);
         }
-        let mut emptied = crate::pmap::PMap::new();
-        for (company, object) in changes.emptied {
-            emptied.insert((std::sync::Arc::from(company.as_str()), object), ());
-        }
-        self.emptied = emptied;
+        self.emptied = super::export::emptied_marks(&changes.emptied);
         self.commit();
         Some(self)
     }
@@ -197,7 +193,7 @@ mod tests {
     /// found by pointers, and only the changed rows are compared by value (issue 6924: a 65,000-row start per step).
     #[test]
     fn rows_a_clone_shares_are_not_compared_and_a_copy_with_the_changes_holds_the_same_rows() {
-        let base = MemStore::from_exported(vec![table(2000)]);
+        let base = MemStore::from_exported(vec![table(2000)], &[]);
         let mut later = base.clone();
         let slot: Slot = (std::sync::Arc::from("CRONUS"), 18);
         let mut t = later.committed.get(&slot).unwrap().clone();
@@ -222,7 +218,7 @@ mod tests {
         assert!(compared <= 2, "only the changed row: {compared}");
         assert_eq!(c.tables.len(), 1);
         assert_eq!((c.tables[0].put.len(), c.tables[0].gone.len()), (2, 1));
-        let copy = MemStore::from_exported(vec![table(2000)])
+        let copy = MemStore::from_exported(vec![table(2000)], &[])
             .with_committed_row_changes(c)
             .unwrap();
         let rows = |s: &MemStore| format!("{:?}", s.export_committed().unwrap());
