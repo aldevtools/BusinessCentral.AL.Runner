@@ -25,6 +25,7 @@ mod run_inputs;
 mod seed;
 mod serve;
 mod service_tier;
+mod setup_timings;
 mod sources;
 mod sources_report;
 mod stability;

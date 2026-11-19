@@ -1903,6 +1903,20 @@ codeunit 50701 \"Seeding Install\" { Subtype = Install;
     (main, dep)
 }
 
+/// The parts of `setupMs` in a summary's `timings.setupParts` (al-runner issue 8205).
+const SETUP_PARTS: [&str; 10] = [
+    "optionsMs",
+    "sourcesMs",
+    "selectionMs",
+    "dependenciesMs",
+    "testDataMs",
+    "licenseMs",
+    "dotnetMs",
+    "affectedMs",
+    "entriesMs",
+    "prepareMs",
+];
+
 /// Al-runner issue 5856: every request says where its time went, and a request over a kept compile also keeps the
 /// engines and the install baseline, while it still starts from the rows the install code left and none of an earlier
 /// request's writes.
@@ -1952,6 +1966,19 @@ fn a_summary_says_where_the_time_went_and_a_kept_baseline_does_not_carry_writes(
         ] {
             assert!(t[key].as_f64().is_some_and(|v| v >= 0.0), "{key}: {summary}");
         }
+        // Al-runner issue 8205: `setupMs` split into its parts, which add up to it (each rounded to a tenth).
+        let parts = &t["setupParts"];
+        let mut sum = 0.0;
+        for key in SETUP_PARTS {
+            let v = parts[key]
+                .as_f64()
+                .unwrap_or_else(|| panic!("setupParts.{key}: {summary}"));
+            assert!(v >= 0.0, "setupParts.{key}: {summary}");
+            sum += v;
+        }
+        assert_eq!(parts.as_object().map(|o| o.len()), Some(SETUP_PARTS.len()), "{summary}");
+        let total = t["setupMs"].as_f64().unwrap();
+        assert!((sum - total).abs() <= 0.5, "parts {sum} vs setupMs {total}: {summary}");
     }
     assert_eq!(
         summaries.iter().map(|s| s["passed"].clone()).collect::<Vec<_>>(),
