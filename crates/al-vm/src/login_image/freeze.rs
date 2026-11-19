@@ -405,7 +405,7 @@ impl<'a> Walker<'a> {
             Value::Query(q) => node(self, Holder::Query(q.clone())),
             // The check is the one owner of which objects have an exact form (state_render.rs): one it renders as opaque is
             // an object of the .NET process, a handle of this session. Of those it renders exactly, `dotnet` takes the
-            // measured one and defers the rest.
+            // measured ones (`MEASURED_DOTNET`) and defers the rest.
             Value::DotNet(d) => match crate::state_render::Render::new(self.session).value(v, 0) {
                 Ok(_) => node(self, Holder::DotNet(d.clone())),
                 Err(_) => Err(never(path, "DotNet object of the .NET process")),
@@ -692,7 +692,8 @@ query 50113 KQ { elements { dataitem(K; KRow) { column(Id; Id) { } } } }
         s.commit_transaction();
         assert!(!s.state_lines().opaque.is_empty());
         assert!(s.login_image(0).is_err());
-        // DotNet objects the check renders exactly: the measured one is imaged, the others are deferred by type.
+        // DotNet objects the check renders exactly: the measured ones (`MEASURED_DOTNET`) are imaged, the others are deferred
+        // by type.
         let slot = |name: &str| {
             engine.program.objects[at]
                 .globals
@@ -870,8 +871,8 @@ codeunit 50200 PKeep
         assert_eq!(a, b);
     }
 
-    // v1 images the DotNet object measured on a real login only (`ALConfigSettings.Instance`, empty state); another type, a
-    // state and an enum value are deferred, each naming its type. Review of PERF-01 step 2, M2.
+    // v1 images the DotNet objects measured on a real login only (`MEASURED_DOTNET`, empty state); another type, a state
+    // and an enum value are deferred, each naming its type. Review of PERF-01 step 2, M2.
     #[test]
     fn a_dotnet_object_v1_does_not_measure_is_deferred_by_its_type() {
         use al_builtins::value::{DotNetKind, DotNetObject};

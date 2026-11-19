@@ -86,8 +86,8 @@ pub(crate) struct InstanceNode {
     pub(crate) single: bool,
 }
 
-/// A .NET object the runtime serves itself (al-builtins `DotNetKind::Internal`). v1 takes the measured one only:
-/// `ALConfigSettings.Instance`, whose state is empty (`freeze.rs` `dotnet`).
+/// A .NET object the runtime serves itself (al-builtins `DotNetKind::Internal`). v1 takes the ones measured on a real
+/// login only, with an empty state: `ALConfigSettings.Instance` and a `GraphQuery` (`freeze.rs` `MEASURED_DOTNET`).
 #[derive(Debug)]
 pub(crate) enum DotNetNode {
     Internal { type_name: String, state: Vec<Frozen> },
