@@ -562,3 +562,27 @@ fn a_change_that_names_an_unselected_test_codeunit_gives_the_outcome_of_a_comple
     assert_eq!(got, want);
     assert!(got.iter().any(|l| l.contains("60101 Greets Pass")), "{got:?}");
 }
+
+/// Al-runner issue 7625 (item 5): a reader that does not name the changed codeunit, because it reaches it through a
+/// procedure of another codeunit that returns it, is lowered again too: its call follows the new return type.
+#[test]
+fn a_reader_that_reaches_the_changed_codeunit_through_another_one_follows_its_new_return_type() {
+    const INNER: &str =
+        "\ncodeunit 60120 Inner\n{\n    procedure Value(): Integer\n    begin\n        exit(7);\n    end;\n}\n";
+    const MIDDLE: &str = "\ncodeunit 60121 Middle\n{\n    procedure Get(): Codeunit Inner\n    var\n        I: Codeunit Inner;\n    begin\n        exit(I);\n    end;\n}\n";
+    const OUTER: &str = "\ncodeunit 60122 Outer\n{\n    Subtype = Test;\n\n    [Test]\n    procedure ReadsThroughTheMiddle()\n    var\n        M: Codeunit Middle;\n    begin\n        if Kind(M.Get().Value()) <> 'text' then\n            Error('the overload for %1', Kind(M.Get().Value()));\n    end;\n\n    local procedure Kind(X: Integer): Text\n    begin\n        exit('integer');\n    end;\n\n    local procedure Kind(X: Text): Text\n    begin\n        exit('text');\n    end;\n}\n";
+    assert!(!OUTER.to_ascii_lowercase().contains("inner") && !OUTER.contains("60120"));
+    let (lib, other, tables) = (
+        LIB.to_string() + INNER,
+        OTHER.to_string() + OUTER,
+        TABLES.to_string() + MIDDLE,
+    );
+    let text = lib
+        .replace("procedure Value(): Integer", "procedure Value(): Text")
+        .replace("exit(7);", "exit('7');");
+    assert_updated(
+        [lib.as_str(), TESTS, other.as_str(), tables.as_str()],
+        [text.as_str(), TESTS, other.as_str(), tables.as_str()],
+        "a return type from Integer to Text, read through another codeunit",
+    );
+}

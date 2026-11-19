@@ -90,11 +90,18 @@ pub fn eligible_for_declarations(ws: &crate::Workspace, objects: &[usize]) -> Re
     Ok(())
 }
 
-/// The objects of the workspace's own apps that can read the declarations of `changed`: those whose file mentions
-/// the name of a changed object or its id. An object is named in the code that uses it (a variable type,
-/// `Codeunit::"Name"`, an attribute) or by number (`Codeunit.Run(50100)`), and that is what lowering resolves.
+/// The objects of the workspace's own apps that can read the declarations of `changed`: those whose code calls a routine
+/// of a changed object in the program before the change (`calls`, `Lowered::calls`), and those whose file mentions
+/// the name of a changed object or its id. A call finds a reader that reaches the object without naming it (through a
+/// procedure of another codeunit that returns it, al-runner issue 7625). A name or number finds the rest: a variable
+/// type, `Codeunit::"Name"`, an attribute, `Codeunit.Run(50100)`, and a call that did not resolve before the change.
 /// More objects than `limit` is an error: lowering them again costs as much as the complete compile.
-pub fn readers(ws: &crate::Workspace, changed: &[usize], limit: usize) -> Result<Vec<usize>, String> {
+pub fn readers(
+    ws: &crate::Workspace,
+    calls: &crate::lower::Calls,
+    changed: &[usize],
+    limit: usize,
+) -> Result<Vec<usize>, String> {
     let names: Vec<String> = changed
         .iter()
         .map(|&o| ws.objects[o].name.to_ascii_lowercase())
@@ -103,21 +110,23 @@ pub fn readers(ws: &crate::Workspace, changed: &[usize], limit: usize) -> Result
         .iter()
         .filter_map(|&o| ws.objects[o].id.map(|i| i.to_string()))
         .collect();
-    let mut out = Vec::new();
+    let calls_changed = |oi: usize| oi < calls.len() && calls.of(oi).iter().flatten().any(|(o, _)| changed.contains(o));
+    let mut mentioned = vec![false; ws.files.len()];
     for (fi, f) in ws.files.iter().enumerate() {
         if f.lazy || ws.kinds[f.app] == crate::AppKind::Dependency {
             continue;
         }
         let text = ws.text(fi);
-        let mentions =
+        mentioned[fi] =
             names.iter().any(|n| contains_ignore_case(text, n)) || ids.iter().any(|i| contains_number(text, i));
-        if !mentions {
+    }
+    let mut out = Vec::new();
+    for oi in 0..ws.objects.len() {
+        if changed.contains(&oi) || ws.is_dependency(oi) {
             continue;
         }
-        for oi in (0..ws.objects.len()).filter(|&oi| ws.objects[oi].file == fi) {
-            if !changed.contains(&oi) {
-                out.push(oi);
-            }
+        if mentioned[ws.objects[oi].file] || calls_changed(oi) {
+            out.push(oi);
         }
         if out.len() > limit {
             return Err(format!("{} objects or more read the changed declarations", out.len()));

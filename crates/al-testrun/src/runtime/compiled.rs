@@ -578,7 +578,7 @@ impl Compiled {
             // checked and lowered again with them (ADR-033 step 5).
             al_sema::incremental::eligible_for_declarations(ws, &dirty)?;
             let limit = ws.objects.len() / 5 + 20;
-            let readers = al_sema::incremental::readers(ws, &dirty, limit)?;
+            let readers = al_sema::incremental::readers(ws, &lowered.calls, &dirty, limit)?;
             dirty.extend(readers);
             dirty.sort_unstable();
         } else {
