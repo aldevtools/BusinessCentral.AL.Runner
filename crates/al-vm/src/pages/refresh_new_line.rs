@@ -142,6 +142,9 @@ impl Session {
         st.borrow_mut().window_from_start = true;
         let key = self.row_key(&rec)?;
         self.read_list_again_from_row_as(st, &rec, &key, false)?;
+        // These reads are this refresh's own: on a page without OnAfterGetCurrRecord the mark they leave for the refresh
+        // (`refresh_read_done`) is spent here, and must not skip the next refresh (ListNewLineFactboxesCode.al:1407 `setvalue`).
+        st.borrow_mut().refresh_read_done = false;
         let mut pk = self.table(&rec)?.primary_key(&rec.borrow().fields);
         self.ret_used = true;
         self.record_op(RecordOp::Get, &rec, &mut pk)?;
