@@ -2642,9 +2642,10 @@ fn with_request_page_slots(
 
 /// The checker's diagnostics in one order: the demand threads report them in the order they finish, and a compile must
 /// be deterministic (ADR-022 decision 5; the workspace layer's equality test found two fresh compiles of the corpus that
-/// differed here).
+/// differed here). A stable sort by position: two findings at one position keep the order the check found them in, as in
+/// `CheckResult::diagnostics`.
 fn sorted_diagnostics(d: &[crate::workspace::Diagnostic]) -> Vec<crate::workspace::Diagnostic> {
     let mut d = d.to_vec();
-    d.sort();
+    d.sort_by(|a, b| (&a.file, a.app, a.offset).cmp(&(&b.file, b.app, b.offset)));
     d
 }
