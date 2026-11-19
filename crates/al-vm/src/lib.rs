@@ -106,6 +106,7 @@ mod load_fields_request;
 mod media_orphans;
 mod min_row_version;
 mod native_rows;
+mod object_ids;
 pub mod observer_tap;
 mod pages;
 mod partial;
@@ -1538,21 +1539,13 @@ impl Session {
         self.demo_written.clear();
         self.gl_setup_written = false;
         self.tx.transaction_type = 0;
-        self.tx.tx_phase = crate::transactions::TX_FRESH;
-        self.tx.lock_tx = false;
-        self.tx.isolation_lock = false;
-        self.tx.lock_unpinned = None;
-        self.tx.recref_lock_tx = false;
-        self.tx.isolation_lock_tables.clear();
-        self.tx.locking_reads.clear();
-        self.tx.db_reads = 0;
-        self.tx.locking_read_tx_unpinned = false;
+        self.tx.phase = crate::transactions::TxPhase::Fresh;
+        self.tx.open.locks = Default::default();
     }
 
     /// Makes every change so far durable (and a Truncate of this transaction final).
     pub fn commit_transaction(&mut self) {
         self.note_commit_for_query_cache();
-        self.tx.deferred_insert = None;
         self.guarded_body_commit();
         al_data::Store::commit(&mut self.store);
         self.crm_committed();
@@ -1561,25 +1554,17 @@ impl Session {
         self.truncate_undo.clear();
         // Rows at or below this rowversion are durable: a buffer older than one of them is stale.
         self.tx.committed_row_version = self.next_row_version;
-        self.tx.row_versions = Default::default();
-        self.tx.rows_touched.clear();
-        self.tx.tables_inserted.clear();
-        self.tx.locked_tables.clear();
-        self.tx.writes.clear();
-        self.tx.insert_buffer.clear();
-        self.tx.commit_counter = self.store.change_counter();
+        // A transaction a lock opened counts as one that wrote: MinimumActiveRowVersion after it is not pinned.
+        self.tx.last_commit_wrote = self.tx.phase == crate::transactions::TxPhase::Write || self.tx.open.locks.lock_tx;
+        self.end_open_transaction();
         self.tx.rolled_back = false;
-        self.tx.reads_after_rollback.clear();
         self.tx.rollback_unpinned = None;
         self.tx.rollback_kind = None;
-        // A transaction a lock opened counts as one that wrote: MinimumActiveRowVersion after it is not pinned.
-        self.tx.last_commit_wrote = self.tx.tx_phase == crate::transactions::TX_WRITE || self.tx.lock_tx;
         self.isolated_committed = self.isolated_storage.clone();
         self.pages.saved_values_committed = self.pages.saved_values.clone();
         self.tasks.commit();
         let removed = std::mem::take(&mut self.media_removed.0);
         self.media_removed.1.extend(removed);
-        self.end_write_phase();
     }
 
     /// The test runner took a checkpoint of the committed data: what was removed before it stays removed.
@@ -1602,22 +1587,15 @@ impl Session {
         self.restore_media(removed);
     }
 
-    /// The transaction a write call started has ended (record/TestProbeRecordRefContracts.al:WriteTransaction_State starts
-    /// it with a write that changes nothing; codeunits/TestWriteTxTestBoundary.al:Test10 to Test13d end it with the run or
-    /// the page operation, and a rollback ends it too).
-    /// The `Consistent(false)` marks end with the transaction too.
-    fn end_write_phase(&mut self) {
-        self.tx.inconsistent.clear();
-        self.tx.lock_tx = false;
-        self.tx.isolation_lock = false;
-        self.tx.lock_unpinned = None;
-        self.tx.recref_lock_tx = false;
-        self.tx.isolation_lock_tables.clear();
-        self.tx.locking_reads.clear();
-        self.tx.db_reads = 0;
-        self.tx.locking_read_tx_unpinned = false;
-        if self.tx.tx_phase == crate::transactions::TX_WRITE {
-            self.tx.tx_phase = crate::transactions::TX_FRESH;
+    /// The open transaction has ended, at a Commit or a rollback: what it held goes (`OpenTx`), and so does the
+    /// `Consistent(false)` mark. The transaction a write call started has ended too (record/TestProbeRecordRefContracts.al:
+    /// WriteTransaction_State starts it with a write that changes nothing; codeunits/TestWriteTxTestBoundary.al:Test10 to
+    /// Test13d end it with the run or the page operation, and a rollback ends it too).
+    fn end_open_transaction(&mut self) {
+        self.tx.open = Default::default();
+        self.tx.commit_counter = self.store.change_counter();
+        if self.tx.phase == crate::transactions::TxPhase::Write {
+            self.tx.phase = crate::transactions::TxPhase::Fresh;
         }
     }
 
@@ -1639,20 +1617,12 @@ impl Session {
 
     pub fn rollback_transaction(&mut self) {
         self.note_rollback_for_stale_rule();
-        self.tx.deferred_insert = None;
         al_data::Store::rollback(&mut self.store);
         self.rollbacks += 1;
         self.crm_rolled_back();
         self.sql.rolled_back();
-        self.tx.row_versions = Default::default();
-        self.tx.rows_touched.clear();
-        self.tx.tables_inserted.clear();
-        self.tx.locked_tables.clear();
-        self.tx.writes.clear();
-        self.tx.insert_buffer.clear();
-        self.tx.commit_counter = self.store.change_counter();
+        self.end_open_transaction();
         self.tx.rolled_back = true;
-        self.tx.reads_after_rollback.clear();
         self.isolated_storage = self.isolated_committed.clone();
         // What SaveValues pages stored is kept in the database: a rollback takes back what was stored since the last commit. An
         // asserterror under TestIsolation = Codeunit (one transaction for the codeunit) takes back what an earlier test stored
@@ -1672,7 +1642,6 @@ impl Session {
         for (slot, value) in std::mem::take(&mut self.truncate_undo) {
             self.autoinc.insert(slot, value);
         }
-        self.end_write_phase();
     }
 
     /// The signatures of the `--tdd` stubs that ran since the last call, sorted (ADR-051 decision 5).
@@ -2354,19 +2323,20 @@ impl Session {
             // 101-137) for an integration event of a codeunit and OnAfterModifyEvent of a table; another event's text is not pinned.
             if let Some(top) = self.events.subscriber_stack.last() {
                 let objects = &self.engine.program.objects;
-                let text = top.map(|(publisher, so, sr)| {
+                let text = top.map(|(publisher, so, sr)| -> Result<String, Signal> {
                     let p = &objects[publisher];
                     let (event, kind) = if p.kind == al_ir::ObjKind::Table {
                         ("OnAfterModifyEvent", "Table")
                     } else {
                         ("None", "CodeUnit")
                     };
-                    format!(
+                    Ok(format!(
                         "Excessive recursion has been detected in event subscriber function {} for event {event} that is raised in {kind} {}.",
                         objects[so].routines[sr].name,
-                        p.id.unwrap_or(0)
-                    )
+                        crate::object_ids::declared_id(p.id)?
+                    ))
                 });
+                let text = text.transpose()?;
                 return Err(Signal::Error(Box::new(match text {
                     Some(message) => al_builtins::native::AlError {
                         message,

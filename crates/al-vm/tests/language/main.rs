@@ -182,6 +182,7 @@ mod partner_gaps_1;
 mod permission_dependency_reads;
 mod permission_moved_table;
 mod permission_system_grant;
+mod platform_subscribers_by_id;
 mod private_use_chars;
 mod proc_assign;
 mod profile_frame_names;
