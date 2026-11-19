@@ -46,7 +46,8 @@ impl Session {
                 }
             }
         }
-        self.fill_field_caption_expressions(st)
+        self.fill_field_caption_expressions(st)?;
+        self.fill_format_procedures(st)
     }
 
     /// A page open runs the CaptionClass expression of every field of the source table that has one, also those without a

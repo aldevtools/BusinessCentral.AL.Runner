@@ -204,6 +204,13 @@ pub struct PageState {
     /// index, caption, whether it is a subscriber's for an own area). `Caption()` reads it and runs nothing
     /// (record/captions/QdCaptionClassAreas.al:422-481); a subscriber's only while `own_area_control_caption_pinned` holds.
     pub field_captions: Vec<(usize, String, bool)>,
+    /// What the AutoFormatExpression procedure of the table field under the page's format-procedure control gave at the last
+    /// fetch that ran it: (control index, value); a read of the control takes it (`format_procedure.rs`).
+    pub field_format_texts: Vec<(usize, Value)>,
+    /// A TestPage GoToRecord is moving the page (`format_procedure.rs`).
+    pub format_procedure_goto: bool,
+    /// Where a page whose open ran an AutoFormatExpression procedure stands in the probe's steps (`format_procedure.rs`).
+    pub format_procedure_step: FormatProcedureStep,
     /// The open ran the CaptionClass expressions of the source table's fields with an empty record (`field_captions`).
     pub field_captions_opened: bool,
     /// The open ran the empty-record CaptionClass runs without a pinned number, or in a cell of `Session::caption_state_free_pin`:
@@ -1163,6 +1170,21 @@ pub struct TestTypedFilter {
     pub text: String,
     /// The filter that text set (filter group 0).
     pub expr: al_builtins::filter::FilterExpr,
+}
+
+/// The steps of pages/controls/AutoFormatProcedureControl.al:223-257 a page whose open ran an AutoFormatExpression procedure has
+/// made (`format_procedure.rs`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FormatProcedureStep {
+    /// No AutoFormatExpression procedure ran at the open.
+    #[default]
+    None,
+    /// The open ran it.
+    Opened,
+    /// The GoToRecord after the open ran it.
+    Landed,
+    /// A SetValue of the format control followed, in mode Edit.
+    Set,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
