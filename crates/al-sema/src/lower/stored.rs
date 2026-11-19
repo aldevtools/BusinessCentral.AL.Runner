@@ -425,6 +425,16 @@ pub fn canonical_dump(lowered: &Lowered) -> String {
             })
             .collect();
         let _ = writeln!(out, "  calls_into {driven_calls:?}");
+        // The split of each routine's calls into the ones its code makes and what its variables drive (`ndirect`).
+        let split: Vec<(Vec<(usize, usize)>, Vec<(usize, usize)>)> = (0..routines)
+            .map(|r| {
+                let (mut direct, mut driven) = (Vec::new(), Vec::new());
+                calls.extend_direct_into(o, r, &mut direct);
+                calls.extend_driven_into(o, r, &mut driven);
+                (direct, driven)
+            })
+            .collect();
+        let _ = writeln!(out, "  direct_and_driven {split:?}");
     }
     let _ = writeln!(out, "driven {:?}", driven.as_ref().map(StoredDriven::of));
     let _ = writeln!(out, "drivers {drivers:?}");

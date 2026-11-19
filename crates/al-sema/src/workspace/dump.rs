@@ -72,13 +72,15 @@ impl Workspace {
                 namespace,
                 usings,
                 synthetic,
+                // Whether the text names `MaxLength` and `AccessByPermission`: functions of the text, found on first ask.
                 max_length: _,
                 access_by_permission: _,
             } = f;
             // A lazily parsed file's synthetic ranges are a function of its text, found the first time they are asked for
             // (`synthetic`), whichever compile asked: not dumped. Its parse problem is dumped when one was found: the run says
             // it on stderr (`lazy_parse_problems`; a file parsed cleanly or not parsed yet is the same to a run). A workspace
-            // file's synthetic ranges are its parse's at load (a workspace file reports parse errors as diagnostics).
+            // file's synthetic ranges are its parse's at load; its problem is not dumped: `file_problem` answers `None` for it
+            // and it reports parse errors as diagnostics, which are dumped.
             let problem = problem.get().and_then(Option::as_ref).filter(|_| *lazy);
             let synthetic = if *lazy { None } else { synthetic.get() };
             let _ = writeln!(
