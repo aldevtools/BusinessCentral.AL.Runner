@@ -43,6 +43,8 @@ pub struct LoginImage {
     singletons: Vec<(usize, arena::NodeId)>,
     /// The live manual bindings in order, by instance node.
     bindings: Vec<arena::NodeId>,
+    /// The live records of `Session::temp_blob_impl_fields`, by record node, with their field positions.
+    temp_blob_fields: Vec<(arena::NodeId, usize)>,
 }
 
 // The image is kept and given to sessions of other threads: `Send + Sync` by its types, no `unsafe`.
@@ -120,6 +122,7 @@ impl Session {
             arena: walk.arena,
             singletons: walk.singletons,
             bindings: walk.bindings,
+            temp_blob_fields: walk.temp_blob_fields,
         })
     }
 
@@ -138,7 +141,7 @@ impl Session {
         // After the baseline: the plain fields hold what the session held, not what the restore set from the baseline.
         image.plain.give(self);
         image.parts.give(self);
-        thaw::thaw(self, &image.arena, &image.singletons, &image.bindings);
+        thaw::thaw(self, image);
     }
 }
 

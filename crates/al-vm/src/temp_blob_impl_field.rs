@@ -23,11 +23,20 @@ impl TempBlobImplFields {
         self.0.is_empty()
     }
 
-    /// Holds what a new session holds as far as code can tell: every record noted is gone. The reader upgrades the
-    /// records and passes over a gone one (`holds`), and each note drops them first (`note`), so a list of gone records
-    /// answers as an empty one. A session image (al-vm `login_image`) requires this.
-    pub(crate) fn holds_no_live_record(&self) -> bool {
-        self.0.iter().all(|(w, _)| w.strong_count() == 0)
+    /// The records noted that still live, with their field positions, in the order noted: what code can tell of this
+    /// list (the reader upgrades the records and passes over a gone one, `holds`; each note drops them first, `note`). A
+    /// session image (al-vm `login_image`) keeps them.
+    pub(crate) fn live(&self) -> Vec<(Rc<RefCell<RecordState>>, usize)> {
+        (self.0.iter())
+            .filter_map(|(w, pos)| w.upgrade().map(|r| (r, *pos)))
+            .collect()
+    }
+
+    /// Notes `records` (from [`TempBlobImplFields::live`]) as this list's own, after any noted so far.
+    pub(crate) fn note_all(&mut self, records: &[(Rc<RefCell<RecordState>>, usize)]) {
+        for (r, pos) in records {
+            self.note(r, *pos);
+        }
     }
 
     fn note(&mut self, rec: &Rc<RefCell<RecordState>>, pos: usize) {

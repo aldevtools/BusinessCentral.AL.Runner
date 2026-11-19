@@ -112,9 +112,10 @@ impl Maker<'_> {
     }
 }
 
-/// Makes `session` hold the graph of `arena`: its handles, its temporary tables, `singletons` (object index, node) and
-/// the manual bindings (`bindings`, instance nodes in order).
-pub(crate) fn thaw(session: &mut Session, arena: &Arena, singletons: &[(usize, NodeId)], bindings: &[NodeId]) {
+/// Makes `session` hold the graph of `image`: its handles, its temporary tables, `singletons` (object index, node), the
+/// manual bindings (instance nodes in order) and the live Temp Blob records.
+pub(crate) fn thaw(session: &mut Session, image: &super::LoginImage) {
+    let (arena, singletons, bindings) = (&image.arena, &image.singletons[..], &image.bindings[..]);
     let mut m = Maker {
         arena,
         made: arena.nodes.iter().map(|_| None).collect(),
@@ -145,6 +146,10 @@ pub(crate) fn thaw(session: &mut Session, arena: &Arena, singletons: &[(usize, N
             instance: Rc::downgrade(&m.instance(id)),
         })
         .collect();
+    let fields: Vec<_> = (image.temp_blob_fields.iter())
+        .map(|&(r, pos)| (m.record_handle(r), pos))
+        .collect();
+    session.temp_blob_impl_fields.note_all(&fields);
 }
 
 /// Pass 1: a new empty handle for every node that is filled later, a whole Blob buffer, a new temporary table id.

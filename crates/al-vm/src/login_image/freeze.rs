@@ -1,5 +1,6 @@
 //! The walk that freezes the object graph into an [`Arena`] (design section 2.2). It starts from the SingleInstance
-//! globals in ascending object index, then the live manual bindings in order (the order `Session::state_lines` uses), and
+//! globals in ascending object index, then the live manual bindings in order (the order `Session::state_lines` uses), then
+//! the live records of `Session::temp_blob_impl_fields`, and
 //! keeps its own stack: no depth limit. Each handle is looked up by its address; a new one gets the next number.
 //!
 //! Every owner is accounted for: after the walk each handle's strong count must equal the strong references the walk
@@ -79,6 +80,8 @@ pub(crate) struct Walker<'a> {
     /// The instances `singletons` holds, by object index, and the live bindings, as nodes.
     pub(crate) singletons: Vec<(usize, NodeId)>,
     pub(crate) bindings: Vec<NodeId>,
+    /// The live records of `Session::temp_blob_impl_fields`, as nodes, with their field positions.
+    pub(crate) temp_blob_fields: Vec<(NodeId, usize)>,
 }
 
 impl<'a> Walker<'a> {
@@ -93,6 +96,7 @@ impl<'a> Walker<'a> {
             todo: Vec::new(),
             singletons: Vec::new(),
             bindings: Vec::new(),
+            temp_blob_fields: Vec::new(),
         }
     }
 
@@ -114,6 +118,10 @@ impl<'a> Walker<'a> {
             let Some(inst) = b.instance.upgrade() else { continue };
             let id = self.handle(Holder::Instance(inst), 0, format!("binding {k}"));
             self.bindings.push(id);
+        }
+        for (k, (r, pos)) in self.session.temp_blob_impl_fields.live().into_iter().enumerate() {
+            let id = self.handle(Holder::Record(r), 0, format!("Temp Blob field {k}"));
+            self.temp_blob_fields.push((id, pos));
         }
         while let Some(id) = self.todo.pop() {
             let node = self.fill(id)?;
@@ -424,5 +432,69 @@ pub(crate) fn no_form(path: &str, what: &str) -> NotImaged {
     NotImaged::Value {
         path: path.to_string(),
         what: format!("{what} with no plain form"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{Engine, Session};
+    use al_builtins::value::Value;
+
+    const SRC: &str = r#"
+table 50110 BlobRow
+{
+    fields { field(1; Id; Integer) { } field(2; Data; Blob) { } }
+    keys { key(PK; Id) { } }
+}
+codeunit 50110 Holder
+{
+    SingleInstance = true;
+    var TempBlob: Record BlobRow temporary;
+}
+"#;
+
+    /// A session over `SRC` whose single instance of Holder holds the temporary record; the record's handle.
+    fn session_with_temp_blob() -> (
+        Session,
+        std::rc::Rc<std::cell::RefCell<al_builtins::value::RecordState>>,
+    ) {
+        let l = al_testkit::compile(SRC);
+        let engine = Engine::new(l.program.clone(), al_testkit::blocked(&l));
+        let at = engine.program.objects.iter().position(|o| o.name == "Holder").unwrap();
+        let mut session = Session::new(engine);
+        let inst = session.codeunit_instance(at);
+        let Value::Record(rec) = inst.borrow().globals[0].clone() else {
+            panic!("a record global")
+        };
+        session.commit_transaction();
+        (session, rec)
+    }
+
+    // A "Temp Blob Impl." field the session noted on a record a SingleInstance global still holds (temp_blob_impl_field.rs:
+    // `Base64Convert.ToBase64` asks it) is kept by the image: the twin notes the twin's own record of that global.
+    #[test]
+    fn a_live_temp_blob_record_is_noted_on_the_twins_own_record() {
+        let (mut session, rec) = session_with_temp_blob();
+        session.temp_blob_impl_fields.note_all(&[(rec.clone(), 1)]);
+        let original = std::rc::Rc::as_ptr(&rec);
+        drop(rec);
+        let image = session.login_image(0).unwrap_or_else(|why| panic!("{}", why.reason()));
+        let mut twin = Session::new(session.engine.clone());
+        twin.thaw_login_image(&image);
+        let noted = twin.temp_blob_impl_fields.live();
+        assert_eq!(noted.len(), 1);
+        let at = twin
+            .engine
+            .program
+            .objects
+            .iter()
+            .position(|o| o.name == "Holder")
+            .unwrap();
+        let Value::Record(own) = twin.codeunit_instance(at).borrow().globals[0].clone() else {
+            panic!("a record global")
+        };
+        assert!(std::rc::Rc::ptr_eq(&noted[0].0, &own), "the twin's own record");
+        assert_ne!(std::rc::Rc::as_ptr(&noted[0].0), original, "not the original's");
+        assert_eq!(noted[0].1, 1);
     }
 }
