@@ -829,6 +829,8 @@ impl Warm {
                                 let (apps, kinds, manifests) = build.take().expect("built once")();
                                 let compile_opts = RunOptions {
                                     only: None,
+                                    // The reference is a fresh compile: it neither reads nor writes the workspace layer.
+                                    workspace_cache: None,
                                     ..opts.clone()
                                 };
                                 let full = CorpusRuntime::compile_suites(

@@ -3127,3 +3127,75 @@ fn a_read_says_which_dependency_files_did_not_parse() {
         assert_eq!((code1, &parse1), (code2, &parse2), "{extra:?}");
     }
 }
+
+/// Second review MED A: `ALRUNNER_CHECK_INCREMENTAL=1` checks an incremental compile against a complete compile, which
+/// must be a fresh compile: it neither reads the workspace layer nor writes an entry.
+#[test]
+fn the_check_of_an_incremental_compile_does_not_use_the_workspace_layer() {
+    let d = tempfile::tempdir().unwrap();
+    let dep = d.path().join("dep");
+    write(
+        &dep,
+        "app.json",
+        r#"{"id":"66666666-0000-0000-0000-000000000001","name":"ChkDep","publisher":"T","version":"1.0.0.0","dependencies":[]}"#,
+    );
+    write(
+        &dep,
+        "src/dep.al",
+        "table 50601 \"Chk T\" { fields { field(1; K; Integer) { } } keys { key(PK; K) { } } }\ncodeunit 50600 \"Chk Dep\" { procedure One(): Integer begin exit(1); end; }\n",
+    );
+    let ws = d.path().join("ws");
+    write(
+        &ws,
+        "app.json",
+        r#"{"id":"66666666-0000-0000-0000-000000000002","name":"ChkWs","publisher":"T","version":"1.0.0.0","dependencies":[{"id":"66666666-0000-0000-0000-000000000001","name":"ChkDep","publisher":"T","version":"1.0.0.0"}]}"#,
+    );
+    let lib = "codeunit 50610 \"Chk Lib\" { procedure Twice(X: Integer): Integer var D: Codeunit \"Chk Dep\"; begin exit(X * 2 * D.One()); end; }\n";
+    write(&ws, "src/lib.al", lib);
+    write(
+        &ws,
+        "src/tests.al",
+        "codeunit 50620 \"Chk Tests\" { Subtype = Test; [Test] procedure Twice() var L: Codeunit \"Chk Lib\"; R: Record \"Chk T\"; begin R.DeleteAll(); if L.Twice(2) <> 4 then Error('twice'); end; }\n",
+    );
+    let cache = d.path().join("cache");
+    let dep_arg = dep.to_string_lossy().to_string();
+    let cache_arg = cache.to_string_lossy().to_string();
+    let mut s = Server::start_with(
+        &[
+            "--no-download",
+            "--no-test-data",
+            "--dep",
+            &dep_arg,
+            "--cache-dir",
+            &cache_arg,
+        ],
+        &[("ALRUNNER_CHECK_INCREMENTAL", "1")],
+    );
+    assert_eq!(s.line(), json!({"ready": true}));
+    let request = json!({"command": "runTests", "sourcePaths": [ws]});
+    s.send(request.clone());
+    let first = s.until_summary().last().unwrap().clone();
+    assert_eq!(first["timings"]["workspaceCache"], json!("built"), "{first}");
+    write(
+        &ws,
+        "src/lib.al",
+        &lib.replace("exit(X * 2 * D.One())", "exit(X * 3 * D.One())"),
+    );
+    s.send(request);
+    let edited = s.until_summary().last().unwrap().clone();
+    assert_eq!(edited["incremental"], json!(true), "{edited}");
+    s.send(json!({"command": "shutdown"}));
+    s.line();
+    s.child.wait().unwrap();
+    let entries: Vec<_> = std::fs::read_dir(cache.join("compile"))
+        .unwrap()
+        .flatten()
+        .filter(|e| e.path().extension().is_some_and(|x| x == "alcw"))
+        .map(|e| e.file_name())
+        .collect();
+    assert_eq!(
+        entries.len(),
+        1,
+        "the check's complete compile wrote an entry: {entries:?}"
+    );
+}
