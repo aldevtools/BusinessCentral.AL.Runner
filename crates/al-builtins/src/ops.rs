@@ -1222,7 +1222,7 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
         Arith::Div => {
             let q = quotient(a, b)?;
             // A BigInteger beside a whole number: whether it is kept to 18 digits first is pinned only where the
-            // quotient is the same either way (types/decimal-integer/DecimalDigits.al:310 `b62p1 / 3 back`).
+            // quotient is the same either way (types/decimal-integer/DecimalDigits.al:309-310 `b62p1 / 3 back`).
             if any_big && !any_dec {
                 let (ka, kb) = (kept(l, a), kept(r, b));
                 if (ka, kb) != (a, b) && quotient(ka, kb)? != q {
@@ -2943,7 +2943,7 @@ mod tests {
     }
 
     /// A BigInteger of more than 18 digits divided by a number: the quotient is answered only where it does not depend
-    /// on whether the BigInteger is first kept to 18 digits (types/decimal-integer/DecimalDigits.al:310 `b62p1 / 3 back`);
+    /// on whether the BigInteger is first kept to 18 digits (types/decimal-integer/DecimalDigits.al:309-310 `b62p1 / 3 back`);
     /// `9223372036854775807L / 2` is not pinned (issue 8349) and refuses.
     #[test]
     fn a_biginteger_quotient_that_depends_on_the_kept_digits_refuses() {
@@ -2961,5 +2961,15 @@ mod tests {
         let third = rust_decimal::Decimal::from(1_537_228_672_809_129_300_i64);
         assert!(matches!(q(4_611_686_018_427_387_905, 3), Ok(Value::Decimal(d)) if d == third));
         assert!(matches!(q(7, 2), Ok(Value::Decimal(d)) if d == rust_decimal::Decimal::new(35, 1)));
+        // The BigInteger of 19 digits on the right side.
+        let r = |a: i64| {
+            arith(
+                Arith::Div,
+                &Value::BigInteger(a),
+                &Value::BigInteger(4_611_686_018_427_387_905),
+            )
+        };
+        assert!(matches!(r(999_999_999_999_999_999), Err(super::Signal::Unsupported(_))));
+        assert!(matches!(r(500_000_000_000_000_000), Ok(Value::Decimal(_))));
     }
 }
