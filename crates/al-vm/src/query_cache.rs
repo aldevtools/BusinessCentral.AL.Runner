@@ -4,18 +4,20 @@
 //! A worker's read that repeats an earlier read answers what the earlier read answered, also after the test session changed
 //! the rows without committing. Two kinds of read are measured, and only they are kept here:
 //! - a row: `Get` with every primary-key field, and `FindFirst` with exactly one `SetRange` to one value on every primary-key
-//!   field (filter group 0, the primary key, ascending): the two answer alike (:365, :387, :564, :584);
+//!   field (filter group 0, the primary key, ascending): the two answer alike (:367, :389, :566, :586);
 //! - a group's first row and count: `FindFirst` and `Count` whose every filter is a `SetRange` to one value on a stored field
-//!   (filter group 0): on the first primary-key field (:639, :656, :673, :690), on a field outside the key and on two fields
-//!   (:889, :910), the filter set by `SetRange` to the value twice, by `SetFilter` of a range from the value to itself or by
-//!   `FieldRef.SetRange` alike (:936).
+//!   (filter group 0): on the first primary-key field (:641, :658, :675, :692), on a field outside the key and on two fields
+//!   (:870, :891), the filter set by `SetRange` to the value twice, by `SetFilter` of a range from the value to itself or by
+//!   `FieldRef.SetRange` alike (:917).
 //!
-//! A row entry holds until a commit writes that row (:428, :823 against :739, :760, :781, :803); a group entry until a commit
-//! writes the table (:842, :864, :889, :910 against :449). A rollback changes neither (:1002, :1035, :1048), and a found row, a
-//! missing row and a count are all kept (:602, :622, :690). The test session's own read of a form fills the cache while that
-//! session has not written the table since its last commit (:498, :539, :957; not after it wrote the table, :978), and a
+//! A row entry holds until a commit writes that row (:430, :804 against :741, :762, :784; a commit of a ModifyAll or DeleteAll of the table ends it
+//! or keeps it by the target's minor, `al_version::bulk_commit_ends_cached_row`, and elsewhere a read it would answer otherwise
+//! than the table is refused); a group entry until a commit
+//! writes the table (:823, :845, :870, :891 against :451). A rollback changes neither (:983, :1016, :1029), and a found row, a
+//! missing row and a count are all kept (:604, :624, :692). The test session's own read of a form fills the cache while that
+//! session has not written the table since its last commit (:500, :541, :938; not after it wrote the table, :959), and a
 //! worker's first read then answers what the test read; the test session's own read answers from an entry a worker filled
-//! (:1002), which is refused here. The cache starts empty in every test codeunit (:1063, :1086). Every other read keeps reading
+//! (:983), which is refused here. The cache starts empty in every test codeunit (:1044, :1067). Every other read keeps reading
 //! the rows as they are.
 
 use crate::records::Rec;
@@ -80,12 +82,13 @@ impl<T> Entries<T> {
     }
 }
 
-/// What a commit had left of a row when the cache took it: the row's SystemRowVersion (`None`: no committed row) and the
-/// table's commit stamp.
+/// What a commit had left of a row when the cache took it: the row's SystemRowVersion (`None`: no committed row), the
+/// table's commit stamp, and how many commits carried a ModifyAll, DeleteAll or Truncate of the table.
 #[derive(Clone, Copy, PartialEq)]
 struct Committed {
     version: Option<i64>,
     stamp: Option<u64>,
+    bulk: u64,
 }
 
 /// Whether an entry taken at `then` still holds `now`.
@@ -98,9 +101,17 @@ enum Holds {
     Unknown,
 }
 
-fn holds(then: Committed, now: Committed) -> Holds {
+/// Whether an entry taken at `then` still holds `now`; `bulk_ends`: whether a commit of a ModifyAll of another row of the table
+/// ends it on the target (`al_version::bulk_commit_ends_cached_row`).
+fn holds(then: Committed, now: Committed, bulk_ends: Option<bool>) -> Holds {
     if then.version != now.version {
         Holds::No
+    } else if then.bulk != now.bulk && bulk_ends != Some(false) {
+        if bulk_ends == Some(true) {
+            Holds::No
+        } else {
+            Holds::Unknown
+        }
     } else if then.stamp == now.stamp || now.version.is_some() {
         Holds::Yes
     } else {
@@ -127,8 +138,10 @@ pub(crate) struct QueryCache {
     test_groups: Entries<Option<u64>>,
     /// The next load into a partial record loads a row the cache answered with another row than the table holds.
     replay_load: bool,
+    /// The commits that carried a ModifyAll, DeleteAll or Truncate, by table (`Session::note_commit_for_query_cache`).
+    bulk_commits: HashMap<u32, u64>,
     /// The rows of such loads (`Buffer::fetched`, shared by copies of the record, replaced by its next fetch): a load of a field
-    /// `SetLoadFields` left out is refused (BC loads it from the cached row, :712; the runner would load it from the table).
+    /// `SetLoadFields` left out is refused (BC loads it from the cached row, :714; the runner would load it from the table).
     replayed: Vec<Weak<Vec<Value>>>,
 }
 
@@ -153,14 +166,36 @@ fn same_group(a: &GroupAnswer, b: &GroupAnswer) -> bool {
 }
 
 const TEST_READ_REFUSAL: &str = "a read of the test session that a page background task's earlier read answers from the query \
-                                 cache otherwise than the table (BgTaskQueryCache.al:1002, not modelled)";
+                                 cache otherwise than the table (BgTaskQueryCache.al:983, not modelled)";
 
 impl Session {
-    /// The test session enters a test codeunit: the cache starts empty (:1063, :1086), and so does the record of a worker's
+    /// The test session enters a test codeunit: the cache starts empty (:1044, :1067), and so does the record of a worker's
     /// first answers (`bg_read_done`).
     pub(crate) fn reset_query_cache(&mut self) {
         self.pages.query_cache = QueryCache::default();
         self.pages.bg_reads.clear();
+    }
+
+    /// The open transaction commits: the tables it wrote by ModifyAll, DeleteAll or Truncate count one more such commit.
+    pub(crate) fn note_commit_for_query_cache(&mut self) {
+        use crate::state::TxWriteKind as K;
+        let cache = &mut self.pages.query_cache;
+        let mut tables: Vec<u32> = self
+            .tx
+            .writes
+            .iter()
+            .filter(|w| matches!(w.kind, K::ModifyAll | K::DeleteAll | K::Truncate))
+            .map(|w| w.table)
+            .collect();
+        tables.sort_unstable();
+        tables.dedup();
+        for t in tables {
+            *cache.bulk_commits.entry(t).or_default() += 1;
+        }
+    }
+
+    fn bulk_ends(&self) -> Option<bool> {
+        al_version::bulk_commit_ends_cached_row(self.engine.target.as_ref())
     }
 
     fn in_worker(&self) -> bool {
@@ -220,7 +255,7 @@ impl Session {
     }
 
     /// What a group read of `rec` is for: every filter a `SetRange` to one value in filter group 0 on a stored field (on the
-    /// first key field :639-690, on a field outside the key and on two fields :889, :910), as (field, value) pairs in field
+    /// first key field :641-692, on a field outside the key and on two fields :870, :891), as (field, value) pairs in field
     /// order, after the read's kind.
     fn group_filter_key(rec: &Rec, t: &TableDef, kind: &str) -> Option<Vec<Value>> {
         let r = rec.borrow();
@@ -258,9 +293,11 @@ impl Session {
         let version = store
             .committed_get(cx, t, pk)
             .and_then(|row| crate::stale_rename::row_version(t, &row));
+        let stamp = store.committed_stamp(cx, t);
         Ok(Committed {
             version,
-            stamp: store.committed_stamp(cx, t),
+            stamp,
+            bulk: self.pages.query_cache.bulk_commits.get(&t.object).copied().unwrap_or(0),
         })
     }
 
@@ -358,10 +395,14 @@ impl Session {
             return self.test_row_read(rec, cx, t, &at, now, fresh);
         }
         let cache = &self.pages.query_cache;
-        let answer = match cache.rows.get(&at).map(|(then, row)| (holds(*then, now), row)) {
+        let answer = match cache
+            .rows
+            .get(&at)
+            .map(|(then, row)| (holds(*then, now, self.bulk_ends()), row))
+        {
             Some((Holds::Yes, row)) => row.clone(),
             Some((Holds::Unknown, row)) if !same_row(row, &fresh) => return unsupported(Self::UNKNOWN_ROW),
-            _ => match cache.test_rows.get(&at).map(|then| holds(*then, now)) {
+            _ => match cache.test_rows.get(&at).map(|then| holds(*then, now, self.bulk_ends())) {
                 Some(Holds::Yes) => self.store_for(rec)?.committed_get(cx, t, pk),
                 Some(Holds::Unknown) => return unsupported(Self::UNKNOWN_ROW),
                 _ => fresh.clone(),
@@ -372,11 +413,12 @@ impl Session {
         Ok(answer)
     }
 
-    const UNKNOWN_ROW: &str = "a page background task's read of a row the query cache took when no commit held it, after a \
-                               commit of the table (whether a commit wrote the row in between is not known, not measured)";
+    const UNKNOWN_ROW: &str = "a page background task's read of a row whose query cache entry a later commit of the table may \
+                               have ended (a commit of a ModifyAll or DeleteAll, or of the table when no commit held the row; \
+                               not measured)";
 
     /// The test session's own read of a row: it notes the row while the session has not written the table since its last
-    /// commit (:498, :539, :957), and is refused where a worker's entry answers otherwise than the table (:1002, not modelled).
+    /// commit (:500, :541, :938), and is refused where a worker's entry answers otherwise than the table (:983, not modelled).
     fn test_row_read(
         &mut self,
         rec: &Rec,
@@ -390,7 +432,7 @@ impl Session {
             return Ok(fresh);
         }
         if let Some((then, row)) = self.pages.query_cache.rows.get(at)
-            && holds(*then, now) != Holds::No
+            && holds(*then, now, self.bulk_ends()) != Holds::No
             && !same_row(row, &fresh)
         {
             return unsupported(TEST_READ_REFUSAL);
@@ -433,7 +475,7 @@ impl Session {
             None if written && cache.test_groups.get(&at) == Some(&stamp) => {
                 return unsupported(
                     "a group read of a page background task after the test session read the group and then wrote the table (the \
-                     query cache's answer is not measured, BgTaskQueryCache.al:957 measures a row)",
+                     query cache's answer is not measured, BgTaskQueryCache.al:938 measures a row)",
                 );
             }
             None => fresh.clone(),
@@ -459,14 +501,14 @@ impl Session {
     }
 
     /// The missing fields of `rec`, fetched as `fetched`, are about to be loaded: refused when the cache answered that fetch
-    /// with another row than the table holds (BC loads them from the cached row, :712; the runner would load the table's).
+    /// with another row than the table holds (BC loads them from the cached row, :714; the runner would load the table's).
     pub(crate) fn refuse_load_of_replayed(&mut self, fetched: &Rc<Vec<Value>>) -> Result<(), Signal> {
         let replayed = &mut self.pages.query_cache.replayed;
         replayed.retain(|w| w.strong_count() > 0);
         if replayed.iter().any(|w| std::ptr::eq(w.as_ptr(), Rc::as_ptr(fetched))) {
             return unsupported(
                 "a field SetLoadFields left out, loaded into a record a page background task's read answered from the query \
-                 cache (BgTaskQueryCache.al:712, not modelled)",
+                 cache (BgTaskQueryCache.al:714, not modelled)",
             );
         }
         Ok(())
