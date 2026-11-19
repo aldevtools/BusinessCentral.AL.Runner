@@ -674,3 +674,23 @@ codeunit 77462 "RPL Gap"
 fn the_global_trigger_setups_asked_are_compared() {
     assert_planted_state(&planted(GAP_GLOBAL_SETUPS, "a", &["ab"]), "global setups ");
 }
+
+/// "RPL Gap" raises its own event once per character of the text; a subscriber handles it.
+const GAP_EVENT_CALLS: &str = r#"
+codeunit 77462 "RPL Gap"
+{
+    procedure Plant(N: Integer) var I: Integer; begin for I := 1 to N do OnGap(); end;
+    [IntegrationEvent(false, false)] local procedure OnGap() begin end;
+}
+codeunit 77467 "RPL Gap Listener"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"RPL Gap", 'OnGap', '', false, false)]
+    local procedure Heard() begin end;
+}
+"#;
+
+// How often each subscriber was called (the Event Subscription table's "Number of Calls") is compared.
+#[test]
+fn the_event_subscriber_call_counts_are_compared() {
+    assert_planted_state(&planted(GAP_EVENT_CALLS, "a", &["ab"]), "event calls ");
+}

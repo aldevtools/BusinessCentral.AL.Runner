@@ -11,6 +11,7 @@ impl Session {
     pub(crate) fn fact_lines(&self, lines: &mut Vec<String>, opaque: &mut Vec<String>) {
         let _ = opaque;
         lines.push(self.global_setups_line());
+        lines.push(self.event_calls_line());
     }
 
     /// The Global Triggers setup BC asked for each table (`events.global_setups`): a later first write to a table asks
@@ -20,5 +21,14 @@ impl Session {
             .map(|(&t, &s)| (t, (self.engine.program.objects[t].id.unwrap_or(0), s)))
             .collect();
         format!("global setups {}", content(&setups))
+    }
+
+    /// How often each subscriber (object index, routine index) handled an event, and how many bound instances each
+    /// subscriber object has (`events.event_stats`: the Event Subscription table's "Number of Calls" and "Active").
+    fn event_calls_line(&self) -> String {
+        let stats = &self.events.event_stats;
+        let calls: BTreeMap<(usize, usize), i64> = stats.calls.borrow().iter().map(|(&k, &n)| (k, n)).collect();
+        let active: BTreeMap<usize, i64> = stats.active.borrow().iter().map(|(&k, &n)| (k, n)).collect();
+        format!("event calls {} active {}", content(&calls), content(&active))
     }
 }
