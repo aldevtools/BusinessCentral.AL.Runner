@@ -21,8 +21,9 @@
 //! does with it: **imaged** (kept and given back, with the test that shows it), **checked** (the check sees it and the
 //! image needs it at a new session's value), **follows** (written by a setter the thaw calls), **run** (one value for the
 //! whole thread or process run, not of one session: an id counter, a cache of the program, a diagnostic counter) or
-//! **transient** (set and taken within one call; empty at rest). al-test-cli `tests/outside_session_state.rs` fails for a
-//! `static` of al-vm, al-builtins or al-data that is not listed here.
+//! **transient** (set and taken within one call; empty at rest). Each is written `static NAME` after its file. al-test-cli
+//! `tests/outside_session_state.rs` fails for a `static` of al-vm, al-builtins or al-data (generated files and test code
+//! left out) that is not listed here, and for a listed one that is no longer there.
 //!
 //! The store, besides its rows:
 //! - emptied marks (`MemStore::committed_marks`): imaged, `login_image.rs` (test `a_table_the_login_emptied_stays_emptied_in_the_twin`).
@@ -33,37 +34,37 @@
 //!   that compare with one are carried as facts: `tx.commit_counter`, `own_read`'s "current", `baseline_origin`).
 //!
 //! Thread-local and process tables:
-//! - `crates/al-builtins/src/errorinfo.rs` `CALLSTACKS`: imaged, `ErrorInfoNode::callstack` (test
+//! - `crates/al-builtins/src/errorinfo.rs` `static CALLSTACKS`: imaged, `ErrorInfoNode::callstack` (test
 //!   `an_error_infos_call_stack_follows_it_into_the_twin`); checked, state_render.rs ErrorInfo line.
-//! - `crates/al-builtins/src/assumptions.rs` `HITS`: not imaged; the check keeps the login's marks next to the state
+//! - `crates/al-builtins/src/assumptions.rs` `static HITS`: not imaged; the check keeps the login's marks next to the state
 //!   (`LoginState::hits`), and a replay must raise them again (step 3).
-//! - `crates/al-builtins/src/filter.rs` `FILTER_LANGUAGE`, `crates/al-builtins/src/ops.rs` `TURKIC_CODE`: follows,
+//! - `crates/al-builtins/src/filter.rs` `static FILTER_LANGUAGE`, `crates/al-builtins/src/ops.rs` `static TURKIC_CODE`: follows,
 //!   `Session::restore_carried`.
-//! - `crates/al-builtins/src/value.rs` `BORN_RESTRICTED`: follows, the thaw writes each instance's `born`.
-//! - `crates/al-builtins/src/instance_cycles.rs` `MADE`, `PRUNE_AT`, `GUARDS`, `LIVE`, `PAGE_INSTANCES`: follows, a thawn
-//!   instance is made by `instance_cycles::shared` (test `the_image_is_send_and_sync_and_thaws_on_another_thread`).
-//! - `crates/al-data/src/memory.rs` `STORE_OPS`: follows, `SqlCounters::restore_left` reads it again.
-//! - `crates/al-builtins/src/filter.rs` `DATE_CONTEXT`, `crates/al-builtins/src/placeholder_output.rs` `UNANSWERED`,
-//!   `crates/al-builtins/src/stream.rs` `OBSERVED`, `OBSERVED_ANY`: transient (scoped by `with_date_context`; taken by the
-//!   builtin call or the procedure end that set it).
-//! - `crates/al-builtins/src/rendered_text.rs` `RENDERS`, `ACTIVE`, `ALLOWED`, `DOTNET_ALLOWED`: run (a marked text keeps
+//! - `crates/al-builtins/src/value.rs` `static BORN_RESTRICTED`: follows, the thaw writes each instance's `born`.
+//! - `crates/al-builtins/src/instance_cycles.rs` `static MADE`, `static PRUNE_AT`, `static GUARDS`, `static LIVE`: follows, a
+//!   thawn instance is made by `instance_cycles::shared` (test `the_image_is_send_and_sync_and_thaws_on_another_thread`), and
+//!   the twin's thread frees its cycles at its end (`RunEnd`). `static PAGE_INSTANCES`: run (a function registered once).
+//! - `crates/al-data/src/memory.rs` `static STORE_OPS`: follows, `SqlCounters::restore_left` reads it again.
+//! - `crates/al-builtins/src/filter.rs` `static DATE_CONTEXT`, `crates/al-builtins/src/placeholder_output.rs` `static UNANSWERED`,
+//!   `crates/al-builtins/src/stream.rs` `static OBSERVED`, `static OBSERVED_ANY`, `crates/al-builtins/src/text.rs`
+//!   `static UNAUDITED`: transient (scoped by `with_date_context`; taken by the builtin call, the statement or the procedure
+//!   end that set it).
+//! - `crates/al-builtins/src/rendered_text.rs` `static RENDERS`, `static ACTIVE`, `static ALLOWED`, `static DOTNET_ALLOWED`: run (a marked text keeps
 //!   its number in the process; a text value is imaged as it is, mark included).
-//! - `crates/al-builtins/src/placeholder_output.rs` `SIZE_MADE`, `crates/al-vm/src/temp_blob_share.rs` `STREAMS_KEPT`:
+//! - `crates/al-builtins/src/placeholder_output.rs` `static SIZE_MADE`, `crates/al-vm/src/temp_blob_share.rs` `static STREAMS_KEPT`:
 //!   run (process flags that switch a guard on, never off).
-//! - `crates/al-builtins/src/permission_shadow.rs` `ENABLED`, `ALL`, `LINES`: run (the shadow permission log, diagnostics).
-//! - `crates/al-data/src/memory.rs` `STAMPS`, `NO_COMPANY`, `ORDER_BUILDS`, `ROWS_LOOKED_AT`,
-//!   `crates/al-data/src/memory/held_cols.rs` `COLLATION_ROWS`, `crates/al-vm/src/platform/mat.rs` `ROWS_LOOKED_AT`,
-//!   `crates/al-builtins/src/text.rs` `MARKER_SCANS`, `UNAUDITED`, `crates/al-vm/src/exec/mod.rs` `ON`, `STATS`: run
-//!   (stamps and diagnostic counters).
-//! - `crates/al-vm/src/lib.rs` `NEXT_ENGINE_UID`, `crates/al-vm/src/baseline.rs` `NEXT_ORIGIN`,
-//!   `crates/al-vm/src/dotnet/blob_stream.rs` `NEXT_VIEW`: run (ids handed out once in the process).
-//! - `crates/al-builtins/src/builtin_id.rs` `NAMES`, `CLASSES`, `crates/al-builtins/src/builtin_ids.rs` `NAMES`,
-//!   `CLASSES`, `crates/al-builtins/src/catalog.rs` `CATALOG`, `crates/al-builtins/src/collation.rs` `ASCII_WEIGHTS`,
-//!   `crates/al-builtins/src/conv/mod.rs` `CELLS`, `crates/al-builtins/src/features.rs` `TABLE`,
-//!   `crates/al-builtins/src/native/registry.rs` `TABLE`, `crates/al-builtins/src/page_handle.rs` `CLOSED_PAGE`,
-//!   `crates/al-builtins/src/sysenum.rs` `LIST`, `crates/al-vm/src/auto_format_writer.rs` `EVENTS`,
-//!   `crates/al-vm/src/platform/fields.rs` `WHY`, `PACKAGE_WHY`, `crates/al-vm/src/platform/mod.rs` `SHARED`,
-//!   `crates/al-vm/src/refs.rs` `C`, `crates/al-vm/src/report_save/cells.rs` `CELLS`: run (tables of the program and the
+//! - `crates/al-builtins/src/permission_shadow.rs` `static ENABLED`, `static ALL`, `static LINES`: run (the shadow permission log, diagnostics).
+//! - `crates/al-data/src/memory.rs` `static STAMPS`, `static NO_COMPANY`, `static ORDER_BUILDS`,
+//!   `crates/al-builtins/src/text.rs` `static MARKER_SCANS`, `crates/al-vm/src/exec/mod.rs` `static ON`, `static STATS`:
+//!   run (stamps and diagnostic counters).
+//! - `crates/al-vm/src/lib.rs` `static NEXT_ENGINE_UID`, `crates/al-vm/src/baseline.rs` `static NEXT_ORIGIN`,
+//!   `crates/al-vm/src/dotnet/blob_stream.rs` `static NEXT_VIEW`: run (ids handed out once in the process).
+//! - `crates/al-builtins/src/catalog.rs` `static CATALOG`, `crates/al-builtins/src/collation.rs` `static ASCII_WEIGHTS`,
+//!   `crates/al-builtins/src/conv/mod.rs` `static CELLS`, `crates/al-builtins/src/features.rs` `static TABLE`,
+//!   `crates/al-builtins/src/native/registry.rs` `static TABLE`, `crates/al-builtins/src/page_handle.rs` `static CLOSED_PAGE`,
+//!   `crates/al-builtins/src/sysenum.rs` `static LIST`, `crates/al-vm/src/auto_format_writer.rs` `static EVENTS`,
+//!   `crates/al-vm/src/platform/fields.rs` `static WHY`, `static PACKAGE_WHY`, `crates/al-vm/src/platform/mod.rs` `static SHARED`,
+//!   `crates/al-vm/src/refs.rs` `static C`, `crates/al-vm/src/report_save/cells.rs` `static CELLS`: run (tables of the program and the
 //!   platform, the same for every session).
 
 use crate::Session;
