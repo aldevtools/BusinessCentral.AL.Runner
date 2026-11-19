@@ -516,7 +516,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
         Value::Time(t) => format_time(t - 1, standard)?,
         Value::DateTime(t) => format_datetime(t - 1, standard)?,
         Value::Duration(ms) => format_duration(*ms, standard, ctx.language())?,
-        Value::DateFormula(f) => date_formula_text(f, standard, ctx.language())?,
+        Value::DateFormula(f) => date_formula_text(f, length, standard, ctx.language())?,
         // A Version reads `major.minor.build.revision` (session-system/TestBCPlatformContracts.al:120-136
         // compares the formatted AppVersion with the manifest's `1.0.0.0`).
         Value::Library(crate::library_kind::LibraryKind::Version, _) if standard == 9 => {
@@ -810,7 +810,8 @@ fn blob_text(b: &crate::stream::BlobRef, ctx: &dyn FormatCtx) -> String {
 /// print the letters of the global language, format 9 the English letters, format 2 the English letters in angle brackets (the
 /// empty formula `<>`), and formats 3 to 8 raise (format-evaluate/Y62DateFormulaFormat.al, writer Y62; see
 /// `date_formula_language`). Formats 3 to 8 in another language than 1033 and the other numbers are refused.
-fn date_formula_text(f: &str, standard: i32, language: i32) -> Result<String, FormatFail> {
+fn date_formula_text(f: &str, length: i32, standard: i32, language: i32) -> Result<String, FormatFail> {
+    date_formula_length(length)?;
     let text = crate::datefns::formula_text(f);
     match standard {
         9 => Ok(text),
@@ -822,6 +823,19 @@ fn date_formula_text(f: &str, standard: i32, language: i32) -> Result<String, Fo
             "Format of a DateFormula with standard format {n} in the language {language} (not pinned)"
         ))),
     }
+}
+
+/// The one length a DateFormula is formatted with: 0, the length of every pinned case (types/
+/// TestDateRoundFormatStringContracts.al:128, `Format(Formula)`). Every other length is refused, with a standard format number or a format
+/// string alike; al-runner issue 8198 measured a cut on BC 28.4 (`Format(DF, 4)` of `1Y+1M+1D` is `1Y+1`), which waits
+/// for a probe.
+pub(crate) fn date_formula_length(length: i32) -> Result<(), FormatFail> {
+    if length == 0 {
+        return Ok(());
+    }
+    Err(FormatFail::Unsupported(format!(
+        "Format of a DateFormula with length {length} (not pinned)"
+    )))
 }
 
 fn type_phrase(v: &Value) -> String {
@@ -858,26 +872,42 @@ pub(crate) fn pad(s: String, length: i32) -> String {
 
 /// The error of a Decimal outside +-999,999,999,999,999.99 (format-evaluate/RandomFormat.al:Format_Decimal `af191`, `af193`;
 /// a Duration converted into a Decimal: types/duration/D_Duration.al:Duration_To_Integer_BeyondRange `af126`).
+/// `Unsupported` for a value whose 18-digit form is below 1,000,000,000,000,000: no pin shows that text.
 pub(crate) fn decimal_range_error(d: &rust_decimal::Decimal) -> Option<FormatFail> {
     if d.abs() <= rust_decimal::Decimal::new(99_999_999_999_999_999, 2) {
         return None;
     }
-    // The shown value keeps 18 significant digits (types/decimal-integer/ScT70058.al:Decimal_Digits `af83`).
+    // The shown value keeps 18 significant digits: an integer (types/decimal-integer/ScT70058.al:119 `af83`,
+    // ScT70059.al:294 `af205`) and a fraction, whose decimals inside the 18 digits stay
+    // (errors/PnBDateFormat.al:581 `af422`, :583 `af425`; types/decimal-integer/DecimalDigits.al:113 `af76`;
+    // a negative read from a JSON text, json/DbJsonLeads.al:252; one decimal,
+    // types/decimal-integer/Y8BigIntegerFractionCompare.al:131). Every pin has 16 or more integer digits.
     let kept = d
         .round_sf_with_strategy(18, rust_decimal::RoundingStrategy::MidpointAwayFromZero)
-        .unwrap_or(*d);
-    let whole = kept.round().to_string();
-    let (sign, digits) = whole.strip_prefix('-').map_or(("", whole.as_str()), |r| ("-", r));
-    let mut grouped = String::new();
+        .unwrap_or(*d)
+        .normalize();
+    if kept.abs() < rust_decimal::Decimal::from(1_000_000_000_000_000_i64) {
+        return Some(FormatFail::Unsupported(format!(
+            "the range error of the Decimal {kept}, below 1,000,000,000,000,000 when kept to 18 digits (not pinned)"
+        )));
+    }
+    let kept = kept.to_string();
+    let (sign, unsigned) = kept.strip_prefix('-').map_or(("", kept.as_str()), |r| ("-", r));
+    let (digits, decimals) = unsigned.split_once('.').map_or((unsigned, ""), |(i, f)| (i, f));
+    let mut shown = String::new();
     for (i, c) in digits.chars().enumerate() {
         if i > 0 && (digits.len() - i) % 3 == 0 {
-            grouped.push(',');
+            shown.push(',');
         }
-        grouped.push(c);
+        shown.push(c);
+    }
+    if !decimals.is_empty() {
+        shown.push('.');
+        shown.push_str(decimals);
     }
     Some(FormatFail::Error {
         message: format!(
-            "The value of Decimal parameter  is outside of the permitted range. The current value is: {sign}{grouped}. The permitted range is: from -999,999,999,999,999.99 to 999,999,999,999,999.99."
+            "The value of Decimal parameter  is outside of the permitted range. The current value is: {sign}{shown}. The permitted range is: from -999,999,999,999,999.99 to 999,999,999,999,999.99."
         ),
         code: "OutsidePermittedRange".into(),
     })
@@ -1538,6 +1568,23 @@ mod tests {
             assert_eq!(format_date(day(12, 5), false, 7, lang).unwrap(), "dec 5, 2026");
             assert_eq!(format_date(day(3, 15), false, 7, lang).unwrap(), "mrt 15, 2026");
         }
+    }
+
+    /// A value above the range whose 18-digit form is below 1,000,000,000,000,000 is not pinned: every pin of the
+    /// range error's text has 16 or more integer digits (errors/PnBDateFormat.al:581, :583; json/DbJsonLeads.al:252;
+    /// types/decimal-integer/Y8BigIntegerFractionCompare.al:131). Such a value refuses; a pinned one keeps the error.
+    #[test]
+    fn a_range_error_below_sixteen_integer_digits_refuses() {
+        for s in ["999999999999999.991", "999999999999999.995", "-999999999999999.995"] {
+            let r = format_value(&dec(s), 0, 0, &Ctx);
+            assert!(matches!(r, Err(FormatFail::Unsupported(_))), "{s}: {r:?}");
+        }
+        let r = format_value(&dec("1000000000000000.5"), 0, 9, &Ctx);
+        assert!(
+            matches!(&r, Err(FormatFail::Error { message, .. }) if message.contains(": 1,000,000,000,000,000.5.")),
+            "{r:?}"
+        );
+        assert_eq!(f(dec("999999999999999.99")), "999,999,999,999,999.99");
     }
 
     #[test]

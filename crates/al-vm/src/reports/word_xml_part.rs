@@ -227,8 +227,26 @@ impl Session {
             Some(Value::Boolean(b)) => *b,
             Some(other) => return unsupported(format!("{id} with the flag {}", other.describe())),
         };
-        let text = self.word_xml_part_text(&schema, extended)?;
+        let company_block = self.has(al_version::Gate::ReportSaveAsXmlHeaderHasCompanyBlock);
+        let text = self.word_xml_part_text(&schema, extended, company_block)?;
         Ok(Value::Text(text.into()))
+    }
+
+    /// The data set part the compiler writes into a Word layout file of report `report_id`, plain or `extended`: the text of
+    /// `Report.WordXmlPart` with the `BCReportInformation` of BC 29 on every major, since the compiler writes it, not the
+    /// server, and with LF line ends. Both as in the file alc wrote for reports/layouts-saveas/Y17LayoutExportTests.al:105-124
+    /// (Y17LayR2.docx, its SHA-256 at :9): it holds `ReportCaption` and `CompanyMetadata`, its lines end in LF, and the export
+    /// of its bytes passes on BC 27, 28 and 29. A part with CRLF line ends is not pinned. Refused for a report that a
+    /// reportextension changes: the part then holds the extension's columns, which the compiler of the report's own app does
+    /// not see.
+    pub(crate) fn compiled_word_part(&mut self, report_id: i32, extended: bool) -> Result<String, Signal> {
+        let (_, schema) = self.report_by_number(ids::REPORT_WORDXMLPART_2, Some(&Value::Integer(report_id)))?;
+        if !schema.report().extensions.is_empty() {
+            return unsupported(format!(
+                "the Word data set part the compiler writes for report {report_id}, which a reportextension changes (not pinned)"
+            ));
+        }
+        Ok(self.word_xml_part_text(&schema, extended, true)?.replace("\r\n", "\n"))
     }
 
     /// The error of the static form for an id no report has: AL:MetadataNotFound from a try function
@@ -259,7 +277,7 @@ impl Session {
         Ok(Some(self.missing_object("Report", n)))
     }
 
-    fn word_xml_part_text(&self, schema: &Schema, extended: bool) -> Result<String, Signal> {
+    fn word_xml_part_text(&self, schema: &Schema, extended: bool, company_block: bool) -> Result<String, Signal> {
         let engine = self.engine.clone();
         let report = schema.report();
         let tree = ItemTree {
@@ -277,7 +295,7 @@ impl Session {
             "<NavWordReportXmlPart xmlns=\"{ns}/reports/{}/{number}/\">\r\n",
             xml_tag(schema.name())?
         ));
-        out.push_str(&self.word_xml_part_report_information());
+        out.push_str(&Self::report_information(company_block));
         let labels = self.word_xml_part_labels(schema.object, &tree)?;
         if !labels.is_empty() {
             out.push_str("  <Labels>\r\n");
@@ -522,10 +540,9 @@ impl Session {
 
     /// The `BCReportInformation` element: each field's text is its display name, the same with and without the flag
     /// (WordXmlPart_ReportInformation_Plain, _ReportInformationTail_Plain, _ReportInformationTail2_Plain,
-    /// _ReportInformation_ExtendedSameAsPlain). BC 29 adds `ReportCaption` and the `CompanyMetadata` block, as in a dataset
-    /// (`Gate::ReportSaveAsXmlHeaderHasCompanyBlock`).
-    fn word_xml_part_report_information(&self) -> String {
-        let company_block = self.has(al_version::Gate::ReportSaveAsXmlHeaderHasCompanyBlock);
+    /// _ReportInformation_ExtendedSameAsPlain). BC 29 adds `ReportCaption` and the `CompanyMetadata` block (`company_block`), as
+    /// in a dataset (`Gate::ReportSaveAsXmlHeaderHasCompanyBlock`).
+    fn report_information(company_block: bool) -> String {
         let mut out = String::from("  <BCReportInformation>\r\n");
         let mut add = |depth: usize, tag: &str, text: Option<&str>| {
             let pad = "  ".repeat(depth);
