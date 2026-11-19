@@ -91,7 +91,7 @@ impl Session {
             }
             Some(UiKind::ModalPage)
                 if s.modal
-                    && s.run_static == Some(false)
+                    && s.modal_run == ModalRun::Variable
                     && s.code_calls.as_slice() == [PageMethod::SetTableView, PageMethod::RunModal] =>
             {
                 Some(KeptRun::ModalVariableAfterView)
