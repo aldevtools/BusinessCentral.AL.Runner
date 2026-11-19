@@ -295,6 +295,22 @@ page 50107 "Part Probe Edit Host"
             part(Lines; "Part Probe Edit Lines") { }
         }
     }
+    actions
+    {
+        area(Processing)
+        {
+            action(Push)
+            {
+                trigger OnAction()
+                var
+                    Source: Record "Part Probe Row";
+                begin
+                    Source.SetFilter("No.", 'B2');
+                    CurrPage.Lines.Page.SetFilterFrom(Source);
+                end;
+            }
+        }
+    }
 
     var
         NoFilter: Text;
@@ -385,6 +401,68 @@ page 50110 "Part Probe Buffer Host"
     begin
         CurrPage.Lines.Page.Load();
     end;
+}
+
+page 50112 "Part Probe Card Host"
+{
+    PageType = Card;
+    SourceTable = "Part Probe Head";
+    layout
+    {
+        area(Content)
+        {
+            field("No."; Rec."No.") { }
+            part(Lines; "Part Probe Edit Lines") { }
+        }
+    }
+    actions
+    {
+        area(Processing)
+        {
+            action(Push)
+            {
+                trigger OnAction()
+                var
+                    Source: Record "Part Probe Row";
+                begin
+                    Source.SetFilter("No.", 'B2');
+                    CurrPage.Lines.Page.SetFilterFrom(Source);
+                end;
+            }
+        }
+    }
+}
+
+codeunit 50113 "Part Probe Card Action"
+{
+    Subtype = Test;
+
+    var
+        Assert: Codeunit "Part Probe Assert";
+
+    [Test]
+    procedure CardHostActionReadsThePartAgain()
+    var
+        Host: TestPage "Part Probe Card Host";
+        Head: Record "Part Probe Head";
+        Row: Record "Part Probe Row";
+        Seen: Text;
+    begin
+        Row.DeleteAll();
+        Row."No." := 'B1';
+        Row.Insert(false);
+        Row."No." := 'B2';
+        Row.Insert(false);
+        Head.DeleteAll();
+        Head."No." := 'H1';
+        Head.Insert();
+        Host.OpenEdit();
+        Host.Push.Invoke();
+        Host.Lines.First();
+        Seen := 'first=' + Host.Lines."No.".Value();
+        Assert.AreEqual('first=B2', Seen, 'host action');
+    end;
+
 }
 
 codeunit 50111 "Part Probe Readers"
@@ -518,6 +596,17 @@ codeunit 50111 "Part Probe Readers"
         Filtered(Host);
         Host.Lines.Filter.SetFilter("No.", 'B3');
         Assert.AreEqual('B3', Host.Lines."No.".Value(), 'SetFilter then read');
+    end;
+
+    [Test]
+    procedure ListPlusHostActionFilters()
+    var
+        Host: TestPage "Part Probe Edit Host";
+    begin
+        InsertRows();
+        Host.OpenEdit();
+        Host.Push.Invoke();
+        Host.Lines.First();
     end;
 
     [Test]
@@ -720,6 +809,17 @@ fn get_filter_on_the_filtered_part_keeps_mains_outcome() {
 fn the_tests_own_set_filter_on_the_filtered_part_keeps_mains_outcome() {
     let list = outcomes("Part Probe Readers");
     assert_eq!(outcome_of(&list, "PartSetFilterThenRead"), Outcome::Pass);
+}
+
+#[test]
+fn a_card_host_action_that_reads_the_part_again_keeps_mains_outcome() {
+    let list = outcomes("Part Probe Card Action");
+    assert_eq!(outcome_of(&list, "CardHostActionReadsThePartAgain"), Outcome::Pass);
+}
+
+#[test]
+fn a_list_plus_host_action_that_filters_the_part_is_refused() {
+    assert_reader_refused("ListPlusHostActionFilters", "First");
 }
 
 #[test]

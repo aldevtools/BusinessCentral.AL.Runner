@@ -5,7 +5,8 @@
 //! refused until the refresh runs.
 //!
 //! The answer is decided once, when the Update is asked (`note_part_update_left_view`, by `ask_update_refresh`), and kept in
-//! `PageState::update_left_view`; rows the test stores after that keep the answer from the held rows, as before. It cannot
+//! `PageState::update_left_view` with the keys of the held rows; rows the test stores after that keep the answer from the held
+//! rows, as before, and so does a step that read the part's rows again (a host action, the test's own `Filter.SetFilter`). It cannot
 //! tell who changed the rows before the Update was asked: rows the test stored then refuse too.
 //!
 //! A pending refresh whose view still starts with the held rows keeps the answer from the held rows, as before: the corpus cases
@@ -19,11 +20,11 @@ use super::*;
 use al_builtins::page_op::PageMethod;
 
 impl Session {
-    /// Sets `update_left_view` of part `st` as its own `CurrPage.Update` is asked: the client holds rows read from the start of
-    /// the view, the part reads its rows from that view, and the view now starts with other rows (or with more rows, when the
-    /// held rows were the whole view).
+    /// Sets `update_left_view` of part `st` to the keys of the held rows as its own `CurrPage.Update` is asked: the client holds
+    /// rows read from the start of the view, the part reads its rows from that view, and the view now starts with other rows (or
+    /// with more rows, when the held rows were the whole view).
     pub(super) fn note_part_update_left_view(&mut self, st: &St) -> Result<(), Signal> {
-        st.borrow_mut().update_left_view = false;
+        st.borrow_mut().update_left_view = None;
         let (held, short) = {
             let s = st.borrow();
             if s.host.is_none() || !s.open || !s.window_from_start || s.window.is_empty() {
@@ -46,23 +47,32 @@ impl Session {
                 .iter()
                 .zip(&held)
                 .all(|(row, key)| Self::same_key(&table.primary_key(row), key));
-        st.borrow_mut().update_left_view = !same;
+        if !same {
+            st.borrow_mut().update_left_view = Some(held);
+        }
         Ok(())
     }
 
-    /// Refuses test call `m` on part `st` while the refresh its `update_left_view` Update asked for waits. Kept: the calls that
-    /// read no row (`Filter` and its `GetFilter`, `CurrentKey` and `Ascending`, `GetField`, `Caption`, `Visible`, `Editable`,
-    /// `Enabled`). The test's own `Filter.SetFilter` reads the part's rows again from the view as before, and clears
-    /// `update_left_view`.
+    /// Refuses test call `m` on part `st` while the refresh its `update_left_view` Update asked for waits and the client still
+    /// holds, from the start of the view, the rows it held then. A step that read the rows again or left them as not read from
+    /// the start (a host action, the test's own `Filter.SetFilter`) keeps main's answer. Kept too: `Filter` and its `GetFilter`
+    /// and `SetFilter`, `CurrentKey` and `Ascending`, `GetField`, `Caption`, `Visible`, `Editable`, `Enabled`.
     pub(super) fn refuse_row_access_on_part_left_by_its_view(&self, st: &St, m: PageMethod) -> Result<(), Signal> {
         let waits = {
             let s = st.borrow();
-            s.update_left_view && s.refresh && s.refresh_by_update && s.open
+            s.refresh
+                && s.refresh_by_update
+                && s.open
+                && s.window_from_start
+                && s.update_left_view.as_ref().is_some_and(|held| {
+                    held.len() == s.window.len() && held.iter().zip(&s.window).all(|(k, w)| Self::same_key(k, &w.key))
+                })
         };
         let reads_no_row = matches!(
             m,
             PageMethod::Filter
                 | PageMethod::GetFilter
+                | PageMethod::SetFilter
                 | PageMethod::CurrentKey
                 | PageMethod::Ascending
                 | PageMethod::GetField
@@ -72,12 +82,6 @@ impl Session {
                 | PageMethod::Enabled
         );
         if !waits || reads_no_row {
-            return Ok(());
-        }
-        if m == PageMethod::SetFilter {
-            // Kept as on main, not pinned: the test's own filter reads the part's rows again from its view, so the held rows
-            // are no longer the ones the Update left.
-            st.borrow_mut().update_left_view = false;
             return Ok(());
         }
         unsupported(format!(

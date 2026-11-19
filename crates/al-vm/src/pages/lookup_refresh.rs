@@ -343,7 +343,7 @@ impl Session {
             s.lookup_refresh_deferred = false;
             s.refresh = true;
             s.refresh_by_update = true;
-            s.update_left_view = false;
+            s.update_left_view = None;
             s.refresh_without_parts = !with_parts;
         }
         self.run_refresh(root)
