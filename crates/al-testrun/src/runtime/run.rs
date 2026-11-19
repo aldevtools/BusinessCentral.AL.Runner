@@ -377,6 +377,7 @@ fn run_codeunit_checked(
     }
     let refusal = (engine.events)
         .absent_publisher_subscriber(&lowered.program.objects[object], object)
+        .or_else(|| engine.events.dependency_platform_by_id())
         .or_else(|| super::test_handlers::refusal(lowered, object));
     match refusal {
         Some(why) => {

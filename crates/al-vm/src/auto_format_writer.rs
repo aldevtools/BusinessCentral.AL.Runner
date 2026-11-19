@@ -26,7 +26,10 @@ static EVENTS: std::sync::LazyLock<[((String, String), &str); 3]> = std::sync::L
     let key = |c: &str, e: &str| (c.to_string(), e.to_string());
     [
         (
-            key("ui helper triggers", "autoformattranslate"),
+            key(
+                &crate::events::unraised_key(al_ir::UI_HELPER_CODEUNIT),
+                "autoformattranslate",
+            ),
             "AutoFormatTranslate of UI Helper Triggers",
         ),
         (
