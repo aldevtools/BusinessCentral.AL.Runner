@@ -147,7 +147,7 @@ impl Session {
             }
             TableCall::Ref(id) => {
                 access.ref_calls += 1;
-                // The only RecordRef calls of the cells of corpus PR 1468 that read no table: OpenOnly, SqRecordRefFail.al:141.
+                // The calls of OpenOnly (SqRecordRefFail.al:141), the one cell of corpus PR 1468 whose RecordRef calls read no table.
                 access.ref_open_close_calls += u64::from(matches!(
                     id.split('#').next(),
                     Some("RecordRef.Open" | "RecordRef.Close")
