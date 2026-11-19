@@ -275,6 +275,7 @@ mod empty_view_update;
 mod ext_column_visible;
 mod fn_controls;
 mod format;
+mod format_procedure;
 mod format_type11;
 mod gone_after_action;
 mod gone_new_line;
