@@ -221,6 +221,7 @@ pub(super) fn report_as_new(r: &ReportState) -> bool {
         report_executed,
         execute_parameters,
         report_run_modal_done,
+        excel_sheets,
         report_running,
         request_captions,
         print_only_if_detail,
@@ -254,6 +255,7 @@ pub(super) fn report_as_new(r: &ReportState) -> bool {
         && report_executed.is_empty()
         && execute_parameters.is_none()
         && report_run_modal_done.is_empty()
+        && excel_sheets.is_idle()
         && report_running.is_empty()
         && request_captions.is_empty()
         && !print_only_if_detail
