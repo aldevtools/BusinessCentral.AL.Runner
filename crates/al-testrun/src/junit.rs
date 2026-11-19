@@ -136,8 +136,9 @@ pub fn write_with_baseline(
                 esc(c.name),
                 c.time
             );
-            // The assumptions a test ran through are a property of the test case, also of a pass: a flagged pass is
-            // still a pass for the tools that read this file.
+            // The assumptions a test ran through are a property of the test case for every outcome (al-runner issue
+            // 7625: a test refused mid-run keeps the marks the run recorded). A flagged pass is still a pass for the
+            // tools that read this file.
             let mut prop_list = String::new();
             if !c.assumptions.is_empty() {
                 prop_list.push_str(&format!(
@@ -167,13 +168,7 @@ pub fn write_with_baseline(
                 (_, Outcome::Pass) if props.is_empty() => s.push_str(&format!("{head} />\n")),
                 (_, Outcome::Pass) => s.push_str(&format!("{head}>{props}</testcase>\n")),
                 (Dialect::Oracle, Outcome::Fail(m)) => {
-                    // A failure carries no assumptions in this dialect, only the extra properties.
-                    let fp = if extra.is_empty() {
-                        String::new()
-                    } else {
-                        format!("<properties>{extra}</properties>")
-                    };
-                    s.push_str(&format!("{head}>{fp}<failure message=\"{}\" /></testcase>\n", esc(m)))
+                    s.push_str(&format!("{head}>{props}<failure message=\"{}\" /></testcase>\n", esc(m)))
                 }
                 (Dialect::Runner, Outcome::Fail(m)) if c.stack.is_empty() => s.push_str(&format!(
                     "{head}>{props}<failure message=\"{}\" /></testcase>\n",
@@ -185,18 +180,7 @@ pub fn write_with_baseline(
                     esc(&c.stack)
                 )),
                 (_, Outcome::NotRun(m)) => {
-                    // A test that was not run has no assumptions; only the disabled mark can be a property of it.
-                    let mut np_list = String::new();
-                    if c.disabled && dialect == Dialect::Runner {
-                        np_list.push_str("<property name=\"disabled_by_microsoft\" value=\"1\" />");
-                    }
-                    np_list.push_str(&extra);
-                    let np = if np_list.is_empty() {
-                        String::new()
-                    } else {
-                        format!("<properties>{np_list}</properties>")
-                    };
-                    s.push_str(&format!("{head}>{np}<skipped message=\"{}\" /></testcase>\n", esc(m)))
+                    s.push_str(&format!("{head}>{props}<skipped message=\"{}\" /></testcase>\n", esc(m)))
                 }
             }
         }
@@ -291,12 +275,15 @@ mod tests {
                             ));
                         }
                     }
+                    // Issue 7625: a failed or not-run test keeps its assumptions too (the replaced writer dropped them).
                     Outcome::Fail(m) => s.push_str(&format!(
-                        "{head}><failure message=\"{}\" /></testcase>\n",
+                        "{head}>{}<failure message=\"{}\" /></testcase>\n",
+                        legacy_marks(c, legacy_esc_oracle),
                         legacy_esc_oracle(m)
                     )),
                     Outcome::NotRun(m) => s.push_str(&format!(
-                        "{head}><skipped message=\"{}\" /></testcase>\n",
+                        "{head}>{}<skipped message=\"{}\" /></testcase>\n",
+                        legacy_marks(c, legacy_esc_oracle),
                         legacy_esc_oracle(m)
                     )),
                 }
@@ -305,6 +292,16 @@ mod tests {
         }
         s.push_str("</testsuites>\n");
         s
+    }
+
+    fn legacy_marks(c: &Case<'_>, esc: fn(&str) -> String) -> String {
+        if c.assumptions.is_empty() {
+            return String::new();
+        }
+        format!(
+            "<properties><property name=\"assumptions\" value=\"{}\" /></properties>",
+            esc(&crate::flagged::id_list(c.assumptions))
+        )
     }
 
     fn legacy_esc_oracle(t: &str) -> String {
@@ -404,8 +401,9 @@ mod tests {
                         legacy_esc_runner(m),
                         legacy_esc_runner(&c.stack)
                     )),
+                    // Issue 7625: a not-run test keeps its assumptions too (the replaced writer dropped them).
                     Outcome::NotRun(m) => s.push_str(&format!(
-                        "{head}><skipped message=\"{}\" /></testcase>\n",
+                        "{head}>{props}<skipped message=\"{}\" /></testcase>\n",
                         legacy_esc_runner(m)
                     )),
                 }
@@ -452,6 +450,37 @@ mod tests {
         let props = "<properties><property name=\"disabled_by_microsoft\" value=\"1\" /><property name=\"impact_class\" value=\"newly &lt;refused&gt;\" /></properties>";
         assert_eq!(x.matches(props).count(), 2, "{x}");
         assert!(!write(&suites, Dialect::Oracle, None, 0.0).contains("impact_class"));
+    }
+
+    /// al-runner issue 7625: the assumptions a test ran through stay on it for every outcome in both dialects: a failed
+    /// test and a test refused mid-run (not run) keep them, as a pass does.
+    #[test]
+    fn assumption_marks_stay_on_every_outcome_in_both_dialects() {
+        let marks: Vec<Assumption> = Assumption::ALL.iter().copied().take(1).collect();
+        let want = format!("<property name=\"assumptions\" value=\"{}\" />", crate::flagged::id_list(&marks));
+        let outcomes = [Outcome::Pass, Outcome::Fail("f".into()), Outcome::NotRun("refused".into())];
+        let suites = [Suite {
+            name: "C".into(),
+            codeunit: 1,
+            properties: Vec::new(),
+            cases: outcomes
+                .iter()
+                .map(|o| Case {
+                    class: "C".into(),
+                    name: "T",
+                    time: 0.0,
+                    outcome: o,
+                    assumptions: &marks,
+                    stack: String::new(),
+                    disabled: false,
+                    properties: Vec::new(),
+                })
+                .collect(),
+        }];
+        for dialect in [Dialect::Oracle, Dialect::Runner] {
+            let x = write(&suites, dialect, None, 0.0);
+            assert_eq!(x.matches(&want).count(), 3, "{dialect:?}: {x}");
+        }
     }
 
     #[test]
