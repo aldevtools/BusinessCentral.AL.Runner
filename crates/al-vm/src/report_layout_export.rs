@@ -138,7 +138,7 @@ impl Session {
     /// RDLC: its one DataSets element is the one Y17LayoutExportTests.al:83 shows (`rdlc_data_sets_as_compiled`) and its
     /// Fields list names the report's columns as `Report.RdlcLayout` writes them (rdlc_fields.rs: the rewrite gives the same
     /// bytes). Word: its `customXml` entries are `customXml/item.xml` and `customXml/item2.xml` and nothing else
-    /// (Y17LayoutExportTests.al:103), the plain and the extended data set part the compiler writes for the report
+    /// (Y17LayoutExportTests.al:124), the plain and the extended data set part the compiler writes for the report
     /// (`compiled_word_part`). Any other kind, and any shape these readers refuse, is not shown: false.
     fn legacy_file_as_compiled(&mut self, object: usize, report_id: i32, kind: &str, bytes: &[u8]) -> bool {
         match kind {
@@ -167,7 +167,8 @@ impl Session {
     }
 }
 
-/// Whether the one `<DataSets>` element of the RDLC `text` is the one the compiler writes (Y17LayoutExportTests.al:83): one
+/// Whether the one `<DataSets>` element of the RDLC `text` is the one the compiler writes (Y17LayoutExportTests.al:83, the
+/// file whose bytes :7 gives for Y17LayR2.rdl too): one
 /// `DataSet_Result` data set with a non-empty Fields list and the query of the `DataSource` data source, CRLF line ends,
 /// two spaces per level from the indent of `<DataSets>`.
 fn rdlc_data_sets_as_compiled(text: &str) -> bool {
