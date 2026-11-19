@@ -534,7 +534,11 @@ fn with_skipped_dependencies(doc: String, dependencies: &al_testrun::deps::Depen
 /// A run whose selected tests and coverage statements are handed back in `into` (one side of an impact run).
 /// Prints the summary line of the run but no verdict.
 pub fn test_collect(a: &TestArgs, into: &mut Collected) -> Result<u8, String> {
-    test_inner(a, None, Some(into), None, false)
+    let code = test_inner(a, None, Some(into), None, false);
+    // The process makes another run next: this run's workspace layer entry is written now, so the compiled objects it
+    // holds do not live on into that run (ADR-022 amendment 2026-11-15, decision 6).
+    al_testrun::workspace_cache::wait_for_writes();
+    code
 }
 
 /// What the server hears for each test as it finishes: the event, and its capture as JSON.

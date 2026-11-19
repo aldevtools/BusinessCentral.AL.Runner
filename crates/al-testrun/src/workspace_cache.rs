@@ -474,6 +474,11 @@ pub(crate) fn defer_write(write: impl FnOnce() + Send + 'static) {
     DEFERRED.lock().unwrap_or_else(|e| e.into_inner()).push(Box::new(write));
 }
 
+/// How many writes wait for the end of the run ([`defer_write`]).
+pub fn pending_writes() -> usize {
+    DEFERRED.lock().unwrap_or_else(|e| e.into_inner()).len()
+}
+
 /// Starts the deferred writes on a thread of their own, in order (serve, after the response of a request is sent), and
 /// joins the writer threads that finished (review LOW 6: the list does not grow with the requests).
 pub fn start_writes() {

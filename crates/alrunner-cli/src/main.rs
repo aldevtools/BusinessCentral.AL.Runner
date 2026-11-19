@@ -22,6 +22,8 @@ mod recipe;
 mod recipe_run;
 mod run;
 mod run_inputs;
+#[cfg(test)]
+mod run_writes_tests;
 mod seed;
 mod serve;
 mod service_tier;
