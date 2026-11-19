@@ -1552,6 +1552,28 @@ impl Session {
             let Some(sp) = from.fields.iter().position(|f| f.id == df.id && f.stored) else {
                 continue;
             };
+            // A field declared ObsoleteState = Removed is no field of its table at run time (to RecordRef:
+            // recordref-fieldref/PnD12_RemovedFieldRecordRef.al). TransferFields skips a removed field of the target, also
+            // when the source's field of that number has another type (al-runner issue 8494: the reporter's repro on
+            // Business Central 29.0, an assumption until a probe pins it). Into a field of the very same type the copy
+            // could not fail and no reader sees the field, so only a skip past a field of another type marks the
+            // assumption.
+            if self.field_removed(t, dp) {
+                if from.fields[sp].ty != df.ty {
+                    al_builtins::assumptions::assume(
+                        al_builtins::assumptions::Assumption::TransferFieldsSkipsRemovedTargetField,
+                    );
+                }
+                continue;
+            }
+            // From a removed field of the source into a live field of the target nothing is measured: whether the target
+            // keeps its value or takes the removed field's is not known.
+            if self.field_removed(&from, sp) {
+                return unsupported(format!(
+                    "TransferFields from field {} of {}, declared ObsoleteState = Removed, into field {} of {} (not measured)",
+                    from.fields[sp].name, from.name, df.name, t.name
+                ));
+            }
             // Fields of one number declared by different apps count as fields of different apps, also on two tables of one app:
             // a table extension's field against another app's extension field or against the table's own field
             // (record/transferfields-cross-app/TransferFieldsFieldApps.al:131-163 on corpus master
