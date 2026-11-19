@@ -505,18 +505,25 @@ impl Session {
                     // again is pinned only before a Commit; either on a temporary table is not pinned.
                     match (*i, r.temporary) {
                         (ISOLATION_UPDLOCK | ISOLATION_REPEATABLE_READ, false) if before == *i => {
-                            if *i == ISOLATION_REPEATABLE_READ && !self.tx.lock_tx && self.tx.lock_unpinned.is_none() {
-                                self.tx.lock_unpinned = Some(crate::records::REPEATABLE_READ_ASSIGNED_AGAIN);
+                            if *i == ISOLATION_REPEATABLE_READ
+                                && !self.tx.open.locks.lock_tx
+                                && self.tx.open.locks.lock_unpinned.is_none()
+                            {
+                                self.tx.open.locks.lock_unpinned = Some(crate::state::UnpinnedLock::Other(
+                                    crate::records::REPEATABLE_READ_ASSIGNED_AGAIN,
+                                ));
                             }
                         }
                         (ISOLATION_UPDLOCK | ISOLATION_REPEATABLE_READ, false) => {
-                            self.tx.lock_tx = true;
-                            self.tx.isolation_lock = true;
+                            self.tx.open.locks.lock_tx = true;
+                            self.tx.open.locks.isolation_lock = true;
                             let key = (r.table, r.company.clone());
-                            self.tx.note_isolation_lock(key.0, key.1);
+                            self.tx.open.locks.note_isolation_lock(key.0, key.1);
                         }
                         (ISOLATION_REPEATABLE_READ | ISOLATION_UPDLOCK, true) => {
-                            self.tx.lock_unpinned = Some("a locking ReadIsolation on a temporary table")
+                            self.tx.open.locks.lock_unpinned = Some(crate::state::UnpinnedLock::Other(
+                                "a locking ReadIsolation on a temporary table",
+                            ))
                         }
                         _ => {}
                     }
@@ -739,9 +746,9 @@ impl Session {
                 // On a database table it starts the write transaction, on a temporary one not
                 // (codeunits/TestCodeunitRunWriteTransaction.al:211-252 RN_LockTable_WriteTransactionState, _Temporary_).
                 if !rec.borrow().temporary {
-                    self.tx.lock_tx = true;
+                    self.tx.open.locks.lock_tx = true;
                     let table = rec.borrow().table;
-                    self.tx.locked_tables.push(table);
+                    self.tx.open.locked_tables.push(table);
                 }
                 Ok(Value::Null)
             }

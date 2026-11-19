@@ -335,7 +335,7 @@ impl Session {
             return false;
         };
         let pk = t.primary_key(&r.fields);
-        let last = self.tx.writes.iter().rev().find(|w| {
+        let last = self.tx.open.writes.iter().rev().find(|w| {
             w.table == t.object
                 && w.company == r.company
                 && (crate::records::same_key(&w.pk, &pk)

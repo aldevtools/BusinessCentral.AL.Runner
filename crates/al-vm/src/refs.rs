@@ -179,9 +179,9 @@ impl Session {
     }
 
     fn lock_through_recordref(&mut self, locked_before: bool, what: &'static str) {
-        if !locked_before && self.tx.lock_tx {
-            self.tx.lock_tx = false;
-            self.tx.lock_unpinned = Some(what);
+        if !locked_before && self.tx.open.locks.lock_tx {
+            self.tx.open.locks.lock_tx = false;
+            self.tx.open.locks.lock_unpinned = Some(crate::state::UnpinnedLock::Other(what));
         }
     }
 
@@ -1120,20 +1120,20 @@ impl Session {
                     return unsupported("RecordRef.LockTable after a ReadIsolation was set (not pinned)");
                 }
                 let mut a: Vec<Value> = args.iter().take(1).cloned().collect();
-                let locked = self.tx.lock_tx;
+                let locked = self.tx.open.locks.lock_tx;
                 let r = self.record_meta_op(RecordOp::LockTable, &rec, &t, &mut a);
                 // On an open database table it starts the write transaction, a read keeps it and a Commit ends it; on a
                 // temporary table it starts none (recordref-fieldref/WcRecordRefLockTable.al:28-87). What else follows from it
                 // (the stale-buffer shapes and the rest that read `lock_tx`) is pinned for Record.LockTable only.
-                let started = !locked && self.tx.lock_tx;
+                let started = !locked && self.tx.open.locks.lock_tx;
                 self.lock_through_recordref(locked, "a RecordRef.LockTable");
                 if started {
-                    self.tx.recref_lock_tx = true;
+                    self.tx.open.locks.recref_lock_tx = true;
                 }
                 r
             }
             "ReadIsolation" => {
-                let locked = self.tx.lock_tx;
+                let locked = self.tx.open.locks.lock_tx;
                 let r = self.record_meta_op(RecordOp::ReadIsolation, &rec, &t, args);
                 self.lock_through_recordref(locked, "a locking RecordRef.ReadIsolation");
                 r

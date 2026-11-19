@@ -53,9 +53,9 @@ mod write_notes;
 
 pub(crate) type Rec = Rc<RefCell<RecordState>>;
 
-/// The `TxState::lock_unpinned` text of a read other than FindFirst under a locking ReadIsolation.
+/// The text of `UnpinnedLock::LockingRead`: a read other than FindFirst under a locking ReadIsolation.
 pub(crate) const UNPINNED_LOCKING_READ: &str = "a FindFirst, FindSet, FindLast or Find('-'/'+'/'>'/'<') under a ReadIsolation RepeatableRead or UpdLock set in an earlier transaction";
-/// The `TxState::lock_unpinned` text of a ReadIsolation RepeatableRead assigned again to a record that already had it, with
+/// The `UnpinnedLock::Other` text of a ReadIsolation RepeatableRead assigned again to a record that already had it, with
 /// no write transaction open.
 pub(crate) const REPEATABLE_READ_ASSIGNED_AGAIN: &str =
     "a ReadIsolation RepeatableRead assigned again to a record that had it";
@@ -1219,10 +1219,8 @@ impl Session {
                         })
                     };
                     let y32 = own_insert && !ext && !self.global_enabled(t, GlobalOp::Delete)?;
-                    let untouched_tx = self.tx.writes.is_empty()
-                        && !self.tx.rolled_back
-                        && !self.tx.lock_tx
-                        && self.tx.lock_unpinned.is_none();
+                    let untouched_tx =
+                        self.tx.open.writes.is_empty() && !self.tx.rolled_back && !self.tx.open.locks.any();
                     // record/crud/Y32StaleDeleteTests.al (al-runner issue 6546).
                     if y32 && verdict == StaleVerdict::Refused && untouched_tx {
                         self.table_event(t, "onbeforedeleteevent", rec, None, run, None)?;
@@ -1952,9 +1950,9 @@ impl Session {
         let origin = self.load_origin(version, [via_get, via_sysid, via_find]);
         let own_read = self.own_read_after_load(&t, rec, &row, via_get && !via_sysid && !via_find && passes);
         let temporary = rec.borrow().temporary;
-        if via_get && !temporary && self.tx.locked_tables.contains(&t.object) {
+        if via_get && !temporary && self.tx.open.locked_tables.contains(&t.object) {
             let company = rec.borrow().company.clone();
-            self.tx.rows_touched.push((t.object, company, pk.clone()));
+            self.tx.open.rows_touched.push((t.object, company, pk.clone()));
         }
         {
             let mut r = rec.borrow_mut();
