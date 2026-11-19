@@ -854,9 +854,12 @@ impl Workspace {
         self.platform_codeunit_subscribers(al_ir::FILTER_HELPER_CODEUNIT)
     }
 
-    /// The subscribers to platform codeunit `(id, name)` written with its name or its id (al-runner issue 8466).
+    /// The subscribers to platform codeunit `(id, name)` written with its name or its id (al-runner issue 8466), both forms
+    /// in one order of the subscribing objects (al-link lists them so).
     fn platform_codeunit_subscribers(&self, (id, name): (u32, &str)) -> Vec<(usize, usize)> {
-        self.codeunit_subscribers(&[&name.to_ascii_lowercase(), &id.to_string()])
+        let mut found = self.codeunit_subscribers(&[&name.to_ascii_lowercase(), &id.to_string()]);
+        found.sort_unstable();
+        found
     }
 
     /// Subscribers to the platform's `Extension Triggers` codeunit (2000000010): its `OnInstallAppPerCompany` and
@@ -872,27 +875,15 @@ impl Workspace {
     }
 
     /// Whether object `oi` (of an app under test, whose file is parsed) declares a subscriber to a login event the test
-    /// session raises (al-testrun `login.rs`): "System Initialization" (150) `OnAfterLogin`, or "Guided Experience" (1990)
-    /// `OnRegisterAssistedSetup`, `OnRegisterManualSetup` or `OnRegisterGuidedExperienceItem`.
+    /// session raises (al-testrun `login.rs`, `al_ir::names_login_event`).
     pub fn declares_login_subscriber(&self, oi: usize) -> bool {
         if self.objects[oi].kind != ObjKind::Codeunit {
             return false;
         }
         ast::routines_in(self.object_ast(oi).syntax()).iter().any(|r| {
             r.attributes().any(|a| {
-                a.name().eq_ignore_ascii_case("EventSubscriber") && {
-                    let t = a.syntax().text().to_string().to_lowercase();
-                    [
-                        ("system initialization", "150", "onafterlogin"),
-                        ("guided experience", "1990", "onregisterassistedsetup"),
-                        ("guided experience", "1990", "onregistermanualsetup"),
-                        ("guided experience", "1990", "onregisterguidedexperienceitem"),
-                    ]
-                    .iter()
-                    .any(|(name, id, event)| {
-                        (t.contains(&format!("\"{name}\"")) || t.contains(&format!("::{id},"))) && t.contains(event)
-                    })
-                }
+                a.name().eq_ignore_ascii_case("EventSubscriber")
+                    && al_ir::names_login_event(&a.syntax().text().to_string())
             })
         })
     }

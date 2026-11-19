@@ -38,11 +38,10 @@ impl Session {
             sender: None,
         };
         // A subscriber of a dependency app other than Microsoft's Filter Tokens has an effect no case pins: refuse.
-        if let Some(s) = self.engine.events.dependency_subscriber_but(
-            &self.engine.program,
+        if let Some(s) = self.receiving_dependency_subscriber(
             crate::events::FILTER_HELPER_TRIGGERS,
             event,
-            "Filter Tokens Impl.",
+            al_ir::FILTER_TOKENS_IMPL,
         ) {
             return unpinned(&format!("the subscriber {s} of a dependency app"));
         }

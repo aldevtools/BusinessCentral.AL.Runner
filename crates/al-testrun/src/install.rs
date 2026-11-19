@@ -209,6 +209,7 @@ pub(crate) fn plan(lowered: &Lowered, events: &al_vm::events::Registry, dependen
         if !usable(*so) {
             continue;
         }
+        events.note_install_subscriber(*so, *sr);
         let part = if event == "oninstallapppercompany" {
             Part::Company
         } else {

@@ -610,7 +610,6 @@ impl<'a> Checker<'a> {
             self.guard((oi, offset), |c| c.check_routine_in(&ctx, &r));
         }
         self.reach_filter_helper_if_used(oi);
-        self.reach_ui_helper_if_used(oi);
         self.reach_save_as_events_if_used(oi);
         // What the test client does when it opens a workspace page or report, and what its actions
         // run, reaches into the dependency apps.

@@ -118,6 +118,7 @@ mod testpage_close_query_close_unhandled;
 mod testpage_save_left_open_at_test_end;
 mod timeout_after_refused_test;
 mod translated_reads;
+mod ui_caption_translate_dependency;
 mod unknown_reach_reason_stable;
 mod variant_number_into_text;
 mod warm_baseline_edit;

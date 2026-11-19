@@ -77,7 +77,7 @@ fn run_with_dependency(dep: &str, ws: &str, object: &str, proc: &str) -> Result<
 #[test]
 fn a_dependency_subscriber_written_with_the_codeunit_id_refuses_the_raise() {
     let m = refused(run_with_dependency(BY_ID_FILTER_SUB, FILTER_HELPER, "C", "Word"));
-    assert!(m.contains("by its id"), "{m}");
+    assert!(m.contains("\"FSub\""), "{m}");
 }
 
 const UI_HELPER: &str = r#"
@@ -231,4 +231,141 @@ fn an_own_codeunit_named_like_a_platform_codeunit_subscribed_by_its_id_keeps_mai
     let m = error_message(run_in(&src, "C", "Word"));
     assert!(m.contains("abc"), "{m}");
     assert_eq!(text(run_in(&src, "Own", "Raise")), "5");
+}
+
+/// A table of the subscriber's own app and its OnAfterInsertEvent, the subscriber written with the table's bare id: bound as the
+/// name form is, and the run is flagged (`subscriber-publisher-by-id`, corpus PR 1466 SbiSubscriberByIdTests.al:78).
+const OWN_TABLE: &str = r#"
+table 50300 BRow
+{
+    fields { field(1; Id; Integer) { } }
+    keys { key(PK; Id) { Clustered = true; } }
+}
+codeunit 50301 BLog
+{
+    SingleInstance = true;
+    var L: Text;
+    procedure Add(T: Text) begin L += T + ';'; end;
+    procedure Get(): Text begin exit(L); end;
+}
+codeunit 50302 BSub
+{
+    [EventSubscriber(ObjectType::Table, 50300, 'OnAfterInsertEvent', '', false, false)]
+    local procedure AfterInsert(var Rec: Record BRow) var Log: Codeunit BLog; begin Log.Add('ins'); end;
+}
+"#;
+
+const INSERT: &str = r#"
+codeunit 50303 C
+{
+    procedure Go(): Text
+    var R: Record BRow; Log: Codeunit BLog;
+    begin
+        R.Id := 1;
+        R.Insert();
+        exit(Log.Get());
+    end;
+}
+"#;
+
+#[test]
+fn an_own_table_subscriber_written_with_the_bare_id_runs_flagged() {
+    use al_builtins::assumptions::{Assumption, take_hits};
+    let _ = take_hits();
+    assert_eq!(text(run_in(&format!("{OWN_TABLE}{INSERT}"), "C", "Go")), "ins;");
+    assert!(take_hits().contains(&Assumption::SubscriberPublisherById));
+}
+
+/// The same subscriber in an app that depends on the table's app: a publisher of another app is not measured (a Microsoft
+/// table such as 483 is one), so the insert refuses.
+#[test]
+fn a_bare_id_subscriber_to_a_table_of_another_app_refuses_the_raise() {
+    let (table, rest) = OWN_TABLE.split_at(OWN_TABLE.find("codeunit 50301").unwrap());
+    let m = refused(run_with_dependency(table, &format!("{rest}{INSERT}"), "C", "Go"));
+    assert!(m.contains("by the id 50300"), "{m}");
+}
+
+/// A table event the probe did not measure (OnAfterRenameEvent) by the bare id: refused.
+#[test]
+fn a_bare_id_subscriber_to_an_unmeasured_table_event_refuses_the_raise() {
+    let src = OWN_TABLE.replace("'OnAfterInsertEvent'", "'OnBeforeDeleteEvent'");
+    let go = INSERT.replace("R.Insert();", "R.Insert(); R.Delete(true);");
+    let m = refused(run_in(&format!("{src}{go}"), "C", "Go"));
+    assert!(m.contains("by the id 50300"), "{m}");
+}
+
+/// A manual subscriber in an unmeasured by-id shape refuses only while bound: unbound it receives nothing, main's answer.
+#[test]
+fn an_unmeasured_manual_bare_id_subscriber_refuses_only_while_bound() {
+    let src = OWN_TABLE
+        .replace("'OnAfterInsertEvent'", "'OnBeforeDeleteEvent'")
+        .replace(
+            "codeunit 50302 BSub\n{",
+            "codeunit 50302 BSub\n{\n    EventSubscriberInstance = Manual;",
+        );
+    let go = INSERT.replace("R.Insert();", "R.Insert(); R.Delete(true);");
+    assert_eq!(text(run_in(&format!("{src}{go}"), "C", "Go")), "");
+    let bound = go
+        .replace("R.Id := 1;", "BindSubscription(S); R.Id := 1;")
+        .replace("Log: Codeunit BLog;", "Log: Codeunit BLog; S: Codeunit BSub;");
+    let m = refused(run_in(&format!("{src}{bound}"), "C", "Go"));
+    assert!(m.contains("by the id 50300"), "{m}");
+}
+
+/// A manual Filter Helper Triggers subscriber of a dependency app nobody bound receives nothing: the filter keeps the answer
+/// it has without the subscriber. Bound, the raise refuses (`receiving_dependency_subscriber`).
+#[test]
+fn a_manual_dependency_filter_helper_subscriber_refuses_only_while_bound() {
+    let manual = r#"
+codeunit 50212 FMan
+{
+    EventSubscriberInstance = Manual;
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Filter Helper Triggers", 'MakeIntFilter', '', false, false)]
+    local procedure MakeIntFilter(var IntFilterText: Text) begin IntFilterText := '5'; end;
+}
+"#;
+    let (table, c) = FILTER_HELPER.split_at(FILTER_HELPER.find("codeunit 50100").unwrap());
+    let without = format!("{:?}", run_with_dependency(table, c, "C", "Word"));
+    let with = format!("{:?}", run_with_dependency(&format!("{table}{manual}"), c, "C", "Word"));
+    assert_eq!(with, without);
+    let bound = c
+        .replace("var R: Record FRow;", "var R: Record FRow; M: Codeunit FMan;")
+        .replace("R.SetFilter", "BindSubscription(M); R.SetFilter");
+    let m = refused(run_with_dependency(&format!("{table}{manual}"), &bound, "C", "Word"));
+    assert!(m.contains("FMan"), "{m}");
+}
+
+/// Subscriber order with both forms mixed: alphabetical by method name within a codeunit, ascending codeunit id across
+/// codeunits, whatever the form (corpus PR 1466 SbiSubscriberByIdTests.al:23, :36).
+#[test]
+fn bare_id_and_name_subscribers_run_in_one_order() {
+    let src = r#"
+codeunit 50320 OLog
+{
+    SingleInstance = true;
+    var L: Text;
+    procedure Add(T: Text) begin L += T + ';'; end;
+    procedure Get(): Text begin exit(L); end;
+}
+codeunit 50321 OPub
+{
+    procedure Fire(): Text var Log: Codeunit OLog; begin OnX(); exit(Log.Get()); end;
+    [IntegrationEvent(false, false)] local procedure OnX() begin end;
+}
+codeunit 50323 OSubHigh
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::OPub, 'OnX', '', false, false)]
+    local procedure B(); var Log: Codeunit OLog; begin Log.Add('high.B'); end;
+    [EventSubscriber(ObjectType::Codeunit, 50321, 'OnX', '', false, false)]
+    local procedure A(); var Log: Codeunit OLog; begin Log.Add('high.A'); end;
+}
+codeunit 50322 OSubLow
+{
+    [EventSubscriber(ObjectType::Codeunit, 50321, 'OnX', '', false, false)]
+    local procedure Z(); var Log: Codeunit OLog; begin Log.Add('low.Z'); end;
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::OPub, 'OnX', '', false, false)]
+    local procedure Y(); var Log: Codeunit OLog; begin Log.Add('low.Y'); end;
+}
+"#;
+    assert_eq!(text(run_in(src, "OPub", "Fire")), "low.Y;low.Z;high.A;high.B;");
 }

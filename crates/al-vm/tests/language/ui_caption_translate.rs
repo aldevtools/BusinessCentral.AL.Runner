@@ -84,11 +84,15 @@ fn field_caption_of_an_area_3_class_raises_no_ui_helper_event() {
     assert_eq!(got, "Caption three / ");
 }
 
-/// Runs `F` of the test codeunit `test` in a workspace app whose dependency app holds a SingleInstance log and the
-/// CaptionClassTranslate subscriber codeunit `sub`, which logs to it.
-fn run_with_dependency_subscriber(
-    sub: &str,
-    test: &str,
+/// Runs `F` of codeunit `test_object` (in `test`) in a workspace app whose dependency app (id `lib_id`) holds a
+/// SingleInstance log, the CaptionClassTranslate subscriber codeunit `sub` with the properties `props` and the body `body`
+/// that names its publisher `publisher`, and `extra`. The dependency is compiled on demand.
+fn run_dep(
+    lib_id: &str,
+    (sub, props, body): (&str, &str, &str),
+    publisher: &str,
+    extra: &str,
+    (test, test_object): (&str, &str),
 ) -> Result<al_builtins::value::Value, al_builtins::native::Signal> {
     use al_sema::workspace::{AppKind, AppSource};
     let app = |id: &str, deps: &[&str], src: &str| AppSource {
@@ -108,24 +112,44 @@ codeunit 50220 "BI Log"
 }}
 codeunit 50221 "{sub}"
 {{
-    [EventSubscriber(ObjectType::Codeunit, Codeunit::"UI Helper Triggers", 'CaptionClassTranslate', '', false, false)]
+    {props}
+    [EventSubscriber(ObjectType::Codeunit, {publisher}, 'CaptionClassTranslate', '', false, false)]
     local procedure T(Language: Integer; CaptionExpr: Text[1024]; var Translation: Text[1024])
     var Log: Codeunit "BI Log";
     begin
+        {body}
         Log.Add('CCT(' + CaptionExpr + ')');
     end;
 }}
+{extra}
 "#
     );
     let (ws, l) = al_sema::lower::compile_apps_with(
-        vec![app("lib", &[], &lib), app("test", &["lib"], test)],
+        vec![app(lib_id, &[], &lib), app("test", &[lib_id], test)],
         vec![AppKind::Dependency, AppKind::Workspace],
         &Default::default(),
         None,
         Default::default(),
     );
     assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
-    al_testkit::Built::new(l).run_in("BI Ui Test", "F")
+    al_testkit::Built::new(l).run_in(test_object, "F")
+}
+
+/// The publisher argument written with the codeunit's name.
+const NAME: &str = "Codeunit::\"UI Helper Triggers\"";
+
+fn run_with_dependency_subscriber(
+    sub: &str,
+    test: &str,
+) -> Result<al_builtins::value::Value, al_builtins::native::Signal> {
+    run_dep("lib", (sub, "", ""), NAME, "", (test, "BI Ui Test"))
+}
+
+fn refused(r: Result<al_builtins::value::Value, al_builtins::native::Signal>) -> String {
+    match r {
+        Err(al_builtins::native::Signal::Unsupported(m)) => m.to_string(),
+        other => panic!("expected a refusal, got {other:?}"),
+    }
 }
 
 /// The test sees the subscriber's log.
@@ -146,16 +170,76 @@ codeunit 50901 "BI Ui Test"
 /// (`the_statement_raises_the_ui_helper_event_once_per_translation`).
 #[test]
 fn a_dependency_caption_class_translate_subscriber_refuses_the_raise() {
-    match run_with_dependency_subscriber("BI Ui Sub", SEEING_TEST) {
-        Err(al_builtins::native::Signal::Unsupported(m)) => assert!(m.contains("BI Ui Sub"), "{m}"),
-        other => panic!("expected a refusal, got {other:?}"),
-    }
+    let m = refused(run_with_dependency_subscriber("BI Ui Sub", SEEING_TEST));
+    assert!(m.contains("BI Ui Sub"), "{m}");
 }
 
-/// The System Application's "Caption Class Impl." raises Caption Class's events, which the runtime raises itself: it is
-/// still not run (main's result).
+/// The System Application's "Caption Class Impl." (its name and the System Application's app id) raises Caption Class's
+/// events, which the runtime raises itself: it is still not run (main's result).
 #[test]
-fn the_caption_class_impl_subscriber_of_a_dependency_is_not_run() {
-    let got = text(run_with_dependency_subscriber("Caption Class Impl.", SEEING_TEST));
+fn the_caption_class_impl_subscriber_of_the_system_application_is_not_run() {
+    let got = text(run_dep(
+        al_ir::SYSTEM_APPLICATION_APP_ID,
+        ("Caption Class Impl.", "", ""),
+        NAME,
+        "",
+        (SEEING_TEST, "BI Ui Test"),
+    ));
     assert_eq!(got, "Foo log=");
+}
+
+/// A codeunit named "Caption Class Impl." in another app is not the System Application's: refused (review probe uiimpl).
+#[test]
+fn a_caption_class_impl_twin_of_another_app_refuses_the_raise() {
+    let m = refused(run_dep(
+        "lib",
+        ("Caption Class Impl.", "", "Translation := 'CHG';"),
+        NAME,
+        "",
+        (SEEING_TEST, "BI Ui Test"),
+    ));
+    assert!(m.contains("Caption Class Impl."), "{m}");
+}
+
+/// A manual dependency subscriber nobody bound receives nothing: main's answer stays (review probe uiman D1). Bound, it
+/// refuses (D3).
+#[test]
+fn a_manual_dependency_subscriber_refuses_only_while_bound() {
+    let manual = ("BI Ui Man Sub", "EventSubscriberInstance = Manual;", "");
+    assert_eq!(
+        text(run_dep("lib", manual, NAME, "", (SEEING_TEST, "BI Ui Test"))),
+        "Foo log="
+    );
+    let bound = r#"
+codeunit 50903 "BI Ui Bound"
+{
+    procedure F(): Text
+    var Log: Codeunit "BI Log"; M: Codeunit "BI Ui Man Sub"; T: Text;
+    begin
+        BindSubscription(M);
+        T := CaptionClassTranslate('3,Foo');
+        exit(T + ' log=' + Log.Get());
+    end;
+}
+"#;
+    let m = refused(run_dep("lib", manual, NAME, "", (bound, "BI Ui Bound")));
+    assert!(m.contains("BI Ui Man Sub"), "{m}");
+}
+
+/// The statement in dependency code, the subscriber in a dependency, compiled on demand: refused (review probe uidepstmt).
+#[test]
+fn the_statement_in_dependency_code_refuses_for_a_dependency_subscriber() {
+    let tr = "codeunit 50222 \"BI Tr\" { procedure Tr(): Text begin exit(CaptionClassTranslate('3,Foo')); end; }";
+    let test = r#"
+codeunit 50901 "BI Ui Test"
+{
+    procedure F(): Text
+    var Log: Codeunit "BI Log"; Tr: Codeunit "BI Tr";
+    begin
+        exit(Tr.Tr() + ' log=' + Log.Get());
+    end;
+}
+"#;
+    let m = refused(run_dep("lib", ("BI Ui Sub", "", ""), NAME, tr, (test, "BI Ui Test")));
+    assert!(m.contains("BI Ui Sub"), "{m}");
 }

@@ -82,6 +82,8 @@ pub enum PlatformPublisher {
     ReportingTriggers,
     /// `Filter Helper Triggers`: `MakeDateFilter`, raised when a Date filter text has a piece that does not read.
     FilterHelperTriggers,
+    /// `UI Helper Triggers`: `CaptionClassTranslate`, raised for a caption class translation.
+    UiHelperTriggers,
 }
 
 /// The events of the `Caption Class` codeunit (42) the runtime raises for a caption class translation: `OnResolveCaptionClass`
@@ -109,6 +111,30 @@ pub const RAISED_REPORTING_EVENTS: [&str; 4] = [
 /// The events of `Reporting Triggers` the runtime raises to Base Application's [`REPORT_MANAGEMENT`] subscribers only, so that
 /// Microsoft's layout selection runs as AL (ADR-040 amendment 2026-11-13, part 1, point 3; al-vm `report_save::fact_selection`).
 pub const REPORT_MANAGEMENT_LAYOUT_EVENTS: [&str; 2] = ["SelectReportLayoutCode", "SelectedBuiltinLayoutType"];
+
+/// The publishers of the login events an app under test can subscribe to: (codeunit id, name, event in lower case), in
+/// the order the login raises them: "Guided Experience".`OnRegisterAssistedSetup` before "System Initialization".
+/// `OnAfterLogin` (LgnLoginChecklistTests.al:140, the expected entries).
+/// `OnRegisterManualSetup` and `OnRegisterGuidedExperienceItem` follow the first in Microsoft's
+/// `Checklist.InitializeGuidedExperienceItems`; the pin covers only the first (al-testrun `login::RAISE_ONLY`).
+pub const LOGIN_EVENTS: &[(u32, &str, &str)] = &[
+    (1990, "Guided Experience", "onregisterassistedsetup"),
+    (1990, "Guided Experience", "onregistermanualsetup"),
+    (1990, "Guided Experience", "onregisterguidedexperienceitem"),
+    (150, "System Initialization", "onafterlogin"),
+];
+
+/// Whether `EventSubscriber` attribute text `text` names one of the [`LOGIN_EVENTS`]: its codeunit as `Codeunit::"Name"` or as
+/// the bare id (`Codeunit::<id>` does not compile, corpus PR 1466 must-not-compile 3216), and its event.
+pub fn names_login_event(text: &str) -> bool {
+    let t = text.to_lowercase();
+    let args: Vec<&str> = t.split(',').map(str::trim).collect();
+    LOGIN_EVENTS.iter().any(|&(id, name, event)| {
+        let publisher = args.get(1).copied().unwrap_or("");
+        (publisher.ends_with(&format!("\"{}\"", name.to_lowercase())) || publisher == id.to_string())
+            && t.contains(event)
+    })
+}
 
 /// Base Application's app id.
 pub const BASE_APPLICATION_APP_ID: &str = "437dbf0e-84ff-417a-965d-ed2bb9650972";
@@ -140,11 +166,23 @@ pub const REPORTING_CODEUNIT: (u32, &str) = (2_000_000_005, "Reporting Triggers"
 
 /// The event of `UI Helper Triggers` the runtime raises: `CaptionClassTranslate`, from the `CaptionClassTranslate` statement
 /// (events/platform-triggers/P114GlobalTriggerEvents.al:309-330).
-pub const RAISED_UI_HELPER_EVENTS: [&str; 1] = ["CaptionClassTranslate"];
+pub const CAPTION_CLASS_TRANSLATE: &str = "CaptionClassTranslate";
+
+/// The System Application's app id.
+pub const SYSTEM_APPLICATION_APP_ID: &str = "63ca2fa4-4f03-4f2b-a480-172fef340d3f";
 
 /// The System Application codeunit whose `CaptionClassTranslate` subscriber raises `Caption Class`'s events, which the runtime
-/// raises itself (al-vm `caption_class_translate_unrefused`): it is not reached by demand and not run.
+/// raises itself (al-vm `caption_class_translate_unrefused`): it is not listed as an uncompiled subscriber and not run.
 pub const CAPTION_CLASS_IMPL: &str = "Caption Class Impl.";
+
+/// The System Application codeunit whose `Filter Helper Triggers` subscribers the runtime does not run (al-vm `filterevents`).
+pub const FILTER_TOKENS_IMPL: &str = "Filter Tokens Impl.";
+
+/// Whether codeunit `name` of the app with `app_id` is the System Application's codeunit `stand_in` ([`CAPTION_CLASS_IMPL`],
+/// [`FILTER_TOKENS_IMPL`]): the name and the app id both.
+pub fn is_system_application_codeunit(stand_in: &str, name: &str, app_id: &str) -> bool {
+    name.eq_ignore_ascii_case(stand_in) && app_id.eq_ignore_ascii_case(SYSTEM_APPLICATION_APP_ID)
+}
 
 /// The events of a page the test client raises (`al-vm/src/pages.rs`). A subscriber to any other
 /// event of a page is refused when the page opens.
