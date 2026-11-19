@@ -436,8 +436,13 @@ fn on_a_read_the_unknown_areas_decide_is_refused() {
     let rt = run(true);
     for test in REFUSED.into_iter().filter(|t| *t != "AfterOnRunRead") {
         let r = result(&rt, test);
+        let site = if test.starts_with("ReadAreas") {
+            "ApplicationArea() under --dev-endpoint-ui"
+        } else {
+            "a page control whose ApplicationArea list has no All"
+        };
         assert!(
-            matches!(&r.outcome, Outcome::NotRun(m) if m.contains("--dev-endpoint-ui")),
+            matches!(&r.outcome, Outcome::NotRun(m) if m.contains(site)),
             "{test}: {:?}",
             r.outcome
         );

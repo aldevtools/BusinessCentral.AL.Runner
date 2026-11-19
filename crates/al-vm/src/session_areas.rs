@@ -14,10 +14,23 @@ use al_builtins::describe::Describe;
 use al_builtins::native::{Signal, unsupported};
 use al_builtins::value::Value;
 
-/// The refusal of a read whose answer depends on areas that are not known.
-pub(crate) const AREAS_UNKNOWN: &str = "a read of the application areas under --dev-endpoint-ui before the test set them \
-     (ApplicationArea(), or a page control whose area list has no All): the dev-endpoint test runner does not empty them \
-     before a test, and what they hold there is not measured (al-runner issue 8333)";
+/// Why areas that are not known refuse: the dev-endpoint test runner does not empty them before a test.
+macro_rules! areas_unknown {
+    ($what:literal) => {
+        concat!(
+            $what,
+            " under --dev-endpoint-ui before the test method set the application areas: the dev-endpoint test runner does \
+             not empty them before a test, and what they hold there is not measured (al-runner issue 8333)"
+        )
+    };
+}
+
+/// The refusal of `ApplicationArea()` while the areas are not known.
+const READ_UNKNOWN: &str = areas_unknown!("ApplicationArea()");
+
+/// The refusal of a page reader whose answer areas the page did not know decide (`pages/areas.rs`).
+pub(crate) const CONTROL_UNKNOWN: &str =
+    areas_unknown!("a page control whose ApplicationArea list has no All (or a group around it), on a page opened");
 
 /// The session's areas: `#Basic,#Suite`, or the empty text, which enables every area.
 #[derive(Debug, Default)]
@@ -57,7 +70,7 @@ impl Session {
         match set {
             None => {
                 if !self.application_areas_known() {
-                    return unsupported(AREAS_UNKNOWN);
+                    return unsupported(READ_UNKNOWN);
                 }
                 Ok(Value::Text(self.application_areas.text.clone().into()))
             }

@@ -7,7 +7,7 @@
 //! corpus test restores the session's areas only after it is done with the page.
 
 use super::*;
-use crate::session_areas::AREAS_UNKNOWN;
+use crate::session_areas::CONTROL_UNKNOWN;
 
 /// The areas the text `areas` (`#Basic,#Suite`) enables; `None` for the empty text, which enables all.
 fn enabled(areas: &str) -> Option<Vec<String>> {
@@ -84,7 +84,7 @@ impl Session {
         }
         let unknown = st.borrow().areas_unknown;
         if unknown && !self.control_area(st, idx).is_some_and(|v| states_all(&v)) {
-            return unsupported(AREAS_UNKNOWN);
+            return unsupported(CONTROL_UNKNOWN);
         }
         let Some(areas) = enabled(&st.borrow().areas) else {
             return Ok(false);
@@ -116,7 +116,7 @@ impl Session {
         while let Some(p) = parent {
             if let Some(ir::PropVal::Lit(v)) = page.controls[p].prop("applicationarea") {
                 if unknown && !states_all(v) {
-                    return unsupported(AREAS_UNKNOWN);
+                    return unsupported(CONTROL_UNKNOWN);
                 }
                 if !states_enabled(v, &areas) {
                     return unsupported("a control inside a group whose ApplicationArea the session does not enable");
