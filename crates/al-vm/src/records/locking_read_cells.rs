@@ -33,7 +33,7 @@ pub(crate) enum LockingRead {
     Other,
 }
 
-/// One database read under RepeatableRead or UpdLock since the last Commit or rollback (`TxState::locking_reads`).
+/// One database read under RepeatableRead or UpdLock since the last Commit or rollback (`TxLocks::locking_reads`).
 #[derive(Debug, Clone)]
 pub(crate) struct LockingReadNote {
     table: u32,
@@ -190,7 +190,7 @@ impl Session {
             counter: self.store.change_counter(),
         };
         drop(r);
-        self.tx.locking_reads.push(note);
+        self.tx.open.locks.locking_reads.push(note);
     }
 
     /// The result of the measured cell the open transaction is, for a `write` through the stale own-write buffer of origin `o`
@@ -206,22 +206,21 @@ impl Session {
         let tx = &self.tx;
         // One database read in the open transaction, the locking one, after every write of it; its table the only one a
         // ReadIsolation locked; no LockTable.
-        let [read] = tx.locking_reads.as_slice() else {
+        let [read] = tx.open.locks.locking_reads.as_slice() else {
             return None;
         };
-        let lock_of_the_read =
-            matches!(tx.isolation_lock_tables.as_slice(), [(ob, c)] if *ob == read.table && *c == read.company);
-        if tx.db_reads != 1
+        let lock_of_the_read = matches!(tx.open.locks.isolation_lock_tables.as_slice(), [(ob, c)] if *ob == read.table && *c == read.company);
+        if tx.open.locks.db_reads != 1
             || !read.found
             || read.counter != self.store.change_counter()
             || !lock_of_the_read
-            || !tx.locked_tables.is_empty()
+            || !tx.open.locked_tables.is_empty()
         {
             return None;
         }
         let mine = |table: u32, c: &Option<String>| table == t.object && c == company;
         // The writes before the read: none, or the Insert and the Modify of one other row of the buffer's table.
-        let other_row = match tx.writes.as_slice() {
+        let other_row = match tx.open.writes.as_slice() {
             [] => None,
             [i, m]
                 if i.kind == TxWriteKind::Insert

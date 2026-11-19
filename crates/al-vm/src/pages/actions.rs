@@ -786,7 +786,7 @@ impl Session {
         // A duplicate-key Insert the action made comes out at the page's next read of the table, still inside Invoke, with the
         // wrapped code (errors/error-texts/AzErrorTexts.al:167-185 PageAction_DuplicateInsert: `TestWrapped:CSideDuplicateKey`).
         // One that was pending before the action is not pinned and keeps its code.
-        let pending_before = self.tx.deferred_insert.is_some();
+        let pending_before = self.tx.open.deferred_insert.is_some();
         let raised_before = self.tx.deferred_raised;
         let marked_only_before = !self.has_source(st) || self.page_rec(st).borrow().marked_only;
         // A second marking action, with MarkedOnly already on, on a list with a part: the refresh holds the marked rows it read
