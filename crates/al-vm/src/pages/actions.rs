@@ -379,7 +379,7 @@ impl Session {
             s.window.clear();
             s.window_from_start = false;
             s.window_top_unread = false;
-            s.read_up_from_last = None;
+            s.read_up_from_last = ReadUpFromLast::Off;
             drop(s);
             if !self.pages.scope_unpinned.iter().any(|p| Rc::ptr_eq(p, st)) {
                 self.pages.scope_unpinned.push(st.clone());
@@ -393,7 +393,7 @@ impl Session {
         s.window.clear();
         s.window_from_start = false;
         s.window_top_unread = false;
-        s.read_up_from_last = None;
+        s.read_up_from_last = ReadUpFromLast::Off;
         pk_shown
     }
 
@@ -914,7 +914,7 @@ impl Session {
         // After a GoToKey that moved a list without OnAfterGetCurrRecord a SetValue before the action changes nothing in what it
         // reads, also on a list with OnFindRecord and OnNextRecord (pages/list-order/QgGoToKeyNextCall.al:477
         // Nav_GoToKey_ThenSetValue_ThenAction `action_log` as in Nav_GoToKey_ThenActionWithoutUpdate_Twice).
-        let goto_nav = st.borrow().read_after_goto
+        let goto_nav = st.borrow().after_goto.active()
             && self.is_list(st)
             && self.declares(st, "onfindrecord")
             && self.declares(st, "onnextrecord")
@@ -965,12 +965,12 @@ impl Session {
                 && st.borrow().field_captions_opened
                 && self.engine.object_facts[st.borrow().object as usize].page_type == Some(al_ir::PageType::Document);
             if doc {
-                st.borrow_mut().field_captions_action_save = 1;
+                st.borrow_mut().field_captions_action_save = ActionSaveCaptions::Refreshing;
             }
             self.save_edit_before_action_read(st)?;
             let r = self.run_refresh(st);
             if doc {
-                st.borrow_mut().field_captions_action_save = 2;
+                st.borrow_mut().field_captions_action_save = ActionSaveCaptions::Saved;
             }
             r?;
             st.borrow_mut().refresh = false;
@@ -1002,12 +1002,7 @@ impl Session {
         // :297, :317, :336 and the Nav_ tests, `action_log` `R:R1003;R:R1003;A:act=R1003`). So the mark stays until a move clears
         // it (`pageops.rs`). A RunObject action reads nothing (:278 `runobject_log` `T:open;H:target`). After a call that is not
         // pinned (a property read) between them the action is refused.
-        let (read_after_goto, doubt) = {
-            let mut s = st.borrow_mut();
-            s.read_after_goto_set = false;
-            s.read_after_goto_prev = false;
-            (s.read_after_goto, s.read_after_goto_doubt)
-        };
+        let (read_after_goto, doubt) = st.borrow_mut().after_goto.action_starts();
         if read_after_goto && doubt {
             return unsupported(
                 "an action after a GoToKey moved a list without OnAfterGetCurrRecord, with a field call between them (not pinned)",
@@ -2512,7 +2507,7 @@ impl Session {
     /// trigger the part's CaptionClass expressions did not run again, and whether BC runs them then is not pinned
     /// (page-open-caption-class-expressions).
     fn action_save_captions_done(&mut self, st: &St) {
-        if std::mem::take(&mut st.borrow_mut().field_captions_action_save) == 2 {
+        if std::mem::take(&mut st.borrow_mut().field_captions_action_save) == ActionSaveCaptions::Saved {
             al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageOpenCaptionClassExpressions);
         }
     }
@@ -2613,7 +2608,7 @@ impl Session {
             // (pages/triggers/TestPageFindRecord.al:113 OnFindRecord_FirstAnswersTheFirstRowOfTheTriggerRowset, a descending find
             // list). Left set, First indexed the empty window (al-runner issue 5802).
             s.window_top_unread = false;
-            s.read_up_from_last = None;
+            s.read_up_from_last = ReadUpFromLast::Off;
             return Ok(());
         }
         let rec = self.page_rec(st);

@@ -629,7 +629,9 @@ impl Session {
                     // A FactBox part of a Provider chain does not read again when the host it stands on is inserted by the first
                     // call on a part (ProviderLinkedPartsMatrix.al Provider_PartsAddedByPageExtensionInFactBoxes_OpenNew `new`
                     // ends at `detail-row()`, the read follows with the key: `keyed` `lines-row(0)`).
-                    if matches!(how, Sync::Plain | Sync::GoToKeyMoved) && child.borrow().chain_refill == 1 {
+                    if matches!(how, Sync::Plain | Sync::GoToKeyMoved)
+                        && child.borrow().chain_refill == ChainRefill::Skipped
+                    {
                         continue;
                     }
                     if matches!(how, Sync::Plain | Sync::GoToKeyMoved) && self.chain_part_back_walk(st, *i, child) {
