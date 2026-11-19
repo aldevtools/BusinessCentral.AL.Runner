@@ -2538,7 +2538,7 @@ fn entries_with_resources_take_the_kept_baseline_and_give_what_a_fresh_daemon_gi
     }
 }
 
-/// Al-runner issue 8210, the reporter's repro: with `stopAfterFirstFailure` a request ends at its first failing test. The
+/// Al-runner issue 8210, the reporter's repro: with `stopAfterFirstFailure` each test codeunit stops at its first failing test. The
 /// rest of that entry and every later entry is not run, each with a `notRun` row whose message names the failed test.
 /// Without the field every test of every entry runs, as before.
 #[test]

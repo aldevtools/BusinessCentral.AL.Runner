@@ -1273,8 +1273,8 @@ OTHER
                          document has it as `notRunSeconds`.
     --stop-after-first-failure  Once a test fails, do not run the rest of its codeunit nor, in `serve`,
                          the later entries: their tests end as not run, with a reason that names the
-                         failed test. Test codeunits that run at the same time on other threads still
-                         run. A selection then runs only the tests it picks, as --run-selected-only.
+                         failed test. Each test codeunit stops on its own; every other test codeunit of
+                         the same entry, or of a request without entries, still runs. A selection then runs only the tests it picks, as --run-selected-only.
                          `serve`: a start option; a runTests request can set `stopAfterFirstFailure`.
     --dotnet-sidecar PATH, --dotnet-assembly-dir DIR, --dotnet-allow-roll-forward,
     --dotnet-timeout-secs N, --require-dotnet     The optional .NET helper (ADR-014).
