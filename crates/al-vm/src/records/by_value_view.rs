@@ -19,7 +19,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 /// The `RecordState::unpinned_buffer` reason of a by-value copy whose view [`Session::by_value_view`] does not decide.
-pub(crate) const BY_VALUE_VIEW: &str = "a record handed by value whose view the probe did not measure (a filter in filter group 1 or in a group other than -1, 0, 2 and 4, the caller standing in a group other than 0 and 2, a field sorted descending by SetAscending, a SetLoadFields after a read, SetAutoCalcFields or ReadIsolation on the record, a call through an interface, a parameter of an object other than a codeunit or of a table procedure other than Row.Proc(Row) from a codeunit, or an event subscriber's parameter whose publisher parameter is a by-value Record, other than one of a codeunit's IntegrationEvent(false, false) whose record has filters in group 0 only and the plain view): what the copy's view holds is not pinned";
+pub(crate) const BY_VALUE_VIEW: &str = "a record handed by value whose view the probe did not measure (a filter in filter group 1 or in a group other than -1, 0, 2 and 4, the caller standing in a group other than 0 and 2, a field sorted descending by SetAscending, a SetLoadFields after a read, SetAutoCalcFields or ReadIsolation on the record, a call through an interface, a parameter of an object other than a codeunit, of a report procedure called from other than the report, a codeunit or a page, or of a table procedure other than Row.Proc(Row) from a codeunit, or an event subscriber's parameter whose publisher parameter is a by-value Record, other than one of a codeunit's IntegrationEvent(false, false) whose record has filters in group 0 only and the plain view): what the copy's view holds is not pinned";
 
 /// What corpus PR 1430 measured of one Record parameter of an event subscriber ([`Session::event_args`]).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -293,13 +293,21 @@ impl Session {
     /// (assumption `by-value-record-no-filters`, corpus PR 1430, record/filters/ByValueRecordView.al), called by name: a
     /// codeunit's procedure (`BVV Callee`, and `DescribeLocal`, a local procedure of the test codeunit), or a table's procedure
     /// whose parameter is a record of that table, called from a codeunit on `source` itself (`CountSameStatus`, called as
-    /// `Row.CountSameStatus(Row)` from the test codeunit in `ByValue_TableProcedure_OwnRecByValue`). An interface call is not
-    /// measured.
+    /// `Row.CountSameStatus(Row)` from the test codeunit in `ByValue_TableProcedure_OwnRecByValue`), or a report's procedure
+    /// called from the report itself, from a codeunit or from a page (corpus PR 1450, the same file, codeunit 78731: a data
+    /// item trigger hands its data item to a local procedure in `ByValue_ReportProcedure_DataItemAfterReset` (:1284) and
+    /// `_ChildDataItemLink` (:1314), a local procedure hands its copy to itself in `_DataItemNested` (:1299), the test
+    /// codeunit calls a global procedure in `_FromCodeunit_*` (:1335, :1368-1496), a page action in `_FromPageAction`
+    /// (:1353)). An interface call is not measured.
     fn measured_callee(&self, call: &ByValueCall, param: &RtType, source: &Rec) -> bool {
         let objects = &self.engine.program.objects;
         let callee = &objects[call.callee];
         match (call.dispatch, callee.kind) {
             (Dispatch::Direct, ObjKind::Codeunit) => true,
+            (Dispatch::Direct, ObjKind::Report) => self
+                .frames
+                .last()
+                .is_some_and(|&o| o == call.callee || matches!(objects[o].kind, ObjKind::Codeunit | ObjKind::Page)),
             (Dispatch::Direct, ObjKind::Table) => {
                 matches!(param, RtType::Record(t, false) if *t as usize == call.callee)
                     && self.frames.last().is_some_and(|&o| objects[o].kind == ObjKind::Codeunit)
