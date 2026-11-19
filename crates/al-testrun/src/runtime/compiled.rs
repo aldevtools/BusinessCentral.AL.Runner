@@ -189,6 +189,11 @@ pub struct RunOptions {
     /// `--skip-after-timeout` (al-runner issue 7517, opt-in, tooling): once a test is stopped at the time limit, the later tests
     /// of its codeunit are not run and end as not run, naming that test. Default `false`: a later pass is still reported.
     pub skip_after_timeout: bool,
+    /// `--stop-after-first-failure` and serve's `stopAfterFirstFailure` (al-runner issue 8210, opt-in, tooling): once a
+    /// test fails, the later tests of its codeunit and every later entry (`entries`) are not run and end as not run,
+    /// naming that test (`run::stopped_after_failure`). Test codeunits of the same pass that run beside it on other
+    /// threads still run. Default `false`: every test runs.
+    pub stop_after_first_failure: bool,
     /// `al-runner test --permissions off` (ADR-062 section 5): no access kind is enforced, whatever stages are on by
     /// default. While no stage is on (today) it changes nothing.
     pub permissions_off: bool,
