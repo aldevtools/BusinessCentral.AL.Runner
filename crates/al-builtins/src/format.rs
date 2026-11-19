@@ -516,7 +516,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
         Value::Time(t) => format_time(t - 1, standard)?,
         Value::DateTime(t) => format_datetime(t - 1, standard)?,
         Value::Duration(ms) => format_duration(*ms, standard, ctx.language())?,
-        Value::DateFormula(f) => date_formula_text(f, standard, ctx.language())?,
+        Value::DateFormula(f) => date_formula_text(f, length, standard, ctx.language())?,
         // A Version reads `major.minor.build.revision` (session-system/TestBCPlatformContracts.al:120-136
         // compares the formatted AppVersion with the manifest's `1.0.0.0`).
         Value::Library(crate::library_kind::LibraryKind::Version, _) if standard == 9 => {
@@ -810,7 +810,8 @@ fn blob_text(b: &crate::stream::BlobRef, ctx: &dyn FormatCtx) -> String {
 /// print the letters of the global language, format 9 the English letters, format 2 the English letters in angle brackets (the
 /// empty formula `<>`), and formats 3 to 8 raise (format-evaluate/Y62DateFormulaFormat.al, writer Y62; see
 /// `date_formula_language`). Formats 3 to 8 in another language than 1033 and the other numbers are refused.
-fn date_formula_text(f: &str, standard: i32, language: i32) -> Result<String, FormatFail> {
+fn date_formula_text(f: &str, length: i32, standard: i32, language: i32) -> Result<String, FormatFail> {
+    date_formula_length(length)?;
     let text = crate::datefns::formula_text(f);
     match standard {
         9 => Ok(text),
@@ -822,6 +823,19 @@ fn date_formula_text(f: &str, standard: i32, language: i32) -> Result<String, Fo
             "Format of a DateFormula with standard format {n} in the language {language} (not pinned)"
         ))),
     }
+}
+
+/// The one length a DateFormula is formatted with: 0, the length of every pinned case (types/
+/// TestDateRoundFormatStringContracts.al:128, `Format(Formula)`). Every other length is refused, with a standard format number or a format
+/// string alike; al-runner issue 8198 measured a cut on BC 28.4 (`Format(DF, 4)` of `1Y+1M+1D` is `1Y+1`), which waits
+/// for a probe.
+pub(crate) fn date_formula_length(length: i32) -> Result<(), FormatFail> {
+    if length == 0 {
+        return Ok(());
+    }
+    Err(FormatFail::Unsupported(format!(
+        "Format of a DateFormula with length {length} (not pinned)"
+    )))
 }
 
 fn type_phrase(v: &Value) -> String {
