@@ -159,7 +159,7 @@ fn run(src: &str, opts: &RunOptions) -> CorpusRuntime {
     )
 }
 
-fn run_with(src: &str, opts: &RunOptions) -> CorpusRuntime {
+pub(crate) fn run_with(src: &str, opts: &RunOptions) -> CorpusRuntime {
     CorpusRuntime::try_run_suites_with(
         vec![app("main", &["base"], src), app("base", &[], BASE)],
         vec![al_sema::AppKind::Workspace, al_sema::AppKind::Dependency],
@@ -174,7 +174,7 @@ fn run_with(src: &str, opts: &RunOptions) -> CorpusRuntime {
 }
 
 /// A budget of `limit` MB whose resident memory is what `rss` says, in MB, at each read.
-fn budget(limit: u64, hard: bool, rss: impl Fn() -> u64 + Send + Sync + 'static) -> Option<MemoryBudget> {
+pub(crate) fn budget(limit: u64, hard: bool, rss: impl Fn() -> u64 + Send + Sync + 'static) -> Option<MemoryBudget> {
     Some(MemoryBudget {
         limit: limit << 20,
         source: "--max-memory".into(),
@@ -183,7 +183,7 @@ fn budget(limit: u64, hard: bool, rss: impl Fn() -> u64 + Send + Sync + 'static)
     })
 }
 
-fn outcomes(rt: &CorpusRuntime) -> Vec<(u32, String, String)> {
+pub(crate) fn outcomes(rt: &CorpusRuntime) -> Vec<(u32, String, String)> {
     let mut v: Vec<_> = rt
         .results()
         .iter()
@@ -312,85 +312,6 @@ fn a_hard_limit_stops_the_run_and_the_tests_not_reached_are_not_run() {
             "every test has an outcome"
         );
     }
-}
-
-/// A writer and a reader of SingleInstance state on two threads, the writer's codeunit slow before its write: the run
-/// stops at its hard limit once the reader's test ended, while the writer's codeunit still runs (al-runner issue 8368,
-/// where this order came from a busy machine). The reader failed in its parallel run, and a complete run gives it its
-/// serial re-run after the writer, where it passes; the stopped run reached neither the write nor the re-run, so the
-/// reader is not run, never failed (decision 6).
-#[test]
-fn a_hard_limit_before_an_earlier_writer_ran_does_not_report_the_reader_failed() {
-    let src = r#"
-codeunit 60800 "Quick First"
-{
-    Subtype = Test;
-    [Test] procedure Quick() begin end;
-}
-codeunit 60801 "Slow Writer"
-{
-    Subtype = Test;
-    [Test] procedure SlowFirst()
-    var I: Integer; N: BigInteger;
-    begin
-        for I := 1 to 3000000 do N += I;
-    end;
-    [Test] procedure Writes() var S: Codeunit "Memory Threads Count"; begin S.Bump(); end;
-}
-codeunit 60802 "Plain Fail"
-{
-    Subtype = Test;
-    [Test] procedure FailsAlone() begin Error('fails alone'); end;
-}
-codeunit 60803 "Single Reader"
-{
-    Subtype = Test;
-    [Test] procedure Reads()
-    var S: Codeunit "Memory Threads Count";
-    begin
-        if S.Get() <> 1 then Error('no earlier writer');
-    end;
-}
-"#;
-    // The run stops once the reader's test ended: the writer's codeunit is then still in its slow test.
-    let stopped_after_reads = |strict_order: bool| {
-        let read = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let (seen, rss) = (read.clone(), read);
-        let rt = run_with(
-            src,
-            &RunOptions {
-                strict_order,
-                memory: budget(1000, true, move || if rss.load(Ordering::SeqCst) { 990 } else { 100 }),
-                hooks: al_testrun::events::Hooks {
-                    on_test: Some(Arc::new(move |e| {
-                        if e.test == "Reads" {
-                            seen.store(true, Ordering::SeqCst);
-                        }
-                    })),
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-        );
-        assert!(rt.phases.memory.halted.is_some(), "{:?}", rt.phases.memory);
-        outcomes(&rt)
-    };
-    let of = |v: &[(u32, String, String)], id: u32| v.iter().find(|(c, ..)| *c == id).map(|(.., o)| o.clone());
-    let free = outcomes(&run(src, &RunOptions::default()));
-    assert_eq!(of(&free, 60803).as_deref(), Some("Pass"));
-    let stopped = stopped_after_reads(true);
-    for (c, t, o) in &stopped {
-        if !o.contains("memory limit (--max-memory 1000 MB)") {
-            assert_eq!(Some(o), of(&free, *c).as_ref(), "{t}");
-        }
-    }
-    // A failure after the stopped writer that read no SingleInstance global keeps its outcome.
-    assert_eq!(of(&stopped, 60802).as_deref(), Some("Fail(\"fails alone\")"));
-    // Without BC's order nothing runs again: a complete run keeps the reader's parallel failure, and so does the
-    // stopped run.
-    let free = outcomes(&run_with(src, &RunOptions::default()));
-    assert_eq!(of(&free, 60803).as_deref(), Some("Fail(\"no earlier writer\")"));
-    assert_eq!(of(&stopped_after_reads(false), 60803), of(&free, 60803));
 }
 
 /// Decision 6 holds for the whole run, the compile included (owner, 2026-11-09: "if I say maximum, then that has to be

@@ -752,29 +752,36 @@ impl Lane<'_> {
     }
 
     /// In a run stopped at its hard memory limit (ADR-066 amendment 10, decision 6): the codeunits that come after one the
-    /// stop left without a complete run in the same BC session, and whose result a complete run could take from a serial
-    /// re-run. What the earlier codeunit would have left is not known, so whether they depend on it is not known either
-    /// (al-runner issue 8368: a reader of a SingleInstance global failed in parallel while its writer was not reached).
-    /// Such a codeunit read a watched global before writing it, and is one `chains` would pick: any with `strict`, else
-    /// one with a failure or a test that did not run to its end. Only under BC's order: without it nothing runs again.
+    /// stop cut short in the same BC session and that the lane would run again with it as their writer. What the cut
+    /// codeunit would have left is not known, so whether they depend on it is not known either (al-runner issue 8368: a
+    /// reader of a SingleInstance global failed in parallel while its writer was not reached). The lane's own choice
+    /// decides, with every global the codeunit read first taken as changed (the cut codeunit left no notes): it is no
+    /// chain member that keeps the walk's single instances ([`Lane::walk_keeps`]), [`Lane::reruns`] takes it, and a
+    /// `--max-replay` cap leaves room for its chain, which holds it and the cut codeunit. Only under BC's order: without
+    /// it nothing runs again.
     fn after_stop(&self, slots: &[Option<UnitResult>]) -> Vec<usize> {
         if !self.bc_order {
             return Vec::new();
         }
         let cut_short = |k: usize| match slots[k].as_ref().map(|r| &r.result) {
-            Some(Ok(done)) => done
-                .0
-                .iter()
-                .any(|(_, o)| matches!(o, Outcome::NotRun(r) if r.starts_with(super::memory::REASON))),
+            Some(Ok(done)) => done.0.iter().any(|(_, o)| super::memory::stopped_by_limit(o)),
             _ => false,
         };
         let may_depend = |k: usize| {
             let slot = slots[k].as_ref();
-            let read_first = match slot.map(|r| &r.result) {
-                Some(Ok(done)) => done.5.singles_out.as_ref().is_some_and(|o| !o.observed.is_empty()),
-                _ => false,
+            let read_first: BTreeSet<GlobalKey> = match slot.map(|r| &r.result) {
+                Some(Ok(done)) => done
+                    .5
+                    .singles_out
+                    .as_ref()
+                    .map(|o| o.observed.keys().copied().collect())
+                    .unwrap_or_default(),
+                _ => BTreeSet::new(),
             };
-            read_first && (self.strict || needs_serial_run(slot))
+            !read_first.is_empty()
+                && !self.walk_keeps(k)
+                && self.reruns(slot, Some(&read_first))
+                && self.replay_cap().is_none_or(|limit| limit >= 2)
         };
         let has = |k: usize| slots[k].is_some();
         let mut out = Vec::new();
@@ -784,6 +791,39 @@ impl Lane<'_> {
             }
         }
         out
+    }
+
+    /// The lane's choice for a dependent codeunit, from its parallel run in `slot` and the globals it read first that
+    /// the earlier codeunits left otherwise (`changed`; `None`: not known, each counts): whether its result comes
+    /// from a serial re-run. Under `replay_every_dependent` always (amendment 12, decision 4); else when a test of it
+    /// failed or did not run to its end (amendment 4, decision 2; amendment 5, decision 2) and that test, or one before
+    /// it, read a changed global (amendment 7, option 1). `--max-replay` ([`Lane::replay_cap`]) may still skip it.
+    fn reruns(&self, slot: Option<&UnitResult>, changed: Option<&BTreeSet<GlobalKey>>) -> bool {
+        if self.strict {
+            return true;
+        }
+        if !needs_serial_run(slot) {
+            return false;
+        }
+        let read_in = match slot.map(|r| &r.result) {
+            Some(Ok(done)) => done.5.singles_out.as_ref().map(|o| &o.read_in),
+            _ => None,
+        };
+        match (read_in, changed) {
+            (Some(read_in), Some(changed)) => failure_saw_change(read_in, changed, failure_bound(slot)),
+            _ => true,
+        }
+    }
+
+    /// A chain member whose walk run kept the single instances (amendment 8): never dependent, never run again.
+    fn walk_keeps(&self, k: usize) -> bool {
+        self.kept_chain && self.keeps_singles(k)
+    }
+
+    /// `--max-replay` (amendment 7, option 2): the most codeunits a re-run's chain may hold; `replay_every_dependent`
+    /// wins over it.
+    fn replay_cap(&self) -> Option<usize> {
+        self.max_replay.filter(|_| !self.strict)
     }
 
     /// Analyses each BC session, flags its dependent codeunits, and returns the serial sessions to run.
@@ -823,7 +863,7 @@ impl Lane<'_> {
                 .dependent
                 .keys()
                 .copied()
-                .filter(|&p| !(self.kept_chain && self.keeps_singles(ks[p])))
+                .filter(|&p| !self.walk_keeps(ks[p]))
                 .filter(|&p| counted.insert(ks[p]))
                 .collect();
             if fresh.is_empty() {
@@ -857,27 +897,15 @@ impl Lane<'_> {
             let mut chosen: BTreeSet<usize> = BTreeSet::new();
             for &p in &fresh {
                 let slot = slots[ks[p]].as_ref();
-                if self.strict {
+                if self.reruns(slot, found.changed.get(&p)) {
                     chosen.insert(p);
                 } else if needs_serial_run(slot) {
-                    let read_in = match slot.map(|r| &r.result) {
-                        Some(Ok(done)) => done.5.singles_out.as_ref().map(|o| &o.read_in),
-                        _ => None,
-                    };
-                    let saw = match (read_in, found.changed.get(&p)) {
-                        (Some(read_in), Some(changed)) => failure_saw_change(read_in, changed, failure_bound(slot)),
-                        _ => true,
-                    };
-                    if saw {
-                        chosen.insert(p);
-                    } else {
-                        report.kept += 1;
-                    }
+                    report.kept += 1;
                 }
             }
             // Amendment 7, option 2, opt-in since the owner's change of 2026-11-08: with `--max-replay N`, a chain over
             // `N` is not replayed (not under `--strict-order`). Without it every chosen re-run is replayed in full.
-            if let Some(limit) = self.max_replay.filter(|_| !self.strict) {
+            if let Some(limit) = self.replay_cap() {
                 let (kept, over) = found.within_limit(&chosen, limit);
                 chosen = kept;
                 for (p, chain) in over {

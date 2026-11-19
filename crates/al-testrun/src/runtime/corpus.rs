@@ -2409,7 +2409,7 @@ pub(super) fn reaches_session_storage(engine: &Arc<al_vm::Engine>, lowered: &Low
 pub(super) fn refuse_all(done: &mut [(String, Outcome)], why: &str) {
     for (_, o) in done.iter_mut() {
         // A test the run did not reach before it stopped at its memory limit keeps that reason (ADR-066 amendment 10).
-        if !matches!(o, Outcome::NotRun(r) if r.starts_with(super::memory::REASON)) {
+        if !super::memory::stopped_by_limit(o) {
             *o = Outcome::NotRun(why.to_string());
         }
     }
