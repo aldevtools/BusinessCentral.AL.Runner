@@ -1012,6 +1012,30 @@ mod tests {
     }
 
     #[test]
+    fn a_stop_group_of_a_number_and_of_a_text_that_read_alike_are_one_group() {
+        let groups = |v: Value| {
+            let (entries, _) = entries_of(&fields(json!({"entries": v}))).unwrap();
+            entries.into_iter().map(|e| e.stop_group).collect::<Vec<_>>()
+        };
+        assert_eq!(
+            groups(json!([{"stopGroup": 7}, {"stopGroup": "7"}, {"stopGroup": null}, {}])),
+            [Some("7".to_string()), Some("7".to_string()), None, None]
+        );
+        assert!(entries_of(&fields(json!({"entries": [{"stopGroup": true}]}))).is_err());
+    }
+
+    #[test]
+    fn the_stop_scope_of_a_request_is_a_text_or_nothing() {
+        use crate::first_failure::{StopScope, scope_of};
+        let scope = |v: Value| scope_of(&fields(json!({"stopAtFirstFailure": v})));
+        assert_eq!(scope(json!("request")), Ok(Some(StopScope::Request)));
+        assert_eq!(scope(json!("group")), Ok(Some(StopScope::Group)));
+        assert_eq!(scope(Value::Null), Ok(None));
+        assert_eq!(scope_of(&fields(json!({}))), Ok(None));
+        assert!(scope(json!(true)).is_err() && scope(json!("entry")).is_err());
+    }
+
+    #[test]
     fn a_request_may_set_the_run_seed_and_a_bad_one_is_an_error() {
         let run = |v: Value| {
             request_args(
