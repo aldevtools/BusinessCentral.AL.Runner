@@ -112,6 +112,11 @@ impl SharedBaseline {
         self.store.bytes()
     }
 
+    /// [`SharedBaseline::bytes`] of the tables whose object index is in `objects` (`FrozenStore::bytes_of`).
+    pub fn bytes_of(&self, objects: &std::collections::BTreeSet<u32>) -> u64 {
+        self.store.bytes_of(objects)
+    }
+
     /// The tables held as bytes, a copy per thread (`FrozenStore::held_tables`): (company, table object index, rows).
     pub fn held_tables(&self) -> Vec<(String, u32, usize)> {
         self.store.held_tables()

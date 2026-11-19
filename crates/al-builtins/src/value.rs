@@ -451,6 +451,23 @@ impl TempId {
         self.0.rows_unmeasured.set(true);
     }
 
+    /// The token holds only the table's id: not a by-value copy's table, no empty-Blob Insert noted, its rows measured.
+    /// What a session image (al-vm `login_image`) can give back as a new token of a new table.
+    pub fn holds_only_its_id(&self) -> bool {
+        let TempToken {
+            id: _,
+            release: _,
+            by_value_of,
+            empty_blob_insert_key,
+            empty_blob_inserter,
+            rows_unmeasured,
+        } = &*self.0;
+        by_value_of.is_none()
+            && empty_blob_insert_key.borrow().is_none()
+            && empty_blob_inserter.borrow().is_none()
+            && !rows_unmeasured.get()
+    }
+
     /// Whether [`TempId::mark_rows_unmeasured`] marked the table.
     pub fn rows_unmeasured(&self) -> bool {
         self.0.rows_unmeasured.get()
@@ -1029,6 +1046,19 @@ impl TableGlobals {
     }
 
     /// A handle onto `xRec`'s set (created on first use).
+    /// The address of the shared set (`None` while unset) and how many strong owners it has: the identity a session image
+    /// (al-vm `login_image`) keys it by, and the count it checks every owner against.
+    pub fn set_address(&self) -> Option<(usize, usize)> {
+        (self.data.borrow().as_ref()).map(|d| (Rc::as_ptr(d) as usize, Rc::strong_count(d)))
+    }
+
+    /// The xRec set of this set, when one was made ([`TableGlobals::xrec`] makes it); `None` makes nothing.
+    pub fn made_xrec(&self) -> Option<TableGlobals> {
+        let data = self.data.borrow();
+        let d = data.as_ref()?.borrow();
+        (!d.xrec.is_unset()).then(|| d.xrec.share())
+    }
+
     pub fn xrec(&self) -> TableGlobals {
         let data = self.data();
         let d = data.borrow();

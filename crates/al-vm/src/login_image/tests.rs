@@ -207,7 +207,7 @@ fn every_plain_field_the_login_may_change_comes_back() {
     f.run("Fail");
     f.run("MakeSequence");
     let s = &mut f.session;
-    s.global_language = 1031;
+    s.set_language(1031);
     s.work_date = Some(738_000);
     s.isolated_storage
         .insert(("a".into(), "k".into()), ("v".into(), true, false));
@@ -225,7 +225,7 @@ fn every_plain_field_the_login_may_change_comes_back() {
     s.tdd_reached.insert("stub".into());
     s.demo_written.insert(18);
     let mut twin = round_trip(s);
-    assert_eq!(twin.global_language, 1031);
+    assert_eq!(twin.global_language(), 1031);
     assert_eq!(twin.work_date, Some(738_000));
     assert_eq!(twin.isolated_storage, s.isolated_storage);
     assert_eq!(twin.isolated_committed, s.isolated_committed);
@@ -460,6 +460,7 @@ fn media_object() -> al_builtins::media::MediaObject {
         width: 0,
         height: 0,
         pending: None,
+        stream_call: None,
     }
 }
 

@@ -4,27 +4,29 @@
 use crate::state::{CoverageState, EventState, PageClients, ReportState, UiState};
 
 /// The handler functions and notifications of a test method: install code runs outside one.
-pub(super) fn ui_as_new(ui: &UiState) -> bool {
+pub(crate) fn ui_as_new(ui: &UiState) -> bool {
+    ui.sent_notifications.is_empty() && !ui.clientless_login_skipped && ui_left_as_new(ui)
+}
+
+/// [`ui_as_new`] without the notifications a handler took and whether the clientless login was skipped: the UI state a
+/// session image holds besides those (al-vm `login_image`).
+pub(crate) fn ui_left_as_new(ui: &UiState) -> bool {
     let UiState {
         scope,
         page_handler_depth,
-        sent_notifications,
+        sent_notifications: _,
         dev_endpoint,
         // Set from the run's session flags before any code runs (`--no-client`), the same in every session of the run.
         clientless: _,
-        clientless_login_skipped,
+        clientless_login_skipped: _,
     } = ui;
     // `on`: set from the run's session flags, the same in every session of the run.
     let crate::dev_endpoint_ui::DevEndpointUi { on: _, answered } = dev_endpoint;
-    scope.is_none()
-        && *page_handler_depth == 0
-        && sent_notifications.is_empty()
-        && answered.is_empty()
-        && !clientless_login_skipped
+    scope.is_none() && *page_handler_depth == 0 && answered.is_empty()
 }
 
 /// What the TestPage client keeps between calls: install code opened no page whose state lasts.
-pub(super) fn pages_as_new(p: &PageClients) -> bool {
+pub(crate) fn pages_as_new(p: &PageClients) -> bool {
     let PageClients {
         action_tally,
         saved_values,
@@ -99,9 +101,18 @@ pub(super) fn pages_as_new(p: &PageClients) -> bool {
 
 /// Event subscriptions, what the Event Subscription table reports and the install's own event state. Not checked:
 /// `caption_context_revision`, the language and the calls of `event_stats` (all carried, `InstallLeft`).
-pub(super) fn events_as_new(e: &EventState) -> bool {
+pub(crate) fn events_as_new(e: &EventState) -> bool {
+    e.bindings.is_empty()
+        && e.event_stats.active.borrow().is_empty()
+        && e.global_setups.is_empty()
+        && events_left_as_new(e)
+}
+
+/// [`events_as_new`] without the manual bindings, the bound instances per subscriber (`event_stats.active`) and the Global
+/// Triggers setups: the event state a session image holds besides those (al-vm `login_image`).
+pub(crate) fn events_left_as_new(e: &EventState) -> bool {
     let EventState {
-        bindings,
+        bindings: _,
         caption_context_revision: _,
         page_held,
         pages_with_instance,
@@ -132,11 +143,11 @@ pub(super) fn events_as_new(e: &EventState) -> bool {
         setup_no_ops,
         db_setup_table,
         trial,
-        global_setups,
+        global_setups: _,
     } = e;
     let crate::platform::EventStats {
         calls: _,
-        active,
+        active: _,
         language: _,
         install_view,
         // `Session::no_client_test_session`, kept in step by `Session::sync_no_client_test_session`: once install code ended it
@@ -151,11 +162,9 @@ pub(super) fn events_as_new(e: &EventState) -> bool {
         read,
         guarded,
     } = trial;
-    bindings.is_empty()
-        && page_held.is_empty()
+    page_held.is_empty()
         && pages_with_instance.is_empty()
         && page_var_runs.is_empty()
-        && active.borrow().is_empty()
         && *install_view.borrow() == crate::platform::InstallView::default()
         && !publish_frame
         && only_targets.is_none()
@@ -187,13 +196,12 @@ pub(super) fn events_as_new(e: &EventState) -> bool {
         && wrote.is_none()
         && read.is_empty()
         && guarded.is_empty()
-        && global_setups.is_empty()
 }
 
 /// Code coverage, the impact trace, the cell tap and the profiler: all off and nothing recorded. A run with one of them on
 /// keeps the install code in each codeunit's session (al-testrun `install_once.rs`); the cell tap is set from the session
 /// flags, so it fails here.
-pub(super) fn coverage_as_new(c: &CoverageState) -> bool {
+pub(crate) fn coverage_as_new(c: &CoverageState) -> bool {
     let CoverageState {
         code_coverage,
         coverage_counts,
@@ -213,7 +221,7 @@ pub(super) fn coverage_as_new(c: &CoverageState) -> bool {
 }
 
 /// The report state: no report ran and nothing it noted lasts.
-pub(super) fn report_as_new(r: &ReportState) -> bool {
+pub(crate) fn report_as_new(r: &ReportState) -> bool {
     let ReportState {
         rebind_after_run,
         curr_report_language,

@@ -349,6 +349,17 @@ impl Session {
         self.commit_transaction();
         self.sequences_changed.clear();
         Baseline {
+            company_built: false,
+            install_rows: None,
+            ..self.data_now()
+        }
+    }
+
+    /// The session's data as it is now, as a baseline: its store (an uncommitted change included) and counters, without a
+    /// Commit, with the session's `company_built` and the tables its own baseline gave it (`install_rows`). The login
+    /// image keeps it (al-vm `login_image`); [`Session::capture_baseline`] takes it after its Commit.
+    pub(crate) fn data_now(&self) -> Baseline {
+        Baseline {
             store: self.store.clone().detached(),
             next_guid: self.next_guid,
             next_row_version: self.next_row_version,
@@ -358,7 +369,7 @@ impl Session {
             sequences: self.sequences.clone(),
             last_stamp: self.last_stamp,
             workspace_installs: None,
-            company_built: false,
+            company_built: self.company_built,
             company_unknown: {
                 let mut v: Vec<(String, u32, String)> = self
                     .company_unknown
@@ -369,7 +380,7 @@ impl Session {
                 v
             },
             full_copies: self.full_copies.iter().cloned().collect(),
-            install_rows: None,
+            install_rows: Some(self.baseline_rows.clone()),
             origin: new_origin(),
         }
     }
