@@ -915,7 +915,7 @@ impl Session {
                 ))
             }
             RecordOp::HasFilter => Ok(Value::Boolean(Self::has_filter(rec))),
-            RecordOp::GetFilters => self.get_filters(rec, t).map(|s| Value::Text(s.into())),
+            RecordOp::GetFilters => self.get_filters(rec, t, true).map(|s| Value::Text(s.into())),
             RecordOp::GetFilter => self
                 .field_filter_text(rec, arg_pos(args, 0)?)
                 .map(|s| Value::Text(s.into())),
@@ -2033,6 +2033,7 @@ impl Session {
             }
             return Err(error(cannot_change_value_text(&field, &table), "DB:Ok"));
         }
+        self.modify_all_audit_field(rec, t, pos, rows.len(), args)?;
         // One fresh set of table globals for all rows, not the caller's (ADR-021 decision 6; corpus
         // probe TableGlobals_ModifyAll_WhatTheTriggersAndSubscribersSee).
         let shared = al_builtins::value::TableGlobals::new_shared();
@@ -2054,6 +2055,45 @@ impl Session {
         let r = self.modify_all_rows(rec, rows, pos, &value, (run_trigger, row_of_al), shared);
         self.bulk_modify = outer;
         r
+    }
+
+    /// `ModifyAll` of an audit field. SystemCreatedAt, SystemCreatedBy and SystemModifiedAt over one row of a table without a
+    /// Caption, with no RunTrigger argument, of a record that is not temporary: the "cannot change" error with code DB:Ok
+    /// (record/system-fields/AssignedAuditFields.al:594-631, ModifyAll_CreatedAt). Every other shape of the four audit fields
+    /// is refused: SystemModifiedBy, no or several rows, a RunTrigger argument, a temporary record and a table Caption are not
+    /// measured. Any other field: `Ok`.
+    fn modify_all_audit_field(
+        &self,
+        rec: &Rec,
+        t: &TableDef,
+        pos: usize,
+        rows: usize,
+        args: &[Value],
+    ) -> Result<(), Signal> {
+        use crate::hostvalues::{SYSTEM_CREATED_AT, SYSTEM_CREATED_BY, SYSTEM_MODIFIED_AT, SYSTEM_MODIFIED_BY};
+        let id = t.fields[pos].id;
+        if ![
+            SYSTEM_CREATED_AT,
+            SYSTEM_CREATED_BY,
+            SYSTEM_MODIFIED_AT,
+            SYSTEM_MODIFIED_BY,
+        ]
+        .contains(&id)
+        {
+            return Ok(());
+        }
+        let (field, table) = (t.fields[pos].name.clone(), t.name.clone());
+        let measured = [SYSTEM_CREATED_AT, SYSTEM_CREATED_BY, SYSTEM_MODIFIED_AT].contains(&id)
+            && rows == 1
+            && args.len() == 2
+            && !rec.borrow().temporary
+            && self.caption(t) == table;
+        if measured {
+            return Err(error(cannot_change_value_text(&field, &table), "DB:Ok"));
+        }
+        unsupported(format!(
+            "ModifyAll of {field} outside the measured shape (SystemCreatedAt, SystemCreatedBy or SystemModifiedAt over one row of a table without a Caption, no RunTrigger argument, not temporary)"
+        ))
     }
 
     fn modify_all_rows(

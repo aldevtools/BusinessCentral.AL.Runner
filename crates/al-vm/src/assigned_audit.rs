@@ -12,8 +12,9 @@
 //! - the variable is in the state the cells' variables are in: no filter, no MarkedOnly and no other company, and no load
 //!   fields, the default ReadIsolation, filter group 0 and no marks (`default_variable`).
 //!
-//! `ModifyAll` on an audit field (:594-632) has no rule: two of its three observations run after the rollback of the
-//! `asserterror` before them, over a row the variable did not insert, and no case measures that state apart from the first.
+//! `ModifyAll` on an audit field (:594-631) is not a write of this module: it raises its error before it writes, whatever the
+//! buffer holds (its three observations run in three buffer and transaction states, the same error each time), see
+//! `Session::modify_all_audit_field` in `recmeta.rs`.
 
 use crate::Session;
 use crate::globaltriggers::GlobalOp;

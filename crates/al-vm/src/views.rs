@@ -7,6 +7,7 @@
 //! recordref-fieldref/recordref/TestRecordRefFilter.al:23). Anything else is refused.
 
 use crate::Session;
+use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::describe::Describe;
 use al_builtins::filter::{FieldFilter, FilterExpr, needs_quotes};
 use al_builtins::native::{Signal, unsupported};
@@ -399,15 +400,16 @@ impl Session {
         !Self::filters_in_field_order(rec).is_empty()
     }
 
-    /// `GetFilters`: `Caption: filter` pairs joined by `, ` (docs/probes-needed.md).
-    pub(crate) fn get_filters(&self, rec: &Rec, t: &TableDef) -> Result<String, Signal> {
+    /// `GetFilters`: `Caption: filter` pairs joined by `, ` (docs/probes-needed.md), in the order `get_filters_order` gives
+    /// (`record`: the record method GetFilters, not RecordRef.GetFilters or the text of a Find error).
+    pub(crate) fn get_filters(&self, rec: &Rec, t: &TableDef, record: bool) -> Result<String, Signal> {
         let mut parts = Vec::new();
         // A record on MarkedOnly names it first (testpage/P128SelectionFilter.al `marked A only`,
         // lt-ms-refusals-135/P135SelectionFilter.al:357 `filters=[Marked: Yes]` with no other filter).
         if rec.borrow().marked_only {
             parts.push("Marked: Yes".to_string());
         }
-        for f in Self::filters_in_field_order(rec) {
+        for f in self.get_filters_order(rec, t, record)? {
             self.enum_ml_filter_check(t, &f)?;
             parts.push(format!(
                 "{}: {}",
@@ -416,6 +418,44 @@ impl Session {
             ));
         }
         Ok(parts.join(", "))
+    }
+
+    /// The filters `get_filters` lists, in field order, except where a filter on a FlowField comes before a filter on a
+    /// FlowFilter field in field order. There BC lists the FlowFilter first in the one shape measured: `Record.GetFilters`, filter
+    /// group 0, no MarkedOnly, exactly those two filters, the FlowFilter's set first (assumption
+    /// `get-filters-flowfilter-before-flowfield`, corpus PR 1430, ByValueRecordView.al:582). Every other shape with that pair
+    /// refuses: the order over field classes is not measured.
+    fn get_filters_order(&self, rec: &Rec, t: &TableDef, record: bool) -> Result<Vec<FieldFilter>, Signal> {
+        let filters = Self::filters_in_field_order(rec);
+        let schema = self.engine.program.objects[t.object as usize]
+            .table
+            .as_ref()
+            .expect("table");
+        let flow_filter = |f: &FieldFilter| schema.fields[f.field].flow_filter;
+        let flow_field = |f: &FieldFilter| !schema.fields[f.field].stored && !schema.fields[f.field].flow_filter;
+        let pair = filters
+            .iter()
+            .enumerate()
+            .any(|(i, a)| flow_field(a) && filters[i + 1..].iter().any(&flow_filter));
+        if !pair {
+            return Ok(filters);
+        }
+        let r = rec.borrow();
+        let set_at = |f: &FieldFilter| r.filters.iter().position(|g| g.field == f.field && g.group == f.group);
+        let measured = record
+            && r.filter_group == 0
+            && !r.marked_only
+            && filters.len() == 2
+            && flow_field(&filters[0])
+            && flow_filter(&filters[1])
+            && set_at(&filters[1]) < set_at(&filters[0]);
+        if !measured {
+            return unsupported(
+                "GetFilters of a filter on a FlowField and a filter on a FlowFilter field with a higher field number, outside the one measured shape (the order over field classes is not measured, assumption get-filters-flowfilter-before-flowfield)",
+            );
+        }
+        assume(Assumption::GetFiltersFlowfilterBeforeFlowfield);
+        Ok(vec![filters[1].clone(), filters[0].clone()])
     }
 
     /// `GetView(UseNames)`: `SORTING(keyfields) [ORDER(Descending)] [WHERE(f=FILTER(x),...)]`.
