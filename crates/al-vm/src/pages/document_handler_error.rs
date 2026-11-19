@@ -264,7 +264,7 @@ impl Session {
                 "a page left open by a ModalPageHandler that caught an error before it raised its own (not pinned)",
             );
         }
-        if st.borrow().close_error {
+        if st.borrow().close.error() {
             self.mark_closed(st);
             if err.code != "MissingUIHandler" {
                 return Err(Signal::Error(Box::new(al_builtins::native::unpinned_error())));

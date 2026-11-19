@@ -51,6 +51,7 @@ mod install_try_write_allowed;
 mod lean_selection;
 mod login_work_date_lean;
 mod media_export_file_lazy;
+mod memory_stop_reader;
 mod memory_threads;
 mod modify_without_change;
 mod no_client_session;
@@ -175,3 +176,4 @@ fn no_module_of_the_suite_changes_a_setting_of_the_process() {
     );
 }
 mod enum_caption_ml_readers;
+mod layout_files_legacy;

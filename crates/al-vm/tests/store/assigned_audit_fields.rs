@@ -622,7 +622,7 @@ codeunit 50331 T
         exit(Format(Row.Get('B')));
     end;
 
-    // ---- ModifyAll on an audit field: no rule of this file covers it.
+    // ---- ModifyAll on an audit field (recmeta.rs `modify_all_audit_field`).
 
     procedure ModifyAllCreatedAt(): Text
     var
@@ -1119,19 +1119,25 @@ fn rename_neighbors_write_the_buffer_created_pair() {
     );
 }
 
-/// ModifyAll on an audit field runs as before: the measured cell (AssignedAuditFields.al:594-632) is not built, see the
-/// module doc of `assigned_audit.rs`.
+/// ModifyAll on an audit field: the measured cell (AssignedAuditFields.al:594-631) raises the "cannot change" error, every
+/// neighbor refuses (`Session::modify_all_audit_field`; more neighbors in `modify_all_audit_fields.rs`).
 #[test]
-fn modifyall_of_an_audit_field_raises_no_error() {
-    answers(
-        &[
-            "ModifyAllCreatedAt",
-            "ModifyAllModifiedBy",
-            "ModifyAllNoRows",
-            "ModifyAllTableWithOnModify",
-        ],
-        "no error",
-    );
+fn modifyall_of_an_audit_field_raises_the_measured_error_or_refuses() {
+    match run_in(SRC, "T", "ModifyAllCreatedAt") {
+        Err(al_builtins::native::Signal::Error(e)) => assert_eq!(
+            e.message,
+            "You cannot change the value of the SystemCreatedAt field.\\\\Table: R"
+        ),
+        other => panic!("ModifyAllCreatedAt: expected the error, got {other:?}"),
+    }
+    for routine in ["ModifyAllModifiedBy", "ModifyAllNoRows", "ModifyAllTableWithOnModify"] {
+        match run_in(SRC, "T", routine) {
+            Err(al_builtins::native::Signal::Unsupported(why)) => {
+                assert!(why.contains("outside the measured shape"), "{routine}: {why}")
+            }
+            other => panic!("{routine}: expected a refusal, got {other:?}"),
+        }
+    }
 }
 
 /// AssignedAuditFields.al:638-666: the row takes the blank SystemCreatedAt.

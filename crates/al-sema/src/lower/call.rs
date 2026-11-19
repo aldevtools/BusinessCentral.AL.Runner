@@ -2,6 +2,11 @@
 use super::*;
 use al_syntax::ast::NodeText;
 
+/// Whether `r` is the bare name `CurrPage`.
+fn is_currpage_name(r: &SyntaxNode) -> bool {
+    r.kind() == SyntaxKind::NameRef && r.text_string().trim().eq_ignore_ascii_case("CurrPage")
+}
+
 impl Lowerer<'_> {
     fn prepare_call_resolution(
         &mut self,
@@ -13,30 +18,81 @@ impl Lowerer<'_> {
         if let Some(Res::Builtin(id)) = &resolution {
             self.system_function_named_like_a_rec_field(node, receiver)?;
             self.coverage_test_id_call(id, receiver, args)?;
-            if id == "Page.SaveRecord#1"
-                && self.ws.objects[self.oi].kind == ObjKind::Page
-                && receiver.is_some_and(|r| {
-                    r.kind() == SyntaxKind::NameRef && r.text_string().trim().eq_ignore_ascii_case("CurrPage")
-                })
-                && args.is_empty()
-                && crate::members::has_internal_parameterless_save_record(self.ws, self.oi)
-            {
-                // `CurrPage.SaveRecord()` on a ListPart that declares an internal parameterless SaveRecord calls the
-                // platform method, not the procedure (pages/lifecycle/TestCurrPageSaveRecordName.al:13-37, page
-                // TestCurrPageSaveRecordName1Fixture51744.al:9,28,53). Other page types are not measured.
-                let list_part = self.ws.object_ast(self.oi).properties().any(|p| {
-                    p.name().eq_ignore_ascii_case("PageType") && p.value_text().trim().eq_ignore_ascii_case("ListPart")
-                });
-                if !list_part {
-                    return Err(
-                        "CurrPage.SaveRecord() on a page other than a ListPart that declares an internal SaveRecord \
-                         procedure (which one BC calls is pinned on a ListPart only)"
-                            .to_string(),
-                    );
-                }
-            }
+            let currpage = receiver.is_some_and(is_currpage_name);
+            crate::own_named_page_methods::save_record_refusal(self.ws, self.oi, id, currpage, args.len())?;
         }
+        self.own_named_caption(node, receiver, resolution.as_ref())?;
         Ok(resolution)
+    }
+
+    /// `own_named_caption` for `target`, the target of an assignment.
+    pub(crate) fn own_named_caption_target(&mut self, target: &SyntaxNode) -> L<()> {
+        let receiver = (target.kind() == SyntaxKind::MemberExpr)
+            .then(|| target.first_child())
+            .flatten();
+        let res = self.res(target).cloned();
+        self.own_named_caption(target, receiver.as_ref(), res.as_ref())
+    }
+
+    /// `Caption` on a page that declares procedures named Caption: runs where BC 29.0 was measured, through the
+    /// assumption, and refuses elsewhere (`own_named_page_methods::caption_gate`). `node` is the call, or the member or
+    /// name read or assigned.
+    fn own_named_caption(
+        &mut self,
+        node: &SyntaxNode,
+        receiver: Option<&SyntaxNode>,
+        resolution: Option<&Res>,
+    ) -> L<()> {
+        use crate::own_named_page_methods::{CaptionGate, CaptionReceiver, caption_gate, request_page_caption_refusal};
+        let callee = match node.kind() {
+            SyntaxKind::CallExpr => node.first_child().ok_or("callee")?,
+            _ => node.clone(),
+        };
+        let member = match callee.kind() {
+            SyntaxKind::MemberExpr => callee.children().nth(1),
+            SyntaxKind::NameRef => Some(callee.clone()),
+            _ => None,
+        };
+        if !member.is_some_and(|m| m.text_string().trim().trim_matches('"').eq_ignore_ascii_case("Caption")) {
+            return Ok(());
+        }
+        let currpage = receiver.is_some_and(is_currpage_name);
+        if receiver.is_none() || currpage {
+            request_page_caption_refusal(self.ws, self.oi, node, currpage)?;
+        }
+        let (kind, page) = match receiver {
+            None => match self.ws.objects[self.oi].kind {
+                ObjKind::Page => (CaptionReceiver::Bare, Some(self.oi)),
+                ObjKind::PageExtension => (CaptionReceiver::Bare, self.ws.extension_target(self.oi)),
+                _ => return Ok(()),
+            },
+            Some(r) if r.kind() == SyntaxKind::NameRef => match self.ty_ref(r) {
+                Ty::Object(ObjKind::Page, name) => {
+                    let kind = if currpage {
+                        CaptionReceiver::CurrPage
+                    } else {
+                        CaptionReceiver::PageVariable
+                    };
+                    (kind, self.resolve_obj(ObjKind::Page, name).ok())
+                }
+                _ => return Ok(()),
+            },
+            Some(_) => return Ok(()),
+        };
+        let Some(page) = page else { return Ok(()) };
+        let platform = matches!(resolution, Some(Res::Builtin(_)));
+        let proc = match resolution {
+            Some(Res::Proc { object, offset }) => Some((*object, *offset)),
+            _ => None,
+        };
+        match caption_gate(self.ws, self.oi, page, kind, node, platform, proc) {
+            CaptionGate::Keep => Ok(()),
+            CaptionGate::Assume(a) => {
+                self.assume(a);
+                Ok(())
+            }
+            CaptionGate::Refuse(why) => Err(why),
+        }
     }
 
     /// `Rec.SecurityFiltering()` read on a variable declared with `[SecurityFiltering(...)]` answers the declared value on

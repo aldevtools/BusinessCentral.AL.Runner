@@ -292,6 +292,7 @@ mod tests {
             temporary,
             temp_id: None,
             company: None,
+            change_company_called: false,
             crm: false,
             fields: Vec::new(),
             filters: Vec::new(),
@@ -323,7 +324,7 @@ mod tests {
             probed_source: Default::default(),
             globals: Default::default(),
             unpinned_buffer: None,
-            view_assumption: false,
+            view_assumption: None,
             run_page_link: None,
         })))
     }

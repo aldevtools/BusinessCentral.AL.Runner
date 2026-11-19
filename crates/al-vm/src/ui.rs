@@ -557,7 +557,12 @@ impl Session {
     /// handler answers false, and the sender sees what the handler changed in its `var Notification`
     /// (ui-handlers/TestNotificationSendRecallContracts.al:59-93, BC 27.5). Returns the notification
     /// as the handler left it.
+    ///
+    /// An error the handler raises reaches an unchecked `Send` (al-runner issue 8341, reporter's
+    /// HandlerErrorInsideUncheckedSend, BC 29.1). With the result used it does not reach the caller there, and what `Send`
+    /// then answers is not measured: that shape is refused.
     pub(crate) fn ui_send_notification(&mut self, notification: Value, id: [u8; 16]) -> Result<Option<Value>, Signal> {
+        let checked = self.ret_used;
         self.no_client_dialog(NoClientDialog::SendNotification)?;
         if !self.ui_state.sent_notifications.contains(&id) {
             self.ui_state.sent_notifications.push(id);
@@ -570,7 +575,14 @@ impl Session {
         if !bound {
             return Ok(None);
         }
-        let (_, mut finals) = self.dispatch_ui_returning(UiKind::SendNotification, "", vec![notification])?;
+        let (_, mut finals) = match self.dispatch_ui_returning(UiKind::SendNotification, "", vec![notification]) {
+            Err(Signal::Error(_)) if checked => {
+                return Err(Signal::unsupported(
+                    "an error raised in a [SendNotificationHandler] while the result of Notification.Send is used (what Send answers is not pinned)",
+                ));
+            }
+            other => other?,
+        };
         Ok(finals.pop())
     }
 

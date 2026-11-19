@@ -691,9 +691,12 @@ fn summary_head(doc: &Value, code: u8) -> Value {
 /// The `timings` of a summary (al-runner issue 5856): where the request spent its wall time `wall`, by phase. `otherMs`
 /// is the rest (reading the request, the report, the output).
 fn timings_json(t: &run::RequestTimings, wall: std::time::Duration) -> Value {
-    let known = t.setup + t.compile + t.engine + t.baseline + t.tests + t.coverage;
+    let setup = t.setup.total();
+    let known = setup + t.compile + t.engine + t.baseline + t.tests + t.coverage;
+    let parts: serde_json::Map<String, Value> = t.setup.keyed().map(|(k, d)| (k.to_string(), json!(ms(d)))).collect();
     let mut v = json!({
-        "setupMs": ms(t.setup),
+        "setupMs": ms(setup),
+        "setupParts": parts,
         "compileMs": ms(t.compile),
         "engineMs": ms(t.engine),
         "baselineMs": ms(t.baseline),

@@ -317,6 +317,18 @@ codeunit 69840 C
         exit(Seen + '#' + F(Value));
     end;
 
+    // OptionVarMemberlessCallers.al:290 (al-runner issue 8316): BC shows the caption, Two|1.
+    procedure EventCaptionFieldMembersPublisher(): Text
+    var
+        Publisher: Codeunit Publisher;
+        Seen: Text;
+        Row: Record Row;
+    begin
+        Row.OptCap := Row.OptCap::Second;
+        Publisher.RaiseWithMembers(Row.OptCap, false, Seen);
+        exit(Seen);
+    end;
+
     // OptionVarMemberlessCallers.al:290 with the publisher called directly.
     procedure DirectCaptionFieldToMembersPublisher(): Text
     var
@@ -1430,6 +1442,12 @@ fn caption_fields_and_var_parameters_with_members_refuse() {
     refused(
         "DirectCaptionFieldToMembersPublisher",
         "caller the probe does not measure",
+    );
+    // OptionVarMemberlessCallers.al:290 through RaiseWithMembers (al-runner issue 8316): the subscriber would show the member
+    // name, BC shows the caption.
+    refused(
+        "EventCaptionFieldMembersPublisher",
+        "from a caller the probe does not measure",
     );
     for routine in [
         "EventMembersVarParamMemberlessPublisher",

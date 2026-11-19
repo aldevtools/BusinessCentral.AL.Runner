@@ -5,6 +5,7 @@ use crate::args::{DEFAULT_TOP, TestArgs};
 use crate::capture;
 use crate::coverage;
 use crate::output::{self, Counts};
+use crate::setup_timings::{Laps, Part, SetupParts};
 use crate::style;
 use crate::testdata;
 use al_bcdb_std::BackupProvider;
@@ -427,6 +428,69 @@ struct DataChoice {
     notes: Vec<String>,
 }
 
+/// The run's target once the Microsoft apps are loaded: the build they come from (`BcVersion::resolved_to`, al-runner
+/// issues 8209 and 8243). `fetched_demotool`: the release of the DemoTool the run fetched before this call
+/// (`fetch_demotool`), or `None` (`--demotool DIR`, no DemoTool). The run goes on when that release is the build's
+/// major and minor; one of another release stops it.
+fn settle_target(
+    bc: &mut al_version::BcVersion,
+    build: &str,
+    fetched_demotool: Option<(u32, u32)>,
+) -> Result<(), String> {
+    bc.resolved_to(build)?;
+    let release = match fetched_demotool {
+        None => return Ok(()),
+        Some(r) if r == (u32::from(bc.major), u32::from(bc.minor)) => return Ok(()),
+        Some(r) => r,
+    };
+    Err(format!(
+        "--company-data demotool: the DemoTool of release {}.{} was chosen before the Microsoft apps were found, and they come from build {build}; name the build to run on with --bc-version",
+        release.0, release.1
+    ))
+}
+
+/// `--company-data demotool`: the DemoTool, and the release fetched (`None` for `--demotool DIR`). `minor_from_packages`:
+/// the Microsoft packages the project carries set the target's minor (`apps::BuildChoice::minor` is `Some`); the release
+/// is then the target's, as before. Else it is the minor of the build the artifact cache, the local artifacts or the feed
+/// name before the dependencies load (`Provision::build_before_load`), or the target's when they name none or a build of
+/// another major (al-runner issue 8243). When the load ends on a build other than this release, `settle_target` stops the
+/// run; when every Microsoft app comes from disk no build is loaded and nothing is checked (issue 8440).
+fn fetch_demotool(
+    a: &TestArgs,
+    bc: &al_version::BcVersion,
+    minor_from_packages: bool,
+    provision: &Provision,
+) -> Result<(crate::demotool::DemoTool, Option<(u32, u32)>), String> {
+    // A lane of `--recipe microsoft` gets the DemoTool without the check of the command line (args.rs).
+    if !al_deps::artifact::is_w1(a.country()) {
+        return Err("--company-data demotool supports only the w1 country (the DemoTool's W1 layer)".into());
+    }
+    let url = std::env::var("ALRUNNER_BCAPPS_URL").unwrap_or_else(|_| crate::bcapps::DEFAULT_URL.to_string());
+    let target = (u32::from(bc.major), u32::from(bc.minor));
+    let fetched = a.demotool_dir.is_none().then(|| {
+        if minor_from_packages {
+            return target;
+        }
+        match provision.build_before_load() {
+            Some(b) if b.major() == target.0 => (target.0, b.minor()),
+            _ => target,
+        }
+    });
+    let (major, minor) = fetched.unwrap_or(target);
+    let dt = crate::demotool::resolve(
+        a.demotool_dir.as_deref(),
+        major,
+        minor,
+        &al_deps::cache::cache_root_from_env(a.cache_dir.as_deref()),
+        a.no_download,
+        &url,
+        &crate::demotool::git_fetch,
+    )
+    .map_err(|e| format!("--company-data demotool: {e}"))?;
+    eprintln!("company data: {}", dt.how);
+    Ok((dt, fetched))
+}
+
 /// Finds and opens the demo backup (ADR-020): the build of the Microsoft apps first, on disk, then
 /// in the cache, then downloaded; see [`testdata::locate`]. A default run whose backup cannot be
 /// found or opened has test data off and says why; a run that asked for test data fails instead.
@@ -768,8 +832,8 @@ fn file_stamps(search: &[PathBuf], read: &[PathBuf]) -> Vec<(PathBuf, Option<(u6
 /// Where a server request spent its time, by phase (al-runner issue 5856).
 #[derive(Debug, Clone, Default)]
 pub struct RequestTimings {
-    /// Before the compile: the options, the apps' sources, the dependency packages, the test data.
-    pub setup: std::time::Duration,
+    /// Before the compile, by part (al-runner issue 8205); `SetupParts::total` is `setupMs`.
+    pub setup: SetupParts,
     /// Finding the kept compile, updating it, or compiling again.
     pub compile: std::time::Duration,
     /// Building the engine the tests run on from the compiled program, or setting up a kept one.
@@ -997,6 +1061,127 @@ fn check_companies(a: &TestArgs, companies: &al_host::Companies, session: &str) 
     })
 }
 
+/// ADR-060 decision 2: `--license FILE`, else the license of the BC artifacts of the build (kept by a server for its
+/// next request of that build), else none. A file that cannot be read stops the run here, before anything is compiled.
+fn run_license(
+    a: &TestArgs,
+    warm: Option<&mut WarmCtx>,
+    dependencies: &deps::Dependencies,
+    chosen: &al_version::Chosen,
+    floor_versions: &al_version::AppVersions,
+    country: &str,
+) -> Result<al_testrun::license::LicenseUse, String> {
+    let u = match (&a.license, &dependencies.build) {
+        (Some(p), _) => return al_testrun::license::LicenseUse::from_file(p),
+        (None, None) => {
+            return Ok(al_testrun::license::LicenseUse::none(
+                "no BC artifact is used by this run",
+            ));
+        }
+        (None, Some(u)) => u,
+    };
+    let build = u.build.to_string();
+    if let Some((_, l)) = warm
+        .as_deref()
+        .and_then(|w| w.license.as_ref())
+        .filter(|(b, _)| *b == build)
+    {
+        return Ok(l.clone());
+    }
+    let fetch = al_deps::artifact::Fetch {
+        cache_root: al_deps::cache::cache_root_from_env(a.cache_dir.as_deref()),
+        download: !a.no_download,
+        query: target::build_query(a.bc_version.as_deref(), chosen, floor_versions),
+        local_artifacts: al_deps::cache::bcartifacts_sandbox_from_env(),
+        country: country.to_string(),
+    };
+    let l = al_testrun::license::LicenseUse::from_artifact(&al_deps::artifact::HttpCdn::from_env(), &fetch, &u.build)?;
+    if let Some(w) = warm
+        && l.license.is_some()
+    {
+        w.license = Some((build, l.clone()));
+    }
+    Ok(l)
+}
+
+/// The runs of a server request's entries (al-runner issue 5635): each entry's test codeunits, its selected tests when
+/// it runs only those, its hooks (its test lines carry its index) and its resource texts.
+fn entry_runs(
+    a: &TestArgs,
+    w: &WarmCtx,
+    entry_selections: &[Selection],
+    found: &[Found],
+    inputs: &[AppInput],
+    request_hooks: &al_testrun::events::Hooks,
+) -> Vec<al_testrun::runtime::EntryRun> {
+    let cfg = a.capture;
+    let paths: Vec<PathBuf> = inputs.iter().map(|i| i.path.clone()).collect();
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let next_loop = Arc::new(std::sync::atomic::AtomicU32::new(0));
+    w.entries
+        .iter()
+        .zip(entry_selections)
+        .enumerate()
+        .map(|(k, (e, sel))| {
+            let units: Vec<(usize, u32)> = {
+                let mut v: Vec<(usize, u32)> = found
+                    .iter()
+                    .filter(|f| f.tests.iter().any(|t| sel.picks(f.id, t)))
+                    .map(|f| (f.app, f.id))
+                    .collect();
+                v.sort_unstable();
+                v.dedup();
+                v
+            };
+            // An entry that selects exactly one test runs that test alone, on a session of its own, as one
+            // runner call per method does in BC (issue 7207; BC 28.4 measured by the reporter): the siblings that
+            // would run first do not leave their WorkDate or other state behind. Entries are not in v2, so the
+            // "selection runs whole codeunits" rule of the plain `test` field stays as it is.
+            let picked: std::collections::BTreeSet<(u32, String)> = found
+                .iter()
+                .flat_map(|f| f.tests.iter().map(move |t| (f.id, t)))
+                .filter(|(id, t)| sel.picks(*id, t))
+                .map(|(id, t)| (id, t.to_lowercase()))
+                .collect();
+            let single_method = picked.len() == 1 && sel.active() && !a.execute;
+            let run_only = ((a.run_selected_only && sel.active()) || single_method).then(|| Arc::new(picked));
+            let resources = e.resources_in(
+                &inputs
+                    .iter()
+                    .map(|i| i.manifest.resources.as_slice())
+                    .collect::<Vec<_>>(),
+            );
+            let pick = sel.clone();
+            let forward = w.on_test.clone();
+            let (paths, cwd, next_loop) = (paths.clone(), cwd.clone(), next_loop.clone());
+            al_testrun::runtime::EntryRun {
+                only: Some(units),
+                run_only,
+                hooks: al_testrun::events::Hooks {
+                    on_test: forward.map(|f| {
+                        Arc::new(move |mut e: al_testrun::events::TestEvent| {
+                            if pick.picks(e.codeunit, &e.test) {
+                                e.entry = Some(k);
+                                let json = e.captured.as_ref().map(|c| {
+                                    let base = next_loop
+                                        .fetch_add(c.captured.loops.len() as u32, std::sync::atomic::Ordering::SeqCst);
+                                    capture::json(c, cfg, base, &|app: usize, file: &str| {
+                                        coverage::label(&paths[app], file, &cwd)
+                                    })
+                                });
+                                f(e, json)
+                            }
+                        }) as Arc<dyn Fn(al_testrun::events::TestEvent) + Send + Sync>
+                    }),
+                    ..request_hooks.clone()
+                },
+                resources,
+                test_time_limit: e.test_timeout_secs.map(time_limit),
+            }
+        })
+        .collect()
+}
+
 fn test_inner(
     a: &TestArgs,
     mut warm: Option<&mut WarmCtx>,
@@ -1006,6 +1191,7 @@ fn test_inner(
     process_ends_after: bool,
 ) -> Result<u8, String> {
     let started = Instant::now();
+    let mut laps = Laps::start(started);
     // The run seed (ADR-061): fixed once per run; a caller that did not fix it (a `serve` request without `seed`) gets
     // `--seed`, the environment's or a fresh one here.
     let ensured;
@@ -1081,12 +1267,14 @@ fn test_inner(
     for p in [&a.coverage_out, &a.coverage_json].into_iter().flatten() {
         write_file(p, "")?;
     }
+    laps.lap(Part::Options);
     // A backup named on the command line is opened before the long part: a wrong path or company
     // fails here. The cached artifact is chosen once the Microsoft apps are known.
     let mut test_data = match (a.wants_test_data(), &a.test_data_path) {
         (true, Some(p)) => Some(open_backup(a, p.clone())?),
         _ => None,
     };
+    laps.lap(Part::TestData);
     let mut data_notes: Vec<String> = Vec::new();
     let inputs = a
         .apps
@@ -1094,6 +1282,7 @@ fn test_inner(
         .map(|p| apps::load(p, a.bc_version.as_deref()))
         .collect::<Result<Vec<AppInput>, String>>()?;
     apps::distinct_ids(&inputs)?;
+    laps.lap(Part::Sources);
 
     // Which test codeunits there are, and which of them this run is about.
     let mut found: Vec<Found> = Vec::new();
@@ -1172,6 +1361,7 @@ fn test_inner(
         .iter()
         .map(|s| !found.iter().any(|f| f.tests.iter().any(|t| s.picks(f.id, t))))
         .collect();
+    laps.lap(Part::Selection);
 
     // The target: --bc-version, else the floor of the first app (ADR-015 3.2).
     let requested = a
@@ -1247,23 +1437,18 @@ fn test_inner(
     if let Some(e) = crate::args::company_build_off(a) {
         return Err(e);
     }
+    let provision = Provision {
+        cache_dir: a.cache_dir.clone(),
+        download: !a.no_download,
+        query: target::build_query(a.bc_version.as_deref(), &chosen, floor_versions).with_preferred(preferred),
+        local_artifacts: al_deps::cache::bcartifacts_sandbox_from_env(),
+        country: country.clone(),
+    };
+    // The release of the DemoTool the run fetched (`demotool::resolve`, not `--demotool DIR`).
+    let mut fetched_demotool = None;
     let company_data = if a.company_demotool {
-        // A lane of `--recipe microsoft` gets the DemoTool without the check of the command line (args.rs).
-        if !al_deps::artifact::is_w1(a.country()) {
-            return Err("--company-data demotool supports only the w1 country (the DemoTool's W1 layer)".into());
-        }
-        let url = std::env::var("ALRUNNER_BCAPPS_URL").unwrap_or_else(|_| crate::bcapps::DEFAULT_URL.to_string());
-        let dt = crate::demotool::resolve(
-            a.demotool_dir.as_deref(),
-            u32::from(chosen.target.bc.major),
-            u32::from(chosen.target.bc.minor),
-            &al_deps::cache::cache_root_from_env(a.cache_dir.as_deref()),
-            a.no_download,
-            &url,
-            &crate::demotool::git_fetch,
-        )
-        .map_err(|e| format!("--company-data demotool: {e}"))?;
-        eprintln!("company data: {}", dt.how);
+        let (dt, release) = fetch_demotool(a, &chosen.target.bc, choice.minor.is_some(), &provision)?;
+        fetched_demotool = release;
         if !project.dependencies.iter().any(|d| d.id == dt.app.id) {
             project.dependencies.push(dt.dependency());
         }
@@ -1299,13 +1484,6 @@ fn test_inner(
         Some(al_testrun::company_data::CompanyData::contoso(all, "artifact"))
     } else {
         None
-    };
-    let provision = Provision {
-        cache_dir: a.cache_dir.clone(),
-        download: !a.no_download,
-        query: target::build_query(a.bc_version.as_deref(), &chosen, floor_versions).with_preferred(preferred),
-        local_artifacts: al_deps::cache::bcartifacts_sandbox_from_env(),
-        country: country.clone(),
     };
     // The text of a package's files is left unread: a run whose tests reach nothing in it never needs it.
     // ALRUNNER_EAGER_SOURCES=1 reads it at once, as before (the other side of the differential check).
@@ -1351,6 +1529,22 @@ fn test_inner(
         }
     };
     after_dependencies_load(a, &debug, &inputs, &dependencies)?;
+    laps.lap(Part::Dependencies);
+    let mut bc_build = None;
+    if let Some(u) = &dependencies.build {
+        // The target is the build the Microsoft apps come from, before anything reads the minor (the test data
+        // below; al-runner issue 8243).
+        settle_target(&mut chosen.target.bc, &u.build.to_string(), fetched_demotool)?;
+        bc_build = Some(u.build.to_string());
+        if from_packages && Some(&u.build) != preferred_build.as_ref() {
+            // The build the packages come from is neither cached nor published: the usual rules chose
+            // another one of the same major.
+            build_rule.push_str(&format!(
+                "; that build is not cached, on disk or published, so BC {} was used",
+                u.build
+            ));
+        }
+    }
     let microsoft = inputs.iter().any(|i| apps::is_microsoft(&i.manifest.publisher))
         || dependencies.manifests.iter().any(|m| apps::is_microsoft(&m.publisher));
     if should_choose_test_data(a, test_data.is_some(), microsoft) {
@@ -1392,56 +1586,9 @@ fn test_inner(
             data_notes = chosen_data.notes;
         }
     }
-    let mut bc_build = None;
-    if let Some(u) = &dependencies.build {
-        // The target is the build the Microsoft apps come from (`BcVersion::resolved_to`).
-        chosen.target.bc.resolved_to(&u.build.to_string());
-        bc_build = Some(u.build.to_string());
-        if from_packages && Some(&u.build) != preferred_build.as_ref() {
-            // The build the packages come from is neither cached nor published: the usual rules chose
-            // another one of the same major.
-            build_rule.push_str(&format!(
-                "; that build is not cached, on disk or published, so BC {} was used",
-                u.build
-            ));
-        }
-    }
-    // ADR-060 decision 2: `--license FILE`, else the license of the BC artifacts of the build, else none. A file that
-    // cannot be read stops the run here, before anything is compiled.
-    let license = match (&a.license, &dependencies.build) {
-        (Some(p), _) => al_testrun::license::LicenseUse::from_file(p)?,
-        (None, Some(u)) => {
-            let kept = warm
-                .as_deref()
-                .and_then(|w| w.license.as_ref())
-                .filter(|(b, _)| *b == u.build.to_string())
-                .map(|(_, l)| l.clone());
-            match kept {
-                Some(l) => l,
-                None => {
-                    let fetch = al_deps::artifact::Fetch {
-                        cache_root: al_deps::cache::cache_root_from_env(a.cache_dir.as_deref()),
-                        download: !a.no_download,
-                        query: target::build_query(a.bc_version.as_deref(), &chosen, floor_versions),
-                        local_artifacts: al_deps::cache::bcartifacts_sandbox_from_env(),
-                        country: country.clone(),
-                    };
-                    let l = al_testrun::license::LicenseUse::from_artifact(
-                        &al_deps::artifact::HttpCdn::from_env(),
-                        &fetch,
-                        &u.build,
-                    )?;
-                    if let Some(w) = warm.as_deref_mut()
-                        && l.license.is_some()
-                    {
-                        w.license = Some((u.build.to_string(), l.clone()));
-                    }
-                    l
-                }
-            }
-        }
-        (None, None) => al_testrun::license::LicenseUse::none("no BC artifact is used by this run"),
-    };
+    laps.lap(Part::TestData);
+    let license = run_license(a, warm.as_deref_mut(), &dependencies, &chosen, floor_versions, &country)?;
+    laps.lap(Part::License);
     // The resolver repeats a note on each round of the artifact feed; say each once.
     let mut seen = BTreeSet::new();
     let mut hidden = 0;
@@ -1582,6 +1729,7 @@ fn test_inner(
         .chain(a.defines.iter().cloned())
         .collect();
 
+    laps.lap(Part::Prepare);
     let (sidecar_cfg, renderer) = crate::service_tier::sidecar_and_renderer(
         a,
         dependencies.build.as_ref(),
@@ -1628,6 +1776,7 @@ fn test_inner(
     }
     let mut dotnet = al_testrun::dotnet::sidecar_config(host);
     crate::service_tier::set_renderer(&mut dotnet, renderer, a);
+    laps.lap(Part::DotNet);
     // `--affected` (ADR-050): the stored result of the last run, and the callback that narrows this one.
     let affected = if a.affected && collect.is_none() {
         Some(crate::affected::Affected::prepare(
@@ -1639,6 +1788,7 @@ fn test_inner(
     } else {
         None
     };
+    laps.lap(Part::Affected);
     let hooks = match warm.as_deref() {
         Some(w) => {
             let pick = selection.clone();
@@ -1773,77 +1923,12 @@ fn test_inner(
         // Left at their defaults: `single_fresh_check` (set per variant in stability mode, ADR-058 amendment 1), `perturb`, `check_baseline_rule`.
         ..Default::default()
     };
+    laps.lap(Part::Prepare);
     if let Some(w) = warm.as_deref() {
-        let cfg = a.capture;
-        let paths: Vec<PathBuf> = inputs.iter().map(|i| i.path.clone()).collect();
-        let cwd = std::env::current_dir().unwrap_or_default();
-        let next_loop = Arc::new(std::sync::atomic::AtomicU32::new(0));
-        opts.entries = entries
-            .iter()
-            .zip(&entry_selections)
-            .enumerate()
-            .map(|(k, (e, sel))| {
-                let units: Vec<(usize, u32)> = {
-                    let mut v: Vec<(usize, u32)> = found
-                        .iter()
-                        .filter(|f| f.tests.iter().any(|t| sel.picks(f.id, t)))
-                        .map(|f| (f.app, f.id))
-                        .collect();
-                    v.sort_unstable();
-                    v.dedup();
-                    v
-                };
-                // An entry that selects exactly one test runs that test alone, on a session of its own, as one
-                // runner call per method does in BC (issue 7207; BC 28.4 measured by the reporter): the siblings that
-                // would run first do not leave their WorkDate or other state behind. Entries are not in v2, so the
-                // "selection runs whole codeunits" rule of the plain `test` field stays as it is.
-                let picked: std::collections::BTreeSet<(u32, String)> = found
-                    .iter()
-                    .flat_map(|f| f.tests.iter().map(move |t| (f.id, t)))
-                    .filter(|(id, t)| sel.picks(*id, t))
-                    .map(|(id, t)| (id, t.to_lowercase()))
-                    .collect();
-                let single_method = picked.len() == 1 && sel.active() && !a.execute;
-                let run_only = ((a.run_selected_only && sel.active()) || single_method).then(|| Arc::new(picked));
-                let resources = e.resources_in(
-                    &inputs
-                        .iter()
-                        .map(|i| i.manifest.resources.as_slice())
-                        .collect::<Vec<_>>(),
-                );
-                let pick = sel.clone();
-                let forward = w.on_test.clone();
-                let (paths, cwd, next_loop) = (paths.clone(), cwd.clone(), next_loop.clone());
-                al_testrun::runtime::EntryRun {
-                    only: Some(units),
-                    run_only,
-                    hooks: al_testrun::events::Hooks {
-                        on_test: forward.map(|f| {
-                            Arc::new(move |mut e: al_testrun::events::TestEvent| {
-                                if pick.picks(e.codeunit, &e.test) {
-                                    e.entry = Some(k);
-                                    let json = e.captured.as_ref().map(|c| {
-                                        let base = next_loop.fetch_add(
-                                            c.captured.loops.len() as u32,
-                                            std::sync::atomic::Ordering::SeqCst,
-                                        );
-                                        capture::json(c, cfg, base, &|app: usize, file: &str| {
-                                            coverage::label(&paths[app], file, &cwd)
-                                        })
-                                    });
-                                    f(e, json)
-                                }
-                            }) as Arc<dyn Fn(al_testrun::events::TestEvent) + Send + Sync>
-                        }),
-                        ..opts.hooks.clone()
-                    },
-                    resources,
-                    test_time_limit: e.test_timeout_secs.map(time_limit),
-                }
-            })
-            .collect();
+        opts.entries = entry_runs(a, w, &entry_selections, &found, &inputs, &opts.hooks);
     }
-    let load_time = started.elapsed();
+    laps.lap(Part::Entries);
+    let setup = laps.finish();
     // A scratch run has a run of its own for every app; a test run has one for all of them.
     let suites: Vec<SuiteRun> = if a.execute {
         inputs
@@ -1980,6 +2065,7 @@ fn test_inner(
         }
         // The phases before the compile stopped ran (al-runner issue 8103).
         if a.timings {
+            eprintln!("{}", setup.line());
             print_compile_phases(p);
             print_compile_cache(p);
             eprintln!("time: total {}", secs(total_time));
@@ -2109,6 +2195,7 @@ fn test_inner(
     }
 
     if a.timings {
+        eprintln!("{}", setup.line());
         print_compile_phases(p);
         if let Some(cost) = test_data.as_ref().and_then(|(d, _)| d.provider.cost()) {
             eprintln!("test data: {cost}");
@@ -2452,7 +2539,7 @@ fn test_inner(
     if a.verbose {
         say!(
             "Time: load {}, compile {}, install baseline {}, run {} ({:.0} tests/s), total {}{}",
-            secs_w(load_time),
+            secs_w(setup.total()),
             secs_w(p.compile),
             secs_w(p.baseline),
             secs_w(p.tests),
@@ -2515,7 +2602,7 @@ fn test_inner(
     );
     if let Some(w) = warm {
         w.timings = Some(RequestTimings {
-            setup: load_time,
+            setup,
             compile: p.warm_compile.unwrap_or(p.compile),
             engine: p.engine,
             engine_kept: p.engine_kept,
@@ -2690,6 +2777,31 @@ fn explain(
         Outcome::Fail(_) => 1,
         Outcome::NotRun(_) => 7,
     })
+}
+
+#[cfg(test)]
+mod settle_target_tests {
+    use super::settle_target;
+    use al_version::BcVersion;
+
+    // al-runner issue 8243: a fetched DemoTool of another release than the build stops the run; one of the build's
+    // release, or none at all (`--demotool DIR`, no DemoTool), keeps it going. The target asked (`28`, minor 0) does not
+    // matter: an app floor of 28.0 on build 28.5 with the DemoTool of 28.5 runs.
+    #[test]
+    fn a_demotool_of_another_release_than_the_build_stops_the_run() {
+        let build = "28.5.54151.57283";
+        let mut bc = BcVersion::parse("28").unwrap();
+        let e = settle_target(&mut bc, build, Some((28, 0))).unwrap_err();
+        assert!(e.contains("release 28.0") && e.contains(build), "{e}");
+        for (asked, fetched) in [("28", Some((28, 5))), ("28.5", Some((28, 5))), ("28", None)] {
+            let mut bc = BcVersion::parse(asked).unwrap();
+            settle_target(&mut bc, build, fetched).unwrap();
+            assert_eq!((bc.major, bc.minor), (28, 5), "{asked}");
+        }
+        // A build of another major stops it too (`BcVersion::resolved_to`).
+        let mut bc = BcVersion::parse("28").unwrap();
+        assert!(settle_target(&mut bc, "27.5.46862.58057", None).is_err());
+    }
 }
 
 #[cfg(test)]

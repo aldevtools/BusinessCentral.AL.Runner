@@ -19,7 +19,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 /// The `RecordState::unpinned_buffer` reason of a by-value copy whose view [`Session::by_value_view`] does not decide.
-pub(crate) const BY_VALUE_VIEW: &str = "a record handed by value whose view the probe did not measure (a filter in filter group 1 or in a group other than -1, 0, 2 and 4, the caller standing in a group other than 0 and 2, a field sorted descending by SetAscending, a SetLoadFields after a read, SetAutoCalcFields or ReadIsolation on the record, a call through an interface, a parameter of an object other than a codeunit or of a table procedure other than Row.Proc(Row) from a codeunit, or an event subscriber's parameter whose publisher parameter is a by-value Record, other than one of a codeunit's IntegrationEvent(false, false) whose record has filters in group 0 only and the plain view): what the copy's view holds is not pinned";
+pub(crate) const BY_VALUE_VIEW: &str = "a record handed by value whose view the probe did not measure (a filter in filter group 1 or in a group other than -1, 0, 2 and 4, the caller standing in a group other than 0 and 2, a field sorted descending by SetAscending, a SetLoadFields after a read, SetAutoCalcFields or ReadIsolation on the record, a call through an interface, a parameter of an object other than a codeunit or of a table procedure other than Row.Proc(Row) or Buffer.Proc(Entry) of another table from a codeunit or a third table, or an event subscriber's parameter whose publisher parameter is a by-value Record, other than one of a codeunit's IntegrationEvent(false, false) whose record has filters in group 0 only and the plain view): what the copy's view holds is not pinned";
 
 /// What corpus PR 1430 measured of one Record parameter of an event subscriber ([`Session::event_args`]).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -187,7 +187,7 @@ fn subscriber_view(s: &RecordState, copy: &Rec, arg: EventArg) {
         (None, _) if fresh_view(s) => {}
         (None, EventArg::Measured) if group0_view(s) => {
             primary_view(&mut c);
-            c.view_assumption = true;
+            c.view_assumption = Some(Assumption::ByValueRecordNoFilters);
         }
         (None, EventArg::Measured | EventArg::PublisherByValue) => c.unpinned_buffer = Some(BY_VALUE_VIEW),
     }
@@ -289,25 +289,44 @@ impl Session {
             .collect()
     }
 
-    /// Whether the probe measured `source` handed by value to a Record parameter of type `param` of the procedure of `call`
-    /// (assumption `by-value-record-no-filters`, corpus PR 1430, record/filters/ByValueRecordView.al), called by name: a
-    /// codeunit's procedure (`BVV Callee`, and `DescribeLocal`, a local procedure of the test codeunit), or a table's procedure
-    /// whose parameter is a record of that table, called from a codeunit on `source` itself (`CountSameStatus`, called as
-    /// `Row.CountSameStatus(Row)` from the test codeunit in `ByValue_TableProcedure_OwnRecByValue`). An interface call is not
-    /// measured.
-    fn measured_callee(&self, call: &ByValueCall, param: &RtType, source: &Rec) -> bool {
+    /// The assumption under which a probe measured `source` handed by value to a Record parameter of type `param` of the
+    /// procedure of `call`, called by name; `None` when no probe measured it. An interface call is not measured.
+    /// - `by-value-record-no-filters` (corpus PR 1430, record/filters/ByValueRecordView.al): a codeunit's procedure (`BVV
+    ///   Callee`, and `DescribeLocal`, a local procedure of the test codeunit), or a table's procedure whose parameter is a
+    ///   record of that table, called from a codeunit on `source` itself (`CountSameStatus`, called as
+    ///   `Row.CountSameStatus(Row)` from the test codeunit in `ByValue_TableProcedure_OwnRecByValue`).
+    /// - `by-value-table-proc-other-table` (corpus PR 1451, record/filters/ByValueTableProcedureView.al, open): a table's
+    ///   procedure whose parameter is a record of another table, called on a record of that table from a codeunit
+    ///   (`Buffer.DescribeEntry(Entry)` from the test codeunit, :279-655, and from `BVT Caller`, a codeunit that is not a test
+    ///   codeunit, :335-354) or from the procedure or trigger of a third table (`BVT Holder`.CollectFromTable and OnInsert,
+    ///   :665-689), on a record of a TableType = Temporary table (`BVT Buffer`), of a normal table (`BVT Holder`, :625) and on
+    ///   a temporary record of it (:645), with a filter on a FlowField too (:692). Every cell: `f={} n=4 key=Entry No. asc=Yes
+    ///   grp=0`. Base
+    ///   Application's codeunit 5530 "Calc. Item Availability" calls table 5530 "Inventory Event Buffer".TransferInventoryQty
+    ///   this way (al-runner issue 8385). A call from the code of the callee's or the parameter's table, and a table
+    ///   extension's procedure (an object of its own kind), are not measured.
+    fn measured_callee(&self, call: &ByValueCall, param: &RtType, source: &Rec) -> Option<Assumption> {
         let objects = &self.engine.program.objects;
         let callee = &objects[call.callee];
+        let RtType::Record(param_table, false) = param else {
+            return None;
+        };
+        let caller = self.frames.last().map(|&o| (o, objects[o].kind));
+        let from_codeunit = matches!(caller, Some((_, ObjKind::Codeunit)));
         match (call.dispatch, callee.kind) {
-            (Dispatch::Direct, ObjKind::Codeunit) => true,
-            (Dispatch::Direct, ObjKind::Table) => {
-                matches!(param, RtType::Record(t, false) if *t as usize == call.callee)
-                    && self.frames.last().is_some_and(|&o| objects[o].kind == ObjKind::Codeunit)
-                    && callee.rec_slot.is_some_and(|s| {
-                        matches!(call.instance.borrow().globals.get(s), Some(Value::Record(r)) if Rc::ptr_eq(r, source))
-                    })
+            (Dispatch::Direct, ObjKind::Codeunit) => Some(Assumption::ByValueRecordNoFilters),
+            (Dispatch::Direct, ObjKind::Table) if *param_table as usize != call.callee => {
+                // A table caller in the cells is a third table: neither the callee's nor the parameter's.
+                let from_other_table = matches!(caller, Some((o, ObjKind::Table))
+                    if o != call.callee && o != *param_table as usize);
+                (from_codeunit || from_other_table).then_some(Assumption::ByValueTableProcOtherTable)
             }
-            _ => false,
+            (Dispatch::Direct, ObjKind::Table) => (from_codeunit
+                && callee.rec_slot.is_some_and(|s| {
+                    matches!(call.instance.borrow().globals.get(s), Some(Value::Record(r)) if Rc::ptr_eq(r, source))
+                }))
+            .then_some(Assumption::ByValueRecordNoFilters),
+            _ => None,
         }
     }
 
@@ -325,8 +344,9 @@ impl Session {
     ///   [`primary_view`], and a SetLoadFields of a caller that read no row is dropped (`ByValue_SetLoadFields`
     ///   `amount loaded=Yes`). Marked on the copy (`RecordState::view_assumption`) so that a read of its view marks the
     ///   assumption (`by_value_view_read`, `by_value_view_handed`).
-    /// - Another callee, no filter and no mark on `source`, the caller in filter group 0, ascending, with no marks: main's
-    ///   view (a declared secondary key stays).
+    /// - Another callee, or the callee of `by-value-table-proc-other-table` with a view [`measured_view`] does not name, no
+    ///   filter and no mark on `source`, the caller in filter group 0, ascending, with no marks: main's view (a declared
+    ///   secondary key stays).
     /// - Else, with no mark on `source`, the copy keeps main's view and is marked [`BY_VALUE_VIEW`]: a read of its view
     ///   refuses (`by_value_view_runs`, `by_value_view_handed`). A copy of a marked `source` keeps main's view and the mark.
     pub(crate) fn by_value_view(&self, source: &Rec, copy: &Rec, param: &RtType, call: &ByValueCall, index: usize) {
@@ -349,7 +369,7 @@ impl Session {
             s.filter_group == 0 && s.ascending && s.field_descending == 0 && s.marks.is_empty() && !s.marked_only;
         let no_filter = s.filters.is_empty();
         let pinned_key = s.key == 0 || s.adhoc.as_ref().is_some_and(|(k, _)| *k == s.key);
-        let load_dropped = measured && s.load.request.is_some() && s.load.buffer.is_none();
+        let load_dropped = measured.is_some() && s.load.request.is_some() && s.load.buffer.is_none();
         let mut c = copy.borrow_mut();
         match s.unpinned_buffer {
             None | Some(FLOWFIELD_KEY) if plain_view && no_filter && pinned_key && !load_dropped => {
@@ -357,14 +377,15 @@ impl Session {
                 c.adhoc = None;
                 c.unpinned_buffer = None;
             }
-            None if measured && measured_view(&s) => {
+            None if measured.is_some() && measured_view(&s) => {
                 primary_view(&mut c);
                 if load_dropped {
                     c.load.request = None;
                 }
-                c.view_assumption = true;
+                c.view_assumption = measured;
             }
-            None if !measured && plain_view && no_filter => {}
+            // Another callee, or one of `by-value-table-proc-other-table` whose view the probe did not measure: main's view.
+            None if measured != Some(Assumption::ByValueRecordNoFilters) && plain_view && no_filter => {}
             None => c.unpinned_buffer = Some(BY_VALUE_VIEW),
             Some(_) => {}
         }
@@ -394,7 +415,7 @@ impl Session {
         match (shape, call.dispatch) {
             (true, Dispatch::Direct) => {
                 st.filters.clear();
-                st.view_assumption = true;
+                st.view_assumption = Some(Assumption::ByValueRecordNoFilters);
             }
             (true, Dispatch::Interface) => st.unpinned_buffer = Some(BY_VALUE_VIEW),
             (_, Dispatch::Subscriber)
@@ -409,16 +430,16 @@ impl Session {
         Value::Record(Rc::new(RefCell::new(st)))
     }
 
-    /// A record method `method` on `rec`, which holds `RecordState::view_assumption`: a method that reads the view marks
-    /// `by-value-record-no-filters` (every method but [`reads_no_view`]); `Reset`, `SetView` and `Clear` give it a view of
-    /// its own, which ends the mark.
-    fn by_value_view_read(method: RecordOp, rec: &Rec) {
+    /// A record method `method` on `rec`, which holds `RecordState::view_assumption` `assumed`: a method that reads the view
+    /// marks `assumed` (every method but [`reads_no_view`]); `Reset`, `SetView` and `Clear` give it a view of its own, which
+    /// ends the mark.
+    fn by_value_view_read(method: RecordOp, rec: &Rec, assumed: Assumption) {
         if matches!(method, RecordOp::Reset | RecordOp::SetView | RecordOp::Clear) {
-            rec.borrow_mut().view_assumption = false;
+            rec.borrow_mut().view_assumption = None;
             return;
         }
         if !reads_no_view(method) {
-            assumptions::assume(Assumption::ByValueRecordNoFilters);
+            assumptions::assume(assumed);
         }
     }
 
@@ -435,8 +456,8 @@ impl Session {
                     let s = src.borrow();
                     (s.view_assumption, s.unpinned_buffer == Some(BY_VALUE_VIEW))
                 };
-                if assumed {
-                    assumptions::assume(Assumption::ByValueRecordNoFilters);
+                if let Some(a) = assumed {
+                    assumptions::assume(a);
                 }
                 let mut r = rec.borrow_mut();
                 r.view_assumption = assumed;
@@ -450,8 +471,9 @@ impl Session {
             }
             _ => {}
         }
-        if rec.borrow().view_assumption {
-            Self::by_value_view_read(method, rec);
+        let assumed = rec.borrow().view_assumption;
+        if let Some(a) = assumed {
+            Self::by_value_view_read(method, rec, a);
         }
         Ok(())
     }
@@ -464,8 +486,8 @@ impl Session {
     /// FilterPageBuilder.AddRecord (`filterpage.rs`).
     pub(crate) fn by_value_view_handed(rec: &Rec, to: impl FnOnce() -> String) -> Result<(), Signal> {
         let r = rec.borrow();
-        if r.view_assumption {
-            assumptions::assume(Assumption::ByValueRecordNoFilters);
+        if let Some(a) = r.view_assumption {
+            assumptions::assume(a);
         }
         if r.unpinned_buffer == Some(BY_VALUE_VIEW) {
             return unsupported(format!("{}: {BY_VALUE_VIEW}", to()));
