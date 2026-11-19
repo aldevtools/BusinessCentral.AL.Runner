@@ -102,11 +102,7 @@ all. (Changes in files of other kinds compiled all of it again, as designed.) `t
 A change of a declaration of a codeunit that implements nothing is taken in too. `Workspace::replace_file_declared`
 takes the text when the objects of the file are the same ones (kind, id, name, what they extend and implement).
 `incremental::readers` finds the objects of the workspace's own apps whose file mentions the name or the id of a
-changed object, or whose code calls one of its routines in the program before the change (`Lowered::calls`; a reader
-can reach a codeunit through a procedure of another one that returns it, without naming it). A call or member that did
-not resolve before the change is in no call list: an object outside those readers that holds one (a call lowering
-refused because the checker resolved no callee, `Lowered::unresolved_calls`, or a compile error in its file) compiles
-everything again. The readers are checked and lowered again with the changed ones
+changed object (a reference is made by one of the two); they are checked and lowered again with the changed ones
 (`relower_objects`), and `relink` resolves them against the program by key, so the new routine numbers of the changed
 codeunit reach its callers. More readers than a fifth of the objects (and 20) compiles everything again, as do all
 other kinds (a table's fields, a page's controls and an interface's implementers are read without a name).
@@ -115,3 +111,13 @@ Measured on Tests-ERM (`alrunner serve`, a procedure added to a test codeunit, o
 request 3.95 s before (everything compiled again), 0.77 s after (the reuse of an unchanged request: 0.7 s). With
 `ALRUNNER_CHECK_INCREMENTAL=1` (a complete compile after every update must give the same lowering): 12 codeunits
 changed and changed back, 24 updates, 0 differences. The slowest (8.3 s, `TestPostingPreview`) has many readers.
+
+### Addition (2026-11-19, al-runner issue 7625): readers by calls
+
+`incremental::readers` also takes the objects whose code calls a routine of a changed object in the program before the
+change (`Lowered::calls`): a reader can reach a codeunit through a procedure of another one that returns it, without
+naming it or its id. A call or member that did not resolve before the change is in no call list, and may resolve to a
+changed object after it. So an object outside those readers compiles everything again when the program before the
+change holds, for it, a call lowering refused because the checker resolved no callee (`Lowered::unresolved_calls`; a
+`--tdd` stub site counts as one), or a compile error in its file. The decision above stands: the program after an
+update equals the one a complete compile gives.

@@ -182,9 +182,11 @@ impl Lowerer<'_> {
     }
 
     /// `--tdd` (ADR-051 decision 4): a stub site becomes `ir::Expr::TddStub`; one whose return type is not known is
-    /// refused with the reason the checker gave.
+    /// refused with the reason the checker gave. Every stub site is a call with no callee the checker resolved, so the
+    /// object is noted as `unresolved_call` notes it (`Lowered::unresolved_calls`).
     fn tdd_stub(&mut self, site: &crate::check::tdd::TddSite, args: &[SyntaxNode]) -> L<ir::Expr> {
         use crate::check::tdd::TddRet;
+        self.unresolved_call = true;
         let ty = match &site.ret {
             TddRet::Refused(why) => return Err(why.clone()),
             TddRet::Pending => {
@@ -1116,11 +1118,13 @@ impl Lowerer<'_> {
                     node.text()
                 )))
             }
-            // `--tdd`: `Target.Missing().Insert()`, a stub site used as a receiver, says why it is refused.
+            // `--tdd`: `Target.Missing().Insert()`, a stub site used as a receiver, says why it is refused. The stub site is a
+            // call with no callee the checker resolved (see `tdd_stub`).
             None if receiver_node.as_ref().is_some_and(|r| {
                 matches!(self.res(r), Some(Res::TddStub(s)) if matches!(s.ret, crate::check::tdd::TddRet::Refused(_)))
             }) =>
             {
+                self.unresolved_call = true;
                 match receiver_node.as_ref().and_then(|r| self.res(r)) {
                     Some(Res::TddStub(site)) => match &site.ret {
                         crate::check::tdd::TddRet::Refused(why) => Err(why.clone()),

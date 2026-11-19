@@ -2465,13 +2465,17 @@ pub fn relower_objects(
         old.tdd_needs = crate::check::tdd_decl::needs(ws, &checked);
     }
     old.driven = Some(shared.driven.clone());
-    // The diagnostics: what the checker found in the files that did not change stays.
-    let dirty_files: std::collections::HashSet<&str> = dirty
+    // The diagnostics: what the checker found in the files that did not change stays. A file is its app and its path
+    // together (a path is relative to its app; two apps can hold the same one).
+    let dirty_files: std::collections::HashSet<(usize, &str)> = dirty
         .iter()
-        .map(|&oi| ws.files[ws.objects[oi].file].path.as_str())
+        .map(|&oi| {
+            let f = &ws.files[ws.objects[oi].file];
+            (f.app, f.path.as_str())
+        })
         .collect();
     let mut from_checker: Vec<crate::workspace::Diagnostic> = std::mem::take(&mut old.checker_diags);
-    from_checker.retain(|d| !dirty_files.contains(d.file.as_str()));
+    from_checker.retain(|d| !dirty_files.contains(&(d.app, d.file.as_str())));
     from_checker.extend(checked.from_checker.iter().cloned());
     let mut all: Vec<crate::workspace::Diagnostic> = from_checker.clone();
     all.extend(checked.from_codes.iter().cloned());

@@ -188,6 +188,22 @@ fn manifests() -> Vec<Manifest> {
 }
 
 fn build(texts: &[&str]) -> (Vec<AppSource>, Vec<al_sema::AppKind>, Vec<Manifest>) {
+    let (mut apps, mut kinds, mut m) = build_main(texts);
+    // A second workspace app (`SECOND`): one file, Lib.al, the relative path of a file of the main app.
+    if let Some(text) = SECOND.with(|s| s.borrow().clone()) {
+        apps.push(AppSource {
+            id: "second".into(),
+            name: "second".into(),
+            dependencies: vec!["main".into(), "base".into()],
+            files: vec![("Lib.al".into(), text)],
+        });
+        kinds.push(al_sema::AppKind::Workspace);
+        m.push(m[0].clone());
+    }
+    (apps, kinds, m)
+}
+
+fn build_main(texts: &[&str]) -> (Vec<AppSource>, Vec<al_sema::AppKind>, Vec<Manifest>) {
     (
         vec![
             AppSource {
@@ -227,6 +243,8 @@ thread_local! {
     static SELECTION: std::cell::RefCell<Option<Vec<(usize, u32)>>> = const { std::cell::RefCell::new(None) };
     /// Whether the helpers compile with `--tdd` (ADR-051).
     static TDD: std::cell::RefCell<bool> = const { std::cell::RefCell::new(false) };
+    /// The text of a second workspace app's Lib.al, when the helpers build one.
+    static SECOND: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
 }
 
 fn changes<'a>(fs: &'a [(String, String)]) -> Vec<FileChange<'a>> {
@@ -736,4 +754,52 @@ fn a_refused_routine_outside_the_readers_does_not_stop_the_update() {
             .collect::<Vec<_>>()
     );
     assert_updated(strs(&from), strs(&to), "a procedure added, a routine refused elsewhere");
+}
+
+/// `--tdd`: a procedure stub site in an object that neither names nor calls the changed codeunit
+/// (`M.Get().Extra()` before Inner has Extra) is a call with no callee the checker resolved. After Extra is added the
+/// call resolves to it, so the update compiles everything again. One site has a typed use, one is refused (the return
+/// type is not inferred inside `Error`).
+#[test]
+fn with_tdd_a_stub_site_outside_the_readers_gives_the_outcome_of_a_complete_compile() {
+    TDD.with(|t| *t.borrow_mut() = true);
+    const TYPED: &str = "\ncodeunit 60150 Typed\n{\n    Subtype = Test;\n\n    [Test]\n    procedure Probe()\n    var\n        M: Codeunit Middle;\n        Y: Integer;\n    begin\n        Y := M.Get().Extra();\n        Error('extra=%1', Y);\n    end;\n}\n";
+    const REFUSED: &str = "\ncodeunit 60150 InError\n{\n    Subtype = Test;\n\n    [Test]\n    procedure Probe()\n    var\n        M: Codeunit Middle;\n    begin\n        Error('extra=%1', M.Get().Extra());\n    end;\n}\n";
+    for (reader, what) in [(TYPED, "a typed stub site"), (REFUSED, "a refused stub site")] {
+        let from = through_middle(INNER, reader);
+        let mut to = from.clone();
+        to[0] = from[0].replace(
+            "    procedure Value(): Integer",
+            "    procedure Extra(): Integer\n    begin\n        exit(9);\n    end;\n\n    procedure Value(): Integer",
+        );
+        assert_compiled_again(strs(&from), strs(&to), what);
+    }
+}
+
+/// A body-only change of the main app's Lib.al keeps the compile error of the second app's Lib.al (the same relative
+/// path, another app): the kept diagnostics are dropped by app and file together.
+#[test]
+fn a_body_change_keeps_the_errors_of_a_file_of_another_app_with_the_same_path() {
+    SECOND.with(|s| {
+        *s.borrow_mut() = Some(
+            "codeunit 60190 Broken\n{\n    procedure Run()\n    var\n        L: Codeunit Lib;\n    begin\n        L.Missing();\n    end;\n}\n"
+                .into(),
+        )
+    });
+    let lib = LIB.replace("exit(N * 2);", "exit(N + N);");
+    let dir = tempfile::tempdir().unwrap();
+    let (c, _) = complete(&[LIB, TESTS, OTHER, TABLES], dir.path());
+    assert!(
+        c.lowered()
+            .al_diagnostics
+            .iter()
+            .any(|d| d.app == 2 && d.file == "Lib.al"),
+        "the second app's Lib.al does not compile: {:?}",
+        c.lowered().al_diagnostics
+    );
+    assert_updated(
+        [LIB, TESTS, OTHER, TABLES],
+        [lib.as_str(), TESTS, OTHER, TABLES],
+        "a body change in a path another app has too",
+    );
 }
