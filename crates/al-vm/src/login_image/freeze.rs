@@ -347,14 +347,13 @@ impl<'a> Walker<'a> {
         })
     }
 
-    /// A .NET object the check renders exactly. v1 images the one measured on a real login, `ALConfigSettings.Instance`
-    /// (dotnet/server_classes.rs `al_config_instance`: an internal object with an empty state, the #8211 repro's login keeps
-    /// one); every other kind and state is deferred, each with its type in the reason.
+    /// A .NET object the check renders exactly. v1 images the ones measured on a real login only ([`MEASURED_DOTNET`],
+    /// with an empty state); every other kind and state is deferred, each with its type in the reason.
     fn dotnet(&mut self, d: &al_builtins::value::DotNetObject, path: &str) -> Result<DotNetNode, NotImaged> {
         use al_builtins::value::DotNetKind;
         match &d.kind {
             DotNetKind::Internal { type_name, state }
-                if type_name == al_builtins::dotnet_sigs::AL_CONFIG_SETTINGS
+                if MEASURED_DOTNET.contains(&type_name.as_str())
                     && borrowed(state.try_borrow(), path, "DotNet object")?.is_empty() =>
             {
                 Ok(DotNetNode::Internal {
@@ -440,6 +439,16 @@ impl<'a> Walker<'a> {
     }
 }
 
+/// The DotNet objects the runtime serves itself that the image takes, with an empty state: the ones a real login leaves
+/// in a SingleInstance global. Measured: the #8211 repro's login on BC 28.5 with CRONUS keeps both, 6 keys of 6 (with
+/// either one alone allowed, every key refuses the other): `ALConfigSettings.Instance` (dotnet/server_classes.rs
+/// `al_config_instance`) and a `GraphQuery` (`graph_query_new`), internal objects whose state is always empty and whose
+/// members read nothing of it.
+const MEASURED_DOTNET: [&str; 2] = [
+    al_builtins::dotnet_sigs::AL_CONFIG_SETTINGS,
+    al_builtins::dotnet_sigs::GRAPH_QUERY,
+];
+
 /// A borrow of a handle, or why it has no image: it is in use.
 pub(crate) fn borrowed<T>(r: Result<T, std::cell::BorrowError>, path: &str, what: &str) -> Result<T, NotImaged> {
     r.map_err(|_| NotImaged::Value {
@@ -474,6 +483,7 @@ pub(crate) fn no_form(path: &str, what: &str) -> NotImaged {
 
 #[cfg(test)]
 mod tests {
+    use super::MEASURED_DOTNET;
     use crate::{Engine, Session};
     use al_builtins::value::Value;
 
@@ -726,9 +736,9 @@ query 50113 KQ { elements { dataitem(K; KRow) { column(Id; Id) { } } } }
         assert!(seen.iter().filter(|(_, why)| why.is_none()).count() >= 10, "{seen:?}");
     }
 
-    // A DotNet object the runtime serves itself (`ALConfigSettings.Instance`, dotnet/server_classes.rs:57-62), which the
-    // check renders exactly (state_render.rs: a `DotNetKind::Internal` has a form), is imaged: the twin holds its own
-    // object of the same kind and state. The #8211 repro's login leaves one in a SingleInstance global.
+    // The DotNet objects the runtime serves itself that a real login keeps (`MEASURED_DOTNET`: `ALConfigSettings.Instance`
+    // and a `GraphQuery`, empty state), which the check renders exactly, are imaged: the twin holds its own object of the
+    // same type and state.
     #[test]
     fn a_dotnet_object_the_runtime_serves_round_trips() {
         let l = al_testkit::compile(KINDS);
@@ -739,35 +749,33 @@ query 50113 KQ { elements { dataitem(K; KRow) { column(Id; Id) { } } } }
             .iter()
             .position(|g| g.name == "V")
             .unwrap();
-        let mut s = Session::new(engine.clone());
-        let original = std::rc::Rc::new(al_builtins::value::DotNetObject::new(
-            al_builtins::value::DotNetKind::Internal {
-                type_name: al_builtins::dotnet_sigs::AL_CONFIG_SETTINGS.into(),
-                state: std::cell::RefCell::new(Vec::new()),
-            },
-        ));
-        let address = std::rc::Rc::as_ptr(&original);
-        s.codeunit_instance(at).borrow_mut().globals[slot] = Value::DotNet(original);
-        s.commit_transaction();
-        let image = s.login_image(0).unwrap_or_else(|why| panic!("{}", why.reason()));
-        let mut twin = Session::new(engine);
-        twin.thaw_login_image(&image);
-        let Value::DotNet(d) = twin.codeunit_instance(at).borrow().globals[slot].clone() else {
-            panic!("a DotNet value")
-        };
-        assert_ne!(std::rc::Rc::as_ptr(&d), address, "the twin's own object");
-        let al_builtins::value::DotNetKind::Internal { type_name, state } = &d.kind else {
-            panic!("an internal object")
-        };
-        assert_eq!(type_name, al_builtins::dotnet_sigs::AL_CONFIG_SETTINGS);
-        assert!(state.borrow().is_empty());
-        // The test's own handle is one more owner: the check numbers a shared object.
-        drop(d);
-        let (ours, theirs) = (s.state_lines(), twin.state_lines());
-        assert_eq!(
-            ours.lines[..ours.lines.len() - 1],
-            theirs.lines[..theirs.lines.len() - 1]
-        );
+        for type_name in MEASURED_DOTNET {
+            let mut s = Session::new(engine.clone());
+            let original = std::rc::Rc::new(al_builtins::value::DotNetObject::new(
+                al_builtins::value::DotNetKind::Internal {
+                    type_name: type_name.into(),
+                    state: std::cell::RefCell::new(Vec::new()),
+                },
+            ));
+            let address = std::rc::Rc::as_ptr(&original);
+            s.codeunit_instance(at).borrow_mut().globals[slot] = Value::DotNet(original);
+            s.commit_transaction();
+            let image = s.login_image(0).unwrap_or_else(|why| panic!("{}", why.reason()));
+            let mut twin = Session::new(engine.clone());
+            twin.thaw_login_image(&image);
+            let Value::DotNet(d) = twin.codeunit_instance(at).borrow().globals[slot].clone() else {
+                panic!("a DotNet value")
+            };
+            assert_ne!(std::rc::Rc::as_ptr(&d), address, "the twin's own object");
+            let al_builtins::value::DotNetKind::Internal { type_name: t, state } = &d.kind else {
+                panic!("an internal object")
+            };
+            assert_eq!(t, type_name);
+            assert!(state.borrow().is_empty());
+            // The test's own handle is one more owner: the check numbers a shared object.
+            drop(d);
+            assert_eq!(lines(&mut s), lines(&mut twin), "{type_name}");
+        }
     }
 
     const OUTSIDE: &str = r#"
