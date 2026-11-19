@@ -3,5 +3,5 @@
 # A file may not grow past its cap. When one shrinks, lower its cap; at 3,000 lines or fewer, delete
 # the row. Never raise a cap or add a row: split the file (see docs/codemap.md). Owner decides otherwise.
 "crates/al-testrun/src/runtime/tests.rs" = 3665
-"crates/al-vm/src/pages/actions.rs" = 3386
+"crates/al-vm/src/pages/actions.rs" = 3378
 "crates/al-vm/src/reports.rs" = 4022

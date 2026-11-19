@@ -97,7 +97,7 @@ impl Session {
             self.land_on_new_line(st)
         })();
         self.torn_down_on_error(st, r)?;
-        st.borrow_mut().refresh = false;
+        st.borrow_mut().refresh.cancel();
         if !without_parts {
             self.sync_parts(st)?;
         }
@@ -120,7 +120,7 @@ impl Session {
             self.page_event(st, "onaftergetcurrrecordevent", None, None)
         })();
         self.torn_down_on_error(st, r)?;
-        st.borrow_mut().refresh = false;
+        st.borrow_mut().refresh.cancel();
         if !without_parts {
             self.sync_parts(st)?;
         }
@@ -162,8 +162,8 @@ impl Session {
                 && s.placeholder_line
                 && !s.dirty
                 && s.host.is_none()
-                && s.refresh_by_update
-                && !s.refresh_update_false
+                && s.refresh.by_update_noted()
+                && !s.refresh.update_false()
         };
         if !shape || self.stored_row(&self.page_rec(st))?.is_none() {
             return Ok(false);

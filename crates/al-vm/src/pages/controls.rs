@@ -35,7 +35,7 @@ impl Session {
         st.borrow_mut().row_before_write = held_row;
         let r = self.control_set_value_now(st, idx, args);
         if let (Ok(_), Some(held)) = (&r, refill_held) {
-            if !st.borrow().refresh && self.temp_refill_shape_or_tree(st) && self.held_rows_changed(st)? {
+            if !st.borrow().refresh.asked() && self.temp_refill_shape_or_tree(st) && self.held_rows_changed(st)? {
                 self.reread_after_refill_by_validate(st, &held, expanded)?;
             }
         }
@@ -273,7 +273,7 @@ impl Session {
         }
         activated?;
         // Only an Update() requested by this call's triggers refreshes at its end.
-        st.borrow_mut().refresh = false;
+        st.borrow_mut().refresh.cancel();
         let engine = self.engine();
         let page = page_of(&engine, st);
         let ctl = &page.controls[idx];
@@ -1011,7 +1011,7 @@ impl Session {
                 self.validated_row_typed(st, rec_bound, discard)?;
                 clear_refused_entries(st, idx);
                 let saved = std::mem::take(&mut st.borrow_mut().save_record_called);
-                let update_asked = st.borrow().refresh;
+                let update_asked = st.borrow().refresh.asked();
                 if update_asked && st.borrow().lookup_setting_value {
                     self.defer_lookup_refresh(st);
                 }
@@ -1025,7 +1025,7 @@ impl Session {
                 Ok(Value::Null)
             }
             Err(Signal::Error(e)) => {
-                st.borrow_mut().refresh = false;
+                st.borrow_mut().refresh.cancel();
                 st.borrow_mut().dirty = was_dirty;
                 // The refused edit does not stay (corpus testpage/TestPageBooleanSpelling_Tests.al,
                 // SetValue_TrueFalseSpelling_IsRefused: the stored value is untouched).

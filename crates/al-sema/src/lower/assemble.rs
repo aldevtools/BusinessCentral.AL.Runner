@@ -147,6 +147,22 @@ pub fn lower_with_workers(
     lower_core(ws, members, checked, positions, workers, None, Export::No).expect("no cache, no cache error")
 }
 
+/// The publisher of uncompiled subscriber `site` as the symbolic program names it (`piece_keys`: the key of each object).
+fn subscriber_target(
+    site: &crate::check::demand::SubscriberSite,
+    piece_keys: &[al_ir::sym::ObjKey],
+) -> al_ir::sym::SubscriberTarget {
+    use al_ir::sym::SubscriberTarget as T;
+    match (site.publisher, site.platform) {
+        (Some(p), _) => T::Object(piece_keys[p].clone()),
+        (None, ir::PlatformPublisher::CaptionClass) => T::CaptionClass,
+        (None, ir::PlatformPublisher::ReportingTriggers) => T::ReportingTriggers,
+        (None, ir::PlatformPublisher::FilterHelperTriggers) => T::FilterHelperTriggers,
+        (None, ir::PlatformPublisher::UiHelperTriggers) => T::UiHelperTriggers,
+        (None, _) => T::GlobalTriggers,
+    }
+}
+
 /// What a compile cache supplies to a run (see `provided.rs`).
 pub(crate) struct Provided<'a> {
     pub src: &'a dyn crate::provided::DepSource,
@@ -765,9 +781,9 @@ pub(crate) fn build_shared<'a>(
         ext_base,
         export,
         parse_diags: {
-            let mut by_file: HashMap<&str, Vec<&crate::workspace::Diagnostic>> = HashMap::default();
+            let mut by_file: HashMap<(usize, &str), Vec<&crate::workspace::Diagnostic>> = HashMap::default();
             for d in ws.diagnostics.iter().filter(|d| d.code == "AR0000") {
-                by_file.entry(d.file.as_str()).or_default().push(d);
+                by_file.entry((d.app, d.file.as_str())).or_default().push(d);
             }
             by_file
         },
@@ -1144,15 +1160,7 @@ pub(crate) fn lower_core(
             let o = &ws.objects[site.object];
             let sub = &o.subscribers[site.index];
             subscriber_decls[site.object].push(al_ir::sym::SubscriberDecl {
-                target: match (site.publisher, site.platform) {
-                    (Some(p), _) => al_ir::sym::SubscriberTarget::Object(piece_keys[p].clone()),
-                    (None, ir::PlatformPublisher::CaptionClass) => al_ir::sym::SubscriberTarget::CaptionClass,
-                    (None, ir::PlatformPublisher::ReportingTriggers) => al_ir::sym::SubscriberTarget::ReportingTriggers,
-                    (None, ir::PlatformPublisher::FilterHelperTriggers) => {
-                        al_ir::sym::SubscriberTarget::FilterHelperTriggers
-                    }
-                    (None, _) => al_ir::sym::SubscriberTarget::GlobalTriggers,
-                },
+                target: subscriber_target(&site, &piece_keys),
                 index: site.index as u32,
                 event: sub.event.to_lowercase(),
                 element: sub.element.clone(),
@@ -2479,8 +2487,7 @@ pub fn relower_objects(
     from_checker.extend(checked.from_checker.iter().cloned());
     let mut all: Vec<crate::workspace::Diagnostic> = from_checker.clone();
     all.extend(checked.from_codes.iter().cloned());
-    let order: HashMap<&str, usize> = ws.files.iter().enumerate().map(|(i, f)| (f.path.as_str(), i)).collect();
-    all.sort_by_key(|d| (order.get(d.file.as_str()).copied(), d.offset));
+    ws.file_order().sort(&mut all);
     old.al_diagnostics = all.into_iter().filter(|d| d.code.starts_with("AL")).collect();
     old.checker_diags = from_checker;
     old.skipped = checked.skipped.clone();

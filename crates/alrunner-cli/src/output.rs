@@ -791,6 +791,7 @@ pub(crate) mod tests {
             dotnet: false,
             order_hint: None,
             cells: None,
+            skipped_by_option: false,
         }
     }
 

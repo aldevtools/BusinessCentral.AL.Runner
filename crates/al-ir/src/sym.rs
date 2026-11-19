@@ -164,6 +164,7 @@ pub enum SubscriberTarget {
     CaptionClass,
     ReportingTriggers,
     FilterHelperTriggers,
+    UiHelperTriggers,
 }
 
 /// An event subscriber of an object that was not compiled (a dependency object nothing reached): the runtime

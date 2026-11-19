@@ -157,6 +157,7 @@ fn halted(
             dotnet: false,
             order_hint: None,
             cells: None,
+            skipped_by_option: false,
         });
     }
     let memory = super::memory::MemoryReport {
