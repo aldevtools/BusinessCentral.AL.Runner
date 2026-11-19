@@ -84,9 +84,9 @@ pub enum EnvUse {
     NotAnOutput(&'static str),
 }
 
-/// Every environment variable the compile crates read (al-sema, al-syntax, al-ir, al-link, al-builtins, al-cache) and the
-/// compile path of al-testrun reads, with how the workspace layer treats it. A test greps those sources and fails on a
-/// read this list does not name.
+/// Every environment variable the compile reads (the compile crates and the compile path of al-testrun), with how the
+/// workspace layer treats it. A test (`env_scan_tests.rs`) scans al-testrun, al-version, al-deps and the compile crates
+/// and fails on a variable named neither here nor in its list of the run phase's and the tools' variables.
 pub const COMPILE_ENV: &[(&str, EnvUse)] = &[
     ("AL_UNPINNED_BASE_ACCESS", EnvUse::Keyed),
     ("AL_NO_DEP_POSITIONS", EnvUse::Keyed),
@@ -115,12 +115,8 @@ pub const COMPILE_ENV: &[(&str, EnvUse)] = &[
     ),
     ("AL_REACH_REPORT", EnvUse::NotAnOutput("a report on stderr")),
     (
-        "UPDATE_ASSUMPTIONS_DOC",
-        EnvUse::NotAnOutput("a test of al-builtins that rewrites a document"),
-    ),
-    (
-        "LAYER_BY_LAYER",
-        EnvUse::NotAnOutput("ALRUNNER_LAYER_BY_LAYER: how the dependency layers are built, the same bytes"),
+        "ALRUNNER_LAYER_BY_LAYER",
+        EnvUse::NotAnOutput("how the dependency layers are built, the same bytes"),
     ),
 ];
 
@@ -719,62 +715,8 @@ mod tests {
             roots_text(&Roots::default()).matches(' ').count() / 2 + 1
         );
     }
-
-    /// Decision 2.8: every environment variable the compile reads is in `COMPILE_ENV`.
-    #[test]
-    fn the_list_of_environment_reads_names_every_read_of_the_compile() {
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        let mut sources: Vec<std::path::PathBuf> = Vec::new();
-        for krate in ["al-sema", "al-syntax", "al-ir", "al-link", "al-builtins", "al-cache"] {
-            collect_rs(&root.join("crates").join(krate).join("src"), &mut sources);
-        }
-        for file in [
-            "compile_cache.rs",
-            "workspace_cache.rs",
-            "runtime/cache.rs",
-            "runtime/workspace_layer.rs",
-            "runtime/internals_grant.rs",
-            "runtime/apply_manifests.rs",
-        ] {
-            sources.push(root.join("crates/al-testrun/src").join(file));
-        }
-        let mut texts: Vec<(String, String)> = sources
-            .iter()
-            .map(|p| (p.display().to_string(), std::fs::read_to_string(p).unwrap()))
-            .collect();
-        // The compile function of the runner, not the rest of corpus.rs (the run phase reads its own switches).
-        let corpus = std::fs::read_to_string(root.join("crates/al-testrun/src/runtime/corpus.rs")).unwrap();
-        let start = corpus.find("fn compile_suites_once(").unwrap();
-        let end = start + corpus[start..].find("\n    }\n").unwrap();
-        texts.push(("corpus.rs::compile_suites_once".into(), corpus[start..end].to_string()));
-        let listed: Vec<&str> = COMPILE_ENV.iter().map(|(n, _)| *n).collect();
-        let mut missing = Vec::new();
-        for (path, text) in &texts {
-            for call in ["env::var(", "env::var_os("] {
-                for (at, _) in text.match_indices(call) {
-                    let arg = &text[at + call.len()..];
-                    let name: String = arg
-                        .trim_start_matches('"')
-                        .chars()
-                        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
-                        .collect();
-                    if !name.is_empty() && name != "name" && !listed.contains(&name.as_str()) {
-                        missing.push(format!("{path}: {name}"));
-                    }
-                }
-            }
-        }
-        assert!(missing.is_empty(), "environment reads not in COMPILE_ENV: {missing:?}");
-    }
-
-    fn collect_rs(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
-        for e in std::fs::read_dir(dir).unwrap().flatten() {
-            let p = e.path();
-            if p.is_dir() {
-                collect_rs(&p, out);
-            } else if p.extension().is_some_and(|x| x == "rs") {
-                out.push(p);
-            }
-        }
-    }
 }
+
+/// Decision 2.8: the environment the compile reads (review MED 2).
+#[cfg(test)]
+mod env_scan_tests;
