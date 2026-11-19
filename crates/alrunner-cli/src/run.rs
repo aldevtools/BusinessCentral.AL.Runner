@@ -430,6 +430,20 @@ struct DataChoice {
 /// Finds and opens the demo backup (ADR-020): the build of the Microsoft apps first, on disk, then
 /// in the cache, then downloaded; see [`testdata::locate`]. A default run whose backup cannot be
 /// found or opened has test data off and says why; a run that asked for test data fails instead.
+/// The run's target once the Microsoft apps are loaded: the build they come from (`BcVersion::resolved_to`, al-runner
+/// issues 8209 and 8243). A DemoTool fetched for the release of another major or minor stops the run: its release was
+/// chosen before the build was known. `demotool` is that release; `None` without one or with `--demotool DIR`.
+fn settle_target(bc: &mut al_version::BcVersion, build: &str, demotool: Option<(u16, u16)>) -> Result<(), String> {
+    bc.resolved_to(build)?;
+    match demotool {
+        None => Ok(()),
+        Some(release) if release == (bc.major, bc.minor) => Ok(()),
+        Some((major, minor)) => Err(format!(
+            "--company-data demotool: the DemoTool of release {major}.{minor} was chosen before the Microsoft apps were found, and they come from build {build}; name the build to run on with --bc-version"
+        )),
+    }
+}
+
 fn choose_test_data(
     a: &TestArgs,
     builds: &[String],
@@ -1247,6 +1261,8 @@ fn test_inner(
     if let Some(e) = crate::args::company_build_off(a) {
         return Err(e);
     }
+    // The release of the DemoTool `demotool::resolve` fetches is chosen here, before the build is known (`settle_target`).
+    let demotool_release = (a.company_demotool && a.demotool_dir.is_none()).then_some((chosen.target.bc.major, chosen.target.bc.minor));
     let company_data = if a.company_demotool {
         // A lane of `--recipe microsoft` gets the DemoTool without the check of the command line (args.rs).
         if !al_deps::artifact::is_w1(a.country()) {
@@ -1351,6 +1367,21 @@ fn test_inner(
         }
     };
     after_dependencies_load(a, &debug, &inputs, &dependencies)?;
+    let mut bc_build = None;
+    if let Some(u) = &dependencies.build {
+        // The target is the build the Microsoft apps come from, before anything reads the minor (the test data
+        // below; al-runner issue 8243).
+        settle_target(&mut chosen.target.bc, &u.build.to_string(), demotool_release)?;
+        bc_build = Some(u.build.to_string());
+        if from_packages && Some(&u.build) != preferred_build.as_ref() {
+            // The build the packages come from is neither cached nor published: the usual rules chose
+            // another one of the same major.
+            build_rule.push_str(&format!(
+                "; that build is not cached, on disk or published, so BC {} was used",
+                u.build
+            ));
+        }
+    }
     let microsoft = inputs.iter().any(|i| apps::is_microsoft(&i.manifest.publisher))
         || dependencies.manifests.iter().any(|m| apps::is_microsoft(&m.publisher));
     if should_choose_test_data(a, test_data.is_some(), microsoft) {
@@ -1390,20 +1421,6 @@ fn test_inner(
             )?;
             test_data = chosen_data.data;
             data_notes = chosen_data.notes;
-        }
-    }
-    let mut bc_build = None;
-    if let Some(u) = &dependencies.build {
-        // The target is the build the Microsoft apps come from (`BcVersion::resolved_to`).
-        chosen.target.bc.resolved_to(&u.build.to_string());
-        bc_build = Some(u.build.to_string());
-        if from_packages && Some(&u.build) != preferred_build.as_ref() {
-            // The build the packages come from is neither cached nor published: the usual rules chose
-            // another one of the same major.
-            build_rule.push_str(&format!(
-                "; that build is not cached, on disk or published, so BC {} was used",
-                u.build
-            ));
         }
     }
     // ADR-060 decision 2: `--license FILE`, else the license of the BC artifacts of the build, else none. A file that
@@ -2690,6 +2707,30 @@ fn explain(
         Outcome::Fail(_) => 1,
         Outcome::NotRun(_) => 7,
     })
+}
+
+#[cfg(test)]
+mod settle_target_tests {
+    use super::settle_target;
+    use al_version::BcVersion;
+
+    // al-runner issue 8243: the DemoTool release is chosen before the build is known; one of another minor stops the
+    // run, one of the build's minor or none at all (`--demotool DIR`, no DemoTool) keeps the run going.
+    #[test]
+    fn a_demotool_of_another_release_than_the_build_stops_the_run() {
+        let build = "28.5.54151.57283";
+        let mut bc = BcVersion::parse("28").unwrap();
+        let e = settle_target(&mut bc, build, Some((28, 0))).unwrap_err();
+        assert!(e.contains("release 28.0") && e.contains(build), "{e}");
+        for kept in [Some((28, 5)), None] {
+            let mut bc = BcVersion::parse("28").unwrap();
+            settle_target(&mut bc, build, kept).unwrap();
+            assert_eq!((bc.major, bc.minor), (28, 5), "{kept:?}");
+        }
+        // A build of another major stops it too (`BcVersion::resolved_to`).
+        let mut bc = BcVersion::parse("28").unwrap();
+        assert!(settle_target(&mut bc, "27.5.46862.58057", None).is_err());
+    }
 }
 
 #[cfg(test)]
