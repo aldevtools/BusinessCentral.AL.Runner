@@ -793,8 +793,9 @@ fn unmeasured_callers_of_a_memberless_subscriber_refuse() {
     refused("DirectMemberlessLocalToMembersPublisher", PUBLISHER);
 }
 
-// A publisher called directly with a variable of another member list refuses when a subscriber hears it; no probe calls one
-// directly. One no subscriber hears changes nothing, flagged: the caller's variable keeps its value and members, also an
+// A publisher called directly with a variable of another member list that a subscriber hears refuses when its parameter
+// has no members (only a parameter with members is measured, OptionVarMemberlessHeard.al). One no subscriber hears changes
+// nothing, flagged: the caller's variable keeps its value and members, also an
 // element of a `var` memberless array that holds its caller's members (corpus PR 1444, OptionVarMemberlessUnheard.al:115,
 // :281, :327, :347).
 #[test]

@@ -806,11 +806,10 @@ fn a_var_array_and_an_event_subscriber_keep_the_caller_s_members() {
     assert_eq!(assumed("VarArray"), "Second");
 }
 
-// An event publisher called directly with another member list is not measured: the probes raise their events through a
-// procedure (OptionVarMemberLists.al:510 through `RaiseMemberless`). With a subscriber, as here, it refuses. Base Application's
-// "Config. Package Management" calls one directly that no subscriber hears (the pinned corpus case table-objects
-// Y76_Package_AutoIncrementField_NotInPackage, a global): that runs no code, and the global keeps its own members
-// (`var_option::unheard_publisher_caller`).
+// An event publisher called directly with another member list that a subscriber hears is measured only for a parameter with
+// members and subscribers that take it with the publisher's list (OptionVarMemberlessHeard.al); these refuse. Base Application's "Config. Package Management" calls one directly that no
+// subscriber hears (the pinned corpus case table-objects Y76_Package_AutoIncrementField_NotInPackage, a global): that runs no
+// code, and the global keeps its own members (`var_option::unheard_publisher_caller`).
 #[test]
 fn a_publisher_called_directly_refuses() {
     for routine in [
