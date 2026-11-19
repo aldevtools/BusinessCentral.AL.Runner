@@ -693,6 +693,8 @@ codeunit 50112 Kinds2 { var M: Integer; procedure Touch() begin M := 1; end; }
         };
         assert_eq!(type_name, al_builtins::dotnet_sigs::AL_CONFIG_SETTINGS);
         assert!(matches!(state.borrow()[..], [Value::Integer(3)]));
+        // The test's own handle is one more owner: the check numbers a shared object.
+        drop(d);
         let (ours, theirs) = (s.state_lines(), twin.state_lines());
         assert_eq!(
             ours.lines[..ours.lines.len() - 1],
