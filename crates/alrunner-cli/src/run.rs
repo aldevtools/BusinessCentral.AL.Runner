@@ -452,7 +452,8 @@ fn settle_target(
 /// the Microsoft packages the project carries set the target's minor (`apps::BuildChoice::minor` is `Some`); the release
 /// is then the target's, as before. Else it is the minor of the build the artifact cache, the local artifacts or the feed
 /// name before the dependencies load (`Provision::build_before_load`), or the target's when they name none or a build of
-/// another major (al-runner issue 8243). When the apps then come from another build, `settle_target` stops the run.
+/// another major (al-runner issue 8243). When the load ends on a build other than this release, `settle_target` stops the
+/// run; when every Microsoft app comes from disk no build is loaded and nothing is checked (issue 8441 follow-up).
 fn fetch_demotool(
     a: &TestArgs,
     bc: &al_version::BcVersion,
