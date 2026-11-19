@@ -13,7 +13,7 @@
 //! (`code_inserted_step_end`).
 
 use super::pinned_shape::TestCall;
-use super::state::{CodeInsertedRow, CodeInsertedSave, FactboxStep, SavedView};
+use super::state::{CodeInsertedRow, CodeInsertedSave, CodedLine, FactboxStep, SavedView};
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::filter::FilterExpr;
@@ -30,6 +30,10 @@ enum Triggers {
     /// OnAfterGetRecord only, and one CardPart FactBox (`code_inserted_factbox`): ListNewLineSaveRecordUpdate.al page 97474
     /// (:210-254), and the partner app's page in the repro of al-runner issue 8285.
     FactboxHost,
+    /// Code in OnOpenPage, OnAfterGetRecord and OnDeleteRecord, control expressions, actions, and up to three CardPart
+    /// FactBoxes with triggers (`code_inserted_coded.rs`): ListNewLineFactboxesCode.al pages 97492 and 97493 (corpus pull
+    /// request 1454), and the partner app's page in the repro of al-runner issue 8434.
+    Coded,
 }
 
 /// How the page was opened, with the view it shows.
@@ -76,9 +80,14 @@ impl Session {
         let Some((triggers, split)) = self.code_inserted_page(st)? else {
             return Ok(None);
         };
-        let Some(opened) = self.code_inserted_open(st)? else {
+        let Some((opened, primary_key)) = self.code_inserted_open(st)? else {
             return Ok(None);
         };
+        let coded = matches!(triggers, Triggers::Coded);
+        // Only the page with code is measured in another key than the primary key (`code_inserted_coded.rs`).
+        if !primary_key && !coded {
+            return Ok(None);
+        }
         // (triggers, AutoSplitKey, open, call) of each cell.
         let assumption = match (triggers, split, opened, leave) {
             // ListNewLineCodeInsertUpdate.al, page 97032: Update() :515-536, Update(false) :563-584, RunModal with Update()
@@ -102,10 +111,23 @@ impl Session {
             (Triggers::FactboxHost, true, Opened::OpenEdit | Opened::RunModalOneGroup, Leave::SaveRecord) => {
                 Assumption::ListNewLineCodeInsertSave
             }
+            // ListNewLineFactboxesCode.al (corpus pull request 1454): :1401-1476, :1516-1591, once the parts read the new line
+            // before the validation (`coded_line_before_set_value`).
+            (Triggers::Coded, true, Opened::RunModalOneGroup, Leave::SaveRecord)
+                if st.borrow().coded_line == CodedLine::LineRead =>
+            {
+                Assumption::ListNewLineCodedFactboxes
+            }
             _ => return Ok(None),
         };
-        let measured =
-            self.code_inserted_line(st) && self.inserted_by_table_field(st)? && self.code_inserted_view(st)?;
+        let page_object = st.borrow().object as usize;
+        let measured = self.code_inserted_line(st)
+            && self.inserted_by_table_field(st, coded)?
+            && self.code_inserted_view(st, coded)?
+            && (!coded || self.no_active_subscriber(page_object));
+        if measured && coded {
+            st.borrow_mut().coded_line = CodedLine::Landed;
+        }
         Ok(measured.then_some(assumption))
     }
 
@@ -140,6 +162,7 @@ impl Session {
                 Triggers::Row
             }
             [only] if only == "onaftergetrecord" && self.code_inserted_factbox(st)? => Triggers::FactboxHost,
+            _ if self.coded_page(st)? => return Ok(Some((Triggers::Coded, split))),
             _ => return Ok(None),
         };
         Ok(shape.then_some((triggers, split)))
@@ -226,8 +249,9 @@ impl Session {
 
     /// How `st` was opened, for a measured open: the test's OpenEdit (`PageState::test_open_edit`) on a view without filters, or
     /// a static `Page.RunModal(Id, Rec)` statement in Edit mode without filters or with one `SetRange` on the key's first field
-    /// to the line's value in group 0. The view is in the primary key's ascending order and not limited to marked rows.
-    fn code_inserted_open(&mut self, st: &St) -> Result<Option<Opened>, Signal> {
+    /// to the line's value in group 0; and whether the view is in the primary key (not another key, not an ad hoc sort such as
+    /// a SourceTableView that sorts on a field no key begins with). The view is ascending and not limited to marked rows.
+    fn code_inserted_open(&mut self, st: &St) -> Result<Option<(Opened, bool)>, Signal> {
         let (open_edit, run_modal) = {
             let s = st.borrow();
             let run_modal = s.modal
@@ -242,7 +266,7 @@ impl Session {
         let rec = self.page_rec(st);
         let table = self.table(&rec)?;
         let r = rec.borrow();
-        let sorted = r.key == 0 && r.ascending && r.field_descending == 0 && r.adhoc.is_none() && !r.marked_only;
+        let sorted = r.ascending && r.field_descending == 0 && !r.marked_only;
         let one_group = |f: &al_builtins::filter::FieldFilter| {
             let line = &r.fields[f.field..=f.field];
             f.group == 0
@@ -256,7 +280,22 @@ impl Session {
             (false, true, [f]) if one_group(f) => Opened::RunModalOneGroup,
             _ => return Ok(None),
         };
-        Ok(sorted.then_some(opened))
+        Ok(sorted.then_some((opened, r.key == 0 && r.adhoc.is_none())))
+    }
+
+    /// Whether `st` is the page with code (`Triggers::Coded`), not one of the pages the other kinds take first (the FactBox host
+    /// also has the facts of the page with code).
+    pub(super) fn code_inserted_coded_kind(&self, st: &St) -> Result<bool, Signal> {
+        Ok(matches!(self.code_inserted_page(st)?, Some((Triggers::Coded, _))))
+    }
+
+    /// Whether the page with code was opened as its probe opens it: a Page.RunModal statement on a record filtered to one group
+    /// (ListNewLineFactboxesCode.al:1138-1147), in any key, ascending.
+    pub(super) fn code_inserted_coded_open(&mut self, st: &St) -> Result<bool, Signal> {
+        Ok(matches!(
+            self.code_inserted_open(st)?,
+            Some((Opened::RunModalOneGroup, _))
+        ))
     }
 
     /// The page stands on the line `New()` started, editable, inside a control's validation, and the test made exactly the
@@ -293,8 +332,9 @@ impl Session {
     /// the line started and the Code field holds the line's value; the row is stored and was written after the line started and
     /// before the control's own OnValidate began (its SystemRowVersion above the store's mark when the line started,
     /// `new_line_writes`, and not above the mark when the control's OnValidate began, `control_onvalidate_writes`). The table has
-    /// no table extension and no event subscriber.
-    fn inserted_by_table_field(&mut self, st: &St) -> Result<bool, Signal> {
+    /// no table extension and no event subscriber; with `manual_unbound` (the page with code), manual subscribers nobody binds
+    /// are allowed (ListNewLineFactboxesCode.al:255-275).
+    fn inserted_by_table_field(&mut self, st: &St, manual_unbound: bool) -> Result<bool, Signal> {
         let (Some(start), Some((line_mark, _)), Some((control_mark, _))) = ({
             let s = st.borrow();
             (s.draft_start.clone(), s.new_line_writes, s.control_onvalidate_writes)
@@ -314,7 +354,12 @@ impl Session {
         let key_shape = matches!(schema.fields[code].ty, al_builtins::value::RtType::Code(_))
             && matches!(schema.fields[auto].ty, al_builtins::value::RtType::Integer)
             && schema.fields[auto].auto_increment;
-        let plain_table = schema.extensions.is_empty() && !engine.events.any_subscriber_of(object);
+        let plain_table = schema.extensions.is_empty()
+            && if manual_unbound {
+                self.no_active_subscriber(object)
+            } else {
+                !engine.events.any_subscriber_of(object)
+            };
         let from_line = matches!(start.get(auto), Some(Value::Integer(0)))
             && Self::same_values(&rec.borrow().fields[code..=code], &start[code..=code]);
         if !(key_shape && plain_table && from_line) {
@@ -328,9 +373,9 @@ impl Session {
     }
 
     /// Whether the view holds the inserted row last, alone or after one row with the same value in the key's first field: the
-    /// measured views (an empty view, or row 'A' before the line, :386-398, :620-641, and the repro's group). Two rows before it,
-    /// or a row after it, are not measured.
-    fn code_inserted_view(&mut self, st: &St) -> Result<bool, Signal> {
+    /// measured views (an empty view, or row 'A' before the line, :386-398, :620-641, and the repro's group); on the page with
+    /// code (`alone`) only the empty view. Two rows before it, or a row after it, are not measured.
+    fn code_inserted_view(&mut self, st: &St, alone: bool) -> Result<bool, Signal> {
         let rec = self.page_rec(st);
         let table = self.table(&rec)?;
         let Some(&code) = table.keys[0].first() else {
@@ -340,7 +385,7 @@ impl Session {
         let is_row = |fields: &[Value]| Self::same_key(&table.primary_key(fields), &row);
         Ok(match self.view_rows(&rec, 3)?.as_slice() {
             [only] => is_row(only),
-            [before, last] => {
+            [before, last] if !alone => {
                 is_row(last) && Self::same_values(&before[code..=code], &rec.borrow().fields[code..=code])
             }
             _ => false,
@@ -363,8 +408,18 @@ impl Session {
     pub(super) fn refuse_error_after_landing(&mut self, st: &St, e: Signal) -> Signal {
         let landed = {
             let s = st.borrow();
-            s.refresh_from_code_inserted_line || !matches!(s.code_inserted_save, CodeInsertedSave::Off)
+            s.refresh_from_code_inserted_line
+                || !matches!(s.code_inserted_save, CodeInsertedSave::Off)
+                || matches!(
+                    s.code_inserted_row.as_ref().map(|r| r.factbox),
+                    Some(FactboxStep::CodedTyped { .. })
+                )
         };
+        if matches!(e, Signal::Error(_))
+            && let Err(refused) = self.coded_must_have_landed(st)
+        {
+            return refused;
+        }
         match e {
             Signal::Error(_) if landed => {
                 st.borrow_mut().forget_code_inserted_line();
@@ -382,8 +437,19 @@ impl Session {
     /// by its `CurrPage.Update(false)`, and the page's record, its view and the table as the save left them (`view_kept`). Any
     /// other end is not measured, and refused.
     pub(super) fn code_inserted_step_end(&mut self, st: &St) -> Result<(), Signal> {
+        self.coded_must_have_landed(st)?;
         let save = std::mem::take(&mut st.borrow_mut().code_inserted_save);
         let why = match save {
+            // A SetValue on the row of the page with code whose validation did not save it (`FactboxStep::CodedTyped`).
+            CodeInsertedSave::Off
+                if matches!(
+                    st.borrow().code_inserted_row.as_ref().map(|r| r.factbox),
+                    Some(FactboxStep::CodedTyped { .. })
+                ) =>
+            {
+                "a SetValue on the row the new line of a List page with code and FactBoxes became, whose validation did not call \
+                 CurrPage.SaveRecord and then CurrPage.Update(false) (not measured)"
+            }
             CodeInsertedSave::Off => return Ok(()),
             CodeInsertedSave::Asked(view) if self.view_kept(st, &view)? => return Ok(()),
             CodeInsertedSave::Asked(_) => {
@@ -400,12 +466,35 @@ impl Session {
     }
 
     /// Whether the page's record (its fields, filters, filter group, key, sort order and MarkedOnly) and the store's write mark
-    /// are as `view` noted them after the save.
-    fn view_kept(&self, st: &St, view: &SavedView) -> Result<bool, Signal> {
+    /// are as `view` noted them after the save. On the page with code the procedure its controls call writes another table and
+    /// may write the row itself, then reads Rec again (ListNewLineFactboxesCode.al:276-297): there every other row of the page's
+    /// table is as the save left it, Rec holds the row as stored now, and no subscriber of the table or the page is bound.
+    fn view_kept(&mut self, st: &St, view: &SavedView) -> Result<bool, Signal> {
         let rec = self.page_rec(st);
+        let fields_kept = match &view.rows {
+            None => self.write_mark() == view.writes && Self::same_values(&rec.borrow().fields, &view.rec.fields),
+            Some(rows) => {
+                let table = self.table(&rec)?;
+                let key = table.primary_key(&view.rec.fields);
+                let same_row = Self::same_key(&table.primary_key(&rec.borrow().fields), &key);
+                let page_object = st.borrow().object as usize;
+                let now = self.coded_rows(st)?;
+                let stored = self.stored_row(&rec)?;
+                same_row
+                    && self.no_active_subscriber(rec.borrow().table as usize)
+                    && self.no_active_subscriber(page_object)
+                    && stored.is_some_and(|s| Self::same_values(&rec.borrow().fields, &s))
+                    && now.is_some_and(|now| {
+                        now.len() == rows.len()
+                            && now
+                                .iter()
+                                .zip(rows)
+                                .all(|(a, b)| Self::same_values(a, b) || Self::same_key(&table.primary_key(a), &key))
+                    })
+            }
+        };
         let (r, v) = (rec.borrow(), &view.rec);
-        Ok(self.write_mark() == view.writes
-            && Self::same_values(&r.fields, &v.fields)
+        Ok(fields_kept
             && crate::records::same_filters(&r.filters, &v.filters)
             && r.filter_group == v.filter_group
             && r.key == v.key
@@ -417,18 +506,31 @@ impl Session {
 
     /// The save of `CurrPage.SaveRecord` or `CurrPage.Update(true)` that left the new line (`save_from_update`) is done: the page's
     /// record and the store as it left them are noted, which the calls after it must keep (`view_kept`).
-    pub(super) fn code_inserted_saved(&mut self, st: &St) {
+    pub(super) fn code_inserted_saved(&mut self, st: &St) -> Result<(), Signal> {
         let CodeInsertedSave::Pending { asked } = st.borrow().code_inserted_save else {
-            return;
+            return Ok(());
+        };
+        let rows = match self.code_inserted_page(st)? {
+            Some((Triggers::Coded, _)) => match self.coded_rows(st)? {
+                Some(rows) => Some(rows),
+                None => {
+                    return unsupported(
+                        "a List page with code and FactBoxes over a table of more than 1000 rows (not measured)",
+                    );
+                }
+            },
+            _ => None,
         };
         let view = Box::new(SavedView {
             rec: self.page_rec(st).borrow().clone(),
             writes: self.write_mark(),
+            rows,
         });
         st.borrow_mut().code_inserted_save = match asked {
             true => CodeInsertedSave::Asked(view),
             false => CodeInsertedSave::Saved(view),
         };
+        Ok(())
     }
 
     /// `CurrPage.Update()` (`arg` `None`), `CurrPage.Update(false)` or `CurrPage.Update(true)` in a measured cell
@@ -478,6 +580,17 @@ impl Session {
                  row the table field inserted (not measured)",
             );
         }
+        // A SetValue on the row of the page with code: its save, then the `CurrPage.Update(false)` after it, as at the landing
+        // (ListNewLineFactboxesCode.al:1407 `setvalue=T.VV(>ST-07);P.VV(ST-07);T.M(Station/ST-07);P.SR;...`).
+        let typed = st.borrow().code_inserted_row.as_ref().and_then(|r| match r.factbox {
+            FactboxStep::CodedTyped { .. } => Some(r.assumption),
+            _ => None,
+        });
+        if let Some(assumption) = typed {
+            assume(assumption);
+            st.borrow_mut().code_inserted_save = CodeInsertedSave::Pending { asked: false };
+            return Ok(());
+        }
         let Some(assumption) = self.code_inserted_cell(st, Leave::SaveRecord)? else {
             return Ok(());
         };
@@ -511,8 +624,12 @@ impl Session {
             );
         }
         st.borrow_mut().code_inserted_save = CodeInsertedSave::Asked(Box::new(view.clone()));
-        assume(Assumption::ListNewLineCodeInsertSave);
-        self.ask_code_inserted_refresh(st, Assumption::ListNewLineCodeInsertSave)
+        let assumption = match self.code_inserted_page(st)? {
+            Some((Triggers::Coded, _)) => Assumption::ListNewLineCodedFactboxes,
+            _ => Assumption::ListNewLineCodeInsertSave,
+        };
+        assume(assumption);
+        self.ask_code_inserted_refresh(st, assumption)
     }
 
     /// The page leaves the new line for the row the table field inserted, under `assumption`; without `save` the row it shows
@@ -538,12 +655,17 @@ impl Session {
         let mut s = st.borrow_mut();
         s.refresh_from_code_inserted_line = true;
         let calls = s.test_calls.len();
+        // A SetValue on the row of the page with code keeps the count of its steps (`coded_refresh`).
+        let factbox = match s.code_inserted_row.as_ref().map(|r| r.factbox) {
+            Some(typed @ FactboxStep::CodedTyped { .. }) => typed,
+            _ => FactboxStep::Off,
+        };
         s.code_inserted_row = Some(CodeInsertedRow {
             key,
             calls,
             assumption,
             read_before_leave: false,
-            factbox: FactboxStep::Off,
+            factbox,
         });
         Ok(())
     }
@@ -559,7 +681,11 @@ impl Session {
         without_curr: bool,
         without_parts: bool,
     ) -> Result<(), Signal> {
-        let factbox = matches!(self.code_inserted_page(st)?, Some((Triggers::FactboxHost, _)));
+        let kind = self.code_inserted_page(st)?.map(|(t, _)| t);
+        if matches!(kind, Some(Triggers::Coded)) {
+            return self.coded_refresh(st, without_curr, without_parts);
+        }
+        let factbox = matches!(kind, Some(Triggers::FactboxHost));
         self.reread_view_from_row(st, without_curr, without_parts, !factbox)?;
         if factbox {
             let row_before = self.view_row_count(st)? > 1;
@@ -655,6 +781,8 @@ impl Session {
         };
         match row.factbox {
             FactboxStep::Off => Ok(()),
+            // The page with code on its empty view: OK() runs nothing (ListNewLineFactboxesCode.al:1407 `ok=`).
+            FactboxStep::CodedOk => Ok(()),
             _ if measured && st.borrow().cursor == Cursor::Row && self.typed_since_landing(st)? => {
                 if row.read_before_leave {
                     self.read_code_inserted_row_again(st, &row)?;
@@ -733,6 +861,15 @@ impl Session {
             (FactboxStep::Typed, TestCall::Page(PageMethod::OK), None) => FactboxStep::OkAsked,
             (FactboxStep::OkAsked, TestCall::Other(PageMethod::Invoke), None) => step,
             (FactboxStep::PreviousNo, TestCall::Page(PageMethod::Next), None) => step,
+            // The page with code: up to two SetValues of the measured control (`coded_value_control`, ListNewLineFactboxesCode.al:1407
+            // and :1576 `setvalue2`), then OK() and its Invoke (:1407 `ok=`).
+            (FactboxStep::Coded { steps }, TestCall::Write(i), None)
+                if steps < 2 && self.coded_value_control(&root, i) =>
+            {
+                FactboxStep::CodedTyped { steps }
+            }
+            (FactboxStep::Coded { .. }, TestCall::Page(PageMethod::OK), None) => FactboxStep::CodedOk,
+            (FactboxStep::CodedOk, TestCall::Other(PageMethod::Invoke), None) => step,
             _ => {
                 root.borrow_mut().forget_code_inserted_line();
                 return unsupported(MOVE_OFF_FACTBOX_ROW);

@@ -662,6 +662,27 @@ impl Registry {
             || self.missing.keys().any(|(o, _)| *o == object)
     }
 
+    /// The subscriber codeunits (object indexes) of the events of object `object` when every subscriber is a compiled one
+    /// that declares `EventSubscriberInstance = Manual`; `None` when any other subscriber listens.
+    pub fn manual_subscribers_of(&self, object: usize) -> Option<Vec<usize>> {
+        if self.missing.keys().any(|(o, _)| *o == object) {
+            return None;
+        }
+        let mut found = Vec::new();
+        for s in self
+            .subscribers
+            .iter()
+            .filter(|((o, _), _)| *o == object)
+            .flat_map(|(_, v)| v)
+        {
+            if !s.manual {
+                return None;
+            }
+            found.push(s.object);
+        }
+        Some(found)
+    }
+
     /// The events (publisher, lower-case event name) routine `routine` of object `object` is a compiled subscriber to.
     pub fn subscriptions_of(&self, object: usize, routine: usize) -> Vec<(usize, &str)> {
         let mut found: Vec<(usize, &str)> = self

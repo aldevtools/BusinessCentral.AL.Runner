@@ -230,7 +230,7 @@ impl Session {
     }
 
     /// Runs `read` (a read of the parts of host `host`) with `PageState::factbox_blank_landing` on.
-    fn with_blank_landing(
+    pub(super) fn with_blank_landing(
         &mut self,
         host: &St,
         read: impl FnOnce(&mut Self) -> Result<(), Signal>,
@@ -254,6 +254,9 @@ impl Session {
         let empty =
             Self::on_untouched_line(st) && self.factbox_line_pages(st)?.is_some() && self.view_row_count(st)? == 0;
         if !empty {
+            if self.coded_open_on_empty_view(st)? {
+                return Ok(());
+            }
             return self.sync_parts_at_open(st);
         }
         assume(Assumption::ListFactboxNewLine);

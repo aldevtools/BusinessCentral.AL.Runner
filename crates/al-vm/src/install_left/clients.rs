@@ -32,6 +32,7 @@ pub(super) fn pages_as_new(p: &PageClients) -> bool {
         traps,
         scope_unpinned,
         bg_worker,
+        bg_reads,
         caption_dialogs,
         bg_drain_after_call,
         page_xrec,
@@ -62,6 +63,7 @@ pub(super) fn pages_as_new(p: &PageClients) -> bool {
         && traps.is_empty()
         && scope_unpinned.is_empty()
         && bg_worker.is_none()
+        && bg_reads.is_empty()
         && *caption_dialogs == crate::pages::CaptionDialogs::default()
         && bg_drain_after_call.is_none()
         && page_xrec.is_none()
