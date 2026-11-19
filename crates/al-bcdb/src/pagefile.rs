@@ -125,7 +125,25 @@ pub trait IndexStore: Send + Sync {
 }
 
 const INDEX_MAGIC: &[u8; 8] = b"ALBXPMAP";
-const INDEX_VERSION: u32 = 1;
+/// 2: the map ends with its checksum (al-runner issue 8479). A map of version 1 is rebuilt.
+const INDEX_VERSION: u32 = 2;
+
+/// A hash that notices truncation and flipped bytes; not a defence against an adversary (the
+/// index lives in the user's own cache). The one checksum of a kept index: the page map's and the
+/// catalog section's ([`crate::bak`]).
+pub(crate) fn index_hash(b: &[u8]) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325 ^ b.len() as u64;
+    let mut chunks = b.chunks_exact(8);
+    for c in &mut chunks {
+        h = (h ^ u64::from_le_bytes(c.try_into().unwrap()))
+            .wrapping_mul(0x0100_0000_01b3)
+            .rotate_left(29);
+    }
+    for &x in chunks.remainder() {
+        h = (h ^ u64::from(x)).wrapping_mul(0x0100_0000_01b3);
+    }
+    h
+}
 
 impl PageFile {
     pub fn open(src: Box<dyn ByteSource>) -> Result<PageFile> {
@@ -168,9 +186,10 @@ impl PageFile {
     }
 
     /// The page map as bytes: a header naming the file it was made for (length and data
-    /// regions), the counts, then one little-endian offset per page id.
+    /// regions), the counts, one little-endian offset per page id, then the [`index_hash`] of all
+    /// the bytes before it.
     fn index_bytes(&self) -> Vec<u8> {
-        let mut b = Vec::with_capacity(96 + self.map.len() * 8);
+        let mut b = Vec::with_capacity(104 + self.map.len() * 8);
         b.extend_from_slice(INDEX_MAGIC);
         b.extend_from_slice(&INDEX_VERSION.to_le_bytes());
         b.extend_from_slice(&self.src.len().to_le_bytes());
@@ -191,12 +210,22 @@ impl PageFile {
         for &o in &self.map {
             b.extend_from_slice(&o.to_le_bytes());
         }
+        let hash = index_hash(&b);
+        b.extend_from_slice(&hash.to_le_bytes());
         b
     }
 
-    /// Takes the page map from `bytes` when they were made for this file; false otherwise (and
-    /// the page file is left as it was).
+    /// Takes the page map from `bytes` when they are the bytes saved (their checksum holds) and
+    /// were made for this file; false otherwise (and the page file is left as it was). An offset
+    /// is not checked against the page it names, so a map whose checksum fails is never read: a
+    /// changed offset that still lies inside the file reads another page (al-runner issue 8479).
     fn restore_index(&mut self, bytes: &[u8]) -> bool {
+        let Some((bytes, hash)) = bytes.split_last_chunk::<8>() else {
+            return false;
+        };
+        if index_hash(bytes) != u64::from_le_bytes(*hash) {
+            return false;
+        }
         let at = std::cell::Cell::new(0usize);
         let take = |n: usize| -> Option<&[u8]> {
             let from = at.get();

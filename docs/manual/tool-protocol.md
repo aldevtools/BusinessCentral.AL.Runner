@@ -229,6 +229,11 @@ Differences a client must adapt to:
    `testsMs` (the test codeunits, every entry), `coverageMs` (the coverage document) and `otherMs` (the rest: the report
    and the output). `baselineSource` is `ran` (the install code ran), `cache` (read from the compile cache folder) or
    `kept` (the baseline an earlier request over the same compile read), and is absent when no baseline was needed.
+   `testDataIndex` is how the open of the test data got the backup's kept page map and catalog: `read` (the kept index
+   was used), `built` (this process built and saved it) or `off` (nothing is kept: `--no-compile-cache`, or a `.bacpac`);
+   absent without test data or for a source with no index. It describes the open this process did, so a daemon repeats
+   it on every request. `testDataMs` includes the download of the backup and the building of its index when the cache
+   folder did not hold them.
    `setupParts` splits `setupMs` into its parts, which add up to it (al-runner issue 8205): `optionsMs` (the run seed,
    the server address, the output paths), `sourcesMs` (reading the apps' `app.json` and source files), `selectionMs`
    (finding the test codeunits, the disabled tests and test suites, the request's and its entries' selection),
