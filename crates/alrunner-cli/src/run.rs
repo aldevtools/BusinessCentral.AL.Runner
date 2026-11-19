@@ -628,7 +628,7 @@ pub struct RequestTimings {
     pub coverage: std::time::Duration,
     /// Per pass (one per entry of the request): the threads' baseline copy and the pass's wall time.
     pub passes: Vec<al_testrun::runtime::PassTime>,
-    /// What the workspace layer of the compile cache did, when this request compiled (`read`, `built`, `miss`, `off`;
+    /// What the workspace layer of the compile cache did, when this request compiled (`read`, `built`, `off`;
     /// ADR-022 amendment 2026-11-15). `None`: the request used the kept compile, or the run did not ask for the layer.
     pub workspace_cache: Option<&'static str>,
 }

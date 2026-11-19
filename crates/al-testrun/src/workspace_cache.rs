@@ -32,14 +32,12 @@ pub struct WorkspaceCacheOptions {
     pub verbose: bool,
 }
 
-/// What the workspace layer did for a compile.
+/// What the workspace layer did for a compile: the three values of decision 4.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum WorkspaceState {
-    /// Not used: switched off, or a compile the layer does not cover (the note says which).
+    /// Not used: switched off, or a compile the layer does not cover or does not store (the notes say which).
     #[default]
     Off,
-    /// No entry was found (or one was refused) and none is written for this compile.
-    Miss,
     /// No entry was found (or one was refused): compiled, and the entry is written.
     Built,
     /// The compile was read from the entry.
@@ -51,7 +49,6 @@ impl WorkspaceState {
     pub fn as_str(self) -> &'static str {
         match self {
             WorkspaceState::Off => "off",
-            WorkspaceState::Miss => "miss",
             WorkspaceState::Built => "built",
             WorkspaceState::Read => "read",
         }

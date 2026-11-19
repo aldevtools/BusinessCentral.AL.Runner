@@ -139,8 +139,9 @@ impl Layer {
                 write_now: options.write_now,
                 verbose: options.verbose,
             }),
+            // `off` until the compile is read (`read`) or stored (`built`); a compile that is neither says why in the notes.
             report: Some(WorkspaceReport {
-                state: WorkspaceState::Miss,
+                state: WorkspaceState::Off,
                 open: started.elapsed(),
                 ..Default::default()
             }),
@@ -438,5 +439,64 @@ mod tests {
         assert_eq!(storable(&c, false), Ok(()));
         c.ws.note_parse_flake("a.al: first and second parse differ".into());
         assert!(storable(&c, false).unwrap_err().contains("second parse"));
+    }
+
+    /// Decision 4: the report says `read`, `built` or `off`. A compile the layer does not store (here one that met a parse
+    /// flake) says `off`, with the reason in its notes.
+    #[test]
+    fn a_compile_the_layer_does_not_store_reports_off() {
+        let d = tempfile::tempdir().unwrap();
+        let app = al_sema::workspace::AppSource {
+            id: "a".into(),
+            name: "a".into(),
+            dependencies: Vec::new(),
+            files: vec![("a.al".into(), "codeunit 50100 A { procedure P() begin end; }".into())],
+        };
+        let kinds = [al_sema::AppKind::Workspace];
+        let suites = [SuiteRun::everything()];
+        let mut c = CorpusRuntime::compile_suites(
+            vec![app.clone()],
+            kinds.to_vec(),
+            &[Manifest::default()],
+            &BTreeSet::new(),
+            None,
+            &suites,
+            &RunOptions::default(),
+        )
+        .unwrap();
+        c.ws.note_parse_flake("a.al: first and second parse differ".into());
+        let opts = RunOptions {
+            compile_cache: Some(CompileCache {
+                dir: d.path().join("compile"),
+                require: false,
+                rebuild: false,
+                country: String::new(),
+            }),
+            workspace_cache: Some(Default::default()),
+            ..Default::default()
+        };
+        let roots = al_sema::check::Roots::default();
+        let layer = Layer::plan(&LayerInputs {
+            opts: &opts,
+            apps: &[app],
+            kinds: &kinds,
+            manifests: &[Manifest::default()],
+            symbols: &BTreeSet::new(),
+            target: None,
+            roots: &roots,
+            n_cached: 0,
+            use_cache: false,
+            identities: &[],
+            order: &[0],
+            suites: &suites,
+            lean: false,
+            try_skip: false,
+            baseline_wanted: false,
+            growing: false,
+        });
+        layer.finish(&mut c, Some((Vec::new(), Vec::new())));
+        let r = c.workspace_cache.as_ref().expect("a report");
+        assert_eq!(r.state.as_str(), "off", "{r:?}");
+        assert!(r.notes.iter().any(|n| n.contains("second parse")), "{r:?}");
     }
 }
