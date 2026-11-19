@@ -242,7 +242,11 @@ Differences a client must adapt to:
    starting them ahead), `affectedMs` (`affectedOnly`: the stored result and the hashes of the inputs), `entriesMs`
    (building the runs of the entries) and `prepareMs` (the rest before the compile: the dependency notes, the hooks and
    the run's options). `--timings` prints the same parts as its `setup:` line.
-   `engineKept: true` when the request ran on the engines an earlier request over the same compile kept. Without
+   `engineKept: true` when the request ran on the engines an earlier request over the same compile kept. On a request
+   that compiled, `workspaceCache` says what the workspace layer of the compile cache did: `read` (the compiled
+   workspace apps were read from the cache folder, not compiled), `built` (compiled, and kept for a later daemon or run;
+   written after the response), `miss` (compiled, not kept) or `off` (`ALRUNNER_NO_WORKSPACE_CACHE=1`, or a compile the
+   layer does not cover). Without
    `entries`, `resetMs` is the time the test threads took to set up their own copy of the install baseline (the
    longest of them; 0 with one thread). With `entries`, each `entrySummary` has `timings` with that entry's `resetMs`
    and `wallMs` (its wall time, the reset included). The fields are for reading only: a client must not depend on
