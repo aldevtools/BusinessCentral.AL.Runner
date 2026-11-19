@@ -3,6 +3,7 @@
 //! Application's Workflow Table Relation Value.CreateNew, `Value := FieldRef.Value()`); into a Text variable an Integer raises
 //! TypeConversion (corpus types/variant/VaTCompare.al:Concat_After_Conversion, af117).
 
+use al_builtins::assumptions::Assumption;
 use al_sema::workspace::AppSource;
 use al_testrun::runtime::{CorpusRuntime, RunOptions, SuiteRun};
 use al_testrun::{CaseId, Outcome};
@@ -33,19 +34,58 @@ codeunit 50500 "T"
         Dst.Txt := FR.Value();
         if Dst.Txt <> '2645' then Error('text %1', Dst.Txt);
     end;
+    local procedure CheckOptionFieldAssignment(Blank: Boolean; IntoCode: Boolean)
+    var Row: Record "VNT Row"; Dst: Record "VNT Row"; RR: RecordRef; FR: FieldRef; Expected: Text;
+    begin
+        if not Blank then
+            Row.Opt := Row.Opt::First;
+        RR.GetTable(Row);
+        FR := RR.Field(4);
+        if IntoCode then begin
+            if not Blank then Expected := 'FIRST CAPTION';
+            Dst.Cd := FR.Value();
+            if Dst.Cd <> Expected then Error('expected [%1], got [%2]', Expected, Dst.Cd);
+        end else begin
+            if Blank then Expected := ' ' else Expected := 'First Caption';
+            Dst.Txt := FR.Value();
+            if StrLen(Dst.Txt) <> StrLen(Expected) then Error('wrong text length: [%1]', Dst.Txt);
+            if Dst.Txt <> Expected then Error('expected [%1], got [%2]', Expected, Dst.Txt);
+        end;
+    end;
     [Test]
+    procedure OptionIntoText() begin CheckOptionFieldAssignment(false, false); end;
+    [Test]
+    procedure BlankOptionIntoText() begin CheckOptionFieldAssignment(true, false); end;
+    [Test]
+    procedure OptionIntoCode() begin CheckOptionFieldAssignment(false, true); end;
+    [Test]
+    procedure BlankOptionIntoCode() begin CheckOptionFieldAssignment(true, true); end;
+    local procedure CheckOptionVariantIntoFields(V: Variant)
+    var Row: Record "VNT Row";
+    begin
+        asserterror Row.Txt := V;
+        if GetLastErrorCode() <> 'TypeConversion' then Error('text code %1', GetLastErrorCode());
+        asserterror Row.Cd := V;
+        if GetLastErrorCode() <> 'TypeConversion' then Error('code code %1', GetLastErrorCode());
+    end;
     [Test]
     procedure AnOptionVariantIntoFields()
-    var V: Variant; Row: Record "VNT Row"; i: Integer;
+    var Row: Record "VNT Row"; RR: RecordRef; i: Integer;
     begin
         for i := 0 to 1 do begin
             Row.Opt := i;
-            V := Row.Opt;
-            asserterror Row.Txt := V;
-            if GetLastErrorCode() <> 'TypeConversion' then Error('text code %1', GetLastErrorCode());
-            asserterror Row.Cd := V;
-            if GetLastErrorCode() <> 'TypeConversion' then Error('code code %1', GetLastErrorCode());
+            RR.GetTable(Row);
+            CheckOptionVariantIntoFields(Row.Opt);
+            CheckOptionVariantIntoFields(RR.Field(4).Value());
         end;
+    end;
+    local procedure CheckReturnedOptionVariantIntoFields(V: Variant)
+    var Row: Record "VNT Row";
+    begin
+        asserterror Row.Txt := ReturnOption(V);
+        if GetLastErrorCode() <> 'TypeConversion' then Error('text code %1', GetLastErrorCode());
+        asserterror Row.Cd := ReturnOption(V);
+        if GetLastErrorCode() <> 'TypeConversion' then Error('code code %1', GetLastErrorCode());
     end;
     local procedure ReturnOption(V: Variant): Variant
     begin
@@ -53,14 +93,13 @@ codeunit 50500 "T"
     end;
     [Test]
     procedure AReturnedOptionVariantIntoFields()
-    var Row: Record "VNT Row"; i: Integer;
+    var Row: Record "VNT Row"; RR: RecordRef; i: Integer;
     begin
         for i := 0 to 1 do begin
             Row.Opt := i;
-            asserterror Row.Txt := ReturnOption(Row.Opt);
-            if GetLastErrorCode() <> 'TypeConversion' then Error('text code %1', GetLastErrorCode());
-            asserterror Row.Cd := ReturnOption(Row.Opt);
-            if GetLastErrorCode() <> 'TypeConversion' then Error('code code %1', GetLastErrorCode());
+            RR.GetTable(Row);
+            CheckReturnedOptionVariantIntoFields(Row.Opt);
+            CheckReturnedOptionVariantIntoFields(RR.Field(4).Value());
         end;
     end;
     [Test]
@@ -112,5 +151,22 @@ fn a_field_ref_number_becomes_text_in_a_field_and_a_variant_number_raises() {
             name: name.into(),
         });
         assert_eq!(o, Outcome::Pass, "{name}: {o:?}");
+    }
+    for name in [
+        "OptionIntoText",
+        "BlankOptionIntoText",
+        "OptionIntoCode",
+        "BlankOptionIntoCode",
+    ] {
+        let case = CaseId {
+            codeunit: 50500,
+            name: name.into(),
+        };
+        assert_eq!(rt.first_outcome(&case), Outcome::Pass, "{name}");
+        assert_eq!(
+            rt.assumptions_in("", &case),
+            &[Assumption::OptionFieldRefToTextField],
+            "{name}"
+        );
     }
 }

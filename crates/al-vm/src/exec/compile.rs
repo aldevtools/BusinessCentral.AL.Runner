@@ -1367,7 +1367,8 @@ impl<'a> Compiler<'a> {
                 if let Some((i, kind)) = single {
                     self.emit(Op::SingleWrite { i, kind });
                 }
-                self.emit(Op::StorePlace { p: pi, a });
+                let fr = matches!(p, ir::Place::Field(..)) && is_fieldref_value(e);
+                self.emit(Op::StorePlace { p: pi, a, fr });
             }
         }
         Ok(())
@@ -1452,7 +1453,11 @@ fn arg_pure(a: &ir::Arg) -> bool {
 fn is_field_value_conversion(t: &RtType, inner: &ir::Expr) -> bool {
     (matches!(t, RtType::Text(_) | RtType::Code(_))
         || matches!(t, RtType::Library(n) if n.eq_ignore_ascii_case("Blob")))
-        && matches!(inner, ir::Expr::Builtin { id, .. } if *id == al_builtins::builtin_id::ids::FIELDREF_VALUE_1)
+        && is_fieldref_value(inner)
+}
+
+fn is_fieldref_value(e: &ir::Expr) -> bool {
+    matches!(e, ir::Expr::Builtin { id, .. } if *id == al_builtins::builtin_id::ids::FIELDREF_VALUE_1)
 }
 
 /// Whether evaluating `e` surely does not read global `g` of the running instance: only shapes known not to (a constant,

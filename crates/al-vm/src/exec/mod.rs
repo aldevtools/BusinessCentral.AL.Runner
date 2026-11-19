@@ -56,6 +56,8 @@ pub(crate) enum Op {
     StorePlace {
         p: u32,
         a: u16,
+        /// The source is a direct FieldRef.Value read and the destination is a record field.
+        fr: bool,
     },
     /// `place := a` where `a` may be a Variant and the place is no local: site `s` of `variant_copies` (`variant_copy.rs`). A
     /// local takes `Op::StoreLocal`, whose record goes to the site of its place.
