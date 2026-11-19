@@ -72,8 +72,8 @@ impl SessionParts {
         if !crate::install_left::clients::ui_left_as_new(&s.ui_state) {
             return Err(NotImaged::Field("ui_state"));
         }
-        if !crate::install_left::clients::events_left_as_new(&s.events) {
-            return Err(NotImaged::Field("events"));
+        if let Some(field) = crate::install_left::clients::events_not_as_new(&s.events) {
+            return Err(NotImaged::Field(field));
         }
         // What a rollback brings back: after the open's Commit nothing is in a transaction.
         if !s.media_removed.0.is_empty() {

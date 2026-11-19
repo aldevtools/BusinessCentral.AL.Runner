@@ -105,12 +105,13 @@ pub(crate) fn events_as_new(e: &EventState) -> bool {
     e.bindings.is_empty()
         && e.event_stats.active.borrow().is_empty()
         && e.global_setups.is_empty()
-        && events_left_as_new(e)
+        && events_not_as_new(e).is_none()
 }
 
-/// [`events_as_new`] without the manual bindings, the bound instances per subscriber (`event_stats.active`) and the Global
-/// Triggers setups: the event state a session image holds besides those (al-vm `login_image`).
-pub(crate) fn events_left_as_new(e: &EventState) -> bool {
+/// The first field (`events.<field>`) of [`events_as_new`] that does not hold a new session's value, without the manual
+/// bindings, the bound instances per subscriber (`event_stats.active`) and the Global Triggers setups: the event state a
+/// session image holds besides those (al-vm `login_image`).
+pub(crate) fn events_not_as_new(e: &EventState) -> Option<&'static str> {
     let EventState {
         bindings: _,
         caption_context_revision: _,
@@ -162,40 +163,47 @@ pub(crate) fn events_left_as_new(e: &EventState) -> bool {
         read,
         guarded,
     } = trial;
-    page_held.is_empty()
-        && pages_with_instance.is_empty()
-        && page_var_runs.is_empty()
-        && *install_view.borrow() == crate::platform::InstallView::default()
-        && !publish_frame
-        && only_targets.is_none()
-        && sender_refused.is_none()
-        && var_origins.is_empty()
-        && next_aliases.is_empty()
-        && !next_is_subscriber
-        && by_value_publisher.is_none()
-        && !raise_arg_var_param
-        && next_event_args.is_empty()
-        && blob_publisher.is_none()
-        && !next_blob_event
-        && subscriber_stack.is_empty()
-        && next_var_lens.is_empty()
-        && next_option_hops.is_empty()
-        && publisher_var_lens.is_empty()
-        && *unpinned_event_depth == 0
-        && !skip_dependency_subscribers
-        && not_installed_apps.is_none()
-        && order_unknown_apps.is_none()
-        && order_unknown_hits.borrow().is_empty()
-        && install_written.is_none()
-        && install_rows.is_none()
-        && setup_no_ops.is_empty()
-        && db_setup_table.is_none()
-        && !allowed
-        && picked.is_empty()
-        && *depth == 0
-        && wrote.is_none()
-        && read.is_empty()
-        && guarded.is_empty()
+    [
+        (page_held.is_empty(), "events.page_held"),
+        (pages_with_instance.is_empty(), "events.pages_with_instance"),
+        (page_var_runs.is_empty(), "events.page_var_runs"),
+        (
+            *install_view.borrow() == crate::platform::InstallView::default(),
+            "events.event_stats.install_view",
+        ),
+        (!publish_frame, "events.publish_frame"),
+        (only_targets.is_none(), "events.only_targets"),
+        (sender_refused.is_none(), "events.sender_refused"),
+        (var_origins.is_empty(), "events.var_origins"),
+        (next_aliases.is_empty(), "events.next_aliases"),
+        (!next_is_subscriber, "events.next_is_subscriber"),
+        (by_value_publisher.is_none(), "events.by_value_publisher"),
+        (!raise_arg_var_param, "events.raise_arg_var_param"),
+        (next_event_args.is_empty(), "events.next_event_args"),
+        (blob_publisher.is_none(), "events.blob_publisher"),
+        (!next_blob_event, "events.next_blob_event"),
+        (subscriber_stack.is_empty(), "events.subscriber_stack"),
+        (next_var_lens.is_empty(), "events.next_var_lens"),
+        (next_option_hops.is_empty(), "events.next_option_hops"),
+        (publisher_var_lens.is_empty(), "events.publisher_var_lens"),
+        (*unpinned_event_depth == 0, "events.unpinned_event_depth"),
+        (!skip_dependency_subscribers, "events.skip_dependency_subscribers"),
+        (not_installed_apps.is_none(), "events.not_installed_apps"),
+        (order_unknown_apps.is_none(), "events.order_unknown_apps"),
+        (order_unknown_hits.borrow().is_empty(), "events.order_unknown_hits"),
+        (install_written.is_none(), "events.install_written"),
+        (install_rows.is_none(), "events.install_rows"),
+        (setup_no_ops.is_empty(), "events.setup_no_ops"),
+        (db_setup_table.is_none(), "events.db_setup_table"),
+        (!allowed, "events.trial.allowed"),
+        (picked.is_empty(), "events.trial.picked"),
+        (*depth == 0, "events.trial.depth"),
+        (wrote.is_none(), "events.trial.wrote"),
+        (read.is_empty(), "events.trial.read"),
+        (guarded.is_empty(), "events.trial.guarded"),
+    ]
+    .into_iter()
+    .find_map(|(holds, field)| (!holds).then_some(field))
 }
 
 /// Code coverage, the impact trace, the cell tap and the profiler: all off and nothing recorded. A run with one of them on
