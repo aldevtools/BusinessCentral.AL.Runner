@@ -336,6 +336,17 @@ impl Session {
                 expr.trim()
             ));
         };
+        // A read of the field's caption while its own expression runs, from that expression or from one it calls: what BC's
+        // nested read gives is not pinned (al-runner issue 8329: the reporter's `'3,' + FieldCaption(<same field>)` passes on
+        // BC 29.1 with the field's caption), so it refuses instead of running the expression again.
+        let running =
+            (self.frames.iter().zip(&self.call_stack)).any(|(&o, f)| !f.event && (o, f.routine) == (object, routine));
+        if running {
+            return unsupported(format!(
+                "the caption of field {} read while its own CaptionClass expression runs (not pinned, al-runner issue 8329)",
+                t.fields[pos].name
+            ));
+        }
         let class = self.call_on_record(object, routine, rec.clone(), None, Vec::new())?.0;
         Self::refuse_rendered_caption_class(&class)?;
         match class {
