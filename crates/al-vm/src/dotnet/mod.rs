@@ -868,7 +868,7 @@ impl Session {
             }
             // File Management.DeleteServerFile deletes a file it found (QxDotNetDemoShapes.al:326-328). Deleting a file that
             // is not there is not pinned. A file that holds a placeholder report output: `dotnet_delete_placeholder_file`
-            // (Base Application's e-mail body round trip through a server file; assumption dotnet-file-delete-placeholder).
+            // (the server file round trip of HtmlServerFileRoundTrip.al:149 with :186-187).
             ("system.io.file", "delete", []) => {
                 if !self.dotnet_delete_placeholder_file(path)? {
                     self.refuse_pending_file(path)?;

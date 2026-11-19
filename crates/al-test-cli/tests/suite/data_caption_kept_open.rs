@@ -1,5 +1,5 @@
-//! The two Worksheet opens whose DataCaptionExpression run at the open main skips under the assumption
-//! `data-caption-two-microsoft-opens-skipped` (`data_caption_kept_open.rs` in al-vm): a temporary Worksheet without inserts whose
+//! The two Worksheet opens whose DataCaptionExpression run at the open main skips (`data_caption_kept_open.rs` in al-vm,
+//! pinned by al-language/pages/properties/DataCaptionKeptOpen.al): a temporary Worksheet without inserts whose
 //! expression is a page procedure that returns a StrSubstNo of a label and a Text field of Rec when that field is not empty, opened
 //! by a Page variable's `Run()` into a Trap; and one whose expression returns a Text variable of a codeunit variable of the page,
 //! opened by a Page variable's `SetTableView` and `RunModal()` for a ModalPageHandler. Every neighbor keeps main's result: a
@@ -242,18 +242,14 @@ const NEIGHBOR: &str =
     "a Worksheet with DataCaptionExpression that AL code opened with a handler or a Trap, outside the measured cells";
 
 #[test]
-fn the_two_evidence_opens_keep_mains_open_flagged() {
+fn the_two_pinned_opens_keep_mains_open_unflagged() {
     let out = run(SRC);
-    let flagged = [Assumption::DataCaptionTwoMicrosoftOpensSkipped];
-    for t in ["K01_Nav_Trap_VarRun", "K11_Lines_Modal_View"] {
+    // DataCaptionKeptOpen.al:436-485 and :584-606; K17 is Y50ListCaptionExpr.al's read on main's path.
+    for t in ["K01_Nav_Trap_VarRun", "K11_Lines_Modal_View", "K17_Lines_Modal_Only"] {
         let (o, h) = get(&out, t);
         assert_eq!(o, "Pass", "{t}");
-        assert!(h.contains(&flagged[0]), "{t}: {h:?}");
+        assert!(h.is_empty(), "{t}: {h:?}");
     }
-    // Y50ListCaptionExpr.al's read: main's path, not flagged.
-    let (o, h) = get(&out, "K17_Lines_Modal_Only");
-    assert_eq!(o, "Pass");
-    assert!(!h.contains(&flagged[0]), "{h:?}");
 }
 
 #[test]
@@ -377,15 +373,12 @@ fn neighbor_src() -> String {
 }
 
 #[test]
-fn the_page_facts_of_the_evidence_pages_keep_mains_open_flagged() {
+fn the_page_facts_of_the_pinned_pages_keep_mains_open() {
     let out = run(&neighbor_src());
-    // The evidence page, and the same page with OnInit and OnClosePage (both Microsoft pages declare OnInit, Order Promising
-    // Lines also OnClosePage).
-    for t in ["X69910", "X69920"] {
-        let (o, h) = get(&out, t);
-        assert_eq!(o, "Pass", "{t}");
-        assert_eq!(h, [Assumption::DataCaptionTwoMicrosoftOpensSkipped], "{t}");
-    }
+    // The pinned page facts (DataCaptionKeptOpen.al:97-149): OnOpenPage is its only trigger.
+    let (o, h) = get(&out, "X69910");
+    assert_eq!(o, "Pass");
+    assert!(h.is_empty(), "{h:?}");
 }
 
 #[test]
@@ -397,7 +390,8 @@ fn a_page_outside_the_evidence_page_facts_keeps_the_refusal_at_the_open() {
         "X69913", // an extension's SourceTableTemporary = false
         "X69914", // an extension's OnOpenPage trigger
         "X69915", // an OnOpenPageEvent subscriber
-        "X69916", // a page trigger outside OnInit, OnOpenPage and OnClosePage
+        "X69916", // a page trigger other than OnOpenPage
+        "X69920", // OnInit and OnClosePage next to OnOpenPage (only Microsoft's tests had them; the pin has OnOpenPage alone)
         "X69917", // Editable = false
         "X69918", // DelayedInsert = true
         "X69919", // a label 'Picked %10': placeholder ten, no %1

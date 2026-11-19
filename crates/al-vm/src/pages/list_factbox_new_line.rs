@@ -13,7 +13,7 @@
 //! pages/currpage/ListNewLineCodeInsertUpdate.al shows the same at the
 //! open, `New()` and these moves on another host (two CardPart FactBoxes on a two-field key, AutoSplitKey, a control's
 //! OnValidate; :713-740 `open=F.AGCR();`, `newparts=A/`, `nextlog=F.AGR(X);F.AGCR(X);`, `nextlog=T.M(X/V);F.AGCR();`), which
-//! this module does not admit.
+//! this module does not admit: its open refuses (`code_inserted_new_line.rs` `refuse_code_inserted_parts_host`).
 //!
 //! Each step runs only on the probe's page shapes (`factbox_line_pages`) and after the probe's earlier steps
 //! (`FactboxLine`, `steps_are`); everything else keeps the path it had, and a SetValue that raises an error ends the steps. After
@@ -248,6 +248,7 @@ impl Session {
     /// The parts of host `st` read as the host opens; on an empty view of the probe's pages the part runs OnAfterGetCurrRecord
     /// on the blank record (:162 `open=F.AGCR();`, `part=`).
     pub(super) fn sync_parts_at_list_open(&mut self, st: &St) -> Result<(), Signal> {
+        self.refuse_code_inserted_parts_host(st)?;
         let empty =
             Self::on_untouched_line(st) && self.factbox_line_pages(st)?.is_some() && self.view_row_count(st)? == 0;
         if !empty {

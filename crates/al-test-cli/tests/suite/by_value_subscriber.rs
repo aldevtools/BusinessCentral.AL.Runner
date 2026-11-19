@@ -1,8 +1,8 @@
-//! An event subscriber's by-value Record parameter (al-runner issue 8295). Corpus PR 1430 measured one shape
+//! An event subscriber's by-value Record parameter (al-runner issue 8295). The corpus pins one shape
 //! (record/filters/ByValueRecordView.al:286-308, :964-978): a codeunit's IntegrationEvent(false, false) with a by-value
 //! Record parameter, raised by a call of the publisher, to an automatic subscriber codeunit whose parameter is by value, the
 //! caller's record a stored one with a filter in filter group 0 and the plain view. That subscriber's copy has no filters
-//! (`sub f={} n=3`), flagged by assumption `by-value-record-no-filters`. Every neighbor whose publisher parameter is by value,
+//! (`sub f={} n=3`), with no assumption. Every neighbor whose publisher parameter is by value,
 //! with a filter or another view, refuses a read of the copy's view; a copy with the view of a fresh record, a read that is
 //! not of the view, and a copy whose publisher parameter is `var` (also Rec of a platform table event) keep main.
 
@@ -644,8 +644,8 @@ codeunit 50176 "BS Test"
 fn issue_8295_subscriber_by_value_record_gets_no_filters_in_the_measured_shape_only() {
     let o = run(SUBSCRIBER, "BS Test");
     let want = [
-        // record/filters/ByValueRecordView.al:964-978 (corpus PR 1430): `sub f={} n=3`, the caller keeps its filter.
-        ("Integration_Group0Filter_Flagged", PASS, true),
+        // record/filters/ByValueRecordView.al:964-978: `sub f={} n=3`, the caller keeps its filter.
+        ("Integration_Group0Filter_Flagged", PASS, false),
         // The copy holds the view of a fresh record already: nothing to drop, as on main.
         ("Integration_NoFilter_KeepsMain", PASS, false),
         // Filter groups, standing group, key and marks the event cell did not measure.

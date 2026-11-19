@@ -1,15 +1,12 @@
 //! Two Worksheet opens where BC runs the DataCaptionExpression once at the open, after OnOpenPage and before the Trap's first
-//! read or the handler, and main keeps its own open, which does not run it: the assumption
-//! `data-caption-two-microsoft-opens-skipped`. Its probe is corpus PR 1417 (merged, not pinned),
-//! tests/al-language/pages/properties/DataCaptionKeptOpen.al :553, :577, :640, :652, which also measures that the test's reads
-//! after the open equal those of the same page without the expression, on pages whose only trigger is OnOpenPage. Microsoft's
-//! tests that pass on real BC through these two shapes are the evidence for their two pages. Each shape is required here by
-//! equality:
-//! - `TrappedVariableRun`: Microsoft's Navigate page as a posted document's Navigate opens it (a Page variable's procedures, then
-//!   `Run()`, into a TestPage Trap); its expression is a page procedure that returns StrSubstNo of a label with one `%1` and a
+//! read or the handler (al-language/pages/properties/DataCaptionKeptOpen.al:553, :577, :640, :652), and main keeps its own open,
+//! which does not run it. The same file pins that the test's reads after the open equal those of the same page without the
+//! expression (:436-533 shape N, :584-630 shape O), on pages whose only trigger is OnOpenPage (:97-149, :253-307). Each shape
+//! is required here by equality:
+//! - `TrappedVariableRun`: a Page variable's procedures, then `Run()`, into a TestPage Trap (:443-446); its expression is a page procedure that returns StrSubstNo of a label with one `%1` and a
 //!   Text field of Rec when that field is not empty, else ''.
-//! - `ModalVariableAfterView`: Microsoft's Order Promising Lines as a sales line opens it (a Page variable's procedure, then
-//!   `SetTableView` and `RunModal()`, for a ModalPageHandler); its expression returns, through a codeunit variable of the page, a
+//! - `ModalVariableAfterView`: a Page variable's procedure, then `SetTableView` and `RunModal()`, for a ModalPageHandler
+//!   (:661-666); its expression returns, through a codeunit variable of the page, a
 //!   Text variable of that codeunit.
 //!
 //! Both pages are temporary Worksheets with InsertAllowed = false (`kept_page` lists every page fact). Neither expression can
@@ -19,24 +16,23 @@
 use super::page_run_close::PageRunCall;
 use super::*;
 use crate::ui::UiKind;
-use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::builtin_id::ids;
 use al_builtins::page_op::PageMethod;
 use al_builtins::value::RtType;
 use al_ir::{Arg, Const, Expr, Place, Stmt};
 
-/// The run of an evidence test.
+/// The run of a pinned test.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum KeptRun {
-    /// A Page variable's `Run()` after only calls of the page's own procedures, caught by a TestPage Trap (Microsoft's SCM
-    /// Navigate tests and ERM Purchase Order's PostedPurchaseReceiptNavigateDocumentNo).
+    /// A Page variable's `Run()` after only calls of the page's own procedures, caught by a TestPage Trap
+    /// (DataCaptionKeptOpen.al:443-446).
     TrappedVariableRun,
-    /// A Page variable's `SetTableView`, then its `RunModal()`, answered by a ModalPageHandler (Microsoft's SCM Inventory - Orders
-    /// and SCM Bugfixes order promising tests).
+    /// A Page variable's `SetTableView`, then its `RunModal()`, answered by a ModalPageHandler
+    /// (DataCaptionKeptOpen.al:661-666).
     ModalVariableAfterView,
 }
 
-/// The expression of an evidence page.
+/// The expression of a pinned page (DataCaptionKeptOpen.al:143-148, :260 with :83-86).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum KeptExpression {
     /// `Proc()`, a procedure of the page whose body is `if Rec.F <> '' then exit(StrSubstNo(Lbl, Rec.F)); exit('');`.
@@ -47,7 +43,7 @@ enum KeptExpression {
 
 impl Session {
     /// Whether page `st`, opened by AL code with `bind`'s handler bound (or caught by a Trap, `bind` empty), is in one of the two
-    /// shapes of the module doc: then main's open stands, the assumption is marked, and a caption read will refuse.
+    /// shapes of the module doc: then main's open stands and a caption read will refuse.
     pub(super) fn data_caption_open_kept(&self, st: &St, bind: Option<UiKind>) -> bool {
         let Some(run) = Self::kept_run(st, bind) else {
             return false;
@@ -62,7 +58,6 @@ impl Session {
         if self.kept_expression(st) != Some(expected) {
             return false;
         }
-        assume(Assumption::DataCaptionTwoMicrosoftOpensSkipped);
         st.borrow_mut().data_caption_open_kept = true;
         true
     }
@@ -73,7 +68,7 @@ impl Session {
         if st.borrow().data_caption_open_kept {
             return unsupported(
                 "the caption of a Worksheet whose DataCaptionExpression did not run at the open, where BC runs it \
-                 (assumption data-caption-two-microsoft-opens-skipped covers no caption read)",
+                 (DataCaptionKeptOpen.al:451, :477)",
             );
         }
         Ok(())
@@ -100,9 +95,9 @@ impl Session {
         }
     }
 
-    /// The page facts both evidence pages share (Microsoft's Navigate and Order Promising Lines): a Worksheet with a source
+    /// The page facts both pinned pages share (DataCaptionKeptOpen.al:97-105, :253-261): a Worksheet with a source
     /// table and a DataCaptionExpression of its own, SourceTableTemporary = true, InsertAllowed = false, no Editable and no
-    /// DelayedInsert, page triggers among OnInit, OnOpenPage and OnClosePage; no page extension sets one of these properties
+    /// DelayedInsert, OnOpenPage its only page trigger (DataCaptionKeptOpen.al:97-149, :253-307); no page extension sets one of these properties
     /// (an extension's value is the one BC applies, pages/extensions/UPageProps.al:275) or adds a page trigger, and no
     /// subscriber listens to the page's OnOpenPageEvent.
     fn kept_page(&self, st: &St) -> bool {
@@ -113,7 +108,6 @@ impl Session {
             "editable",
             "delayedinsert",
         ];
-        const TRIGGERS: [&str; 3] = ["oninit", "onopenpage", "onclosepage"];
         let engine = self.engine();
         let object = st.borrow().object as usize;
         let props = &engine.program.objects[object].properties;
@@ -137,7 +131,7 @@ impl Session {
             && prop("insertallowed").as_deref() == Some("false")
             && prop("editable").is_none()
             && prop("delayedinsert").is_none()
-            && page.triggers.iter().all(|(n, _)| TRIGGERS.contains(&n.as_str()))
+            && matches!(page.triggers.as_slice(), [(n, _)] if n == "onopenpage")
             && extensions_keep_page
             && !engine.events.is_subscribed(object, "onopenpageevent")
             && self.has_source(st)

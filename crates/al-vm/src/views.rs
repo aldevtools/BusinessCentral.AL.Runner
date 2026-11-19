@@ -7,7 +7,6 @@
 //! recordref-fieldref/recordref/TestRecordRefFilter.al:23). Anything else is refused.
 
 use crate::Session;
-use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::describe::Describe;
 use al_builtins::filter::{FieldFilter, FilterExpr, needs_quotes};
 use al_builtins::native::{Signal, unsupported};
@@ -423,7 +422,7 @@ impl Session {
 
     /// The filters `get_filters` lists, in declaration order, except where a filter on a FlowField and a filter on a FlowFilter
     /// field form a pair: the FlowField comes first by declaration position or by field number. BC lists the FlowFilter first in
-    /// the one shape measured (assumption `get-filters-flowfilter-before-flowfield`, corpus PR 1430, ByValueRecordView.al:582):
+    /// the one shape pinned (record/filters/ByValueRecordView.al:575-576 with :582, :593-594 with :598):
     /// `Record.GetFilters`, filter group 0, no MarkedOnly, exactly those two filters, both fields declared by the table itself,
     /// the FlowField before the FlowFilter by position and by number alike, the FlowFilter's set first. Every other shape with
     /// such a pair refuses, also RecordRef.GetFilters and the filter list of a Find error: the order over field classes is not
@@ -461,10 +460,9 @@ impl Session {
             && set_at(&filters[1]) < set_at(&filters[0]);
         if !measured {
             return unsupported(
-                "GetFilters of a filter on a FlowField and a filter on a FlowFilter field, outside the one measured shape (the order over field classes is not measured, assumption get-filters-flowfilter-before-flowfield)",
+                "GetFilters of a filter on a FlowField and a filter on a FlowFilter field, outside the one pinned shape (ByValueRecordView.al:575-582; the order over field classes is not pinned)",
             );
         }
-        assume(Assumption::GetFiltersFlowfilterBeforeFlowfield);
         Ok(vec![filters[1].clone(), filters[0].clone()])
     }
 
