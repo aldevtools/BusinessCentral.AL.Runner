@@ -694,3 +694,27 @@ codeunit 77467 "RPL Gap Listener"
 fn the_event_subscriber_call_counts_are_compared() {
     assert_planted_state(&planted(GAP_EVENT_CALLS, "a", &["ab"]), "event calls ");
 }
+
+/// "RPL Gap" imports the text's length, as text, into the Media field of a temporary record: the record is gone after,
+/// the media object stays in the session's media store.
+const GAP_MEDIA: &str = r#"
+table 77466 "RPL Gap Pic"
+{
+    fields { field(1; K; Integer) { } field(2; B; Blob) { } field(3; Pic; Media) { } }
+    keys { key(PK; K) { Clustered = true; } }
+}
+codeunit 77462 "RPL Gap"
+{
+    procedure Plant(N: Integer)
+    var T: Record "RPL Gap Pic" temporary; O: OutStream; I: InStream;
+    begin
+        T.B.CreateOutStream(O); O.WriteText(Format(N)); T.B.CreateInStream(I); T.Pic.ImportStream(I, 'x');
+    end;
+}
+"#;
+
+// The session's media objects (a row holds only the media id; the content lives in the session) are compared.
+#[test]
+fn the_media_the_login_imports_are_compared() {
+    assert_planted_state(&planted(GAP_MEDIA, "a", &["ab"]), "media ");
+}

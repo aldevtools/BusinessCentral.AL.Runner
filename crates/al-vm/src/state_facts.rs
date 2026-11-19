@@ -12,6 +12,7 @@ impl Session {
         let _ = opaque;
         lines.push(self.global_setups_line());
         lines.push(self.event_calls_line());
+        lines.push(self.media_line());
     }
 
     /// The Global Triggers setup BC asked for each table (`events.global_setups`): a later first write to a table asks
@@ -30,5 +31,24 @@ impl Session {
         let calls: BTreeMap<(usize, usize), i64> = stats.calls.borrow().iter().map(|(&k, &n)| (k, n)).collect();
         let active: BTreeMap<usize, i64> = stats.active.borrow().iter().map(|(&k, &n)| (k, n)).collect();
         format!("event calls {} active {}", content(&calls), content(&active))
+    }
+
+    /// The session's media (`media`: a row holds only a Media or MediaSet id, the content lives here): each object with its
+    /// bytes, each set, the ids removed while a holder still names them, the ids kept out of Tenant Media; and the objects a
+    /// rollback brings back (`media_removed`). Sorted by id.
+    fn media_line(&self) -> String {
+        let m = &self.media;
+        let objects: BTreeMap<_, _> = m.objects.borrow().iter().map(|(k, v)| (*k, v.clone())).collect();
+        let sets: BTreeMap<_, _> = m.sets.borrow().iter().map(|(k, v)| (*k, v.clone())).collect();
+        let removed: std::collections::BTreeSet<_> = m.removed.borrow().iter().copied().collect();
+        let outside: std::collections::BTreeSet<_> = m.outside_tenant.borrow().iter().copied().collect();
+        format!(
+            "media objects {} sets {} removed {} outside tenant {} removed by writes {}",
+            content(&objects),
+            content(&sets),
+            content(&removed),
+            content(&outside),
+            content(&self.media_removed)
+        )
     }
 }
