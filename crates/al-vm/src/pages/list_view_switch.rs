@@ -25,16 +25,11 @@ impl Session {
                 );
             }
             st.borrow_mut().new_line = false;
-            st.borrow_mut().list_view_switched = true;
+            st.borrow_mut().list_view.switched_to_view();
             return self.switch_mode(st, PageMode::View);
         }
-        if !st.borrow().list_view_switched {
+        if !st.borrow_mut().list_view.edit_invoked() {
             return Ok(Value::Null);
-        }
-        {
-            let mut s = st.borrow_mut();
-            s.list_view_switched = false;
-            s.list_edit_back = true;
         }
         self.switch_mode(st, PageMode::Edit)
     }
@@ -43,7 +38,7 @@ impl Session {
     /// built-in Edit and View actions are pinned (R6977ListAfterView.al:178, :102, :184, :180). A walk, New and the rest are
     /// not: whether the new-row line comes back is unmeasured.
     pub(super) fn refuse_after_list_edit_back(&self, st: &St, m: PageMethod) -> Result<(), Signal> {
-        if !st.borrow().list_edit_back
+        if !st.borrow().list_view.edit_back()
             || matches!(
                 m,
                 PageMethod::Editable
@@ -61,7 +56,7 @@ impl Session {
     /// A control call in the same state: the fields are pinned (Editable, Value, SetValue: R6977ListAfterView.al:179, :182,
     /// :100) and so are Enabled reads of the built-in actions (:180, :181); invoking Edit or View again is not.
     pub(super) fn refuse_after_list_edit_back_control(&self, c: &ControlRef, m: PageMethod) -> Result<(), Signal> {
-        if !c.page.borrow().list_edit_back {
+        if !c.page.borrow().list_view.edit_back() {
             return Ok(());
         }
         match &c.target {

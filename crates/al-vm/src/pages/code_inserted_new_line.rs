@@ -109,7 +109,7 @@ impl Session {
         let (open_edit, run_modal) = {
             let s = st.borrow();
             let run_modal = s.modal
-                && s.run_static == Some(true)
+                && s.modal_run == ModalRun::Static
                 && s.statement_run
                 && s.static_run_record
                 && !s.lookup

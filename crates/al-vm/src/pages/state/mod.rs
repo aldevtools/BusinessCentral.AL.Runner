@@ -7,8 +7,16 @@
 //! out of a value this code owns with `into_st`, and build a value with `page_value` (one new reference, as
 //! `Value::TestPage(st.clone())` was).
 
+mod after_go_to_key;
 mod close;
+mod list_view;
+mod lookup_left;
+mod stages;
+pub use after_go_to_key::AfterGoToKey;
 pub use close::CloseOutcome;
+pub use list_view::ListViewSwitch;
+pub use lookup_left::LookupLeft;
+pub use stages::{ActionSaveCaptions, ChainRefill, ModalRun, ReadUpFromLast, UnreadEdges};
 
 use al_builtins::page_handle::{ControlHandle, PageHandle};
 use al_builtins::value::{Instance, RecordState, RunPageLinkFill, Value};
@@ -235,9 +243,8 @@ pub struct PageState {
     /// The refill comes from a SetValue of the host's link field: when it finds no row it runs nothing
     /// (QdCaptionClassAreas.al:1068-1100 QO_Doc_OpenNew `no_setvalue`).
     pub field_captions_link_refill: bool,
-    /// A FactBox part of a Provider chain at the refill after its host was inserted by the first call on a part: 1 while the refill
-    /// skips it, 2 until the key typed into the host reads it (`provider_hidden.rs`).
-    pub chain_refill: u8,
+    /// A FactBox part of a Provider chain at the refill after its host was inserted by the first call on a part (`stages.rs`).
+    pub chain_refill: ChainRefill,
     /// The part does not read again when Close inserts its new host row (`draft.rs` `quiet_parts_at_new_host_close`).
     pub quiet_at_close: bool,
     /// The fields of the new row once it started (after the filters stamped it and OnNewRecord ran): what the test typed since
@@ -258,10 +265,8 @@ pub struct PageState {
     /// (`hidden_part_journal.rs` `journal_part_stays`); the test's next method of the page, the next action's body and an open
     /// clear it.
     pub journal_stayed: bool,
-    /// Where an action of a Document page stands that saved a SetValue of the host before its trigger: 0 none, 1 that save's
-    /// refresh is running, 2 the save is done and a CurrPage.Update in the trigger has not refreshed yet, 3 it has
-    /// (record/captions/QdCaptionClassAreas.al:1015-1049 QO_Doc_OpenEdit_HostSteps `update`).
-    pub field_captions_action_save: u8,
+    /// Where an action of a Document page stands that saved a SetValue of the host before its trigger (`stages.rs`).
+    pub field_captions_action_save: ActionSaveCaptions,
     /// Primary keys of the rows a repeater page has populated (its window).
     pub window: Vec<WindowRow>,
     /// The window holds the rows from the first row of the view on, with none missing: the page
@@ -290,14 +295,10 @@ pub struct PageState {
     /// The open read of a descending find list without row triggers stopped a full window of rows above the row it opened on,
     /// the last row of the view, with rows above still unread: `First` reads them (see `first_above_the_find_list_window`).
     pub window_top_unread: bool,
-    /// The open read of a plain list on the row its OnOpenPage left Rec on held more rows than a window: (rows above the top row
-    /// it holds were left unread, rows below its bottom row were left unread). `First` and `Last` read on from that edge (al-vm
-    /// `read_rows_above_the_moved_rec`).
-    pub moved_rec_open_partial: Option<(bool, bool)>,
-    /// A modal list in a key other than the primary key opened on the last row of its descending view and read the rows above it
-    /// (see `read_rows_up_from_the_landed_last_row` in al-vm): `Some(false)` after that open, `Some(true)` after the GoToKey that
-    /// walked its rows from the first one. Other moves from there are not pinned.
-    pub read_up_from_last: Option<bool>,
+    /// The open read of a plain list on the row its OnOpenPage left Rec on held more rows than a window (`stages.rs`).
+    pub moved_rec_open_partial: Option<UnreadEdges>,
+    /// A modal list in a key other than the primary key that opened on the last row of its descending view (`stages.rs`).
+    pub read_up_from_last: ReadUpFromLast,
     /// The open read of a list with OnFindRecord and OnNextRecord stepped back from a full first window over the rows above it
     /// (assumption list-open-full-window-rows-before, al-runner issue 5887): the client holds those rows and the window, this
     /// many in all. Next and Previous inside them read nothing; other moves are refused. Stale once the window has another length.
@@ -438,9 +439,8 @@ pub struct PageState {
     pub refused: bool,
     /// How the last close ended (`close.rs`).
     pub close: CloseOutcome,
-    /// How the current modal run started: `Some(true)` the static `Page.RunModal(Id)`, `Some(false)` a Page variable's
-    /// `RunModal()`, `None` any other run (an action, a lookup).
-    pub run_static: Option<bool>,
+    /// How the current modal run started (`stages.rs`).
+    pub modal_run: ModalRun,
     /// The row the page was left on when it closed with LookupOK (`Page.RunModal(Id, Rec)` hands it back to `Rec`).
     pub selection: Option<Vec<Value>>,
     pub pending: Option<Vec<Value>>,
@@ -505,29 +505,10 @@ pub struct PageState {
     /// (corpus testpage/ScDrillDownMarkedOnly.al:408 covers only a page without them); every TestPage call
     /// but Close is refused until Close.
     pub marked_only_unpinned: bool,
-    /// A TestField.Lookup on this page, whose OnValidate called `CurrPage.Update(false)`, left that refresh for later, as BC
-    /// does on a host with row triggers whose ListPart links two or three fields (`Session::defer_lookup_refresh`): reads and Close
-    /// run no trigger; any other TestPage call on its tree is refused until Close.
-    pub lookup_refresh_deferred: bool,
-    /// A TestPage call reached this page as a part of its host (`lookup_refresh_deferred_call`).
-    pub lookup_part_touched: bool,
     /// TestField.Lookup writes the text its OnLookup returned through the control's SetValue (`defer_lookup_refresh`).
     pub lookup_setting_value: bool,
-    /// The TestField.Lookup running on this page wrote a value (its OnLookup returned true); false after a cancelled Lookup.
-    pub lookup_value_set: bool,
-    /// The first TestPart move after the Lookup ran the refresh the Lookup left (`Session::run_lookup_refresh_left`); the
-    /// part's later moves and the host's Next are pinned until another call.
-    pub lookup_refresh_used: bool,
-    /// The host's Next is the first call after a Lookup that left its refresh for later: the move runs that refresh too
-    /// (`Session::lookup_next_refresh`).
-    pub lookup_next_refresh: bool,
-    /// The host's move is the first call after a Lookup that left its refresh for later: the refresh runs after the move
-    /// (`Session::lookup_move_refresh_after`).
-    pub lookup_move_refresh: bool,
-    /// That refresh runs on a host without OnAfterGetCurrRecord: its reads differ (`Session::lookup_next_refresh`).
-    pub lookup_next_plain: bool,
-    /// The host read the row of its unlinked ListPart after that part moved, and has not moved since (`Session::host_follows_part`).
-    pub host_followed_part: bool,
+    /// What a TestField.Lookup left for the next calls (`lookup_left.rs`).
+    pub lookup_left: LookupLeft,
     /// An action turned MarkedOnly on for a list with row triggers: the later moves are refused (not built).
     pub marked_only_by_action: bool,
     /// An action runs on a list whose Rec had MarkedOnly off: a refresh after it that finds MarkedOnly on holds the marked rows it
@@ -555,22 +536,8 @@ pub struct PageState {
     /// client still shows the row it stood on and refills its rows at the next GoToRecord (al-runner issue 6008). Holds the
     /// fields of Rec as the trigger left it; Rec shows the client's row until then.
     pub marked_refill_in_key: Option<Vec<Value>>,
-    /// A TestPage GoToKey moved the cursor of a list without OnAfterGetCurrRecord: the client reads the row once more before
-    /// every later action (pages/list-order/AiListOrderTests.al:39 Keep_Nav `update` = `R:R1002;R:R1002;A:filter...`;
-    /// QgGoToKeyNextCall.al:297 Plain_GoToKey_ThenActionWithoutUpdate_Twice `second_action_log`), until a move clears it.
-    pub read_after_goto: bool,
-    /// A call that is not pinned (a property read, an `As*` read) came between that GoToKey and the next call: whether the row
-    /// is still read again before an action is not pinned (the action is refused). A Value read and SetValue are pinned
-    /// (QgGoToKeyNextCall.al:236, :317) and do not set it.
-    pub read_after_goto_doubt: bool,
-    /// That GoToKey ran no page trigger (the key is among the rows the client holds): Close then reads the row once
-    /// (pages/list-order/QgGoToKeyNextCall.al:223 Plain_GoToKey_ThenValueRead, :277 Plain_GoToKey_ThenClose `close_log`
-    /// `R:R1003`). A GoToKey that read rows leaves Close reading nothing (testpage/TestPageSystemPartListWindowContracts.al:219).
-    pub read_after_goto_quiet: bool,
-    /// A SetValue came between that GoToKey and the next call.
-    pub read_after_goto_set: bool,
-    /// A Previous came after that GoToKey and no action since: what Close then reads is not pinned (it is refused).
-    pub read_after_goto_prev: bool,
+    /// What a GoToKey that moved a list without OnAfterGetCurrRecord left for the next calls (`after_go_to_key.rs`).
+    pub after_goto: AfterGoToKey,
     /// A list opened for edit over an empty view went back to its new-row line after an action stored one row through another
     /// variable: First then reads that row as the list reads it on open (testpage/PnGShowRow.al:223).
     pub empty_list_row_behind: bool,
@@ -659,12 +626,8 @@ pub struct PageState {
     /// A list without the new-row line lost its only row to an action and stands on a blank Rec: a later action runs
     /// OnNewRecord and OnAfterGetCurrRecord again (testpage/RmWorksheetGoneRow.al:336).
     pub gone_blank_no_new_line: bool,
-    /// The built-in View switched this list without a card from edit to view (al-runner issue 6977,
-    /// testpage/R6977ListViewNext.al:138, R6977ListAfterView.al:125): the built-in Edit switches it back.
-    pub list_view_switched: bool,
-    /// The built-in Edit switched such a list back to edit after View (testpage/R6977ListAfterView.al:187). Only Editable,
-    /// the fields, the Edit and View Enabled reads, ValidationErrorCount and Close are pinned in this state.
-    pub list_edit_back: bool,
+    /// What the built-in View and Edit left on a list without a card (`list_view.rs`).
+    pub list_view: ListViewSwitch,
     /// A list with the new-row line lost its only row to an action and stands on that line: its fields show the blank Rec's
     /// values, an Integer key 0 (testpage/RmWorksheetGoneRow.al:436 `shown after action = 0|`).
     pub gone_blank_shows_line: bool,
@@ -942,8 +905,6 @@ pub struct PageState {
     pub fn_open_skipped: bool,
     /// The next OnAfterGetRecord runs no function control: the first of the two reads a list makes of the row it moves onto.
     pub fn_skip_agr: bool,
-    /// The last TestField.Lookup on this page was cancelled and only reads and part moves followed (`note_lookup_cancelled`).
-    pub lookup_cancelled: bool,
     /// `row_exprs` holds what the page shows: the list read its rows, and only pinned calls followed.
     pub row_exprs_live: bool,
     /// Since that refresh only events happened that are pinned to leave this page as it is.
@@ -1040,7 +1001,7 @@ impl PageState {
     /// got a record, `field` a field number, `from_table` that the id was 0 (the table's lookup page). Used, the page opens
     /// as a lookup (pages/triggers/BeRunModalOnLookup.al:916 Shape_ReturnNotUsed_WalkOnly, :949 Shape_ReturnInIf_WalkOnly).
     pub(crate) fn static_run_modal(&mut self, used: bool, record: bool, field: bool, from_table: bool) {
-        self.run_static = Some(true);
+        self.modal_run = ModalRun::Static;
         if used {
             self.open_as_lookup(LookupKind::StaticRunModal);
         }
