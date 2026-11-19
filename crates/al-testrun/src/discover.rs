@@ -41,6 +41,7 @@ type Scanned = (u32, Vec<String>, Option<String>, Option<String>, String);
 /// Every byte keeps its offset (a blanked byte becomes a space, a newline stays): the scan reads a quoted
 /// procedure name from the original text at the same offset.
 fn strip_comments(src: &str) -> String {
+    let directives = directive_starts(src);
     let b = src.as_bytes();
     let mut out = String::with_capacity(src.len());
     let mut i = 0;
@@ -63,14 +64,10 @@ fn strip_comments(src: &str) -> String {
                 }
                 blank(&mut out, &src[start..i], false);
             }
-            // A directive (`#region`, `#endregion`, `#pragma`, `#if`) runs to the end of its line when nothing but blanks
-            // comes before it on the line, as the lexer reads it (`al_syntax` lexer, `Directive`). Its text is not code:
-            // `#region (former codeunit 50149)` is no object header (al-runner issue 8350).
-            b'#' if out
-                .rsplit('\n')
-                .next()
-                .is_some_and(|l| l.bytes().all(|c| matches!(c, b' ' | b'\t'))) =>
-            {
+            // A directive (`#region`, `#endregion`, `#pragma`, `#if`) starts where the lexer reads a `Directive` token
+            // and runs to the end of its line. Its text is not code: `#region (former codeunit 50149)` is no object header
+            // (al-runner issue 8350).
+            b'#' if directives.binary_search(&i).is_ok() => {
                 let start = i;
                 while i < b.len() && b[i] != b'\n' && b[i] != b'\r' {
                     i += 1;
@@ -97,6 +94,20 @@ fn strip_comments(src: &str) -> String {
                 out.push_str(&src[start..i]);
             }
         }
+    }
+    out
+}
+
+/// The byte offsets where the `al_syntax` lexer starts a `Directive` token, in order: the lexer owns which white space
+/// and comments may come before a directive on its line.
+fn directive_starts(src: &str) -> Vec<usize> {
+    let mut at = 0;
+    let mut out = Vec::new();
+    for t in al_syntax::lex(src) {
+        if t.kind == al_syntax::SyntaxKind::Directive {
+            out.push(at);
+        }
+        at += t.len as usize;
     }
     out
 }
@@ -343,6 +354,23 @@ mod tests {
             test_codeunits(src),
             vec![(2, vec!["X".to_string()]), (3, vec!["Y".to_string()])]
         );
+    }
+
+    /// The white space before a directive is the lexer's (`al_syntax` lexer): a non-breaking space (U+00A0) or a form
+    /// feed before `#region` makes the line a directive too, so its "codeunit <id>" text starts no codeunit (review of
+    /// al-runner issue 8350).
+    #[test]
+    fn a_directive_after_a_non_breaking_space_or_form_feed_is_no_header() {
+        for indent in ["\u{a0}\u{a0} ", "\u{c}"] {
+            let src = format!(
+                "codeunit 50101 \"Shape Test\"\n{{\n    Subtype = Test;\n{indent}#region First block (former codeunit 50149)\n    [Test]\n    procedure ShapeRuns()\n    begin\n    end;\n    #endregion\n}}\n"
+            );
+            assert_eq!(
+                test_codeunits(&src),
+                vec![(50101, vec!["ShapeRuns".to_string()])],
+                "{indent:?}"
+            );
+        }
     }
 
     #[test]
