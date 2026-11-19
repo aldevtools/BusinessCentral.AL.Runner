@@ -1091,7 +1091,7 @@ impl Session {
                 // record/PWFilterGroupOr.al:OrGroup_RecordRef).
                 Self::filter_group(&rec, args)
             }
-            "GetFilters" => self.get_filters(&rec, &t).map(|s| Value::Text(s.into())),
+            "GetFilters" => self.get_filters(&rec, &t, false).map(|s| Value::Text(s.into())),
             "GetView" => {
                 let use_names = match args.first() {
                     Some(v) => ops::truthy(v)?,
