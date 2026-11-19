@@ -258,8 +258,8 @@ impl Walker<'_> {
             buffer,
             partial,
         } = l;
-        let buffer = match buffer {
-            Some(Buffer {
+        let buffer = buffer.as_ref().map(|b| {
+            let Buffer {
                 have,
                 unsure,
                 row,
@@ -268,7 +268,8 @@ impl Walker<'_> {
                 missing_loaded,
                 fetched,
                 init,
-            }) => Some(BufferNode {
+            } = b;
+            BufferNode {
                 have: have.clone(),
                 unsure: unsure.clone(),
                 row: row.clone(),
@@ -278,9 +279,8 @@ impl Walker<'_> {
                 fetched: (fetched.0.as_ref())
                     .map(|r| self.handle(Holder::Row(r.clone()), 1, format!("{path} fetched row"))),
                 init: *init,
-            }),
-            None => None,
-        };
+            }
+        });
         Ok(LoadNode {
             request: request.clone(),
             buffer,
