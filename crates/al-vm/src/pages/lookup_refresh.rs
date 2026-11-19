@@ -30,9 +30,7 @@ impl Session {
                 && !s.draft
                 && s.cursor == Cursor::Row
                 && matches!(s.parts.len(), 1..=5)
-                && s.refresh
-                && s.refresh_by_update
-                && s.refresh_update_false
+                && s.refresh.asked_by_update_false()
         };
         if !shape
             || !self.has_source(st)
@@ -100,7 +98,7 @@ impl Session {
         if calls_nothing && parts_ok {
             {
                 let mut s = st.borrow_mut();
-                s.refresh = false;
+                s.refresh.cancel();
                 s.lookup_left.refresh_deferred();
             }
             // The host's function controls run once more within the Lookup, after the OnValidate (Y15LookupThreeFieldLink.al:373
@@ -340,10 +338,7 @@ impl Session {
         {
             let mut s = root.borrow_mut();
             s.lookup_left.refresh_taken();
-            s.refresh = true;
-            s.refresh_by_update = true;
-            s.update_left_view = None;
-            s.refresh_without_parts = !with_parts;
+            s.refresh.ask_lookup_left(with_parts);
         }
         self.run_refresh(root)
     }

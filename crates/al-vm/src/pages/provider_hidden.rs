@@ -361,12 +361,12 @@ impl Session {
             s.open
                 && s.cursor == Cursor::Row
                 && !s.draft
-                && !s.refresh
+                && !s.refresh.asked()
                 && !s.save_record_called
                 && Self::same_values(&self.page_rec(st).borrow().fields, rec_before)
                 && Self::open_parts_with_hidden(st)
                     .iter()
-                    .all(|(_, c)| !c.borrow().refresh && !c.borrow().save_record_called)
+                    .all(|(_, c)| !c.borrow().refresh.asked() && !c.borrow().save_record_called)
         };
         let linked_by_fields = before.journal.is_some() || {
             let engine = self.engine();
