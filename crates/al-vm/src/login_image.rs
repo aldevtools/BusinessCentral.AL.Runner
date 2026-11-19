@@ -153,7 +153,7 @@ impl Session {
             self.engine.uid, image.engine,
             "an image is thawn on the engine it was taken on"
         );
-        debug_assert!(
+        assert!(
             self.at_rest() && self.refused_field().is_none(),
             "the thaw's target is a new session"
         );

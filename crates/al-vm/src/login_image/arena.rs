@@ -1,6 +1,6 @@
 //! The SingleInstance object graph of a session as an arena with no `Rc` (design section 2): every handle a global
 //! reaches (an instance, an array, a List, a Dictionary, a record, a table globals set, a library cell, a Blob buffer, a
-//! temporary table, a fetched row, a query) is one node, numbered by first sight; a value is plain or a node number. So
+//! temporary table, a fetched row, a query, a DotNet object the runtime serves) is one node, numbered by first sight; a value is plain or a node number. So
 //! two places that hold one handle hold one node, a cycle ends at a node already numbered, and the arena is `Send + Sync`
 //! by its types.
 

@@ -366,8 +366,12 @@ impl Check {
         let image = session.login_image(before_login);
         let thawn = image.as_ref().ok().map(|image| {
             std::thread::scope(|scope| {
-                scope
-                    .spawn(|| {
+                // A test thread's stack: the drop of a deep graph recurses on it.
+                std::thread::Builder::new()
+                    .stack_size(crate::runtime::TEST_STACK)
+                    .spawn_scoped(scope, || {
+                        // Declared first, so it drops last: the twin's instances that hold each other are freed.
+                        let _run_end = al_builtins::instance_cycles::RunEnd::new();
                         let mut twin = twin();
                         twin.thaw_login_image(image);
                         #[cfg(test)]
@@ -376,7 +380,8 @@ impl Check {
                         }
                         LoginState::of_twin(&mut twin, state)
                     })
-                    .join()
+                    .ok()
+                    .and_then(|thread| thread.join().ok())
             })
         });
         let mut s = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
@@ -392,8 +397,8 @@ impl Check {
         };
         t.sizes.push(image.size());
         let differs = match thawn {
-            Ok(twin) => differences(state, &twin),
-            Err(_) => vec![(0, "not comparable: the thaw panicked".to_string())],
+            Some(twin) => differences(state, &twin),
+            None => vec![(0, "not comparable: the thaw did not end".to_string())],
         };
         if let Some((_, what)) = differs.first() {
             t.differ += 1;
