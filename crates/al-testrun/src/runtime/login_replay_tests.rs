@@ -771,3 +771,17 @@ fn sql_counters_the_login_read_are_not_comparable() {
         "{line}"
     );
 }
+
+/// "RPL Gap" commits when the text is longer than 1 (it wrote nothing: only the session's count of commits moves).
+const GAP_COMMIT: &str = r#"
+codeunit 77462 "RPL Gap"
+{
+    procedure Plant(N: Integer) begin if N > 1 then Commit(); end;
+}
+"#;
+
+// How often the session committed and the facts of its last commit (a later test reads them) are compared.
+#[test]
+fn the_commits_and_transaction_facts_the_login_leaves_are_compared() {
+    assert_planted_state(&planted(GAP_COMMIT, "a", &["ab"]), "transaction ");
+}

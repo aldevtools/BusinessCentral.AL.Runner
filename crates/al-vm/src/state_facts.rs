@@ -16,6 +16,7 @@ impl Session {
         lines.push(self.global_setups_line());
         lines.push(self.event_calls_line());
         lines.push(self.media_line());
+        lines.push(self.transaction_line());
         match self.sql.left_inactive() {
             Some(left) => lines.push(format!("sql {}", left.line())),
             None => opaque.push(SQL_ACTIVE.to_string()),
@@ -56,6 +57,25 @@ impl Session {
             content(&removed),
             content(&outside),
             content(&self.media_removed)
+        )
+    }
+
+    /// How often the session committed (a record's own read is current against it, `state_render.rs`) and what the last
+    /// Commit left that a later test reads: whether it made writes durable (`MinimumActiveRowVersion`), the transaction
+    /// type and phase (`CurrentTransactionType`), the lock timeout, a rollback since, and whether the store changed since
+    /// (`Session::stale_verdict`).
+    fn transaction_line(&self) -> String {
+        let tx = &self.tx;
+        format!(
+            "transaction commits {} last commit wrote {} type {} phase {} lock timeout {} {} rolled back {} changed since {}",
+            self.commits,
+            tx.last_commit_wrote,
+            tx.transaction_type,
+            content(&tx.phase),
+            tx.lock_timeout,
+            tx.lock_timeout_duration,
+            tx.rolled_back,
+            tx.commit_counter != self.store.change_counter()
         )
     }
 }
