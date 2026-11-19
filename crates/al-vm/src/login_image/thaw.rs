@@ -283,7 +283,15 @@ fn fill(m: &Maker<'_>) {
                     g.set_instance(o, m.instance(inst));
                 }
             }
-            (Node::Library(_, n), Made::Library(_, r)) => *r.borrow_mut() = m.library(n),
+            (Node::Library(_, n), Made::Library(kind, r)) => {
+                *r.borrow_mut() = m.library(n);
+                // A collected error's `Callstack`, in this thread's side table by the new cell (al-builtins errorinfo.rs).
+                if let super::library::LibraryNode::ErrorInfo(e) = n
+                    && let Some(stack) = &e.callstack
+                {
+                    al_builtins::errorinfo::set_callstack_of(&Value::Library(kind.clone(), r.clone()), stack);
+                }
+            }
             (Node::Query(q), Made::Query(r)) => {
                 let mut s = r.borrow_mut();
                 s.filters = (q.filters.iter())

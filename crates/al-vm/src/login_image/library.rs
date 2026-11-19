@@ -84,6 +84,9 @@ pub(crate) struct ErrorInfoNode {
     page_no: i32,
     custom_dimensions: Option<Frozen>,
     built: ErrorInfoBuilt,
+    /// The `Callstack` a collected error carries, kept by the cell in a thread-local side table (al-builtins
+    /// errorinfo.rs `CALLSTACKS`), not in the state.
+    pub(crate) callstack: Option<String>,
 }
 
 impl Walker<'_> {
@@ -91,6 +94,7 @@ impl Walker<'_> {
     pub(crate) fn library(
         &mut self,
         kind: &LibraryKind,
+        cell: &std::rc::Rc<std::cell::RefCell<LibraryValue>>,
         lv: &LibraryValue,
         path: &str,
     ) -> Result<LibraryNode, NotImaged> {
@@ -131,7 +135,11 @@ impl Walker<'_> {
                 no: *no,
                 value: value.clone(),
             },
-            L::ErrorInfo(e) => N::ErrorInfo(Box::new(self.error_info(e, path)?)),
+            L::ErrorInfo(e) => {
+                let mut node = self.error_info(e, path)?;
+                node.callstack = al_builtins::errorinfo::callstack_of(cell).map(|s| s.to_string());
+                N::ErrorInfo(Box::new(node))
+            }
             L::EmptiedRef(e) => N::Owned(OwnedLibrary::EmptiedRef(*e)),
             L::HandlerContext(c) => N::Owned(OwnedLibrary::HandlerContext(c.clone())),
             L::WebServiceAction(s) => N::Owned(OwnedLibrary::WebServiceAction(s.clone())),
@@ -205,6 +213,7 @@ impl Walker<'_> {
             page_no: *page_no,
             custom_dimensions: opt(self, custom_dimensions, "custom dimensions")?,
             built: *built,
+            callstack: None,
         })
     }
 }

@@ -36,6 +36,9 @@ pub struct LoginImage {
     parts: session_parts::SessionParts,
     /// Every committed row, with the counters of `Session::data_now`.
     rows: crate::SharedBaseline,
+    /// The tables a DeleteAll without filters emptied (`MemStore::committed_marks`): the bytes form of the rows does
+    /// not keep the mark, so the thaw marks them again.
+    emptied: Vec<(String, u32)>,
     /// The tables a write reached while the login ran (`MemStore::tables_changed_since`), for [`ImageSize`].
     rows_own: std::collections::BTreeSet<u32>,
     arena: arena::Arena,
@@ -113,7 +116,24 @@ impl Session {
             crate::NotShared::Value(v) => NotImaged::Rows(format!("a {} with no bytes form", v.kind)),
             crate::NotShared::NoReadBack => NotImaged::Rows("the rows do not read back from their bytes".into()),
         })?;
+        let (emptied, _) = self.store.committed_marks();
+        if let Some((company, object)) = emptied
+            .iter()
+            .find(|(c, o)| self.store.committed_table(c, *o).is_none())
+        {
+            let id = self
+                .engine
+                .program
+                .objects
+                .get(*object as usize)
+                .and_then(|o| o.id)
+                .unwrap_or(0);
+            return Err(NotImaged::Rows(format!(
+                "table {id} of {company} emptied with no entry in the store"
+            )));
+        }
         Ok(LoginImage {
+            emptied,
             engine: self.engine.uid,
             plain: fields::PlainFields::take(self),
             parts,
@@ -138,6 +158,14 @@ impl Session {
             "the thaw's target is a new session"
         );
         self.restore_baseline(&image.rows.thaw(Some(&self.engine)));
+        // The tables a DeleteAll emptied: the rows the baseline gave, marked emptied again (a new stamp, as a write gives).
+        let emptied: Vec<_> = (image.emptied.iter())
+            .filter_map(|(company, object)| self.store.committed_table(company, *object))
+            .map(|(table, _)| (table, true))
+            .collect();
+        if !emptied.is_empty() {
+            self.store = std::mem::take(&mut self.store).with_committed_tables(emptied, &[]);
+        }
         // After the baseline: the plain fields hold what the session held, not what the restore set from the baseline.
         image.plain.give(self);
         image.parts.give(self);

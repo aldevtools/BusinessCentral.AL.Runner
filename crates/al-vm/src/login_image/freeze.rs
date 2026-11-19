@@ -219,7 +219,7 @@ impl<'a> Walker<'a> {
             Holder::Library(kind, cell) => {
                 let (kind, cell) = (kind.clone(), cell.clone());
                 let lv = borrowed(cell.try_borrow(), &path, "library value")?;
-                Ok(Node::Library(kind.clone(), self.library(&kind, &lv, &path)?))
+                Ok(Node::Library(kind.clone(), self.library(&kind, &cell, &lv, &path)?))
             }
             Holder::Blob(b) => Ok(Node::Blob(b.borrow().clone())),
             Holder::TempTable(t) => {
@@ -698,5 +698,94 @@ codeunit 50112 Kinds2 { var M: Integer; procedure Touch() begin M := 1; end; }
             ours.lines[..ours.lines.len() - 1],
             theirs.lines[..theirs.lines.len() - 1]
         );
+    }
+
+    const OUTSIDE: &str = r#"
+table 2000000144 "Power BI Blob"
+{
+    fields { field(1; Id; Guid) { } field(2; Name; Text[200]) { } }
+    keys { key(PK; Id) { } }
+}
+codeunit 50200 PKeep
+{
+    SingleInstance = true;
+    var E: ErrorInfo; P: Record "Power BI Blob";
+    procedure Empty() begin P.DeleteAll(); Commit(); end;
+    procedure CountP(): Text begin exit(Format(P.Count())); end;
+    procedure InsertP() begin P.Id := CreateGuid(); P.Name := 'x'; P.Insert(); Commit(); end;
+    [ErrorBehavior(ErrorBehavior::Collect)]
+    procedure Collect()
+    var EI: ErrorInfo; L: List of [ErrorInfo];
+    begin
+        EI := ErrorInfo.Create('boom');
+        EI.Collectible(true);
+        Error(EI);
+        L := GetCollectedErrors(true);
+        E := L.Get(1);
+    end;
+    procedure Stack(): Text begin exit(E.Callstack()); end;
+}
+"#;
+
+    /// `routine` of PKeep on `s`'s single instance: its value, or its error.
+    fn outcome(s: &mut Session, keep: usize, routine: &str) -> String {
+        let ri = s.engine.program.objects[keep]
+            .routines
+            .iter()
+            .position(|r| r.name == routine)
+            .unwrap();
+        let inst = s.codeunit_instance(keep);
+        match s.call(keep, ri, inst, vec![]) {
+            Ok((v, _)) => format!("{v:?}"),
+            Err(e) => format!("ERR {e:?}"),
+        }
+    }
+
+    /// A session over `OUTSIDE` after `routines`, and its twin through the image.
+    fn original_and_twin(routines: &[&str]) -> (Session, Session, usize) {
+        let l = al_testkit::compile(OUTSIDE);
+        let engine = Engine::new(l.program.clone(), al_testkit::blocked(&l));
+        let keep = engine.program.objects.iter().position(|o| o.name == "PKeep").unwrap();
+        let mut s = Session::new(engine.clone());
+        for r in routines {
+            outcome(&mut s, keep, r);
+        }
+        s.commit_transaction();
+        let image = s.login_image(0).unwrap_or_else(|why| panic!("{}", why.reason()));
+        let mut twin = Session::new(engine);
+        twin.thaw_login_image(&image);
+        (s, twin, keep)
+    }
+
+    /// The state lines without the SQL fact, which reads the thread's store operation count.
+    fn lines(s: &mut Session) -> Vec<String> {
+        s.state_lines()
+            .lines
+            .into_iter()
+            .filter(|l| !l.starts_with("sql "))
+            .collect()
+    }
+
+    // State kept outside `Session`'s fields, owner 1: the committed store's `emptied` marks. A login that emptied a table
+    // whose rows BC holds but the runner does not know (records.rs `is_unseeded`) and then inserted a row reads the row;
+    // the twin reads it too, and the check (`emptied` line) sees the mark. Review of step 2, H1.
+    #[test]
+    fn a_table_the_login_emptied_stays_emptied_in_the_twin() {
+        let (mut s, mut twin, keep) = original_and_twin(&["Empty", "InsertP"]);
+        assert_eq!(lines(&mut s), lines(&mut twin));
+        let (a, b) = (outcome(&mut s, keep, "CountP"), outcome(&mut twin, keep, "CountP"));
+        assert_eq!(a, b);
+        assert!(a.contains('1'), "{a}");
+    }
+
+    // State kept outside `Session`'s fields, owner 2: an ErrorInfo's `Callstack`, in al-builtins errorinfo.rs `CALLSTACKS`
+    // by the value's cell. The twin's ErrorInfo answers the same `Callstack`. Review of step 2, H2.
+    #[test]
+    fn an_error_infos_call_stack_follows_it_into_the_twin() {
+        let (mut s, mut twin, keep) = original_and_twin(&["Collect"]);
+        assert_eq!(lines(&mut s), lines(&mut twin));
+        let (a, b) = (outcome(&mut s, keep, "Stack"), outcome(&mut twin, keep, "Stack"));
+        assert!(a.contains("Collect"), "{a}");
+        assert_eq!(a, b);
     }
 }
