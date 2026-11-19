@@ -46,9 +46,9 @@ impl Session {
                 "Consistent on a temporary record (not pinned)".into(),
             ));
         }
-        let Some(i) = self.tx.inconsistent.iter().position(|m| m.table == table) else {
+        let Some(i) = self.tx.open.inconsistent.iter().position(|m| m.table == table) else {
             if !consistent {
-                self.tx.inconsistent.push(ConsistentMark {
+                self.tx.open.inconsistent.push(ConsistentMark {
                     table,
                     by: Rc::downgrade(rec),
                     state: MarkState::Marked,
@@ -56,11 +56,11 @@ impl Session {
             }
             return Ok(());
         };
-        let mark = &mut self.tx.inconsistent[i];
+        let mark = &mut self.tx.open.inconsistent[i];
         let same = mark.by.upgrade().is_some_and(|b| Rc::ptr_eq(&b, rec));
         match (mark.state, same, consistent) {
             (MarkState::Marked, true, true) => {
-                self.tx.inconsistent.remove(i);
+                self.tx.open.inconsistent.remove(i);
             }
             (MarkState::Marked, true, false) => {}
             (MarkState::Marked, false, true) => mark.state = MarkState::ReleasedByAnother,
@@ -71,7 +71,7 @@ impl Session {
 
     /// The marks a guarded `Codeunit.Run` starts with, to compare with the marks it ends with.
     pub(crate) fn marks_at_run_start(&self) -> Vec<(u32, MarkState)> {
-        self.tx.inconsistent.iter().map(|m| (m.table, m.state)).collect()
+        self.tx.open.inconsistent.iter().map(|m| (m.table, m.state)).collect()
     }
 
     /// The inconsistency error a guarded `Codeunit.Run` raises as it ends, which the guard does not trap
@@ -102,7 +102,7 @@ impl Session {
 
     /// The Commit of a transaction in which another variable of a marked table called `Consistent`: not pinned.
     pub(crate) fn refuse_commit_after_other_variable(&self) -> Result<(), Signal> {
-        match self.tx.inconsistent.first() {
+        match self.tx.open.inconsistent.first() {
             Some(m) if m.state != MarkState::Marked => Err(Signal::unsupported(format!(
                 "Commit after another variable of table {} called Consistent on its Consistent(false) mark (not pinned)",
                 self.engine.program.objects[m.table as usize].name

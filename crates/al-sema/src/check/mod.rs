@@ -1509,6 +1509,7 @@ mod conv;
 mod diag_index;
 mod enum_overload;
 pub(crate) use enum_overload::EnumFit;
+pub(crate) use infer::in_request_page;
 mod fit;
 mod infer;
 mod member;

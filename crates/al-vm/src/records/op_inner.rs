@@ -1,7 +1,7 @@
 //! `record_op_inner`: the dispatch of every Record method (moved out of `records.rs`).
 
 use super::*;
-use crate::state::WriteOfAl;
+use crate::state::{UnpinnedLock, WriteOfAl};
 
 impl Session {
     pub(crate) fn record_op_inner(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
@@ -112,11 +112,12 @@ impl Session {
             && !rec.borrow().temporary
             && self
                 .tx
+                .open
                 .deferred_insert
                 .as_ref()
                 .is_some_and(|(o, _)| *o == t.object as usize)
         {
-            let (_, e) = self.tx.deferred_insert.take().expect("checked");
+            let (_, e) = self.tx.open.deferred_insert.take().expect("checked");
             self.tx.deferred_raised += 1;
             return Err(Signal::Error(Box::new(e)));
         }
@@ -251,8 +252,8 @@ impl Session {
             // A write call starts the transaction, also a DeleteAll that finds no row
             // (session-system/ProbeSystemEnumMembers.al:143-161, session-system/TestDatabaseExtended.al:
             // Database_CurrentTransactionType_SetAfterWriteOp_Throws over fixture DeleteAlls).
-            self.tx.tx_phase = crate::transactions::TX_WRITE;
-        } else if self.tx.tx_phase == crate::transactions::TX_FRESH
+            self.tx.phase = crate::transactions::TxPhase::Write;
+        } else if self.tx.phase == crate::transactions::TxPhase::Fresh
             && !rec.borrow().temporary
             && matches!(
                 method,
@@ -270,7 +271,7 @@ impl Session {
             )
         {
             // A read call starts it too (session-system/ProbeSystemEnumMembers.al:94-112).
-            self.tx.tx_phase = crate::transactions::TX_READ;
+            self.tx.phase = crate::transactions::TxPhase::Read;
         }
         if !rec.borrow().temporary
             && matches!(
@@ -299,6 +300,7 @@ impl Session {
             // table holds none, Next or Find('<') of the inserted table, Next(N) and other Find forms stay unpinned.
             let own_pending = self
                 .tx
+                .open
                 .row_versions
                 .pending_inserts
                 .iter()
@@ -351,24 +353,25 @@ impl Session {
                 RecordOp::Find => matches!(args.first(), Some(Value::Text(w)) if w.as_str() == "="),
                 _ => false,
             };
-            self.tx.db_reads += 1;
+            self.tx.open.locks.db_reads += 1;
+            let locks = &mut self.tx.open.locks;
             match rec.borrow().read_isolation {
                 ISOLATION_REPEATABLE_READ | ISOLATION_UPDLOCK
-                    if self.tx.lock_tx && matches!(method, RecordOp::FindFirst | RecordOp::FindSet) =>
+                    if locks.lock_tx && matches!(method, RecordOp::FindFirst | RecordOp::FindSet) =>
                 {
-                    self.tx.isolation_lock = true;
-                    self.tx.note_isolation_lock(t.object, rec.borrow().company.clone());
+                    locks.isolation_lock = true;
+                    locks.note_isolation_lock(t.object, rec.borrow().company.clone());
                 }
                 ISOLATION_REPEATABLE_READ | ISOLATION_UPDLOCK => {
-                    if !self.tx.lock_tx && !pinned_read {
-                        self.tx.locking_read_tx_unpinned = true;
+                    if !locks.lock_tx && !pinned_read {
+                        locks.locking_read_tx_unpinned = true;
                     }
                     // Another cause already recorded is kept: `lock_unpinned` names this read only while such reads are its
                     // only cause (see `read_of_others_only` in the stale-buffer decision).
-                    if self.tx.lock_unpinned.is_none_or(|w| w == UNPINNED_LOCKING_READ) {
-                        self.tx.lock_unpinned = Some(UNPINNED_LOCKING_READ);
+                    if locks.lock_unpinned.is_none_or(|w| w == UnpinnedLock::LockingRead) {
+                        locks.lock_unpinned = Some(UnpinnedLock::LockingRead);
                     }
-                    self.tx.note_isolation_lock(t.object, rec.borrow().company.clone());
+                    locks.note_isolation_lock(t.object, rec.borrow().company.clone());
                 }
                 _ => {}
             }
@@ -613,11 +616,12 @@ impl Session {
                             let company = rec.borrow().company.clone();
                             if !self
                                 .tx
+                                .open
                                 .tables_inserted
                                 .iter()
                                 .any(|(o, c)| *o == t.object && *c == company)
                             {
-                                self.tx.tables_inserted.push((t.object, company));
+                                self.tx.open.tables_inserted.push((t.object, company));
                             }
                         }
                         let version = t
@@ -734,6 +738,7 @@ impl Session {
                             && matches!(r, Ok(Value::Boolean(false)))
                             && self
                                 .tx
+                                .open
                                 .deferred_insert
                                 .as_ref()
                                 .is_some_and(|(o, _)| *o == t.object as usize)
@@ -745,12 +750,13 @@ impl Session {
                             );
                             if self
                                 .tx
+                                .open
                                 .deferred_insert
                                 .as_ref()
                                 .is_some_and(|(_, e)| e.message == same_key)
                             {
                                 // GetLastErrorText then gives the duplicate's text (`guarded`).
-                                let (_, e) = self.tx.deferred_insert.take().expect("checked");
+                                let (_, e) = self.tx.open.deferred_insert.take().expect("checked");
                                 self.last_error = e;
                             }
                         }
@@ -955,7 +961,7 @@ impl Session {
                                 }
                             }
                             let company = rec.borrow().company.clone();
-                            self.tx.rows_touched.push((t.object, company, pk.clone()));
+                            self.tx.open.rows_touched.push((t.object, company, pk.clone()));
                         }
                         if let (Some(old), false) = (stored_row.as_deref(), rec.borrow().temporary) {
                             self.release_replaced_media(&cx, &t, old, &row)?;
@@ -1232,7 +1238,7 @@ impl Session {
                     // events/TestProbeEventContracts.al:RecordErrors_GetMissing_TestField_Modify (FindFirst, FindLast, FindSet
                     // with a filter): the text lists the filters; without one it is not pinned.
                     None => {
-                        let filters = self.get_filters(rec, &t)?;
+                        let filters = self.get_filters(rec, &t, false)?;
                         // Without a filter the table itself is empty, on every version: FindFirst and FindLast
                         // record/filters/P68C_EmptyFinds.al:215-250 ( passes on the BC 27 oracle
                         // too), FindSet ErTTriggerErrors.al:140-147 and P68C_EmptyFinds.al:202-204.
@@ -1485,16 +1491,9 @@ impl Session {
                 // A Date text with a piece no filter reads asks `MakeDateFilter` subscribers first.
                 if matches!(&parsed, Err(e) if e.starts_with(al_builtins::filter::INVALID_DATE))
                     && matches!(ty, RtType::Date)
-                    && self
-                        .engine
-                        .events
-                        .is_subscribed(crate::events::FILTER_HELPER_TRIGGERS, "makedatefilter")
                 {
-                    // Outside the pinned shape (an English session, no placeholders) the event is not raised, as before.
-                    if self.global_language == 1033 && args.len() <= 2 {
-                        if let Some(fixed) = self.repair_date_filter_text(&text, &|t| parse(t).is_ok())? {
-                            parsed = parse(&fixed);
-                        }
+                    if let Some(fixed) = self.date_filter_before_error(&text, args.len() > 2, &|t| parse(t).is_ok())? {
+                        parsed = parse(&fixed);
                     }
                 }
                 // An Integer or Time text of letters asks `MakeIntFilter` / `MakeTimeFilter` subscribers first (PtObserve.al:Bad_Int,
@@ -1929,7 +1928,7 @@ impl Session {
             }
             RecordOp::Rename => {
                 let from_al = std::mem::take(&mut self.tx.rename_from_al);
-                let rename_note = (self.tx.writes.len(), self.store.change_counter());
+                let rename_note = (self.tx.open.writes.len(), self.store.change_counter());
                 self.note_bulk_write(rec, &t, crate::state::TxWriteKind::Other);
                 if !rec.borrow().temporary {
                     self.rename_jit_gone(rec)?;
@@ -2080,8 +2079,8 @@ impl Session {
                         // write nobody notes, which `writes_all_noted` sees.
                         if !same_key
                             && before_store == rename_note.1
-                            && self.tx.writes.len() == rename_note.0 + 1
-                            && let Some(w) = self.tx.writes.last_mut()
+                            && self.tx.open.writes.len() == rename_note.0 + 1
+                            && let Some(w) = self.tx.open.writes.last_mut()
                             && w.kind == crate::state::TxWriteKind::Other
                         {
                             w.kind = crate::state::TxWriteKind::Rename;

@@ -333,7 +333,7 @@ impl Session {
                 .or_insert(0) += 1;
             let isolate = isolated && !self.store.has_uncommitted();
             let before = isolate.then(|| self.store.clone());
-            let phase = self.tx.tx_phase;
+            let phase = self.tx.phase;
             // A `var` argument that is a global of the publisher is the same variable as the subscriber's parameter.
             self.events.next_aliases = map
                 .iter()
@@ -412,7 +412,7 @@ impl Session {
                 Err(Signal::Error(e)) if isolate => {
                     self.store = before.expect("snapshot taken when isolating");
                     // The subscriber's own transaction is gone with its writes.
-                    self.tx.tx_phase = phase;
+                    self.tx.phase = phase;
                     self.catch_error(*e)?;
                     continue;
                 }
