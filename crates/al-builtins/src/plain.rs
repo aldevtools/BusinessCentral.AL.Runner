@@ -32,15 +32,68 @@ pub enum Plain {
 }
 
 impl Plain {
-    /// `None` for a value that holds a handle (a Blob included: its buffer is a node of the arena).
+    /// `None` for a value that holds a handle (a Blob included: its buffer is a node of the arena). No `_` arm: a new
+    /// `Value` variant is a compile error here until it is classified.
     pub fn of(v: &Value) -> Option<Plain> {
-        let _ = v;
-        None
+        Some(match v {
+            Value::Null => Plain::Null,
+            Value::Boolean(b) => Plain::Boolean(*b),
+            Value::Integer(i) => Plain::Integer(*i),
+            Value::BigInteger(i) => Plain::BigInteger(*i),
+            Value::Decimal(d) => Plain::Decimal(*d),
+            Value::Byte(b) => Plain::Byte(*b),
+            Value::Char(c) => Plain::Char(*c),
+            Value::Text(t) => Plain::Text(t.clone()),
+            Value::TextConst(t, from) => Plain::TextConst(t.clone(), *from),
+            Value::Code(t) => Plain::Code(t.clone()),
+            Value::Date(d, closing) => Plain::Date(*d, *closing),
+            Value::Time(t) => Plain::Time(*t),
+            Value::DateTime(t) => Plain::DateTime(*t),
+            Value::Duration(t) => Plain::Duration(*t),
+            Value::Guid(g) => Plain::Guid(*g),
+            Value::DateFormula(f) => Plain::DateFormula(f.clone()),
+            Value::Option(o, names) => Plain::Option(*o, names.clone()),
+            Value::Enum(e, o) => Plain::Enum(*e, *o),
+            Value::Unknown(u) => Plain::Unknown(u.clone()),
+            Value::List(_)
+            | Value::Dictionary(_)
+            | Value::Array(_)
+            | Value::Codeunit(_)
+            | Value::Library(..)
+            | Value::Record(_)
+            | Value::Blob(_)
+            | Value::TestPage(_)
+            | Value::TestControl(_)
+            | Value::Query(_)
+            | Value::DotNet(_)
+            | Value::SqlCount(_)
+            | Value::PlaceholderSize(..) => return None,
+        })
     }
 
     /// The value this plain value is.
     pub fn value(&self) -> Value {
-        Value::Null
+        match self {
+            Plain::Null => Value::Null,
+            Plain::Boolean(b) => Value::Boolean(*b),
+            Plain::Integer(i) => Value::Integer(*i),
+            Plain::BigInteger(i) => Value::BigInteger(*i),
+            Plain::Decimal(d) => Value::Decimal(*d),
+            Plain::Byte(b) => Value::Byte(*b),
+            Plain::Char(c) => Value::Char(*c),
+            Plain::Text(t) => Value::Text(t.clone()),
+            Plain::TextConst(t, from) => Value::TextConst(t.clone(), *from),
+            Plain::Code(t) => Value::Code(t.clone()),
+            Plain::Date(d, closing) => Value::Date(*d, *closing),
+            Plain::Time(t) => Value::Time(*t),
+            Plain::DateTime(t) => Value::DateTime(*t),
+            Plain::Duration(t) => Value::Duration(*t),
+            Plain::Guid(g) => Value::Guid(*g),
+            Plain::DateFormula(f) => Value::DateFormula(f.clone()),
+            Plain::Option(o, names) => Value::Option(*o, names.clone()),
+            Plain::Enum(e, o) => Value::Enum(*e, *o),
+            Plain::Unknown(u) => Value::Unknown(u.clone()),
+        }
     }
 }
 
@@ -66,6 +119,69 @@ pub enum PlainFilterExpr {
     UnpinnedText(Box<PlainFilterExpr>),
 }
 
+impl PlainFilterExpr {
+    fn of(e: &FilterExpr) -> Option<PlainFilterExpr> {
+        fn opt(v: &Option<Value>) -> Option<Option<Plain>> {
+            match v {
+                Some(v) => Plain::of(v).map(Some),
+                None => Some(None),
+            }
+        }
+        fn all(v: &[FilterExpr]) -> Option<Vec<PlainFilterExpr>> {
+            v.iter().map(PlainFilterExpr::of).collect()
+        }
+        Some(match e {
+            FilterExpr::Range(a, b) => PlainFilterExpr::Range(opt(a)?, opt(b)?),
+            FilterExpr::Eq(v) => PlainFilterExpr::Eq(Plain::of(v)?),
+            FilterExpr::RangeSame(v) => PlainFilterExpr::RangeSame(Plain::of(v)?),
+            FilterExpr::Ne(v) => PlainFilterExpr::Ne(Plain::of(v)?),
+            FilterExpr::Lt(v) => PlainFilterExpr::Lt(Plain::of(v)?),
+            FilterExpr::Le(v) => PlainFilterExpr::Le(Plain::of(v)?),
+            FilterExpr::Gt(v) => PlainFilterExpr::Gt(Plain::of(v)?),
+            FilterExpr::Ge(v) => PlainFilterExpr::Ge(Plain::of(v)?),
+            FilterExpr::Or(v) => PlainFilterExpr::Or(all(v)?),
+            FilterExpr::And(v) => PlainFilterExpr::And(all(v)?),
+            FilterExpr::Like(p, ci) => PlainFilterExpr::Like(p.clone(), *ci),
+            FilterExpr::NotLike(p, ci) => PlainFilterExpr::NotLike(p.clone(), *ci),
+            FilterExpr::AtSignAlone(b) => PlainFilterExpr::AtSignAlone(*b),
+            FilterExpr::EmptyViewValue => PlainFilterExpr::EmptyViewValue,
+            FilterExpr::NumCode(i) => PlainFilterExpr::NumCode(Box::new(PlainFilterExpr::of(i)?)),
+            FilterExpr::UnpinnedMatch(i, t) => {
+                PlainFilterExpr::UnpinnedMatch(Box::new(PlainFilterExpr::of(i)?), t.clone())
+            }
+            FilterExpr::UnpinnedText(i) => PlainFilterExpr::UnpinnedText(Box::new(PlainFilterExpr::of(i)?)),
+        })
+    }
+
+    fn expr(&self) -> FilterExpr {
+        fn opt(v: &Option<Plain>) -> Option<Value> {
+            v.as_ref().map(Plain::value)
+        }
+        fn all(v: &[PlainFilterExpr]) -> Vec<FilterExpr> {
+            v.iter().map(PlainFilterExpr::expr).collect()
+        }
+        match self {
+            PlainFilterExpr::Range(a, b) => FilterExpr::Range(opt(a), opt(b)),
+            PlainFilterExpr::Eq(v) => FilterExpr::Eq(v.value()),
+            PlainFilterExpr::RangeSame(v) => FilterExpr::RangeSame(v.value()),
+            PlainFilterExpr::Ne(v) => FilterExpr::Ne(v.value()),
+            PlainFilterExpr::Lt(v) => FilterExpr::Lt(v.value()),
+            PlainFilterExpr::Le(v) => FilterExpr::Le(v.value()),
+            PlainFilterExpr::Gt(v) => FilterExpr::Gt(v.value()),
+            PlainFilterExpr::Ge(v) => FilterExpr::Ge(v.value()),
+            PlainFilterExpr::Or(v) => FilterExpr::Or(all(v)),
+            PlainFilterExpr::And(v) => FilterExpr::And(all(v)),
+            PlainFilterExpr::Like(p, ci) => FilterExpr::Like(p.clone(), *ci),
+            PlainFilterExpr::NotLike(p, ci) => FilterExpr::NotLike(p.clone(), *ci),
+            PlainFilterExpr::AtSignAlone(b) => FilterExpr::AtSignAlone(*b),
+            PlainFilterExpr::EmptyViewValue => FilterExpr::EmptyViewValue,
+            PlainFilterExpr::NumCode(i) => FilterExpr::NumCode(Box::new(i.expr())),
+            PlainFilterExpr::UnpinnedMatch(i, t) => FilterExpr::UnpinnedMatch(Box::new(i.expr()), t.clone()),
+            PlainFilterExpr::UnpinnedText(i) => FilterExpr::UnpinnedText(Box::new(i.expr())),
+        }
+    }
+}
+
 /// A [`FieldFilter`] whose values are plain.
 #[derive(Debug, Clone)]
 pub struct PlainFilter {
@@ -78,8 +194,12 @@ pub struct PlainFilter {
 impl PlainFilter {
     /// `None` for a filter one of whose values holds a handle.
     pub fn of(f: &FieldFilter) -> Option<PlainFilter> {
-        let _ = f;
-        None
+        Some(PlainFilter {
+            lang: f.lang,
+            field: f.field,
+            expr: PlainFilterExpr::of(&f.expr)?,
+            group: f.group,
+        })
     }
 
     /// The filter this plain filter is.
@@ -87,7 +207,7 @@ impl PlainFilter {
         FieldFilter {
             lang: self.lang,
             field: self.field,
-            expr: FilterExpr::EmptyViewValue,
+            expr: self.expr.expr(),
             group: self.group,
         }
     }
