@@ -107,16 +107,20 @@ fn issue_8434_probe_cells() {
     }
 }
 
-/// The reporter's repro reaches the page's Where-Used part a second time after the Value step: its background task reads the
-/// rows the step changed again, which BC answers from its background sessions' query cache. Refused there.
+/// The reporter's repro reaches the page's Where-Used part a second time after the Value step: its background task counts the
+/// rows the step changed again, which BC answers from the query cache (al-runner issue 8467, `al-vm` query_cache.rs).
 #[test]
-fn issue_8434_repro_stops_at_the_background_task_read_again() {
+fn issue_8434_repro_passes_through_the_query_cache() {
     let o = outcomes(
         include_str!("../fixtures/outside-fb/Issue8434.al"),
         "Repro Attr Line Tests",
     );
-    let [(_, r, _)] = o.as_slice() else { panic!("{o:?}") };
-    assert!(matches!(r, Outcome::NotRun(w) if w.contains("query cache")), "{r:?}");
+    let [(_, r, marks)] = o.as_slice() else { panic!("{o:?}") };
+    assert_eq!(*r, Outcome::Pass);
+    assert!(
+        marks.contains(&ListNewLineCodedFactboxes) && marks.contains(&Assumption::BackgroundTaskQueryCache),
+        "{marks:?}"
+    );
 }
 
 /// The refusal of a call on the row the new line became that the probe does not make.

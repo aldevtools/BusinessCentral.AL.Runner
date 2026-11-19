@@ -278,6 +278,8 @@ pub(crate) struct PageClients {
     /// The first answer of each read a page background task's worker made in this run, by what it asked
     /// (`Session::bg_read_done`).
     pub(crate) bg_reads: std::collections::HashMap<String, String>,
+    /// The query cache page background tasks and the test session read through (`query_cache.rs`).
+    pub(crate) query_cache: crate::query_cache::QueryCache,
     /// Which dialogs and errors the CaptionClass runs in progress may raise (`Session::caption_dialog_refusal`).
     pub(crate) caption_dialogs: crate::pages::CaptionDialogs,
     /// The page whose enqueued background tasks run once the `EnqueueBackgroundTask` call that queued them has

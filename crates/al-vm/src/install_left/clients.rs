@@ -33,6 +33,9 @@ pub(super) fn pages_as_new(p: &PageClients) -> bool {
         scope_unpinned,
         bg_worker,
         bg_reads,
+        // Emptied when the session enters a test codeunit (`Session::reset_query_cache`), so what install code read is not
+        // carried.
+        query_cache: _,
         caption_dialogs,
         bg_drain_after_call,
         page_xrec,

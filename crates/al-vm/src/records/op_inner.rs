@@ -1080,11 +1080,7 @@ impl Session {
                     }
                     pk = crate::sqltime::rounded_key(&pk);
                 }
-                match self
-                    .store_for(rec)?
-                    .get(&cx, &t, &pk)
-                    .map_err(|e| Signal::unsupported(format!("{e}")))?
-                {
+                match self.cached_get(rec, &cx, &t, &pk, args.len(), from_id.is_none() && !get_rounds)? {
                     Some(row) => {
                         self.get_load = true;
                         let loaded = self.load(rec, row);
@@ -1216,6 +1212,7 @@ impl Session {
                     other => return unsupported(format!("Find('{other}')")),
                 };
                 crate::platform::unmeasured_find(&self.engine, &t, &mut found, method, &which, args);
+                found = self.cached_find_first(rec, &cx, &t, method, found)?;
                 match found {
                     Some(row) => {
                         // Every form of Find gives the origin FindFirst gives (record/stale-find/Y89StaleFind.al:256-480,
@@ -1417,6 +1414,7 @@ impl Session {
                     }
                     n
                 };
+                let n = self.cached_count(rec, &cx, &t, method, flow_field_filters.is_empty(), n)?;
                 Ok(if method == RecordOp::Count {
                     Value::Integer(n as i32)
                 } else {
