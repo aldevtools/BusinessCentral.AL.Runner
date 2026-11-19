@@ -1118,9 +1118,9 @@ impl CorpusRuntime {
             // The impact index and an impact run's selection need what the install code raised and touched: the
             // baseline runs.
             .filter(|_| !opts.impact_trace && opts.narrow.is_none())
-            // An entry with resource files of its own (issue 5635): whether the install code read resources is known
-            // only when it runs here.
-            .filter(|_| opts.entries.iter().all(|e| e.resources.is_empty()))
+            // An entry with resource files of its own (issues 5635, 8206) takes a kept baseline too: the baseline runs
+            // before any entry's texts are set, so it is the same for every entry, and whether its install code read a
+            // resource file goes with it (`BaselineRun::read_resources`).
             .and_then(|((key, frame), cc)| {
                 // Over test data the file holds the tables the install code wrote to; the rest is the restored database.
                 let backed = |mut run: crate::baseline::BaselineRun| {
@@ -1184,9 +1184,8 @@ impl CorpusRuntime {
             crate::install::keep_login_records(b.baseline.origin(), &b.login);
             (b.baseline.origin(), b.login.clone())
         });
-        // The engine the install code ran on (the tests may get another below).
-        let install_read_resources =
-            baseline_run.is_some() && engine.resources_read.load(std::sync::atomic::Ordering::Relaxed);
+        // Whether the install code read a resource file: the baseline says, whether it ran here or was kept (issue 8206).
+        let install_read_resources = baseline_run.as_ref().is_some_and(|b| b.read_resources);
         // What .NET answers a call that may read more than its arguments (files, environment variables, the
         // machine's clock, user assemblies) is not in the key: a baseline whose code made one is not kept, and the next
         // run runs the install code again (`al_vm::dotnet::pure`).
@@ -2409,7 +2408,7 @@ pub(super) fn reaches_session_storage(engine: &Arc<al_vm::Engine>, lowered: &Low
 pub(super) fn refuse_all(done: &mut [(String, Outcome)], why: &str) {
     for (_, o) in done.iter_mut() {
         // A test the run did not reach before it stopped at its memory limit keeps that reason (ADR-066 amendment 10).
-        if !matches!(o, Outcome::NotRun(r) if r.starts_with(super::memory::REASON)) {
+        if !super::memory::stopped_by_limit(o) {
             *o = Outcome::NotRun(why.to_string());
         }
     }

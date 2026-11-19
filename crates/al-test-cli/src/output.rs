@@ -92,12 +92,8 @@ pub fn junit_with_properties(
     let mut by_cu: std::collections::BTreeMap<u32, Vec<Row>> = Default::default();
     for c in oracle.iter().filter(|c| !c.bc_failed) {
         let o = outcome(&c.id);
-        // Only a pass carries its assumptions in this dialect.
-        let marks = if matches!(o, Outcome::Pass) {
-            assumptions(&c.id)
-        } else {
-            Vec::new()
-        };
+        // Every outcome carries its assumptions (al-runner issue 7625).
+        let marks = assumptions(&c.id);
         by_cu.entry(c.id.codeunit).or_default().push((&c.id, o, marks));
     }
     let suites: Vec<al_testrun::junit::Suite> = by_cu

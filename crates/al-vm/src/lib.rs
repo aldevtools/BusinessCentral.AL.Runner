@@ -1728,7 +1728,7 @@ impl Session {
                     probed_source: Default::default(),
                     globals: Default::default(),
                     unpinned_buffer: None,
-                    view_assumption: false,
+                    view_assumption: None,
                     run_page_link: None,
                 })))
             }
