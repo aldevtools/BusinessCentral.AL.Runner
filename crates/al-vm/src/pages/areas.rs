@@ -69,7 +69,9 @@ impl Session {
 
     /// Whether application-area removal takes control `idx` off the page: a field, action, part or
     /// actionref whose area the session does not enable, or that has none while the session
-    /// restricts the areas. On a page whose areas are not known, such a control whose list has no `All` refuses.
+    /// restricts the areas. On a page whose areas are not known, such a control refuses unless it is on the page for
+    /// every area text (`on_for_every_area`). Every reader goes through here: the TestPage control call, the parts
+    /// the page creates when it opens, the TestPage part lookup and a held page's part.
     pub(super) fn area_removed(&self, st: &St, idx: usize) -> Result<bool, Signal> {
         if self.flowfield_hidden(st, idx) {
             return Ok(true);
@@ -83,7 +85,7 @@ impl Session {
             return Ok(false);
         }
         let unknown = st.borrow().areas_unknown;
-        if unknown && !self.control_area(st, idx).is_some_and(|v| states_all(&v)) {
+        if unknown && !self.on_for_every_area(st, idx) {
             return unsupported(CONTROL_UNKNOWN);
         }
         let Some(areas) = enabled(&st.borrow().areas) else {
@@ -95,6 +97,26 @@ impl Session {
         })
     }
 
+    /// Whether control `idx` is on the page for every area text: its list has `All`, and so has the list of every group
+    /// around it that states an area (an `All` control: W2AppAreas.al:42 AllCtl, 'found' at :194, :246, :301, :327, :360).
+    fn on_for_every_area(&self, st: &St, idx: usize) -> bool {
+        if !self.control_area(st, idx).is_some_and(|v| states_all(&v)) {
+            return false;
+        }
+        let engine = self.engine();
+        let page = page_of(&engine, st);
+        let mut parent = page.controls[idx].parent;
+        while let Some(p) = parent {
+            if let Some(ir::PropVal::Lit(v)) = page.controls[p].prop("applicationarea")
+                && !states_all(v)
+            {
+                return false;
+            }
+            parent = page.controls[p].parent;
+        }
+        true
+    }
+
     /// Refuses what the corpus does not pin: a group around the control that states an area of its own that is not enabled.
     pub(super) fn check_areas_pinned(&self, st: &St, idx: usize) -> Result<(), Signal> {
         // A change of the session's areas while the page is open does not reach it: the page keeps the controls it opened with
@@ -103,21 +125,14 @@ impl Session {
         // `reopened` `a;b;ERR(...)`, _OtherTags_, _FromEmpty_, AreasSetInTest_FewerTags_; issue 7001). Pinned on master as well by
         // pages/application-area/W2AppAreas.al:393 ChangeAfterOpen_OpenedBasic_ThenSuite (and its siblings) and
         // testpage/AnAreaTests.al:51 An06_AreaRemovedAfterOpen_SetValue, :83 An06_AreaAddedAfterOpen_SetValue.
-        let unknown = st.borrow().areas_unknown;
-        let areas = match enabled(&st.borrow().areas) {
-            Some(areas) => areas,
-            // A group that states an area without `All` may hide the control under the areas the page did not know.
-            None if unknown => Vec::new(),
-            None => return Ok(()),
+        let Some(areas) = enabled(&st.borrow().areas) else {
+            return Ok(());
         };
         let engine = self.engine();
         let page = page_of(&engine, st);
         let mut parent = page.controls[idx].parent;
         while let Some(p) = parent {
             if let Some(ir::PropVal::Lit(v)) = page.controls[p].prop("applicationarea") {
-                if unknown && !states_all(v) {
-                    return unsupported(CONTROL_UNKNOWN);
-                }
                 if !states_enabled(v, &areas) {
                     return unsupported("a control inside a group whose ApplicationArea the session does not enable");
                 }

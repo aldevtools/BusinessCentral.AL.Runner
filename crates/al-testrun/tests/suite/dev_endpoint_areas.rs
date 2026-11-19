@@ -124,6 +124,25 @@ page 50979 "Dev Endpoint Basic Part Host"
         HostText: Text;
 }
 
+page 50980 "Dev Endpoint Group Part Host"
+{
+    PageType = Card;
+    layout
+    {
+        area(Content)
+        {
+            field(HostInfo; HostText) { ApplicationArea = All; }
+            group(BasicGroup)
+            {
+                ApplicationArea = Basic;
+                part(Sub; "Dev Endpoint Part") { ApplicationArea = All; }
+            }
+        }
+    }
+    var
+        HostText: Text;
+}
+
 codeunit 50971 "Dev Endpoint Areas"
 {
     Subtype = Test;
@@ -273,6 +292,37 @@ codeunit 50971 "Dev Endpoint Areas"
     end;
 
     [Test]
+    procedure PartWithAllInBasicGroup_TouchPart_NotSet()
+    var
+        Host: TestPage "Dev Endpoint Group Part Host";
+    begin
+        Host.OpenView();
+        Host.Sub.PartInfo.SetValue('m');
+        Host.Close();
+    end;
+
+    [Test]
+    procedure PartWithAllInBasicGroup_OpenOnly_NotSet()
+    var
+        Host: TestPage "Dev Endpoint Group Part Host";
+    begin
+        Host.OpenView();
+        Host.HostInfo.SetValue('n');
+        Host.Close();
+    end;
+
+    [Test]
+    procedure PartWithAllInBasicGroup_TouchPart_AfterSet()
+    var
+        Host: TestPage "Dev Endpoint Group Part Host";
+    begin
+        ApplicationArea('#Basic');
+        Host.OpenView();
+        Host.Sub.PartInfo.SetValue('o');
+        Host.Close();
+    end;
+
+    [Test]
     [HandlerFunctions('ModalReadsAll')]
     procedure RunModalHandled_ControlWithAll_NotSet()
     begin
@@ -379,7 +429,7 @@ fn result<'a>(rt: &'a CorpusRuntime, test: &str) -> &'a TestResult {
 /// What the default mode and the flag both answer: every test that opens no page, or reads only controls whose area list
 /// has `All` (on the page for every area text, pages/application-area/W2AppAreas.al:42 AllCtl, 'found' at :194, :246),
 /// or sets the areas before the page copies them.
-const KEPT: [&str; 11] = [
+const KEPT: [&str; 12] = [
     "OpenTestPage_NotSet",
     "SetsAreas",
     "ReadAreas_AfterSet",
@@ -389,14 +439,16 @@ const KEPT: [&str; 11] = [
     "Mixed_ControlsWithAll_NotSet",
     "Mixed_ControlInOtherArea_AfterSet",
     "PartWithAll_NotSet",
+    "PartWithAllInBasicGroup_TouchPart_AfterSet",
     "RunModalHandled_ControlWithAll_NotSet",
     "TrapRun_ControlWithAll_NotSet",
 ];
 
 /// Under the flag, refused: `ApplicationArea()` before the test set the areas (also in a test codeunit's OnRun), and a
-/// page reader whose answer the unknown areas decide (a control or part whose area list has no `All`, a group that states
-/// an area without `All`), also on a page whose OnInit sets the areas after the page copied them.
-const REFUSED: [&str; 10] = [
+/// page reader whose answer the unknown areas decide (a control or part whose area list has no `All`, or that sits in a
+/// group that states an area without `All`: a part there refuses when the page opens, before its triggers run), also on a
+/// page whose OnInit sets the areas after the page copied them.
+const REFUSED: [&str; 12] = [
     "ReadAreas_NotSet",
     "ReadAreas_SetInEarlierTest",
     "Mixed_ControlInOtherArea_NotSet",
@@ -404,6 +456,8 @@ const REFUSED: [&str; 10] = [
     "OnInitSets_ControlRead",
     "GroupInOtherArea_NotSet",
     "PartInOtherArea_NotSet",
+    "PartWithAllInBasicGroup_TouchPart_NotSet",
+    "PartWithAllInBasicGroup_OpenOnly_NotSet",
     "RunModalHandled_ControlInOtherArea_NotSet",
     "TrapRun_ControlInOtherArea_NotSet",
     "AfterOnRunRead",
@@ -418,7 +472,7 @@ fn off_every_test_starts_with_no_areas() {
     for r in rt.results().iter().filter(|r| r.test != "RunUnhandled_NotSet") {
         assert_eq!(r.outcome, Outcome::Pass, "{}", r.test);
     }
-    assert_eq!(rt.results().len(), 22);
+    assert_eq!(rt.results().len(), 25);
     assert_eq!(
         result(&rt, "RunUnhandled_NotSet").outcome,
         Outcome::Fail("Unhandled UI: Page 50974".into())
