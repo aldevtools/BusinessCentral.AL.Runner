@@ -620,8 +620,12 @@ pub struct Report {
     /// page still opens first.
     #[serde(default)]
     pub output: Vec<String>,
-    /// Why the runtime cannot run this report yet; empty = it can.
+    /// Why the runtime cannot run this report yet, and why a variable of it is refused; empty = it can.
     pub unsupported: Vec<String>,
+    /// Why the order of `extensions` is not pinned (al-sema `lower/ext_order.rs`). It refuses a run of the report, not a
+    /// variable of it: declaring one runs no extension. [`Report::run_refusal`] reads both.
+    #[serde(default)]
+    pub extension_order: Option<String>,
     /// The `Caption` property when it is a plain text literal.
     #[serde(default)]
     pub caption: Option<String>,
@@ -632,6 +636,12 @@ pub struct Report {
     /// The `FormatRegion` property: the culture of a SaveAs Xml dataset and of `Format` while it is written.
     #[serde(default)]
     pub format_region: Option<String>,
+    /// `ExcelLayoutMultipleDataSheets = true`.
+    #[serde(default)]
+    pub excel_multiple_data_sheets: bool,
+    /// The report declares a global variable (a `var` section of its own).
+    #[serde(default)]
+    pub declares_globals: bool,
     /// The request page's `AboutTitle` and `AboutText` when they are plain text literals.
     #[serde(default)]
     pub about_title: Option<String>,
@@ -665,6 +675,13 @@ pub struct Report {
     /// The kinds the `RDLCLayout`, `WordLayout` and `ExcelLayout` properties declare (`rdlc`, `word`, `excel`), in that order.
     #[serde(default)]
     pub layout_properties: Vec<String>,
+}
+
+impl Report {
+    /// Why a run of the report is refused: the first of `unsupported`, else `extension_order`. `None`: it can run.
+    pub fn run_refusal(&self) -> Option<&String> {
+        self.unsupported.first().or(self.extension_order.as_ref())
+    }
 }
 
 /// One `layout(Name) { ... }` of a report's `rendering` section.
@@ -710,6 +727,9 @@ pub struct ReportColumn {
     /// `IncludeCaption = true`: the dataset's Labels block carries `<Name>Caption`.
     #[serde(default)]
     pub include_caption: bool,
+    /// The names of the properties the column states, lowercase, in source order.
+    #[serde(default)]
+    pub stated_properties: Vec<String>,
     /// The table (object index) and the field position whose Caption an `IncludeCaption` label shows: the field the source names,
     /// bare or written with the name of the own, the parent, a child or an earlier top-level data item
     /// (streams/P138ColCaptionQualified.al, QS_* tests). `None` for any other source.
@@ -880,6 +900,9 @@ pub struct ReportItem {
     /// `CalcFields`: the field positions of the FlowFields calculated for each row, before the row's triggers.
     #[serde(default)]
     pub calc_fields: Vec<usize>,
+    /// The names of the properties the data item states, lowercase, in source order.
+    #[serde(default)]
+    pub stated_properties: Vec<String>,
 }
 
 /// The direction an xmlport declares (`Direction`, default `Both`).
@@ -2077,7 +2100,7 @@ pub enum Expr {
     /// `this` in a codeunit: the running instance as a Codeunit value.
     ThisInstance,
     /// Code that lowers but refuses when it runs, with the reason (a call of a control add-in procedure:
-    /// control add-ins are not modelled).
+    /// control add-ins are not modelled; a statement that leaves an `asserterror` body, `ASSERT_ERROR_LEAVE`).
     Refused(String),
     /// Code that lowers and raises an AL error with this text and code when it runs (`this.<protected variable of the
     /// base report>` in a reportextension: BC compiles it and raises when it runs).
@@ -2181,6 +2204,10 @@ pub enum Expr {
         why: String,
         inner: Box<Expr>,
     },
+    /// The value of `inner`, a load of a variable of the running routine's `var` section, stored into an element of an array
+    /// of Options declared without members: the run tells it from the value of another place, which may hold another member
+    /// list than its declared one (al-sema `memberless_option_array_assign`, al-vm `var_option::element_store`).
+    VarSectionValue(Box<Expr>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2188,6 +2215,12 @@ pub enum SetElem {
     One(Expr),
     Range(Option<Expr>, Option<Expr>),
 }
+
+/// The refusal of an `asserterror` body that a statement of its own leaves by exit, break or continue (al-runner issue 8289):
+/// no corpus test measures it. The lowering turns an `exit` without a value, a `break` and a `continue` into an
+/// `Expr::Refused` with this text, raised only when the run reaches it; the VM refuses an `exit` with a value whose value raised
+/// nothing.
+pub const ASSERT_ERROR_LEAVE: &str = "an asserterror body left by exit, break or continue: whether the asserterror then raises its own error is not pinned";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Stmt {

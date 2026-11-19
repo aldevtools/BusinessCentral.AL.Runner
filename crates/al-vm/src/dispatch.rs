@@ -101,6 +101,8 @@ impl Session {
                     };
                     self.record_ref_into_record_param(&h, *table)?
                 }
+                // A `var` Option parameter with another member list than the value (`var_option`).
+                (a, true) if let Some(v) = crate::var_option::var_binding(&a, &r.locals[i].ty, false) => v?,
                 (a, _) => ops::convert(a, &r.locals[i].ty)?,
             });
         }
@@ -180,6 +182,7 @@ impl Session {
         self.profile_enter(object, routine, true);
         self.events.publish_frame = true;
         self.events.blob_publisher = blob_publisher;
+        self.events.by_value_publisher = Some((object, routine));
         self.events.sender_refused = sender_refused;
         self.events.var_origins = origins;
         self.events.publisher_var_lens = lens;
@@ -250,6 +253,8 @@ impl Session {
         let engine = self.engine.clone();
         let sender_refused = self.events.sender_refused.take();
         let blob_publisher = std::mem::take(&mut self.events.blob_publisher);
+        let by_value_publisher = self.events.by_value_publisher.take();
+        let by_value_publisher = self.event_publisher(by_value_publisher);
         let origins = std::mem::take(&mut self.events.var_origins);
         // The declared lengths of the publisher's `var` Text and Code arguments: a subscriber's `var` parameter reports the
         // length of the publisher's argument (text/text-methods/MaxStrLen.Codeunit.al:172-201,
@@ -328,7 +333,7 @@ impl Session {
                 .or_insert(0) += 1;
             let isolate = isolated && !self.store.has_uncommitted();
             let before = isolate.then(|| self.store.clone());
-            let phase = self.tx.tx_phase;
+            let phase = self.tx.phase;
             // A `var` argument that is a global of the publisher is the same variable as the subscriber's parameter.
             self.events.next_aliases = map
                 .iter()
@@ -348,6 +353,7 @@ impl Session {
                     .collect();
             }
             self.events.next_is_subscriber = true;
+            self.events.next_event_args = self.event_args(by_value_publisher.as_ref(), &s, &map);
             self.events.next_blob_event = crate::blob_transfer::measured_subscriber(blob_publisher, s.manual);
             let manual_inst = s.manual.then(|| inst.clone());
             // What the event recursion error would name (see `Session::call`): the publisher and the subscriber routine, for the
@@ -374,6 +380,7 @@ impl Session {
                     Err(_why) => {
                         self.events.next_is_subscriber = false;
                         self.events.next_blob_event = false;
+                        self.events.next_event_args.clear();
                         self.events.next_aliases.clear();
                         self.events.next_var_lens.clear();
                         let app = engine.program.objects[s.object].app;
@@ -399,12 +406,13 @@ impl Session {
                 }
             }
             self.events.next_aliases.clear();
+            self.events.next_event_args.clear();
             self.events.next_var_lens.clear();
             let (_, finals) = match called {
                 Err(Signal::Error(e)) if isolate => {
                     self.store = before.expect("snapshot taken when isolating");
                     // The subscriber's own transaction is gone with its writes.
-                    self.tx.tx_phase = phase;
+                    self.tx.phase = phase;
                     self.catch_error(*e)?;
                     continue;
                 }
@@ -452,18 +460,20 @@ impl Session {
         // would be a wrong answer (ADR-013 decision 6, hard rule 4).
         // A raise to some subscribers only (`Session::raise_to`) does not reach the others, compiled or not.
         let only = self.events.only_targets.take();
-        if let Some(m) = engine
-            .events
-            .missing_for(object, event, element)
-            .filter(|_| only.is_none())
-        {
-            return unsupported(m.refusal(event));
+        // A binding only a gone page held ends before the event picks its targets (page_held_bindings.rs).
+        self.prune_page_held();
+        if only.is_none() {
+            // A manual subscriber with no bound instance receives nothing (the manual arm below), so a refusal held for one
+            // only while bound does not hold then (`Missing::bound_only`).
+            let refusal = (engine.events.missing_at(object, event).iter())
+                .find(|m| m.reaches(element) && m.bound_only().is_none_or(|c| !self.bound_instances(c).is_empty()));
+            if let Some(m) = refusal {
+                return unsupported(m.refusal(event));
+            }
         }
         let Some(subs) = engine.events.subscribers_at(object, event) else {
             return Ok(Vec::new());
         };
-        // A binding only a gone page held ends before the event picks its targets (page_held_bindings.rs).
-        self.prune_page_held();
         let mut targets = Vec::new();
         for s in subs {
             if only.as_ref().is_some_and(|o| !o.contains(&(s.object, s.routine))) {
@@ -777,7 +787,7 @@ impl Session {
                 } else {
                     // corpus record/TestTableEventSequenceContracts.al:BindSubscription_Manual_Twice_And_Static_Errors
                     Err(binding_error(
-                        self.engine.program.objects[object].id.unwrap_or(0),
+                        crate::object_ids::declared_id(self.engine.program.objects[object].id)?,
                         "The codeunit does not use manual binding",
                     ))
                 };
@@ -788,7 +798,7 @@ impl Session {
                     Ok(Value::Boolean(false))
                 } else {
                     Err(binding_error(
-                        self.engine.program.objects[object].id.unwrap_or(0),
+                        crate::object_ids::declared_id(self.engine.program.objects[object].id)?,
                         "The codeunit has already been bound.",
                     ))
                 };

@@ -9,13 +9,12 @@
 //! code (`login::Login::Raise`) that code runs them. Otherwise ([`subscribers`]) they run here, at the place
 //! "System Initialization Impl." raises the login, together with the apps under test's own (`install::own_login`, in the
 //! order the event reaches them, [`steps`]), and what they leave is watched ([`raise`]): the measured filter and globals
-//! stay; rows refuse their readers; a SingleInstance codeunit of another shape or of another app, and other session
-//! state, refuse the codeunit or its readers. In the default order each test codeunit starts with fresh SingleInstance
+//! stay; rows refuse their readers; a SingleInstance codeunit of another shape or of another app refuses every read of
+//! its globals; other session state refuses the codeunit or its readers. In the default order each test codeunit starts with fresh SingleInstance
 //! state and its own login (ADR-066 amendment 12); in BC's order the single instances moved in from the codeunit before
 //! replace the ones this login made (`Session::adopt_single_instances`; PlLoginSingleTests.al:109-128).
 
 use crate::login::OwnEvent;
-use al_builtins::native::Signal;
 use al_sema::lower::Lowered;
 use al_vm::Session;
 use std::collections::BTreeSet;
@@ -174,44 +173,36 @@ pub(crate) fn steps(
 }
 
 /// Raises step `step` of the partner subscribers and notes what they left in `left`: the tables they wrote, the tables whose
-/// group 1 filters they changed. `Err`: why the codeunit is not run (a subscriber that cannot run, an error, a change of
-/// a SingleInstance codeunit other than the measured one, [`unmeasured_single`], a change of the session state besides
-/// rows that the probe does not measure and the watch cannot follow: of the session language, WorkDate or the bindings,
-/// or of other state the test codeunit can see, [`seen_by_test`]).
+/// group 1 filters they changed; a changed SingleInstance codeunit other than the measured one is marked so that every
+/// read of it is refused ([`unmeasured_singles`]). `Err`: why the codeunit is not run (a subscriber that cannot run, an
+/// error, a change of the session state besides rows that the probe does not measure and the watch cannot follow: of the
+/// session language, WorkDate or the bindings, or of other state the test codeunit can see, [`seen_by_test`]).
 pub(crate) fn raise(
     lowered: &Lowered,
     session: &mut Session,
     step: &Step,
     left: &mut PartnerLogin,
-) -> Result<(), String> {
+) -> Result<(), crate::install::NotOpened> {
     let who = "OnAfterLogin raised to the login subscribers of the partner dependency apps";
     for &(o, r) in &step.subscribers {
         if let Some(reason) = crate::runtime::blocked_reason(lowered, o, r) {
-            return Err(format!(
+            let why = format!(
                 "{who}: {} before the first test: {reason}",
                 crate::install::label(lowered, o, r)
-            ));
+            );
+            return Err(crate::install::NotOpened::refused_at_lowering(why, o, r));
         }
     }
     let before = session.left_stamp();
     let since = session.store_mut().change_counter();
     let (po, pr) = step.publisher;
-    match session.raise_to(po, pr, &step.subscribers) {
-        Ok(()) => {}
-        Err(Signal::Unsupported(why)) => return Err(format!("{who} before the first test: {why}")),
-        Err(Signal::Error(e)) => {
-            return Err(format!(
-                "{who} failed before the first test (behaviour not pinned): {}",
-                e.message
-            ));
-        }
-        Err(_) => return Err(format!("{who} stopped before the first test (not pinned)")),
-    }
+    crate::install::call_before_first_test(lowered, session, who, |s| s.raise_to(po, pr, &step.subscribers))?;
     let store = session.store_mut();
     if store.virtual_write_pending() {
         return Err(format!(
             "{who} changed a platform table in the test session before the first test: what the test runner does with the change is not pinned"
-        ));
+        )
+        .into());
     }
     left.tables.extend(store.tables_changed_since(since));
     let after = session.left_stamp();
@@ -219,27 +210,32 @@ pub(crate) fn raise(
     if let Some(what) = change.session {
         return Err(format!(
             "{who} ran before the first test and changed {what}, which is not a row the run can watch: what BC leaves there is not pinned"
-        ));
+        )
+        .into());
     }
     if let Some(what) = seen_by_test(lowered, session, &change) {
         return Err(format!(
             "{who} ran before the first test and changed {what}, which this test codeunit can read and which is not a row the run can watch: what BC leaves there is not pinned"
-        ));
+        )
+        .into());
     }
-    if let Some(what) = unmeasured_single(lowered, step, &change.singles) {
-        return Err(format!(
-            "{who} ran before the first test and changed {what}: what BC leaves there is not pinned"
-        ));
+    for o in unmeasured_singles(lowered, step, &change.singles) {
+        let why = format!(
+            "a read of a global of SingleInstance codeunit {}: {who} changed it before the first test, and it is not the one codeunit of the one subscriber's app with the measured globals (two Integer, a List of [Text], a Text): what BC leaves there is not pinned",
+            lowered.program.objects[o].name
+        );
+        session.mark_single_unmeasured(o, why.into());
     }
     left.group1.extend(before.group1_changed(&after));
     left.watch_after(session);
     Ok(())
 }
 
-/// Of the SingleInstance codeunits whose state the step changed (`singles`), the first one outside the measured shape, for
-/// a reason text. The pin (PlXaLoginSingles.al:12-27, the subscriber at :56-62): the step has one subscriber, it changes one
-/// SingleInstance codeunit of its own app, and that codeunit's globals are two Integers, one List of [Text] and one Text.
-fn unmeasured_single(lowered: &Lowered, step: &Step, singles: &std::collections::BTreeSet<usize>) -> Option<String> {
+/// Of the SingleInstance codeunits whose state the step changed (`singles`), the ones outside the measured shape: every
+/// read of one of their globals is refused (al-vm `single_unmeasured.rs`; al-runner issue 8239), a test or other code that reads
+/// none of them runs. The pin (PlXaLoginSingles.al:12-27, the subscriber at :56-62): the step has one subscriber, it changes
+/// one SingleInstance codeunit of its own app, and that codeunit's globals are two Integers, one List of [Text] and one Text.
+fn unmeasured_singles(lowered: &Lowered, step: &Step, singles: &BTreeSet<usize>) -> Vec<usize> {
     use al_builtins::value::RtType;
     let objs = &lowered.program.objects;
     let measured = |o: usize| {
@@ -254,11 +250,7 @@ fn unmeasured_single(lowered: &Lowered, step: &Step, singles: &std::collections:
             && singles.len() == 1
             && shape == (4, 2, 1, 1)
     };
-    let o = singles.iter().copied().find(|&o| !measured(o))?;
-    Some(format!(
-        "SingleInstance codeunit {}, which is not the one codeunit of the one subscriber's app with the measured globals (two Integer, a List of [Text], a Text)",
-        objs[o].name
-    ))
+    singles.iter().copied().filter(|&o| !measured(o)).collect()
 }
 
 /// One kind of session state other than rows that the partner subscribers changed ([`seen_by_test`]).

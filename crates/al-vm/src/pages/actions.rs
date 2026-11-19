@@ -786,7 +786,7 @@ impl Session {
         // A duplicate-key Insert the action made comes out at the page's next read of the table, still inside Invoke, with the
         // wrapped code (errors/error-texts/AzErrorTexts.al:167-185 PageAction_DuplicateInsert: `TestWrapped:CSideDuplicateKey`).
         // One that was pending before the action is not pinned and keeps its code.
-        let pending_before = self.tx.deferred_insert.is_some();
+        let pending_before = self.tx.open.deferred_insert.is_some();
         let raised_before = self.tx.deferred_raised;
         let marked_only_before = !self.has_source(st) || self.page_rec(st).borrow().marked_only;
         // A second marking action, with MarkedOnly already on, on a list with a part: the refresh holds the marked rows it read
@@ -1151,6 +1151,7 @@ impl Session {
                 && !st.borrow().draft
                 && !st.borrow().window.is_empty())
             .then(|| st.borrow().window.iter().map(|w| w.key.clone()).collect::<Vec<_>>());
+            let new_line_start = self.new_line_post_start(st, held_before.as_deref())?;
             if let Some(shape) = empty {
                 self.empty_page_before_action(st, shape)?;
             }
@@ -1280,8 +1281,7 @@ impl Session {
             if moved_pinned {
                 st.borrow_mut().rec_moved_other = true;
             }
-            // Rec left by CurrPage.Update(false) on a primary key no row has (page 5510 "Production Journal" Post): see the
-            // refusal of `rec_moved_other` below.
+            // Rec left by CurrPage.Update(false) on a key no row has (page 5510 Post): see `rec_moved_other` below.
             let moved_to_unstored_by_update_false =
                 moved_pinned && st.borrow().refresh && st.borrow().refresh_update_false && {
                     let rec = self.page_rec(st);
@@ -1411,17 +1411,17 @@ impl Session {
                 );
             }
             if std::mem::take(&mut st.borrow_mut().rec_moved_other) {
-                // An action that emptied the view and left Rec, with CurrPage.Update(false), on a primary key no row has
-                // (`post_left_new_line.rs` says what is pinned, with and without the new-row line).
-                let rows_before = held_before.as_ref().map_or(0, Vec::len);
-                if !(moved_to_unstored_by_update_false && self.post_left_other_key_settled(st, rows_before)?) {
+                // An action that emptied the view and left Rec on a key no row has (`post_left_new_line.rs` says what is pinned).
+                let settled = match moved_to_unstored_by_update_false {
+                    true => self.post_left_other_key_settled(st, held_before.as_deref(), new_line_start)?,
+                    false => None,
+                };
+                let Some(more) = settled else {
                     return unsupported(
                         "an action left another row (another primary key) in Rec on a list that is not read again from that row (not pinned)",
                     );
-                }
-                let once = self.has(al_version::Gate::ThreeLineLeavesKeyOnceFrom28)
-                    && !self.has(al_version::Gate::ThreeLineLeavesKeyTwiceAgainFrom29);
-                if rows_before > 1 && !once {
+                };
+                for _ in 0..more {
                     self.page_trigger(st, "onnewrecord", vec![Value::Boolean(true)])?;
                     self.page_event(st, "onnewrecordevent", None, Some(true))?;
                     self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
@@ -2137,21 +2137,6 @@ impl Session {
         let Some(on_row) = self.validate_refresh_start(st, without_curr)? else {
             return Ok(false);
         };
-        let curr = |this: &mut Self| -> Result<(), Signal> {
-            let r = (|| {
-                if without_curr {
-                    return Ok(true);
-                }
-                this.page_trigger(st, "onaftergetcurrrecord", vec![])?;
-                this.page_event(st, "onaftergetcurrrecordevent", None, None)
-            })();
-            this.torn_down_on_error(st, r)?;
-            st.borrow_mut().refresh = false;
-            if !without_parts {
-                this.sync_parts(st)?;
-            }
-            Ok(())
-        };
         if self.view_row_count(st)? == 0 {
             if !on_row {
                 return Ok(false);
@@ -2181,7 +2166,7 @@ impl Session {
             let fresh = self.initial_fields(table);
             rec.borrow_mut().fields = fresh;
             self.stamp_from_filters(st, false)?;
-            curr(self)?;
+            self.finish_validate_refresh(st, without_curr, without_parts)?;
             return Ok(true);
         }
         if !on_row {
@@ -2197,18 +2182,7 @@ impl Session {
             s.cursor = Cursor::Row;
             s.window_from_start = true;
         }
-        // The client reads the new view from its first row: the rows it held do not matter.
-        st.borrow_mut().window_from_start = true;
-        let key = self.row_key(&rec)?;
-        self.read_list_again_from_row_as(st, &rec, &key, false)?;
-        let mut pk = self.table(&rec)?.primary_key(&rec.borrow().fields);
-        self.ret_used = true;
-        self.record_op(RecordOp::Get, &rec, &mut pk)?;
-        self.populate_current(st)?;
-        curr(self)?;
-        // The client holds the rows the refresh read (`read_list_again_from_row_as`).
-        st.borrow_mut().window_top_unread = false;
-        st.borrow_mut().read_up_from_last = None;
+        self.reread_view_from_row(st, without_curr, without_parts)?;
         Ok(true)
     }
 
@@ -2549,8 +2523,12 @@ impl Session {
         let read_done = std::mem::take(&mut st.borrow_mut().refresh_read_done);
         let by_update = std::mem::take(&mut st.borrow_mut().refresh_by_update);
         let filters_before = std::mem::take(&mut st.borrow_mut().filters_before_validate);
+        let code_inserted_line = std::mem::take(&mut st.borrow_mut().refresh_from_code_inserted_line);
         if !std::mem::take(&mut st.borrow_mut().refresh) || read_done {
             return Ok(());
+        }
+        if self.code_inserted_refresh_due(st, code_inserted_line, by_update)? {
+            return self.reread_view_from_row(st, without_curr, without_parts);
         }
         if by_update && self.refresh_after_validate_filter(st, filters_before, without_curr, without_parts)? {
             return Ok(());

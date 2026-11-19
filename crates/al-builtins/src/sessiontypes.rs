@@ -310,6 +310,13 @@ fn n_send(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
     };
     // A notification with no message cannot be sent (errors/errorinfo/EnTNotification.al:Send_EmptyMessage); no handler runs.
     if with_notification(Some(&mut *recv), |n| n.message.is_none())? {
+        // Unchecked only: an error in a Send whose result is used does not reach the caller on BC (al-runner issue 8341,
+        // a handler's error), and what the checked form answers here is not pinned.
+        if c.ret_used() {
+            return unsupported(
+                "Notification.Send of a notification with no message while its result is used (not pinned)",
+            );
+        }
         return Err(Signal::Error(Box::new(crate::native::AlError {
             message: "Message cannot be empty when sending a Notification.".into(),
             code: "Notification".into(),

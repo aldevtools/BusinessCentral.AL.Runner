@@ -270,7 +270,7 @@ impl Session {
     /// (`fn_next_tail`).
     pub(super) fn sync_parts_after_move_fn(&mut self, st: &St, name: PageMethod) -> Result<(), Signal> {
         self.lookup_next_refresh(st)?;
-        self.sync_parts_after_move(st, name == PageMethod::Previous)?;
+        self.sync_parts_after_host_step(st, name)?;
         if name == PageMethod::Next {
             self.fn_next_tail(st)?;
         }

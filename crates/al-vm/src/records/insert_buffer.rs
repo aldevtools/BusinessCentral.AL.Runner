@@ -15,7 +15,18 @@
 //!   counted, sends nothing and raises nothing here. Its duplicate key stays pending as before the queue (an XmlPort import:
 //!   xmlports/import/XpTImportBasic.al Import_DuplicateKeyExisting, Import_DuplicateKeyWithinInput);
 //! - a valid row that sends the queue while a duplicate is pending (`K1, K2, K1, K3, K4`): in every measured cell the Insert
-//!   that sends the queue is itself a duplicate. Whether the valid row stays written is not known: refused.
+//!   that sends the queue is itself a duplicate. Whether the valid row stays written is not known: refused;
+//! - a unique secondary key that a statement-form Insert into such a table breaks (al-runner issue 8287): refused at the Insert;
+//! - GetBySystemId, CountApprox, a Query (Open, Read, SaveAsXml, SaveAsJson, SaveAsCsv, also the static Query.SaveAsXml and
+//!   Query.SaveAsCsv) and a FlowField that read a table whose Insert error is deferred (al-runner issue 8288): refused
+//!   (`refuse_unmeasured_read_while_deferred`). The TableRelation check of a Validate that reads such a table runs as before the
+//!   queue (main; not measured);
+//! - an `asserterror` body that ends without an error while an Insert error is deferred (al-runner issue 8267); one left by
+//!   exit, break or continue is refused where the leave runs (al-runner issue 8289). The slot holds a duplicate key or a Date or DateTime its SQL column cannot hold
+//!   (`sql_range.rs` `insert_sql_range`). In every measured cell the deferred error comes out inside the body: a duplicate at a
+//!   read of the table (Y7407DuplicateInsertBuffer.al:98-105, :386) or at the Insert that sends the queue (:277, :301); the
+//!   SQL-range kind at a read or a Commit, and every body of record/filters/SqlDateFloor1753.al ends in Error(). Whether the
+//!   leave of the body sends it, so that the asserterror catches it, is not known: refused (`refuse_pending_at_assert_end`).
 
 use super::*;
 use crate::state::WriteOfAl;
@@ -45,7 +56,7 @@ pub(crate) enum InsertKind {
 }
 
 /// The methods that read or write the table and so send its queue (the ones that also raise a deferred duplicate, `record_op_inner`).
-fn sends_queue(method: RecordOp) -> bool {
+pub(super) fn sends_queue(method: RecordOp) -> bool {
     matches!(
         method,
         RecordOp::Modify
@@ -99,8 +110,34 @@ impl Session {
     /// Leaves the error of a duplicate-key Insert of `rec` into table `object` pending, unless one is pending already, and notes
     /// which record's Insert it was (`TxState::deferred_by`).
     pub(super) fn defer_insert(&mut self, rec: &Rec, object: u32, e: AlError) {
-        self.tx.deferred_insert.get_or_insert((object as usize, e));
+        self.tx.open.deferred_insert.get_or_insert((object as usize, e));
         self.tx.deferred_by = Some(Rc::as_ptr(rec) as usize);
+    }
+
+    /// The end of an `asserterror` body without an error (`op_assert`): an Insert error still deferred here (a duplicate key,
+    /// or a value its SQL column cannot hold) is refused. In every measured cell it comes out inside the body
+    /// (Y7407DuplicateInsertBuffer.al:98-105, :277, :301, :386; record/filters/SqlDateFloor1753.al, whose bodies end in Error()).
+    /// No cell leaves the body with it deferred.
+    pub(crate) fn refuse_pending_at_assert_end(&self) -> Result<(), Signal> {
+        match &self.tx.open.deferred_insert {
+            Some((t, _)) => unsupported(format!(
+                "an asserterror whose body ends without an error while the error of an Insert into {} is deferred (a duplicate key, or a value its SQL column cannot hold): whether the asserterror catches it is not pinned (docs/probes-needed.md)",
+                self.engine.program.objects[*t].name
+            )),
+            None => Ok(()),
+        }
+    }
+
+    /// A read of `table` (object index) that no corpus case measures while an Insert error into it is deferred (al-runner issue
+    /// 8288): `read` names it. The measured reads send the queue and raise it (`sends_queue`). Refused.
+    pub(crate) fn refuse_unmeasured_read_while_deferred(&self, table: usize, read: &str) -> Result<(), Signal> {
+        match &self.tx.open.deferred_insert {
+            Some((t, _)) if *t == table => unsupported(format!(
+                "{read} of {} while the error of an Insert into it is deferred (a duplicate key, or a value its SQL column cannot hold): whether the read raises it is not pinned (docs/probes-needed.md)",
+                self.engine.program.objects[table].name
+            )),
+            _ => Ok(()),
+        }
     }
 
     /// Whether an unguarded Insert of AL code into `rec`'s table is queued by the platform: a database table without a Blob or
@@ -129,7 +166,7 @@ impl Session {
             self.tx.deferred_by = None;
         }
         // Nothing is queued in this transaction: a read or a write has nothing to send.
-        if insert != InsertKind::Queued && self.tx.insert_buffer.is_empty() {
+        if insert != InsertKind::Queued && self.tx.open.insert_buffer.is_empty() {
             return r;
         }
         if insert == InsertKind::Platform
@@ -141,6 +178,7 @@ impl Session {
         let at = {
             let s = rec.borrow();
             self.tx
+                .open
                 .insert_buffer
                 .iter()
                 .position(|q| q.table == s.table && q.company == s.company)
@@ -148,33 +186,34 @@ impl Session {
         if insert != InsertKind::Queued || r.is_err() {
             // A read or a write of the table, a guarded Insert or a failed one sends what is queued.
             if let Some(i) = at {
-                self.tx.insert_buffer[i].rows = 0;
+                self.tx.open.insert_buffer[i].rows = 0;
             }
             return r;
         }
         let table = rec.borrow().table;
         let i = at.unwrap_or_else(|| {
-            self.tx.insert_buffer.push(InsertQueue {
+            self.tx.open.insert_buffer.push(InsertQueue {
                 table,
                 company: rec.borrow().company.clone(),
                 rows: 0,
                 sent: false,
             });
-            self.tx.insert_buffer.len() - 1
+            self.tx.open.insert_buffer.len() - 1
         });
-        self.tx.insert_buffer[i].rows += 1;
+        self.tx.open.insert_buffer[i].rows += 1;
         let pending = self
             .tx
+            .open
             .deferred_insert
             .as_ref()
             .is_some_and(|(o, _)| *o == table as usize);
-        if self.tx.insert_buffer[i].rows < SEND_AT {
+        if self.tx.open.insert_buffer[i].rows < SEND_AT {
             // A duplicate that stays pending after the queue was sent once in this transaction is the other half of the rule
             // (Y7407DuplicateInsertBuffer.al:229 Dup_6thInsert_OfCommittedRow_CommitAfter3).
             return r;
         }
-        self.tx.insert_buffer[i].rows = 0;
-        self.tx.insert_buffer[i].sent = true;
+        self.tx.open.insert_buffer[i].rows = 0;
+        self.tx.open.insert_buffer[i].sent = true;
         if !pending {
             return r;
         }
@@ -195,7 +234,7 @@ impl Session {
                 t.name
             ));
         }
-        let (_, e) = self.tx.deferred_insert.take().expect("checked");
+        let (_, e) = self.tx.open.deferred_insert.take().expect("checked");
         self.tx.deferred_raised += 1;
         Err(Signal::Error(Box::new(e)))
     }

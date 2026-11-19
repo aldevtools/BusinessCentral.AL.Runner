@@ -199,7 +199,9 @@ impl Session {
         bind: Option<UiKind>,
     ) -> Result<Option<Handler>, Signal> {
         let handed = self.data_caption_handed(st, record.as_ref());
+        let handed_record = record.as_ref().map(|r| r.borrow().clone());
         let handler = self.open_page_as(st, mode, record, bind, false)?;
+        self.note_open_end(st, handed_record);
         let trapped = bind.is_none() && st.borrow().caught_by_trap;
         if handler.is_some() || trapped {
             self.data_caption_at_handled_open(st, bind, handed)?;
@@ -630,7 +632,7 @@ impl Session {
                 let never = self.stored_row(&rec)?.is_none();
                 st.borrow_mut().never_stored = never;
             }
-            self.sync_parts_at_open(st)?;
+            self.sync_parts_at_list_open(st)?;
             self.refresh_parts_then_fn_tail(st, &waiting)
         })();
         if let Err(e) = result {

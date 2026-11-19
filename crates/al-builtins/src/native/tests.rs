@@ -165,6 +165,8 @@ fn every_registered_id_is_in_the_catalog() {
     // Ids lowering picks for a call of a catalog overload that needs another implementation (`Evaluate` into an Option variable).
     let derived = [
         "System.EvaluateVariableOption#1",
+        "System.EvaluateMemberlessVarOption#1",
+        "System.EvaluateMemberlessVarOptionElement#1",
         "System.EvaluateBounded#1",
         "System.EvaluateOptionField#1",
         "System.FormatVariant#1",
@@ -183,6 +185,7 @@ fn every_registered_id_is_in_the_catalog() {
         "Dialog.ErrorComputed#1",
         "Record.FieldErrorConstant#1",
         "Record.FieldErrorComputed#1",
+        "ErrorInfo.CreateLiteral#1",
         "TextBuilder.AppendFieldValue#1",
         "Media.ToVariant#1",
         "Interface.AssertAssigned#1",

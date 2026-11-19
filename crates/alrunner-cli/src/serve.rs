@@ -21,6 +21,7 @@ const RUN_TESTS_FIELDS: &[&str] = &[
     "perTestCoverage",
     "test",
     "excludeTests",
+    "excludeTestsExact",
     "testIsolation",
     "testRunner",
     "testDriver",
@@ -45,13 +46,21 @@ const RUN_TESTS_FIELDS: &[&str] = &[
     "includeFailing",
     "strictEnvironment",
     "skipAfterTimeout",
+    "stopAfterFirstFailure",
     "testTimeoutSecs",
     "entries",
     "seed",
     "profile",
 ];
 /// The fields of an entry of `runTests` (issue 5635).
-const ENTRY_FIELDS: &[&str] = &["id", "resources", "test", "excludeTests", "testTimeoutSecs"];
+const ENTRY_FIELDS: &[&str] = &[
+    "id",
+    "resources",
+    "test",
+    "excludeTests",
+    "excludeTestsExact",
+    "testTimeoutSecs",
+];
 /// The request fields of `execute`.
 const EXECUTE_FIELDS: &[&str] = &[
     "command",
@@ -273,6 +282,16 @@ fn flag(fields: &Map<String, Value>, name: &str) -> Result<bool, String> {
     }
 }
 
+/// `runTests`'s `coverage`: whether statements are counted, and whether the `coverage` list holds only those that ran
+/// (`"hit"`, issue 8244) rather than every statement with its runs.
+fn coverage_field(fields: &Map<String, Value>) -> Result<(bool, bool), String> {
+    match fields.get("coverage") {
+        Some(Value::String(s)) if s == "hit" => Ok((true, true)),
+        Some(Value::String(_)) => Err("`coverage` is true, false or \"hit\"".into()),
+        _ => Ok((flag(fields, "coverage")?, false)),
+    }
+}
+
 /// The `al-runner test` arguments for a request, and the warnings the request earns.
 fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArgs, Vec<String>), String> {
     let mut warnings = Vec::new();
@@ -295,6 +314,7 @@ fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArg
         a.filters.push(t);
     }
     a.excludes.extend(string_list(fields, "excludeTests")?);
+    a.excludes_exact.extend(string_list(fields, "excludeTestsExact")?);
     if let Some(i) = fields.get("testIsolation").and_then(Value::as_str) {
         // `required`: each test codeunit under its own RequiredTestIsolation, as BC's TestRunnerHub runs it on BC 28 and
         // later (`al-runner test --isolation required`).
@@ -328,7 +348,8 @@ fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArg
         }
         Some(_) => return Err("`testDriver` is `bc-linux` or `bccontainerhelper`".into()),
     }
-    a.coverage = flag(fields, "coverage")? || flag(fields, "perTestCoverage")?;
+    (a.coverage, a.coverage_hit_only) = coverage_field(fields)?;
+    a.coverage |= flag(fields, "perTestCoverage")?;
     a.profile = crate::profile::from_json(fields.get("profile").unwrap_or(&Value::Null))?;
     a.capture = al_vm::CaptureConfig {
         values: flag(fields, "captureValues")?,
@@ -375,6 +396,10 @@ fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArg
     // Issue 7517: absent, the server's `--skip-after-timeout`.
     if fields.get("skipAfterTimeout").is_some_and(|v| !v.is_null()) {
         a.skip_after_timeout = flag(fields, "skipAfterTimeout")?;
+    }
+    // Issue 8210: absent, the server's `--stop-after-first-failure`.
+    if fields.get("stopAfterFirstFailure").is_some_and(|v| !v.is_null()) {
+        a.stop_after_first_failure = flag(fields, "stopAfterFirstFailure")?;
     }
     // Issue 8125: absent, the server's `--test-timeout-secs` or environment variable (`run::test_timeout_secs`).
     if let Some(n) = test_timeout_secs(fields)? {
@@ -427,6 +452,7 @@ fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArg
         for (set, field) in [
             (!a.filters.is_empty(), "test"),
             (!a.excludes.is_empty(), "excludeTests"),
+            (!a.excludes_exact.is_empty(), "excludeTestsExact"),
         ] {
             if set {
                 return Err(format!(
@@ -474,6 +500,7 @@ fn entries_of(fields: &Map<String, Value>) -> Result<(Vec<run::Entry>, Vec<Value
     for (field, why) in [
         ("test", "each entry has its own `test`"),
         ("excludeTests", "each entry has its own `excludeTests`"),
+        ("excludeTestsExact", "each entry has its own `excludeTestsExact`"),
         ("affectedOnly", "it is not supported with entries"),
         ("coverage", "coverage is not supported with entries"),
         ("perTestCoverage", "coverage is not supported with entries"),
@@ -524,6 +551,7 @@ fn entries_of(fields: &Map<String, Value>) -> Result<(Vec<run::Entry>, Vec<Value
         entries.push(run::Entry {
             filters: test_filter(e)?.into_iter().collect(),
             excludes: string_list(e, "excludeTests")?,
+            excludes_exact: string_list(e, "excludeTestsExact")?,
             resources,
             test_timeout_secs: test_timeout_secs(e)?,
         });
@@ -544,10 +572,7 @@ fn run_tests(base: &TestArgs, fields: &Map<String, Value>, ctx: &mut WarmCtx, fl
         v.clone_from(&ids);
     }
     ctx.entries = entries;
-    let (want_coverage, want_per_test) = (
-        flag(fields, "coverage").unwrap_or(false) || flag(fields, "perTestCoverage").unwrap_or(false),
-        flag(fields, "perTestCoverage").unwrap_or(false),
-    );
+    let (want_coverage, want_per_test) = (args.coverage, flag(fields, "perTestCoverage").unwrap_or(false));
     // A cancel that arrived while nothing ran was answered as a no-op: it does not stop the next run.
     flags.cancel.store(false, Ordering::SeqCst);
     flags
@@ -679,9 +704,12 @@ fn summary_head(doc: &Value, code: u8) -> Value {
 /// The `timings` of a summary (al-runner issue 5856): where the request spent its wall time `wall`, by phase. `otherMs`
 /// is the rest (reading the request, the report, the output).
 fn timings_json(t: &run::RequestTimings, wall: std::time::Duration) -> Value {
-    let known = t.setup + t.compile + t.engine + t.baseline + t.tests + t.coverage;
+    let setup = t.setup.total();
+    let known = setup + t.compile + t.engine + t.baseline + t.tests + t.coverage;
+    let parts: serde_json::Map<String, Value> = t.setup.keyed().map(|(k, d)| (k.to_string(), json!(ms(d)))).collect();
     let mut v = json!({
-        "setupMs": ms(t.setup),
+        "setupMs": ms(setup),
+        "setupParts": parts,
         "compileMs": ms(t.compile),
         "engineMs": ms(t.engine),
         "baselineMs": ms(t.baseline),
@@ -1126,6 +1154,22 @@ mod tests {
         );
         assert!(!run(json!({"sourcePaths": ["/a"]})).unwrap().0.skip_after_timeout);
         assert!(run(json!({"sourcePaths": ["/a"], "skipAfterTimeout": 1})).is_err());
+        // Issue 8244: `coverage: "hit"` is coverage of the statements that ran; other texts are refused.
+        let cov = |v: Value| run(json!({"sourcePaths": ["/a"], "coverage": v}));
+        let hit = cov(json!("hit")).unwrap().0;
+        assert!(hit.coverage && hit.coverage_hit_only);
+        let full = cov(json!(true)).unwrap().0;
+        assert!(full.coverage && !full.coverage_hit_only);
+        assert!(!cov(json!(false)).unwrap().0.coverage);
+        assert!(cov(json!("all")).is_err());
+        let per_test = run(json!({"sourcePaths": ["/a"], "perTestCoverage": true})).unwrap().0;
+        assert!(per_test.coverage && !per_test.coverage_hit_only);
+        // Issue 8210: `stopAfterFirstFailure` is `--stop-after-first-failure` for one request; absent, the server's setting.
+        let stop = |v: Value| run(json!({"sourcePaths": ["/a"], "stopAfterFirstFailure": v}));
+        assert!(stop(json!(true)).unwrap().0.stop_after_first_failure);
+        assert!(!stop(json!(false)).unwrap().0.stop_after_first_failure);
+        assert!(!run(json!({"sourcePaths": ["/a"]})).unwrap().0.stop_after_first_failure);
+        assert!(stop(json!("yes")).is_err());
         // ADR-066 amendment 4: `strictOrder` is `--strict-order` for one request.
         assert!(
             run(json!({"sourcePaths": ["/a"], "strictOrder": true}))

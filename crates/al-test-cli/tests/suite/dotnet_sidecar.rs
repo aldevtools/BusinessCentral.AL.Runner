@@ -1008,6 +1008,59 @@ fn a_seeded_outstream_bridge_holds_the_bytes_appends_after_them_and_refuses_a_wr
     sess.close();
 }
 
+// al-runner issue 7947: bytes a bridge handed back after one call are in the Blob; a later .NET write over them, or a length
+// below them, does not reach the Blob, so the reply names the bridge for the VM to mark its Blob. A write after them comes back.
+#[test]
+fn a_write_over_bytes_a_bridge_already_handed_back_names_the_bridge() {
+    let Some(h) = host() else { return };
+    let mut sess = h.open_session(&DotNetSessionConfig::default());
+    let w = sess
+        .construct(&ty("System.IO.StreamWriter"), vec![arg(DotNetValue::OutStream)])
+        .unwrap();
+    let (_, bridge) = w.streams.bridges[0];
+    let writer = handle_of(&w);
+    let base = handle_of(&sess.get_property(DotNetTarget::Instance(writer), "BaseStream").unwrap());
+    sess.invoke(DotNetTarget::Instance(writer), "Write", vec![s("abc")])
+        .unwrap();
+    let r = sess.invoke(DotNetTarget::Instance(writer), "Flush", vec![]).unwrap();
+    assert_eq!(r.streams.written, vec![(bridge, b"abc".to_vec())]);
+    let r = sess
+        .invoke(
+            DotNetTarget::Instance(base),
+            "WriteByte",
+            vec![arg(DotNetValue::Byte(b'd'))],
+        )
+        .unwrap();
+    assert_eq!(
+        r.streams.written,
+        vec![(bridge, b"d".to_vec())],
+        "a write after them comes back"
+    );
+    assert!(r.streams.overwritten.is_empty());
+    sess.set_property(DotNetTarget::Instance(base), "Position", DotNetValue::Int64(0))
+        .unwrap();
+    let r = sess
+        .invoke(
+            DotNetTarget::Instance(base),
+            "WriteByte",
+            vec![arg(DotNetValue::Byte(1))],
+        )
+        .unwrap();
+    assert_eq!(r.streams.overwritten, vec![bridge]);
+    assert!(r.streams.written.is_empty());
+    let r = sess
+        .invoke(
+            DotNetTarget::Instance(base),
+            "SetLength",
+            vec![arg(DotNetValue::Int64(1))],
+        )
+        .unwrap();
+    assert_eq!(r.streams.overwritten, vec![bridge]);
+    let r = sess.invoke(DotNetTarget::Instance(base), "Flush", vec![]).unwrap();
+    assert!(r.streams.overwritten.is_empty(), "named once");
+    sess.close();
+}
+
 #[test]
 fn an_instream_argument_is_read_from_the_unread_bytes_and_the_consumed_count_comes_back() {
     let Some(h) = host() else { return };

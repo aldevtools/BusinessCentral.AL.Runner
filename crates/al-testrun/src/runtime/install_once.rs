@@ -9,7 +9,7 @@ pub(super) fn run_installs_in(
     lowered: &Lowered,
     session: &mut Session,
     installs: &RunInstalls,
-) -> Vec<(BTreeSet<u32>, String)> {
+) -> Vec<al_vm::SkippedInstall> {
     // As the baseline does (`baseline::run_traced`, ADR-046 amendment 4): the corpus CI database's session company is an
     // evaluation company.
     if session.engine.test_data.is_none() && session.companies().len() > 1 {
@@ -34,7 +34,7 @@ pub(super) fn installs_for(
     execute: bool,
     observed: bool,
     as_made_here: bool,
-) -> Vec<(BTreeSet<u32>, String)> {
+) -> Vec<al_vm::SkippedInstall> {
     if let Some(skipped) = baseline.and_then(|b| b.workspace_installs.clone()) {
         return skipped;
     }
@@ -136,7 +136,7 @@ fn start_installed(
     execute: bool,
     observed: bool,
     as_made_here: bool,
-) -> Option<Vec<(BTreeSet<u32>, String)>> {
+) -> Option<Vec<al_vm::SkippedInstall>> {
     let follows_code = session.notes_code_run() || observed || crate::profiling::active();
     if execute || follows_code {
         return None;
@@ -182,7 +182,7 @@ fn start_installed(
 
 /// The session the install code ran in, with the routines that could not run, when it left more than
 /// `Session::install_left` carries; nothing was done to it after the install code returned.
-type RanIn = Option<(Session, Vec<(BTreeSet<u32>, String)>)>;
+type RanIn = Option<(Session, Vec<al_vm::SkippedInstall>)>;
 
 /// Runs the install code in a session of its own, made as the codeunit's session is (`run.rs` `run_codeunit_inner`).
 fn install(lowered: &Lowered, engine: &Arc<Engine>, scratch: &Scratch, key: Key) -> (Installed, RanIn) {

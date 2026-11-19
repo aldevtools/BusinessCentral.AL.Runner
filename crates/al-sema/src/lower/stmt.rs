@@ -14,6 +14,38 @@ pub(crate) enum OptionCaptions {
 }
 
 impl Lowerer<'_> {
+    /// Records what a local variable `n` of `r`, declared by `v` with type `ty`, is for the reads and conversions that ask:
+    /// its Label text (`label`) and XLIFF id, whether it is a TextConst, its texts by language, Locked, MaxLength, the plain
+    /// text constant forms, and whether it is a Variant.
+    fn note_local_var_facts(&mut self, r: &ast::Routine, v: &ast::VarDecl, n: &str, label: Option<&String>, ty: &Ty) {
+        let key = n.to_lowercase();
+        let t = v.type_ref();
+        if let Some(l) = label {
+            self.local_labels.insert(key.clone(), l.clone());
+            if let Some(id) = self.label_xliff_id(Some(r), n) {
+                self.local_label_xliff.insert(key.clone(), id);
+            }
+        }
+        if is_textconst(t.as_ref()) {
+            self.local_textconsts.insert(key.clone());
+        }
+        if let Some(texts) = t.as_ref().and_then(textconst_languages) {
+            self.local_textconst_languages.insert(key.clone(), texts);
+        }
+        if t.as_ref().is_some_and(label_locked) {
+            self.local_locked_labels.insert(key.clone());
+        }
+        if t.as_ref().is_some_and(plain_text_constant) {
+            self.local_plain_text_constants.insert(key.clone());
+        }
+        if matches!(ty, Ty::Variant) {
+            self.local_variant_vars.insert(key.clone());
+        }
+        if t.as_ref().is_some_and(label_maxlength) {
+            self.local_maxlength_labels.insert(key);
+        }
+    }
+
     pub(crate) fn routine(&mut self, r: &ast::Routine) -> ir::Routine {
         #[cfg(test)]
         if r.name() == "InjectedLowerPanic" {
@@ -38,6 +70,8 @@ impl Lowerer<'_> {
         self.local_labels.clear();
         self.local_label_xliff.clear();
         self.local_textconsts.clear();
+        self.local_plain_text_constants.clear();
+        self.local_variant_vars.clear();
         self.local_textconst_languages.clear();
         self.local_locked_labels.clear();
         self.local_maxlength_labels.clear();
@@ -83,6 +117,7 @@ impl Lowerer<'_> {
             ret_local = Some(locals.len());
             add(self, n, t.clone(), &mut locals);
         }
+        self.named_ret = ret_local;
         for v in r.local_var_decls() {
             let ty = v.type_ref().map(|t| Ty::from_type_ref(&t)).unwrap_or(Ty::Unknown);
             let label = v.type_ref().as_ref().and_then(label_text);
@@ -104,24 +139,7 @@ impl Lowerer<'_> {
                 if let Some(Err(e)) = &declared {
                     self.reasons.push(format!("`{n}`: {e}"));
                 }
-                if let Some(l) = &label {
-                    self.local_labels.insert(n.to_lowercase(), l.clone());
-                    if let Some(id) = self.label_xliff_id(Some(r), &n) {
-                        self.local_label_xliff.insert(n.to_lowercase(), id);
-                    }
-                }
-                if is_textconst(v.type_ref().as_ref()) {
-                    self.local_textconsts.insert(n.to_lowercase());
-                }
-                if let Some(texts) = v.type_ref().as_ref().and_then(textconst_languages) {
-                    self.local_textconst_languages.insert(n.to_lowercase(), texts);
-                }
-                if v.type_ref().as_ref().is_some_and(label_locked) {
-                    self.local_locked_labels.insert(n.to_lowercase());
-                }
-                if v.type_ref().as_ref().is_some_and(label_maxlength) {
-                    self.local_maxlength_labels.insert(n.to_lowercase());
-                }
+                self.note_local_var_facts(r, &v, &n, label.as_ref(), &ty);
                 if let Some(why) = refusal {
                     self.reasons.push(format!("`{n}`: {why}"));
                 }
@@ -1019,12 +1037,7 @@ impl Lowerer<'_> {
             [] => Ok(ir::Stmt::Continue),
             [(offset, declared_in, true)] if *declared_in == self.oi => {
                 let routine = self.routine_at.get(&(self.oi, *offset)).ok_or("procedure not found")?;
-                let try_call = self
-                    .routine_nodes
-                    .get(self.oi)
-                    .get(routine)
-                    .is_some_and(|r| r.attributes().any(|a| a.name().eq_ignore_ascii_case("tryfunction")));
-                if try_call {
+                if self.routine_has_attribute(self.oi, routine, &["tryfunction"]) {
                     return Err("`continue;` with a TryFunction named Continue (not pinned)".into());
                 }
                 self.declared_in_both_proc(self.oi, *offset)?;
@@ -1238,7 +1251,7 @@ impl Lowerer<'_> {
                 Some(e) => self.expr_into(&self.ret_decl.clone().unwrap_or(Ty::Boolean), e).and_then(|v| {
                     if let Some(decl) = self.ret_decl.clone() {
                         self.refuse_session_ending_ternary(&decl, e)?;
-                        self.refuse_textconst_into_variant(&decl, e)?;
+                        self.text_constant_into_variant(&decl, e, super::convert::TextConstantSite::Other)?;
                     }
                     // A DotNet result must fit the return type exactly (ADR-014). An interface
                     // result takes what an interface variable takes: a codeunit that implements
@@ -1277,7 +1290,11 @@ impl Lowerer<'_> {
             },
             BreakStmt => Ok(ir::Stmt::Break),
             ContinueStmt => self.continue_stmt(),
-            AssertErrorStmt => Ok(ir::Stmt::AssertError(self.stmt_or_empty(kids.first()))),
+            AssertErrorStmt => {
+                let mut body = self.stmt_or_empty(kids.first());
+                refuse_assert_error_leaves(&mut body, false);
+                Ok(ir::Stmt::AssertError(body))
+            }
             other => Err(format!("statement {other:?} is not lowered yet")),
         };
         match r {
@@ -1335,6 +1352,10 @@ impl Lowerer<'_> {
         for k in kids.iter().take(2) {
             self.security_filtering_array_refusal(k, "an array assignment")?;
         }
+        if let Some(stmt) = self.memberless_option_array_assign(n, kids) {
+            return stmt;
+        }
+        self.own_named_caption_target(&kids[0])?;
         // `CurrFieldNo := FieldNo(X)` in table code sets the field number of the implicit Rec. Base Application's
         // `SelltoContactLookup` does it before it validates a field. The corpus pins reading CurrFieldNo
         // (testpage/TestPageCurrFieldNo_Tests.al); the assignment is not pinned (docs/probes-needed.md).
@@ -1470,11 +1491,7 @@ impl Lowerer<'_> {
                     let value = self.expr(&kids[1])?;
                     let value = self.convert_to(&params[0].ty, self.ty_ref(&kids[1]), value)?;
                     self.calls.push((self.oi, routine));
-                    let try_call = self
-                        .routine_nodes
-                        .get(self.oi)
-                        .get(routine)
-                        .is_some_and(|r| r.attributes().any(|a| a.name().eq_ignore_ascii_case("tryfunction")));
+                    let try_call = self.routine_has_attribute(self.oi, routine, &["tryfunction"]);
                     return Ok(ir::Stmt::Expr(ir::Expr::Call {
                         object: self.oi,
                         routine,
@@ -1761,7 +1778,9 @@ impl Lowerer<'_> {
                 ));
             }
         }
-        self.refuse_textconst_into_variant(&target_ty, &kids[1])?;
+        if let Some(text_constant) = self.text_constant_assigned(op_kind, kids, &target_ty, &value)? {
+            return Ok(ir::Stmt::Assign(place, text_constant));
+        }
         // A Byte assigned to a character of a Text or Code goes in unconverted: the runtime maps a byte from 0x80 up to the
         // character Format shows for it (al-language-onprem/types/ByteFormat.al:13-31, `Interp::write_char`).
         let byte_into_text_char = matches!(op_kind, Some(SyntaxKind::Assign) | None)
@@ -2448,4 +2467,45 @@ fn subscriber_publisher_parts(text: &str) -> Option<Vec<String>> {
         return (is_ident && parts.iter().all(|p| !p.is_empty())).then_some(parts);
     }
     (text.bytes().all(|b| b.is_ascii_digit()) && text.parse::<u32>().is_ok()).then(|| vec![text.to_string()])
+}
+
+/// Replaces each statement of `body`, the body of an `asserterror`, that leaves it by a refusal that is raised when the
+/// statement runs (al-runner issue 8289, `ir::ASSERT_ERROR_LEAVE`): an `exit` without a value, or a `break` or `continue`
+/// outside a loop of the body (`in_loop`: the statements are inside such a loop). A leave the run does not reach keeps main's
+/// result. An `exit` with a value leaves only when its value raises nothing: the VM refuses it then (`op_assert`). A procedure
+/// the body calls has its own exit.
+fn refuse_assert_error_leaves(body: &mut [ir::Stmt], in_loop: bool) {
+    use ir::Stmt;
+    for s in body.iter_mut() {
+        match s {
+            Stmt::Exit(None) => *s = Stmt::Expr(ir::Expr::Refused(ir::ASSERT_ERROR_LEAVE.into())),
+            Stmt::Break | Stmt::Continue if !in_loop => {
+                *s = Stmt::Expr(ir::Expr::Refused(ir::ASSERT_ERROR_LEAVE.into()))
+            }
+            Stmt::If(_, a, b) => {
+                refuse_assert_error_leaves(a, in_loop);
+                refuse_assert_error_leaves(b, in_loop);
+            }
+            Stmt::Case {
+                branches, otherwise, ..
+            } => {
+                for (_, b) in branches.iter_mut() {
+                    refuse_assert_error_leaves(b, in_loop);
+                }
+                refuse_assert_error_leaves(otherwise, in_loop);
+            }
+            Stmt::AssertError(b) => refuse_assert_error_leaves(b, in_loop),
+            Stmt::While(_, b) | Stmt::Repeat(b, _) | Stmt::For { body: b, .. } | Stmt::Foreach { body: b, .. } => {
+                refuse_assert_error_leaves(b, true)
+            }
+            Stmt::Exit(Some(_))
+            | Stmt::Break
+            | Stmt::Continue
+            | Stmt::Assign(..)
+            | Stmt::Expr(_)
+            | Stmt::Pos(_)
+            | Stmt::Assume(_)
+            | Stmt::TddMark(_) => {}
+        }
+    }
 }

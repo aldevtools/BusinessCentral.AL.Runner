@@ -75,7 +75,7 @@ fn reasons(src: &str, apps: usize) -> Vec<String> {
         .collect();
     for o in &l.program.objects {
         if let Some(r) = &o.report {
-            out.extend(r.unsupported.iter().cloned());
+            out.extend(r.unsupported.iter().chain(&r.extension_order).cloned());
         }
     }
     out

@@ -62,7 +62,8 @@ impl Session {
     }
 
     /// The blank record of such a part: Rec is blank, and its OnAfterGetCurrRecord and that event's subscribers run once
-    /// (HiddenPartOutsideChain.al:320 `keyed` `fb-row()` after the key typed, a blank record again).
+    /// (HiddenPartOutsideChain.al:320 `keyed` `fb-row()` after the key typed, a blank record again). The CardPart FactBox of a
+    /// List host takes it too inside the steps `list_factbox_new_line.rs` admits (assumption `list-factbox-new-line`).
     pub(super) fn card_part_blank_on_new_host(&mut self, st: &St) -> Result<(), Signal> {
         let object = st.borrow().object as usize;
         if self.declares_or_ext_declares(st, "onnewrecord")

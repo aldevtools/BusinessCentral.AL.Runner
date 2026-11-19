@@ -152,6 +152,36 @@ impl FilterExpr {
 }
 
 impl FilterExpr {
+    /// The mark of a placeholder's size the filter holds as a value (`placeholder_output::size`): a filter built from a field
+    /// that holds one (a `field(...)` condition of a CalcFormula or a TableRelation). A store refuses a read through it
+    /// (ADR-040 amendment 2026-11-12b, point 4): the size answers only a comparison with 0.
+    pub fn placeholder_size(&self) -> Option<&std::sync::Arc<str>> {
+        fn held(v: &Value) -> Option<&std::sync::Arc<str>> {
+            match v {
+                Value::PlaceholderSize(m, _) => Some(m),
+                _ => None,
+            }
+        }
+        match self {
+            FilterExpr::Range(lo, hi) => lo.iter().chain(hi.iter()).find_map(held),
+            FilterExpr::Eq(x)
+            | FilterExpr::RangeSame(x)
+            | FilterExpr::Ne(x)
+            | FilterExpr::Lt(x)
+            | FilterExpr::Le(x)
+            | FilterExpr::Gt(x)
+            | FilterExpr::Ge(x) => held(x),
+            FilterExpr::Or(xs) | FilterExpr::And(xs) => xs.iter().find_map(FilterExpr::placeholder_size),
+            FilterExpr::NumCode(inner) | FilterExpr::UnpinnedMatch(inner, _) | FilterExpr::UnpinnedText(inner) => {
+                inner.placeholder_size()
+            }
+            FilterExpr::Like(..)
+            | FilterExpr::NotLike(..)
+            | FilterExpr::AtSignAlone(_)
+            | FilterExpr::EmptyViewValue => None,
+        }
+    }
+
     /// The first comparison of `v` with a value of the filter that cannot be answered. [`FilterExpr::matches`] counts such a
     /// value as not passing; a caller that must not guess (a TableRelation condition, hard rule 4) refuses on it instead.
     pub fn compare_error(&self, v: &Value) -> Option<Signal> {
@@ -270,6 +300,14 @@ pub fn parse_filter(text: &str, args: &[crate::value::Value], ty: &crate::value:
 pub const INVALID_BOOLEAN: &str = "invalid Boolean filter value: ";
 /// The prefix of the error for a text no Guid filter reads (types/date-time/P143Guid_Filters.al:P143_GuidInvalid).
 pub const INVALID_GUID: &str = "invalid Guid filter value: ";
+/// The prefix of the error for a negative number as the value of an Option filter; the value as the token holds it follows. The
+/// caller decides whether the text is a shape it answers (al-vm `option_negative_error`); every other caller refuses it.
+pub const OPTION_NEGATIVE: &str = "Option filter value that is a negative number: ";
+
+/// The prefix of the error for a word of ASCII letters that is no member of an Option field; the word as the token holds it
+/// follows. The caller decides whether the text is a shape it answers (al-vm `option_non_member_error`); every other caller
+/// refuses it.
+pub const OPTION_NOT_MEMBER: &str = "Option filter word that is no member: ";
 /// The prefix of the error for a date text no Date filter reads; the failing value follows (types/date-time/
 /// P143Date_DePlain.al: `Das Format Date „17.01.27“ ...`).
 pub const INVALID_DATE: &str = "invalid Date filter value: ";
@@ -1342,9 +1380,13 @@ impl Parser<'_> {
                 .position(|x| !x.is_empty() && x.trim().eq_ignore_ascii_case(text.trim()))
             {
                 Some(i) => Value::Option(i as i32, m.clone()),
+                None if text.parse::<i32>().is_ok_and(|n| n < 0) => return Err(format!("{OPTION_NEGATIVE}{text}")),
                 None => Value::Option(
                     text.parse().map_err(|_| {
-                        if matches!(text.trim(), "\" \"" | "\"\"") {
+                        let word = text.trim();
+                        if !word.is_empty() && word.bytes().all(|b| b.is_ascii_alphabetic()) {
+                            format!("{OPTION_NOT_MEMBER}{text}")
+                        } else if matches!(word, "\" \"" | "\"\"") {
                             format!(
                                 "{FILTER_SYNTAX}'{}' is not an option. The existing options are: {}",
                                 text.trim(),

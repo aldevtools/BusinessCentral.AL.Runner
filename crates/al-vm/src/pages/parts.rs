@@ -49,6 +49,9 @@ impl Session {
         st.borrow_mut().page_run = None;
         st.borrow_mut().test_filters = Vec::new();
         st.borrow_mut().ws_trigger_order = None;
+        st.borrow_mut().factbox_line = Default::default();
+        st.borrow_mut().factbox_blank_landing = false;
+        st.borrow_mut().forget_code_inserted_line();
         self.prune_page_held();
         let parts = std::mem::take(&mut st.borrow_mut().parts);
         let hidden = st.borrow().hidden_parts.clone();
@@ -446,7 +449,7 @@ impl Session {
                 // `control_id` of the declaring object and the part's name (testpage/parts/TestTestPart.al:233).
                 let engine = self.engine();
                 let ctl = &page_of(&engine, st).controls[control];
-                let declaring = self.object_id_of(ctl.owner.unwrap_or(st.borrow().object as usize) as u32);
+                let declaring = self.object_id_of(ctl.owner.unwrap_or(st.borrow().object as usize) as u32)?;
                 Err(error_code(
                     format!(
                         "The part with ID = {} was not found on the page.",
@@ -2358,8 +2361,16 @@ impl Session {
     /// `after-part-read=H.MOD(D1);T.HeadModify(D1);`). A part reached before saves nothing (:495 QI_PartNewRow_ThenHostSetValue
     /// `after-part-read=` after Lines.Last, New and SetValue, the host saved at Close). A SetValue goes its own way
     /// (`save_host_before_part_edit`); any other first call, a host of another type, and a first call while another part was
-    /// reached before are refused.
-    pub(super) fn first_part_access(&mut self, child: &St, m: PageMethod, field_read: bool) -> Result<(), Signal> {
+    /// reached before are refused. Every test call on a part passes here (`test_page_op` with no control target, `test_control_op`
+    /// with its target), so it first asks `refuse_row_access_on_part_left_by_its_view`.
+    pub(super) fn first_part_access(
+        &mut self,
+        child: &St,
+        m: PageMethod,
+        target: Option<&ControlTarget>,
+        field_read: bool,
+    ) -> Result<(), Signal> {
+        self.refuse_row_access_on_part_left_by_its_view(child, m, target)?;
         let Some(host) = child.borrow().host.as_ref().and_then(|(h, _)| h.upgrade()) else {
             return Ok(());
         };

@@ -14,10 +14,14 @@ impl Session {
             self.clientless_page_guard(method, recv.as_deref(), args)?;
         }
         match recv.as_deref() {
-            Some(Value::TestPage(st)) => self.request_ok_only_step(st_of(st), method, None)?,
+            Some(Value::TestPage(st)) => {
+                self.request_ok_only_step(st_of(st), method, None)?;
+                self.format_procedure_step(st_of(st), method, None)?;
+            }
             Some(Value::TestControl(c)) => {
                 let c = control_of(c);
                 self.request_ok_only_step(&c.page, method, Some(&c.target))?;
+                self.format_procedure_step(&c.page, method, Some(&c.target))?;
             }
             _ => {}
         }
@@ -269,6 +273,7 @@ impl Session {
                 Self::note_page_code_call(&st, method);
                 self.refuse_held_part_page_method(&st, method)?;
                 self.pending_add_in_reread(&st, method.method())?;
+                self.factbox_line_call(method, &st, None, args)?;
                 if method.method() != PageMethod::New {
                     st.borrow_mut().saved_by_update = false;
                 }
@@ -288,6 +293,7 @@ impl Session {
                 let c = control_of(c).clone();
                 let page = c.page.clone();
                 self.pending_add_in_reread(&page, method.method())?;
+                self.factbox_line_call(method, &page, Some(&c.target), args)?;
                 page.borrow_mut().saved_by_update = false;
                 self.lookup_refresh_deferred_call(method, &page, Some(&c.target))?;
                 let result = self.code_close_client_call(method, &page, |s| {
@@ -298,6 +304,7 @@ impl Session {
                     })
                 });
                 self.test_call_ended(&page, &result);
+                Self::factbox_line_after_set_value(method, &page, &result);
                 result
             }
             other => unsupported(format!("{method} on {}", other.describe())),
@@ -347,7 +354,7 @@ impl Session {
             self.refuse_unpinned_state(st)?;
         }
         if method.recv() == PageRecv::TestPart {
-            self.first_part_access(st, name, false)?;
+            self.first_part_access(st, name, None, false)?;
         } else if st.borrow().new_host_part_rows
             && st.borrow().host.is_none()
             && (!matches!(
@@ -645,11 +652,7 @@ impl Session {
                         false
                     }
                     PageMethod::New => {
-                        // The parts a host's New() links afresh run no OnNewRecord (see `land_on_part_open_line`).
-                        let before = self.host_new_running.replace(new_from_row);
-                        let r = self.sync_parts(st);
-                        self.host_new_running = before;
-                        r?;
+                        self.sync_parts_after_new(st, new_from_row)?;
                         false
                     }
                     _ => {
@@ -665,6 +668,21 @@ impl Session {
         Ok(r)
     }
     /// The save of `CurrPage.Update(true)`, `CurrPage.Update()` and `CurrPage.SaveRecord()` on an open page.
+    /// The refresh `CurrPage.Update(arg)` asks for, `save` when it saves. It lands after the trigger that asked for it returns (corpus
+    /// pages/currpage/TestPageUpdate.al: ValidateBegin;ValidateEnd;HostAGCR).
+    fn ask_update_refresh(&mut self, st: &St, save: bool, arg: Option<&Value>) -> Result<(), Signal> {
+        self.refuse_update_in_action(st)?;
+        {
+            let mut s = st.borrow_mut();
+            s.refresh = true;
+            s.refresh_by_update = true;
+            s.refresh_update_false = !save;
+        }
+        self.note_view_left(st)?;
+        self.note_part_update_left_view(st)?;
+        self.land_on_code_inserted_line(st, arg)
+    }
+
     fn save_from_update(&mut self, method: PageOp, st: &St) -> Result<Value, Signal> {
         if method == PageOp::PageSaveRecord {
             st.borrow_mut().save_record_called = true;
@@ -847,7 +865,7 @@ impl Session {
                 let engine = self.engine();
                 let o = &engine.program.objects[st.borrow().object as usize];
                 if !names {
-                    return Ok(Value::Text(format!("Page {}", o.id.unwrap_or(0)).into()));
+                    return crate::object_ids::object_id_text("Page", o.id);
                 }
                 let caption = match o.properties.iter().find(|(k, _)| k.eq_ignore_ascii_case("Caption")) {
                     Some((_, v)) => match crate::recmeta::string_literal(v) {
@@ -898,7 +916,7 @@ impl Session {
                 let engine = self.engine();
                 let o = &engine.program.objects[st.borrow().object as usize];
                 if !names {
-                    return Ok(Value::Text(format!("Page {}", o.id.unwrap_or(0)).into()));
+                    return crate::object_ids::object_id_text("Page", o.id);
                 }
                 let caption = o
                     .properties
@@ -1322,13 +1340,7 @@ impl Session {
                 // CurrPage.Update() without an argument saves (the parameter defaults to true).
                 let save = (method == PageOp::PageSaveRecord) || !matches!(args.first(), Some(Value::Boolean(false)));
                 if !(method == PageOp::PageSaveRecord) {
-                    self.refuse_update_in_action(st)?;
-                    // The refresh lands after the trigger that asked for it returns (corpus
-                    // pages/currpage/TestPageUpdate.al: ValidateBegin;ValidateEnd;HostAGCR).
-                    st.borrow_mut().refresh = true;
-                    st.borrow_mut().refresh_by_update = true;
-                    st.borrow_mut().refresh_update_false = !save;
-                    self.note_view_left(st)?;
+                    self.ask_update_refresh(st, save, args.first())?;
                 }
                 if !save {
                     self.validate_step_update_false(st);
@@ -1382,7 +1394,7 @@ impl Session {
                 };
                 let table = self.table(r)?;
                 let mut key: Vec<Value> = table.primary_key(&r.borrow().fields);
-                self.page_go_to_key_captions(st, &mut key)
+                self.page_go_to_record(st, &mut key)
             }
             other => unsupported(format!("TestPage.{other}")),
         }

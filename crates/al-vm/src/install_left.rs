@@ -58,6 +58,7 @@ impl Session {
             spare_vecs: _,
             xp_pass_views: _,
             frames: _,
+            next_interface_call: _,
             xp_unlinked_passes: _,
             xp_link_hidden: _,
             call_stack: _,
@@ -93,6 +94,8 @@ impl Session {
             // Carried: the Baseline.
             sequences: _,
             sequences_changed: _,
+            // Set by the caller after the install code, from the run's order (al-testrun `order_hint.rs`).
+            numbers_unmeasured: _,
             singletons: _,
             // Set by the caller after the install code, from the run's lane (`single_lane.rs`).
             si_track: _,
@@ -180,8 +183,6 @@ impl Session {
             report_refusal_after_denial: _,
             permission_caller: _,
             permission_run_object: _,
-            // Set before each query method call that reads it.
-            query_object: _,
             query_receiver: _,
             keyref_receiver_local: _,
             test_object: _,
@@ -432,26 +433,19 @@ impl Session {
         let crate::state::TxState {
             tx_world,
             commit_behavior,
-            tx_phase,
+            phase,
             // Carried in InstallLeft.
             transaction_type: _,
             lock_timeout,
             lock_timeout_duration,
             committed_row_version: _,
-            rows_touched,
-            tables_inserted,
-            locked_tables,
             commit_counter,
-            writes,
-            isolation_lock,
             rolled_back,
             rollback_unpinned,
             rollback_kind,
-            reads_after_rollback,
             last_commit_wrote: _,
-            deferred_insert,
+            open,
             failed_sql_rename,
-            insert_buffer,
             insert_from_al,
             rename_from_al,
             write_of_al,
@@ -459,39 +453,23 @@ impl Session {
             deferred_raised,
             immediate_errors,
             try_depth,
+            assert_depth,
             used_tries,
             guarded_runs,
             guarded_bodies,
-            row_versions,
             xp_export_try_world,
-            inconsistent,
-            lock_tx,
-            lock_unpinned,
-            recref_lock_tx,
-            isolation_lock_tables,
-            locking_reads,
-            db_reads,
-            locking_read_tx_unpinned,
         } = &self.tx;
         let fresh = crate::state::TxState::fresh();
         *tx_world == fresh.tx_world
             && *commit_behavior == fresh.commit_behavior
-            && *tx_phase == fresh.tx_phase
+            && *phase == fresh.phase
             && *lock_timeout == fresh.lock_timeout
             && *lock_timeout_duration == fresh.lock_timeout_duration
-            && rows_touched.is_empty()
-            && tables_inserted.is_empty()
-            && locked_tables.is_empty()
             && *commit_counter == self.store.change_counter()
-            && writes.is_empty()
-            && !isolation_lock
             && !rolled_back
             && rollback_unpinned.is_none()
             && rollback_kind.is_none()
-            && reads_after_rollback.is_empty()
-            && deferred_insert.is_none()
             && failed_sql_rename.is_none()
-            && insert_buffer.is_empty()
             && !insert_from_al
             && !rename_from_al
             && write_of_al.is_none()
@@ -499,24 +477,12 @@ impl Session {
             && *deferred_raised == 0
             && !immediate_errors
             && *try_depth == 0
+            && *assert_depth == 0
             && used_tries.is_empty()
             && guarded_runs.is_empty()
             && guarded_bodies.is_empty()
-            && row_versions.pending_inserts.is_empty()
-            && row_versions.sent == 0
-            && row_versions.handed_out == 0
-            && row_versions.accounted == 0
-            && row_versions.last == 0
-            && row_versions.unpinned.is_none()
             && xp_export_try_world.is_none()
-            && inconsistent.is_empty()
-            && !lock_tx
-            && lock_unpinned.is_none()
-            && !recref_lock_tx
-            && isolation_lock_tables.is_empty()
-            && locking_reads.is_empty()
-            && *db_reads == 0
-            && !locking_read_tx_unpinned
+            && open.is_clear()
     }
 
     /// Starts this new session from what install code left in a session of its own: the clock first (the restore keeps

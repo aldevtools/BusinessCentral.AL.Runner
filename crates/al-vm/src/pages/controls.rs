@@ -987,7 +987,7 @@ impl Session {
                     let filters = self.page_rec(st).borrow().filters.clone();
                     st.borrow_mut().filters_before_validate = Some(filters);
                 }
-                if let Err(e) = self.control_routine(st, idx, r) {
+                if let Err(e) = self.run_control_onvalidate(st, idx, r) {
                     from_page_trigger.set(true);
                     return Err(e);
                 }
@@ -1295,7 +1295,7 @@ impl Session {
         let st = &c.page;
         let m = method.method();
         let field_read = m == PageMethod::Value && args.is_empty();
-        self.first_part_access(st, m, field_read)?;
+        self.first_part_access(st, m, Some(&c.target), field_read)?;
         self.guard_blank_part_host_control(c, m, field_read)?;
         // After a GoToKey that moved a list without OnAfterGetCurrRecord a Value read and SetValue read nothing, and the action
         // after them reads the row twice (pages/list-order/QgGoToKeyNextCall.al:223 Plain_GoToKey_ThenValueRead `no_log`,
@@ -1545,7 +1545,7 @@ impl Session {
             let ctl_name = ctl.name.clone();
             let owner = ctl.owner;
             let object = st.borrow().object as usize;
-            let declaring = self.object_id_of(owner.unwrap_or(object) as u32);
+            let declaring = self.object_id_of(owner.unwrap_or(object) as u32)?;
             let id = control_id(declaring, &ctl_name);
             return Err(match what {
                 "action" => error_code(
@@ -1804,7 +1804,7 @@ impl Session {
                 let before = self.has_source(st).then(|| self.page_rec(st).borrow().fields.clone());
                 let r = self.set_value_reading_held_row(st, idx, args)?;
                 self.trapped_card_blank_part_validated(st, idx, before.as_deref())?;
-                self.resync_parts_linked_by(st, idx, before.as_deref())?;
+                self.resync_parts_after_set_value(st, idx, before.as_deref())?;
                 self.refresh_host_after_part_edit(st)?;
                 Ok(r)
             }

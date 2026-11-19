@@ -2,7 +2,8 @@
 //! Application and nothing on NAV App Extra, that read is not checked against the session's sets in two shapes: a Lookup
 //! FlowField of an app table filtered on "Tenant Visible" = const(true) calculated by CalcFields, and FindFirst of Published
 //! Application filtered on ID and "Tenant Visible" = true (al-runner issue 8038, permissions/SysFlowFieldPerm.al and
-//! SysFlowFieldPermFilter.al). Every neighbor shape keeps main's outcome.
+//! SysFlowFieldPermFilter.al). With no grant on Published Application, CalcFields of such a FlowField raises the
+//! IndirectRead denial of Published Application. Every neighbor shape keeps main's outcome.
 //!
 //! Needs `System.app` of the pinned build in the artifact cache (`al_testfiles`).
 
@@ -239,6 +240,33 @@ codeunit 50602 T
     procedure FoundNameNoPA()
     var
         I: Record "Repro Item";
+    begin
+        Item(I, true, 'NO PA');
+        I.CalcFields("Extension Name");
+    end;
+
+    [Test]
+    procedure NoPANameHidden()
+    var
+        I: Record "Repro Item";
+    begin
+        Item(I, true, 'NO PA');
+        I.CalcFields("Name Hidden");
+    end;
+
+    [Test]
+    procedure NoPATwoFields()
+    var
+        I: Record "Repro Item";
+    begin
+        Item(I, true, 'NO PA');
+        I.CalcFields("Extension Name", "Exists Visible");
+    end;
+
+    [Test]
+    procedure NoPATemporary()
+    var
+        I: Record "Repro Item" temporary;
     begin
         Item(I, true, 'NO PA');
         I.CalcFields("Extension Name");
@@ -674,11 +702,24 @@ fn tenant_visible_lookup_reads_nav_app_extra_unchecked_neighbors_keep_main() {
         assert_ne!(*outcome, Outcome::Pass, "{name}");
         assert!(hits.is_empty(), "{name}: {hits:?}");
     }
-    // Without a grant on Published Application, or with an indirect one, the read of Published Application is still
-    // checked: main's outcome, never the new path.
-    for name in ["FoundNameNoPA", "DirectIndirect"] {
-        let (_, outcome, hits) = get(name);
-        assert_ne!(*outcome, Outcome::Pass, "{name}");
-        assert!(hits.is_empty(), "{name}: {hits:?}");
+    // Without a grant on Published Application, CalcFields of a measured FlowField raises the IndirectRead denial
+    // (SysFlowFieldPerm.al:221-340).
+    match &get("FoundNameNoPA").1 {
+        Outcome::Fail(why) | Outcome::NotRun(why) => assert!(
+            why.contains("(TableData 2000000206 Published Application IndirectRead: "),
+            "{why}"
+        ),
+        other => panic!("FoundNameNoPA: {other:?}"),
     }
+    // Its neighbors keep main's refusal: another constant, two FlowFields, a temporary record.
+    for name in ["NoPANameHidden", "NoPATwoFields", "NoPATemporary"] {
+        match &get(name).1 {
+            Outcome::NotRun(why) => assert!(why.contains("a FlowField over a system table"), "{name}: {why}"),
+            other => panic!("{name}: {other:?}"),
+        }
+    }
+    // With an indirect grant, the direct read of Published Application is still checked: main's outcome.
+    let (_, outcome, hits) = get("DirectIndirect");
+    assert_ne!(*outcome, Outcome::Pass, "DirectIndirect");
+    assert!(hits.is_empty(), "DirectIndirect: {hits:?}");
 }

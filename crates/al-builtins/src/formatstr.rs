@@ -205,6 +205,10 @@ pub fn format_with_field_places(
             "{RAISE_MARK}InvalidStandardFormat{RAISE_MARK}Standard format number -1 does not exist for the type 'GUID'."
         ));
     }
+    // A DateFormula runs only with the length its pins cover (owner: `format::date_formula_length`).
+    if matches!(v, Value::DateFormula(_)) {
+        crate::format::date_formula_length(length).map_err(fail)?;
+    }
     // `<Text>` alone on a TextBuilder is its text, padded on the right to the length like a plain Format (TxCTextBuilderEdit.al:
     // 716-733 `text_string`, `length8_text_string`). Other codes on it are not pinned.
     if template == "<Text>" && matches!(v, Value::Library(crate::library_kind::LibraryKind::TextBuilder, _)) {
@@ -304,7 +308,19 @@ pub fn format_with_field_places(
         _ => None,
     };
     if let Some(defined) = defined {
-        return match format_with_field_places(&defined, 0, template, (min_decimals, negative_zero), ctx) {
+        // The stand-in value is no date of the test: a name the pass takes from an assumption (`date_name`) is no answer, and its
+        // marks are dropped; the pass then counts as failed, as on a path without that name.
+        let before = crate::assumptions::take_hit_bits();
+        let pass = format_with_field_places(&defined, 0, template, (min_decimals, negative_zero), ctx);
+        let pass_hits = crate::assumptions::take_hit_bits();
+        crate::assumptions::add_hit_bits(before);
+        let pass = if pass_hits.has(crate::assumptions::Assumption::MonthWeekdayNamesByLanguage) {
+            Err("a name of the stand-in date that only an assumption gives".to_string())
+        } else {
+            crate::assumptions::add_hit_bits(pass_hits);
+            pass
+        };
+        return match pass {
             Ok(_) => Ok(crate::format::pad(String::new(), length)),
             Err(e) if matches!(v, Value::DateTime(0)) && e.contains("InvalidStandardFormat") => {
                 Ok(crate::format::pad(String::new(), length))
@@ -1145,7 +1161,9 @@ fn code(v: &Value, code: &str, numeric: Option<&Numeric>, ctx: &dyn FormatCtx) -
     }
     if code == "Closing" {
         return match day_no {
-            Some(_) => Ok(if closing { "C".into() } else { String::new() }),
+            // The mark of `format::closing_mark` (English `C`, types/date-time/Format.al:172-175).
+            Some(_) if closing => crate::format::closing_mark(None, ctx.language()).map(String::from),
+            Some(_) => Ok(String::new()),
             None => Err(format!("code `<Closing>` on {}", v.describe())),
         };
     }
@@ -1169,7 +1187,7 @@ fn code(v: &Value, code: &str, numeric: Option<&Numeric>, ctx: &dyn FormatCtx) -
                 if ctx.language() == 2067 {
                     return Err(format!("{base},{w} in the language 2067 (not pinned)"));
                 }
-                let name = code_name(base, date, day_no, ctx.language(), ctx.dutch_report_language())?;
+                let name = date_name(v, base, date, day_no, Some(w), ctx)?;
                 if w == 0 {
                     return Ok(name);
                 }
@@ -1218,18 +1236,10 @@ fn code(v: &Value, code: &str, numeric: Option<&Numeric>, ctx: &dyn FormatCtx) -
         ("Year", Some((y, _, _)), _) => year_natural(y),
         ("Month", Some((_, m, _)), _) => format!("{m}"),
         ("Month,2", Some((_, m, _)), _) => format!("{m:02}"),
-        ("Month Text", Some(_), _) => {
-            code_name("Month Text", date, day_no, ctx.language(), ctx.dutch_report_language())?
-        }
+        ("Month Text", Some(_), _) => date_name(v, "Month Text", date, day_no, None, ctx)?,
         ("Day", Some((_, _, d)), _) => format!("{d}"),
         ("Day,2", Some((_, _, d)), _) => format!("{d:02}"),
-        ("Weekday Text", Some(_), _) => code_name(
-            "Weekday Text",
-            date,
-            day_no,
-            ctx.language(),
-            ctx.dutch_report_language(),
-        )?,
+        ("Weekday Text", Some(_), _) => date_name(v, "Weekday Text", date, day_no, None, ctx)?,
         // A Time with an hour of 1 to 9 is padded with a space: 09:00 is ` 9` (errors/PnBDateFormat.al:
         // PictureCodes_Numbers `hours24`). A DateTime keeps the zero (types/date-time RoundTrip_AndFormatCodes,
         // codeunit 70120: `02:30:00`); midnight of a Time is not pinned and stays `00`.
@@ -1472,6 +1482,57 @@ fn iso_week(day: i32) -> i32 {
     let thursday = day + (4 - ((day - 1).rem_euclid(7) + 1));
     let (y, _, _) = civil_from_day(thursday);
     (thursday - crate::format::day_from_civil(y, 1, 1)) / 7 + 1
+}
+
+/// The month and weekday names the reporter of al-runner issue 8183 measured (assumption `month-weekday-names-by-language`):
+/// March and August under 1030, 1036, 1044 and 1053, Friday and Tuesday under those and 1031. `weekday` counts from Monday = 0.
+fn reported_name(base: &str, month: u32, weekday: i32, language: i32) -> Option<&'static str> {
+    Some(match (base, language, month, weekday) {
+        ("Month Text", 1030, 3, _) => "marts",
+        ("Month Text", 1036 | 1044 | 1053, 3, _) => "mars",
+        ("Month Text", 1030 | 1044, 8, _) => "august",
+        ("Month Text", 1036, 8, _) => "août",
+        ("Month Text", 1053, 8, _) => "augusti",
+        ("Weekday Text", 1030 | 1044 | 1053, _, 4) => "fredag",
+        ("Weekday Text", 1036, _, 4) => "vendredi",
+        ("Weekday Text", 1031, _, 4) => "Freitag",
+        ("Weekday Text", 1030 | 1044, _, 1) => "tirsdag",
+        ("Weekday Text", 1053, _, 1) => "tisdag",
+        ("Weekday Text", 1036, _, 1) => "mardi",
+        ("Weekday Text", 1031, _, 1) => "Dienstag",
+        _ => return None,
+    })
+}
+
+/// The name `<Month Text>` or `<Weekday Text>` (`width` `None`) or `<Month Text,N>` / `<Weekday Text,N>` (`Some(N)`, before the cut)
+/// shows of `v`. The reporter of al-runner issue 8183 measured the names of [`reported_name`] on a plain Date, with no width and
+/// with the widths 3 (a month) and 2 (a weekday) (assumption `month-weekday-names-by-language`); another width of these names
+/// refuses, and a DateTime or a closing date takes the pinned names of [`code_name`] only.
+fn date_name(
+    v: &Value,
+    base: &str,
+    date: Option<(i32, u32, u32)>,
+    day_no: Option<i32>,
+    width: Option<usize>,
+    ctx: &dyn FormatCtx,
+) -> Result<String, String> {
+    let weekday = (day_no.unwrap_or(1) - 1).rem_euclid(7);
+    let reported = match v {
+        Value::Date(_, false) => date.and_then(|(_, m, _)| reported_name(base, m, weekday, ctx.language())),
+        _ => None,
+    };
+    let Some(name) = reported else {
+        return code_name(base, date, day_no, ctx.language(), ctx.dutch_report_language());
+    };
+    let measured_width = if base == "Month Text" { 3 } else { 2 };
+    if let Some(w) = width.filter(|w| *w != measured_width) {
+        return Err(format!(
+            "{base},{w} in the language {} (the width is not measured)",
+            ctx.language()
+        ));
+    }
+    crate::assumptions::assume(crate::assumptions::Assumption::MonthWeekdayNamesByLanguage);
+    Ok(name.to_string())
 }
 
 /// The name `<Month Text>` or `<Weekday Text>` shows.
@@ -2163,6 +2224,15 @@ mod tests {
             "Donnerstag"
         );
         assert!(code_name("Weekday Text", Some((2027, 3, 16)), Some(tue), 1031, false).is_err());
+    }
+    // Assumption month-weekday-names-by-language (al-runner issue 8183): the German Tuesday and Friday of a plain Date; Wednesday
+    // stays refused.
+    #[test]
+    fn german_weekday_names_the_reporter_measured() {
+        use super::reported_name;
+        assert_eq!(reported_name("Weekday Text", 3, 1, 1031), Some("Dienstag"));
+        assert_eq!(reported_name("Weekday Text", 3, 4, 1031), Some("Freitag"));
+        assert_eq!(reported_name("Weekday Text", 3, 2, 1031), None);
     }
     // reports/runtime/ReportLanguageNotRunFormats.al:242: Dutch December and Wednesday as a report's language; the other months
     // and days, and 2067 that is not a report's language, are refused.

@@ -13,7 +13,7 @@ pub(super) fn onrun_left(
     session: &mut al_vm::Session,
     start: &al_vm::Baseline,
     baseline: Option<&al_vm::Baseline>,
-    skipped_installs: &[(std::collections::BTreeSet<u32>, String)],
+    skipped_installs: &[al_vm::SkippedInstall],
     changes_from: u64,
 ) -> Carried {
     let everything = session.storage_or_sequences_differ(start);
@@ -44,7 +44,7 @@ pub(super) fn carry_left(
     obj: &al_ir::Object,
     onrun_left: Option<Carried>,
     start: Option<al_vm::Baseline>,
-    skipped_installs: &[(std::collections::BTreeSet<u32>, String)],
+    skipped_installs: &[al_vm::SkippedInstall],
 ) {
     if let Some(left) = left_after_tests(session, obj, onrun_left, start, skipped_installs) {
         CARRIED.with(|c| *c.borrow_mut() = Some(left));
@@ -58,7 +58,7 @@ fn left_after_tests(
     obj: &al_ir::Object,
     onrun_left: Option<Carried>,
     start: Option<al_vm::Baseline>,
-    skipped_installs: &[(std::collections::BTreeSet<u32>, String)],
+    skipped_installs: &[al_vm::SkippedInstall],
 ) -> Option<Carried> {
     let has_onrun = obj
         .routines

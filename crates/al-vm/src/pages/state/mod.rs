@@ -7,6 +7,9 @@
 //! out of a value this code owns with `into_st`, and build a value with `page_value` (one new reference, as
 //! `Value::TestPage(st.clone())` was).
 
+mod close;
+pub use close::CloseOutcome;
+
 use al_builtins::page_handle::{ControlHandle, PageHandle};
 use al_builtins::value::{Instance, RecordState, RunPageLinkFill, Value};
 use std::cell::RefCell;
@@ -204,6 +207,13 @@ pub struct PageState {
     /// index, caption, whether it is a subscriber's for an own area). `Caption()` reads it and runs nothing
     /// (record/captions/QdCaptionClassAreas.al:422-481); a subscriber's only while `own_area_control_caption_pinned` holds.
     pub field_captions: Vec<(usize, String, bool)>,
+    /// What the AutoFormatExpression procedure of the table field under the page's format-procedure control gave at the last
+    /// fetch that ran it: (control index, value); a read of the control takes it (`format_procedure.rs`).
+    pub field_format_texts: Vec<(usize, Value)>,
+    /// A TestPage GoToRecord is moving the page (`format_procedure.rs`).
+    pub format_procedure_goto: bool,
+    /// Where a page whose open ran an AutoFormatExpression procedure stands in the probe's steps (`format_procedure.rs`).
+    pub format_procedure_step: FormatProcedureStep,
     /// The open ran the CaptionClass expressions of the source table's fields with an empty record (`field_captions`).
     pub field_captions_opened: bool,
     /// The open ran the empty-record CaptionClass runs without a pinned number, or in a cell of `Session::caption_state_free_pin`:
@@ -426,16 +436,8 @@ pub struct PageState {
     /// (corpus testpage/TestPageFailedInsert_Tests.al:1-30): `refused` keeps the line, `pending`
     /// is the line left behind by Previous()/First(), whose insert fails again at Close().
     pub refused: bool,
-    /// The last close was refused because OnQueryClosePage raised an error (shown as a message).
-    pub close_error: bool,
-    /// A `TestPage.Close()` of this Card failed on the save of its row (al-vm `pages/close_save_failed.rs`).
-    pub close_save_failed: bool,
-    /// The last close was refused because the page's own OnQueryClosePage answered false.
-    pub close_vetoed: bool,
-    /// A `TestPage.Close()` in the modal page's handler was refused by OnQueryClosePage and closed the TestPage all the same.
-    pub test_close_vetoed: bool,
-    /// A `TestPage.Close()` in the modal page's handler closed the page (no veto).
-    pub test_closed_in_handler: bool,
+    /// How the last close ended (`close.rs`).
+    pub close: CloseOutcome,
     /// How the current modal run started: `Some(true)` the static `Page.RunModal(Id)`, `Some(false)` a Page variable's
     /// `RunModal()`, `None` any other run (an action, a lookup).
     pub run_static: Option<bool>,
@@ -612,6 +614,11 @@ pub struct PageState {
     /// A ListPart that shows no row on a top-level List host landed in a cell BC was measured at: Rec holds the link values
     /// only inside a measured read (`empty_part_rec.rs`, `reading_empty_list_rec`).
     pub empty_list_landing: Option<crate::pages::empty_part_rec::EmptyListLanding>,
+    /// The last measured step of a List host's CardPart FactBox around the new line (`list_factbox_new_line.rs`).
+    pub factbox_line: crate::pages::list_factbox_new_line::FactboxLine,
+    /// A measured step of `factbox_line` reads the part now: a part that finds no row runs OnAfterGetCurrRecord on the blank
+    /// record (`list_factbox_new_line.rs`, `factbox_blank_landing`).
+    pub factbox_blank_landing: bool,
     /// The test called `First()` on the page since it opened (`next_held_row_read`; set and cleared by `test_page_op_held`).
     pub first_since_open: bool,
     /// The static `Page.RunModal(0, Rec)` found the page from the table's LookupPageId.
@@ -899,8 +906,20 @@ pub struct PageState {
     pub expr_set_no_source: bool,
     /// The refresh about to run was asked for by `CurrPage.Update` (not by an action that saved an edit).
     pub refresh_by_update: bool,
+    /// The keys of the rows the client held when the part's own `CurrPage.Update`, which asked for the refresh about to run,
+    /// found its view no longer starting with them (`part_update_left_view.rs`). Read only together with `refresh_by_update`:
+    /// every site that sets that flag to true writes this one too.
+    pub update_left_view: Option<Vec<Vec<Value>>>,
     /// The last `CurrPage.Update` call was `Update(false)` (it saves nothing).
     pub refresh_update_false: bool,
+    /// The refresh about to run starts from a new line the table code inserted inside the validation (`code_inserted_new_line.rs`).
+    pub refresh_from_code_inserted_line: bool,
+    /// The key of the row that refresh landed on and the number of test calls then, until the next move
+    /// (`code_inserted_new_line.rs`).
+    pub code_inserted_row: Option<(Vec<Value>, usize)>,
+    /// The store's write mark (`Session::write_mark`) when the page control's own OnValidate began, while it runs
+    /// (`code_inserted_new_line.rs` `run_control_onvalidate`).
+    pub control_onvalidate_writes: Option<(i64, u64)>,
     /// The filters of the page's record when a control's OnValidate began, for the refresh a `CurrPage.Update` in it asks for
     /// (`al-vm` `refresh_after_validate_filter`).
     pub filters_before_validate: Option<Vec<al_builtins::filter::FieldFilter>>,
@@ -939,6 +958,8 @@ pub struct PageState {
     /// and for a page the test opened. Set and cleared where `caught_by_trap` is (`PageRun::catch_by_trap`, RunObject, the test's
     /// own opens).
     pub trapped_run: Option<super::page_run_close::PageRunCall>,
+    /// What the page was when its last open ended (`post_left_new_line.rs`, `Session::note_open_end`).
+    pub open_end: Option<crate::pages::post_left_new_line::OpenEnd>,
 }
 
 // The page instance holds `CurrPage`, which points back here: print only the facts.
@@ -1054,7 +1075,10 @@ impl PageState {
         self.tree_calls = Vec::new();
         self.tree_calls_unknown = false;
         self.tree_calls_mark = None;
+        self.open_end = None;
         self.empty_list_landing = None;
+        self.factbox_line = Default::default();
+        self.factbox_blank_landing = false;
         self.typed_key_dropped = false;
         self.pinned_end = None;
         self.data_caption_at_open = false;
@@ -1067,6 +1091,14 @@ impl PageState {
         self.temp_ws_edit = None;
         self.temp_ws_preloaded = false;
         self.journal_stayed = false;
+        self.forget_code_inserted_line();
+    }
+
+    /// What `code_inserted_new_line.rs` noted when the page landed on the row its new line became is gone: the page opens or
+    /// closes, or the validation that landed ended with an error.
+    pub(crate) fn forget_code_inserted_line(&mut self) {
+        self.refresh_from_code_inserted_line = false;
+        self.code_inserted_row = None;
     }
 
     /// The page opens: the captions its controls and fields resolved on the last run are gone.
@@ -1137,6 +1169,21 @@ pub struct TestTypedFilter {
     pub text: String,
     /// The filter that text set (filter group 0).
     pub expr: al_builtins::filter::FilterExpr,
+}
+
+/// The steps of pages/controls/AutoFormatProcedureControl.al:223-257 a page whose open ran an AutoFormatExpression procedure has
+/// made (`format_procedure.rs`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FormatProcedureStep {
+    /// No AutoFormatExpression procedure ran at the open.
+    #[default]
+    None,
+    /// The open ran it.
+    Opened,
+    /// The GoToRecord after the open ran it.
+    Landed,
+    /// A SetValue of the format control followed, in mode Edit.
+    Set,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

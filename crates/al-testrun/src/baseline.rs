@@ -42,6 +42,9 @@ pub struct BaselineRun {
     /// The recorded runs of the login code over this baseline (`install::login_work_date`), kept in its file of the
     /// compile cache so that a later run replays them instead of running the code again.
     pub login: Vec<LoginRecord>,
+    /// The install code read a resource file (`Engine::resources_read`, set while it ran): an entry with resource files of
+    /// its own is then not run, whether this baseline ran for the request or was kept (al-runner issues 5635, 8206).
+    pub read_resources: bool,
 }
 
 /// One recorded run of the login code that sets WorkDate when a test session opens the company
@@ -482,6 +485,7 @@ pub fn run_traced_halting(
         restored,
         trace,
         login: Vec::new(),
+        read_resources: session.engine.resources_read.load(std::sync::atomic::Ordering::Relaxed),
     })
 }
 
@@ -580,6 +584,26 @@ pub(crate) fn tables_written(lowered: &Lowered, object: usize, routine: usize) -
 /// n19d, n23).
 pub(crate) fn tables_written_or_loaded(lowered: &Lowered, object: usize, routine: usize) -> BTreeSet<u32> {
     tables_written_in(lowered, object, routine, true)
+}
+
+/// The tables the `RecordRef`s of routine `r` of `o` can open, by its own body ([`RecRefWrites::opens`]), whether or not
+/// they write; `None` when one can open a table `opens` may not hold ([`RecRefWrites::any_table`]; a write through a
+/// parameter counts as one from outside, as for a root). For `runtime/table_reads.rs`.
+pub(crate) fn recordref_opens(lowered: &Lowered, o: usize, r: usize) -> Option<BTreeSet<u32>> {
+    let obj = &lowered.program.objects[o];
+    let rt = &obj.routines[r];
+    let (mut out, mut recref) = (BTreeSet::new(), RecRefWrites::default());
+    WriteWalk {
+        locals: &rt.locals,
+        root_params: rt.params,
+        globals: &obj.globals,
+        heads: lowered.program.objects.heads(),
+        loads: true,
+        out: &mut out,
+        recref: &mut recref,
+    }
+    .stmts(&rt.body);
+    if recref.any_table { None } else { Some(recref.opens) }
 }
 
 use al_builtins::value::RtType;
@@ -707,7 +731,9 @@ impl WriteWalk<'_> {
             | Expr::Fail { .. }
             | Expr::ControlAddInCall { .. } => {}
             Expr::TddStub { args, .. } => args.iter().for_each(|a| self.expr(a)),
-            Expr::TddFit { inner, .. } | Expr::FitOrRefuse { inner, .. } => self.expr(inner),
+            Expr::TddFit { inner, .. } | Expr::FitOrRefuse { inner, .. } | Expr::VarSectionValue(inner) => {
+                self.expr(inner)
+            }
             Expr::Load(p) => self.place(p),
             Expr::Unary(_, a) | Expr::Convert(_, a) | Expr::DotNetCoerce(_, a) | Expr::DotNetOperand(a, _) => {
                 self.expr(a)

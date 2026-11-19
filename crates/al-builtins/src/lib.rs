@@ -1,7 +1,9 @@
 //! The AL standard library: builtin signatures (generated from the docs, see
 //! ADR-008) and, later, the value model and native implementations.
 
+mod closing_date_days;
 mod conv_undefined;
+mod date_difference;
 pub mod date_filter_forms;
 mod date_formula_language;
 mod format_boolean;
@@ -49,7 +51,7 @@ pub mod fieldref_variant_cells;
 pub mod file;
 pub mod filter;
 pub mod filter_blob;
-mod filter_boolean_words;
+pub mod filter_boolean_words;
 mod filter_collation;
 pub mod format;
 mod format_json;
@@ -67,6 +69,7 @@ pub mod media_orphans;
 pub mod moduleinfo;
 pub mod native;
 pub mod ops;
+pub mod option_members;
 pub mod page_handle;
 pub mod page_op;
 pub mod pagebuiltins;

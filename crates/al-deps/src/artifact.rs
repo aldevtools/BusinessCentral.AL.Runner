@@ -453,6 +453,71 @@ fn offline_hint(e: String, download: bool) -> String {
     }
 }
 
+/// A build [`pick_build`] chose.
+pub struct Picked {
+    pub selection: Selection,
+    /// Chosen from the cache before the feed was asked: the dependencies are resolved again with its apps in the pool
+    /// before anything is fetched.
+    pub look_again: bool,
+}
+
+/// The build the Microsoft apps come from when no search folder holds them. In this order: the cache (the build of
+/// the tests only if it is cached), a build of the local artifacts the query names exactly, then offline any cached
+/// build or any matching local build, online the published builds, and when the feed has none or cannot be reached a
+/// matching local build. `None`: offline, and nothing matches. [`load_with_artifacts`] chooses its build here, and a
+/// caller that needs the build before the dependencies are loaded (the DemoTool's release) asks the same function.
+pub fn pick_build<C: Cdn>(
+    store: &Store,
+    fetch: &Fetch,
+    cdn: &C,
+    log: &mut Vec<String>,
+) -> Result<Option<Picked>, String> {
+    let cache_dir = store.dir().display().to_string();
+    let local_root = fetch.local_artifacts.as_deref();
+    let local_pick = |exact_only| local_root.and_then(|r| pick_local(r, &fetch.query, exact_only, &fetch.country));
+    let picked = |selection, look_again| Ok(Some(Picked { selection, look_again }));
+    // Layer A, first look: the cache. A cached build needs no network to be chosen.
+    let cached = store.list_builds();
+    // The build of the tests, when the query names one, must itself be cached: another
+    // cached build waits until the build of the tests is looked for on disk and on the feed.
+    let usable = fetch.query.exact().is_none_or(|e| cached.contains(&e));
+    if let Some(sel) = usable
+        .then(|| select_build(&fetch.query, &cached, None, &cache_dir).ok())
+        .flatten()
+    {
+        return picked(sel, true);
+    }
+    // A build named exactly and found on disk is used without asking the feed.
+    if let Some(sel) = local_pick(true) {
+        return picked(sel, false);
+    }
+    if !fetch.download {
+        // Offline: any cached build, else any matching build on disk.
+        if let Ok(sel) = select_build(&fetch.query, &cached, None, &cache_dir) {
+            return picked(sel, true);
+        }
+        return Ok(local_pick(false).map(|selection| Picked {
+            selection,
+            look_again: false,
+        }));
+    }
+    let published = published_builds(cdn, &fetch.country).and_then(|published| {
+        select_build(&fetch.query, &cached, Some(&published), &cache_dir).map_err(|e| e.to_string())
+    });
+    match published {
+        Ok(sel) => picked(sel, false),
+        // The feed has no such build (it keeps recent ones) or cannot be reached: a
+        // matching build already on disk still answers.
+        Err(e) => match local_pick(false) {
+            Some(sel) => {
+                log.push(format!("artifact: {e}; using the local artifacts instead"));
+                picked(sel, false)
+            }
+            None => Err(e),
+        },
+    }
+}
+
 /// Resolves the dependencies of `req.project`, downloading from the feed what no directory supplies.
 ///
 /// `req.missing` is the caller's policy for what is still missing at the end: `Error` fails the
@@ -598,7 +663,6 @@ pub fn load_with_artifacts<C: Cdn>(req: &Request<'_>, fetch: &Fetch, cdn: &C) ->
         if todo.is_empty() {
             break;
         }
-        let cache_dir = store.dir().display().to_string();
         let local_root = fetch.local_artifacts.as_deref();
         let choose_local = |sel: Selection, local: &mut Option<LocalPlatform>, root: &Path, log: &mut Vec<String>| {
             log.extend(sel.warnings.iter().map(|w| format!("warning: {w}")));
@@ -618,64 +682,24 @@ pub fn load_with_artifacts<C: Cdn>(req: &Request<'_>, fetch: &Fetch, cdn: &C) ->
             Some((store.build(&sel.build), sel))
         };
         if chosen.is_none() {
-            // Layer A, first look: the cache. A cached build needs no network to be chosen.
-            let cached = store.list_builds();
-            // The build of the tests, when the query names one, must itself be cached: another
-            // cached build waits until the build of the tests is looked for on disk and on the feed.
-            let usable = fetch.query.exact().is_none_or(|e| cached.contains(&e));
-            if let Some(sel) = usable
-                .then(|| select_build(&fetch.query, &cached, None, &cache_dir).ok())
-                .flatten()
-            {
-                log.extend(sel.warnings.iter().map(|w| format!("warning: {w}")));
-                chosen = Some((store.build(&sel.build), sel));
-                continue; // resolve again with the cached build's apps in the pool
-            }
-            // A build named exactly and found on disk is used without asking the feed.
-            if let Some((root, sel)) =
-                local_root.and_then(|r| pick_local(r, &fetch.query, true, &fetch.country).map(|s| (r, s)))
-            {
-                chosen = choose_local(sel, &mut local, root, &mut log);
-            }
-        }
-        if chosen.is_none() && !fetch.download {
-            // Offline: any cached build, else any matching build on disk.
-            if let Ok(sel) = select_build(&fetch.query, &store.list_builds(), None, &cache_dir) {
-                log.extend(sel.warnings.iter().map(|w| format!("warning: {w}")));
-                chosen = Some((store.build(&sel.build), sel));
-                continue;
-            }
-            if let Some((root, sel)) =
-                local_root.and_then(|r| pick_local(r, &fetch.query, false, &fetch.country).map(|s| (r, s)))
-            {
-                chosen = choose_local(sel, &mut local, root, &mut log);
+            match pick_build(&store, fetch, cdn, &mut log)? {
+                Some(p) if p.selection.origin == Origin::Local => {
+                    let root = local_root.expect("a build of the local artifacts has their folder");
+                    chosen = choose_local(p.selection, &mut local, root, &mut log);
+                }
+                Some(p) => {
+                    let sel = p.selection;
+                    log.extend(sel.warnings.iter().map(|w| format!("warning: {w}")));
+                    chosen = Some((store.build(&sel.build), sel));
+                    if p.look_again {
+                        continue; // resolve again with the cached build's apps in the pool
+                    }
+                }
+                None => {}
             }
         }
         if local.is_none() && !fetch.download {
             break;
-        }
-        if chosen.is_none() {
-            let picked = published_builds(cdn, &fetch.country).and_then(|published| {
-                select_build(&fetch.query, &store.list_builds(), Some(&published), &cache_dir)
-                    .map_err(|e| e.to_string())
-            });
-            match picked {
-                Ok(sel) => {
-                    log.extend(sel.warnings.iter().map(|w| format!("warning: {w}")));
-                    chosen = Some((store.build(&sel.build), sel));
-                }
-                // The feed has no such build (it keeps recent ones) or cannot be reached: a
-                // matching build already on disk still answers.
-                Err(e) => {
-                    match local_root.and_then(|r| pick_local(r, &fetch.query, false, &fetch.country).map(|s| (r, s))) {
-                        Some((root, sel)) => {
-                            log.push(format!("artifact: {e}; using the local artifacts instead"));
-                            chosen = choose_local(sel, &mut local, root, &mut log);
-                        }
-                        None => return Err(e),
-                    }
-                }
-            }
         }
         if let Some(l) = &local {
             let (_, sel) = chosen.as_ref().expect("a build is chosen");

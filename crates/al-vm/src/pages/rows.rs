@@ -46,7 +46,8 @@ impl Session {
                 }
             }
         }
-        self.fill_field_caption_expressions(st)
+        self.fill_field_caption_expressions(st)?;
+        self.fill_format_procedures(st)
     }
 
     /// A page open runs the CaptionClass expression of every field of the source table that has one, also those without a
@@ -453,11 +454,11 @@ impl Session {
         st.borrow_mut().read_up_from_last = None;
         st.borrow_mut().opened_on_moved_rec = false;
         let rec = self.page_rec(st);
-        // The rows of a page whose table holds a global filter (filter group 1) another record set (records.rs
-        // `global_group_check`).
-        if !self.global_group1.is_empty() {
+        // The rows of a page whose table holds a global filter (filter group 1) another record set: only a record that holds
+        // the same filters is answered (`group1_sessions.rs` `group1_use`).
+        if self.global_group1.has_tables() {
             let table = rec.borrow().table;
-            self.global_group_check(&rec, table, "A page reading its rows")?;
+            self.group1_use(&rec, table, crate::group1_sessions::Group1Op::Page, &[])?;
         }
         let start = self.row_key(&rec)?;
         let mut keys = Vec::new();
@@ -2874,8 +2875,7 @@ impl Session {
     pub(super) fn answer_page(&mut self, st: &St, handler: Handler, modal: bool) -> Result<Value, Signal> {
         let (hobject, hroutine, hinst) = handler;
         let st = st.clone();
-        st.borrow_mut().test_close_vetoed = false;
-        st.borrow_mut().test_closed_in_handler = false;
+        st.borrow_mut().close.handler_started();
         let caught_before = self.caught_errors();
         self.ui_state.page_handler_depth += 1;
         let handled = self.call(hobject, hroutine, hinst, vec![page_value(&st)]);
@@ -2887,13 +2887,13 @@ impl Session {
             self.mark_closed(&st);
             return Err(e);
         }
-        if modal && std::mem::take(&mut st.borrow_mut().test_close_vetoed) {
+        if modal && st.borrow_mut().close.take_test_vetoed_in_handler() {
             // A TestPage.Close() the page's OnQueryClosePage refused in the handler: RunModal raises, no OnClosePage runs
             // (pages/triggers/PageModalQueryCloseVeto.al:167 Modal_HandlerClose_VetoAlways, :236
             // Modal_HandlerOkThenClose_VetoAlways). Only a veto by the page's own trigger is pinned.
             self.refuse_unpinned_modal_veto(&st)?;
             st.borrow_mut().modal = false;
-            let id = self.engine.program.objects[st.borrow().object as usize].id.unwrap_or(0);
+            let id = crate::object_ids::declared_id(self.engine.program.objects[st.borrow().object as usize].id)?;
             return Err(error_code(
                 format!("The RunModal procedure could not close the page {id} as it has already been closed."),
                 "TestCodeUnit",
@@ -2903,7 +2903,7 @@ impl Session {
         // and without a record (ui-handlers/CbHandlerTests.al:181 ModalHandler_CallsClose_RunModalOutcome), and a Page
         // variable's RunModal of a Card given SetRecord, whose Rec is the blank record without filters afterwards
         // (pages/currpage/UnopenedCurrPage.al:273 Update_Then_RunModal_Card_HandlerCloses `rec-after-close`).
-        let closed_in_handler = std::mem::take(&mut st.borrow_mut().test_closed_in_handler);
+        let closed_in_handler = st.borrow_mut().close.take_test_closed_in_handler();
         if modal && closed_in_handler && !self.relation_closed_in_handler(&st) {
             let page_type = self.engine.object_facts[st.borrow().object as usize]
                 .page_type_lower()
@@ -2929,7 +2929,7 @@ impl Session {
                     }
                 }
             }
-            let id = self.engine.program.objects[st.borrow().object as usize].id.unwrap_or(0);
+            let id = crate::object_ids::declared_id(self.engine.program.objects[st.borrow().object as usize].id)?;
             return Err(error_code(
                 format!("The RunModal procedure could not close the page {id} as it has already been closed."),
                 "TestCodeUnit",
@@ -2949,8 +2949,8 @@ impl Session {
                 // the last error is the veto's, and OnClosePage does not run (pages/triggers/
                 // PageModalQueryCloseVeto.al:275 Modal_HandlerDoesNothing_VetoAlways; after a vetoed OK or Cancel in the
                 // handler the platform asks once more with its own action, :129, :148, :255; the next run is a clean one, :309).
-                let vetoed = st.borrow().close_vetoed;
-                if !(modal && (st.borrow().close_error || vetoed)) {
+                let vetoed = st.borrow().close.vetoed();
+                if !(modal && (st.borrow().close.error() || vetoed)) {
                     return unsupported("a page whose OnQueryClosePage refused the platform's close");
                 }
                 if vetoed {

@@ -32,8 +32,20 @@ pub struct Publisher {
     pub object: usize,
     /// Lower-case event name.
     pub event: String,
+    /// The attribute that declares the event.
+    pub kind: EventKind,
     pub include_sender: bool,
+    /// `IntegrationEvent(IncludeSender, GlobalVarAccess)`: GlobalVarAccess (`false` for the other kinds).
+    pub global_var_access: bool,
     pub isolated: bool,
+}
+
+/// The attribute that declares an event publisher.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EventKind {
+    Integration,
+    Business,
+    Internal,
 }
 
 #[derive(Debug)]
@@ -152,9 +164,28 @@ pub enum MissingWhy {
     PublisherNotPicked(String),
     /// The publisher argument as written: neither `<Kind>::<name>` nor an object id (`ir::PublisherRef::Unread`).
     PublisherNotRead(String),
+    /// The publisher written as the id (the second field) of a platform codeunit (the first field) whose events the runtime
+    /// raises to the subscribers that name it ([`Registry::add_by_id_subscriber`]). The third field: the subscriber codeunit
+    /// when it declares `EventSubscriberInstance = Manual` ([`Missing::bound_only`]).
+    PlatformPublisherById(&'static str, String, Option<usize>),
 }
 
 impl Missing {
+    /// The manual subscriber codeunit this refusal holds for only while an instance of it is bound: a by-id subscriber of a
+    /// platform codeunit (`MissingWhy::PlatformPublisherById`). Unbound, it receives the event under neither reading of the
+    /// id, as any manual subscriber (`dispatch.rs` `event_targets`). `None`: the refusal always holds.
+    pub fn bound_only(&self) -> Option<usize> {
+        match self.why {
+            MissingWhy::PlatformPublisherById(_, _, manual) => manual,
+            _ => None,
+        }
+    }
+
+    /// Whether an event for `element` (any element when `None`) reaches this subscriber.
+    pub fn reaches(&self, element: Option<&str>) -> bool {
+        element.is_none_or(|e| self.element.is_empty() || self.element.eq_ignore_ascii_case(e))
+    }
+
     /// Why raising `event` is refused for this subscriber.
     pub fn refusal(&self, event: &str) -> String {
         match &self.why {
@@ -170,6 +201,12 @@ impl Missing {
             MissingWhy::PublisherNotRead(written) => format!(
                 "event {event}: {} subscribes to the publisher {written}, an argument that is neither `<Kind>::<name>` nor an \
                  object id, so which object it names is not known",
+                self.subscriber
+            ),
+            MissingWhy::PlatformPublisherById(name, written, _) => format!(
+                "event {event}: {} subscribes to the platform codeunit {name} by its id {written}; the runtime raises that \
+                 codeunit's events only to subscribers that name it, and whether BC treats the id the same is not pinned \
+                 (al-runner issue 7644)",
                 self.subscriber
             ),
         }
@@ -229,17 +266,105 @@ impl Registry {
     }
 }
 
+/// A platform codeunit whose events the runtime raises without the codeunit object, under a key of its own. Its subscribers are
+/// found by the name as written (`Registry::build`); one written with the id refuses ([`Registry::add_by_id_subscriber`]).
+struct RaisedPlatformCodeunit {
+    /// The id the platform's System.app declares for it (the System symbols of BC 27.5, 28.5 and 29.0).
+    id: &'static str,
+    name: &'static str,
+    /// The object key the runtime raises its events under.
+    key: usize,
+    /// Every event of the codeunit is listed in `Registry::unraised`.
+    unraised: bool,
+}
+
+const FILTER_HELPER: RaisedPlatformCodeunit = RaisedPlatformCodeunit {
+    id: "2000000007",
+    name: "Filter Helper Triggers",
+    key: FILTER_HELPER_TRIGGERS,
+    unraised: false,
+};
+
+const UI_HELPER: RaisedPlatformCodeunit = RaisedPlatformCodeunit {
+    id: "2000000004",
+    name: "UI Helper Triggers",
+    key: UI_HELPER_TRIGGERS,
+    unraised: true,
+};
+
+const REPORTING: RaisedPlatformCodeunit = RaisedPlatformCodeunit {
+    id: "2000000005",
+    name: "Reporting Triggers",
+    key: REPORTING_TRIGGERS,
+    unraised: true,
+};
+
+impl Registry {
+    /// A codeunit subscriber whose publisher is written as an id (`written`), before the publisher is resolved: the id of
+    /// [`FILTER_HELPER`], [`UI_HELPER`] or [`REPORTING`] by equality, or 44 resolved to Base Application's ReportManagement
+    /// (`al_ir::is_report_management`). Raising the event it names under the platform codeunit's key refuses
+    /// (`MissingWhy::PlatformPublisherById`; a manual subscriber only while an instance is bound), and it is listed in
+    /// `unraised` where a subscriber written with the name is. Whether the runtime stands in for the publisher.
+    fn add_by_id_subscriber(
+        &mut self,
+        program: &ir::Program,
+        (oi, o, r): (usize, &ir::ObjectHead, &ir::EventRoutine),
+        a: &ir::Attribute,
+        written: &str,
+        event: &str,
+    ) -> bool {
+        let heads = program.objects.heads();
+        if let Some(p) = [&FILTER_HELPER, &UI_HELPER, &REPORTING]
+            .into_iter()
+            .find(|p| p.id == written)
+        {
+            self.missing
+                .entry((p.key, event.to_string()))
+                .or_default()
+                .push(Missing {
+                    element: String::new(),
+                    subscriber: format!("{} \"{}\".{}", o.kind, o.name, r.name),
+                    why: MissingWhy::PlatformPublisherById(p.name, written.to_string(), is_manual(o).then_some(oi)),
+                });
+            if p.unraised {
+                self.unraised
+                    .entry((p.name.to_ascii_lowercase(), event.to_string()))
+                    .or_default()
+                    .push(Unraised::of(heads, oi, o, r));
+            }
+            return true;
+        }
+        let report_management = match a.publisher {
+            ir::PublisherRef::Only(t) => heads.get(t as usize).is_some_and(|h| {
+                h.kind == ObjKind::Codeunit
+                    && program
+                        .apps
+                        .get(h.app as usize)
+                        .is_some_and(|app| al_ir::is_report_management(h.id, &h.name, &app.id))
+            }),
+            _ => false,
+        };
+        if report_management && written == al_ir::REPORT_MANAGEMENT.0.to_string() {
+            self.unraised
+                .entry((al_ir::REPORT_MANAGEMENT.1.to_ascii_lowercase(), event.to_string()))
+                .or_default()
+                .push(Unraised::of(heads, oi, o, r));
+            return true;
+        }
+        false
+    }
+}
+
 /// The objects through which a test can see that subscriber `r` of codeunit `oi` ran: the codeunit itself and the
 /// SingleInstance codeunits the routine holds a variable of (`Unraised::witnesses`).
 fn witnesses(heads: &[ir::ObjectHead], oi: usize, r: &ir::EventRoutine) -> Vec<usize> {
     let mut witnesses = vec![oi];
     for &c in &r.codeunit_slots {
         let c = c as usize;
-        if heads.get(c).is_some_and(|x| {
-            x.properties
-                .iter()
-                .any(|(k, v)| k.eq_ignore_ascii_case("SingleInstance") && v.trim().eq_ignore_ascii_case("true"))
-        }) && !witnesses.contains(&c)
+        if heads
+            .get(c)
+            .is_some_and(|x| ir::ObjectFacts::of_properties(&x.properties).single_instance)
+            && !witnesses.contains(&c)
         {
             witnesses.push(c);
         }
@@ -352,17 +477,21 @@ impl Registry {
                         "integrationevent" | "businessevent" | "internalevent" => {
                             // IntegrationEvent(IncludeSender, GlobalVarAccess[, Isolated]);
                             // BusinessEvent / InternalEvent(IncludeSender[, Isolated]).
-                            let isolated = if name == "integrationevent" {
-                                flag(&args, 2)
-                            } else {
-                                flag(&args, 1)
+                            let kind = match name.as_str() {
+                                "integrationevent" => EventKind::Integration,
+                                "businessevent" => EventKind::Business,
+                                _ => EventKind::Internal,
                             };
+                            let integration = kind == EventKind::Integration;
+                            let isolated = if integration { flag(&args, 2) } else { flag(&args, 1) };
                             reg.publishers.insert(
                                 (oi, ri),
                                 Publisher {
                                     object: base_of.get(&oi).copied().unwrap_or(oi),
                                     event: r.name.to_lowercase(),
+                                    kind,
                                     include_sender: flag(&args, 0),
+                                    global_var_access: integration && flag(&args, 1),
                                     isolated,
                                 },
                             );
@@ -383,11 +512,12 @@ impl Registry {
                             // The platform codeunits below are found by the name as written, namespace left out.
                             let (target, _) = publisher_name(args[1].rsplit("::").next().unwrap_or(""));
                             let event = unquote(&args[2]).to_lowercase();
+                            // The runtime raises (or refuses where BC raises) this event without the publisher object.
+                            let mut native = kind == ObjKind::Codeunit
+                                && reg.add_by_id_subscriber(program, (oi, o, r), a, &target, &event);
                             let Some(found) = reg.publisher_of(heads, (oi, kind), r, a, &event, args.get(3)) else {
                                 continue;
                             };
-                            // The runtime raises (or refuses where BC raises) this event without the publisher object.
-                            let mut native = false;
                             // The page client raises the caption class event under a key of its own,
                             // whether or not the codeunit is compiled.
                             if kind == ObjKind::Codeunit
@@ -427,7 +557,7 @@ impl Registry {
                                         element: String::new(),
                                     });
                             }
-                            if kind == ObjKind::Codeunit && target.eq_ignore_ascii_case("UI Helper Triggers") {
+                            if kind == ObjKind::Codeunit && target.eq_ignore_ascii_case(UI_HELPER.name) {
                                 native = true;
                                 reg.add_ui_helper_subscriber(heads, oi, o, r, &target, &event);
                             }
@@ -435,8 +565,8 @@ impl Registry {
                             // subscribers to them, are listed too: a Pdf save that writes a placeholder raises none of them and
                             // refuses while a test can see a subscriber (`report_placeholder`).
                             if kind == ObjKind::Codeunit
-                                && (target.eq_ignore_ascii_case("Reporting Triggers")
-                                    || target.eq_ignore_ascii_case("ReportManagement"))
+                                && (target.eq_ignore_ascii_case(REPORTING.name)
+                                    || target.eq_ignore_ascii_case(al_ir::REPORT_MANAGEMENT.1))
                             {
                                 native = true;
                                 reg.unraised
@@ -459,7 +589,7 @@ impl Registry {
                             // The layout selection events go to Base Application's ReportManagement only (ADR-040 amendment
                             // 2026-11-12, A7; `report_save::fact_selection`).
                             if kind == ObjKind::Codeunit
-                                && target.eq_ignore_ascii_case("Reporting Triggers")
+                                && target.eq_ignore_ascii_case(REPORTING.name)
                                 && raised_reporting_event(program, o, &event)
                             {
                                 native = true;
@@ -474,7 +604,7 @@ impl Registry {
                                     });
                             }
                             if kind == ObjKind::Codeunit
-                                && target.eq_ignore_ascii_case("Filter Helper Triggers")
+                                && target.eq_ignore_ascii_case(FILTER_HELPER.name)
                                 && al_ir::RAISED_FILTER_EVENTS
                                     .iter()
                                     .any(|e| e.eq_ignore_ascii_case(event.as_str()))
@@ -738,10 +868,14 @@ impl Registry {
     /// The first subscriber of `event` of `object` that is declared but not compiled and that an
     /// event for `element` (any element when `None`) would reach.
     pub fn missing_for(&self, object: usize, event: &str, element: Option<&str>) -> Option<&Missing> {
+        self.missing_at(object, event).iter().find(|m| m.reaches(element))
+    }
+
+    /// The subscribers of `event` of `object` that are declared but cannot run, in program order, for every element.
+    pub fn missing_at(&self, object: usize, event: &str) -> &[Missing] {
         self.missing
-            .get(&(object, event.to_string()))?
-            .iter()
-            .find(|m| element.is_none_or(|e| m.element.is_empty() || m.element.eq_ignore_ascii_case(e)))
+            .get(&(object, event.to_string()))
+            .map_or(&[], Vec::as_slice)
     }
 }
 
@@ -916,9 +1050,13 @@ mod tests {
     }
 
     fn registry(src: &str) -> Registry {
+        registry_of_app("a", src)
+    }
+
+    fn registry_of_app(app_id: &str, src: &str) -> Registry {
         let (_ws, l) = al_sema::lower::compile(
             vec![al_sema::workspace::AppSource {
-                id: "a".into(),
+                id: app_id.into(),
                 name: "a".into(),
                 dependencies: vec![],
                 files: vec![("f.al".into(), src.into())],
@@ -926,6 +1064,44 @@ mod tests {
             &Default::default(),
         );
         Registry::build(&l.program)
+    }
+
+    /// `Registry::unraised` for a subscriber written with an id: UI Helper Triggers (2000000004) and Reporting Triggers
+    /// (2000000005) by the written id, Base Application's ReportManagement by the object id 44 resolves to. Not Filter Helper
+    /// Triggers (2000000007), not an app's own codeunit, not a codeunit 44 ReportManagement of another app.
+    #[test]
+    fn by_id_subscribers_are_listed_as_unraised_only_for_the_codeunits_listed_by_name() {
+        let sub = |publisher: &str, event: &str| {
+            format!(
+                "codeunit 50310 Sub
+                 {{ [EventSubscriber(ObjectType::Codeunit, {publisher}, '{event}', '', false, false)] local procedure H() begin end; }}"
+            )
+        };
+        let listed = |reg: &Registry| {
+            let mut keys: Vec<String> = reg.unraised.keys().map(|(c, e)| format!("{c}.{e}")).collect();
+            keys.sort();
+            keys
+        };
+        let a = |src: String| listed(&registry(&src));
+        assert_eq!(
+            a(sub("2000000004", "CaptionClassTranslate")),
+            ["ui helper triggers.captionclasstranslate"]
+        );
+        assert_eq!(
+            a(sub("2000000005", "SubstituteReport")),
+            ["reporting triggers.substitutereport"]
+        );
+        assert!(a(sub("2000000007", "MakeIntFilter")).is_empty());
+        let own =
+            "codeunit 50300 \"UI Helper Triggers\" { [IntegrationEvent(false, false)] procedure OnX() begin end; }";
+        assert!(a(format!("{own}{}", sub("50300", "OnX"))).is_empty());
+        let report_management = "codeunit 44 ReportManagement { [IntegrationEvent(false, false)] procedure OnAfterSubstituteReport() begin end; }";
+        let src = format!("{report_management}{}", sub("44", "OnAfterSubstituteReport"));
+        assert_eq!(
+            listed(&registry_of_app(al_ir::BASE_APPLICATION_APP_ID, &src)),
+            ["reportmanagement.onaftersubstitutereport"]
+        );
+        assert!(listed(&registry(&src)).is_empty());
     }
 
     #[test]
