@@ -1696,6 +1696,7 @@ impl Session {
                     temporary: *temporary,
                     temp_id,
                     company: None,
+                    change_company_called: false,
                     crm: self.engine.object_facts[*table as usize].crm(),
                     fields: self.initial_fields(*table as usize),
                     filters: Vec::new(),

@@ -517,6 +517,10 @@ pub struct RecordState {
     /// The company set by `ChangeCompany` or `RecordRef.Open(.., Company)`, as the Company table
     /// names it; `None` is the session company.
     pub company: Option<String>,
+    /// A `ChangeCompany` call succeeded on this variable, also to the session's own company or '' (which leave `company`
+    /// at `None`), or on a record `Copy` took this one from. No method clears it. It only marks state the corpus does not
+    /// measure: al-vm `modify_all_audit_field` refuses on it.
+    pub change_company_called: bool,
     /// The table is `TableType = CRM`: any use needs a registered table connection
     /// (session-system/TestCrmTableNoConnectionContracts.al).
     pub crm: bool,

@@ -1064,6 +1064,9 @@ impl Session {
         };
         self.move_blobs(table, &mut d.fields, None, how, holder)?;
         d.filters = s.filters;
+        // The target keeps its company (above); whether it takes a ChangeCompany call of the source along is not measured, so
+        // the mark comes over and the shapes that read it stay refused.
+        d.change_company_called |= s.change_company_called;
         d.filter_group = s.filter_group;
         d.key = s.key;
         d.adhoc = s.adhoc;
@@ -2060,7 +2063,8 @@ impl Session {
     /// `ModifyAll` of an audit field. The one shape measured (record/system-fields/AssignedAuditFields.al:594-631,
     /// ModifyAll_CreatedAt) raises the "cannot change" error with code DB:Ok: SystemCreatedAt, SystemCreatedBy or
     /// SystemModifiedAt; a table that holds one row; the variable as `Reset` leaves it (:604, no filter, marks, other filter
-    /// group, ChangeCompany, SetLoadFields or ReadIsolation), on the primary key ascending, not temporary; no RunTrigger
+    /// group, SetLoadFields or ReadIsolation), with no ChangeCompany call (also none to the session's own company or '', nor
+    /// on a record it took a `Copy` from), on the primary key ascending, not temporary; no RunTrigger
     /// argument; a value that is not blank and differs from the stored one (FixedAt :98, FixedBy :105); called from a codeunit
     /// (:602); the table as table 61800 declares it (:17-27): no Caption, no trigger of its own or of a field, no table
     /// extension, data per company, and no Insert, Modify or Rename event subscriber or global trigger. Every other shape of
@@ -2088,7 +2092,11 @@ impl Session {
         }
         let (field, table) = (t.fields[pos].name.clone(), t.name.clone());
         let r = rec.borrow();
-        let variable = crate::assigned_audit::default_variable(&r) && r.key == 0 && r.ascending && !r.temporary;
+        let variable = crate::assigned_audit::default_variable(&r)
+            && !r.change_company_called
+            && r.key == 0
+            && r.ascending
+            && !r.temporary;
         let value_differs = matches!(rows, [row] if crate::assigned_audit::non_blank(value)
             && matches!(ops::compare(value, &row[pos]), Ok(Ordering::Less | Ordering::Greater)));
         let measured = [SYSTEM_CREATED_AT, SYSTEM_CREATED_BY, SYSTEM_MODIFIED_AT].contains(&id)

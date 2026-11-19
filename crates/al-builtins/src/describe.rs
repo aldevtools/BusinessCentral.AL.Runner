@@ -292,6 +292,7 @@ mod tests {
             temporary,
             temp_id: None,
             company: None,
+            change_company_called: false,
             crm: false,
             fields: Vec::new(),
             filters: Vec::new(),

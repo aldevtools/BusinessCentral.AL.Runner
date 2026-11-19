@@ -1,6 +1,6 @@
 //! `ModifyAll` of an audit field (record/system-fields/AssignedAuditFields.al:594-631, ModifyAll_CreatedAt): SystemCreatedAt,
 //! SystemCreatedBy and SystemModifiedAt raise the "cannot change" error in the measured shape only (a table as table 61800
-//! declares it that holds one row, the variable as Reset leaves it on the primary key ascending, no RunTrigger argument, a
+//! declares it that holds one row, the variable as Reset leaves it with no ChangeCompany call on the primary key ascending, no RunTrigger argument, a
 //! value that is not blank and differs from the stored one, called from a codeunit). Each neighbor shape that changes one of
 //! those facts refuses; another field keeps main's ModifyAll.
 
@@ -400,6 +400,64 @@ codeunit 50332 T
         P.ModifyAllOnRec();
     end;
 
+    procedure OwnCompany()
+    var
+        P: Record A;
+    begin
+        Seed(1);
+        P.Get(1);
+        P.Reset();
+        P.ChangeCompany(CompanyName());
+        P.ModifyAll(SystemCreatedAt, CreateDateTime(20200102D, 120000T));
+    end;
+
+    procedure EmptyCompanyName()
+    var
+        P: Record A;
+    begin
+        Seed(1);
+        P.Get(1);
+        P.Reset();
+        P.ChangeCompany('');
+        P.ModifyAll(SystemCreatedAt, CreateDateTime(20200102D, 120000T));
+    end;
+
+    procedure OwnCompanyThenReset()
+    var
+        P: Record A;
+    begin
+        Seed(1);
+        P.Get(1);
+        P.ChangeCompany(CompanyName());
+        P.Reset();
+        P.ModifyAll(SystemCreatedAt, CreateDateTime(20200102D, 120000T));
+    end;
+
+    procedure CopyOfOwnCompanyVariable()
+    var
+        P: Record A;
+        Other: Record A;
+    begin
+        Seed(1);
+        P.Get(1);
+        P.Reset();
+        Other.ChangeCompany(CompanyName());
+        Other.Get(1);
+        P.Copy(Other);
+        P.ModifyAll(SystemCreatedAt, CreateDateTime(20200102D, 120000T));
+    end;
+
+    procedure OtherFieldAfterOwnCompany(): Text
+    var
+        P: Record A;
+    begin
+        Seed(1);
+        P.ChangeCompany(CompanyName());
+        P.ModifyAll(Name, 'y');
+        P.Get(1);
+        exit(P.Name);
+    end;
+
     procedure OtherField(): Text
     var
         P: Record A;
@@ -467,7 +525,29 @@ fn modifyall_of_an_audit_field_outside_the_measured_shape_refuses() {
     assert!(wrong.is_empty(), "expected a refusal:\n{}", wrong.join("\n"));
 }
 
+// ChangeCompany to the session's own company or to '' leaves the record on the session company, but no corpus case runs
+// ModifyAll of an audit field after any ChangeCompany call (AssignedAuditFields.al:594-631 makes none): each refuses, also
+// after Reset and on the target of a Copy from such a variable.
+#[test]
+fn modifyall_of_an_audit_field_after_a_change_company_call_refuses() {
+    let mut wrong = Vec::new();
+    for routine in [
+        "OwnCompany",
+        "EmptyCompanyName",
+        "OwnCompanyThenReset",
+        "CopyOfOwnCompanyVariable",
+    ] {
+        match run_in(SRC, "T", routine) {
+            Err(Signal::Unsupported(why)) if why.contains("outside the measured shape") => {}
+            other => wrong.push(format!("{routine}: {other:?}")),
+        }
+    }
+    assert!(wrong.is_empty(), "expected a refusal:\n{}", wrong.join("\n"));
+}
+
 #[test]
 fn modifyall_of_another_field_keeps_writing() {
     assert_eq!(text(run_in(SRC, "T", "OtherField")), "x");
+    // The ChangeCompany mark changes only the audit-field gate.
+    assert_eq!(text(run_in(SRC, "T", "OtherFieldAfterOwnCompany")), "y");
 }
