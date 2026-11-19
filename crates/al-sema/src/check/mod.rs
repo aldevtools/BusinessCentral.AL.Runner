@@ -559,7 +559,7 @@ fn check_inner(
         left_out_resolutions = resolved;
         timings.workspace += started.elapsed();
     }
-    let positions: HashMap<&str, usize> = ws.files.iter().enumerate().map(|(i, f)| (f.path.as_str(), i)).collect();
+    let positions = ws.file_order();
     let from_checker = c.diags.clone();
     // A grown check: the rules of each object and of each app ran for the kept objects and apps; their findings are kept.
     let n_old_apps = if n_old > 0 { ws.objects[n_old - 1].app + 1 } else { 0 };
@@ -597,8 +597,7 @@ fn check_inner(
         kept_codes = all;
     }
     c.diags.extend(from_codes.iter().cloned());
-    c.diags
-        .sort_by_key(|d| (positions.get(d.file.as_str()).copied(), d.offset));
+    positions.sort(&mut c.diags);
     // Without a demand state (the eager compile) every dependency object is lowered, so every one
     // needs its layout.
     if narrate {
@@ -661,7 +660,7 @@ fn resolved_scope_findings(
     contexts: &[(usize, crate::alcodes::AppContext)],
     n_old_apps: usize,
     left_out_resolutions: Option<&PosMap<Res>>,
-    positions: &HashMap<&str, usize>,
+    positions: &crate::workspace::FileOrder<'_>,
 ) {
     if contexts.is_empty() {
         return;
@@ -680,9 +679,7 @@ fn resolved_scope_findings(
     if !more.is_empty() {
         result.from_checker.extend(more.iter().cloned());
         result.diagnostics.extend(more);
-        result
-            .diagnostics
-            .sort_by_key(|d| (positions.get(d.file.as_str()).copied(), d.offset));
+        positions.sort(&mut result.diagnostics);
     }
 }
 

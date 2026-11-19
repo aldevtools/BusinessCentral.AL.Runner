@@ -102,6 +102,17 @@ pub struct Diagnostic {
     pub message: String,
 }
 
+/// The position of each file in `Workspace::files` by its app and path (a path is relative to its app; two apps can hold
+/// the same one): the order the diagnostics are reported in.
+pub struct FileOrder<'a>(HashMap<(usize, &'a str), usize>);
+
+impl FileOrder<'_> {
+    /// Sorts by file, then offset; diagnostics at one position keep their order.
+    pub fn sort(&self, diags: &mut [Diagnostic]) {
+        diags.sort_by_key(|d| (self.0.get(&(d.app, d.file.as_str())).copied(), d.offset));
+    }
+}
+
 pub struct SourceFileData {
     pub path: String,
     pub app: usize,
@@ -264,6 +275,16 @@ pub struct Workspace {
 const USER_NAME_FIELDS_GATE: al_version::Gate = al_version::Gate::PlatformMetadataColumnsFrom29;
 
 impl Workspace {
+    pub fn file_order(&self) -> FileOrder<'_> {
+        FileOrder(
+            self.files
+                .iter()
+                .enumerate()
+                .map(|(i, f)| ((f.app, f.path.as_str()), i))
+                .collect(),
+        )
+    }
+
     /// Whether every table has the user-name system FlowFields (SystemCreatedByUserName and the others, BC 29 and later).
     pub fn user_name_fields(&self) -> bool {
         self.user_name_fields

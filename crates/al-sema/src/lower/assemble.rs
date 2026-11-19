@@ -2479,8 +2479,7 @@ pub fn relower_objects(
     from_checker.extend(checked.from_checker.iter().cloned());
     let mut all: Vec<crate::workspace::Diagnostic> = from_checker.clone();
     all.extend(checked.from_codes.iter().cloned());
-    let order: HashMap<&str, usize> = ws.files.iter().enumerate().map(|(i, f)| (f.path.as_str(), i)).collect();
-    all.sort_by_key(|d| (order.get(d.file.as_str()).copied(), d.offset));
+    ws.file_order().sort(&mut all);
     old.al_diagnostics = all.into_iter().filter(|d| d.code.starts_with("AL")).collect();
     old.checker_diags = from_checker;
     old.skipped = checked.skipped.clone();

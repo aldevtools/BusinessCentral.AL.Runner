@@ -97,7 +97,7 @@ pub fn eligible_for_declarations(ws: &crate::Workspace, objects: &[usize]) -> Re
 /// `Codeunit::"Name"`, an attribute, `Codeunit.Run(50100)`.
 /// A call or member that did not resolve before the change is in no call list, and may resolve to a changed object after
 /// it. So an object that is neither kind of reader is an error when the program before the change holds one for it: a
-/// call of its code with no callee the checker resolved (`Lowered::unresolved_calls`; a `--tdd` stub site is one), or a
+/// call of its code with no callee the checker resolved (`Lowered::unresolved_calls`; a `--tdd` procedure stub site is one), or a
 /// compile error in its file (`Lowered::al_diagnostics`: an AL0132 member, an AL0130 `var` argument, any other error
 /// that may read a declaration).
 /// More objects than `limit` is an error: lowering them again costs as much as the complete compile.
