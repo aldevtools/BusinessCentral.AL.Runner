@@ -107,7 +107,8 @@ Under 200 words plus the table.
 - **Page state** (ADR-072): `PageState`, `PageMode`, `WindowRow`, `Cursor`, `ReadBackwards`, `ControlRef` and `ControlTarget`
   live in `crates/al-vm/src/pages/state/mod.rs`, not in `crates/al-builtins/src/value.rs`. A branch that added a field in
   `value.rs`: after you merge `main`, put the field into `state/mod.rs`. It starts at its type's default; `PageState::closed`
-  gets a line only for another starting value. `Value::TestPage` and
+  gets a line only for another starting value. A page flag that belongs to a mechanism with a file in `pages/state/`
+  (for example `close.rs`) goes into that file's type, set through a transition and read through a question. `Value::TestPage` and
   `Value::TestControl` hold a handle: read it with `st_of` / `control_of`, build a value with `page_value` / `test_control`.
 
 ## Other files

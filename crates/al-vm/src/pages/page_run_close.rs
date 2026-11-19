@@ -559,7 +559,7 @@ impl Session {
             && s.cursor == Cursor::Row
             && s.mode == PageMode::Edit
             && s.errors.is_empty()
-            && !s.close_error
+            && !s.close.error()
             && s.dirty == (row == RowAtClose::Edited);
         let measured = CLOSE_ERRORS.iter().any(|e| cell(pinned, by, row, *e).is_some());
         Ok((row_as_typed && measured).then_some(PageRunClose {
