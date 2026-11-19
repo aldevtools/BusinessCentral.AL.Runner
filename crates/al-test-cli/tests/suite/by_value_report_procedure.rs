@@ -1,6 +1,6 @@
 //! A record handed by value to a procedure of a report (al-runner issue 8386): the copy gets the view of a fresh record,
 //! flagged under `by-value-record-no-filters` (corpus PR 1450, record/filters/ByValueRecordView.al, the
-//! `ByValue_ReportProcedure_*` tests of codeunit 78731, :1231-1590). Measured callers: the report itself (a data item trigger, a local procedure), a
+//! `ByValue_ReportProcedure_*` and `ByValue_FlowFieldKeyLoadFields_*` tests of codeunit 78731, :1252-1703). Measured callers: the report itself (a data item trigger, a local procedure), a
 //! codeunit and a page. Every other caller, a report extension procedure, and a data item that still holds its
 //! DataItemTableView filters refuse a read of the copy's view.
 
@@ -146,6 +146,11 @@ table 50180 "BR Row"
         key(ByName; Name) { }
     }
 
+    procedure KeyOf(Copy: Record "BR Row"): Text
+    begin
+        exit(Copy.CurrentKey());
+    end;
+
     procedure DescribeThroughReport(): Text
     var
         Copy: Record "BR Row";
@@ -280,6 +285,49 @@ report 50184 "BR Other Report"
     procedure GetResult(): Text
     begin
         exit(Outcome);
+    end;
+}
+
+report 50187 "BR Request Report"
+{
+    ProcessingOnly = true;
+
+    dataset
+    {
+        dataitem(Row; "BR Row") { }
+    }
+
+    requestpage
+    {
+        layout
+        {
+            area(Content)
+            {
+                field(ShownField; Shown) { ApplicationArea = All; }
+            }
+        }
+
+        trigger OnOpenPage()
+        var
+            ReqRow: Record "BR Row";
+        begin
+            ReqRow.SetRange(Status, ReqRow.Status::Open);
+            Outcome := Describe(ReqRow);
+        end;
+    }
+
+    var
+        Shown: Boolean;
+        Outcome: Text;
+
+    procedure GetResult(): Text
+    begin
+        exit(Outcome);
+    end;
+
+    local procedure Describe(R: Record "BR Row"): Text
+    begin
+        exit('f={' + R.GetFilters() + '} n=' + Format(R.Count()));
     end;
 }
 
@@ -439,6 +487,35 @@ codeunit 50186 "BR Test"
     end;
 
     [Test]
+    procedure TableProcedure_FlowFieldKeyAndLoadFields_Refused()
+    var
+        Row: Record "BR Row";
+    begin
+        Seed();
+        Row.SetLoadFields(Name);
+        Row.SetCurrentKey(Total);
+        Expect(Row.KeyOf(Row), '');
+    end;
+
+    [Test]
+    [HandlerFunctions('RequestHandler')]
+    procedure FromRequestPageTrigger_Flagged()
+    var
+        Rep: Report "BR Request Report";
+    begin
+        Seed();
+        Commit();
+        Rep.RunModal();
+        Expect(Rep.GetResult(), 'f={} n=3');
+    end;
+
+    [RequestPageHandler]
+    procedure RequestHandler(var RequestPage: TestRequestPage "BR Request Report")
+    begin
+        RequestPage.OK().Invoke();
+    end;
+
+    [Test]
     procedure FromCodeunit_FilterGroup3_Refused()
     var
         Row: Record "BR Row";
@@ -532,15 +609,18 @@ fn by_value_report_procedure_neighbors_are_flagged_where_measured_and_refused_el
             VIEW_REFUSED,
             false,
         ),
-        // A key on a FlowField whose value depends on the row goes back to the primary key in the copy
-        // (record/keys-sorting/PwFlowFieldKeyRule.al:249-252), and a SetLoadFields of a caller that read no row is dropped
-        // (`ByValue_SetLoadFields`); with ReadIsolation the copy is not measured.
+        // A key on a FlowField with a SetLoadFields before any read: the copy has the primary key and every field loaded
+        // (ByValue_FlowFieldKeyLoadFields_CodeunitProcedure and _ReportProcedure); with ReadIsolation it is not measured.
         ("FromCodeunit_FlowFieldKeyAndLoadFields_Flagged", PASS, true),
         (
             "FromCodeunit_FlowFieldKeyLoadFieldsReadIsolation_Refused",
             VIEW_REFUSED,
             false,
         ),
+        // No cell has a FlowField key with a SetLoadFields handed to a table procedure (main answered `key=Total`, clean).
+        ("TableProcedure_FlowFieldKeyAndLoadFields_Refused", VIEW_REFUSED, false),
+        // ByValue_ReportProcedure_FromRequestPage.
+        ("FromRequestPageTrigger_Flagged", PASS, true),
         ("FromCodeunit_FilterGroup3_Refused", VIEW_REFUSED, false),
         // ByValue_ReportProcedure_FromPageAction.
         ("FromPageAction_Flagged", PASS, true),
