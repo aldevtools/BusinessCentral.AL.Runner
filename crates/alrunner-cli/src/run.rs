@@ -1262,7 +1262,8 @@ fn test_inner(
         return Err(e);
     }
     // The release of the DemoTool `demotool::resolve` fetches is chosen here, before the build is known (`settle_target`).
-    let demotool_release = (a.company_demotool && a.demotool_dir.is_none()).then_some((chosen.target.bc.major, chosen.target.bc.minor));
+    let demotool_release =
+        (a.company_demotool && a.demotool_dir.is_none()).then_some((chosen.target.bc.major, chosen.target.bc.minor));
     let company_data = if a.company_demotool {
         // A lane of `--recipe microsoft` gets the DemoTool without the check of the command line (args.rs).
         if !al_deps::artifact::is_w1(a.country()) {

@@ -66,7 +66,11 @@ fn strip_comments(src: &str) -> String {
             // A directive (`#region`, `#endregion`, `#pragma`, `#if`) runs to the end of its line when nothing but blanks
             // comes before it on the line, as the lexer reads it (`al_syntax` lexer, `Directive`). Its text is not code:
             // `#region (former codeunit 50149)` is no object header (al-runner issue 8350).
-            b'#' if out.rsplit('\n').next().is_some_and(|l| l.bytes().all(|c| matches!(c, b' ' | b'\t'))) => {
+            b'#' if out
+                .rsplit('\n')
+                .next()
+                .is_some_and(|l| l.bytes().all(|c| matches!(c, b' ' | b'\t'))) =>
+            {
                 let start = i;
                 while i < b.len() && b[i] != b'\n' && b[i] != b'\r' {
                     i += 1;
