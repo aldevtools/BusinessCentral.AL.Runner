@@ -1011,14 +1011,7 @@ impl Session {
             let r = rec.borrow();
             (r.table as usize, r.temporary)
         };
-        let id = self
-            .engine
-            .program
-            .objects
-            .heads()
-            .get(object)
-            .and_then(|o| o.id)
-            .unwrap_or(0);
+        let id = self.object_id_of(object as u32)?;
         let ops: &[Op] = if write {
             &[Op::Insert, Op::Modify, Op::Delete]
         } else {
@@ -1533,14 +1526,7 @@ impl Session {
         if temporary {
             return Ok(());
         }
-        let id = self
-            .engine
-            .program
-            .objects
-            .heads()
-            .get(object)
-            .and_then(|o| o.id)
-            .unwrap_or(0);
+        let id = self.object_id_of(object as u32)?;
         if op == Op::Read && ALWAYS_READABLE.contains(&id) {
             return Ok(());
         }

@@ -1,10 +1,11 @@
 //! A subscriber that names a platform codeunit by its id instead of its name (al-runner issue 7644). The runtime raises the
 //! events of `Filter Helper Triggers`, `UI Helper Triggers` and `Reporting Triggers` to the subscribers that name the
-//! codeunit; whether BC treats the id form the same is not pinned, so raising such an event refuses. A subscriber written with
-//! the id of an app's own codeunit keeps main's result.
+//! codeunit; whether BC treats the id form the same is not pinned, so raising the event such a subscriber names refuses, for a
+//! manual subscriber only while an instance is bound. A subscriber written with the id of an app's own codeunit, even one
+//! with a platform codeunit's name, keeps main's result.
 
 use al_builtins::native::Signal;
-use al_testkit::{run_in, text};
+use al_testkit::{error_message, run_in, text};
 
 fn refused(r: Result<al_builtins::value::Value, Signal>) -> String {
     match r {
@@ -13,12 +14,10 @@ fn refused(r: Result<al_builtins::value::Value, Signal>) -> String {
     }
 }
 
-/// Stands for the platform codeunit of the System symbols (id and name as there); its event as `MakeIntFilter`.
+/// A record filter whose Integer text the runtime hands to `MakeIntFilter` of the platform codeunit Filter Helper Triggers.
+/// No source declares the platform codeunit: System.app is not loaded (a `--no-deps` run), the subscriber is decided by
+/// the id it writes.
 const FILTER_HELPER: &str = r#"
-codeunit 2000000007 "Filter Helper Triggers"
-{
-    [IntegrationEvent(false, false)] procedure MakeIntFilter(var IntFilterText: Text) begin end;
-}
 table 50210 FRow
 {
     fields { field(1; Id; Integer) { } }
@@ -54,10 +53,6 @@ fn a_make_int_filter_subscriber_written_with_the_codeunit_id_refuses_the_raise()
 }
 
 const UI_HELPER: &str = r#"
-codeunit 2000000004 "UI Helper Triggers"
-{
-    [IntegrationEvent(false, false)] procedure CaptionClassTranslate(Language: Integer; CaptionExpr: Text[1024]; var Translation: Text[1024]) begin end;
-}
 codeunit 50462 Subs
 {
     [EventSubscriber(ObjectType::Codeunit, 2000000004, 'CaptionClassTranslate', '', false, false)]
@@ -82,10 +77,6 @@ fn a_caption_class_translate_subscriber_written_with_the_codeunit_id_refuses_the
 }
 
 const REPORTING: &str = r#"
-codeunit 2000000005 "Reporting Triggers"
-{
-    [IntegrationEvent(false, false)] procedure SubstituteReport(ReportId: Integer; RunMode: Option Normal,ParametersOnly,Execute,Print,SaveAs,RunModal; RequestPageXml: Text; RecordRef: RecordRef; var NewReportId: Integer) begin end;
-}
 report 50500 R { ProcessingOnly = true; UseRequestPage = false; dataset { dataitem(I; Integer) { } } }
 codeunit 50502 S
 {
@@ -130,4 +121,86 @@ codeunit 50100 C
 }
 "#;
     assert_eq!(text(run_in(src, "C", "F")), "ran");
+}
+
+/// A by-id subscriber of a manual codeunit that no instance is bound to receives nothing: the raise keeps main's result. The
+/// same subscriber with a bound instance refuses.
+const MANUAL_FILTER_SUB: &str = r#"
+codeunit 50211 FSub
+{
+    EventSubscriberInstance = Manual;
+
+    [EventSubscriber(ObjectType::Codeunit, 2000000007, 'MakeIntFilter', '', false, false)]
+    local procedure MakeIntFilter(var IntFilterText: Text)
+    begin
+        if IntFilterText = 'abc' then
+            IntFilterText := '5';
+    end;
+}
+codeunit 50212 Binder
+{
+    procedure Bound(): Text
+    var S: Codeunit FSub; C: Codeunit C;
+    begin
+        BindSubscription(S);
+        exit(C.Word());
+    end;
+}
+"#;
+
+#[test]
+fn a_manual_by_id_subscriber_never_bound_keeps_the_evaluate_error() {
+    let m = error_message(run_in(&format!("{FILTER_HELPER}{MANUAL_FILTER_SUB}"), "C", "Word"));
+    assert!(m.contains("abc"), "{m}");
+}
+
+#[test]
+fn a_manual_by_id_subscriber_with_a_bound_instance_refuses_the_raise() {
+    let m = refused(run_in(
+        &format!("{FILTER_HELPER}{MANUAL_FILTER_SUB}"),
+        "Binder",
+        "Bound",
+    ));
+    assert!(m.contains("by its id 2000000007"), "{m}");
+}
+
+#[test]
+fn a_manual_by_id_substitute_report_subscriber_never_bound_keeps_the_report() {
+    let src = REPORTING.replace(
+        "codeunit 50502 S\n{",
+        "codeunit 50502 S\n{\n    EventSubscriberInstance = Manual;",
+    );
+    assert!(src.contains("Manual"));
+    assert_eq!(text(run_in(&src, "U", "Id")), "50500");
+}
+
+/// An app's own codeunit with a platform codeunit's name, subscribed by its own id: not the platform codeunit, main's result
+/// (the evaluate error of the filter, and its own event reaches the subscriber).
+const OWN_NAMED: &str = r#"
+codeunit 50300 "Filter Helper Triggers"
+{
+    [IntegrationEvent(false, false)] procedure MakeIntFilter(var IntFilterText: Text) begin end;
+    procedure Raise(): Text var T: Text; begin T := 'abc'; MakeIntFilter(T); exit(T); end;
+}
+codeunit 50211 FSub
+{
+    [EventSubscriber(ObjectType::Codeunit, 50300, 'MakeIntFilter', '', false, false)]
+    local procedure MakeIntFilter(var IntFilterText: Text)
+    begin
+        if IntFilterText = 'abc' then
+            IntFilterText := '5';
+    end;
+}
+codeunit 50213 Own
+{
+    procedure Raise(): Text var F: Codeunit "Filter Helper Triggers"; begin exit(F.Raise()); end;
+}
+"#;
+
+#[test]
+fn an_own_codeunit_named_like_a_platform_codeunit_subscribed_by_its_id_keeps_main() {
+    let src = format!("{FILTER_HELPER}{OWN_NAMED}");
+    let m = error_message(run_in(&src, "C", "Word"));
+    assert!(m.contains("abc"), "{m}");
+    assert_eq!(text(run_in(&src, "Own", "Raise")), "5");
 }

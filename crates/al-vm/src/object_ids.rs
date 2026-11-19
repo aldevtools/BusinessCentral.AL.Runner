@@ -4,11 +4,14 @@
 
 use al_builtins::native::{Signal, unsupported};
 
+/// Why a text or value that would name an object without a declared id refuses.
+pub(crate) const NO_DECLARED_ID: &str = "an error text or value that names an object without a declared id";
+
 /// The declared id `id` of an object, or a refusal when it has none.
 pub(crate) fn declared_id(id: Option<u32>) -> Result<u32, Signal> {
     match id {
         Some(id) => Ok(id),
-        None => unsupported("an error text or value that names an object without a declared id"),
+        None => unsupported(NO_DECLARED_ID),
     }
 }
 

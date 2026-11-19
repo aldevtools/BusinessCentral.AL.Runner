@@ -460,18 +460,20 @@ impl Session {
         // would be a wrong answer (ADR-013 decision 6, hard rule 4).
         // A raise to some subscribers only (`Session::raise_to`) does not reach the others, compiled or not.
         let only = self.events.only_targets.take();
-        if let Some(m) = engine
-            .events
-            .missing_for(object, event, element)
-            .filter(|_| only.is_none())
-        {
-            return unsupported(m.refusal(event));
+        // A binding only a gone page held ends before the event picks its targets (page_held_bindings.rs).
+        self.prune_page_held();
+        if only.is_none() {
+            // A manual subscriber with no bound instance receives nothing (the manual arm below), so a refusal held for one
+            // only while bound does not hold then (`Missing::bound_only`).
+            let refusal = (engine.events.missing_at(object, event).iter())
+                .find(|m| m.reaches(element) && m.bound_only().is_none_or(|c| !self.bound_instances(c).is_empty()));
+            if let Some(m) = refusal {
+                return unsupported(m.refusal(event));
+            }
         }
         let Some(subs) = engine.events.subscribers_at(object, event) else {
             return Ok(Vec::new());
         };
-        // A binding only a gone page held ends before the event picks its targets (page_held_bindings.rs).
-        self.prune_page_held();
         let mut targets = Vec::new();
         for s in subs {
             if only.as_ref().is_some_and(|o| !o.contains(&(s.object, s.routine))) {

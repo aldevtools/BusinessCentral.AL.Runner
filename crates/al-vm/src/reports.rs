@@ -1281,9 +1281,10 @@ impl Session {
     /// "The <report> report does not have a DataItem that uses the table ..." (record/P136Report.al:
     /// P136_Report_ViewOverTableWithoutDataItem).
     fn report_no_data_item(&self, schema: &Schema, table: u32) -> Signal {
-        let (id, name) = {
-            let o = &self.engine.program.objects[table as usize];
-            (o.id.unwrap_or(0), o.name.clone())
+        let o = &self.engine.program.objects[table as usize];
+        let (id, name) = match crate::object_ids::declared_id(o.id) {
+            Ok(id) => (id, o.name.clone()),
+            Err(refusal) => return refusal,
         };
         Signal::Error(Box::new(al_builtins::native::AlError {
             message: format!(

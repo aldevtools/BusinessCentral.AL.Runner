@@ -1108,7 +1108,7 @@ impl Session {
             }
             "SetAutoCalcFields" => self.recordref_set_auto_calc_fields(&rec, &t, args),
             // Doc (RecordRef.Duplicate): a new ref with the same table, buffer and filters, independent of the original.
-            "RecordId" => Ok(self.record_id(&rec, &t)),
+            "RecordId" => self.record_id(&rec, &t),
             "LockTable" => {
                 // RecordRef.LockTable(true, true) raises the Wait = FALSE error (recordref-fieldref/recordref/RfTViews.al:314-322).
                 if matches!(args, [Value::Boolean(true), Value::Boolean(true)]) {
