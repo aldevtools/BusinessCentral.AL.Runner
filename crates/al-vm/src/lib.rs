@@ -31,7 +31,7 @@ mod state;
 pub(crate) use state::*;
 mod baseline;
 mod sequence_start;
-pub use sequence_start::SequenceStart;
+pub use sequence_start::{DataAccess, SequenceStart};
 mod storage_checkpoint;
 pub use storage_checkpoint::{StorageCheckpoint, Unkept};
 mod capture;
@@ -900,6 +900,8 @@ pub struct Session {
     /// Each sequence this session restarted or deleted, as it was just before the first of those (`numbers_taken.rs` in
     /// al-testrun: what a codeunit under runner 130450 leaves of it).
     pub(crate) sequences_changed: std::collections::HashMap<(String, String), sessionops::SequenceChange>,
+    /// What AL code reached of the table data and when each sequence was inserted (`sequence_start.rs`).
+    access_notes: sequence_start::Notes,
     /// Why no NumberSequence call of this session can have BC's answer (`storage_checkpoint.rs`); `None`: every call runs.
     numbers_unmeasured: Option<Rc<str>>,
     /// The one instance of each `SingleInstance = true` codeunit in this session.
@@ -1443,6 +1445,7 @@ impl Session {
             setup_caption_read_early: false,
             sequences,
             sequences_changed: Default::default(),
+            access_notes: Default::default(),
             table_connections: Default::default(),
             default_table_connection: Default::default(),
             crm_stores: Default::default(),
