@@ -42,3 +42,28 @@ impl RequestTimings {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn of_copies_each_phase_and_takes_the_warm_compile_over_the_compile_when_it_is_set() {
+        let ms = Duration::from_millis;
+        let mut p = al_testrun::runtime::Phases::default();
+        p.compile = ms(5);
+        p.engine = ms(6);
+        p.engine_kept = true;
+        p.baseline = ms(7);
+        p.baseline_source = Some("kept");
+        p.tests = ms(8);
+        let t = RequestTimings::of(SetupParts::default(), &p, ms(9), None);
+        assert_eq!((t.compile, t.engine, t.baseline, t.tests, t.coverage), (ms(5), ms(6), ms(7), ms(8), ms(9)));
+        assert!(t.engine_kept);
+        assert_eq!(t.baseline_source, Some("kept"));
+        assert_eq!(t.test_data_index, None);
+        p.warm_compile = Some(ms(1));
+        assert_eq!(RequestTimings::of(SetupParts::default(), &p, ms(9), None).compile, ms(1));
+    }
+}
