@@ -67,7 +67,7 @@ pub(crate) fn save_record_refusal(
 // ---- Caption ----
 //
 // BC 29.0 (local run of corpus PR 1456, pages/lifecycle/CurrPageCaptionOwn*.al): beside page procedures named Caption,
-// every `CurrPage.Caption` form is the platform method; a bare or page-variable call with an argument is the platform
+// every `CurrPage.Caption` form is the platform method; a bare or page-variable call with one argument is the platform
 // setter; a call without arguments names the own parameterless procedure the code sees, and the platform getter where it
 // sees none. Compile facts: must-not-compile 3210-3215 of that PR.
 
@@ -113,8 +113,9 @@ pub(crate) fn own_captions(ws: &Workspace, page: usize) -> Vec<OwnCaption> {
 
 /// Whether a `Caption` site names the platform method `Page.Caption` rather than one of the page's procedures `own`
 /// (not empty). `call_args` is the argument count of a call, None for a form without parentheses; `code_obj` the
-/// object whose code holds the site. A form without parentheses of a bare name or a page variable keeps the
-/// procedure lookup it had before.
+/// object whose code holds the site. A form without parentheses, or a call with two or more arguments, of a bare name
+/// or a page variable keeps the procedure lookup it had before (the lowering's gate refuses it unless it names a
+/// parameterless own procedure).
 pub(crate) fn caption_names_platform(
     ws: &Workspace,
     receiver: CaptionReceiver,
@@ -126,7 +127,8 @@ pub(crate) fn caption_names_platform(
         (CaptionReceiver::CurrPage, _) => true,
         (_, None) => false,
         (_, Some(0)) => !own.iter().any(|o| o.parameterless() && sees(ws, receiver, code_obj, o)),
-        (_, Some(_)) => true,
+        (_, Some(1)) => true,
+        (_, Some(_)) => false,
     }
 }
 
@@ -158,7 +160,9 @@ pub(crate) fn call_args(node: &SyntaxNode) -> Option<usize> {
 /// What the lowering does with a `Caption` site.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum CaptionGate {
-    /// The resolution main gave: no procedure named Caption, or the own procedure where BC calls it too.
+    /// The resolution main gave: no procedure named Caption, or a parameterless own procedure named by a bare name or
+    /// a page variable without arguments (`Caption()`, `Caption`, `P.Caption()`, `P.Caption`), the forms BC calls it
+    /// in (CurrPageCaptionOwnPublic.al:385, CurrPageCaptionOwnAccess.al:390, CurrPageCaptionOwnExtension.al:176,222).
     Keep,
     /// A form BC 29.0 measured: runs through the assumption.
     Assume(Assumption),
@@ -167,7 +171,7 @@ pub(crate) enum CaptionGate {
 
 /// The lowering's gate for `Caption` named through `receiver` at `node` (the call, or the member or name read or
 /// assigned) in the code of `code_obj`, on page `page`. `platform` is whether the checker named the platform method;
-/// `proc_in` the object that declares the procedure it named instead.
+/// `proc` the procedure it named instead, as (declaring object, offset of its routine node).
 pub(crate) fn caption_gate(
     ws: &Workspace,
     code_obj: usize,
@@ -175,14 +179,14 @@ pub(crate) fn caption_gate(
     receiver: CaptionReceiver,
     node: &SyntaxNode,
     platform: bool,
-    proc_in: Option<usize>,
+    proc: Option<(usize, usize)>,
 ) -> CaptionGate {
     let own = own_captions(ws, page);
     if own.is_empty() {
         return CaptionGate::Keep;
     }
     let unseen_proc = receiver == CaptionReceiver::Bare
-        && proc_in.is_some_and(|d| {
+        && proc.is_some_and(|(d, _)| {
             !own.iter()
                 .any(|o| o.declared_in == d && sees(ws, receiver, code_obj, o))
         });
@@ -190,13 +194,39 @@ pub(crate) fn caption_gate(
         return CaptionGate::Refuse(refusal(node));
     }
     if !(receiver == CaptionReceiver::CurrPage || platform) {
-        return CaptionGate::Keep;
+        return if names_parameterless_own_without_argument(&own, proc, node) {
+            CaptionGate::Keep
+        } else {
+            CaptionGate::Refuse(refusal(node))
+        };
     }
     if measured(ws, code_obj, page, receiver, node, &own) {
         CaptionGate::Assume(Assumption::CurrpageCaptionOwnProcedure)
     } else {
         CaptionGate::Refuse(refusal(node))
     }
+}
+
+/// Whether `proc` is a parameterless procedure of `own` and the site at `node` passes no argument: a call without
+/// arguments, or a name read without parentheses that is not the target of an assignment (which alc reads as a call
+/// with one argument, record/ProbePropertyAssignmentForms.al:375-377).
+fn names_parameterless_own_without_argument(
+    own: &[OwnCaption],
+    proc: Option<(usize, usize)>,
+    node: &SyntaxNode,
+) -> bool {
+    let Some((object, offset)) = proc else { return false };
+    let parameterless_own = own.iter().any(|o| {
+        o.declared_in == object && usize::from(o.routine.syntax().text_range().start()) == offset && o.parameterless()
+    });
+    let assign_target = node
+        .parent()
+        .is_some_and(|p| p.kind() == SyntaxKind::AssignStmt && p.first_child().as_ref() == Some(node));
+    let no_argument = match call_args(node) {
+        Some(n) => n == 0,
+        None => !assign_target,
+    };
+    parameterless_own && no_argument
 }
 
 fn refusal(node: &SyntaxNode) -> String {

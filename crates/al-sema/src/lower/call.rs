@@ -25,9 +25,6 @@ impl Lowerer<'_> {
         Ok(resolution)
     }
 
-    /// `Caption` on a page that declares procedures named Caption: runs where BC 29.0 was measured, through the
-    /// assumption, and refuses elsewhere (`own_named_page_methods::caption_gate`). `node` is the call, or the member or
-    /// name read or assigned.
     /// `own_named_caption` for `target`, the target of an assignment.
     pub(crate) fn own_named_caption_target(&mut self, target: &SyntaxNode) -> L<()> {
         let receiver = (target.kind() == SyntaxKind::MemberExpr)
@@ -37,6 +34,9 @@ impl Lowerer<'_> {
         self.own_named_caption(target, receiver.as_ref(), res.as_ref())
     }
 
+    /// `Caption` on a page that declares procedures named Caption: runs where BC 29.0 was measured, through the
+    /// assumption, and refuses elsewhere (`own_named_page_methods::caption_gate`). `node` is the call, or the member or
+    /// name read or assigned.
     fn own_named_caption(
         &mut self,
         node: &SyntaxNode,
@@ -81,11 +81,11 @@ impl Lowerer<'_> {
         };
         let Some(page) = page else { return Ok(()) };
         let platform = matches!(resolution, Some(Res::Builtin(_)));
-        let proc_in = match resolution {
-            Some(Res::Proc { object, .. }) => Some(*object),
+        let proc = match resolution {
+            Some(Res::Proc { object, offset }) => Some((*object, *offset)),
             _ => None,
         };
-        match caption_gate(self.ws, self.oi, page, kind, node, platform, proc_in) {
+        match caption_gate(self.ws, self.oi, page, kind, node, platform, proc) {
             CaptionGate::Keep => Ok(()),
             CaptionGate::Assume(a) => {
                 self.assume(a);

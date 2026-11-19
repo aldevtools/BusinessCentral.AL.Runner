@@ -122,7 +122,7 @@ fn page_variable_setter_is_the_platform_setter_and_the_getter_calls_the_procedur
 codeunit 50101 C {{
     Subtype = Test;
     [Test] procedure SetIt() var P: Page P; S: Text; begin P.Caption('Out'); end;
-    [Test] procedure GetIt() var P: Page P; S: Text; begin S := P.Caption(); end;
+    [Test] procedure GetIt() var P: Page P; S: Text; begin S := P.Caption(); S := P.Caption; end;
 }}"
     );
     let (ws, l) = lower_src(&src);
@@ -130,7 +130,8 @@ codeunit 50101 C {{
     let set = body(&ws, &l, "C", "SetIt");
     assert!(set.contains("Page.Caption") && set.contains(ASSUMED), "{set}");
     let get = body(&ws, &l, "C", "GetIt");
-    assert!(get.contains("Call {") && !get.contains(ASSUMED), "{get}");
+    assert_eq!(get.matches("Call {").count(), 2, "{get}");
+    assert!(!get.contains(ASSUMED), "{get}");
 }
 
 /// The base page's bare `Caption()` beside a procedure only its page extension declares reads the platform caption
@@ -213,7 +214,7 @@ fn neighbors_keep_their_resolution() {
 {}
 page 50102 E {{ SourceTable = T; trigger OnOpenPage() begin CurrPage.Editable := false; end; procedure Editable(): Boolean begin exit(true); end; }}",
         card("N", "trigger OnOpenPage() begin S := CurrPage.Caption; CurrPage.Caption := 'A'; end;", "").replace("50100", "50101"),
-        card("P", "trigger OnOpenPage() begin S := Caption(); end;", "procedure Caption(): Text begin exit('Own'); end;"),
+        card("P", "trigger OnOpenPage() begin S := Caption(); S := Caption; end;", "procedure Caption(): Text begin exit('Own'); end;"),
     );
     let (ws, l) = lower_src(&src);
     let n = body(&ws, &l, "N", "OnOpenPage");
@@ -223,4 +224,71 @@ page 50102 E {{ SourceTable = T; trigger OnOpenPage() begin CurrPage.Editable :=
     assert!(refused(&ws, &l, "N").is_empty() && refused(&ws, &l, "P").is_empty());
     let e = refused(&ws, &l, "E");
     assert!(e.iter().any(|r| r.contains("too many arguments")), "{e:?}");
+}
+
+/// An assignment beside an own `Caption(NewCaption: Text)`: alc reads `X := v` as the call `X(v)`
+/// (record/ProbePropertyAssignmentForms.al:375-377), and no cell measures which one BC calls then. Bare `Caption :=` in
+/// OnOpenPage and OnAction and `P.Caption :=` in a test method refuse; main called the own procedure.
+#[test]
+fn assignment_beside_an_own_caption_with_a_parameter_refuses() {
+    let own = "procedure Caption(NewCaption: Text) begin S := NewCaption; end;";
+    let cases = [
+        card("P", "trigger OnOpenPage() begin Caption := 'Bare'; end;", own),
+        card(
+            "P",
+            "actions { area(Processing) { action(A) { trigger OnAction() begin Caption := 'Bare'; end; } } }",
+            own,
+        ),
+        format!(
+            "{}\ncodeunit 50101 C {{ Subtype = Test; [Test] procedure SetIt() var P: Page P; begin P.Caption := 'Out'; end; }}",
+            card("P", "", own)
+        ),
+    ];
+    for page in cases {
+        assert_caption_refusal(&page);
+    }
+}
+
+/// Calls with an argument count other than one beside an own Caption of that many parameters, and calls with one
+/// Integer argument beside `Caption(N: Integer)`: no cell measures them, so they refuse with the gate's reason.
+#[test]
+fn calls_with_unmeasured_arguments_beside_an_own_caption_refuse() {
+    let two = "procedure Caption(A: Integer; B: Integer) begin end;";
+    let int = "procedure Caption(N: Integer) begin end;";
+    let test_cu = |call: &str| {
+        format!("codeunit 50101 C {{ Subtype = Test; [Test] procedure SetIt() var P: Page P; begin {call}; end; }}")
+    };
+    let cases = [
+        card("P", "trigger OnOpenPage() begin Caption(3, 4); end;", two),
+        format!("{}\n{}", card("P", "", two), test_cu("P.Caption(7, 8)")),
+        card("P", "trigger OnOpenPage() begin Caption(5); end;", int),
+        format!("{}\n{}", card("P", "", int), test_cu("P.Caption(9)")),
+    ];
+    for page in cases {
+        assert_caption_refusal(&page);
+    }
+}
+
+/// Lowers `src` after the row table and asserts the Caption gate refused a site: a routine refused, or a statement
+/// lowered to a refusal (as in an action trigger).
+fn assert_caption_refusal(src: &str) {
+    let (_, l) = lower_src(&format!("{ROW}\n{src}"));
+    let bodies = l
+        .program
+        .objects
+        .iter()
+        .flat_map(|o| &o.routines)
+        .map(|r| format!("{:?}", r.body));
+    let r: Vec<String> = l
+        .unsupported
+        .iter()
+        .flatten()
+        .flatten()
+        .map(|r| format!("{r:?}"))
+        .chain(bodies)
+        .collect();
+    assert!(
+        r.iter().any(|r| r.contains("beside a page procedure named Caption")),
+        "{src}\n{r:?}"
+    );
 }
