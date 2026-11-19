@@ -3,27 +3,44 @@
 
 use crate::Session;
 use crate::sessionops::Sequence;
+use al_builtins::native::Signal;
+use al_builtins::value::{LibraryValue, Value};
 use std::collections::HashMap;
 
 type Key = (String, String);
 
 /// What a test reached of the table data, counted from the session's start ([`Session::data_access`]): two values compared
-/// say whether a test between them read or wrote a table (al-testrun `isolation.rs`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// say what a test between them read or wrote (al-testrun `isolation/failed_test.rs`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct DataAccess {
     /// Reads and writes of the database's tables, by any caller.
     pub store: u64,
+    /// The part of `store` that ran inside a table call from AL code: a method of a Record variable, or a RecordRef, FieldRef or
+    /// KeyRef method [`measured_ref_method`] names (the outermost such call, so a trigger, subscriber or handler it runs
+    /// counts with it).
+    pub table_store: u64,
+    /// The writes of `table_store`.
+    pub table_writes: u64,
+    /// The part of `table_store` whose outermost call was a RecordRef, FieldRef or KeyRef method.
+    pub ref_store: u64,
     /// Calls of a method of a Record variable from AL code, a temporary one too.
     pub record_calls: u64,
-    /// Calls of a method of a RecordRef, FieldRef or KeyRef, of a Query, and of IsolatedStorage, from AL code.
+    /// Calls of a RecordRef, FieldRef or KeyRef method [`measured_ref_method`] names from AL code.
+    pub ref_calls: u64,
+    /// Calls of the session builtin CompanyName from AL code.
+    pub company_name_calls: u64,
+    /// Calls from AL code of any other RecordRef, FieldRef or KeyRef method, of one on a temporary RecordRef or one of
+    /// another company, of a Query method, and of a session builtin other than NumberSequence and CompanyName
+    /// (IsolatedStorage, CompanyProperty, UserId, ...).
     pub other_calls: u64,
 }
 
 /// The counts behind [`DataAccess`] and when each number sequence was inserted ([`Session::sequence_inserted_at`]).
 #[derive(Debug, Default)]
 pub(crate) struct Notes {
-    pub(crate) record_calls: u64,
-    pub(crate) other_calls: u64,
+    access: DataAccess,
+    /// How many table calls from AL code are running ([`Session::al_table_call`]).
+    table_depth: u32,
     inserted_at: HashMap<Key, u64>,
 }
 
@@ -40,6 +57,58 @@ impl SequenceStart {
     pub fn holds(&self, key: &Key) -> bool {
         self.sequences.contains_key(key)
     }
+
+    /// [`Session::unkept_sequences_since`] as it was when `self` was taken.
+    pub fn unkept_since(&self, start: &SequenceStart) -> Vec<Key> {
+        unkept(start, &self.sequences, &self.changed)
+    }
+}
+
+/// The sequences of `start` that `now` (with its restart and delete flags `flags`) holds restarted, deleted or otherwise
+/// changed, sorted. Numbers taken by `Next` count as kept (SeqCarry.al:26-27).
+fn unkept(start: &SequenceStart, now: &HashMap<Key, Sequence>, flags: &HashMap<Key, (bool, bool)>) -> Vec<Key> {
+    let mut unkept: Vec<Key> = start
+        .sequences
+        .iter()
+        .filter(|&(k, then)| {
+            let untouched = flags.get(k) == start.changed.get(k);
+            !(untouched
+                && now.get(k).is_some_and(|now| {
+                    now == then
+                        || (now.seed == then.seed
+                            && now.increment == then.increment
+                            && now.last.is_some()
+                            && now.last != then.last)
+                }))
+        })
+        .map(|(k, _)| k.clone())
+        .collect();
+    unkept.sort();
+    unkept
+}
+
+/// The RecordRef, FieldRef and KeyRef methods the cells of corpus PR 1468 call in a failed test (codeunit 76240 "LT SQ Ref Access",
+/// SqRecordRefFail.al:44-160: GetNewRecNo, GetNewLineNo, LastLineByRef, InsertByRef, OpenOnly, MockInsert), by catalog id.
+pub(crate) fn measured_ref_method(id: &str) -> bool {
+    matches!(
+        id.split('#').next(),
+        Some(
+            "RecordRef.Open"
+                | "RecordRef.Close"
+                | "RecordRef.GetTable"
+                | "RecordRef.GetTableVariant"
+                | "RecordRef.Number"
+                | "RecordRef.KeyIndex"
+                | "RecordRef.Field"
+                | "RecordRef.FindLast"
+                | "RecordRef.Insert"
+                | "KeyRef.FieldCount"
+                | "KeyRef.FieldIndex"
+                | "FieldRef.Number"
+                | "FieldRef.Value"
+                | "FieldRef.SetRange"
+        )
+    )
 }
 
 impl Session {
@@ -47,9 +116,104 @@ impl Session {
     pub fn data_access(&self) -> DataAccess {
         DataAccess {
             store: self.store.accesses(),
-            record_calls: self.access_notes.record_calls,
-            other_calls: self.access_notes.other_calls,
+            ..self.access_notes.access
         }
+    }
+
+    /// Runs `call`, a table call from AL code (a method of a Record variable, or with `by_ref` a RecordRef, FieldRef or KeyRef
+    /// method), and counts it with what it read and wrote ([`DataAccess`]).
+    pub(crate) fn al_table_call<T>(&mut self, by_ref: bool, call: impl FnOnce(&mut Session) -> T) -> T {
+        let access = &mut self.access_notes.access;
+        *(if by_ref {
+            &mut access.ref_calls
+        } else {
+            &mut access.record_calls
+        }) += 1;
+        let (store, writes) = (self.store.accesses(), self.store.writes());
+        self.access_notes.table_depth += 1;
+        let out = call(self);
+        self.access_notes.table_depth -= 1;
+        if self.access_notes.table_depth == 0 {
+            let read = self.store.accesses().saturating_sub(store);
+            let access = &mut self.access_notes.access;
+            access.table_store += read;
+            access.table_writes += self.store.writes().saturating_sub(writes);
+            if by_ref {
+                access.ref_store += read;
+            }
+        }
+        out
+    }
+
+    /// A RecordRef, FieldRef or KeyRef method called from AL code: a table call when [`measured_ref_method`] names it and its
+    /// RecordRef is neither temporary nor of another company than the session's; other access too when it is not, or when
+    /// the call failed, which no cell of corpus PR 1468 does ([`DataAccess`]).
+    pub(crate) fn counted_ref_op(
+        &mut self,
+        id: &str,
+        mut receiver: Option<&mut Value>,
+        args: &mut [Value],
+    ) -> Result<Value, Signal> {
+        if !measured_ref_method(id) {
+            self.note_other_access();
+            return self.ref_op(id, receiver, args);
+        }
+        let out = self.al_table_call(true, |s| s.ref_op(id, receiver.as_deref_mut(), args));
+        if out.is_err() || !self.ref_of_session_table(receiver.as_deref()) {
+            self.note_other_access();
+        }
+        out
+    }
+
+    /// The RecordRef of `receiver` (a RecordRef, a FieldRef or KeyRef into one, or a closed RecordRef) is not temporary and
+    /// opened in the session's company, as the RecordRefs of corpus PR 1468 are.
+    fn ref_of_session_table(&self, receiver: Option<&Value>) -> bool {
+        let Some(Value::Library(_, lib)) = receiver else {
+            return false;
+        };
+        match &*lib.borrow() {
+            LibraryValue::RecordRef(rec)
+            | LibraryValue::FieldRef(rec, _)
+            | LibraryValue::KeyFieldRef(rec, _)
+            | LibraryValue::KeyRef(rec, _) => {
+                let rec = rec.borrow();
+                !rec.temporary && rec.company.as_deref().is_none_or(|c| c == &*self.cx.company)
+            }
+            LibraryValue::ClosedRecordRef => true,
+            _ => false,
+        }
+    }
+
+    /// AL code called a RecordRef, FieldRef, KeyRef or Query method, or a session builtin other than NumberSequence
+    /// ([`DataAccess::other_calls`]). A call that code of Microsoft's apps makes while a Record call from AL code runs counts
+    /// with that Record call instead: the Record writes of corpus PR 1465 ran on BC with Microsoft's apps, whose global
+    /// triggers run under a table's first insert (the System Application's, which call CurrentDateTime and CompanyName).
+    pub(crate) fn note_other_access(&mut self) {
+        if self.access_notes.table_depth > 0 && self.running_microsoft_code() {
+            return;
+        }
+        self.access_notes.access.other_calls += 1;
+    }
+
+    /// AL code called the session builtin `id`: NumberSequence methods are not counted, CompanyName has its own count
+    /// (Library - Utility.GetNewLineNo passes it to RecordRef.Open, SqRecordRefFail.al:80), any other is other access.
+    pub(crate) fn note_session_call(&mut self, id: al_ir::BuiltinId) {
+        if crate::sessionops::number_sequence_method(id).is_some() {
+            return;
+        }
+        if id != al_builtins::builtin_id::ids::DATABASE_COMPANYNAME_1 {
+            return self.note_other_access();
+        }
+        if !(self.access_notes.table_depth > 0 && self.running_microsoft_code()) {
+            self.access_notes.access.company_name_calls += 1;
+        }
+    }
+
+    /// The innermost running frame is code of Microsoft's apps ([`Session::of_microsoft_app`]).
+    fn running_microsoft_code(&self) -> bool {
+        self.frames
+            .last()
+            .is_some_and(|o| self.of_microsoft_app(self.engine.program.objects[*o].app))
     }
 
     /// The value of [`Session::commits`] when the sequence `key` (company, name) was last inserted.
@@ -119,24 +283,6 @@ impl Session {
     /// rollback leaves of them under TestIsolation = Codeunit is not measured. Numbers taken by `Next` count as kept
     /// (SeqCarry.al:26-27).
     pub fn unkept_sequences_since(&self, start: &SequenceStart) -> Vec<Key> {
-        let flags = self.change_flags();
-        let mut unkept: Vec<Key> = start
-            .sequences
-            .iter()
-            .filter(|&(k, then)| {
-                let untouched = flags.get(k) == start.changed.get(k);
-                !(untouched
-                    && self.sequences.get(k).is_some_and(|now| {
-                        now == then
-                            || (now.seed == then.seed
-                                && now.increment == then.increment
-                                && now.last.is_some()
-                                && now.last != then.last)
-                    }))
-            })
-            .map(|(k, _)| k.clone())
-            .collect();
-        unkept.sort();
-        unkept
+        unkept(start, &self.sequences, &self.change_flags())
     }
 }

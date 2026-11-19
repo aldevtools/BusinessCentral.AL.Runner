@@ -420,17 +420,7 @@ impl Session {
         if let Some((method, n)) = isolated {
             return self.isolated_storage_op(method, n, args);
         }
-        let method = match id {
-            ids::NUMBERSEQUENCE_CURRENT_1 => Some("Current"),
-            ids::NUMBERSEQUENCE_DELETE_1 => Some("Delete"),
-            ids::NUMBERSEQUENCE_EXISTS_1 => Some("Exists"),
-            ids::NUMBERSEQUENCE_INSERT_1 => Some("Insert"),
-            ids::NUMBERSEQUENCE_NEXT_1 => Some("Next"),
-            ids::NUMBERSEQUENCE_RANGE_1 | ids::NUMBERSEQUENCE_RANGE_2 => Some("Range"),
-            ids::NUMBERSEQUENCE_RESTART_1 => Some("Restart"),
-            _ => None,
-        };
-        let Some(method) = method else {
+        let Some(method) = number_sequence_method(id) else {
             return unsupported(format!("builtin {id}"));
         };
         // The position of the optional CompanySpecific argument per overload.
@@ -612,7 +602,6 @@ impl Session {
     /// `IsolatedStorage.<rest>` (`Get#4`, `SetEncrypted#2`, ...): a text store per scope, part of the transaction
     /// (a rollback undoes it, see `Session::isolated_committed`). Corpus: session-system/TestIsolatedStorage.al:30-125.
     fn isolated_storage_op(&mut self, method: &str, n: u32, args: &mut [Value]) -> Result<Value, Signal> {
-        self.access_notes.other_calls += 1;
         // A Guid key is its text form `{XXXXXXXX-...}`, for Set, Contains, Get and Delete in every scope
         // (session-system/isolated-storage/IsoStorageGuidKey.al). Other key types are not pinned (probe wanted).
         let key = match args.first() {
@@ -930,5 +919,19 @@ impl Session {
             }
             _ => return None,
         })
+    }
+}
+
+/// The NumberSequence method of session builtin `id`; `None`: another builtin.
+pub(crate) fn number_sequence_method(id: al_ir::BuiltinId) -> Option<&'static str> {
+    match id {
+        ids::NUMBERSEQUENCE_CURRENT_1 => Some("Current"),
+        ids::NUMBERSEQUENCE_DELETE_1 => Some("Delete"),
+        ids::NUMBERSEQUENCE_EXISTS_1 => Some("Exists"),
+        ids::NUMBERSEQUENCE_INSERT_1 => Some("Insert"),
+        ids::NUMBERSEQUENCE_NEXT_1 => Some("Next"),
+        ids::NUMBERSEQUENCE_RANGE_1 | ids::NUMBERSEQUENCE_RANGE_2 => Some("Range"),
+        ids::NUMBERSEQUENCE_RESTART_1 => Some("Restart"),
+        _ => None,
     }
 }

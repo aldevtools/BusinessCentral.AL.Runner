@@ -110,6 +110,12 @@ impl Session {
         self.unmeasured.assumed.extend(keys.iter().map(|k| loose(&k.0, &k.1)));
     }
 
+    /// Whether an earlier failed test of the running codeunit left number sequence `key` (company, name) on that
+    /// assumption ([`Session::assume_sequences_after_failure`]).
+    pub fn sequence_left_by_failure(&self, key: &Key) -> bool {
+        self.unmeasured.assumed.contains(&loose(&key.0, &key.1))
+    }
+
     /// The running codeunit's tests ended: the refusals of `refuse_unmeasured_key` and `refuse_unmeasured_sequence`, and
     /// the marks of `assume_sequences_after_failure`, end.
     pub fn clear_unmeasured(&mut self) {

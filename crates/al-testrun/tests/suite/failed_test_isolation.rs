@@ -1,5 +1,5 @@
 //! What a failed test leaves for the later tests of its codeunit under al-runner's own runner with TestIsolation =
-//! Codeunit: the number sequences and the manual bindings. The cells copy corpus PR 1465 (draft, "NumberSequence and
+//! Codeunit: the number sequences and the manual bindings. The cells copy corpus PR 1465 (merged, not yet pinned, "NumberSequence and
 //! manual bindings after a test that commits and fails"), tests/al-language-isolation-probe/src/SqCommitFail.al and
 //! SqBindFailed.al, measured on BC 27.5, 28.5 and 29.0 under runners 61301 and 130450 (assertions in SqReader.al). Until a
 //! corpus bump pins them, a test that reads what such a failure left is a flagged pass.
@@ -192,7 +192,9 @@ fn a_failed_test_that_inserted_wrote_and_committed_keeps_the_sequence() {
 
 // Shapes PR 1465 does not measure keep main's result: a failed test that reached a table through a RecordRef after a
 // Commit() in the codeunit, and one that inserted a second sequence after its last Commit(), are refused for the readers of
-// the new sequences; an insert in a test with TransactionModel AutoRollback is taken back by a later failure.
+// the new sequences; an insert in a test with TransactionModel AutoRollback is taken back by a later failure. A failed test
+// that called IsolatedStorage without any Commit() is refused too (main's take-back covers no table access and Record
+// reads and writes only).
 const NEIGHBORS: &str = r#"
 codeunit 50753 "P4 RecordRef"
 {
@@ -240,9 +242,502 @@ fn shapes_the_probe_does_not_measure_keep_mains_result() {
     assert!(not_run(&of("B_FirstReads"), "'P4S1'"), "{o:?}");
     clean(&o, "C_AutoRollbackReads", "OBS missing");
     // IsolatedStorage is not measured in the failed test (only in an earlier one, D4 SqCommitFail.al:878).
-    clean(&o, "B_IsolatedStorageReads", "OBS missing");
+    assert!(not_run(&of("B_IsolatedStorageReads"), "'P4IS'"), "{o:?}");
     // C2 and C14 measured a sequence an earlier test inserted; one the failed test inserted after an earlier Commit() is not.
     assert!(not_run(&of("C_InsertedInFailedReads"), "'P4IF'"), "{o:?}");
+}
+
+// A failed test whose table access is not a Record write after an earlier Commit() keeps main's refusal: a Record read
+// only (no cell of PR 1465 reads after a Commit(); D5 SqCommitFail.al:918 reads without one), a TestPage, a native that
+// reads the database. The same for a failed test that inserted, only read and then committed (C1 :31 writes).
+const NOT_A_RECORD_WRITE: &str = r#"
+page 50790 "P4 Rows"
+{
+    SourceTable = "Row";
+    layout { area(Content) { field(K; Rec.K) { } } }
+}
+codeunit 50764 "P4 Get After Commit"
+{
+    Subtype = Test;
+    var Rows: Codeunit "Rows";
+    [Test] procedure A_InsertsCommits() begin NumberSequence.Insert('P4GA', 1, 1); NumberSequence.Next('P4GA'); Commit(); end;
+    [Test] procedure B_GetsFails() begin if Rows.Has('NOPE') then; Error('B deliberate'); end;
+    [Test] procedure C_GetReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4GA')); end;
+}
+codeunit 50765 "P4 TestPage After Commit"
+{
+    Subtype = Test;
+    [Test] procedure A_InsertsCommits() begin NumberSequence.Insert('P4TP', 1, 1); NumberSequence.Next('P4TP'); Commit(); end;
+    [Test] procedure B_PageFails() var P: TestPage "P4 Rows"; begin P.OpenView(); P.Close(); Error('B deliberate'); end;
+    [Test] procedure C_PageReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4TP')); end;
+}
+codeunit 50766 "P4 Native After Commit"
+{
+    Subtype = Test;
+    [Test] procedure A_InsertsCommits() begin NumberSequence.Insert('P4NA', 1, 1); NumberSequence.Next('P4NA'); Commit(); end;
+    [Test] procedure B_NativeFails() begin if CompanyProperty.DisplayName() = '' then; Error('B deliberate'); end;
+    [Test] procedure C_NativeReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4NA')); end;
+}
+codeunit 50767 "P4 Get Then Commit"
+{
+    Subtype = Test;
+    var Rows: Codeunit "Rows";
+    [Test] procedure A_InsertsGetsCommitsFails() begin NumberSequence.Insert('P4GC', 1, 1); NumberSequence.Next('P4GC'); if Rows.Has('NOPE') then; Commit(); Error('A deliberate'); end;
+    [Test] procedure B_GetThenCommitReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4GC')); end;
+}
+"#;
+
+#[test]
+fn a_failed_test_without_a_record_write_after_a_commit_keeps_mains_refusal() {
+    let o = cells(NOT_A_RECORD_WRITE, TestIsolation::Codeunit);
+    for (test, key) in [
+        ("C_GetReads", "'P4GA'"),
+        ("C_PageReads", "'P4TP'"),
+        ("C_NativeReads", "'P4NA'"),
+        ("B_GetThenCommitReads", "'P4GC'"),
+    ] {
+        assert!(not_run(&row(&o, test).2, key), "{test}: {o:?}");
+    }
+}
+
+// Every cell of PR 1465 fails by an error raised in the body of a TransactionModel AutoCommit test. A test that fails only
+// because a handler it declares did not run keeps main's result: its new sequence is gone, and a binding it left makes a
+// later failure not trusted. So does a binding left by a failed AutoRollback test.
+const NOT_RAISED: &str = r#"
+codeunit 50768 "P4 Unused Handler"
+{
+    Subtype = Test;
+    [Test] [HandlerFunctions('Msg')] procedure A_InsertsHandlerUnused() begin NumberSequence.Insert('P4UH', 1, 1); NumberSequence.Next('P4UH'); end;
+    [Test] procedure B_UnusedHandlerReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4UH')); end;
+    [MessageHandler] procedure Msg(Message: Text[1024]) begin end;
+}
+codeunit 50769 "P5 Events 2"
+{
+    [IntegrationEvent(false, false)] procedure OnPing(var Hits: Integer) begin end;
+    procedure Ping(): Integer var Hits: Integer; begin OnPing(Hits); exit(Hits); end;
+}
+codeunit 50770 "P5 Sub 2"
+{
+    EventSubscriberInstance = Manual;
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"P5 Events 2", 'OnPing', '', false, false)] local procedure HandlePing(var Hits: Integer) begin Hits += 1; end;
+}
+codeunit 50771 "P5 Unused Handler Bind"
+{
+    Subtype = Test;
+    var Sub: Codeunit "P5 Sub 2";
+    [Test] [HandlerFunctions('Msg')] procedure A_BindsHandlerUnused() begin BindSubscription(Sub); end;
+    [Test] procedure B_HandlerBindReads() var Events: Codeunit "P5 Events 2"; begin Error('B hits=%1', Events.Ping()); end;
+    [MessageHandler] procedure Msg(Message: Text[1024]) begin end;
+}
+codeunit 50772 "P5 AutoRollback Bind"
+{
+    Subtype = Test;
+    var Sub: Codeunit "P5 Sub 2";
+    [Test] [TransactionModel(TransactionModel::AutoRollback)] procedure A_BindsFails() begin BindSubscription(Sub); Error('A deliberate'); end;
+    [Test] procedure B_AutoRollbackBindReads() var Events: Codeunit "P5 Events 2"; begin Error('B hits=%1', Events.Ping()); end;
+}
+"#;
+
+#[test]
+fn a_failure_not_raised_by_the_body_of_an_autocommit_test_keeps_mains_result() {
+    let o = cells(NOT_RAISED, TestIsolation::Codeunit);
+    clean(&o, "B_UnusedHandlerReads", "OBS missing");
+    for test in ["B_HandlerBindReads", "B_AutoRollbackBindReads"] {
+        assert!(
+            not_run(&row(&o, test).2, "left a manual event subscription bound"),
+            "{test}: {o:?}"
+        );
+    }
+}
+
+// PR 1465 measured an old sequence changed by the failed test itself (B1-B4, SqCommitFail.al:963-1135) and a kept sequence
+// read by the next test, not a second failure. A sequence an earlier passing test restarted, under AutoRollback or
+// AutoCommit, and one an earlier failed test kept, keep main's refusal.
+const NOT_THE_FAILED_BODY: &str = r#"
+codeunit 50773 "P4 Earlier Rollback Restart"
+{
+    Subtype = Test;
+    trigger OnRun() begin if not NumberSequence.Exists('P4ER') then NumberSequence.Insert('P4ER', 1, 1); end;
+    [Test] [TransactionModel(TransactionModel::AutoRollback)] procedure A_Restarts() begin NumberSequence.Restart('P4ER', 500); end;
+    [Test] procedure B_Fails() begin Error('B deliberate'); end;
+    [Test] procedure C_RollbackRestartReads() begin Error('OBS next=%1', NumberSequence.Next('P4ER')); end;
+}
+codeunit 50774 "P4 Earlier Restart"
+{
+    Subtype = Test;
+    trigger OnRun() begin if not NumberSequence.Exists('P4EC') then NumberSequence.Insert('P4EC', 1, 1); end;
+    [Test] procedure A_Restarts() begin NumberSequence.Restart('P4EC', 500); end;
+    [Test] procedure B_Fails() begin Error('B deliberate'); end;
+    [Test] procedure C_EarlierRestartReads() begin Error('OBS next=%1', NumberSequence.Next('P4EC')); end;
+}
+codeunit 50775 "P4 Two Fails"
+{
+    Subtype = Test;
+    var Rows: Codeunit "Rows";
+    [Test] procedure A_Commits() begin Rows.Put('TF-A'); Commit(); end;
+    [Test] procedure B_InsertsFails() begin NumberSequence.Insert('P4TF', 1, 1); NumberSequence.Next('P4TF'); Error('B deliberate'); end;
+    [Test] procedure C_WritesFails() begin Rows.Put('TF-C'); Error('C deliberate'); end;
+    [Test] procedure D_TwoFailsReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4TF')); end;
+}
+codeunit 50776 "P4 Two Bare Fails"
+{
+    Subtype = Test;
+    [Test] procedure A_InsertsFails() begin NumberSequence.Insert('P4TB', 1, 1); NumberSequence.Next('P4TB'); Error('A deliberate'); end;
+    [Test] procedure B_Fails() begin Error('B deliberate'); end;
+    [Test] procedure C_TwoBareFailsReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4TB')); end;
+}
+"#;
+
+#[test]
+fn a_sequence_the_failed_body_did_not_change_keeps_mains_refusal() {
+    let o = cells(NOT_THE_FAILED_BODY, TestIsolation::Codeunit);
+    for (test, key) in [
+        ("C_RollbackRestartReads", "'P4ER'"),
+        ("C_EarlierRestartReads", "'P4EC'"),
+        ("D_TwoFailsReads", "'P4TF'"),
+        ("C_TwoBareFailsReads", "'P4TB'"),
+    ] {
+        assert!(not_run(&row(&o, test).2, key), "{test}: {o:?}");
+    }
+}
+
+// Without any Commit() main's rule drops a new sequence only after a failed test that reached no table, or reached tables
+// through Record reads and writes (pinned for a Get, IsolProbeAfterRollback.Codeunit.al:72-79 S4, :117-123 S8; D5 and D7
+// SqCommitFail.al:918, :1260). Any other access of the failed test is not measured: a temporary record, Init, a RecordRef,
+// IsolatedStorage, a native that reads the database. Its readers are refused.
+const OTHER_ACCESS_NO_COMMIT: &str = r#"
+codeunit 50777 "P4 Temp"
+{
+    Subtype = Test;
+    [Test] procedure A_InsertsTempFails() var T: Record "Row" temporary; begin NumberSequence.Insert('P4TMP', 1, 1); T.K := 'X'; T.Insert(); Error('A deliberate'); end;
+    [Test] procedure B_TempReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4TMP')); end;
+}
+codeunit 50778 "P4 Init"
+{
+    Subtype = Test;
+    [Test] procedure A_InsertsInitFails() var T: Record "Row"; begin NumberSequence.Insert('P4INI', 1, 1); T.Init(); Error('A deliberate'); end;
+    [Test] procedure B_InitReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4INI')); end;
+}
+codeunit 50779 "P4 RecordRef No Commit"
+{
+    Subtype = Test;
+    [Test] procedure A_InsertsRecordRefFails() var RR: RecordRef; begin NumberSequence.Insert('P4RRN', 1, 1); RR.Open(50700); if RR.IsEmpty() then; RR.Close(); Error('A deliberate'); end;
+    [Test] procedure B_RecordRefNoCommitReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4RRN')); end;
+}
+codeunit 50780 "P4 Native No Commit"
+{
+    Subtype = Test;
+    [Test] procedure A_InsertsNativeFails() begin NumberSequence.Insert('P4NN', 1, 1); if CompanyProperty.DisplayName() = '' then; Error('A deliberate'); end;
+    [Test] procedure B_NativeNoCommitReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4NN')); end;
+}
+codeunit 50781 "P4 Get No Commit"
+{
+    Subtype = Test;
+    var Rows: Codeunit "Rows";
+    [Test] procedure A_InsertsGetsFails() begin NumberSequence.Insert('P4GN', 1, 1); if Rows.Has('NOPE') then; Error('A deliberate'); end;
+    [Test] procedure B_GetNoCommitReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4GN')); end;
+}
+"#;
+
+#[test]
+fn without_a_commit_only_a_record_read_or_write_drops_the_new_sequence() {
+    let o = cells(OTHER_ACCESS_NO_COMMIT, TestIsolation::Codeunit);
+    for (test, key) in [
+        ("B_TempReads", "'P4TMP'"),
+        ("B_InitReads", "'P4INI'"),
+        ("B_RecordRefNoCommitReads", "'P4RRN'"),
+        ("B_NativeNoCommitReads", "'P4NN'"),
+    ] {
+        assert!(not_run(&row(&o, test).2, key), "{test}: {o:?}");
+    }
+    clean(&o, "B_GetNoCommitReads", "OBS missing");
+}
+
+// A Record write whose table runs a subscriber of Microsoft's app that calls a session builtin (as the first insert into a
+// table runs the System Application's global triggers, reviewer's neighbor K09 of PR 8512): the subscriber's calls count
+// with the Record call, and main's rule drops the sequence. The same calls from a subscriber of the app under test are
+// other access, refused.
+const MS_TRIGGERS: &str = r#"
+table 50796 "P4 MS Row" { fields { field(1; K; Code[20]) { } } keys { key(PK; K) { } } }
+table 50797 "P4 MS Row Two" { fields { field(1; K; Code[20]) { } } keys { key(PK; K) { } } }
+codeunit 50798 "P4 MS Subscriber"
+{
+    [EventSubscriber(ObjectType::Table, Database::"P4 MS Row", 'OnAfterInsertEvent', '', false, false)]
+    local procedure Stamp(var Rec: Record "P4 MS Row")
+    begin
+        if CurrentDateTime() = 0DT then;
+        if CompanyName() = '' then;
+    end;
+}
+"#;
+
+const OWN_TRIGGERS: &str = r#"
+codeunit 50799 "P4 Own Subscriber"
+{
+    [EventSubscriber(ObjectType::Table, Database::"P4 MS Row Two", 'OnAfterInsertEvent', '', false, false)]
+    local procedure Stamp(var Rec: Record "P4 MS Row Two")
+    begin
+        if CurrentDateTime() = 0DT then;
+    end;
+}
+codeunit 50782 "P4 MS Trigger"
+{
+    Subtype = Test;
+    [Test] procedure A_Inserts() begin NumberSequence.Insert('P4MST', 1, 1); end;
+    [Test] procedure B_WritesFails() var T: Record "P4 MS Row"; begin T.K := 'X'; T.Insert(); Error('B deliberate'); end;
+    [Test] procedure C_MsTriggerReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4MST')); end;
+}
+codeunit 50783 "P4 Own Trigger"
+{
+    Subtype = Test;
+    [Test] procedure A_Inserts() begin NumberSequence.Insert('P4OWT', 1, 1); end;
+    [Test] procedure B_WritesFails() var T: Record "P4 MS Row Two"; begin T.K := 'X'; T.Insert(); Error('B deliberate'); end;
+    [Test] procedure C_OwnTriggerReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4OWT')); end;
+}
+"#;
+
+#[test]
+fn session_builtins_of_microsofts_subscribers_count_with_the_record_call() {
+    let manifest = |p: &str| al_testrun::runtime::Manifest {
+        publisher: p.into(),
+        version: "1.0.0.0".into(),
+        resources: vec![],
+        include_source: false,
+        target: String::new(),
+        logo: None,
+        description: None,
+        layout_files: Vec::new(),
+        id_ranges: Vec::new(),
+        translations: false,
+        package_data: false,
+        package_data_files: Vec::new(),
+        translation_files: Vec::new(),
+        translation_source: None,
+        runtime: None,
+        app_json_keys: Vec::new(),
+        platform_internals_visible_to: Vec::new(),
+        symbols: vec![],
+    };
+    let app = |id: &str, deps: &[&str], src: String| AppSource {
+        id: id.into(),
+        name: id.into(),
+        dependencies: deps.iter().map(|d| d.to_string()).collect(),
+        files: vec![(format!("{id}.al"), src)],
+    };
+    let rt = CorpusRuntime::run_suites_with(
+        vec![
+            app("main", &["ms"], format!("{READ}\n{OWN_TRIGGERS}")),
+            app("ms", &[], MS_TRIGGERS.into()),
+        ],
+        vec![al_sema::AppKind::Workspace, al_sema::AppKind::Dependency],
+        &[manifest("Me"), manifest("Microsoft")],
+        &Default::default(),
+        None,
+        Default::default(),
+        &[SuiteRun::everything()],
+        &RunOptions {
+            isolation: Some(TestIsolation::Codeunit),
+            ..Default::default()
+        },
+    );
+    let o: Vec<Row> = rt
+        .results()
+        .iter()
+        .map(|r| {
+            (
+                r.codeunit,
+                r.test.clone(),
+                r.outcome.clone(),
+                r.assumptions.iter().map(|a| a.info().id).collect(),
+            )
+        })
+        .collect();
+    clean(&o, "C_MsTriggerReads", "OBS missing");
+    assert!(not_run(&row(&o, "C_OwnTriggerReads").2, "'P4OWT'"), "{o:?}");
+}
+
+// RecordRef access in the failed test counts as table access, as Record access does: corpus PR 1468 (draft,
+// tests/al-language-isolation-probe/src/SqRecordRefFail.al, assertions in SqRecordRefReader.al), measured on BC 27.5, 28.5
+// and 29.0 under runner 61301 and on 28.5 under 130450. C2 shape (insert and Commit() in an earlier test) and C14 shape (an
+// earlier test's Commit(), then a test that inserts): a RecordRef read, write, the Library - Utility.GetNewRecNo copy and a
+// Record passed to a RecordRef parameter take the sequence away; RecordRef.Open and Close alone keep it.
+const REF_LINE: &str = r#"
+table 50856 "P4 Line" { fields { field(1; Doc; Code[20]) { } field(2; "Line No."; Integer) { } } keys { key(PK; Doc, "Line No.") { Clustered = true; } } }
+codeunit 50857 "P4 Ref Access"
+{
+    procedure GetNewRecNo(RecVariant: Variant; FieldNo: Integer): Integer
+    var
+        RecRef: RecordRef;
+    begin
+        RecRef.GetTable(RecVariant);
+        exit(GetNewLineNo(RecRef, FieldNo));
+    end;
+
+    procedure GetNewLineNo(RecRef: RecordRef; FieldNo: Integer): Integer
+    var
+        RecRef2: RecordRef;
+        FieldRef: FieldRef;
+        FieldRef2: FieldRef;
+        KeyRef: KeyRef;
+        FieldCount: Integer;
+    begin
+        RecRef2.Open(RecRef.Number, false, CompanyName);
+        KeyRef := RecRef.KeyIndex(1);
+        for FieldCount := 1 to KeyRef.FieldCount do begin
+            FieldRef := KeyRef.FieldIndex(FieldCount);
+            if FieldRef.Number <> FieldNo then begin
+                FieldRef2 := RecRef2.Field(FieldRef.Number);
+                FieldRef2.SetRange(FieldRef.Value);
+            end;
+        end;
+        if RecRef2.FindLast() then begin
+            FieldRef := RecRef2.Field(FieldNo);
+            FieldCount := FieldRef.Value();
+        end else
+            FieldCount := 0;
+        exit(FieldCount + 10000);
+    end;
+
+    procedure MockInsert(Doc: Text)
+    var
+        Line: Record "P4 Line";
+    begin
+        Line.Init();
+        Line.Doc := CopyStr(Doc, 1, 20);
+        Line."Line No." := GetNewRecNo(Line, Line.FieldNo("Line No."));
+        Line.Insert();
+    end;
+
+    procedure LastByRef(RecRef: RecordRef)
+    begin
+        if RecRef.FindLast() then;
+    end;
+}
+"#;
+
+const REF_ACCESS: &str = r#"
+codeunit 50850 "P4 R2O"
+{
+    Subtype = Test;
+    [Test] procedure A_InsertsCommits() begin NumberSequence.Insert('P4R2O', 1, 1); NumberSequence.Next('P4R2O'); Commit(); end;
+    [Test] procedure B_RefReadFails() var RR: RecordRef; FR: FieldRef; begin RR.Open(Database::"P4 Line"); FR := RR.Field(1); FR.SetRange('X'); if RR.FindLast() then; Error('B deliberate'); end;
+    [Test] procedure C_R2OReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4R2O')); end;
+}
+codeunit 50851 "P4 R14M"
+{
+    Subtype = Test;
+    var Rows: Codeunit "Rows"; Ref: Codeunit "P4 Ref Access";
+    [Test] procedure A_Commits() begin Rows.Put('R14M'); Commit(); end;
+    [Test] procedure B_Inserts() begin NumberSequence.Insert('P4R14M', 1, 1); NumberSequence.Next('P4R14M'); end;
+    [Test] procedure C_MockFails() begin Ref.MockInsert('R14M'); Error('C deliberate'); end;
+    [Test] procedure D_R14MReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4R14M')); end;
+}
+codeunit 50852 "P4 R14W"
+{
+    Subtype = Test;
+    var Rows: Codeunit "Rows";
+    [Test] procedure A_Commits() begin Rows.Put('R14W'); Commit(); end;
+    [Test] procedure B_Inserts() begin NumberSequence.Insert('P4R14W', 1, 1); NumberSequence.Next('P4R14W'); end;
+    [Test] procedure C_RefInsertFails() var RR: RecordRef; FR: FieldRef; begin RR.Open(Database::"P4 Line"); FR := RR.Field(1); FR.Value := 'W'; FR := RR.Field(2); FR.Value := 10000; RR.Insert(); Error('C deliberate'); end;
+    [Test] procedure D_R14WReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4R14W')); end;
+}
+codeunit 50853 "P4 R14N"
+{
+    Subtype = Test;
+    var Rows: Codeunit "Rows";
+    [Test] procedure A_Commits() begin Rows.Put('R14N'); Commit(); end;
+    [Test] procedure B_Inserts() begin NumberSequence.Insert('P4R14N', 1, 1); NumberSequence.Next('P4R14N'); end;
+    [Test] procedure C_OpenOnlyFails() var RR: RecordRef; begin RR.Open(Database::"P4 Line"); RR.Close(); Error('C deliberate'); end;
+    [Test] procedure D_R14NReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4R14N')); end;
+}
+codeunit 50854 "P4 R2N"
+{
+    Subtype = Test;
+    [Test] procedure A_InsertsCommits() begin NumberSequence.Insert('P4R2N', 1, 1); NumberSequence.Next('P4R2N'); Commit(); end;
+    [Test] procedure B_OpenOnlyFails() var RR: RecordRef; begin RR.Open(Database::"P4 Line"); RR.Close(); Error('B deliberate'); end;
+    [Test] procedure C_R2NReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4R2N')); end;
+}
+codeunit 50855 "P4 R2P"
+{
+    Subtype = Test;
+    var Ref: Codeunit "P4 Ref Access";
+    [Test] procedure A_InsertsCommits() begin NumberSequence.Insert('P4R2P', 1, 1); NumberSequence.Next('P4R2P'); Commit(); end;
+    [Test] procedure B_RecordAsRefFails() var Line: Record "P4 Line"; begin Ref.LastByRef(Line); Error('B deliberate'); end;
+    [Test] procedure C_R2PReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4R2P')); end;
+}
+"#;
+
+#[test]
+fn recordref_access_in_a_failed_test_is_table_access() {
+    let o = cells(&format!("{REF_LINE}\n{REF_ACCESS}"), TestIsolation::Codeunit);
+    flagged(&o, "C_R2OReads", "OBS missing", SEQ);
+    flagged(&o, "D_R14MReads", "OBS missing", SEQ);
+    flagged(&o, "D_R14WReads", "OBS missing", SEQ);
+    flagged(&o, "D_R14NReads", "OBS cur=1 next=2", SEQ);
+    flagged(&o, "C_R2NReads", "OBS cur=1 next=2", SEQ);
+    flagged(&o, "C_R2PReads", "OBS missing", SEQ);
+}
+
+// Shapes corpus PR 1468 did not measure keep main's refusal: a temporary RecordRef, a RecordRef method the cells do not call
+// (Count), a RecordRef of another company, RecordRef access in a failed test that commits (C1 shape), and RecordRef access without any Commit().
+const REF_UNMEASURED: &str = r#"
+codeunit 50858 "P4 Ref Temp"
+{
+    Subtype = Test;
+    [Test] procedure A_InsertsCommits() begin NumberSequence.Insert('P4RT', 1, 1); NumberSequence.Next('P4RT'); Commit(); end;
+    [Test] procedure B_TempRefFails() var RR: RecordRef; begin RR.Open(Database::"P4 Line", true); if RR.FindLast() then; Error('B deliberate'); end;
+    [Test] procedure C_TempRefReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4RT')); end;
+}
+codeunit 50859 "P4 Ref Count"
+{
+    Subtype = Test;
+    [Test] procedure A_InsertsCommits() begin NumberSequence.Insert('P4RC', 1, 1); NumberSequence.Next('P4RC'); Commit(); end;
+    [Test] procedure B_RefCountFails() var RR: RecordRef; begin RR.Open(Database::"P4 Line"); if RR.Count() = 0 then; Error('B deliberate'); end;
+    [Test] procedure C_RefCountReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4RC')); end;
+}
+codeunit 50860 "P4 Ref C1"
+{
+    Subtype = Test;
+    var Rows: Codeunit "Rows";
+    [Test] procedure A_InsertsWritesCommitsFails() var RR: RecordRef; begin NumberSequence.Insert('P4R1', 1, 1); NumberSequence.Next('P4R1'); Rows.Put('R1'); RR.Open(Database::"P4 Line"); if RR.FindLast() then; Commit(); Error('A deliberate'); end;
+    [Test] procedure B_RefC1Reads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4R1')); end;
+}
+codeunit 50861 "P4 Ref No Commit"
+{
+    Subtype = Test;
+    [Test] procedure A_Inserts() begin NumberSequence.Insert('P4RN', 1, 1); NumberSequence.Next('P4RN'); end;
+    [Test] procedure B_RefReadFails() var RR: RecordRef; begin RR.Open(Database::"P4 Line"); if RR.FindLast() then; Error('B deliberate'); end;
+    [Test] procedure C_RefNoCommitReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4RN')); end;
+}
+codeunit 50863 "P4 Ref Other Company"
+{
+    Subtype = Test;
+    [Test] procedure A_InsertsCommits() begin NumberSequence.Insert('P4RO', 1, 1); NumberSequence.Next('P4RO'); Commit(); end;
+    [Test] procedure B_OtherCompanyFails() var RR: RecordRef; begin RR.Open(Database::"P4 Line", false, 'P4 Other'); if RR.FindLast() then; Error('B deliberate'); end;
+    [Test] procedure C_OtherCompanyReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4RO')); end;
+}
+codeunit 50862 "P4 Open Only No Commit"
+{
+    Subtype = Test;
+    [Test] procedure A_Inserts() begin NumberSequence.Insert('P4RON', 1, 1); NumberSequence.Next('P4RON'); end;
+    [Test] procedure B_OpenOnlyFails() var RR: RecordRef; begin RR.Open(Database::"P4 Line"); RR.Close(); Error('B deliberate'); end;
+    [Test] procedure C_OpenOnlyNoCommitReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4RON')); end;
+}
+"#;
+
+#[test]
+fn recordref_shapes_the_probe_did_not_measure_are_refused() {
+    let o = cells(&format!("{REF_LINE}\n{REF_UNMEASURED}"), TestIsolation::Codeunit);
+    for (test, key) in [
+        ("C_TempRefReads", "'P4RT'"),
+        ("C_RefCountReads", "'P4RC'"),
+        ("B_RefC1Reads", "'P4R1'"),
+        ("C_RefNoCommitReads", "'P4RN'"),
+        ("C_OpenOnlyNoCommitReads", "'P4RON'"),
+        ("C_OtherCompanyReads", "'P4RO'"),
+    ] {
+        assert!(not_run(&row(&o, test).2, key), "{test}: {o:?}");
+    }
 }
 
 // Under a runner with TestIsolation = Function every new sequence is gone after each test (IsolProbeAfterRollback.Codeunit.al

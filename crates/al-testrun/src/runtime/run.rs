@@ -289,6 +289,13 @@ fn skipped_install_touching<'a>(
     skipped_installs.iter().find(|s| refuses(s)).map(|s| &s.why)
 }
 
+/// The object id and name of the test runner codeunit `object`, for isolation::failed_test_runner_measured.
+fn runner_key(lowered: &Lowered, object: Option<usize>) -> Option<(u32, &str)> {
+    object
+        .map(|i| &lowered.program.objects[i])
+        .map(|o| (o.id.unwrap_or(0), &*o.name))
+}
+
 /// The runner commits a test that passes: with a table still marked by Consistent(false) what BC does there is not pinned
 /// (only Commit() is, errors/CuCommitTests.al:405-419), so the test is not run. `handled`: every handler the test
 /// declares ran.
@@ -562,8 +569,8 @@ fn run_codeunit_inner(
     // them are not built yet.
     let al_runner_object = scratch.runner.filter(|_| data_driven.is_empty());
     // Corpus PR 1465 measured what a failed test leaves under this runner (isolation::failed_test_runner_measured).
-    let runner_id = al_runner_object.map(|i| lowered.program.objects[i].id.unwrap_or(0));
-    let measured_runner = crate::isolation::failed_test_runner_measured(isolation, runner_id, scratch.hub, execute);
+    let runner = runner_key(lowered, al_runner_object);
+    let measured_runner = crate::isolation::failed_test_runner_measured(isolation, runner, scratch.hub, execute);
     // The test codeunit run: called here, or from the OnRun of the test runner codeunit `al_runner_object` when it runs
     // the test codeunit (ADR-066 decision 1, `al_runner.rs`). An error is a result that skips what follows below.
     let ends = std::cell::Cell::new(super::Ends::default());
@@ -1234,7 +1241,7 @@ fn run_codeunit_inner(
                 unfinished.push(Unfinished {
                     routine: r,
                     what: what_of(&routine.name, ended, why, untrusted.as_deref()),
-                    bindings: left_bindings(session, &bound_before, ended, measured_bindings),
+                    bindings: left_bindings(session, &bound_before, ended, measured_bindings, sequences.as_ref()),
                     ended,
                     facts: None,
                     rest: if ended == Ended::RefusedMidRun {
@@ -1915,7 +1922,8 @@ impl Unfinished {
 
 /// The manual bindings alive after a failed test that were not alive when it started, split in two: those a later failure
 /// does not trust, and those a later test starts with as on BC. Kept, under a runner corpus PR 1465 measured (`measured`:
-/// the test codeunit's instance, isolation::failed_test_runner_measured), after a failure that is trusted: the binding of a
+/// the test codeunit's instance, isolation::failed_test_runner_measured), after a trusted failure raised by the body of a
+/// TransactionModel AutoCommit test (`CodeunitSequences::body_failed_as_measured`, as every P5 cell fails): the binding of a
 /// manual subscriber held in a global of the test codeunit, neither of them SingleInstance (assumption
 /// `binding-after-failed-test`, tests/al-language-isolation-probe/src/SqBindFailed.al P5a :36, SqReader.al:257; a local
 /// binding ends with its test, P5b :85, and is not alive here).
@@ -1924,6 +1932,7 @@ fn left_bindings(
     before: &[usize],
     ended: Ended,
     measured: Option<(&Lowered, &std::rc::Rc<std::cell::RefCell<al_builtins::value::Instance>>)>,
+    sequences: Option<&crate::isolation::CodeunitSequences>,
 ) -> LeftBindings {
     use al_builtins::value::Value;
     if !matches!(ended, Ended::Failed | Ended::Untrusted) {
@@ -1933,7 +1942,8 @@ fn left_bindings(
         .bound_subscriptions()
         .into_iter()
         .filter(|b| !before.contains(b));
-    let Some((lowered, instance)) = measured.filter(|_| ended == Ended::Failed) else {
+    let body_measured = sequences.is_some_and(|s| s.body_failed_as_measured());
+    let Some((lowered, instance)) = measured.filter(|_| ended == Ended::Failed && body_measured) else {
         return LeftBindings {
             untrusted: left.collect(),
             kept: Vec::new(),
