@@ -25,6 +25,12 @@ pub struct DataAccess {
     pub ref_store: u64,
     /// The part of `table_store` whose outermost call was Record.FindLast.
     pub find_last_store: u64,
+    /// Outermost Record.FindLast calls from AL code.
+    pub find_last_calls: u64,
+    /// The calls of `find_last_calls` that failed.
+    pub find_last_failures: u64,
+    /// Outermost Record.SetRange calls from AL code.
+    pub set_range_calls: u64,
     /// Calls of a method of a Record variable from AL code, a temporary one too.
     pub record_calls: u64,
     /// Outermost calls of a method of a temporary Record variable from AL code (one that a trigger or subscriber of a table
@@ -121,8 +127,13 @@ pub(crate) fn measured_ref_method(id: &str) -> bool {
 /// A table call from AL code ([`Session::al_table_call`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TableCall<'a> {
-    /// A method of a Record variable: `find_last`, it is Record.FindLast; `temporary`, the record is temporary.
-    Record { find_last: bool, temporary: bool },
+    /// A method of a Record variable: `find_last`, it is Record.FindLast; `set_range`, Record.SetRange; `temporary`, the
+    /// record is temporary.
+    Record {
+        find_last: bool,
+        set_range: bool,
+        temporary: bool,
+    },
     /// A RecordRef, FieldRef or KeyRef method [`measured_ref_method`] names, by catalog id.
     Ref(&'a str),
 }
@@ -137,13 +148,23 @@ impl Session {
     }
 
     /// Runs `call`, the table call `kind` from AL code, and counts it with what it read and wrote ([`DataAccess`]).
-    pub(crate) fn al_table_call<T>(&mut self, kind: TableCall, call: impl FnOnce(&mut Session) -> T) -> T {
+    pub(crate) fn al_table_call<V>(
+        &mut self,
+        kind: TableCall,
+        call: impl FnOnce(&mut Session) -> Result<V, Signal>,
+    ) -> Result<V, Signal> {
         let outermost = self.access_notes.table_depth == 0;
         let access = &mut self.access_notes.access;
         match kind {
-            TableCall::Record { temporary, .. } => {
+            TableCall::Record {
+                find_last,
+                set_range,
+                temporary,
+            } => {
                 access.record_calls += 1;
                 access.temporary_record_calls += u64::from(temporary && outermost);
+                access.find_last_calls += u64::from(find_last && outermost);
+                access.set_range_calls += u64::from(set_range && outermost);
             }
             TableCall::Ref(id) => {
                 access.ref_calls += 1;
@@ -158,6 +179,9 @@ impl Session {
         self.access_notes.table_depth += 1;
         let out = call(self);
         self.access_notes.table_depth -= 1;
+        if self.access_notes.table_depth == 0 && matches!(kind, TableCall::Record { find_last: true, .. }) {
+            self.access_notes.access.find_last_failures += u64::from(out.is_err());
+        }
         if self.access_notes.table_depth == 0 {
             let read = self.store.accesses().saturating_sub(store);
             let access = &mut self.access_notes.access;

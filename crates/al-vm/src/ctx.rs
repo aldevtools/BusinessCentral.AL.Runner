@@ -232,6 +232,7 @@ impl al_builtins::native::Ctx for Session {
                 let rc = rc.clone();
                 let kind = crate::sequence_start::TableCall::Record {
                     find_last: method == al_builtins::record_op::RecordOp::FindLast,
+                    set_range: method == al_builtins::record_op::RecordOp::SetRange,
                     temporary: rc.borrow().temporary,
                 };
                 self.al_table_call(kind, |s| {
@@ -265,6 +266,7 @@ impl al_builtins::native::Ctx for Session {
                 let rc = rc.clone();
                 let kind = crate::sequence_start::TableCall::Record {
                     find_last: false,
+                    set_range: false,
                     temporary: rc.borrow().temporary,
                 };
                 self.al_table_call(kind, |s| Session::record_validate_variant(s, &rc, args))

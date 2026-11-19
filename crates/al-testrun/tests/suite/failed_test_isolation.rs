@@ -869,6 +869,71 @@ fn a_failed_test_that_only_ran_record_findlast_after_a_commit_takes_the_sequence
     }
 }
 
+// Neighbors of R14R and R2R that no cell measures (review probe of PR 8512, round 3, cells F03, F06, F08, F09, F12, F17,
+// F19): two FindLast calls, no filter, SetAutoCalcFields, FindLast raising, LockTable, SetLoadFields, FilterGroup. Main's
+// refusal.
+const RECORD_READ_NEIGHBORS: &str = r#"
+table 50877 "P4 Calc Line" { fields { field(1; Doc; Code[20]) { } field(2; "Line No."; Integer) { } field(3; Lines; Integer) { FieldClass = FlowField; CalcFormula = count("P4 Calc Line" where(Doc = field(Doc))); } } keys { key(PK; Doc, "Line No.") { Clustered = true; } } }
+codeunit 50878 "P4 F03"
+{
+    Subtype = Test;
+    [Test] procedure A_InsertsCommits() begin NumberSequence.Insert('P4F03', 1, 1); NumberSequence.Next('P4F03'); Commit(); end;
+    [Test] procedure B_Fails() var Line: Record "P4 Line"; begin Line.SetRange(Doc, 'F03'); if Line.FindLast() then; if Line.FindLast() then; Error('B deliberate'); end;
+    [Test] procedure C_F03Reads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4F03')); end;
+}
+codeunit 50879 "P4 F06"
+{
+    Subtype = Test;
+    [Test] procedure A_InsertsCommits() begin NumberSequence.Insert('P4F06', 1, 1); NumberSequence.Next('P4F06'); Commit(); end;
+    [Test] procedure B_Fails() var Line: Record "P4 Line"; begin if Line.FindLast() then; Error('B deliberate'); end;
+    [Test] procedure C_F06Reads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4F06')); end;
+}
+codeunit 50880 "P4 F08"
+{
+    Subtype = Test;
+    [Test] procedure A_InsertsCommits() var Line: Record "P4 Calc Line"; begin Line.Doc := 'F08'; Line."Line No." := 10000; Line.Insert(); NumberSequence.Insert('P4F08', 1, 1); NumberSequence.Next('P4F08'); Commit(); end;
+    [Test] procedure B_Fails() var Line: Record "P4 Calc Line"; begin Line.SetRange(Doc, 'F08'); Line.SetAutoCalcFields(Lines); if Line.FindLast() then; Error('B deliberate'); end;
+    [Test] procedure C_F08Reads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4F08')); end;
+}
+codeunit 50881 "P4 F09"
+{
+    Subtype = Test;
+    [Test] procedure A_InsertsCommits() begin NumberSequence.Insert('P4F09', 1, 1); NumberSequence.Next('P4F09'); Commit(); end;
+    [Test] procedure B_Fails() var Line: Record "P4 Line"; begin Line.SetRange(Doc, 'F09'); Line.FindLast(); Error('B deliberate'); end;
+    [Test] procedure C_F09Reads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4F09')); end;
+}
+codeunit 50882 "P4 F12"
+{
+    Subtype = Test;
+    [Test] procedure A_InsertsCommits() begin NumberSequence.Insert('P4F12', 1, 1); NumberSequence.Next('P4F12'); Commit(); end;
+    [Test] procedure B_Fails() var Line: Record "P4 Line"; begin Line.LockTable(); Line.SetRange(Doc, 'F12'); if Line.FindLast() then; Error('B deliberate'); end;
+    [Test] procedure C_F12Reads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4F12')); end;
+}
+codeunit 50883 "P4 F17"
+{
+    Subtype = Test;
+    [Test] procedure A_InsertsCommits() begin NumberSequence.Insert('P4F17', 1, 1); NumberSequence.Next('P4F17'); Commit(); end;
+    [Test] procedure B_Fails() var Line: Record "P4 Line"; begin Line.SetLoadFields(Doc); Line.SetRange(Doc, 'F17'); if Line.FindLast() then; Error('B deliberate'); end;
+    [Test] procedure C_F17Reads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4F17')); end;
+}
+codeunit 50884 "P4 F19"
+{
+    Subtype = Test;
+    [Test] procedure A_InsertsCommits() begin NumberSequence.Insert('P4F19', 1, 1); NumberSequence.Next('P4F19'); Commit(); end;
+    [Test] procedure B_Fails() var Line: Record "P4 Line"; begin Line.FilterGroup(2); Line.SetRange(Doc, 'F19'); if Line.FindLast() then; Error('B deliberate'); end;
+    [Test] procedure C_F19Reads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4F19')); end;
+}
+"#;
+
+#[test]
+fn record_findlast_shapes_beside_the_cells_keep_mains_refusal() {
+    let o = cells(&format!("{REF_LINE}\n{RECORD_READ_NEIGHBORS}"), TestIsolation::Codeunit);
+    for cell in ["F03", "F06", "F08", "F09", "F12", "F17", "F19"] {
+        let test = format!("C_{cell}Reads");
+        assert!(not_run(&row(&o, &test).2, &format!("'P4{cell}'")), "{test}: {o:?}");
+    }
+}
+
 // Under a runner with TestIsolation = Function every new sequence is gone after each test (IsolProbeAfterRollback.Codeunit.al
 // S3, S8 under runner 61300): the cells of PR 1465 do not apply.
 #[test]

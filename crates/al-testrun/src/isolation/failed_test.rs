@@ -133,9 +133,17 @@ impl Body {
         self.raised && self.autocommit
     }
 
-    /// Every table read ran inside a Record.FindLast call, as in cells R14R and R2R of corpus PR 1468.
+    /// The Record calls of cells R14R and R2R of corpus PR 1468 (LastLineByRecord, SqRecordRefFail.al:118): Record.SetRange
+    /// and exactly one Record.FindLast, which did not fail, and every table read inside that FindLast. Any other Record call
+    /// (SetAutoCalcFields, LockTable, SetLoadFields, FilterGroup, a second FindLast) or no SetRange is not measured.
     fn reads_by_find_last(&self) -> bool {
-        self.delta(|a| a.find_last_store) == self.delta(|a| a.store)
+        let delta = |count| self.delta(count);
+        let (find_last, set_range) = (delta(|a| a.find_last_calls), delta(|a| a.set_range_calls));
+        find_last == 1
+            && set_range > 0
+            && delta(|a| a.record_calls) == find_last + set_range
+            && delta(|a| a.find_last_failures) == 0
+            && delta(|a| a.find_last_store) == delta(|a| a.store)
     }
 }
 
