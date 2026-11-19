@@ -177,6 +177,29 @@ pub struct TestSequence {
     pub current: i64,
 }
 
+/// How a source's kept index was obtained when the source was opened (`timings.testDataIndex`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum IndexState {
+    /// The kept index was used.
+    Read,
+    /// The index was built and saved by this process.
+    Built,
+    /// Nothing is kept: no folder for it, or a source that has no index to keep.
+    #[default]
+    Off,
+}
+
+impl IndexState {
+    /// The word of the protocol: `read`, `built` or `off`.
+    pub fn key(self) -> &'static str {
+        match self {
+            IndexState::Read => "read",
+            IndexState::Built => "built",
+            IndexState::Off => "off",
+        }
+    }
+}
+
 /// Rows of a restored company, read table by table on demand. One provider is shared by every test
 /// thread; [`TestData::read`] makes sure it is asked for a table once.
 pub trait TableProvider: Send + Sync {
@@ -189,6 +212,10 @@ pub trait TableProvider: Send + Sync {
     /// What opening the source and reading from it cost so far, for `--timings`. Additive: a
     /// provider that does not measure answers `None`.
     fn cost(&self) -> Option<String> {
+        None
+    }
+    /// How the source's kept index was obtained when it was opened. `None`: the source has none.
+    fn index_state(&self) -> Option<IndexState> {
         None
     }
     /// What the rows are, for a key of something computed from them (the install baseline in the compile cache):
