@@ -208,9 +208,14 @@ pub fn format_with_field_places(
     }
     let out = format_codes(v, length, template, places, ctx)?;
     if length != 0 {
-        // Whether the text may take the length, by the text the same string gives without one (owner: `format::length`).
-        let bare = format_codes(v, 0, template, places, ctx)?;
-        crate::format::length::with_format_string(v, length, bare.chars().count())?;
+        // Whether the text may take the length (owner: `format::length`): a lone `<Standard Format,N>` by `Format(v, length, N)`,
+        // any other string by the text it gives without a length.
+        if let Some(gate) = crate::format::length::lone_standard_format(v, length, template, &out, ctx) {
+            gate?;
+        } else {
+            let bare = format_codes(v, 0, template, places, ctx)?;
+            crate::format::length::with_format_string(v, length, template, bare.chars().count())?;
+        }
     }
     Ok(out)
 }
