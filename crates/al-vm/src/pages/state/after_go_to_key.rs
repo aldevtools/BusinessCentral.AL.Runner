@@ -5,14 +5,11 @@
 //! carries what came between that GoToKey and the next call (`GoToKeyLeft`). The rules that read it are at the callers in
 //! `pages/pageops.rs`, `pages/controls.rs` and `pages/actions.rs`.
 
-/// The mark a GoToKey left. Nothing is set (`Default`) until `moved`.
+/// The mark a GoToKey left: `None` until `moved`, and while it is `None` nothing that came in between is noted (the details
+/// were only ever set while the mark stood, so the old master flag and its four details map onto one `Option`; the bounded
+/// comparison in `tests` checks that against the old flags).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct AfterGoToKey {
-    /// The mark stands: a GoToKey moved the list and no move cleared it since.
-    active: bool,
-    /// What came between that GoToKey and the next call.
-    left: GoToKeyLeft,
-}
+pub struct AfterGoToKey(Option<GoToKeyLeft>);
 
 /// What came between the GoToKey and the next call, taken from the mark and put back by the caller that keeps it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -67,54 +64,170 @@ impl AfterGoToKey {
     /// A GoToKey moved the list without OnAfterGetCurrRecord; `quiet` when it ran no page trigger. What an earlier mark
     /// noted in between stays.
     pub fn moved(&mut self, quiet: bool) {
-        self.active = true;
-        self.left.quiet = quiet;
+        self.0.get_or_insert_default().quiet = quiet;
     }
 
     /// The mark stands.
     pub fn active(&self) -> bool {
-        self.active
+        self.0.is_some()
     }
 
     /// A SetValue came while the mark stands.
     pub fn set_value_between(&mut self) {
-        if self.active {
-            self.left.set = true;
+        if let Some(left) = &mut self.0 {
+            left.set = true;
         }
     }
 
     /// A call that is not pinned came while the mark stands.
     pub fn unpinned_call_between(&mut self) {
-        if self.active {
-            self.left.doubt = true;
+        if let Some(left) = &mut self.0 {
+            left.doubt = true;
         }
     }
 
     /// An action starts: a SetValue or a Previous before it no longer counts; the mark stays. Answers whether the mark
     /// stands and whether a call that is not pinned came in between.
     pub fn action_starts(&mut self) -> (bool, bool) {
-        self.left.set = false;
-        self.left.prev = false;
-        (self.active, self.left.doubt)
+        match &mut self.0 {
+            Some(left) => {
+                left.set = false;
+                left.prev = false;
+                (true, left.doubt)
+            }
+            None => (false, false),
+        }
     }
 
     /// Takes the mark off: what came in between when it stood, `None` when it did not.
     pub fn take(&mut self) -> Option<GoToKeyLeft> {
-        let active = std::mem::take(&mut self.active);
-        let left = std::mem::take(&mut self.left);
-        active.then_some(left)
+        self.0.take()
     }
 
     /// Puts a taken mark back.
     pub fn keep(&mut self, left: GoToKeyLeft) {
-        self.active = true;
-        self.left = left;
+        self.0 = Some(left);
+    }
+}
+
+/// The five flags `AfterGoToKey` replaced, with the bodies the call sites had, for the bounded comparison. Delete it when a
+/// probed behavior change makes the old flags wrong.
+#[cfg(test)]
+mod model {
+    use super::GoToKeyLeft;
+
+    #[derive(Debug, Clone, Default)]
+    pub struct Flags {
+        pub active: bool,
+        pub doubt: bool,
+        pub quiet: bool,
+        pub set: bool,
+        pub prev: bool,
+    }
+
+    impl Flags {
+        pub fn moved(&mut self, quiet: bool) {
+            self.active = true;
+            self.quiet = quiet;
+        }
+        // The call sites wrote the next two only while `active` was true.
+        pub fn set_value_between(&mut self) {
+            if self.active {
+                self.set = true;
+            }
+        }
+        pub fn unpinned_call_between(&mut self) {
+            if self.active {
+                self.doubt = true;
+            }
+        }
+        pub fn action_starts(&mut self) -> (bool, bool) {
+            self.set = false;
+            self.prev = false;
+            (self.active, self.doubt)
+        }
+        pub fn take(&mut self) -> Option<GoToKeyLeft> {
+            let left = GoToKeyLeft {
+                doubt: std::mem::take(&mut self.doubt),
+                quiet: std::mem::take(&mut self.quiet),
+                set: std::mem::take(&mut self.set),
+                prev: std::mem::take(&mut self.prev),
+            };
+            std::mem::take(&mut self.active).then_some(left)
+        }
+        pub fn keep(&mut self, left: GoToKeyLeft) {
+            *self = Flags {
+                active: true,
+                doubt: left.doubt,
+                quiet: left.quiet,
+                set: left.set,
+                prev: left.prev,
+            };
+        }
+        /// No detail is set while the mark is off.
+        pub fn details_only_while_active(&self) -> bool {
+            self.active || !(self.doubt || self.quiet || self.set || self.prev)
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{AfterGoToKey, GoToKeyLeft};
+    use super::{AfterGoToKey, GoToKeyLeft, model::Flags};
+
+    /// Every transition, with each `bool` argument both ways; `keep` puts back what the last `take` gave (or a mark with
+    /// every detail set, when nothing was taken).
+    const STEPS: usize = 7;
+
+    fn step(i: usize, new: &mut AfterGoToKey, old: &mut Flags, taken: &mut Option<GoToKeyLeft>) {
+        let full = GoToKeyLeft {
+            doubt: true,
+            quiet: true,
+            set: true,
+            prev: true,
+        };
+        match i {
+            0 | 1 => {
+                new.moved(i == 1);
+                old.moved(i == 1);
+            }
+            2 => {
+                new.set_value_between();
+                old.set_value_between();
+            }
+            3 => {
+                new.unpinned_call_between();
+                old.unpinned_call_between();
+            }
+            4 => assert_eq!(new.action_starts(), old.action_starts()),
+            5 => {
+                let t = new.take();
+                assert_eq!(t, old.take());
+                *taken = t;
+            }
+            _ => {
+                let left = taken.unwrap_or(full);
+                new.keep(left);
+                old.keep(left);
+            }
+        }
+    }
+
+    #[test]
+    fn every_sequence_of_four_steps_answers_as_the_old_flags() {
+        for n in 0..STEPS.pow(4) {
+            let (mut new, mut old, mut taken) = (AfterGoToKey::default(), Flags::default(), None);
+            let mut rest = n;
+            for _ in 0..4 {
+                step(rest % STEPS, &mut new, &mut old, &mut taken);
+                rest /= STEPS;
+                assert!(old.details_only_while_active(), "sequence {n}");
+                assert_eq!(new.active(), old.active, "sequence {n}");
+                assert_eq!(new.clone().take(), old.clone().take(), "sequence {n}");
+                assert_eq!(new.clone().action_starts(), old.clone().action_starts(), "sequence {n}");
+            }
+        }
+    }
 
     #[test]
     fn a_new_mark_does_not_stand() {
