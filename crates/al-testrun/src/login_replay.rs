@@ -16,6 +16,11 @@ use std::sync::{Mutex, PoisonError};
 /// key may share one run of the login only when they also hold the same after it ([`Check`]); a field left out of the
 /// key would let a replay hand a session the store of another input. The engine (the compiled program, its apps and
 /// their code) is not a field: the check lives on the engine (`Engine::derived`).
+///
+/// The maintainer's two conditions for the replay (al-runner issue 8211): every field holds its input by content or by a
+/// SHA-256 digest ([`LinesDigest`]), never a 64-bit hash; and the test codeunit stays a field until a repeat across test
+/// codeunits is measured on a real app. Tests `every_key_field_is_content_or_a_sha256_digest` and
+/// `two_test_codeunits_never_share_a_key`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Key {
     /// Every committed row before the login: the install baseline, what install code and an earlier codeunit left.
@@ -39,7 +44,7 @@ pub(crate) struct Key {
     /// `UserId()`.
     user: String,
     /// The test codeunit the session opens for: `login::decide` reads it, and a replay may not cross codeunits until a
-    /// probe shows no login code can tell them apart.
+    /// repeat across test codeunits is measured on a real app (the maintainer's second condition, al-runner issue 8211).
     test_codeunit: Option<usize>,
     /// The resource texts the pass reads in place of the apps' files (a serve entry's `resources`,
     /// `Engine::resource_overrides`): `NavApp.GetResource` in a subscriber reads them.
@@ -382,6 +387,61 @@ mod tests {
             flags: Default::default(),
             license: None,
         }
+    }
+
+    // Condition 1 of the maintainer's acceptance on al-runner issue 8211: the key compares content or a strong hash, never
+    // a 64-bit digest. Every field is named with its type, so a field added or changed does not compile until it is
+    // classified here: a SHA-256 digest of lines, or the content itself. `backing` is not a digest: two process-unique
+    // numbers (`TestData::id`, `Engine::uid`) that name who offers the rows. The module's own code names no 64-bit hasher.
+    #[test]
+    fn every_key_field_is_content_or_a_sha256_digest() {
+        let k = key(1);
+        let Key {
+            database,
+            uncommitted,
+            backing,
+            session,
+            company,
+            seed,
+            user,
+            test_codeunit,
+            resources,
+            client,
+            flags,
+            license,
+        } = &k;
+        let digests: [&LinesDigest; 3] = [database, session, resources];
+        let _: &Option<LinesDigest> = uncommitted;
+        let _: &Option<(u64, u64)> = backing;
+        let _: (&String, &i32, &String, &Option<usize>) = (company, seed, user, test_codeunit);
+        let _: &(bool, bool, bool) = client;
+        let _: &crate::runtime::session_flags::SessionFlags = flags;
+        let _: &Option<std::sync::Arc<al_host::license::License>> = license;
+        for d in digests {
+            assert_eq!(std::mem::size_of_val(&d.0), 32);
+        }
+        let code = include_str!("login_replay.rs").split("#[cfg(test)]").next().unwrap();
+        for hasher in ["DefaultHasher", "std::hash::", "FxHash", "ahash", "-> u64"] {
+            assert!(!code.contains(hasher), "{hasher}");
+        }
+    }
+
+    // Condition 2 of the maintainer's acceptance on al-runner issue 8211: the test codeunit stays in the key. Two sessions
+    // that differ only in their test codeunit have other keys, so neither is compared with (nor, later, replayed from) the
+    // other's first state; only the evidence tally across test codeunits sees them together.
+    #[test]
+    fn two_test_codeunits_never_share_a_key() {
+        assert_ne!(key(1), key(2));
+        let check = Check::default();
+        check.note(key(1), state(&["r"], &["s"]));
+        check.note(key(2), state(&["other"], &["s"]));
+        let line = check.line().unwrap();
+        assert!(
+            line.starts_with(
+                "login replay check: 2 sessions over 2 keys (a key seen before: 0 sessions, 0%), 0 compared"
+            ),
+            "{line}"
+        );
     }
 
     // A key field is a SHA-256 of its lines (each line its length, then its bytes), not a 64-bit hash: two inputs that
