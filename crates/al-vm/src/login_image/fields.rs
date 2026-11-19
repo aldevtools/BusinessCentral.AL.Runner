@@ -13,6 +13,58 @@
 //! - `rest`: must be at rest ([`Session::at_rest`], the one owner of that rule), else no image.
 //! - `own`: made from the engine, the host or the run's session flags before any code runs; the thawn session keeps its
 //!   own. A predicate next to one is what the image requires of it.
+//!
+//! # Session state outside `Session`'s fields
+//!
+//! The table above names every field, but some of what a session holds is kept elsewhere: by the store besides its rows,
+//! and in thread-local or process tables (some keyed by a handle's address). Each owner is listed here with what the image
+//! does with it: **imaged** (kept and given back, with the test that shows it), **checked** (the check sees it and the
+//! image needs it at a new session's value), **follows** (written by a setter the thaw calls), **run** (one value for the
+//! whole thread or process run, not of one session: an id counter, a cache of the program, a diagnostic counter) or
+//! **transient** (set and taken within one call; empty at rest). al-test-cli `tests/outside_session_state.rs` fails for a
+//! `static` of al-vm, al-builtins or al-data that is not listed here.
+//!
+//! The store, besides its rows:
+//! - emptied marks (`MemStore::committed_marks`): imaged, `login_image.rs` (test `a_table_the_login_emptied_stays_emptied_in_the_twin`).
+//! - company copies (`committed_copies`): follows, `restore_baseline` puts them back from `full_copies` (plain).
+//! - held columns (`unknown_cols`, `accent_cols`, `ae_cols`): follows, `MemStore::from_exported` notes every row
+//!   (test `baseline::tests::a_baseline_read_back_from_bytes_refuses_what_the_captured_one_refuses`).
+//! - stamps, `moves`, `shapes`, the read caches: run (new stamps; a stamp only says whether a table changed, and the facts
+//!   that compare with one are carried as facts: `tx.commit_counter`, `own_read`'s "current", `baseline_origin`).
+//!
+//! Thread-local and process tables:
+//! - `crates/al-builtins/src/errorinfo.rs` `CALLSTACKS`: imaged, `ErrorInfoNode::callstack` (test
+//!   `an_error_infos_call_stack_follows_it_into_the_twin`); checked, state_render.rs ErrorInfo line.
+//! - `crates/al-builtins/src/assumptions.rs` `HITS`: not imaged; the check keeps the login's marks next to the state
+//!   (`LoginState::hits`), and a replay must raise them again (step 3).
+//! - `crates/al-builtins/src/filter.rs` `FILTER_LANGUAGE`, `crates/al-builtins/src/ops.rs` `TURKIC_CODE`: follows,
+//!   `Session::restore_carried`.
+//! - `crates/al-builtins/src/value.rs` `BORN_RESTRICTED`: follows, the thaw writes each instance's `born`.
+//! - `crates/al-builtins/src/instance_cycles.rs` `MADE`, `PRUNE_AT`, `GUARDS`, `LIVE`, `PAGE_INSTANCES`: follows, a thawn
+//!   instance is made by `instance_cycles::shared` (test `the_image_is_send_and_sync_and_thaws_on_another_thread`).
+//! - `crates/al-data/src/memory.rs` `STORE_OPS`: follows, `SqlCounters::restore_left` reads it again.
+//! - `crates/al-builtins/src/filter.rs` `DATE_CONTEXT`, `crates/al-builtins/src/placeholder_output.rs` `UNANSWERED`,
+//!   `crates/al-builtins/src/stream.rs` `OBSERVED`, `OBSERVED_ANY`: transient (scoped by `with_date_context`; taken by the
+//!   builtin call or the procedure end that set it).
+//! - `crates/al-builtins/src/rendered_text.rs` `RENDERS`, `ACTIVE`, `ALLOWED`, `DOTNET_ALLOWED`: run (a marked text keeps
+//!   its number in the process; a text value is imaged as it is, mark included).
+//! - `crates/al-builtins/src/placeholder_output.rs` `SIZE_MADE`, `crates/al-vm/src/temp_blob_share.rs` `STREAMS_KEPT`:
+//!   run (process flags that switch a guard on, never off).
+//! - `crates/al-builtins/src/permission_shadow.rs` `ENABLED`, `ALL`, `LINES`: run (the shadow permission log, diagnostics).
+//! - `crates/al-data/src/memory.rs` `STAMPS`, `NO_COMPANY`, `ORDER_BUILDS`, `ROWS_LOOKED_AT`,
+//!   `crates/al-data/src/memory/held_cols.rs` `COLLATION_ROWS`, `crates/al-vm/src/platform/mat.rs` `ROWS_LOOKED_AT`,
+//!   `crates/al-builtins/src/text.rs` `MARKER_SCANS`, `UNAUDITED`, `crates/al-vm/src/exec/mod.rs` `ON`, `STATS`: run
+//!   (stamps and diagnostic counters).
+//! - `crates/al-vm/src/lib.rs` `NEXT_ENGINE_UID`, `crates/al-vm/src/baseline.rs` `NEXT_ORIGIN`,
+//!   `crates/al-vm/src/dotnet/blob_stream.rs` `NEXT_VIEW`: run (ids handed out once in the process).
+//! - `crates/al-builtins/src/builtin_id.rs` `NAMES`, `CLASSES`, `crates/al-builtins/src/builtin_ids.rs` `NAMES`,
+//!   `CLASSES`, `crates/al-builtins/src/catalog.rs` `CATALOG`, `crates/al-builtins/src/collation.rs` `ASCII_WEIGHTS`,
+//!   `crates/al-builtins/src/conv/mod.rs` `CELLS`, `crates/al-builtins/src/features.rs` `TABLE`,
+//!   `crates/al-builtins/src/native/registry.rs` `TABLE`, `crates/al-builtins/src/page_handle.rs` `CLOSED_PAGE`,
+//!   `crates/al-builtins/src/sysenum.rs` `LIST`, `crates/al-vm/src/auto_format_writer.rs` `EVENTS`,
+//!   `crates/al-vm/src/platform/fields.rs` `WHY`, `PACKAGE_WHY`, `crates/al-vm/src/platform/mod.rs` `SHARED`,
+//!   `crates/al-vm/src/refs.rs` `C`, `crates/al-vm/src/report_save/cells.rs` `CELLS`: run (tables of the program and the
+//!   platform, the same for every session).
 
 use crate::Session;
 use std::collections::{BTreeSet, HashMap, HashSet};
