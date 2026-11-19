@@ -205,6 +205,10 @@ pub fn format_with_field_places(
             "{RAISE_MARK}InvalidStandardFormat{RAISE_MARK}Standard format number -1 does not exist for the type 'GUID'."
         ));
     }
+    // A DateFormula runs only with the length its pins cover (owner: `format::date_formula_length`).
+    if matches!(v, Value::DateFormula(_)) {
+        crate::format::date_formula_length(length).map_err(fail)?;
+    }
     // `<Text>` alone on a TextBuilder is its text, padded on the right to the length like a plain Format (TxCTextBuilderEdit.al:
     // 716-733 `text_string`, `length8_text_string`). Other codes on it are not pinned.
     if template == "<Text>" && matches!(v, Value::Library(crate::library_kind::LibraryKind::TextBuilder, _)) {

@@ -21,6 +21,7 @@ const RUN_TESTS_FIELDS: &[&str] = &[
     "perTestCoverage",
     "test",
     "excludeTests",
+    "excludeTestsExact",
     "testIsolation",
     "testRunner",
     "testDriver",
@@ -51,7 +52,14 @@ const RUN_TESTS_FIELDS: &[&str] = &[
     "profile",
 ];
 /// The fields of an entry of `runTests` (issue 5635).
-const ENTRY_FIELDS: &[&str] = &["id", "resources", "test", "excludeTests", "testTimeoutSecs"];
+const ENTRY_FIELDS: &[&str] = &[
+    "id",
+    "resources",
+    "test",
+    "excludeTests",
+    "excludeTestsExact",
+    "testTimeoutSecs",
+];
 /// The request fields of `execute`.
 const EXECUTE_FIELDS: &[&str] = &[
     "command",
@@ -295,6 +303,7 @@ fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArg
         a.filters.push(t);
     }
     a.excludes.extend(string_list(fields, "excludeTests")?);
+    a.excludes_exact.extend(string_list(fields, "excludeTestsExact")?);
     if let Some(i) = fields.get("testIsolation").and_then(Value::as_str) {
         // `required`: each test codeunit under its own RequiredTestIsolation, as BC's TestRunnerHub runs it on BC 28 and
         // later (`al-runner test --isolation required`).
@@ -427,6 +436,7 @@ fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArg
         for (set, field) in [
             (!a.filters.is_empty(), "test"),
             (!a.excludes.is_empty(), "excludeTests"),
+            (!a.excludes_exact.is_empty(), "excludeTestsExact"),
         ] {
             if set {
                 return Err(format!(
@@ -474,6 +484,7 @@ fn entries_of(fields: &Map<String, Value>) -> Result<(Vec<run::Entry>, Vec<Value
     for (field, why) in [
         ("test", "each entry has its own `test`"),
         ("excludeTests", "each entry has its own `excludeTests`"),
+        ("excludeTestsExact", "each entry has its own `excludeTestsExact`"),
         ("affectedOnly", "it is not supported with entries"),
         ("coverage", "coverage is not supported with entries"),
         ("perTestCoverage", "coverage is not supported with entries"),
@@ -524,6 +535,7 @@ fn entries_of(fields: &Map<String, Value>) -> Result<(Vec<run::Entry>, Vec<Value
         entries.push(run::Entry {
             filters: test_filter(e)?.into_iter().collect(),
             excludes: string_list(e, "excludeTests")?,
+            excludes_exact: string_list(e, "excludeTestsExact")?,
             resources,
             test_timeout_secs: test_timeout_secs(e)?,
         });
@@ -679,9 +691,12 @@ fn summary_head(doc: &Value, code: u8) -> Value {
 /// The `timings` of a summary (al-runner issue 5856): where the request spent its wall time `wall`, by phase. `otherMs`
 /// is the rest (reading the request, the report, the output).
 fn timings_json(t: &run::RequestTimings, wall: std::time::Duration) -> Value {
-    let known = t.setup + t.compile + t.engine + t.baseline + t.tests + t.coverage;
+    let setup = t.setup.total();
+    let known = setup + t.compile + t.engine + t.baseline + t.tests + t.coverage;
+    let parts: serde_json::Map<String, Value> = t.setup.keyed().map(|(k, d)| (k.to_string(), json!(ms(d)))).collect();
     let mut v = json!({
-        "setupMs": ms(t.setup),
+        "setupMs": ms(setup),
+        "setupParts": parts,
         "compileMs": ms(t.compile),
         "engineMs": ms(t.engine),
         "baselineMs": ms(t.baseline),

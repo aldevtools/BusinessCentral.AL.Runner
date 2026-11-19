@@ -1232,7 +1232,7 @@ impl Session {
                     // events/TestProbeEventContracts.al:RecordErrors_GetMissing_TestField_Modify (FindFirst, FindLast, FindSet
                     // with a filter): the text lists the filters; without one it is not pinned.
                     None => {
-                        let filters = self.get_filters(rec, &t)?;
+                        let filters = self.get_filters(rec, &t, false)?;
                         // Without a filter the table itself is empty, on every version: FindFirst and FindLast
                         // record/filters/P68C_EmptyFinds.al:215-250 ( passes on the BC 27 oracle
                         // too), FindSet ErTTriggerErrors.al:140-147 and P68C_EmptyFinds.al:202-204.
@@ -1849,6 +1849,13 @@ impl Session {
             RecordOp::Validate => {
                 let entry = self.take_validate_site(rec);
                 let pos = arg_pos(args, 0)?;
+                // `Validate(Field)` checks the value the field holds (its relation, its properties).
+                if args.get(1).is_none() {
+                    al_builtins::placeholder_output::size_read(
+                        &rec.borrow().fields[pos],
+                        "Validate of a record field holding the value",
+                    )?;
+                }
                 let engine = self.engine.clone();
                 let schema = engine.program.objects[t.object as usize].table.as_ref().expect("table");
                 let field = &schema.fields[pos];

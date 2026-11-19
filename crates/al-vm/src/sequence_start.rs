@@ -53,6 +53,21 @@ impl Session {
         }
     }
 
+    /// The sequences `start` did not hold, sorted. A failed test under TestIsolation = Codeunit is undone back to its
+    /// last `Commit()` (tests/al-language-isolation-probe/src/SdIsolCommitError.Codeunit.al:26-27 under runner 61301,
+    /// measured for rows); what that leaves of a new sequence after a `Commit()` is not measured. Call before
+    /// [`Session::drop_sequences_inserted_since`].
+    pub fn sequences_inserted_since(&self, start: &SequenceStart) -> Vec<Key> {
+        let mut new: Vec<Key> = self
+            .sequences
+            .keys()
+            .filter(|k| !start.sequences.contains_key(*k))
+            .cloned()
+            .collect();
+        new.sort();
+        new
+    }
+
     /// The sequences of `start` that were restarted, deleted or otherwise changed since, sorted: what a failed test's
     /// rollback leaves of them under TestIsolation = Codeunit is not measured. Numbers taken by `Next` count as kept
     /// (SeqCarry.al:26-27).

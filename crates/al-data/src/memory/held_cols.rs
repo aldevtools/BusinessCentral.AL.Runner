@@ -1,12 +1,26 @@
 //! The columns a store notes on write so that a read can refuse a row it cannot answer for, at no cost until such a row
-//! was stored: a value a platform row left unknown (`unknown_cols`), and a text outside ASCII (`accent_cols`), whose order or
+//! was stored: a value a platform row left unknown or a placeholder's size (`unknown_cols`), and a text outside ASCII (`accent_cols`), whose order or
 //! `@` match may rest on letters no measurement covers.
 
 use super::*;
 
+/// Why a filter or an order may not compare the stored value `v`: a column a platform row left unknown, or a placeholder's size
+/// (ADR-040 amendment 2026-11-12b, point 4: the size answers only a comparison with 0, which no filter or key order is).
+fn unread(v: &Value) -> Option<String> {
+    match v {
+        Value::Unknown(why) => Some(why.to_string()),
+        Value::PlaceholderSize(m, _) => Some(al_builtins::placeholder_output::size_refusal_text(
+            m,
+            "a record filter or sort on a field holding the value",
+        )),
+        _ => None,
+    }
+}
+
 impl MemStore {
-    /// A read that filters on, or orders by, a column a stored row holds unknown (a copy of a platform row) is refused:
-    /// whether that row passes, or where it sorts, is not known. Costs nothing until such a row was stored.
+    /// A read that filters on, or orders by, a column a stored row holds unknown (a copy of a platform row) or holding a
+    /// placeholder's size ([`unread`]) is refused: whether that row passes, or where it sorts, is not known. So is a filter whose
+    /// value is a placeholder's size. Costs nothing until such a row was stored or such a size was made.
     pub(super) fn unknown_read(
         &self,
         cx: &AccessContext,
@@ -14,6 +28,14 @@ impl MemStore {
         filters: &[FieldFilter],
         order: &[usize],
     ) -> Result<(), StoreError> {
+        if al_builtins::placeholder_output::sizes_made() {
+            if let Some(m) = filters.iter().find_map(|f| f.expr.placeholder_size()) {
+                return Err(StoreError::Refused(al_builtins::placeholder_output::size_refusal_text(
+                    m,
+                    "a record filter on the value",
+                )));
+            }
+        }
         if self.unknown_cols.is_empty() {
             return Ok(());
         }
@@ -33,8 +55,8 @@ impl MemStore {
             return Ok(());
         };
         for row in table.values() {
-            if let Some(why) = cols.iter().find_map(|&c| row.get(c).and_then(Value::unknown)) {
-                return Err(StoreError::Refused(why.to_string()));
+            if let Some(why) = cols.iter().find_map(|&c| row.get(c).and_then(unread)) {
+                return Err(StoreError::Refused(why));
             }
         }
         Ok(())
@@ -281,7 +303,7 @@ impl MemStore {
         self.database
     }
 
-    /// Writes down the columns of `row` that hold an unknown value (see `unknown_cols`), a text outside ASCII (see
+    /// Writes down the columns of `row` that hold a value no read may compare (see `unknown_cols`, [`unread`]), a text outside ASCII (see
     /// `accent_cols`), and one with `Æ` or `æ` (see `ae_cols`).
     pub(super) fn note_held(&mut self, t: &TableDef, row: &Row) {
         let note = |map: &mut std::collections::HashMap<u32, Vec<usize>>, i: usize| {
@@ -292,7 +314,7 @@ impl MemStore {
         };
         for (i, v) in row.iter().enumerate() {
             match v {
-                _ if v.unknown().is_some() => note(&mut self.unknown_cols, i),
+                _ if unread(v).is_some() => note(&mut self.unknown_cols, i),
                 Value::Text(s) | Value::Code(s) if !s.is_ascii() => {
                     note(&mut self.accent_cols, i);
                     if al_builtins::collation::holds_ae(s) {

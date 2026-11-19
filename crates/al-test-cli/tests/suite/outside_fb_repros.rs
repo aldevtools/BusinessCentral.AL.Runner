@@ -429,7 +429,7 @@ fn issue_8186_reopen_forgets_the_landing() {
 const ISSUE_8285_PROBE: &str = include_str!("../fixtures/outside-fb/Issue8285Probe.al");
 const ISSUE_8285_NEIGHBORS: &str = include_str!("../fixtures/outside-fb/Issue8285Neighbors.al");
 
-/// The corpus probe of issue 8285 (corpus pull request 1436, open: tests/al-language/pages/currpage/ListNewLineSaveRecordUpdate.al,
+/// The corpus probe of issue 8285 (corpus pull request 1436, merged, not pinned yet: tests/al-language/pages/currpage/ListNewLineSaveRecordUpdate.al,
 /// measured on BC 29.1 and green in its CI on 27.5, 28.5 and 29.0) and the reporter's repro: `CurrPage.SaveRecord()` then `CurrPage.Update(false)`, and `CurrPage.Update(true)`,
 /// on the new line the table field inserted, also on the host with a CardPart FactBox. Every test passes, flagged by
 /// list-new-line-code-insert-save.

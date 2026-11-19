@@ -433,6 +433,7 @@ fn flags_that_cannot_go_with_affected_are_refused() {
         vec!["test", app.as_str(), "--affected", "--test", "UsesA"],
         vec!["test", app.as_str(), "--affected", "--codeunit", "50110"],
         vec!["test", app.as_str(), "--affected", "--exclude-test", "UsesA"],
+        vec!["test", app.as_str(), "--affected", "--exclude-test-exact", "UsesA"],
         vec!["test", app.as_str(), "--include-failing"],
         vec!["test", app.as_str(), "--strict-environment"],
         vec!["test", app.as_str(), "--affected-store", "x.json.gz"],
