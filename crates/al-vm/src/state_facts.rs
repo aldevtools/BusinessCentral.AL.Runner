@@ -17,6 +17,7 @@ impl Session {
         lines.push(self.event_calls_line());
         lines.push(self.media_line());
         lines.push(self.transaction_line());
+        lines.push(self.emptied_line());
         match self.sql.left_inactive() {
             Some(left) => lines.push(format!("sql {}", left.line())),
             None => opaque.push(SQL_ACTIVE.to_string()),
@@ -60,6 +61,14 @@ impl Session {
         )
     }
 
+    /// The tables a DeleteAll without filters emptied, as the committed store keeps them (`MemStore::committed_marks`): a
+    /// read of a table whose rows BC holds but the runner does not know answers only while its table is emptied
+    /// (records.rs `is_unseeded`), so two sessions with the same rows can still answer differently. Sorted.
+    fn emptied_line(&self) -> String {
+        let (emptied, _) = self.store.committed_marks();
+        format!("emptied {}", content(&emptied))
+    }
+
     /// How often the session committed (a record's own read is current against it, `state_render.rs`) and what the last
     /// Commit left that a later test reads: whether it made writes durable (`MinimumActiveRowVersion`), the transaction
     /// type and phase (`CurrentTransactionType`), the lock timeout, a rollback since, and whether the store changed since
@@ -77,5 +86,28 @@ impl Session {
             tx.rolled_back,
             tx.commit_counter != self.store.change_counter()
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // A DeleteAll without filters marks its table emptied, and the mark outlives the Commit: a later read of a table whose
+    // rows BC holds but the runner does not know answers only when the mark stands (records.rs `is_unseeded`). Two
+    // sessions that differ only in that mark do not hold the same, though their rows are equal.
+    #[test]
+    fn a_table_a_delete_all_emptied_is_a_state_line() {
+        use al_data::Store;
+        let (_, l) = al_sema::lower::compile(Vec::new(), &Default::default());
+        let engine = crate::Engine::new(l.program, Vec::new());
+        let mut emptied = crate::Session::new(engine.clone());
+        let mut fresh = crate::Session::new(engine);
+        let cx = al_data::contract::cx("CRONUS");
+        emptied.store.delete_all(&cx, &al_data::contract::table(), &[]).unwrap();
+        emptied.commit_transaction();
+        fresh.commit_transaction();
+        let (a, b) = (emptied.state_lines(), fresh.state_lines());
+        let differ: Vec<_> = a.lines.iter().zip(&b.lines).filter(|(x, y)| x != y).collect();
+        assert_eq!(differ.len(), 1, "{differ:?}");
+        assert!(differ[0].0.starts_with("emptied "), "{differ:?}");
     }
 }
