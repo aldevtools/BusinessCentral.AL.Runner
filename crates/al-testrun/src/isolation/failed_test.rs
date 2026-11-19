@@ -77,7 +77,7 @@ enum Reached {
     /// No table was read or written, no table call ran, and no other RecordRef, FieldRef, KeyRef or Query method or
     /// session builtin other than NumberSequence was called.
     Nothing,
-    /// As `Nothing`, except that RecordRef table calls ran that read and wrote no table (RecordRef.Open and Close).
+    /// As `Nothing`, except that RecordRef.Open and RecordRef.Close ran, and no other table call.
     RefOpenOnly,
     /// Tables were read and none was written, every read inside a Record method call, and nothing else was called.
     RecordReads,
@@ -86,20 +86,24 @@ enum Reached {
     /// Tables were read and none was written, every read inside a RecordRef table call, Record calls that read no table
     /// and CompanyName calls aside, and nothing else was called.
     RefReads,
-    /// Every table read and write ran inside a table call, a RecordRef one among them, one wrote, and nothing else was
-    /// called but CompanyName.
+    /// Every table read and write ran inside a table call, a RecordRef one among them read or wrote a table, one wrote, and
+    /// nothing else was called but CompanyName.
     RefWrites,
     /// Anything else.
     Other,
 }
 
 impl Body {
+    /// How much `count` of [`DataAccess`] grew while the body ran.
+    fn delta(&self, count: fn(&DataAccess) -> u64) -> u64 {
+        count(&self.access.1).saturating_sub(count(&self.access.0))
+    }
+
     fn reached(&self) -> Reached {
-        let (from, to) = self.access;
-        if from == to {
+        if self.access.0 == self.access.1 {
             return Reached::Nothing;
         }
-        let delta = |count: fn(&DataAccess) -> u64| count(&to).saturating_sub(count(&from));
+        let delta = |count| self.delta(count);
         let store = delta(|a| a.store);
         let refs = delta(|a| a.ref_calls) > 0;
         let writes = delta(|a| a.table_writes) > 0;
@@ -109,7 +113,8 @@ impl Body {
             return Reached::Other;
         }
         if store == 0 {
-            return match refs && delta(|a| a.record_calls) == 0 {
+            let open_close = delta(|a| a.ref_open_close_calls) == delta(|a| a.ref_calls);
+            return match refs && open_close && delta(|a| a.record_calls) == 0 {
                 true => Reached::RefOpenOnly,
                 false => Reached::Other,
             };
@@ -118,7 +123,7 @@ impl Body {
             (true, false, false) => Reached::RecordReads,
             (true, false, true) => Reached::RecordWrites,
             (true, true, false) if delta(|a| a.ref_store) == store => Reached::RefReads,
-            (true, true, true) => Reached::RefWrites,
+            (true, true, true) if delta(|a| a.ref_store) > 0 => Reached::RefWrites,
             _ => Reached::Other,
         }
     }
@@ -126,6 +131,11 @@ impl Body {
     /// Every cell of corpus PR 1465 fails by an error its body raised, in a test with TransactionModel AutoCommit.
     fn measured_failure(&self) -> bool {
         self.raised && self.autocommit
+    }
+
+    /// Every table read ran inside a Record.FindLast call, as in cells R14R and R2R of corpus PR 1468.
+    fn reads_by_find_last(&self) -> bool {
+        self.delta(|a| a.find_last_store) == self.delta(|a| a.store)
     }
 }
 
@@ -205,9 +215,11 @@ impl CodeunitSequences {
     /// What corpus PR 1465 measured a failed test leaves (assumption `sequence-after-failed-test`, cells of
     /// tests/al-language-isolation-probe/src/SqCommitFail.al asserted by SqReader.al, BC 27.5, 28.5 and 29.0, runners 61301
     /// and 130450). Each cell has one failed test, raised by its body under AutoCommit, and no sequence an earlier failure
-    /// left. `None`: a shape it does not measure, or one where main's rule gives the same answer.
+    /// left, and no cell calls a temporary record in its failed test. `None`: a shape it does not measure, or one where main's
+    /// rule gives the same answer.
     fn measured_leaves(&self, session: &Session, body: &Body) -> Option<Leaves> {
-        if !(self.measured && self.autocommit_inserts && body.measured_failure()) {
+        let no_temporary_record = body.delta(|a| a.temporary_record_calls) == 0;
+        if !(self.measured && self.autocommit_inserts && body.measured_failure() && no_temporary_record) {
             return None;
         }
         let new = session.sequences_inserted_since(&self.start);
@@ -242,6 +254,11 @@ impl CodeunitSequences {
             // R2P :742 (:51, :107), RecordRef.Insert R14W :369, R2W :787 (:58, :114), GetNewRecNo and Record.Insert R14M
             // :540, R2M :871 (:79, :128).
             Reached::RecordWrites | Reached::RefReads | Reached::RefWrites if earlier_inserts_after_a_commit => {
+                Some(Leaves::Gone(new))
+            }
+            // Gone: Record.SetRange and Record.FindLast alone (LastLineByRecord :118), PR 1468 R14R :597, a row found, R2R :913,
+            // none found (SqRecordRefReader.al:86, :135).
+            Reached::RecordReads if earlier_inserts_after_a_commit && body.reads_by_find_last() => {
                 Some(Leaves::Gone(new))
             }
             // Kept: RecordRef.Open and Close alone, PR 1468 R14N :426, R2N :829 (SqRecordRefReader.al:65, :121).
@@ -391,8 +408,23 @@ mod tests {
     #[test]
     fn recordref_table_calls_are_told_apart_from_record_calls() {
         let from = access(5, 3, 1, 2, 1);
+        let open_close = |a: DataAccess, n: u64| DataAccess {
+            ref_open_close_calls: n,
+            ..a
+        };
         // Open and Close only.
-        assert_eq!(body(from, by_ref(from, 0, 2)).reached(), Reached::RefOpenOnly);
+        assert_eq!(
+            body(from, open_close(by_ref(from, 0, 2), 2)).reached(),
+            Reached::RefOpenOnly
+        );
+        // Open, Close and RecordRef calls that read no table (KeyIndex, FieldRef.SetRange or Value, GetTable and Number).
+        assert_eq!(body(from, open_close(by_ref(from, 0, 4), 2)).reached(), Reached::Other);
+        assert_eq!(body(from, by_ref(from, 0, 2)).reached(), Reached::Other);
+        // Open and Close, and a Record write: the RecordRef calls read and wrote no table.
+        assert_eq!(
+            body(from, open_close(by_ref(access(9, 7, 2, 3, 1), 0, 2), 2)).reached(),
+            Reached::Other
+        );
         // Open and Close, and a Record call that reached no table.
         assert_eq!(
             body(from, by_ref(access(5, 3, 1, 3, 1), 0, 2)).reached(),
@@ -423,6 +455,9 @@ mod tests {
             Reached::RefWrites
         );
         assert_eq!(body(from, named(access(9, 7, 2, 4, 1))).reached(), Reached::Other);
-        assert_eq!(body(from, named(by_ref(from, 0, 2))).reached(), Reached::Other);
+        assert_eq!(
+            body(from, named(open_close(by_ref(from, 0, 2), 2))).reached(),
+            Reached::Other
+        );
     }
 }

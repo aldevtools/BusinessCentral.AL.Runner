@@ -230,7 +230,11 @@ impl al_builtins::native::Ctx for Session {
         match rec {
             Some(Value::Record(rc)) => {
                 let rc = rc.clone();
-                self.al_table_call(false, |s| {
+                let kind = crate::sequence_start::TableCall::Record {
+                    find_last: method == al_builtins::record_op::RecordOp::FindLast,
+                    temporary: rc.borrow().temporary,
+                };
+                self.al_table_call(kind, |s| {
                     if method == al_builtins::record_op::RecordOp::Validate {
                         // `Record.Validate` in AL code (registry `Record.Validate#1`).
                         return s.validate_at(crate::records::ValidateSite::AlRecordValidate, &rc, args);
@@ -259,7 +263,11 @@ impl al_builtins::native::Ctx for Session {
         match rec {
             Some(Value::Record(rc)) => {
                 let rc = rc.clone();
-                self.al_table_call(false, |s| Session::record_validate_variant(s, &rc, args))
+                let kind = crate::sequence_start::TableCall::Record {
+                    find_last: false,
+                    temporary: rc.borrow().temporary,
+                };
+                self.al_table_call(kind, |s| Session::record_validate_variant(s, &rc, args))
             }
             other => Err(Signal::unsupported(format!("Record.Validate on {}", other.describe()))),
         }

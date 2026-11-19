@@ -740,6 +740,135 @@ fn recordref_shapes_the_probe_did_not_measure_are_refused() {
     }
 }
 
+// RecordRef table calls that read no row (review cells of draft PR 8512, round 2: Q03 KeyIndex and FieldCount, Q04
+// FieldRef.SetRange, Q05 GetTable and Number, Q18 a FieldRef.Value assignment) and RecordRef.Open and Close next to a Record
+// insert (Q14), or a temporary record next to a Record insert (Q17), in the C2 shape: corpus PR 1468 measures Open and Close
+// alone (R14N, R2N) and a Record insert only beside a RecordRef read (R14M, R2M), so these keep main's refusal.
+const REF_NO_READ: &str = r#"
+codeunit 50864 "P4 Ref Key Only"
+{
+    Subtype = Test;
+    [Test] procedure A_InsertsCommits() begin NumberSequence.Insert('P4KO', 1, 1); NumberSequence.Next('P4KO'); Commit(); end;
+    [Test] procedure B_KeyOnlyFails() var RR: RecordRef; KR: KeyRef; N: Integer; begin RR.Open(Database::"P4 Line"); KR := RR.KeyIndex(1); N := KR.FieldCount; RR.Close(); Error('B deliberate'); end;
+    [Test] procedure C_KeyOnlyReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4KO')); end;
+}
+codeunit 50865 "P4 Ref SetRange Only"
+{
+    Subtype = Test;
+    [Test] procedure A_InsertsCommits() begin NumberSequence.Insert('P4SO', 1, 1); NumberSequence.Next('P4SO'); Commit(); end;
+    [Test] procedure B_SetRangeOnlyFails() var RR: RecordRef; FR: FieldRef; begin RR.Open(Database::"P4 Line"); FR := RR.Field(1); FR.SetRange('X'); RR.Close(); Error('B deliberate'); end;
+    [Test] procedure C_SetRangeOnlyReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4SO')); end;
+}
+codeunit 50866 "P4 Ref GetTable Only"
+{
+    Subtype = Test;
+    [Test] procedure A_InsertsCommits() begin NumberSequence.Insert('P4GT', 1, 1); NumberSequence.Next('P4GT'); Commit(); end;
+    [Test] procedure B_GetTableOnlyFails() var RR: RecordRef; Line: Record "P4 Line"; N: Integer; begin RR.GetTable(Line); N := RR.Number; Error('B deliberate'); end;
+    [Test] procedure C_GetTableOnlyReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4GT')); end;
+}
+codeunit 50867 "P4 Ref Value Only"
+{
+    Subtype = Test;
+    [Test] procedure A_InsertsCommits() begin NumberSequence.Insert('P4VO', 1, 1); NumberSequence.Next('P4VO'); Commit(); end;
+    [Test] procedure B_ValueOnlyFails() var RR: RecordRef; FR: FieldRef; begin RR.Open(Database::"P4 Line"); FR := RR.Field(1); FR.Value := 'X'; RR.Close(); Error('B deliberate'); end;
+    [Test] procedure C_ValueOnlyReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4VO')); end;
+}
+codeunit 50868 "P4 Open Then Insert"
+{
+    Subtype = Test;
+    [Test] procedure A_InsertsCommits() begin NumberSequence.Insert('P4OI', 1, 1); NumberSequence.Next('P4OI'); Commit(); end;
+    [Test] procedure B_OpenThenInsertFails() var RR: RecordRef; Line: Record "P4 Line"; begin RR.Open(Database::"P4 Line"); RR.Close(); Line.Doc := 'OI'; Line."Line No." := 1; Line.Insert(); Error('B deliberate'); end;
+    [Test] procedure C_OpenThenInsertReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4OI')); end;
+}
+codeunit 50869 "P4 Temp Then Insert"
+{
+    Subtype = Test;
+    [Test] procedure A_InsertsCommits() begin NumberSequence.Insert('P4TI', 1, 1); NumberSequence.Next('P4TI'); Commit(); end;
+    [Test] procedure B_TempThenInsertFails() var TempLine: Record "P4 Line" temporary; Line: Record "P4 Line"; begin TempLine.Doc := 'T'; TempLine.Insert(); if TempLine.Count() = 0 then; Line.Doc := 'TI'; Line."Line No." := 1; Line.Insert(); Error('B deliberate'); end;
+    [Test] procedure C_TempThenInsertReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4TI')); end;
+}
+"#;
+
+#[test]
+fn table_calls_no_cell_measures_without_a_read_are_refused() {
+    let o = cells(&format!("{REF_LINE}\n{REF_NO_READ}"), TestIsolation::Codeunit);
+    for (test, key) in [
+        ("C_KeyOnlyReads", "'P4KO'"),
+        ("C_SetRangeOnlyReads", "'P4SO'"),
+        ("C_GetTableOnlyReads", "'P4GT'"),
+        ("C_ValueOnlyReads", "'P4VO'"),
+        ("C_OpenThenInsertReads", "'P4OI'"),
+        ("C_TempThenInsertReads", "'P4TI'"),
+    ] {
+        assert!(not_run(&row(&o, test).2, key), "{test}: {o:?}");
+    }
+}
+
+// A failed test whose only table access is Record.SetRange and Record.FindLast after an earlier test's Commit(): corpus PR
+// 1468 (draft) R2R SqRecordRefFail.al:913 (no row found, SqRecordRefReader.al:135) and R14R :597 (a row found, :86), each
+// with LastLineByRecord :118: the new sequence is gone. Other Record reads after a Commit() keep main's refusal: Count,
+// FindSet, IsEmpty, and FindLast beside a Get (no cell measures them; Get alone: C_GetReads above).
+const RECORD_READS: &str = r#"
+codeunit 50870 "P4 R2R"
+{
+    Subtype = Test;
+    [Test] procedure A_InsertsCommits() begin NumberSequence.Insert('P4R2R', 1, 1); NumberSequence.Next('P4R2R'); Commit(); end;
+    [Test] procedure B_FindLastFails() var Line: Record "P4 Line"; begin Line.SetRange(Doc, 'R2R'); if Line.FindLast() then; Error('B deliberate'); end;
+    [Test] procedure C_R2RReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4R2R')); end;
+}
+codeunit 50871 "P4 R14R"
+{
+    Subtype = Test;
+    [Test] procedure A_WritesCommits() var Line: Record "P4 Line"; begin Line.Doc := 'R14R'; Line."Line No." := 10000; Line.Insert(); Commit(); end;
+    [Test] procedure B_Inserts() begin NumberSequence.Insert('P4R14R', 1, 1); NumberSequence.Next('P4R14R'); end;
+    [Test] procedure C_FindLastFails() var Line: Record "P4 Line"; begin Line.SetRange(Doc, 'R14R'); if Line.FindLast() then; Error('C deliberate %1', Line."Line No."); end;
+    [Test] procedure D_R14RReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4R14R')); end;
+}
+codeunit 50872 "P4 Record Count"
+{
+    Subtype = Test;
+    [Test] procedure A_InsertsCommits() begin NumberSequence.Insert('P4RCT', 1, 1); NumberSequence.Next('P4RCT'); Commit(); end;
+    [Test] procedure B_CountFails() var Line: Record "P4 Line"; begin if Line.Count() = 0 then; Error('B deliberate'); end;
+    [Test] procedure C_RecordCountReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4RCT')); end;
+}
+codeunit 50873 "P4 Record FindSet"
+{
+    Subtype = Test;
+    [Test] procedure A_InsertsCommits() begin NumberSequence.Insert('P4RFS', 1, 1); NumberSequence.Next('P4RFS'); Commit(); end;
+    [Test] procedure B_FindSetFails() var Line: Record "P4 Line"; begin if Line.FindSet() then; Error('B deliberate'); end;
+    [Test] procedure C_RecordFindSetReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4RFS')); end;
+}
+codeunit 50874 "P4 Record IsEmpty"
+{
+    Subtype = Test;
+    [Test] procedure A_InsertsCommits() begin NumberSequence.Insert('P4RIE', 1, 1); NumberSequence.Next('P4RIE'); Commit(); end;
+    [Test] procedure B_IsEmptyFails() var Line: Record "P4 Line"; begin if Line.IsEmpty() then; Error('B deliberate'); end;
+    [Test] procedure C_RecordIsEmptyReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4RIE')); end;
+}
+codeunit 50875 "P4 Record FindLast And Get"
+{
+    Subtype = Test;
+    [Test] procedure A_InsertsCommits() begin NumberSequence.Insert('P4RFG', 1, 1); NumberSequence.Next('P4RFG'); Commit(); end;
+    [Test] procedure B_FindLastGetFails() var Line: Record "P4 Line"; begin if Line.FindLast() then; if Line.Get('X', 1) then; Error('B deliberate'); end;
+    [Test] procedure C_RecordFindLastGetReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4RFG')); end;
+}
+"#;
+
+#[test]
+fn a_failed_test_that_only_ran_record_findlast_after_a_commit_takes_the_sequence_away() {
+    let o = cells(&format!("{REF_LINE}\n{RECORD_READS}"), TestIsolation::Codeunit);
+    flagged(&o, "C_R2RReads", "OBS missing", SEQ);
+    flagged(&o, "D_R14RReads", "OBS missing", SEQ);
+    for (test, key) in [
+        ("C_RecordCountReads", "'P4RCT'"),
+        ("C_RecordFindSetReads", "'P4RFS'"),
+        ("C_RecordIsEmptyReads", "'P4RIE'"),
+        ("C_RecordFindLastGetReads", "'P4RFG'"),
+    ] {
+        assert!(not_run(&row(&o, test).2, key), "{test}: {o:?}");
+    }
+}
+
 // Under a runner with TestIsolation = Function every new sequence is gone after each test (IsolProbeAfterRollback.Codeunit.al
 // S3, S8 under runner 61300): the cells of PR 1465 do not apply.
 #[test]

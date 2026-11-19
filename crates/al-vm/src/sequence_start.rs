@@ -23,10 +23,17 @@ pub struct DataAccess {
     pub table_writes: u64,
     /// The part of `table_store` whose outermost call was a RecordRef, FieldRef or KeyRef method.
     pub ref_store: u64,
+    /// The part of `table_store` whose outermost call was Record.FindLast.
+    pub find_last_store: u64,
     /// Calls of a method of a Record variable from AL code, a temporary one too.
     pub record_calls: u64,
+    /// Outermost calls of a method of a temporary Record variable from AL code (one that a trigger or subscriber of a table
+    /// call makes counts with that call).
+    pub temporary_record_calls: u64,
     /// Calls of a RecordRef, FieldRef or KeyRef method [`measured_ref_method`] names from AL code.
     pub ref_calls: u64,
+    /// The RecordRef.Open and RecordRef.Close calls of `ref_calls`.
+    pub ref_open_close_calls: u64,
     /// Calls of the session builtin CompanyName from AL code.
     pub company_name_calls: u64,
     /// Calls from AL code of any other RecordRef, FieldRef or KeyRef method, of one on a temporary RecordRef or one of
@@ -111,6 +118,15 @@ pub(crate) fn measured_ref_method(id: &str) -> bool {
     )
 }
 
+/// A table call from AL code ([`Session::al_table_call`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TableCall<'a> {
+    /// A method of a Record variable: `find_last`, it is Record.FindLast; `temporary`, the record is temporary.
+    Record { find_last: bool, temporary: bool },
+    /// A RecordRef, FieldRef or KeyRef method [`measured_ref_method`] names, by catalog id.
+    Ref(&'a str),
+}
+
 impl Session {
     /// What AL code reached of the table data so far.
     pub fn data_access(&self) -> DataAccess {
@@ -120,15 +136,24 @@ impl Session {
         }
     }
 
-    /// Runs `call`, a table call from AL code (a method of a Record variable, or with `by_ref` a RecordRef, FieldRef or KeyRef
-    /// method), and counts it with what it read and wrote ([`DataAccess`]).
-    pub(crate) fn al_table_call<T>(&mut self, by_ref: bool, call: impl FnOnce(&mut Session) -> T) -> T {
+    /// Runs `call`, the table call `kind` from AL code, and counts it with what it read and wrote ([`DataAccess`]).
+    pub(crate) fn al_table_call<T>(&mut self, kind: TableCall, call: impl FnOnce(&mut Session) -> T) -> T {
+        let outermost = self.access_notes.table_depth == 0;
         let access = &mut self.access_notes.access;
-        *(if by_ref {
-            &mut access.ref_calls
-        } else {
-            &mut access.record_calls
-        }) += 1;
+        match kind {
+            TableCall::Record { temporary, .. } => {
+                access.record_calls += 1;
+                access.temporary_record_calls += u64::from(temporary && outermost);
+            }
+            TableCall::Ref(id) => {
+                access.ref_calls += 1;
+                // The only RecordRef calls of the cells of corpus PR 1468 that read no table: OpenOnly, SqRecordRefFail.al:141.
+                access.ref_open_close_calls += u64::from(matches!(
+                    id.split('#').next(),
+                    Some("RecordRef.Open" | "RecordRef.Close")
+                ));
+            }
+        }
         let (store, writes) = (self.store.accesses(), self.store.writes());
         self.access_notes.table_depth += 1;
         let out = call(self);
@@ -138,8 +163,10 @@ impl Session {
             let access = &mut self.access_notes.access;
             access.table_store += read;
             access.table_writes += self.store.writes().saturating_sub(writes);
-            if by_ref {
-                access.ref_store += read;
+            match kind {
+                TableCall::Ref(_) => access.ref_store += read,
+                TableCall::Record { find_last: true, .. } => access.find_last_store += read,
+                TableCall::Record { find_last: false, .. } => {}
             }
         }
         out
@@ -158,7 +185,7 @@ impl Session {
             self.note_other_access();
             return self.ref_op(id, receiver, args);
         }
-        let out = self.al_table_call(true, |s| s.ref_op(id, receiver.as_deref_mut(), args));
+        let out = self.al_table_call(TableCall::Ref(id), |s| s.ref_op(id, receiver.as_deref_mut(), args));
         if out.is_err() || !self.ref_of_session_table(receiver.as_deref()) {
             self.note_other_access();
         }
