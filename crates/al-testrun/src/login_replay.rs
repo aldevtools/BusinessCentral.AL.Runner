@@ -132,6 +132,17 @@ impl LoginState {
         &self.state
     }
 
+    /// What the thawn `twin` holds now, with the marks and the open writes of `first`, the state of the session it was
+    /// thawn from: those are not session state (al-testrun keeps them next to an image).
+    fn of_twin(twin: &mut Session, first: &LoginState) -> LoginState {
+        LoginState {
+            rows: committed_rows(twin.store_mut()),
+            state: twin.state_lines(),
+            hits: first.hits,
+            open: first.open.clone(),
+        }
+    }
+
     /// What `session` holds now, with the marks `hits` the company open made and what it noted (`wrote`).
     pub(crate) fn of(
         session: &mut Session,
@@ -205,6 +216,78 @@ pub(crate) struct Check {
 struct CheckState {
     exact: Tally,
     across_codeunits: Tally,
+    image: ImageTally,
+}
+
+/// The round trips of the session image (al-vm `login_image`): per new key, whether its session was imaged, why not, its
+/// size, and whether the thawn twin holds what the session holds.
+#[derive(Default)]
+struct ImageTally {
+    keys: u64,
+    /// Per reason (`NotImaged::reason`), the keys whose session was not imaged.
+    not_imaged: std::collections::BTreeMap<String, u64>,
+    sizes: Vec<al_vm::ImageSize>,
+    differ: u64,
+    /// Per kind of [`KINDS`], the round trips that differ in it.
+    differ_by: [u64; KINDS.len()],
+    first_difference: Option<String>,
+}
+
+impl ImageTally {
+    /// The report line (see [`Check::image_line`]).
+    fn line(&self) -> String {
+        let not: u64 = self.not_imaged.values().sum();
+        let reasons = (!self.not_imaged.is_empty()).then(|| {
+            let by: Vec<String> = (self.not_imaged.iter()).map(|(why, n)| format!("{n}: {why}")).collect();
+            format!(" ({})", by.join(", "))
+        });
+        let differ = self.first_difference.as_ref().map(|first| {
+            let by: Vec<String> = (KINDS.iter().zip(&self.differ_by))
+                .filter(|(_, n)| **n > 0)
+                .map(|(kind, n)| format!("{kind} {n}"))
+                .collect();
+            format!(" ({}; first: {first})", by.join(", "))
+        });
+        format!(
+            "login image: {} keys, {} imaged, {not} not imaged{}; round trips {}, {} differ{}; per key: {}",
+            self.keys,
+            self.sizes.len(),
+            reasons.unwrap_or_default(),
+            self.sizes.len(),
+            self.differ,
+            differ.unwrap_or_default(),
+            self.per_key()
+        )
+    }
+
+    /// The medians of the images' sizes, and the largest image.
+    fn per_key(&self) -> String {
+        if self.sizes.is_empty() {
+            return "none".into();
+        }
+        let median = |f: &dyn Fn(&al_vm::ImageSize) -> u64| {
+            let mut v: Vec<u64> = self.sizes.iter().map(f).collect();
+            v.sort_unstable();
+            v[v.len() / 2]
+        };
+        let mb = |b: u64| format!("{:.1} MB", b as f64 / 1_048_576.0);
+        let largest = (self.sizes.iter())
+            .map(|s| s.rows_bytes + s.state_bytes)
+            .max()
+            .unwrap_or(0);
+        format!(
+            "rows {} (the login's own tables {}), state {}, {} nodes, {} instances, {} temporary tables, {} temporary rows; \
+             largest key {}",
+            mb(median(&|s| s.rows_bytes)),
+            mb(median(&|s| s.rows_own_bytes)),
+            mb(median(&|s| s.state_bytes)),
+            median(&|s| s.nodes as u64),
+            median(&|s| s.instances as u64),
+            median(&|s| s.temp_tables as u64),
+            median(&|s| s.temp_rows as u64),
+            mb(largest)
+        )
+    }
 }
 
 /// The first state of each key, and the sessions compared with it.
@@ -267,19 +350,64 @@ impl Check {
         new
     }
 
-    /// A new key's session after the raised login: frozen ([`Session::login_image`]), thawn into `twin`, the twin's state
-    /// compared with `state` ([`differences`]). `before_login`: the store's change counter before the login. Outcomes do
-    /// not change: the twin is dropped and `session` is only read.
+    /// A new key's session after the raised login: frozen ([`Session::login_image`]), thawn into `twin` on a thread of
+    /// its own (so nothing of the thaw reaches this thread's state: its store operation count, its assumption marks, its
+    /// instance registry), and the twin's state compared with `state` ([`differences`]). `before_login`: the store's
+    /// change counter before the login. Outcomes do not change: the twin is dropped and `session` is only read.
     pub(crate) fn round_trip(
         &self,
         session: &Session,
         before_login: u64,
         state: &LoginState,
-        wrote: &crate::install::CompanyOpenWrites,
-        hits: al_builtins::assumptions::HitBits,
-        twin: impl FnOnce() -> Session,
+        twin: impl FnOnce() -> Session + Send,
     ) {
-        let _ = (session, before_login, state, wrote, hits, twin);
+        #[cfg(test)]
+        let plant = TWIN_PLANT.with(std::cell::Cell::get);
+        let image = session.login_image(before_login);
+        let thawn = image.as_ref().ok().map(|image| {
+            std::thread::scope(|scope| {
+                scope
+                    .spawn(|| {
+                        let mut twin = twin();
+                        twin.thaw_login_image(image);
+                        #[cfg(test)]
+                        if let Some(plant) = plant {
+                            plant(&mut twin);
+                        }
+                        LoginState::of_twin(&mut twin, state)
+                    })
+                    .join()
+            })
+        });
+        let mut s = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        let t = &mut s.image;
+        t.keys += 1;
+        let (image, thawn) = match (image, thawn) {
+            (Err(why), _) => {
+                *t.not_imaged.entry(why.reason()).or_default() += 1;
+                return;
+            }
+            (Ok(image), Some(thawn)) => (image, thawn),
+            (Ok(_), None) => unreachable!("an image is thawn"),
+        };
+        t.sizes.push(image.size());
+        let differs = match thawn {
+            Ok(twin) => differences(state, &twin),
+            Err(_) => vec![(0, "not comparable: the thaw panicked".to_string())],
+        };
+        if let Some((_, what)) = differs.first() {
+            t.differ += 1;
+            t.first_difference.get_or_insert(what.clone());
+        }
+        for (k, _) in &differs {
+            t.differ_by[*k] += 1;
+        }
+    }
+
+    /// The image line: `None` before a round trip was tried.
+    fn image_line(&self) -> Option<String> {
+        let s = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        (s.image.keys > 0).then(|| s.image.line())
     }
 
     /// The first state of each key, in the order the keys came.
@@ -323,9 +451,15 @@ pub(crate) fn check(engine: &Engine) -> std::sync::Arc<Check> {
     engine.derived(Check::default)
 }
 
-/// The report line of `engine`'s check: `None` when no session raised the login under the check.
+/// The report of `engine`'s check: the check line, and the image line after a `\n` when a round trip was tried; `None`
+/// when no session raised the login under the check.
 pub(crate) fn report(engine: &Engine) -> Option<String> {
-    check(engine).line()
+    let check = check(engine);
+    let line = check.line()?;
+    Some(match check.image_line() {
+        Some(image) => format!("{line}\n{image}"),
+        None => line,
+    })
 }
 
 /// Every committed row of `store`, one line each ([`rows`]).

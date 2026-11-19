@@ -225,7 +225,7 @@ fn open_company(
         let check = crate::login_replay::check(&engine);
         if check.note(key, state.clone()) {
             // The twin is made as `run_codeunit_inner` makes the session: the host of the same scratch, the run's flags.
-            check.round_trip(session, before_login, &state, &wrote, hits, || {
+            check.round_trip(session, before_login, &state, || {
                 let mut host = crate::host::host_perturbed(scratch.clock_start, perturb);
                 host.run_seed = scratch.run_seed.seed;
                 let mut twin = Session::with_host(engine.clone(), host);
