@@ -7,6 +7,7 @@
 //! with one (`AL_TEST_THREADS=1`, one core) the stopped run is only checked against the complete one.
 
 use crate::memory_threads::{budget, outcomes, run_with};
+use al_builtins::assumptions::Assumption;
 use al_testrun::runtime::{CorpusRuntime, RunOptions};
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
@@ -57,6 +58,8 @@ struct Runs {
     complete: Vec<(u32, String, String)>,
     stopped: Vec<(u32, String, String)>,
     ordered: bool,
+    /// Per run, complete then stopped, the tests flagged with a skipped re-run (`--max-replay`).
+    skipped: [BTreeSet<String>; 2],
 }
 
 fn runs(src: &str, opts: &RunOptions, wait_for: &[&str], hold: &'static str) -> Runs {
@@ -66,6 +69,7 @@ fn runs(src: &str, opts: &RunOptions, wait_for: &[&str], hold: &'static str) -> 
     if ordered {
         assert!(stopped.phases.memory.halted.is_some(), "{:?}", stopped.phases.memory);
     }
+    let skipped = [&free, &stopped].map(rerun_skipped);
     let (complete, stopped) = (outcomes(&free), outcomes(&stopped));
     for (c, t, o) in &stopped {
         if !o.contains(LIMIT) {
@@ -81,7 +85,16 @@ fn runs(src: &str, opts: &RunOptions, wait_for: &[&str], hold: &'static str) -> 
         complete,
         stopped,
         ordered,
+        skipped,
     }
+}
+
+fn rerun_skipped(rt: &CorpusRuntime) -> BTreeSet<String> {
+    rt.results()
+        .iter()
+        .filter(|r| r.assumptions.contains(&Assumption::SingleInstanceRerunSkipped))
+        .map(|r| r.test.clone())
+        .collect()
 }
 
 fn stopped(src: &str, opts: &RunOptions, wait_for: &[&str], hold: &'static str, ordered: bool) -> CorpusRuntime {
@@ -281,5 +294,86 @@ codeunit 60803 "Pass Reader"
     r.cut(60801, "Writes");
     if r.ordered {
         assert!(r.stopped(60803, "Reads").contains(LIMIT), "{:?}", r.stopped);
+    }
+}
+
+/// Two complete writers of two globals, a cut codeunit that uses no single instance, then a reader of both globals that
+/// fails in parallel. Its chain, as far as the lane knows it, holds three codeunits.
+fn two_writers_src() -> &'static str {
+    r#"
+codeunit 60799 "Stop Reader Count2"
+{
+    SingleInstance = true;
+    procedure Bump() begin Count += 1; end;
+    procedure Get(): Integer begin exit(Count); end;
+    var Count: Integer;
+}
+codeunit 60800 "Quick First"
+{
+    Subtype = Test;
+    [Test] procedure Quick() begin end;
+}
+codeunit 60801 "Writer One"
+{
+    Subtype = Test;
+    [Test] procedure WritesOne() var S: Codeunit "Memory Threads Count"; begin S.Bump(); end;
+}
+codeunit 60802 "Writer Two"
+{
+    Subtype = Test;
+    [Test] procedure WritesTwo() var S: Codeunit "Stop Reader Count2"; begin S.Bump(); end;
+}
+codeunit 60803 "Cut Plain"
+{
+    Subtype = Test;
+    [Test] procedure First() begin end;
+    [Test] procedure Later() begin end;
+}
+codeunit 60804 "Two Reader"
+{
+    Subtype = Test;
+    [Test] procedure Reads()
+    var A: Codeunit "Memory Threads Count"; B: Codeunit "Stop Reader Count2";
+    begin
+        if (A.Get() <> 1) or (B.Get() <> 1) then Error('no earlier writers');
+    end;
+}
+"#
+}
+
+fn two_writers(max_replay: usize) -> Runs {
+    let opts = RunOptions {
+        max_replay: Some(max_replay),
+        ..strict()
+    };
+    let r = runs(
+        two_writers_src(),
+        &opts,
+        &["Quick", "WritesOne", "WritesTwo", "Reads"],
+        "First",
+    );
+    r.cut(60803, "Later");
+    r
+}
+
+/// `--max-replay 2` with a known chain of three: a complete run skips the reader's re-run (flagged) and keeps its
+/// failure, so the stopped run keeps it too, whatever the cut codeunit would have added.
+#[test]
+fn a_max_replay_below_the_known_chain_keeps_the_reader_failure_after_a_cut_codeunit() {
+    let r = two_writers(2);
+    assert_eq!(r.complete(60804, "Reads"), "Fail(\"no earlier writers\")");
+    assert_eq!(r.stopped(60804, "Reads"), "Fail(\"no earlier writers\")");
+    let flagged = BTreeSet::from(["Reads".to_string()]);
+    assert_eq!(r.skipped, [flagged.clone(), flagged]);
+}
+
+/// The control: with `--max-replay 3` the known chain fits, a complete run takes the reader's result from its re-run,
+/// and whether the cut codeunit joins that chain is not known, so the stopped run reports the reader not run.
+#[test]
+fn a_max_replay_that_fits_the_known_chain_reports_the_reader_not_run_after_a_cut_codeunit() {
+    let r = two_writers(3);
+    assert_eq!(r.complete(60804, "Reads"), "Pass");
+    if r.ordered {
+        assert!(r.stopped(60804, "Reads").contains(LIMIT), "{:?}", r.stopped);
     }
 }
