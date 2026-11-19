@@ -53,6 +53,12 @@ codeunit 77403 "RPL Tests B"
 }
 "#;
 
+/// The check line of `engine`'s report: the report's first line (a second line, `login image: ...`, follows it; the tests
+/// of `login_image_tests.rs` read that one).
+fn check_line(engine: &Engine) -> Option<String> {
+    crate::login_replay::report(engine).map(|r| r.lines().next().unwrap_or_default().to_string())
+}
+
 /// The compiled apps (the main app has the resource `rpl.txt` holding `a`) and an engine for them.
 pub(super) fn compiled() -> (Arc<Engine>, al_sema::lower::Lowered) {
     compiled_with(MAIN)
@@ -136,7 +142,7 @@ fn sessions_of_one_key_hold_the_same_after_the_raised_login() {
         run(&engine, &l, "RPL Tests A");
     }
     assert_eq!(
-        crate::login_replay::report(&engine).as_deref(),
+        check_line(&engine).as_deref(),
         Some(
             "login replay check: 3 sessions over 1 keys (a key seen before: 2 sessions, 66%), 2 compared, 0 differ; across test codeunits: 0 compared, 0 differ"
         )
@@ -156,7 +162,7 @@ fn another_test_codeunit_is_another_key() {
     run(&engine, &l, "RPL Tests A");
     run(&engine, &l, "RPL Tests B");
     assert_eq!(
-        crate::login_replay::report(&engine).as_deref(),
+        check_line(&engine).as_deref(),
         Some(
             "login replay check: 2 sessions over 2 keys (a key seen before: 0 sessions, 0%), 0 compared, 0 differ; across test codeunits: 1 compared, 0 differ"
         )
@@ -174,7 +180,7 @@ fn an_entrys_resource_text_is_part_of_the_key_and_changes_what_the_login_leaves(
     set_resource(&engine, &l, None);
     run(&engine, &l, "RPL Tests A");
     assert_eq!(
-        crate::login_replay::report(&engine).as_deref(),
+        check_line(&engine).as_deref(),
         Some(
             "login replay check: 3 sessions over 2 keys (a key seen before: 1 sessions, 33%), 1 compared, 0 differ; across test codeunits: 0 compared, 0 differ"
         )
@@ -255,7 +261,7 @@ fn another_session_flag_or_license_is_another_key() {
     run(&engine, &l, "RPL Tests A");
     run(&engine, &l, "RPL Tests A");
     assert_eq!(
-        crate::login_replay::report(&engine).as_deref(),
+        check_line(&engine).as_deref(),
         Some(
             "login replay check: 5 sessions over 4 keys (a key seen before: 1 sessions, 20%), 1 compared, 0 differ; \
              across test codeunits: 0 compared, 0 differ"
