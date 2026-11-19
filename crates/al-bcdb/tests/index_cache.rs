@@ -129,10 +129,13 @@ fn a_table_reads_the_same_rows_through_a_saved_map() {
 /// row version. The equality oracle of a kept index: an open through it must give what a fresh open gives.
 #[derive(Debug, PartialEq)]
 struct Dump {
-    tables: Vec<(String, Vec<SysColumn>, Result<Vec<Vec<Value>>, String>)>,
+    tables: Vec<TableDump>,
     sequences: Result<Vec<SqlSequence>, String>,
     last_row_version: Result<Option<u64>, String>,
 }
+
+/// One table: its name, its columns, and its rows or the reader's error.
+type TableDump = (String, Vec<SysColumn>, Result<Vec<Vec<Value>>, String>);
 
 fn dump(s: &BakSource) -> Dump {
     use al_bcdb::BcSource;
