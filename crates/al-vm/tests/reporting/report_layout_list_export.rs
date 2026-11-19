@@ -31,6 +31,12 @@ report 50200 "RL Probe" { DefaultRenderingLayout = Rdl1;
     layout(Doc1) { Type = Word; LayoutFile = './x/missing.docx'; } } }
 report 50201 "RL Legacy" { RDLCLayout = './x/../x/legacy.rdl';
   dataset { dataitem(I; Integer) { column(N; Number) { } } } }
+report 50203 "RL Legacy Rdlc" { RDLCLayout = './x/sync.rdl';
+  dataset { dataitem(I; B) { column(N; K) { } } } }
+report 50204 "RL Legacy Word" { WordLayout = './x/w.docx';
+  dataset { dataitem(I; B) { column(N; K) { } } } }
+report 50205 "RL Legacy Excel" { ExcelLayout = './x/l.xlsx';
+  dataset { dataitem(I; Integer) { column(N; Number) { } } } }
 table 60981 B { fields { field(1; K; Integer) { } field(2; Src; Blob) { } } keys { key(PK; K) { } } }
 codeunit 50202 C {
     procedure Legacy(): Text
@@ -46,6 +52,24 @@ codeunit 50202 C {
         B.Src.CreateInStream(ins);
         ins.ReadText(T);
         exit(Format(L.Count()) + '|' + L.Name + '|' + Format(Ok) + '|' + T + '|' + Format(L.Layout.HasValue()));
+    end;
+    procedure ExportOf(ReportId: Integer; LayoutFormat: Integer): Text
+    var L: Record "Report Layout List"; B: Record B; outs: OutStream; ins: InStream; Ok: Boolean; T: Text;
+    begin
+        L.SetRange("Report ID", ReportId);
+        L.SetRange("Layout Format", LayoutFormat);
+        L.FindFirst();
+        B.Src.CreateOutStream(outs);
+        Ok := L.Layout.ExportStream(outs);
+        B.Insert();
+        B.CalcFields(Src);
+        B.Src.CreateInStream(ins);
+        ins.ReadText(T);
+        exit(Format(Ok) + '|' + T);
+    end;
+    procedure Part(Extended: Boolean): Text
+    begin
+        exit(Report.WordXmlPart(50204, Extended));
     end;
     procedure Export(LayoutFormat: Integer): Text
     var L: Record "Report Layout List"; B: Record B; outs: OutStream; ins: InStream; Ok: Boolean; T: Text; All: Text; i: Integer;
@@ -76,6 +100,18 @@ fn run_routine(routine: &str, args: Vec<Value>) -> Result<Value, Signal> {
     run_routine_with(routine, args, false)
 }
 
+fn run_routine_with(routine: &str, args: Vec<Value>, from_package: bool) -> Result<Value, Signal> {
+    run_with_files(routine, args, from_package, held_files())
+}
+
+/// The files the app holds in every test: a rendering section RDLC and a legacy RDLC, neither as the compiler writes it.
+fn held_files() -> Vec<(String, Vec<u8>)> {
+    vec![
+        ("x/a.rdl".into(), b"RDL-BYTES".to_vec()),
+        ("x/legacy.rdl".into(), b"LEGACY-BYTES".to_vec()),
+    ]
+}
+
 /// Serves `x/missing.docx` on demand, as a Microsoft app's package does.
 struct Package;
 
@@ -85,7 +121,12 @@ impl al_ir::LayoutSource for Package {
     }
 }
 
-fn run_routine_with(routine: &str, args: Vec<Value>, from_package: bool) -> Result<Value, Signal> {
+fn run_with_files(
+    routine: &str,
+    args: Vec<Value>,
+    from_package: bool,
+    files: Vec<(String, Vec<u8>)>,
+) -> Result<Value, Signal> {
     let apps = vec![AppSource {
         id: "a".into(),
         name: "a".into(),
@@ -94,10 +135,7 @@ fn run_routine_with(routine: &str, args: Vec<Value>, from_package: bool) -> Resu
     }];
     let (ws, mut l) = al_sema::lower::compile(apps, &Default::default());
     assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
-    std::sync::Arc::make_mut(&mut l.program).apps[0].layout_files = vec![
-        ("x/a.rdl".into(), b"RDL-BYTES".to_vec()),
-        ("x/legacy.rdl".into(), b"LEGACY-BYTES".to_vec()),
-    ];
+    std::sync::Arc::make_mut(&mut l.program).apps[0].layout_files = files;
     if from_package {
         std::sync::Arc::make_mut(&mut l.program).apps[0].layout_source =
             Some(al_ir::LayoutSourceRef(std::sync::Arc::new(Package)));
@@ -127,7 +165,7 @@ fn the_export_writes_the_layout_file_the_app_holds() {
     }
 }
 
-// A layout whose file the app does not hold (a Microsoft app read from its package keeps no layout files) is refused.
+// A layout whose file the app does not hold (no file at its path under the app's folder, no package that keeps it) is refused.
 #[test]
 fn a_layout_whose_file_the_app_does_not_hold_is_refused() {
     let r = run(1);
@@ -137,14 +175,15 @@ fn a_layout_whose_file_the_app_does_not_hold_is_refused() {
     );
 }
 
-// A layout of the legacy RDLCLayout property is a row named with the LayoutFile as written, and exports the file
-// (Y17LayoutExportTests.al:105 Export_LegacyProperties).
+// A layout of the legacy RDLCLayout property is a row named with the LayoutFile as written. Its file has no DataSet section
+// as the compiler writes it for the report, so the compiler would rewrite it at build (Y17LayoutExportObjects.al:6-8): refused.
 #[test]
-fn a_layout_of_the_legacy_property_is_a_row_that_exports_its_file() {
-    match run_routine("Legacy", vec![]) {
-        Ok(Value::Text(t)) => assert_eq!(t.to_string(), "1|./x/../x/legacy.rdl|Yes|LEGACY-BYTES|No"),
-        other => panic!("{other:?}"),
-    }
+fn a_legacy_file_the_compiler_would_rewrite_is_refused() {
+    let r = run_routine("Legacy", vec![]);
+    assert!(
+        matches!(&r, Err(Signal::Unsupported(m)) if m.contains("the compiler rewrites it at build")),
+        "{r:?}"
+    );
 }
 
 // A layout file the app does not hold in the program but its package serves on demand (a Microsoft app: Custom Report
@@ -158,4 +197,177 @@ fn a_layout_file_the_package_serves_on_demand_is_exported() {
         Ok(Value::Text(t)) => assert_eq!(t.to_string(), "Yes|PACKAGE-DOC-BYTES|No;Yes|PACKAGE-DOC-BYTES|No;"),
         other => panic!("{other:?}"),
     }
+}
+
+/// An RDLC file with one data set whose Fields list names `fields`, in the shape the compiler writes
+/// (Y17LayoutExportTests.al:83: CRLF, two spaces per level, DataSet_Result, the DataSource query).
+fn rdlc(fields: &[&str]) -> Vec<u8> {
+    let mut f = String::new();
+    for n in fields {
+        f.push_str(&format!(
+            "        <Field Name=\"{n}\">\r\n          <DataField>{n}</DataField>\r\n        </Field>\r\n"
+        ));
+    }
+    format!(
+        "<?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n<Report>\r\n  <DataSets>\r\n    <DataSet Name=\"DataSet_Result\">\r\n      <Fields>\r\n{f}      </Fields>\r\n      <Query>\r\n        <DataSourceName>DataSource</DataSourceName>\r\n        <CommandText />\r\n      </Query>\r\n    </DataSet>\r\n  </DataSets>\r\n</Report>"
+    )
+    .into_bytes()
+}
+
+fn export_of(report: i32, format: i32, files: Vec<(String, Vec<u8>)>) -> Result<Value, Signal> {
+    run_with_files(
+        "ExportOf",
+        vec![Value::Integer(report), Value::Integer(format)],
+        false,
+        files,
+    )
+}
+
+fn assert_rewrite_refused(r: Result<Value, Signal>) {
+    assert!(
+        matches!(&r, Err(Signal::Unsupported(m)) if m.contains("the compiler rewrites it at build")),
+        "{r:?}"
+    );
+}
+
+// A legacy RDLC file whose DataSet section is the one the compiler writes for the report exports its bytes
+// (Y17LayoutExportTests.al:105-124: the file alc wrote, exported unchanged).
+#[test]
+fn a_legacy_rdlc_file_as_the_compiler_writes_it_exports_its_bytes() {
+    match export_of(50203, 0, vec![("x/sync.rdl".into(), rdlc(&["N"]))]) {
+        Ok(Value::Text(t)) => assert_eq!(t.to_string(), "Yes|<?xml version=\"1.0\" encoding=\"utf-8\"?>"),
+        other => panic!("{other:?}"),
+    }
+}
+
+// A legacy RDLC file whose Fields list names a column the report does not have (review probe A07_StaleRdlc): refused.
+#[test]
+fn a_legacy_rdlc_file_with_a_stale_fields_list_is_refused() {
+    assert_rewrite_refused(export_of(50203, 0, vec![("x/sync.rdl".into(), rdlc(&["Stale_"]))]));
+}
+
+// A legacy RDLC file whose data set has another name than the one the compiler writes: refused.
+#[test]
+fn a_legacy_rdlc_file_with_another_data_set_name_is_refused() {
+    let bytes = String::from_utf8(rdlc(&["N"]))
+        .unwrap()
+        .replace("DataSet_Result", "Other");
+    assert_rewrite_refused(export_of(50203, 0, vec![("x/sync.rdl".into(), bytes.into_bytes())]));
+}
+
+/// A zip archive of stored entries, as far as the export's reader reads one (the CRC is not checked).
+fn zip(entries: &[(&str, Vec<u8>)]) -> Vec<u8> {
+    let (mut out, mut dir) = (Vec::new(), Vec::new());
+    for (name, data) in entries {
+        let at = out.len() as u32;
+        let (n, size) = (name.len() as u16, data.len() as u32);
+        out.extend_from_slice(&0x0403_4b50u32.to_le_bytes());
+        out.extend_from_slice(&[20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        out.extend_from_slice(&size.to_le_bytes());
+        out.extend_from_slice(&size.to_le_bytes());
+        out.extend_from_slice(&n.to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes());
+        out.extend_from_slice(name.as_bytes());
+        out.extend_from_slice(data);
+        dir.extend_from_slice(&0x0201_4b50u32.to_le_bytes());
+        dir.extend_from_slice(&[20, 0, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        dir.extend_from_slice(&size.to_le_bytes());
+        dir.extend_from_slice(&size.to_le_bytes());
+        dir.extend_from_slice(&n.to_le_bytes());
+        dir.extend_from_slice(&[0; 12]);
+        dir.extend_from_slice(&at.to_le_bytes());
+        dir.extend_from_slice(name.as_bytes());
+    }
+    let (start, len) = (out.len() as u32, dir.len() as u32);
+    out.extend_from_slice(&dir);
+    out.extend_from_slice(&0x0605_4b50u32.to_le_bytes());
+    out.extend_from_slice(&[0, 0, 0, 0]);
+    out.extend_from_slice(&(entries.len() as u16).to_le_bytes());
+    out.extend_from_slice(&(entries.len() as u16).to_le_bytes());
+    out.extend_from_slice(&len.to_le_bytes());
+    out.extend_from_slice(&start.to_le_bytes());
+    out.extend_from_slice(&0u16.to_le_bytes());
+    out
+}
+
+/// `text` as a data set part is stored: UTF-16 LE after a byte order mark.
+fn utf16(text: &str) -> Vec<u8> {
+    let mut out = vec![0xFF, 0xFE];
+    out.extend(text.encode_utf16().flat_map(u16::to_le_bytes));
+    out
+}
+
+/// The data set part of report 50204 as `Report.WordXmlPart` gives it on BC 29, with LF line ends as the compiler writes it
+/// (Y17LayR2.docx, Y17LayoutExportTests.al:9).
+fn part(extended: bool) -> String {
+    part_as_word_xml_part(extended).replace("\r\n", "\n")
+}
+
+fn part_as_word_xml_part(extended: bool) -> String {
+    match run_routine("Part", vec![Value::Boolean(extended)]) {
+        Ok(Value::Text(t)) => t.to_string(),
+        other => panic!("{other:?}"),
+    }
+}
+
+fn docx(parts: &[(&str, String)]) -> Vec<(String, Vec<u8>)> {
+    let mut entries = vec![("word/document.xml", b"<w:document/>".to_vec())];
+    entries.extend(parts.iter().map(|(n, t)| (*n, utf16(t))));
+    vec![("x/w.docx".into(), zip(&entries))]
+}
+
+// A legacy Word file whose two data set parts are the ones the compiler writes for the report exports its bytes
+// (Y17LayoutExportTests.al:105-124: the entries customXml/item.xml and customXml/item2.xml of the file alc wrote).
+#[test]
+fn a_legacy_word_file_as_the_compiler_writes_it_exports_its_bytes() {
+    let files = docx(&[("customXml/item.xml", part(false)), ("customXml/item2.xml", part(true))]);
+    match export_of(50204, 1, files) {
+        Ok(Value::Text(t)) => assert!(t.to_string().starts_with("Yes|"), "{t}"),
+        other => panic!("{other:?}"),
+    }
+}
+
+// A legacy Word file whose data set part names this report but a column it does not have (review probe A17_StaleWord).
+#[test]
+fn a_legacy_word_file_with_a_stale_column_is_refused() {
+    let files = docx(&[
+        (
+            "customXml/item.xml",
+            part(false)
+                .replace(">N<", ">Stale<")
+                .replace("<N>", "<Stale>")
+                .replace("</N>", "</Stale>"),
+        ),
+        ("customXml/item2.xml", part(true)),
+    ]);
+    assert_rewrite_refused(export_of(50204, 1, files));
+}
+
+// A legacy Word file with no data set part (review probe A09_WordNoPart), and one with only the plain part.
+#[test]
+fn a_legacy_word_file_without_both_data_set_parts_is_refused() {
+    assert_rewrite_refused(export_of(50204, 1, docx(&[])));
+    assert_rewrite_refused(export_of(50204, 1, docx(&[("customXml/item.xml", part(false))])));
+}
+
+// A legacy Word file whose data set parts have CRLF line ends (no corpus file has them): refused.
+#[test]
+fn a_legacy_word_file_with_crlf_data_set_parts_is_refused() {
+    let files = docx(&[
+        ("customXml/item.xml", part_as_word_xml_part(false)),
+        ("customXml/item2.xml", part_as_word_xml_part(true)),
+    ]);
+    assert!(part_as_word_xml_part(false).contains("\r\n"));
+    assert_rewrite_refused(export_of(50204, 1, files));
+}
+
+// A legacy ExcelLayout file: no corpus case exports one (probe wanted, docs/probes-needed.md), so the loader does not hold it
+// and the export is refused with that reason.
+#[test]
+fn a_legacy_excel_file_is_refused() {
+    let r = export_of(50205, 2, vec![]);
+    assert!(
+        matches!(&r, Err(Signal::Unsupported(m)) if m.contains("ExcelLayout")),
+        "{r:?}"
+    );
 }

@@ -595,7 +595,6 @@
 70515 PYC_CodeAgainstTextLiteral
 70515 TextOrdering
 70535 PW_TriggerError_InPreReport_LastError
-70540 Decimal_QuotientDigits
 70540 TextOrder_BaseLetterAccentCase
 70540 TextOrder_Punctuation
 70551 Arithmetic_ErrorTexts
@@ -1171,10 +1170,6 @@
 75197 ROZ_Warning_SetRecFilterOneRow
 75197 ROZ_Warning_TwoRows
 75238 ReadSheet_LongCellAfterShortCells_EachCellKeepsItsText
-75329 Base_EmptyFormat_ReadSetAssert
-75329 Base_TwoDecimals_ReadSetAssert
-75329 Base_ZeroDecimals_ReadSetAssert
-75329 Extension_TwoDecimals_ReadSetAssert
 75334 Stored_25RowsMixed_OpenViewWalkClose
 75334 Stored_45RowsLevelZero_OpenViewWalkClose
 75334 Stored_45RowsMixed_OpenViewClose
@@ -1787,7 +1782,6 @@
 85601 SecretDefaultHeader_AfterSend
 85722 DecimalManyDigits_RoundTrip
 85722 DecimalRange_ReadFrom_Beyond
-85722 DecimalRange_SetValueAndAdd
 85722 ReadFrom_FailedOnChildInsideParent
 85723 W5_BracketKeys_Escapes_Brackets_Missing
 85723 W5_VariableFieldName_AsInWaldoCase
@@ -1966,7 +1960,6 @@
 91361 Y7_Callstack_Collected_Equality
 91361 Y7_Callstack_LastError_TwoTryCalls_Equality
 91362 Y7_AttrGet_EmptyNamespace_Expression
-91401 Y8_Decimal_Limit_16Digits
 91401 Y8_Json_19Digits_Fraction
 91515 PageTriggerRows_CallsAfterTestPageEdit
 91539 MaxIterationRecord_RunTwiceSameInstance
@@ -1979,7 +1972,6 @@
 91795 AF_Proc_Control_Card
 91804 PgSave_ActionDeletesEditedRow_List_Next
 91836 XpNs_EmptyPrefixAmongSeveral_Import
-91855 Export_LegacyProperties
 91951 Y19_P0_SetExactSuper
 91951 Y19_P0_SetSuper
 91952 Y19_P10_ExpandedPermissionRows
