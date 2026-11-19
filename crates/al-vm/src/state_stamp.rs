@@ -243,11 +243,11 @@ impl Session {
     }
 
     /// What [`LeftStamp`] takes (the session language, WorkDate, number sequences, isolated storage, the SingleInstance
-    /// codeunits' globals, the manual bindings, the `Random` sequence, the group 1 filters), plus the counters code
-    /// advances (the clock offset, the clock's draws, key and last system stamp, the Guid and SystemId draws and their
-    /// key, the row versions), the last error and the facts of `state_facts.rs`, as lines that compare across sessions:
-    /// an instance is named by a number by first sight, not by its address (al-testrun `login_replay.rs`, al-runner issue
-    /// 8211).
+    /// codeunits' globals, the manual bindings, the `Random` sequence, the group 1 filters), the state of the `Random`
+    /// sequence and its draws by origin, plus the counters code advances (the clock offset, the clock's draws, key and
+    /// last system stamp, the Guid and SystemId draws and their key, the row versions), the last error and the facts of
+    /// `state_facts.rs`, as lines that compare across sessions: an instance is named by a number by first sight, not by
+    /// its address (al-testrun `login_replay.rs`, al-runner issue 8211).
     pub fn state_lines(&mut self) -> StateLines {
         let stamp = self.left_stamp();
         let id = |o: usize| self.engine.program.objects[o].id.unwrap_or(0);
@@ -286,7 +286,17 @@ impl Session {
         }
         out.lines.append(&mut render.lines);
         out.lines.push(format!("bindings [{}]", bound.join(", ")));
-        out.lines.push(format!("random {}", content(&stamp.random)));
+        // The sequence itself, not only how many numbers it drew: `Randomize(n)` restarts it without a draw.
+        out.lines.push(format!(
+            "random {} sequence {} unseeded base {} test reseeded {} run seeded {} inherited {} carried {}",
+            content(&stamp.random),
+            content(&self.rng),
+            self.unseeded_base,
+            self.reseeded_in_test,
+            self.run_seeded_in_test,
+            self.inherited_draws,
+            self.carried_draws
+        ));
         out.lines.push(format!("group1 {}", content(&stamp.group1)));
         out.lines.push(format!(
             "counters clock {} draws {} key {} last stamp {} guid key {} draws {} row versions {} committed {}",

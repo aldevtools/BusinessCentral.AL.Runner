@@ -718,3 +718,17 @@ codeunit 77462 "RPL Gap"
 fn the_media_the_login_imports_are_compared() {
     assert_planted_state(&planted(GAP_MEDIA, "a", &["ab"]), "media ");
 }
+
+/// "RPL Gap" seeds `Random` with the text's length: no number is drawn, the sequence differs.
+const GAP_RANDOM: &str = r#"
+codeunit 77462 "RPL Gap"
+{
+    procedure Plant(N: Integer) begin Randomize(N); end;
+}
+"#;
+
+// The state of the session's `Random` sequence (not only how many numbers it drew) is compared.
+#[test]
+fn the_random_sequence_the_login_leaves_is_compared() {
+    assert_planted_state(&planted(GAP_RANDOM, "a", &["ab"]), "random ");
+}
