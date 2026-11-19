@@ -344,7 +344,7 @@ impl Session {
         st.borrow_mut().dirty = false;
         self.apply_data_caption_globals(st);
         self.calc_row_flowfields(st)?;
-        if !st.borrow().read_keeps_xrec {
+        if !st.borrow().refresh.keeps_xrec() {
             self.set_xrec(st);
         }
         self.populate_expressions(st)?;
