@@ -431,19 +431,58 @@ struct DataChoice {
 /// in the cache, then downloaded; see [`testdata::locate`]. A default run whose backup cannot be
 /// found or opened has test data off and says why; a run that asked for test data fails instead.
 /// The run's target once the Microsoft apps are loaded: the build they come from (`BcVersion::resolved_to`, al-runner
-/// issues 8209 and 8243). `fetched_demotool`: the run fetched the DemoTool of the release `bc` names before this call
-/// (`demotool::resolve`, not `--demotool DIR`). That release was chosen before the build was known; one of another
-/// minor than the build's stops the run.
-fn settle_target(bc: &mut al_version::BcVersion, build: &str, fetched_demotool: bool) -> Result<(), String> {
-    let release = (bc.major, bc.minor);
+/// issues 8209 and 8243). `fetched_demotool`: the release of the DemoTool the run fetched before this call
+/// (`fetch_demotool`), or `None` (`--demotool DIR`, no DemoTool). The run goes on when that release is the build's
+/// major and minor; one of another release stops it.
+fn settle_target(
+    bc: &mut al_version::BcVersion,
+    build: &str,
+    fetched_demotool: Option<(u32, u32)>,
+) -> Result<(), String> {
     bc.resolved_to(build)?;
-    if !fetched_demotool || release == (bc.major, bc.minor) {
-        return Ok(());
-    }
+    let release = match fetched_demotool {
+        None => return Ok(()),
+        Some(r) if r == (u32::from(bc.major), u32::from(bc.minor)) => return Ok(()),
+        Some(r) => r,
+    };
     Err(format!(
         "--company-data demotool: the DemoTool of release {}.{} was chosen before the Microsoft apps were found, and they come from build {build}; name the build to run on with --bc-version",
         release.0, release.1
     ))
+}
+
+/// `--company-data demotool`: the DemoTool, and the release fetched (`None` for `--demotool DIR`). That release is the
+/// minor of the build the Microsoft apps will come from when the artifact cache, the local artifacts or the feed name it
+/// before the dependencies load (`Provision::build_before_load`, the same choice the load makes), else the target's
+/// (al-runner issue 8243). A build of another major leaves the target's; `settle_target` stops that run.
+fn fetch_demotool(
+    a: &TestArgs,
+    bc: &al_version::BcVersion,
+    provision: &Provision,
+) -> Result<(crate::demotool::DemoTool, Option<(u32, u32)>), String> {
+    // A lane of `--recipe microsoft` gets the DemoTool without the check of the command line (args.rs).
+    if !al_deps::artifact::is_w1(a.country()) {
+        return Err("--company-data demotool supports only the w1 country (the DemoTool's W1 layer)".into());
+    }
+    let url = std::env::var("ALRUNNER_BCAPPS_URL").unwrap_or_else(|_| crate::bcapps::DEFAULT_URL.to_string());
+    let target = (u32::from(bc.major), u32::from(bc.minor));
+    let fetched = a.demotool_dir.is_none().then(|| match provision.build_before_load() {
+        Some(b) if b.major() == target.0 => (target.0, b.minor()),
+        _ => target,
+    });
+    let (major, minor) = fetched.unwrap_or(target);
+    let dt = crate::demotool::resolve(
+        a.demotool_dir.as_deref(),
+        major,
+        minor,
+        &al_deps::cache::cache_root_from_env(a.cache_dir.as_deref()),
+        a.no_download,
+        &url,
+        &crate::demotool::git_fetch,
+    )
+    .map_err(|e| format!("--company-data demotool: {e}"))?;
+    eprintln!("company data: {}", dt.how);
+    Ok((dt, fetched))
 }
 
 fn choose_test_data(
@@ -1263,23 +1302,18 @@ fn test_inner(
     if let Some(e) = crate::args::company_build_off(a) {
         return Err(e);
     }
+    let provision = Provision {
+        cache_dir: a.cache_dir.clone(),
+        download: !a.no_download,
+        query: target::build_query(a.bc_version.as_deref(), &chosen, floor_versions).with_preferred(preferred),
+        local_artifacts: al_deps::cache::bcartifacts_sandbox_from_env(),
+        country: country.clone(),
+    };
+    // The release of the DemoTool the run fetched (`demotool::resolve`, not `--demotool DIR`).
+    let mut fetched_demotool = None;
     let company_data = if a.company_demotool {
-        // A lane of `--recipe microsoft` gets the DemoTool without the check of the command line (args.rs).
-        if !al_deps::artifact::is_w1(a.country()) {
-            return Err("--company-data demotool supports only the w1 country (the DemoTool's W1 layer)".into());
-        }
-        let url = std::env::var("ALRUNNER_BCAPPS_URL").unwrap_or_else(|_| crate::bcapps::DEFAULT_URL.to_string());
-        let dt = crate::demotool::resolve(
-            a.demotool_dir.as_deref(),
-            u32::from(chosen.target.bc.major),
-            u32::from(chosen.target.bc.minor),
-            &al_deps::cache::cache_root_from_env(a.cache_dir.as_deref()),
-            a.no_download,
-            &url,
-            &crate::demotool::git_fetch,
-        )
-        .map_err(|e| format!("--company-data demotool: {e}"))?;
-        eprintln!("company data: {}", dt.how);
+        let (dt, release) = fetch_demotool(a, &chosen.target.bc, &provision)?;
+        fetched_demotool = release;
         if !project.dependencies.iter().any(|d| d.id == dt.app.id) {
             project.dependencies.push(dt.dependency());
         }
@@ -1315,13 +1349,6 @@ fn test_inner(
         Some(al_testrun::company_data::CompanyData::contoso(all, "artifact"))
     } else {
         None
-    };
-    let provision = Provision {
-        cache_dir: a.cache_dir.clone(),
-        download: !a.no_download,
-        query: target::build_query(a.bc_version.as_deref(), &chosen, floor_versions).with_preferred(preferred),
-        local_artifacts: al_deps::cache::bcartifacts_sandbox_from_env(),
-        country: country.clone(),
     };
     // The text of a package's files is left unread: a run whose tests reach nothing in it never needs it.
     // ALRUNNER_EAGER_SOURCES=1 reads it at once, as before (the other side of the differential check).
@@ -1371,7 +1398,6 @@ fn test_inner(
     if let Some(u) = &dependencies.build {
         // The target is the build the Microsoft apps come from, before anything reads the minor (the test data
         // below; al-runner issue 8243).
-        let fetched_demotool = a.company_demotool && a.demotool_dir.is_none();
         settle_target(&mut chosen.target.bc, &u.build.to_string(), fetched_demotool)?;
         bc_build = Some(u.build.to_string());
         if from_packages && Some(&u.build) != preferred_build.as_ref() {
@@ -2715,22 +2741,23 @@ mod settle_target_tests {
     use super::settle_target;
     use al_version::BcVersion;
 
-    // al-runner issue 8243: the DemoTool release is chosen before the build is known; one of another minor stops the
-    // run, one of the build's minor or none at all (`--demotool DIR`, no DemoTool) keeps the run going.
+    // al-runner issue 8243: a fetched DemoTool of another release than the build stops the run; one of the build's
+    // release, or none at all (`--demotool DIR`, no DemoTool), keeps it going. The target asked (`28`, minor 0) does not
+    // matter: an app floor of 28.0 on build 28.5 with the DemoTool of 28.5 runs.
     #[test]
     fn a_demotool_of_another_release_than_the_build_stops_the_run() {
         let build = "28.5.54151.57283";
         let mut bc = BcVersion::parse("28").unwrap();
-        let e = settle_target(&mut bc, build, true).unwrap_err();
+        let e = settle_target(&mut bc, build, Some((28, 0))).unwrap_err();
         assert!(e.contains("release 28.0") && e.contains(build), "{e}");
-        for (asked, fetched) in [("28.5", true), ("28", false)] {
+        for (asked, fetched) in [("28", Some((28, 5))), ("28.5", Some((28, 5))), ("28", None)] {
             let mut bc = BcVersion::parse(asked).unwrap();
             settle_target(&mut bc, build, fetched).unwrap();
             assert_eq!((bc.major, bc.minor), (28, 5), "{asked}");
         }
         // A build of another major stops it too (`BcVersion::resolved_to`).
         let mut bc = BcVersion::parse("28").unwrap();
-        assert!(settle_target(&mut bc, "27.5.46862.58057", false).is_err());
+        assert!(settle_target(&mut bc, "27.5.46862.58057", None).is_err());
     }
 }
 

@@ -308,3 +308,50 @@ fn cache_help_prints_the_cache_commands_and_exits_0() {
         assert!(!out.contains("SELECTION"), "{args:?}: {out}");
     }
 }
+
+/// al-runner issue 8243, review round 1: without `--bc-version`, the DemoTool's release is the minor of the build the
+/// Microsoft apps will come from, chosen before the DemoTool is (here the one build of the local artifacts, 28.5, for an
+/// app.json floor of 28.0). It asks for the DemoTool of 28.5, not 28.0. Neighbor: `--bc-version 28.0` matches no
+/// build there, so the release stays the one the request names, as before.
+#[test]
+fn the_demotool_release_is_the_minor_of_the_build_chosen_before_it() {
+    let d = tempfile::tempdir().unwrap();
+    let root = d.path();
+    std::fs::create_dir_all(root.join("home/.bcartifacts.cache/sandbox/28.5.54151.58194/platform/Applications"))
+        .unwrap();
+    let app = root.join("app");
+    write(
+        &app,
+        "app.json",
+        r#"{"id":"11111111-0000-0000-0000-000000008433","name":"DemoTool Release","publisher":"Test","version":"1.0.0.0","platform":"28.0.0.0","application":"28.0.0.0","dependencies":[{"id":"63ca2fa4-4f03-4f2b-a480-172fef340d3f","name":"System Application","publisher":"Microsoft","version":"28.0.0.0"}]}"#,
+    );
+    write(&app, "src/Tests.al", MIXED);
+    let home = root.join("home");
+    let cache = root.join("cache");
+    let run = |extra: &[&str]| {
+        let mut args = vec![
+            "test",
+            app.to_str().unwrap(),
+            "--no-download",
+            "--cache-dir",
+            cache.to_str().unwrap(),
+            "--company-data",
+            "demotool",
+            "--experimental-company-builds",
+        ];
+        args.extend_from_slice(extra);
+        alrunner_with(&args, &[("HOME", home.to_str().unwrap())])
+    };
+    let o = run(&[]);
+    assert!(
+        text(&o).contains("the DemoTool of 28.5 is not in the cache"),
+        "{}",
+        text(&o)
+    );
+    let o = run(&["--bc-version", "28.0"]);
+    assert!(
+        text(&o).contains("the DemoTool of 28.0 is not in the cache"),
+        "{}",
+        text(&o)
+    );
+}
