@@ -48,22 +48,13 @@ pub(super) fn not_run_link(
         .routines
         .iter()
         .position(|r| r.is_trigger && r.name.eq_ignore_ascii_case("OnRun"));
-    let tests: Vec<usize> = (0..o.routines.len())
-        .filter(|&r| {
-            o.routines[r]
-                .attributes
-                .iter()
-                .any(|a| a.name.eq_ignore_ascii_case("Test"))
-        })
-        .collect();
-    let roots: Vec<usize> = if onrun_only {
-        on_run.into_iter().collect()
-    } else {
-        on_run.into_iter().chain(tests.iter().copied()).collect()
+    let roots: Vec<(usize, usize)> = match onrun_only {
+        true => on_run.map(|r| (oi, r)).into_iter().collect(),
+        false => super::handlers::unit_roots(lowered, oi, true),
     };
     let mut tables = BTreeSet::new();
     let mut storage = false;
-    for r in roots {
+    for (_, r) in roots {
         let f = reach_facts(&engine.events, lowered, &index, oi, r);
         tables.extend(f.writes.iter().copied());
         if f.unknown.is_some() || f.writes_any {
@@ -71,12 +62,12 @@ pub(super) fn not_run_link(
         }
         storage |= f.state_writes & (state::ISOLATED_STORAGE | state::NUMBER_SEQUENCE) != 0;
     }
-    // The numbers its tests took: through the tests' own calls ([`call_reach_facts`]). The event fan-out of a walk
+    // The numbers its tests and the handler functions they name took: through their own calls ([`call_reach_facts`]). The event fan-out of a walk
     // reaches a number sequence from almost any record of Microsoft's apps, and so does almost every later codeunit's
     // reach (`corpus.rs` `reaches_session_storage`): counting it would hold back nearly the whole run for a codeunit
     // whose tests take no number (the BC 27.5 corpus run, LgnLoginChecklistTests.al), as `login.rs` does for the login.
     if onrun_only {
-        storage |= tests.iter().any(|&r| {
+        storage |= super::handlers::unit_roots(lowered, oi, false).iter().any(|&(_, r)| {
             call_reach_facts(&engine.events, lowered, &index, oi, r).state_writes & state::NUMBER_SEQUENCE != 0
         });
     }

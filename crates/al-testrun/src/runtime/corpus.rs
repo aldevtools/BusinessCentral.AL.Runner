@@ -2392,22 +2392,14 @@ fn check_baseline_rule(lowered: &Lowered, units: &mut [Unit]) {
     );
 }
 
-/// Whether the static reach of test codeunit `oi` (its tests and its `OnRun`) can read or change isolated storage or a
+/// Whether the static reach of test codeunit `oi` (its tests, their handler functions and its `OnRun`) can read or change isolated storage or a
 /// number sequence, or is not fully known. Only such a codeunit can see what an earlier Disabled codeunit left there
 /// (`Carried::everything`); one that cannot reach them does not depend on it.
 pub(super) fn reaches_session_storage(engine: &Arc<al_vm::Engine>, lowered: &Lowered, oi: usize) -> bool {
     use super::written::{ReachIndex, state, union_reach_has};
     let index = engine.derived(|| ReachIndex::new(&engine.events, lowered));
     let bits = state::ISOLATED_STORAGE | state::NUMBER_SEQUENCE | state::OTHER;
-    let o = &lowered.program.objects[oi];
-    let roots: Vec<(usize, usize)> = (0..o.routines.len())
-        .filter(|&r| {
-            let routine = &o.routines[r];
-            (routine.is_trigger && routine.name.eq_ignore_ascii_case("OnRun"))
-                || routine.attributes.iter().any(|a| a.name.eq_ignore_ascii_case("Test"))
-        })
-        .map(|r| (oi, r))
-        .collect();
+    let roots = super::handlers::unit_roots(lowered, oi, true);
     union_reach_has(&engine.events, lowered, &index, &roots, &|f| {
         f.unknown.is_some() || (f.state_reads | f.state_writes) & bits != 0
     })
