@@ -61,13 +61,15 @@ mod tests {
     #[test]
     fn of_copies_each_phase_and_takes_the_warm_compile_over_the_compile_when_it_is_set() {
         let ms = Duration::from_millis;
-        let mut p = al_testrun::runtime::Phases::default();
-        p.compile = ms(5);
-        p.engine = ms(6);
-        p.engine_kept = true;
-        p.baseline = ms(7);
-        p.baseline_source = Some("kept");
-        p.tests = ms(8);
+        let mut p = al_testrun::runtime::Phases {
+            compile: ms(5),
+            engine: ms(6),
+            engine_kept: true,
+            baseline: ms(7),
+            baseline_source: Some("kept"),
+            tests: ms(8),
+            ..Default::default()
+        };
         let t = RequestTimings::of(SetupParts::default(), &p, ms(9), None);
         assert_eq!(
             (t.compile, t.engine, t.baseline, t.tests, t.coverage),
