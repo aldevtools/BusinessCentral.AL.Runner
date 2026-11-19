@@ -21,6 +21,13 @@ table 50100 Row
     keys { key(PK; Id) { } }
     var Gv: Integer;
 }
+// A temporary table without a Blob field: an insert into one with a Blob field leaves an empty-Blob note on the temporary
+// table's token, which is not an image of ids only (reported to (a) in s2-b-to-a.md).
+table 50103 TRow
+{
+    fields { field(1; Id; Integer) { } field(2; Name; Text[50]) { } }
+    keys { key(PK; Id) { } }
+}
 codeunit 50101 Peer
 {
     trigger OnRun() begin end;
@@ -37,7 +44,7 @@ codeunit 50100 Keeper
     SingleInstance = true;
     var
         A: Codeunit Peer; B: Codeunit Peer; Sub1: Codeunit Sub;
-        Rec: Record Row; T1: Record Row temporary; T2: Record Row temporary;
+        Rec: Record Row; T1: Record TRow temporary; T2: Record TRow temporary;
         Items: List of [Integer]; Dict: Dictionary of [Integer, Text]; Refs: array[3] of RecordRef;
         V1: Variant; V2: Variant; J: JsonObject; Strm: InStream;
 
@@ -81,7 +88,7 @@ codeunit 50100 Keeper
     procedure MakeSequence() begin NumberSequence.Insert('S50', 5, 3); Commit(); end;
     procedure Schedule() begin TaskScheduler.CreateTask(50101, 0, true); end;
     procedure FillJson() begin J.Add('a', 1); end;
-    procedure ReadAccent(): Text begin Rec.SetFilter(Name, '@e'); exit(Format(Rec.Count()) + '|' + Format(T1.Count())); end;
+    procedure ReadAccent(): Text begin Rec.SetRange(Name, 'é'); T1.SetRange(Name, 'é'); exit(Format(Rec.Count()) + '|' + Format(T1.Count())); end;
 }
 "#;
 
@@ -175,7 +182,10 @@ fn new_session(s: &Session) -> Session {
     Session::new(s.engine.clone())
 }
 
-fn image(s: &Session) -> LoginImage {
+/// The image of `s`, taken as the real caller does: after the company open's Commit (the SQL counters' "at rest" is the
+/// last store operation being a Commit, `SqlCounters::left_inactive`).
+fn image(s: &mut Session) -> LoginImage {
+    s.commit_transaction();
     s.login_image(0)
         .unwrap_or_else(|why| panic!("no image: {}", why.reason()))
 }
@@ -192,6 +202,16 @@ fn round_trip(s: &mut Session) -> Session {
     let mut twin = thaw(s, &image);
     assert_eq!(s.state_lines(), twin.state_lines());
     twin
+}
+
+/// The state lines without the SQL counters' line: whether they are comparable depends on the last store operation of the
+/// thread, which another session of the test may have been.
+fn lines_without_sql(s: &mut Session) -> Vec<String> {
+    s.state_lines()
+        .lines
+        .into_iter()
+        .filter(|l| !l.starts_with("sql "))
+        .collect()
 }
 
 #[test]
@@ -336,7 +356,7 @@ fn records_sharing_one_temporary_table_thaw_sharing_one_table() {
 
 /// A second thaw of a fresh image of `f`'s session (the original is not changed by what the twin did).
 fn new_twin_of_original(f: &mut Fx) -> Session {
-    let image = image(&f.session);
+    let image = image(&mut f.session);
     thaw(&f.session, &image)
 }
 
@@ -440,6 +460,9 @@ fn a_blob_two_fields_share_stays_one_buffer() {
     blob.borrow_mut().bytes.push(7);
     f.set("V1", Value::Blob(blob.clone()));
     f.set("V2", Value::Blob(blob.clone()));
+    // Only the two globals hold the buffer (a third owner is `HeldOutside`); a weak handle reads the original's later.
+    let original = Arc::downgrade(&blob);
+    drop(blob);
     let mut twin = round_trip(&mut f.session);
     let (Value::Blob(a), Value::Blob(b)) = (get(&mut twin, f.keeper, "V1"), get(&mut twin, f.keeper, "V2")) else {
         panic!("globals hold blobs")
@@ -447,7 +470,12 @@ fn a_blob_two_fields_share_stays_one_buffer() {
     assert!(Arc::ptr_eq(&a, &b));
     a.borrow_mut().bytes.push(8);
     assert_eq!(b.borrow().bytes, vec![7, 8]);
-    assert_eq!(blob.borrow().bytes, vec![7], "the original's buffer is not the twin's");
+    let original = original.upgrade().expect("the session still holds its buffer");
+    assert_eq!(
+        original.borrow().bytes,
+        vec![7],
+        "the original's buffer is not the twin's"
+    );
 }
 
 fn media_object() -> al_builtins::media::MediaObject {
@@ -470,7 +498,7 @@ fn media_and_event_counts_are_written_into_the_sessions_own_cells() {
     f.session.media.objects.borrow_mut().insert([1; 16], media_object());
     f.session.events.event_stats.calls.borrow_mut().insert((0, 0), 3);
     f.session.events.event_stats.active.borrow_mut().insert(1, 2);
-    let image = image(&f.session);
+    let image = image(&mut f.session);
     let mut twin = new_session(&f.session);
     let (objects, stats) = (Rc::as_ptr(&twin.media.objects), Rc::as_ptr(&twin.events.event_stats));
     twin.thaw_login_image(&image);
@@ -491,10 +519,10 @@ fn two_thaws_of_one_image_share_nothing() {
     let p = f.peer();
     f.set("A", Value::Codeunit(p));
     f.run("FillTemps");
-    let image = image(&f.session);
+    let image = image(&mut f.session);
     let mut one = thaw(&f.session, &image);
     let mut two = thaw(&f.session, &image);
-    let before = two.state_lines();
+    let before = lines_without_sql(&mut two);
     // A global, a temporary row and a media object change in the first twin only.
     let Value::Codeunit(a) = get(&mut one, f.keeper, "A") else {
         panic!("A holds an instance")
@@ -503,9 +531,9 @@ fn two_thaws_of_one_image_share_nothing() {
     a.borrow_mut().globals[n] = Value::Integer(5);
     answer(&mut one, f.keeper, "InsertViaT2");
     one.media.objects.borrow_mut().insert([2; 16], media_object());
-    assert_ne!(one.state_lines(), before);
-    assert_eq!(two.state_lines(), before);
-    assert_eq!(f.session.state_lines(), before);
+    assert_ne!(lines_without_sql(&mut one), before);
+    assert_eq!(lines_without_sql(&mut two), before);
+    assert_eq!(lines_without_sql(&mut f.session), before);
 }
 
 #[test]
@@ -514,7 +542,7 @@ fn the_image_is_send_and_sync_and_thaws_on_another_thread() {
     let p = f.peer();
     f.set("A", Value::Codeunit(p));
     f.run("FillTemps");
-    let image = Arc::new(image(&f.session));
+    let image = Arc::new(image(&mut f.session));
     let (engine, expected) = (f.session.engine.clone(), f.session.state_lines().lines);
     let (got, noted) = std::thread::spawn(move || {
         let mut s = Session::new(engine);
@@ -535,7 +563,8 @@ fn a_text_outside_ascii_in_a_row_reads_the_same_after_the_thaw() {
     f.run("FillTemps");
     let mut twin = round_trip(&mut f.session);
     // The same result or the same refusal, for a table and for a temporary table that hold `é`.
-    assert_eq!(f.run("ReadAccent"), outcome(&mut twin, f.keeper, "ReadAccent"));
+    let ours = outcome(&mut f.session, f.keeper, "ReadAccent");
+    assert_eq!(ours, outcome(&mut twin, f.keeper, "ReadAccent"));
 }
 
 #[test]
@@ -544,7 +573,7 @@ fn a_shared_instance_thawn_as_two_is_caught() {
     let p = f.peer();
     f.set("A", Value::Codeunit(p.clone()));
     f.set("B", Value::Codeunit(p));
-    let mut image = image(&f.session);
+    let mut image = image(&mut f.session);
     assert!(image.split_first_shared_instance(), "an instance with two references");
     let (mut ours, mut theirs) = (f.session.state_lines(), thaw(&f.session, &image).state_lines());
     assert_ne!(ours, theirs);
@@ -567,7 +596,7 @@ fn a_shared_instance_thawn_as_two_is_caught() {
 fn a_field_the_image_forgets_is_caught() {
     let mut f = fx();
     f.session.clock_draws = 4;
-    let mut image = image(&f.session);
+    let mut image = image(&mut f.session);
     image.forget_clock_draws();
     let (ours, theirs) = (f.session.state_lines(), thaw(&f.session, &image).state_lines());
     assert_ne!(ours, theirs);
@@ -581,6 +610,12 @@ fn a_field_the_image_forgets_is_caught() {
 }
 
 fn refused(f: &mut Fx) -> NotImaged {
+    f.session.commit_transaction();
+    refused_as_it_is(f)
+}
+
+/// [`refused`] without the Commit: what an uncommitted change does to the freeze.
+fn refused_as_it_is(f: &mut Fx) -> NotImaged {
     match f.session.login_image(0) {
         Ok(_) => panic!("an image was made"),
         Err(why) => why,
@@ -641,7 +676,7 @@ fn a_session_that_is_not_at_rest_or_holds_refused_state_says_which() {
     assert_eq!(refused(&mut f), NotImaged::Field("tasks"));
     let mut g = fx();
     g.run("Uncommitted");
-    assert!(matches!(refused(&mut g), NotImaged::Rows(_)));
+    assert!(matches!(refused_as_it_is(&mut g), NotImaged::Rows(_)));
 }
 
 #[test]
@@ -662,7 +697,7 @@ fn the_render_takes_every_value_the_image_takes() {
     let blob = al_builtins::stream::new_blob();
     f.set("V1", Value::Blob(blob.clone()));
     f.set("V2", Value::Blob(blob));
-    let image = image(&f.session);
+    let image = image(&mut f.session);
     let lines = f.session.state_lines();
     assert!(
         lines.opaque.is_empty(),
@@ -683,8 +718,9 @@ fn the_size_counts_what_the_image_holds() {
     let p = f.peer();
     f.set("A", Value::Codeunit(p));
     f.run("FillTemps");
-    let size = image(&f.session).size();
-    assert_eq!(size.instances, 2, "Keeper and one Peer");
+    let size = image(&mut f.session).size();
+    // Keeper, its three codeunit globals (A is the Peer set below, B and Sub1 are new instances) and the Peer's own `Back`.
+    assert_eq!(size.instances, 5);
     assert_eq!(size.temp_tables, 1);
     assert_eq!(size.temp_rows, 3);
     assert!(size.rows_own_bytes <= size.rows_bytes);
