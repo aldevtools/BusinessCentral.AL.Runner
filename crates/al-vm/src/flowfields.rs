@@ -744,7 +744,8 @@ impl Session {
         self.note_indirect_read(src_t.object);
         self.unseeded_read(&src_t, rec.borrow().temporary, "a FlowField")?;
         // A CalcFields of the source table's own record raised a deferred Insert error before this (`record_op_inner`).
-        self.refuse_unmeasured_read_while_deferred(calc.table, "a FlowField read")?;
+        self.refuse_read_while_deferred(calc.table, "a FlowField read")?;
+        self.note_indirect_read_of_queue(calc.table, true, "a FlowField read")?;
         // ADR-062: a FlowField reads its source table indirectly (CpPermLeads.al:29-63).
         if self.permission_checks() {
             self.permission_gate_flowfield(rec, calc.table, stack)?;
@@ -755,12 +756,16 @@ impl Session {
             .iter()
             .cloned()
             .partition(|c| src_fields[c.field].stored || src_fields[c.field].flow_filter);
+        // A page background task's worker does not see the rows the test session's insert queue holds (records/insert_buffer.rs).
+        let company = rec.borrow().company.clone();
+        let hidden = self.hide_queued_in_view(&src_t, &company, &cx, "a FlowField read")?;
         let tally = if flow.is_empty() {
-            self.tally_stored(&cx, &src_t, &filters, calc)?
+            self.tally_stored(&cx, &src_t, &filters, calc)
         } else {
-            self.tally_source_rows(rec, &cx, &src_t, &stored, &flow, calc, stack)?
+            self.tally_source_rows(rec, &cx, &src_t, &stored, &flow, calc, stack)
         };
-        self.aggregate(f, calc, tally, !flow.is_empty())
+        self.show_queued_to_test_session(hidden);
+        self.aggregate(f, calc, tally?, !flow.is_empty())
     }
 
     /// The rows of the source table that pass `filters`, read from the store: a count and an exist ask the store, a lookup reads

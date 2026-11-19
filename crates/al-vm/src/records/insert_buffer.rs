@@ -41,6 +41,12 @@ pub(crate) struct InsertQueue {
     company: Option<String>,
     rows: usize,
     sent: bool,
+    /// The primary keys of the rows queued since the queue was last sent: a page background task's worker does not see them
+    /// (`hide_queued_from_worker`).
+    keys: Vec<Vec<Value>>,
+    /// A queued Insert ran an OnAfterInsert subscriber or table extension trigger, which may change the key in the record after
+    /// the row was stored: which rows the queue holds is not known.
+    keys_unknown: bool,
 }
 
 /// What an Insert is to the insert queue (`Session::note_insert_buffer`).
@@ -129,8 +135,49 @@ impl Session {
     }
 
     /// A read of `table` (object index) that no corpus case measures while an Insert error into it is deferred (al-runner issue
-    /// 8288): `read` names it. The measured reads send the queue and raise it (`sends_queue`). Refused.
-    pub(crate) fn refuse_unmeasured_read_while_deferred(&self, table: usize, read: &str) -> Result<(), Signal> {
+    /// 8288): `read` names it. The measured reads send the queue and raise it (`sends_queue`). Refused. It is also a read outside
+    /// the record methods (`note_indirect_read_of_queue`).
+    pub(crate) fn refuse_unmeasured_read_while_deferred(&mut self, table: usize, read: &str) -> Result<(), Signal> {
+        self.note_indirect_read_of_queue(table, false, read)?;
+        self.refuse_read_while_deferred(table, read)
+    }
+
+    /// A read of `table` (object index) outside the record methods: a FlowField (`flow`), a Query, CountApprox, GetBySystemId, a
+    /// TableRelation check. By a page background task's worker, while the test session's insert queue holds rows of the table:
+    /// a FlowField runs on a view without them (`hide_queued_in_view`, BgTaskInsertQueue.al:465); the others are not
+    /// measured, and refused. By the test session: a FlowField lets the rows through to other sessions (:481); after the
+    /// others, which rows they see is not known, and a worker's later read of the table is refused.
+    pub(crate) fn note_indirect_read_of_queue(&mut self, table: usize, flow: bool, read: &str) -> Result<(), Signal> {
+        let worker = self.pages.bg_worker.is_some();
+        let name = &self.engine.program.objects[table].name;
+        for q in self
+            .tx
+            .open
+            .insert_buffer
+            .iter_mut()
+            .filter(|q| q.table as usize == table)
+        {
+            if q.keys.is_empty() && !q.keys_unknown {
+                continue;
+            }
+            match (worker, flow) {
+                (true, true) => {}
+                (true, false) => {
+                    return unsupported(format!(
+                        "{read} of {name} by a page background task's worker while the test session's insert queue holds rows of it (not measured)"
+                    ));
+                }
+                (false, true) => {
+                    q.keys.clear();
+                    q.keys_unknown = false;
+                }
+                (false, false) => q.keys_unknown = true,
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn refuse_read_while_deferred(&self, table: usize, read: &str) -> Result<(), Signal> {
         match &self.tx.open.deferred_insert {
             Some((t, _)) if *t == table => unsupported(format!(
                 "{read} of {} while the error of an Insert into it is deferred (a duplicate key, or a value its SQL column cannot hold): whether the read raises it is not pinned (docs/probes-needed.md)",
@@ -159,6 +206,11 @@ impl Session {
         insert: InsertKind,
         r: Result<Value, Signal>,
     ) -> Result<Value, Signal> {
+        // A worker of a page background task runs in a session of its own: its reads send nothing of the test session's queue
+        // (pages/background-tasks/BgTaskInsertQueue.al:412).
+        if self.pages.bg_worker.is_some() {
+            return r;
+        }
         // Whether this Insert left its own duplicate key pending (`TxState::deferred_by`).
         let own = Rc::as_ptr(rec) as usize;
         let duplicate = method == RecordOp::Insert && self.tx.deferred_by == Some(own);
@@ -187,6 +239,8 @@ impl Session {
             // A read or a write of the table, a guarded Insert or a failed one sends what is queued.
             if let Some(i) = at {
                 self.tx.open.insert_buffer[i].rows = 0;
+                self.tx.open.insert_buffer[i].keys.clear();
+                self.tx.open.insert_buffer[i].keys_unknown = false;
             }
             return r;
         }
@@ -197,10 +251,19 @@ impl Session {
                 company: rec.borrow().company.clone(),
                 rows: 0,
                 sent: false,
+                keys: Vec::new(),
+                keys_unknown: false,
             });
             self.tx.open.insert_buffer.len() - 1
         });
         self.tx.open.insert_buffer[i].rows += 1;
+        let t = self.table(rec)?;
+        if self.listened(&t, "onafterinsertevent", None)? || !self.ext_triggers(&t, "OnAfterInsert").is_empty() {
+            self.tx.open.insert_buffer[i].keys_unknown = true;
+        } else {
+            let key = t.primary_key(&rec.borrow().fields);
+            self.tx.open.insert_buffer[i].keys.push(key);
+        }
         let pending = self
             .tx
             .open
@@ -213,6 +276,8 @@ impl Session {
             return r;
         }
         self.tx.open.insert_buffer[i].rows = 0;
+        self.tx.open.insert_buffer[i].keys.clear();
+        self.tx.open.insert_buffer[i].keys_unknown = false;
         self.tx.open.insert_buffer[i].sent = true;
         if !pending {
             return r;
@@ -237,5 +302,75 @@ impl Session {
         let (_, e) = self.tx.open.deferred_insert.take().expect("checked");
         self.tx.deferred_raised += 1;
         Err(Signal::Error(Box::new(e)))
+    }
+}
+
+impl Session {
+    /// A record method of a page background task's worker on `rec`'s table while the test session's insert queue of that table
+    /// holds rows: the worker does not see them (pages/background-tasks/BgTaskInsertQueue.al:234, :262, :277, :312, :361, :412,
+    /// :427, :443; they show once the queue is sent, :247, :294, :331, :393). A method that reads the store runs on a view of
+    /// it without those rows (`show_queued_to_test_session` puts the store back). Refused, as not measured: a worker's read of
+    /// a table whose Insert error is deferred, whose queue holds rows under another company value, or whose queued keys an
+    /// OnAfterInsert subscriber may have changed.
+    pub(crate) fn hide_queued_from_worker(&mut self, method: RecordOp, rec: &Rec) -> Result<Option<MemStore>, Signal> {
+        if self.pages.bg_worker.is_none()
+            || self.tx.open.insert_buffer.is_empty()
+            || !sends_queue(method)
+            || rec.borrow().temporary
+        {
+            return Ok(None);
+        }
+        let t = self.table(rec)?;
+        let cx = self.cx_for(rec, &t)?;
+        let company = rec.borrow().company.clone();
+        self.hide_queued_in_view(&t, &company, &cx, "a read of a page background task's worker")
+    }
+
+    /// A read of table `t` (rows of `company`, in `cx`) by a page background task's worker: when the test session's insert
+    /// queue of the table holds rows, the store is replaced by a view of it without them, and the store comes back
+    /// (`show_queued_to_test_session`).
+    pub(crate) fn hide_queued_in_view(
+        &mut self,
+        t: &TableDef,
+        company: &Option<String>,
+        cx: &al_data::AccessContext,
+        read: &str,
+    ) -> Result<Option<MemStore>, Signal> {
+        if self.pages.bg_worker.is_none() || self.tx.open.insert_buffer.is_empty() {
+            return Ok(None);
+        }
+        let queued: Vec<&InsertQueue> = self
+            .tx
+            .open
+            .insert_buffer
+            .iter()
+            .filter(|q| q.table == t.object && (!q.keys.is_empty() || q.keys_unknown))
+            .collect();
+        let keys = match queued.as_slice() {
+            [] => return Ok(None),
+            [q] if q.company == *company && !q.keys_unknown => q.keys.clone(),
+            _ => {
+                return unsupported(format!(
+                    "{read} of {} by a page background task's worker while the test session's insert queue holds rows of it under \
+                     another company value, or rows whose keys an OnAfterInsert subscriber may have changed (not measured)",
+                    t.name
+                ));
+            }
+        };
+        self.refuse_read_while_deferred(t.object as usize, read)?;
+        let mut view = self.store.clone();
+        for pk in keys {
+            al_data::Store::delete(&mut view, cx, t, &pk).map_err(|e| Signal::unsupported(format!("{e}")))?;
+        }
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::BgTaskInsertQueue);
+        Ok(Some(std::mem::replace(&mut self.store, view)))
+    }
+
+    /// The method `hide_queued_from_worker` ran on a view of the store without the queued rows has ended: the store is the one
+    /// before it, untouched.
+    pub(crate) fn show_queued_to_test_session(&mut self, hidden: Option<MemStore>) {
+        if let Some(store) = hidden {
+            self.store = store;
+        }
     }
 }
