@@ -732,3 +732,42 @@ codeunit 77462 "RPL Gap"
 fn the_random_sequence_the_login_leaves_is_compared() {
     assert_planted_state(&planted(GAP_RANDOM, "a", &["ab"]), "random ");
 }
+
+/// "RPL Gap" looks for a row of its empty table when the text is longer than 1: a find that found nothing while the SQL
+/// counters were inactive is kept for a later read of `SessionInformation.SqlStatementsExecuted`.
+const GAP_SQL: &str = r#"
+table 77465 "RPL Gap Row" { fields { field(1; K; Integer) { } } keys { key(PK; K) { Clustered = true; } } }
+codeunit 77462 "RPL Gap"
+{
+    procedure Plant(N: Integer) var R: Record "RPL Gap Row"; begin if N > 1 then if R.FindFirst() then; end;
+}
+"#;
+
+// What the SQL counters keep while inactive (a later counter read reads it) is compared.
+#[test]
+fn the_sql_counters_the_login_leaves_are_compared() {
+    assert_planted_state(&planted(GAP_SQL, "a", &["ab"]), "sql ");
+}
+
+/// "RPL Gap" reads `SessionInformation.SqlStatementsExecuted`: the counters log from then on.
+const GAP_SQL_READ: &str = r#"
+codeunit 77462 "RPL Gap"
+{
+    procedure Plant(N: Integer) var C: BigInteger; begin C := SessionInformation.SqlStatementsExecuted(); end;
+}
+"#;
+
+// SQL counters a login read have no comparable form: what a later read counts depends on the session's own log.
+#[test]
+fn sql_counters_the_login_read_are_not_comparable() {
+    let (engine, l) = compiled_with(&format!("{GAP}{GAP_SQL_READ}"));
+    for _ in 0..2 {
+        set_resource(&engine, &l, Some("a"));
+        run(&engine, &l, "RPL Gap Tests");
+    }
+    let line = crate::login_replay::report(&engine).unwrap();
+    assert!(
+        line.contains("1 differ (not comparable 1, ") && line.contains("SQL counters (read, or not at rest"),
+        "{line}"
+    );
+}

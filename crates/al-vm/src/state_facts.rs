@@ -6,13 +6,20 @@ use crate::Session;
 use crate::state_render::content;
 use std::collections::BTreeMap;
 
+/// Why the SQL counters have no comparable form: a counter was read, or the record methods since the last Commit left
+/// state that only the session's own log explains (`SqlCounters::left_inactive`).
+const SQL_ACTIVE: &str = "SQL counters (read, or not at rest since the last Commit)";
+
 impl Session {
     /// The lines of the facts of this module, in a fixed order; a fact with no comparable form goes to `opaque` with why.
     pub(crate) fn fact_lines(&self, lines: &mut Vec<String>, opaque: &mut Vec<String>) {
-        let _ = opaque;
         lines.push(self.global_setups_line());
         lines.push(self.event_calls_line());
         lines.push(self.media_line());
+        match self.sql.left_inactive() {
+            Some(left) => lines.push(format!("sql {}", left.line())),
+            None => opaque.push(SQL_ACTIVE.to_string()),
+        }
     }
 
     /// The Global Triggers setup BC asked for each table (`events.global_setups`): a later first write to a table asks
