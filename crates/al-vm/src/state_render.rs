@@ -419,9 +419,12 @@ impl Render<'_> {
                 let record_id = self.optional(&e.record_id, depth)?;
                 let system_id = self.optional(&e.system_id, depth)?;
                 let dimensions = self.optional(&e.custom_dimensions, depth)?;
+                // A collected error's `Callstack` is kept by the cell in a side table (al-builtins errorinfo.rs).
+                let stack = al_builtins::errorinfo::callstack_of(cell);
                 Ok(format!(
-                    "ErrorInfo {} record id {record_id} system id {system_id} custom dimensions {dimensions}",
-                    content(&view)
+                    "ErrorInfo {} record id {record_id} system id {system_id} custom dimensions {dimensions} call stack {}",
+                    content(&view),
+                    content(&stack)
                 ))
             }
             L::Json(_) | L::Xml(_) => self.tree(kind, &lv, depth).map(|t| format!("{kind} {t}")),
@@ -760,5 +763,37 @@ mod tests {
         );
         let own = Value::List(Rc::new(RefCell::new(vec![Value::Integer(1)].into())));
         assert!(render.value(&own, 0).unwrap().starts_with("List of 1 elements"));
+    }
+
+    // A collected error's `Callstack` lives in a side table keyed by the ErrorInfo's cell (al-builtins errorinfo.rs
+    // `CALLSTACKS`), not in its state: two ErrorInfo values that differ only in it do not render the same.
+    #[test]
+    fn an_error_info_renders_its_call_stack() {
+        let (session, _) = session_and_records();
+        let state = || al_builtins::value::ErrorInfoState {
+            message: "m".into(),
+            title: String::new(),
+            detailed_message: String::new(),
+            control_name: String::new(),
+            verbosity: 1,
+            data_classification: 0,
+            error_type: None,
+            collectible: true,
+            table_id: 0,
+            record_id: None,
+            system_id: None,
+            field_no: 0,
+            page_no: 0,
+            custom_dimensions: None,
+            built: al_builtins::value::ErrorInfoBuilt::Other,
+        };
+        let kind = LibraryKind::from("ErrorInfo");
+        let (with, without) = (
+            library(kind.clone(), LibraryValue::ErrorInfo(state())),
+            library(kind, LibraryValue::ErrorInfo(state())),
+        );
+        al_builtins::errorinfo::set_callstack_of(&with, "\"P\"(CodeUnit 1).Collect line 5\r\n");
+        let mut render = Render::new(&session);
+        assert_ne!(render.value(&with, 0), render.value(&without, 0));
     }
 }
