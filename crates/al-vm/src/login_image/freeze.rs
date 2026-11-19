@@ -376,13 +376,15 @@ impl<'a> Walker<'a> {
         Ok(out)
     }
 
-    /// The values of a record's fields or a row: plain, or a Blob buffer (a field holds no other handle).
+    /// The values of a record's fields or a row: plain, a Blob buffer, or a RecordId field's cell. Any other handle in a
+    /// field has no form here.
     pub(crate) fn field_values(&mut self, items: &[Value], path: &str) -> Result<Vec<Frozen>, NotImaged> {
         let mut out = Vec::with_capacity(items.len());
         for (i, v) in items.iter().enumerate() {
             let at = format!("{path}, field [{i}]");
             out.push(match v {
                 Value::Blob(b) => Frozen::Node(self.handle(Holder::Blob(b.clone()), 1, at)),
+                Value::Library(al_builtins::library_kind::LibraryKind::RecordId, _) => self.value(v, &at)?,
                 _ => Frozen::Plain(Plain::of(v).ok_or_else(|| no_form(&at, "a field value"))?),
             });
         }
@@ -546,6 +548,15 @@ codeunit 50111 Kinds
         L: List of [Text]; D: Dictionary of [Integer, Text]; A: array[2] of Integer; T: Record KRow temporary;
         R: Record KRow; RR: RecordRef; J: JsonObject; JA: JsonArray; X: XmlDocument; N: Notification; E: ErrorInfo;
         TB: TextBuilder; Req: HttpRequestMessage; H: HttpHeaders; C: Codeunit Kinds2; I: InStream; V: Variant;
+        FR: FieldRef; KR: KeyRef; RI: RecordId; FPB: FilterPageBuilder; HC: HttpContent; XL: XmlNodeList; Q: Query KQ;
+    procedure FillFieldRef() begin RR.Open(50111); FR := RR.Field(1); end;
+    procedure FillKeyRef() begin RR.Open(50111); KR := RR.KeyIndex(1); end;
+    procedure FillRecordId() begin RI := R.RecordId(); end;
+    procedure FillFilterPage() begin FPB.AddTable('K', Database::KRow); end;
+    procedure FillHttpContent() begin HC.WriteFrom('x'); end;
+    procedure FillXmlNodeList() begin X := XmlDocument.Create(); XL := X.GetChildNodes(); end;
+    procedure FillQuery() begin Q.SetRange(Id, 1); end;
+    procedure FillQueryOpen() begin Q.Open(); end;
     procedure FillList() begin L.Add('a'); L.Add('é'); end;
     procedure FillDict() begin D.Add(1, 'x'); end;
     procedure FillArray() begin A[2] := 7; end;
@@ -565,16 +576,25 @@ codeunit 50111 Kinds
     procedure Nothing() begin end;
 }
 codeunit 50112 Kinds2 { var M: Integer; procedure Touch() begin M := 1; end; }
+query 50113 KQ { elements { dataitem(K; KRow) { column(Id; Id) { } } } }
 "#;
 
     /// The shapes v1 of the image defers although the check renders them exactly (design decision 10): each its own
     /// counted reason in the `login image:` line, each a follow-up.
-    const DEFERRED: [&str; 3] = [
+    const DEFERRED: &[&str] = &[
         "JsonObject (deferred)",
         "JsonArray (deferred)",
         "XmlDocument (deferred)",
+        "XmlNodeList (deferred)",
+        "HttpRequestMessage (deferred)",
+        "HttpHeaders (deferred)",
+        "HttpContent (deferred)",
+        "FilterPageBuilder (deferred)",
+        "Query with an open result set (deferred)",
+        "DotNet enum System.DayOfWeek (deferred)",
+        "DotNet X.Y (deferred)",
+        "DotNet object of the .NET process (deferred)",
     ];
-    const DEFERRED_HTTP: [&str; 2] = ["HttpRequestMessage (deferred)", "HttpHeaders (deferred)"];
 
     // The image refuses only what the login replay check has no exact form for: for each kind of value a SingleInstance
     // global holds, when `Session::state_lines` names nothing as opaque (state_render.rs, the one owner of which values
@@ -603,8 +623,17 @@ codeunit 50112 Kinds2 { var M: Integer; procedure Touch() begin M := 1; end; }
             "FillHeaders",
             "FillCodeunit",
             "FillVariant",
+            "FillFieldRef",
+            "FillKeyRef",
+            "FillRecordId",
+            "FillFilterPage",
+            "FillHttpContent",
+            "FillXmlNodeList",
+            "FillQuery",
+            "FillQueryOpen",
         ];
         let mut seen = Vec::new();
+        let mut wrong = Vec::new();
         for fill in fills {
             let mut s = Session::new(engine.clone());
             let ri = s.engine.program.objects[at]
@@ -621,12 +650,15 @@ codeunit 50112 Kinds2 { var M: Integer; procedure Touch() begin M := 1; end; }
                 (Ok(_), true) => {}
                 (Err(why), true) => {
                     let why = why.reason();
-                    assert!(
-                        DEFERRED.contains(&why.as_str()) || DEFERRED_HTTP.contains(&why.as_str()),
-                        "{fill}: the check renders it exactly, the image refuses: {why}"
-                    );
+                    if !DEFERRED.contains(&why.as_str()) {
+                        wrong.push(format!(
+                            "{fill}: the check renders it exactly, the image refuses: {why}"
+                        ));
+                    }
                 }
-                (Ok(_), false) => panic!("{fill}: the check has no exact form for it, the image takes it"),
+                (Ok(_), false) => wrong.push(format!(
+                    "{fill}: the check has no exact form for it, the image takes it"
+                )),
                 (Err(_), false) => {}
             }
             seen.push((fill, image.err().map(|w| w.reason())));
@@ -650,6 +682,47 @@ codeunit 50112 Kinds2 { var M: Integer; procedure Touch() begin M := 1; end; }
         s.commit_transaction();
         assert!(!s.state_lines().opaque.is_empty());
         assert!(s.login_image(0).is_err());
+        // DotNet objects the check renders exactly: the measured one is imaged, the others are deferred by type.
+        let slot = |name: &str| {
+            engine.program.objects[at]
+                .globals
+                .iter()
+                .position(|g| g.name == name)
+                .unwrap()
+        };
+        let dotnet = [
+            al_builtins::value::DotNetObject::new(al_builtins::value::DotNetKind::Internal {
+                type_name: al_builtins::dotnet_sigs::AL_CONFIG_SETTINGS.into(),
+                state: std::cell::RefCell::new(Vec::new()),
+            }),
+            al_builtins::value::DotNetObject::new(al_builtins::value::DotNetKind::Internal {
+                type_name: "X.Y".into(),
+                state: std::cell::RefCell::new(Vec::new()),
+            }),
+            al_builtins::value::DotNetObject::new(al_builtins::value::DotNetKind::Enum {
+                clr_type: "System.DayOfWeek".into(),
+                name: "Monday".into(),
+                ordinal: 1,
+            }),
+            al_builtins::value::DotNetObject::host(
+                5,
+                al_builtins::dotnet_sigs::AL_CONFIG_SETTINGS.into(),
+                std::rc::Rc::default(),
+            ),
+        ];
+        for (k, object) in dotnet.into_iter().enumerate() {
+            let mut s = Session::new(engine.clone());
+            s.codeunit_instance(at).borrow_mut().globals[slot("V")] = Value::DotNet(std::rc::Rc::new(object));
+            s.commit_transaction();
+            let exact = s.state_lines().opaque.is_empty();
+            match (s.login_image(0), exact) {
+                (Ok(_), true) | (Err(_), false) => {}
+                (Err(why), true) if DEFERRED.contains(&why.reason().as_str()) => {}
+                (other, _) => wrong.push(format!("DotNet {k}: exact {exact}, image {:?}", other.err())),
+            }
+            seen.push(("DotNet", s.login_image(0).err().map(|w| w.reason())));
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
         assert!(seen.iter().filter(|(_, why)| why.is_none()).count() >= 10, "{seen:?}");
     }
 
@@ -824,6 +897,48 @@ codeunit 50200 PKeep
                 Value::DotNet(std::rc::Rc::new(DotNetObject::new(kind)));
             s.commit_transaction();
             assert_eq!(s.login_image(0).err().map(|w| w.reason()).as_deref(), Some(why));
+        }
+    }
+
+    const RID: &str = r#"
+table 50210 RidRow
+{
+    fields { field(1; Id; Integer) { } field(2; Rid; RecordId) { } }
+    keys { key(PK; Id) { } }
+}
+codeunit 50210 RKeep
+{
+    SingleInstance = true;
+    var R: Record RidRow; T: Record RidRow temporary;
+    procedure Touch() begin R.Id := 1; end;
+    procedure Fill() begin T.Id := 1; T.Rid := T.RecordId(); T.Insert(); end;
+    procedure Read(): Text begin T.FindFirst(); exit(Format(T.Rid)); end;
+}
+"#;
+
+    // A record of a table with a RecordId field holds a RecordId cell in that field, which the check renders exactly: the
+    // image takes it, in the record and in a temporary table's rows. Review of PERF-01 step 2, M3.
+    #[test]
+    fn a_record_with_a_record_id_field_round_trips() {
+        let l = al_testkit::compile(RID);
+        let engine = Engine::new(l.program.clone(), al_testkit::blocked(&l));
+        let keep = engine.program.objects.iter().position(|o| o.name == "RKeep").unwrap();
+        for routine in ["Touch", "Fill"] {
+            let mut s = Session::new(engine.clone());
+            outcome(&mut s, keep, routine);
+            s.commit_transaction();
+            assert!(s.state_lines().opaque.is_empty(), "the check renders it exactly");
+            let image = s
+                .login_image(0)
+                .unwrap_or_else(|why| panic!("{routine}: {}", why.reason()));
+            let mut twin = Session::new(engine.clone());
+            twin.thaw_login_image(&image);
+            assert_eq!(lines(&mut s), lines(&mut twin), "{routine}");
+            assert_eq!(
+                outcome(&mut s, keep, "Read"),
+                outcome(&mut twin, keep, "Read"),
+                "{routine}"
+            );
         }
     }
 }
