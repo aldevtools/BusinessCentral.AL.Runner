@@ -1043,3 +1043,25 @@ fn an_enum_or_codeunit_that_implements_the_interface_takes_the_interface_overloa
     assert_eq!(at("Get(C, J)"), intf);
     assert_eq!(at("Get(R, J)"), rec);
 }
+
+// al-runner issue 8041: a Variant variable compared with an Integer literal by `=`, or with an enum value by `=` or `<>`, is
+// AL0175 (corpus tests/must-not-compile/cases/0502-variant-comparison-operators.al:1-3). Other operators with a literal, and
+// a Variant on the right of a literal, are not judged (main's result).
+#[test]
+fn a_variant_compared_with_an_integer_literal_or_an_enum_value() {
+    let e = "enum 50996 K { value(0; Zero) { } value(1; One) { } }";
+    let codes = |body: &str| -> Vec<String> {
+        diags(&[e, &cu(&format!("procedure P() var V: Variant; begin {body} end;"))])
+            .into_iter()
+            .filter(|d| d.starts_with("AL"))
+            .collect()
+    };
+    assert_eq!(
+        codes("if V = 5 then;"),
+        vec!["AL0175 Operator '=' cannot be applied to operands of type 'Variant' and 'Integer'"]
+    );
+    assert_eq!(codes("if V = K::One then;").len(), 1);
+    assert_eq!(codes("if V <> K::One then;").len(), 1);
+    assert_eq!(codes("if V <> 5 then;"), Vec::<String>::new());
+    assert_eq!(codes("if V = 'a' then;"), Vec::<String>::new());
+}
