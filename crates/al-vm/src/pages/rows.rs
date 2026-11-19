@@ -2893,7 +2893,7 @@ impl Session {
             // Modal_HandlerOkThenClose_VetoAlways). Only a veto by the page's own trigger is pinned.
             self.refuse_unpinned_modal_veto(&st)?;
             st.borrow_mut().modal = false;
-            let id = self.engine.program.objects[st.borrow().object as usize].id.unwrap_or(0);
+            let id = crate::object_ids::declared_id(self.engine.program.objects[st.borrow().object as usize].id)?;
             return Err(error_code(
                 format!("The RunModal procedure could not close the page {id} as it has already been closed."),
                 "TestCodeUnit",
@@ -2929,7 +2929,7 @@ impl Session {
                     }
                 }
             }
-            let id = self.engine.program.objects[st.borrow().object as usize].id.unwrap_or(0);
+            let id = crate::object_ids::declared_id(self.engine.program.objects[st.borrow().object as usize].id)?;
             return Err(error_code(
                 format!("The RunModal procedure could not close the page {id} as it has already been closed."),
                 "TestCodeUnit",
