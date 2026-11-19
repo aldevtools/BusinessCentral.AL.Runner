@@ -62,6 +62,9 @@ pub(crate) enum Node {
     Row(Vec<Frozen>),
     /// `Rc<RefCell<QueryState>>` without a result set.
     Query(Box<QueryNode>),
+    /// `Rc<DotNetObject>` of a kind the runtime serves itself (an enum value, an internal object such as
+    /// `ALConfigSettings.Instance`): the ones the check renders exactly. An object of the .NET process is never imaged.
+    DotNet(DotNetNode),
     /// Seen, not walked yet (only while the walk runs).
     Pending,
 }
@@ -81,6 +84,20 @@ pub(crate) struct InstanceNode {
     /// `Born`, written explicitly at thaw: its default reads a thread-local.
     pub(crate) born: bool,
     pub(crate) single: bool,
+}
+
+/// A .NET object the runtime serves itself (al-builtins `DotNetKind::Enum`, `DotNetKind::Internal`).
+#[derive(Debug)]
+pub(crate) enum DotNetNode {
+    Enum {
+        clr_type: String,
+        name: String,
+        ordinal: i64,
+    },
+    Internal {
+        type_name: String,
+        state: Vec<Frozen>,
+    },
 }
 
 /// A query variable that has not run (al-builtins `QueryState` with `run: None`).

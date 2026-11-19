@@ -106,6 +106,10 @@ fn node_bytes(n: &Node) -> usize {
             Node::Blob(b) => b.bytes.len(),
             Node::TempTable(t) => temp_bytes(t),
             Node::Query(_) => size_of::<super::arena::QueryNode>(),
+            Node::DotNet(d) => match d {
+                super::arena::DotNetNode::Enum { clr_type, name, .. } => clr_type.len() + name.len(),
+                super::arena::DotNetNode::Internal { type_name, state } => type_name.len() + all(state),
+            },
             Node::Pending => 0,
         }
 }

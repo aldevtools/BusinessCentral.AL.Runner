@@ -27,6 +27,7 @@ enum Made {
     TempTable(TempId),
     Row(Rc<Vec<Value>>),
     Query(Rc<RefCell<QueryState>>),
+    DotNet(Rc<al_builtins::value::DotNetObject>),
 }
 
 /// The handles of one thaw, by node.
@@ -58,6 +59,7 @@ impl Maker<'_> {
                 Made::Library(kind, r) => Value::Library(kind.clone(), r.clone()),
                 Made::Blob(b) => Value::Blob(b.clone()),
                 Made::Query(q) => Value::Query(q.clone()),
+                Made::DotNet(d) => Value::DotNet(d.clone()),
                 Made::Globals(_) | Made::TempTable(_) | Made::Row(_) => {
                     unreachable!(
                         "the freeze names a table globals set, a temporary table or a row only where it is one"
@@ -170,6 +172,21 @@ fn make_shells(m: &mut Maker<'_>, session: &mut Session) {
             )))),
             Node::TempTable(_) => Some(Made::TempTable(session.new_temp_id())),
             Node::Globals { .. } => Some(Made::Globals(TableGlobals::new_shared())),
+            Node::DotNet(d) => Some(Made::DotNet(Rc::new(al_builtins::value::DotNetObject::new(match d {
+                super::arena::DotNetNode::Enum {
+                    clr_type,
+                    name,
+                    ordinal,
+                } => al_builtins::value::DotNetKind::Enum {
+                    clr_type: clr_type.clone(),
+                    name: name.clone(),
+                    ordinal: *ordinal,
+                },
+                super::arena::DotNetNode::Internal { type_name, .. } => al_builtins::value::DotNetKind::Internal {
+                    type_name: type_name.clone(),
+                    state: RefCell::new(Vec::new()),
+                },
+            })))),
             Node::Record(_) | Node::Row(_) => None,
             Node::Pending => unreachable!("the walk fills every node"),
         };
@@ -288,6 +305,11 @@ fn fill(m: &Maker<'_>) {
                 s.in_before_open = q.in_before_open;
                 s.closed = q.closed;
                 s.reopen = q.reopen.clone();
+            }
+            (Node::DotNet(super::arena::DotNetNode::Internal { state, .. }), Made::DotNet(d)) => {
+                if let al_builtins::value::DotNetKind::Internal { state: cell, .. } = &d.kind {
+                    *cell.borrow_mut() = m.values(state);
+                }
             }
             _ => {}
         }

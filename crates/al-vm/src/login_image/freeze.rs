@@ -7,7 +7,7 @@
 //! found to it. More means something outside the image holds it ([`NotImaged::HeldOutside`]).
 
 use super::NotImaged;
-use super::arena::{Arena, Frozen, InstanceNode, Node, NodeId, QueryNode};
+use super::arena::{Arena, DotNetNode, Frozen, InstanceNode, Node, NodeId, QueryNode};
 use crate::Session;
 use al_builtins::plain::{Plain, PlainFilter};
 use al_builtins::value::{Instance, LibraryValue, ListVec, QueryState, RecordState, TableGlobals, TempId, Value};
@@ -28,6 +28,7 @@ pub(crate) enum Holder {
     TempTable(TempId),
     Row(Rc<Vec<Value>>),
     Query(Rc<RefCell<QueryState>>),
+    DotNet(Rc<al_builtins::value::DotNetObject>),
 }
 
 impl Holder {
@@ -45,6 +46,7 @@ impl Holder {
             Holder::TempTable(t) => t.sharers(),
             Holder::Row(r) => Rc::strong_count(r),
             Holder::Query(r) => Rc::strong_count(r),
+            Holder::DotNet(r) => Rc::strong_count(r),
         }
         .saturating_sub(1)
     }
@@ -63,6 +65,7 @@ impl Holder {
             Holder::TempTable(_) => "temporary table",
             Holder::Row(_) => "fetched row",
             Holder::Query(_) => "query",
+            Holder::DotNet(_) => "DotNet object",
         }
     }
 }
@@ -151,6 +154,7 @@ impl<'a> Walker<'a> {
             Holder::TempTable(t) => (8, t.id() as usize),
             Holder::Row(r) => (9, Rc::as_ptr(r) as usize),
             Holder::Query(r) => (10, Rc::as_ptr(r) as usize),
+            Holder::DotNet(r) => (11, Rc::as_ptr(r) as usize),
         };
         if let Some(&id) = self.seen.get(&key) {
             self.found[id.0 as usize] += strong;
@@ -230,6 +234,10 @@ impl<'a> Walker<'a> {
                 let q = q.clone();
                 let q = borrowed(q.try_borrow(), &path, "Query")?;
                 self.query(&q, &path).map(|q| Node::Query(Box::new(q)))
+            }
+            Holder::DotNet(d) => {
+                let d = d.clone();
+                self.dotnet(&d, &path).map(Node::DotNet)
             }
         }
     }
@@ -339,6 +347,32 @@ impl<'a> Walker<'a> {
         })
     }
 
+    /// A .NET object the check renders exactly: an enum value, or an object the runtime serves itself with its state. The
+    /// server configuration served by the .NET process (also rendered: the same in every session) is a handle of the
+    /// process, which a thawn session does not hold.
+    fn dotnet(&mut self, d: &al_builtins::value::DotNetObject, path: &str) -> Result<DotNetNode, NotImaged> {
+        use al_builtins::value::DotNetKind;
+        match &d.kind {
+            DotNetKind::Enum {
+                clr_type,
+                name,
+                ordinal,
+            } => Ok(DotNetNode::Enum {
+                clr_type: clr_type.clone(),
+                name: name.clone(),
+                ordinal: *ordinal,
+            }),
+            DotNetKind::Internal { type_name, state } => {
+                let state = borrowed(state.try_borrow(), path, "DotNet object")?;
+                Ok(DotNetNode::Internal {
+                    type_name: type_name.clone(),
+                    state: self.values(&state, path)?,
+                })
+            }
+            DotNetKind::Host { .. } => Err(deferred(path, "DotNet object of the .NET process")),
+        }
+    }
+
     pub(crate) fn values(&mut self, items: &[Value], path: &str) -> Result<Vec<Frozen>, NotImaged> {
         let mut out = Vec::with_capacity(items.len());
         for (i, v) in items.iter().enumerate() {
@@ -376,8 +410,8 @@ impl<'a> Walker<'a> {
             // The check is the one owner of which objects have an exact form (state_render.rs): one it renders as opaque is
             // an object of the .NET process, a handle of this session. One it renders exactly (an enum value, an object the
             // runtime serves itself, such as `ALConfigSettings.Instance`) waits for its node (the first follow-up).
-            Value::DotNet(_) => match crate::state_render::Render::new(self.session).value(v, 0) {
-                Ok(_) => Err(deferred(path, "DotNet object the runtime serves")),
+            Value::DotNet(d) => match crate::state_render::Render::new(self.session).value(v, 0) {
+                Ok(_) => node(self, Holder::DotNet(d.clone())),
                 Err(_) => Err(never(path, "DotNet object of the .NET process")),
             },
             Value::TestPage(_) => Err(never(path, "TestPage")),
@@ -622,5 +656,47 @@ codeunit 50112 Kinds2 { var M: Integer; procedure Touch() begin M := 1; end; }
         assert!(!s.state_lines().opaque.is_empty());
         assert!(s.login_image(0).is_err());
         assert!(seen.iter().filter(|(_, why)| why.is_none()).count() >= 10, "{seen:?}");
+    }
+
+    // A DotNet object the runtime serves itself (`ALConfigSettings.Instance`, dotnet/server_classes.rs:57-62), which the
+    // check renders exactly (state_render.rs: a `DotNetKind::Internal` has a form), is imaged: the twin holds its own
+    // object of the same kind and state. The #8211 repro's login leaves one in a SingleInstance global.
+    #[test]
+    fn a_dotnet_object_the_runtime_serves_round_trips() {
+        let l = al_testkit::compile(KINDS);
+        let engine = Engine::new(l.program.clone(), al_testkit::blocked(&l));
+        let at = engine.program.objects.iter().position(|o| o.name == "Kinds").unwrap();
+        let slot = engine.program.objects[at]
+            .globals
+            .iter()
+            .position(|g| g.name == "V")
+            .unwrap();
+        let mut s = Session::new(engine.clone());
+        let original = std::rc::Rc::new(al_builtins::value::DotNetObject::new(
+            al_builtins::value::DotNetKind::Internal {
+                type_name: al_builtins::dotnet_sigs::AL_CONFIG_SETTINGS.into(),
+                state: std::cell::RefCell::new(vec![Value::Integer(3)]),
+            },
+        ));
+        let address = std::rc::Rc::as_ptr(&original);
+        s.codeunit_instance(at).borrow_mut().globals[slot] = Value::DotNet(original);
+        s.commit_transaction();
+        let image = s.login_image(0).unwrap_or_else(|why| panic!("{}", why.reason()));
+        let mut twin = Session::new(engine);
+        twin.thaw_login_image(&image);
+        let Value::DotNet(d) = twin.codeunit_instance(at).borrow().globals[slot].clone() else {
+            panic!("a DotNet value")
+        };
+        assert_ne!(std::rc::Rc::as_ptr(&d), address, "the twin's own object");
+        let al_builtins::value::DotNetKind::Internal { type_name, state } = &d.kind else {
+            panic!("an internal object")
+        };
+        assert_eq!(type_name, al_builtins::dotnet_sigs::AL_CONFIG_SETTINGS);
+        assert!(matches!(state.borrow()[..], [Value::Integer(3)]));
+        let (ours, theirs) = (s.state_lines(), twin.state_lines());
+        assert_eq!(
+            ours.lines[..ours.lines.len() - 1],
+            theirs.lines[..theirs.lines.len() - 1]
+        );
     }
 }
