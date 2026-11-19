@@ -383,6 +383,9 @@ pub struct TestResult {
     pub order_hint: Option<OrderHint>,
     /// With `RunOptions::cell_tap`: the `Expect` cells the test matched (`al_vm::observer_tap`); `None` when it did not use the fixture.
     pub cells: Option<al_vm::observer_tap::CellRecord>,
+    /// The test was not run because `RunOptions::stop_after_first_failure` or `RunOptions::skip_after_timeout` left it
+    /// out after an earlier test (al-runner issue 8492): a choice of the run, not a refusal.
+    pub skipped_by_option: bool,
 }
 
 impl TestResult {
@@ -416,6 +419,7 @@ impl TestResult {
             dotnet: false,
             order_hint: None,
             cells: None,
+            skipped_by_option: false,
         }
     }
 }
@@ -712,6 +716,8 @@ pub(crate) struct Scratch {
     cells: Vec<(String, al_vm::observer_tap::CellRecord)>,
     /// The time each test that slept asked `Sleep` for (`TestResult::slept_ms`).
     slept: Vec<(String, u64)>,
+    /// The tests `skip_after_timeout` or `stop_after_first_failure` left out (`TestResult::skipped_by_option`).
+    skipped: Vec<String>,
     /// With `trace`: the workspace objects each test entered and whether it ran DotNet (`TestResult::entered`).
     entered: Vec<(String, Vec<String>, bool)>,
     /// See `RunOptions::run_only`.

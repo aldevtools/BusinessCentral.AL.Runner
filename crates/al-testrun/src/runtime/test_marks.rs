@@ -1,5 +1,6 @@
 //! What a test leaves on its result beyond its outcome, taken from the session when the test ends and moved onto its
-//! `TestResult`: the `--tdd` stubs it reached and the UI calls `--dev-endpoint-ui` answered for it.
+//! `TestResult`: the `--tdd` stubs it reached, the UI calls `--dev-endpoint-ui` answered for it, and whether an option of
+//! the run left it out (`TestResult::skipped_by_option`).
 use super::{Scratch, TestResult};
 use al_vm::Session;
 
@@ -42,6 +43,10 @@ impl Scratch {
         }
         if let Some(i) = self.ui_answered.iter().position(|(n, _)| n == name) {
             r.ui_answered = std::mem::take(&mut self.ui_answered[i].1);
+        }
+        if let Some(i) = self.skipped.iter().position(|n| n == name) {
+            self.skipped.swap_remove(i);
+            r.skipped_by_option = true;
         }
     }
 }

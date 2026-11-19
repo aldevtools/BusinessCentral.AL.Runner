@@ -1397,7 +1397,11 @@ impl CorpusRuntime {
             // Writing the snapshot the test threads read (the first pass on several threads does it).
             let mut encode_time = std::time::Duration::ZERO;
             super::install_once::begin_pass(&engine, &pass.resources);
-            let refused = pass_refused(install_read_resources, pass, opts, &list);
+            let resources = pass_refused(install_read_resources, pass);
+            let stopped = pass_stopped(opts, &list);
+            // Every test of a stopped pass is left out by the option (`suite_isolation`), unless the pass is refused.
+            let skipped_by_option = resources.is_none() && stopped.is_some();
+            let refused = resources.or(stopped);
             let (opts_only, limit) = (&pass.only, pass.limit);
             // The test codeunits to run, in the order the report lists them.
             let mut units: Vec<Unit> = Vec::new();
@@ -1474,7 +1478,9 @@ impl CorpusRuntime {
                                 outcomes.insert((si, id, r.name.to_lowercase()), Outcome::NotRun(why.clone()));
                                 let not_run = Outcome::NotRun(why.clone());
                                 let (app, name) = (order[o.app as usize], o.name.clone());
-                                list.push(TestResult::bare(si, app, id, name, r.name.clone(), not_run));
+                                let mut row = TestResult::bare(si, app, id, name, r.name.clone(), not_run);
+                                row.skipped_by_option = skipped_by_option;
+                                list.push(row);
                             }
                         }
                     }
@@ -1723,6 +1729,7 @@ impl CorpusRuntime {
                         dotnet: false,
                         order_hint: None,
                         cells: None,
+                        skipped_by_option: false,
                     })
                 };
                 match r.result {
@@ -2305,18 +2312,15 @@ fn hub_path(suite: &SuiteRun, opts: &RunOptions, driver: super::TestDriver) -> b
     suite.runner.is_none() && opts.required_isolation && opts.isolation.is_none() && driver.has_hub()
 }
 
-/// Why no test of `pass` runs, given the rows of the earlier passes (`earlier`): the install code read resource files and
-/// this entry has resource files of its own, so its install baseline would be another one, which is not made per entry;
-/// or `RunOptions::stop_after_first_failure` (al-runner issue 8210) and an earlier pass has a failed test.
-fn pass_refused(
-    install_read_resources: bool,
-    pass: &Pass,
-    opts: &RunOptions,
-    earlier: &[TestResult],
-) -> Option<String> {
-    if install_read_resources && !pass.resources.is_empty() {
-        return Some("the install code read a resource file, and an entry with resource files of its own would need an install baseline of its own (al-runner issue 5635)".to_string());
-    }
+/// Why no test of `pass` runs: the install code read resource files and this entry has resource files of its own, so its
+/// install baseline would be another one, which is not made per entry.
+fn pass_refused(install_read_resources: bool, pass: &Pass) -> Option<String> {
+    (install_read_resources && !pass.resources.is_empty()).then(|| "the install code read a resource file, and an entry with resource files of its own would need an install baseline of its own (al-runner issue 5635)".to_string())
+}
+
+/// Why no test of a pass runs, given the rows of the earlier passes (`earlier`): `RunOptions::stop_after_first_failure`
+/// (al-runner issue 8210) and an earlier pass has a failed test.
+fn pass_stopped(opts: &RunOptions, earlier: &[TestResult]) -> Option<String> {
     let failed = earlier.iter().find(|r| matches!(r.outcome, Outcome::Fail(_)));
     failed
         .filter(|_| opts.stop_after_first_failure)

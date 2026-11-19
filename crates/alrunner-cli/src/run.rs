@@ -2317,11 +2317,12 @@ fn test_inner(
         }
     }
 
-    // The ranking of refusal reasons: every run, unless --quiet; --top-refusals N sets N.
+    // The ranking of refusal reasons: every run, unless --quiet; --top-refusals N sets N. A test a stop option left out
+    // is not a refusal (al-runner issue 8492).
     let top = a.top_refusals.or((!a.quiet).then_some(DEFAULT_TOP));
     if let Some(n) = top.filter(|_| counts.not_run > 0) {
         let list = refusals::rank(results.iter().filter_map(|r| match &r.outcome {
-            Outcome::NotRun(why) => Some((
+            Outcome::NotRun(why) if !r.skipped_by_option => Some((
                 CaseId {
                     codeunit: r.codeunit,
                     name: r.test.clone(),
@@ -2330,9 +2331,11 @@ fn test_inner(
             )),
             _ => None,
         }));
-        let text = refusals::render_top("not-run tests", &list, n);
-        let (head, rest) = text.split_once('\n').unwrap_or((&text, ""));
-        say!("\n{}\n{rest}", style::bold(head));
+        if !list.is_empty() {
+            let text = refusals::render_top("not-run tests", &list, n);
+            let (head, rest) = text.split_once('\n').unwrap_or((&text, ""));
+            say!("\n{}\n{rest}", style::bold(head));
+        }
     }
 
     // The assumptions the run went through: the counts are kept for `--list-assumptions`; the ranking is printed

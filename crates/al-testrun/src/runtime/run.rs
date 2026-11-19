@@ -793,6 +793,7 @@ fn run_codeunit_inner(
             let outcome = if let Some(o) = decided {
                 o
             } else if let Some(why) = &stopped {
+                scratch.skipped.push(name.clone());
                 Outcome::NotRun(why.clone())
             } else if let Some(b) = case
                 .as_ref()

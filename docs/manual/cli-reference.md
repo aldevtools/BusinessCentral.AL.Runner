@@ -132,7 +132,7 @@ See [Writing tests](writing-tests.md#several-versions-and-countries).
 | `--verbose`, `-v` | Setup details first, then one line per test (PASS, FAIL, NOT RUN with reason) with its run time, the test data rows line, and the full `Time:` line. |
 | `--quiet`, `-q` | Summary only. |
 | `--color auto\|always\|never` | PASS green, FAIL red, NOT RUN yellow, flagged passes cyan. `auto` colors only on a terminal and never when `NO_COLOR` is set. JUnit and JSON are never colored. |
-| `--top-refusals [N]` | The N most common reasons tests were not run (default 10). |
+| `--top-refusals [N]` | The N most common reasons tests were not run (default 10). The tests `--stop-after-first-failure` and `--skip-after-timeout` left out are not refusals and are not ranked; they still count as not run. |
 | `--top-failures [N]` | The N most common failure messages (default 10), numbers and quoted values folded. |
 | `--top-assumptions [N]` | The N unprobed assumptions most passes ran through (default 10). |
 | `--refusal-detail TEXT` | Not-run reasons that contain TEXT, most common first. |
