@@ -616,7 +616,7 @@ fn export_file_in(bc: &str, serve: bool, company_build: bool, body: &str) -> Res
 const LEN: &str = "local procedure Len(Name: Text): Integer var G: File; begin if not Exists(Name) then exit(-1); \
                    G.Open(Name); exit(G.Len()); end;";
 
-// onprem streams/media/MediaFiles.al:772 RJ_MediaSet_ExportFile_ConfigPackageShape (Config. XML Exchange.ExportMediaSet): ExportFile
+// onprem streams/media/MediaFiles.al:776 RJ_MediaSet_ExportFile_ConfigPackageShape (Config. XML Exchange.ExportMediaSet): ExportFile
 // returns the number of items and writes <prefix>-1 with no extension. Whether a JPEG's bytes are kept is not pinned since corpus
 // bump 62 (Windows BC 29.0 re-encodes it, the Linux image keeps it; corpus issue 723): the file is written with a mark and a look
 // at its bytes is refused, on BC 29 too.
@@ -636,7 +636,7 @@ fn media_set_export_file_of_one_jpeg_writes_prefix_dash_1() {
     assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
 }
 
-// MediaFiles.al:772: file -n holds the n-th Tenant Media Set row in primary key order (ID, Media ID); how BC orders the Media
+// MediaFiles.al:776: file -n holds the n-th Tenant Media Set row in primary key order (ID, Media ID); how BC orders the Media
 // ID Guids is not pinned, so a set of two items is refused.
 #[test]
 fn media_set_export_file_of_two_items_is_refused() {
@@ -650,7 +650,7 @@ fn media_set_export_file_of_two_items_is_refused() {
     assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
 }
 
-// MediaFiles.al:772: a PNG item is re-encoded (W7Media.al:141-145, every major), a JPEG on BC 27 and 28 (corpus bump 61):
+// MediaFiles.al:776: a PNG item is re-encoded (W7Media.al:141-145, every major), a JPEG on BC 27 and 28 (corpus bump 61):
 // the count and the name are pinned, the bytes are not, so the file is written with a mark and any look at it is refused.
 #[test]
 fn media_set_export_file_of_a_re_encoded_item_counts_it_and_refuses_a_look_at_the_file() {

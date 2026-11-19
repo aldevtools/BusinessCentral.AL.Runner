@@ -1682,7 +1682,7 @@ fn the_server_class_members_answer_the_values_of_the_probe_and_al_runner_v2() {
 }
 
 /// Tests-ERM `Azure AD Identity Mgmt.IsUserDelegatedAdmin`: the session user is not delegated (corpus
-/// `session-system/TestEnvironmentUserTenantContracts.al:245`, `IsUserDelegated` false), and a delegated admin is a
+/// `session-system/TestEnvironmentUserTenantContracts.al:242`, `IsUserDelegated` false), and a delegated admin is a
 /// delegated user, so it is not a delegated admin either.
 #[test]
 fn the_session_user_is_not_a_delegated_admin() {
@@ -1859,7 +1859,7 @@ fn registry_results_are_operands() {
     assert_eq!(host.log(), vec![]);
 }
 
-/// session-system/TestEnvironmentUserTenantContracts.al:TenantAndAzureAd_Answers (:209-212) pins the three
+/// session-system/TestEnvironmentUserTenantContracts.al:TenantAndAzureAd_Answers (:206-209) pins the three
 /// settings System Application reads through `TryGetStringTenantSetting(name, var value)`.
 #[test]
 fn try_get_string_tenant_setting_answers_the_pinned_names_and_not_the_others() {
@@ -2125,7 +2125,7 @@ fn graph_get_current_user_returns_null_without_an_error() {
 
 // GetTenantDetail answers a TenantInfo, not null, whose InitialDomain, CountryLetterCode and PreferredLanguage are
 // empty: Microsoft's Azure AD Tenant Impl. raises "Failed to retrieve ..." for a null TenantInfo, and the corpus
-// test expects '' from all three (session-system/TestEnvironmentUserTenantContracts.al:213-232).
+// test expects '' from all three (session-system/TestEnvironmentUserTenantContracts.al:210-229).
 #[test]
 fn graph_get_tenant_detail_answers_an_empty_tenant_info() {
     let host = no_host();
