@@ -2361,8 +2361,16 @@ impl Session {
     /// `after-part-read=H.MOD(D1);T.HeadModify(D1);`). A part reached before saves nothing (:495 QI_PartNewRow_ThenHostSetValue
     /// `after-part-read=` after Lines.Last, New and SetValue, the host saved at Close). A SetValue goes its own way
     /// (`save_host_before_part_edit`); any other first call, a host of another type, and a first call while another part was
-    /// reached before are refused.
-    pub(super) fn first_part_access(&mut self, child: &St, m: PageMethod, field_read: bool) -> Result<(), Signal> {
+    /// reached before are refused. Every test call on a part passes here (`test_page_op` with no control target, `test_control_op`
+    /// with its target), so it first asks `refuse_row_access_on_part_left_by_its_view`.
+    pub(super) fn first_part_access(
+        &mut self,
+        child: &St,
+        m: PageMethod,
+        target: Option<&ControlTarget>,
+        field_read: bool,
+    ) -> Result<(), Signal> {
+        self.refuse_row_access_on_part_left_by_its_view(child, m, target)?;
         let Some(host) = child.borrow().host.as_ref().and_then(|(h, _)| h.upgrade()) else {
             return Ok(());
         };
