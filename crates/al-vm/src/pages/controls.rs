@@ -1295,7 +1295,7 @@ impl Session {
         let st = &c.page;
         let m = method.method();
         let field_read = m == PageMethod::Value && args.is_empty();
-        self.first_part_access(st, m, field_read)?;
+        self.first_part_access(st, m, Some(&c.target), field_read)?;
         self.guard_blank_part_host_control(c, m, field_read)?;
         // After a GoToKey that moved a list without OnAfterGetCurrRecord a Value read and SetValue read nothing, and the action
         // after them reads the row twice (pages/list-order/QgGoToKeyNextCall.al:223 Plain_GoToKey_ThenValueRead `no_log`,

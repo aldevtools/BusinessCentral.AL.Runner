@@ -155,6 +155,10 @@ pub const NOT_CHECKED: &[(&str, &str)] = &[
         "reported only for an event subscriber of OnBeforeActionEvent or OnAfterActionEvent whose element names no action of a page of the workspace or of its page extensions (alcodes/action_subscriber.rs; case 3113); an unknown promoted category group, an actionref of an unpromoted action and the other shapes are not judged.",
     ),
     (
+        "AL0288",
+        "reported only for a subscriber's var parameter whose namesake in the publisher is by value, the publisher a codeunit of the workspace with one IntegrationEvent procedure of the event's name (alcodes/subscriber_var_param.rs; case 1685); other publishers and event kinds are not judged.",
+    ),
+    (
         "AL0275",
         "reported for a variable of type DotNet N, N bare, in a file without a namespace, where the app declares the alias N outside a namespace and a loaded dependency declares it in namespace System (case 2359); a case is compiled without System Application, so the case cannot find it.",
     ),
@@ -192,7 +196,7 @@ pub const NOT_CHECKED: &[(&str, &str)] = &[
     ),
     (
         "AL0175",
-        "reported for the operand shapes and types of the implicit-conversion compile matrix (check/conv.rs, tests/conversion_matrix.rs: variables, parameters, fields, literals, enum values, option members and test page control values of the scalar, text, date, Guid, RecordId, Variant, TextBuilder, Media, enum and interface types), for `=`, `<>`, `<`, `+`, `-` and `+=` (and `Char - Text` of must-not-compile 0500); a call operand, a literal right operand, other operators and DotNet operands (the .NET type behind the alias decides) are not decided.",
+        "reported for the operand shapes and types of the implicit-conversion compile matrix (check/conv.rs, tests/conversion_matrix.rs: variables, parameters, fields, literals, enum values, option members and test page control values of the scalar, text, date, Guid, RecordId, Variant, TextBuilder, Media, enum and interface types), for `=`, `<>`, `<`, `+`, `-` and `+=` (and `Char - Text` of must-not-compile 0500, and a Variant variable against an Integer literal or an enum value of 0502); a call operand, any other literal right operand, other operators and DotNet operands (the .NET type behind the alias decides) are not decided.",
     ),
     (
         "AL0369",
@@ -556,6 +560,7 @@ pub fn check_workspace_parts(ws: &Workspace, first: usize) -> (Vec<Diagnostic>, 
         }
         subscriber_publishers(ws, oi, &obj, &mut out);
         action_subscriber::check(ws, oi, &obj, &mut out);
+        subscriber_var_param::check(ws, oi, &obj, &mut out);
         platform_integer_without_using(ws, oi, &obj, &types, &mut out);
         unknown_codeunit_variables(ws, oi, &decls, &mut out);
         enum_variables::check(ws, oi, &decls, &mut out);
@@ -2540,5 +2545,6 @@ mod count_flowfield;
 mod enum_variables;
 mod field_types;
 mod permissions_property;
+mod subscriber_var_param;
 #[cfg(test)]
 mod tests;

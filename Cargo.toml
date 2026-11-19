@@ -29,6 +29,11 @@ quick-xml = "0.37"
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 toml = "0.8"
+# One deflate backend for every crate and every build (al-runner issue 8388): Cargo joins a dependency's features per
+# build, so crates that asked for different backends gave `cargo build -p al-test-cli` another backend than the
+# workspace build, and GZipStream's results differed between the two binaries. zlib-rs is the backend the shipped
+# binary already used. Crates take it with `flate2.workspace = true` and add no backend feature of their own.
+flate2 = { version = "1.1", default-features = false, features = ["zlib-rs"] }
 
 # Debug builds (`cargo test`, `check.sh`, CI's test job). Issue #45 measured both settings on the
 # shared 12-core machine (load average 4 to 5, CARGO_BUILD_JOBS=4):
