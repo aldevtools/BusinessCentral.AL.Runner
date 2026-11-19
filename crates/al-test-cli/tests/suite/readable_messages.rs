@@ -486,7 +486,7 @@ const KEPT: &[(&str, &str, &str)] = &[
     ),
     (
         "alrunner-cli/src/run.rs",
-        r#""{} {} {} {} platform {:?} application {:?} symbols {:?}","#,
+        r#""id {:?} name {:?} publisher {:?} version {:?} platform {:?} application {:?} symbols {:?}","#,
         "the app.json facts in the key of a kept compile and of the workspace layer, hashed, never shown",
     ),
 ];

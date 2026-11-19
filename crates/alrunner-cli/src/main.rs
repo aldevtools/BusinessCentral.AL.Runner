@@ -1,6 +1,8 @@
 //! `al-runner`: the user command line of AL Runner v3 (ADR-016). Today: `al-runner test`.
 
 mod affected;
+#[cfg(test)]
+mod app_json_text_tests;
 mod apps;
 mod args;
 mod bcapps;

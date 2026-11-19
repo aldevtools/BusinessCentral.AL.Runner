@@ -719,15 +719,16 @@ fn warm_key(
 }
 
 /// What an app's app.json gives the compile that its manifest does not (`WorkspaceCacheOptions::app_json`): its id,
-/// name, publisher and version as written, `platform`, `application` and `preprocessorSymbols`.
+/// name, publisher and version as written, `platform`, `application` and `preprocessorSymbols`. Each value is quoted, so
+/// a space in one cannot read as the start of the next.
 pub(crate) fn app_json_text(i: &AppInput) -> String {
     let j = &i.json;
     format!(
-        "{} {} {} {} platform {:?} application {:?} symbols {:?}",
+        "id {:?} name {:?} publisher {:?} version {:?} platform {:?} application {:?} symbols {:?}",
         j.id,
         j.name,
         j.publisher,
-        j.version,
+        j.version.to_string(),
         j.platform.as_ref().map(ToString::to_string),
         j.application.as_ref().map(ToString::to_string),
         i.symbols
