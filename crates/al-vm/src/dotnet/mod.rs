@@ -10,6 +10,7 @@ mod exception_frames;
 mod generic_dictionary;
 mod generic_dictionary_more;
 mod gettype;
+mod gzip_inflate;
 pub(crate) mod instream_arg;
 mod invoke_exception;
 mod last_error;
