@@ -93,6 +93,10 @@ pub const COMPILE_ENV: &[(&str, EnvUse)] = &[
     ("AL_NO_BASELINE", EnvUse::Keyed),
     ("AL_FORCE_BASELINE", EnvUse::Keyed),
     ("AL_EAGER_DEPENDENCIES", EnvUse::Off),
+    // A self-check of the lowering, and the report file of the demand: a read lowers nothing, so it would skip them.
+    ("AL_CHECK_HEADS", EnvUse::Off),
+    ("AL_CHECK_LINK", EnvUse::Off),
+    ("AL_DUMP_REACH", EnvUse::Off),
     (
         "AL_CHECK_THREADS",
         EnvUse::NotAnOutput("a thread count; the output does not depend on it"),
@@ -106,20 +110,8 @@ pub const COMPILE_ENV: &[(&str, EnvUse)] = &[
         EnvUse::NotAnOutput("timing lines of the incremental compile on stderr"),
     ),
     (
-        "AL_CHECK_HEADS",
-        EnvUse::NotAnOutput("a self-check that panics on a difference"),
-    ),
-    (
-        "AL_CHECK_LINK",
-        EnvUse::NotAnOutput("a self-check that fails the compile on a difference"),
-    ),
-    (
         "ALRUNNER_EAGER_DECODE",
         EnvUse::NotAnOutput("decodes the cached objects at start instead of on first touch"),
-    ),
-    (
-        "AL_DUMP_REACH",
-        EnvUse::NotAnOutput("writes a report file of the demand"),
     ),
     ("AL_REACH_REPORT", EnvUse::NotAnOutput("a report on stderr")),
     (
@@ -559,6 +551,20 @@ mod tests {
         }
     }
 
+    /// Review MED 1: a switch that makes the compile check itself or write a report does something a read skips, so it
+    /// turns the layer off.
+    #[test]
+    fn the_compile_self_checks_and_reports_turn_the_layer_off() {
+        for name in [
+            "AL_CHECK_HEADS",
+            "AL_CHECK_LINK",
+            "AL_DUMP_REACH",
+            "AL_EAGER_DEPENDENCIES",
+        ] {
+            let used = COMPILE_ENV.iter().find(|(n, _)| *n == name).map(|(_, u)| *u);
+            assert_eq!(used, Some(EnvUse::Off), "{name}");
+        }
+    }
     /// Decision 2.8 (review HIGH 1): a keyed switch that is set but empty is another key than one that is not set
     /// (`base_access.rs` reads an empty `AL_UNPINNED_BASE_ACCESS` as "pin nothing"), for every keyed switch.
     #[test]
