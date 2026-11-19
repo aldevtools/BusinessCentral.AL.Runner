@@ -154,7 +154,7 @@ fn issue_8306_reporter_repro_hands_the_validate_xrec_to_procedures_an_after_vali
     assert!(hits.contains(&Assumption::XrecTableProcFromValidateEvent), "{name}");
 }
 
-/// The validate-event cells of record/validate/XRecTableProcThroughSubscriber.al (corpus PR 1438, measured on a local
+/// The validate-event cells of record/validate/XRecTableProcThroughSubscriber.al (corpus PR 1438, merged, not pinned yet; measured on a local
 /// Business Central container) and their neighbors. Each test validates Mode of a record whose stored row holds Series OLD
 /// and whose variable holds Series NEW; the log holds what each subscriber and procedure read of xRec.Series.
 const EVENTS: &str = r##"
