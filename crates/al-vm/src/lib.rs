@@ -106,6 +106,7 @@ mod load_fields_request;
 mod media_orphans;
 mod min_row_version;
 mod native_rows;
+mod object_ids;
 pub mod observer_tap;
 mod pages;
 mod partial;
@@ -2319,19 +2320,20 @@ impl Session {
             // 101-137) for an integration event of a codeunit and OnAfterModifyEvent of a table; another event's text is not pinned.
             if let Some(top) = self.events.subscriber_stack.last() {
                 let objects = &self.engine.program.objects;
-                let text = top.map(|(publisher, so, sr)| {
+                let text = top.map(|(publisher, so, sr)| -> Result<String, Signal> {
                     let p = &objects[publisher];
                     let (event, kind) = if p.kind == al_ir::ObjKind::Table {
                         ("OnAfterModifyEvent", "Table")
                     } else {
                         ("None", "CodeUnit")
                     };
-                    format!(
+                    Ok(format!(
                         "Excessive recursion has been detected in event subscriber function {} for event {event} that is raised in {kind} {}.",
                         objects[so].routines[sr].name,
-                        p.id.unwrap_or(0)
-                    )
+                        crate::object_ids::declared_id(p.id)?
+                    ))
                 });
+                let text = text.transpose()?;
                 return Err(Signal::Error(Box::new(match text {
                     Some(message) => al_builtins::native::AlError {
                         message,

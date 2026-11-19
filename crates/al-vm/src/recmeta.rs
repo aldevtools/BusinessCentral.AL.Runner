@@ -567,7 +567,7 @@ impl Session {
                 // (record/TestRowVersionFieldNumberFieldActiveContracts.al:110-119).
                 Ok(Value::Boolean(self.field_enabled(t, pos)))
             }
-            RecordOp::RecordId => Ok(self.record_id(rec, t)),
+            RecordOp::RecordId => self.record_id(rec, t),
             RecordOp::IsTemporary => Ok(Value::Boolean(rec.borrow().temporary)),
             RecordOp::IsDirty => self.record_is_dirty(rec),
             // Without an argument, whether the current row is marked; with one, marks or unmarks it.
@@ -1134,7 +1134,7 @@ impl Session {
                         let pos = arg_pos(plain, 0)?;
                         let collectible = al_builtins::errorinfo::set_origin_of(
                             &copy,
-                            self.engine.program.objects[t.object as usize].id.unwrap_or(0) as i32,
+                            crate::object_ids::declared_id(self.engine.program.objects[t.object as usize].id)? as i32,
                             t.fields[pos].id as i32,
                         );
                         // No Message on the ErrorInfo: the collected one says what the uncollected call raises. The
@@ -1151,7 +1151,7 @@ impl Session {
                             al_builtins::assumptions::assume(
                                 al_builtins::assumptions::Assumption::TestfieldErrorinfoCollectedRecordId,
                             );
-                            al_builtins::errorinfo::set_record_id_of(&copy, self.record_id(rec, t));
+                            al_builtins::errorinfo::set_record_id_of(&copy, self.record_id(rec, t)?);
                             self.collect_error(&copy);
                             return Ok(Value::Null);
                         }
@@ -2186,7 +2186,7 @@ impl Session {
     }
 
     /// The `RecordId` of the row in `rec`'s buffer: the table and its primary key values.
-    pub(crate) fn record_id(&self, rec: &Rec, t: &TableDef) -> Value {
+    pub(crate) fn record_id(&self, rec: &Rec, t: &TableDef) -> Result<Value, Signal> {
         let mut key = t.primary_key(&rec.borrow().fields);
         // An Option key field with an OptionCaption shows its caption in the RecordId's text (format-evaluate/
         // OptionEvaluateCaptions.al:392 RecordId_OptionKeyWithCaption `format`: `LT Option Key Cap: Credit Memo cap,D-1`).
@@ -2195,15 +2195,15 @@ impl Session {
                 *k = Value::Option(*o, captions);
             }
         }
-        Value::Library(
+        Ok(Value::Library(
             "RecordId".into(),
             Rc::new(RefCell::new(al_builtins::value::LibraryValue::RecordId {
                 table: t.object,
-                table_no: self.engine.program.objects[t.object as usize].id.unwrap_or(0),
+                table_no: crate::object_ids::declared_id(self.engine.program.objects[t.object as usize].id)?,
                 name: t.name.clone(),
                 key,
             })),
-        )
+        ))
     }
 
     /// The primary key values read from the text after the colon of `Evaluate` into a RecordId: the values as Format writes them,

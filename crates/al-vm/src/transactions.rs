@@ -751,7 +751,7 @@ impl Session {
             .iter()
             .any(|(k, v)| k.eq_ignore_ascii_case("Subtype") && v.trim().eq_ignore_ascii_case("Test"));
         if is_test && self.in_test_codeunit {
-            return Err(nested_test_codeunit(obj.id.unwrap_or(0), &obj.name));
+            return Err(nested_test_codeunit(crate::object_ids::declared_id(obj.id)?, &obj.name));
         }
         // ADR-066 decision 1: from a test runner codeunit's OnRun, the run of a test codeunit is the test runner's
         // (al-testrun), when one is installed.
@@ -770,7 +770,7 @@ impl Session {
             return Err(al_error_code(
                 &format!(
                     "Upgrade codeunit '{}' cannot be invoked outside the schema synchronization process.",
-                    obj.id.unwrap_or(0)
+                    crate::object_ids::declared_id(obj.id)?
                 ),
                 "UpgradeCodeunitOnRunCall",
             ));
@@ -833,12 +833,12 @@ impl Session {
             if let (Some(Value::Record(rc)), Value::Record(own)) = (record_arg, &inst.borrow().globals[slot]) {
                 let (given, wanted) = (rc.borrow().table as usize, own.borrow().table as usize);
                 if given != wanted {
-                    let id = |o: usize| engine.program.objects[o].id.unwrap_or(0);
+                    let id = |o: usize| crate::object_ids::declared_id(engine.program.objects[o].id);
                     return Err(al_error_code(
                         &format!(
                             "Record({}) is not compatible with Codeunit.Run(Record({})).",
-                            id(given),
-                            id(wanted)
+                            id(given)?,
+                            id(wanted)?
                         ),
                         "InvalidType",
                     ));

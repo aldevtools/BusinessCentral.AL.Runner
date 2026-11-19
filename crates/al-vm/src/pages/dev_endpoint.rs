@@ -41,7 +41,8 @@ impl Session {
         {
             return false;
         }
-        let shown = self.object_id_of(object as u32).to_string();
+        // A note of the dev endpoint, not a text AL code sees.
+        let shown = self.object_id_of(object as u32).unwrap_or_default().to_string();
         self.note_dev_endpoint_answer(UiKind::RequestPage, &shown, "skipped, the report runs as after OK");
         true
     }
@@ -59,7 +60,7 @@ impl Session {
         if on_init || page.controls.iter().any(|c| c.kind == al_ir::ControlKind::Part) {
             return None;
         }
-        let shown = self.object_id_of(st.borrow().object).to_string();
+        let shown = self.object_id_of(st.borrow().object).unwrap_or_default().to_string();
         if !modal {
             self.note_dev_endpoint_answer(kind, &shown, "no answer");
             return Some(Value::Null);

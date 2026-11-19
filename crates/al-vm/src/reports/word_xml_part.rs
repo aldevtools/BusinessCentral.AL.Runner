@@ -288,7 +288,7 @@ impl Session {
                 .map(|&e| engine.program.objects[e].report_ext.as_ref())
                 .collect(),
         };
-        let number = self.object_id_of(schema.object as u32);
+        let number = self.object_id_of(schema.object as u32)?;
         let ns = if extended { NS_EXTENDED } else { NS_PLAIN };
         let mut out = String::from("<?xml version=\"1.0\" encoding=\"utf-16\"?>\r\n");
         out.push_str(&format!(
