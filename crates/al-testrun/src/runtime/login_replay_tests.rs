@@ -522,3 +522,43 @@ fn every_kind_of_value_the_login_leaves_compares_exactly() {
         assert_ne!(held(&firsts, 0, id), held(&firsts, 1, id), "{id}");
     }
 }
+
+/// The key of a new session on `engine` that holds, uncommitted, a "Guided Experience Item" row with id `id`.
+fn key_with_uncommitted_row(engine: &Arc<Engine>, id: i32) -> crate::login_replay::Key {
+    use al_data::Store;
+    let mut session = al_vm::Session::new(engine.clone());
+    let at = engine
+        .program
+        .objects
+        .iter()
+        .position(|o| o.name == "Guided Experience Item")
+        .unwrap();
+    let t = engine.tables[at].clone().unwrap();
+    let mut row: Vec<al_builtins::value::Value> = (t.fields.iter())
+        .map(|f| al_builtins::value::Value::default_for(&f.ty))
+        .collect();
+    row[0] = al_builtins::value::Value::Integer(id);
+    let cx = al_data::AccessContext {
+        company: session.access_company().into(),
+        user: session.user_id().into(),
+    };
+    assert!(session.store_mut().insert(&cx, &t, row).is_ok());
+    assert!(session.store_mut().has_uncommitted());
+    let flags = super::session_flags::SessionFlags::of(&RunOptions::default());
+    crate::login_replay::Key::of(&mut session, false, flags)
+}
+
+// The rows a session holds uncommitted before the login are an input of the login (it reads them): two sessions whose
+// uncommitted rows differ have other keys.
+#[test]
+fn uncommitted_rows_before_the_login_are_part_of_the_key_by_content() {
+    let (engine, _) = compiled();
+    assert_eq!(
+        key_with_uncommitted_row(&engine, 1),
+        key_with_uncommitted_row(&engine, 1)
+    );
+    assert_ne!(
+        key_with_uncommitted_row(&engine, 1),
+        key_with_uncommitted_row(&engine, 2)
+    );
+}

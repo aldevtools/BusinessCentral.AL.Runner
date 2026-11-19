@@ -22,8 +22,10 @@ use std::sync::{Mutex, PoisonError};
 pub(crate) struct Key {
     /// Every committed row before the login: the install baseline, what install code and an earlier codeunit left.
     database: u64,
-    /// Rows written and not committed before the login: the login reads them.
-    uncommitted: bool,
+    /// The rows the session holds now, written and not committed included, when some are not committed before the login:
+    /// the login reads them, so two sessions whose uncommitted rows differ have other keys. `None` when every row is
+    /// committed (the rows are then `database`).
+    uncommitted: Option<u64>,
     /// Who offers the rows of the tables no write reached (the test data, `MemStore::backing_identity`).
     backing: Option<(u64, u64)>,
     /// The session state before the login (`Session::state_lines`): language, WorkDate, number sequences, isolated
@@ -63,7 +65,7 @@ impl Key {
     pub(crate) fn of(session: &mut Session, disabled: bool, flags: crate::runtime::session_flags::SessionFlags) -> Key {
         let store = session.store_mut();
         let database = digest(&committed_rows(store));
-        let uncommitted = store.has_uncommitted();
+        let uncommitted = store.has_uncommitted().then(|| digest(&current_rows(store)));
         let backing = store.backing_identity();
         let resources = {
             let overrides = session
@@ -290,11 +292,20 @@ pub(crate) fn report(engine: &Engine) -> Option<String> {
     check(engine).line()
 }
 
-/// Every committed row of `store`, one line each: company, table object and the row with its system fields.
+/// Every committed row of `store`, one line each ([`rows`]).
 fn committed_rows(store: &al_data::memory::MemStore) -> Vec<String> {
-    let tables = store.export_committed().unwrap_or_default();
+    rows(&store.export_committed().unwrap_or_default())
+}
+
+/// Every row `store` holds now, the uncommitted changes included, one line each as [`committed_rows`] writes them.
+fn current_rows(store: &al_data::memory::MemStore) -> Vec<String> {
+    rows(&store.export_current())
+}
+
+/// The rows of `tables`, one line each: company, table object and the row with its system fields.
+fn rows(tables: &[al_data::memory::ExportedTable]) -> Vec<String> {
     let mut out = Vec::new();
-    for t in &tables {
+    for t in tables {
         for (_, row) in &t.rows {
             out.push(format!("{}|{}|{row:?}", t.company, t.object));
         }
@@ -327,7 +338,7 @@ mod tests {
     fn key(test_codeunit: usize) -> Key {
         Key {
             database: 1,
-            uncommitted: false,
+            uncommitted: None,
             backing: None,
             session: 2,
             company: "C".into(),
