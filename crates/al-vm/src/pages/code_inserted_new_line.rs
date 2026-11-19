@@ -6,7 +6,7 @@
 //! pages/currpage/ListNewLineCodeInsertUpdate.al, and by the reporter's repro; assumption `list-new-line-code-insert-update` until a
 //! bump pins it. `CurrPage.Update(true)` written out, and `CurrPage.SaveRecord()` followed by `CurrPage.Update(false)`, do what
 //! `Update()` does (SaveRecord modifies the row, the Update(false) after it asks the same refresh; al-runner issue 8285): measured
-//! by corpus pull request 1436 (open) in pages/currpage/ListNewLineSaveRecordUpdate.al, assumption
+//! by corpus pull request 1436 (merged, not pinned yet) in pages/currpage/ListNewLineSaveRecordUpdate.al, assumption
 //! `list-new-line-code-insert-save`. The entry condition is `code_inserted_cell`: the facts every measured cell shares, then the
 //! cells themselves. A validation that ends with an error after the page moved onto the row is refused
 //! (`refuse_error_after_landing`), and so is one whose SaveRecord left the line without the `Update(false)` after it
