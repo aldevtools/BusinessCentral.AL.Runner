@@ -272,12 +272,19 @@ impl Session {
                 }
             }
         }
+        // The manual bindings in the order they were made, each by the codeunit and the instance it holds (a number of the
+        // render: a binding of an instance a global holds names that global's instance).
+        let mut bound = Vec::new();
+        for (k, b) in self.events.bindings.iter().enumerate() {
+            let Some(inst) = b.instance.upgrade() else { continue };
+            let codeunit = id(inst.borrow().object as usize);
+            match render.value(&Value::Codeunit(inst), 0) {
+                Ok(text) => bound.push(format!("codeunit {codeunit} {text}")),
+                Err(why) => out.opaque.push(format!("binding {k}: {why}")),
+            }
+        }
         out.lines.append(&mut render.lines);
-        let mut bound: Vec<u32> = (self.events.bindings.iter())
-            .filter_map(|b| b.instance.upgrade().map(|i| id(i.borrow().object as usize)))
-            .collect();
-        bound.sort_unstable();
-        out.lines.push(format!("bindings {}", content(&bound)));
+        out.lines.push(format!("bindings [{}]", bound.join(", ")));
         out.lines.push(format!("random {}", content(&stamp.random)));
         out.lines.push(format!("group1 {}", content(&stamp.group1)));
         out.lines.push(format!(

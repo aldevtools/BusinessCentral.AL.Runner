@@ -562,3 +562,94 @@ fn uncommitted_rows_before_the_login_are_part_of_the_key_by_content() {
         key_with_uncommitted_row(&engine, 2)
     );
 }
+
+/// A raised login whose subscriber registers one fixed row and calls `Plant` of codeunit "RPL Gap" (77462) with the length
+/// of the resource text: each test of a state the check must compare adds an "RPL Gap" that plants that state.
+const GAP: &str = r#"
+codeunit 77460 "RPL Gap Registration"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterManualSetup', '', false, false)]
+    local procedure RegisterManualSetup() var G: Codeunit "Guided Experience"; Gap: Codeunit "RPL Gap";
+    begin G.InsertAssistedSetup(77460); Gap.Plant(StrLen(NavApp.GetResourceAsText('rpl.txt'))); end;
+}
+codeunit 77461 "RPL Gap Tests"
+{
+    Subtype = Test;
+    [Test]
+    procedure SeesTheRow() var I: Record "Guided Experience Item"; begin if I.IsEmpty() then Error('no row'); end;
+}
+"#;
+
+/// Runs the login of [`GAP`] with `plant` twice with the resource text `base` and once with each text of `others`. Asserts
+/// the two sessions of `base` compare equal; returns, per text of `others`, the check's line when its session is noted
+/// under the key of `base` (a planted difference: what a key that missed the text would compare) and the differences.
+fn planted(plant: &str, base: &str, others: &[&str]) -> Vec<(String, Vec<(usize, String)>)> {
+    let (engine, l) = compiled_with(&format!("{GAP}{plant}"));
+    for text in std::iter::repeat_n(base, 2).chain(others.iter().copied()) {
+        set_resource(&engine, &l, Some(text));
+        run(&engine, &l, "RPL Gap Tests");
+    }
+    let line = crate::login_replay::report(&engine).unwrap();
+    assert!(line.contains(", 1 compared, 0 differ;"), "{line}");
+    let firsts = crate::login_replay::check(&engine).firsts();
+    assert_eq!(firsts.len(), 1 + others.len());
+    (firsts[1..].iter())
+        .map(|(_, state)| {
+            let check = Check::default();
+            check.note(firsts[0].0.clone(), firsts[0].1.clone());
+            check.note(firsts[0].0.clone(), state.clone());
+            let line = check.line().unwrap();
+            (line, crate::login_replay::differences(&firsts[0].1, state))
+        })
+        .collect()
+}
+
+/// Asserts that each planted session differs from the base in the session state only, and that the first differing
+/// line starts with `what`.
+fn assert_planted_state(planted: &[(String, Vec<(usize, String)>)], what: &str) {
+    for (line, differences) in planted {
+        assert!(
+            line.contains("1 compared, 1 differ (not comparable 0, rows 0, session state 1, marks 0;"),
+            "{line}"
+        );
+        let state = differences.iter().find(|(kind, _)| *kind == 2);
+        assert!(
+            state.is_some_and(|(_, d)| d.split(": ").nth(1).is_some_and(|l| l.starts_with(what))),
+            "{differences:?}"
+        );
+    }
+}
+
+/// "RPL Gap" holds an instance it may call, and binds one of two instances of a manual subscriber (it calls both, so both
+/// are initialized): text length 1 binds
+/// the first, 2 also calls the held instance (it is then initialized), 3 binds the second.
+const GAP_INSTANCES: &str = r#"
+codeunit 77462 "RPL Gap"
+{
+    SingleInstance = true;
+    var Inner: Codeunit "RPL Gap Inner"; A: Codeunit "RPL Gap Bound"; B: Codeunit "RPL Gap Bound";
+    procedure Plant(N: Integer)
+    begin
+        A.Touch(); B.Touch();
+        if N = 3 then BindSubscription(B) else BindSubscription(A);
+        if N = 2 then Inner.Touch();
+    end;
+}
+codeunit 77463 "RPL Gap Inner" { procedure Touch() begin end; }
+codeunit 77464 "RPL Gap Bound"
+{
+    EventSubscriberInstance = Manual;
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterAssistedSetup', '', false, false)]
+    local procedure OnAssisted() begin end;
+    procedure Touch() begin end;
+}
+"#;
+
+// Whether a held instance was initialized, and which instance a manual binding holds (not only its codeunit), are
+// compared.
+#[test]
+fn an_instance_s_own_facts_and_the_instance_a_binding_holds_are_compared() {
+    let planted = planted(GAP_INSTANCES, "a", &["ab", "abc"]);
+    assert_planted_state(&planted[..1], "instance ");
+    assert_planted_state(&planted[1..], "bindings ");
+}

@@ -186,8 +186,11 @@ impl<'a> Render<'a> {
         Ok(format!("{what} [{}]", entries.join(", ")))
     }
 
-    /// A codeunit instance: `instance <n>`, and once `instance <n> <kind> <id> globals [...]`. `Err`: why it has no
-    /// comparable form, with the path to the value that has none (`instance of codeunit <id> global <k>: ...`).
+    /// A codeunit instance: `instance <n>`, and once `instance <n> <kind> <id> globals [...]` with every other field of the
+    /// instance (whether it was initialized, the Execute check's `born`, the report rerun mark, whether a session watches it,
+    /// an xmlport's separators, the instance it extends and its extensions' instances by number). `Err`: why it has no
+    /// comparable form, with the path to the value that has none (`instance of codeunit <id> global <k>: ...`), or that
+    /// what it holds is not measured (`Instance::unmeasured`).
     fn instance(&mut self, rc: &Rc<RefCell<Instance>>, depth: u8) -> Out {
         let address = Rc::as_ptr(rc) as usize;
         if let Some(n) = self.instances.iter().position(|a| *a == address) {
@@ -205,13 +208,45 @@ impl<'a> Render<'a> {
         }
         self.instances.push(address);
         let n = self.instances.len() - 1;
-        let globals = (inst.globals.iter().enumerate())
+        let Instance {
+            object: _,
+            globals,
+            initialized,
+            rerun,
+            base,
+            exts,
+            xp_text,
+            born,
+            single,
+            unmeasured,
+            // Counts the instance as live while it exists (`instance_cycles`): no state of the instance.
+            live: _,
+        } = &*inst;
+        if unmeasured.is_some() {
+            return Err(format!("instance of {kind} {id}: what it holds is not measured"));
+        }
+        let globals = (globals.iter().enumerate())
             .map(|(k, g)| {
                 (self.value(g, depth + 1)).map_err(|why| format!("instance of {kind} {id} global {k}: {why}"))
             })
             .collect::<Result<Vec<String>, String>>()?;
-        self.lines
-            .push(format!("instance {n} {kind} {id} globals [{}]", globals.join(", ")));
+        let base = match base.as_ref().and_then(std::rc::Weak::upgrade) {
+            Some(b) => self.instance(&b, depth + 1)?,
+            None => "none".into(),
+        };
+        let mut extensions = Vec::with_capacity(exts.len());
+        for (object, ext) in exts {
+            let ext_id = self.session.engine.program.objects[*object as usize].id.unwrap_or(0);
+            extensions.push(format!("{ext_id}: {}", self.instance(ext, depth + 1)?));
+        }
+        self.lines.push(format!(
+            "instance {n} {kind} {id} globals [{}] initialized {initialized} rerun {rerun} born restricted {} single \
+             {single} xmlport separators {} base {base} extensions [{}]",
+            globals.join(", "),
+            born.0,
+            content(xp_text),
+            extensions.join(", ")
+        ));
         Ok(format!("instance {n}"))
     }
 
