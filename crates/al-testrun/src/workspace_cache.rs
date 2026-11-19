@@ -132,12 +132,18 @@ pub const COMPILE_ENV: &[(&str, EnvUse)] = &[
     ),
 ];
 
-/// The values of the [`EnvUse::Keyed`] switches, as the key holds them.
-pub fn env_values() -> Vec<(String, String)> {
+/// The values of the [`EnvUse::Keyed`] switches, as the key holds them: whether each is set, and its bytes (an empty
+/// value is not an unset one: `base_access.rs` reads an empty `AL_UNPINNED_BASE_ACCESS` as "pin nothing").
+pub fn env_values() -> Vec<(String, Option<Vec<u8>>)> {
+    env_values_with(&|name| std::env::var_os(name))
+}
+
+/// [`env_values`] with the environment read through `get`.
+pub fn env_values_with(get: &dyn Fn(&str) -> Option<std::ffi::OsString>) -> Vec<(String, Option<Vec<u8>>)> {
     COMPILE_ENV
         .iter()
         .filter(|(_, u)| *u == EnvUse::Keyed)
-        .map(|(name, _)| (name.to_string(), std::env::var(name).unwrap_or_default()))
+        .map(|(name, _)| (name.to_string(), get(name).map(|v| v.into_encoded_bytes())))
         .collect()
 }
 
@@ -194,7 +200,7 @@ pub struct WorkspaceKey {
     /// 2.7: the roots of the compile ([`roots_text`]).
     pub roots: String,
     /// 2.8: the values of the keyed environment switches ([`env_values`]).
-    pub env: Vec<(String, String)>,
+    pub env: Vec<(String, Option<Vec<u8>>)>,
     /// Not in the ADR text (prototype choice): what decides the compile's path in al-testrun besides the above (the
     /// lean selection, the weighing of the install baseline, `--require-compile-cache`, the suites, the program order).
     pub path: String,
@@ -548,11 +554,30 @@ mod tests {
             symbols: vec!["CLEAN27".into()],
             compile_options: "tdd=false".into(),
             roots: "baseline true".into(),
-            env: vec![("AL_NO_BASELINE".into(), String::new())],
+            env: vec![("AL_NO_BASELINE".into(), None)],
             path: "lean false".into(),
         }
     }
 
+    /// Decision 2.8 (review HIGH 1): a keyed switch that is set but empty is another key than one that is not set
+    /// (`base_access.rs` reads an empty `AL_UNPINNED_BASE_ACCESS` as "pin nothing"), for every keyed switch.
+    #[test]
+    fn every_keyed_switch_misses_between_unset_and_set_but_empty() {
+        let keyed: Vec<&str> = COMPILE_ENV
+            .iter()
+            .filter(|(_, u)| *u == EnvUse::Keyed)
+            .map(|(n, _)| *n)
+            .collect();
+        assert!(keyed.contains(&"AL_UNPINNED_BASE_ACCESS"));
+        let with = |env| WorkspaceKey { env, ..sample() };
+        let unset = with(env_values_with(&|_| None));
+        for name in keyed {
+            let empty = with(env_values_with(&|n| (n == name).then(std::ffi::OsString::new)));
+            assert_ne!(unset.digest(), empty.digest(), "{name}: unset and set but empty");
+            let one = with(env_values_with(&|n| (n == name).then(|| "1".into())));
+            assert_ne!(one.digest(), empty.digest(), "{name}: set to 1 and set but empty");
+        }
+    }
     /// Decision 2: every field of the key misses when it changes, and the list of changes names every field.
     #[test]
     fn every_field_of_the_key_misses_when_it_changes() {
@@ -566,7 +591,7 @@ mod tests {
             ("symbols", |k| k.symbols.push("CLEAN28".into())),
             ("compile_options", |k| k.compile_options = "tdd=true".into()),
             ("roots", |k| k.roots = "baseline false".into()),
-            ("env", |k| k.env[0].1 = "1".into()),
+            ("env", |k| k.env[0].1 = Some(Vec::new())),
             ("path", |k| k.path = "lean true".into()),
         ];
         let names: Vec<&str> = changes.iter().map(|(n, _)| *n).collect();

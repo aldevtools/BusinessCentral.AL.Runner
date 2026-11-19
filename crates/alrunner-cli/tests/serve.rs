@@ -2966,3 +2966,90 @@ fn a_one_shot_run_and_a_daemon_share_the_workspace_layer() {
     assert_eq!(summary["cached"], json!(true), "{summary}");
     assert!(summary["timings"].get("workspaceCache").is_none(), "{summary}");
 }
+
+/// The page of review probe app9 (HIGH 1): a pageextension sets the base page's protected variable. Whether that runs
+/// depends on `AL_UNPINNED_BASE_ACCESS`, which an empty value sets to "pin nothing".
+const BASE_ACCESS: &str = r#"
+page 50500 "P9 Base"
+{
+    PageType = Card;
+    layout { area(Content) { field(SharedCtl; Shared) { } } }
+    protected var
+        Shared: Integer;
+}
+
+pageextension 50501 "P9 Ext" extends "P9 Base"
+{
+    trigger OnOpenPage()
+    begin
+        Shared := 7;
+    end;
+}
+
+codeunit 50510 "P9 Tests"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure ExtensionSetsTheBaseVariable()
+    var
+        P: TestPage "P9 Base";
+    begin
+        P.OpenView();
+        if P.SharedCtl.AsInteger() <> 7 then
+            Error('shared is %1', P.SharedCtl.AsInteger());
+    end;
+}
+"#;
+
+/// One-shot `al-runner test` of `app` over the cache folder `cache` with `env`: (exit code, the `--timings` line of the
+/// workspace layer, stderr).
+fn one_shot_run(app: &Path, cache: &str, env: &[(&str, &str)]) -> (Option<i32>, String, String) {
+    let out = Command::new(env!("CARGO_BIN_EXE_al-runner"))
+        .args([
+            "test",
+            app.to_str().unwrap(),
+            "--no-download",
+            "--no-test-data",
+            "--timings",
+        ])
+        .args(["--cache-dir", cache])
+        .env_remove("AL_UNPINNED_BASE_ACCESS")
+        .envs(env.iter().copied())
+        .output()
+        .unwrap();
+    let err = String::from_utf8_lossy(&out.stderr).to_string();
+    let line = err
+        .lines()
+        .find(|l| l.starts_with("compile cache: workspace layer"))
+        .unwrap_or_default()
+        .to_string();
+    (out.status.code(), line, err)
+}
+
+/// Review HIGH 1: a run with `AL_UNPINNED_BASE_ACCESS` set but empty and a normal run never read each other's entry
+/// (without dependency layers nothing else in the key tells them apart).
+#[test]
+fn a_switch_set_but_empty_and_unset_do_not_share_a_workspace_entry() {
+    for first_empty in [false, true] {
+        let d = tempfile::tempdir().unwrap();
+        let a = app(d.path(), "p9", BASE_ACCESS);
+        let cache = d.path().join("cache").to_string_lossy().to_string();
+        let empty: &[(&str, &str)] = &[("AL_UNPINNED_BASE_ACCESS", "")];
+        let (first, second) = if first_empty {
+            (empty, &[][..])
+        } else {
+            (&[][..], empty)
+        };
+        let (code1, line1, _) = one_shot_run(&a, &cache, first);
+        let (code2, line2, _) = one_shot_run(&a, &cache, second);
+        let fresh = d.path().join("fresh").to_string_lossy().to_string();
+        let (code2_fresh, _, _) = one_shot_run(&a, &fresh, second);
+        assert!(line1.contains("built"), "{line1}");
+        assert!(
+            line2.contains("built"),
+            "empty first {first_empty}: the second run read the first's entry: {line2}"
+        );
+        assert_eq!(code2, code2_fresh, "empty first {first_empty}: {code1:?}");
+    }
+}
