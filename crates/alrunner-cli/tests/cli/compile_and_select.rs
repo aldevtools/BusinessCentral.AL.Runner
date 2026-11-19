@@ -286,6 +286,33 @@ fn a_call_of_a_procedure_the_codeunit_lacks_exits_3() {
     );
 }
 
+/// Issue 8350, the reporter's repro: a test codeunit whose `#region` text names "codeunit <id>" is selected by its
+/// declaration. `--codeunit` and `--test-exact` find its tests, and `--exclude-test` of another test keeps it.
+#[test]
+fn region_text_that_names_a_codeunit_keeps_the_codeunit_in_every_selection() {
+    const SRC: &str = "codeunit 50100 \"Region Plain Test\"\n{\n    Subtype = Test;\n    #region First block\n    [Test]\n    procedure PlainRegionRuns()\n    begin\n    end;\n    #endregion\n}\n\ncodeunit 50101 \"Region Names Missing Test\"\n{\n    Subtype = Test;\n    #region First block (former codeunit 50149)\n    [Test]\n    procedure RegionNamingAMissingCodeunitRuns()\n    begin\n    end;\n    #endregion\n}\n\ncodeunit 50102 \"Region Names Own Id Test\"\n{\n    Subtype = Test;\n    #region First block (former codeunit 50102)\n    [Test]\n    procedure RegionNamingItsOwnIdRuns()\n    begin\n    end;\n    #endregion\n}\n";
+    let d = tempfile::tempdir().unwrap();
+    let app = one_file_app(d.path(), "region", "11111111-0000-0000-0000-000000008350", "Region", "src/Tests.al", SRC);
+    let a = app.to_str().unwrap();
+    let names = |args: &[&str]| {
+        let mut all = vec!["test", a, "--no-download", "--output-json"];
+        all.extend_from_slice(args);
+        let o = alrunner(&all);
+        assert_eq!(code(&o), 0, "{args:?}: {}", text(&o));
+        let doc = json_of(&o);
+        let mut v: Vec<String> = doc["tests"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap().to_string()).collect();
+        v.sort();
+        v
+    };
+    assert_eq!(names(&["--codeunit", "50101"]), ["Codeunit50101.RegionNamingAMissingCodeunitRuns"]);
+    assert_eq!(names(&["--codeunit", "50102"]), ["Codeunit50102.RegionNamingItsOwnIdRuns"]);
+    assert_eq!(names(&["--test-exact", "RegionNamingItsOwnIdRuns"]), ["Codeunit50102.RegionNamingItsOwnIdRuns"]);
+    assert_eq!(
+        names(&["--exclude-test", "Codeunit50100.PlainRegionRuns"]),
+        ["Codeunit50101.RegionNamingAMissingCodeunitRuns", "Codeunit50102.RegionNamingItsOwnIdRuns"]
+    );
+}
+
 /// Issue 5613: with `--output-json`, a selection that matches no test still writes the document (exit 6, no rows,
 /// the reason in `warnings`), on stdout and to a file.
 #[test]
