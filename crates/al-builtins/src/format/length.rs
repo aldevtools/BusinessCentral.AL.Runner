@@ -63,7 +63,7 @@ fn measured(v: &Value, standard: i32, fit: Ordering, positive: bool) -> bool {
     }
 }
 
-/// The tuples corpus PR 1460 (open) measured that no pinned line covers, each with the assumption entry it runs through.
+/// The tuples corpus PR 1460 (merged, not yet pinned) measured that no pinned line covers, each with the assumption entry it runs through.
 fn probed(v: &Value, standard: i32, fit: Ordering, length: i32) -> Option<Assumption> {
     let within_30 = (1..=30).contains(&length.unsigned_abs());
     match (v, standard, length > 0, fit) {
@@ -86,6 +86,10 @@ fn probed(v: &Value, standard: i32, fit: Ordering, length: i32) -> Option<Assump
 const INTEGER_2_FILLER_0: &str = "<Integer,2><Filler Character,0>";
 /// The format string of Format.al:855 (`0T <Hours,2>:<Minutes,2>:<Seconds,2>`).
 const HOURS_MINUTES_SECONDS: &str = "<Hours,2>:<Minutes,2>:<Seconds,2>";
+/// The format string of types/date-time/Format.al:537 (`date len 5 custom`).
+const YEAR4_MONTH: &str = "<Year4>-<Month,2>";
+/// The format string of types/date-time/Format.al:1281, :1286, :1298, :1315.
+const SECOND_DEC: &str = "<Second dec.>";
 /// The format string of corpus PR 1460's date cells (format-length/FormatLengthDates.al:180-223).
 const YEAR4_MONTH_DAY: &str = "<Year4>-<Month,2>-<Day,2>";
 
@@ -104,14 +108,14 @@ pub(crate) fn with_format_string(v: &Value, length: i32, template: &str, chars: 
         // An Integer as long as the length: `R01` from `'R' + Format(1, 2, '<Integer,2><Filler Character,0>')`
         // (pages/list-key-navigation/SgListKeyMovesTests.al:54, :228; testpage/WdModalGoToKeyDescSecondary.al:138, :154).
         (Value::Integer(_), true, Equal) => template == INTEGER_2_FILLER_0,
-        // A defined Date, longer: cut (types/date-time/Format.al:537, `date len 5 custom`).
-        (Value::Date(day, false), true, Greater) => *day != 0,
-        // The undefined DateTime's empty text in a positive length: blanks (types/date-time/Format.al:1298, :1315).
-        (Value::DateTime(0), true, Less) => true,
+        // A defined Date, longer: cut, only under the measured string (types/date-time/Format.al:537, `date len 5 custom`).
+        (Value::Date(day, false), true, Greater) => *day != 0 && template == YEAR4_MONTH,
+        // The undefined DateTime's empty text in a positive length: blanks, only under the measured string (Format.al:1298, :1315).
+        (Value::DateTime(0), true, Less) => template == SECOND_DEC,
         // A defined Time, shorter, as long and longer (types/date-time/Format.al:873, :885, :912, :918, TU_Time_Format_CodeNames;
-        // :1279-1280, :1284-1285); a negative length longer than the text keeps it (:1281, :1286).
+        // :1279-1280, :1284-1285); a negative length longer than the text keeps it, only under the measured string (:1281, :1286).
         (Value::Time(t), true, Less | Equal | Greater) if *t != 0 => true,
-        (Value::Time(t), false, Less) if *t != 0 => true,
+        (Value::Time(t), false, Less) if *t != 0 => template == SECOND_DEC,
         // The undefined Time as long as a positive length, only under the measured string: Format.al:855, :917 (` 0:00:00` in 8).
         (Value::Time(0), true, Equal) => template == HOURS_MINUTES_SECONDS,
         _ => false,
@@ -129,7 +133,7 @@ pub(crate) fn with_format_string(v: &Value, length: i32, template: &str, chars: 
     ))
 }
 
-/// The cells under a format string corpus PR 1460 (open) measured that no pinned line covers, with their assumption entry.
+/// The cells under a format string corpus PR 1460 (merged, not yet pinned) measured that no pinned line covers, with their assumption entry.
 fn probed_string(v: &Value, length: i32, template: &str) -> Option<Assumption> {
     match v {
         // 0D: blanks / '' (format-length/FormatLengthDates.al:132-137, :216-217).
@@ -139,10 +143,10 @@ fn probed_string(v: &Value, length: i32, template: &str) -> Option<Assumption> {
         {
             Some(Assumption::FormatLengthUndefinedDate)
         }
-        // A defined Date: as long as the length, padded on the left, or kept in a longer negative length
-        // (FormatLengthDates.al:206-214, :219-223).
+        // A defined Date: as long as the length, padded on the left, kept in a longer negative length, or cut to 3, 8 or 9
+        // (FormatLengthDates.al:206-214, :219-223; the cuts :207, :209, :445).
         Value::Date(day, false)
-            if *day != 0 && template == YEAR4_MONTH_DAY && matches!(length, 10 | 11 | 12 | -10 | -12) =>
+            if *day != 0 && template == YEAR4_MONTH_DAY && matches!(length, 3 | 8 | 9 | 10 | 11 | 12 | -10 | -12) =>
         {
             Some(Assumption::FormatLengthYearMonthDayString)
         }
@@ -351,6 +355,11 @@ mod tests {
             (date.clone(), 20, "<Year4>-<Month,2>"),
             (time.clone(), -1, "<Hours24,2>"),
             (time.clone(), -2, "<Hours24,2>"),
+            // Only the cited cell's string runs (Format.al:1298, :1315; :1281, :1286; :537): any other string refuses.
+            (Value::DateTime(0), 10, "<Year4>-<Month,2>-<Day,2>"),
+            (Value::DateTime(0), 5, "<Year4>"),
+            (time.clone(), -8, "<Hours24,2>"),
+            (date.clone(), 3, "<Year4>"),
         ] {
             let r = fmt_string(&v, length, template);
             assert!(refused_string(r.clone()), "{v:?} {length} {template}: {r:?}");
@@ -363,7 +372,8 @@ mod tests {
         assert_eq!(ok(&time, 8, "<Hours24,2>"), "       9");
         assert_eq!(ok(&time, 8, "<Hours24,2>:<Minutes,2>:<Seconds,2>"), " 9:05:03");
         assert_eq!(ok(&time, 5, "<Hours24,2>:<Minutes,2>:<Seconds,2>"), " 9:05");
-        assert_eq!(ok(&time, -8, "<Hours24,2>"), " 9");
+        // The cited cell of a negative length longer than the text (Format.al:1281, :1286): '<Second dec.>' only.
+        assert!(fmt_string(&time, -12, "<Second dec.>").is_ok());
         assert_eq!(ok(&dec, 4, "<Integer>"), "1234");
         assert_eq!(ok(&Value::Integer(1), 2, "<Integer,2><Filler Character,0>"), "01");
         assert_eq!(ok(&Value::DateTime(0), 5, "<Second dec.>"), "     ");
@@ -518,8 +528,19 @@ mod tests {
                 "{length}"
             );
         }
-        // Longer than a positive length: cut, pinned (types/date-time/Format.al:537), no mark.
-        assert_eq!(fmt_string_hits(&date, 8, YEAR4), (Ok("2024-01-".to_string()), vec![]));
+        // Longer than a positive length under '<Year4>-<Month,2>': cut, pinned (types/date-time/Format.al:537), no mark.
+        assert_eq!(
+            fmt_string_hits(&date, 5, "<Year4>-<Month,2>"),
+            (Ok("2024-".to_string()), vec![])
+        );
+        // Under '<Year4>-<Month,2>-<Day,2>' the cut is measured by corpus PR 1460 only (FormatLengthDates.al:207, :209, :445).
+        for (length, want) in [(8, "2024-01-"), (9, "2024-01-1"), (3, "202")] {
+            assert_eq!(
+                fmt_string_hits(&date, length, YEAR4),
+                (Ok(want.to_string()), vec![FormatLengthYearMonthDayString]),
+                "{length}"
+            );
+        }
         for (length, template, want) in [
             (10, YEAR4, "          "),
             (3, YEAR4, "   "),
