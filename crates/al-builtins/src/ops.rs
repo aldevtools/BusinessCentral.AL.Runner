@@ -884,6 +884,37 @@ fn duration_divide(op: Arith, a: i64, r: &Value) -> Result<Value, Signal> {
     }
 }
 
+/// Arithmetic where a side is no number: Duration `/`, `div` and `mod` a whole number, and Duration / Duration (types/duration/
+/// D_Duration.al:Duration_Arithmetic), Duration / Decimal, else the refusal. Off the path of the numbers.
+#[cold]
+#[inline(never)]
+fn arith_not_number(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
+    use Value as V;
+    if let V::Duration(d) = l {
+        if matches!(op, Arith::Div | Arith::IntDiv | Arith::Mod) && (int_of(r).is_some() || matches!(r, V::Duration(_)))
+        {
+            return duration_divide(op, *d, r);
+        }
+        // Duration / Decimal: the Duration counts as its milliseconds and the quotient is a Decimal; a zero divisor
+        // raises DivideByZero (format-evaluate/AxDurationDateTime.al:21 Duration_DividedBy_IntegerAndDecimal,
+        // :53 Duration_DividedBy_ZeroDecimal).
+        if op == Arith::Div {
+            if let V::Decimal(b) = r {
+                if b.is_zero() {
+                    return raise("Attempted to divide by zero.", "AL:DivideByZero");
+                }
+                return quotient(Decimal::from(*d), *b).map(V::Decimal);
+            }
+        }
+    }
+    unsupported(format!(
+        "{} of {l} and {r}",
+        op.describe(),
+        l = l.describe(),
+        r = r.describe()
+    ))
+}
+
 fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
     use Value as V;
     if matches!(l, V::SqlCount(_)) || matches!(r, V::SqlCount(_)) {
@@ -1159,38 +1190,7 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
         _ => {}
     }
     let (Some(a), Some(b)) = (as_decimal(l), as_decimal(r)) else {
-        // Duration `/`, `div` and `mod` a whole number, and Duration / Duration (types/duration/
-        // D_Duration.al:Duration_Arithmetic). Here, off the path of the numbers.
-        if let V::Duration(d) = l {
-            if matches!(op, Arith::Div | Arith::IntDiv | Arith::Mod)
-                && (int_of(r).is_some() || matches!(r, V::Duration(_)))
-            {
-                return duration_divide(op, *d, r);
-            }
-            // Duration / Decimal: the Duration counts as its milliseconds and the quotient is a Decimal; a zero divisor
-            // raises DivideByZero (format-evaluate/AxDurationDateTime.al:21 Duration_DividedBy_IntegerAndDecimal,
-            // :53 Duration_DividedBy_ZeroDecimal).
-            if op == Arith::Div {
-                if let V::Decimal(b) = r {
-                    if b.is_zero() {
-                        return raise("Attempted to divide by zero.", "AL:DivideByZero");
-                    }
-                    return Decimal::from(*d)
-                        .checked_div(*b)
-                        .and_then(|q| {
-                            q.round_sf_with_strategy(18, rust_decimal::RoundingStrategy::MidpointAwayFromZero)
-                        })
-                        .map(|q| V::Decimal(q.normalize()))
-                        .ok_or_else(|| Signal::Unsupported("decimal overflow".into()));
-                }
-            }
-        }
-        return unsupported(format!(
-            "{} of {l} and {r}",
-            op.describe(),
-            l = l.describe(),
-            r = r.describe()
-        ));
+        return arith_not_number(op, l, r);
     };
     let both_int =
         matches!(l, V::Integer(_) | V::Byte(_) | V::Char(_)) && matches!(r, V::Integer(_) | V::Byte(_) | V::Char(_));
