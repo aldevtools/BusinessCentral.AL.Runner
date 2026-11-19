@@ -173,15 +173,6 @@ fn make_shells(m: &mut Maker<'_>, session: &mut Session) {
             Node::TempTable(_) => Some(Made::TempTable(session.new_temp_id())),
             Node::Globals { .. } => Some(Made::Globals(TableGlobals::new_shared())),
             Node::DotNet(d) => Some(Made::DotNet(Rc::new(al_builtins::value::DotNetObject::new(match d {
-                super::arena::DotNetNode::Enum {
-                    clr_type,
-                    name,
-                    ordinal,
-                } => al_builtins::value::DotNetKind::Enum {
-                    clr_type: clr_type.clone(),
-                    name: name.clone(),
-                    ordinal: *ordinal,
-                },
                 super::arena::DotNetNode::Internal { type_name, .. } => al_builtins::value::DotNetKind::Internal {
                     type_name: type_name.clone(),
                     state: RefCell::new(Vec::new()),

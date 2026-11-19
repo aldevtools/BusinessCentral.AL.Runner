@@ -347,28 +347,23 @@ impl<'a> Walker<'a> {
         })
     }
 
-    /// A .NET object the check renders exactly: an enum value, or an object the runtime serves itself with its state. The
-    /// server configuration served by the .NET process (also rendered: the same in every session) is a handle of the
-    /// process, which a thawn session does not hold.
+    /// A .NET object the check renders exactly. v1 images the one measured on a real login, `ALConfigSettings.Instance`
+    /// (dotnet/server_classes.rs `al_config_instance`: an internal object with an empty state, the #8211 repro's login keeps
+    /// one); every other kind and state is deferred, each with its type in the reason.
     fn dotnet(&mut self, d: &al_builtins::value::DotNetObject, path: &str) -> Result<DotNetNode, NotImaged> {
         use al_builtins::value::DotNetKind;
         match &d.kind {
-            DotNetKind::Enum {
-                clr_type,
-                name,
-                ordinal,
-            } => Ok(DotNetNode::Enum {
-                clr_type: clr_type.clone(),
-                name: name.clone(),
-                ordinal: *ordinal,
-            }),
-            DotNetKind::Internal { type_name, state } => {
-                let state = borrowed(state.try_borrow(), path, "DotNet object")?;
+            DotNetKind::Internal { type_name, state }
+                if type_name == al_builtins::dotnet_sigs::AL_CONFIG_SETTINGS
+                    && borrowed(state.try_borrow(), path, "DotNet object")?.is_empty() =>
+            {
                 Ok(DotNetNode::Internal {
                     type_name: type_name.clone(),
-                    state: self.values(&state, path)?,
+                    state: Vec::new(),
                 })
             }
+            DotNetKind::Internal { type_name, .. } => Err(deferred(path, &format!("DotNet {type_name}"))),
+            DotNetKind::Enum { clr_type, .. } => Err(deferred(path, &format!("DotNet enum {clr_type}"))),
             DotNetKind::Host { .. } => Err(deferred(path, "DotNet object of the .NET process")),
         }
     }
@@ -408,8 +403,8 @@ impl<'a> Walker<'a> {
             Value::Blob(b) => node(self, Holder::Blob(b.clone())),
             Value::Query(q) => node(self, Holder::Query(q.clone())),
             // The check is the one owner of which objects have an exact form (state_render.rs): one it renders as opaque is
-            // an object of the .NET process, a handle of this session. One it renders exactly (an enum value, an object the
-            // runtime serves itself, such as `ALConfigSettings.Instance`) waits for its node (the first follow-up).
+            // an object of the .NET process, a handle of this session. Of those it renders exactly, `dotnet` takes the
+            // measured one and defers the rest.
             Value::DotNet(d) => match crate::state_render::Render::new(self.session).value(v, 0) {
                 Ok(_) => node(self, Holder::DotNet(d.clone())),
                 Err(_) => Err(never(path, "DotNet object of the .NET process")),
@@ -675,7 +670,7 @@ codeunit 50112 Kinds2 { var M: Integer; procedure Touch() begin M := 1; end; }
         let original = std::rc::Rc::new(al_builtins::value::DotNetObject::new(
             al_builtins::value::DotNetKind::Internal {
                 type_name: al_builtins::dotnet_sigs::AL_CONFIG_SETTINGS.into(),
-                state: std::cell::RefCell::new(vec![Value::Integer(3)]),
+                state: std::cell::RefCell::new(Vec::new()),
             },
         ));
         let address = std::rc::Rc::as_ptr(&original);
@@ -692,7 +687,7 @@ codeunit 50112 Kinds2 { var M: Integer; procedure Touch() begin M := 1; end; }
             panic!("an internal object")
         };
         assert_eq!(type_name, al_builtins::dotnet_sigs::AL_CONFIG_SETTINGS);
-        assert!(matches!(state.borrow()[..], [Value::Integer(3)]));
+        assert!(state.borrow().is_empty());
         // The test's own handle is one more owner: the check numbers a shared object.
         drop(d);
         let (ours, theirs) = (s.state_lines(), twin.state_lines());
@@ -789,5 +784,46 @@ codeunit 50200 PKeep
         let (a, b) = (outcome(&mut s, keep, "Stack"), outcome(&mut twin, keep, "Stack"));
         assert!(a.contains("Collect"), "{a}");
         assert_eq!(a, b);
+    }
+
+    // v1 images the DotNet object measured on a real login only (`ALConfigSettings.Instance`, empty state); another type, a
+    // state and an enum value are deferred, each naming its type. Review of PERF-01 step 2, M2.
+    #[test]
+    fn a_dotnet_object_v1_does_not_measure_is_deferred_by_its_type() {
+        use al_builtins::value::{DotNetKind, DotNetObject};
+        let l = al_testkit::compile(KINDS);
+        let engine = Engine::new(l.program.clone(), al_testkit::blocked(&l));
+        let at = engine.program.objects.iter().position(|o| o.name == "Kinds").unwrap();
+        let slot = engine.program.objects[at]
+            .globals
+            .iter()
+            .position(|g| g.name == "V")
+            .unwrap();
+        let internal = |type_name: &str, state: Vec<Value>| DotNetKind::Internal {
+            type_name: type_name.into(),
+            state: std::cell::RefCell::new(state),
+        };
+        let cases = [
+            (internal("X.Y", Vec::new()), "DotNet X.Y (deferred)"),
+            (
+                internal(al_builtins::dotnet_sigs::AL_CONFIG_SETTINGS, vec![Value::Integer(3)]),
+                "DotNet Microsoft.Dynamics.Nav.Types.ALConfigSettings (deferred)",
+            ),
+            (
+                DotNetKind::Enum {
+                    clr_type: "System.DayOfWeek".into(),
+                    name: "Monday".into(),
+                    ordinal: 1,
+                },
+                "DotNet enum System.DayOfWeek (deferred)",
+            ),
+        ];
+        for (kind, why) in cases {
+            let mut s = Session::new(engine.clone());
+            s.codeunit_instance(at).borrow_mut().globals[slot] =
+                Value::DotNet(std::rc::Rc::new(DotNetObject::new(kind)));
+            s.commit_transaction();
+            assert_eq!(s.login_image(0).err().map(|w| w.reason()).as_deref(), Some(why));
+        }
     }
 }

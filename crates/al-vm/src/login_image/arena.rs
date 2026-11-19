@@ -86,18 +86,11 @@ pub(crate) struct InstanceNode {
     pub(crate) single: bool,
 }
 
-/// A .NET object the runtime serves itself (al-builtins `DotNetKind::Enum`, `DotNetKind::Internal`).
+/// A .NET object the runtime serves itself (al-builtins `DotNetKind::Internal`). v1 takes the measured one only:
+/// `ALConfigSettings.Instance`, whose state is empty (`freeze.rs` `dotnet`).
 #[derive(Debug)]
 pub(crate) enum DotNetNode {
-    Enum {
-        clr_type: String,
-        name: String,
-        ordinal: i64,
-    },
-    Internal {
-        type_name: String,
-        state: Vec<Frozen>,
-    },
+    Internal { type_name: String, state: Vec<Frozen> },
 }
 
 /// A query variable that has not run (al-builtins `QueryState` with `run: None`).
