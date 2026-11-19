@@ -23,6 +23,13 @@ impl Scratch {
         (reached, answered)
     }
 
+    /// The outcome of the test `name` that `skip_after_timeout` or `stop_after_first_failure` leaves out for `why`; the
+    /// test is marked (`TestResult::skipped_by_option`).
+    pub(super) fn skip(&mut self, name: &str, why: &str) -> crate::Outcome {
+        self.skipped.push(name.to_string());
+        crate::Outcome::NotRun(why.to_string())
+    }
+
     /// Moves the order hint of test `name` (ADR-066 amendment 12, decision 2; set by the lane) onto its result.
     pub(super) fn move_order_hint(&mut self, name: &str, result: Option<&mut TestResult>) {
         if let (Some(i), Some(r)) = (self.order_hints.iter().position(|(n, _)| n == name), result) {

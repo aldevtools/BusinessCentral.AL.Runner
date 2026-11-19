@@ -275,6 +275,7 @@ pub struct Workspace {
 const USER_NAME_FIELDS_GATE: al_version::Gate = al_version::Gate::PlatformMetadataColumnsFrom29;
 
 impl Workspace {
+    /// The order of the files, to sort diagnostics by (`FileOrder::sort`).
     pub fn file_order(&self) -> FileOrder<'_> {
         FileOrder(
             self.files

@@ -422,6 +422,14 @@ impl TestResult {
             skipped_by_option: false,
         }
     }
+
+    /// The result with `skipped_by_option` set to `skip`.
+    pub(crate) fn skipped(self, skip: bool) -> Self {
+        TestResult {
+            skipped_by_option: skip,
+            ..self
+        }
+    }
 }
 
 /// Wall time of the phases of a run (`--timings`).

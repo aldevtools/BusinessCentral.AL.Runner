@@ -1188,6 +1188,26 @@ fn entry_runs(
         .collect()
 }
 
+/// The `n` most common reasons of the not-run tests. A test a stop option left out is not a refusal (al-runner issue 8492);
+/// with no other not-run test nothing is printed.
+fn print_top_refusals(results: &[&TestResult], n: usize) {
+    let list = refusals::rank(results.iter().filter_map(|r| match &r.outcome {
+        Outcome::NotRun(why) if !r.skipped_by_option => Some((
+            CaseId {
+                codeunit: r.codeunit,
+                name: r.test.clone(),
+            },
+            why.clone(),
+        )),
+        _ => None,
+    }));
+    if !list.is_empty() {
+        let text = refusals::render_top("not-run tests", &list, n);
+        let (head, rest) = text.split_once('\n').unwrap_or((&text, ""));
+        say!("\n{}\n{rest}", style::bold(head));
+    }
+}
+
 fn test_inner(
     a: &TestArgs,
     mut warm: Option<&mut WarmCtx>,
@@ -2317,25 +2337,10 @@ fn test_inner(
         }
     }
 
-    // The ranking of refusal reasons: every run, unless --quiet; --top-refusals N sets N. A test a stop option left out
-    // is not a refusal (al-runner issue 8492).
+    // The ranking of refusal reasons: every run, unless --quiet; --top-refusals N sets N.
     let top = a.top_refusals.or((!a.quiet).then_some(DEFAULT_TOP));
     if let Some(n) = top.filter(|_| counts.not_run > 0) {
-        let list = refusals::rank(results.iter().filter_map(|r| match &r.outcome {
-            Outcome::NotRun(why) if !r.skipped_by_option => Some((
-                CaseId {
-                    codeunit: r.codeunit,
-                    name: r.test.clone(),
-                },
-                why.clone(),
-            )),
-            _ => None,
-        }));
-        if !list.is_empty() {
-            let text = refusals::render_top("not-run tests", &list, n);
-            let (head, rest) = text.split_once('\n').unwrap_or((&text, ""));
-            say!("\n{}\n{rest}", style::bold(head));
-        }
+        print_top_refusals(&results, n);
     }
 
     // The assumptions the run went through: the counts are kept for `--list-assumptions`; the ranking is printed
