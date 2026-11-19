@@ -1,17 +1,24 @@
-//! ADR-022 amendment 2026-11-15, "Equality requirement" (CI's release tests): the corpus apps compiled over Microsoft's
-//! apps of the pinned build of the lowest BC major as dependency layers, then written to the workspace layer and read
-//! back by a new compile in a new process. Every compile runs in a process of its own (the test runs itself) over one
-//! kept cache folder: fresh, built (writes the entry), read, read with one thread, fresh with one thread
-//! (`AL_CHECK_THREADS=1 AL_LOWER_THREADS=1`: the compile reads its thread counts from the environment). The canonical
-//! dumps of all five are equal. Needs the Microsoft apps in the artifact cache (`al-test-cli --root . --all-versions
-//! --fetch-deps`); a missing app fails, never skips.
+//! ADR-022 amendment 2026-11-15, "Equality requirement" (CI's corpus job, every BC major): the corpus apps compiled over
+//! Microsoft's apps of a pinned build as dependency layers, then written to the workspace layer and read back by a new
+//! compile in a new process. Every compile runs in a process of its own (the test runs itself) over one kept cache
+//! folder: fresh, built (writes the entry), read, read with one thread, fresh with one thread (`AL_CHECK_THREADS=1
+//! AL_LOWER_THREADS=1`: the compile reads its thread counts from the environment). The canonical dumps of all five are
+//! equal.
+//!
+//! `cargo test --release -p al-test-cli --test workspace_cache_equality -- --ignored`, with the BC majors in
+//! `WORKSPACE_EQUALITY_MAJORS` (`27 28 29`; default: the lowest). Ignored in a plain `cargo test`, as the other tests
+//! that need the Microsoft apps in the artifact cache (`al-test-cli --root . --all-versions --fetch-deps`): a missing app
+//! fails, never skips.
 
 use std::hash::{Hash, Hasher};
 use std::path::Path;
 use std::process::Command;
 
-/// Set in the runs the test starts: the compile to make (`fresh`, `built`, `read`).
+/// The BC majors to check, separated by spaces.
+const MAJORS: &str = "WORKSPACE_EQUALITY_MAJORS";
+/// Set in the runs the test starts: the compile to make (`fresh`, `built`, `read`) and the major.
 const STEP: &str = "WORKSPACE_EQUALITY_STEP";
+const MAJOR: &str = "WORKSPACE_EQUALITY_MAJOR";
 /// The cache folder the runs share.
 const CACHE: &str = "WORKSPACE_EQUALITY_CACHE";
 /// Where a run writes what it found: the hash of its dump and the workspace layer's state.
@@ -20,33 +27,25 @@ const OUT: &str = "WORKSPACE_EQUALITY_OUT";
 const NAME: &str = "a_compile_read_in_a_new_process_equals_fresh_compiles_with_all_threads_and_with_one";
 
 /// One compile, in this process (a run the test started).
-fn step(step: &str) {
+fn step(step: &str, major: u16) {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let cache = std::env::var_os(CACHE).unwrap();
-    let p = al_test_cli::workspace_equality::prepare(&root, al_version::MIN_BC_MAJOR, None).unwrap();
+    let p = al_test_cli::workspace_equality::prepare(&root, major, None).unwrap();
     let (dump, report, took) =
         al_test_cli::workspace_equality::compile(&p, Path::new(&cache), step != "fresh").unwrap();
     let mut h = std::collections::hash_map::DefaultHasher::new();
     dump.hash(&mut h);
     let state = report.map_or("none".to_string(), |r| r.state.as_str().to_string());
     eprintln!(
-        "{step}: {:.2} s, {state}, dump {} bytes",
+        "BC {major} {step}: {:.2} s, {state}, dump {} bytes",
         took.as_secs_f64(),
         dump.len()
     );
     std::fs::write(std::env::var_os(OUT).unwrap(), format!("{:016x} {state}", h.finish())).unwrap();
 }
 
-#[test]
-fn a_compile_read_in_a_new_process_equals_fresh_compiles_with_all_threads_and_with_one() {
-    if let Some(s) = std::env::var_os(STEP) {
-        // On a thread with the stack the command lines give theirs: with one thread the lowering runs on this one.
-        let s = s.to_string_lossy().to_string();
-        let run = std::thread::Builder::new()
-            .stack_size(al_testrun::RUNNER_STACK)
-            .spawn(move || step(&s));
-        return run.unwrap().join().unwrap();
-    }
+/// The five compiles of BC `major`, each in a process of its own.
+fn check(major: u16) {
     let dir = tempfile::tempdir().unwrap();
     let cache = dir.path().join("cache");
     let mut found = Vec::new();
@@ -62,8 +61,9 @@ fn a_compile_read_in_a_new_process_equals_fresh_compiles_with_all_threads_and_wi
     {
         let out = dir.path().join(format!("out{i}"));
         let mut run = Command::new(std::env::current_exe().unwrap());
-        run.args(["--exact", NAME, "--nocapture"])
+        run.args(["--exact", NAME, "--include-ignored", "--nocapture"])
             .env(STEP, s)
+            .env(MAJOR, major.to_string())
             .env(CACHE, &cache)
             .env(OUT, &out);
         if one_thread {
@@ -72,15 +72,33 @@ fn a_compile_read_in_a_new_process_equals_fresh_compiles_with_all_threads_and_wi
         let status = run.status().unwrap();
         assert!(
             status.success(),
-            "the run {s} (one thread: {one_thread}) failed: {status}"
+            "BC {major}: the run {s} (one thread: {one_thread}) failed: {status}"
         );
         let text = std::fs::read_to_string(&out).unwrap();
         let (hash, state) = text.split_once(' ').unwrap();
-        assert_eq!(state, want, "{s} (one thread: {one_thread})");
+        assert_eq!(state, want, "BC {major}: {s} (one thread: {one_thread})");
         found.push((s, one_thread, hash.to_string()));
     }
     assert!(
         found.iter().all(|f| f.2 == found[0].2),
-        "the dumps differ (run the example workspace_cache_equality for the line): {found:?}"
+        "BC {major}: the dumps differ (run the example workspace_cache_equality for the line): {found:?}"
     );
+}
+
+#[test]
+#[ignore = "needs the Microsoft apps and a release build: cargo test --release -p al-test-cli --test workspace_cache_equality -- --ignored"]
+fn a_compile_read_in_a_new_process_equals_fresh_compiles_with_all_threads_and_with_one() {
+    if let Some(s) = std::env::var_os(STEP) {
+        // On a thread with the stack the command lines give theirs: with one thread the lowering runs on this one.
+        let s = s.to_string_lossy().to_string();
+        let major: u16 = std::env::var(MAJOR).unwrap().parse().unwrap();
+        let run = std::thread::Builder::new()
+            .stack_size(al_testrun::RUNNER_STACK)
+            .spawn(move || step(&s, major));
+        return run.unwrap().join().unwrap();
+    }
+    let majors = std::env::var(MAJORS).unwrap_or_else(|_| al_version::MIN_BC_MAJOR.to_string());
+    for major in majors.split_whitespace() {
+        check(major.parse().expect("a BC major"));
+    }
 }
