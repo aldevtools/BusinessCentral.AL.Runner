@@ -572,7 +572,6 @@ impl Session {
         let calc = f.calc.as_ref().expect("checked by validate_flowfield");
         let refuse = |why: &str| unsupported(format!("Validate on the Sum FlowField {}: {why} (not pinned)", f.name));
         let src_t = self.engine.tables[calc.table].clone().expect("table");
-        self.crm_source_refused(&src_t, "Validate of a Sum FlowField")?;
         let new = target;
         // The values of the new row: the where-fields that name a normal field of the record take its value; one that names a
         // FlowFilter takes the filter's value or the start of its range, and nothing when no filter is set (DiFwWriteTests.al:812, :818).
