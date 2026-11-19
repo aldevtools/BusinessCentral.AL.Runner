@@ -107,6 +107,9 @@ pub struct TestArgs {
     pub defines: Vec<String>,
     /// `--coverage`: count the statements of the APPs each test runs.
     pub coverage: bool,
+    /// `serve` only, `coverage: "hit"` (issue 8244): the coverage JSON lists only the statements that ran
+    /// (`coverage::json`).
+    pub coverage_hit_only: bool,
     /// `--tdd` (ADR-051): a call in a test app of a procedure that does not exist yet runs against a stub.
     pub tdd: bool,
     /// `--run-selected-only` (issue 5611): of a selected codeunit, only the selected tests run.

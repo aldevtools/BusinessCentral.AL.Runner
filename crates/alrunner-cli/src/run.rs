@@ -2385,12 +2385,12 @@ fn test_inner(
         );
     }
 
-    let mut coverage_doc: Option<String> = None;
+    let mut coverage_doc: Option<serde_json::Value> = None;
     let coverage_started = std::time::Instant::now();
     // An impact run counts statements for its own report and writes no coverage file.
     if a.coverage && collect.is_none() {
         let cwd = std::env::current_dir().unwrap_or_default();
-        let labels = |app: usize, file: &str| coverage::label(&inputs[app].path, file, &cwd);
+        let labels = coverage::once_per_file(|app, file| coverage::label(&inputs[app].path, file, &cwd));
         let names: Vec<String> = inputs.iter().map(|i| i.json.name.clone()).collect();
         let statements = rt.coverage_statements();
         let cwd_text = cwd.to_string_lossy().replace('\\', "/");
@@ -2412,10 +2412,10 @@ fn test_inner(
             );
         }
         if a.coverage_json.is_some() || warm.is_some() {
-            coverage_doc = Some(coverage::json(statements, &results, &labels));
+            coverage_doc = Some(coverage::json(statements, &results, &labels, a.coverage_hit_only));
         }
         if let (Some(path), Some(doc)) = (&a.coverage_json, &coverage_doc) {
-            write_file(path, doc)?;
+            write_file(path, &coverage::pretty(doc))?;
         }
     }
     let coverage_time = coverage_started.elapsed();
@@ -2646,7 +2646,7 @@ fn test_inner(
                 doc
             })
             .unwrap_or_default(),
-            coverage: coverage_doc.as_deref().and_then(|d| serde_json::from_str(d).ok()),
+            coverage: coverage_doc,
             messages: results.iter().map(|r| r.messages.clone()).collect(),
             object_names: results.iter().map(|r| r.codeunit_name.clone()).collect(),
             captured: {

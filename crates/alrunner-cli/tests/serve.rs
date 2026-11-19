@@ -2537,3 +2537,77 @@ fn entries_with_resources_take_the_kept_baseline_and_give_what_a_fresh_daemon_gi
         );
     }
 }
+
+/// Al-runner issue 8244: `coverage: "hit"` lists in `coverage` only the statements the tests ran, each as the full list
+/// shows it, and `perTestCoverage` as without it. A coverage request keeps the install baseline of the server, and its
+/// coverage is the same as over a baseline it ran.
+#[test]
+fn coverage_hit_lists_the_statements_that_ran_and_a_coverage_request_keeps_the_baseline() {
+    let d = tempfile::tempdir().unwrap();
+    let (main, dep) = installing_apps(d.path());
+    let dep = dep.to_string_lossy().to_string();
+    let cache = d.path().join("cache").to_string_lossy().to_string();
+    let mut s = Server::start(&["--no-download", "--no-test-data", "--dep", &dep, "--cache-dir", &cache]);
+    s.line();
+    let mut run = |coverage: Value| {
+        s.send(
+            json!({"command": "runTests", "sourcePaths": [main], "test": "Codeunit50710.",
+            "coverage": coverage, "perTestCoverage": true}),
+        );
+        let lines = s.until_summary();
+        let summary = lines.last().unwrap().clone();
+        assert_eq!(
+            (summary["type"].as_str(), summary["passed"].as_u64()),
+            (Some("summary"), Some(1)),
+            "{lines:?}"
+        );
+        summary
+    };
+    let full = run(json!(true));
+    let hit = run(json!("hit"));
+    let again = run(json!(true));
+    assert_eq!(full["timings"]["baselineSource"], "ran", "{full}");
+    assert_eq!(hit["timings"]["baselineSource"], "kept", "{hit}");
+    assert_eq!(again["timings"]["baselineSource"], "kept", "{again}");
+    assert_eq!(again["coverage"], full["coverage"]);
+    assert_eq!(again["perTestCoverage"], full["perTestCoverage"]);
+    assert_eq!(hit["perTestCoverage"], full["perTestCoverage"]);
+    // The full list less its statements without a run, and less the files left with none.
+    let ran: Vec<Value> = full["coverage"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|f| {
+            let statements: Vec<Value> = f["statements"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|s| s["hits"] != 0)
+                .cloned()
+                .collect();
+            (!statements.is_empty()).then(|| json!({"file": f["file"], "statements": statements}))
+        })
+        .collect();
+    let all = |v: &Value| {
+        v.as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f["statements"].as_array().unwrap().len())
+            .sum::<usize>()
+    };
+    assert!(
+        all(&json!(ran)) > 0 && all(&json!(ran)) < all(&full["coverage"]),
+        "{full}"
+    );
+    assert_eq!(hit["coverage"], json!(ran), "{hit}");
+    s.send(json!({"command": "runTests", "sourcePaths": [main], "coverage": "all"}));
+    let lines = s.until_summary();
+    assert!(
+        lines.last().unwrap()["error"]
+            .as_str()
+            .is_some_and(|e| e.contains("`coverage`")),
+        "{lines:?}"
+    );
+    s.send(json!({"command": "shutdown"}));
+    assert_eq!(s.line(), json!({"status": "shutting down"}));
+}

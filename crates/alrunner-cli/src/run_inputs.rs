@@ -145,6 +145,7 @@ impl RunInputs {
             timings: _,
             // Observation of the run: statements counted, values captured. The outcomes are the same.
             coverage: _,
+            coverage_hit_only: _,
             capture: _,
             isolation,
             required_isolation,
