@@ -2,15 +2,18 @@
 //!
 //! The bytes are those of the layout's file as the app's folder holds it, the answer true, the row unchanged (HasValue stays
 //! No), the same bytes on a second export (reports/layouts-saveas/Y17LayoutExportTests.al:70 RDLC, :88 Word, :129 Excel,
-//! :146 twice). The layout is one of the report's rendering section, one of its legacy RDLCLayout, WordLayout and ExcelLayout
-//! properties (Y17LayoutExportTests.al:105), or one a reportextension declares in its rendering section: a Word, RDLC or Excel
+//! :146 twice). The layout is one of the report's rendering section, one of its legacy RDLCLayout and WordLayout properties
+//! (Y17LayoutExportTests.al:105), or one a reportextension declares in its rendering section: a Word, RDLC or Excel
 //! layout, a name with a dot in it, on an own report and on Base Application's report 1306 (reports/layouts-saveas/
 //! Y67LayoutExtExport.al:134 Export_ExtensionLayouts_OwnReport, :187 Export_ExtensionLayout_BaseApplicationReport).
 //!
-//! The compiler writes the data set part of a layout into the app's folder at build (Y17LayoutExportTests.al:5-9): the folder
-//! file is what BC exports. A Word file whose data set part names another report than the one it belongs to was not written by
-//! a build of this report (the Y67 files name report 93617, BC exported the rewritten bytes): it is refused, since the rewrite
-//! is not reproduced.
+//! The compiler rewrites the data set section of a layout file at every build and the package holds the rewritten bytes
+//! (Y17LayoutExportObjects.al:6-8); the corpus files are as the compiler left them, so the folder file is what BC exports.
+//! A legacy RDLCLayout or WordLayout file of an app folder exports only when it is as the compiler writes it for the report
+//! (`legacy_file_as_compiled`); a legacy ExcelLayout file is refused (no corpus case exports one). A Word file of a rendering
+//! section or a reportextension whose data set part names another report than the one it belongs to was not written by a build
+//! of this report (the Y67 files name report 93617, BC exported the rewritten bytes): it is refused, since the rewrite is not
+//! reproduced.
 
 use crate::{Session, Signal};
 use al_builtins::native::unsupported;
@@ -18,12 +21,14 @@ use al_builtins::value::Value;
 use al_ir as ir;
 use std::io::Read;
 
-/// A layout found for a row: the app that holds its file, its name, the file's path in the app and its type (`word`, ...).
+/// A layout found for a row: the app that holds its file, its name, the file's path in the app, its type (`word`, ...) and
+/// the report object (its index) when a legacy RDLCLayout, WordLayout or ExcelLayout property of the report names it.
 struct Found {
     app: usize,
     name: String,
     path: String,
     kind: String,
+    legacy: Option<usize>,
 }
 
 impl Session {
@@ -75,13 +80,31 @@ impl Session {
             );
             Some(std::borrow::Cow::Owned(bytes))
         });
+        let from_folder = held.is_some();
         let Some(bytes) = held.or(served.flatten()) else {
+            if found.legacy.is_some() && found.kind == "excel" {
+                return unsupported(format!(
+                    "Media.ExportStream of the layout '{}' of the legacy ExcelLayout property of report {}: the runner does not read the file of this property from an app's folder (no corpus case exports one; not pinned)",
+                    found.name,
+                    report_id.unwrap_or(0)
+                ));
+            }
             return unsupported(format!(
-                "Media.ExportStream of the Layout of a Report Layout List row: the layout file {} of layout '{}' is not held by its app (no such file in the app's folder, or an app read from a package that keeps no layout files)",
+                "Media.ExportStream of the Layout of a Report Layout List row: the layout file {} of layout '{}' is not held by its app (the runner read no file at the path as written under the app's folder, and no package of the app serves it)",
                 found.path, found.name
             ));
         };
         let bytes: &[u8] = &bytes;
+        if let Some(object) = found.legacy.filter(|_| from_folder)
+            && !self.legacy_file_as_compiled(object, report_id.unwrap_or(0), &found.kind, bytes)
+        {
+            return unsupported(format!(
+                "Media.ExportStream of the {} layout '{}' of report {}: its file is not shown to be as the compiler writes it for the report, and the compiler rewrites it at build (the rewritten bytes are not reproduced)",
+                found.kind,
+                found.name,
+                report_id.unwrap_or(0)
+            ));
+        }
         if found.kind == "word"
             && let Some(other) = word_part_report(bytes).filter(|id| Some(*id) != report_id)
         {
@@ -108,6 +131,58 @@ impl Session {
         }
         Ok(Value::Boolean(true))
     }
+
+    /// Whether `bytes`, the folder file of a legacy RDLCLayout or WordLayout property of report `report_id` (object `object`), is as the
+    /// compiler writes it for the report, so that the rewrite at build leaves it unchanged and it is what the package holds
+    /// (Y17LayoutExportObjects.al:6-8; Y17LayoutExportTests.al:105-124 exports the files alc wrote, unchanged).
+    /// RDLC: its one DataSets element is the one Y17LayoutExportTests.al:83 shows (`rdlc_data_sets_as_compiled`) and its
+    /// Fields list names the report's columns as `Report.RdlcLayout` writes them (rdlc_fields.rs: the rewrite gives the same
+    /// bytes). Word: its `customXml` entries are `customXml/item.xml` and `customXml/item2.xml` and nothing else
+    /// (Y17LayoutExportTests.al:103), the plain and the extended data set part the compiler writes for the report
+    /// (`compiled_word_part`). Any other kind, and any shape these readers refuse, is not shown: false.
+    fn legacy_file_as_compiled(&mut self, object: usize, report_id: i32, kind: &str, bytes: &[u8]) -> bool {
+        match kind {
+            "rdlc" => {
+                std::str::from_utf8(bytes).is_ok_and(rdlc_data_sets_as_compiled)
+                    && self
+                        .rdlc_stream_with_dataset_fields(object, bytes)
+                        .is_ok_and(|b| b.as_deref() == Some(bytes))
+            }
+            "word" => {
+                let Some(entries) = zip_entries(bytes) else {
+                    return false;
+                };
+                let parts: Vec<&(String, Vec<u8>)> =
+                    entries.iter().filter(|(n, _)| n.starts_with("customXml/")).collect();
+                let part = |name: &str| parts.iter().find(|(n, _)| n == name).and_then(|(_, d)| utf16_text(d));
+                let (Some(plain), Some(extended)) = (part("customXml/item.xml"), part("customXml/item2.xml")) else {
+                    return false;
+                };
+                parts.len() == 2
+                    && self.compiled_word_part(report_id, false).is_ok_and(|t| t == plain)
+                    && self.compiled_word_part(report_id, true).is_ok_and(|t| t == extended)
+            }
+            _ => false,
+        }
+    }
+}
+
+/// Whether the one `<DataSets>` element of the RDLC `text` is the one the compiler writes (Y17LayoutExportTests.al:83): one
+/// `DataSet_Result` data set with a non-empty Fields list and the query of the `DataSource` data source, CRLF line ends,
+/// two spaces per level from the indent of `<DataSets>`.
+fn rdlc_data_sets_as_compiled(text: &str) -> bool {
+    let found: Vec<usize> = text.match_indices("<DataSets").map(|(i, _)| i).collect();
+    let [at] = found[..] else { return false };
+    let Some(len) = text[at..].find("</DataSets>") else {
+        return false;
+    };
+    let block = &text[at..at + len + "</DataSets>".len()];
+    let i = &text[text[..at].rfind('\n').map_or(0, |p| p + 1)..at];
+    let head = format!("<DataSets>\r\n{i}  <DataSet Name=\"DataSet_Result\">\r\n{i}    <Fields>\r\n");
+    let tail = format!(
+        "\r\n{i}    </Fields>\r\n{i}    <Query>\r\n{i}      <DataSourceName>DataSource</DataSourceName>\r\n{i}      <CommandText />\r\n{i}    </Query>\r\n{i}  </DataSet>\r\n{i}</DataSets>"
+    );
+    block.len() > head.len() + tail.len() && block.starts_with(&head) && block.ends_with(&tail)
 }
 
 /// The bytes of the Word layout report object `object` renders with when none is named, as its app holds the file: the layout
@@ -141,12 +216,14 @@ pub(crate) fn default_word_layout(program: &ir::Program, object: usize) -> Optio
 }
 
 /// A layout of the rendering section of report `id` by its name, or one of the legacy RDLCLayout, WordLayout and ExcelLayout
-/// properties by its LayoutFile as written (Y17LayoutExportTests.al:105 Export_LegacyProperties: the same bytes as the file).
+/// properties by its LayoutFile as written (Y17LayoutExportTests.al:105 Export_LegacyProperties: the row of an RDLCLayout and
+/// a WordLayout, named with the file as written; the export of an ExcelLayout file is refused).
 fn own_layout(program: &ir::Program, id: i32, name: &str) -> Option<Found> {
-    let o = program
+    let (object, o) = program
         .objects
         .iter()
-        .find(|o| o.kind == ir::ObjKind::Report && o.report.is_some() && o.id.map(|i| i as i32) == Some(id))?;
+        .enumerate()
+        .find(|(_, o)| o.kind == ir::ObjKind::Report && o.report.is_some() && o.id.map(|i| i as i32) == Some(id))?;
     let r = o.report.as_ref()?;
     if let Some(l) = r
         .rendering_layouts
@@ -158,6 +235,7 @@ fn own_layout(program: &ir::Program, id: i32, name: &str) -> Option<Found> {
             name: l.name.clone(),
             path: l.path.clone(),
             kind: l.kind.clone(),
+            legacy: None,
         });
     }
     o.properties.iter().find_map(|(k, v)| {
@@ -171,6 +249,7 @@ fn own_layout(program: &ir::Program, id: i32, name: &str) -> Option<Found> {
             name: file.clone(),
             path: layout_file_path(&file),
             kind: kind.to_string(),
+            legacy: Some(object),
         })
     })
 }
@@ -200,6 +279,7 @@ fn extension_layout(program: &ir::Program, id: i32, name: &str) -> Option<Found>
                 name: l.name.clone(),
                 path: layout_file_path(&file),
                 kind,
+                legacy: None,
             })
         })
 }
