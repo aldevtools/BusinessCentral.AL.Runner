@@ -144,6 +144,9 @@ impl al_builtins::native::Ctx for Session {
     fn gate(&self, gate: al_version::Gate) -> bool {
         self.has(gate)
     }
+    fn bc_version(&self) -> Option<&al_version::BcVersion> {
+        self.engine.target.as_ref().map(|target| &target.bc)
+    }
     fn error_text_raise(&self) -> Result<(), Signal> {
         // An Error of a CaptionClass run is measured only where `CaptionDialogs` lets it raise (record/captions/
         // CaptionClassStateFreeCalls.al:919-936, al-runner issue 7391).

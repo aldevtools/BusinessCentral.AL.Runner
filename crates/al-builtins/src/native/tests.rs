@@ -39,6 +39,7 @@ pub(crate) struct TestCtx {
     pub(crate) result_ignored: bool,
     /// What `held_by_temp_blob_impl` answers for every buffer.
     pub(crate) temp_blob_impl: bool,
+    pub(crate) target: Option<al_version::Target>,
 }
 impl FormatCtx for TestCtx {
     fn enum_name(&self, _id: u32, o: i32) -> String {
@@ -46,6 +47,14 @@ impl FormatCtx for TestCtx {
     }
 }
 impl Ctx for TestCtx {
+    fn gate(&self, gate: al_version::Gate) -> bool {
+        al_version::gate_on(self.target.as_ref(), gate)
+    }
+
+    fn bc_version(&self) -> Option<&al_version::BcVersion> {
+        self.target.as_ref().map(|target| &target.bc)
+    }
+
     fn held_by_temp_blob_impl(&self, _b: &crate::stream::BlobRef) -> bool {
         self.temp_blob_impl
     }
