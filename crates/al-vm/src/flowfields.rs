@@ -572,6 +572,7 @@ impl Session {
         let calc = f.calc.as_ref().expect("checked by validate_flowfield");
         let refuse = |why: &str| unsupported(format!("Validate on the Sum FlowField {}: {why} (not pinned)", f.name));
         let src_t = self.engine.tables[calc.table].clone().expect("table");
+        self.crm_source_refused(&src_t, "Validate of a Sum FlowField")?;
         let new = target;
         // The values of the new row: the where-fields that name a normal field of the record take its value; one that names a
         // FlowFilter takes the filter's value or the start of its range, and nothing when no filter is set (DiFwWriteTests.al:812, :818).
@@ -678,6 +679,7 @@ impl Session {
         }
         let filters = self.calc_filters(rec, calc, &mut Vec::new())?;
         let src_t = self.engine.tables[calc.table].clone().expect("table");
+        self.crm_source_refused(&src_t, "a FlowField")?;
         if self.permission_checks() {
             self.permission_gate_flowfield(rec, calc.table, &[])?;
         }
@@ -738,6 +740,7 @@ impl Session {
         let calc = f.calc.as_ref().expect("checked by check_calc_field");
         let filters = self.calc_filters(rec, calc, stack)?;
         let src_t = self.engine.tables[calc.table].clone().expect("table");
+        self.crm_source_refused(&src_t, "a FlowField")?;
         // The source table is read even when the record holding the FlowField is temporary.
         self.note_indirect_read(src_t.object);
         self.unseeded_read(&src_t, rec.borrow().temporary, "a FlowField")?;

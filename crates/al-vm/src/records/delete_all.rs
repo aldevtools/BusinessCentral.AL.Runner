@@ -130,6 +130,15 @@ impl Session {
         let marked_only = rec.borrow().marked_only;
         if events || global || user_rows || (run && trigger) || marked_only {
             // One Delete per row (record/TestTriggerContracts.al:DeleteAll_WithTrigger_FiresForEachFilteredRecord).
+            // The order of the per-row code on a descending record is pinned only with a FlowField filter
+            // (record/crud/R6961DeleteAllFlowFilter.al:258-266, `delete_all_flow_filtered`), not here (al-runner issue 7632).
+            let row_code = events || global || (run && trigger);
+            if row_code && !rec.borrow().ascending {
+                return unsupported(
+                    "DeleteAll with delete events, database triggers or OnDelete on a record with Ascending(false): the order \
+                     of the row code is not pinned",
+                );
+            }
             let key = rec.borrow().key;
             let mut rows = Vec::new();
             let mut after = None;

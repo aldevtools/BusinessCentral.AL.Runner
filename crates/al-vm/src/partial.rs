@@ -406,9 +406,14 @@ impl Session {
                 // After Clear a partial buffer holds no field (errors/PnBErrorsCollections.al:640-674
                 // SetLoadFields_ThenRead_AndClear `afterClear.name` No), and so does a whole fetched row that nothing was
                 // assigned to since (record/load-fields/Y87RecordRefLoadFields.al codeunit 94656 Rec_AfterClearOfFetched
-                // `NoNoNoNoNoNo`). A field assigned after the Clear of a whole row is not pinned and keeps the old answer.
+                // `NoNoNoNoNoNo`). A field assigned after the Clear of a whole row is not pinned (al-runner issue 7632).
                 if b.cleared && (partial || !r.assigned) {
                     return Ok(Value::Boolean(false));
+                }
+                if b.cleared && r.assigned {
+                    return unsupported(
+                        "AreFieldsLoaded after Clear of a fetched whole row and an assignment (not pinned)",
+                    );
                 }
                 let mut all = true;
                 for &p in &wanted {

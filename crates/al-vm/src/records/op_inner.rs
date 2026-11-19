@@ -1490,8 +1490,18 @@ impl Session {
                         .events
                         .is_subscribed(crate::events::FILTER_HELPER_TRIGGERS, "makedatefilter")
                 {
-                    // Outside the pinned shape (an English session, no placeholders) the event is not raised, as before.
-                    if self.global_language == 1033 && args.len() <= 2 {
+                    // Pinned for an English session and a filter without placeholders (events/platform-triggers/PtObserve.al:
+                    // 227-231 `baddate`). Whether BC raises it for a filter with placeholders is not pinned (al-runner issue
+                    // 7632). In another language the event is not raised, as before. Not pinned either, but kept: refusing it
+                    // stops the German cases of types/date-time/P143Date_DePlain.al, P143Date_DeRanges.al, P143Date_DeFormulas.al
+                    // and record/filters/DateFilterTextForms.al (GetRange_DayAboveTwelve_German_*), which pass that way.
+                    if args.len() > 2 {
+                        return unsupported(
+                            "SetFilter on a Date field with placeholders and a MakeDateFilter subscriber: whether the event is \
+                             raised is not pinned",
+                        );
+                    }
+                    if self.global_language == 1033 {
                         if let Some(fixed) = self.repair_date_filter_text(&text, &|t| parse(t).is_ok())? {
                             parsed = parse(&fixed);
                         }
