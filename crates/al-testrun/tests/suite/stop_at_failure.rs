@@ -162,7 +162,10 @@ fn a_test_that_is_not_run_does_not_trip_the_stop() {
     let got = outcomes(&rt);
     assert_eq!(got.len(), 3, "{got:?}");
     assert!(matches!(got[0], Outcome::NotRun(_)), "{got:?}");
-    assert!(matches!(got[1], Outcome::Pass) && matches!(got[2], Outcome::Pass), "{got:?}");
+    assert!(
+        matches!(got[1], Outcome::Pass) && matches!(got[2], Outcome::Pass),
+        "{got:?}"
+    );
     assert!(!stop.is_set(), "a test that is not run tripped the stop");
 }
 
@@ -181,7 +184,7 @@ fn a_stop_shared_by_entries_skips_the_later_entries() {
     let got = per_entry(&rt);
     assert_eq!(got.len(), 3, "{got:?}");
     assert!(is_fail(&got[0][0]), "{got:?}");
-    assert_eq!(got[0][1..], [not_run(REASON_REQUEST); 3], "{got:?}");
+    assert_eq!(got[0][1..], vec![not_run(REASON_REQUEST); 3][..], "{got:?}");
     for later in &got[1..] {
         assert_eq!(*later, vec![not_run(REASON_REQUEST); 4], "{got:?}");
     }
@@ -206,10 +209,10 @@ fn a_group_stop_ends_only_its_group() {
     let got = per_entry(&rt);
     assert_eq!(got.len(), 3, "{got:?}");
     assert!(is_fail(&got[0][0]), "{got:?}");
-    assert_eq!(got[0][1..], [not_run(REASON_GROUP); 3], "{got:?}");
+    assert_eq!(got[0][1..], vec![not_run(REASON_GROUP); 3][..], "{got:?}");
     assert_eq!(got[1], vec![not_run(REASON_GROUP); 4], "{got:?}");
     assert!(is_fail(&got[2][0]), "{got:?}");
-    assert_eq!(got[2][1..], [not_run(REASON_GROUP); 3], "{got:?}");
+    assert_eq!(got[2][1..], vec![not_run(REASON_GROUP); 3][..], "{got:?}");
 }
 
 #[test]
@@ -262,8 +265,19 @@ fn a_codeunit_under_disabled_isolation_does_not_trip_and_is_skipped_once_tripped
     };
     // Its own failure does not trip: both tests run.
     let stop = FailureStop::new(StopScope::Request);
-    let rt = run(src, &RunOptions { only: Some(vec![(0, 60141)]), ..opts(with_stop(&stop, Hooks::default())) });
-    let alone: Vec<_> = rt.results().iter().filter(|r| r.codeunit == 60141).map(|r| r.outcome.clone()).collect();
+    let rt = run(
+        src,
+        &RunOptions {
+            only: Some(vec![(0, 60141)]),
+            ..opts(with_stop(&stop, Hooks::default()))
+        },
+    );
+    let alone: Vec<_> = rt
+        .results()
+        .iter()
+        .filter(|r| r.codeunit == 60141)
+        .map(|r| r.outcome.clone())
+        .collect();
     assert!(is_fail(&alone[0]) && matches!(alone[1], Outcome::Pass), "{alone:?}");
     // Tripped by the plain codeunit of entry 1, the Disabled one of entry 2 starts no test.
     let (starts, hooks) = counting_start();
@@ -278,7 +292,13 @@ fn a_codeunit_under_disabled_isolation_does_not_trip_and_is_skipped_once_tripped
         hooks: with_stop(&stop, hooks),
         ..Default::default()
     };
-    let rt = run(src, &RunOptions { entries: vec![first, second], ..opts(Hooks::default()) });
+    let rt = run(
+        src,
+        &RunOptions {
+            entries: vec![first, second],
+            ..opts(Hooks::default())
+        },
+    );
     let got = per_entry(&rt);
     assert!(is_fail(&got[0][0]), "{got:?}");
     assert_eq!(got[1], vec![not_run(REASON_REQUEST); 2], "{got:?}");

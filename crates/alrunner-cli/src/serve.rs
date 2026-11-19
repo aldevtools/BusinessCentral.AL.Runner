@@ -47,6 +47,7 @@ const RUN_TESTS_FIELDS: &[&str] = &[
     "strictEnvironment",
     "skipAfterTimeout",
     "testTimeoutSecs",
+    "stopAtFirstFailure",
     "entries",
     "seed",
     "profile",
@@ -59,6 +60,7 @@ const ENTRY_FIELDS: &[&str] = &[
     "excludeTests",
     "excludeTestsExact",
     "testTimeoutSecs",
+    "stopGroup",
 ];
 /// The request fields of `execute`.
 const EXECUTE_FIELDS: &[&str] = &[
@@ -538,6 +540,7 @@ fn entries_of(fields: &Map<String, Value>) -> Result<(Vec<run::Entry>, Vec<Value
             excludes_exact: string_list(e, "excludeTestsExact")?,
             resources,
             test_timeout_secs: test_timeout_secs(e)?,
+            stop_group: crate::first_failure::group_of(e)?,
         });
     }
     Ok((entries, ids))
@@ -555,7 +558,15 @@ fn run_tests(base: &TestArgs, fields: &Map<String, Value>, ctx: &mut WarmCtx, fl
     if let Ok(mut v) = flags.entry_ids.lock() {
         v.clone_from(&ids);
     }
+    let scope = match crate::first_failure::scope_of(fields) {
+        Ok(x) => x,
+        Err(e) => return error(e),
+    };
+    if let Err(e) = crate::first_failure::check(scope, &args, &entries) {
+        return error(e);
+    }
     ctx.entries = entries;
+    ctx.stop_at_first_failure = scope;
     let (want_coverage, want_per_test) = (
         flag(fields, "coverage").unwrap_or(false) || flag(fields, "perTestCoverage").unwrap_or(false),
         flag(fields, "perTestCoverage").unwrap_or(false),
@@ -573,6 +584,7 @@ fn run_tests(base: &TestArgs, fields: &Map<String, Value>, ctx: &mut WarmCtx, fl
     // A panic anywhere in a request ends the request, not the server; what is kept is dropped, as it may be inconsistent.
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run::test_with(&args, Some(ctx))));
     ctx.entries.clear();
+    ctx.stop_at_first_failure = None;
     flags.running.store(false, Ordering::SeqCst);
     let cancelled = flags.cancel.swap(false, Ordering::SeqCst);
     match outcome {

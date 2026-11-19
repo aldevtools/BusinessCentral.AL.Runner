@@ -2540,8 +2540,10 @@ fn entries_with_resources_take_the_kept_baseline_and_give_what_a_fresh_daemon_gi
 
 // ---- stopAtFirstFailure (al-runner issue 8210) ----
 
-const STOP_REQUEST_REASON: &str = "an earlier test of this request failed, and stopAtFirstFailure does not run the rest of the request";
-const STOP_GROUP_REASON: &str = "an earlier test of this entry's group failed, and stopAtFirstFailure does not run the rest of the group";
+const STOP_REQUEST_REASON: &str =
+    "an earlier test of this request failed, and stopAtFirstFailure does not run the rest of the request";
+const STOP_GROUP_REASON: &str =
+    "an earlier test of this entry's group failed, and stopAtFirstFailure does not run the rest of the group";
 
 /// The issue's shape: the first test of the codeunit fails, the three after it would pass.
 fn stop_app(root: &Path) -> PathBuf {
@@ -2590,7 +2592,11 @@ fn stop_at_first_failure_ends_a_request_at_its_first_failing_test() {
     let mut s = one_thread_server();
     let lines = run_request(&mut s, &a, json!({}));
     let summary = lines.last().unwrap();
-    assert_eq!((summary["failed"].clone(), summary["passed"].clone()), (json!(1), json!(3)), "{lines:?}");
+    assert_eq!(
+        (summary["failed"].clone(), summary["passed"].clone()),
+        (json!(1), json!(3)),
+        "{lines:?}"
+    );
     let lines = run_request(&mut s, &a, json!({"stopAtFirstFailure": null}));
     assert_eq!(lines.last().unwrap()["passed"], 3, "null is off: {lines:?}");
     let lines = run_request(&mut s, &a, json!({"stopAtFirstFailure": "request"}));
@@ -2635,7 +2641,11 @@ fn stop_at_first_failure_request_skips_the_later_entries() {
         .collect();
     assert_eq!(exits, [&json!(1), &json!(7), &json!(7)], "{lines:?}");
     let summary = lines.last().unwrap();
-    assert_eq!((&summary["failed"], &summary["notRun"], &summary["exitCode"]), (&json!(1), &json!(11), &json!(1)), "{summary}");
+    assert_eq!(
+        (&summary["failed"], &summary["notRun"], &summary["exitCode"]),
+        (&json!(1), &json!(11), &json!(1)),
+        "{summary}"
+    );
     s.send(json!({"command": "shutdown"}));
     s.line();
 }
@@ -2704,8 +2714,14 @@ fn stop_at_first_failure_checks_its_values_and_combinations() {
     let a = stop_app(d.path());
     let mut s = one_thread_server();
     for (extra, says) in [
-        (json!({"stopAtFirstFailure": true}), "`stopAtFirstFailure` is \"request\" or \"group\""),
-        (json!({"stopAtFirstFailure": "entry"}), "`stopAtFirstFailure` is \"request\" or \"group\""),
+        (
+            json!({"stopAtFirstFailure": true}),
+            "`stopAtFirstFailure` is \"request\" or \"group\"",
+        ),
+        (
+            json!({"stopAtFirstFailure": "entry"}),
+            "`stopAtFirstFailure` is \"request\" or \"group\"",
+        ),
         (
             json!({"stopAtFirstFailure": "group"}),
             "`stopAtFirstFailure: \"group\"` needs `entries`: a group is the entries with the same `stopGroup`",
@@ -2783,7 +2799,10 @@ fn answer_of(lines: &[Value]) -> (Vec<Value>, Vec<Value>) {
         })
         .collect();
     let s = lines.last().unwrap();
-    let counts = ["total", "passed", "failed", "notRun", "exitCode"].iter().map(|k| s[*k].clone()).collect();
+    let counts = ["total", "passed", "failed", "notRun", "exitCode"]
+        .iter()
+        .map(|k| s[*k].clone())
+        .collect();
     (tests, counts)
 }
 
@@ -2794,7 +2813,10 @@ fn the_request_after_a_stopped_one_answers_as_a_fresh_daemon_does() {
     let a = state_stop_app(d.path());
     let mut stopped = one_thread_server();
     let first = run_request(&mut stopped, &a, json!({"stopAtFirstFailure": "request"}));
-    assert!(test_lines(&first).iter().any(|t| t["notRun"] == true), "the request did not stop: {first:?}");
+    assert!(
+        test_lines(&first).iter().any(|t| t["notRun"] == true),
+        "the request did not stop: {first:?}"
+    );
     let after = answer_of(&run_request(&mut stopped, &a, json!({})));
     let mut fresh = one_thread_server();
     let want = answer_of(&run_request(&mut fresh, &a, json!({})));
