@@ -408,7 +408,8 @@ fn a_microsoft_package_the_project_carries_sets_the_demotool_release() {
 }
 
 /// Al-runner issue 8492: the tests `--stop-after-first-failure` and `--skip-after-timeout` leave out count as not run, but
-/// they are not refusals, so "Top refusals" does not rank them. A refused test is still ranked.
+/// they are not refusals, so "Top refusals" and `--refusal-detail` do not rank them; the ranking says how many it left
+/// out. A refused test is still ranked.
 #[test]
 fn top_refusals_leaves_out_the_tests_a_stop_option_left_out() {
     let d = tempfile::tempdir().unwrap();
@@ -451,9 +452,17 @@ codeunit 50122 "Refused Tests"
         "--skip-after-timeout",
         "--test-timeout-secs",
         "1",
+        "--refusal-detail",
+        "-after-",
     ]);
     let t = text(&o);
     assert!(t.contains("1 failed, 4 not run"), "{t}");
+    assert!(
+        t.contains("2 not-run tests a stop option left out are not ranked"),
+        "{t}"
+    );
+    let detail = &t[t.find("containing `-after-`").unwrap_or_else(|| panic!("{t}"))..];
+    assert!(!detail.contains("B_Later") && !detail.contains("D_Later"), "{detail}");
     let top = &t[t.find("Top refusals").unwrap_or_else(|| panic!("{t}"))..];
     let top = &top[..top.find("Result:").unwrap_or(top.len())];
     assert!(

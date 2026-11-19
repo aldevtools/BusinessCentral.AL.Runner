@@ -141,12 +141,12 @@ impl CheckResult {
         self.skipped.get(oi).copied().unwrap_or(false)
     }
 
-    /// The first diagnostic (in `diagnostics` order) at `offset` of the file at `path` whose code is one of `codes`:
-    /// what a scan of `diagnostics` finds, without the scan (lowering asks once per call it lowers).
-    pub fn diagnostic_at(&self, path: &str, offset: usize, codes: &[&str]) -> Option<&Diagnostic> {
+    /// The first diagnostic (in `diagnostics` order) at `offset` of the file at `path` of `app` whose code is one of
+    /// `codes`: what a scan of `diagnostics` finds, without the scan (lowering asks once per call it lowers).
+    pub fn diagnostic_at(&self, app: usize, path: &str, offset: usize, codes: &[&str]) -> Option<&Diagnostic> {
         self.diag_index
             .get_or_init(|| diag_index::DiagIndex::build(&self.diagnostics))
-            .find(&self.diagnostics, path, offset, codes)
+            .find(&self.diagnostics, app, path, offset, codes)
     }
 
     /// Whether object `oi` was left out by a lean compile (`Roots::lean`).
@@ -674,8 +674,8 @@ fn resolved_scope_findings(
             more.extend(crate::alcodes::resolved_scope(ws, *app, ctx, r));
         }
     }
-    more.sort_by_key(|d| (d.file.clone(), d.offset, d.code));
-    more.dedup_by(|a, b| a.file == b.file && a.offset == b.offset && a.code == b.code);
+    more.sort_by(|a, b| a.site().cmp(&b.site()));
+    more.dedup_by(|a, b| a.site() == b.site());
     if !more.is_empty() {
         result.from_checker.extend(more.iter().cloned());
         result.diagnostics.extend(more);
@@ -723,12 +723,8 @@ fn left_out_diagnostics(
             c.take_calls();
         }
     }
-    let seen: HashSet<(&str, usize, &str)> = found.iter().map(|d| (d.file.as_str(), d.offset, d.code)).collect();
-    let diags = c
-        .diags
-        .into_iter()
-        .filter(|d| !seen.contains(&(d.file.as_str(), d.offset, d.code)))
-        .collect();
+    let seen: HashSet<_> = found.iter().map(Diagnostic::site).collect();
+    let diags = c.diags.into_iter().filter(|d| !seen.contains(&d.site())).collect();
     (diags, Some(c.resolutions))
 }
 

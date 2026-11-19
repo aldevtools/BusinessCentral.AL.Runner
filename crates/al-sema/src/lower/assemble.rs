@@ -765,9 +765,9 @@ pub(crate) fn build_shared<'a>(
         ext_base,
         export,
         parse_diags: {
-            let mut by_file: HashMap<&str, Vec<&crate::workspace::Diagnostic>> = HashMap::default();
+            let mut by_file: HashMap<(usize, &str), Vec<&crate::workspace::Diagnostic>> = HashMap::default();
             for d in ws.diagnostics.iter().filter(|d| d.code == "AR0000") {
-                by_file.entry(d.file.as_str()).or_default().push(d);
+                by_file.entry((d.app, d.file.as_str())).or_default().push(d);
             }
             by_file
         },

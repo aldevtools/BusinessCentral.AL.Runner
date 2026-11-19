@@ -102,12 +102,22 @@ pub struct Diagnostic {
     pub message: String,
 }
 
+impl Diagnostic {
+    /// What makes two diagnostics one finding: the app, the file, the offset and the code all equal (a path is relative
+    /// to its app; two apps can hold the same one).
+    pub fn site(&self) -> (usize, &str, usize, &'static str) {
+        (self.app, self.file.as_str(), self.offset, self.code)
+    }
+}
+
 /// The position of each file in `Workspace::files` by its app and path (a path is relative to its app; two apps can hold
-/// the same one): the order the diagnostics are reported in.
+/// the same one). The one order of `Workspace::diagnostics`, `CheckResult::diagnostics` and `Lowered::al_diagnostics`;
+/// the printed order of compile errors is `compile_errors`' own (al-testrun).
 pub struct FileOrder<'a>(HashMap<(usize, &'a str), usize>);
 
 impl FileOrder<'_> {
-    /// Sorts by file, then offset; diagnostics at one position keep their order.
+    /// Sorts by file, then offset; a diagnostic of a file the workspace does not hold comes first; diagnostics at one
+    /// position keep their order.
     pub fn sort(&self, diags: &mut [Diagnostic]) {
         diags.sort_by_key(|d| (self.0.get(&(d.app, d.file.as_str())).copied(), d.offset));
     }
@@ -651,10 +661,8 @@ impl Workspace {
             .extend((first_object..ws.objects.len()).map(|_| OnceLock::new()));
         ws.index_extensions_and_subscribers(first_object);
         ws.resolve_references(first_object);
-        let positions: HashMap<&str, usize> = ws.files.iter().enumerate().map(|(i, f)| (f.path.as_str(), i)).collect();
-        let key = |d: &Diagnostic| (positions.get(d.file.as_str()).copied().unwrap_or(usize::MAX), d.offset);
         let mut diagnostics = std::mem::take(&mut ws.diagnostics);
-        diagnostics.sort_by_key(key);
+        ws.file_order().sort(&mut diagnostics);
         ws.diagnostics = diagnostics;
     }
 
@@ -735,15 +743,8 @@ impl Workspace {
             .collect();
         self.diagnostics.retain(|d| d.file != path || d.app != ai);
         self.diagnostics.extend(renewed);
-        let positions: HashMap<&str, usize> = self
-            .files
-            .iter()
-            .enumerate()
-            .map(|(i, f)| (f.path.as_str(), i))
-            .collect();
-        let key = |d: &Diagnostic| (positions.get(d.file.as_str()).copied().unwrap_or(usize::MAX), d.offset);
         let mut diagnostics = std::mem::take(&mut self.diagnostics);
-        diagnostics.sort_by_key(key);
+        self.file_order().sort(&mut diagnostics);
         self.diagnostics = diagnostics;
         Ok((in_file, declared))
     }

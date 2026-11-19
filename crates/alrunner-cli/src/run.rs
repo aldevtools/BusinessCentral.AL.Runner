@@ -15,7 +15,6 @@ use al_host::testdata::TestData;
 use al_testrun::deps::{self, Provision};
 use al_testrun::discover;
 use al_testrun::dotnet::SidecarHost;
-use al_testrun::refusals;
 use al_testrun::runtime::{CorpusRuntime, RunOptions, SuiteRun, TestResult};
 use al_testrun::{CaseId, Outcome, target};
 use std::collections::BTreeSet;
@@ -36,6 +35,8 @@ macro_rules! say {
         }
     };
 }
+
+mod rankings;
 
 /// A test codeunit found in an APP's source, before anything is compiled.
 struct Found {
@@ -1188,26 +1189,6 @@ fn entry_runs(
         .collect()
 }
 
-/// The `n` most common reasons of the not-run tests. A test a stop option left out is not a refusal (al-runner issue 8492);
-/// with no other not-run test nothing is printed.
-fn print_top_refusals(results: &[&TestResult], n: usize) {
-    let list = refusals::rank(results.iter().filter_map(|r| match &r.outcome {
-        Outcome::NotRun(why) if !r.skipped_by_option => Some((
-            CaseId {
-                codeunit: r.codeunit,
-                name: r.test.clone(),
-            },
-            why.clone(),
-        )),
-        _ => None,
-    }));
-    if !list.is_empty() {
-        let text = refusals::render_top("not-run tests", &list, n);
-        let (head, rest) = text.split_once('\n').unwrap_or((&text, ""));
-        say!("\n{}\n{rest}", style::bold(head));
-    }
-}
-
 fn test_inner(
     a: &TestArgs,
     mut warm: Option<&mut WarmCtx>,
@@ -2340,7 +2321,7 @@ fn test_inner(
     // The ranking of refusal reasons: every run, unless --quiet; --top-refusals N sets N.
     let top = a.top_refusals.or((!a.quiet).then_some(DEFAULT_TOP));
     if let Some(n) = top.filter(|_| counts.not_run > 0) {
-        print_top_refusals(&results, n);
+        rankings::print_top_refusals(&results, n);
     }
 
     // The assumptions the run went through: the counts are kept for `--list-assumptions`; the ranking is printed
@@ -2367,37 +2348,10 @@ fn test_inner(
     }
 
     if let Some(n) = a.top_failures.filter(|_| counts.fail > 0) {
-        let list = refusals::rank(results.iter().filter_map(|r| match &r.outcome {
-            Outcome::Fail(why) => Some((
-                CaseId {
-                    codeunit: r.codeunit,
-                    name: r.test.clone(),
-                },
-                why.clone(),
-            )),
-            _ => None,
-        }));
-        say!("\n{}", refusals::render_top_failures("failed tests", &list, n));
+        rankings::print_top_failures(&results, n);
     }
-
     if let Some(needle) = &a.refusal_detail {
-        let list = refusals::detail(
-            results.iter().filter_map(|r| match &r.outcome {
-                Outcome::NotRun(why) => Some((
-                    CaseId {
-                        codeunit: r.codeunit,
-                        name: r.test.clone(),
-                    },
-                    why.clone(),
-                )),
-                _ => None,
-            }),
-            needle,
-        );
-        say!(
-            "\n{}",
-            refusals::render_top(&format!("not-run tests containing `{needle}`"), &list, 30)
-        );
+        rankings::print_refusal_detail(&results, needle);
     }
 
     let mut coverage_doc: Option<serde_json::Value> = None;

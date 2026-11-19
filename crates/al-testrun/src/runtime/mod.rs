@@ -423,6 +423,18 @@ impl TestResult {
         }
     }
 
+    /// `o` in place of the test's outcome; `skipped_by_option` stays only when `o` is the outcome it was set with.
+    pub(crate) fn take_outcome(&mut self, o: Outcome) {
+        self.skipped_by_option &= self.outcome == o;
+        self.outcome = o;
+    }
+
+    /// Whether the test is a refusal: not run, and not left out by a stop option (`skipped_by_option`). What "Top
+    /// refusals" and `--refusal-detail` rank.
+    pub fn is_refusal(&self) -> bool {
+        matches!(self.outcome, Outcome::NotRun(_)) && !self.skipped_by_option
+    }
+
     /// The result with `skipped_by_option` set to `skip`.
     pub(crate) fn skipped(self, skip: bool) -> Self {
         TestResult {
@@ -724,8 +736,9 @@ pub(crate) struct Scratch {
     cells: Vec<(String, al_vm::observer_tap::CellRecord)>,
     /// The time each test that slept asked `Sleep` for (`TestResult::slept_ms`).
     slept: Vec<(String, u64)>,
-    /// The tests `skip_after_timeout` or `stop_after_first_failure` left out (`TestResult::skipped_by_option`).
-    skipped: Vec<String>,
+    /// The tests `skip_after_timeout` or `stop_after_first_failure` left out, with the reason they were given
+    /// (`TestResult::skipped_by_option`).
+    skipped: Vec<(String, String)>,
     /// With `trace`: the workspace objects each test entered and whether it ran DotNet (`TestResult::entered`).
     entered: Vec<(String, Vec<String>, bool)>,
     /// See `RunOptions::run_only`.
