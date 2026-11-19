@@ -1,6 +1,6 @@
 //! A record handed by value to a procedure of a report (al-runner issue 8386): the copy gets the view of a fresh record,
 //! flagged under `by-value-record-no-filters` (corpus PR 1450, record/filters/ByValueRecordView.al, the
-//! `ByValue_ReportProcedure_*` tests of codeunit 78731, :1213-1543). Measured callers: the report itself (a data item trigger, a local procedure), a
+//! `ByValue_ReportProcedure_*` tests of codeunit 78731, :1231-1590). Measured callers: the report itself (a data item trigger, a local procedure), a
 //! codeunit and a page. Every other caller, a report extension procedure, and a data item that still holds its
 //! DataItemTableView filters refuse a read of the copy's view.
 
@@ -414,6 +414,31 @@ codeunit 50186 "BR Test"
     end;
 
     [Test]
+    procedure FromCodeunit_FlowFieldKeyAndLoadFields_Flagged()
+    var
+        Row: Record "BR Row";
+        Rep: Report "BR Report";
+    begin
+        Seed();
+        Row.SetLoadFields(Name);
+        Row.SetCurrentKey(Total);
+        Expect(Rep.Describe(Row), 'f={} n=3 key=Id');
+    end;
+
+    [Test]
+    procedure FromCodeunit_FlowFieldKeyLoadFieldsReadIsolation_Refused()
+    var
+        Row: Record "BR Row";
+        Rep: Report "BR Report";
+    begin
+        Seed();
+        Row.SetLoadFields(Name);
+        Row.ReadIsolation := IsolationLevel::ReadCommitted;
+        Row.SetCurrentKey(Total);
+        Expect(Rep.Describe(Row), '');
+    end;
+
+    [Test]
     procedure FromCodeunit_FilterGroup3_Refused()
     var
         Row: Record "BR Row";
@@ -504,6 +529,15 @@ fn by_value_report_procedure_neighbors_are_flagged_where_measured_and_refused_el
         // Main kept the secondary key here, which the cell above shows is not BC's view; SetAutoCalcFields is not measured.
         (
             "FromCodeunit_SecondaryKeyNoFilter_AutoCalc_Refused",
+            VIEW_REFUSED,
+            false,
+        ),
+        // A key on a FlowField whose value depends on the row goes back to the primary key in the copy
+        // (record/keys-sorting/PwFlowFieldKeyRule.al:249-252), and a SetLoadFields of a caller that read no row is dropped
+        // (`ByValue_SetLoadFields`); with ReadIsolation the copy is not measured.
+        ("FromCodeunit_FlowFieldKeyAndLoadFields_Flagged", PASS, true),
+        (
+            "FromCodeunit_FlowFieldKeyLoadFieldsReadIsolation_Refused",
             VIEW_REFUSED,
             false,
         ),

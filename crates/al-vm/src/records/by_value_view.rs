@@ -295,10 +295,12 @@ impl Session {
     /// whose parameter is a record of that table, called from a codeunit on `source` itself (`CountSameStatus`, called as
     /// `Row.CountSameStatus(Row)` from the test codeunit in `ByValue_TableProcedure_OwnRecByValue`), or a report's procedure
     /// called from the report itself, from a codeunit or from a page (corpus PR 1450, the same file, codeunit 78731: a data
-    /// item trigger hands its data item to a local procedure in `ByValue_ReportProcedure_DataItemAfterReset` (:1284) and
-    /// `_ChildDataItemLink` (:1314), a local procedure hands its copy to itself in `_DataItemNested` (:1299), the test
-    /// codeunit calls a global procedure in `_FromCodeunit_*` (:1335, :1368-1496), a page action in `_FromPageAction`
-    /// (:1353)). An interface call is not measured.
+    /// item trigger hands its data item to a local procedure in `ByValue_ReportProcedure_DataItemAfterReset` (:1303) and
+    /// `_ChildDataItemLink` (:1333), OnPreReport hands a local record in `_FromOnPreReport` (:1532), the data item goes to another
+    /// instance of the report in `_DataItemToOtherInstance` (:1547), a local procedure hands its copy to itself in
+    /// `_DataItemNested` (:1318), the test
+    /// codeunit calls a global procedure in `_FromCodeunit_*` (:1354, :1387-1515), a page action in `_FromPageAction`
+    /// (:1372)). An interface call is not measured.
     fn measured_callee(&self, call: &ByValueCall, param: &RtType, source: &Rec) -> bool {
         let objects = &self.engine.program.objects;
         let callee = &objects[call.callee];
@@ -328,7 +330,9 @@ impl Session {
     /// - Caller in filter group 0, ascending, no marks, MarkedOnly off, no filter, on the primary key or an ad hoc key
     ///   (`RecordState::adhoc`), any callee: the copy has the primary key, also after an ad hoc key on a normal field, on a
     ///   FlowField whose value depends on the row (whose `FLOWFIELD_KEY` mark it does not take) or on a FlowField and then
-    ///   the primary key field (record/keys-sorting/PwFlowFieldKeyRule.al:249-252 `byValue=Id order=1 2 3`).
+    ///   the primary key field (record/keys-sorting/PwFlowFieldKeyRule.al:249-252 `byValue=Id order=1 2 3`). For a callee
+    ///   [`Session::measured_callee`] names, a SetLoadFields of a caller that read no row is dropped and the copy marked as
+    ///   below, when the state is the one [`measured_state`] names; else the copy is marked [`BY_VALUE_VIEW`].
     /// - A callee [`Session::measured_callee`] names, no mark on `source`, a view [`measured_view`] names: the view of
     ///   [`primary_view`], and a SetLoadFields of a caller that read no row is dropped (`ByValue_SetLoadFields`
     ///   `amount loaded=Yes`). Marked on the copy (`RecordState::view_assumption`) so that a read of its view marks the
@@ -360,10 +364,16 @@ impl Session {
         let load_dropped = measured && s.load.request.is_some() && s.load.buffer.is_none();
         let mut c = copy.borrow_mut();
         match s.unpinned_buffer {
-            None | Some(FLOWFIELD_KEY) if plain_view && no_filter && pinned_key && !load_dropped => {
+            None | Some(FLOWFIELD_KEY)
+                if plain_view && no_filter && pinned_key && (!load_dropped || measured_state(&s)) =>
+            {
                 c.key = 0;
                 c.adhoc = None;
                 c.unpinned_buffer = None;
+                if load_dropped {
+                    c.load.request = None;
+                    c.view_assumption = true;
+                }
             }
             None if measured && measured_view(&s) => {
                 primary_view(&mut c);
@@ -374,6 +384,7 @@ impl Session {
             }
             None if !measured && plain_view && no_filter => {}
             None => c.unpinned_buffer = Some(BY_VALUE_VIEW),
+            Some(FLOWFIELD_KEY) if plain_view && no_filter && pinned_key => c.unpinned_buffer = Some(BY_VALUE_VIEW),
             Some(_) => {}
         }
     }
