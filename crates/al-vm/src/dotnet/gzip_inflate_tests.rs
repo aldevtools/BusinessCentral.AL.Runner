@@ -50,6 +50,15 @@ fn an_unknown_method_raises_only_in_the_measured_shape() {
     header[3] = 0x10;
     header.push(0);
     assert!(refuses(inflate(&header)), "a header with a comment field");
+    // Only the measured 12-byte stream raises; other method-99 streams keep the refusal.
+    let measured = [31, 139, 99, 0, 0, 0, 0, 0, 0, 3, 1, 2];
+    assert!(refuses(inflate(&measured[..10])), "the header alone");
+    let then_member = [&measured[..10], &gzip(b"A")[..]].concat();
+    assert!(refuses(inflate(&then_member)), "the header then a valid member");
+    let mut other_header = measured;
+    other_header[4] = 7;
+    other_header[9] = 0;
+    assert!(refuses(inflate(&other_header)), "other time and OS bytes");
 }
 
 #[test]
@@ -62,6 +71,19 @@ fn a_corrupt_first_block_raises_only_in_the_measured_shapes() {
     // block whose length fields differ.
     assert!(refuses(inflate(&with(&[0xfe; 20]))));
     assert!(refuses(inflate(&with(&[1, 0x41, 0x41, 0x42, 0x42, 0, 0]))));
+    // Only the two measured byte runs raise; other blocks of the same type keep the refusal.
+    for data in [
+        &[255][..],
+        &[7],
+        &[0xe7; 20],
+        &[7, b'c', b'o', b'r', b'r', b'u', b'p', b't'],
+        &[65; 5],
+        &[1, 0, 0, 0, 0],
+        &[1, 5, 0, 5, 0, 1, 2, 3, 4, 5],
+        &[0xc1, 3, 0, 3, 0, 1, 2, 3],
+    ] {
+        assert!(refuses(inflate(&with(data))), "first block {data:?}");
+    }
 }
 
 #[test]
@@ -75,6 +97,18 @@ fn a_trailer_mismatch_raises_only_for_the_measured_member() {
         refuses(inflate(&flip(longer.clone(), longer.len() - 1))),
         "a longer member"
     );
+    for n in [0, 1, 2, 40, CORRUPT_MEMBER_TEXT_LEN - 1] {
+        let shorter = gzip(&text(n));
+        let end = shorter.len();
+        assert!(
+            refuses(inflate(&flip(shorter.clone(), end - 1))),
+            "size field of a {n}-byte member"
+        );
+        assert!(
+            refuses(inflate(&flip(shorter.clone(), end - 5))),
+            "CRC32 field of a {n}-byte member"
+        );
+    }
     let joined = [gzip(b"first"), flip(packed.clone(), last)].concat();
     assert!(refuses(inflate(&joined)), "the second member");
     let followed = [flip(packed.clone(), last), vec![1, 2, 3]].concat();

@@ -1,11 +1,11 @@
-//! The decoder behind `GZipStream.CopyTo` (Data Compression's `GZipDecompress`): the bytes a gzip stream gives,
-//! BC's error for the corrupt streams the corpus measured, and a refusal for every other corrupt stream.
+//! The decoder behind `GZipStream.CopyTo` (Data Compression's `GZipDecompress`): the bytes a valid gzip stream
+//! gives, BC's error for the exact corrupt streams the corpus measured, and a refusal for every other corrupt stream.
 //!
 //! Pinned by tests/al-language/types/PZGzip.al (round trips, an empty stream, text that is not gzip, a stream cut in
-//! half) and tests/al-language/streams/blob-tempblob/GZipShortAndJoined.al (streams of 1 to 10 bytes, a valid header
-//! followed by garbage, a flipped byte in the deflate data and in the size field, two members joined, a member
-//! followed by bytes that are not a member). Every corrupt stream BC answered raises the same error, and nothing was
-//! written to the target stream before it.
+//! half) and tests/al-language/streams/blob-tempblob/GZipShortAndJoined.al (the streams of 1 to 10 bytes it lists, a
+//! valid header followed by twenty bytes 255 or 65, a 12-byte stream with method 99, a flipped byte in the deflate
+//! data and in the size field of an 83-byte member, two members joined, a member followed by bytes that are not a
+//! member). Every corrupt stream BC answered there raises the same error, with nothing written to the target stream.
 
 use al_builtins::native::{Signal, unsupported};
 use flate2::{Crc, Decompress, FlushDecompress, Status};
@@ -15,21 +15,37 @@ const MAGIC: [u8; 2] = [0x1f, 0x8b];
 const HEADER_LEN: usize = 10;
 /// Compression method 8 (deflate), the only one BC decodes in the corpus.
 const DEFLATE: u8 = 8;
-/// The compression method byte GZipShortAndJoined.al:222 measured as unknown.
-const UNKNOWN_METHOD: u8 = 99;
 /// The plain text of GZipShortAndJoined.al:253, whose packed stream with a flipped byte (:262, :272) raises with
-/// nothing written: the longest member output a CRC32 or size mismatch is measured at.
+/// nothing written: the only decoded length a CRC32 or size mismatch is measured at.
 const CORRUPT_MEMBER_TEXT_LEN: usize =
     "corrupt me after the header corrupt me after the header corrupt me after the header".len();
 
-/// The streams shorter than a gzip header that GZipShortAndJoined.al:115-177 decompresses, and whether BC raises.
-const SHORT_STREAMS: [(&[u8], bool); 6] = [
-    (&[31], false),                           // :121-123, :170
-    (&[65], false),                           // :126-128, :171
-    (&[31, 139], false),                      // :131-134, :172
-    (&[31, 139, 8, 0, 0], false),             // :137-143, :173
-    (&[1, 2, 3, 4, 5], true),                 // :146-152, :174
-    (&[31, 139, 8, 0, 0, 0, 0, 0, 0], false), // :155-165, :175
+/// The plain gzip header of GZipShortAndJoined.al:188-197 followed by twenty bytes `fill` (:198-199, :214-215).
+const fn header_then_twenty(fill: u8) -> [u8; HEADER_LEN + 20] {
+    let header = [31, 139, 8, 0, 0, 0, 0, 0, 0, 3];
+    let mut stream = [fill; HEADER_LEN + 20];
+    let mut i = 0;
+    while i < HEADER_LEN {
+        stream[i] = header[i];
+        i += 1;
+    }
+    stream
+}
+const HEADER_THEN_FF: [u8; HEADER_LEN + 20] = header_then_twenty(255);
+const HEADER_THEN_TEXT: [u8; HEADER_LEN + 20] = header_then_twenty(65);
+
+/// The whole streams GZipShortAndJoined.al:115-237 decompresses that the member decoder below does not answer:
+/// the ones shorter than a gzip header, and the measured corrupt ones. `true`: BC raises; `false`: an empty result.
+const MEASURED_STREAMS: [(&[u8], bool); 9] = [
+    (&[31], false),                                    // :121-123, :170
+    (&[65], false),                                    // :126-128, :171
+    (&[31, 139], false),                               // :131-134, :172
+    (&[31, 139, 8, 0, 0], false),                      // :137-143, :173
+    (&[1, 2, 3, 4, 5], true),                          // :146-152, :174
+    (&[31, 139, 8, 0, 0, 0, 0, 0, 0], false),          // :155-165, :175
+    (&HEADER_THEN_FF, true),                           // :188-201, :234
+    (&HEADER_THEN_TEXT, true),                         // :204-217, :235
+    (&[31, 139, 99, 0, 0, 0, 0, 0, 0, 3, 1, 2], true), // :220-233, :236
 ];
 
 /// The error of `GZipStream.CopyTo` over data it cannot decode (PZGzip.al:201-205, GZipShortAndJoined.al:174, :234-236,
@@ -47,14 +63,15 @@ pub(super) fn inflate(bytes: &[u8]) -> Result<Vec<u8>, Signal> {
     if bytes.is_empty() {
         return Ok(Vec::new());
     }
-    if bytes.len() < HEADER_LEN {
-        return match SHORT_STREAMS.iter().find(|(s, _)| *s == bytes) {
-            Some((_, true)) => invalid_data(),
-            Some((_, false)) => Ok(Vec::new()),
-            None => unsupported(
+    match MEASURED_STREAMS.iter().find(|(s, _)| *s == bytes) {
+        Some((_, true)) => return invalid_data(),
+        Some((_, false)) => return Ok(Vec::new()),
+        None if bytes.len() < HEADER_LEN => {
+            return unsupported(
                 "GZipStream decompression of fewer than 10 bytes (the header is 10): BC's answer is not pinned",
-            ),
-        };
+            );
+        }
+        None => {}
     }
     if bytes[..2] != MAGIC {
         return invalid_data();
@@ -78,9 +95,6 @@ pub(super) fn inflate(bytes: &[u8]) -> Result<Vec<u8>, Signal> {
 fn member<'a>(bytes: &'a [u8], first: bool, out: &mut Vec<u8>) -> Result<Option<&'a [u8]>, Signal> {
     let (method, flags) = (bytes[2], bytes[3]);
     let plain_first = first && flags == 0;
-    if method == UNKNOWN_METHOD && plain_first {
-        return invalid_data(); // GZipShortAndJoined.al:220-233, :236
-    }
     if method != DEFLATE {
         return unsupported(format!(
             "GZipStream decompression of a member with compression method {method}: BC's answer is not pinned"
@@ -89,9 +103,6 @@ fn member<'a>(bytes: &'a [u8], first: bool, out: &mut Vec<u8>) -> Result<Option<
     let Some(data) = member_data(bytes) else {
         return Ok(None);
     };
-    if plain_first && first_block_is_measured_corrupt(data) {
-        return invalid_data();
-    }
     let start = out.len();
     let Some(used) = deflate(data, out)? else {
         // A stream cut inside the deflate data gives what was decoded before the cut (PZGzip.al:227-239).
@@ -101,26 +112,13 @@ fn member<'a>(bytes: &'a [u8], first: bool, out: &mut Vec<u8>) -> Result<Option<
     match trailer_matches(trailer, &out[start..]) {
         Trailer::Matches => Ok(Some(&trailer[8..])),
         Trailer::Cut => Ok(None),
-        Trailer::Differs if plain_first && trailer.len() == 8 && out.len() <= CORRUPT_MEMBER_TEXT_LEN => {
+        Trailer::Differs if plain_first && trailer.len() == 8 && out.len() == CORRUPT_MEMBER_TEXT_LEN => {
             // GZipShortAndJoined.al:241-281: a CRC32 mismatch (flip_byte_14) and a size mismatch (flip_last_crc_byte).
             invalid_data()
         }
         Trailer::Differs => unsupported(
             "GZipStream decompression of a member whose CRC32 or size does not match: what BC writes before its error is not pinned",
         ),
-    }
-}
-
-/// The first deflate block of the corrupt streams GZipShortAndJoined.al:181-237 measured: a last block of the reserved
-/// type 3 (twenty bytes 255, :198-199, :234), and a last stored block whose length equals its complement field (twenty
-/// bytes 65, :214-215, :235).
-fn first_block_is_measured_corrupt(data: &[u8]) -> bool {
-    const LAST_RESERVED: u8 = 0b111;
-    const LAST_STORED: u8 = 0b001;
-    match data.first().map(|b| b & 0b111) {
-        Some(LAST_RESERVED) => true,
-        Some(LAST_STORED) => matches!(data.get(1..5), Some([l0, l1, n0, n1]) if [l0, l1] == [n0, n1]),
-        _ => false,
     }
 }
 
