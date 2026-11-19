@@ -292,22 +292,6 @@ fn scan_object(src: &str, sig: &[Tok], at: usize, out: &mut FileScan) -> usize {
                 code -= 1;
             }
         }
-        if depth == 1
-            && sig[i].kind == Ident
-            && sig[i].text.eq_ignore_ascii_case("Subtype")
-            && sig.get(i + 1).is_some_and(|t| t.kind == Eq)
-            && sig.get(i + 2).is_some_and(|t| t.is_kw("Install"))
-        {
-            obj.install = true;
-        }
-        if depth == 1
-            && sig[i].kind == Ident
-            && sig[i].text.eq_ignore_ascii_case("EventSubscriberInstance")
-            && sig.get(i + 1).is_some_and(|t| t.kind == Eq)
-            && sig.get(i + 2).is_some_and(|t| t.is_kw("Manual"))
-        {
-            obj.manual_subscribers = true;
-        }
         match sig[i].kind {
             LBrace => depth += 1,
             RBrace => {
@@ -353,6 +337,15 @@ fn scan_object(src: &str, sig: &[Tok], at: usize, out: &mut FileScan) -> usize {
     if obj.kind == "report" {
         obj.layouts = scan_layouts(src, &sig[end..i.min(sig.len())]);
     }
+    // The two flags read the property scan, so they follow its rules: an object-body property, its value as the
+    // property reader gives it (al-runner issue 7625).
+    let declares = |name: &str, value: &str| {
+        obj.properties
+            .iter()
+            .any(|(k, v)| k.eq_ignore_ascii_case(name) && v.eq_ignore_ascii_case(value))
+    };
+    obj.install = declares("Subtype", "Install");
+    obj.manual_subscribers = declares("EventSubscriberInstance", "Manual");
     out.objects.push(obj);
     i.max(at + 1)
 }
@@ -589,6 +582,18 @@ mod tests {
                    codeunit 52 N { procedure P() begin end; }");
         let manual: Vec<bool> = f.objects.iter().map(|o| o.manual_subscribers).collect();
         assert_eq!(manual, [true, false, false]);
+    }
+
+    /// al-runner issue 7625: the two flags follow the property scan. A quoted value is the identifier, as the property
+    /// reader gives it; a `Subtype = Install` comparison inside a routine is code, not the property.
+    #[test]
+    fn install_and_manual_subscribers_follow_the_property_scan() {
+        let f = s("codeunit 60 Q { Subtype = \"Install\"; EventSubscriberInstance = \"Manual\"; }\
+                   codeunit 61 P { Subtype = Install; EventSubscriberInstance = Manual; }\
+                   codeunit 62 C { procedure P() var Subtype: Integer; Install: Integer; begin if Subtype = Install then; end; }\
+                   codeunit 63 N { Subtype = Normal; }");
+        let flags: Vec<(bool, bool)> = f.objects.iter().map(|o| (o.install, o.manual_subscribers)).collect();
+        assert_eq!(flags, [(true, true), (true, true), (false, false), (false, false)]);
     }
 
     #[test]
