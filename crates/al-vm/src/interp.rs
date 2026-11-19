@@ -828,9 +828,9 @@ impl Session {
         // (events/binding-senders/EventVarThroughSender.al): they alias it, see `Frame::aliases`.
         let facts = self.engine.routine_facts(object, routine);
         let mut kept = Vec::new();
-        let mut heard_other_list = false;
+        let mut heard = Vec::new();
         if facts.publisher {
-            (kept, heard_other_list) = self.var_option_publisher_args(object, routine, args, &values, f)?;
+            (kept, heard) = self.var_option_publisher_args(object, routine, args, &values, f)?;
             let by_var = &self.engine.program.objects[object].routines[routine].by_var;
             self.events.var_origins = args
                 .iter()
@@ -908,7 +908,7 @@ impl Session {
             self.set_alias_live(f, true);
         }
         if let Err(Signal::Error(_)) = &result {
-            if heard_other_list {
+            if !heard.is_empty() {
                 self.error_finals = None;
                 return Err(crate::var_option::heard_publisher_error());
             }
@@ -930,6 +930,7 @@ impl Session {
             (r, _) => r?,
         };
         let mut finals = finals;
+        crate::var_option::heard_finals(&heard, &finals)?;
         self.write_backs(args, finals.drain(..), &kept, f)?;
         self.return_vec(finals);
         Ok(ret)

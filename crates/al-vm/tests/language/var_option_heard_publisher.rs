@@ -18,6 +18,7 @@ table 69860 HRow
         field(1; Id; Integer) { }
         field(2; Opt; Option) { OptionMembers = First,Second,Third; }
         field(3; OptCap; Option) { OptionMembers = First,Second,Third; OptionCaption = 'One,Two,Three'; }
+        field(4; Ab; Option) { OptionMembers = A,B; }
     }
 }
 
@@ -237,6 +238,7 @@ codeunit 69863 C
         GlobalV0: Option;
         GlobalRow: Record HRow;
         GlobalArr: array[2] of Option First,Second,Third;
+        GlobalArr0: array[2] of Option;
 
     local procedure F(V: Option First,Second,Third): Text
     begin
@@ -510,6 +512,214 @@ codeunit 69863 C
         exit(T);
     end;
 
+    procedure OtherListLengths(): Text
+    var A1: Option A,B; A2: Option A,B; A3: Option A,B; E1: Option A,B,C,D,E; E2: Option A,B,C,D,E; E3: Option A,B,C,D,E; E4: Option A,B,C,D,E; E5: Option A,B,C,D,E; Seen: Text; T: Text;
+    begin
+        A1 := A1::B;
+        Pub.OnRead(A1, Seen);
+        T := Seen + '>' + Format(A1) + '|' + Format(A1, 0, 2);
+        A2 := A2::B;
+        Pub.OnWritten(A2, Seen);
+        T += ';' + Seen + '>' + Format(A2) + '|' + Format(A2, 0, 2);
+        A3 := A3::B;
+        Pub.OnWrittenInteger(A3, Seen);
+        T += ';' + Seen + '>' + Format(A3) + '|' + Format(A3, 0, 2);
+        E1 := E1::B;
+        Pub.OnRead(E1, Seen);
+        T += ';' + Seen + '>' + Format(E1) + '|' + Format(E1, 0, 2);
+        E2 := E2::D;
+        Pub.OnRead(E2, Seen);
+        T += ';' + Seen + '>' + Format(E2) + '|' + Format(E2, 0, 2);
+        E3 := E3::D;
+        Pub.OnWritten(E3, Seen);
+        T += ';' + Seen + '>' + Format(E3) + '|' + Format(E3, 0, 2);
+        E4 := E4::B;
+        Pub.OnWritten(E4, Seen);
+        T += ';' + Seen + '>' + Format(E4) + '|' + Format(E4, 0, 2);
+        E5 := E5::D;
+        Pub.OnIgnored(E5);
+        exit(T + ';' + Format(E5) + '|' + Format(E5, 0, 2));
+    end;
+
+    procedure NumbersOutsideTheList(): Text
+    var More: Codeunit HMore; V1: Option; V2: Option; V3: Option; V4: Option; V5: Option; V6: Option; W1: Option First,Second,Third; W2: Option First,Second,Third; W3: Option First,Second,Third; Seen: Text; T: Text;
+    begin
+        V1 := 1;
+        More.OnSeven(V1, Seen);
+        T := Seen + '>' + F0(V1);
+        W1 := W1::Second;
+        More.OnSeven(W1, Seen);
+        T += ';' + Seen + '>' + F(W1);
+        V2 := 1;
+        More.OnMinusOne(V2, Seen);
+        T += ';' + Seen + '>' + F0(V2);
+        W2 := W2::Second;
+        More.OnMinusOne(W2, Seen);
+        T += ';' + Seen + '>' + F(W2);
+        V3 := -1;
+        Pub.OnIgnored(V3);
+        T += ';' + F0(V3);
+        V4 := -1;
+        Pub.OnRead(V4, Seen);
+        T += ';' + Seen + '>' + F0(V4);
+        V5 := -1;
+        Pub.OnWritten(V5, Seen);
+        T += ';' + Seen + '>' + F0(V5);
+        V6 := 7;
+        Pub.OnWritten(V6, Seen);
+        T += ';' + Seen + '>' + F0(V6);
+        W3 := 5;
+        Pub.OnRead(W3, Seen);
+        exit(T + ';' + Seen + '>' + F(W3));
+    end;
+
+    procedure SubscriberShapes(): Text
+    var More: Codeunit HMore; Single: Codeunit HSinglePub; V1: Option; V2: Option; V3: Option; V4: Option; W1: Option First,Second,Third; W2: Option First,Second,Third; W3: Option First,Second,Third; W4: Option First,Second,Third; Seen: Text; T: Text;
+    begin
+        V1 := 1;
+        Single.OnSingle(V1, Seen);
+        T := Seen + '>' + F0(V1);
+        W1 := W1::Second;
+        Single.OnSingle(W1, Seen);
+        T += ';' + Seen + '>' + F(W1);
+        V2 := 1;
+        More.OnBySingle(V2, Seen);
+        T += ';' + Seen + '>' + F0(V2);
+        W2 := W2::Second;
+        More.OnBySingle(W2, Seen);
+        T += ';' + Seen + '>' + F(W2);
+        V3 := 1;
+        More.OnSkipFlags(V3, Seen);
+        T += ';' + Seen + '>' + F0(V3);
+        W3 := W3::Second;
+        More.OnSkipFlags(W3, Seen);
+        T += ';' + Seen + '>' + F(W3);
+        V4 := 1;
+        Seen := '';
+        More.OnWriteThenRead(V4, Seen);
+        T += ';' + Seen + '>' + F0(V4);
+        W4 := W4::Second;
+        Seen := '';
+        More.OnWriteThenRead(W4, Seen);
+        T += ';' + Seen + '>' + F(W4);
+        V4 := 1;
+        Seen := '';
+        More.OnWriterRunsFirst(V4, Seen);
+        T += ';' + Seen + '>' + F0(V4);
+        W4 := W4::Second;
+        Seen := '';
+        More.OnWriterRunsFirst(W4, Seen);
+        exit(T + ';' + Seen + '>' + F(W4));
+    end;
+
+    procedure PastListByValue(): Text
+    begin
+        exit(ByValuePastRaise(5));
+    end;
+
+    local procedure ByValuePastRaise(V: Option First,Second,Third): Text
+    var Seen: Text;
+    begin
+        Pub.OnRead(V, Seen);
+        exit(Seen);
+    end;
+
+    procedure PastListField(): Text
+    var Row: Record HRow; Seen: Text;
+    begin
+        Row.Opt := 5;
+        Pub.OnRead(Row.Opt, Seen);
+        exit(Seen);
+    end;
+
+    procedure NegativeWithMembers(): Text
+    var W: Option First,Second,Third; Seen: Text;
+    begin
+        W := -1;
+        Pub.OnRead(W, Seen);
+        exit(Seen);
+    end;
+
+    procedure GlobalCaptionField(): Text
+    var Seen: Text;
+    begin
+        GlobalRow.OptCap := GlobalRow.OptCap::Second;
+        Pub.OnRead(GlobalRow.OptCap, Seen);
+        exit(Seen);
+    end;
+
+    procedure VarRecordCaptionField(): Text
+    var Row: Record HRow;
+    begin
+        Row.OptCap := Row.OptCap::Second;
+        exit(VarRecordCaptionRaise(Row));
+    end;
+
+    local procedure VarRecordCaptionRaise(var Row: Record HRow): Text
+    var Seen: Text;
+    begin
+        Pub.OnRead(Row.OptCap, Seen);
+        exit(Seen);
+    end;
+
+    procedure GlobalMemberlessElement(): Text
+    var Seen: Text;
+    begin
+        GlobalArr0[1] := 1;
+        Pub.OnRead(GlobalArr0[1], Seen);
+        exit(Seen);
+    end;
+
+    procedure OtherAttributeCaller(): Text
+    begin
+        exit(NonDebuggableRaise());
+    end;
+
+    [NonDebuggable]
+    local procedure NonDebuggableRaise(): Text
+    var V0: Option; Seen: Text;
+    begin
+        V0 := 1;
+        Pub.OnRead(V0, Seen);
+        exit(Seen);
+    end;
+
+    procedure ShortListField(): Text
+    var Row: Record HRow; Seen: Text;
+    begin
+        Row.Ab := Row.Ab::B;
+        Pub.OnRead(Row.Ab, Seen);
+        exit(Seen);
+    end;
+
+    procedure ShortListElement(): Text
+    var Arr: array[2] of Option A,B; Seen: Text;
+    begin
+        Arr[1] := Arr[1]::B;
+        Pub.OnRead(Arr[1], Seen);
+        exit(Seen);
+    end;
+
+    procedure SevenIntoField(): Text
+    var More: Codeunit HMore; Row: Record HRow; Seen: Text;
+    begin
+        Row.Opt := Row.Opt::Second;
+        More.OnSeven(Row.Opt, Seen);
+        exit(Format(Row.Opt));
+    end;
+
+    procedure SevenIntoByValue(): Text
+    begin
+        exit(SevenByValueRaise(1));
+    end;
+
+    local procedure SevenByValueRaise(V: Option First,Second,Third): Text
+    var More: Codeunit HMore; Seen: Text;
+    begin
+        More.OnSeven(V, Seen);
+        exit(Format(V));
+    end;
+
     procedure IsolatedEvent(): Text
     var V0: Option; Seen: Text;
     begin
@@ -601,6 +811,123 @@ codeunit 69863 C
         V := 1;
         Pub.OnRead(V, Seen);
         T := Seen;
+    end;
+}
+
+codeunit 69866 HMore
+{
+    [IntegrationEvent(false, false)]
+    procedure OnSeven(var Value: Option P,Q,R; var Seen: Text)
+    begin
+    end;
+
+    [IntegrationEvent(false, false)]
+    procedure OnMinusOne(var Value: Option P,Q,R; var Seen: Text)
+    begin
+    end;
+
+    [IntegrationEvent(false, false)]
+    procedure OnBySingle(var Value: Option P,Q,R; var Seen: Text)
+    begin
+    end;
+
+    [IntegrationEvent(false, false)]
+    procedure OnSkipFlags(var Value: Option P,Q,R; var Seen: Text)
+    begin
+    end;
+
+    [IntegrationEvent(false, false)]
+    procedure OnWriteThenRead(var Value: Option P,Q,R; var Seen: Text)
+    begin
+    end;
+
+    [IntegrationEvent(false, false)]
+    procedure OnWriterRunsFirst(var Value: Option P,Q,R; var Seen: Text)
+    begin
+    end;
+}
+
+codeunit 69867 HSinglePub
+{
+    SingleInstance = true;
+
+    [IntegrationEvent(false, false)]
+    procedure OnSingle(var Value: Option P,Q,R; var Seen: Text)
+    begin
+    end;
+}
+
+codeunit 69868 HMoreSub
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::HMore, 'OnSeven', '', false, false)]
+    local procedure Seven(var Value: Option P,Q,R; var Seen: Text)
+    begin
+        Seen := Format(Value) + '|' + Format(Value, 0, 2);
+        Value := 7;
+        Seen += '~' + Format(Value) + '|' + Format(Value, 0, 2);
+    end;
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::HMore, 'OnMinusOne', '', false, false)]
+    local procedure MinusOne(var Value: Option P,Q,R; var Seen: Text)
+    begin
+        Seen := Format(Value) + '|' + Format(Value, 0, 2);
+        Value := -1;
+        Seen += '~' + Format(Value) + '|' + Format(Value, 0, 2);
+    end;
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::HMore, 'OnSkipFlags', '', true, true)]
+    local procedure SkipFlags(var Value: Option P,Q,R; var Seen: Text)
+    begin
+        Seen := Format(Value) + '|' + Format(Value, 0, 2);
+        Value := Value::R;
+        Seen += '~' + Format(Value) + '|' + Format(Value, 0, 2);
+    end;
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::HMore, 'OnWriteThenRead', '', false, false)]
+    local procedure HandleWriteFirst(var Value: Option P,Q,R; var Seen: Text)
+    begin
+        Seen += 'write ' + Format(Value) + '|' + Format(Value, 0, 2) + ';';
+        Value := Value::R;
+    end;
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::HMore, 'OnWriteThenRead', '', false, false)]
+    local procedure HandleReadSecond(var Value: Option P,Q,R; var Seen: Text)
+    begin
+        Seen += 'read ' + Format(Value) + '|' + Format(Value, 0, 2) + ';';
+    end;
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::HMore, 'OnWriterRunsFirst', '', false, false)]
+    local procedure HandleZReaderAfter(var Value: Option P,Q,R; var Seen: Text)
+    begin
+        Seen += 'read ' + Format(Value) + '|' + Format(Value, 0, 2) + ';';
+    end;
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::HMore, 'OnWriterRunsFirst', '', false, false)]
+    local procedure HandleAWriterBefore(var Value: Option P,Q,R; var Seen: Text)
+    begin
+        Seen += 'write ' + Format(Value) + '|' + Format(Value, 0, 2) + ';';
+        Value := Value::R;
+    end;
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::HSinglePub, 'OnSingle', '', false, false)]
+    local procedure Single(var Value: Option P,Q,R; var Seen: Text)
+    begin
+        Seen := Format(Value) + '|' + Format(Value, 0, 2);
+        Value := Value::R;
+        Seen += '~' + Format(Value) + '|' + Format(Value, 0, 2);
+    end;
+}
+
+codeunit 69869 HSingleSub
+{
+    SingleInstance = true;
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::HMore, 'OnBySingle', '', false, false)]
+    local procedure BySingle(var Value: Option P,Q,R; var Seen: Text)
+    begin
+        Seen := Format(Value) + '|' + Format(Value, 0, 2);
+        Value := Value::R;
+        Seen += '~' + Format(Value) + '|' + Format(Value, 0, 2);
     end;
 }
 "#;
@@ -714,5 +1041,48 @@ fn a_heard_publisher_outside_the_measured_contract_refuses() {
         "TemporaryRecordThroughVarParam",
     ] {
         refused(routine, HEARD);
+    }
+}
+
+// Corpus PR 1453 cells added for the review of PR 8391 (OptionVarMemberlessHeard.al:444, :493, :548): a variable of the
+// routine's `var` section with another list length, holding a number past the publisher's list or below 0, and
+// subscribers that store 7 or -1, SingleInstance codeunits, both skip flags, two subscribers in both run orders.
+#[test]
+fn the_review_cells_take_bc_s_values() {
+    assert_eq!(
+        assumed("OtherListLengths"),
+        "Q|1>B|1;Q|1~R|2>2|2;P|0>A|0;Q|1>B|1;3|3>D|3;3|3~R|2>C|2;Q|1~R|2>C|2;D|3"
+    );
+    assert_eq!(
+        assumed("NumbersOutsideTheList"),
+        "Q|1~7|7>7|7;Q|1~7|7>7|7;Q|1~-1|-1>-1|-1;Q|1~-1|-1>-1|-1;-1|-1;-1|-1>-1|-1;-1|-1~R|2>2|2;7|7~R|2>2|2;5|5>5|5"
+    );
+    assert_eq!(
+        assumed("SubscriberShapes"),
+        "Q|1~R|2>2|2;Q|1~R|2>Third|2;Q|1~R|2>2|2;Q|1~R|2>Third|2;Q|1~R|2>2|2;Q|1~R|2>Third|2;read Q|1;write Q|1;>2|2;read Q|1;write Q|1;>Third|2;write Q|1;read R|2;>2|2;write Q|1;read R|2;>Third|2"
+    );
+}
+
+// Only a variable of the routine's `var` section is measured with another list length, a number outside the publisher's
+// list handed in, or a number outside it left by a subscriber (:444-546); every other place refuses those, and a negative
+// number with members is not measured. Caption fields of a global or `var` record, an element of a global memberless
+// array and a caller with another attribute than Test refuse as before.
+#[test]
+fn unmeasured_lengths_numbers_and_places_refuse() {
+    for routine in [
+        "PastListByValue",
+        "PastListField",
+        "NegativeWithMembers",
+        "GlobalCaptionField",
+        "VarRecordCaptionField",
+        "GlobalMemberlessElement",
+        "OtherAttributeCaller",
+        "ShortListField",
+        "ShortListElement",
+    ] {
+        refused(routine, HEARD);
+    }
+    for routine in ["SevenIntoField", "SevenIntoByValue"] {
+        refused(routine, "a number outside the publisher's member list");
     }
 }
