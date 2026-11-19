@@ -10,8 +10,6 @@
 
 use al_vm::{Engine, Session};
 use std::collections::BTreeSet;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::sync::{Mutex, PoisonError};
 
 /// Everything the login and its subscribers can read when the test session opens the company. Two sessions with the same
@@ -21,17 +19,17 @@ use std::sync::{Mutex, PoisonError};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Key {
     /// Every committed row before the login: the install baseline, what install code and an earlier codeunit left.
-    database: u64,
+    database: LinesDigest,
     /// The rows the session holds now, written and not committed included, when some are not committed before the login:
     /// the login reads them, so two sessions whose uncommitted rows differ have other keys. `None` when every row is
     /// committed (the rows are then `database`).
-    uncommitted: Option<u64>,
+    uncommitted: Option<LinesDigest>,
     /// Who offers the rows of the tables no write reached (the test data, `MemStore::backing_identity`).
     backing: Option<(u64, u64)>,
     /// The session state before the login (`Session::state_lines`): language, WorkDate, number sequences, isolated
     /// storage, SingleInstance globals, manual bindings, `Random`, filter group 1, the clock offset, the Guid key and
     /// draws, row versions, AutoIncrement counters, the last error.
-    session: u64,
+    session: LinesDigest,
     /// `CompanyName()` and the company every record reads in.
     company: String,
     /// The run seed: the session clock steps by a key derived from it (`al_host::seed::clock_key`), so the same login
@@ -45,7 +43,7 @@ pub(crate) struct Key {
     test_codeunit: Option<usize>,
     /// The resource texts the pass reads in place of the apps' files (a serve entry's `resources`,
     /// `Engine::resource_overrides`): `NavApp.GetResource` in a subscriber reads them.
-    resources: u64,
+    resources: LinesDigest,
     /// The session has a client (BC's login code runs only then), runs without one (`--no-client`), and runs under
     /// RequiredTestIsolation = Disabled: these choose what the login does (`install::open_test_session_company`).
     client: (bool, bool, bool),
@@ -87,7 +85,7 @@ impl Key {
             database,
             uncommitted,
             backing,
-            session: digest(&[digest(&state.lines).to_string(), digest(&state.opaque).to_string()]),
+            session: digest(&[digest(&state.lines).hex(), digest(&state.opaque).hex()]),
             company: session.access_company().to_string(),
             seed: session.run_seed(),
             user: session.user_id(),
@@ -313,11 +311,34 @@ fn rows(tables: &[al_data::memory::ExportedTable]) -> Vec<String> {
     out
 }
 
-/// A digest of `lines`, for a key field (compared within one process only).
-fn digest(lines: &[String]) -> u64 {
-    let mut h = DefaultHasher::new();
-    lines.hash(&mut h);
-    h.finish()
+/// A SHA-256 of lines, for a key field: two inputs that differ have other digests (no 64-bit hash collides them).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) struct LinesDigest([u8; 32]);
+
+impl LinesDigest {
+    /// The digest as 64 lower-case hex digits.
+    fn hex(&self) -> String {
+        self.0.iter().map(|b| format!("{b:02x}")).collect()
+    }
+}
+
+/// Written as its hex digits, so a key reads short in a failing test.
+impl std::fmt::Debug for LinesDigest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.hex())
+    }
+}
+
+/// The SHA-256 of `lines`, each line its length (8 bytes, little endian) and then its bytes, so no two lists of lines
+/// give the same bytes.
+fn digest(lines: &[String]) -> LinesDigest {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    for l in lines {
+        h.update((l.len() as u64).to_le_bytes());
+        h.update(l.as_bytes());
+    }
+    LinesDigest(h.finalize().into())
 }
 
 #[cfg(test)]
@@ -337,19 +358,30 @@ mod tests {
 
     fn key(test_codeunit: usize) -> Key {
         Key {
-            database: 1,
+            database: digest(&["1".into()]),
             uncommitted: None,
             backing: None,
-            session: 2,
+            session: digest(&["2".into()]),
             company: "C".into(),
             seed: 0,
             user: "U".into(),
             test_codeunit: Some(test_codeunit),
-            resources: 3,
+            resources: digest(&["3".into()]),
             client: (true, false, false),
             flags: Default::default(),
             license: None,
         }
+    }
+
+    // A key field is a SHA-256 of its lines (each line its length, then its bytes), not a 64-bit hash: two inputs that
+    // differ never share a key by a collision of the digest.
+    #[test]
+    fn a_key_digest_is_the_sha256_of_its_lines() {
+        assert_eq!(
+            format!("{:?}", digest(&[])),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+        assert_ne!(digest(&["ab".into()]), digest(&["a".into(), "b".into()]));
     }
 
     #[test]
