@@ -99,7 +99,7 @@ impl Layer {
             .map(|a| {
                 let json = options.app_json.get(i.order[a]).map_or("", String::as_str);
                 let identity = i.identities.get(a).copied().flatten();
-                wc::app_key(&i.apps[a], &i.manifests[a], json, identity)
+                wc::app_key(&i.apps[a], i.kinds[a], &i.manifests[a], json, identity)
             })
             .collect();
         let suites: Vec<String> = i.suites.iter().map(|s| format!("{s:?}")).collect();

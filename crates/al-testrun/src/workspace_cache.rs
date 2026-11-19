@@ -169,6 +169,8 @@ pub struct WorkspaceAppKey {
     pub paths: [u8; 32],
     /// `compile_cache::source_hash` (every path and decoded text), or the identity of a lazily read package.
     pub source: [u8; 32],
+    /// Review LOW 2: a workspace app or a dependency app that stands on one (both are in this layer).
+    pub kind: al_sema::AppKind,
 }
 
 /// The key of a workspace layer entry (decision 2). Every field is hashed by [`WorkspaceKey::parts`], which destructures
@@ -257,6 +259,7 @@ impl WorkspaceKey {
                 manifest,
                 paths,
                 source,
+                kind,
             } = app;
             put(&mut a, id.as_bytes());
             put(&mut a, name.as_bytes());
@@ -265,6 +268,7 @@ impl WorkspaceKey {
             put(&mut a, manifest);
             put(&mut a, paths);
             put(&mut a, if texts { source } else { &[] });
+            put(&mut a, format!("{kind:?}").as_bytes());
         }
         vec![
             ("format", format.to_le_bytes().to_vec()),
@@ -332,7 +336,13 @@ impl WorkspaceKey {
 }
 
 /// An app of the layer in the key. `identity`: that of a lazily read package, which stands for its source.
-pub fn app_key(app: &AppSource, manifest: &Manifest, app_json: &str, identity: Option<[u8; 32]>) -> WorkspaceAppKey {
+pub fn app_key(
+    app: &AppSource,
+    kind: al_sema::AppKind,
+    manifest: &Manifest,
+    app_json: &str,
+    identity: Option<[u8; 32]>,
+) -> WorkspaceAppKey {
     let AppSource {
         id,
         name,
@@ -352,6 +362,7 @@ pub fn app_key(app: &AppSource, manifest: &Manifest, app_json: &str, identity: O
         manifest: crate::runtime::baseline_key::manifest_digest(manifest),
         paths: p.finalize().into(),
         source: identity.unwrap_or_else(|| crate::compile_cache::source_hash(app)),
+        kind,
     }
 }
 
@@ -426,7 +437,7 @@ pub fn warm_key(
         apps: apps
             .iter()
             // The texts are left out of the digest (the source is not hashed); the paths are not.
-            .map(|(a, m, json)| app_key(a, m, json, Some([0; 32])))
+            .map(|(a, m, json)| app_key(a, al_sema::AppKind::Workspace, m, json, Some([0; 32])))
             .collect(),
         target: target.to_string(),
         symbols: symbols.iter().cloned().collect(),
@@ -549,6 +560,7 @@ mod tests {
                 manifest: [3; 32],
                 paths: [4; 32],
                 source: [5; 32],
+                kind: al_sema::AppKind::Workspace,
             }],
             target: "BC 27.5 runtime 16.0".into(),
             symbols: vec!["CLEAN27".into()],
@@ -648,6 +660,7 @@ mod tests {
             ("manifest", |a| a.manifest[0] ^= 1),
             ("paths", |a| a.paths[0] ^= 1),
             ("source", |a| a.source[0] ^= 1),
+            ("kind", |a| a.kind = al_sema::AppKind::Dependency),
         ];
         let base = sample();
         for (name, change) in changes {
