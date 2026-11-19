@@ -1,5 +1,5 @@
 //! The corpus probe of al-runner issue 8467 (corpus pull request 1457, open: tests/al-language/pages/background-tasks/
-//! BgTaskQueryCache.al, measured on BC 29.1, 35 of 35 green) and the reporter's repro, run here until a bump pins the probe: the
+//! BgTaskQueryCache.al, measured on BC 29.1, 34 of 34 green) and the reporter's repro, run here until a bump pins the probe: the
 //! query cache page background tasks and the test session read through (`al-vm` query_cache.rs). Delete this file and the
 //! fixtures when the pin is in the corpus.
 
@@ -51,7 +51,7 @@ fn outcomes(src: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<Assumption>)
 fn issue_8467_probe_cells() {
     let mut o = outcomes(PROBE, "BQ Tests");
     o.extend(outcomes(PROBE, "BQ Tests 2"));
-    assert_eq!(o.len(), 35);
+    assert_eq!(o.len(), 34);
     let clean = [
         "Page_FirstRead_SeesTheChange",
         "Page_Get_ChangeCommitted_SeesTheChange",
@@ -105,7 +105,8 @@ fn issue_8467_repro() {
 
 /// Neighbors the probe does not measure, on the probe's table and page. Refused: a group read of a worker after the test
 /// session read that group and then wrote the table; a field load into a copy of a record the cache answered; a row read
-/// again after its entry's committed absence came back through commits. Reading the rows as they are (no flag): FindLast,
+/// again after its entry's committed absence came back through commits, or after a commit of a ModifyAll of another row (the
+/// probe's cell for it differs between BC versions). Reading the rows as they are (no flag): FindLast,
 /// IsEmpty, a SetFilter to one value, a ReadIsolation read; two filter values with the same first characters keep their own
 /// entries; a field load after a fetch of another row is not refused.
 const NEIGHBORS: &str = r#"
@@ -360,6 +361,28 @@ codeunit 97511 "BQ Neighbor Tests"
     end;
 
     [Test]
+    procedure OtherRowModifyAllCommitted_ThenChanged()
+    var
+        Rows: TestPage "BQ Rows";
+        Row: Record "BQ Row";
+    begin
+        BqMode.Set('');
+        AddNoted('NB9', 1, 'first', '');
+        AddNoted('NB9', 2, 'other', '');
+        Commit();
+        OpenOn(Rows, 'NB9');
+        Assert.AreEqual('first', RunGet(Rows, 'NB9'), 'Get');
+        Row.SetRange("Group", 'NB9');
+        Row.SetRange("Line No.", 2);
+        Row.ModifyAll(Description, 'other2');
+        Commit();
+        Row.SetRange("Line No.", 1);
+        Row.ModifyAll(Description, 'second');
+        Assert.AreEqual('first', RunGet(Rows, 'NB9'), 'Get after the commit');
+        Rows.Close();
+    end;
+
+    [Test]
     procedure GroupRead_AfterTestReadAndWrite()
     var
         Rows: TestPage "BQ Rows";
@@ -428,9 +451,8 @@ fn issue_8467_unmeasured_neighbors() {
         assert_eq!(*r, Outcome::Pass, "{name}");
         assert!(!marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
     }
+    let (_, r, _) = get("OtherRowModifyAllCommitted_ThenChanged");
+    assert!(matches!(r, Outcome::NotRun(w) if w.contains("may have ended")), "{r:?}");
     let (_, r, _) = get("RowGoneAgain_AfterCommits");
-    assert!(
-        matches!(r, Outcome::NotRun(w) if w.contains("whether a commit wrote the row in between")),
-        "{r:?}"
-    );
+    assert!(matches!(r, Outcome::NotRun(w) if w.contains("may have ended")), "{r:?}");
 }

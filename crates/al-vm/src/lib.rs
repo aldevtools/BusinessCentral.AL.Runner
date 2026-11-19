@@ -1598,6 +1598,7 @@ impl Session {
     /// Makes every change so far durable (and a Truncate of this transaction final).
     pub fn commit_transaction(&mut self) {
         self.note_row_locks_commit();
+        self.note_commit_for_query_cache();
         self.guarded_body_commit();
         al_data::Store::commit(&mut self.store);
         self.crm_committed();

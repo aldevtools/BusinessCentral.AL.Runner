@@ -13,21 +13,23 @@
 //   own (a new Guid), except the AutoRollback pairs, which use a fixed key and never commit it.
 // Readings: what each worker read answered; what the page shows; what the test session's own Get answers.
 // Cells:
-//   - the same read again after the test changed the row, not committed: Get (:365, :564, after a Delete :602), FindFirst on both
-//     key fields (:387, :584; Get and it answer alike), FindFirst and Count on the group (:639, :656, :673), a Get that found
-//     nothing and an empty group (:622, :690), another worker codeunit and SetLoadFields (:564), a first read with SetLoadFields
-//     and a later full read (:712), the task of a new page (:475);
-//     FindFirst and Count with a SetRange on a field outside the key (:889, :910; a commit of the table ends it), and Count with that filter
-//     set by SetRange to the value twice, by SetFilter of a range from the value to itself and by FieldRef.SetRange (:936);
-//   - a first read: it sees the test's change (:409, :520), unless the test session read the row before its change while it had
-//     not written the table since its last commit (:498, also when it had written another table :539, and when the change was to
-//     another row :957); a read the test session made after it wrote the table does not count (:978);
-//   - a commit: of the change of the row, the next read sees it (:428, ModifyAll :823); of another table (:449), or of another row of the
-//     table (ModifyAll :739, Modify :760, FindFirst on both key fields :781, an insert :803), the next read does not see a later
-//     change of the row; of any change of the table, the next FindFirst and Count on a group see it (:842, another group :864);
-//   - a rollback: asserterror (:1002) and the end of an AutoRollback test (:1035, :1048) do not change what the next read answers;
-//     the test session's own Get answers like a worker read then, until it writes the table (:1002);
-//   - another test codeunit: its read sees its own row (:1063, :1086).
+//   - the same read again after the test changed the row, not committed: Get (:367, :566, after a Delete :604), FindFirst on both
+//     key fields (:389, :586; Get and it answer alike), FindFirst and Count on the group (:641, :658, :675), a Get that found
+//     nothing and an empty group (:624, :692), another worker codeunit and SetLoadFields (:566), a first read with SetLoadFields
+//     and a later full read (:714), the task of a new page (:477);
+//     FindFirst and Count with a SetRange on a field outside the key (:870, :891; a commit of the table ends it), and Count with that filter
+//     set by SetRange to the value twice, by SetFilter of a range from the value to itself and by FieldRef.SetRange (:917);
+//   - a first read: it sees the test's change (:411, :522), unless the test session read the row before its change while it had
+//     not written the table since its last commit (:500, also when it had written another table :541, and when the change was to
+//     another row :938); a read the test session made after it wrote the table does not count (:959);
+//   - a commit: of the change of the row, the next read sees it (:430, ModifyAll :804); of another table (:451), or of another row of the
+//     table (Modify :741, FindFirst on both key fields :762, an insert :784), the next read does not see a later
+//     change of the row; of any change of the table, the next FindFirst and Count on a group see it (:823, another group :845);
+//   - a rollback: asserterror (:983) and the end of an AutoRollback test (:1016, :1029) do not change what the next read answers;
+//     the test session's own Get answers like a worker read then, until it writes the table (:983);
+//   - another test codeunit: its read sees its own row (:1044, :1067).
+// Not pinned here: whether a commit of a ModifyAll of another row of the table ends a row's entry. BC 27.5, 28.5 and 29.0 end
+//   it, a local BC 29.1 container kept it.
 // BC versions: 29.1 (local W1 container).
 
 table 97500 "BQ Row"
@@ -733,29 +735,8 @@ codeunit 97506 "BQ Tests"
         Rows.Close();
     end;
 
-    // Committed lines 1 and 2; Get of line 1; the test changes line 2 (ModifyAll) and commits, then changes line 1 without
-    // reading it: Get answers the first read.
-    [Test]
-    procedure BgQueryCache_Run_Get_OtherRowModifyAllCommitted_FirstAnswer()
-    var
-        Rows: TestPage "BQ Rows";
-        G: Code[20];
-    begin
-        G := NewGroup();
-        BqMode.Set('');
-        AddRow(G, 1, 'first');
-        AddRow(G, 2, 'other');
-        Commit();
-        OpenOn(Rows, G);
-        Assert.AreEqual('first', Run(Rows, Reader(), 'get', G, 1), 'Get');
-        WriteOnly(G, 2, 'other2');
-        Commit();
-        WriteOnly(G, 1, 'second');
-        Assert.AreEqual('first', Run(Rows, Reader(), 'get', G, 1), 'Get after the commit');
-        Rows.Close();
-    end;
-
-    // As above, line 2 changed by Get and Modify.
+    // Committed lines 1 and 2; Get of line 1; the test changes line 2 (Get and Modify) and commits, then changes line 1
+    // without reading it: Get answers the first read.
     [Test]
     procedure BgQueryCache_Run_Get_OtherRowModifyCommitted_FirstAnswer()
     var
@@ -1087,12 +1068,10 @@ codeunit 97507 "BQ Tests 2"
     var
         Row: Record "BQ Row";
         Rows: TestPage "BQ Rows";
-        BqMode: Codeunit "BQ Mode";
         Parameters: Dictionary of [Text, Text];
         Results: Dictionary of [Text, Text];
         Seen: Text;
     begin
-        BqMode.Set('');
         Row."Group" := 'BQW';
         Row."Line No." := 1;
         Row.Description := 'w2';
