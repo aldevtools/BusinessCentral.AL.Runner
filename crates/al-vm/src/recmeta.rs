@@ -2033,7 +2033,7 @@ impl Session {
             }
             return Err(error(cannot_change_value_text(&field, &table), "DB:Ok"));
         }
-        self.modify_all_audit_field(rec, t, pos, rows.len(), args)?;
+        self.modify_all_audit_field(rec, t, pos, &rows, &value, args)?;
         // One fresh set of table globals for all rows, not the caller's (ADR-021 decision 6; corpus
         // probe TableGlobals_ModifyAll_WhatTheTriggersAndSubscribersSee).
         let shared = al_builtins::value::TableGlobals::new_shared();
@@ -2057,18 +2057,21 @@ impl Session {
         r
     }
 
-    /// `ModifyAll` of an audit field. SystemCreatedAt, SystemCreatedBy and SystemModifiedAt over one row of a table without a
-    /// Caption whose Modify runs no trigger, event subscriber or global trigger (table 61800, :17-27), with no RunTrigger
-    /// argument, of a record that is not temporary: the "cannot change" error with code DB:Ok
-    /// (record/system-fields/AssignedAuditFields.al:594-631, ModifyAll_CreatedAt). Every other shape of the four audit fields
-    /// is refused: SystemModifiedBy, no or several rows, a RunTrigger argument, a temporary record, a table Caption and a
-    /// table with a Modify trigger or subscriber are not measured. Any other field: `Ok`.
+    /// `ModifyAll` of an audit field. The one shape measured (record/system-fields/AssignedAuditFields.al:594-631,
+    /// ModifyAll_CreatedAt) raises the "cannot change" error with code DB:Ok: SystemCreatedAt, SystemCreatedBy or
+    /// SystemModifiedAt; a table that holds one row; the variable as `Reset` leaves it (:604, no filter, marks, other filter
+    /// group, ChangeCompany, SetLoadFields or ReadIsolation), on the primary key ascending, not temporary; no RunTrigger
+    /// argument; a value that is not blank and differs from the stored one (FixedAt :98, FixedBy :105); called from a codeunit
+    /// (:602); the table as table 61800 declares it (:17-27): no Caption, no trigger of its own or of a field, no table
+    /// extension, data per company, and no Insert, Modify or Rename event subscriber or global trigger. Every other shape of
+    /// the four audit fields is refused. Any other field: `Ok`.
     fn modify_all_audit_field(
         &self,
         rec: &Rec,
         t: &TableDef,
         pos: usize,
-        rows: usize,
+        rows: &[Vec<Value>],
+        value: &Value,
         args: &[Value],
     ) -> Result<(), Signal> {
         use crate::hostvalues::{SYSTEM_CREATED_AT, SYSTEM_CREATED_BY, SYSTEM_MODIFIED_AT, SYSTEM_MODIFIED_BY};
@@ -2084,18 +2087,43 @@ impl Session {
             return Ok(());
         }
         let (field, table) = (t.fields[pos].name.clone(), t.name.clone());
+        let r = rec.borrow();
+        let variable = crate::assigned_audit::default_variable(&r) && r.key == 0 && r.ascending && !r.temporary;
+        let value_differs = matches!(rows, [row] if crate::assigned_audit::non_blank(value)
+            && matches!(ops::compare(value, &row[pos]), Ok(Ordering::Less | Ordering::Greater)));
         let measured = [SYSTEM_CREATED_AT, SYSTEM_CREATED_BY, SYSTEM_MODIFIED_AT].contains(&id)
-            && rows == 1
+            && variable
             && args.len() == 2
-            && !rec.borrow().temporary
-            && self.caption(t) == table
-            && self.audit_write_plain(t, crate::globaltriggers::GlobalOp::Modify, false);
+            && value_differs
+            && self.caller_is_codeunit()
+            && self.table_as_61800(t, &table);
         if measured {
             return Err(error(cannot_change_value_text(&field, &table), "DB:Ok"));
         }
         unsupported(format!(
-            "ModifyAll of {field} outside the measured shape (SystemCreatedAt, SystemCreatedBy or SystemModifiedAt over one row of a table without a Caption, no trigger or subscriber, no RunTrigger argument, not temporary)"
+            "ModifyAll of {field} outside the measured shape (SystemCreatedAt, SystemCreatedBy or SystemModifiedAt of a table that holds one row, by the variable without filters, marks or other state on the primary key ascending, not temporary, no RunTrigger argument, a value that is not blank and differs from the stored one, called from a codeunit, a table without a Caption, triggers, table extensions or subscribers, data per company)"
         ))
+    }
+
+    /// The table facts of AssignedAuditFields.al:17-27 (table 61800) that `modify_all_audit_field` requires.
+    fn table_as_61800(&self, t: &TableDef, name: &str) -> bool {
+        use crate::globaltriggers::GlobalOp;
+        let object = &self.engine.program.objects[t.object as usize];
+        t.per_company
+            && self.caption(t) == name
+            && object.routines.iter().all(|r| !r.is_trigger)
+            && object.table.as_ref().is_some_and(|s| s.extensions.is_empty())
+            && [GlobalOp::Insert, GlobalOp::Modify, GlobalOp::Rename]
+                .into_iter()
+                .all(|op| self.audit_write_plain(t, op, false))
+    }
+
+    /// The innermost running object is a codeunit (the test codeunit of AssignedAuditFields.al:602).
+    fn caller_is_codeunit(&self) -> bool {
+        let heads = self.engine.program.objects.heads();
+        self.frames
+            .last()
+            .is_some_and(|&o| heads[o].is_kind(al_ir::ObjKind::Codeunit))
     }
 
     fn modify_all_rows(

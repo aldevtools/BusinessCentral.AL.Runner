@@ -85,7 +85,7 @@ fn same(a: &Value, b: &Value) -> bool {
     al_builtins::ops::compare(a, b).ok() == Some(std::cmp::Ordering::Equal)
 }
 
-fn non_blank(v: &Value) -> bool {
+pub(crate) fn non_blank(v: &Value) -> bool {
     matches!(crate::recmeta::is_blank(v), Ok(false))
 }
 
@@ -486,7 +486,7 @@ impl Session {
 
 /// The variable is in the state the cells' variables are in after `Clear` (:143) or as declared (:641): no filter, no
 /// MarkedOnly, no other company, no load fields, the default ReadIsolation, filter group 0 and no marks.
-fn default_variable(r: &al_builtins::value::RecordState) -> bool {
+pub(crate) fn default_variable(r: &al_builtins::value::RecordState) -> bool {
     r.filters.is_empty()
         && !r.marked_only
         && r.company.is_none()

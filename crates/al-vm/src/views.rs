@@ -337,7 +337,7 @@ impl Session {
         Ok(parts.join(""))
     }
 
-    /// The filters of the current filter group, in field order.
+    /// The filters of the current filter group, in declaration order (field position).
     fn filters_in_field_order(rec: &Rec) -> Vec<FieldFilter> {
         let r = rec.borrow();
         let mut v: Vec<FieldFilter> = r
@@ -420,11 +420,13 @@ impl Session {
         Ok(parts.join(", "))
     }
 
-    /// The filters `get_filters` lists, in field order, except where a filter on a FlowField comes before a filter on a
-    /// FlowFilter field in field order. There BC lists the FlowFilter first in the one shape measured: `Record.GetFilters`, filter
-    /// group 0, no MarkedOnly, exactly those two filters, the FlowFilter's set first (assumption
-    /// `get-filters-flowfilter-before-flowfield`, corpus PR 1430, ByValueRecordView.al:582). Every other shape with that pair
-    /// refuses: the order over field classes is not measured.
+    /// The filters `get_filters` lists, in declaration order, except where a filter on a FlowField and a filter on a FlowFilter
+    /// field form a pair: the FlowField comes first by declaration position or by field number. BC lists the FlowFilter first in
+    /// the one shape measured (assumption `get-filters-flowfilter-before-flowfield`, corpus PR 1430, ByValueRecordView.al:582):
+    /// `Record.GetFilters`, filter group 0, no MarkedOnly, exactly those two filters, both fields declared by the table itself,
+    /// the FlowField before the FlowFilter by position and by number alike, the FlowFilter's set first. Every other shape with
+    /// such a pair refuses, also RecordRef.GetFilters and the filter list of a Find error: the order over field classes is not
+    /// measured.
     fn get_filters_order(&self, rec: &Rec, t: &TableDef, record: bool) -> Result<Vec<FieldFilter>, Signal> {
         let filters = Self::filters_in_field_order(rec);
         let schema = self.engine.program.objects[t.object as usize]
@@ -433,25 +435,32 @@ impl Session {
             .expect("table");
         let flow_filter = |f: &FieldFilter| schema.fields[f.field].flow_filter;
         let flow_field = |f: &FieldFilter| schema.fields[f.field].calc.is_some();
-        let pair = filters
-            .iter()
-            .enumerate()
-            .any(|(i, a)| flow_field(a) && filters[i + 1..].iter().any(&flow_filter));
+        let number = |f: &FieldFilter| schema.fields[f.field].id;
+        let pair = filters.iter().any(|a| {
+            flow_field(a)
+                && filters
+                    .iter()
+                    .any(|b| flow_filter(b) && (a.field < b.field || number(a) < number(b)))
+        });
         if !pair {
             return Ok(filters);
         }
         let r = rec.borrow();
         let set_at = |f: &FieldFilter| r.filters.iter().position(|g| g.field == f.field && g.group == f.group);
+        let own = |f: &FieldFilter| schema.fields[f.field].declared_in == Some(t.object);
         let measured = record
             && r.filter_group == 0
             && !r.marked_only
             && filters.len() == 2
             && flow_field(&filters[0])
             && flow_filter(&filters[1])
+            && number(&filters[0]) < number(&filters[1])
+            && own(&filters[0])
+            && own(&filters[1])
             && set_at(&filters[1]) < set_at(&filters[0]);
         if !measured {
             return unsupported(
-                "GetFilters of a filter on a FlowField and a filter on a FlowFilter field with a higher field number, outside the one measured shape (the order over field classes is not measured, assumption get-filters-flowfilter-before-flowfield)",
+                "GetFilters of a filter on a FlowField and a filter on a FlowFilter field, outside the one measured shape (the order over field classes is not measured, assumption get-filters-flowfilter-before-flowfield)",
             );
         }
         assume(Assumption::GetFiltersFlowfilterBeforeFlowfield);

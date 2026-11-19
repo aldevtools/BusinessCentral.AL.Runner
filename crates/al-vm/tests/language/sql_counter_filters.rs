@@ -83,3 +83,18 @@ fn a_list_value_holds_a_counter_value_unread() {
     let body = "procedure F(): Boolean var L: List of [BigInteger]; begin L.Add(SessionInformation.SqlStatementsExecuted()); exit((L.Count = 1) and (L.Get(1) >= 0)); end;";
     assert!(boolean(run(&src(body), "F")));
 }
+
+/// Every comparison `ops::compare` refuses refuses the search, not only a counter's: a List of ErrorInfo that holds the value
+/// searched for is not measured (main answered "not found").
+#[test]
+fn a_search_compare_cannot_order_refuses() {
+    match run(
+        &src(
+            "procedure F(): Boolean var L: List of [ErrorInfo]; E: ErrorInfo; begin E := ErrorInfo.Create('x'); L.Add(E); exit(L.Contains(E)); end;",
+        ),
+        "F",
+    ) {
+        Err(Signal::Unsupported(why)) => assert!(why.contains("comparison of"), "{why}"),
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+}

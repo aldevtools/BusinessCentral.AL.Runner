@@ -453,9 +453,10 @@ fn is_xml_handle(v: &Value) -> bool {
     }
 }
 
-/// Whether `a` equals `b` for a search of a List or a Dictionary. A comparison `compare` cannot answer and refuses (a SQL
-/// counter value, al-runner issue 7859; a placeholder's size) refuses the search: answering "not equal" would read the
-/// value. Any other failed comparison counts as not equal, as before.
+/// Whether `a` equals `b` for a search of a List or a Dictionary. Every comparison `compare` refuses refuses the search:
+/// a SQL counter value (al-runner issue 7859), a placeholder's size, a value of an unknown column, a marked text, and two
+/// values of a kind `compare` cannot order (two ModuleInfo, ErrorInfo or SecretText values). Answering "not equal" there
+/// would be a guess. A comparison that fails with an AL error counts as not equal, as before.
 fn eq(a: &Value, b: &Value) -> Result<bool, Signal> {
     match compare(a, b) {
         Ok(o) => Ok(o == Ordering::Equal),

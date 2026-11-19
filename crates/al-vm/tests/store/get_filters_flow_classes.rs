@@ -1,8 +1,9 @@
 //! GetFilters of a filter on a FlowField and a filter on a FlowFilter field (al-runner issue 8296). In the one shape corpus
 //! PR 1430 measured (tests/al-language/record/filters/ByValueRecordView.al:569-616: the FlowFilter, field 6, set first, then
-//! the FlowField, field 5) BC lists the FlowFilter first; it runs flagged (assumption
-//! get-filters-flowfilter-before-flowfield). Every other shape with a FlowField filter before a FlowFilter filter in field
-//! order refuses. Without that pair GetFilters keeps field order.
+//! the FlowField, field 5, both declared by the table in number order) BC lists the FlowFilter first; it runs flagged
+//! (assumption get-filters-flowfilter-before-flowfield). Every other shape where the FlowField comes first by declaration
+//! position or by field number refuses: fields declared out of number order, a FlowFilter of a table extension, MarkedOnly,
+//! RecordRef.GetFilters and the filter list of a Find error. Without that pair GetFilters keeps declaration order.
 
 use al_builtins::assumptions::{self, Assumption};
 use al_builtins::native::Signal;
@@ -40,6 +41,55 @@ table 50341 Row
         }
     }
     keys { key(PK; Id) { } }
+}
+
+table 50343 Swapped2
+{
+    fields
+    {
+        field(1; Id; Integer) { }
+        field(6; Total; Decimal)
+        {
+            FieldClass = FlowField;
+            CalcFormula = sum(Line.Amt where(RowId = field(Id), Day = field("Day Filter")));
+        }
+        field(5; "Day Filter"; Integer) { FieldClass = FlowFilter; }
+    }
+    keys { key(PK; Id) { } }
+}
+
+table 50344 Swapped
+{
+    fields
+    {
+        field(1; Id; Integer) { }
+        field(6; "Day Filter"; Integer) { FieldClass = FlowFilter; }
+        field(5; Total; Decimal)
+        {
+            FieldClass = FlowField;
+            CalcFormula = sum(Line.Amt where(RowId = field(Id), Day = field("Day Filter")));
+        }
+    }
+    keys { key(PK; Id) { } }
+}
+
+table 50345 Base
+{
+    fields
+    {
+        field(1; Id; Integer) { }
+        field(5; Total; Decimal)
+        {
+            FieldClass = FlowField;
+            CalcFormula = sum(Line.Amt where(RowId = field(Id)));
+        }
+    }
+    keys { key(PK; Id) { } }
+}
+
+tableextension 50346 BaseX extends Base
+{
+    fields { field(50000; "Day Filter"; Integer) { FieldClass = FlowFilter; } }
 }
 
 codeunit 50342 C
@@ -102,6 +152,88 @@ codeunit 50342 C
         exit(Row.GetFilters());
     end;
 
+    procedure OutOfNumberOrderFlowFilterSetFirst(): Text
+    var
+        Row: Record Swapped2;
+        R: RecordRef;
+    begin
+        Row.SetRange("Day Filter", 1);
+        Row.SetRange(Total, 0);
+        exit(Row.GetFilters());
+    end;
+
+    procedure FlowFieldDeclaredLaterSetFirst(): Text
+    var
+        Row: Record Swapped;
+        R: RecordRef;
+    begin
+        Row.SetRange(Total, 0);
+        Row.SetRange("Day Filter", 1);
+        exit(Row.GetFilters());
+    end;
+
+    procedure FlowFieldDeclaredLaterFlowFilterSetFirst(): Text
+    var
+        Row: Record Swapped;
+        R: RecordRef;
+    begin
+        Row.SetRange("Day Filter", 1);
+        Row.SetRange(Total, 0);
+        exit(Row.GetFilters());
+    end;
+
+    procedure FlowFieldDeclaredLaterThroughRecordRef(): Text
+    var
+        Row: Record Swapped;
+        R: RecordRef;
+    begin
+        Row.SetRange("Day Filter", 1);
+        Row.SetRange(Total, 0);
+        R.GetTable(Row);
+        exit(R.GetFilters());
+    end;
+
+    procedure FlowFieldDeclaredLaterInAFindError(): Text
+    var
+        Row: Record Swapped;
+        R: RecordRef;
+    begin
+        Row.SetRange("Day Filter", 1);
+        Row.SetRange(Total, 0);
+        Row.FindFirst();
+    end;
+
+    procedure FlowFilterOfATableExtension(): Text
+    var
+        Row: Record Base;
+        R: RecordRef;
+    begin
+        Row.SetRange("Day Filter", 1);
+        Row.SetRange(Total, 0);
+        exit(Row.GetFilters());
+    end;
+
+    procedure MeasuredOnMarkedOnly(): Text
+    var
+        Row: Record Row;
+        R: RecordRef;
+    begin
+        Row.SetRange("Day Filter", 1);
+        Row.SetRange(Total, 0);
+        Row.MarkedOnly(true);
+        exit(Row.GetFilters());
+    end;
+
+    procedure MeasuredInAFindError(): Text
+    var
+        Row: Record Row;
+        R: RecordRef;
+    begin
+        Row.SetRange("Day Filter", 1);
+        Row.SetRange(Total, 0);
+        Row.FindFirst();
+    end;
+
     procedure NormalAndFlowField(): Text
     var
         Row: Record Row;
@@ -127,12 +259,27 @@ fn the_measured_shape_lists_the_flowfilter_first_flagged() {
 
 #[test]
 fn other_shapes_with_a_flowfield_filter_before_a_flowfilter_filter_refuse() {
-    for routine in ["FlowFieldSetFirst", "WithANormalField", "InGroup2", "ThroughRecordRef"] {
+    let mut wrong = Vec::new();
+    for routine in [
+        "FlowFieldSetFirst",
+        "WithANormalField",
+        "InGroup2",
+        "ThroughRecordRef",
+        "OutOfNumberOrderFlowFilterSetFirst",
+        "FlowFieldDeclaredLaterSetFirst",
+        "FlowFieldDeclaredLaterFlowFilterSetFirst",
+        "FlowFieldDeclaredLaterThroughRecordRef",
+        "FlowFieldDeclaredLaterInAFindError",
+        "FlowFilterOfATableExtension",
+        "MeasuredOnMarkedOnly",
+        "MeasuredInAFindError",
+    ] {
         match run_in(SRC, "C", routine) {
-            Err(Signal::Unsupported(why)) => assert!(why.contains("order over field classes"), "{routine}: {why}"),
-            other => panic!("{routine}: expected a refusal, got {other:?}"),
+            Err(Signal::Unsupported(why)) if why.contains("order over field classes") => {}
+            other => wrong.push(format!("{routine}: {other:?}")),
         }
     }
+    assert!(wrong.is_empty(), "expected a refusal:\n{}", wrong.join("\n"));
 }
 
 #[test]
