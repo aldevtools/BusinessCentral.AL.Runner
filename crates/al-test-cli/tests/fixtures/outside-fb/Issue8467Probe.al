@@ -1,0 +1,1113 @@
+// BC Documentation:
+//   https://learn.microsoft.com/en-us/dynamics365/business-central/dev-itpro/developer/methods-auto/page/page-enqueuebackgroundtask-method
+//   https://learn.microsoft.com/en-us/dynamics365/business-central/dev-itpro/developer/methods-auto/testpage/testpagetestpage-runpagebackgroundtask-method
+// Scope: in-scope
+// local object: the reads of a page background task's worker and of the test session, and what the test writes, commits and
+//   rolls back between them, are what is under test
+// Fixtures used: shared Assert (60021); own tables 97500 and 97501, mode codeunit 97502, worker codeunits 97503 and 97504, page
+//   97505, test codeunits 97506 and 97507
+// Probe (al-runner issue 8467): a read the worker of a page background task repeats gets the answer of the first read, also after
+//   the test session changed the rows without committing. The tests read lines of table 97500 (key Group, Line No.) in the worker,
+//   either from the page's OnAfterGetCurrRecord (CurrPage.EnqueueBackgroundTask, the page shows the answer) or with
+//   TestPage.RunPageBackgroundTask, and change, commit and roll back the lines between the reads. Every test uses a group of its
+//   own (a new Guid), except the AutoRollback pairs, which use a fixed key and never commit it.
+// Readings: what each worker read answered; what the page shows; what the test session's own Get answers.
+// Cells:
+//   - the same read again after the test changed the row, not committed: Get (:365, :564, after a Delete :602), FindFirst on both
+//     key fields (:387, :584; Get and it answer alike), FindFirst and Count on the group (:639, :656, :673), a Get that found
+//     nothing and an empty group (:622, :690), another worker codeunit and SetLoadFields (:564), a first read with SetLoadFields
+//     and a later full read (:712), the task of a new page (:475);
+//     FindFirst and Count with a SetRange on a field outside the key (:889, :910; a commit of the table ends it), and Count with that filter
+//     set by SetRange to the value twice, by SetFilter of a range from the value to itself and by FieldRef.SetRange (:936);
+//   - a first read: it sees the test's change (:409, :520), unless the test session read the row before its change while it had
+//     not written the table since its last commit (:498, also when it had written another table :539, and when the change was to
+//     another row :957); a read the test session made after it wrote the table does not count (:978);
+//   - a commit: of the change of the row, the next read sees it (:428, ModifyAll :823); of another table (:449), or of another row of the
+//     table (ModifyAll :739, Modify :760, FindFirst on both key fields :781, an insert :803), the next read does not see a later
+//     change of the row; of any change of the table, the next FindFirst and Count on a group see it (:842, another group :864);
+//   - a rollback: asserterror (:1002) and the end of an AutoRollback test (:1035, :1048) do not change what the next read answers;
+//     the test session's own Get answers like a worker read then, until it writes the table (:1002);
+//   - another test codeunit: its read sees its own row (:1063, :1086).
+// BC versions: 29.1 (local W1 container).
+
+table 97500 "BQ Row"
+{
+    DataClassification = SystemMetadata;
+    ReplicateData = false;
+
+    fields
+    {
+        field(1; "Group"; Code[20]) { }
+        field(2; "Line No."; Integer) { }
+        field(3; Description; Text[50]) { }
+        field(4; Note; Text[50]) { }
+    }
+
+    keys
+    {
+        key(PK; "Group", "Line No.") { Clustered = true; }
+    }
+}
+
+table 97501 "BQ Other"
+{
+    DataClassification = SystemMetadata;
+    ReplicateData = false;
+
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+    }
+
+    keys
+    {
+        key(PK; "No.") { Clustered = true; }
+    }
+}
+
+// The read the page's background task makes: set by the test, read by the page in the test session.
+codeunit 97502 "BQ Mode"
+{
+    SingleInstance = true;
+
+    var
+        Mode: Text;
+
+    procedure Set(NewMode: Text)
+    begin
+        Mode := NewMode;
+    end;
+
+    procedure GetMode(): Text
+    begin
+        exit(Mode);
+    end;
+}
+
+// The worker: one read of BQ Row, chosen by the Mode parameter.
+codeunit 97503 "BQ Reader"
+{
+    trigger OnRun()
+    var
+        Row: Record "BQ Row";
+        RowRef: RecordRef;
+        Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
+        Group: Text;
+        LineText: Text;
+        LineNo: Integer;
+        Seen: Text;
+    begin
+        Parameters := Page.GetBackgroundParameters();
+        Parameters.Get('Group', Group);
+        Parameters.Get('Line', LineText);
+        Evaluate(LineNo, LineText);
+        case Parameters.Get('Mode') of
+            'get':
+                if Row.Get(Group, LineNo) then
+                    Seen := Row.Description
+                else
+                    Seen := '-';
+            'getlf':
+                begin
+                    Row.SetLoadFields(Description);
+                    if Row.Get(Group, LineNo) then
+                        Seen := Row.Description
+                    else
+                        Seen := '-';
+                end;
+            'getboth':
+                if Row.Get(Group, LineNo) then
+                    Seen := Row.Description + '+' + Row.Note
+                else
+                    Seen := '-';
+            'getlfboth':
+                begin
+                    Row.SetLoadFields(Description);
+                    if Row.Get(Group, LineNo) then
+                        Seen := Row.Description + '+' + Row.Note
+                    else
+                        Seen := '-';
+                end;
+            'first':
+                begin
+                    Row.SetRange("Group", Group);
+                    Row.SetRange("Line No.", LineNo);
+                    if Row.FindFirst() then
+                        Seen := Row.Description
+                    else
+                        Seen := '-';
+                end;
+            'groupfirst':
+                begin
+                    Row.SetRange("Group", Group);
+                    if Row.FindFirst() then
+                        Seen := Format(Row."Line No.") + '/' + Row.Description
+                    else
+                        Seen := '-';
+                end;
+            'count':
+                begin
+                    Row.SetRange("Group", Group);
+                    Seen := Format(Row.Count());
+                end;
+            'groupdesccount':
+                begin
+                    Row.SetRange("Group", Group);
+                    Row.SetRange(Description, Parameters.Get('Desc'));
+                    Seen := Format(Row.Count());
+                end;
+            'rangecount':
+                begin
+                    Row.SetRange("Group", Group);
+                    Row.SetRange(Description, Parameters.Get('Desc'), Parameters.Get('Desc'));
+                    Seen := Format(Row.Count());
+                end;
+            'filtercount':
+                begin
+                    Row.SetRange("Group", Group);
+                    Row.SetFilter(Description, '%1..%1', Parameters.Get('Desc'));
+                    Seen := Format(Row.Count());
+                end;
+            'refcount':
+                begin
+                    RowRef.Open(Database::"BQ Row");
+                    RowRef.Field(Row.FieldNo("Group")).SetRange(Group);
+                    RowRef.Field(Row.FieldNo(Description)).SetRange(Parameters.Get('Desc'));
+                    Seen := Format(RowRef.Count());
+                end;
+            'descfirst':
+                begin
+                    Row.SetRange(Description, Parameters.Get('Desc'));
+                    if Row.FindFirst() then
+                        Seen := Row."Group" + '/' + Format(Row."Line No.") + '/' + Row.Note
+                    else
+                        Seen := '-';
+                end;
+        end;
+        Results.Add('Seen', Seen);
+        Page.SetBackgroundTaskResult(Results);
+    end;
+}
+
+// A second worker codeunit with the same Get.
+codeunit 97504 "BQ Reader 2"
+{
+    trigger OnRun()
+    var
+        Row: Record "BQ Row";
+        Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
+        Group: Text;
+        LineText: Text;
+        LineNo: Integer;
+    begin
+        Parameters := Page.GetBackgroundParameters();
+        Parameters.Get('Group', Group);
+        Parameters.Get('Line', LineText);
+        Evaluate(LineNo, LineText);
+        if Row.Get(Group, LineNo) then
+            Results.Add('Seen', Row.Description)
+        else
+            Results.Add('Seen', '-');
+        Page.SetBackgroundTaskResult(Results);
+    end;
+}
+
+page 97505 "BQ Rows"
+{
+    PageType = List;
+    SourceTable = "BQ Row";
+    ApplicationArea = All;
+    UsageCategory = Lists;
+
+    layout
+    {
+        area(Content)
+        {
+            repeater(Lines)
+            {
+                field("Group"; Rec."Group") { }
+                field("Line No."; Rec."Line No.") { }
+                field(Description; Rec.Description) { }
+                field(Seen; Seen)
+                {
+                    Editable = false;
+                }
+            }
+        }
+    }
+
+    trigger OnAfterGetCurrRecord()
+    var
+        BqMode: Codeunit "BQ Mode";
+        Parameters: Dictionary of [Text, Text];
+        TaskId: Integer;
+    begin
+        Seen := '';
+        if BqMode.GetMode() = '' then
+            exit;
+        Parameters.Add('Group', Rec."Group");
+        Parameters.Add('Line', Format(Rec."Line No."));
+        Parameters.Add('Mode', BqMode.GetMode());
+        CurrPage.EnqueueBackgroundTask(TaskId, Codeunit::"BQ Reader", Parameters);
+    end;
+
+    trigger OnPageBackgroundTaskCompleted(TaskId: Integer; Results: Dictionary of [Text, Text])
+    begin
+        Seen := CopyStr(Results.Get('Seen'), 1, MaxStrLen(Seen));
+    end;
+
+    var
+        Seen: Text[50];
+}
+
+codeunit 97506 "BQ Tests"
+{
+    Subtype = Test;
+
+    var
+        Assert: Codeunit Assert;
+        BqMode: Codeunit "BQ Mode";
+
+    local procedure NewGroup(): Code[20]
+    begin
+        exit(CopyStr(DelChr(Format(CreateGuid()), '=', '{}-'), 1, 20));
+    end;
+
+    // Inserts a line, then reads the group: a read of the table by the test session after its insert, so the insert reaches the
+    // worker's session (without a read in between, a worker read right after the insert does not see it).
+    local procedure AddRow(Group: Code[20]; LineNo: Integer; Description: Text[50])
+    var
+        Row: Record "BQ Row";
+    begin
+        Row."Group" := Group;
+        Row."Line No." := LineNo;
+        Row.Description := Description;
+        Row.Insert();
+        Flush(Group);
+    end;
+
+    local procedure Flush(Group: Code[20])
+    var
+        Row: Record "BQ Row";
+    begin
+        Row.SetRange("Group", Group);
+        if Row.FindFirst() then;
+    end;
+
+    // Changes the line after reading it (Get, Modify).
+    local procedure SetRow(Group: Code[20]; LineNo: Integer; Description: Text[50])
+    var
+        Row: Record "BQ Row";
+    begin
+        Row.Get(Group, LineNo);
+        Row.Description := Description;
+        Row.Modify();
+    end;
+
+    // Changes the line without reading it (ModifyAll).
+    local procedure WriteOnly(Group: Code[20]; LineNo: Integer; Description: Text[50])
+    var
+        Row: Record "BQ Row";
+    begin
+        Row.SetRange("Group", Group);
+        Row.SetRange("Line No.", LineNo);
+        Row.ModifyAll(Description, Description);
+    end;
+
+    local procedure OpenOn(var Rows: TestPage "BQ Rows"; Group: Code[20])
+    begin
+        Rows.OpenView();
+        Rows.Filter.SetFilter("Group", Group);
+        Rows.First();
+    end;
+
+    // The worker run by the test on an open page, without its completion trigger.
+    local procedure Run(var Rows: TestPage "BQ Rows"; Worker: Integer; Mode: Text; Group: Code[20]; LineNo: Integer): Text
+    var
+        Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
+        Seen: Text;
+    begin
+        Parameters.Add('Group', Group);
+        Parameters.Add('Line', Format(LineNo));
+        Parameters.Add('Mode', Mode);
+        Results := Rows.RunPageBackgroundTask(Worker, Parameters, false);
+        Results.Get('Seen', Seen);
+        exit(Seen);
+    end;
+
+    // As Run, with the Description the worker filters on.
+    local procedure RunDesc(var Rows: TestPage "BQ Rows"; Mode: Text; Group: Code[20]; Description: Text): Text
+    var
+        Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
+        Seen: Text;
+    begin
+        Parameters.Add('Group', Group);
+        Parameters.Add('Line', '0');
+        Parameters.Add('Mode', Mode);
+        Parameters.Add('Desc', Description);
+        Results := Rows.RunPageBackgroundTask(Codeunit::"BQ Reader", Parameters, false);
+        Results.Get('Seen', Seen);
+        exit(Seen);
+    end;
+
+    local procedure Reader(): Integer
+    begin
+        exit(Codeunit::"BQ Reader");
+    end;
+
+    // The page's task reads line 1 by Get; the test changes it; the page moves to line 2 and back: the page shows the change,
+    // the task answers what it read first.
+    [Test]
+    procedure BgQueryCache_Page_Get_ChangedRow_FirstAnswer()
+    var
+        Rows: TestPage "BQ Rows";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        BqMode.Set('get');
+        AddRow(G, 1, 'first');
+        AddRow(G, 2, 'other');
+        OpenOn(Rows, G);
+        Assert.AreEqual('first', Rows.Seen.Value(), 'first read of line 1');
+        SetRow(G, 1, 'second');
+        Rows.Next();
+        Assert.AreEqual('other', Rows.Seen.Value(), 'line 2');
+        Rows.Previous();
+        Assert.AreEqual('second', Rows.Description.Value(), 'line 1 on the page');
+        Assert.AreEqual('first', Rows.Seen.Value(), 'second read of line 1');
+        Rows.Close();
+    end;
+
+    // As above, the task reads by SetRange on both key fields and FindFirst.
+    [Test]
+    procedure BgQueryCache_Page_FullKeyFindFirst_ChangedRow_FirstAnswer()
+    var
+        Rows: TestPage "BQ Rows";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        BqMode.Set('first');
+        AddRow(G, 1, 'first');
+        AddRow(G, 2, 'other');
+        OpenOn(Rows, G);
+        Assert.AreEqual('first', Rows.Seen.Value(), 'first read of line 1');
+        SetRow(G, 1, 'second');
+        Rows.Next();
+        Assert.AreEqual('other', Rows.Seen.Value(), 'line 2');
+        Rows.Previous();
+        Assert.AreEqual('second', Rows.Description.Value(), 'line 1 on the page');
+        Assert.AreEqual('first', Rows.Seen.Value(), 'second read of line 1');
+        Rows.Close();
+    end;
+
+    // A line the test changed before the task first read it: the task sees the change.
+    [Test]
+    procedure BgQueryCache_Page_FirstRead_SeesTheChange()
+    var
+        Rows: TestPage "BQ Rows";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        BqMode.Set('get');
+        AddRow(G, 1, 'first');
+        AddRow(G, 2, 'other');
+        OpenOn(Rows, G);
+        Assert.AreEqual('first', Rows.Seen.Value(), 'line 1');
+        SetRow(G, 2, 'other2');
+        Rows.Next();
+        Assert.AreEqual('other2', Rows.Seen.Value(), 'first read of line 2');
+        Rows.Close();
+    end;
+
+    // The test commits its change of line 1 before the task reads it again: the task sees it.
+    [Test]
+    procedure BgQueryCache_Page_Get_ChangeCommitted_SeesTheChange()
+    var
+        Rows: TestPage "BQ Rows";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        BqMode.Set('get');
+        AddRow(G, 1, 'first');
+        AddRow(G, 2, 'other');
+        OpenOn(Rows, G);
+        Assert.AreEqual('first', Rows.Seen.Value(), 'first read of line 1');
+        SetRow(G, 1, 'second');
+        Commit();
+        Rows.Next();
+        Rows.Previous();
+        Assert.AreEqual('second', Rows.Seen.Value(), 'second read of line 1');
+        Rows.Close();
+    end;
+
+    // After the first read, the test commits a write of another table, then changes line 1 without reading it.
+    [Test]
+    procedure BgQueryCache_Page_Get_OtherTableCommitted_FirstAnswer()
+    var
+        Rows: TestPage "BQ Rows";
+        Other: Record "BQ Other";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        BqMode.Set('get');
+        AddRow(G, 1, 'first');
+        AddRow(G, 2, 'other');
+        Commit();
+        OpenOn(Rows, G);
+        Assert.AreEqual('first', Rows.Seen.Value(), 'first read of line 1');
+        Other."No." := G;
+        Other.Insert();
+        Commit();
+        WriteOnly(G, 1, 'second');
+        Rows.Next();
+        Rows.Previous();
+        Assert.AreEqual('second', Rows.Description.Value(), 'line 1 on the page');
+        Assert.AreEqual('first', Rows.Seen.Value(), 'second read of line 1');
+        Rows.Close();
+    end;
+
+    // The page closes; the test changes line 1; a new page's task reads it.
+    [Test]
+    procedure BgQueryCache_Page_Get_NewPage_FirstAnswer()
+    var
+        Rows: TestPage "BQ Rows";
+        Rows2: TestPage "BQ Rows";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        BqMode.Set('get');
+        AddRow(G, 1, 'first');
+        AddRow(G, 2, 'other');
+        OpenOn(Rows, G);
+        Assert.AreEqual('first', Rows.Seen.Value(), 'first read of line 1');
+        Rows.Close();
+        SetRow(G, 1, 'second');
+        OpenOn(Rows2, G);
+        Assert.AreEqual('second', Rows2.Description.Value(), 'line 1 on the new page');
+        Assert.AreEqual('first', Rows2.Seen.Value(), 'read of line 1 by the new page');
+        Rows2.Close();
+    end;
+
+    // Committed lines; the test reads line 1 itself (it has not written the table since the commit), then changes it: the
+    // task's first read answers what the test read.
+    [Test]
+    procedure BgQueryCache_Page_TestReadFirst_FirstReadAnswersIt()
+    var
+        Rows: TestPage "BQ Rows";
+        Row: Record "BQ Row";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        BqMode.Set('get');
+        AddRow(G, 1, 'first');
+        AddRow(G, 2, 'other');
+        Commit();
+        Row.Get(G, 1);
+        Row.Description := 'second';
+        Row.Modify();
+        OpenOn(Rows, G);
+        Assert.AreEqual('second', Rows.Description.Value(), 'line 1 on the page');
+        Assert.AreEqual('first', Rows.Seen.Value(), 'first read of line 1');
+        Rows.Close();
+    end;
+
+    // As above, the test changes line 1 without reading it (ModifyAll): the task sees the change.
+    [Test]
+    procedure BgQueryCache_Page_TestWriteOnly_FirstReadSeesIt()
+    var
+        Rows: TestPage "BQ Rows";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        BqMode.Set('get');
+        AddRow(G, 1, 'first');
+        AddRow(G, 2, 'other');
+        Commit();
+        WriteOnly(G, 1, 'second');
+        OpenOn(Rows, G);
+        Assert.AreEqual('second', Rows.Seen.Value(), 'first read of line 1');
+        Rows.Close();
+    end;
+
+    // The test writes another table (not committed), then reads line 1 and changes it: the task's first read answers what the
+    // test read.
+    [Test]
+    procedure BgQueryCache_Page_OtherTableWritten_TestReadFirst_FirstReadAnswersIt()
+    var
+        Rows: TestPage "BQ Rows";
+        Row: Record "BQ Row";
+        Other: Record "BQ Other";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        BqMode.Set('get');
+        AddRow(G, 1, 'first');
+        AddRow(G, 2, 'other');
+        Commit();
+        Other."No." := G;
+        Other.Insert();
+        Row.Get(G, 1);
+        Row.Description := 'second';
+        Row.Modify();
+        OpenOn(Rows, G);
+        Assert.AreEqual('first', Rows.Seen.Value(), 'first read of line 1');
+        Rows.Close();
+    end;
+
+    // The test runs the worker itself: Get, change, then Get, FindFirst on both key fields, the other worker's Get and a Get with
+    // SetLoadFields all answer the first read.
+    [Test]
+    procedure BgQueryCache_Run_Get_ChangedRow_EveryFormFirstAnswer()
+    var
+        Rows: TestPage "BQ Rows";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        BqMode.Set('');
+        AddRow(G, 1, 'first');
+        OpenOn(Rows, G);
+        Assert.AreEqual('first', Run(Rows, Reader(), 'get', G, 1), 'Get');
+        SetRow(G, 1, 'second');
+        Assert.AreEqual('first', Run(Rows, Reader(), 'get', G, 1), 'Get again');
+        Assert.AreEqual('first', Run(Rows, Reader(), 'first', G, 1), 'FindFirst on both key fields');
+        Assert.AreEqual('first', Run(Rows, Codeunit::"BQ Reader 2", 'get', G, 1), 'Get of the other worker');
+        Assert.AreEqual('first', Run(Rows, Reader(), 'getlf', G, 1), 'Get with SetLoadFields');
+        Rows.Close();
+    end;
+
+    // FindFirst on both key fields first, change, then Get and FindFirst.
+    [Test]
+    procedure BgQueryCache_Run_FullKeyFindFirst_ChangedRow_GetFirstAnswer()
+    var
+        Rows: TestPage "BQ Rows";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        BqMode.Set('');
+        AddRow(G, 1, 'first');
+        OpenOn(Rows, G);
+        Assert.AreEqual('first', Run(Rows, Reader(), 'first', G, 1), 'FindFirst');
+        SetRow(G, 1, 'second');
+        Assert.AreEqual('first', Run(Rows, Reader(), 'get', G, 1), 'Get');
+        Assert.AreEqual('first', Run(Rows, Reader(), 'first', G, 1), 'FindFirst again');
+        Rows.Close();
+    end;
+
+    // Get, the test deletes the line, Get: found.
+    [Test]
+    procedure BgQueryCache_Run_Get_DeletedRow_FirstAnswer()
+    var
+        Rows: TestPage "BQ Rows";
+        Row: Record "BQ Row";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        BqMode.Set('');
+        AddRow(G, 1, 'first');
+        AddRow(G, 2, 'other');
+        OpenOn(Rows, G);
+        Assert.AreEqual('first', Run(Rows, Reader(), 'get', G, 1), 'Get');
+        Row.Get(G, 1);
+        Row.Delete();
+        Assert.AreEqual('first', Run(Rows, Reader(), 'get', G, 1), 'Get after the delete');
+        Rows.Close();
+    end;
+
+    // Get of a missing line, the test inserts it, Get: not found.
+    [Test]
+    procedure BgQueryCache_Run_GetMissing_InsertedRow_FirstAnswer()
+    var
+        Rows: TestPage "BQ Rows";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        BqMode.Set('');
+        AddRow(G, 2, 'other');
+        OpenOn(Rows, G);
+        Assert.AreEqual('-', Run(Rows, Reader(), 'get', G, 1), 'Get');
+        AddRow(G, 1, 'new');
+        Assert.AreEqual('-', Run(Rows, Reader(), 'get', G, 1), 'Get after the insert');
+        Rows.Close();
+    end;
+
+    // FindFirst on the group, the test inserts a line that sorts first, FindFirst: the first line read first.
+    [Test]
+    procedure BgQueryCache_Run_GroupFindFirst_InsertBefore_FirstAnswer()
+    var
+        Rows: TestPage "BQ Rows";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        BqMode.Set('');
+        AddRow(G, 2, 'b');
+        OpenOn(Rows, G);
+        Assert.AreEqual('2/b', Run(Rows, Reader(), 'groupfirst', G, 0), 'FindFirst');
+        AddRow(G, 1, 'a');
+        Assert.AreEqual('2/b', Run(Rows, Reader(), 'groupfirst', G, 0), 'FindFirst after the insert');
+        Rows.Close();
+    end;
+
+    // FindFirst on the group, the test changes the line it found, FindFirst: the line as read first.
+    [Test]
+    procedure BgQueryCache_Run_GroupFindFirst_ChangedRow_FirstAnswer()
+    var
+        Rows: TestPage "BQ Rows";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        BqMode.Set('');
+        AddRow(G, 1, 'a');
+        OpenOn(Rows, G);
+        Assert.AreEqual('1/a', Run(Rows, Reader(), 'groupfirst', G, 0), 'FindFirst');
+        SetRow(G, 1, 'a2');
+        Assert.AreEqual('1/a', Run(Rows, Reader(), 'groupfirst', G, 0), 'FindFirst after the change');
+        Rows.Close();
+    end;
+
+    // Count on the group, the test inserts, Count.
+    [Test]
+    procedure BgQueryCache_Run_GroupCount_Insert_FirstAnswer()
+    var
+        Rows: TestPage "BQ Rows";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        BqMode.Set('');
+        AddRow(G, 1, 'a');
+        OpenOn(Rows, G);
+        Assert.AreEqual('1', Run(Rows, Reader(), 'count', G, 0), 'Count');
+        AddRow(G, 2, 'b');
+        Assert.AreEqual('1', Run(Rows, Reader(), 'count', G, 0), 'Count after the insert');
+        Rows.Close();
+    end;
+
+    // FindFirst and Count on an empty group, the test inserts into it: nothing found, 0.
+    [Test]
+    procedure BgQueryCache_Run_EmptyGroup_Insert_FirstAnswer()
+    var
+        Rows: TestPage "BQ Rows";
+        G: Code[20];
+        H: Code[20];
+    begin
+        G := NewGroup();
+        H := NewGroup();
+        BqMode.Set('');
+        AddRow(H, 1, 'h');
+        OpenOn(Rows, H);
+        Assert.AreEqual('-', Run(Rows, Reader(), 'groupfirst', G, 0), 'FindFirst');
+        Assert.AreEqual('0', Run(Rows, Reader(), 'count', G, 0), 'Count');
+        AddRow(G, 1, 'g');
+        Assert.AreEqual('-', Run(Rows, Reader(), 'groupfirst', G, 0), 'FindFirst after the insert');
+        Assert.AreEqual('0', Run(Rows, Reader(), 'count', G, 0), 'Count after the insert');
+        Rows.Close();
+    end;
+
+    // The first read loads Description only; the test changes Description and Note; a full Get and a partial Get answer the
+    // line as it was, Note too.
+    [Test]
+    procedure BgQueryCache_Run_PartialFirst_FullLater_FirstAnswer()
+    var
+        Rows: TestPage "BQ Rows";
+        Row: Record "BQ Row";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        BqMode.Set('');
+        Row."Group" := G;
+        Row."Line No." := 1;
+        Row.Description := 'first';
+        Row.Note := 'n1';
+        Row.Insert();
+        Flush(G);
+        OpenOn(Rows, G);
+        Assert.AreEqual('first+n1', Run(Rows, Reader(), 'getlfboth', G, 1), 'partial Get');
+        Row.Description := 'second';
+        Row.Note := 'n2';
+        Row.Modify();
+        Assert.AreEqual('first+n1', Run(Rows, Reader(), 'getboth', G, 1), 'full Get');
+        Assert.AreEqual('first+n1', Run(Rows, Reader(), 'getlfboth', G, 1), 'partial Get again');
+        Rows.Close();
+    end;
+
+    // Committed lines 1 and 2; Get of line 1; the test changes line 2 (ModifyAll) and commits, then changes line 1 without
+    // reading it: Get answers the first read.
+    [Test]
+    procedure BgQueryCache_Run_Get_OtherRowModifyAllCommitted_FirstAnswer()
+    var
+        Rows: TestPage "BQ Rows";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        BqMode.Set('');
+        AddRow(G, 1, 'first');
+        AddRow(G, 2, 'other');
+        Commit();
+        OpenOn(Rows, G);
+        Assert.AreEqual('first', Run(Rows, Reader(), 'get', G, 1), 'Get');
+        WriteOnly(G, 2, 'other2');
+        Commit();
+        WriteOnly(G, 1, 'second');
+        Assert.AreEqual('first', Run(Rows, Reader(), 'get', G, 1), 'Get after the commit');
+        Rows.Close();
+    end;
+
+    // As above, line 2 changed by Get and Modify.
+    [Test]
+    procedure BgQueryCache_Run_Get_OtherRowModifyCommitted_FirstAnswer()
+    var
+        Rows: TestPage "BQ Rows";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        BqMode.Set('');
+        AddRow(G, 1, 'first');
+        AddRow(G, 2, 'other');
+        Commit();
+        OpenOn(Rows, G);
+        Assert.AreEqual('first', Run(Rows, Reader(), 'get', G, 1), 'Get');
+        SetRow(G, 2, 'other2');
+        Commit();
+        WriteOnly(G, 1, 'second');
+        Assert.AreEqual('first', Run(Rows, Reader(), 'get', G, 1), 'Get after the commit');
+        Rows.Close();
+    end;
+
+    // As above, the reads by FindFirst on both key fields.
+    [Test]
+    procedure BgQueryCache_Run_FullKeyFindFirst_OtherRowCommitted_FirstAnswer()
+    var
+        Rows: TestPage "BQ Rows";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        BqMode.Set('');
+        AddRow(G, 1, 'first');
+        AddRow(G, 2, 'other');
+        Commit();
+        OpenOn(Rows, G);
+        Assert.AreEqual('first', Run(Rows, Reader(), 'first', G, 1), 'FindFirst');
+        SetRow(G, 2, 'other2');
+        Commit();
+        WriteOnly(G, 1, 'second');
+        Assert.AreEqual('first', Run(Rows, Reader(), 'first', G, 1), 'FindFirst after the commit');
+        Assert.AreEqual('first', Run(Rows, Reader(), 'get', G, 1), 'Get after the commit');
+        Rows.Close();
+    end;
+
+    // Get of line 1; the test inserts line 3 and commits, then changes line 1 without reading it: Get answers the first read.
+    [Test]
+    procedure BgQueryCache_Run_Get_InsertCommitted_FirstAnswer()
+    var
+        Rows: TestPage "BQ Rows";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        BqMode.Set('');
+        AddRow(G, 1, 'first');
+        Commit();
+        OpenOn(Rows, G);
+        Assert.AreEqual('first', Run(Rows, Reader(), 'get', G, 1), 'Get');
+        AddRow(G, 3, 'third');
+        Commit();
+        WriteOnly(G, 1, 'second');
+        Assert.AreEqual('first', Run(Rows, Reader(), 'get', G, 1), 'Get after the commit');
+        Rows.Close();
+    end;
+
+    // Get of line 1; the test changes it by ModifyAll and commits: Get sees the change.
+    [Test]
+    procedure BgQueryCache_Run_Get_ModifyAllCommitted_SeesTheChange()
+    var
+        Rows: TestPage "BQ Rows";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        BqMode.Set('');
+        AddRow(G, 1, 'first');
+        Commit();
+        OpenOn(Rows, G);
+        Assert.AreEqual('first', Run(Rows, Reader(), 'get', G, 1), 'Get');
+        WriteOnly(G, 1, 'second');
+        Commit();
+        Assert.AreEqual('second', Run(Rows, Reader(), 'get', G, 1), 'Get after the commit');
+        Rows.Close();
+    end;
+
+    // Count and FindFirst on the group; the test inserts a line into the group and commits: both see it.
+    [Test]
+    procedure BgQueryCache_Run_GroupReads_InsertCommitted_SeeTheChange()
+    var
+        Rows: TestPage "BQ Rows";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        BqMode.Set('');
+        AddRow(G, 2, 'b');
+        Commit();
+        OpenOn(Rows, G);
+        Assert.AreEqual('1', Run(Rows, Reader(), 'count', G, 0), 'Count');
+        Assert.AreEqual('2/b', Run(Rows, Reader(), 'groupfirst', G, 0), 'FindFirst');
+        AddRow(G, 1, 'a');
+        Commit();
+        Assert.AreEqual('2', Run(Rows, Reader(), 'count', G, 0), 'Count after the commit');
+        Assert.AreEqual('1/a', Run(Rows, Reader(), 'groupfirst', G, 0), 'FindFirst after the commit');
+        Rows.Close();
+    end;
+
+    // Count and FindFirst on group G; the test inserts into another group and commits, then inserts into G without committing:
+    // both see the insert into G.
+    [Test]
+    procedure BgQueryCache_Run_GroupReads_OtherGroupCommitted_SeeTheChange()
+    var
+        Rows: TestPage "BQ Rows";
+        G: Code[20];
+        H: Code[20];
+    begin
+        G := NewGroup();
+        H := NewGroup();
+        BqMode.Set('');
+        AddRow(G, 2, 'b');
+        Commit();
+        OpenOn(Rows, G);
+        Assert.AreEqual('1', Run(Rows, Reader(), 'count', G, 0), 'Count');
+        Assert.AreEqual('2/b', Run(Rows, Reader(), 'groupfirst', G, 0), 'FindFirst');
+        AddRow(H, 1, 'h');
+        Commit();
+        AddRow(G, 1, 'a');
+        Assert.AreEqual('2', Run(Rows, Reader(), 'count', G, 0), 'Count after the commit');
+        Assert.AreEqual('1/a', Run(Rows, Reader(), 'groupfirst', G, 0), 'FindFirst after the commit');
+        Rows.Close();
+    end;
+
+    // Count with a SetRange on the group and on Description (not a key field); the test inserts a matching line: the first
+    // answer. Then the test commits: Count sees it.
+    [Test]
+    procedure BgQueryCache_Run_NonKeyFilterCount_Insert_FirstAnswerUntilCommit()
+    var
+        Rows: TestPage "BQ Rows";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        BqMode.Set('');
+        AddRow(G, 1, 'x');
+        AddRow(G, 2, 'y');
+        OpenOn(Rows, G);
+        Assert.AreEqual('1', RunDesc(Rows, 'groupdesccount', G, 'x'), 'Count');
+        AddRow(G, 3, 'x');
+        Assert.AreEqual('1', RunDesc(Rows, 'groupdesccount', G, 'x'), 'Count after the insert');
+        Commit();
+        Assert.AreEqual('2', RunDesc(Rows, 'groupdesccount', G, 'x'), 'Count after the commit');
+        Rows.Close();
+    end;
+
+    // FindFirst with a SetRange on Description only; the test changes the line it found and inserts a line with that
+    // Description that sorts first: the line as read first. Then the test commits: FindFirst sees the new first line.
+    [Test]
+    procedure BgQueryCache_Run_NonKeyFilterFindFirst_FirstAnswerUntilCommit()
+    var
+        Rows: TestPage "BQ Rows";
+        Row: Record "BQ Row";
+        G: Code[20];
+        Desc: Text[50];
+    begin
+        G := NewGroup();
+        Desc := CopyStr('d' + G, 1, 50);
+        BqMode.Set('');
+        AddRow(G, 2, Desc);
+        OpenOn(Rows, G);
+        Assert.AreEqual(G + '/2/', RunDesc(Rows, 'descfirst', G, Desc), 'FindFirst');
+        Row.Get(G, 2);
+        Row.Note := 'n';
+        Row.Modify();
+        AddRow(G, 1, Desc);
+        Assert.AreEqual(G + '/2/', RunDesc(Rows, 'descfirst', G, Desc), 'FindFirst after the changes');
+        Commit();
+        Assert.AreEqual(G + '/1/', RunDesc(Rows, 'descfirst', G, Desc), 'FindFirst after the commit');
+        Rows.Close();
+    end;
+
+    // Count with the Description filter set three other ways: SetRange to the same value twice, SetFilter of a range from a
+    // value to itself, and FieldRef.SetRange on a RecordRef; the test inserts a matching line: each answers its first answer.
+    [Test]
+    procedure BgQueryCache_Run_OtherFilterForms_Insert_FirstAnswer()
+    var
+        Rows: TestPage "BQ Rows";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        BqMode.Set('');
+        AddRow(G, 1, 'x');
+        OpenOn(Rows, G);
+        Assert.AreEqual('1', RunDesc(Rows, 'rangecount', G, 'x'), 'SetRange from and to');
+        Assert.AreEqual('1', RunDesc(Rows, 'filtercount', G, 'x'), 'SetFilter range');
+        Assert.AreEqual('1', RunDesc(Rows, 'refcount', G, 'x'), 'FieldRef.SetRange');
+        AddRow(G, 2, 'x');
+        Assert.AreEqual('1', RunDesc(Rows, 'rangecount', G, 'x'), 'SetRange from and to after the insert');
+        Assert.AreEqual('1', RunDesc(Rows, 'filtercount', G, 'x'), 'SetFilter range after the insert');
+        Assert.AreEqual('1', RunDesc(Rows, 'refcount', G, 'x'), 'FieldRef.SetRange after the insert');
+        Rows.Close();
+    end;
+
+    // Committed lines; the test reads line 1, then changes line 2: the task's first read of line 1 answers line 1.
+    [Test]
+    procedure BgQueryCache_Run_TestReadFirst_OtherRowChanged_FirstRead()
+    var
+        Rows: TestPage "BQ Rows";
+        Row: Record "BQ Row";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        BqMode.Set('');
+        AddRow(G, 1, 'first');
+        AddRow(G, 2, 'other');
+        Commit();
+        Row.Get(G, 1);
+        WriteOnly(G, 2, 'other2');
+        OpenOn(Rows, G);
+        Assert.AreEqual('first', Run(Rows, Reader(), 'get', G, 1), 'first read of line 1');
+        Rows.Close();
+    end;
+
+    // Committed lines; the test changes line 2, then reads line 1, then changes line 1 without reading it: the task's first read
+    // sees the change (the test's read came after it wrote the table).
+    [Test]
+    procedure BgQueryCache_Run_TableWritten_TestRead_FirstReadSeesTheChange()
+    var
+        Rows: TestPage "BQ Rows";
+        Row: Record "BQ Row";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        BqMode.Set('');
+        AddRow(G, 1, 'first');
+        AddRow(G, 2, 'other');
+        Commit();
+        WriteOnly(G, 2, 'other2');
+        Row.Get(G, 1);
+        Assert.AreEqual('first', Row.Description, 'the test''s read');
+        WriteOnly(G, 1, 'second');
+        OpenOn(Rows, G);
+        Assert.AreEqual('second', Run(Rows, Reader(), 'get', G, 1), 'first read of line 1');
+        Rows.Close();
+    end;
+
+    // Inside asserterror the test inserts a line and the task reads it, then an error rolls the insert back. The task's Get
+    // still finds it, and so does the test's own Get (it has not written the table since the rollback) until the test writes
+    // the table.
+    [Test]
+    procedure BgQueryCache_AssertError_Rollback_FirstAnswer()
+    var
+        Rows: TestPage "BQ Rows";
+        Row: Record "BQ Row";
+        G: Code[20];
+        H: Code[20];
+    begin
+        G := NewGroup();
+        H := NewGroup();
+        BqMode.Set('');
+        AddRow(H, 1, 'h');
+        Commit();
+        OpenOn(Rows, H);
+        asserterror begin
+            AddRow(G, 1, 'gone');
+            Assert.AreEqual('gone', Run(Rows, Reader(), 'get', G, 1), 'Get of the inserted line');
+            Error('roll back');
+        end;
+        Assert.AreEqual('gone', Run(Rows, Reader(), 'get', G, 1), 'Get after the rollback');
+        Assert.IsTrue(Row.Get(G, 1), 'the test''s Get after the rollback');
+        Assert.AreEqual('gone', Row.Description, 'the line the test''s Get found');
+        Row.Reset();
+        Row.SetRange("Group", G);
+        Assert.AreEqual(0, Row.Count(), 'the group holds no line');
+        AddRow(H, 2, 'h2');
+        Assert.IsFalse(Row.Get(G, 1), 'the test''s Get after it wrote the table');
+        Rows.Close();
+    end;
+
+    // An AutoRollback test inserts a fixed key and the task reads it; the test passes, its insert is rolled back. The next test
+    // inserts the same key with another Description: the task answers the first.
+    [Test]
+    [TransactionModel(TransactionModel::AutoRollback)]
+    procedure BgQueryCache_AutoRollback_1_ReadsTheKey()
+    var
+        Rows: TestPage "BQ Rows";
+    begin
+        BqMode.Set('');
+        AddRow('BQZ', 1, 'z1');
+        OpenOn(Rows, 'BQZ');
+        Assert.AreEqual('z1', Run(Rows, Reader(), 'get', 'BQZ', 1), 'Get');
+        Rows.Close();
+    end;
+
+    [Test]
+    [TransactionModel(TransactionModel::AutoRollback)]
+    procedure BgQueryCache_AutoRollback_2_SameKey_FirstAnswer()
+    var
+        Rows: TestPage "BQ Rows";
+    begin
+        BqMode.Set('');
+        AddRow('BQZ', 1, 'z2');
+        OpenOn(Rows, 'BQZ');
+        Assert.AreEqual('z1', Run(Rows, Reader(), 'get', 'BQZ', 1), 'Get of the key the previous test read');
+        Rows.Close();
+    end;
+
+    // The first test of a pair whose second test is in codeunit 97507: it inserts a fixed key and the task reads it, and its
+    // insert is rolled back.
+    [Test]
+    [TransactionModel(TransactionModel::AutoRollback)]
+    procedure BgQueryCache_OtherCodeunit_1_ReadsTheKey()
+    var
+        Rows: TestPage "BQ Rows";
+    begin
+        BqMode.Set('');
+        AddRow('BQW', 1, 'w1');
+        OpenOn(Rows, 'BQW');
+        Assert.AreEqual('w1', Run(Rows, Reader(), 'get', 'BQW', 1), 'Get');
+        Rows.Close();
+    end;
+}
+
+codeunit 97507 "BQ Tests 2"
+{
+    Subtype = Test;
+
+    var
+        Assert: Codeunit Assert;
+
+    // In another test codeunit, the test inserts the key BgQueryCache_OtherCodeunit_1_ReadsTheKey read: the task sees this
+    // test's row.
+    [Test]
+    [TransactionModel(TransactionModel::AutoRollback)]
+    procedure BgQueryCache_OtherCodeunit_2_SameKey_SeesItsRow()
+    var
+        Row: Record "BQ Row";
+        Rows: TestPage "BQ Rows";
+        BqMode: Codeunit "BQ Mode";
+        Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
+        Seen: Text;
+    begin
+        BqMode.Set('');
+        Row."Group" := 'BQW';
+        Row."Line No." := 1;
+        Row.Description := 'w2';
+        Row.Insert();
+        Row.SetRange("Group", 'BQW');
+        if Row.FindFirst() then;
+        Rows.OpenView();
+        Rows.Filter.SetFilter("Group", 'BQW');
+        Rows.First();
+        Parameters.Add('Group', 'BQW');
+        Parameters.Add('Line', '1');
+        Parameters.Add('Mode', 'get');
+        Results := Rows.RunPageBackgroundTask(Codeunit::"BQ Reader", Parameters, false);
+        Results.Get('Seen', Seen);
+        Rows.Close();
+        Assert.AreEqual('w2', Seen, 'Get of the key the other codeunit read');
+    end;
+}

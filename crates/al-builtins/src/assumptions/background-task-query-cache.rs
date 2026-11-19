@@ -1,0 +1,11 @@
+BackgroundTaskQueryCache => {
+    id: "background-task-query-cache",
+    assumed: "A page background task's worker that repeats a read answers what the earlier read answered, also after the test session changed the rows without committing, for three read forms on a database table in its primary key, ascending, without marks: Get with every primary-key field (SetLoadFields allowed) and FindFirst with exactly one SetRange to one value on every primary-key field (filter group 0, no SetLoadFields), which answer alike; and FindFirst (no SetLoadFields) and Count whose every filter is a SetRange to one value on a stored field in filter group 0 (also set as SetRange to the value twice, a SetFilter range from the value to itself, or FieldRef.SetRange). Reads with another ReadIsolation or SecurityFiltering, SetAutoCalcFields, LockTable, ChangeCompany, or of a virtual table are not cached. A found row, a missing row and a count are kept. A row entry holds until a commit writes that row, a group entry until a commit writes the table; a rollback changes neither. The test session's own read of a row or a group fills the cache while that session has not written the table since its last commit, and a worker's first read of that row then answers what the test read. The cache starts empty in every test codeunit. Refused: a test-session read that a worker's entry answers otherwise than the table, a worker's group read after the test session read the group and then wrote the table, and a load of a field SetLoadFields left out into a record answered from the cache with another row. Every other read keeps reading the rows as they are.",
+    tests: "No Microsoft test: al-runner issue 8467 (the reporter's repro, green on real BC 3/3) and al-runner issue 8434 (a partner app's FactBox whose background task reads the page's line again after the test changed it).",
+    probe: "Corpus pull request 1457 (open), tests/al-language/pages/background-tasks/BgTaskQueryCache.al:365-1086, 35 tests, green on a local Business Central 29.1 container.",
+    awaiting: Awaiting {
+        issues: &[8467, 8434],
+        files: &["tests/al-language/pages/background-tasks/BgTaskQueryCache.al"],
+        since: "2026-11-19",
+    },
+}

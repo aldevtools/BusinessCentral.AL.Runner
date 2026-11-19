@@ -1973,6 +1973,7 @@ impl Session {
             r.row_origin = origin;
             r.own_read = own_read;
         }
+        self.note_replayed_load(rec);
         self.auto_calculate(rec)
     }
 
