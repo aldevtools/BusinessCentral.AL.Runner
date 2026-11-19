@@ -109,6 +109,7 @@ mod single_instance_lane;
 mod single_instance_test_codeunit;
 mod skip_after_timeout;
 mod start_session_record;
+mod stop_at_failure;
 mod strict_sequential;
 mod test_driver;
 mod testfilter_qualified_field;

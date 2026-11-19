@@ -2537,3 +2537,270 @@ fn entries_with_resources_take_the_kept_baseline_and_give_what_a_fresh_daemon_gi
         );
     }
 }
+
+// ---- stopAtFirstFailure (al-runner issue 8210) ----
+
+const STOP_REQUEST_REASON: &str = "an earlier test of this request failed, and stopAtFirstFailure does not run the rest of the request";
+const STOP_GROUP_REASON: &str = "an earlier test of this entry's group failed, and stopAtFirstFailure does not run the rest of the group";
+
+/// The issue's shape: the first test of the codeunit fails, the three after it would pass.
+fn stop_app(root: &Path) -> PathBuf {
+    app(
+        root,
+        "stopper",
+        "codeunit 50110 \"Stop Fixture\" { Subtype = Test;
+    [Test] procedure FailsFirst() begin Error('killed'); end;
+    [Test] procedure SlowTwo() begin end;
+    [Test] procedure SlowThree() begin end;
+    [Test] procedure SlowFour() begin end; }",
+    )
+}
+
+/// A server with one test thread, so that the order of the tests is the declaration order.
+fn one_thread_server() -> Server {
+    let mut s = Server::start_with(&["--no-download", "--no-test-data"], &[("AL_TEST_THREADS", "1")]);
+    s.line();
+    s
+}
+
+fn test_lines(lines: &[Value]) -> Vec<&Value> {
+    lines.iter().filter(|l| l["type"] == "test").collect()
+}
+
+fn run_request(s: &mut Server, a: &Path, extra: Value) -> Vec<Value> {
+    let mut r = json!({"command": "runTests", "sourcePaths": [a]});
+    for (k, v) in extra.as_object().unwrap() {
+        r[k] = v.clone();
+    }
+    s.send(r);
+    s.until_summary()
+}
+
+fn assert_stopped_row(l: &Value, reason: &str) {
+    assert_eq!(l["status"], "error", "{l}");
+    assert_eq!(l["notRun"], true, "{l}");
+    assert_eq!(l["message"], format!("NotRun: out-of-scope: {reason}"), "{l}");
+}
+
+/// S1: off by default; `"request"` ends the request at its first failing test, and the tests not reached are answered.
+#[test]
+fn stop_at_first_failure_ends_a_request_at_its_first_failing_test() {
+    let d = tempfile::tempdir().unwrap();
+    let a = stop_app(d.path());
+    let mut s = one_thread_server();
+    let lines = run_request(&mut s, &a, json!({}));
+    let summary = lines.last().unwrap();
+    assert_eq!((summary["failed"].clone(), summary["passed"].clone()), (json!(1), json!(3)), "{lines:?}");
+    let lines = run_request(&mut s, &a, json!({"stopAtFirstFailure": null}));
+    assert_eq!(lines.last().unwrap()["passed"], 3, "null is off: {lines:?}");
+    let lines = run_request(&mut s, &a, json!({"stopAtFirstFailure": "request"}));
+    let tests = test_lines(&lines);
+    assert_eq!(tests.len(), 4, "{lines:?}");
+    assert!(tests[0]["name"].as_str().unwrap().ends_with("FailsFirst"), "{lines:?}");
+    assert_eq!(tests[0]["status"], "fail", "{lines:?}");
+    for t in &tests[1..] {
+        assert_stopped_row(t, STOP_REQUEST_REASON);
+    }
+    let summary = lines.last().unwrap();
+    assert_eq!(summary["failed"], 1, "{summary}");
+    assert_eq!(summary["notRun"], 3, "{summary}");
+    assert_eq!(summary["total"], 4, "{summary}");
+    assert_eq!(summary["exitCode"], 1, "{summary}");
+    s.send(json!({"command": "shutdown"}));
+    s.line();
+}
+
+/// S2: with `entries`, one stop serves the request: the later entries run no test and still answer all of theirs.
+#[test]
+fn stop_at_first_failure_request_skips_the_later_entries() {
+    let d = tempfile::tempdir().unwrap();
+    let a = stop_app(d.path());
+    let mut s = one_thread_server();
+    let lines = run_request(
+        &mut s,
+        &a,
+        json!({"stopAtFirstFailure": "request", "entries": [
+            {"id": "a", "test": "Codeunit50110."}, {"id": "b", "test": "Codeunit50110."}, {"id": "c", "test": "Codeunit50110."}]}),
+    );
+    let tests = test_lines(&lines);
+    assert_eq!(tests.len(), 12, "{lines:?}");
+    for (k, id) in ["a", "b", "c"].into_iter().enumerate() {
+        assert!(tests[4 * k..4 * k + 4].iter().all(|t| t["entry"] == id), "{lines:?}");
+    }
+    assert_eq!(tests.iter().filter(|t| t["notRun"] == true).count(), 11, "{lines:?}");
+    let exits: Vec<&Value> = lines
+        .iter()
+        .filter(|l| l["type"] == "entrySummary")
+        .map(|l| &l["exitCode"])
+        .collect();
+    assert_eq!(exits, [&json!(1), &json!(7), &json!(7)], "{lines:?}");
+    let summary = lines.last().unwrap();
+    assert_eq!((&summary["failed"], &summary["notRun"], &summary["exitCode"]), (&json!(1), &json!(11), &json!(1)), "{summary}");
+    s.send(json!({"command": "shutdown"}));
+    s.line();
+}
+
+/// S3: with `"group"`, entries with one `stopGroup` stop together; an entry without one is a group of its own.
+#[test]
+fn stop_at_first_failure_group_stops_each_group_on_its_own() {
+    let d = tempfile::tempdir().unwrap();
+    let a = stop_app(d.path());
+    let mut s = one_thread_server();
+    let t = "Codeunit50110.";
+    let lines = run_request(
+        &mut s,
+        &a,
+        json!({"stopAtFirstFailure": "group", "entries": [
+            {"id": "a", "test": t, "stopGroup": "m1"}, {"id": "b", "test": t, "stopGroup": "m1"},
+            {"id": "c", "test": t, "stopGroup": "m2"}, {"id": "d", "test": t}]}),
+    );
+    let tests = test_lines(&lines);
+    assert_eq!(tests.len(), 16, "{lines:?}");
+    for (k, fails) in [true, false, true, true].into_iter().enumerate() {
+        let rows = &tests[4 * k..4 * k + 4];
+        let rest = if fails {
+            assert_eq!(rows[0]["status"], "fail", "{lines:?}");
+            &rows[1..]
+        } else {
+            rows
+        };
+        for r in rest {
+            assert_stopped_row(r, STOP_GROUP_REASON);
+        }
+    }
+    s.send(json!({"command": "shutdown"}));
+    s.line();
+}
+
+/// S4: a test codeunit the stop skips as a whole still answers each of its tests (the lowest id fails first).
+#[test]
+fn a_stop_skips_whole_test_codeunits_and_still_answers_their_tests() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app(
+        d.path(),
+        "three",
+        "codeunit 50120 \"Stop One\" { Subtype = Test; [Test] procedure Fails() begin Error('first'); end; }
+codeunit 50121 \"Stop Two\" { Subtype = Test;
+    [Test] procedure A() begin end; [Test] procedure B() begin end; }
+codeunit 50122 \"Stop Three\" { Subtype = Test;
+    [Test] procedure C() begin end; [Test] procedure D() begin end; }",
+    );
+    let mut s = one_thread_server();
+    let lines = run_request(&mut s, &a, json!({"stopAtFirstFailure": "request"}));
+    let tests = test_lines(&lines);
+    assert_eq!(tests.len(), 5, "{lines:?}");
+    assert_eq!(tests[0]["status"], "fail", "{lines:?}");
+    for t in &tests[1..] {
+        assert_stopped_row(t, STOP_REQUEST_REASON);
+    }
+    s.send(json!({"command": "shutdown"}));
+    s.line();
+}
+
+/// S5: the values and combinations of the field that are an error, and `execute` with it.
+#[test]
+fn stop_at_first_failure_checks_its_values_and_combinations() {
+    let d = tempfile::tempdir().unwrap();
+    let a = stop_app(d.path());
+    let mut s = one_thread_server();
+    for (extra, says) in [
+        (json!({"stopAtFirstFailure": true}), "`stopAtFirstFailure` is \"request\" or \"group\""),
+        (json!({"stopAtFirstFailure": "entry"}), "`stopAtFirstFailure` is \"request\" or \"group\""),
+        (
+            json!({"stopAtFirstFailure": "group"}),
+            "`stopAtFirstFailure: \"group\"` needs `entries`: a group is the entries with the same `stopGroup`",
+        ),
+        (
+            json!({"stopAtFirstFailure": "group", "entries": [{"stopGroup": {"a": 1}}]}),
+            "the `stopGroup` of an entry is a text or a number",
+        ),
+        (
+            json!({"stopAtFirstFailure": "request", "entries": [{"stopGroup": "m"}]}),
+            "`stopGroup` needs `stopAtFirstFailure: \"group\"`",
+        ),
+        (
+            json!({"entries": [{"stopGroup": "m"}]}),
+            "`stopGroup` needs `stopAtFirstFailure: \"group\"`",
+        ),
+        (
+            json!({"stopAtFirstFailure": "request", "strictOrder": true}),
+            "`stopAtFirstFailure` cannot be combined with `strictOrder`: a failed test codeunit may run again there, so the first failure does not decide the result",
+        ),
+        (
+            json!({"stopAtFirstFailure": "request", "testDriver": "bccontainerhelper"}),
+            "`stopAtFirstFailure` cannot be combined with `testDriver: \"bccontainerhelper\"`",
+        ),
+        (
+            json!({"stopAtFirstFailure": "request", "testIsolation": "disabled"}),
+            "`stopAtFirstFailure` cannot be combined with `testIsolation: \"disabled\"`",
+        ),
+        (
+            json!({"stopAtFirstFailure": "request", "affectedOnly": true}),
+            "`stopAtFirstFailure` cannot be combined with `affectedOnly`: a stopped run is not a result to store",
+        ),
+    ] {
+        let lines = run_request(&mut s, &a, extra.clone());
+        let e = lines.last().unwrap()["error"].as_str().unwrap_or_default().to_string();
+        assert!(e.contains(says), "{extra}: wanted `{says}`: {lines:?}");
+    }
+    // `execute` reads the name as a field of `runTests`: a warning, not an error.
+    s.send(json!({"command": "execute", "code": "Message('a');", "stopAtFirstFailure": "request"}));
+    let r = s.line();
+    assert!(r["warnings"][0].as_str().unwrap().contains("stopAtFirstFailure"), "{r}");
+    s.send(json!({"command": "shutdown"}));
+    s.line();
+}
+
+/// A fixture whose tests write a row, a SingleInstance text and WorkDate before they fail or pass, and a reader that
+/// reports what it sees (S6).
+fn state_stop_app(root: &Path) -> PathBuf {
+    app(
+        root,
+        "statestop",
+        "table 50130 \"Stop Row\" { fields { field(1; PK; Code[10]) { } } keys { key(PK; PK) { } } }
+codeunit 50131 \"Stop Single\" { SingleInstance = true; var Txt: Text;
+    procedure SetTxt(T: Text) begin Txt := T; end; procedure GetTxt(): Text begin exit(Txt); end; }
+codeunit 50132 \"Stop Writers\" { Subtype = Test;
+    [Test] procedure FailsAfterWriting() var R: Record \"Stop Row\"; S: Codeunit \"Stop Single\";
+    begin R.PK := 'A'; R.Insert(); S.SetTxt('written'); WorkDate(20300101D); Error('killed'); end;
+    [Test] procedure PassesAfterWriting() var R: Record \"Stop Row\"; S: Codeunit \"Stop Single\";
+    begin R.PK := 'B'; R.Insert(); S.SetTxt('written too'); WorkDate(20310101D); end; }
+codeunit 50133 \"Stop Reader\" { Subtype = Test;
+    [Test] procedure Reports() var R: Record \"Stop Row\"; S: Codeunit \"Stop Single\";
+    begin Error('rows=%1 txt=%2 date=%3', R.Count(), S.GetTxt(), WorkDate()); end; }",
+    )
+}
+
+/// The `test` lines of a request without their time, and its counts.
+fn answer_of(lines: &[Value]) -> (Vec<Value>, Vec<Value>) {
+    let tests = lines
+        .iter()
+        .filter(|l| l["type"] == "test")
+        .map(|l| {
+            let mut l = l.clone();
+            l.as_object_mut().unwrap().remove("durationMs");
+            l
+        })
+        .collect();
+    let s = lines.last().unwrap();
+    let counts = ["total", "passed", "failed", "notRun", "exitCode"].iter().map(|k| s[*k].clone()).collect();
+    (tests, counts)
+}
+
+/// S6: a request after a stopped one answers as it does on a fresh daemon.
+#[test]
+fn the_request_after_a_stopped_one_answers_as_a_fresh_daemon_does() {
+    let d = tempfile::tempdir().unwrap();
+    let a = state_stop_app(d.path());
+    let mut stopped = one_thread_server();
+    let first = run_request(&mut stopped, &a, json!({"stopAtFirstFailure": "request"}));
+    assert!(test_lines(&first).iter().any(|t| t["notRun"] == true), "the request did not stop: {first:?}");
+    let after = answer_of(&run_request(&mut stopped, &a, json!({})));
+    let mut fresh = one_thread_server();
+    let want = answer_of(&run_request(&mut fresh, &a, json!({})));
+    assert_eq!(after, want);
+    for mut s in [stopped, fresh] {
+        s.send(json!({"command": "shutdown"}));
+        s.line();
+    }
+}
