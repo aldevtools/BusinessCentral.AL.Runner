@@ -1,9 +1,10 @@
 //! An event subscriber names its publisher by a name two namespaces declare (al-runner issue 8171). The subscriber's file decides
 //! which object it names, as alc resolves it: the file's own namespace, then its `using`s; a qualified name names that namespace
 //! only. The reporter's repro: alc 18.1 compiles `Codeunit::"Shared Name"` through `using Repro.Copy;` to codeunit 51655. Probe:
-//! corpus PR 1423 (events/subscriber-namespace/), assumption `subscriber-publisher-namespace-scope`.
+//! events/subscriber-namespace/ (SnUsingTests.al:28-55, SnOwnNamespaceTests.al:25-53, SnOwnOverUsingTests.al:26-54). The pinned
+//! shapes run unmarked.
 
-use al_builtins::assumptions::{self, Assumption};
+use al_builtins::assumptions;
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
 use al_sema::workspace::AppSource;
@@ -66,7 +67,7 @@ fn repro(header: &str, publisher: &str) -> Vec<AppSource> {
 }
 
 /// Runs `routine` of "Ns Tests" and returns its answer with the assumptions it marked.
-fn run(apps: Vec<AppSource>, routine: &str) -> (Result<Value, Signal>, Vec<Assumption>) {
+fn run(apps: Vec<AppSource>, routine: &str) -> (Result<Value, Signal>, Vec<assumptions::Assumption>) {
     let mut b = al_testkit::Built::new(al_testkit::compile_apps(apps));
     assumptions::clear_hits();
     let r = b.run_in("Ns Tests", routine);
@@ -79,7 +80,7 @@ const USING_COPY: &str = "namespace Repro.Tests;\nusing Repro.Copy;";
 fn a_plain_name_binds_to_the_twin_the_files_using_names() {
     let (r, hits) = run(repro(USING_COPY, "\"Shared Name\""), "PingCopy");
     assert!(al_testkit::boolean(r), "the subscriber runs on the event of 51655");
-    assert!(hits.contains(&Assumption::SubscriberPublisherNamespaceScope));
+    assert!(hits.is_empty());
 }
 
 #[test]
@@ -89,7 +90,7 @@ fn the_other_twins_event_does_not_reach_the_subscriber() {
         !al_testkit::boolean(r),
         "51650's event does not reach a subscriber of 51655"
     );
-    assert!(hits.contains(&Assumption::SubscriberPublisherNamespaceScope));
+    assert!(hits.is_empty());
 }
 
 #[test]
@@ -111,7 +112,7 @@ fn a_qualified_name_binds_to_the_twin_it_names() {
     let qualified = "Repro.Copy.\"Shared Name\"";
     let (r, hits) = run(repro(USING_COPY, qualified), "PingCopy");
     assert!(al_testkit::boolean(r));
-    assert!(hits.contains(&Assumption::SubscriberPublisherNamespaceScope));
+    assert!(hits.is_empty());
     assert!(!al_testkit::boolean(run(repro(USING_COPY, qualified), "PingBase").0));
     let other = "Repro.Base.\"Shared Name\"";
     assert!(al_testkit::boolean(run(repro(USING_COPY, other), "PingBase").0));
@@ -123,7 +124,7 @@ fn a_qualified_name_binds_to_the_twin_it_names() {
 fn a_name_one_object_has_binds_as_before_without_a_mark() {
     let (r, hits) = run(repro(USING_COPY, "\"Shared Name\""), "PingOnly");
     assert!(al_testkit::boolean(r));
-    assert!(!hits.contains(&Assumption::SubscriberPublisherNamespaceScope));
+    assert!(hits.is_empty());
 }
 
 fn refused(r: Result<Value, Signal>) -> String {
@@ -202,10 +203,10 @@ fn single_app_by_id(publisher_arg: &str) -> Vec<AppSource> {
 fn a_bare_id_names_the_object_of_that_id() {
     let (r, hits) = run(single_app_by_id("51650"), "Ping");
     assert!(al_testkit::boolean(r), "the codeunit subscriber by id runs");
-    assert!(!hits.contains(&Assumption::SubscriberPublisherNamespaceScope));
+    assert!(hits.is_empty());
     let (r, hits) = run(single_app_by_id("51650"), "Insert");
     assert!(al_testkit::boolean(r), "the table subscriber by id runs");
-    assert!(!hits.contains(&Assumption::SubscriberPublisherNamespaceScope));
+    assert!(hits.is_empty());
 }
 
 /// A second argument that is neither `<Kind>::<name>` nor a bare id is not read: raising the event refuses instead of skipping

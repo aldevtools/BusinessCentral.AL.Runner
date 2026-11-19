@@ -194,13 +194,14 @@ impl Session {
                 return unsupported("the filter text of a DateTime with seconds and no milliseconds (not pinned)");
             }
         }
-        // A closing date under another language than English: Format marks it with the letter of the language (assumption
-        // `closing-date-letter-by-language`); what GetFilter, GetFilters and GetView show there is not measured.
+        // A closing date under another language than English: Format marks it with the letter of the language
+        // (localization/global-language/GlobalLanguageClosingDate.al:155, :264). GetFilter of it is pinned
+        // (record/filters/FilterGlobalLanguageDateBool.al:271, :325) but not answered here; GetFilters and GetView are not measured.
         if let Value::Date(_, true) = v
             && self.global_language != 1033
         {
             return unsupported(format!(
-                "the filter text of a closing date under GlobalLanguage {} (not measured)",
+                "the filter text of a closing date under GlobalLanguage {} (not implemented)",
                 self.global_language
             ));
         }

@@ -93,6 +93,8 @@ reviewed it.
     c542144, now in the submodule) pinned the values it covers, and the probe wins where it differs
     from AL Runner: the oracle tenant is a sandbox on Azure topology
     (`IsSandbox` true, `IsAzure` true), AL Runner's is Production on premises.
+    The `IsAzure` true of BC 27 and 28 was a Linux host difference: the corpus bump to 8fcde9a6 pins
+    false on every major (session-system/TestEnvironmentUserTenantContracts.al:185).
     ADR-013's "Production by default" is therefore superseded for the registry.
 
 - 2026-10-14, performance phase: run tests in parallel at the test runner's

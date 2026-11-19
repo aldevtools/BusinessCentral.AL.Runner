@@ -381,9 +381,10 @@ fn media_export(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out 
         }
         return unsupported("Media.ExportStream of a media the session does not hold");
     };
-    // A .docx imported on BC 29 exports without an error (streams/media/MediaFiles.al:490-509 RD_Media_ImportFile_Docx passes there and
-    // ignores only the bytes; Config. XML Exchange.ExportMedia in the DemoTool company build): the stream is marked with the
-    // import's mark, so a look at what it holds is refused.
+    // A .docx imported on every major exports without an error (al-language-onprem/streams/media/MediaFiles.al:500-505
+    // RD_Media_ImportFile_Docx; BC 29 ignores the stored and exported bytes, :515-519, and BC 27 and 28 store and export a
+    // re-zipped package that is not the file, :525-527; Config. XML Exchange.ExportMedia in the DemoTool company build): the stream
+    // is marked with the import's mark, so a look at what it holds is refused.
     let docx_mark = obj.pending.as_deref() == Some(crate::stream::MEDIA_DOCX_REZIPPED);
     // A placeholder report output exports byte for byte with its mark (`placeholder_output`).
     if let Some(mark) = obj

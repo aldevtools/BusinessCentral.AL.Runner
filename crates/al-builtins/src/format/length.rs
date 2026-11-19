@@ -2,7 +2,6 @@
 //! shapes the corpus measured run, every other value and length refuses (al-runner issue 8389).
 
 use super::{FormatCtx, FormatFail, format_value, pad};
-use crate::assumptions::{Assumption, assume};
 use crate::describe::Describe;
 use crate::value::Value;
 use std::cmp::Ordering;
@@ -11,11 +10,7 @@ use std::cmp::Ordering;
 /// keeps the text.
 pub(super) fn rest(v: &Value, standard: i32, s: String, length: i32) -> Result<String, FormatFail> {
     let fit = fit(s.chars().count(), length);
-    if length == 0 || measured(v, standard, fit, length > 0) {
-        return Ok(pad(s, length));
-    }
-    if let Some(a) = probed(v, standard, fit, length) {
-        assume(a);
+    if length == 0 || measured(v, standard, fit, length > 0) || measured_length(v, standard, fit, length) {
         return Ok(pad(s, length));
     }
     Err(FormatFail::Unsupported(format!(
@@ -63,22 +58,24 @@ fn measured(v: &Value, standard: i32, fit: Ordering, positive: bool) -> bool {
     }
 }
 
-/// The tuples corpus PR 1460 (merged, not yet pinned) measured that no pinned line covers, each with the assumption entry it runs through.
-fn probed(v: &Value, standard: i32, fit: Ordering, length: i32) -> Option<Assumption> {
+/// The pinned shapes where a cited line measures only some lengths, each by its value type, the standard format number and
+/// the lengths (or the sign of the length and how the text compares with it).
+fn measured_length(v: &Value, standard: i32, fit: Ordering, length: i32) -> bool {
+    // The file's results (format-evaluate/format-length/FormatLengthDates.al:8-9) name every length; the cells measure lengths
+    // up to 30.
     let within_30 = (1..=30).contains(&length.unsigned_abs());
     match (v, standard, length > 0, fit) {
         // 0D: blanks in a positive length, '' in a negative one; L = ±1, 3, 8, 10, 30 in formats 0 and 9, L = 10 in 1 and 2
-        // (format-length/FormatLengthDates.al:62-71, :99-113).
-        (Value::Date(0, false), 0 | 9, _, _) if within_30 => Some(Assumption::FormatLengthUndefinedDate),
-        (Value::Date(0, false), 1 | 2, true, _) if length == 10 => Some(Assumption::FormatLengthUndefinedDate),
-        // 0DT the same: L = ±1, 3, 8, 10, 30 in format 0; L = 3, 10, 30, -3, -30 in format 9 (FormatLengthDates.al:352-366).
-        (Value::DateTime(0), 0, _, _) if within_30 => Some(Assumption::FormatLengthUndefinedDate),
-        (Value::DateTime(0), 9, _, _) if matches!(length, 3 | 10 | 30 | -3 | -30) => {
-            Some(Assumption::FormatLengthUndefinedDate)
-        }
-        // A Text as long as a negative length stays (format-length/FormatLengthTypes.al:888).
-        (Value::Text(_), 0, false, Ordering::Equal) => Some(Assumption::FormatLengthTextNegativeEqual),
-        _ => None,
+        // (FormatLengthDates.al:62-72, :99-113, :162-168).
+        (Value::Date(0, false), 0 | 9, _, _) => within_30,
+        (Value::Date(0, false), 1 | 2, true, _) => length == 10,
+        // 0DT the same: L = ±1, 3, 8, 10, 30 in format 0; L = 3, 10, 30, -3, -30 in format 9 (FormatLengthDates.al:352-366,
+        // :169-171).
+        (Value::DateTime(0), 0, _, _) => within_30,
+        (Value::DateTime(0), 9, _, _) => matches!(length, 3 | 10 | 30 | -3 | -30),
+        // A Text as long as a negative length stays (format-evaluate/format-length/FormatLengthTypes.al:888).
+        (Value::Text(_), 0, false, Ordering::Equal) => true,
+        _ => false,
     }
 }
 
@@ -90,7 +87,7 @@ const HOURS_MINUTES_SECONDS: &str = "<Hours,2>:<Minutes,2>:<Seconds,2>";
 const YEAR4_MONTH: &str = "<Year4>-<Month,2>";
 /// The format string of types/date-time/Format.al:1281, :1286, :1298, :1315.
 const SECOND_DEC: &str = "<Second dec.>";
-/// The format string of corpus PR 1460's date cells (format-length/FormatLengthDates.al:180-223).
+/// The format string of format-evaluate/format-length/FormatLengthDates.al:178-223.
 const YEAR4_MONTH_DAY: &str = "<Year4>-<Month,2>-<Day,2>";
 
 /// `Format(v, length, template)` gave a text of `chars` characters with length 0: whether the format string's text may take
@@ -120,11 +117,7 @@ pub(crate) fn with_format_string(v: &Value, length: i32, template: &str, chars: 
         (Value::Time(0), true, Equal) => template == HOURS_MINUTES_SECONDS,
         _ => false,
     };
-    if length == 0 || measured {
-        return Ok(());
-    }
-    if let Some(a) = probed_string(v, length, template) {
-        assume(a);
+    if length == 0 || measured || measured_string_length(v, length, template) {
         return Ok(());
     }
     Err(format!(
@@ -133,32 +126,26 @@ pub(crate) fn with_format_string(v: &Value, length: i32, template: &str, chars: 
     ))
 }
 
-/// The cells under a format string corpus PR 1460 (merged, not yet pinned) measured that no pinned line covers, with their assumption entry.
-fn probed_string(v: &Value, length: i32, template: &str) -> Option<Assumption> {
+/// The pinned cells under a format string where a cited line measures only some lengths of one string.
+fn measured_string_length(v: &Value, length: i32, template: &str) -> bool {
     match v {
-        // 0D: blanks / '' (format-length/FormatLengthDates.al:132-137, :216-217).
-        Value::Date(0, false)
-            if (template == YEAR4_MONTH_DAY && matches!(length, 3 | 10 | 30 | -3 | -10))
-                || (template == "<Closing><Day>" && length == 10) =>
-        {
-            Some(Assumption::FormatLengthUndefinedDate)
+        // 0D: blanks / '' (format-evaluate/format-length/FormatLengthDates.al:132-137, :216-217).
+        Value::Date(0, false) => {
+            (template == YEAR4_MONTH_DAY && matches!(length, 3 | 10 | 30 | -3 | -10))
+                || (template == "<Closing><Day>" && length == 10)
         }
         // A defined Date: as long as the length, padded on the left, kept in a longer negative length, or cut to 3, 8 or 9
         // (FormatLengthDates.al:206-214, :219-223; the cuts :207, :209, :445).
-        Value::Date(day, false)
-            if *day != 0 && template == YEAR4_MONTH_DAY && matches!(length, 3 | 8 | 9 | 10 | 11 | 12 | -10 | -12) =>
-        {
-            Some(Assumption::FormatLengthYearMonthDayString)
-        }
-        _ => None,
+        Value::Date(_, false) => template == YEAR4_MONTH_DAY && matches!(length, 3 | 8 | 9 | 10 | 11 | 12 | -10 | -12),
+        _ => false,
     }
 }
 
 /// `Format(v, length, '<Standard Format,N>')`, a template of that one code, gave `out`: `None` for any other template. The
 /// string takes the gate of `Format(v, length, N)` and runs only where that call gives the same text: pinned for a Decimal
-/// shorter than a positive length in formats 0, 1 and 9 (format-evaluate/P86FormatDecimal.al:1083, :1084, :1086); the types
-/// and numbers corpus PR 1460 measured, with a text shorter or longer than the length, run through
-/// `format-length-standard-format-string`.
+/// shorter than a positive length in formats 0, 1 and 9 (format-evaluate/P86FormatDecimal.al:1083, :1084, :1086), and for the
+/// types, numbers and lengths of format-evaluate/format-length/FormatLengthNeighbors.al with a text shorter or longer than the
+/// length.
 pub(crate) fn lone_standard_format(
     v: &Value,
     length: i32,
@@ -186,13 +173,13 @@ pub(crate) fn lone_standard_format(
         return Some(Err(refused()));
     };
     let fit = fit(bare.chars().count(), length);
-    let pinned = matches!(
+    let decimal = matches!(
         (v, standard, length > 0, fit),
         (Value::Decimal(_), 0 | 1 | 9, true, Ordering::Less)
     );
-    // format-length/FormatLengthNeighbors.al:300-318, :357-375, :407-420, :452-465 (format 0, lengths 10, 3, -3, -10), :486-492
-    // (format 9 on a Date, lengths 10, 3, 12, -12, -10).
-    let probed = matches!(fit, Ordering::Less | Ordering::Greater)
+    // format-evaluate/format-length/FormatLengthNeighbors.al:300-318, :357-375, :407-420, :452-465 (format 0, lengths 10, 3,
+    // -3, -10), :486-492 (format 9 on a Date, lengths 10, 3, 12, -12, -10).
+    let neighbors = matches!(fit, Ordering::Less | Ordering::Greater)
         && matches!(
             (v, standard, length),
             (
@@ -212,12 +199,7 @@ pub(crate) fn lone_standard_format(
                 10 | 3 | -3 | -10,
             ) | (Value::Date(_, false), 9, 10 | 3 | 12 | -12 | -10)
         );
-    let same = plain == out;
-    if same && pinned {
-        return Some(Ok(()));
-    }
-    if same && probed {
-        assume(Assumption::FormatLengthStandardFormatString);
+    if plain == out && (decimal || neighbors) {
         return Some(Ok(()));
     }
     Some(Err(refused()))
@@ -432,24 +414,18 @@ mod tests {
         ] {
             assert_eq!(fmt_string_hits(&dec, length, template), (Ok(want.to_string()), vec![]));
         }
-        // A Decimal longer than the length is cut as by `Format(v, 3, 0)`, under the assumption of corpus PR 1460.
+        // A Decimal longer than the length is cut as by `Format(v, 3, 0)` (FormatLengthNeighbors.al:458), no mark.
         assert_eq!(
             fmt_string_hits(&dec, 3, "<Standard Format,0>"),
-            (
-                Ok("1,2".to_string()),
-                vec![crate::assumptions::Assumption::FormatLengthStandardFormatString]
-            )
+            (Ok("1,2".to_string()), vec![])
         );
-        // Only the lengths the probe measured: `Format(42, 5, 0)` runs, the string at 5 does not; at 10 it runs marked.
+        // Only the measured lengths: `Format(42, 5, 0)` runs, the string at 5 does not; at 10 it runs (FormatLengthNeighbors.al:452).
         assert_eq!(fmt(&Value::Integer(42), 5, 0).unwrap(), "   42");
         let r = fmt_string(&Value::Integer(42), 5, "<Standard Format,0>");
         assert!(refused_by_string(&r), "{r:?}");
         assert_eq!(
             fmt_string_hits(&Value::Integer(42), 10, "<Standard Format,0>"),
-            (
-                Ok("        42".to_string()),
-                vec![crate::assumptions::Assumption::FormatLengthStandardFormatString]
-            )
+            (Ok("        42".to_string()), vec![])
         );
     }
 
@@ -483,12 +459,9 @@ mod tests {
         );
     }
 
-    /// The cells corpus PR 1460 measured run, each marked with its assumption.
+    /// The cells of format-evaluate/format-length/FormatLengthDates.al and FormatLengthTypes.al:888 run, unmarked.
     #[test]
-    fn the_cells_of_corpus_pr_1460_run_marked() {
-        use crate::assumptions::Assumption::{
-            FormatLengthTextNegativeEqual, FormatLengthUndefinedDate, FormatLengthYearMonthDayString,
-        };
+    fn the_pinned_format_length_cells_run_unmarked() {
         let date = Value::Date(day_from_civil(2024, 1, 15), false);
         let undefined = Value::Date(0, false);
         for (v, length, standard, want) in [
@@ -506,13 +479,13 @@ mod tests {
         ] {
             assert_eq!(
                 fmt_hits(v, length, standard),
-                (Ok(want.to_string()), vec![FormatLengthUndefinedDate]),
+                (Ok(want.to_string()), vec![]),
                 "{v:?} {length} {standard}"
             );
         }
         assert_eq!(
             fmt_hits(&Value::Text("abcde".into()), -5, 0),
-            (Ok("abcde".to_string()), vec![FormatLengthTextNegativeEqual])
+            (Ok("abcde".to_string()), vec![])
         );
         const YEAR4: &str = "<Year4>-<Month,2>-<Day,2>";
         for (length, want) in [
@@ -524,7 +497,7 @@ mod tests {
         ] {
             assert_eq!(
                 fmt_string_hits(&date, length, YEAR4),
-                (Ok(want.to_string()), vec![FormatLengthYearMonthDayString]),
+                (Ok(want.to_string()), vec![]),
                 "{length}"
             );
         }
@@ -533,11 +506,11 @@ mod tests {
             fmt_string_hits(&date, 5, "<Year4>-<Month,2>"),
             (Ok("2024-".to_string()), vec![])
         );
-        // Under '<Year4>-<Month,2>-<Day,2>' the cut is measured by corpus PR 1460 only (FormatLengthDates.al:207, :209, :445).
+        // Under '<Year4>-<Month,2>-<Day,2>' the cut is pinned at FormatLengthDates.al:207, :209, :445.
         for (length, want) in [(8, "2024-01-"), (9, "2024-01-1"), (3, "202")] {
             assert_eq!(
                 fmt_string_hits(&date, length, YEAR4),
-                (Ok(want.to_string()), vec![FormatLengthYearMonthDayString]),
+                (Ok(want.to_string()), vec![]),
                 "{length}"
             );
         }
@@ -549,15 +522,15 @@ mod tests {
         ] {
             assert_eq!(
                 fmt_string_hits(&undefined, length, template),
-                (Ok(want.to_string()), vec![FormatLengthUndefinedDate]),
+                (Ok(want.to_string()), vec![]),
                 "{length} {template}"
             );
         }
     }
 
-    /// The neighbors of the cells of corpus PR 1460 that it did not measure keep refusing.
+    /// The neighbors of the pinned format-length cells that no line measures keep refusing.
     #[test]
-    fn the_neighbors_of_the_cells_of_corpus_pr_1460_refuse() {
+    fn the_neighbors_of_the_pinned_format_length_cells_refuse() {
         let date = Value::Date(day_from_civil(2024, 1, 15), false);
         let undefined = Value::Date(0, false);
         for (v, length, standard) in [

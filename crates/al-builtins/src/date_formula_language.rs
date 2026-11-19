@@ -16,9 +16,10 @@ fn letters(language: i32) -> Option<&'static [(char, char)]> {
     }
 }
 
-/// Format 0 of the stored formulas the reporter of al-runner issue 8200 measured that no pinned rule answers (assumption
-/// `date-formula-letters-danish-german`): `Format(DF)` after `Evaluate(DF, '1K')` under 1030 and after `Evaluate(DF, text, 9)` or the
-/// Evaluate cells under 1031. Danish `K` is Q and `UD` WD; German `T` is D, `J` Y, `L` C and `WT` WD. `None` for every other text.
+/// Format 0 of the stored formulas no rule above answers, as pinned (localization/global-language/GlobalLanguageDateFormula.al):
+/// under 1030 `1K` (:209) and `UD1` (:226, :410); under 1031 the Evaluate cells (:242, :247, :248, :263) and the cells after
+/// `Evaluate(DF, text, 9)` (:431-435). Danish `K` is Q and `UD` WD; German `T` is D, `J` Y, `L` C and `WT` WD. `None` for
+/// every other text.
 fn reported_format_zero(text: &str, language: i32) -> Option<&'static str> {
     Some(match (language, text) {
         (1030, "1Q") => "1K",
@@ -79,7 +80,6 @@ pub(crate) fn format_zero(text: &str, language: i32) -> Result<String, String> {
         return Ok(text.to_string());
     }
     if let Some(shown) = reported_format_zero(text, language) {
-        crate::assumptions::assume(crate::assumptions::Assumption::DateFormulaLettersDanishGerman);
         return Ok(shown.to_string());
     }
     Err(format!(
@@ -119,11 +119,10 @@ pub(crate) fn evaluate_text(text: &str, language: i32) -> Result<Option<String>,
 }
 
 /// `Evaluate(DateFormula, text, 9)` under 1030 of a text without brackets that has a Danish letter (the letters of [`letters`]
-/// that are not their English letter: U, Å and L in either case). Format number 9 reads the English letters: the measured texts
-/// `1U` and `1Å`, with the result used, give false and leave the variable (assumption
-/// `date-formula-danish-letter-number-nine`, corpus PR 1428 GlobalLanguageDateFormula.al:418, :420 at 04e1fa0a,
-/// DateFormula_FormatAfterEvaluate9_Danish1030). `None` for every other language, number and text (main's reading); every other
-/// text with a Danish letter and the statement form refuse.
+/// that are not their English letter: U, Å and L in either case). Format number 9 reads the English letters: the pinned texts
+/// `1U` and `1Å`, with the result used (localization/global-language/GlobalLanguageDateFormula.al:33), give false and leave the
+/// variable (:418, :420). `None` for every other language, number and text (main's reading); every other text with a Danish
+/// letter and the statement form refuse.
 fn danish_letter_number_nine(
     text: &str,
     language: i32,
@@ -140,7 +139,6 @@ fn danish_letter_number_nine(
         return None;
     }
     if ret_used && matches!(text, "1U" | "1Å") {
-        crate::assumptions::assume(crate::assumptions::Assumption::DateFormulaDanishLetterNumberNine);
         return Some(Ok(crate::datefns::Evaluated::Rejected(None)));
     }
     Some(Err(crate::native::Signal::unsupported(format!(
@@ -148,26 +146,26 @@ fn danish_letter_number_nine(
     ))))
 }
 
-/// The Evaluate cells without a format number the reporter of al-runner issue 8200 measured, with the result used (assumption
-/// `date-formula-letters-danish-german`): `Some(Some(english))` for a text read, `Some(None)` for a text rejected, `None` for every
-/// other text.
+/// The Evaluate cells without a format number, with the result used (localization/global-language/GlobalLanguageDateFormula.al:27;
+/// 1030 at :204, :206, :207, :209, :219, :220; 1031 at :239-243, :247, :248, :256): `Some(Some(english))` for a text read,
+/// `Some(None)` for a text rejected (the variable keeps its value), `None` for every other text.
 fn reported_evaluate(text: &str, language: i32) -> Option<Option<&'static str>> {
     Some(match (language, text) {
         (1030, "1K") => Some("1Q"),
-        (1030, "1W" | "1Q" | "1Y" | "NU" | "CW" | "AM") => None,
+        (1030, "1W" | "1Q" | "1Y" | "CW" | "AM") => None,
         (1031, "1T") => Some("1D"),
         (1031, "1W") => Some("1W"),
         (1031, "1M") => Some("1M"),
         (1031, "1J") => Some("1Y"),
         (1031, "1Q") => Some("1Q"),
-        (1031, "1D" | "1Y" | "AJ" | "CW") => None,
+        (1031, "1D" | "1Y" | "CW") => None,
         _ => return None,
     })
 }
 
-/// The texts the reporter of al-runner issue 8200 measured with `Evaluate(DF, text, 9)` under 1030 and 1031, which read the
-/// English letters (assumption `date-formula-letters-danish-german`). Under 1030 `1D`, `1M` and the empty text are pinned and take
-/// the path of [`evaluate_text`].
+/// The texts pinned with `Evaluate(DF, text, 9)` under 1030 and 1031, which read the English letters
+/// (localization/global-language/GlobalLanguageDateFormula.al:407-410 for 1030, :431-436 for 1031). Under 1030 `1D`, `1M` and the
+/// empty text take the path of [`evaluate_text`].
 fn reported_number_nine(text: &str, language: i32) -> bool {
     match language {
         1030 => matches!(text, "CM+1D" | "1Y+1M+1D" | "-CW" | "WD1"),
@@ -188,7 +186,6 @@ pub(crate) fn evaluate(
         return read;
     }
     if number == 9 && reported_number_nine(text, language) {
-        crate::assumptions::assume(crate::assumptions::Assumption::DateFormulaLettersDanishGerman);
         return crate::datefns::evaluate_formula(text);
     }
     if let Some(read) = reported_evaluate(text, language).filter(|_| number == 0) {
@@ -197,7 +194,6 @@ pub(crate) fn evaluate(
                 "Evaluate of the date formula `{text}` under language {language} as a statement (only the result is measured)"
             )));
         }
-        crate::assumptions::assume(crate::assumptions::Assumption::DateFormulaLettersDanishGerman);
         return match read {
             Some(english) => crate::datefns::evaluate_formula(english),
             None => Ok(crate::datefns::Evaluated::Rejected(None)),
@@ -213,23 +209,39 @@ pub(crate) fn evaluate(
     }
 }
 
-/// CalcDate with a Text or Code formula, with or without a base date, under GlobalLanguage 1030, 1031, 1036, 1044 or 1053 (assumption `calcdate-letters-by-language`,
-/// corpus PR 1428 GlobalLanguageDateFormula.al:540-702): the answer the language gives before or instead of the English
+/// CalcDate with a Text or Code formula, with or without a base date, under GlobalLanguage 1030, 1031, 1036, 1044 or 1053
+/// (localization/global-language/GlobalLanguageDateFormula.al:540-771; the errors at :647, :659, :671, :683, :695 and
+/// :719-769, the text `1D` at :553, :571, :589, :607, :625): the answer the language gives before or instead of the English
 /// reading, or `None` to keep it. `unit_error`: the English reading raised the should-include-a-time-unit error. Measured: a
 /// formula `<1X>` with X one of U, K, Å, T, J, Z raises the language's text that lists the English units; the text `1D` without
 /// brackets reads the language's letters, the next day under 1030, 1044 and 1053, the language's text that lists its own units
 /// under 1031 and 1036. Every other text without brackets that has a letter refuses; a bracketed formula keeps the English reading.
-pub(crate) fn calcdate_text(formula: &str, language: i32, unit_error: bool) -> Option<Result<Value, Signal>> {
+/// `text_with_base`: the formula is a Text value and a base date is given, the only call pinned (:37-39); a Code formula or a call
+/// without a base date refuses where the language would answer.
+pub(crate) fn calcdate_text(
+    formula: &str,
+    language: i32,
+    unit_error: bool,
+    text_with_base: bool,
+) -> Option<Result<Value, Signal>> {
+    let answer = language_answer(formula, language, unit_error)?;
+    if text_with_base {
+        return Some(answer);
+    }
+    Some(unsupported(format!(
+        "CalcDate of `{formula}` under GlobalLanguage {language} with a Code formula or without a base date (not pinned)"
+    )))
+}
+
+fn language_answer(formula: &str, language: i32, unit_error: bool) -> Option<Result<Value, Signal>> {
     if !matches!(language, 1030 | 1031 | 1036 | 1044 | 1053) || !formula.chars().any(char::is_alphabetic) {
         return None;
     }
-    let assume = || crate::assumptions::assume(crate::assumptions::Assumption::CalcdateLettersByLanguage);
     if let Some(f) = formula.strip_prefix('<').and_then(|f| f.strip_suffix('>')) {
         let measured = matches!(f, "1U" | "1K" | "1Å" | "1T" | "1J" | "1Z");
         if !(unit_error && measured) {
             return None;
         }
-        assume();
         let message = match language {
             1030 => format!(
                 "Der skal indgå en tidsenhed i datoformlen '{f}'.\\\\Tidsenheder kan være: D,WD,W,M,Q eller Y.\\C betyder den aktuelle tidsenhed baseret på dato, kan specificeres som et præfiks for tidsenheden."
@@ -254,7 +266,6 @@ pub(crate) fn calcdate_text(formula: &str, language: i32, unit_error: bool) -> O
             "CalcDate of `{formula}` without angle brackets under GlobalLanguage {language} (not measured for this text)"
         )));
     }
-    assume();
     let f = formula;
     match language {
         1031 => Some(raise(
@@ -285,5 +296,24 @@ mod tests {
         assert_eq!(evaluate_text("LM+1D", 1030).unwrap().as_deref(), Some("CM+1D"));
         assert_eq!(evaluate_text("<-1W>", 1030).unwrap(), None);
         assert!(evaluate_text("-1W", 1030).is_err());
+    }
+
+    // GlobalLanguageDateFormula.al:571 pins `1D` under 1031 only for a Text formula with a base date (:37-39).
+    #[test]
+    fn the_language_answer_needs_a_text_formula_with_a_base_date() {
+        assert!(matches!(
+            calcdate_text("1D", 1031, false, true),
+            Some(Err(Signal::Error(_)))
+        ));
+        assert!(matches!(
+            calcdate_text("1D", 1031, false, false),
+            Some(Err(Signal::Unsupported(_)))
+        ));
+        assert!(matches!(
+            calcdate_text("<1U>", 1030, true, false),
+            Some(Err(Signal::Unsupported(_)))
+        ));
+        // Out of scope: a formula without a letter keeps main's reading.
+        assert!(calcdate_text("-1", 1031, false, false).is_none());
     }
 }

@@ -1669,7 +1669,7 @@ fn the_server_class_members_answer_the_values_of_the_probe_and_al_runner_v2() {
         run_text(t, "T.GetEnvironmentApplicationSetting('EnableAgentBuilder')"),
         ""
     );
-    // IsAzure is the one answer that follows the BC major: see `is_azure_follows_the_bc_major`.
+    // IsAzure is false on every major (session-system/TestEnvironmentUserTenantContracts.al:185), 27.5 included.
     assert_eq!(
         text(run_as(
             Some("27.5"),
@@ -1677,7 +1677,7 @@ fn the_server_class_members_answer_the_values_of_the_probe_and_al_runner_v2() {
             "exit(Format(U.IsAzure()));",
             ": Text"
         )),
-        "Yes"
+        "No"
     );
 }
 
@@ -1847,12 +1847,12 @@ fn an_instance_of_a_registered_type_serves_its_members_from_the_registry() {
 #[test]
 fn registry_results_are_operands() {
     let host = no_host();
-    // BC 27.5, where IsAzure is true.
+    // IsAzure is false on every major (session-system/TestEnvironmentUserTenantContracts.al:185).
     let r = run_as(
         Some("27.5"),
         "U: DotNet NavUserAccountHelper; C: DotNet ALConfigSettings; N: Integer;",
         "C := C.Instance(); if C.ApiSubscriptionDelayTime() > 1000 then N := 1; \
-         if U.IsAzure() and C.ApiServicesEnabled() then N += 10; exit(N);",
+         if not U.IsAzure() and C.ApiServicesEnabled() then N += 10; exit(N);",
         ": Integer",
     );
     assert!(matches!(r.result, Ok(Value::Integer(11))), "{:?}", r.result);

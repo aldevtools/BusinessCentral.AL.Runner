@@ -69,11 +69,6 @@ pub struct Registry {
     /// no code for (`Program::uncompiled_subscribers`, and subscribers whose publisher cannot be
     /// told apart from another object of the same name). Raising such an event is refused.
     pub missing: HashMap<(usize, String), Vec<Missing>>,
-    /// (publisher object, lower-case event name) of the events whose subscribers depend on a publisher name several objects have,
-    /// which the subscriber's file picks (`ir::PublisherRef::Picked`): every one of those objects, for each event a picked
-    /// subscriber names. Asking for the subscribers of such an event marks the assumption `subscriber-publisher-namespace-scope`
-    /// ([`Registry::subscribers_at`], [`Registry::is_subscribed`]).
-    scope_assumed: std::collections::HashSet<(usize, String)>,
     /// (lower-case codeunit, lower-case event) -> subscribers of events the runtime does not raise: every event of `UI Helper
     /// Triggers`, of `Reporting Triggers` and Base Application's `ReportManagement`, and OnResolveAutoFormat and
     /// OnAfterResolveAutoFormat of `Auto Format`. Where BC raises such an event, the runtime refuses
@@ -222,7 +217,6 @@ impl Default for Registry {
             has_global_triggers: false,
             unavailable_global: Default::default(),
             missing: HashMap::new(),
-            scope_assumed: Default::default(),
             unraised: HashMap::new(),
             absent: Vec::new(),
             install_subscribers: Vec::new(),
@@ -790,7 +784,6 @@ impl Registry {
     }
 
     pub fn is_subscribed(&self, object: usize, event: &str) -> bool {
-        self.note_scope(object, event);
         self.subscribers
             .get(&(object, event.to_string()))
             .is_some_and(|v| !v.is_empty())
@@ -799,16 +792,7 @@ impl Registry {
 
     /// The subscribers of `event` (lower case) of `object`, in the order they receive it.
     pub fn subscribers_at(&self, object: usize, event: &str) -> Option<&Vec<Subscriber>> {
-        self.note_scope(object, event);
         self.subscribers.get(&(object, event.to_string()))
-    }
-
-    /// Marks the assumption `subscriber-publisher-namespace-scope` when the subscribers of `event` of `object` depend on a
-    /// publisher name the subscriber's file picked among several objects (`scope_assumed`).
-    fn note_scope(&self, object: usize, event: &str) {
-        if !self.scope_assumed.is_empty() && self.scope_assumed.contains(&(object, event.to_string())) {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::SubscriberPublisherNamespaceScope);
-        }
     }
 
     /// The publisher object that subscriber attribute `a` of routine `r` of object `oi` (kind `kind` named in its first argument)
@@ -831,12 +815,8 @@ impl Registry {
         let (targets, why): (Vec<usize>, MissingWhy) = match &a.publisher {
             ir::PublisherRef::NotSubscriber | ir::PublisherRef::NotVisible => return Some(None),
             ir::PublisherRef::Only(t) => return Some(compiled(*t)),
-            ir::PublisherRef::Picked { object, twins } => {
-                for &t in twins {
-                    self.scope_assumed.insert((t as usize, event.to_string()));
-                }
-                return Some(compiled(*object));
-            }
+            // events/subscriber-namespace/SnUsingTests.al:28-56, SnOwnNamespaceTests.al:25-53, SnOwnOverUsingTests.al:26-54.
+            ir::PublisherRef::Picked { object, .. } => return Some(compiled(*object)),
             ir::PublisherRef::Unpicked(twins) => {
                 let w = written();
                 let name = w
