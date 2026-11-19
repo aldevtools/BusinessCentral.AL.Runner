@@ -2875,8 +2875,7 @@ impl Session {
     pub(super) fn answer_page(&mut self, st: &St, handler: Handler, modal: bool) -> Result<Value, Signal> {
         let (hobject, hroutine, hinst) = handler;
         let st = st.clone();
-        st.borrow_mut().test_close_vetoed = false;
-        st.borrow_mut().test_closed_in_handler = false;
+        st.borrow_mut().close.handler_started();
         let caught_before = self.caught_errors();
         self.ui_state.page_handler_depth += 1;
         let handled = self.call(hobject, hroutine, hinst, vec![page_value(&st)]);
@@ -2888,7 +2887,7 @@ impl Session {
             self.mark_closed(&st);
             return Err(e);
         }
-        if modal && std::mem::take(&mut st.borrow_mut().test_close_vetoed) {
+        if modal && st.borrow_mut().close.take_test_vetoed_in_handler() {
             // A TestPage.Close() the page's OnQueryClosePage refused in the handler: RunModal raises, no OnClosePage runs
             // (pages/triggers/PageModalQueryCloseVeto.al:167 Modal_HandlerClose_VetoAlways, :236
             // Modal_HandlerOkThenClose_VetoAlways). Only a veto by the page's own trigger is pinned.
@@ -2904,7 +2903,7 @@ impl Session {
         // and without a record (ui-handlers/CbHandlerTests.al:181 ModalHandler_CallsClose_RunModalOutcome), and a Page
         // variable's RunModal of a Card given SetRecord, whose Rec is the blank record without filters afterwards
         // (pages/currpage/UnopenedCurrPage.al:273 Update_Then_RunModal_Card_HandlerCloses `rec-after-close`).
-        let closed_in_handler = std::mem::take(&mut st.borrow_mut().test_closed_in_handler);
+        let closed_in_handler = st.borrow_mut().close.take_test_closed_in_handler();
         if modal && closed_in_handler && !self.relation_closed_in_handler(&st) {
             let page_type = self.engine.object_facts[st.borrow().object as usize]
                 .page_type_lower()
@@ -2950,8 +2949,8 @@ impl Session {
                 // the last error is the veto's, and OnClosePage does not run (pages/triggers/
                 // PageModalQueryCloseVeto.al:275 Modal_HandlerDoesNothing_VetoAlways; after a vetoed OK or Cancel in the
                 // handler the platform asks once more with its own action, :129, :148, :255; the next run is a clean one, :309).
-                let vetoed = st.borrow().close_vetoed;
-                if !(modal && (st.borrow().close_error || vetoed)) {
+                let vetoed = st.borrow().close.vetoed();
+                if !(modal && (st.borrow().close.error() || vetoed)) {
                     return unsupported("a page whose OnQueryClosePage refused the platform's close");
                 }
                 if vetoed {
