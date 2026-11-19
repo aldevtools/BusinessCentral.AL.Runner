@@ -33,7 +33,7 @@ impl Describe for Value {
             Value::Null => "an unassigned Variant".into(),
             Value::Unknown(why) => format!("an unknown value ({why})"),
             Value::SqlCount(_) => "a SQL counter value".into(),
-            Value::PlaceholderSize(m) => format!("the byte size of {m}"),
+            Value::PlaceholderSize(m, _) => format!("the byte size of {m}"),
             Value::Boolean(b) => format!("Boolean {b}"),
             Value::Integer(i) => format!("Integer {i}"),
             Value::BigInteger(i) => format!("BigInteger {i}"),
@@ -323,7 +323,7 @@ mod tests {
             probed_source: Default::default(),
             globals: Default::default(),
             unpinned_buffer: None,
-            view_assumption: false,
+            view_assumption: None,
             run_page_link: None,
         })))
     }

@@ -4,7 +4,7 @@
 //! this path (`eq_text_sets_no_filter`). Another text that starts with `=` (also after blanks) on a Boolean, Enum or Option field
 //! of a List or Worksheet refuses; a text on another page type or field type keeps the filter `filter.rs` parses.
 
-use super::pinned_shape::{NextEnd, PinnedEnd, TestCall};
+use super::pinned_shape::{NextEnd, PinnedEnd, Reads, TestCall};
 use super::*;
 use al_builtins::page_op::PageMethod;
 use al_builtins::value::RtType;
@@ -17,7 +17,7 @@ const OPEN_EDIT_END: PinnedEnd = PinnedEnd {
     reason: "a call of the test on a temporary Worksheet it opened with OpenEdit, after the '=0' or '=1' filter, other than \
              GetFilter, First, Next, GoToKey, a control's value read, one action Invoke or Close (not measured; al-runner issue \
              6924)",
-    reads: true,
+    reads: Reads::Any,
     caption: false,
     part_reads: false,
     one_action: false,

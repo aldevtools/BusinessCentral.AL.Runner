@@ -75,6 +75,17 @@ impl Session {
         self.write(&chunk.places[p as usize], v, f)
     }
 
+    /// `Op::StoreVarSectionValue`: `v`, a variable of the running routine's `var` section, into element place `p` of an
+    /// array of memberless Options (`var_option::Store::AssignVarSection`).
+    fn store_var_section(&mut self, chunk: &Chunk, p: u32, v: Value, f: &mut Frame) -> Result<(), Signal> {
+        self.write_as(
+            &chunk.places[p as usize],
+            v,
+            f,
+            crate::var_option::Store::AssignVarSection,
+        )
+    }
+
     /// The record, RecordRef or Blob `Op::StoreLocal` stores into local place `p`: a record goes to
     /// `Session::store_variant_copy` when the assignment is a `variant_copy.rs` site, every value else to `write`.
     #[inline(never)]
@@ -201,6 +212,7 @@ impl Session {
                     }
                 }
                 Op::StorePlace { p, a } => self.store_place(chunk, p, take(f, a, nl), f)?,
+                Op::StoreVarSectionValue { p, a } => self.store_var_section(chunk, p, take(f, a, nl), f)?,
                 Op::StoreVariantCopy { s, a } => self.variant_copy_op(chunk, s, a, f)?,
                 Op::Bin { op, d, a, b } => {
                     let v = Self::binary_op(op, &f.locals[a as usize], &f.locals[b as usize])?;
@@ -483,7 +495,10 @@ impl Session {
     fn op_assert(&mut self, chunk: &Chunk, f: &mut Frame, pc: usize, stop: usize, from: u16) -> Result<usize, Signal> {
         let nl = chunk.nlocals;
         let open = self.cap_stmt_depth();
-        match self.run_range::<true>(chunk, f, pc, stop) {
+        self.tx.assert_depth += 1;
+        let body = self.run_range::<true>(chunk, f, pc, stop);
+        self.tx.assert_depth -= 1;
+        match body {
             Ok(at) if at == stop => {
                 self.refuse_pending_at_assert_end()?;
                 Err(Signal::Error(Box::new(al_builtins::native::AlError {
@@ -1348,6 +1363,7 @@ impl Session {
         }
         let result = self.run_native(
             native,
+            site.id,
             site.class,
             site.receiver_arg.as_ref(),
             &site.args,

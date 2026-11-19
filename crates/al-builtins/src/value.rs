@@ -174,9 +174,10 @@ pub enum Value {
     /// A value read from `SessionInformation.SqlStatementsExecuted()` or `SqlRowsRead()`, or computed from such reads
     /// (issue 5580): a BigInteger whose number is the runtime's model, so only the uses `sqlcount` lists are answered.
     SqlCount(SqlCount),
-    /// The byte size of a placeholder report output (`Blob.Length`, `File.Len`), with the placeholder's mark: an Integer known only
-    /// to be greater than 0, so only a comparison with 0 is answered (`crate::placeholder_output::size`).
-    PlaceholderSize(std::sync::Arc<str>),
+    /// The byte size of a placeholder report output (`Blob.Length`, `File.Len`), with the placeholder's mark and the number type of
+    /// the slot that holds it: a number known only to be greater than 0, so only a comparison with 0 is answered
+    /// (`crate::placeholder_output::size`).
+    PlaceholderSize(std::sync::Arc<str>, SqlType),
 }
 
 /// A counter value (`Value::SqlCount`, see `crate::sqlcount`).
@@ -190,7 +191,8 @@ pub struct SqlCount {
     pub ty: SqlType,
 }
 
-/// The number type a counter value has (`SqlCount::ty`).
+/// The number type a counter value (`SqlCount::ty`) or a placeholder's size (`Value::PlaceholderSize`) has: the type of the
+/// slot that holds it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub enum SqlType {
     Integer,
@@ -600,10 +602,10 @@ pub struct RecordState {
     /// Every use of the record refuses with this reason: what its buffer holds is not pinned (the row a page closed on after
     /// `Page.RunModal(Id, Rec)` called as a statement, see `hand_back_selection`).
     pub unpinned_buffer: Option<&'static str>,
-    /// A by-value copy whose filters were dropped on the assumption `by-value-record-no-filters` (al-vm
-    /// `records/by_value_view.rs`): a read of its view marks the assumption. Clones of the state keep it; `Reset`, `SetView`
-    /// and `Clear` end it.
-    pub view_assumption: bool,
+    /// A by-value copy whose filters were dropped on an assumption (`by-value-record-no-filters` or
+    /// `by-value-table-proc-other-table`, al-vm `records/by_value_view.rs`): a read of its view marks it. Clones of the state
+    /// keep it; `Reset`, `SetView` and `Clear` end it.
+    pub view_assumption: Option<crate::assumptions::Assumption>,
     /// The filters an action's `RunPageLink` put on this Rec of the page it opened: a copy of Rec passed by value does not
     /// carry them (testpage/TestActionRunPageLinkFilterGroup.al:292-369, `filters=` in OnOpenPage and OnAfterGetCurrRecord).
     pub run_page_link: Option<Rc<Vec<crate::filter::FieldFilter>>>,
@@ -1852,8 +1854,17 @@ impl Value {
             Value::DotNet(_) => k == "dotnet",
             // Never reached: a read of an unknown column is refused before its value reaches a Variant.
             Value::Unknown(_) => false,
-            // An Integer, as Blob.Length is.
-            Value::PlaceholderSize(_) => k == "integer",
+            // The type of the slot that held it: an Integer as Blob.Length returns it, a BigInteger or Decimal field or variable
+            // its own type. An Integer expression in a BigInteger variable answers BigInteger (types/decimal-integer/
+            // Y66BigIntIntoInt.al:143-144, :163; types/decimal-integer/ScT70063.al:159-162, :196-197); a whole number of another
+            // type in a Decimal variable answers Decimal (Y66BigIntIntoInt.al:139-140, :162).
+            Value::PlaceholderSize(_, ty) => {
+                k == match ty {
+                    SqlType::Integer => "integer",
+                    SqlType::BigInteger => "biginteger",
+                    SqlType::Decimal => "decimal",
+                }
+            }
             // A BigInteger (session-system/session/SqlCounters.al:87-103).
             Value::SqlCount(c) => {
                 k == match c.ty {

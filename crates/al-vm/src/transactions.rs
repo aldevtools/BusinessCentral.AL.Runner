@@ -36,6 +36,10 @@ pub(crate) struct UsedTry {
     world: usize,
     /// `Codeunit.Run` calls begun inside the call that have not ended.
     runs: usize,
+    /// The number of frames when the call began: the TryFunction's own frame is at this index.
+    frame: usize,
+    /// The TryFunction called (object, routine).
+    routine: (usize, usize),
 }
 
 /// The `[CommitBehavior(...)]` in force for the dynamic extent of a procedure.
@@ -382,7 +386,7 @@ impl Session {
     /// runner's root scope when the test method uses it itself (:236-238 and corpus commit ff42e3d3: 'RunTests' under the
     /// classic runner on BC 27.5, 'RootMethodScope' under the TestRunnerHub runner on 28.5/29.0). Any other caller is not pinned:
     /// the error is raised with an unpinned text.
-    pub(crate) fn enter_used_try(&mut self) {
+    pub(crate) fn enter_used_try(&mut self, object: usize, routine: usize) {
         let base = self.test_frame_base();
         let scope = match self.call_stack.len() - base {
             // The runner's name per major (al_version::test_runner_root_scope, corpus commit ff42e3d3).
@@ -408,7 +412,18 @@ impl Session {
             scope,
             world: self.tx.tx_world,
             runs: 0,
+            frame: self.frames.len(),
+            routine: (object, routine),
         });
+    }
+
+    /// The routine running now is a TryFunction whose result its caller uses: the current frame is the frame the innermost such
+    /// call made, of the routine it called (not a trigger the call ran before it, `first_use`), and no `asserterror` body is
+    /// running.
+    pub(crate) fn in_own_used_try(&self) -> bool {
+        let top = (self.frames.last().copied()).zip(self.call_stack.last().map(|c| c.routine));
+        self.tx.assert_depth == 0
+            && (self.tx.used_tries.last()).is_some_and(|t| t.frame + 1 == self.frames.len() && top == Some(t.routine))
     }
 
     /// Whether routine `r` of object `o` is a `[Test]` method of a test codeunit.

@@ -42,6 +42,9 @@ pub struct BaselineRun {
     /// The recorded runs of the login code over this baseline (`install::login_work_date`), kept in its file of the
     /// compile cache so that a later run replays them instead of running the code again.
     pub login: Vec<LoginRecord>,
+    /// The install code read a resource file (`Engine::resources_read`, set while it ran): an entry with resource files of
+    /// its own is then not run, whether this baseline ran for the request or was kept (al-runner issues 5635, 8206).
+    pub read_resources: bool,
 }
 
 /// One recorded run of the login code that sets WorkDate when a test session opens the company
@@ -482,6 +485,7 @@ pub fn run_traced_halting(
         restored,
         trace,
         login: Vec::new(),
+        read_resources: session.engine.resources_read.load(std::sync::atomic::Ordering::Relaxed),
     })
 }
 
@@ -727,7 +731,9 @@ impl WriteWalk<'_> {
             | Expr::Fail { .. }
             | Expr::ControlAddInCall { .. } => {}
             Expr::TddStub { args, .. } => args.iter().for_each(|a| self.expr(a)),
-            Expr::TddFit { inner, .. } | Expr::FitOrRefuse { inner, .. } => self.expr(inner),
+            Expr::TddFit { inner, .. } | Expr::FitOrRefuse { inner, .. } | Expr::VarSectionValue(inner) => {
+                self.expr(inner)
+            }
             Expr::Load(p) => self.place(p),
             Expr::Unary(_, a) | Expr::Convert(_, a) | Expr::DotNetCoerce(_, a) | Expr::DotNetOperand(a, _) => {
                 self.expr(a)

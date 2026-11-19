@@ -462,6 +462,7 @@ impl Session {
             deferred_raised,
             immediate_errors,
             try_depth,
+            assert_depth,
             used_tries,
             guarded_runs,
             guarded_bodies,
@@ -502,6 +503,7 @@ impl Session {
             && *deferred_raised == 0
             && !immediate_errors
             && *try_depth == 0
+            && *assert_depth == 0
             && used_tries.is_empty()
             && guarded_runs.is_empty()
             && guarded_bodies.is_empty()

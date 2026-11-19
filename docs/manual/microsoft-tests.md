@@ -139,7 +139,7 @@ These cases are refused with exit 2, before any test runs:
 - a test app that depends on your extension (pass that one as an APP)
 - the same source given twice
 
-`--filter`, `--codeunit`, `--test-exact` and `--exclude-test` apply to your own
+`--filter`, `--codeunit`, `--test-exact`, `--exclude-test` and `--exclude-test-exact` apply to your own
 tests only. `--recipe`, `--impact-of`, `--no-compile-cache`, `--explain`, `--coverage*`,
 `--tdd` and `--output-json` without a FILE are refused with it, and so is `serve`.
 

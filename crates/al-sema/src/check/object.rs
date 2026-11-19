@@ -830,6 +830,9 @@ impl<'a> Checker<'a> {
                     let known = match &t {
                         Ty::Record { table, .. } => self.resolve(sc, ObjKind::Table, table).is_some(),
                         Ty::Object(kind, name) => self.resolve(sc, *kind, name).is_some(),
+                        // A RecordRef or a FieldRef subject (al-runner issue 8082: alc accepts its bare members, warning
+                        // AL0606); the lowering refuses running it.
+                        Ty::Builtin(name) => matches!(&**name, "RecordRef" | "FieldRef"),
                         _ => false,
                     };
                     known.then(|| {

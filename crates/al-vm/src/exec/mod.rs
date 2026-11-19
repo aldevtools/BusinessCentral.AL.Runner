@@ -57,6 +57,12 @@ pub(crate) enum Op {
         p: u32,
         a: u16,
     },
+    /// `place p := a`, `a` the value of a variable of the `var` section stored into an element of an array of memberless
+    /// Options (`ir::Expr::VarSectionValue`, `Session::store_var_section`).
+    StoreVarSectionValue {
+        p: u32,
+        a: u16,
+    },
     /// `place := a` where `a` may be a Variant and the place is no local: site `s` of `variant_copies` (`variant_copy.rs`). A
     /// local takes `Op::StoreLocal`, whose record goes to the site of its place.
     StoreVariantCopy {

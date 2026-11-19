@@ -83,6 +83,8 @@ pub(crate) struct TxState {
     pub(crate) immediate_errors: bool,
     /// Try functions on the call stack (Truncate is refused inside them).
     pub(crate) try_depth: usize,
+    /// `asserterror` statements whose body is running.
+    pub(crate) assert_depth: usize,
     /// The TryFunction calls on the call stack whose result is used, innermost last: a write inside one fails with
     /// TryFunctionWrite (`transactions::try_write_error`).
     pub(crate) used_tries: Vec<transactions::UsedTry>,
@@ -220,6 +222,7 @@ impl TxState {
             deferred_raised: 0,
             immediate_errors: false,
             try_depth: 0,
+            assert_depth: 0,
             used_tries: Vec::new(),
             guarded_runs: Vec::new(),
             guarded_bodies: Vec::new(),
@@ -341,6 +344,7 @@ pub(crate) struct PageClients {
 }
 
 /// Event subscriptions and what the Event Subscription table reports.
+#[derive(Default)]
 pub(crate) struct EventState {
     /// Manual event subscriptions made by `BindSubscription`.
     pub(crate) bindings: Vec<dispatch::Binding>,
@@ -369,6 +373,12 @@ pub(crate) struct EventState {
     pub(crate) next_aliases: Vec<(usize, Rc<RefCell<crate::Instance>>, usize)>,
     /// Set just before a subscriber is called, taken by its frame: the call is an event subscriber dispatch.
     pub(crate) next_is_subscriber: bool,
+    /// Set by `publish` just before the raise: the publisher routine (object, routine); taken by `raise_to_subscribers`
+    /// for `Session::event_publisher`.
+    pub(crate) by_value_publisher: Option<(usize, usize)>,
+    /// Set just before a subscriber is called, taken by its frame (`records::ByValueCall`), cleared after the call: per
+    /// subscriber parameter, what `Session::event_args` says of it.
+    pub(crate) next_event_args: Vec<crate::records::EventArg>,
     /// Set by `publish` for a publisher `blob_transfer::measured_publisher` names and by `table_event` for an event
     /// `blob_transfer::measured_table_event` names, just before the raise; taken by `raise_to_subscribers`.
     pub(crate) blob_publisher: Option<crate::blob_transfer::BlobEvent>,
@@ -381,6 +391,8 @@ pub(crate) struct EventState {
     pub(crate) subscriber_stack: Vec<Option<(usize, usize, usize)>>,
     /// Set by `finish_call` just before the call, taken by the callee's frame (`Frame::var_lens`).
     pub(crate) next_var_lens: Vec<Option<i32>>,
+    /// Set by `finish_call` just before the call, taken by the callee's frame (`Frame::option_hops`).
+    pub(crate) next_option_hops: Vec<bool>,
     /// The declared lengths of a publisher's `var` Text and Code arguments (`var_lens_of`), set by `finish_call` just before
     /// the publisher runs and taken by `publish`, which hands them to the subscribers that read them.
     pub(crate) publisher_var_lens: Vec<Option<i32>>,
@@ -494,6 +506,9 @@ pub(crate) struct ReportState {
     /// Report variables whose `RunModal` ran to its end: a second `RunModal` and a `RunRequestPage` on one raise
     /// ObjectHasAlreadyBeenRun (see `reports.rs`, `REPORT_RUN_1 | REPORT_RUNMODAL_1`).
     pub(crate) report_run_modal_done: Vec<std::rc::Weak<RefCell<Instance>>>,
+    /// The `ExcelLayoutMultipleDataSheets = true` admission of the running report call (`reports/excel_sheets.rs`: set and
+    /// restored around each report call that runs a report or reads its layout).
+    pub(crate) excel_sheets: crate::reports::ExcelSheetsAdmission,
     /// Report instances whose Run, RunModal or Execute is running now, innermost last (`RunningReport`).
     pub(crate) report_running: Vec<RunningReport>,
     /// `RequestOptionsPage.Caption` set by the code of a report outside its request page's OnOpenPage, by report instance: the

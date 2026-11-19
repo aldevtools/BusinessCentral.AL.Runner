@@ -197,8 +197,8 @@ pub struct MemStore {
     /// here and allowed (ADR-020 amendment: install code may change restored rows). Shared by the
     /// clones of the store, so a snapshot or a rollback does not lose it.
     restored_log: Option<std::rc::Rc<std::cell::RefCell<Vec<RestoredChange>>>>,
-    /// Per table (object index), the columns in which a stored row held a value a platform row left unknown
-    /// (`Value::Unknown`, a record copied from one). Never cleared: a filter or an order on such a column checks the
+    /// Per table (object index), the columns in which a stored row held a value no filter or order may compare (`held_cols::unread`:
+    /// a value a platform row left unknown, or a placeholder's size). Never cleared: a filter or an order on such a column checks the
     /// rows (`unknown_read`).
     unknown_cols: std::collections::HashMap<u32, Vec<usize>>,
     /// Per table, the columns in which a stored row held a text outside ASCII. Never cleared (`collation_read`).
@@ -577,8 +577,9 @@ impl MemStore {
         self
     }
 
-    /// `row` as this store keeps it ([`MemStore::as_database`]).
-    fn kept(&self, mut row: Row) -> Row {
+    /// `row` as this store keeps it ([`MemStore::as_database`]), with its held columns written down (`note_held`). Every
+    /// write of a row into `t` passes here, so no write path keeps a value a read must refuse without the note.
+    fn kept(&mut self, t: &TableDef, mut row: Row) -> Row {
         if self.database {
             for v in row.iter_mut() {
                 if let Value::Decimal(d) = v {
@@ -586,6 +587,7 @@ impl MemStore {
                 }
             }
         }
+        self.note_held(t, &row);
         row
     }
 
@@ -1589,7 +1591,7 @@ pub fn store_ops() -> u64 {
 impl Store for MemStore {
     fn insert(&mut self, cx: &AccessContext, t: &TableDef, row: Row) -> Result<InsertOutcome, StoreError> {
         bump();
-        let row = self.kept(row);
+        let row = self.kept(t, row);
         t.check_key_values(&row)?;
         if let Some(v) = self.virtual_of(t) {
             if !v.takes_inserts(t) {
@@ -1599,7 +1601,6 @@ impl Store for MemStore {
                 return Ok(InsertOutcome::AlreadyExists);
             }
         }
-        self.note_held(t, &row);
         let k = Key::of(t, t.primary_key(&row));
         let carry = self.has_orders(&slot(cx, t), t);
         let table = self.table_mut(cx, t);
@@ -1627,7 +1628,7 @@ impl Store for MemStore {
 
     fn modify(&mut self, cx: &AccessContext, t: &TableDef, row: Row) -> Result<WriteOutcome, StoreError> {
         bump();
-        let row = self.kept(row);
+        let row = self.kept(t, row);
         t.check_key_values(&row)?;
         if let Some(v) = self.virtual_of(t) {
             let k = Key::of(t, t.primary_key(&row));
@@ -1661,7 +1662,6 @@ impl Store for MemStore {
             }
             return Err(self.read_only(t, "Modify"));
         }
-        self.note_held(t, &row);
         let k = Key::of(t, t.primary_key(&row));
         self.note_restored(cx, t, &k, "Modify", Some(&row));
         let carry = self.has_orders(&slot(cx, t), t);
@@ -1742,13 +1742,12 @@ impl Store for MemStore {
         row: Row,
     ) -> Result<RenameOutcome, StoreError> {
         bump();
-        let row = self.kept(row);
+        let row = self.kept(t, row);
         t.check_primary_key(old)?;
         t.check_key_values(&row)?;
         if self.virtual_of(t).is_some() {
             return Err(self.read_only(t, "Rename"));
         }
-        self.note_held(t, &row);
         let new_k = Key::of(t, t.primary_key(&row));
         self.note_restored(cx, t, &Key::of(t, old.to_vec()), "Rename", None);
         let table = self.table_mut(cx, t);

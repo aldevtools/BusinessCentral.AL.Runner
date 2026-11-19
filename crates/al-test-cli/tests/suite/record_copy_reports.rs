@@ -2106,8 +2106,9 @@ codeunit 50155 "BW Test"
         Expect(Line.ExtFilters(Line), '');
     end;
 
+    // Measured by corpus PR 1451 (record/filters/ByValueTableProcedureView.al:294-314): the copy has no filters.
     [Test]
-    procedure TableProcedure_OtherTable_Refused()
+    procedure TableProcedure_OtherTable_Flagged()
     var
         Line: Record "BW Row";
         Other: Record "BW Other";
@@ -2166,7 +2167,7 @@ fn by_value_views_of_the_probe_run_flagged_and_their_neighbors_refuse_or_keep_ma
         ("PageProcedure_Group0Filter_Refused", VIEW_REFUSED, false),
         ("PageProcedure_NoFilter_KeepsMain", PASS, false),
         ("TableExtensionProcedure_Group0Filter_Refused", VIEW_REFUSED, false),
-        ("TableProcedure_OtherTable_Refused", VIEW_REFUSED, false),
+        ("TableProcedure_OtherTable_Flagged", PASS, true),
         ("ByVar_KeepsFilters", PASS, false),
     ];
     check(&o, &want);

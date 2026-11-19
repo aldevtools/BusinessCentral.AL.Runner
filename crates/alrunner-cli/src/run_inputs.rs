@@ -119,6 +119,7 @@ impl RunInputs {
             codeunits: _,
             filters: _,
             excludes: _,
+            excludes_exact: _,
             exact: _,
             run_selected_only: _,
             single_test_alone: _,
