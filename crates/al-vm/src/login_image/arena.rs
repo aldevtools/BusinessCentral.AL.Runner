@@ -24,6 +24,7 @@ pub(crate) struct Arena {
 }
 
 impl Arena {
+    #[cfg(test)]
     pub(crate) fn node(&self, id: NodeId) -> &Node {
         &self.nodes[id.0 as usize]
     }
