@@ -23,6 +23,13 @@ impl TempBlobImplFields {
         self.0.is_empty()
     }
 
+    /// Holds what a new session holds as far as code can tell: every record noted is gone. The reader upgrades the
+    /// records and passes over a gone one (`holds`), and each note drops them first (`note`), so a list of gone records
+    /// answers as an empty one. A session image (al-vm `login_image`) requires this.
+    pub(crate) fn holds_no_live_record(&self) -> bool {
+        self.0.iter().all(|(w, _)| w.strong_count() == 0)
+    }
+
     fn note(&mut self, rec: &Rc<RefCell<RecordState>>, pos: usize) {
         self.0.retain(|(w, _)| w.strong_count() > 0);
         if !self.0.iter().any(|(w, p)| *p == pos && w.as_ptr() == Rc::as_ptr(rec)) {

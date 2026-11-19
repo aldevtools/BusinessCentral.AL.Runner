@@ -153,7 +153,8 @@ macro_rules! session_fields {
                 temp_files => |s: &Session| s.temp_files == 0,
                 render_pending_files => |s: &Session| s.render_pending_files.is_empty(),
                 placeholder_files => |s: &Session| s.placeholder_files.as_new(),
-                temp_blob_impl_fields => |s: &Session| s.temp_blob_impl_fields.as_new(),
+                // Install code is held to `as_new` (`install_left`); a list of gone records answers as an empty one.
+                temp_blob_impl_fields [image_only] => |s: &Session| s.temp_blob_impl_fields.holds_no_live_record(),
                 // What the run saw of a RecordRef over the database Field table lives with its buffer. Not held of
                 // install code: main's install_left does not ask it.
                 relation_field_no_refs [image_only] => |s: &Session| s.relation_field_no_refs.as_new(),
