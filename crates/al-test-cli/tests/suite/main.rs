@@ -264,6 +264,7 @@ mod user_reports;
 mod validate_in_validate_subscriber;
 mod values_allowed_setvalue;
 mod view_object_constant_unique;
+mod with_recordref_subject;
 mod with_statement;
 mod worksheet_validate_temp_part;
 mod xmlport_request_page;
