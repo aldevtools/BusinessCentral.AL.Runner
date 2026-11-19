@@ -3051,6 +3051,11 @@ codeunit 50510 "P9 Tests"
 /// One-shot `al-runner test` of `app` over the cache folder `cache` with `env`: (exit code, the `--timings` line of the
 /// workspace layer, stderr).
 fn one_shot_run(app: &Path, cache: &str, env: &[(&str, &str)]) -> (Option<i32>, String, String) {
+    one_shot_run_with(app, cache, env, &[])
+}
+
+/// [`one_shot_run`] with more arguments.
+fn one_shot_run_with(app: &Path, cache: &str, env: &[(&str, &str)], args: &[&str]) -> (Option<i32>, String, String) {
     let out = Command::new(env!("CARGO_BIN_EXE_al-runner"))
         .args([
             "test",
@@ -3060,6 +3065,7 @@ fn one_shot_run(app: &Path, cache: &str, env: &[(&str, &str)]) -> (Option<i32>, 
             "--timings",
         ])
         .args(["--cache-dir", cache])
+        .args(args)
         .env_remove("AL_UNPINNED_BASE_ACCESS")
         .envs(env.iter().copied())
         .output()
@@ -3097,6 +3103,44 @@ fn a_switch_set_but_empty_and_unset_do_not_share_a_workspace_entry() {
             "empty first {first_empty}: the second run read the first's entry: {line2}"
         );
         assert_eq!(code2, code2_fresh, "empty first {first_empty}: {code1:?}");
+    }
+}
+
+/// ADR-022 amendment decision 10: a damaged entry is removed and the run compiles fresh; the reason goes to stderr with
+/// `--verbose` only (the `--timings` line of the layer names it in its notes either way).
+#[test]
+fn a_damaged_workspace_entry_is_said_on_stderr_with_verbose_only() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app(d.path(), "damaged", MIXED);
+    let cache = d.path().join("cache").to_string_lossy().to_string();
+    let damage = || {
+        let dir = d.path().join("cache").join("compile");
+        let entry = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .find(|p| p.extension().is_some_and(|x| x == "alcw"))
+            .expect("an entry was written");
+        let mut bytes = std::fs::read(&entry).unwrap();
+        let at = bytes.len() / 2;
+        bytes[at] ^= 0x41;
+        std::fs::write(&entry, bytes).unwrap();
+    };
+    let said = |err: &str| {
+        err.lines()
+            .any(|l| l.starts_with("workspace cache: ") && l.contains("ignored and removed"))
+    };
+    let (code, line, _) = one_shot_run(&a, &cache, &[]);
+    assert!(line.contains("built"), "{line}");
+    for verbose in [false, true] {
+        damage();
+        let args: &[&str] = if verbose { &["--verbose"] } else { &[] };
+        let (again, line, err) = one_shot_run_with(&a, &cache, &[], args);
+        assert_eq!(again, code, "verbose {verbose}: {err}");
+        assert!(
+            line.contains("built") && line.contains("ignored and removed"),
+            "verbose {verbose}: {line}"
+        );
+        assert_eq!(said(&err), verbose, "verbose {verbose}: {err}");
     }
 }
 
