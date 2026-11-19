@@ -4,6 +4,7 @@
 
 use crate::Session;
 use crate::sessionops::Sequence;
+use crate::state_render::content;
 use al_builtins::value::{Instance, RecordState, Value};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
@@ -224,8 +225,9 @@ fn same_view(a: &RecordState, b: &RecordState) -> bool {
 pub struct StateLines {
     /// One line per kind of state, in a fixed order.
     pub lines: Vec<String>,
-    /// The SingleInstance globals with no comparable form (a .NET object, a stream, a temporary record): what they hold
-    /// cannot be compared, so two sessions holding one are never known to hold the same.
+    /// The SingleInstance globals that hold a value with no comparable form (`state_render.rs`: a .NET object, an open
+    /// stream, ...), with why and its path: what they hold cannot be compared, so two sessions holding one are never known
+    /// to hold the same.
     pub opaque: Vec<String>,
 }
 
@@ -249,14 +251,10 @@ impl Session {
         let stamp = self.left_stamp();
         let id = |o: usize| self.engine.program.objects[o].id.unwrap_or(0);
         let mut out = StateLines::default();
-        out.lines.push(format!("session {:?}", stamp.state));
-        // Temporary tables and codeunit instances are numbered by first sight, in this fixed order of the globals.
-        let mut render = Render {
-            session: self,
-            temp_tables: Vec::new(),
-            instances: Vec::new(),
-            lines: Vec::new(),
-        };
+        out.lines.push(format!("session {}", content(&stamp.state)));
+        // Temporary tables, codeunit instances and shared handles are numbered by first sight, in this fixed order of the
+        // globals.
+        let mut render = crate::state_render::Render::new(self);
         for (&o, single) in &stamp.singles {
             let inst = self.singletons.get(&o).map(|i| i.borrow());
             for (g, fp) in single.globals.iter().enumerate() {
@@ -279,154 +277,16 @@ impl Session {
             .filter_map(|b| b.instance.upgrade().map(|i| id(i.borrow().object as usize)))
             .collect();
         bound.sort_unstable();
-        out.lines.push(format!("bindings {bound:?}"));
-        out.lines.push(format!("random {:?}", stamp.random));
-        out.lines.push(format!("group1 {:?}", stamp.group1));
+        out.lines.push(format!("bindings {}", content(&bound)));
+        out.lines.push(format!("random {}", content(&stamp.random)));
+        out.lines.push(format!("group1 {}", content(&stamp.group1)));
         out.lines.push(format!(
             "counters clock {} guid key {} draws {} row versions {} committed {}",
             self.waited_ms, self.guid_key, self.next_guid, self.next_row_version, self.tx.committed_row_version
         ));
         let autoinc: BTreeMap<&(String, u32), &i64> = self.autoinc.iter().collect();
-        out.lines.push(format!("autoincrement {autoinc:?}"));
-        out.lines.push(format!("last error {:?}", self.last_error));
+        out.lines.push(format!("autoincrement {}", content(&autoinc)));
+        out.lines.push(format!("last error {}", content(&self.last_error)));
         out
-    }
-}
-
-/// Renders the values of SingleInstance globals as text that compares across sessions ([`Session::state_lines`]). A value
-/// with no comparable form gives `Err` with why and its path (ids, indexes and type names only); [`Session::state_lines`]
-/// then names it as opaque, never as equal.
-struct Render<'a> {
-    session: &'a Session,
-    /// The temporary tables seen, by id: records that share one (`Copy(x, true)`) name one table.
-    temp_tables: Vec<u64>,
-    /// The codeunit instances seen, by address (never written out): two globals that hold one instance name one number,
-    /// two instances two; a cycle ends at an instance already numbered.
-    instances: Vec<usize>,
-    /// What a numbered table or instance holds, one line each, written once.
-    lines: Vec<String>,
-}
-
-impl Render<'_> {
-    /// `v` as text, by the first rule that fits:
-    /// - an array element by element ([`Render::array`]; on a real app an instance a login leaves holds one);
-    /// - a codeunit instance by its number, and once its codeunit id and globals by these rules (on a real app a global of
-    ///   a SingleInstance codeunit holds one after the login);
-    /// - a value with a fingerprint by the fingerprint (`single_track::fp`);
-    /// - a ModuleInfo by value (System Application's "System Initialization Impl." holds one after the login on BC 28.5);
-    /// - a temporary record by everything it carries (view, filters of every group, key, position, buffer) and its
-    ///   table's rows, once per table (Base Application's "Acc. Sched. KPI Event Handler" and "Change Log Management"
-    ///   hold some after the login on BC 28.5).
-    fn value(&mut self, v: &Value, depth: u8) -> Result<String, String> {
-        if let Value::Codeunit(rc) = v {
-            return self.instance(rc, depth);
-        }
-        if let Value::Array(a) = v {
-            return self.array(a, depth);
-        }
-        let what = match crate::single_track::fp(v, &self.session.engine) {
-            crate::single_track::Fp::Val(bytes) => return Ok(format!("{bytes:?}")),
-            crate::single_track::Fp::Opaque(what) => what,
-        };
-        if let Some(m) = module_info(Some(v)) {
-            return Ok(m);
-        }
-        let Value::Record(r) = v else {
-            return Err(what.to_string());
-        };
-        let Ok(r) = r.try_borrow() else {
-            return Err(format!("{what} (in use)"));
-        };
-        let Some(temp) = (r.temp_id.as_ref()).filter(|t| r.temporary && !r.crm && !t.rows_unmeasured()) else {
-            return Err(what.to_string());
-        };
-        let n = match self.temp_tables.iter().position(|t| *t == temp.id()) {
-            Some(n) => n,
-            None => {
-                self.temp_tables.push(temp.id());
-                let n = self.temp_tables.len() - 1;
-                let rows = self.session.temps.get(&temp.id()).map(|s| s.export_current());
-                for t in rows.unwrap_or_default() {
-                    for (_, row) in &t.rows {
-                        self.lines
-                            .push(format!("temp table {n} row {}|{}|{row:?}", t.company, t.object));
-                    }
-                }
-                n
-            }
-        };
-        let mut view = r.clone();
-        view.temp_id = None;
-        Ok(format!("temp record of table {n}: {view:?}"))
-    }
-
-    /// An array: `array of <n> elements [...]`, every element by these rules (an instance in it keeps its number), runs of
-    /// equal elements written once as `[a..b]: <element>` (exact: no element is sampled or left out). `Err`: the first
-    /// element with no comparable form (`array of <n> elements, element [<i>]: ...`).
-    fn array(&mut self, a: &Rc<RefCell<Vec<Value>>>, depth: u8) -> Result<String, String> {
-        let Ok(a) = a.try_borrow() else {
-            return Err("array (in use)".into());
-        };
-        if depth > 8 {
-            return Err(format!("array of {} elements: nested more than 8 deep", a.len()));
-        }
-        let mut runs: Vec<(usize, usize, String)> = Vec::new();
-        for (i, e) in a.iter().enumerate() {
-            let text = self
-                .value(e, depth + 1)
-                .map_err(|why| format!("array of {} elements, element [{i}]: {why}", a.len()))?;
-            match runs.last_mut() {
-                Some((_, last, same)) if *same == text => *last = i,
-                _ => runs.push((i, i, text)),
-            }
-        }
-        let runs: Vec<String> = (runs.into_iter())
-            .map(|(first, last, text)| match first == last {
-                true => format!("[{first}]: {text}"),
-                false => format!("[{first}..{last}]: {text}"),
-            })
-            .collect();
-        Ok(format!("array of {} elements [{}]", a.len(), runs.join(", ")))
-    }
-
-    /// A codeunit instance: `instance <n>`, and once `instance <n> codeunit <id> globals [...]`. `Err`: why it has no
-    /// comparable form, with the path to the value that has none (`instance of codeunit <id> global <k>: ...`).
-    fn instance(&mut self, rc: &Rc<RefCell<Instance>>, depth: u8) -> Result<String, String> {
-        let address = Rc::as_ptr(rc) as usize;
-        if let Some(n) = self.instances.iter().position(|a| *a == address) {
-            return Ok(format!("instance {n}"));
-        }
-        let Ok(inst) = rc.try_borrow() else {
-            return Err("Codeunit instance (in use)".into());
-        };
-        let id = self.session.engine.program.objects[inst.object as usize]
-            .id
-            .unwrap_or(0);
-        if depth > 8 {
-            return Err(format!("instance of codeunit {id}: nested more than 8 instances deep"));
-        }
-        self.instances.push(address);
-        let n = self.instances.len() - 1;
-        let globals = (inst.globals.iter().enumerate())
-            .map(|(k, g)| {
-                self.value(g, depth + 1)
-                    .map_err(|why| format!("instance of codeunit {id} global {k}: {why}"))
-            })
-            .collect::<Result<Vec<String>, String>>()?;
-        self.lines
-            .push(format!("instance {n} codeunit {id} globals [{}]", globals.join(", ")));
-        Ok(format!("instance {n}"))
-    }
-}
-
-/// A `ModuleInfo` value as text ([`Session::state_lines`]): the manifest it holds, or that it holds none yet.
-fn module_info(v: Option<&Value>) -> Option<String> {
-    let Some(Value::Library(al_builtins::library_kind::LibraryKind::ModuleInfo, l)) = v else {
-        return None;
-    };
-    match &*l.try_borrow().ok()? {
-        al_builtins::value::LibraryValue::ModuleInfo(m) => Some(format!("{m:?}")),
-        al_builtins::value::LibraryValue::Empty => Some("ModuleInfo (none)".into()),
-        _ => None,
     }
 }

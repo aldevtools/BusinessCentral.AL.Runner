@@ -219,7 +219,7 @@ fn temporary_records_the_login_leaves_compare_by_their_rows_and_view_and_a_share
     let records = state
         .lines
         .iter()
-        .filter(|l| l.contains(" temp record of table 0: "))
+        .filter(|l| l.contains(" Record temp table 0: "))
         .count();
     assert_eq!(records, 2, "{:?}", state.lines);
 }
@@ -305,7 +305,7 @@ fn codeunit_instances_the_login_leaves_compare_by_identity_and_their_state() {
 }
 
 /// [`MAIN`] with a second login subscriber that leaves, in a SingleInstance codeunit, an instance whose own global holds
-/// an open RecordRef.
+/// an HttpClient with a base address.
 const OPAQUE_INSIDE: &str = r#"
 codeunit 77410 "RPL Deep Registration"
 {
@@ -320,8 +320,8 @@ codeunit 77411 "RPL Holder"
 }
 codeunit 77412 "RPL Ref Holder"
 {
-    var Count: Integer; Ref: RecordRef;
-    procedure Open() begin Count := 1; Ref.Open(Database::"Guided Experience Item"); end;
+    var Count: Integer; Client: HttpClient;
+    procedure Open() begin Count := 1; Client.SetBaseAddress('http://localhost/'); end;
 }
 "#;
 
@@ -334,7 +334,7 @@ fn a_value_with_no_comparable_form_inside_an_instance_is_named_with_its_path() {
     run(&engine, &l, "RPL Tests A");
     let line = crate::login_replay::report(&engine).unwrap();
     assert!(
-        line.contains("not comparable: codeunit 77411 global 0: instance of codeunit 77412 global 1: RecordRef)"),
+        line.contains("not comparable: codeunit 77411 global 0: instance of codeunit 77412 global 1: HttpClient (a client of the network: what it holds lies outside the session))"),
         "{line}"
     );
 }
@@ -389,4 +389,136 @@ fn arrays_the_login_leaves_compare_element_by_element() {
     assert!(a.contains("array of 5 elements [[0..1]: "), "{a}");
     assert!(a.contains(", [2]: ") && a.contains(", [3..4]: "), "{a}");
     assert_ne!(a, b);
+}
+
+/// [`MAIN`] with a login subscriber that leaves, in a SingleInstance codeunit, one instance per kind of value, each filled
+/// from the resource text's length `N`: RecordRefs never opened (one alone, an array of three, one opened when `N` > 1), a
+/// RecordRef on a temporary table with the record it was taken from, a RecordRef on a real table with a FieldRef that
+/// filters it and a KeyRef, a List and a Dictionary of codeunit instances, Json, a TextBuilder, Xml, a Notification, an
+/// ErrorInfo, a Version and an HttpContent.
+const KINDS_INSIDE: &str = r#"
+codeunit 77430 "RPL Kinds Registration"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterManualSetup', '', false, false)]
+    local procedure RegisterManualSetup() var Holder: Codeunit "RPL Kinds Holder";
+    begin Holder.Keep(StrLen(NavApp.GetResourceAsText('rpl.txt'))); end;
+}
+codeunit 77431 "RPL Kinds Holder"
+{
+    SingleInstance = true;
+    var Closed: Codeunit "RPL K Closed"; TempRef: Codeunit "RPL K TempRef"; RealRef: Codeunit "RPL K RealRef";
+        Lists: Codeunit "RPL K List"; Dict: Codeunit "RPL K Dict"; Json: Codeunit "RPL K Json"; Text: Codeunit "RPL K Text";
+        Xml: Codeunit "RPL K Xml"; Misc: Codeunit "RPL K Misc"; Http: Codeunit "RPL K Http";
+    procedure Keep(N: Integer)
+    begin
+        Closed.Fill(N); TempRef.Fill(N); RealRef.Fill(N); Lists.Fill(N); Dict.Fill(N); Json.Fill(N); Text.Fill(N);
+        Xml.Fill(N); Misc.Fill(N); Http.Fill(N);
+    end;
+}
+codeunit 77432 "RPL K Closed"
+{
+    var Never: RecordRef; Refs: array[3] of RecordRef;
+    procedure Fill(N: Integer) begin if N > 1 then Refs[2].Open(Database::"Guided Experience Item"); end;
+}
+codeunit 77433 "RPL K TempRef"
+{
+    var T: Record "Guided Experience Item" temporary; R: RecordRef;
+    procedure Fill(N: Integer) begin T."Object ID" := N; T.Insert(); R.GetTable(T); if R.FindFirst() then; end;
+}
+codeunit 77434 "RPL K RealRef"
+{
+    var R: RecordRef; F: FieldRef; K: KeyRef;
+    procedure Fill(N: Integer)
+    begin
+        R.Open(Database::"Guided Experience Item"); F := R.Field(1); F.SetRange(77400 + N); K := R.KeyIndex(1);
+        if R.FindFirst() then;
+    end;
+}
+codeunit 77435 "RPL K List"
+{
+    var L: List of [Codeunit "RPL Helper"]; Names: List of [Text];
+    procedure Fill(N: Integer) var H: Codeunit "RPL Helper"; begin H.SetX(N); L.Add(H); L.Add(H); Names.Add(Format(N)); end;
+}
+codeunit 77436 "RPL K Dict"
+{
+    var D: Dictionary of [Integer, Codeunit "RPL Helper"];
+    procedure Fill(N: Integer) var H: Codeunit "RPL Helper"; begin H.SetX(N); D.Add(N, H); end;
+}
+codeunit 77437 "RPL K Json"
+{
+    var J: JsonObject; A: JsonArray;
+    procedure Fill(N: Integer) begin A.Add(N); J.Add('n', N); J.Add('a', A); end;
+}
+codeunit 77438 "RPL K Text"
+{
+    var B: TextBuilder;
+    procedure Fill(N: Integer) begin B.Append(Format(N)); end;
+}
+codeunit 77439 "RPL K Xml"
+{
+    var X: XmlDocument;
+    procedure Fill(N: Integer) begin XmlDocument.ReadFrom('<a>' + Format(N) + '</a>', X); end;
+}
+codeunit 77440 "RPL K Misc"
+{
+    var Notif: Notification; Info: ErrorInfo; V: Version;
+    procedure Fill(N: Integer) begin Notif.Message(Format(N)); Info.Message(Format(N)); V := Version.Create(N, 0); end;
+}
+codeunit 77441 "RPL K Http"
+{
+    var C: HttpContent;
+    procedure Fill(N: Integer) begin C.WriteFrom(Format(N)); end;
+}
+"#;
+
+// Every kind of value a login can leave inside an instance has an exact form: sessions of one input are equal, not "not
+// comparable", and another input is a session state difference in the instance of each kind.
+#[test]
+fn every_kind_of_value_the_login_leaves_compares_exactly() {
+    let (engine, l) = compiled_with(&format!("{MAIN}{KINDS_INSIDE}"));
+    run(&engine, &l, "RPL Tests A");
+    run(&engine, &l, "RPL Tests A");
+    let line = crate::login_replay::report(&engine).unwrap();
+    assert!(line.contains(", 1 compared, 0 differ;"), "{line}");
+    let firsts = crate::login_replay::check(&engine).firsts();
+    let state = firsts[0].1.state_lines();
+    assert!(state.opaque.is_empty(), "{:?}", state.opaque);
+    // The line of the instance of codeunit `id`.
+    fn of(firsts: &[(crate::login_replay::Key, crate::login_replay::LoginState)], k: usize, id: u32) -> String {
+        let lines = &firsts[k].1.state_lines().lines;
+        let line =
+            (lines.iter()).find(|l| l.starts_with("instance ") && l.contains(&format!(" codeunit {id} globals")));
+        line.unwrap_or_else(|| panic!("{id}: {lines:?}")).clone()
+    }
+    // The instance line of codeunit `id` with the lines of the shared handles it names (`shared <n>`).
+    fn held(firsts: &[(crate::login_replay::Key, crate::login_replay::LoginState)], k: usize, id: u32) -> String {
+        let line = of(firsts, k, id);
+        let shared = (firsts[k].1.state_lines().lines.iter()).filter(|l| {
+            let n = l.strip_prefix("shared ").and_then(|t| t.split(' ').next());
+            n.is_some_and(|n| line.contains(&format!("shared {n},")) || line.contains(&format!("shared {n}]")))
+        });
+        shared.fold(line.clone(), |all, l| format!("{all}\n{l}"))
+    }
+    // RecordRefs never opened render as that, and an array of them collapses into one run.
+    let closed = of(&firsts, 0, 77432);
+    assert!(
+        closed.contains("[RecordRef (not open), array of 3 elements [[0..2]: RecordRef (not open)]]"),
+        "{closed}"
+    );
+    // A RecordRef taken from a temporary record names the record's table.
+    let temp = of(&firsts, 0, 77433);
+    let table = (temp.split("Record temp table ").nth(1)).and_then(|t| t.split(':').next());
+    assert!(
+        table.is_some_and(|n| temp.contains(&format!(", RecordRef temp table {n}: "))),
+        "{temp}"
+    );
+    set_resource(&engine, &l, Some("abcd"));
+    run(&engine, &l, "RPL Tests A");
+    let firsts = crate::login_replay::check(&engine).firsts();
+    let differences = crate::login_replay::differences(&firsts[0].1, &firsts[1].1);
+    assert!(differences.iter().all(|(kind, _)| *kind != 0), "{differences:?}");
+    assert!(differences.iter().any(|(kind, _)| *kind == 2), "{differences:?}");
+    for id in 77432..=77441 {
+        assert_ne!(held(&firsts, 0, id), held(&firsts, 1, id), "{id}");
+    }
 }
