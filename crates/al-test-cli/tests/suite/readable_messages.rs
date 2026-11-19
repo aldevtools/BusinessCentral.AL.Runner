@@ -125,6 +125,21 @@ const KEPT: &[(&str, &str, &str)] = &[
         "the key of the dependencies kept between serve requests, compared for equality, never shown",
     ),
     (
+        "al-vm/src/pages/background.rs",
+        r#""{}|{:?}|{method:?}|{args:?}|{:?}|{}|{}|{:?}|{}|{}|{marks:?}|{key:?}","#,
+        "the question of a background worker's read, compared for equality with the run's earlier reads, never shown",
+    ),
+    (
+        "al-vm/src/pages/background.rs",
+        r#"R::Count | R::CountApprox | R::IsEmpty => format!("{value:?}"),"#,
+        "the answer of a background worker's read, compared for equality with the first answer, never shown",
+    ),
+    (
+        "al-vm/src/pages/background.rs",
+        r#"_ => format!("{value:?}|{:?}", rec.borrow().fields),"#,
+        "the answer of a background worker's read, compared for equality with the first answer, never shown",
+    ),
+    (
         "al-vm/src/pages/open/page_open.rs",
         r#"Ok(Some((r.key, r.ascending, format!("{:?}", r.filters), pk)))"#,
         "the filters of a page's Rec before and after OnOpenPage, compared for equality, never shown",
