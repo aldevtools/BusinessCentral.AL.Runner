@@ -230,6 +230,7 @@ impl al_builtins::native::Ctx for Session {
         match rec {
             Some(Value::Record(rc)) => {
                 let rc = rc.clone();
+                self.access_notes.record_calls += 1;
                 if method == al_builtins::record_op::RecordOp::Validate {
                     // `Record.Validate` in AL code (registry `Record.Validate#1`).
                     return self.validate_at(crate::records::ValidateSite::AlRecordValidate, &rc, args);
@@ -272,10 +273,12 @@ impl al_builtins::native::Ctx for Session {
     }
 
     fn query(&mut self, method: &str, recv: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
+        self.access_notes.other_calls += 1;
         self.query_op(method, recv, args)
     }
 
     fn ref_op(&mut self, id: &str, receiver: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
+        self.access_notes.other_calls += 1;
         Session::ref_op(self, id, receiver, args)
     }
     fn set_value_from_variant(&mut self, on: bool) {

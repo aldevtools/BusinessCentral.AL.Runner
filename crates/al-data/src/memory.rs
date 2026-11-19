@@ -220,6 +220,9 @@ pub struct MemStore {
     /// While set, the tables whose access is watched and the first one that was read or written ([`MemStore::watch`]).
     /// Shared by the clones of the store, so a snapshot, a restore or a rollback does not lose it.
     watch: Option<std::rc::Rc<std::cell::RefCell<Watch>>>,
+    /// How many reads and writes of a table the store took ([`MemStore::accesses`]). Shared by the clones of the store, so
+    /// a snapshot put back does not lower it.
+    accesses: std::rc::Rc<std::cell::Cell<u64>>,
     /// The store stands for the database ([`MemStore::as_database`]): a Decimal it keeps carries no trailing zeros.
     database: bool,
 }
@@ -938,8 +941,15 @@ impl MemStore {
         hit
     }
 
-    /// Notes an access to table `object` for the watch.
+    /// How many reads and writes of a table this store and its clones took so far (al-testrun `isolation.rs`: whether a
+    /// failed test reached a table).
+    pub fn accesses(&self) -> u64 {
+        self.accesses.get()
+    }
+
+    /// Notes an access to table `object` for the watch and the count of [`MemStore::accesses`].
     fn seen(&self, object: u32) {
+        self.accesses.set(self.accesses.get() + 1);
         if let Some(w) = &self.watch {
             let mut w = w.borrow_mut();
             if w.tables.contains(&object) {
@@ -956,6 +966,7 @@ impl MemStore {
 
     /// Notes an access to every watched table (a read of the whole store).
     fn seen_all(&self) {
+        self.accesses.set(self.accesses.get() + 1);
         if let Some(w) = &self.watch {
             let mut w = w.borrow_mut();
             if w.hit.is_none() {

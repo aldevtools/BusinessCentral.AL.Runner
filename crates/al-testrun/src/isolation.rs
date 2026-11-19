@@ -27,7 +27,10 @@
 //! shares nothing mutable with another unit; the parallel scheduler (not built yet) runs units on
 //! threads and needs nothing else from this module.
 
+mod failed_test;
+
 use al_vm::Session;
+pub use failed_test::{CodeunitSequences, failed_test_runner_measured, noting_body};
 
 /// The `TestIsolation` property of a test runner codeunit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -138,11 +141,8 @@ impl Checkpoint {
 
 /// What the end of a test puts back besides its transaction, by the runner's TestIsolation. Under Function the
 /// checkpoint (with the isolated storage and the number sequences for a runner codeunit, `runner_function`). Under
-/// Codeunit (`sequences`, taken after OnRun) a failed test takes back every NumberSequence.Insert since the codeunit's
-/// tests began ([`Session::drop_sequences_inserted_since`]). That is measured only without a Commit() in a test method body
-/// of the codeunit since then (IsolProbeAfterRollback.Codeunit.al:58-78, :117-132 under runner 61301, which has none); when
-/// one ran (`body_committed`, the AL Commit() of a test body or a commit its code causes), the sequences inserted since
-/// the tests began ([`Session::sequences_inserted_since`]) are refused for the later tests.
+/// Codeunit (`sequences`) what a failed test leaves of the number sequences ([`CodeunitSequences::after_failure`];
+/// `trusted`: the failure is not judged not trusted).
 ///
 /// A key or a sequence whose state after that rollback is not measured (it was there before and the test changed it) is
 /// handed to the session: a later test of the codeunit that calls IsolatedStorage or NumberSequence on it is refused at
@@ -152,9 +152,9 @@ pub fn after_test(
     session: &mut Session,
     checkpoint: Option<&Checkpoint>,
     runner_function: bool,
-    sequences: Option<&al_vm::SequenceStart>,
+    sequences: Option<&mut CodeunitSequences>,
     failed: bool,
-    body_committed: bool,
+    trusted: bool,
     routine: &str,
 ) {
     if let Some(cp) = checkpoint {
@@ -181,34 +181,8 @@ pub fn after_test(
         }
         return;
     }
-    let Some(start) = sequences.filter(|_| failed) else {
-        return;
-    };
-    let committed = if body_committed {
-        session.sequences_inserted_since(start)
-    } else {
-        Vec::new()
-    };
-    for key in committed {
-        let why = format!(
-            "a test of this codeunit, {routine}, failed after number sequence '{}' was inserted and a test of the codeunit \
-             ran a Commit() since its tests began: what the rollback of the failed test leaves of it under TestIsolation = \
-             Codeunit is not measured (only a new NumberSequence.Insert without a Commit() is)",
-            key.1
-        );
-        session.refuse_unmeasured_sequence(&key, why);
-    }
-    if session.drop_sequences_inserted_since(start) != Some(false) {
-        return;
-    }
-    for key in session.unkept_sequences_since(start) {
-        let why = format!(
-            "a test of this codeunit, {routine}, failed after number sequence '{}', which existed when the codeunit's \
-             tests began, was restarted, deleted or changed: what the rollback of the failed test leaves of it under \
-             TestIsolation = Codeunit is not measured (only a new NumberSequence.Insert is)",
-            key.1
-        );
-        session.refuse_unmeasured_sequence(&key, why);
+    if let Some(sequences) = sequences {
+        sequences.after_test(session, failed, trusted, routine);
     }
 }
 

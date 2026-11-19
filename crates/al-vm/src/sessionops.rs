@@ -463,14 +463,12 @@ impl Session {
                         "Sql:Sql",
                     );
                 }
-                self.sequences.insert(
-                    key,
-                    Sequence {
-                        increment,
-                        seed,
-                        last: None,
-                    },
-                );
+                let sequence = Sequence {
+                    increment,
+                    seed,
+                    last: None,
+                };
+                self.insert_sequence(key, sequence);
                 Ok(Value::Null)
             }
             "Exists" => Ok(Value::Boolean(self.sequences.contains_key(&key))),
@@ -614,6 +612,7 @@ impl Session {
     /// `IsolatedStorage.<rest>` (`Get#4`, `SetEncrypted#2`, ...): a text store per scope, part of the transaction
     /// (a rollback undoes it, see `Session::isolated_committed`). Corpus: session-system/TestIsolatedStorage.al:30-125.
     fn isolated_storage_op(&mut self, method: &str, n: u32, args: &mut [Value]) -> Result<Value, Signal> {
+        self.access_notes.other_calls += 1;
         // A Guid key is its text form `{XXXXXXXX-...}`, for Set, Contains, Get and Delete in every scope
         // (session-system/isolated-storage/IsoStorageGuidKey.al). Other key types are not pinned (probe wanted).
         let key = match args.first() {

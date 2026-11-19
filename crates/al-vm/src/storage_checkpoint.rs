@@ -33,14 +33,20 @@ pub struct Unkept {
 pub(crate) struct Unmeasured {
     isolated: HashMap<Key, String>,
     sequences: HashMap<Key, String>,
+    /// Number sequences whose state after a failed test runs on an assumption (`assume_sequences_after_failure`).
+    assumed: std::collections::HashSet<Key>,
 }
 
 impl Unmeasured {
     /// Holds what a new session holds (`install_left.rs`). Every field is named: a new one does not compile here until
     /// it is decided.
     pub(crate) fn as_new(&self) -> bool {
-        let Unmeasured { isolated, sequences } = self;
-        isolated.is_empty() && sequences.is_empty()
+        let Unmeasured {
+            isolated,
+            sequences,
+            assumed,
+        } = self;
+        isolated.is_empty() && sequences.is_empty() && assumed.is_empty()
     }
 }
 
@@ -97,7 +103,15 @@ impl Session {
         self.unmeasured.sequences.insert(loose(&key.0, &key.1), reason);
     }
 
-    /// The running codeunit's tests ended: the refusals of `refuse_unmeasured_key` and `refuse_unmeasured_sequence` end.
+    /// What a failed test of the running codeunit left of number sequences `keys` (company, name) runs on assumption
+    /// `SequenceAfterFailedTest` (al-testrun `isolation::after_test`): every later NumberSequence call of the codeunit on
+    /// one of them passes through it.
+    pub fn assume_sequences_after_failure(&mut self, keys: &[Key]) {
+        self.unmeasured.assumed.extend(keys.iter().map(|k| loose(&k.0, &k.1)));
+    }
+
+    /// The running codeunit's tests ended: the refusals of `refuse_unmeasured_key` and `refuse_unmeasured_sequence`, and
+    /// the marks of `assume_sequences_after_failure`, end.
     pub fn clear_unmeasured(&mut self) {
         self.unmeasured = Unmeasured::default();
     }
@@ -122,9 +136,13 @@ impl Session {
         if let Some(reason) = &self.numbers_unmeasured {
             return unsupported(reason.to_string());
         }
-        match self.unmeasured.sequences.get(&loose(&key.0, &key.1)) {
-            Some(reason) => unsupported(reason.clone()),
-            None => Ok(()),
+        let key = loose(&key.0, &key.1);
+        if let Some(reason) = self.unmeasured.sequences.get(&key) {
+            return unsupported(reason.clone());
         }
+        if self.unmeasured.assumed.contains(&key) {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::SequenceAfterFailedTest);
+        }
+        Ok(())
     }
 }

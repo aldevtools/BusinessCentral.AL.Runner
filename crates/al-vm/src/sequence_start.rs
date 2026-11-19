@@ -7,6 +7,26 @@ use std::collections::HashMap;
 
 type Key = (String, String);
 
+/// What a test reached of the table data, counted from the session's start ([`Session::data_access`]): two values compared
+/// say whether a test between them read or wrote a table (al-testrun `isolation.rs`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DataAccess {
+    /// Reads and writes of the database's tables, by any caller.
+    pub store: u64,
+    /// Calls of a method of a Record variable from AL code, a temporary one too.
+    pub record_calls: u64,
+    /// Calls of a method of a RecordRef, FieldRef or KeyRef, of a Query, and of IsolatedStorage, from AL code.
+    pub other_calls: u64,
+}
+
+/// The counts behind [`DataAccess`] and when each number sequence was inserted ([`Session::sequence_inserted_at`]).
+#[derive(Debug, Default)]
+pub(crate) struct Notes {
+    pub(crate) record_calls: u64,
+    pub(crate) other_calls: u64,
+    inserted_at: HashMap<Key, u64>,
+}
+
 /// The number sequences when a test codeunit's tests begin (after its OnRun), and which of them the session had
 /// restarted or deleted by then ([`Session::sequences_at_start`]).
 #[derive(Debug, Clone, Default)]
@@ -15,7 +35,34 @@ pub struct SequenceStart {
     changed: HashMap<Key, (bool, bool)>,
 }
 
+impl SequenceStart {
+    /// Whether the sequence `key` (company, name) was there.
+    pub fn holds(&self, key: &Key) -> bool {
+        self.sequences.contains_key(key)
+    }
+}
+
 impl Session {
+    /// What AL code reached of the table data so far.
+    pub fn data_access(&self) -> DataAccess {
+        DataAccess {
+            store: self.store.accesses(),
+            record_calls: self.access_notes.record_calls,
+            other_calls: self.access_notes.other_calls,
+        }
+    }
+
+    /// The value of [`Session::commits`] when the sequence `key` (company, name) was last inserted.
+    pub fn sequence_inserted_at(&self, key: &Key) -> Option<u64> {
+        self.access_notes.inserted_at.get(key).copied()
+    }
+
+    /// `NumberSequence.Insert` makes the sequence `key`, and notes when ([`Session::sequence_inserted_at`]).
+    pub(crate) fn insert_sequence(&mut self, key: Key, sequence: Sequence) {
+        self.access_notes.inserted_at.insert(key.clone(), self.commits);
+        self.sequences.insert(key, sequence);
+    }
+
     /// The number sequences now, for [`Session::drop_sequences_inserted_since`].
     pub fn sequences_at_start(&self) -> SequenceStart {
         SequenceStart {
