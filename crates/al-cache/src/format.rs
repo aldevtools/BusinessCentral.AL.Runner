@@ -155,11 +155,14 @@ fn build_parts(base_len: usize, objects: &[u32], set: &DepSet, key: &Key, shared
     } else {
         Vec::new()
     };
+    // The dictionary prepared once (a CDict): with the raw bytes, every compressor loaded the 512 KB dictionary into
+    // its tables again, which took a tenth of the instructions of a cold run that wrote a workspace layer.
+    let prepared = zstd::dict::EncoderDictionary::copy(&dict, LEVEL);
     let compressed: Vec<Vec<u8>> = raw
         .par_iter()
         .map_init(
             || {
-                let mut c = zstd::bulk::Compressor::with_dictionary(LEVEL, &dict).expect("a zstd compressor");
+                let mut c = zstd::bulk::Compressor::with_prepared_dictionary(&prepared).expect("a zstd compressor");
                 c.include_checksum(true).expect("checksum flag");
                 c
             },
