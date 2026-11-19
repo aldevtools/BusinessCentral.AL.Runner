@@ -21,11 +21,12 @@ pub(super) fn rest(v: &Value, s: String, length: i32) -> Result<String, FormatFa
 fn measured(v: &Value, chars: usize, length: i32) -> bool {
     let fit = chars.cmp(&(length.unsigned_abs() as usize));
     match (v, length > 0, fit) {
+        // An undefined Date or DateTime with a length: no corpus case measures one.
+        (Value::Date(0, _) | Value::DateTime(0), _, _) => false,
         // A shorter number, date or DateTime is right-aligned in the length: text/TestFormat.al:59-60 (`Format(42, 5)`),
         // format-evaluate/RandomFormat.al:161; types/decimal-integer/ScT70050.al:182; types/date-time/Format.al:531, :535.
         (Value::Integer(_) | Value::Decimal(_), true, Ordering::Less) => true,
-        (Value::Date(day, false), true, Ordering::Less) if *day != 0 => true,
-        (Value::DateTime(t), true, Ordering::Less) if *t != 0 => true,
+        (Value::Date(_, false) | Value::DateTime(_), true, Ordering::Less) => true,
         // A text exactly as long as the length stays as it is, where both the shorter and the longer text are measured for
         // the type and the sign (the pad and the cut leave it alike): types/date-time/Format.al:530 (`2024-03-05` in 10),
         // types/date-time/P146FormatCalcDate.al:30 (`'<+%1D>'` in 6). Measured both ways: Integer RandomFormat.al:160-161,
@@ -34,7 +35,7 @@ fn measured(v: &Value, chars: usize, length: i32) -> bool {
         (
             Value::Integer(_)
             | Value::Decimal(_)
-            | Value::Date(..)
+            | Value::Date(_, false)
             | Value::DateTime(_)
             | Value::Text(_)
             | Value::Code(_),
@@ -42,9 +43,6 @@ fn measured(v: &Value, chars: usize, length: i32) -> bool {
             Ordering::Equal,
         ) => true,
         (Value::Text(_), false, Ordering::Equal) => true,
-        // Not pinned, main's answer kept (spaces): an undefined Date with a positive length, which Microsoft's Tests-Misc
-        // codeunit 139323 formats with length 10.
-        (Value::Date(0, false), true, Ordering::Less) => true,
         // A negative length longer than the text keeps it: format-evaluate/RandomFormat.al:162 (Integer), :315 (Text);
         // types/decimal-integer/ScT70050.al:183 (Decimal); types/decimal-integer/ScT70053.al:75 (Boolean), :186 (Option);
         // codeunits/interfaces/OjT71038.al:205 (Enum).
@@ -120,6 +118,8 @@ mod tests {
             (Value::Date(day, true), 30),
             (Value::Date(day, false), -30),
             (Value::DateTime(0), 5),
+            (Value::Date(0, false), 10),
+            (Value::Date(day, true), 11),
             (Value::Null, 5),
         ] {
             assert!(
@@ -148,7 +148,6 @@ mod tests {
         assert_eq!(ok(&Value::Text("abc".into()), -3, 0), "abc");
         assert_eq!(ok(&Value::Integer(123), 3, 0), "123");
         assert_eq!(ok(&Value::Code("AB".into()), 2, 0), "AB");
-        assert_eq!(ok(&Value::Date(0, false), 10, 0), "          ");
         assert_eq!(ok(&Value::Boolean(true), -10, 0), "Yes");
         assert_eq!(ok(&Value::Enum(7, 1), -10, 0), "Blue");
         // A length of 0 keeps every text, also of a type with no length rule.
