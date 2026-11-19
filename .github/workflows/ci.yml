@@ -809,13 +809,17 @@ jobs:
       #   network, network_deps                 the only tests that use the network: Microsoft's artifact feed, read
       #                                         by range. They use fresh cache directories, so they check the
       #                                         protocol and the real archives, not a cache.
-      - name: Release tests (corpus_resolve_deps, platform_tables, corpus_harness, must_not_compile, network)
+      #   workspace_cache_equality              ADR-022 amendment 2026-11-15: the corpus apps over the Microsoft apps of
+      #                                         BC 27, compiled fresh and read from the workspace layer, with all threads
+      #                                         and with one; the canonical dumps must be equal (about 2.5 min).
+      - name: Release tests (corpus_resolve_deps, platform_tables, corpus_harness, must_not_compile, workspace_cache_equality, network)
         run: |
           tools/run_test_binaries.sh --release -- \
             "al-test-cli:corpus_resolve_deps:--ignored --nocapture" \
             "al-test-cli:platform_tables:--ignored --nocapture" \
             al-test-cli:corpus_harness \
             al-test-cli:must_not_compile \
+            al-test-cli:workspace_cache_equality \
             "al-deps:network:--ignored --nocapture" \
             "al-test-cli:network_deps:--ignored --nocapture"
 

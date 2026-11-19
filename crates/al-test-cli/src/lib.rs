@@ -34,6 +34,7 @@ pub mod select;
 pub mod strict_order;
 pub mod windows_language;
 pub mod work;
+pub mod workspace_equality;
 
 /// What tells two builds of this binary apart: its size and when it was written, as
 /// `<bytes> bytes, written <UTC time>`. A rebuild (after a golden file such as
