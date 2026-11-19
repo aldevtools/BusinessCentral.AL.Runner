@@ -849,11 +849,14 @@ codeunit 50200 PKeep
     // the twin reads it too, and the check (`emptied` line) sees the mark. Review of step 2, H1.
     #[test]
     fn a_table_the_login_emptied_stays_emptied_in_the_twin() {
-        let (mut s, mut twin, keep) = original_and_twin(&["Empty", "InsertP"]);
-        assert_eq!(lines(&mut s), lines(&mut twin));
-        let (a, b) = (outcome(&mut s, keep, "CountP"), outcome(&mut twin, keep, "CountP"));
-        assert_eq!(a, b);
-        assert!(a.contains('1'), "{a}");
+        // Emptied and written again; emptied and left empty (the thaw finds the empty table's entry).
+        for (routines, count) in [(&["Empty", "InsertP"][..], '1'), (&["Empty"][..], '0')] {
+            let (mut s, mut twin, keep) = original_and_twin(routines);
+            assert_eq!(lines(&mut s), lines(&mut twin));
+            let (a, b) = (outcome(&mut s, keep, "CountP"), outcome(&mut twin, keep, "CountP"));
+            assert_eq!(a, b);
+            assert!(a.contains(count), "{a}");
+        }
     }
 
     // State kept outside `Session`'s fields, owner 2: an ErrorInfo's `Callstack`, in al-builtins errorinfo.rs `CALLSTACKS`
