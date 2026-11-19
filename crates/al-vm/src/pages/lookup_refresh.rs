@@ -101,7 +101,7 @@ impl Session {
             {
                 let mut s = st.borrow_mut();
                 s.refresh = false;
-                s.lookup_refresh_deferred = true;
+                s.lookup_left.refresh_deferred();
             }
             // The host's function controls run once more within the Lookup, after the OnValidate (Y15LookupThreeFieldLink.al:373
             // Y26_ThreeLinkCurr_LookupRefresh `lookup log` `lookup;h-fn R1;validate R2;h-fn R1`); a part's stay as they were
@@ -153,7 +153,7 @@ impl Session {
                 "{method} on the ListPart without a SubPageLink of a host with a second ListPart and function controls (the reads of the host that follows are pinned after a TestField.Lookup, for Next)"
             ));
         }
-        if !root.borrow().lookup_refresh_deferred {
+        if !root.borrow().lookup_left.deferred() {
             return Ok(());
         }
         if root.borrow().parts.len() >= 3
@@ -171,7 +171,7 @@ impl Session {
             ));
         }
         if method == PageOp::TestPageClose && Rc::ptr_eq(st, &root) {
-            root.borrow_mut().lookup_refresh_deferred = false;
+            root.borrow_mut().lookup_left.refresh_taken();
             return Ok(());
         }
         if method == PageOp::TestFieldValue
@@ -199,10 +199,10 @@ impl Session {
                 // `R1|R1/` with no log). A part a call reached before the Lookup runs nothing (:1041 Y63_TwoPart_LookupReadEachControl,
                 // :1287 Y63_CardPart_LookupReadEachControl: `before` read every control, `read log` empty). Pinned with a second
                 // part; with one part the reads run nothing (Y26).
-                if !Rc::ptr_eq(st, &root) && root.borrow().parts.len() > 1 && !st.borrow().lookup_part_touched {
-                    root.borrow_mut().lookup_refresh_deferred = false;
+                if !Rc::ptr_eq(st, &root) && root.borrow().parts.len() > 1 && !st.borrow().lookup_left.part_touched() {
+                    root.borrow_mut().lookup_left.refresh_taken();
                     self.replay_open_reads(&root)?;
-                    root.borrow_mut().lookup_refresh_used = true;
+                    root.borrow_mut().lookup_left.refresh_used();
                 }
                 return Ok(());
             }
@@ -228,16 +228,16 @@ impl Session {
             // On a host with function controls the first TestPart move runs the refresh as the open's reads again, then moves the
             // part (Y15LookupThreeFieldLink.al:736 Y54_ThreeLinkCurr_PartNextAfterLookup `part next log` = `open log`, :1451
             // Y63_TwoPart_PartsReadBeforeThenNext); every control then shows the values as they are now.
-            root.borrow_mut().lookup_refresh_deferred = false;
+            root.borrow_mut().lookup_left.refresh_taken();
             self.replay_open_reads(&root)?;
-            root.borrow_mut().lookup_refresh_used = true;
+            root.borrow_mut().lookup_left.refresh_used();
             return Ok(());
         }
         if shape && part_move {
             // The first TestPart move runs the refresh, with the parts, then moves the part (:991 `part next` `false|R1|G1`);
             // every control shows the values as they are now (`lookup_refresh_used_effect`).
             self.run_lookup_refresh_left(&root, true)?;
-            root.borrow_mut().lookup_refresh_used = true;
+            root.borrow_mut().lookup_left.refresh_used();
             return Ok(());
         }
         if shape && method == PageOp::TestFieldLookup && Rc::ptr_eq(st, &root) {
@@ -248,12 +248,11 @@ impl Session {
         }
         if method == PageOp::TestFieldLookup && Rc::ptr_eq(st, &root) && self.lookup_next_refresh_shape(&root) {
             // A second Lookup runs it first, on the host only (Y26_ThreeLinkCurr_LookupTwice `second lookup log`).
-            root.borrow_mut().lookup_refresh_deferred = false;
+            root.borrow_mut().lookup_left.refresh_taken();
             return self.replay_open_reads_host(&root);
         }
         if method == PageOp::TestPageNext && Rc::ptr_eq(st, &root) && self.lookup_next_refresh_shape(&root) {
-            root.borrow_mut().lookup_refresh_deferred = false;
-            root.borrow_mut().lookup_next_refresh = true;
+            root.borrow_mut().lookup_left.refresh_to_host_next();
             return Ok(());
         }
         if shape
@@ -271,11 +270,11 @@ impl Session {
             // Y80_Y15_Host_*_NoRegions; the _Regions variants log the same). Next, Previous, First and Last move as usual, then the
             // refresh reads the row they moved to (`agcr R2;agcr R2`, `agcr R1;agcr R1`, `agcr R1;agcr R1`, `agcr ;agcr R3;agcr R3`);
             // the part follows. GoToKey runs the refresh on the row it stood on first, then scans (`agcr R1;agcr R2;agcr R3`).
-            root.borrow_mut().lookup_refresh_deferred = false;
+            root.borrow_mut().lookup_left.refresh_taken();
             if method == PageOp::TestPageGoToKey {
                 return self.run_lookup_refresh_left(&root, true);
             }
-            root.borrow_mut().lookup_move_refresh = true;
+            root.borrow_mut().lookup_left.refresh_after_host_move();
             return Ok(());
         }
         unsupported(format!(
@@ -315,7 +314,7 @@ impl Session {
             return false;
         };
         let s = st.borrow();
-        root.borrow().lookup_refresh_used
+        root.borrow().lookup_left.used()
             && s.open
             && s.cursor == Cursor::Row
             && !s.draft
@@ -323,10 +322,10 @@ impl Session {
             && s.window.len() == 1
     }
 
-    /// After a host move that carried the refresh a Lookup left (`lookup_move_refresh`): the refresh runs on the row the host moved
+    /// After a host move that carried the refresh a Lookup left (`LookupLeft::move_refresh`): the refresh runs on the row the host moved
     /// to. A move that found no row is not pinned.
     pub(super) fn lookup_move_refresh_after(&mut self, st: &St, moved: &Value) -> Result<(), Signal> {
-        if !std::mem::take(&mut st.borrow_mut().lookup_move_refresh) {
+        if !st.borrow_mut().lookup_left.take_move_refresh() {
             return Ok(());
         }
         if matches!(moved, Value::Boolean(false)) {
@@ -340,7 +339,7 @@ impl Session {
     fn run_lookup_refresh_left(&mut self, root: &St, with_parts: bool) -> Result<(), Signal> {
         {
             let mut s = root.borrow_mut();
-            s.lookup_refresh_deferred = false;
+            s.lookup_left.refresh_taken();
             s.refresh = true;
             s.refresh_by_update = true;
             s.update_left_view = None;
@@ -365,12 +364,12 @@ impl Session {
         root: &St,
         clean: bool,
     ) -> Option<Effect> {
-        // The host's move that carries the refresh a Lookup left (`lookup_move_refresh`): every control shows the values as they are
+        // The host's move that carries the refresh a Lookup left (`LookupLeft::move_refresh`): every control shows the values as they are
         // now (Y15LookupThreeFieldLink.al:1585-1740 Y80_Y15_Host_*_NoRegions `after move`).
-        if clean && root.borrow().lookup_move_refresh && Rc::ptr_eq(st, root) && target.is_none() {
+        if clean && root.borrow().lookup_left.move_refresh() && Rc::ptr_eq(st, root) && target.is_none() {
             return Some(Effect::Refresh);
         }
-        if !root.borrow().lookup_refresh_used {
+        if !root.borrow().lookup_left.used() {
             return None;
         }
         let part_move = matches!(
@@ -385,11 +384,11 @@ impl Session {
         }
         if clean && (part_move || (method == PageOp::TestPageNext && Rc::ptr_eq(st, root))) {
             if method == PageOp::TestPageNext {
-                root.borrow_mut().lookup_refresh_used = false;
+                root.borrow_mut().lookup_left.used_ended();
             }
             return Some(Effect::Refresh);
         }
-        root.borrow_mut().lookup_refresh_used = false;
+        root.borrow_mut().lookup_left.used_ended();
         None
     }
 }

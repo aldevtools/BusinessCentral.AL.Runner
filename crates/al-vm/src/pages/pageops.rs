@@ -508,31 +508,26 @@ impl Session {
         }
         // The page's own code (CurrPage in the action's trigger) is not a call of the test client: the mark stays as it is.
         let client = method.recv() != PageRecv::Page;
-        let read_after_goto = client && std::mem::take(&mut st.borrow_mut().read_after_goto);
-        let doubt = client && std::mem::take(&mut st.borrow_mut().read_after_goto_doubt);
-        let quiet = client && std::mem::take(&mut st.borrow_mut().read_after_goto_quiet);
-        let set = client && std::mem::take(&mut st.borrow_mut().read_after_goto_set);
-        let prev = client && std::mem::take(&mut st.borrow_mut().read_after_goto_prev);
-        if read_after_goto {
-            let keep = |st: &St, doubt: bool, prev: bool| {
-                let mut s = st.borrow_mut();
-                s.read_after_goto = true;
-                s.read_after_goto_doubt = doubt;
-                s.read_after_goto_quiet = quiet;
-                s.read_after_goto_set = set;
-                s.read_after_goto_prev = prev;
-            };
+        let taken = if client {
+            st.borrow_mut().after_goto.take()
+        } else {
+            None
+        };
+        if let Some(left) = taken {
+            let keep = |st: &St, left| st.borrow_mut().after_goto.keep(left);
             match name {
-                PageMethod::Invoke => keep(st, doubt, prev),
+                PageMethod::Invoke => keep(st, left),
                 // QgGoToKeyNextCall.al:406 Plain_LookupHandler_GoToKey_ThenOK, :426 _ValueRead_ThenOK (lookup-mode modal only).
-                PageMethod::OK if st.borrow().lookup => keep(st, doubt, prev),
-                PageMethod::Previous => keep(st, doubt, true),
-                PageMethod::Close if prev => {
+                PageMethod::OK if st.borrow().lookup => keep(st, left),
+                PageMethod::Previous => keep(st, left.after_previous()),
+                PageMethod::Close if left.prev() => {
                     return unsupported(
                         "TestPage.Close right after a Previous that followed a GoToKey on a list without OnAfterGetCurrRecord (what it reads is not pinned)",
                     );
                 }
-                PageMethod::Close if quiet && !set && method.recv() != PageRecv::Page && st.borrow().open => {
+                PageMethod::Close
+                    if left.quiet() && !left.set() && method.recv() != PageRecv::Page && st.borrow().open =>
+                {
                     let rec = self.page_rec(st);
                     if self.stored_row(&rec)?.is_some() {
                         self.populate_current(st)?;
@@ -545,7 +540,7 @@ impl Session {
                 | PageMethod::Caption
                 | PageMethod::Editable
                 | PageMethod::ValidationErrorCount
-                | PageMethod::GetValidationError => keep(st, true, prev),
+                | PageMethod::GetValidationError => keep(st, left.with_doubt()),
                 _ => {
                     return unsupported(format!(
                         "TestPage.{} right after a GoToKey moved a list without OnAfterGetCurrRecord (whether the row is read again is not pinned)",
@@ -616,9 +611,7 @@ impl Session {
             && !self.declares(st, "onaftergetcurrrecord")
         {
             let quiet = st.borrow().triggers_run == triggers_before;
-            let mut s = st.borrow_mut();
-            s.read_after_goto = true;
-            s.read_after_goto_quiet = quiet;
+            st.borrow_mut().after_goto.moved(quiet);
         }
         if moved && st.borrow().open {
             if st.borrow().host.is_some() {
@@ -1237,7 +1230,7 @@ impl Session {
             }
             PageMethod::Run => self.run_page_var(st, false),
             PageMethod::RunModal => {
-                st.borrow_mut().run_static = Some(false);
+                st.borrow_mut().modal_run = ModalRun::Variable;
                 self.run_page_var(st, true)
             }
             // `CurrPage.Close()` in a procedure of a Page variable that never ran does nothing and the procedure goes on
