@@ -333,7 +333,7 @@ impl Session {
                 .or_insert(0) += 1;
             let isolate = isolated && !self.store.has_uncommitted();
             let before = isolate.then(|| self.store.clone());
-            let phase = self.tx.tx_phase;
+            let phase = self.tx.phase;
             // A `var` argument that is a global of the publisher is the same variable as the subscriber's parameter.
             self.events.next_aliases = map
                 .iter()
@@ -412,7 +412,7 @@ impl Session {
                 Err(Signal::Error(e)) if isolate => {
                     self.store = before.expect("snapshot taken when isolating");
                     // The subscriber's own transaction is gone with its writes.
-                    self.tx.tx_phase = phase;
+                    self.tx.phase = phase;
                     self.catch_error(*e)?;
                     continue;
                 }
@@ -460,18 +460,20 @@ impl Session {
         // would be a wrong answer (ADR-013 decision 6, hard rule 4).
         // A raise to some subscribers only (`Session::raise_to`) does not reach the others, compiled or not.
         let only = self.events.only_targets.take();
-        if let Some(m) = engine
-            .events
-            .missing_for(object, event, element)
-            .filter(|_| only.is_none())
-        {
-            return unsupported(m.refusal(event));
+        // A binding only a gone page held ends before the event picks its targets (page_held_bindings.rs).
+        self.prune_page_held();
+        if only.is_none() {
+            // A manual subscriber with no bound instance receives nothing (the manual arm below), so a refusal held for one
+            // only while bound does not hold then (`Missing::bound_only`).
+            let refusal = (engine.events.missing_at(object, event).iter())
+                .find(|m| m.reaches(element) && m.bound_only().is_none_or(|c| !self.bound_instances(c).is_empty()));
+            if let Some(m) = refusal {
+                return unsupported(m.refusal(event));
+            }
         }
         let Some(subs) = engine.events.subscribers_at(object, event) else {
             return Ok(Vec::new());
         };
-        // A binding only a gone page held ends before the event picks its targets (page_held_bindings.rs).
-        self.prune_page_held();
         let mut targets = Vec::new();
         for s in subs {
             if only.as_ref().is_some_and(|o| !o.contains(&(s.object, s.routine))) {
@@ -785,7 +787,7 @@ impl Session {
                 } else {
                     // corpus record/TestTableEventSequenceContracts.al:BindSubscription_Manual_Twice_And_Static_Errors
                     Err(binding_error(
-                        self.engine.program.objects[object].id.unwrap_or(0),
+                        crate::object_ids::declared_id(self.engine.program.objects[object].id)?,
                         "The codeunit does not use manual binding",
                     ))
                 };
@@ -796,7 +798,7 @@ impl Session {
                     Ok(Value::Boolean(false))
                 } else {
                     Err(binding_error(
-                        self.engine.program.objects[object].id.unwrap_or(0),
+                        crate::object_ids::declared_id(self.engine.program.objects[object].id)?,
                         "The codeunit has already been bound.",
                     ))
                 };

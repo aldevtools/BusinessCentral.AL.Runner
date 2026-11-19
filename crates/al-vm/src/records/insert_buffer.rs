@@ -110,7 +110,7 @@ impl Session {
     /// Leaves the error of a duplicate-key Insert of `rec` into table `object` pending, unless one is pending already, and notes
     /// which record's Insert it was (`TxState::deferred_by`).
     pub(super) fn defer_insert(&mut self, rec: &Rec, object: u32, e: AlError) {
-        self.tx.deferred_insert.get_or_insert((object as usize, e));
+        self.tx.open.deferred_insert.get_or_insert((object as usize, e));
         self.tx.deferred_by = Some(Rc::as_ptr(rec) as usize);
     }
 
@@ -119,7 +119,7 @@ impl Session {
     /// (Y7407DuplicateInsertBuffer.al:98-105, :277, :301, :386; record/filters/SqlDateFloor1753.al, whose bodies end in Error()).
     /// No cell leaves the body with it deferred.
     pub(crate) fn refuse_pending_at_assert_end(&self) -> Result<(), Signal> {
-        match &self.tx.deferred_insert {
+        match &self.tx.open.deferred_insert {
             Some((t, _)) => unsupported(format!(
                 "an asserterror whose body ends without an error while the error of an Insert into {} is deferred (a duplicate key, or a value its SQL column cannot hold): whether the asserterror catches it is not pinned (docs/probes-needed.md)",
                 self.engine.program.objects[*t].name
@@ -131,7 +131,7 @@ impl Session {
     /// A read of `table` (object index) that no corpus case measures while an Insert error into it is deferred (al-runner issue
     /// 8288): `read` names it. The measured reads send the queue and raise it (`sends_queue`). Refused.
     pub(crate) fn refuse_unmeasured_read_while_deferred(&self, table: usize, read: &str) -> Result<(), Signal> {
-        match &self.tx.deferred_insert {
+        match &self.tx.open.deferred_insert {
             Some((t, _)) if *t == table => unsupported(format!(
                 "{read} of {} while the error of an Insert into it is deferred (a duplicate key, or a value its SQL column cannot hold): whether the read raises it is not pinned (docs/probes-needed.md)",
                 self.engine.program.objects[table].name
@@ -166,7 +166,7 @@ impl Session {
             self.tx.deferred_by = None;
         }
         // Nothing is queued in this transaction: a read or a write has nothing to send.
-        if insert != InsertKind::Queued && self.tx.insert_buffer.is_empty() {
+        if insert != InsertKind::Queued && self.tx.open.insert_buffer.is_empty() {
             return r;
         }
         if insert == InsertKind::Platform
@@ -178,6 +178,7 @@ impl Session {
         let at = {
             let s = rec.borrow();
             self.tx
+                .open
                 .insert_buffer
                 .iter()
                 .position(|q| q.table == s.table && q.company == s.company)
@@ -185,33 +186,34 @@ impl Session {
         if insert != InsertKind::Queued || r.is_err() {
             // A read or a write of the table, a guarded Insert or a failed one sends what is queued.
             if let Some(i) = at {
-                self.tx.insert_buffer[i].rows = 0;
+                self.tx.open.insert_buffer[i].rows = 0;
             }
             return r;
         }
         let table = rec.borrow().table;
         let i = at.unwrap_or_else(|| {
-            self.tx.insert_buffer.push(InsertQueue {
+            self.tx.open.insert_buffer.push(InsertQueue {
                 table,
                 company: rec.borrow().company.clone(),
                 rows: 0,
                 sent: false,
             });
-            self.tx.insert_buffer.len() - 1
+            self.tx.open.insert_buffer.len() - 1
         });
-        self.tx.insert_buffer[i].rows += 1;
+        self.tx.open.insert_buffer[i].rows += 1;
         let pending = self
             .tx
+            .open
             .deferred_insert
             .as_ref()
             .is_some_and(|(o, _)| *o == table as usize);
-        if self.tx.insert_buffer[i].rows < SEND_AT {
+        if self.tx.open.insert_buffer[i].rows < SEND_AT {
             // A duplicate that stays pending after the queue was sent once in this transaction is the other half of the rule
             // (Y7407DuplicateInsertBuffer.al:229 Dup_6thInsert_OfCommittedRow_CommitAfter3).
             return r;
         }
-        self.tx.insert_buffer[i].rows = 0;
-        self.tx.insert_buffer[i].sent = true;
+        self.tx.open.insert_buffer[i].rows = 0;
+        self.tx.open.insert_buffer[i].sent = true;
         if !pending {
             return r;
         }
@@ -232,7 +234,7 @@ impl Session {
                 t.name
             ));
         }
-        let (_, e) = self.tx.deferred_insert.take().expect("checked");
+        let (_, e) = self.tx.open.deferred_insert.take().expect("checked");
         self.tx.deferred_raised += 1;
         Err(Signal::Error(Box::new(e)))
     }

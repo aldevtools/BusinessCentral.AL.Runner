@@ -314,7 +314,7 @@ impl Session {
                 message: format!(
                     "The {} XmlPort does not have a XmlItem that uses the table (Table {} {}) specified in the function SetTableView.",
                     port.name,
-                    table.id.unwrap_or(0),
+                    crate::object_ids::declared_id(table.id)?,
                     table.name
                 ),
                 code: "XmlPortNodeNotFound".into(),
