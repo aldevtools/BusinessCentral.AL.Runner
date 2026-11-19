@@ -1696,6 +1696,7 @@ impl Session {
                     temporary: *temporary,
                     temp_id,
                     company: None,
+                    change_company_called: false,
                     crm: self.engine.object_facts[*table as usize].crm(),
                     fields: self.initial_fields(*table as usize),
                     filters: Vec::new(),
@@ -1728,7 +1729,7 @@ impl Session {
                     probed_source: Default::default(),
                     globals: Default::default(),
                     unpinned_buffer: None,
-                    view_assumption: false,
+                    view_assumption: None,
                     run_page_link: None,
                 })))
             }
@@ -2729,7 +2730,8 @@ impl Session {
             self.fault_site_lost = true;
             outcome = Err(Signal::unsupported(why));
         }
-        outcome = self.close_test_pages_at_test_end(&frame, r, outcome);
+        outcome =
+            al_builtins::placeholder_output::refuse_unanswered(self.close_test_pages_at_test_end(&frame, r, outcome));
         let ret = match outcome {
             Ok(()) => None,
             // A report flow call (Skip, Break, Quit) leaves every procedure between the report trigger and the call.

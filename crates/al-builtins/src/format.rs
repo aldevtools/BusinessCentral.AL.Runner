@@ -321,7 +321,7 @@ fn format_unread(v: &Value, length: i32, standard: i32) -> Option<Result<String,
             Some(Ok(crate::native::SQL_COUNT_TEXT_MARK.to_string()))
         }
         // A placeholder's size: its digits would be the placeholder's (`placeholder_output::size`).
-        Value::PlaceholderSize(m) => Some(Err(FormatFail::Unsupported(
+        Value::PlaceholderSize(m, _) => Some(Err(FormatFail::Unsupported(
             crate::placeholder_output::size_refusal_text(m, "Format"),
         ))),
         Value::SqlCount(_) => Some(Err(FormatFail::Unsupported(crate::sqlcount::refusal_text(
@@ -516,7 +516,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
         Value::Time(t) => format_time(t - 1, standard)?,
         Value::DateTime(t) => format_datetime(t - 1, standard)?,
         Value::Duration(ms) => format_duration(*ms, standard, ctx.language())?,
-        Value::DateFormula(f) => date_formula_text(f, standard, ctx.language())?,
+        Value::DateFormula(f) => date_formula_text(f, length, standard, ctx.language())?,
         // A Version reads `major.minor.build.revision` (session-system/TestBCPlatformContracts.al:120-136
         // compares the formatted AppVersion with the manifest's `1.0.0.0`).
         Value::Library(crate::library_kind::LibraryKind::Version, _) if standard == 9 => {
@@ -810,7 +810,8 @@ fn blob_text(b: &crate::stream::BlobRef, ctx: &dyn FormatCtx) -> String {
 /// print the letters of the global language, format 9 the English letters, format 2 the English letters in angle brackets (the
 /// empty formula `<>`), and formats 3 to 8 raise (format-evaluate/Y62DateFormulaFormat.al, writer Y62; see
 /// `date_formula_language`). Formats 3 to 8 in another language than 1033 and the other numbers are refused.
-fn date_formula_text(f: &str, standard: i32, language: i32) -> Result<String, FormatFail> {
+fn date_formula_text(f: &str, length: i32, standard: i32, language: i32) -> Result<String, FormatFail> {
+    date_formula_length(length)?;
     let text = crate::datefns::formula_text(f);
     match standard {
         9 => Ok(text),
@@ -822,6 +823,19 @@ fn date_formula_text(f: &str, standard: i32, language: i32) -> Result<String, Fo
             "Format of a DateFormula with standard format {n} in the language {language} (not pinned)"
         ))),
     }
+}
+
+/// The one length a DateFormula is formatted with: 0, the length of every pinned case (types/
+/// TestDateRoundFormatStringContracts.al:128, `Format(Formula)`). Every other length is refused, with a standard format number or a format
+/// string alike; al-runner issue 8198 measured a cut on BC 28.4 (`Format(DF, 4)` of `1Y+1M+1D` is `1Y+1`), which waits
+/// for a probe.
+pub(crate) fn date_formula_length(length: i32) -> Result<(), FormatFail> {
+    if length == 0 {
+        return Ok(());
+    }
+    Err(FormatFail::Unsupported(format!(
+        "Format of a DateFormula with length {length} (not pinned)"
+    )))
 }
 
 fn type_phrase(v: &Value) -> String {
@@ -858,26 +872,42 @@ pub(crate) fn pad(s: String, length: i32) -> String {
 
 /// The error of a Decimal outside +-999,999,999,999,999.99 (format-evaluate/RandomFormat.al:Format_Decimal `af191`, `af193`;
 /// a Duration converted into a Decimal: types/duration/D_Duration.al:Duration_To_Integer_BeyondRange `af126`).
+/// `Unsupported` for a value whose 18-digit form is below 1,000,000,000,000,000: no pin shows that text.
 pub(crate) fn decimal_range_error(d: &rust_decimal::Decimal) -> Option<FormatFail> {
     if d.abs() <= rust_decimal::Decimal::new(99_999_999_999_999_999, 2) {
         return None;
     }
-    // The shown value keeps 18 significant digits (types/decimal-integer/ScT70058.al:Decimal_Digits `af83`).
+    // The shown value keeps 18 significant digits: an integer (types/decimal-integer/ScT70058.al:119 `af83`,
+    // ScT70059.al:294 `af205`) and a fraction, whose decimals inside the 18 digits stay
+    // (errors/PnBDateFormat.al:581 `af422`, :583 `af425`; types/decimal-integer/DecimalDigits.al:113 `af76`;
+    // a negative read from a JSON text, json/DbJsonLeads.al:252; one decimal,
+    // types/decimal-integer/Y8BigIntegerFractionCompare.al:131). Every pin has 16 or more integer digits.
     let kept = d
         .round_sf_with_strategy(18, rust_decimal::RoundingStrategy::MidpointAwayFromZero)
-        .unwrap_or(*d);
-    let whole = kept.round().to_string();
-    let (sign, digits) = whole.strip_prefix('-').map_or(("", whole.as_str()), |r| ("-", r));
-    let mut grouped = String::new();
+        .unwrap_or(*d)
+        .normalize();
+    if kept.abs() < rust_decimal::Decimal::from(1_000_000_000_000_000_i64) {
+        return Some(FormatFail::Unsupported(format!(
+            "the range error of the Decimal {kept}, below 1,000,000,000,000,000 when kept to 18 digits (not pinned)"
+        )));
+    }
+    let kept = kept.to_string();
+    let (sign, unsigned) = kept.strip_prefix('-').map_or(("", kept.as_str()), |r| ("-", r));
+    let (digits, decimals) = unsigned.split_once('.').map_or((unsigned, ""), |(i, f)| (i, f));
+    let mut shown = String::new();
     for (i, c) in digits.chars().enumerate() {
         if i > 0 && (digits.len() - i) % 3 == 0 {
-            grouped.push(',');
+            shown.push(',');
         }
-        grouped.push(c);
+        shown.push(c);
+    }
+    if !decimals.is_empty() {
+        shown.push('.');
+        shown.push_str(decimals);
     }
     Some(FormatFail::Error {
         message: format!(
-            "The value of Decimal parameter  is outside of the permitted range. The current value is: {sign}{grouped}. The permitted range is: from -999,999,999,999,999.99 to 999,999,999,999,999.99."
+            "The value of Decimal parameter  is outside of the permitted range. The current value is: {sign}{shown}. The permitted range is: from -999,999,999,999,999.99 to 999,999,999,999,999.99."
         ),
         code: "OutsidePermittedRange".into(),
     })
@@ -1319,6 +1349,26 @@ const MONTHS_ES_SHORT: [&str; 12] = [
     "ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sept", "oct", "nov", "dic",
 ];
 
+/// Dutch month names of formats 4 and 7, the same in 1043 and 2067 (assumption month-names-dutch: MonthNamesLanguages.al
+/// Months_Dutch_Belgium_2067, Months_Dutch_1043).
+const MONTHS_NL: [&str; 12] = [
+    "januari",
+    "februari",
+    "maart",
+    "april",
+    "mei",
+    "juni",
+    "juli",
+    "augustus",
+    "september",
+    "oktober",
+    "november",
+    "december",
+];
+const MONTHS_NL_SHORT: [&str; 12] = [
+    "jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec",
+];
+
 /// The letter of a closing date under GlobalLanguage `lang`: English `C` (types/date-time/Format.al:172-175); under 1030, 1031,
 /// 1036, 1044 and 1053 as measured (assumption `closing-date-letter-by-language`, corpus PR 1428
 /// GlobalLanguageClosingDate.al:123-284 at 04e1fa0a): `U` under 1030, 1031 and 1044, `S` under 1053, `C` under 1036. `None`
@@ -1412,9 +1462,17 @@ fn format_date(day: i32, closing: bool, standard: i32, lang: i32) -> Result<Stri
         (1036, 7) => MONTHS_FR_SHORT[m as usize - 1],
         (3082, 4) => MONTHS_ES[m as usize - 1],
         (3082, 7) => MONTHS_ES_SHORT[m as usize - 1],
-        // Danish and Dutch December, format 4 only (format-evaluate/EvalLanguageBoolean.al EL_Date_DAN_1030, EL_Date_NLD_1043,
-        // EL_Date_NLB_2067: `december 31, 2026`); the other months are not pinned.
-        (1030 | 1043 | 2067, 4) if m == 12 => "december",
+        // Danish December, format 4 only (format-evaluate/EvalLanguageBoolean.al EL_Date_DAN_1030: `december 31, 2026`); the other
+        // Danish months are not pinned. Dutch (1043, 2067) December of format 4 is pinned there too (EL_Date_NLD_1043, EL_Date_NLB_2067).
+        (1030, 4) if m == 12 => "december",
+        (1043 | 2067, 4) if m == 12 => MONTHS_NL[11],
+        // Every Dutch month of formats 4 and 7: measured by the corpus probe, not pinned yet (assumption month-names-dutch).
+        (1043 | 2067, 4) if crate::assumptions::hit(crate::assumptions::Assumption::MonthNamesDutch) => {
+            MONTHS_NL[m as usize - 1]
+        }
+        (1043 | 2067, 7) if crate::assumptions::hit(crate::assumptions::Assumption::MonthNamesDutch) => {
+            MONTHS_NL_SHORT[m as usize - 1]
+        }
         (_, 4 | 7) => {
             return Err(FormatFail::Unsupported(format!(
                 "Format {standard} of a Date in language {lang}, month {m}: the month name is not pinned (docs/probes-needed.md)"
@@ -1479,6 +1537,54 @@ mod tests {
     }
     fn dec(s: &str) -> Value {
         Value::Decimal(Decimal::from_str(s).unwrap())
+    }
+
+    #[test]
+    fn dutch_month_names_of_formats_4_and_7() {
+        // Probe MonthNamesLanguages.al Months_Dutch_Belgium_2067 and Months_Dutch_1043 (assumption month-names-dutch).
+        let day = |m: u32, d: u32| day_from_civil(2026, m, d);
+        let long = [
+            "januari",
+            "februari",
+            "maart",
+            "april",
+            "mei",
+            "juni",
+            "juli",
+            "augustus",
+            "september",
+            "oktober",
+        ];
+        let short = [
+            "jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec",
+        ];
+        for lang in [2067, 1043] {
+            for (i, (l, s)) in long.iter().zip(short).enumerate() {
+                let d = day(i as u32 + 1, 5);
+                assert_eq!(format_date(d, false, 4, lang).unwrap(), format!("{l} 5, 2026"));
+                assert_eq!(format_date(d, false, 7, lang).unwrap(), format!("{s} 5, 2026"));
+            }
+            assert_eq!(format_date(day(11, 5), false, 4, lang).unwrap(), "november 5, 2026");
+            assert_eq!(format_date(day(12, 5), false, 7, lang).unwrap(), "dec 5, 2026");
+            assert_eq!(format_date(day(3, 15), false, 7, lang).unwrap(), "mrt 15, 2026");
+        }
+    }
+
+    /// A value above the range whose 18-digit form is below 1,000,000,000,000,000 is not pinned: every pin of the
+    /// range error's text has 16 or more integer digits (errors/PnBDateFormat.al:581, :583; json/DbJsonLeads.al:252;
+    /// types/decimal-integer/Y8BigIntegerFractionCompare.al:131). Such a value refuses; a pinned one keeps the error.
+    #[test]
+    fn a_range_error_below_sixteen_integer_digits_refuses() {
+        for s in ["999999999999999.991", "999999999999999.995", "-999999999999999.995"] {
+            let r = format_value(&dec(s), 0, 0, &Ctx);
+            assert!(matches!(r, Err(FormatFail::Unsupported(_))), "{s}: {r:?}");
+        }
+        let r = format_value(&dec("1000000000000000.5"), 0, 9, &Ctx);
+        assert!(
+            matches!(&r, Err(FormatFail::Error { message, .. }) if message.contains(": 1,000,000,000,000,000.5.")),
+            "{r:?}"
+        );
+        assert_eq!(f(dec("999999999999999.99")), "999,999,999,999,999.99");
     }
 
     #[test]

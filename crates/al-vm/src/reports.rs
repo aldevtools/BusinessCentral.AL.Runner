@@ -104,7 +104,7 @@ impl Schema {
 }
 
 impl Session {
-    pub(crate) fn report_builtin(
+    fn report_builtin(
         &mut self,
         id: al_ir::BuiltinId,
         receiver: Option<Value>,
@@ -953,7 +953,7 @@ impl Session {
             object,
         };
         match &schema.engine.program.objects[object].report {
-            Some(r) => match r.run_refusal() {
+            Some(r) => match r.run_refusal().cloned().or_else(|| self.excel_sheets_refusal(inst, r)) {
                 None => {
                     for a in &r.assumes {
                         al_builtins::assumptions::assume(*a);
@@ -966,27 +966,15 @@ impl Session {
         }
     }
 
+    /// The report that runs after SubstituteReport, for a static call: its instance claims the call's admission.
     fn report_by_number(&mut self, id: al_ir::BuiltinId, arg: Option<&Value>) -> Result<(Inst, Schema), Signal> {
         let Some(Value::Integer(n)) = arg else {
             return unsupported(format!("{id} with an id that is not an integer"));
         };
-        let Some(object) = self
-            .engine
-            .program
-            .objects
-            .heads()
-            .iter()
-            .position(|o| o.is_kind(al_ir::ObjKind::Report) && o.id == u32::try_from(*n).ok())
-        else {
+        let Some(object) = report_numbered(&self.engine.program.objects, *n) else {
             // A report of a dependency app that nothing reached is not compiled (ADR-013); BC has it.
-            if self
-                .engine
-                .program
-                .objects
-                .heads()
-                .iter()
-                .any(|o| o.is_shell_of(al_ir::ObjKind::Report) && o.id == u32::try_from(*n).ok())
-            {
+            let heads = self.engine.program.objects.heads();
+            if (heads.iter()).any(|o| o.is_shell_of(al_ir::ObjKind::Report) && o.id == u32::try_from(*n).ok()) {
                 return unsupported(format!(
                     "{id} of report {n}, which belongs to a dependency app and was not compiled (no code the workspace reaches uses it)"
                 ));
@@ -1006,6 +994,7 @@ impl Session {
         let inst = self.instance(object);
         // `instance` hands out a made instance: OnInitReport has not run on it yet.
         inst.borrow_mut().initialized = false;
+        self.claim_excel_sheets(object, &inst);
         let schema = self.report_schema(&inst)?;
         Ok((inst, schema))
     }
@@ -2697,15 +2686,7 @@ impl Session {
         if schema.report().processing_only {
             return self.save_of_processing_only(&inst, &schema, &format, at, quit, result_used);
         }
-        if let Some(why) = schema.report().dataset_unsupported.first() {
-            return unsupported(format!("Report.SaveAs of \"{}\": {why}", schema.name()));
-        }
-        if schema.report().transaction_type.is_some() {
-            return unsupported(format!(
-                "Report.SaveAs of \"{}\", which declares a TransactionType (what SaveAs does with it is not pinned)",
-                schema.name()
-            ));
-        }
+        property_gates::save_as_declaration_refusals(&schema)?;
         // The language and region of the run: the session's, or what the variable set (reports/W3ReportObjectIdPreviewLanguage.al:
         // 854-930, writer RB). Pinned: en-US; GlobalLanguage 1031 (:870); Language := 1031 on the variable (:893); FormatRegion :=
         // 'de-DE' on the variable (:912). The language changes the dataset's language and Format, not the column values; the
@@ -4003,6 +3984,12 @@ impl Session {
     }
 }
 
+/// The object index of the compiled report numbered `n`.
+fn report_numbered(objects: &al_ir::Objects, n: i32) -> Option<usize> {
+    let n = u32::try_from(n).ok();
+    (objects.heads().iter()).position(|o| o.is_kind(al_ir::ObjKind::Report) && o.id == n)
+}
+
 #[cfg(test)]
 mod ignored_output_tests;
 
@@ -4010,10 +3997,13 @@ mod blob_column;
 mod dataset_header;
 mod execute_args;
 use execute_args::RefCall;
+mod excel_sheets;
 pub(crate) mod format_region;
 #[cfg(test)]
 mod header_tests;
 mod html_record;
+mod property_gates;
+pub(crate) use excel_sheets::Admission as ExcelSheetsAdmission;
 mod request_caption;
 mod request_flag;
 use request_flag::{REQUEST_PAGE_OFF, REQUEST_PAGE_OFF_UNPINNED_GETTER, REQUEST_PAGE_ON, REQUEST_PAGE_UNPINNED_GETTER};

@@ -61,7 +61,7 @@ impl Session {
         }
         if class == Class::Report {
             self.ret_used = ret_used;
-            return self.report_builtin(id, recv, &values, f.instance.clone());
+            return self.report_call(id, recv, &values, f.instance.clone());
         }
         if class == Class::FilterPageBuilder {
             return self.filter_page_builder_op(id, recv, &values, ret_used);
@@ -875,7 +875,7 @@ impl Session {
             self.watch_var_globals(object, routine, &inst, args, &values, f)
         };
         if try_call {
-            self.enter_used_try();
+            self.enter_used_try(object, routine);
         }
         let result = self.call_with_facts(object, routine, inst, values, facts);
         if try_call {
@@ -1589,13 +1589,6 @@ impl Session {
         // A counter value in a field would reach the database and every reader of the row (`al_builtins::sqlcount`).
         if let (Value::SqlCount(_), ir::Place::Field(..)) = (&v, p) {
             return Err(al_builtins::sqlcount::refusal("storing in a record field"));
-        }
-        // A placeholder's size in a field would be stored as a number (`al_builtins::placeholder_output::size`).
-        if let (Value::PlaceholderSize(m), ir::Place::Field(..)) = (&v, p) {
-            return Err(al_builtins::placeholder_output::size_refusal(
-                m,
-                "storing in a record field",
-            ));
         }
         if self.sql.active && matches!(p, ir::Place::Field(..)) && al_builtins::sqlcount::formatted(&v) {
             return Err(al_builtins::sqlcount::refusal(

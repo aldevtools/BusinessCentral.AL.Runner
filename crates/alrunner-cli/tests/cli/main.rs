@@ -17,6 +17,7 @@ mod path_note;
 mod profile;
 mod run;
 mod seed;
+mod timings;
 
 fn alrunner(args: &[&str]) -> Output {
     alrunner_with(args, &[])

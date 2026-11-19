@@ -336,6 +336,17 @@ impl Session {
                 expr.trim()
             ));
         };
+        // A read of the field's caption while its own expression runs, from that expression or from one it calls: what BC's
+        // nested read gives is not pinned (al-runner issue 8329: the reporter's `'3,' + FieldCaption(<same field>)` passes on
+        // BC 29.1 with the field's caption), so it refuses instead of running the expression again.
+        let running =
+            (self.frames.iter().zip(&self.call_stack)).any(|(&o, f)| !f.event && (o, f.routine) == (object, routine));
+        if running {
+            return unsupported(format!(
+                "the caption of field {} read while its own CaptionClass expression runs (not pinned, al-runner issue 8329)",
+                t.fields[pos].name
+            ));
+        }
         let class = self.call_on_record(object, routine, rec.clone(), None, Vec::new())?.0;
         Self::refuse_rendered_caption_class(&class)?;
         match class {
@@ -904,7 +915,7 @@ impl Session {
                 ))
             }
             RecordOp::HasFilter => Ok(Value::Boolean(Self::has_filter(rec))),
-            RecordOp::GetFilters => self.get_filters(rec, t).map(|s| Value::Text(s.into())),
+            RecordOp::GetFilters => self.get_filters(rec, t, true).map(|s| Value::Text(s.into())),
             RecordOp::GetFilter => self
                 .field_filter_text(rec, arg_pos(args, 0)?)
                 .map(|s| Value::Text(s.into())),
@@ -1053,6 +1064,9 @@ impl Session {
         };
         self.move_blobs(table, &mut d.fields, None, how, holder)?;
         d.filters = s.filters;
+        // The target keeps its company (above); whether it takes a ChangeCompany call of the source along is not measured, so
+        // the mark comes over and the shapes that read it stay refused.
+        d.change_company_called |= s.change_company_called;
         d.filter_group = s.filter_group;
         d.key = s.key;
         d.adhoc = s.adhoc;
@@ -2022,6 +2036,7 @@ impl Session {
             }
             return Err(error(cannot_change_value_text(&field, &table), "DB:Ok"));
         }
+        self.modify_all_audit_field(rec, t, pos, &rows, &value, args)?;
         // One fresh set of table globals for all rows, not the caller's (ADR-021 decision 6; corpus
         // probe TableGlobals_ModifyAll_WhatTheTriggersAndSubscribersSee).
         let shared = al_builtins::value::TableGlobals::new_shared();
@@ -2043,6 +2058,80 @@ impl Session {
         let r = self.modify_all_rows(rec, rows, pos, &value, (run_trigger, row_of_al), shared);
         self.bulk_modify = outer;
         r
+    }
+
+    /// `ModifyAll` of an audit field. The one shape measured (record/system-fields/AssignedAuditFields.al:594-631,
+    /// ModifyAll_CreatedAt) raises the "cannot change" error with code DB:Ok: SystemCreatedAt, SystemCreatedBy or
+    /// SystemModifiedAt; a table that holds one row; the variable as `Reset` leaves it (:604, no filter, marks, other filter
+    /// group, SetLoadFields or ReadIsolation), with no ChangeCompany call (also none to the session's own company or '', nor
+    /// on a record it took a `Copy` from), on the primary key ascending, not temporary; no RunTrigger
+    /// argument; a value that is not blank and differs from the stored one (FixedAt :98, FixedBy :105); called from a codeunit
+    /// (:602); the table as table 61800 declares it (:17-27): no Caption, no trigger of its own or of a field, no table
+    /// extension, data per company, and no Insert, Modify or Rename event subscriber or global trigger. Every other shape of
+    /// the four audit fields is refused. Any other field: `Ok`.
+    fn modify_all_audit_field(
+        &self,
+        rec: &Rec,
+        t: &TableDef,
+        pos: usize,
+        rows: &[Vec<Value>],
+        value: &Value,
+        args: &[Value],
+    ) -> Result<(), Signal> {
+        use crate::hostvalues::{SYSTEM_CREATED_AT, SYSTEM_CREATED_BY, SYSTEM_MODIFIED_AT, SYSTEM_MODIFIED_BY};
+        let id = t.fields[pos].id;
+        if ![
+            SYSTEM_CREATED_AT,
+            SYSTEM_CREATED_BY,
+            SYSTEM_MODIFIED_AT,
+            SYSTEM_MODIFIED_BY,
+        ]
+        .contains(&id)
+        {
+            return Ok(());
+        }
+        let (field, table) = (t.fields[pos].name.clone(), t.name.clone());
+        let r = rec.borrow();
+        let variable = crate::assigned_audit::default_variable(&r)
+            && !r.change_company_called
+            && r.key == 0
+            && r.ascending
+            && !r.temporary;
+        let value_differs = matches!(rows, [row] if crate::assigned_audit::non_blank(value)
+            && matches!(ops::compare(value, &row[pos]), Ok(Ordering::Less | Ordering::Greater)));
+        let measured = [SYSTEM_CREATED_AT, SYSTEM_CREATED_BY, SYSTEM_MODIFIED_AT].contains(&id)
+            && variable
+            && args.len() == 2
+            && value_differs
+            && self.caller_is_codeunit()
+            && self.table_as_61800(t, &table);
+        if measured {
+            return Err(error(cannot_change_value_text(&field, &table), "DB:Ok"));
+        }
+        unsupported(format!(
+            "ModifyAll of {field} outside the measured shape (SystemCreatedAt, SystemCreatedBy or SystemModifiedAt of a table that holds one row, by the variable without filters, marks or other state on the primary key ascending, not temporary, no RunTrigger argument, a value that is not blank and differs from the stored one, called from a codeunit, a table without a Caption, triggers, table extensions or subscribers, data per company)"
+        ))
+    }
+
+    /// The table facts of AssignedAuditFields.al:17-27 (table 61800) that `modify_all_audit_field` requires.
+    fn table_as_61800(&self, t: &TableDef, name: &str) -> bool {
+        use crate::globaltriggers::GlobalOp;
+        let object = &self.engine.program.objects[t.object as usize];
+        t.per_company
+            && self.caption(t) == name
+            && object.routines.iter().all(|r| !r.is_trigger)
+            && object.table.as_ref().is_some_and(|s| s.extensions.is_empty())
+            && [GlobalOp::Insert, GlobalOp::Modify, GlobalOp::Rename]
+                .into_iter()
+                .all(|op| self.audit_write_plain(t, op, false))
+    }
+
+    /// The innermost running object is a codeunit (the test codeunit of AssignedAuditFields.al:602).
+    fn caller_is_codeunit(&self) -> bool {
+        let heads = self.engine.program.objects.heads();
+        self.frames
+            .last()
+            .is_some_and(|&o| heads[o].is_kind(al_ir::ObjKind::Codeunit))
     }
 
     fn modify_all_rows(

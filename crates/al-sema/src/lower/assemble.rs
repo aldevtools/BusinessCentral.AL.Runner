@@ -696,7 +696,7 @@ pub(crate) fn build_shared<'a>(
         .map(|oi| xml_irs[oi].as_ref().and_then(|p| p.unsupported.first().cloned()))
         .collect();
     let mut report_reasons: Vec<Option<String>> = (0..n_objects)
-        .map(|oi| report_irs[oi].as_ref().and_then(|p| p.unsupported.first().cloned()))
+        .map(|oi| report_irs[oi].as_ref().and_then(crate::reports::variable_refusal))
         .collect();
     let mut report_extension: Vec<Vec<usize>> = (0..n_objects)
         .map(|oi| {
