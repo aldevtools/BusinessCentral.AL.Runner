@@ -1,7 +1,7 @@
 # ADR-022: Compile cache: one entry per dependency set (layers since 2026-10-15)
 
 - Status: Accepted (owner, 2026-10-14; the measurement below amended decisions 2 to 4 and the owner accepted the amendments).
-  Amendment 2026-11-15 (cache the compiled workspace apps, changes decision 1): Proposed
+  Amendment 2026-11-15 (cache the compiled workspace apps, changes decision 1): Accepted (owner, 2026-11-19)
 - Date: 2026-10-14
 - Amends: ADR-013 (decision 6: its "persistent cache only if the warm start needs it" becomes a design; its
   "lowered IR is not cached" is lifted for dependency apps), ADR-016 (the deferral of persistent dependency
@@ -1113,9 +1113,9 @@ warm run (all layers hit) does not change. Layer 1 (5.1 s) does not change; it i
   Application Test" 132685 (few dependencies): layers above the first 0.22 s to 0.16 s, 24.5 G to 22.6 G instructions.
   The saving is larger than the 2 s expected: trees parsed for one layer are kept for the next.
 
-## Amendment (Proposed, 2026-11-15): cache the compiled workspace apps (issue 8143)
+## Amendment (Accepted, owner 2026-11-19): cache the compiled workspace apps (issue 8143)
 
-Status of this amendment: **Proposed** (2026-11-15). It needs the owner's acceptance before any code (CLAUDE.md rule 5).
+Status of this amendment: **Accepted** (owner, 2026-11-19, as written: limit of 4 entries; serve keeps `cached` and adds `workspaceCache`). Proposed 2026-11-15. It needed the owner's acceptance before any code (CLAUDE.md rule 5).
 It changes decision 1 ("Only dependency apps are cached. The workspace apps compile on every run."). It does not change
 the dependency layers, their keys, their files or `al_cache::FORMAT`.
 
