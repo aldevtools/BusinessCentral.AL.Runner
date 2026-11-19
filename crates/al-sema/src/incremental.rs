@@ -91,14 +91,19 @@ pub fn eligible_for_declarations(ws: &crate::Workspace, objects: &[usize]) -> Re
 }
 
 /// The objects of the workspace's own apps that can read the declarations of `changed`: those whose code calls a routine
-/// of a changed object in the program before the change (`calls`, `Lowered::calls`), and those whose file mentions
-/// the name of a changed object or its id. A call finds a reader that reaches the object without naming it (through a
-/// procedure of another codeunit that returns it, al-runner issue 7625). A name or number finds the rest: a variable
-/// type, `Codeunit::"Name"`, an attribute, `Codeunit.Run(50100)`, and a call that did not resolve before the change.
+/// of a changed object in the program before the change (`Lowered::calls`), and those whose file mentions the name of a
+/// changed object or its id. A call finds a reader that reaches the object without naming it (through a procedure of
+/// another codeunit that returns it, al-runner issue 7625). A name or number finds the rest: a variable type,
+/// `Codeunit::"Name"`, an attribute, `Codeunit.Run(50100)`.
+/// A call or member that did not resolve before the change is in no call list, and may resolve to a changed object after
+/// it. So an object that is neither kind of reader is an error when the program before the change holds one for it: a
+/// call of its code with no callee the checker resolved (`Lowered::unresolved_calls`), or a compile error in its file
+/// (`Lowered::al_diagnostics`: an AL0132 member, an AL0130 `var` argument, any other error that may read a declaration).
 /// More objects than `limit` is an error: lowering them again costs as much as the complete compile.
+/// The caller compiles everything again on an error.
 pub fn readers(
     ws: &crate::Workspace,
-    calls: &crate::lower::Calls,
+    lowered: &crate::lower::Lowered,
     changed: &[usize],
     limit: usize,
 ) -> Result<Vec<usize>, String> {
@@ -110,8 +115,10 @@ pub fn readers(
         .iter()
         .filter_map(|&o| ws.objects[o].id.map(|i| i.to_string()))
         .collect();
+    let calls = &lowered.calls;
     let calls_changed = |oi: usize| oi < calls.len() && calls.of(oi).iter().flatten().any(|(o, _)| changed.contains(o));
     let mut mentioned = vec![false; ws.files.len()];
+    let mut had_error = vec![false; ws.files.len()];
     for (fi, f) in ws.files.iter().enumerate() {
         if f.lazy || ws.kinds[f.app] == crate::AppKind::Dependency {
             continue;
@@ -119,14 +126,26 @@ pub fn readers(
         let text = ws.text(fi);
         mentioned[fi] =
             names.iter().any(|n| contains_ignore_case(text, n)) || ids.iter().any(|i| contains_number(text, i));
+        had_error[fi] = lowered
+            .al_diagnostics
+            .iter()
+            .any(|d| d.app == f.app && d.file == f.path);
     }
     let mut out = Vec::new();
     for oi in 0..ws.objects.len() {
         if changed.contains(&oi) || ws.is_dependency(oi) {
             continue;
         }
-        if mentioned[ws.objects[oi].file] || calls_changed(oi) {
+        let file = ws.objects[oi].file;
+        if mentioned[file] || calls_changed(oi) {
             out.push(oi);
+        } else if had_error[file] || lowered.unresolved_calls.get(oi).copied().unwrap_or(true) {
+            let o = &ws.objects[oi];
+            return Err(format!(
+                "{} {} has a call or member the compile before the change did not resolve",
+                o.kind.label(),
+                o.name
+            ));
         }
         if out.len() > limit {
             return Err(format!("{} objects or more read the changed declarations", out.len()));

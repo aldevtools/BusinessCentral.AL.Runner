@@ -1129,7 +1129,7 @@ impl Lowerer<'_> {
                     _ => unreachable!("checked"),
                 }
             }
-            None => Err(format!("call `{}` has no callee the checker resolved", node.text())),
+            None => Err(self.unresolved_call(node)),
             Some(r) => Err(format!(
                 "call `{}` to {} is not lowered yet",
                 node.text(),
@@ -1395,4 +1395,14 @@ fn is_request_options_page(text: &str) -> bool {
         .rsplit('.')
         .next()
         .is_some_and(|last| last.eq_ignore_ascii_case("RequestOptionsPage"))
+}
+
+impl Lowerer<'_> {
+    /// The reason that refuses a call the checker resolved no callee for. The object is noted
+    /// (`Lowered::unresolved_calls`): after a declaration of a codeunit changes, such a call may resolve to it, and the
+    /// incremental compile cannot tell (`incremental::readers`).
+    fn unresolved_call(&mut self, node: &SyntaxNode) -> String {
+        self.unresolved_call = true;
+        format!("call `{}` has no callee the checker resolved", node.text())
+    }
 }

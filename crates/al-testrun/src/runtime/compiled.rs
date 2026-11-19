@@ -574,11 +574,12 @@ impl Compiled {
         }
         let t_replace = t_replace.elapsed();
         if declared {
-            // A declaration changed: the objects that name the changed ones may have read it, so they are
-            // checked and lowered again with them (ADR-033 step 5).
+            // A declaration changed: the objects that name or call the changed ones may have read it, so they are
+            // checked and lowered again with them (ADR-033 step 5). One with a call or member that did not resolve
+            // before is an error (`incremental::readers`): the caller compiles everything again.
             al_sema::incremental::eligible_for_declarations(ws, &dirty)?;
             let limit = ws.objects.len() / 5 + 20;
-            let readers = al_sema::incremental::readers(ws, &lowered.calls, &dirty, limit)?;
+            let readers = al_sema::incremental::readers(ws, lowered, &dirty, limit)?;
             dirty.extend(readers);
             dirty.sort_unstable();
         } else {

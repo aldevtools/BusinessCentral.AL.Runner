@@ -1,7 +1,8 @@
 //! The incremental compile of a warm run (ADR-029): after a change of the code of routines, the program
 //! the warm compile holds is the program a complete compile of the new texts gives, and the tests have
 //! the outcomes they would have had. A change of a declaration of a codeunit is taken in with the objects that
-//! name it; other kinds compile everything again.
+//! name or call it; an object with a call or member that did not resolve before the change, and other kinds, compile
+//! everything again.
 
 use al_sema::workspace::AppSource;
 use al_testrun::compile_cache::CompileCache;
@@ -563,26 +564,176 @@ fn a_change_that_names_an_unselected_test_codeunit_gives_the_outcome_of_a_comple
     assert!(got.iter().any(|l| l.contains("60101 Greets Pass")), "{got:?}");
 }
 
+/// Codeunit Inner and codeunit Middle, whose procedure returns an Inner: code that calls `M.Get().Value()` reaches Inner
+/// without naming it. Added to Lib.al and Tables.al.
+const INNER: &str =
+    "\ncodeunit 60120 Inner\n{\n    procedure Value(): Integer\n    begin\n        exit(7);\n    end;\n}\n";
+const MIDDLE: &str = "\ncodeunit 60121 Middle\n{\n    procedure Get(): Codeunit Inner\n    var\n        I: Codeunit Inner;\n    begin\n        exit(I);\n    end;\n}\n";
+
+/// The texts with Inner and Middle, and `reader` added to Other.al. The reader names neither Inner nor its id.
+fn through_middle(inner: &str, reader: &str) -> [String; 4] {
+    assert!(!reader.to_ascii_lowercase().contains("inner") && !reader.contains("60120"));
+    [
+        LIB.to_string() + inner,
+        TESTS.to_string(),
+        OTHER.to_string() + reader,
+        TABLES.to_string() + MIDDLE,
+    ]
+}
+
+fn strs(t: &[String; 4]) -> [&str; 4] {
+    [t[0].as_str(), t[1].as_str(), t[2].as_str(), t[3].as_str()]
+}
+
 /// Al-runner issue 7625 (item 5): a reader that does not name the changed codeunit, because it reaches it through a
-/// procedure of another codeunit that returns it, is lowered again too: its call follows the new return type.
+/// procedure of another codeunit that returns it, is lowered again too: its call follows the new return type. One reader
+/// is a test codeunit, one a table procedure.
 #[test]
 fn a_reader_that_reaches_the_changed_codeunit_through_another_one_follows_its_new_return_type() {
-    const INNER: &str =
-        "\ncodeunit 60120 Inner\n{\n    procedure Value(): Integer\n    begin\n        exit(7);\n    end;\n}\n";
-    const MIDDLE: &str = "\ncodeunit 60121 Middle\n{\n    procedure Get(): Codeunit Inner\n    var\n        I: Codeunit Inner;\n    begin\n        exit(I);\n    end;\n}\n";
-    const OUTER: &str = "\ncodeunit 60122 Outer\n{\n    Subtype = Test;\n\n    [Test]\n    procedure ReadsThroughTheMiddle()\n    var\n        M: Codeunit Middle;\n    begin\n        if Kind(M.Get().Value()) <> 'text' then\n            Error('the overload for %1', Kind(M.Get().Value()));\n    end;\n\n    local procedure Kind(X: Integer): Text\n    begin\n        exit('integer');\n    end;\n\n    local procedure Kind(X: Text): Text\n    begin\n        exit('text');\n    end;\n}\n";
-    assert!(!OUTER.to_ascii_lowercase().contains("inner") && !OUTER.contains("60120"));
-    let (lib, other, tables) = (
-        LIB.to_string() + INNER,
-        OTHER.to_string() + OUTER,
-        TABLES.to_string() + MIDDLE,
-    );
-    let text = lib
+    const OUTER: &str = "\ncodeunit 60122 Outer\n{\n    Subtype = Test;\n\n    [Test]\n    procedure ReadsThroughTheMiddle()\n    var\n        M: Codeunit Middle;\n    begin\n        if Kind(M.Get().Value()) <> 'text' then\n            Error('the overload for %1', Kind(M.Get().Value()));\n    end;\n\n    [Test]\n    procedure ReadsThroughATable()\n    var\n        R: Record ReaderTable;\n    begin\n        if R.ReadKind() <> 'text' then\n            Error('the table overload for %1', R.ReadKind());\n    end;\n\n    local procedure Kind(X: Integer): Text\n    begin\n        exit('integer');\n    end;\n\n    local procedure Kind(X: Text): Text\n    begin\n        exit('text');\n    end;\n}\n\ntable 60123 ReaderTable\n{\n    fields { field(1; Id; Integer) { } }\n\n    procedure ReadKind(): Text\n    var\n        M: Codeunit Middle;\n    begin\n        exit(Kind(M.Get().Value()));\n    end;\n\n    local procedure Kind(X: Integer): Text\n    begin\n        exit('integer');\n    end;\n\n    local procedure Kind(X: Text): Text\n    begin\n        exit('text');\n    end;\n}\n";
+    let from = through_middle(INNER, OUTER);
+    let mut to = from.clone();
+    to[0] = from[0]
         .replace("procedure Value(): Integer", "procedure Value(): Text")
         .replace("exit(7);", "exit('7');");
     assert_updated(
-        [lib.as_str(), TESTS, other.as_str(), tables.as_str()],
-        [text.as_str(), TESTS, other.as_str(), tables.as_str()],
+        strs(&from),
+        strs(&to),
         "a return type from Integer to Text, read through another codeunit",
     );
+}
+
+/// Warm run on `from`, then on `to`: the second compiles everything again (the update cannot tell which objects read the
+/// change) and equals a complete compile.
+fn assert_compiled_again(from: [&str; 4], to: [&str; 4], what: &str) {
+    let dir = tempfile::tempdir().unwrap();
+    let mut warm = Warm::new();
+    warm_run(&mut warm, &from, dir.path());
+    let (used, got) = warm_run(&mut warm, &to, dir.path());
+    assert_same(&warm, &to, dir.path(), what);
+    let (_, want) = complete(&to, dir.path());
+    assert_eq!(got, want, "{what}: outcomes");
+    assert_eq!(used, WarmUse::Compiled, "{what}");
+}
+
+/// A call through Middle that did not resolve before the change resolves after it: a procedure added to Inner. The
+/// reader's call was a compile error (AL0132) and is in no call list of the program before the change.
+#[test]
+fn a_call_that_did_not_resolve_before_a_procedure_was_added_gives_the_outcome_of_a_complete_compile() {
+    const READER: &str = "\ncodeunit 60150 OnlyNew\n{\n    Subtype = Test;\n\n    [Test]\n    procedure Probe()\n    var\n        M: Codeunit Middle;\n    begin\n        Error('extra=%1', M.Get().Extra());\n    end;\n}\n";
+    let from = through_middle(INNER, READER);
+    let mut to = from.clone();
+    to[0] = from[0].replace(
+        "    procedure Value(): Integer",
+        "    procedure Extra(): Integer\n    begin\n        exit(9);\n    end;\n\n    procedure Value(): Integer",
+    );
+    assert_compiled_again(
+        strs(&from),
+        strs(&to),
+        "a procedure added that a call through another codeunit wanted",
+    );
+}
+
+/// The same with a call whose argument count fits only after the change; before it the checker resolved no callee and
+/// the routine was refused.
+#[test]
+fn a_call_whose_argument_count_fits_only_after_the_change_gives_the_outcome_of_a_complete_compile() {
+    const TEXT_INNER: &str =
+        "\ncodeunit 60120 Inner\n{\n    procedure Value(): Text\n    begin\n        exit('one');\n    end;\n}\n";
+    const READER: &str = "\ncodeunit 60150 ArgCount\n{\n    Subtype = Test;\n\n    [Test]\n    procedure Probe()\n    var\n        M: Codeunit Middle;\n    begin\n        Error('value=%1', M.Get().Value(5));\n    end;\n}\n";
+    let from = through_middle(TEXT_INNER, READER);
+    let mut to = from.clone();
+    to[0] = from[0].replace("procedure Value(): Text", "procedure Value(X: Integer): Text");
+    assert_compiled_again(
+        strs(&from),
+        strs(&to),
+        "a parameter added that a call through another codeunit passed",
+    );
+}
+
+/// A call whose `var` argument fits only after the change, in an object that names neither codeunit: the compile before
+/// the change held an error in its file (AL0130), so the update compiles everything again.
+#[test]
+fn a_var_argument_that_fits_only_after_the_change_gives_the_outcome_of_a_complete_compile() {
+    const VAR_INNER: &str = "\ncodeunit 60120 Inner\n{\n    procedure Value(var X: Integer): Text\n    begin\n        exit('one');\n    end;\n}\n";
+    const READER: &str = "\ncodeunit 60150 VarArgument\n{\n    Subtype = Test;\n\n    [Test]\n    procedure Probe()\n    var\n        M: Codeunit Middle;\n    begin\n        Error('value=%1', M.Get().Value(5));\n    end;\n}\n";
+    let from = through_middle(VAR_INNER, READER);
+    let mut to = from.clone();
+    to[0] = from[0].replace("Value(var X: Integer)", "Value(X: Integer)");
+    assert_compiled_again(strs(&from), strs(&to), "a var parameter made a value parameter");
+}
+
+/// A call that did not resolve before the change, in an object that names the changed codeunit: the object is a reader
+/// and is lowered again with it, so the update goes on.
+#[test]
+fn an_unresolved_call_in_a_reader_that_names_the_changed_codeunit_is_taken_in_by_the_update() {
+    const READER: &str = "\ncodeunit 60150 NamesIt\n{\n    Subtype = Test;\n\n    [Test]\n    procedure Probe()\n    var\n        M: Codeunit Middle;\n    begin\n        Error('extra=%1', M.Get().Extra());\n    end;\n\n    procedure Unused(I: Codeunit Inner)\n    begin\n    end;\n}\n";
+    let from = [
+        LIB.to_string() + INNER,
+        TESTS.to_string(),
+        OTHER.to_string() + READER,
+        TABLES.to_string() + MIDDLE,
+    ];
+    let mut to = from.clone();
+    to[0] = from[0].replace(
+        "    procedure Value(): Integer",
+        "    procedure Extra(): Integer\n    begin\n        exit(9);\n    end;\n\n    procedure Value(): Integer",
+    );
+    assert_updated(
+        strs(&from),
+        strs(&to),
+        "a procedure added that a reader that names Inner wanted",
+    );
+}
+
+/// The same with a member read without parentheses: the checker raised AL0132 for it, and lowering refused the read
+/// without reaching a call.
+#[test]
+fn a_member_read_without_parentheses_that_did_not_resolve_before_gives_the_outcome_of_a_complete_compile() {
+    const READER: &str = "\ncodeunit 60150 NoParens\n{\n    Subtype = Test;\n\n    [Test]\n    procedure Probe()\n    var\n        M: Codeunit Middle;\n    begin\n        Error('extra=%1', M.Get().Extra);\n    end;\n}\n";
+    let from = through_middle(INNER, READER);
+    let mut to = from.clone();
+    to[0] = from[0].replace(
+        "    procedure Value(): Integer",
+        "    procedure Extra(): Integer\n    begin\n        exit(9);\n    end;\n\n    procedure Value(): Integer",
+    );
+    assert_compiled_again(
+        strs(&from),
+        strs(&to),
+        "a procedure added that a member read through another codeunit wanted",
+    );
+}
+
+/// An object outside the readers whose routine is refused for another reason than an unresolved call does not stop the
+/// update.
+#[test]
+fn a_refused_routine_outside_the_readers_does_not_stop_the_update() {
+    const REFUSED: &str = "\ncodeunit 60151 Refused\n{\n    Subtype = Test;\n\n    [Test]\n    procedure Binds()\n    var\n        X: DotNet Missing;\n    begin\n    end;\n}\n";
+    let from = through_middle(INNER, REFUSED);
+    let mut to = from.clone();
+    to[0] = from[0].replace(
+        "    procedure Value(): Integer",
+        "    procedure Extra(): Integer\n    begin\n        exit(9);\n    end;\n\n    procedure Value(): Integer",
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let (c, _) = complete(&strs(&from), dir.path());
+    let refused = c
+        .lowered()
+        .unsupported
+        .iter()
+        .flatten()
+        .flatten()
+        .any(|r| r.reason().contains("DotNet 'Missing'"));
+    assert!(
+        refused,
+        "Refused.Binds is refused: {:?}",
+        c.lowered()
+            .unsupported
+            .iter()
+            .flatten()
+            .flatten()
+            .map(|r| r.reason().to_string())
+            .collect::<Vec<_>>()
+    );
+    assert_updated(strs(&from), strs(&to), "a procedure added, a routine refused elsewhere");
 }
