@@ -1370,10 +1370,18 @@ codeunit 50000 "T" { Subtype = Test;
     R.SetRange("Field No.", 5); if not R.IsEmpty() then Error('soft');
     R.SetRange("Field No.", 6); if R.Count() <> 2 then Error('cond'); R.FindSet(); if R."Relation No." <> 1 then Error('first'); if R."Condition Field No." <> 2 then Error('cond field'); R.Next(); if R."Related Table ID" <> 50002 then Error('else');
     R.SetRange("Field No.", 7); if R.Count() <> 2 then Error('two conditions %1', R.Count()); R.FindFirst(); if R."Condition Field No." <> 2 then Error('first condition'); R.Next(); if R."Condition Field No." <> 3 then Error('second condition'); end;
-  [Test] procedure FieldRelation() var F: Record "Field"; begin F.Get(50003, 7); if F.RelationTableNo <> 50001 then Error('filtered relation %1', F.RelationTableNo); if F.RelationFieldNo <> 1 then Error('related field'); end;
+  [Test] procedure FieldRelation() var F: Record "Field"; begin F.Get(50003, 7); if F.RelationTableNo <> 50001 then Error('filtered relation %1', F.RelationTableNo); end;
+  [Test] procedure FieldRelationFieldNo() var F: Record "Field"; begin F.Get(50003, 7); if F.RelationFieldNo = 0 then; end;
   [Test] procedure ConditionalRelation() var F: Record "Field"; begin F.Get(50003, 6); if (F.RelationTableNo <> 0) or (F.RelationFieldNo <> 0) then Error('conditional relation reads 0/0'); end; }"#,
     );
     passes(&o, "FieldRelation");
+    // A relation without a field that the runtime keeps only as Table Relations Metadata: corpus PR 1461 did not measure
+    // its RelationFieldNo (assumption `relation-field-no-without-field`), so a read refuses.
+    assert!(
+        not_run(&o, "FieldRelationFieldNo").contains("RelationFieldNo"),
+        "{:?}",
+        not_run(&o, "FieldRelationFieldNo")
+    );
     // record/TestPlatformMetadataDeclarationContracts.al:262-264.
     passes(&o, "ConditionalRelation");
     passes(&o, "Rows");
@@ -1395,12 +1403,20 @@ table 50003 "Base" { fields { field(1; Id; Integer) { } field(2; Kind; Option) {
 tableextension 50004 "Ext" extends "Base" { fields { modify(Uncond) { TableRelation = B; }
     modify(Else) { TableRelation = if (Kind = const(Y)) B else B; } modify(NoElse) { TableRelation = if (Kind = const(Y)) B; } modify(CondBase) { TableRelation = B; } } }
 codeunit 50000 "T" { Subtype = Test;
-  [Test] procedure Uncond() var F: Record "Field"; begin F.Get(50003, 3); if (F.RelationTableNo <> 50001) or (F.RelationFieldNo <> 1) then Error('uncond %1', F.RelationTableNo); end;
+  [Test] procedure Uncond() var F: Record "Field"; begin F.Get(50003, 3); if F.RelationTableNo <> 50001 then Error('uncond %1', F.RelationTableNo); end;
+  [Test] procedure UncondFieldNo() var F: Record "Field"; begin F.Get(50003, 3); if F.RelationFieldNo = 0 then; end;
   [Test] procedure ElseArm() var F: Record "Field"; begin F.Get(50003, 4); if F.RelationTableNo <> 50001 then Error('else %1', F.RelationTableNo); end;
   [Test] procedure NoElse() var F: Record "Field"; begin F.Get(50003, 5); if F.RelationTableNo <> 50001 then Error('noelse %1', F.RelationTableNo); end;
   [Test] procedure CondBase() var F: Record "Field"; begin F.Get(50003, 6); if (F.RelationTableNo <> 0) or (F.RelationFieldNo <> 0) then Error('condbase %1', F.RelationTableNo); end; }"#,
     );
     passes(&o, "Uncond");
+    // The RelationFieldNo of a modify-extended relation without a field is not measured (corpus PR 1461, assumption
+    // `relation-field-no-without-field`): a read refuses.
+    assert!(
+        not_run(&o, "UncondFieldNo").contains("RelationFieldNo"),
+        "{:?}",
+        not_run(&o, "UncondFieldNo")
+    );
     passes(&o, "ElseArm");
     assert!(
         not_run(&o, "NoElse").contains("TableRelation"),

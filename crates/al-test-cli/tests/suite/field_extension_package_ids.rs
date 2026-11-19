@@ -16,7 +16,7 @@ const TEST_ID: &str = "2a2e7610-64e6-4556-9178-a59feed7ad64";
 
 /// Runs codeunit `T` of the last of `apps` (id, kind, source), each app depending on every app before it, over the
 /// platform's System app; each test with the assumptions it went through.
-fn run(apps: &[(&str, AppKind, &str)]) -> Vec<(String, Outcome, Vec<Assumption>)> {
+pub(crate) fn run(apps: &[(&str, AppKind, &str)]) -> Vec<(String, Outcome, Vec<Assumption>)> {
     let system = read_package(&std::fs::read(al_testfiles::system_app()).unwrap())
         .expect("System.app reads")
         .1;
