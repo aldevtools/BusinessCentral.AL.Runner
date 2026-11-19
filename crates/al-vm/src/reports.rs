@@ -1571,18 +1571,22 @@ impl Session {
             Ok(v) => {
                 if (enters || began_world) && self.tx_model != TxModel::AutoRollback {
                     if self.tx.try_depth > 0 && self.in_write_transaction()? {
+                        self.settle_saved_row(false)?;
                         return unsupported(
                             "a report run inside a TryFunction that wrote in its transaction world (whether it commits is not pinned)",
                         );
                     }
+                    self.settle_saved_row(true)?;
                     // A world that is entered commits its own writes when the run returns
                     // (record/TestTxModelReportRun.al:177-196, Test07). That `RunRequestPage` does
                     // the same is docs/probes-needed.md.
                     self.commit_transaction();
                 }
+                self.settle_saved_row(false)?;
                 Ok(v)
             }
             Err(e) => {
+                self.settle_saved_row(false)?;
                 // A run that raises inside its world does not commit what it wrote
                 // (record/TestTxModelReportRun.al:252-269, Test12).
                 if enters && matches!(e, Signal::Error(_)) {

@@ -577,7 +577,7 @@ impl Session {
         st.borrow_mut().result = Some("SaveAsXml".into());
         // SaveValues: the close stores the values of the page and of its extensions; the next run opens with them (al-language-onprem/
         // reports/layouts-saveas/Y60ReportExtSaveAsXml.al ReportExt_SaveValues_SaveAsXml_NextRun).
-        self.store_page_values(st);
+        self.store_page_values(st, false)?;
         self.mark_closed(st);
         Ok(Value::Null)
     }
@@ -1512,7 +1512,7 @@ fn xml_text(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
-fn xml_escape(s: &str) -> String {
+pub(in crate::pages) fn xml_escape(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
@@ -1521,7 +1521,7 @@ fn xml_escape(s: &str) -> String {
 
 /// One `Field` element of `<Options>`. An empty value is an empty element, `<Field name="TxtVal" />`, for Text, Code, Date, Time
 /// and DateTime alike (reports/W3ReportParametersText.al:255).
-fn option_field(name: &str, text: &str) -> String {
+pub(in crate::pages) fn option_field(name: &str, text: &str) -> String {
     if text.is_empty() {
         format!("<Field name=\"{}\" />", xml_escape(name))
     } else {

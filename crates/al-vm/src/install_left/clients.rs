@@ -29,6 +29,8 @@ pub(super) fn pages_as_new(p: &PageClients) -> bool {
         action_tally,
         saved_values,
         saved_values_committed,
+        saved_rows,
+        saved_row_pending,
         traps,
         scope_unpinned,
         bg_worker,
@@ -59,6 +61,8 @@ pub(super) fn pages_as_new(p: &PageClients) -> bool {
     action_tally.is_none()
         && saved_values.is_empty()
         && saved_values_committed.is_empty()
+        && saved_rows.is_empty()
+        && saved_row_pending.is_none()
         && traps.is_empty()
         && scope_unpinned.is_empty()
         && bg_worker.is_none()

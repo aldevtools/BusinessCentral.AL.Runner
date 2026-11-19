@@ -314,7 +314,7 @@ mod ui_caption_translate;
 mod update_refresh_card;
 pub(crate) mod validate_xrec;
 mod validation_text;
-pub(crate) use open::written_by_routine;
+pub(crate) use open::{SavedRow, written_by_routine};
 mod action_body;
 mod card_part_new_host;
 mod empty_part_rec;
