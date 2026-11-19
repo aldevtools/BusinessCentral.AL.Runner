@@ -697,8 +697,10 @@ impl Lane<'_> {
         // here were not reached, so their tests are not run, for the limit (ADR-066 amendment 10, decision 6).
         if self.pool.halted() {
             let halt = self.pool.halt();
-            for k in chains.iter().flat_map(|c| c.chosen.iter()) {
-                if let Some(Ok(done)) = slots[*k].as_mut().map(|r| &mut r.result) {
+            let mut cut: BTreeSet<usize> = chains.iter().flat_map(|c| c.chosen.iter().copied()).collect();
+            cut.extend(self.after_stop(slots));
+            for k in cut {
+                if let Some(Ok(done)) = slots[k].as_mut().map(|r| &mut r.result) {
                     super::corpus::refuse_all(&mut done.0, halt.reason());
                 }
             }
@@ -747,6 +749,41 @@ impl Lane<'_> {
             }
         }
         report.took += started.elapsed();
+    }
+
+    /// In a run stopped at its hard memory limit (ADR-066 amendment 10, decision 6): the codeunits that come after one the
+    /// stop left without a complete run in the same BC session, and whose result a complete run could take from a serial
+    /// re-run. What the earlier codeunit would have left is not known, so whether they depend on it is not known either
+    /// (al-runner issue 8368: a reader of a SingleInstance global failed in parallel while its writer was not reached).
+    /// Such a codeunit read a watched global before writing it, and is one `chains` would pick: any with `strict`, else
+    /// one with a failure or a test that did not run to its end. Only under BC's order: without it nothing runs again.
+    fn after_stop(&self, slots: &[Option<UnitResult>]) -> Vec<usize> {
+        if !self.bc_order {
+            return Vec::new();
+        }
+        let cut_short = |k: usize| match slots[k].as_ref().map(|r| &r.result) {
+            Some(Ok(done)) => done
+                .0
+                .iter()
+                .any(|(_, o)| matches!(o, Outcome::NotRun(r) if r.starts_with(super::memory::REASON))),
+            _ => false,
+        };
+        let may_depend = |k: usize| {
+            let slot = slots[k].as_ref();
+            let read_first = match slot.map(|r| &r.result) {
+                Some(Ok(done)) => done.5.singles_out.as_ref().is_some_and(|o| !o.observed.is_empty()),
+                _ => false,
+            };
+            read_first && (self.strict || needs_serial_run(slot))
+        };
+        let has = |k: usize| slots[k].is_some();
+        let mut out = Vec::new();
+        for ks in streams(self.units, self.place, &has, self.suites) {
+            if let Some(first) = ks.iter().position(|&k| cut_short(k)) {
+                out.extend(ks[first + 1..].iter().copied().filter(|&k| may_depend(k)));
+            }
+        }
+        out
     }
 
     /// Analyses each BC session, flags its dependent codeunits, and returns the serial sessions to run.
