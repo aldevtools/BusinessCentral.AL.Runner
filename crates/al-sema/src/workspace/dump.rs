@@ -75,14 +75,15 @@ impl Workspace {
                 max_length: _,
                 access_by_permission: _,
             } = f;
-            // A lazily parsed file's problem and synthetic ranges are a function of its text, found the first time they are
-            // asked for (`file_problem`, `synthetic`), whichever compile asked: not dumped. A workspace file's synthetic
-            // ranges are its parse's at load (a workspace file reports parse errors as diagnostics, not as a problem).
-            let _ = problem;
+            // A lazily parsed file's synthetic ranges are a function of its text, found the first time they are asked for
+            // (`synthetic`), whichever compile asked: not dumped. Its parse problem is dumped when one was found: the run says
+            // it on stderr (`lazy_parse_problems`; a file parsed cleanly or not parsed yet is the same to a run). A workspace
+            // file's synthetic ranges are its parse's at load (a workspace file reports parse errors as diagnostics).
+            let problem = problem.get().and_then(Option::as_ref).filter(|_| *lazy);
             let synthetic = if *lazy { None } else { synthetic.get() };
             let _ = writeln!(
                 out,
-                "file {fi} {path} app {app} at {file_in_app} lazy {lazy} page {has_page} ns {namespace:?} usings {usings:?} synthetic {synthetic:?}"
+                "file {fi} {path} app {app} at {file_in_app} lazy {lazy} page {has_page} ns {namespace:?} usings {usings:?} synthetic {synthetic:?} problem {problem:?}"
             );
         }
         for (oi, o) in objects.iter().enumerate() {

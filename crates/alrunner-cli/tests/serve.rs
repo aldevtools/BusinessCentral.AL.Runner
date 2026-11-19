@@ -3053,3 +3053,77 @@ fn a_switch_set_but_empty_and_unset_do_not_share_a_workspace_entry() {
         assert_eq!(code2, code2_fresh, "empty first {first_empty}: {code1:?}");
     }
 }
+
+/// Review HIGH 2 (probe app8): a dependency file that does not parse is said on stderr (`parse: ...`) by a run that reads
+/// the workspace layer as by the run that built it, for the compile on the dependency layers and for the compile of
+/// selected tests free of data.
+#[test]
+fn a_read_says_which_dependency_files_did_not_parse() {
+    let d = tempfile::tempdir().unwrap();
+    let dep = d.path().join("dep");
+    write(
+        &dep,
+        "app.json",
+        r#"{"id":"88888888-0000-0000-0000-000000000001","name":"P8Dep","publisher":"T","version":"1.0.0.0","dependencies":[]}"#,
+    );
+    write(
+        &dep,
+        "src/good.al",
+        "codeunit 50900 \"P8 Dep Good\"\n{\n    procedure One(): Integer\n    begin\n        exit(1);\n    end;\n}\n",
+    );
+    write(
+        &dep,
+        "src/bad.al",
+        "codeunit 50901 \"P8 Dep Bad\"\n{\n    procedure Two(): Integer\n    begin\n        exit(2 +);\n    end\n}\n",
+    );
+    let ws = d.path().join("ws");
+    write(
+        &ws,
+        "app.json",
+        r#"{"id":"88888888-0000-0000-0000-000000000002","name":"P8Ws","publisher":"T","version":"1.0.0.0","dependencies":[{"id":"88888888-0000-0000-0000-000000000001","name":"P8Dep","publisher":"T","version":"1.0.0.0"}]}"#,
+    );
+    write(
+        &ws,
+        "src/t.al",
+        "codeunit 50910 \"P8 Tests\"\n{\n    Subtype = Test;\n\n    [Test]\n    procedure GoodWorks()\n    var\n        G: Codeunit \"P8 Dep Good\";\n    begin\n        if G.One() <> 1 then\n            Error('wrong');\n    end;\n\n    [Test]\n    procedure BadIsRefused()\n    var\n        B: Codeunit \"P8 Dep Bad\";\n    begin\n        if B.Two() <> 2 then\n            Error('wrong');\n    end;\n}\n",
+    );
+    for extra in [
+        &[][..],
+        &["--test-runner", "builtin"][..],
+        &["--test-runner", "builtin", "--codeunit", "50910"][..],
+    ] {
+        let cache = d
+            .path()
+            .join(format!("cache{}", extra.len()))
+            .to_string_lossy()
+            .to_string();
+        let run = || {
+            let out = Command::new(env!("CARGO_BIN_EXE_al-runner"))
+                .args(["test", ws.to_str().unwrap(), "--dep", dep.to_str().unwrap()])
+                .args(["--no-download", "--no-test-data", "--timings", "--cache-dir", &cache])
+                .args(extra)
+                .output()
+                .unwrap();
+            let err = String::from_utf8_lossy(&out.stderr).to_string();
+            let parse: Vec<String> = err
+                .lines()
+                .filter(|l| l.starts_with("parse:"))
+                .map(String::from)
+                .collect();
+            let state = err
+                .lines()
+                .find(|l| l.starts_with("compile cache: workspace layer"))
+                .unwrap_or_default()
+                .to_string();
+            (out.status.code(), parse, state)
+        };
+        let (code1, parse1, state1) = run();
+        let (code2, parse2, state2) = run();
+        assert!(
+            state1.contains("built") && state2.contains("read"),
+            "{extra:?}: {state1} / {state2}"
+        );
+        assert!(parse1.iter().any(|l| l.contains("bad.al:5")), "{extra:?}: {parse1:?}");
+        assert_eq!((code1, &parse1), (code2, &parse2), "{extra:?}");
+    }
+}

@@ -490,3 +490,44 @@ fn a_compile_of_selected_tests_free_of_data_reads_equal_to_fresh() {
     let (cached, s) = outcomes(&i, dir.path(), true);
     assert_eq!((cached, s), (plain, Some(WorkspaceState::Read)));
 }
+
+/// Review HIGH 2: a dependency file that does not parse (its objects are unusable) is in the read compile as in the fresh
+/// one, for the compile on the dependency layers, the compile of selected tests free of data, and a dependency app that
+/// stands on a workspace app (compiled with the workspace).
+#[test]
+fn a_dependency_file_that_does_not_parse_reads_as_fresh() {
+    const BAD: &str =
+        "codeunit 50901 \"Dep Bad\"\n{\n    procedure Two(): Integer\n    begin\n        exit(2 +);\n    end\n}\n";
+    const USES_BAD: &str = "codeunit 60150 BadTests { Subtype = Test; [Test] procedure Bad() var B: Codeunit \"Dep Bad\"; begin if B.Two() <> 2 then Error('two'); end; }";
+    let mut layered = with_dependency();
+    layered.apps[1].files.push(("Bad.al".into(), BAD.into()));
+    layered.apps[0].files.push(("test/UsesBad.al".into(), USES_BAD.into()));
+    let mut pure = layered.clone();
+    pure.apps[0].files = vec![("test/UsesBad.al".into(), USES_BAD.into())];
+    pure.opts.only = Some(vec![(0, 60150)]);
+    let mut on_workspace = with_dependency();
+    on_workspace.apps.push(app(
+        "ondep",
+        &["main"],
+        &[("OnDep.al", "codeunit 70100 OnDep { }"), ("Bad.al", BAD)],
+    ));
+    on_workspace.kinds.push(al_sema::AppKind::Dependency);
+    on_workspace.manifests.push(manifest("Partner"));
+    on_workspace.apps[0]
+        .files
+        .push(("test/UsesBad.al".into(), USES_BAD.into()));
+    for (what, i) in [
+        ("layered", layered),
+        ("free of data", pure),
+        ("on the workspace", on_workspace),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let fresh = compile(&i, dir.path(), false);
+        let a = wc::canonical_dump(&fresh);
+        compile(&i, dir.path(), true);
+        let read = compile(&i, dir.path(), true);
+        assert_eq!(state(&read), Some(WorkspaceState::Read), "{what}");
+        let b = wc::canonical_dump(&read);
+        assert!(a == b, "{what}: {}", first_difference(&a, &b));
+    }
+}

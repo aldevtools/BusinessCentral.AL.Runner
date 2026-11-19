@@ -23,7 +23,7 @@ const HEADER: usize = 8 + 4 + 32 + 8 + 8 + 8 + 32 + 32;
 const LEVEL: i32 = 3;
 
 /// The format of the workspace layer file. A change of the layout or of what the extra holds raises it.
-pub const WORKSPACE_FORMAT: u32 = 1;
+pub const WORKSPACE_FORMAT: u32 = 2;
 
 /// The al-cache key a workspace layer's blocks are filed under: the layer format checks a key's digest, and the
 /// workspace key is the caller's (`WorkspaceKey` of al-testrun), so its digest is carried in `below`.

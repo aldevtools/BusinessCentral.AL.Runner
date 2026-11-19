@@ -96,6 +96,9 @@ pub struct StoredWorkspace {
     pub compiled: Option<Vec<bool>>,
     /// What `set_unreached` set, if the compile set it, sorted.
     pub unreached: Option<Vec<(usize, usize)>>,
+    /// The parse problem of each lazily parsed file the compile parsed and found one in, by file (review HIGH 2: a run
+    /// that reads the compile says them as the fresh one did).
+    pub problems: Vec<(usize, String)>,
 }
 
 impl Workspace {
@@ -139,6 +142,13 @@ impl Workspace {
             diagnostics: self.diagnostics.iter().map(StoredDiagnostic::of).collect(),
             compiled: self.compiled.get().cloned(),
             unreached,
+            problems: self
+                .files
+                .iter()
+                .enumerate()
+                .filter(|(_, f)| f.lazy)
+                .filter_map(|(fi, f)| Some((fi, f.problem.get()?.clone()?)))
+                .collect(),
         }
     }
 
@@ -159,6 +169,7 @@ impl Workspace {
             diagnostics,
             compiled,
             unreached,
+            problems,
         } = stored;
         lazy.resize_with(apps.len(), || None);
         let loaders = lazy.iter().map(|l| l.as_ref().map(|l| l.loader.clone())).collect();
@@ -180,6 +191,21 @@ impl Workspace {
         }
         if let Some(u) = unreached {
             ws.set_unreached(u.into_iter().collect());
+        }
+        // The parse problems the compile found in lazily parsed files: the run says them (`lazy_parse_problems`), and a
+        // later `file_problem` answers them without a parse (a parse would find the same: it is a function of the text).
+        for (fi, why) in problems {
+            match ws.files.get(fi).filter(|f| f.lazy) {
+                Some(f) => {
+                    let _ = f.problem.set(Some(why));
+                }
+                None => {
+                    return Err((
+                        std::mem::take(&mut ws.apps),
+                        "a parse problem of no lazily parsed file".into(),
+                    ));
+                }
+            }
         }
         Ok(ws)
     }
