@@ -293,16 +293,11 @@ fn environment_application_setting(_: &mut Session, _: Option<&Rc<DotNetObject>>
 }
 
 /// `!NavEnvironment.Topology.IsServiceRunningInLocalEnvironment`, which is
-/// `Environment Information.IsSaaSInfrastructure`. The oracle answers true on BC 27.5 and 28.5 and
-/// false on 29.0 (`Gate::NotSaaSInfrastructure`; corpus
-/// `session-system/TestEnvironmentUserTenantContracts.al:164-174`). AL Runner's `StandardServiceTopology`
-/// answers false throughout; the probe wins where it says true.
-fn is_azure(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
+/// `Environment Information.IsSaaSInfrastructure`: false on every supported major (corpus
+/// `session-system/TestEnvironmentUserTenantContracts.al:185`).
+fn is_azure(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     no_args(args, "NavUserAccountHelper.IsAzure")?;
-    Ok(Value::Boolean(!al_version::gate_on(
-        s.engine.target.as_ref(),
-        al_version::Gate::NotSaaSInfrastructure,
-    )))
+    Ok(Value::Boolean(false))
 }
 
 /// `NavUserAccountHelper.IsUserDelegatedAdmin()`: false in a test session on every supported major (corpus
@@ -1056,7 +1051,7 @@ fn user_account_helper() -> RegistryType {
         members: vec![
             member(
                 "IsAzure",
-                probe("164-174 (IsSaaSInfrastructure true on 27 and 28, false from 29)"),
+                probe("185 (IsSaaSInfrastructure false on every major)"),
                 is_azure,
             ),
             member(

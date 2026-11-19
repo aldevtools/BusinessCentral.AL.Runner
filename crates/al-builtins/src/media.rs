@@ -415,8 +415,6 @@ fn media_export(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out 
             buf.written = true;
             buf.render_pending = Some(crate::stream::MEDIA_DOCX_REZIPPED.into());
         }
-        // The file's bytes come back on BC 27 and 28 (MediaFiles.al:510-512 'export length', 'export is the file').
-        LibraryValue::OutStream(blob, ..) if obj.mime == DOCX_MIME => crate::stream::write_bytes(blob, &obj.bytes),
         // A 300 dpi JFIF JPEG that Media.ImportFile read comes back unchanged on Windows BC 29.0 (probe cu 61288
         // SC_DemoTool_Media_ExportStream, case JD; the DemoTool's pictures). No corpus test pins it yet: a registered assumption
         // under the Microsoft-test exception (CLAUDE.md rule 3).
@@ -582,8 +580,9 @@ fn import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
         }
     };
     let description = text_arg(a, 1)?;
-    let pending = (mime == DOCX_MIME && c.gate(al_version::Gate::DocxMediaRezippedFrom29))
-        .then(|| crate::stream::MEDIA_DOCX_REZIPPED.into());
+    // BC stores a .docx as a re-zipped package whose bytes are not pinned: on BC 27 and 28 neither the Tenant Media content nor
+    // the export is the file (onprem streams/media/MediaFiles.al:525-527); BC 29 ignores both cells (:515-519).
+    let pending = (mime == DOCX_MIME).then(|| crate::stream::MEDIA_DOCX_REZIPPED.into());
     let id = c.new_guid();
     store(c)?.objects.borrow_mut().insert(
         id,

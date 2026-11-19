@@ -1732,15 +1732,14 @@ fn the_session_user_is_not_a_delegated_helpdesk() {
     }
 }
 
-/// `Environment Information.IsSaaSInfrastructure` is `NavUserAccountHelper.IsAzure()`: true on the
-/// BC 27.5 and 28.5 oracle runs, false on the 29.0 run (corpus
-/// `session-system/TestEnvironmentUserTenantContracts.al:164-174`, `#if BC29PLUS`). No target is the newest.
+/// `Environment Information.IsSaaSInfrastructure` is `NavUserAccountHelper.IsAzure()`: false on every
+/// major (corpus `session-system/TestEnvironmentUserTenantContracts.al:185`). No target is the newest.
 #[test]
-fn is_azure_follows_the_bc_major() {
+fn is_azure_is_false_on_every_major() {
     let u = "U: DotNet NavUserAccountHelper;";
     for (bc, want) in [
-        (Some("27.5"), "Yes"),
-        (Some("28.5"), "Yes"),
+        (Some("27.5"), "No"),
+        (Some("28.5"), "No"),
         (Some("29.0"), "No"),
         (Some("30.0"), "No"),
         (None, "No"),
