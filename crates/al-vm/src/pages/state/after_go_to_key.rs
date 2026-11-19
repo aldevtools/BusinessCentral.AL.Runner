@@ -176,8 +176,8 @@ mod tests {
     use super::{AfterGoToKey, GoToKeyLeft, model::Flags};
 
     /// Every transition, with each `bool` argument both ways; `keep` puts back what the last `take` gave (or a mark with
-    /// every detail set, when nothing was taken).
-    const STEPS: usize = 7;
+    /// every detail set, when nothing was taken), and with a Previous or a call that is not pinned added.
+    const STEPS: usize = 9;
 
     fn step(i: usize, new: &mut AfterGoToKey, old: &mut Flags, taken: &mut Option<GoToKeyLeft>) {
         let full = GoToKeyLeft {
@@ -205,16 +205,24 @@ mod tests {
                 assert_eq!(t, old.take());
                 *taken = t;
             }
-            _ => {
+            6..=8 => {
                 let left = taken.unwrap_or(full);
+                let left = match i {
+                    6 => left,
+                    7 => left.after_previous(),
+                    _ => left.with_doubt(),
+                };
                 new.keep(left);
                 old.keep(left);
             }
+            _ => unreachable!("STEPS is 9"),
         }
     }
 
     #[test]
     fn every_sequence_of_four_steps_answers_as_the_old_flags() {
+        // The sequences must reach every state of the type: no mark, and the mark with each of the 16 detail sets.
+        let mut visited = std::collections::BTreeSet::new();
         for n in 0..STEPS.pow(4) {
             let (mut new, mut old, mut taken) = (AfterGoToKey::default(), Flags::default(), None);
             let mut rest = n;
@@ -225,8 +233,10 @@ mod tests {
                 assert_eq!(new.active(), old.active, "sequence {n}");
                 assert_eq!(new.clone().take(), old.clone().take(), "sequence {n}");
                 assert_eq!(new.clone().action_starts(), old.clone().action_starts(), "sequence {n}");
+                visited.insert(new.clone().take().map(|l| (l.doubt(), l.quiet(), l.set(), l.prev())));
             }
         }
+        assert_eq!(visited.len(), 17, "states visited: {visited:?}");
     }
 
     #[test]

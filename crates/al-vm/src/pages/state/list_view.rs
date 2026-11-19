@@ -14,7 +14,9 @@ pub enum ListViewSwitch {
     /// The built-in Edit switched the list back to edit after View. Only Editable, the fields, the Edit and View Enabled reads,
     /// ValidationErrorCount and Close are pinned in this state.
     EditBack,
-    /// View came again after that switch back: Edit switches it back once more.
+    /// Mirrors the old flag pair (switched to view and switched back). Production does not reach it:
+    /// `refuse_after_list_edit_back_control` (`list_view_switch.rs`) refuses View and Edit while the switch back stands,
+    /// because that shape is not pinned.
     EditBackThenView,
 }
 
