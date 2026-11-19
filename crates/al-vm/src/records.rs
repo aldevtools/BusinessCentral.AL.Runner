@@ -296,7 +296,7 @@ impl Session {
     /// subscribers to the Feature Key events loaded.
     fn feature_key_read_only_change(&self, t: &TableDef, rec: &Rec, stored: Option<&[Value]>) -> Result<(), Signal> {
         let Some(old) = stored else { return Ok(()) };
-        let id = self.engine.program.objects[t.object as usize].id.unwrap_or(0);
+        let id = crate::object_ids::declared_id(self.engine.program.objects[t.object as usize].id)?;
         if rec.borrow().temporary
             || al_builtins::platform::virtual_table(id) != Some(al_builtins::platform::Virtual::FeatureKey)
         {
