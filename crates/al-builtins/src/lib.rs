@@ -79,6 +79,7 @@ pub mod pagefmt;
 pub mod permission_shadow;
 pub mod pinned_columns;
 pub mod placeholder_output;
+pub mod plain;
 pub mod platform;
 pub mod platform_native;
 pub mod query_reopen_step;

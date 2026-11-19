@@ -101,6 +101,8 @@ mod hostvalues;
 mod http;
 pub mod impact;
 mod install_left;
+mod login_image;
+pub use login_image::{ImageSize, LoginImage, NotImaged};
 mod interfaces;
 mod isdirty;
 mod license_ceiling;

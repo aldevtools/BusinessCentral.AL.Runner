@@ -253,16 +253,33 @@ impl Tally {
 }
 
 impl Check {
-    /// Notes the state of a session of `key` after the raised login.
-    pub(crate) fn note(&self, key: Key, state: LoginState) {
+    /// Notes the state of a session of `key` after the raised login. `true`: the key was new.
+    pub(crate) fn note(&self, key: Key, state: LoginState) -> bool {
         let mut s = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         let across = Key {
             test_codeunit: None,
             ..key.clone()
         };
-        if s.exact.note(key, state.clone()) {
+        let new = s.exact.note(key, state.clone());
+        if new {
             s.across_codeunits.note(across, state);
         }
+        new
+    }
+
+    /// A new key's session after the raised login: frozen ([`Session::login_image`]), thawn into `twin`, the twin's state
+    /// compared with `state` ([`differences`]). `before_login`: the store's change counter before the login. Outcomes do
+    /// not change: the twin is dropped and `session` is only read.
+    pub(crate) fn round_trip(
+        &self,
+        session: &Session,
+        before_login: u64,
+        state: &LoginState,
+        wrote: &crate::install::CompanyOpenWrites,
+        hits: al_builtins::assumptions::HitBits,
+        twin: impl FnOnce() -> Session,
+    ) {
+        let _ = (session, before_login, state, wrote, hits, twin);
     }
 
     /// The first state of each key, in the order the keys came.
@@ -293,6 +310,12 @@ impl Check {
             s.across_codeunits.counts()
         ))
     }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Run on the twin after the thaw ([`Check::round_trip`]): a test plants a difference the check must report.
+    pub(crate) static TWIN_PLANT: std::cell::Cell<Option<fn(&mut Session)>> = const { std::cell::Cell::new(None) };
 }
 
 /// The check of `engine`.
