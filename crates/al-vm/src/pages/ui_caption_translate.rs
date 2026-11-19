@@ -7,7 +7,8 @@
 //!
 //! Not pinned, so refused when a subscriber would see it: a subscriber that changes `Translation`; the same text translated
 //! again; the empty text; a translation that other subscribers (OnResolveCaptionClass, OnAfterCaptionClassResolve) changed
-//! (the order of the events is not observable by the pinned cases). A TestPage control's caption class still refuses
+//! (the order of the events is not observable by the pinned cases); a subscriber of a dependency app other than the System
+//! Application's "Caption Class Impl.". A TestPage control's caption class still refuses
 //! (`refuse_caption_class_translate`).
 
 use super::*;
@@ -83,7 +84,19 @@ impl Session {
         };
         // The platform declares `CaptionExpr: Text[1024]` and `var Translation: Text[1024]` (PtFixtures.al:174-175).
         self.events.publisher_var_lens = vec![None, None, Some(1024)];
-        // Microsoft's own subscribers of the event are not run: no case pins what they do.
+        // The System Application's "Caption Class Impl." subscribes to raise Caption Class's events, which the runtime raises
+        // itself (`caption_class_translate_unrefused`), so it is not run. What any other dependency subscriber does is pinned by
+        // no case: refused (al-runner issue 8470).
+        if let Some(s) = self.engine.events.dependency_subscriber_but(
+            &self.engine.program,
+            crate::events::UI_HELPER_TRIGGERS,
+            "captionclasstranslate",
+            al_ir::CAPTION_CLASS_IMPL,
+        ) {
+            return unsupported(format!(
+                "CaptionClassTranslate with the subscriber {s} of a dependency app (what it does is not pinned)"
+            ));
+        }
         self.events.skip_dependency_subscribers = true;
         let raised = self.raise(&call, &mut args);
         self.events.skip_dependency_subscribers = false;

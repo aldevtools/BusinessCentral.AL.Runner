@@ -269,9 +269,8 @@ impl Registry {
 /// A platform codeunit whose events the runtime raises without the codeunit object, under a key of its own. Its subscribers are
 /// found by the name as written (`Registry::build`); one written with the id refuses ([`Registry::add_by_id_subscriber`]).
 struct RaisedPlatformCodeunit {
-    /// The id the platform's System.app declares for it (the System symbols of BC 27.5, 28.5 and 29.0).
-    id: &'static str,
-    name: &'static str,
+    /// Its id and name (`al_ir::FILTER_HELPER_CODEUNIT` and the others).
+    codeunit: (u32, &'static str),
     /// The object key the runtime raises its events under.
     key: usize,
     /// Every event of the codeunit is listed in `Registry::unraised`.
@@ -279,22 +278,19 @@ struct RaisedPlatformCodeunit {
 }
 
 const FILTER_HELPER: RaisedPlatformCodeunit = RaisedPlatformCodeunit {
-    id: "2000000007",
-    name: "Filter Helper Triggers",
+    codeunit: al_ir::FILTER_HELPER_CODEUNIT,
     key: FILTER_HELPER_TRIGGERS,
     unraised: false,
 };
 
 const UI_HELPER: RaisedPlatformCodeunit = RaisedPlatformCodeunit {
-    id: "2000000004",
-    name: "UI Helper Triggers",
+    codeunit: al_ir::UI_HELPER_CODEUNIT,
     key: UI_HELPER_TRIGGERS,
     unraised: true,
 };
 
 const REPORTING: RaisedPlatformCodeunit = RaisedPlatformCodeunit {
-    id: "2000000005",
-    name: "Reporting Triggers",
+    codeunit: al_ir::REPORTING_CODEUNIT,
     key: REPORTING_TRIGGERS,
     unraised: true,
 };
@@ -316,7 +312,7 @@ impl Registry {
         let heads = program.objects.heads();
         if let Some(p) = [&FILTER_HELPER, &UI_HELPER, &REPORTING]
             .into_iter()
-            .find(|p| p.id == written)
+            .find(|p| p.codeunit.0.to_string() == written)
         {
             self.missing
                 .entry((p.key, event.to_string()))
@@ -324,11 +320,15 @@ impl Registry {
                 .push(Missing {
                     element: String::new(),
                     subscriber: format!("{} \"{}\".{}", o.kind, o.name, r.name),
-                    why: MissingWhy::PlatformPublisherById(p.name, written.to_string(), is_manual(o).then_some(oi)),
+                    why: MissingWhy::PlatformPublisherById(
+                        p.codeunit.1,
+                        written.to_string(),
+                        is_manual(o).then_some(oi),
+                    ),
                 });
             if p.unraised {
                 self.unraised
-                    .entry((p.name.to_ascii_lowercase(), event.to_string()))
+                    .entry((p.codeunit.1.to_ascii_lowercase(), event.to_string()))
                     .or_default()
                     .push(Unraised::of(heads, oi, o, r));
             }
@@ -557,7 +557,7 @@ impl Registry {
                                         element: String::new(),
                                     });
                             }
-                            if kind == ObjKind::Codeunit && target.eq_ignore_ascii_case(UI_HELPER.name) {
+                            if kind == ObjKind::Codeunit && target.eq_ignore_ascii_case(UI_HELPER.codeunit.1) {
                                 native = true;
                                 reg.add_ui_helper_subscriber(heads, oi, o, r, &target, &event);
                             }
@@ -565,7 +565,7 @@ impl Registry {
                             // subscribers to them, are listed too: a Pdf save that writes a placeholder raises none of them and
                             // refuses while a test can see a subscriber (`report_placeholder`).
                             if kind == ObjKind::Codeunit
-                                && (target.eq_ignore_ascii_case(REPORTING.name)
+                                && (target.eq_ignore_ascii_case(REPORTING.codeunit.1)
                                     || target.eq_ignore_ascii_case(al_ir::REPORT_MANAGEMENT.1))
                             {
                                 native = true;
@@ -589,7 +589,7 @@ impl Registry {
                             // The layout selection events go to Base Application's ReportManagement only (ADR-040 amendment
                             // 2026-11-12, A7; `report_save::fact_selection`).
                             if kind == ObjKind::Codeunit
-                                && target.eq_ignore_ascii_case(REPORTING.name)
+                                && target.eq_ignore_ascii_case(REPORTING.codeunit.1)
                                 && raised_reporting_event(program, o, &event)
                             {
                                 native = true;
@@ -604,7 +604,7 @@ impl Registry {
                                     });
                             }
                             if kind == ObjKind::Codeunit
-                                && target.eq_ignore_ascii_case(FILTER_HELPER.name)
+                                && target.eq_ignore_ascii_case(FILTER_HELPER.codeunit.1)
                                 && al_ir::RAISED_FILTER_EVENTS
                                     .iter()
                                     .any(|e| e.eq_ignore_ascii_case(event.as_str()))
@@ -769,6 +769,24 @@ impl Registry {
             "the test codeunit can see subscriber {subscriber} of {publisher}, whose publisher is in no loaded app: the \
              runtime cannot raise its events"
         ))
+    }
+
+    /// The first compiled subscriber to `event` under `key` whose object is in a dependency app and is not `stand_in`, the
+    /// Microsoft object whose work the runtime does itself: `codeunit "Name"`. What such a subscriber does is pinned by no
+    /// case, so the caller refuses to raise the event (`filterevents`, `pages/ui_caption_translate`).
+    pub fn dependency_subscriber_but(
+        &self,
+        program: &ir::Program,
+        key: usize,
+        event: &str,
+        stand_in: &str,
+    ) -> Option<String> {
+        let subs = self.subscribers.get(&(key, event.to_string()))?;
+        subs.iter().find_map(|s| {
+            let o = &program.objects[s.object];
+            let dependency = program.apps.get(o.app as usize).is_some_and(|a| a.dependency);
+            (dependency && !o.name.eq_ignore_ascii_case(stand_in)).then(|| format!("{} \"{}\"", o.kind.label(), o.name))
+        })
     }
 
     /// Whether any subscriber (compiled or not) listens to an event of object `object`.

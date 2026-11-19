@@ -105,9 +105,10 @@ pub struct KeptDemand {
     caption_class: bool,
     reporting_triggers: bool,
     filter_helper: bool,
+    ui_helper: bool,
     save_as_events: bool,
     catalogs: u8,
-    mentions: Vec<u8>,
+    mentions: Vec<u16>,
     run_targets: Vec<bool>,
 }
 
@@ -138,6 +139,8 @@ pub(super) struct State {
     reporting_triggers: bool,
     /// The `MakeDateFilter` subscribers are reached (code that sets filters is compiled).
     filter_helper: bool,
+    /// The `CaptionClassTranslate` subscribers are reached (code that names `CaptionClassTranslate` is compiled).
+    ui_helper: bool,
     /// The `SubstituteReport`, `OnDocumentReady` and `SetupPrinters` subscribers are reached (code that calls `SaveAs` or names a
     /// report is compiled).
     save_as_events: bool,
@@ -145,7 +148,7 @@ pub(super) struct State {
     /// every object of the kind is compiled to its shape (`touch_object_catalog`).
     catalogs: u8,
     /// Per object: the names of `MENTION_NAMES` its text holds, with `SCANNED` once searched (`Checker::mentions`).
-    mentions: Vec<u8>,
+    mentions: Vec<u16>,
     /// Per object: `reach_run_targets` has walked its `RunObject` actions. What a walk reaches only rises, so a
     /// second walk of the same page reaches nothing new.
     run_targets: Vec<bool>,
@@ -169,6 +172,7 @@ impl State {
             caption_class: false,
             reporting_triggers: false,
             filter_helper: false,
+            ui_helper: false,
             save_as_events: false,
             catalogs: 0,
             mentions: vec![0; objects],
@@ -203,9 +207,11 @@ impl State {
         st.caption_class = kept.caption_class;
         st.reporting_triggers = kept.reporting_triggers;
         st.filter_helper = kept.filter_helper;
+        st.ui_helper = kept.ui_helper;
         st.save_as_events = kept.save_as_events;
         st.catalogs = kept.catalogs;
-        st.mentions = grow(kept.mentions);
+        st.mentions = kept.mentions;
+        st.mentions.resize(objects, 0);
         st.run_targets = kept.run_targets;
         st.run_targets.resize(objects, false);
         st
@@ -219,6 +225,7 @@ impl State {
             caption_class: self.caption_class,
             reporting_triggers: self.reporting_triggers,
             filter_helper: self.filter_helper,
+            ui_helper: self.ui_helper,
             save_as_events: self.save_as_events,
             catalogs: self.catalogs,
             mentions: std::mem::take(&mut self.mentions),
@@ -228,22 +235,25 @@ impl State {
 }
 
 /// The names whose presence in an object's text gates a platform event's subscribers (`reach_*_if_used`).
-pub(super) const CAPTION_CLASS: u8 = 1;
-pub(super) const RENDERING: u8 = 2;
-pub(super) const CUSTOM: u8 = 4;
-pub(super) const SAVE_AS: u8 = 8;
-pub(super) const SET_FILTER: u8 = 16;
+pub(super) const CAPTION_CLASS: u16 = 1;
+pub(super) const RENDERING: u16 = 2;
+pub(super) const CUSTOM: u16 = 4;
+pub(super) const SAVE_AS: u16 = 8;
+pub(super) const SET_FILTER: u16 = 16;
 /// `Report.GetSubstituteReportId` raises `SubstituteReport` when it has a subscriber (P91Unsure.al:112).
-pub(super) const SUBSTITUTE: u8 = 32;
+pub(super) const SUBSTITUTE: u16 = 32;
 /// The static `Report.Run`, `RunModal`, `Execute` and `RunRequestPage` raise `SubstituteReport`, and `RunRequestPage`
 /// `SetupPrinters` (reports/Y14ReportSubstitute.al, events/platform-triggers/PeVTests.al:450, :665).
-pub(super) const REPORT: u8 = 64;
+pub(super) const REPORT: u16 = 64;
+/// The `CaptionClassTranslate` statement raises `UI Helper Triggers`' `CaptionClassTranslate` (P114GlobalTriggerEvents.al:309).
+pub(super) const CAPTION_CLASS_TRANSLATE: u16 = 128;
 /// The object's text has been searched.
-const SCANNED: u8 = 128;
+const SCANNED: u16 = 256;
 /// The names `mentions` looks for, for its test against `ast::text_contains_ignore_case`.
 #[cfg(test)]
-pub(super) const MENTION_NAMES: [(u8, &str); 7] = [
+pub(super) const MENTION_NAMES: [(u16, &str); 8] = [
     (CAPTION_CLASS, "captionclass"),
+    (CAPTION_CLASS_TRANSLATE, "captionclasstranslate"),
     (RENDERING, "rendering"),
     (CUSTOM, "custom"),
     (SAVE_AS, "saveas"),
@@ -254,14 +264,19 @@ pub(super) const MENTION_NAMES: [(u8, &str); 7] = [
 
 /// The gating names (`CAPTION_CLASS` ... `SET_FILTER`) the source text of `node` holds, whatever the case, in one pass. As with
 /// `ast::text_contains_ignore_case`, a name is a run of letters and so cannot span two tokens.
-pub(super) fn mentions(node: &SyntaxNode) -> u8 {
-    const ALL: u8 = CAPTION_CLASS | RENDERING | CUSTOM | SAVE_AS | SET_FILTER | SUBSTITUTE | REPORT;
-    let mut found = 0u8;
+pub(super) fn mentions(node: &SyntaxNode) -> u16 {
+    const ALL: u16 =
+        CAPTION_CLASS | CAPTION_CLASS_TRANSLATE | RENDERING | CUSTOM | SAVE_AS | SET_FILTER | SUBSTITUTE | REPORT;
+    let mut found = 0u16;
     let _ = node.text().try_for_each_chunk(|chunk| {
         let b = chunk.as_bytes();
         for i in 0..b.len() {
-            let candidates: &[(u8, &[u8])] = match b[i].to_ascii_lowercase() {
-                b'c' => &[(CAPTION_CLASS, b"captionclass"), (CUSTOM, b"custom")],
+            let candidates: &[(u16, &[u8])] = match b[i].to_ascii_lowercase() {
+                b'c' => &[
+                    (CAPTION_CLASS, b"captionclass"),
+                    (CAPTION_CLASS_TRANSLATE, b"captionclasstranslate"),
+                    (CUSTOM, b"custom"),
+                ],
                 b'r' => &[(RENDERING, b"rendering"), (REPORT, b"report")],
                 b's' => &[(SAVE_AS, b"saveas"), (SET_FILTER, b"setfilter")],
                 b'g' => &[(SUBSTITUTE, b"getsubstitutereportid")],
@@ -1030,7 +1045,7 @@ impl Checker<'_> {
     }
 
     /// The gating names the text of object `i` holds: searched once per object, in one pass.
-    fn mentions(&self, i: usize) -> u8 {
+    fn mentions(&self, i: usize) -> u16 {
         let known = self.demand.borrow().as_ref().map_or(0, |st| st.mentions[i]);
         if known & SCANNED != 0 {
             return known;
@@ -1161,6 +1176,35 @@ impl Checker<'_> {
             if al_ir::RAISED_FILTER_EVENTS
                 .iter()
                 .any(|e| self.ws.objects[o].subscribers[k].event.eq_ignore_ascii_case(e))
+            {
+                self.reach_subscriber(o, k);
+            }
+        }
+    }
+
+    /// Object `i` names `CaptionClassTranslate`: the statement raises the platform's `CaptionClassTranslate`
+    /// (events/platform-triggers/P114GlobalTriggerEvents.al:309-330), so its subscribers are reached, except the System
+    /// Application's [`al_ir::CAPTION_CLASS_IMPL`], which the runtime does not run (al-vm `pages/ui_caption_translate`).
+    pub(super) fn reach_ui_helper_if_used(&self, i: usize) {
+        if !self.pending(|st| st.ui_helper) || self.mentions(i) & CAPTION_CLASS_TRANSLATE == 0 {
+            return;
+        }
+        let first = self.demand.borrow_mut().as_mut().is_some_and(|st| {
+            let first = !st.ui_helper;
+            st.ui_helper = true;
+            first
+        });
+        if first {
+            self.reach_ui_helper_subscribers();
+        }
+    }
+
+    fn reach_ui_helper_subscribers(&self) {
+        for (o, k) in self.ws.ui_helper_triggers_subscribers() {
+            if !self.ws.objects[o].name.eq_ignore_ascii_case(al_ir::CAPTION_CLASS_IMPL)
+                && al_ir::RAISED_UI_HELPER_EVENTS
+                    .iter()
+                    .any(|e| self.ws.objects[o].subscribers[k].event.eq_ignore_ascii_case(e))
             {
                 self.reach_subscriber(o, k);
             }
@@ -1315,6 +1359,7 @@ impl Checker<'_> {
                     st.reporting_triggers,
                     st.save_as_events,
                     st.filter_helper,
+                    st.ui_helper,
                 ],
                 st.catalogs,
             )
@@ -1331,6 +1376,9 @@ impl Checker<'_> {
         }
         if flags[3] {
             self.reach_filter_helper_subscribers();
+        }
+        if flags[4] {
+            self.reach_ui_helper_subscribers();
         }
         // The catalog tables in use list the new objects too (`touch_object_catalog`).
         for kind in [
@@ -2597,6 +2645,72 @@ mod tests {
         let u = &l.program.uncompiled_subscribers[0];
         assert_eq!(u.platform, al_ir::PlatformPublisher::CaptionClass);
         assert_eq!(u.event, "onresolvecaptionclass");
+    }
+
+    /// A dependency subscriber whose publisher is a bare id is reached as one written `Codeunit::<id>` is, or listed as not
+    /// compiled (al-runner issue 8466). Apps: `s` holds the subscribers, `p` the codeunits they name, `w` the code under test.
+    #[test]
+    fn a_dependency_subscriber_written_with_a_bare_id_is_reached_or_listed() {
+        let subs = "codeunit 30 Subs {\n\
+             [EventSubscriber(ObjectType::Codeunit, 10, 'OnX', '', false, false)] local procedure X() begin end;\n\
+             [EventSubscriber(ObjectType::Codeunit, 2000000007, 'MakeDateFilter', '', false, false)]\n\
+             local procedure F(var DateFilterText: Text) begin end;\n\
+             [EventSubscriber(ObjectType::Codeunit, 2000000004, 'CaptionClassTranslate', '', false, false)]\n\
+             local procedure U(Language: Integer; CaptionExpr: Text[1024]; var Translation: Text[1024]) begin end; }
+             codeunit 31 \"Caption Class Impl.\" {
+             [EventSubscriber(ObjectType::Codeunit, Codeunit::\"UI Helper Triggers\", 'CaptionClassTranslate', '', false, false)]
+             local procedure V(Language: Integer; CaptionExpr: Text[1024]; var Translation: Text[1024]) begin end; }";
+        let pubs = "codeunit 10 Pub { procedure Fire() begin OnX(); end; [IntegrationEvent(false, false)] local procedure OnX() begin end; }\n\
+             codeunit 2000000007 \"Filter Helper Triggers\" { }";
+        let build = |main: &str| {
+            let app = |id: &str, deps: &[&str], src: &str| AppSource {
+                id: id.into(),
+                name: id.into(),
+                dependencies: deps.iter().map(|d| d.to_string()).collect(),
+                files: vec![(format!("{id}.al"), src.to_string())],
+            };
+            compile_apps(
+                vec![app("w", &["s", "p"], main), app("s", &["p"], subs), app("p", &[], pubs)],
+                vec![AppKind::Workspace, AppKind::Dependency, AppKind::Dependency],
+                &Default::default(),
+            )
+            .1
+        };
+        let platforms = |l: &Lowered| -> Vec<(al_ir::PlatformPublisher, String)> {
+            let mut v: Vec<_> = (l.program.uncompiled_subscribers.iter())
+                .map(|u| (u.platform, u.event.clone()))
+                .collect();
+            v.sort_by(|a, b| a.1.cmp(&b.1));
+            v
+        };
+        let l = build("codeunit 1 Main { procedure Go() begin end; }");
+        // The UI Helper subscriber is not listed: only the `CaptionClassTranslate` statement raises its event, and naming the
+        // statement reaches it (`reach_ui_helper_if_used`).
+        assert_eq!(
+            platforms(&l),
+            [(
+                al_ir::PlatformPublisher::FilterHelperTriggers,
+                "makedatefilter".to_string()
+            )]
+        );
+        let unreached = |l: &Lowered, obj: &str, r: &str| {
+            l.program.objects[object(l, obj)].routines.iter().all(|x| x.name != r) || !compiled(l, obj, r)
+        };
+        assert!(unreached(&l, "Subs", "U"));
+        // A `CaptionClass` property is not the statement: the UI Helper subscriber stays unreached.
+        let l = build(
+            "table 2 T { fields { field(1; F; Integer) { CaptionClass = '3,x'; } } }\n\
+             codeunit 1 Main { procedure Go() var R: Record T; begin R.Insert(); end; }",
+        );
+        assert!(unreached(&l, "Subs", "U"));
+        let l = build(
+            "codeunit 1 Main { procedure Go() var P: Codeunit Pub; R: Record Integer; T: Text; begin P.Fire(); \
+             R.SetFilter(Number, '1'); T := CaptionClassTranslate('3,x'); end; }",
+        );
+        assert!(compiled(&l, "Subs", "X") && compiled(&l, "Subs", "F") && compiled(&l, "Subs", "U"));
+        // The System Application's "Caption Class Impl." is not reached (`al_ir::CAPTION_CLASS_IMPL`).
+        assert!(unreached(&l, "Caption Class Impl.", "V"));
+        assert!(platforms(&l).is_empty(), "{:?}", platforms(&l));
     }
 
     #[test]

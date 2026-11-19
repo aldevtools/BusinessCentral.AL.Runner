@@ -52,6 +52,34 @@ fn a_make_int_filter_subscriber_written_with_the_codeunit_id_refuses_the_raise()
     assert!(m.contains("by its id"), "{m}");
 }
 
+/// Runs `proc` of `object` in a workspace app whose dependency app holds `dep`.
+fn run_with_dependency(dep: &str, ws: &str, object: &str, proc: &str) -> Result<al_builtins::value::Value, Signal> {
+    use al_sema::workspace::{AppKind, AppSource};
+    let app = |id: &str, deps: &[&str], src: &str| AppSource {
+        id: id.into(),
+        name: id.into(),
+        dependencies: deps.iter().map(|d| d.to_string()).collect(),
+        files: vec![(format!("{id}.al"), src.to_string())],
+    };
+    let (w, l) = al_sema::lower::compile_apps_with(
+        vec![app("dep", &[], dep), app("ws", &["dep"], ws)],
+        vec![AppKind::Dependency, AppKind::Workspace],
+        &Default::default(),
+        None,
+        Default::default(),
+    );
+    assert!(w.diagnostics.is_empty(), "{:?}", w.diagnostics);
+    al_testkit::Built::new(l).run_in(object, proc)
+}
+
+/// al-runner issue 8466: a dependency app's subscriber written with the bare id is found as one written in the app under test
+/// is, so raising the event refuses where main left the subscriber out.
+#[test]
+fn a_dependency_subscriber_written_with_the_codeunit_id_refuses_the_raise() {
+    let m = refused(run_with_dependency(BY_ID_FILTER_SUB, FILTER_HELPER, "C", "Word"));
+    assert!(m.contains("by its id"), "{m}");
+}
+
 const UI_HELPER: &str = r#"
 codeunit 50462 Subs
 {

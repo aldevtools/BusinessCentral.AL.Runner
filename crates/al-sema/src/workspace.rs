@@ -835,17 +835,28 @@ impl Workspace {
         self.codeunit_subscribers(&["caption class", "42"])
     }
 
-    /// Subscribers to the platform's `Reporting Triggers` codeunit, whose `CustomDocumentMergerEx` the runtime raises
-    /// when a report renders with a custom layout.
+    /// Subscribers to the platform's `Reporting Triggers` codeunit (`al_ir::REPORTING_CODEUNIT`), by name or id, whose
+    /// `CustomDocumentMergerEx` the runtime raises when a report renders with a custom layout.
     pub fn reporting_triggers_subscribers(&self) -> Vec<(usize, usize)> {
-        self.codeunit_subscribers(&["reporting triggers"])
+        self.platform_codeunit_subscribers(al_ir::REPORTING_CODEUNIT)
     }
 
-    /// Subscribers to the platform's `Filter Helper Triggers` codeunit, whose `MakeDateFilter` (and `MakeIntFilter`, `MakeTimeFilter`,
-    /// `RAISED_FILTER_EVENTS`) the runtime raises
-    /// for a Date filter text with a piece that does not read.
+    /// Subscribers to the platform's `UI Helper Triggers` codeunit (`al_ir::UI_HELPER_CODEUNIT`), by name or id, whose
+    /// `CaptionClassTranslate` the runtime raises for the `CaptionClassTranslate` statement.
+    pub fn ui_helper_triggers_subscribers(&self) -> Vec<(usize, usize)> {
+        self.platform_codeunit_subscribers(al_ir::UI_HELPER_CODEUNIT)
+    }
+
+    /// Subscribers to the platform's `Filter Helper Triggers` codeunit (`al_ir::FILTER_HELPER_CODEUNIT`), by name or id,
+    /// whose `MakeDateFilter` (and `MakeIntFilter`, `MakeTimeFilter`, `RAISED_FILTER_EVENTS`) the runtime raises for a Date
+    /// filter text with a piece that does not read.
     pub fn filter_helper_triggers_subscribers(&self) -> Vec<(usize, usize)> {
-        self.codeunit_subscribers(&["filter helper triggers"])
+        self.platform_codeunit_subscribers(al_ir::FILTER_HELPER_CODEUNIT)
+    }
+
+    /// The subscribers to platform codeunit `(id, name)` written with its name or its id (al-runner issue 8466).
+    fn platform_codeunit_subscribers(&self, (id, name): (u32, &str)) -> Vec<(usize, usize)> {
+        self.codeunit_subscribers(&[&name.to_ascii_lowercase(), &id.to_string()])
     }
 
     /// Subscribers to the platform's `Extension Triggers` codeunit (2000000010): its `OnInstallAppPerCompany` and

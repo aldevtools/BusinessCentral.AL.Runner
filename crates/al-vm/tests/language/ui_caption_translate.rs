@@ -83,3 +83,79 @@ fn field_caption_of_an_area_3_class_raises_no_ui_helper_event() {
     end;"#));
     assert_eq!(got, "Caption three / ");
 }
+
+/// Runs `F` of the test codeunit `test` in a workspace app whose dependency app holds a SingleInstance log and the
+/// CaptionClassTranslate subscriber codeunit `sub`, which logs to it.
+fn run_with_dependency_subscriber(
+    sub: &str,
+    test: &str,
+) -> Result<al_builtins::value::Value, al_builtins::native::Signal> {
+    use al_sema::workspace::{AppKind, AppSource};
+    let app = |id: &str, deps: &[&str], src: &str| AppSource {
+        id: id.into(),
+        name: id.into(),
+        dependencies: deps.iter().map(|d| d.to_string()).collect(),
+        files: vec![(format!("{id}.al"), src.to_string())],
+    };
+    let lib = format!(
+        r#"
+codeunit 50220 "BI Log"
+{{
+    SingleInstance = true;
+    var L: Text;
+    procedure Add(T: Text) begin L += T + ';'; end;
+    procedure Get(): Text begin exit(L); end;
+}}
+codeunit 50221 "{sub}"
+{{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"UI Helper Triggers", 'CaptionClassTranslate', '', false, false)]
+    local procedure T(Language: Integer; CaptionExpr: Text[1024]; var Translation: Text[1024])
+    var Log: Codeunit "BI Log";
+    begin
+        Log.Add('CCT(' + CaptionExpr + ')');
+    end;
+}}
+"#
+    );
+    let (ws, l) = al_sema::lower::compile_apps_with(
+        vec![app("lib", &[], &lib), app("test", &["lib"], test)],
+        vec![AppKind::Dependency, AppKind::Workspace],
+        &Default::default(),
+        None,
+        Default::default(),
+    );
+    assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
+    al_testkit::Built::new(l).run_in("BI Ui Test", "F")
+}
+
+/// The test sees the subscriber's log.
+const SEEING_TEST: &str = r#"
+codeunit 50901 "BI Ui Test"
+{
+    procedure F(): Text
+    var Log: Codeunit "BI Log"; T: Text;
+    begin
+        T := CaptionClassTranslate('3,Foo');
+        exit(T + ' log=' + Log.Get());
+    end;
+}
+"#;
+
+/// A CaptionClassTranslate subscriber of a dependency app (al-runner issue 8470): what it does is not pinned, so a raise that
+/// would reach it is refused instead of leaving it out. The own subscriber of the same event still runs
+/// (`the_statement_raises_the_ui_helper_event_once_per_translation`).
+#[test]
+fn a_dependency_caption_class_translate_subscriber_refuses_the_raise() {
+    match run_with_dependency_subscriber("BI Ui Sub", SEEING_TEST) {
+        Err(al_builtins::native::Signal::Unsupported(m)) => assert!(m.contains("BI Ui Sub"), "{m}"),
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+}
+
+/// The System Application's "Caption Class Impl." raises Caption Class's events, which the runtime raises itself: it is
+/// still not run (main's result).
+#[test]
+fn the_caption_class_impl_subscriber_of_a_dependency_is_not_run() {
+    let got = text(run_with_dependency_subscriber("Caption Class Impl.", SEEING_TEST));
+    assert_eq!(got, "Foo log=");
+}

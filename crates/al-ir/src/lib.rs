@@ -132,6 +132,20 @@ pub const RAISED_FILTER_EVENTS: [&str; 4] = [
     "MakeDateTimeFilter",
 ];
 
+/// The platform codeunits whose events the runtime raises without the codeunit object: id and name as the platform's System.app
+/// declares them (the System symbols of BC 27.5, 28.5 and 29.0).
+pub const FILTER_HELPER_CODEUNIT: (u32, &str) = (2_000_000_007, "Filter Helper Triggers");
+pub const UI_HELPER_CODEUNIT: (u32, &str) = (2_000_000_004, "UI Helper Triggers");
+pub const REPORTING_CODEUNIT: (u32, &str) = (2_000_000_005, "Reporting Triggers");
+
+/// The event of `UI Helper Triggers` the runtime raises: `CaptionClassTranslate`, from the `CaptionClassTranslate` statement
+/// (events/platform-triggers/P114GlobalTriggerEvents.al:309-330).
+pub const RAISED_UI_HELPER_EVENTS: [&str; 1] = ["CaptionClassTranslate"];
+
+/// The System Application codeunit whose `CaptionClassTranslate` subscriber raises `Caption Class`'s events, which the runtime
+/// raises itself (al-vm `caption_class_translate_unrefused`): it is not reached by demand and not run.
+pub const CAPTION_CLASS_IMPL: &str = "Caption Class Impl.";
+
 /// The events of a page the test client raises (`al-vm/src/pages.rs`). A subscriber to any other
 /// event of a page is refused when the page opens.
 pub const RAISED_PAGE_EVENTS: [&str; 10] = [
