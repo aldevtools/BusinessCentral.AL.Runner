@@ -1083,7 +1083,7 @@ impl MemStore {
         s.committed = s.tables.clone();
         s.committed_versions = s.versions.clone();
         s.committed_shapes = s.shapes.clone();
-        s
+        s.with_held_noted()
     }
 
     /// The committed tables (company, object) of this store that a write reached since it was `base` (a clone of
