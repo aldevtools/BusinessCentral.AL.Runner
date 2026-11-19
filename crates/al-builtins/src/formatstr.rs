@@ -194,17 +194,9 @@ pub fn format_with_field_places(
     v: &Value,
     length: i32,
     template: &str,
-    (min_decimals, negative_zero): (u32, bool),
-
+    places: (u32, bool),
     ctx: &dyn FormatCtx,
 ) -> Result<String, String> {
-    // A Guid takes no format string without codes: the platform asks for the standard format number -1
-    // (types/decimal-integer/ScT70054.al:Guid_FormatStrings `af79`).
-    if matches!(v, Value::Guid(_)) && !template.contains('<') {
-        return Err(format!(
-            "{RAISE_MARK}InvalidStandardFormat{RAISE_MARK}Standard format number -1 does not exist for the type 'GUID'."
-        ));
-    }
     // A DateFormula runs only with the length its pins cover (owner: `format::date_formula_length`).
     if matches!(v, Value::DateFormula(_)) {
         crate::format::date_formula_length(length).map_err(fail)?;
@@ -213,6 +205,30 @@ pub fn format_with_field_places(
     // 716-733 `text_string`, `length8_text_string`). Other codes on it are not pinned.
     if template == "<Text>" && matches!(v, Value::Library(crate::library_kind::LibraryKind::TextBuilder, _)) {
         return format_value(v, length, 0, ctx).map_err(fail);
+    }
+    let out = format_codes(v, length, template, places, ctx)?;
+    if length != 0 {
+        // Whether the text may take the length, by the text the same string gives without one (owner: `format::length`).
+        let bare = format_codes(v, 0, template, places, ctx)?;
+        crate::format::length::with_format_string(v, length, bare.chars().count())?;
+    }
+    Ok(out)
+}
+
+/// `format_with_field_places` of a value that is no DateFormula and no TextBuilder under `<Text>`.
+fn format_codes(
+    v: &Value,
+    length: i32,
+    template: &str,
+    (min_decimals, negative_zero): (u32, bool),
+    ctx: &dyn FormatCtx,
+) -> Result<String, String> {
+    // A Guid takes no format string without codes: the platform asks for the standard format number -1
+    // (types/decimal-integer/ScT70054.al:Guid_FormatStrings `af79`).
+    if matches!(v, Value::Guid(_)) && !template.contains('<') {
+        return Err(format!(
+            "{RAISE_MARK}InvalidStandardFormat{RAISE_MARK}Standard format number -1 does not exist for the type 'GUID'."
+        ));
     }
     if template.contains("<1000Character,") && !template.contains("<Comma") {
         if let Some(r) = separators_template(v, length, template) {
@@ -428,17 +444,13 @@ pub fn format_with_field_places(
             out.push_str(text);
         }
     }
-    // A result longer than the length is cut to it (P86FormatDecimal.al:Len_WithFormatString `l4`; a Date:
-    // types/date-time/Format.al:527,537 `date len 5 custom`; a Time: writer TU's branch al-runtime-rs-staging-tu, Format.al
-    // TU_Time_Format_CodeNames `len5` ` 9:05`, `0905 len8 ...<Thousands,3>` ` 9:05:03`).
+    // A result longer than the length is cut to it (P86FormatDecimal.al:1091 `l4`; a Date: types/date-time/Format.al:537
+    // `date len 5 custom`; a Time: Format.al:912, :918 TU_Time_Format_CodeNames). Which values may take a length at all:
+    // `format::length::with_format_string`.
     if length > 0
         && out.chars().count() > length as usize
-        && matches!(
-            v,
-            Value::Decimal(_) | Value::Integer(_) | Value::BigInteger(_) | Value::Date(..) | Value::Time(_)
-        )
+        && matches!(v, Value::Decimal(_) | Value::Date(..) | Value::Time(_))
     {
-        // Pinned by types/date-time/Format.al TU_Time_Format_CodeNames (was assumption `format-time-code-names`).
         return Ok(out.chars().take(length as usize).collect());
     }
     Ok(crate::format::pad(out, length))
@@ -1858,13 +1870,15 @@ mod tests {
         );
     }
 
+    /// No corpus case measures an Integer shorter than a positive length under a format string: refused (al-runner issue 8389,
+    /// owner `format::length::with_format_string`).
     #[test]
-    fn length_pads_the_result() {
+    fn length_under_a_format_string_of_an_integer_refuses() {
         let r = call(
             "System.Format#2",
             vec![Value::Integer(10), Value::Integer(5), t("<Integer>")],
         );
-        assert_eq!(text(r), "   10");
+        assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
     }
     // Mutation-testing additions (docs/status.md debt).
 

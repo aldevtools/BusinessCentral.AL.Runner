@@ -6,7 +6,7 @@ use crate::native::Signal;
 use crate::value::Value;
 use std::sync::Arc;
 
-mod length;
+pub(crate) mod length;
 mod recordid_number;
 mod region;
 pub use region::{Region, region_column};
@@ -205,7 +205,14 @@ fn format_in_region(
         }
         _ => return Err(refuse()),
     };
-    length::in_region(v, text, length)
+    length::none_measured(
+        &format!(
+            "{} under CurrReport.FormatRegion",
+            crate::describe::Describe::describe(v)
+        ),
+        text,
+        length,
+    )
 }
 
 /// The text of a multi-language property (`ENU = 'a,b', DEU = 'x,y'`) in session language `language`: the entry of its
@@ -773,7 +780,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
     {
         return Ok(s.chars().take(length as usize).collect());
     }
-    length::rest(v, s, length)
+    length::rest(v, standard, s, length)
 }
 
 /// The value's type in a refusal text: a name, never the value's contents (a Record holds its
