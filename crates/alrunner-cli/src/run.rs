@@ -275,10 +275,14 @@ fn print_compile_phases(p: &al_testrun::runtime::Phases) {
     }
 }
 
-/// The `--timings` lines of the compile cache.
-fn print_compile_cache(p: &al_testrun::runtime::Phases) {
+/// The `--timings` lines of the compile cache. `workspace`: the run's own report of the workspace layer
+/// ([`own_workspace_cache`]).
+fn print_compile_cache(
+    p: &al_testrun::runtime::Phases,
+    workspace: Option<&al_testrun::workspace_cache::WorkspaceReport>,
+) {
     // The workspace layer (ADR-022 amendment 2026-11-15): `workspaceCache` of serve's timings.
-    if let Some(w) = &p.workspace_cache {
+    if let Some(w) = workspace {
         eprintln!(
             "compile cache: workspace layer {}, {}, open {}, store {}{}{}",
             w.state.as_str(),
@@ -1829,7 +1833,7 @@ fn test_inner(
         if a.timings {
             eprintln!("{}", setup.line());
             print_compile_phases(p);
-            print_compile_cache(p);
+            print_compile_cache(p, own_workspace_cache(p, warm.as_deref()));
             eprintln!("time: total {}", secs(total_time));
         }
         say!("{why}");
@@ -1962,7 +1966,7 @@ fn test_inner(
         if let Some(cost) = test_data.as_ref().and_then(|(d, _)| d.provider.cost()) {
             eprintln!("test data: {cost}");
         }
-        print_compile_cache(p);
+        print_compile_cache(p, own_workspace_cache(p, warm.as_deref()));
         let slowest: Vec<String> = p
             .slowest
             .iter()
@@ -2334,7 +2338,7 @@ fn test_inner(
             tests: p.tests,
             coverage: coverage_time,
             passes: p.passes.clone(),
-            workspace_cache: workspace_cache_state(p, w.used),
+            workspace_cache: own_workspace_cache(p, Some(w)).map(|r| r.state.as_str()),
         });
         w.report = Some(Report {
             doc: serde_json::from_str(&crate::unpinned::json(
@@ -2746,15 +2750,13 @@ fn workspace_cache_options(
     })
 }
 
-/// What the workspace layer did for a request of a server (`RequestTimings::workspace_cache`): said only when the
-/// request compiled (`WarmUse::Compiled`); a request on the kept compile used no cache.
-fn workspace_cache_state(
-    p: &al_testrun::runtime::Phases,
-    used: Option<al_testrun::runtime::WarmUse>,
-) -> Option<&'static str> {
-    let compiled = used == Some(al_testrun::runtime::WarmUse::Compiled);
-    p.workspace_cache
-        .as_ref()
-        .filter(|_| compiled)
-        .map(|r| r.state.as_str())
+/// What the workspace layer did for this run's own compile (`--timings` and serve's `workspaceCache`): a one-shot run
+/// always compiled; a request of a server only when it compiled (`WarmUse::Compiled`). A request on the kept compile
+/// compiled nothing and used no cache, though its phases still hold the report of the compile it ran on.
+fn own_workspace_cache<'a>(
+    p: &'a al_testrun::runtime::Phases,
+    warm: Option<&WarmCtx>,
+) -> Option<&'a al_testrun::workspace_cache::WorkspaceReport> {
+    let compiled = warm.is_none_or(|w| w.used == Some(al_testrun::runtime::WarmUse::Compiled));
+    p.workspace_cache.as_ref().filter(|_| compiled)
 }

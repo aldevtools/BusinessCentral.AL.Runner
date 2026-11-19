@@ -17,6 +17,11 @@ impl Server {
     }
 
     fn start_with(extra: &[&str], env: &[(&str, &str)]) -> Server {
+        Server::start_to(extra, env, Stdio::null())
+    }
+
+    /// [`Server::start_with`] with the server's stderr written to `stderr`.
+    fn start_to(extra: &[&str], env: &[(&str, &str)], stderr: Stdio) -> Server {
         let mut child = Command::new(env!("CARGO_BIN_EXE_al-runner"))
             .arg("serve")
             .args(extra)
@@ -28,7 +33,7 @@ impl Server {
             .env("AL_TEST_THREADS", "2")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(stderr)
             .spawn()
             .expect("start al-runner serve");
         let stdin = child.stdin.take();
@@ -2917,6 +2922,47 @@ fn a_restarted_daemon_reads_the_compiled_workspace_and_answers_the_same() {
         answers.push(without_times(&lines));
     }
     assert_eq!(answers[0], answers[1]);
+}
+
+/// The `--timings` line of the workspace layer is said for a request that compiled, as its JSON `workspaceCache` is: a
+/// request on the kept compile says none (it did not compile, so the layer did nothing for it).
+#[test]
+fn a_request_on_the_kept_compile_says_no_workspace_layer_line() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app(d.path(), "kept", MIXED);
+    let cache = d.path().join("cache").to_string_lossy().to_string();
+    let log = d.path().join("stderr.txt");
+    let err = std::fs::File::create(&log).unwrap();
+    let mut s = Server::start_to(
+        &["--no-download", "--no-test-data", "--timings", "--cache-dir", &cache],
+        &[],
+        Stdio::from(err),
+    );
+    assert_eq!(s.line(), json!({"ready": true}));
+    let request = json!({"command": "runTests", "sourcePaths": [a]});
+    let mut said = Vec::new();
+    for _ in 0..2 {
+        s.send(request.clone());
+        let summary = s.until_summary().last().unwrap().clone();
+        let lines = std::fs::read_to_string(&log).unwrap();
+        let count = lines
+            .lines()
+            .filter(|l| l.starts_with("compile cache: workspace layer"))
+            .count();
+        said.push((
+            summary["cached"].clone(),
+            summary["timings"].get("workspaceCache").cloned(),
+            count,
+        ));
+    }
+    s.send(json!({"command": "shutdown"}));
+    s.line();
+    s.child.wait().unwrap();
+    assert_eq!(
+        said,
+        vec![(json!(false), Some(json!("built")), 1), (json!(true), None, 1)],
+        "(cached, workspaceCache, workspace layer lines on stderr so far) per request"
+    );
 }
 
 /// ADR-022 amendment 2026-11-15: a one-shot `al-runner test` and a daemon over the same workspace and cache folder share
