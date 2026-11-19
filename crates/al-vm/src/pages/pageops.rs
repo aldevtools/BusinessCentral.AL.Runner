@@ -350,7 +350,7 @@ impl Session {
             self.refuse_unpinned_state(st)?;
         }
         if method.recv() == PageRecv::TestPart {
-            self.first_part_access(st, name, false)?;
+            self.first_part_access(st, name, None, false)?;
         } else if st.borrow().new_host_part_rows
             && st.borrow().host.is_none()
             && (!matches!(

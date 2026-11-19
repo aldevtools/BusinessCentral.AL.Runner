@@ -839,3 +839,332 @@ fn a_part_with_on_find_record_keeps_mains_outcome() {
     let list = outcomes("Part Probe Readers");
     assert_eq!(outcome_of(&list, "BufferPartKeepsItsRows"), Outcome::Pass);
 }
+
+/// The part control calls of probe pp4 (review of al-runner PR 8367, round 2): a property of a part control can be an expression
+/// on the part's current row, so Caption, Visible, Editable and Enabled keep main's answer only when the property they read is
+/// absent or a literal. TestPart Visible and Enabled read the host's part control and are kept, and so is TestPart Caption of a
+/// part without a DataCaptionExpression.
+const PROPS: &str = r#"
+table 50400 "P4 Row"
+{
+    DataClassification = SystemMetadata;
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(2; Name; Text[50]) { }
+        field(3; Flag; Boolean) { }
+        field(4; Other; Text[50]) { }
+        field(5; Plain; Text[50]) { }
+        field(6; ExprCaption; Text[50]) { CaptionClass = '3,' + Name; }
+    }
+    keys { key(PK; "No.") { Clustered = true; } }
+}
+
+page 50401 "P4 Lines"
+{
+    PageType = ListPart;
+    SourceTable = "P4 Row";
+    InsertAllowed = false;
+    DeleteAllowed = false;
+    layout
+    {
+        area(Content)
+        {
+            repeater(Lines)
+            {
+                field("No."; Rec."No.") { Editable = false; }
+                field(EdName; Rec.Name) { Editable = Rec.Name <> 'First'; }
+                field(EnName; Rec.Other) { Enabled = Rec.Name <> 'First'; }
+                field(VisFlag; Rec.Flag) { Visible = Rec.Name <> 'First'; }
+                field(CapName; Rec.Other) { CaptionClass = '3,' + Rec.Name; }
+                field(VarName; Rec.Other) { Editable = VarEditable; }
+                field(Plain; Rec.Plain) { }
+                field(FieldCap; Rec.ExprCaption) { }
+            }
+        }
+    }
+    actions
+    {
+        area(Processing)
+        {
+            action(Act)
+            {
+                Enabled = Rec.Name <> 'First';
+                trigger OnAction()
+                begin
+                end;
+            }
+        }
+    }
+    trigger OnAfterGetCurrRecord()
+    begin
+        VarEditable := Rec.Name <> 'First';
+    end;
+    var
+        VarEditable: Boolean;
+
+    procedure SetFilterFrom(var Source: Record "P4 Row")
+    begin
+        Rec.CopyFilters(Source);
+        CurrPage.Update(false);
+    end;
+}
+
+page 50404 "P4 Expr Lines"
+{
+    PageType = ListPart;
+    SourceTable = "P4 Row";
+    InsertAllowed = false;
+    DeleteAllowed = false;
+    DataCaptionExpression = Rec.Name;
+    layout
+    {
+        area(Content)
+        {
+            repeater(Lines)
+            {
+                Editable = VarEditable;
+                field("No."; Rec."No.") { }
+                field(Plain; Rec.Plain) { }
+            }
+        }
+    }
+    trigger OnAfterGetCurrRecord()
+    begin
+        VarEditable := Rec.Name <> 'First';
+    end;
+    var
+        VarEditable: Boolean;
+
+    procedure SetFilterFrom(var Source: Record "P4 Row")
+    begin
+        Rec.CopyFilters(Source);
+        CurrPage.Update(false);
+    end;
+}
+
+page 50402 "P4 Host"
+{
+    PageType = ListPlus;
+    SourceTable = "P4 Row";
+    SourceTableTemporary = true;
+    InsertAllowed = false;
+    DeleteAllowed = false;
+    layout
+    {
+        area(Content)
+        {
+            group(Options)
+            {
+                field(Cmd; Cmd)
+                {
+                    trigger OnValidate()
+                    begin
+                        Rec.SetFilter("No.", 'B2');
+                        CurrPage.Lines.Page.SetFilterFrom(Rec);
+                        CurrPage.ExprLines.Page.SetFilterFrom(Rec);
+                    end;
+                }
+            }
+            part(Lines; "P4 Lines") { }
+            part(ExprLines; "P4 Expr Lines") { }
+        }
+    }
+    var
+        Cmd: Text;
+}
+
+codeunit 50403 "P4 Tests"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure E01_EditableRecExpr()
+    var
+        Host: TestPage "P4 Host";
+    begin
+        Filtered(Host);
+        Host.Lines.EdName.Editable();
+    end;
+
+    [Test]
+    procedure E02_EnabledRecExpr()
+    var
+        Host: TestPage "P4 Host";
+    begin
+        Filtered(Host);
+        Host.Lines.EnName.Enabled();
+    end;
+
+    [Test]
+    procedure E03_VisibleRecExpr()
+    var
+        Host: TestPage "P4 Host";
+    begin
+        Filtered(Host);
+        Host.Lines.VisFlag.Visible();
+    end;
+
+    [Test]
+    procedure E04_CaptionClassRecExpr()
+    var
+        Host: TestPage "P4 Host";
+    begin
+        Filtered(Host);
+        Host.Lines.CapName.Caption();
+    end;
+
+    [Test]
+    procedure E05_ActionEnabledRecExpr()
+    var
+        Host: TestPage "P4 Host";
+    begin
+        Filtered(Host);
+        Host.Lines.Act.Enabled();
+    end;
+
+    [Test]
+    procedure E06_EditableVarFromCurrRecord()
+    var
+        Host: TestPage "P4 Host";
+    begin
+        Filtered(Host);
+        Host.Lines.VarName.Editable();
+    end;
+
+    [Test]
+    procedure RepeaterEditableVar()
+    var
+        Host: TestPage "P4 Host";
+    begin
+        Filtered(Host);
+        Host.ExprLines.Plain.Editable();
+    end;
+
+    [Test]
+    procedure FieldCaptionClassExpr()
+    var
+        Host: TestPage "P4 Host";
+    begin
+        Filtered(Host);
+        Host.Lines.FieldCap.Caption();
+    end;
+
+    [Test]
+    procedure PartEditable()
+    var
+        Host: TestPage "P4 Host";
+    begin
+        Filtered(Host);
+        Host.Lines.Editable();
+    end;
+
+    [Test]
+    procedure PartCaptionWithDataCaptionExpression()
+    var
+        Host: TestPage "P4 Host";
+    begin
+        Filtered(Host);
+        Host.ExprLines.Caption();
+    end;
+
+    [Test]
+    procedure LiteralAndAbsentProperties()
+    var
+        Host: TestPage "P4 Host";
+        Seen: Text;
+    begin
+        Filtered(Host);
+        Seen := 'lit=' + Format(Host.Lines."No.".Editable());
+        Seen += ' plain=' + Format(Host.Lines.Plain.Editable());
+        Seen += ' en=' + Format(Host.Lines.Plain.Enabled());
+        Seen += ' vis=' + Format(Host.Lines.Plain.Visible());
+        Seen += ' cap=' + Host.Lines.Plain.Caption();
+        if Seen <> 'lit=No plain=Yes en=Yes vis=Yes cap=Plain' then
+            Error('SEEN %1', Seen);
+    end;
+
+    [Test]
+    procedure PartVisibleEnabledCaption()
+    var
+        Host: TestPage "P4 Host";
+        Seen: Text;
+    begin
+        Filtered(Host);
+        Seen := 'vis=' + Format(Host.Lines.Visible());
+        Seen += ' en=' + Format(Host.Lines.Enabled());
+        Seen += ' cap=' + Host.Lines.Caption();
+        if Seen <> 'vis=Yes en=Yes cap=P4 Lines' then
+            Error('SEEN %1', Seen);
+    end;
+
+    local procedure Filtered(var Host: TestPage "P4 Host")
+    var
+        Row: Record "P4 Row";
+    begin
+        Row.DeleteAll();
+        Add('B1', 'First');
+        Add('B2', 'Second');
+        Add('B3', 'Third');
+        Host.OpenEdit();
+        Host.Cmd.SetValue('GO');
+    end;
+
+    local procedure Add(No: Code[20]; Name: Text[50])
+    var
+        Row: Record "P4 Row";
+    begin
+        Row."No." := No;
+        Row.Name := Name;
+        Row.Other := 'o' + Name;
+        Row.Insert(false);
+    end;
+}
+"#;
+
+fn prop_outcomes() -> Vec<(String, Outcome)> {
+    al_testkit::outcomes_in(PROPS, "P4 Tests")
+}
+
+/// A property that is an expression on the row, or a variable OnAfterGetCurrRecord sets, of the control or of a control around
+/// it, and a source field whose CaptionClass is an expression, read the held row: refused.
+#[test]
+fn a_property_read_that_can_read_the_row_is_refused() {
+    let list = prop_outcomes();
+    for (name, how) in [
+        ("E01_EditableRecExpr", "Editable"),
+        ("E02_EnabledRecExpr", "Enabled"),
+        ("E03_VisibleRecExpr", "Visible"),
+        ("E04_CaptionClassRecExpr", "Caption"),
+        ("E05_ActionEnabledRecExpr", "Enabled"),
+        ("E06_EditableVarFromCurrRecord", "Editable"),
+        ("RepeaterEditableVar", "Editable"),
+        ("FieldCaptionClassExpr", "Caption"),
+    ] {
+        assert_refused_move(outcome_of(&list, name), name, how);
+    }
+}
+
+/// TestPart Editable is not on the list; TestPart Caption of a part with a DataCaptionExpression reads the row.
+#[test]
+fn part_editable_and_a_part_caption_from_its_data_caption_expression_are_refused() {
+    let list = prop_outcomes();
+    assert_refused_move(outcome_of(&list, "PartEditable"), "PartEditable", "Editable");
+    assert_refused_move(
+        outcome_of(&list, "PartCaptionWithDataCaptionExpression"),
+        "PartCaptionWithDataCaptionExpression",
+        "Caption",
+    );
+}
+
+#[test]
+fn a_property_read_whose_property_is_a_literal_or_absent_keeps_mains_outcome() {
+    let list = prop_outcomes();
+    assert_eq!(outcome_of(&list, "LiteralAndAbsentProperties"), Outcome::Pass);
+}
+
+#[test]
+fn part_visible_enabled_and_caption_of_a_list_part_keep_mains_outcome() {
+    let list = prop_outcomes();
+    assert_eq!(outcome_of(&list, "PartVisibleEnabledCaption"), Outcome::Pass);
+}

@@ -53,11 +53,16 @@ impl Session {
         Ok(())
     }
 
-    /// Refuses test call `m` on part `st` while the refresh its `update_left_view` Update asked for waits and the client still
-    /// holds, from the start of the view, the rows it held then. A step that read the rows again or left them as not read from
-    /// the start (a host action, the test's own `Filter.SetFilter`) keeps main's answer. Kept too: `Filter` and its `GetFilter`
-    /// and `SetFilter`, `CurrentKey` and `Ascending`, `GetField`, `Caption`, `Visible`, `Editable`, `Enabled`.
-    pub(super) fn refuse_row_access_on_part_left_by_its_view(&self, st: &St, m: PageMethod) -> Result<(), Signal> {
+    /// Refuses test call `m` on part `st` (on its control `target`, `None` for a TestPart call) while the refresh its
+    /// `update_left_view` Update asked for waits and the client still holds, from the start of the view, the rows it held then.
+    /// A step that read the rows again or left them as not read from the start (a host action, the test's own
+    /// `Filter.SetFilter`) keeps main's answer. Kept too: the calls `reads_no_row` lists.
+    pub(super) fn refuse_row_access_on_part_left_by_its_view(
+        &self,
+        st: &St,
+        m: PageMethod,
+        target: Option<&ControlTarget>,
+    ) -> Result<(), Signal> {
         let waits = {
             let s = st.borrow();
             s.refresh
@@ -68,7 +73,22 @@ impl Session {
                     held.len() == s.window.len() && held.iter().zip(&s.window).all(|(k, w)| Self::same_key(k, &w.key))
                 })
         };
-        let reads_no_row = matches!(
+        if !waits || self.reads_no_row(st, m, target)? {
+            return Ok(());
+        }
+        unsupported(format!(
+            "{m}() on a part whose view no longer started with the rows it holds when its own CurrPage.Update was asked (which rows it shows then is not pinned)"
+        ))
+    }
+
+    /// The calls that answer without the part's current row: `Filter` and its `GetFilter` and `SetFilter`, `CurrentKey` and
+    /// `Ascending` read the view, `GetField` only returns a handle. TestPart `Visible` and `Enabled` read the host's part
+    /// control; TestPart `Caption` of a part without a DataCaptionExpression (its own or an extension's) is kept.
+    /// A control's `Editable`, `Enabled` and `Visible` read that property of the control and of the controls around it, and
+    /// its `Caption` reads its CaptionClass and that of its source field: kept only when each of them is absent or a literal,
+    /// since an expression (`Rec.Name <> 'First'`, a variable OnAfterGetCurrRecord sets) runs on the current row.
+    fn reads_no_row(&self, st: &St, m: PageMethod, target: Option<&ControlTarget>) -> Result<bool, Signal> {
+        if matches!(
             m,
             PageMethod::Filter
                 | PageMethod::GetFilter
@@ -76,16 +96,48 @@ impl Session {
                 | PageMethod::CurrentKey
                 | PageMethod::Ascending
                 | PageMethod::GetField
-                | PageMethod::Caption
-                | PageMethod::Visible
-                | PageMethod::Editable
-                | PageMethod::Enabled
-        );
-        if !waits || reads_no_row {
-            return Ok(());
+        ) {
+            return Ok(true);
         }
-        unsupported(format!(
-            "{m}() on a part whose view no longer started with the rows it holds when its own CurrPage.Update was asked (which rows it shows then is not pinned)"
-        ))
+        let engine = self.engine();
+        let object = st.borrow().object as usize;
+        let idx = match target {
+            None => {
+                return Ok(match m {
+                    PageMethod::Visible | PageMethod::Enabled => true,
+                    PageMethod::Caption => super::effective_prop(&engine, object, "DataCaptionExpression")?.is_none(),
+                    _ => false,
+                });
+            }
+            Some(ControlTarget::Control(idx)) => *idx,
+            Some(_) => return Ok(false),
+        };
+        let page = page_of(&engine, st);
+        let fixed = |i: usize, name: &str| matches!(page.controls[i].prop(name), None | Some(ir::PropVal::Lit(_)));
+        let up_the_chain = |name: &str| {
+            let mut at = Some(idx);
+            while let Some(i) = at {
+                if !fixed(i, name) {
+                    return false;
+                }
+                at = page.controls[i].parent;
+            }
+            true
+        };
+        Ok(match m {
+            PageMethod::Editable => up_the_chain("editable"),
+            PageMethod::Enabled => up_the_chain("enabled"),
+            PageMethod::Visible => up_the_chain("visible"),
+            PageMethod::Caption => {
+                fixed(idx, "captionclass")
+                    && self.control_field(st, idx).is_none_or(|f| {
+                        f.properties
+                            .iter()
+                            .filter(|(k, _)| k.eq_ignore_ascii_case("captionclass"))
+                            .all(|(_, v)| crate::recmeta::string_literal(v.trim()).is_some())
+                    })
+            }
+            _ => false,
+        })
     }
 }
