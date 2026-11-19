@@ -143,7 +143,8 @@ macro_rules! session_fields {
                 form => |s: &Session| s.form == crate::Form::Plain,
                 debug => |s: &Session| s.debug.is_none(),
                 error_scopes => |s: &Session| s.error_scopes.as_new(),
-                variant_refs => |s: &Session| s.variant_refs.as_new(),
+                // Install code is held to `as_new` (`install_left`); a list of gone handles answers as an empty one.
+                variant_refs [image_only] => |s: &Session| s.variant_refs.holds_no_live_handle(),
                 // The .NET host process is not in the image.
                 dotnet => |s: &Session| s.dotnet.as_new(),
                 sleep_budget => |s: &Session| s.sleep_budget.is_none(),
