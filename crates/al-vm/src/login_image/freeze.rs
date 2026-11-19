@@ -211,8 +211,8 @@ impl<'a> Walker<'a> {
             }
             Holder::Blob(b) => Ok(Node::Blob(b.borrow().clone())),
             Holder::TempTable(t) => {
-                let t = t.id();
-                self.temp_table(t, &path).map(Node::TempTable)
+                let t = t.clone();
+                self.temp_table(&t, &path).map(Node::TempTable)
             }
             Holder::Row(r) => {
                 let r = r.clone();

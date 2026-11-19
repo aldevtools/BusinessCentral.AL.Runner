@@ -103,9 +103,16 @@ struct OwnReadNode {
     current: bool,
 }
 
+impl RecordNode {
+    /// The node of the record's temporary table.
+    pub(crate) fn temp(&self) -> Option<NodeId> {
+        self.temp
+    }
+}
+
 impl Walker<'_> {
     /// A record buffer. Refused: a CRM table's record, a record a page linked (`run_page_link`), a temporary table whose
-    /// token holds more than its id (`TempId::holds_only_its_id`), a filter value with no plain form.
+    /// table is a by-value copy's or holds rows not measured (`TempId`), a filter value with no plain form.
     pub(crate) fn record(&mut self, r: &RecordState, path: &str) -> Result<RecordNode, NotImaged> {
         let RecordState {
             table,
@@ -163,7 +170,8 @@ impl Walker<'_> {
             return Err(refuse("Record holding its own read of a rolled Time"));
         }
         let temp = match temp_id {
-            Some(t) if !t.holds_only_its_id() => return Err(refuse("temporary Record whose table is not plain")),
+            Some(t) if t.is_by_value_copy() => return Err(refuse("temporary Record of a by-value copy's table")),
+            Some(t) if t.rows_unmeasured() => return Err(refuse("temporary Record whose rows are not measured")),
             Some(t) => Some(self.handle(Holder::TempTable(t.clone()), 1, format!("{path} temporary table"))),
             None => None,
         };

@@ -4,8 +4,8 @@
 //! no thawn value is shared with the image or another thaw (except `Txt` and `Arc<[String]>`, which are immutable).
 //!
 //! The order: shells (and Blobs, which name nothing); xRec sets from the set they belong to; temporary tables' stores and
-//! fetched rows (they name only Blobs); records (they name tables, rows, Blobs and sets); then the content of every
-//! shell.
+//! fetched rows (they name only Blobs); records (they name tables, rows, Blobs and sets); the temporary tables' empty-Blob
+//! Insert notes (they name records); then the content of every shell.
 
 use super::arena::{Arena, Frozen, Node, NodeId};
 use crate::Session;
@@ -127,6 +127,15 @@ pub(crate) fn thaw(session: &mut Session, arena: &Arena, singletons: &[(usize, N
     for (i, n) in arena.nodes.iter().enumerate() {
         if let Node::Record(r) = n {
             m.made[i] = Some(Made::Record(Rc::new(RefCell::new(m.record(r)))));
+        }
+    }
+    for (i, n) in arena.nodes.iter().enumerate() {
+        if let Node::TempTable(t) = n {
+            let table = NodeId(i as u32);
+            let holder = (arena.nodes.iter().enumerate())
+                .find(|(_, n)| matches!(n, Node::Record(r) if r.temp() == Some(table)))
+                .map(|(r, _)| NodeId(r as u32));
+            m.note_empty_blob_insert(t, &m.temp_id(table), holder);
         }
     }
     fill(&m);

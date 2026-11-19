@@ -451,21 +451,14 @@ impl TempId {
         self.0.rows_unmeasured.set(true);
     }
 
-    /// The token holds only the table's id: not a by-value copy's table, no empty-Blob Insert noted, its rows measured.
-    /// What a session image (al-vm `login_image`) can give back as a new token of a new table.
-    pub fn holds_only_its_id(&self) -> bool {
-        let TempToken {
-            id: _,
-            release: _,
-            by_value_of,
-            empty_blob_insert_key,
-            empty_blob_inserter,
-            rows_unmeasured,
-        } = &*self.0;
-        by_value_of.is_none()
-            && empty_blob_insert_key.borrow().is_none()
-            && empty_blob_inserter.borrow().is_none()
-            && !rows_unmeasured.get()
+    /// The record state whose Insert [`TempId::note_empty_blob_insert`] last noted, while it lives (al-vm `login_image`
+    /// keeps the note).
+    pub fn empty_blob_inserter(&self) -> Option<Rc<RefCell<RecordState>>> {
+        self.0
+            .empty_blob_inserter
+            .borrow()
+            .as_ref()
+            .and_then(std::rc::Weak::upgrade)
     }
 
     /// Whether [`TempId::mark_rows_unmeasured`] marked the table.
