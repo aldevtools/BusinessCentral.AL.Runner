@@ -865,7 +865,7 @@ impl Session {
                 let engine = self.engine();
                 let o = &engine.program.objects[st.borrow().object as usize];
                 if !names {
-                    return Ok(Value::Text(format!("Page {}", o.id.unwrap_or(0)).into()));
+                    return crate::object_ids::object_id_text("Page", o.id);
                 }
                 let caption = match o.properties.iter().find(|(k, _)| k.eq_ignore_ascii_case("Caption")) {
                     Some((_, v)) => match crate::recmeta::string_literal(v) {
@@ -916,7 +916,7 @@ impl Session {
                 let engine = self.engine();
                 let o = &engine.program.objects[st.borrow().object as usize];
                 if !names {
-                    return Ok(Value::Text(format!("Page {}", o.id.unwrap_or(0)).into()));
+                    return crate::object_ids::object_id_text("Page", o.id);
                 }
                 let caption = o
                     .properties
