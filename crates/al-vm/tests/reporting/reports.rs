@@ -746,6 +746,13 @@ fn text_after_setup(vars_and_body: &str, model: TxModel) -> String {
     }
 }
 
+/// A body that starts as a test does, at the transaction type UpdateNoLocks, after a Setup that seeds and commits: the state
+/// the corpus transaction-world tests start in (record/TestTxModelReportRun.al, TestTxModelReportExec.al), which an AL
+/// `Commit()` in the body would change to Update.
+fn at_test_start(vars_and_body: &str) -> String {
+    text_after_setup(vars_and_body, TxModel::AutoCommit)
+}
+
 fn f(vars_and_body: &str) -> String {
     text_model(vars_and_body, TxModel::AutoCommit)
 }
@@ -1056,14 +1063,15 @@ fn a_plain_report_joins_the_callers_transaction() {
 #[test]
 fn an_update_report_commits_its_own_writes() {
     assert_eq!(
-        f("var H: Codeunit Helpers; R: Report \"TxRpt Update Marker\"; begin
-            H.Seed(); Commit();
+        at_test_start(
+            "var H: Codeunit Helpers; R: Report \"TxRpt Update Marker\"; begin
             R.SetMarker(60040071);
             R.Run();
             H.Insert(60040072);
             asserterror Error('txrpt update probe');
             exit(Format(H.Has(60040071)) + '|' + Format(H.Has(60040072)));
-        end;"),
+        end;"
+        ),
         "Yes|No"
     );
 }
@@ -1072,13 +1080,14 @@ fn an_update_report_commits_its_own_writes() {
 #[test]
 fn an_update_report_is_refused_while_the_caller_has_an_uncommitted_write() {
     assert_eq!(
-        f("var H: Codeunit Helpers; R: Report \"TxRpt Update Marker\"; begin
-            H.Seed(); Commit();
+        at_test_start(
+            "var H: Codeunit Helpers; R: Report \"TxRpt Update Marker\"; begin
             H.Insert(60040081);
             R.SetMarker(60040082);
             asserterror R.Run();
             exit(GetLastErrorText() + '|' + Format(H.Has(60040082)) + '|' + Format(H.Has(60040081)));
-        end;"),
+        end;"
+        ),
         "An error occurred and the transaction is stopped. Contact your administrator or partner for further assistance.|No|No"
     );
 }
@@ -1194,24 +1203,26 @@ fn execute_does_not_show_the_request_page() {
 #[test]
 fn execute_of_an_update_report_commits_its_writes_or_is_refused() {
     assert_eq!(
-        f("var H: Codeunit Helpers; R: Report \"TxRpt Update Marker\"; begin
-            H.Seed(); Commit();
+        at_test_start(
+            "var H: Codeunit Helpers; R: Report \"TxRpt Update Marker\"; begin
             R.SetMarker(60029071);
             R.Execute('');
             H.Insert(60029072);
             asserterror Error('txexec update probe');
             exit(Format(H.Has(60029071)) + '|' + Format(H.Has(60029072)));
-        end;"),
+        end;"
+        ),
         "Yes|No"
     );
     assert_eq!(
-        f("var H: Codeunit Helpers; R: Report \"TxRpt Update Marker\"; begin
-            H.Seed(); Commit();
+        at_test_start(
+            "var H: Codeunit Helpers; R: Report \"TxRpt Update Marker\"; begin
             H.Insert(60029061);
             R.SetMarker(60029062);
             asserterror R.Execute('');
             exit(GetLastErrorText() + '|' + Format(H.Has(60029062)) + '|' + Format(H.Has(60029061)));
-        end;"),
+        end;"
+        ),
         "An error occurred and the transaction is stopped. Contact your administrator or partner for further assistance.|No|No"
     );
 }
@@ -1220,12 +1231,13 @@ fn execute_of_an_update_report_commits_its_writes_or_is_refused() {
 #[test]
 fn the_static_execute_is_refused_the_same_way() {
     assert_eq!(
-        f("var H: Codeunit Helpers; begin
-            H.Seed(); Commit();
+        at_test_start(
+            "var H: Codeunit Helpers; begin
             H.Insert(60029101);
             asserterror Report.Execute(Report::\"TxRpt Update Marker\", '');
             exit(GetLastErrorText() + '|' + Format(H.Has(60029101)));
-        end;"),
+        end;"
+        ),
         "An error occurred and the transaction is stopped. Contact your administrator or partner for further assistance.|No"
     );
 }
@@ -1234,13 +1246,14 @@ fn the_static_execute_is_refused_the_same_way() {
 #[test]
 fn print_of_an_update_report_is_refused_with_a_pending_write() {
     assert_eq!(
-        f("var H: Codeunit Helpers; R: Report \"TxRpt Update Marker\"; begin
-            H.Seed(); Commit();
+        at_test_start(
+            "var H: Codeunit Helpers; R: Report \"TxRpt Update Marker\"; begin
             H.Insert(60029111);
             R.SetMarker(60029112);
             asserterror R.Print('');
             exit(GetLastErrorText() + '|' + Format(H.Has(60029112)) + '|' + Format(H.Has(60029111)));
-        end;"),
+        end;"
+        ),
         "An error occurred and the transaction is stopped. Contact your administrator or partner for further assistance.|No|No"
     );
 }
@@ -1520,8 +1533,9 @@ fn set_table_view_takes_marks_key_and_direction() {
 #[test]
 fn a_world_entering_run_inside_a_try_function_is_refused() {
     let r = run_model(
-        "[TryFunction] procedure T() var R: Report \"TxRpt Update Marker\"; begin R.Run(); end;
-         procedure F(): Text var H: Codeunit Helpers; begin H.Seed(); Commit(); if T() then exit('ok'); exit('failed'); end;",
+        "procedure Setup() var H: Codeunit Helpers; begin H.Seed(); end;
+         [TryFunction] procedure T() var R: Report \"TxRpt Update Marker\"; begin R.Run(); end;
+         procedure F(): Text begin if T() then exit('ok'); exit('failed'); end;",
         TxModel::AutoCommit,
     );
     match r {

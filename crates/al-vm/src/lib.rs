@@ -1536,7 +1536,7 @@ impl Session {
         self.isolated_set_in_test.clear();
         self.demo_written.clear();
         self.gl_setup_written = false;
-        self.tx.transaction_type = 0;
+        self.tx.transaction_type = crate::transactions::TRANSACTION_TYPE_UPDATE_NO_LOCKS;
         self.tx.tx_phase = crate::transactions::TX_FRESH;
         self.tx.lock_tx = false;
         self.tx.isolation_lock = false;

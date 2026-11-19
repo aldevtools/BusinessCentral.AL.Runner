@@ -206,6 +206,7 @@ mod report_render;
 mod report_request_page_save_as_pdf;
 mod report_run_after_write;
 mod report_run_system_printer_true;
+mod report_tx_type_session;
 mod reporter_repros_7820_7821;
 mod reportext_independent_request_page;
 mod reportext_own_record_controls;

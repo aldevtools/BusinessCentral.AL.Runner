@@ -131,6 +131,9 @@ pub(crate) fn al_error(message: &str) -> Signal {
     al_error_code(message, "")
 }
 
+/// `TxState::transaction_type` of a test's start: the TransactionType member UpdateNoLocks
+/// (session-system/ProbeSystemEnumMembers.al:60-161).
+pub(crate) const TRANSACTION_TYPE_UPDATE_NO_LOCKS: i32 = 0;
 /// `Session::tx_phase`: nothing of the transaction has run yet.
 pub(crate) const TX_FRESH: u8 = 0;
 /// `Session::tx_phase`: a read call has started the transaction.
