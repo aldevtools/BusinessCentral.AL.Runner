@@ -226,6 +226,39 @@ codeunit 97150 "LT PR Neighbors"
     end;
 
     [Test]
+    procedure HostReadBetweenFilterAndFirst()
+    var
+        Host: TestPage "LT PR Load Host";
+    begin
+        Refilled(Host);
+        Host."Resource No.".Value();
+        Host.Load.First();
+    end;
+
+    [Test]
+    procedure OtherPageBetweenFilterAndFirst()
+    var
+        Host: TestPage "LT PR Load Host";
+        Other: TestPage "LT PR Load List Host";
+    begin
+        Refilled(Host);
+        Other.OpenView();
+        Other.Close();
+        Host.Load.First();
+    end;
+
+    [Test]
+    procedure HostReadBetweenFirstAndARead()
+    var
+        Host: TestPage "LT PR Load Host";
+    begin
+        Refilled(Host);
+        Host.Load.First();
+        Host."No.".Value();
+        Host.Load."Allocated Qty.".AsDecimal();
+    end;
+
+    [Test]
     procedure FirstAfterReopen()
     var
         Host: TestPage "LT PR Load Host";
@@ -260,6 +293,10 @@ fn issue_8537_calls_no_cell_made_after_the_tests_filter_stay_refused() {
         ("GoToKeyAfterTheFilter", "GoToKey"),
         ("AssertEqualsAfterTheFilter", "AssertEquals"),
         ("AscendingAfterTheFilter", "First"),
+        // A test call on the host or on another page between the filter and the part's calls ends the steps.
+        ("HostReadBetweenFilterAndFirst", "First"),
+        ("OtherPageBetweenFilterAndFirst", "First"),
+        ("HostReadBetweenFirstAndARead", "AsDecimal"),
     ] {
         assert_refused(&list, name, how);
     }
@@ -314,6 +351,46 @@ fn issue_8537_a_two_field_key_part_without_triggers_stays_refused() {
         .replace("trigger OnAfterGetRecord()", "procedure NoAfterGetRecord()");
     let src = format!("{head}page 97113{part}page 97114{tail}");
     let list = outcomes(&src, "LT PR Tests");
+    assert_refused(
+        &list,
+        "PartRefill_TypedKeyTriggerPartActionThenFilterFirst_FindsRefilledRow",
+        "First",
+    );
+}
+
+/// The objects are compared as written, not only by their trigger names (`part_refill_pins.rs`): the repro with one statement
+/// less in a part procedure, one more control on the host, or the part's table with one more field keeps the refusal.
+#[test]
+fn issue_8537_the_repro_changed_in_its_code_stays_refused() {
+    for (what, from, to) in [
+        ("part procedure", "if Rec.FindFirst() then;", "if Rec.FindLast() then;"),
+        (
+            "host control",
+            "field(\"Resource No.\"; Rec.\"Resource No.\") { }",
+            "field(\"Resource No.\"; Rec.\"Resource No.\") { }\n                field(Other; Rec.\"No.\") { }",
+        ),
+        (
+            "part table field",
+            "field(2; \"Allocated Qty.\"; Decimal) { }",
+            "field(2; \"Allocated Qty.\"; Decimal) { }\n        field(3; Note; Text[30]) { }",
+        ),
+    ] {
+        assert!(REPRO.contains(from), "{what}");
+        let src = REPRO.replacen(from, to, 1);
+        let list = outcomes(&src, "Repro Part Refill Tests");
+        assert_refused(&list, "RefreshRefillsPartThenFirstFindsFilteredRow", "First");
+    }
+}
+
+/// The two-field key part whose refill inserts a Day and a Week row for each day (no cell had two rows in the filtered view):
+/// the filter on Period Start leaves two rows, and First keeps the refusal.
+#[test]
+fn issue_8537_two_rows_left_by_the_filter_stay_refused() {
+    let from = "            Rec.\"Period Type\" := Rec.\"Period Type\"::Day;\n            Evaluate(Rec.\"Period Start\", DayKey, 9);\n            Evaluate(Rec.\"Allocated Qty.\", Results.Get(DayKey), 9);\n            Rec.Insert();";
+    assert!(PROBE.contains(from));
+    let to =
+        format!("{from}\n            Rec.\"Period Type\" := Rec.\"Period Type\"::Week;\n            Rec.Insert();");
+    let list = outcomes(&PROBE.replacen(from, &to, 1), "LT PR Tests");
     assert_refused(
         &list,
         "PartRefill_TypedKeyTriggerPartActionThenFilterFirst_FindsRefilledRow",
