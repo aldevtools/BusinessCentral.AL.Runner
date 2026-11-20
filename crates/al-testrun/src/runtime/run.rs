@@ -422,7 +422,7 @@ fn run_codeunit_inner(
     let obj = &lowered.program.objects[object];
     let perturb = scratch.perturb.clone();
     let run_seed = scratch.run_seed;
-    let mut host = crate::host::host_perturbed(scratch.clock_start, &perturb);
+    let mut host = crate::host::host_perturbed(scratch.clock, &perturb);
     host.run_seed = run_seed.seed;
     let (mut session, moved) = new_session(engine, host, baseline, execute);
     session.trace_faults(observe.is_some());

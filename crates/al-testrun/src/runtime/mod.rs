@@ -662,8 +662,8 @@ pub(crate) struct Unit {
     /// See `Scratch::order`.
     order: Arc<Vec<usize>>,
     hooks: crate::events::Hooks,
-    /// See `Scratch::clock_start`.
-    clock_start: Option<i64>,
+    /// See `Scratch::clock`.
+    clock: crate::host::RunClock,
     /// Note what each test raised and touched (`RunOptions::impact_trace`).
     impact: bool,
     /// See `RunOptions::run_only`.
@@ -722,8 +722,9 @@ pub(crate) struct Scratch {
     messages: Vec<(String, Vec<String>)>,
     /// What the capture saw.
     captured: Vec<(String, crate::events::CapturedAt)>,
-    /// Where the run clock of the codeunit starts, in Unix milliseconds (`RunOptions::clock_starts`); `None`: now.
-    clock_start: Option<i64>,
+    /// The clock of the codeunit's sessions: the run's (`RunOptions::run_clock`), or where `RunOptions::clock_starts`
+    /// starts this codeunit.
+    clock: crate::host::RunClock,
     /// Note what each test raised and touched (`RunOptions::impact_trace`).
     trace: bool,
     /// What each test raised and touched, as keys (`impact_trace::keys`).
@@ -898,7 +899,7 @@ fn run_unit(
     limit: Option<std::time::Duration>,
 ) -> UnitResult {
     let started = std::time::Instant::now();
-    let clock_start = u.clock_start;
+    let clock = u.clock;
     crate::dotnet::take_start_time();
     let baseline = baseline.filter(|_| !u.without_baseline);
     crate::events::install(u.hooks.clone());
@@ -934,7 +935,7 @@ fn run_unit(
         let mut scratch = Scratch {
             capture: u.capture,
             order: u.order.clone(),
-            clock_start,
+            clock,
             trace: u.impact,
             run_only: u.run_only.clone(),
             hub: u.hub,
@@ -1064,6 +1065,7 @@ fn scratch_unit(
     opts: &RunOptions,
     order: &Arc<Vec<usize>>,
     hooks: &crate::events::Hooks,
+    clock: crate::host::RunClock,
 ) -> Unit {
     Unit {
         si,
@@ -1076,7 +1078,7 @@ fn scratch_unit(
         capture: opts.capture,
         order: order.clone(),
         hooks: hooks.clone(),
-        clock_start: None,
+        clock,
         impact: opts.impact_trace,
         run_only: None,
         hub: false,

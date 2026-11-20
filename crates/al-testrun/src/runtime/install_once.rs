@@ -85,7 +85,7 @@ struct Left {
 #[derive(PartialEq)]
 struct Key {
     engine: u64,
-    clock_start: Option<i64>,
+    clock: crate::host::RunClock,
     perturb: crate::stability::Perturb,
     run_seed: crate::seed::RunSeed,
     flags: super::session_flags::SessionFlags,
@@ -144,7 +144,7 @@ fn start_installed(
     let engine = session.engine.clone();
     let key = Key {
         engine: engine.uid,
-        clock_start: scratch.clock_start,
+        clock: scratch.clock,
         perturb: scratch.perturb.clone(),
         run_seed: scratch.run_seed,
         flags: scratch.flags,
@@ -186,7 +186,7 @@ type RanIn = Option<(Session, Vec<al_vm::SkippedInstall>)>;
 
 /// Runs the install code in a session of its own, made as the codeunit's session is (`run.rs` `run_codeunit_inner`).
 fn install(lowered: &Lowered, engine: &Arc<Engine>, scratch: &Scratch, key: Key) -> (Installed, RanIn) {
-    let mut host = crate::host::host_perturbed(scratch.clock_start, &scratch.perturb);
+    let mut host = crate::host::host_perturbed(scratch.clock, &scratch.perturb);
     host.run_seed = scratch.run_seed.seed;
     // Files on a real folder (`--files-dir`) outlive the session: a write of this run would be seen by the codeunits'
     // own install runs, so it runs only on the session's own in-memory files.
