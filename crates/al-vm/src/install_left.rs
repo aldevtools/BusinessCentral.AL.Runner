@@ -286,61 +286,70 @@ impl Session {
         })
     }
 
-    /// No code runs and nothing of a call is left: the fields that hold what runs now.
+    /// No code runs and nothing of a call is left: the fields that hold what runs now ([`Session::at_rest_why`]).
     pub(crate) fn at_rest(&self) -> bool {
-        self.depth == 0
-            && self.frames.is_empty()
-            && !self.next_interface_call
-            && self.call_stack.is_empty()
-            && self.xp_pass_views.is_empty()
-            && self.xp_unlinked_passes.is_empty()
-            && self.xp_link_hidden.is_empty()
-            && self.runner_frames.is_empty()
-            && self.fault_site.is_empty()
-            && !self.fault_site_lost
-            && self.dirty_ops_open == 0
-            && self.dirty_frames.is_empty()
-            && self.live_xrecs.iter().all(|w| w.strong_count() == 0)
-            && self.truncate_undo.is_empty()
-            && self.validating.is_empty()
-            && self.stamp_validating.is_empty()
-            && self.validate_site.is_none()
-            && self.validate_sites.is_empty()
-            && self.plain_proc_xrec.is_empty()
-            && self.field_error_form.is_none()
-            && self.error_finals.is_none()
-            && self.var_alias_watch.is_empty()
-            && !self.install_scope
-            && !self.company_build
-            && !self.background_session
-            && !self.install_without_client
-            && self.session_id_override.is_none()
-            && self.run_trigger_unknown.is_none()
-            && !self.package_load
-            && !self.bulk_modify
-            && !self.set_value_from_variant
-            && self.host_new_running.is_none()
-            && !self.part_open_running
-            && self.host_move_running.is_none()
-            && self.part_sync_keeps_same_link.is_none()
-            && !self.get_load
-            && !self.sysid_load
-            && !self.find_load
-            && !self.find_through_recordref
-            && !self.through_recordref
-            && !self.permission_from_al
-            && !self.permission_from_recordref
-            && self.record_calls.is_empty()
-            && !self.setfilter_from_al
-            && !self.permission_autocalc
-            && !self.permission_page_calc
-            && !self.find_first_read
-            && self.al_record_call.is_none()
-            && self.permission_opening_source.is_none()
-            && self.permission_caller.is_none()
-            && self.permission_run_object.is_none()
-            && self.query_receiver.is_none()
-            && !self.keyref_receiver_local
+        self.at_rest_why().is_none()
+    }
+
+    /// The first field of [`Session::at_rest`]'s rule that does not hold a session at rest, by its name (the login image's
+    /// `NotImaged::NotAtRest` reports it); `None` at rest. The one list of the rule.
+    pub(crate) fn at_rest_why(&self) -> Option<&'static str> {
+        let rule: [(bool, &'static str); 53] = [
+            (self.depth == 0, "depth"),
+            (self.frames.is_empty(), "frames"),
+            (!self.next_interface_call, "next_interface_call"),
+            (self.call_stack.is_empty(), "call_stack"),
+            (self.xp_pass_views.is_empty(), "xp_pass_views"),
+            (self.xp_unlinked_passes.is_empty(), "xp_unlinked_passes"),
+            (self.xp_link_hidden.is_empty(), "xp_link_hidden"),
+            (self.runner_frames.is_empty(), "runner_frames"),
+            (self.fault_site.is_empty(), "fault_site"),
+            (!self.fault_site_lost, "fault_site_lost"),
+            (self.dirty_ops_open == 0, "dirty_ops_open"),
+            (self.dirty_frames.is_empty(), "dirty_frames"),
+            (self.live_xrecs.iter().all(|w| w.strong_count() == 0), "live_xrecs"),
+            (self.truncate_undo.is_empty(), "truncate_undo"),
+            (self.validating.is_empty(), "validating"),
+            (self.stamp_validating.is_empty(), "stamp_validating"),
+            (self.validate_site.is_none(), "validate_site"),
+            (self.validate_sites.is_empty(), "validate_sites"),
+            (self.plain_proc_xrec.is_empty(), "plain_proc_xrec"),
+            (self.field_error_form.is_none(), "field_error_form"),
+            (self.error_finals.is_none(), "error_finals"),
+            (self.var_alias_watch.is_empty(), "var_alias_watch"),
+            (!self.install_scope, "install_scope"),
+            (!self.company_build, "company_build"),
+            (!self.background_session, "background_session"),
+            (!self.install_without_client, "install_without_client"),
+            (self.session_id_override.is_none(), "session_id_override"),
+            (self.run_trigger_unknown.is_none(), "run_trigger_unknown"),
+            (!self.package_load, "package_load"),
+            (!self.bulk_modify, "bulk_modify"),
+            (!self.set_value_from_variant, "set_value_from_variant"),
+            (self.host_new_running.is_none(), "host_new_running"),
+            (!self.part_open_running, "part_open_running"),
+            (self.host_move_running.is_none(), "host_move_running"),
+            (self.part_sync_keeps_same_link.is_none(), "part_sync_keeps_same_link"),
+            (!self.get_load, "get_load"),
+            (!self.sysid_load, "sysid_load"),
+            (!self.find_load, "find_load"),
+            (!self.find_through_recordref, "find_through_recordref"),
+            (!self.through_recordref, "through_recordref"),
+            (!self.permission_from_al, "permission_from_al"),
+            (!self.permission_from_recordref, "permission_from_recordref"),
+            (self.record_calls.is_empty(), "record_calls"),
+            (!self.setfilter_from_al, "setfilter_from_al"),
+            (!self.permission_autocalc, "permission_autocalc"),
+            (!self.permission_page_calc, "permission_page_calc"),
+            (!self.find_first_read, "find_first_read"),
+            (self.al_record_call.is_none(), "al_record_call"),
+            (self.permission_opening_source.is_none(), "permission_opening_source"),
+            (self.permission_caller.is_none(), "permission_caller"),
+            (self.permission_run_object.is_none(), "permission_run_object"),
+            (self.query_receiver.is_none(), "query_receiver"),
+            (!self.keyref_receiver_local, "keyref_receiver_local"),
+        ];
+        rule.iter().find(|(holds, _)| !holds).map(|(_, name)| *name)
     }
 
     /// The fields a test reads, and the owners' sub-states, hold what a new session holds: the `refuse` predicates of the

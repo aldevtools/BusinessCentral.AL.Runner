@@ -679,7 +679,7 @@ fn a_session_that_is_not_at_rest_or_holds_refused_state_says_which() {
     f.session.tx.try_depth = 1;
     assert!(matches!(
         refused(&mut f),
-        NotImaged::NotAtRest | NotImaged::Field("tx.try_depth")
+        NotImaged::NotAtRest(_) | NotImaged::Field("tx.try_depth")
     ));
     f.session.tx.try_depth = 0;
     f.run("Schedule");
@@ -759,4 +759,17 @@ fn noted_recordref_handles_that_are_gone_do_not_refuse_and_held_ones_do() {
     let mut g = fx();
     g.run("NotedAndHeld");
     assert_eq!(refused(&mut g), NotImaged::Field("variant_refs"));
+}
+
+#[test]
+fn a_session_not_at_rest_names_the_first_field_of_the_rule_that_does_not_hold() {
+    let mut f = fx();
+    f.keeper_instance();
+    f.session.company_build = true;
+    let why = refused(&mut f);
+    assert_eq!(why, NotImaged::NotAtRest("company_build"));
+    assert_eq!(why.reason(), "not at rest: company_build");
+    // Two fields: the first in the rule's order is named.
+    f.session.install_scope = true;
+    assert_eq!(refused(&mut f), NotImaged::NotAtRest("install_scope"));
 }

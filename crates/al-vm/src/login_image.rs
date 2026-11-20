@@ -61,8 +61,9 @@ const _: fn() = || {
 pub enum NotImaged {
     /// A `Session` field (or `tx.x`, `events.x`) does not hold a new session's value.
     Field(&'static str),
-    /// Code runs or a call left something behind (`Session::at_rest`).
-    NotAtRest,
+    /// Code runs or a call left something behind: the first field of `Session::at_rest`'s rule that does not hold
+    /// (`Session::at_rest_why`).
+    NotAtRest(&'static str),
     /// A value with no exact form: where (ids and indexes only, never a value) and what.
     Value { path: String, what: String },
     /// A handle something outside the imaged globals also holds.
@@ -76,7 +77,7 @@ impl NotImaged {
     pub fn reason(&self) -> String {
         match self {
             NotImaged::Field(name) => format!("field {name}"),
-            NotImaged::NotAtRest => "not at rest".to_string(),
+            NotImaged::NotAtRest(field) => format!("not at rest: {field}"),
             NotImaged::Value { what, .. } => what.clone(),
             NotImaged::HeldOutside { .. } => "a handle held outside the image".to_string(),
             NotImaged::Rows(why) => format!("rows: {why}"),
@@ -101,8 +102,8 @@ impl Session {
     /// What this session holds, as an image any thread may keep. `before_login`: the store's change counter before the
     /// login ran (`MemStore::change_counter`), for `ImageSize::rows_own_bytes`.
     pub fn login_image(&self, before_login: u64) -> Result<LoginImage, NotImaged> {
-        if !self.at_rest() {
-            return Err(NotImaged::NotAtRest);
+        if let Some(field) = self.at_rest_why() {
+            return Err(NotImaged::NotAtRest(field));
         }
         if let Some(field) = self.refused_field() {
             return Err(NotImaged::Field(field));
