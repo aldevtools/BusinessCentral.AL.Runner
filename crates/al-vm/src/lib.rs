@@ -1556,6 +1556,7 @@ impl Session {
         self.tx.transaction_type = crate::transactions::TRANSACTION_TYPE_UPDATE_NO_LOCKS;
         self.tx.phase = crate::transactions::TxPhase::Fresh;
         self.tx.open.locks = Default::default();
+        self.tx.open.at_test_start = true;
         self.pages.test_methods_started += 1;
     }
 

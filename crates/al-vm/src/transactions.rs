@@ -869,6 +869,8 @@ impl Session {
             }
         }
 
+        // A run ends the moment the Update report term is measured at (`OpenTx::at_test_start`).
+        self.tx.open.at_test_start = false;
         let on_run = obj
             .routines
             .iter()

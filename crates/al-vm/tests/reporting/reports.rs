@@ -725,6 +725,8 @@ fn run_model(body: &str, model: TxModel) -> Result<Value, Signal> {
         s.call(oi, setup, inst.clone(), vec![]).expect("Setup");
         s.commit_transaction();
     }
+    // The test method starts as the runner starts one (al-testrun `run.rs`), after the Setup.
+    s.start_test_method();
     s.tx_model = model;
     s.call(oi, ri, inst, vec![]).map(|(v, _)| v)
 }

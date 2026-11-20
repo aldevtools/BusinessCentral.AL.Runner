@@ -1,8 +1,10 @@
-//! A TransactionType = Update report run with no request page, in a session whose transaction type is not UpdateNoLocks.
-//! The corpus measures the platform's transaction-world decision only at a test's start, where the type is UpdateNoLocks
-//! (record/TestTxModelReportRun.al:177-211 Test07/Test08; record/TestTxModelReportExec.al:137-150 Test06). After
-//! `Commit()` the type is Update (session-system/ProbeSystemEnumMembers.al:94-112): whether the report then still enters
-//! a world is not pinned, so the run is refused (al-runner issue 8324, the reporter's repro is `UpdateReportAfterTypeSetToUpdate`).
+//! A TransactionType = Update report run with no request page anywhere but at the start of the test method. The corpus
+//! measures the platform's transaction-world decision for such a report only there: nothing before the run but, in some
+//! tests, one Insert (record/TestTxModelReportRun.al:177-211 Test07/Test08; record/TestTxModelReportExec.al:
+//! 137-171, :213-257 Test06/07/10/11/12). After a Commit, a rollback, a read call, a CurrentTransactionType set, a
+//! Codeunit.Run or another report run, and under TransactionModel None, whether the report enters a world is not
+//! pinned, so the run is refused (al-runner issue 8324, the reporter's repro is `UpdateReportAfterTypeSetToUpdate`; the
+//! other shapes are the review probes of pull request 8376).
 
 use al_testkit::outcomes_in;
 use al_testrun::Outcome;
@@ -36,6 +38,17 @@ report 50301 "Repro Update Report"
             end;
         }
     }
+}
+
+codeunit 50303 "Repro Writer"
+{
+    trigger OnRun()
+    var
+        ReproRow: Record "Repro Row";
+    begin
+        ReproRow."Entry No." := 3;
+        ReproRow.Insert();
+    end;
 }
 
 codeunit 50302 "Repro Report Tx Tests"
@@ -114,6 +127,124 @@ codeunit 50302 "Repro Report Tx Tests"
         ReproUpdateReport.Run();
     end;
 
+    // A Commit, then a set back to UpdateNoLocks: the type reads UpdateNoLocks again, but the moment is not the test's
+    // start (review probe N02).
+    [Test]
+    procedure CommitThenSetUpdateNoLocks()
+    var
+        ReproUpdateReport: Report "Repro Update Report";
+    begin
+        Commit();
+        CurrentTransactionType(TransactionType::UpdateNoLocks);
+        ReproUpdateReport.UseRequestPage(false);
+        ReproUpdateReport.Run();
+    end;
+
+    // A second run, after the first run's world committed (review probe N04).
+    [Test]
+    procedure SecondRunAfterWorldCommit()
+    var
+        First: Report "Repro Update Report";
+        Second: Report "Repro Update Report";
+    begin
+        First.UseRequestPage(false);
+        First.Run();
+        Second.UseRequestPage(false);
+        Second.Run();
+    end;
+
+    // A read call before the run, at the test's start (review probe N06).
+    [Test]
+    procedure ReadBeforeRun()
+    var
+        ReproRow: Record "Repro Row";
+        ReproUpdateReport: Report "Repro Update Report";
+    begin
+        if ReproRow.FindFirst() then;
+        ReproUpdateReport.UseRequestPage(false);
+        ReproUpdateReport.Run();
+    end;
+
+    // After a trapped error rolled the transaction back (review probe N09).
+    [Test]
+    procedure AfterTrappedRollback()
+    var
+        ReproUpdateReport: Report "Repro Update Report";
+    begin
+        asserterror Error('trapped');
+        ReproUpdateReport.UseRequestPage(false);
+        ReproUpdateReport.Run();
+    end;
+
+    // After a Codeunit.Run that wrote, at the test's start (review probe N08).
+    [Test]
+    procedure AfterCodeunitRun()
+    var
+        ReproUpdateReport: Report "Repro Update Report";
+    begin
+        Codeunit.Run(Codeunit::"Repro Writer");
+        ReproUpdateReport.UseRequestPage(false);
+        ReproUpdateReport.Run();
+    end;
+
+    // The session type set to Snapshot at the test's start (review probe N07).
+    [Test]
+    procedure SetSnapshotAtTestStart()
+    var
+        ReproUpdateReport: Report "Repro Update Report";
+    begin
+        CurrentTransactionType(TransactionType::Snapshot);
+        ReproUpdateReport.UseRequestPage(false);
+        ReproUpdateReport.Run();
+    end;
+
+    // Under AutoRollback, the session type set to Update at the test's start (review probe N11).
+    [Test]
+    [TransactionModel(TransactionModel::AutoRollback)]
+    procedure AutoRollbackSetUpdateAtStart()
+    var
+        ReproUpdateReport: Report "Repro Update Report";
+    begin
+        CurrentTransactionType(TransactionType::Update);
+        ReproUpdateReport.UseRequestPage(false);
+        ReproUpdateReport.Run();
+    end;
+
+    // Under TransactionModel None at the test's start (review probe N12).
+    [Test]
+    [TransactionModel(TransactionModel::None)]
+    procedure ModelNoneAtTestStart()
+    var
+        ReproUpdateReport: Report "Repro Update Report";
+    begin
+        ReproUpdateReport.UseRequestPage(false);
+        ReproUpdateReport.Run();
+    end;
+
+    // Under TransactionModel None after a Commit.
+    [Test]
+    [TransactionModel(TransactionModel::None)]
+    procedure ModelNoneAfterCommit()
+    var
+        ReproUpdateReport: Report "Repro Update Report";
+    begin
+        Commit();
+        ReproUpdateReport.UseRequestPage(false);
+        ReproUpdateReport.Run();
+    end;
+
+    // Under AutoRollback at the test's start with no write: the report runs
+    // (record/TestTxModelReportExec.al:241-257 Test12).
+    [Test]
+    [TransactionModel(TransactionModel::AutoRollback)]
+    procedure AutoRollbackAtTestStart()
+    var
+        ReproUpdateReport: Report "Repro Update Report";
+    begin
+        ReproUpdateReport.UseRequestPage(false);
+        ReproUpdateReport.Run();
+    end;
+
     [RequestPageHandler]
     procedure RP(var Page: TestRequestPage "Repro Update Report")
     begin
@@ -131,17 +262,34 @@ fn an_update_report_after_the_session_type_became_update_is_refused_and_its_neig
             .map(|(_, o)| o.clone())
             .unwrap_or_else(|| panic!("{t}: {o:?}"))
     };
-    for t in ["UpdateReportAfterTypeSetToUpdate", "AfterCommitWithoutWrite"] {
+    let mut wrong = Vec::new();
+    for t in [
+        "UpdateReportAfterTypeSetToUpdate",
+        "AfterCommitWithoutWrite",
+        "CommitThenSetUpdateNoLocks",
+        "SecondRunAfterWorldCommit",
+        "ReadBeforeRun",
+        "AfterTrappedRollback",
+        "AfterCodeunitRun",
+        "SetSnapshotAtTestStart",
+        "AutoRollbackSetUpdateAtStart",
+        "ModelNoneAtTestStart",
+        "ModelNoneAfterCommit",
+    ] {
         match get(t) {
-            Outcome::NotRun(r) => assert!(r.contains("not pinned"), "{t}: {r}"),
-            other => panic!("{t}: expected a refusal, got {other:?}"),
+            Outcome::NotRun(r) if r.contains("run without its request page after the start of the test method") => {}
+            other => wrong.push(format!("{t}: expected a refusal, got {other:?}")),
         }
     }
     for t in [
         "AtTestStartWithPendingWrite",
         "AtTestStartWithoutWrite",
         "AfterCommitWithRequestPage",
+        "AutoRollbackAtTestStart",
     ] {
-        assert_eq!(get(t), Outcome::Pass, "{t}");
+        if get(t) != Outcome::Pass {
+            wrong.push(format!("{t}: expected a pass, got {:?}", get(t)));
+        }
     }
+    assert!(wrong.is_empty(), "{wrong:#?}");
 }
