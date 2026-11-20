@@ -285,7 +285,7 @@ pub struct Engine {
     pub private_test_rows: bool,
     pub(crate) delete_subscribed: std::sync::OnceLock<std::collections::HashSet<String>>,
     /// What a run of a routine on a transient instance can leave behind (`effects.rs`), per (object, routine).
-    pub(crate) lasting_effects: std::sync::Mutex<std::collections::HashMap<(usize, usize), Option<effects::Effect>>>,
+    pub(crate) lasting_effects: std::sync::Mutex<std::collections::HashMap<(usize, usize), effects::Walked>>,
     /// What a run of a page's DataCaptionExpression can raise or leave behind (`effects/open_risk.rs`), per (object, routine).
     pub(crate) caption_open_risks: std::sync::Mutex<std::collections::HashMap<(usize, usize), Option<String>>>,
     /// Per object, per routine: what a call needs to know about the routine, found once (see [`RoutineFacts`]).
@@ -1544,6 +1544,7 @@ impl Session {
         self.tx.transaction_type = 0;
         self.tx.phase = crate::transactions::TxPhase::Fresh;
         self.tx.open.locks = Default::default();
+        self.pages.test_methods_started += 1;
     }
 
     /// Makes every change so far durable (and a Truncate of this transaction final).

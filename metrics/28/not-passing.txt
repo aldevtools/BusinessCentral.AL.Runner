@@ -2,8 +2,6 @@
 # CI fails when a case that is not listed does not pass, and when a listed case passes or left the oracle.
 # `al-test-cli --prune-not-passing` deletes stale lines; a corpus bump adds new cases with `--list-new-cases`.
 # A line for a case the oracle already had is a regression: it needs the owner's OK (CLAUDE.md hard rule 2).
-50898 Report_SaveAs_DependencyExtension_UsesOwnedDataItem
-50898 Report_SaveAs_RisingDependencyExtension_UsesOwnedDataItem
 51756 ModalWorksheetRefreshSelectsImportedRow
 51756 ModalWorksheetWithNoMatchingRows
 51759 OpenEditRefreshSelectsImportedRow
@@ -1387,14 +1385,7 @@
 75869 EnumBlankOpenNew_Two_NewHeader_NewRow
 75869 EnumBlankOpenNew_Two_NewHeader_NewRowAfterDescr
 75930 Relation_NoRelationAndUnmatchedCondition
-75945 CancelledRun_RowsAndNextRun
-75945 DeleteAndInsertTheRowAgain_NextRunShowsTheValue
-75945 DeleteRowsOfOneReport_OtherReportKeepsItsValue
-75945 DeleteRows_NextRunShowsBlank
 75945 EditOptionData_NextRunShowsTheEditedValue
-75945 RowOfAnotherCompany_NextRunShows
-75945 RowOfAnotherUser_NextRunShows
-75945 RowUnderAnotherParameterName_NextRunShows
 75945 SavedRun_WritesOneRow
 76403 RPS_Execute_DeclarationShapes
 76403 RPS_RunRequestPage_IndentedAndWriteTo

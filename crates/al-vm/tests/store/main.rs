@@ -113,6 +113,7 @@ mod recordref_in_variant_after_close;
 mod recordref_load_fields;
 mod recordref_zero_field_numbers;
 mod records;
+mod relation_condition_enum_namespace;
 mod relation_field_qualified_const;
 mod relation_group_two_enum;
 mod relation_option_blank_const;
