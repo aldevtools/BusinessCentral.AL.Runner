@@ -1,4 +1,4 @@
-//! The corpus probe of al-runner issue 8434 (corpus pull request 1454, open: tests/al-language/pages/currpage/
+//! The corpus probe of al-runner issue 8434 (corpus pull request 1454, merged, not pinned yet: tests/al-language/pages/currpage/
 //! ListNewLineFactboxesCode.al, measured on BC 29.1, 11 of 11 green) and the reporter's repro, run here until a bump pins the
 //! probe: a List page with code, control expressions, actions and four FactBoxes, whose new line the table field's OnValidate
 //! inserts before the control's OnValidate calls `CurrPage.SaveRecord()` and `CurrPage.Update(false)`

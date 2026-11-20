@@ -1,7 +1,7 @@
 //! The page with code of al-runner issue 8434: a List page like the FactBox host of `code_inserted_new_line.rs`, which also
 //! declares Caption, Editable, Extensible and a SourceTableView, runs code in OnOpenPage, OnAfterGetRecord and OnDeleteRecord,
 //! carries control expressions and actions, and shows the Notes system part and up to three CardPart FactBoxes with triggers
-//! (one enqueues a page background task). Corpus pull request 1454 (open), tests/al-language/pages/currpage/
+//! (one enqueues a page background task). Corpus pull request 1454 (merged, not pinned yet), tests/al-language/pages/currpage/
 //! ListNewLineFactboxesCode.al, measures it on Business Central 29.1 (11 of 11 green), under the assumption
 //! `list-new-line-coded-factboxes` until a bump pins it. Opened by a Page.RunModal statement on a record filtered to one group,
 //! on an empty view (:1401-1476):

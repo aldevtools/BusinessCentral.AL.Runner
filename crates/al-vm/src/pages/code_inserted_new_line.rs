@@ -192,7 +192,7 @@ impl Session {
             (triggers, split, opened, leave),
             (Triggers::Quiet, true, Opened::RunModalOneGroup, Leave::Update)
         );
-        // ListNewLineFactboxesCode.al (corpus pull request 1454): :1401-1476, :1516-1591, once the parts read the new line before
+        // ListNewLineFactboxesCode.al (corpus pull request 1454, merged, not pinned yet): :1401-1476, :1516-1591, once the parts read the new line before
         // the validation (`coded_line_before_set_value`).
         let coded_cell = coded
             && matches!(
