@@ -200,7 +200,7 @@ impl Session {
             ));
         }
         // The SaveRecord and Update(true) cells run only the code that was measured (`code_inserted_pinned.rs`).
-        if shape && matches!(leave, Leave::UpdateTrue | Leave::SaveRecord) {
+        if shape && cell && matches!(leave, Leave::UpdateTrue | Leave::SaveRecord) {
             match self.code_inserted_code(st)? {
                 Some(PinnedCode::Probe) => {}
                 Some(PinnedCode::Repro) => {
