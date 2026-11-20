@@ -29,12 +29,13 @@ use std::sync::Arc;
 
 pub(crate) use crate::report_placeholder::Format;
 use crate::report_placeholder::SaveOutput;
+use crate::report_render::SaveCall;
 use crate::reports::{SaveTarget, Schema};
 use crate::{Session, Signal};
 use al_builtins::native::AlError;
 pub(crate) use cell::Renders;
 use cell::{Answer, Cell, Events};
-pub(crate) use facts::AnswerForm;
+pub(crate) use facts::{AnswerForm, Call};
 use facts::{Facts, Selection, Target};
 
 /// A save that runs: its facts, to look up again after the run.
@@ -101,14 +102,23 @@ fn target_fact(target: &SaveTarget) -> Target {
     }
 }
 
+/// The call fact of a save to a stream from what `Session::save_call` took of it (`None`: a save to a file or a request page's).
+fn call_fact(save_call: Option<SaveCall>) -> Call {
+    match save_call.map(|c| (c.by_number, c.parameters, c.record_ref)) {
+        Some((true, false, false)) => Call::StaticPlain,
+        Some((true, false, true)) => Call::StaticRecordRef,
+        _ => Call::Other,
+    }
+}
+
 impl Session {
-    /// The facts of a save of `schema` as `format` to `target`, taken as `answer`, before the run. `custom`: a layout of Type
-    /// Custom renders.
+    /// The facts of a save of `schema` as `format` to `target` by `call`, taken as `answer`, before the run. `custom`: a
+    /// layout of Type Custom renders.
     fn save_facts(
         &mut self,
         schema: &Schema,
         format: Format,
-        target: &SaveTarget,
+        (target, call): (&SaveTarget, Call),
         answer: AnswerForm,
         custom: bool,
     ) -> Result<(Facts, Option<Arc<str>>), Signal> {
@@ -120,6 +130,7 @@ impl Session {
         let facts = Facts {
             format,
             target,
+            call,
             answer,
             kind: r.kind,
             layout: r.layout,
@@ -147,11 +158,11 @@ impl Session {
         &mut self,
         schema: &Schema,
         format: Format,
-        target: &SaveTarget,
+        how: (&SaveTarget, Call),
         answer: AnswerForm,
         custom: bool,
     ) -> Result<BeforeRun, Signal> {
-        let (facts, selected) = self.save_facts(schema, format, target, answer, custom)?;
+        let (facts, selected) = self.save_facts(schema, format, how, answer, custom)?;
         let table: &[Cell] = &cells::CELLS;
         match lookup::before_run(table, &facts) {
             lookup::Before::Answer(row) => {
@@ -160,7 +171,7 @@ impl Session {
                 match row.answer {
                     Answer::False(e) => Ok(BeforeRun::False(errors::error_of(
                         e,
-                        self.object_id_of(schema.object as u32),
+                        self.object_id_of(schema.object as u32)?,
                         format,
                     ))),
                     Answer::Refuse(why) => Err(Signal::unsupported(format!("{}, {why}", what(&facts, schema)))),
@@ -197,7 +208,7 @@ impl Session {
         &mut self,
         schema: &Schema,
         format: &str,
-        target: &SaveTarget,
+        (target, save_call): (&SaveTarget, Option<SaveCall>),
         result_used: bool,
         custom: bool,
     ) -> Result<Result<SaveOutput, AlError>, Signal> {
@@ -213,7 +224,7 @@ impl Session {
             AnswerForm::Statement
         };
         Ok(Ok(
-            match self.save_before_run(schema, format, target, answer, custom)? {
+            match self.save_before_run(schema, format, (target, call_fact(save_call)), answer, custom)? {
                 BeforeRun::Run(plan) => SaveOutput::Rendered(Box::new(plan)),
                 BeforeRun::Dataset => SaveOutput::Dataset,
                 BeforeRun::Discard => SaveOutput::Discard,
@@ -257,7 +268,7 @@ impl Session {
             Answer::FalseKeepError => Ok(AfterRun::Answer(false)),
             Answer::TrueNothing => Ok(AfterRun::Answer(true)),
             Answer::FalseAfterRun(e) => {
-                let error = errors::error_of(e, self.object_id_of(schema.object as u32), facts.format);
+                let error = errors::error_of(e, self.object_id_of(schema.object as u32)?, facts.format);
                 if !used {
                     return Err(Signal::Error(Box::new(error)));
                 }

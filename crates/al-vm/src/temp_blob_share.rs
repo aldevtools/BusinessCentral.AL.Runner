@@ -160,6 +160,9 @@ impl Session {
             _ => return Ok(None),
         };
         let opens = id == ids::BLOB_CREATEOUTSTREAM_1;
+        if opens || id == ids::BLOB_IMPORT_1 {
+            self.xrec_blob_write_check(place, b, operand, f)?;
+        }
         // A buffer only the variable's field and this operand hold has no row to share it with.
         if !opens && Arc::strong_count(b) <= 1 + operand {
             return Ok(None);

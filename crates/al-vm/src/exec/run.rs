@@ -75,6 +75,17 @@ impl Session {
         self.write(&chunk.places[p as usize], v, f)
     }
 
+    /// `Op::StoreVarSectionValue`: `v`, a variable of the running routine's `var` section, into element place `p` of an
+    /// array of memberless Options (`var_option::Store::AssignVarSection`).
+    fn store_var_section(&mut self, chunk: &Chunk, p: u32, v: Value, f: &mut Frame) -> Result<(), Signal> {
+        self.write_as(
+            &chunk.places[p as usize],
+            v,
+            f,
+            crate::var_option::Store::AssignVarSection,
+        )
+    }
+
     /// The record, RecordRef or Blob `Op::StoreLocal` stores into local place `p`: a record goes to
     /// `Session::store_variant_copy` when the assignment is a `variant_copy.rs` site, every value else to `write`.
     #[inline(never)]
@@ -183,8 +194,7 @@ impl Session {
                 }
                 Op::Const { d, k } => set(&mut f.locals[d as usize], self.constant_once(&chunk.consts[k as usize])),
                 Op::LoadGlobal { d, i } => {
-                    self.global_read(i as usize, f)?;
-                    let v = f.instance.borrow().globals[i as usize].clone();
+                    let v = self.global_value(i as usize, f)?;
                     set(&mut f.locals[d as usize], v);
                 }
                 Op::SingleWrite { i, kind } => self.single_write_op(i as usize, kind, f),
@@ -202,6 +212,7 @@ impl Session {
                     }
                 }
                 Op::StorePlace { p, a } => self.store_place(chunk, p, take(f, a, nl), f)?,
+                Op::StoreVarSectionValue { p, a } => self.store_var_section(chunk, p, take(f, a, nl), f)?,
                 Op::StoreVariantCopy { s, a } => self.variant_copy_op(chunk, s, a, f)?,
                 Op::Bin { op, d, a, b } => {
                     let v = Self::binary_op(op, &f.locals[a as usize], &f.locals[b as usize])?;
@@ -477,19 +488,28 @@ impl Session {
         }
     }
 
-    /// `asserterror`: runs the body `pc..stop`; returns where the code goes on.
+    /// `asserterror`: runs the body `pc..stop`; returns where the code goes on. Its end without an error passes
+    /// `refuse_pending_at_assert_end`; an `exit` with a value that left it is refused. The lowering turns every other leave into a
+    /// refusal that runs where the leave would (al-sema `refuse_assert_error_leaves`).
     #[inline(never)]
     fn op_assert(&mut self, chunk: &Chunk, f: &mut Frame, pc: usize, stop: usize, from: u16) -> Result<usize, Signal> {
         let nl = chunk.nlocals;
         let open = self.cap_stmt_depth();
-        match self.run_range::<true>(chunk, f, pc, stop) {
-            Ok(at) if at == stop => Err(Signal::Error(Box::new(al_builtins::native::AlError {
-                message: "An error was expected inside an ASSERTERROR statement.".into(),
-                code: "AssertError".into(),
-                call_stack: String::new(),
-                ..Default::default()
-            }))),
-            Ok(at) => Ok(at),
+        self.tx.assert_depth += 1;
+        let body = self.run_range::<true>(chunk, f, pc, stop);
+        self.tx.assert_depth -= 1;
+        match body {
+            Ok(at) if at == stop => {
+                self.refuse_pending_at_assert_end()?;
+                Err(Signal::Error(Box::new(al_builtins::native::AlError {
+                    message: "An error was expected inside an ASSERTERROR statement.".into(),
+                    code: "AssertError".into(),
+                    call_stack: String::new(),
+                    ..Default::default()
+                })))
+            }
+            // An `exit` with a value that left the body (al-sema `refuse_assert_error_leaves` turns every other leave into a refusal).
+            Ok(_) | Err(Signal::Exit(_)) => Err(Signal::unsupported(ir::ASSERT_ERROR_LEAVE)),
             Err(Signal::Error(mut e)) => {
                 self.guarded_bodies_leave_pin();
                 self.trapped_error_rollback(&e, crate::records::TrappedRollback::AssertError)?;
@@ -680,7 +700,11 @@ impl Session {
         for &r in &site.arg_regs {
             values.push(take(f, r, nl));
         }
-        self.finish_call(object, routine, inst, &site.args, values, false, f)
+        // Taken by the callee's frame; cleared here too when the call ends before its frame (a refused or blocked call).
+        self.next_interface_call = true;
+        let result = self.finish_call(object, routine, inst, &site.args, values, false, f);
+        self.next_interface_call = false;
+        result
     }
 
     #[inline(never)]
@@ -883,10 +907,7 @@ impl Session {
             return Ok(());
         }
         if closing {
-            return al_builtins::native::raise(
-                "The operation cannot be performed on a closing date value.",
-                "ClosingDateOperation",
-            );
+            return al_builtins::native::closing_date_operation();
         }
         let op = if site.down {
             al_builtins::ops::Arith::Sub
@@ -1007,6 +1028,7 @@ impl Session {
         }
         crate::assigned_audit::own_read_end_for_operands(site.id, &values);
         crate::blob_transfer::records_into_builtin(self.blob_sources, site.id, recv.as_ref(), &values);
+        text_constant_arguments(site, &mut values)?;
         // No operand is by reference, and `temp_blob_share_guard` checks a Blob field only through one: only the OutStreams
         // the call takes are checked.
         if site.temp_blob != SiteCheck::Never && crate::temp_blob_share::streams_kept() {
@@ -1181,7 +1203,6 @@ impl Session {
     fn single_write_op(&mut self, i: usize, kind: SingleWriteKind, f: &Frame) {
         match kind {
             SingleWriteKind::Replace => self.single_replaced(&f.instance, i),
-            SingleWriteKind::Reset => self.single_reset(&f.instance, i),
             SingleWriteKind::ModifyTemp => self.single_wrote_temp(&f.instance, i),
             SingleWriteKind::Modify => self.single_wrote(&f.instance, i),
         }
@@ -1199,6 +1220,7 @@ impl Session {
         }
         crate::assigned_audit::own_read_end_for_operands(site.id, &values);
         crate::blob_transfer::records_into_builtin(self.blob_sources, site.id, recv.as_ref(), &values);
+        text_constant_arguments(site, &mut values)?;
         let open = match site.temp_blob {
             SiteCheck::Never => None,
             SiteCheck::StreamsKept if !crate::temp_blob_share::streams_kept() => None,
@@ -1338,6 +1360,7 @@ impl Session {
         }
         let result = self.run_native(
             native,
+            site.id,
             site.class,
             site.receiver_arg.as_ref(),
             &site.args,
@@ -1375,4 +1398,15 @@ fn mark_assigned_stream(v: &Value) {
     {
         s.shared_by_assign = true;
     }
+}
+
+/// The arguments of a builtin as it gets them when one is a TextConstant a Variant held (`al_builtins::conv::text_constant`).
+#[inline]
+fn text_constant_arguments(site: &BuiltinSite, values: &mut [Value]) -> Result<(), Signal> {
+    if !values.iter().any(|v| matches!(v, Value::TextConst(..))) {
+        return Ok(());
+    }
+    al_builtins::conv::text_constant::read_arguments(site.id.name(), values, |i| {
+        matches!(site.args.get(i), Some(ir::Arg::Ref(_)))
+    })
 }

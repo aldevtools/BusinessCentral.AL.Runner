@@ -25,7 +25,6 @@ fn compile_form(o: &ir::Object, routine: usize, captured: bool, debug: bool) -> 
     let nlocals = u16::try_from(r.locals.len()).ok()?;
     let mut c = Compiler {
         locals_ty: r.locals.iter().map(|l| l.ty.clone()).collect(),
-        globals: &o.globals,
         tys: DeclaredTypes {
             locals: r.locals.iter().map(|l| l.ty.clone()).collect(),
             lowered: al_ir::types::ExprTypes::new(r),
@@ -81,8 +80,6 @@ struct LoopCtx {
 struct Compiler<'a> {
     /// The declared type of each local.
     locals_ty: Vec<RtType>,
-    /// The globals of the routine's object.
-    globals: &'a [ir::Slot],
     /// Where the static types come from; the instruction selection asks only this.
     tys: DeclaredTypes<'a>,
     chunk: Chunk,
@@ -365,7 +362,7 @@ impl<'a> Compiler<'a> {
         let (g, kind) = match id {
             ids::SYSTEM_CLEAR_1 | ids::SYSTEM_CLEAR_2 | ids::SYSTEM_CLEAR_3 => {
                 let g = global(args.first())?;
-                (g, self.replace_kind(g as usize))
+                (g, SingleWriteKind::Replace)
             }
             ids::RECORD_GET_1
             | ids::RECORD_GETBYSYSTEMID_1
@@ -747,17 +744,8 @@ impl<'a> Compiler<'a> {
                 self.aux(AuxSite::FieldOf { pos: *pos }, d, a);
             }
             E::QueryColumn { query, column } => self.query_column(query, *column, d)?,
-            E::TddFit { max, why, inner } | E::FitOrRefuse { max, why, inner } => {
-                let a = self.expr_any(inner)?;
-                self.aux(
-                    AuxSite::Fit {
-                        max: *max,
-                        why: why.clone(),
-                    },
-                    d,
-                    a,
-                );
-            }
+            E::VarSectionValue(inner) => self.expr_into(inner, d)?,
+            E::TddFit { max, why, inner } | E::FitOrRefuse { max, why, inner } => self.fit_into(*max, why, inner, d)?,
             E::TddStub { stub, args, ty } => {
                 // The arguments run left to right for what they do, as a call's would; the stub reads none of them.
                 for a in args {
@@ -840,6 +828,14 @@ impl<'a> Compiler<'a> {
                 ir::Place::Index(Box::new(base), regs)
             }
         })
+    }
+
+    /// `ir::Expr::TddFit` and `ir::Expr::FitOrRefuse`: `inner`, refused when it is a text longer than `max`.
+    fn fit_into(&mut self, max: u32, why: &str, inner: &'a ir::Expr, d: u16) -> R<()> {
+        let a = self.expr_any(inner)?;
+        let why = why.to_string();
+        self.aux(AuxSite::Fit { max, why }, d, a);
+        Ok(())
     }
 
     /// A query column read; the site keeps the global slot when the query is a global variable (`query_reopen`).
@@ -1330,13 +1326,28 @@ impl<'a> Compiler<'a> {
         // refill (ADR-066 amendment 3, R1b; `WhenGotGLSetup := CurrentDateTime` in Get Shortcut Dimension Values). The
         // note is emitted after `x` is evaluated, just before the store: code that `x` calls may read `G` first.
         let single = match p {
-            ir::Place::Global(g) if free_of_global(e, *g, 0) => Some((*g as u32, self.replace_kind(*g))),
+            ir::Place::Global(g) if free_of_global(e, *g, 0) => Some((*g as u32, SingleWriteKind::Replace)),
             _ => None,
         };
         if self.variant_copy(p, e, single)? {
             return Ok(());
         }
         match p {
+            // A `var` Option parameter declared without members may hold its caller's members: its stores go through
+            // `write_as` (`var_option::param_store`).
+            ir::Place::Local(i)
+                if self.by_var.get(*i) == Some(&true)
+                    && matches!(self.locals_ty.get(*i), Some(RtType::Option(m)) if al_builtins::option_members::memberless(m)) =>
+            {
+                self.store_place(p, e, single)?;
+            }
+            // An element of an array of memberless Options stored from a variable of the `var` section (`var_option::element_store`).
+            ir::Place::Index(..) if let ir::Expr::VarSectionValue(inner) = e => {
+                let a = self.expr_copy(inner)?;
+                let rp = self.rplace(p)?;
+                let p = self.place(&rp);
+                self.emit(Op::StoreVarSectionValue { p, a });
+            }
             // A local of a typed kind takes a proven value of that kind straight into its register.
             ir::Place::Local(i)
                 if self.locals_ty.get(*i).and_then(of_rt).is_some_and(|t| {
@@ -1354,52 +1365,30 @@ impl<'a> Compiler<'a> {
                 let pi = self.place(p);
                 self.emit(Op::StoreLocal { i, a, p: pi });
             }
-            _ => {
-                let a = if has_index(p) {
-                    self.expr_copy(e)?
-                } else {
-                    self.expr_any(e)?
-                };
-                let rp = self.rplace(p)?;
-                // A field read stored in a global or an array element: a Blob moves first (`blob_transfer::FieldRead`).
-                if let Some(mut read) = self.blob_field_read(e).filter(|_| FieldRead::stored_in(p)) {
-                    read.global = matches!(p, ir::Place::Global(_));
-                    self.emit(Op::BlobFieldRead { r: a, read });
-                }
-                let pi = self.place(&rp);
-                if let Some((i, kind)) = single {
-                    self.emit(Op::SingleWrite { i, kind });
-                }
-                self.emit(Op::StorePlace { p: pi, a });
-            }
+            _ => self.store_place(p, e, single)?,
         }
         Ok(())
     }
 
-    /// How a write that replaces global `g` without using it is noted: `Reset` only for a global of a simple type, whose
-    /// value has no part a `Clear` or an assignment keeps; `Replace` (a touch) for every other type, such as a record
-    /// (`Clear` keeps a temporary record's rows, run-onrun/RunCommitClear.al:386-405; the runtime keeps the target's
-    /// filters on an assignment), a RecordRef, a collection or a handle.
-    fn replace_kind(&self, g: usize) -> SingleWriteKind {
-        match self.globals.get(g).map(|s| &s.ty) {
-            Some(
-                RtType::Integer
-                | RtType::BigInteger
-                | RtType::Decimal
-                | RtType::Boolean
-                | RtType::Char
-                | RtType::Text(_)
-                | RtType::Code(_)
-                | RtType::Date
-                | RtType::Time
-                | RtType::DateTime
-                | RtType::Duration
-                | RtType::Guid
-                | RtType::Option(_)
-                | RtType::Enum(_),
-            ) => SingleWriteKind::Reset,
-            _ => SingleWriteKind::Replace,
+    /// `p := e` through `Op::StorePlace`, which writes through `Session::write_as`.
+    fn store_place(&mut self, p: &'a ir::Place, e: &'a ir::Expr, single: Option<(u32, SingleWriteKind)>) -> R<()> {
+        let a = if has_index(p) {
+            self.expr_copy(e)?
+        } else {
+            self.expr_any(e)?
+        };
+        let rp = self.rplace(p)?;
+        // A field read stored in a global or an array element: a Blob moves first (`blob_transfer::FieldRead`).
+        if let Some(mut read) = self.blob_field_read(e).filter(|_| FieldRead::stored_in(p)) {
+            read.global = matches!(p, ir::Place::Global(_));
+            self.emit(Op::BlobFieldRead { r: a, read });
         }
+        let pi = self.place(&rp);
+        if let Some((i, kind)) = single {
+            self.emit(Op::SingleWrite { i, kind });
+        }
+        self.emit(Op::StorePlace { p: pi, a });
+        Ok(())
     }
 
     /// `p := Convert(Variant, x)` where `x` may be a Variant (`variant_copy::source_of`): a site of `variant_copy.rs`, which

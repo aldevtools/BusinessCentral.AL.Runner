@@ -596,6 +596,7 @@ fn source_base(a: &TestArgs) -> TestArgs {
     t.filters.clear();
     t.exact.clear();
     t.excludes.clear();
+    t.excludes_exact.clear();
     t
 }
 

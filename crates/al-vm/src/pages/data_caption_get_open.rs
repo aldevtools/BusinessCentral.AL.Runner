@@ -5,7 +5,7 @@
 //! path there.
 
 use super::data_caption_open::{HandedRecord, Shape};
-use super::pinned_shape::{NextEnd, PinnedEnd};
+use super::pinned_shape::{NextEnd, PinnedEnd, Reads};
 use super::*;
 use crate::ui::UiKind;
 use al_builtins::filter::{FieldFilter, FilterExpr};
@@ -19,7 +19,7 @@ const MOST_ROWS: usize = 3;
 const GET_OPENED_END: PinnedEnd = PinnedEnd {
     reason: "a call of the test on a page whose DataCaptionExpression ran at the open as DataCaptionGetOpen.al measured, other \
              than Caption, a control's value read or Close (not pinned)",
-    reads: true,
+    reads: Reads::Any,
     caption: true,
     part_reads: false,
     one_action: false,

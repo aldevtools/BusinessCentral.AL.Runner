@@ -12,7 +12,8 @@ your scratch folder.
 
 1. `CLAUDE.md`: the priorities and the hard rules. Rule 3 defines when a behavior may run without a pin.
 2. `docs/agents/brief.md`: what the implementer had to do before hand-back.
-3. `docs/agents/recurring-findings.md`: your first checklist.
+3. `docs/agents/recurring-findings.md`: your first checklist. Read an item's examples in
+   `docs/agents/recurring-findings-examples.md` when the diff touches it.
 4. The PR body, the area table and the full diff against `origin/main`.
 
 ## Order of work
@@ -46,5 +47,5 @@ Write the hand-back as the next round's task part for `al-implementer`:
 - Each finding: severity, `file:line`, the scenario that shows it (branch result, main result), and the fix in
   allowlist form (which exact fact to require). Name the probe app and its logs.
 - Name the recurring-findings item a finding belongs to. A new kind of finding that you saw in an earlier pull
-  request too: propose a row for `docs/agents/recurring-findings.md`.
+  request too: propose an item for `docs/agents/recurring-findings.md` and its examples file.
 - No host names, user names, home paths or URLs in anything that goes into the repository or a pull request.

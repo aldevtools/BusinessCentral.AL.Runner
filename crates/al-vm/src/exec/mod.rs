@@ -57,6 +57,12 @@ pub(crate) enum Op {
         p: u32,
         a: u16,
     },
+    /// `place p := a`, `a` the value of a variable of the `var` section stored into an element of an array of memberless
+    /// Options (`ir::Expr::VarSectionValue`, `Session::store_var_section`).
+    StoreVarSectionValue {
+        p: u32,
+        a: u16,
+    },
     /// `place := a` where `a` may be a Variant and the place is no local: site `s` of `variant_copies` (`variant_copy.rs`). A
     /// local takes `Op::StoreLocal`, whose record goes to the site of its place.
     StoreVariantCopy {
@@ -436,12 +442,9 @@ pub(crate) struct CallSite {
 /// How `Op::SingleWrite` writes its global.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SingleWriteKind {
-    /// A builtin replaces the value without using it (`Get`, `Init`, a `Find`; `Clear` and `G := x` on a global of a type
-    /// that is not simple, `Compiler::replace_kind`): after a guard, the refill.
+    /// A write replaces the value without using it (`Get`, `Init`, a `Find`, `Clear`, `G := x` where `x` is made without
+    /// `G`): after a guard, the refill.
     Replace,
-    /// As `Replace`, and no part of the value stays (`Clear`, `G := x` where `x` is made without `G`, on a global of a simple
-    /// type; `Compiler::replace_kind`): `Session::single_reset`.
-    Reset,
     /// As `Modify`, only when the global holds a temporary record (`Insert`, `Delete`).
     ModifyTemp,
     /// A write that may keep or use what the global held: a `var` argument, `List.Add`, `Dictionary.Set` (the other

@@ -2,9 +2,8 @@
 //! counts targets that key field (al-runner issue 7937).
 //!
 //! Business Central raises an error for it after the OnRename trigger and the database rename event, and OnAfterRenameEvent
-//! does not run. Nothing in the pinned corpus measures it; the evidence is corpus pull request 1370,
-//! record/table-relation/RenameBlankKeyRelation.al, measured on BC 27.5, 28.5 and 29.0 (assumption
-//! rename-blank-key-with-relation). The `:line` citations in this file are lines of that file.
+//! does not run. Pinned by corpus record/table-relation/RenameBlankKeyRelation.al, the same on BC 27.5, 28.5 and 29.0. The
+//! `:line` citations in this file are lines of that file.
 //!
 //! The error is raised only in the cells that file measures: the base cell (`:1239` from blank, `:1279` to blank) and each
 //! cell that differs from the base cell in one of the facts `Session::measured_blank_rename` checks. Any other value of
@@ -16,7 +15,6 @@ use crate::Session;
 use crate::globaltriggers::GlobalOp;
 use crate::records::{BR, Rec};
 use crate::rename::RenameRef;
-use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::native::{AlError, Signal, unsupported};
 use al_builtins::ops;
 use al_builtins::value::{RowOrigin, RtType, Value};
@@ -109,7 +107,7 @@ impl Session {
             })),
             Err(what) => unsupported(format!(
                 "Rename of {}: a primary key field another table relates to changes to or from a blank or zero key value, in a \
-                 shape that is not measured ({what}; docs/probes-needed.md, rename-blank-key-with-relation)",
+                 shape that is not measured ({what})",
                 t.name
             )),
         }
@@ -136,7 +134,6 @@ impl Session {
                 t.name
             ));
         }
-        assume(Assumption::RenameBlankKeyWithRelation);
         rec.borrow_mut().fields = old.to_vec();
         Err(Signal::Error(Box::new(pending.error)))
     }
@@ -224,10 +221,20 @@ impl Session {
                 _ => Err("a Rename that AL code did not call, or RecordRef.Rename with its return value used"),
             },
             self.buffer_fact(rec, t, stored, old, from_blank),
-            if rec.borrow().filters.is_empty() {
-                Ok(false)
-            } else {
-                Err("a record with a filter")
+            // The runner's records (:775-850): no filter, no SetCurrentKey, and no lock in the open transaction.
+            match (&*rec.borrow(), &self.tx) {
+                (r, tx)
+                    if r.filters.is_empty()
+                        && r.key == 0
+                        && r.adhoc.is_none()
+                        && tx.open.locked_tables.is_empty()
+                        && !tx.open.locks.lock_tx
+                        && !tx.open.locks.recref_lock_tx
+                        && tx.open.locks.lock_unpinned.is_none() =>
+                {
+                    Ok(false)
+                }
+                _ => Err("a record with a filter or SetCurrentKey, or a lock in the open transaction"),
             },
             if t.per_company && schema.extensions.is_empty() {
                 Ok(false)
@@ -291,13 +298,23 @@ impl Session {
             },
             // In every measured cell the related table declares no TableType and no ObsoleteState, and the related field no
             // Enabled (the base cell's related table :58 and field :64).
+            // Both tables declare their primary key only, in one app (:51-670).
             match (
                 child_table_prop("TableType"),
                 child_table_prop("ObsoleteState"),
                 child_prop("Enabled"),
             ) {
-                (false, false, None) => Ok(false),
-                _ => Err("a related table with TableType or ObsoleteState, or a related field with Enabled"),
+                (false, false, None)
+                    if t.keys.len() == 1
+                        && child.keys.len() == 1
+                        && engine.program.objects[child_index].app == master.app =>
+                {
+                    Ok(false)
+                }
+                _ => Err(
+                    "a related table with TableType, ObsoleteState, a secondary key or of another app, a related field with \
+                     Enabled, or a renamed table with a secondary key",
+                ),
             },
             // TestTableRelation = false on the related field (:2793, :2806).
             match child_prop("TestTableRelation").as_deref() {
@@ -338,8 +355,9 @@ impl Session {
         }
     }
 
-    /// How the record got the row it renames. It holds the stored row as it is, every stored field: read by Get of a
-    /// committed row (the base cell), or inserted by the variable itself (:2674, :3007, from blank). A stale record gets
+    /// How the record got the row it renames, since the last Commit (the runner reads and renames in one OnRun, :775-850). It
+    /// holds the stored row as it is, every stored field: read by Get of a committed row (the base cell), or inserted by the
+    /// variable itself with no Commit before the Rename (:846-851, :3012-3016, from blank). A stale record gets
     /// another error on Business Central (:2894), raised before this rule by `Session::stale_rename` (stale_rename.rs).
     fn buffer_fact(&self, rec: &Rec, t: &TableDef, stored: &[Value], old: &[Value], from_blank: bool) -> Fact {
         let same = |i: usize| ops::compare(&stored[i], &old[i]).ok() == Some(Ordering::Equal);
@@ -355,9 +373,11 @@ impl Session {
                 _ => None,
             });
         match rec.borrow().row_origin.filter(|o| Some(o.version) == version) {
-            Some(o) if o == RowOrigin::new(false, o.version, o.commits) => Ok(false),
-            Some(o) if o == RowOrigin::new(true, o.version, o.commits) && from_blank => Ok(true),
-            _ => Err("a record that got its row otherwise than by Get of a committed row or by its own Insert"),
+            Some(o) if o == RowOrigin::new(false, o.version, self.commits) => Ok(false),
+            Some(o) if o == RowOrigin::new(true, o.version, self.commits) && from_blank => Ok(true),
+            _ => Err(
+                "a record that got its row otherwise than by Get of a committed row or by its own Insert since the last Commit",
+            ),
         }
     }
 }

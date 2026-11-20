@@ -1,6 +1,6 @@
 # ADR-076: Apps installed on the server that are not dependencies of the app under test
 
-- Status: Accepted (2026-11-17)
+- Status: Accepted (2026-11-20, owner)
 - Date: 2026-11-16
 - Owner decision behind it (2026-11-16): users can declare apps that are installed on their BC server but are not
   dependencies of the app under test, as the corpus does with `extra_apps`. The runner loads them from the BC
@@ -12,7 +12,8 @@
   - ADR-013 Layer A decision 10 and the amendment of 2026-11-10, item 6 ("Offline"): an extra app of a corpus suite
     that is not found is no longer skipped and logged; it stops the suite's pass (section 11);
   - [ADR-028](028-alrunner-serve.md) decision 8 (request fields): `runTests` and `execute` get the field
-    `installedApps`. Additive.
+    `installedApps`. Additive;
+  - ADR-046 A8: the order across apps for one event is pinned (section 2b).
 - Depends on: [ADR-062](062-permission-enforcement.md) for the denial #8160 reports (section 2, "What this ADR does not
   give")
 - Related: [ADR-022](022-compile-cache.md) (cache layers and the baseline key), [ADR-046](046-install-code-of-the-app-under-test.md)
@@ -122,8 +123,8 @@ measures; every other shape of that row refuses.
 | NAV App Installed App rows, by name | `BiTpEnv.al:28,31,79-97` | runs |
 | The test runner's steps find 130301 and 130302 by id and run them (`RunnerReset::of`, `TEST_RUNNER_CODEUNITS`) | `BiTpEnv.al:29,32` (runner frames) | runs. The denial needs ADR-062, see below |
 | A subscriber of an installed app runs (Backup Management's four `GetDatabaseTableTriggerSetup` flags) | `trigger-setup/BiTriggerSetup.al:222-260`, `setup-order/Y3SetupOrderTests.al:10,36`, `stale-delete-triggers/WbStaleDeleteTrace.al:25` | runs |
-| Order of an installed app's subscribers against another app's subscribers to the same event | the existing rule in `al-vm/src/dispatch.rs` (section 2b) | runs where that rule is pinned; refuses where it refuses today |
-| Default test handlers (BC 29, ADR-059) of an app no test app declares | `al-language-xhandler-c`, `-d` (published, undeclared apps under test) | assumption `installed-app-default-handlers` for an artifact app; no step 1 app has one today, so it refuses until the probe measures one |
+| Order of an installed app's subscribers against another app's subscribers to the same event | the existing rule in `al-vm/src/dispatch.rs` (section 2b) | runs (section 2b) |
+| Default test handlers (BC 29, ADR-059) of an app no test app declares | `al-language-xhandler-c`, `-d` (published, undeclared apps under test) | refuses in step 1 (no artifact app has one); the assumption `installed-app-default-handlers` is added when the probe measures one |
 | AllObj rows of other object types, AllObjWithCaption, Field, Key, Table Metadata, CodeUnit Metadata, the page and report metadata tables, Page Control Field | none (#8170's reporter measured a Field scan) | assumption `installed-app-metadata-rows` (the installed-app probe; evidence also the #8170 report) |
 | Published Application rows and their "Published As", Installed Application rows | none | refuses: a read that returns a row of an app outside the closure raises `Signal::Unsupported` |
 | All Profile rows | none | refuses, as above |
@@ -147,22 +148,26 @@ Further facts that hold for every row:
   a case that goes from pass to refused is a regression and blocks the PR until that row has a pin or an assumption.
 
 **What this ADR does not give for #8160.** It makes 130302 run. The denial the reporter sees on BC also needs the
-permission sets 130302 assigns to be enforced. Today they are not: `runner_reset.rs:72-75` and the assumption
-`runner-permission-sets-grant-all` grant every access. Measured on main (binary of 2026-11-14):
-`al-test-cli --root . --bc-version 27 --codeunit 81553 --explain BiTpDefault_Insert` fails with "LT BI inserted", where
-BC raises "Sorry, the current permissions prevented the action. (TableData 81550 ...)". The case and nine more
-`BiTp*_Insert` and `BiTp*_Permissions` cases are on `metrics/27/not-passing-testlibraries.txt`.
+permission sets 130302 assigns to be enforced. Outside the shapes enforcement measures, `runner_reset.rs:72-75` and the
+assumption `runner-permission-sets-grant-all` still grant every access.
 
-Draft PR 8166 (branch `perm-default`, the enforcement stage of ADR-062, in a fix round) raises the pinned Insert error
-for the measured Tests-TestLibraries shapes; `BiTpDefault_Insert` and its siblings pass on that branch. So:
+PR 8166 (the enforcement stage of ADR-062, merged 2026-11-17) raises the pinned Insert error for the measured
+Tests-TestLibraries shapes. Its gate requires every measured fact by equality, so the corpus case
+`BiTpDefault_Insert` passes on main, and a write of another shape gets a flagged pass under
+`runner-permission-sets-grant-all`. So:
 
-- #8160 needs both this ADR (130302 runs for a user who declares Tests-TestLibraries) and that enforcement (PR 8166,
-  ADR-062).
-- #8160 closes only when the `BiTpDefault_Insert` line is pruned from the not-passing list on `main`.
-- Until then, the reporter gets BC's error for the shapes PR 8166 measures, once both have landed, and a flagged pass
-  under `runner-permission-sets-grant-all` for every other shape. The reply to the reporter says so.
+- #8160 needs this ADR (130302 runs for a user who declares Tests-TestLibraries) and enforcement that covers the
+  reporter's shape.
+- #8160 closes only when the reporter's repro, run with `--installed-app Tests-TestLibraries`, gives BC's error as a
+  clean pass of the corpus case that pins that shape. A pruned `BiTpDefault_Insert` line is not enough.
+- Until then the reporter gets a flagged pass. The reply to the reporter says so.
 
 ### 2a. Where closure membership is kept
+
+The closure is the apps under test, their dependencies, and the apps of the test environment the runner always
+loads: the platform System.app, the Application floor and Microsoft's Test Runner app (ADR-013, "The test
+environment's apps"). Only apps named as installed (`--installed-app`, corpus `extra_apps`) and the apps they pull
+in that the closure does not hold are outside it.
 
 Which loaded apps are outside the closure is computed per run, and per pass in the corpus, from the apps under test:
 the one function of section 1 returns it with the resolved apps, and the run keeps it as run state next to the program
@@ -192,10 +197,12 @@ ascending app id; inside one app, ascending codeunit id. Its pins:
 
 The sort reads only the loaded apps and their dependencies; it does not know how an app came to be loaded, and neither
 does BC. An installed app is an app that no app under test depends on, which is the shape the second group of pins
-measures (one of those apps was published first and still runs second). So the rule applies as it is. Where it refuses
-today (`visit_orders`, where the readings it cannot tell apart give different orders and `MEASURED_PAIRS` has no
-entry), it refuses for installed apps too. ADR-046 A8 still lists "across apps for one event (probe Q2)" as open; those
-pins answered it after A8 was written, and the build PR updates that line.
+measures (one of those apps was published first and still runs second). So the rule applies as it is.
+
+The rule needs no refusal for installed apps. It is measured directly for an installed Microsoft app outside the
+closure against partner apps: Tests-TestLibraries was in the container before the corpus apps were published, and the
+observed orders are the rule's (`Y3SetupOrderTests.al:24-25`, `:37-38`; `BiTriggerSetup.al:21-22`; `dispatch.rs`
+`MEASURED_PAIRS`). ADR-046 A8 still lists "across apps for one event (probe Q2)" as open; this ADR amends that line.
 
 ### 3. Install order
 
@@ -211,8 +218,8 @@ the two apps. Two unrelated partner dependency apps inside the closure run as th
 
 ### 4. How a user names an installed app
 
-On the command line, `--installed-app VALUE`, repeatable, on `al-runner test`, `debug`, `serve` (as the server's
-default, see 6), `impact-index build` and `test-microsoft`. VALUE is one of:
+On the command line, `--installed-app VALUE`, repeatable, on `al-runner test`, `debug`, `serve` (the server's list, the
+floor of every request, see 6), `impact-index build` and `test-microsoft`. VALUE is one of:
 
 1. an app id (a GUID);
 2. a name, matched case-insensitively (section 5). A name that matches apps with different ids stops the run and lists
@@ -252,9 +259,9 @@ already uses for a dependency (`al-deps/src/artifact.rs`, `find_entries`, `rank_
    its name; that would be one fetch per `*.Source.zip` entry. Such an app is a gap for an issue, and the user can name
    it as step 2 allows.
 
-**How an id is matched.** An id is matched against the manifests of the build's entries already in the cache folder.
-An id that none of them has exits 2 with "the artifact is searched by name: pass the app's name", because the feed has
-no index by id. The corpus `extra_apps` give both: the name finds the entry and the id checks the manifest, as today.
+**How an id is matched.** In step 1 an id alone exits 2 with "the artifact is searched by name: pass the app's
+name", whatever is in the cache. An id given together with a name (the corpus `extra_apps`) checks the manifest the
+name rule found: a different id stops the run.
 
 **Cost.** The central directory read (a few hundred kilobytes, shared with every other dependency fetch of the run),
 plus one ranged fetch per hinted entry, once per build: later runs read the saved files.
@@ -337,10 +344,11 @@ its unpinned rows. Section 3 adds the install order refusal for step 2.
 ### 8. Steps
 
 - **Step 1: Microsoft's apps from the artifact**, named by name or id, behind the admission gate of 7. This lets
-  130302 run for #8160 (the denial also needs PR 8166, section 2) and covers #8170 with Base Application and the
+  130302 run for #8160 (the denial needs enforcement of the reporter's shape, section 2) and covers #8170 with Base Application and the
   rest, through the assumptions of section 2. It is what the corpus `extra_apps` and bc-linux do.
-- **Step 2: other apps and paths** (a partner app installed on the user's server). Needs the install order probe of 3
-  and a pin for "Published As" of an app installed on the user's server. Owner question 2 decides whether and when.
+- **Step 2: other apps and paths** (a partner app installed on the user's server). Built only when a user asks (owner decision 2), after the
+  install order probe of 3, a pin of the subscriber order for a non-Microsoft app installed outside the closure, and a
+  pin of "Published As" for an app installed on the user's server.
 
 ### 9. Output
 
@@ -412,14 +420,15 @@ origin, `pulledInBy` when pulled in), next to `skippedDependencies`. Both are ad
 
 - A user can describe the server the tests run on. For #8170 the runner gives that server's answer for the pinned
   rows, a flagged pass for the assumption rows and a refusal for the rest. For #8160, 130302 runs; BC's denial needs
-  ADR-062's enforcement as well (PR 8166), and the issue stays open until `BiTpDefault_Insert` is pruned on `main`.
+  ADR-062's enforcement as well (PR 8166 for the measured shapes), and the issue stays open until the reporter's shape
+  gives BC's error.
 - The default does not change: without `--installed-app`, a run models the closure, as today and as the corpus main
   environment.
 - An installed app's code runs, and the apps it pulls in are installed too. Users who declare large apps get more
   refusals in the first versions; the refusal reasons name the routine and the app.
 - The corpus `extra_apps` path and the user path are one code path, so the testlibraries suite checks the user feature.
 - Not-found extra apps stop a corpus pass instead of being skipped.
-- Five new assumption ids (section 2) and their `docs/probes-needed.md` rows, all citing the installed-app probe.
+- Four new assumption ids (five once the probe measures a default handler) (section 2) and their `docs/probes-needed.md` rows, all citing the installed-app probe.
 - `docs/manual/cli-reference.md` and `tool-protocol.md` get the flag and the field in the build PR.
 
 ## Conformance
@@ -428,7 +437,8 @@ Red/green, in this order (hard rule 1):
 
 1. **Refactor first, no behavior change.** `deps::load_corpus`'s extra apps, `with_test_environment` and the
    `--company-data` roots move into the one function of decision 1. `--baseline-diff` on BC 27, 28 and 29 shows no
-   change; `metrics/<major>/work.json` does not change; `tools/fresh_vs_grown.sh run` shows 0 differences.
+   change; `metrics/<major>/work.json` does not change; `tools/fresh_vs_grown.sh run` shows 0 differences. The Test Runner app is a closure member after the move (a Rust test
+   on the returned set).
 2. **Rust tests for what the corpus cannot reach** (CLI, protocol and refusal plumbing), each red before the code:
    - `alrunner-cli` args: `--installed-app` with an id, a name, repeated; a path refused in step 1 with a reason that
      names step 2; the serve field `installedApps` accepted and added to the server list, a name in both loaded once, `[]` or no
@@ -437,7 +447,7 @@ Red/green, in this order (hard rule 1):
      `.alpackages`, a package with publisher "Microsoft" in `--dep` at another build, a name that hits in the artifact
      and in `--dep`, a pulled-in app that fails the gate; each exits 2 naming step 2.
    - `al-testrun` dependency tests on a pool of fixture packages: not found, found without source, a name with two ids,
-     an id not in the cache, an unmet dependency, a dependency on an app under test, a name not on disk with
+     an id alone, with a warm and with an empty cache (both exit 2), an unmet dependency, a dependency on an app under test, a name not on disk with
      `--no-download`; each exits 2 with its message. `--allow-missing-dependencies` does not skip one; an app already
      in the closure is a no-op. The corpus path still loads "Harness Env Lib" through `extra_apps`.
    - The feed match of section 5 on a fake feed: a folder name that differs from the app name, a country entry over the
@@ -456,9 +466,7 @@ Red/green, in this order (hard rule 1):
 3. **The corpus is the oracle for Microsoft's apps.** The pinned rows of section 2 are checked by the testlibraries
    suite. A check runs that suite through `al-runner test` with `--installed-app Tests-TestLibraries --installed-app
    "Data Archive"` (the corpus apps as `--dep` folders) and compares its outcomes with the `al-test-cli` pass: 0
-   differences on BC 27, 28 and 29. This check cannot show #8160 closed: both sides fail `BiTpDefault_Insert` the same
-   way today. #8160 counts as closed only when that line is pruned from `metrics/27/not-passing-testlibraries.txt` (and
-   its siblings for 28 and 29) on `main`, after PR 8166 has landed.
+   differences on BC 27, 28 and 29. This check does not show #8160 closed: it compares two paths of the runner. #8160 closes as section 2 says.
 4. **The installed-app probe** pins, for an app outside the closure, every assumption row of section 2:
    `installed-app-metadata-rows` (a Field scan by `FieldName` without `TableNo` that reaches a Base Application, Data
    Archive or Tests-TestLibraries table, from an app under test without Base Application in its closure; the Table

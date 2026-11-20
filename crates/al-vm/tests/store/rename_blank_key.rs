@@ -1,10 +1,10 @@
 //! A Rename that changes a primary key field to or from its blank or zero value while a validated relation targets that key
-//! field (al-runner issue 7937, assumption rename-blank-key-with-relation). Business Central raises an error after the
-//! triggers; the values are those of corpus pull request 1370, record/table-relation/RenameBlankKeyRelation.al (the `:line`
+//! field (al-runner issue 7937). Business Central raises an error after the
+//! triggers; the values are pinned by corpus record/table-relation/RenameBlankKeyRelation.al (the `:line`
 //! citations). Only the measured cells raise it: the base cell and each cell one fact away from it. Any other such rename is
 //! refused, and a rename outside the rule keeps main's result.
 
-use al_builtins::assumptions::{Assumption, take_hits};
+use al_builtins::assumptions::take_hits;
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
 
@@ -70,7 +70,7 @@ fn the_reporters_rename_from_a_blank_key_raises_bcs_error_on_every_major() {
         take_hits();
         let r = run_on(bc, &format!("{MASTER}\n{CHILD}"), REPRO).unwrap();
         assert_eq!(r, format!("{SECOND}|DB:Ok"), "{bc}");
-        assert!(take_hits().contains(&Assumption::RenameBlankKeyWithRelation));
+        assert_eq!(take_hits(), Vec::new(), "no assumption: the pin covers it");
     }
 }
 
@@ -160,7 +160,7 @@ fn each_measured_cell_raises_the_error() {
             Ok(got) => assert_eq!(got, want, "{name}"),
             other => panic!("{name}: {other:?}"),
         }
-        assert!(take_hits().contains(&Assumption::RenameBlankKeyWithRelation), "{name}");
+        assert_eq!(take_hits(), Vec::new(), "{name}");
     }
 }
 
@@ -303,6 +303,17 @@ fn a_record_outside_the_measured_states_is_refused() {
             "RecordRef with the return value",
             "M.Insert(); Commit(); M2.Get(''); RR.GetTable(M2); Ok := RR.Rename('X');",
         ),
+        // Every measured Rename runs on a record without SetCurrentKey, with no lock taken (the runner's OnRun, :775-850).
+        (
+            "SetCurrentKey before the Rename",
+            "M.Insert(); Commit(); M2.SetCurrentKey(Name); M2.Get(''); M2.Rename('X');",
+        ),
+        (
+            "LockTable before the Rename",
+            "M.Insert(); Commit(); M2.LockTable(); M2.Get(''); M2.Rename('X');",
+        ),
+        // The own Insert is measured with no Commit before the Rename (:846-851, :3012-3016).
+        ("own Insert, Commit, Rename", "M.Insert(); Commit(); M.Rename('X');"),
     ];
     for (name, steps) in cases {
         let why = refused(run(&objects, &body(steps)));
@@ -402,6 +413,46 @@ fn a_rename_outside_the_rule_keeps_mains_result() {
             Ok(got) => assert_eq!(got, want, "{name}"),
             other => panic!("{name}: {other:?}"),
         }
-        assert!(!take_hits().contains(&Assumption::RenameBlankKeyWithRelation), "{name}");
+        assert_eq!(take_hits(), Vec::new(), "{name}");
     }
+}
+
+// Every measured related table declares its primary key only, in the app of the renamed table (:51-670).
+#[test]
+fn a_related_table_with_a_secondary_key_is_refused() {
+    let child = "table 50121 \"S Child\" { fields { field(1; Id; Integer) { } field(2; Ref; Code[20]) { TableRelation = \"S Master\"; } } keys { key(PK; Id) { } key(ByRef; Ref) { } } }";
+    let why = refused(cell(MASTER, child, "", "M.Code := '';", "'X'"));
+    assert!(why.contains("blank or zero key value"), "{why}");
+}
+
+// A related table declared in another app than the renamed table is not measured.
+#[test]
+fn a_related_table_of_another_app_is_refused() {
+    let master = al_sema::workspace::AppSource {
+        id: "m".into(),
+        name: "m".into(),
+        dependencies: vec![],
+        files: vec![("m.al".into(), MASTER.into())],
+    };
+    let body = "var M: Record \"S Master\"; M2: Record \"S Master\"; C: Record \"S Child\"; begin
+        M.Code := ''; M.Insert(); C.Id := 1; C.Insert(); Commit();
+        M2.Get('');
+        M2.Rename('X');
+        exit('renamed');
+    end;";
+    let child = al_sema::workspace::AppSource {
+        id: "c".into(),
+        name: "c".into(),
+        dependencies: vec!["m".into()],
+        files: vec![(
+            "c.al".into(),
+            format!("{CHILD}\ncodeunit 50150 C {{ procedure F(): Text {body} }}"),
+        )],
+    };
+    let l = al_testkit::compile_apps(vec![master, child]);
+    let oi = l.program.objects.iter().position(|o| o.name == "C").unwrap();
+    let mut s = al_vm::Session::new(al_vm::Engine::new(l.program.clone(), al_testkit::blocked(&l)));
+    let inst = s.instance(oi);
+    let why = refused(s.call(oi, 0, inst, vec![]).map(|_| String::new()));
+    assert!(why.contains("blank or zero key value"), "{why}");
 }

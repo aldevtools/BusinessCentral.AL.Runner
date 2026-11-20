@@ -20,9 +20,9 @@
 //! Every other part keeps the blank record it had before (`suite/empty_part_rec_link.rs`
 //! `empty_list_part_rec_outside_the_measured_shape`).
 //!
-//! The List host (al-runner issue 6924, comment 6822249976: the reporter's host is a List page) runs through the assumption
-//! `empty-part-rec-list-host` until corpus pull request 1339 (pages/parts/EmptyPartRecLinkList.al) is pinned; its allowlist
-//! is `empty_part_rec_list.rs`. There the landing leaves the fields the part's filters name unknown, and Rec holds the values
+//! The List host (al-runner issue 6924, comment 6822249976: the reporter's host is a List page) is pinned by
+//! tests/al-language/pages/parts/EmptyPartRecLinkList.al in the cells that file measures; its allowlist is
+//! `empty_part_rec_list.rs`. There the landing leaves the fields the part's filters name unknown, and Rec holds the values
 //! only while a read the cell measured runs: a test Invoke of an action of the part right after the landing, which ends at
 //! any other test call on the host or its parts that starts inside it (`Session::reading_empty_list_rec`,
 //! `Session::end_read_at_test_call`). Code that the Invoke runs itself (the action body and what it calls) reads the values.
@@ -31,7 +31,7 @@ use super::empty_part_rec_list::ListCell;
 use super::parts::LINK_GROUP;
 use super::pinned_shape::{PartStep, TestCall};
 use super::*;
-use al_builtins::assumptions::{self, Assumption};
+use al_builtins::filter::FilterExpr;
 use al_builtins::page_op::PageMethod;
 
 impl Session {
@@ -86,7 +86,7 @@ impl Session {
 
     /// Runs `f`, the test's call `call` on a control of page `st`. When `st` is a part that landed in a List-host cell
     /// (`empty_part_rec`) and the call is a read the cells measured (`measured_read`), Rec holds the link's single values
-    /// while `f` runs, through the assumption `empty-part-rec-list-host`; before and after, the fields the part's filters name
+    /// while `f` runs (EmptyPartRecLinkList.al, the action reads after each landing); before and after, the fields the part's filters name
     /// are unknown and a read of one is refused. A test call on the host or its parts that starts while `f` runs (from a UI
     /// handler) ends the read first (`end_read_at_test_call`). So host code that a test call runs, a control's source
     /// expression, a trigger outside such a call and any later call cannot read the values; code `f` itself runs can.
@@ -107,7 +107,6 @@ impl Session {
         if !self.measured_read(st, &landing, call) {
             return f(self);
         }
-        assume_list_cell();
         if let Some(l) = st.borrow_mut().empty_list_landing.as_mut() {
             l.reading = true;
         }
@@ -281,8 +280,15 @@ impl Session {
         let Ok(cell) = list_cell else {
             return Ok(Shape::Measured);
         };
-        // A test whose part landed in a cell is flagged, whether or not it reads the values.
-        assume_list_cell();
+        // Every List-host cell that runs links a host value that is not blank (EmptyPartRecLinkList.al: heads A, B, RA..RC;
+        // the cell with no host row, :1322, does not run).
+        let blank_link = r.filters.iter().any(|f| {
+            f.group == LINK_GROUP
+                && matches!(&f.expr, FilterExpr::Range(Some(Value::Code(a) | Value::Text(a)), _) if a.is_empty())
+        });
+        if blank_link {
+            return Ok(Shape::Miss("a field link whose host value is blank"));
+        }
         Ok(Shape::ListCell(cell))
     }
 }
@@ -313,7 +319,7 @@ impl EmptyListLanding {
 enum Shape {
     /// The pinned Card or Document shape: the link's single values.
     Measured,
-    /// A List-host cell (`empty_part_rec_list.rs`): the link's single values, through the assumption, only inside the reads the
+    /// A List-host cell (`empty_part_rec_list.rs`): the link's single values, only inside the reads the
     /// cell measured (`Session::reading_empty_list_rec`).
     ListCell(ListCell),
     /// Outside both, with the first fact that left them.
@@ -324,12 +330,6 @@ enum Shape {
 const OUTSIDE_READ: &str = "a read of Rec of a part that shows no row, on a field its filters name, on a List host outside the \
      reads the List-host cells measured (an action of the part the test invokes right after the landing, with no other call, \
      write to the store, rollback or error since): whether BC keeps the filter's value on Rec there is not pinned";
-
-/// Marks the assumption a List-host cell runs through: `empty-part-rec-list-host`. The page triggers of the hosts of
-/// tests/al-language/pages/parts/EmptyPartRecListHostTriggers.al are pinned there and add no mark.
-fn assume_list_cell() {
-    assumptions::assume(Assumption::EmptyPartRecListHost);
-}
 
 /// The fields the filters of `rec` name hold a `Value::Unknown` whose read is refused with `why`.
 fn unknown_filtered_fields(rec: &Rec, why: &str) {

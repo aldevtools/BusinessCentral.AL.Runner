@@ -3,10 +3,9 @@
 //! runner feeds BC's merger and converter equals the probe cells' (owner decision of 2026-11-15, "gate inputs, layout
 //! free"): the report, its columns and the row count here, the call in `super::call`, the fact vector in
 //! `report_save::html_cell`. The cells are the evidence that BC's own merger and converter, run by the runner on the
-//! build's own assemblies, give BC's bytes. Until a corpus bump pins the probe, each pass runs through the assumption
-//! `report-html-rendered-by-bc-converter`.
+//! build's own assemblies, give BC's bytes; the pinned corpus holds them.
 //!
-//! The cells (corpus pull request 1415, merged, not pinned; reports/html-email-body/RxHtmlHashTests.al):
+//! The cells (pinned corpus, reports/html-email-body/RxHtmlHashTests.al):
 //! Hash_WordAlpha_TwoRows (:192, report `RX Word Alpha`, RxHtmlBodyFixtures.al:53) and Hash_WordRgba_TwoRows (:218, report
 //! `RX Word Rgba`, RxLayoutSelFixtures.al:73). Each report has one data item over `RX Row` (RxHtmlBodyFixtures.al:12) with
 //! the field columns RowId (Integer) and RowTxt (Text), and a hand-built layout named by DefaultRenderingLayout; each save
@@ -14,8 +13,7 @@
 //! `RX Hash Bound` (:50), whose hand-built RxHashBound.docx binds the two field columns and the expressions `Id * 1234.5`
 //! (`AutoFormatType = 1`) and `DMY2Date(1, 2, 2026)`; one and three rows.
 //!
-//! The cells of corpus pull request 1419 (merged, not pinned; reports/html-email-body/RxHtmlWidenTests.al), each on the
-//! Bound report's columns with two rows: Plain_TwoRows (:394, the bound layout), Styles_ArialParagraphStyle (:440),
+//! The cells of reports/html-email-body/RxHtmlWidenTests.al (pinned corpus), each on the Bound report's columns with two rows: Plain_TwoRows (:394, the bound layout), Styles_ArialParagraphStyle (:440),
 //! Theme_FontScheme (:482) and Header_FromSectPr (:568), each the bound layout plus one part; Caption_RxCap_PlainBoundLayout
 //! (:614, a report `Caption`, the title). Numbering_BulletList_NoTabs (:524) keeps Part A: the converter pads the list label
 //! by its width in the host's fonts (`content_is_measured`).
@@ -55,6 +53,7 @@ pub(crate) struct SaveShape {
 #[derive(Debug)]
 pub(crate) struct MeasuredShape {
     pub(crate) columns: &'static [ColumnKind],
+    /// The row counts of the cells.
     pub(crate) rows: &'static [usize],
 }
 
@@ -105,8 +104,7 @@ pub(crate) const BUILDS: &[MeasuredBuild] = &[
 ];
 
 /// The parts of the measured layout files: those of RxWordAlpha.docx, RxWordRgba.docx and RxHashBound.docx (corpus pull
-/// request 1415), and the one part each layout of corpus pull request 1419 (merged, not pinned;
-/// reports/html-email-body/RxHtmlWidenTests.al) adds to them: a styles part (RxWdStyles.docx, Styles_ArialParagraphStyle
+/// request 1415), and the one part each layout of reports/html-email-body/RxHtmlWidenTests.al adds to them: a styles part (RxWdStyles.docx, Styles_ArialParagraphStyle
 /// :440), a theme part (RxWdTheme.docx, Theme_FontScheme :482) and a header part (RxWdHeader.docx, Header_FromSectPr :568).
 const PARTS: &[&str] = &[
     "[Content_Types].xml",
@@ -116,15 +114,15 @@ const PARTS: &[&str] = &[
     "docProps/app.xml",
     "word/_rels/document.xml.rels",
     "word/document.xml",
-    "word/header1.xml",
     "word/settings.xml",
+    "word/header1.xml",
     "word/styles.xml",
     "word/theme/theme1.xml",
 ];
 
 /// The relationship types of the measured layouts' `_rels/.rels` and `word/_rels/document.xml.rels`, each with an internal
 /// target (no `TargetMode`): the four of corpus pull request 1415's layouts, then the styles, theme and header
-/// relationships of RxWdStyles.docx, RxWdTheme.docx and RxWdHeader.docx (corpus pull request 1419).
+/// relationships of RxWdStyles.docx, RxWdTheme.docx and RxWdHeader.docx (RxHtmlWidenTests.al :440, :482, :568).
 const RELATIONSHIPS: &[&str] = &[
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument",
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties",
@@ -135,7 +133,7 @@ const RELATIONSHIPS: &[&str] = &[
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/header",
 ];
 
-/// The element names of the measured layouts' `word/document.xml` (all of them together). Of corpus pull request 1419's
+/// The element names of the measured layouts' `word/document.xml` (all of them together). Of RxHtmlWidenTests.al's
 /// layouts: `w:pStyle` (RxWdStyles.docx), `w:rFonts` with theme font attributes (RxWdTheme.docx), `w:headerReference` in
 /// `w:sectPr` (RxWdHeader.docx).
 const DOCUMENT_ELEMENTS: &[&str] = &[
@@ -153,16 +151,13 @@ const DOCUMENT_ELEMENTS: &[&str] = &[
     "w:docGrid",
     "w:document",
     "w:gridCol",
-    "w:headerReference",
     "w:highlight",
     "w:id",
     "w:p",
     "w:pPr",
-    "w:pStyle",
     "w:pgMar",
     "w:pgSz",
     "w:r",
-    "w:rFonts",
     "w:rPr",
     "w:sdt",
     "w:sdtContent",
@@ -180,13 +175,16 @@ const DOCUMENT_ELEMENTS: &[&str] = &[
     "w:tcW",
     "w:text",
     "w:tr",
+    "w:headerReference",
+    "w:pStyle",
+    "w:rFonts",
 ];
 
 /// The element names of the measured layouts' `word/settings.xml`.
 const SETTINGS_ELEMENTS: &[&str] = &["w:compat", "w:compatSetting", "w:settings", "w:useFELayout"];
 
 /// The element names of RxWdStyles.docx's `word/styles.xml`: document defaults with a font size, and paragraph styles with a
-/// name, a base style, `w:qFormat` and run properties of font, bold and size (corpus pull request 1419, :440; the
+/// name, a base style, `w:qFormat` and run properties of font, bold and size (RxHtmlWidenTests.al:440; the
 /// `font-family` values BC writes are the style's font and `'Times New Roman'`, RxHtmlWidenTests.al:473).
 const STYLES_ELEMENTS: &[&str] = &[
     "w:b",
@@ -203,7 +201,7 @@ const STYLES_ELEMENTS: &[&str] = &[
 ];
 
 /// The element names of RxWdTheme.docx's `word/theme/theme1.xml`: a color scheme, a font scheme and a format scheme
-/// (corpus pull request 1419, :482; the theme fonts the document names resolve to the scheme's typefaces,
+/// (RxHtmlWidenTests.al:482; the theme fonts the document names resolve to the scheme's typefaces,
 /// RxHtmlWidenTests.al:515).
 const THEME_ELEMENTS: &[&str] = &[
     "a:accent1",
@@ -241,8 +239,7 @@ const THEME_ELEMENTS: &[&str] = &[
     "a:themeElements",
 ];
 
-/// The element names of RxWdHeader.docx's `word/header1.xml`: paragraphs of plain runs of text (corpus pull request 1419,
-/// :568; BC writes them in a `-aw-headerfooter-type:header-primary` div before the body, RxHtmlWidenTests.al:609).
+/// The element names of RxWdHeader.docx's `word/header1.xml`: paragraphs of plain runs of text (RxHtmlWidenTests.al:568; BC writes them in a `-aw-headerfooter-type:header-primary` div before the body, RxHtmlWidenTests.al:609).
 const HEADER_ELEMENTS: &[&str] = &["w:hdr", "w:p", "w:r", "w:t"];
 
 /// Each XML part under `word/` with the element names the measured layouts use in it.
@@ -257,7 +254,6 @@ const PART_ELEMENTS: &[(&str, &[&str])] = &[
 /// The namespace declarations of the measured layouts' XML parts under `word/` (prefix, URI): the document and settings
 /// parts, and the DrawingML namespace of RxWdTheme.docx's theme part (the styles and header parts declare only `w`).
 const NAMESPACES: &[(&str, &str)] = &[
-    ("a", "http://schemas.openxmlformats.org/drawingml/2006/main"),
     ("m", "http://schemas.openxmlformats.org/officeDocument/2006/math"),
     ("mc", "http://schemas.openxmlformats.org/markup-compatibility/2006"),
     ("o", "urn:schemas-microsoft-com:office:office"),
@@ -293,6 +289,7 @@ const NAMESPACES: &[(&str, &str)] = &[
         "wps",
         "http://schemas.microsoft.com/office/word/2010/wordprocessingShape",
     ),
+    ("a", "http://schemas.openxmlformats.org/drawingml/2006/main"),
 ];
 
 /// Whether the layout is made only of what the measured layouts are made of: their parts, relationship types with internal

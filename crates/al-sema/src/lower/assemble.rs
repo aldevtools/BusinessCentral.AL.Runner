@@ -147,6 +147,22 @@ pub fn lower_with_workers(
     lower_core(ws, members, checked, positions, workers, None, Export::No).expect("no cache, no cache error")
 }
 
+/// The publisher of uncompiled subscriber `site` as the symbolic program names it (`piece_keys`: the key of each object).
+fn subscriber_target(
+    site: &crate::check::demand::SubscriberSite,
+    piece_keys: &[al_ir::sym::ObjKey],
+) -> al_ir::sym::SubscriberTarget {
+    use al_ir::sym::SubscriberTarget as T;
+    match (site.publisher, site.platform) {
+        (Some(p), _) => T::Object(piece_keys[p].clone()),
+        (None, ir::PlatformPublisher::CaptionClass) => T::CaptionClass,
+        (None, ir::PlatformPublisher::ReportingTriggers) => T::ReportingTriggers,
+        (None, ir::PlatformPublisher::FilterHelperTriggers) => T::FilterHelperTriggers,
+        (None, ir::PlatformPublisher::UiHelperTriggers) => T::UiHelperTriggers,
+        (None, _) => T::GlobalTriggers,
+    }
+}
+
 /// What a compile cache supplies to a run (see `provided.rs`).
 pub(crate) struct Provided<'a> {
     pub src: &'a dyn crate::provided::DepSource,
@@ -630,7 +646,7 @@ pub(crate) fn build_shared<'a>(
         ));
         layouts[oi] = Some(request);
         let (exts, extension_reasons, extension_assumes) =
-            match super::ext_order::report_extension_order(ws, &changing.get(&oi).cloned().unwrap_or_default()) {
+            match super::ext_order::report_extension_order(ws, oi, &changing.get(&oi).cloned().unwrap_or_default()) {
                 Ok(order) => (order.exts, Vec::new(), order.assumes),
                 Err(why) => {
                     let mut exts = changing.get(&oi).cloned().unwrap_or_default();
@@ -659,36 +675,15 @@ pub(crate) fn build_shared<'a>(
         report_irs[oi] = Some(crate::reports::build(&cx, &obj, over));
         report_layouts[oi] = Some(l);
     }
-    for (ei, base) in ext_base.iter().enumerate() {
-        let (Some(base), Some(layout)) = (*base, ext_layouts[ei].as_ref()) else {
-            continue;
-        };
-        let (Some(base_layout), Some(base_ir)) = (report_layouts[base].as_ref(), report_irs[base].as_ref()) else {
-            continue;
-        };
-        let cx = crate::reports::ExtContext {
-            ws,
-            members,
-            file: ws.objects[ei].file,
-            oi: ei,
-            base,
-            base_layout,
-            base_items: &base_ir.items,
-            layout,
-            routine_at: &routine_at,
-        };
-        let (ir, reasons) = crate::reports::build_ext(&cx, &ws.object_ast(ei));
-        ext_irs[ei] = Some(ir);
-        // The extension's reasons stop the report it changes.
-        let name = &ws.objects[ei].name;
-        if let Some(r) = report_irs[base].as_mut() {
-            r.unsupported.extend(
-                reasons
-                    .into_iter()
-                    .map(|why| format!("reportextension \"{name}\": {why}")),
-            );
-        }
-    }
+    lower_report_extensions(
+        ws,
+        members,
+        &report_layouts,
+        &mut report_irs,
+        &ext_layouts,
+        &mut ext_irs,
+        &routine_at,
+    );
     // Why a variable of an xmlport or report is refused, and the report extension that changes a
     // run: the cache supplies them for its objects.
     let n_objects = ws.objects.len();
@@ -696,7 +691,7 @@ pub(crate) fn build_shared<'a>(
         .map(|oi| xml_irs[oi].as_ref().and_then(|p| p.unsupported.first().cloned()))
         .collect();
     let mut report_reasons: Vec<Option<String>> = (0..n_objects)
-        .map(|oi| report_irs[oi].as_ref().and_then(|p| p.unsupported.first().cloned()))
+        .map(|oi| report_irs[oi].as_ref().and_then(crate::reports::variable_refusal))
         .collect();
     let mut report_extension: Vec<Vec<usize>> = (0..n_objects)
         .map(|oi| {
@@ -765,9 +760,9 @@ pub(crate) fn build_shared<'a>(
         ext_base,
         export,
         parse_diags: {
-            let mut by_file: HashMap<&str, Vec<&crate::workspace::Diagnostic>> = HashMap::default();
+            let mut by_file: HashMap<(usize, &str), Vec<&crate::workspace::Diagnostic>> = HashMap::default();
             for d in ws.diagnostics.iter().filter(|d| d.code == "AR0000") {
-                by_file.entry(d.file.as_str()).or_default().push(d);
+                by_file.entry((d.app, d.file.as_str())).or_default().push(d);
             }
             by_file
         },
@@ -795,6 +790,13 @@ pub(crate) fn build_shared<'a>(
                         if seen.insert(i.name.to_lowercase()) {
                             items_before += 1;
                         }
+                    }
+                    if let Some(ext) = shared.ext_irs[e].as_ref() {
+                        items_before += ext
+                            .aliases
+                            .iter()
+                            .filter(|(item, _)| matches!(item, ir::ItemAnchor::Foreign(_)))
+                            .count();
                     }
                 }
                 for v in ws.object_ast(e).var_decls() {
@@ -981,6 +983,7 @@ pub(crate) fn lower_core(
         program: Default::default(),
         unsupported: Default::default(),
         refusal_at: Vec::new(),
+        unresolved_calls: Vec::new(),
         calls: Default::default(),
         dependency: (0..ws.objects.len()).map(|oi| ws.is_dependency(oi)).collect(),
         provided: (0..ws.objects.len()).map(prov).collect(),
@@ -1143,15 +1146,7 @@ pub(crate) fn lower_core(
             let o = &ws.objects[site.object];
             let sub = &o.subscribers[site.index];
             subscriber_decls[site.object].push(al_ir::sym::SubscriberDecl {
-                target: match (site.publisher, site.platform) {
-                    (Some(p), _) => al_ir::sym::SubscriberTarget::Object(piece_keys[p].clone()),
-                    (None, ir::PlatformPublisher::CaptionClass) => al_ir::sym::SubscriberTarget::CaptionClass,
-                    (None, ir::PlatformPublisher::ReportingTriggers) => al_ir::sym::SubscriberTarget::ReportingTriggers,
-                    (None, ir::PlatformPublisher::FilterHelperTriggers) => {
-                        al_ir::sym::SubscriberTarget::FilterHelperTriggers
-                    }
-                    (None, _) => al_ir::sym::SubscriberTarget::GlobalTriggers,
-                },
+                target: subscriber_target(&site, &piece_keys),
                 index: site.index as u32,
                 event: sub.event.to_lowercase(),
                 element: sub.element.clone(),
@@ -1188,6 +1183,10 @@ pub(crate) fn lower_core(
     let embeds_of_all: Vec<Vec<usize>> = pieces
         .iter()
         .map(|p| p.as_ref().map_or_else(Vec::new, |p| p.embeds.clone()))
+        .collect();
+    out.unresolved_calls = pieces
+        .iter()
+        .map(|p| p.as_ref().is_some_and(|p| p.unresolved_call))
         .collect();
     for (oi, piece) in pieces.into_iter().enumerate() {
         crate::halt::check(); // The export of a cache layer grows too (`halt.rs`).
@@ -1259,14 +1258,7 @@ pub(crate) fn lower_core(
                     .get(&oi)
                     .map(|v| v.iter().map(|&p| p as u32).collect())
                     .unwrap_or_default(),
-                ext_slots: {
-                    let mut v: Vec<(String, u32)> = shared.ext_slots[oi]
-                        .iter()
-                        .map(|(n, &i)| (n.clone(), i as u32))
-                        .collect();
-                    v.sort();
-                    v
-                },
+                ext_slots: sorted_ext_slots(&shared.ext_slots[oi]),
                 routine_offsets: shared.routine_offsets[oi].iter().map(|&o| o as u32).collect(),
                 routine_roles: shared.driven.routine_roles[oi].clone(),
                 fields: piece
@@ -1451,6 +1443,13 @@ pub(crate) fn lower_core(
     }
     out.program = std::sync::Arc::new(program);
     Ok(out)
+}
+
+/// The slots of an object's extension variables (`DepFacts::ext_slots`), by name.
+fn sorted_ext_slots<'a>(slots: impl IntoIterator<Item = (&'a String, &'a usize)>) -> Vec<(String, u32)> {
+    let mut v: Vec<(String, u32)> = slots.into_iter().map(|(n, &i)| (n.clone(), i as u32)).collect();
+    v.sort();
+    v
 }
 
 /// Keeps the routine bodies of the objects lowered here compact (`ir::Body::compact`): the lowering reads no body after
@@ -2416,6 +2415,9 @@ pub fn relower_objects(
         if let Some(slot) = old.refusal_at.get_mut(oi) {
             *slot = piece.refusal_at;
         }
+        if let Some(slot) = old.unresolved_calls.get_mut(oi) {
+            *slot = piece.unresolved_call;
+        }
         old.calls.replace(oi, piece.calls, piece.ndirect);
         replace.push((
             oi,
@@ -2457,18 +2459,21 @@ pub fn relower_objects(
         old.tdd_needs = crate::check::tdd_decl::needs(ws, &checked);
     }
     old.driven = Some(shared.driven.clone());
-    // The diagnostics: what the checker found in the files that did not change stays.
-    let dirty_files: std::collections::HashSet<&str> = dirty
+    // The diagnostics: what the checker found in the files that did not change stays. A file is its app and its path
+    // together (a path is relative to its app; two apps can hold the same one).
+    let dirty_files: std::collections::HashSet<(usize, &str)> = dirty
         .iter()
-        .map(|&oi| ws.files[ws.objects[oi].file].path.as_str())
+        .map(|&oi| {
+            let f = &ws.files[ws.objects[oi].file];
+            (f.app, f.path.as_str())
+        })
         .collect();
     let mut from_checker: Vec<crate::workspace::Diagnostic> = std::mem::take(&mut old.checker_diags);
-    from_checker.retain(|d| !dirty_files.contains(d.file.as_str()));
+    from_checker.retain(|d| !dirty_files.contains(&(d.app, d.file.as_str())));
     from_checker.extend(checked.from_checker.iter().cloned());
     let mut all: Vec<crate::workspace::Diagnostic> = from_checker.clone();
     all.extend(checked.from_codes.iter().cloned());
-    let order: HashMap<&str, usize> = ws.files.iter().enumerate().map(|(i, f)| (f.path.as_str(), i)).collect();
-    all.sort_by_key(|d| (order.get(d.file.as_str()).copied(), d.offset));
+    ws.file_order().sort(&mut all);
     old.al_diagnostics = all.into_iter().filter(|d| d.code.starts_with("AL")).collect();
     old.checker_diags = from_checker;
     old.skipped = checked.skipped.clone();
@@ -2500,6 +2505,8 @@ pub(crate) struct Piece {
     pub(crate) unsupported: Vec<Vec<Refusal>>,
     /// Per routine: where the statement is that gave its first reason (see `Lowered::refusal_at`).
     pub(crate) refusal_at: Vec<Option<ir::SrcPos>>,
+    /// A call of the object had no callee the checker resolved (see `Lowered::unresolved_calls`).
+    pub(crate) unresolved_call: bool,
     pub(crate) calls: Vec<Vec<(usize, usize)>>,
     /// With `Shared::export`: `calls` without what a page, report or xmlport variable drives.
     pub(crate) direct: Vec<Vec<(usize, usize)>>,
@@ -2551,6 +2558,64 @@ fn tdd_stub_list(checked: &CheckResult, sites: &[(usize, String)]) -> Vec<String
         all.dedup();
     }
     all
+}
+
+/// Lower each report's extensions in run order so dependency items are available to their consumers.
+fn lower_report_extensions(
+    ws: &Workspace,
+    members: &MemberTable<'_>,
+    report_layouts: &[Option<crate::reports::Layout>],
+    report_irs: &mut [Option<ir::Report>],
+    ext_layouts: &[Option<crate::reports::ExtLayout>],
+    ext_irs: &mut [Option<ir::ReportExt>],
+    routine_at: &RoutineAt,
+) {
+    let ordered_extensions: Vec<_> = report_irs
+        .iter()
+        .enumerate()
+        .flat_map(|(base, report)| {
+            report
+                .iter()
+                .flat_map(move |report| report.extensions.iter().map(move |&extension| (base, extension)))
+        })
+        .collect();
+    for (base, ei) in ordered_extensions {
+        let Some(layout) = ext_layouts[ei].as_ref() else {
+            continue;
+        };
+        let (Some(base_layout), Some(base_ir)) = (report_layouts[base].as_ref(), report_irs[base].as_ref()) else {
+            continue;
+        };
+        let cx = crate::reports::ExtContext {
+            ws,
+            members,
+            file: ws.objects[ei].file,
+            oi: ei,
+            base,
+            base_layout,
+            base_items: &base_ir.items,
+            layout,
+            dependencies: &crate::reports::dependency_dataset_items(ws, ei, base),
+            prior_exts: ext_irs,
+            routine_at,
+        };
+        let (ir, reasons) = crate::reports::build_ext(&cx, &ws.object_ast(ei));
+        let uses_foreign = ir
+            .modifies
+            .iter()
+            .any(|m| matches!(m.item, al_ir::ItemAnchor::Foreign(_)));
+        ext_irs[ei] = Some(ir);
+        // The extension's reasons stop the report it changes.
+        let name = &ws.objects[ei].name;
+        if let Some(r) = report_irs[base].as_mut() {
+            r.dependency_items |= uses_foreign;
+            r.unsupported.extend(
+                reasons
+                    .into_iter()
+                    .map(|why| format!("reportextension \"{name}\": {why}")),
+            );
+        }
+    }
 }
 
 /// The variables of a report extension's request page come after its own variables in its globals (`shared.rs`).

@@ -14,6 +14,7 @@ macro_rules! each_fact {
         $m!(
             format: Format,
             target: Target,
+            call: Call,
             answer: Answer,
             kind: Kind,
             layout: Layout,

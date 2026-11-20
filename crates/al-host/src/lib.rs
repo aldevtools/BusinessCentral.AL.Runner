@@ -194,7 +194,7 @@ pub enum Companies {
 
 impl Companies {
     /// Parses the value of `--companies`: `all`, or names separated by commas. A name given twice, or an empty name, is
-    /// an error.
+    /// an error; its text does not name the option, the caller puts its own name in front.
     pub fn parse(text: &str) -> Result<Companies, String> {
         if text.trim().eq_ignore_ascii_case("all") {
             return Ok(Companies::All);
@@ -203,10 +203,10 @@ impl Companies {
         for n in text.split(',') {
             let n = n.trim();
             if n.is_empty() {
-                return Err(format!("--companies `{text}`: an empty company name"));
+                return Err(format!("`{text}`: an empty company name"));
             }
             if names.iter().any(|m| m == n) {
-                return Err(format!("--companies `{text}`: the company `{n}` is named twice"));
+                return Err(format!("`{text}`: the company `{n}` is named twice"));
             }
             names.push(n.to_string());
         }
@@ -214,11 +214,12 @@ impl Companies {
     }
 
     /// Checks that a list starts with the session company `session` (ADR-046 decision 2: the first name is the session
-    /// company, or the run stops before anything runs).
+    /// company, or the run stops before anything runs). The text does not name the option, the caller puts its own name in
+    /// front.
     pub fn check_session_first(&self, session: &str) -> Result<(), String> {
         match self {
             Companies::List(names) if names.first().map(String::as_str) != Some(session) => Err(format!(
-                "--companies: the first company must be the session company `{session}`, not `{}`",
+                "the first company must be the session company `{session}`, not `{}`",
                 names.first().map(String::as_str).unwrap_or("")
             )),
             _ => Ok(()),
@@ -278,7 +279,7 @@ impl Identity for AlRunnerIdentity {
     fn user_security_id(&self) -> [u8; 16] {
         USER_SECURITY_ID
     }
-    /// The company of the oracle's test database (session-system/TestEnvironmentUserTenantContracts.al:238);
+    /// The company of the oracle's test database (session-system/TestEnvironmentUserTenantContracts.al:235);
     /// AL Runner's `My Company` (ADR-013 decision 9) is superseded.
     fn company_name(&self) -> String {
         "CRONUS International Ltd.".into()

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """The PR-results corpus bump: tools/corpus_bump.sh --from-pr N[,N...] (owner decision 2026-11-05).
 
-A normal bump takes the oracle from a green master push run of the corpus (about 55 minutes after a corpus pull request
-merges). This bump does not wait for it: the pin moves to the merge commit of the given corpus pull requests, and the
+A normal bump takes the oracle from a green master push or nightly run of the corpus (a push run ends about 55 minutes
+after a corpus pull request merges). This bump does not wait for it: the pin moves to the merge commit of the given corpus pull requests, and the
 oracle is the oracle of the current pin with the cases of the codeunits each pull request's own CI run ran (a subset
 run, per BC version) replaced by that run's results. Accepted risk: a difference that only a master run shows (a flaky
 test, an interaction between tests) shows up after this bump; the next normal bump corrects it.

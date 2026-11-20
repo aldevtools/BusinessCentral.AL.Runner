@@ -2,7 +2,7 @@
 //! assemblies from the artifact cache. Needs .NET and a build of BC 27 to 29 whose merge set is in
 //! `<cache>/artifacts/<build>/service` (fetched by an earlier run); without them the test skips with a message. Nothing
 //! is downloaded. The conversion test also takes the service folders listed in `ALRT_RENDER_SERVICE_DIRS` (a path list),
-//! and the pinned Linux Skia natives from `<cache>/render-extras`.
+//! and the pinned Linux Skia natives from `<cache>/artifacts/render-extras`.
 //!
 //! The fixtures are hand-made: a layout (a table-row repeater over one data item plus static text and a label), the
 //! dataset the runner wrote for that report, and a document with one 16x16 picture. None is Microsoft's.

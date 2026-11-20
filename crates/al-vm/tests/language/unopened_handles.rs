@@ -425,3 +425,36 @@ fn gettable_of_a_variant_after_clear_or_open_zero_refuses() {
         ));
     }
 }
+
+/// GetTable of a Variant that holds a value GetTableVariantKinds.al:133-148 did not hand over keeps main's refusal: false, another
+/// date, a RecordId of another table, and the measured values on a RecordRef that was opened.
+#[test]
+fn gettable_of_a_variant_with_an_unmeasured_value_refuses() {
+    for value in ["false", "DMY2Date(2, 2, 2020)", "R.RecordId()"] {
+        refused(&format!(
+            "procedure F(): Text var RR: RecordRef; V: Variant; R: Record Row; begin R.Id := 1; R.Insert(); V := {value}; RR.GetTable(V); end;"
+        ));
+    }
+    for value in ["true", "G", "DMY2Date(1, 2, 2020)"] {
+        refused(&format!(
+            "procedure F(): Text var RR: RecordRef; V: Variant; G: Guid; begin RR.Open(50100); V := {value}; RR.GetTable(V); end;"
+        ));
+    }
+}
+
+/// GetTable of a Variant that holds the RecordId of table 60000 with key 1 raises the Conversion error where the probe's row
+/// exists (GetTableVariantKinds.al:127-128, :139); with no such row it keeps main's refusal.
+#[test]
+fn gettable_of_a_variant_record_id_needs_the_row() {
+    let src = |insert: &str| {
+        format!(
+            "table 60000 \"ALT Universal\" {{ fields {{ field(1; \"Entry No.\"; Integer) {{ }} }} keys {{ key(PK; \"Entry No.\") {{ Clustered = true; }} }} }}
+            codeunit 50101 C {{ procedure F() var RR: RecordRef; V: Variant; R: Record \"ALT Universal\"; begin
+                R.\"Entry No.\" := 1; {insert} V := R.RecordId(); RR.GetTable(V); end; }}"
+        )
+    };
+    let r = al_testkit::run_with(&src(""), "C", "F", vec![]).map(|(v, _)| v);
+    assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
+    let r = al_testkit::run_with(&src("R.Insert();"), "C", "F", vec![]).map(|(v, _)| v);
+    assert!(matches!(&r, Err(Signal::Error(e)) if e.code == "Conversion"), "{r:?}");
+}

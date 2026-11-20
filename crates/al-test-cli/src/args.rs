@@ -74,6 +74,10 @@ pub struct Args {
     pub cache_dir: Option<PathBuf>,
     /// `--fetch-deps`: resolve and download the dependency apps, then stop (warms the cache).
     pub fetch_deps: bool,
+    /// `--fetch-render-pieces` (with `--fetch-deps`): also fetch the report render pieces of each build, the ones a run
+    /// fetches on its first Word-layout save (`al_testrun::report_render_pieces::fetch_run_pieces`). CI warms its
+    /// artifact cache with it, so the timed corpus step downloads nothing.
+    pub fetch_render_pieces: bool,
     /// `--compile-cache`: use the compile cache of the dependency apps (ADR-022). The corpus
     /// ratchet runs without it: it is recorded under the demand-driven compile.
     pub compile_cache: bool,
@@ -273,11 +277,14 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Parsed, String> {
             "--require-report-renderer" => a.require_report_renderer = true,
             "--files-dir" => a.files_dir = Some(text()?.into()),
             "--environment" => a.environment = Some(text()?.parse().map_err(|e| format!("--environment: {e}"))?),
-            "--companies" => a.companies = Some(al_host::Companies::parse(&text()?)?),
+            "--companies" => {
+                a.companies = Some(al_host::Companies::parse(&text()?).map_err(|e| format!("--companies {e}"))?)
+            }
             "--one-company" => a.one_company = true,
             "--no-download" => a.no_download = true,
             "--cache-dir" => a.cache_dir = Some(text()?.into()),
             "--fetch-deps" => a.fetch_deps = true,
+            "--fetch-render-pieces" => a.fetch_render_pieces = true,
             "--compile-cache" => a.compile_cache = true,
             "--require-compile-cache" => {
                 a.compile_cache = true;
@@ -357,6 +364,11 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Parsed, String> {
         if a.no_ratchet {
             return Err(format!("{flag} cannot be combined with --no-ratchet"));
         }
+    }
+    if a.fetch_render_pieces && (!a.fetch_deps || a.project.is_some() || a.no_deps) {
+        return Err(
+            "--fetch-render-pieces goes with --fetch-deps of the corpus, without --project or --no-deps".into(),
+        );
     }
     if a.update_work {
         if let Some(why) = crate::work::not_full_corpus(&a) {
@@ -491,6 +503,8 @@ DEPENDENCY TOOLING
   --build-compile-cache       build the entry for each selected version (or read and check the one
                               there), print how long it took, then stop
   --fetch-deps                resolve and download the dependency apps, then stop
+  --fetch-render-pieces       with --fetch-deps: also fetch the report render pieces of each build
+                              (the merge and conversion sets, on Linux the pinned nuget pieces)
   --project DIR               with --fetch-deps: any AL project, not the corpus
   --print-builds              print the newest published build of each version, then stop
 
@@ -623,5 +637,15 @@ mod tests {
                 assert!(HELP.contains(&format!("--{flag}")), "--{flag} is not in HELP");
             }
         }
+    }
+
+    #[test]
+    fn fetch_render_pieces_goes_with_the_corpus_fetch_of_the_dependencies_only() {
+        let a = run(&["--fetch-deps", "--fetch-render-pieces"]).unwrap();
+        assert!(a.fetch_deps && a.fetch_render_pieces);
+        assert!(!run(&["--fetch-deps"]).unwrap().fetch_render_pieces);
+        assert!(run(&["--fetch-render-pieces"]).is_err());
+        assert!(run(&["--fetch-deps", "--fetch-render-pieces", "--project", "p"]).is_err());
+        assert!(run(&["--fetch-deps", "--fetch-render-pieces", "--no-deps"]).is_err());
     }
 }

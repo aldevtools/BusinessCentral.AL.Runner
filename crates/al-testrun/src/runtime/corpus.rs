@@ -1118,9 +1118,9 @@ impl CorpusRuntime {
             // The impact index and an impact run's selection need what the install code raised and touched: the
             // baseline runs.
             .filter(|_| !opts.impact_trace && opts.narrow.is_none())
-            // An entry with resource files of its own (issue 5635): whether the install code read resources is known
-            // only when it runs here.
-            .filter(|_| opts.entries.iter().all(|e| e.resources.is_empty()))
+            // An entry with resource files of its own (issues 5635, 8206) takes a kept baseline too: the baseline runs
+            // before any entry's texts are set, so it is the same for every entry, and whether its install code read a
+            // resource file goes with it (`BaselineRun::read_resources`).
             .and_then(|((key, frame), cc)| {
                 // Over test data the file holds the tables the install code wrote to; the rest is the restored database.
                 let backed = |mut run: crate::baseline::BaselineRun| {
@@ -1184,9 +1184,8 @@ impl CorpusRuntime {
             crate::install::keep_login_records(b.baseline.origin(), &b.login);
             (b.baseline.origin(), b.login.clone())
         });
-        // The engine the install code ran on (the tests may get another below).
-        let install_read_resources =
-            baseline_run.is_some() && engine.resources_read.load(std::sync::atomic::Ordering::Relaxed);
+        // Whether the install code read a resource file: the baseline says, whether it ran here or was kept (issue 8206).
+        let install_read_resources = baseline_run.as_ref().is_some_and(|b| b.read_resources);
         // What .NET answers a call that may read more than its arguments (files, environment variables, the
         // machine's clock, user assemblies) is not in the key: a baseline whose code made one is not kept, and the next
         // run runs the install code again (`al_vm::dotnet::pure`).
@@ -1398,11 +1397,7 @@ impl CorpusRuntime {
             // Writing the snapshot the test threads read (the first pass on several threads does it).
             let mut encode_time = std::time::Duration::ZERO;
             super::install_once::begin_pass(&engine, &pass.resources);
-            // The install code read resource files, and this entry has resource files of its own: its install baseline
-            // would be another one, which is not made per entry.
-            let refused = (install_read_resources && !pass.resources.is_empty()).then(|| {
-            "the install code read a resource file, and an entry with resource files of its own would need an install baseline of its own (al-runner issue 5635)".to_string()
-        });
+            let (refused, skip) = pass_refused(install_read_resources, pass, opts, &list);
             let (opts_only, limit) = (&pass.only, pass.limit);
             // The test codeunits to run, in the order the report lists them.
             let mut units: Vec<Unit> = Vec::new();
@@ -1454,11 +1449,13 @@ impl CorpusRuntime {
                             flags: super::session_flags::SessionFlags::of(opts),
                             report_unpinned_errors: opts.report_unpinned_errors,
                             skip_after_timeout: opts.skip_after_timeout,
+                            stop_after_first_failure: opts.stop_after_first_failure,
                             perturb: opts.perturb.clone(),
                             run_seed: opts.run_seed,
                             runner: *runner,
                             watch: false,
                             takes_numbers: false,
+                            numbers_unmeasured: None,
                             singles_past_stop: false,
                             driver,
                             discovery: None,
@@ -1477,7 +1474,7 @@ impl CorpusRuntime {
                                 outcomes.insert((si, id, r.name.to_lowercase()), Outcome::NotRun(why.clone()));
                                 let not_run = Outcome::NotRun(why.clone());
                                 let (app, name) = (order[o.app as usize], o.name.clone());
-                                list.push(TestResult::bare(si, app, id, name, r.name.clone(), not_run));
+                                list.push(TestResult::bare(si, app, id, name, r.name.clone(), not_run).skipped(skip));
                             }
                         }
                     }
@@ -1567,7 +1564,7 @@ impl CorpusRuntime {
                 si == u.si && place(si, id) < place(u.si, u.id) && (leg == 0 || !u.hub_leg)
             };
             chain_report.single_lane.watched = super::single_lane::assign_watches(&mut units, &place, opts);
-            super::order_hint::note_numbers_order(lowered, &units, &place, opts, &mut chain_report);
+            super::order_hint::note_numbers_order(&engine, lowered, &mut units, &place, opts, &mut chain_report);
             let mut slots: Vec<Option<UnitResult>> = (0..units.len()).map(|_| None).collect();
             chain_report.units += units.len() + chain.iter().filter(|c| matches!(c.3, Link::Refused(..))).count();
             let first_origin = baseline.as_ref().map(al_vm::Baseline::origin);
@@ -1726,6 +1723,7 @@ impl CorpusRuntime {
                         dotnet: false,
                         order_hint: None,
                         cells: None,
+                        skipped_by_option: false,
                     })
                 };
                 match r.result {
@@ -1966,7 +1964,7 @@ fn sibling_of(engine: &Arc<Engine>, opts: &RunOptions) -> Arc<Engine> {
 /// ends right after, they are not freed.
 fn keep_or_retire_engines(
     (engine, baseline_engine, spare_engine): (Arc<Engine>, Option<Arc<Engine>>, Option<Arc<Engine>>),
-    installs: Option<&[(BTreeSet<u32>, String)]>,
+    installs: Option<&[al_vm::SkippedInstall]>,
     kept: Option<(String, &std::sync::Mutex<Option<KeptEngines>>)>,
     process_ends_after: bool,
 ) -> Met {
@@ -1978,7 +1976,7 @@ fn keep_or_retire_engines(
     let met = installs
         .into_iter()
         .flatten()
-        .fold(met, |m, (_, why)| m.or(Met::of_reason(why)));
+        .fold(met, |m, s| m.or(Met::of_reason(&s.why)));
     let (engine, baseline_engine, spare_engine) = match kept {
         Some((key, kept_engines)) => {
             let (install, tests) = match baseline_engine {
@@ -2308,6 +2306,33 @@ fn hub_path(suite: &SuiteRun, opts: &RunOptions, driver: super::TestDriver) -> b
     suite.runner.is_none() && opts.required_isolation && opts.isolation.is_none() && driver.has_hub()
 }
 
+/// Why no test of `pass` runs, given the rows of the earlier passes (`earlier`), and whether that is the stop of an
+/// option rather than a refusal (`TestResult::skipped_by_option`, al-runner issue 8492): the install code read resource
+/// files and this entry has resource files of its own, so its install baseline would be another one, which is not made
+/// per entry; or `RunOptions::stop_after_first_failure` (al-runner issue 8210) and an earlier pass has a failed test.
+/// Every test of the pass gets the reason (`suite_isolation`).
+fn pass_refused(
+    install_read_resources: bool,
+    pass: &Pass,
+    opts: &RunOptions,
+    earlier: &[TestResult],
+) -> (Option<String>, bool) {
+    if install_read_resources && !pass.resources.is_empty() {
+        return (Some("the install code read a resource file, and an entry with resource files of its own would need an install baseline of its own (al-runner issue 5635)".to_string()), false);
+    }
+    let stopped = pass_stopped(opts, earlier);
+    let skipped = stopped.is_some();
+    (stopped, skipped)
+}
+
+/// `RunOptions::stop_after_first_failure` and an earlier pass (`earlier`) has a failed test: the reason.
+fn pass_stopped(opts: &RunOptions, earlier: &[TestResult]) -> Option<String> {
+    let failed = earlier.iter().find(|r| matches!(r.outcome, Outcome::Fail(_)));
+    failed
+        .filter(|_| opts.stop_after_first_failure)
+        .map(|r| super::run::stopped_after_failure(r.codeunit, &r.test))
+}
+
 /// The isolation of the runner the test codeunits of `suite` run under, or why none of them runs (`refused`). With
 /// `--test-runner ID` (ADR-066) the isolation is that runner's, as for a suite's runner.
 fn suite_isolation(
@@ -2391,22 +2416,14 @@ fn check_baseline_rule(lowered: &Lowered, units: &mut [Unit]) {
     );
 }
 
-/// Whether the static reach of test codeunit `oi` (its tests and its `OnRun`) can read or change isolated storage or a
+/// Whether the static reach of test codeunit `oi` (its tests, their handler functions and its `OnRun`) can read or change isolated storage or a
 /// number sequence, or is not fully known. Only such a codeunit can see what an earlier Disabled codeunit left there
 /// (`Carried::everything`); one that cannot reach them does not depend on it.
 pub(super) fn reaches_session_storage(engine: &Arc<al_vm::Engine>, lowered: &Lowered, oi: usize) -> bool {
     use super::written::{ReachIndex, state, union_reach_has};
     let index = engine.derived(|| ReachIndex::new(&engine.events, lowered));
     let bits = state::ISOLATED_STORAGE | state::NUMBER_SEQUENCE | state::OTHER;
-    let o = &lowered.program.objects[oi];
-    let roots: Vec<(usize, usize)> = (0..o.routines.len())
-        .filter(|&r| {
-            let routine = &o.routines[r];
-            (routine.is_trigger && routine.name.eq_ignore_ascii_case("OnRun"))
-                || routine.attributes.iter().any(|a| a.name.eq_ignore_ascii_case("Test"))
-        })
-        .map(|r| (oi, r))
-        .collect();
+    let roots = super::handlers::unit_roots(lowered, oi, true);
     union_reach_has(&engine.events, lowered, &index, &roots, &|f| {
         f.unknown.is_some() || (f.state_reads | f.state_writes) & bits != 0
     })
@@ -2416,7 +2433,7 @@ pub(super) fn reaches_session_storage(engine: &Arc<al_vm::Engine>, lowered: &Low
 pub(super) fn refuse_all(done: &mut [(String, Outcome)], why: &str) {
     for (_, o) in done.iter_mut() {
         // A test the run did not reach before it stopped at its memory limit keeps that reason (ADR-066 amendment 10).
-        if !matches!(o, Outcome::NotRun(r) if r.starts_with(super::memory::REASON)) {
+        if !super::memory::stopped_by_limit(o) {
             *o = Outcome::NotRun(why.to_string());
         }
     }
@@ -2469,7 +2486,7 @@ fn app_contexts(
 pub(super) fn observed_detail(lowered: &Lowered, seen: &Observed) -> explain::TestDetail {
     let mut d = explain::detail(
         &lowered.program,
-        seen.session.fault_site(),
+        seen.site,
         seen.error.map(|e| explain::ErrorInfo {
             message: e.message.clone(),
             code: e.code.clone(),

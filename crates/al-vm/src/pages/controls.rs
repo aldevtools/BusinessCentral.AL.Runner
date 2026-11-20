@@ -1,3 +1,4 @@
+use super::pinned_shape::TestCall;
 use super::*;
 use crate::records::ValidateSite;
 use al_builtins::page_op::{PageMethod, PageOp};
@@ -12,7 +13,7 @@ impl Session {
             return unsupported("SetValue on a request page after New() (only Close, OK and Cancel are pinned)");
         }
         if st.borrow().lookup_setting_value {
-            st.borrow_mut().lookup_value_set = true;
+            st.borrow_mut().lookup_left.value_written();
         }
         // A filter field (a page variable) whose OnValidate refills a temporary Worksheet: the client reads the new rows
         // (`reread_after_refill_by_validate`, RmTempRefill.al:215-:320), on a collapsed tree too (al-runner issue 6550).
@@ -34,7 +35,7 @@ impl Session {
         st.borrow_mut().row_before_write = held_row;
         let r = self.control_set_value_now(st, idx, args);
         if let (Ok(_), Some(held)) = (&r, refill_held) {
-            if !st.borrow().refresh && self.temp_refill_shape_or_tree(st) && self.held_rows_changed(st)? {
+            if !st.borrow().refresh.asked() && self.temp_refill_shape_or_tree(st) && self.held_rows_changed(st)? {
                 self.reread_after_refill_by_validate(st, &held, expanded)?;
             }
         }
@@ -272,7 +273,7 @@ impl Session {
         }
         activated?;
         // Only an Update() requested by this call's triggers refreshes at its end.
-        st.borrow_mut().refresh = false;
+        st.borrow_mut().refresh.cancel();
         let engine = self.engine();
         let page = page_of(&engine, st);
         let ctl = &page.controls[idx];
@@ -948,7 +949,7 @@ impl Session {
                     // globals, and leaves the page's record with fresh globals (ADR-021 decision 8;
                     // corpus probes TableGlobals_PageFieldValidate_*, TableGlobals_PageRec_ActionGlobalsAreLostAfterPageFieldValidation).
                     self.reset_table_globals(&rec);
-                    let validated = self.platform_validate(ValidateSite::TestPageControl, &rec, pos, parsed.clone());
+                    let validated = self.platform_validate(self.test_page_control_site(st), &rec, pos, parsed.clone());
                     self.reset_table_globals(&rec);
                     self.pages.curr_field_no.pop();
                     validated?;
@@ -984,9 +985,9 @@ impl Session {
             if let Some(r) = ctl.trigger("onvalidate") {
                 if self.has_source(st) {
                     let filters = self.page_rec(st).borrow().filters.clone();
-                    st.borrow_mut().filters_before_validate = Some(filters);
+                    st.borrow_mut().filters_before_validate = Some(crate::pages::state::ValidateStart::new(filters));
                 }
-                if let Err(e) = self.control_routine(st, idx, r) {
+                if let Err(e) = self.run_control_onvalidate(st, idx, r) {
                     from_page_trigger.set(true);
                     return Err(e);
                 }
@@ -1010,7 +1011,7 @@ impl Session {
                 self.validated_row_typed(st, rec_bound, discard)?;
                 clear_refused_entries(st, idx);
                 let saved = std::mem::take(&mut st.borrow_mut().save_record_called);
-                let update_asked = st.borrow().refresh;
+                let update_asked = st.borrow().refresh.asked();
                 if update_asked && st.borrow().lookup_setting_value {
                     self.defer_lookup_refresh(st);
                 }
@@ -1024,7 +1025,7 @@ impl Session {
                 Ok(Value::Null)
             }
             Err(Signal::Error(e)) => {
-                st.borrow_mut().refresh = false;
+                st.borrow_mut().refresh.cancel();
                 st.borrow_mut().dirty = was_dirty;
                 // The refused edit does not stay (corpus testpage/TestPageBooleanSpelling_Tests.al,
                 // SetValue_TrueFalseSpelling_IsRefused: the stored value is untouched).
@@ -1294,7 +1295,7 @@ impl Session {
         let st = &c.page;
         let m = method.method();
         let field_read = m == PageMethod::Value && args.is_empty();
-        self.first_part_access(st, m, field_read)?;
+        self.first_part_access(st, m, Some(&c.target), field_read)?;
         self.guard_blank_part_host_control(c, m, field_read)?;
         // After a GoToKey that moved a list without OnAfterGetCurrRecord a Value read and SetValue read nothing, and the action
         // after them reads the row twice (pages/list-order/QgGoToKeyNextCall.al:223 Plain_GoToKey_ThenValueRead `no_log`,
@@ -1302,7 +1303,7 @@ impl Session {
         // tests). The other field reads (properties, `As*`) read nothing more either (not pinned; kept for baseline cases 78862
         // Paging_GoToKey_Nav and 68164 TestPage_Control_Texts_GuidDurationAndBlankNumbers), and an action after them is refused
         // (`actions.rs`). Any other control call is refused.
-        if m != PageMethod::Invoke && st.borrow().read_after_goto {
+        if m != PageMethod::Invoke && st.borrow().after_goto.active() {
             // AsBoolean and AsInteger of a field, Visible, Editable and Caption of a field and Enabled of an action read
             // nothing either, and the action after them reads the row twice as after a Value read (pages/lt-wd/
             // WdGoToKeyTypedReads.al:124-247, corpus branch al-runtime-rs-staging-1030c, al-runner issue 6304). Pinned on a
@@ -1326,7 +1327,7 @@ impl Session {
             match m {
                 PageMethod::Value => {}
                 _ if pinned_read && !st.borrow().lookup => {}
-                PageMethod::SetValue => st.borrow_mut().read_after_goto_set = true,
+                PageMethod::SetValue => st.borrow_mut().after_goto.set_value_between(),
                 PageMethod::AsBoolean
                 | PageMethod::AsDate
                 | PageMethod::AsDateTime
@@ -1337,7 +1338,7 @@ impl Session {
                 | PageMethod::Visible
                 | PageMethod::Editable
                 | PageMethod::Enabled
-                | PageMethod::Caption => st.borrow_mut().read_after_goto_doubt = true,
+                | PageMethod::Caption => st.borrow_mut().after_goto.unpinned_call_between(),
                 _ => {
                     return unsupported(format!(
                         "TestField.{m} right after a GoToKey moved a list without OnAfterGetCurrRecord (whether the row is read again is not pinned)"
@@ -1440,14 +1441,9 @@ impl Session {
                 // also after a Value read between them (pages/list-order/QgGoToKeyNextCall.al:404
                 // Plain_LookupHandler_GoToKey_ThenOK `H:goto;R:R1003;H:ok`, :426 Plain_LookupHandler_GoToKey_ValueRead_ThenOK, :629 Nav_LookupHandler_GoToKey_ThenOK).
                 // Other built-in actions after it are not pinned.
-                if std::mem::take(&mut st.borrow_mut().read_after_goto) {
-                    let doubt = {
-                        let mut s = st.borrow_mut();
-                        s.read_after_goto_quiet = false;
-                        s.read_after_goto_set = false;
-                        s.read_after_goto_prev = false;
-                        std::mem::take(&mut s.read_after_goto_doubt)
-                    };
+                let taken = st.borrow_mut().after_goto.take();
+                if let Some(left) = taken {
+                    let doubt = left.doubt();
                     if name != "OK" || !st.borrow().lookup || doubt {
                         return unsupported(format!(
                             "TestAction {name} after a GoToKey moved a list without OnAfterGetCurrRecord (whether the row is read again is not pinned)"
@@ -1544,7 +1540,7 @@ impl Session {
             let ctl_name = ctl.name.clone();
             let owner = ctl.owner;
             let object = st.borrow().object as usize;
-            let declaring = self.object_id_of(owner.unwrap_or(object) as u32);
+            let declaring = self.object_id_of(owner.unwrap_or(object) as u32)?;
             let id = control_id(declaring, &ctl_name);
             return Err(match what {
                 "action" => error_code(
@@ -1803,7 +1799,7 @@ impl Session {
                 let before = self.has_source(st).then(|| self.page_rec(st).borrow().fields.clone());
                 let r = self.set_value_reading_held_row(st, idx, args)?;
                 self.trapped_card_blank_part_validated(st, idx, before.as_deref())?;
-                self.resync_parts_linked_by(st, idx, before.as_deref())?;
+                self.resync_parts_after_set_value(st, idx, before.as_deref())?;
                 self.refresh_host_after_part_edit(st)?;
                 Ok(r)
             }
@@ -1963,6 +1959,43 @@ fn unpinned_ext_validate(before: &[(usize, usize)], after: &[(usize, usize)], re
 }
 
 impl Session {
+    /// The validate site of a control written on the TestPage `st`.
+    fn test_page_control_site(&self, st: &St) -> ValidateSite {
+        ValidateSite::TestPageControl {
+            new_line_of_trapped_static_card: self.new_line_of_trapped_static_card(st),
+        }
+    }
+
+    /// The control written is the second SetValue on the line `New()` started, the first one being the key, on a Card that AL code
+    /// opened with a static `Page.Run(Id, Rec)` and `TestPage.Trap()` caught, at the top level: the test's calls since the open
+    /// are exactly New, a SetValue of the one primary key field, then this one (record/filters/TestRecordEnumFlowFilterGroup.al:
+    /// 74-75, :88-89, :110-119). The page call form of `ValidateSite::TestPageControl` that `relations.rs` `group_two_enum_pinned`
+    /// takes.
+    fn new_line_of_trapped_static_card(&self, st: &St) -> bool {
+        let trapped_static = {
+            let s = st.borrow();
+            s.caught_by_trap && s.trapped_run == Some(super::page_run_close::PageRunCall::StaticWithRecord) && !s.modal
+        };
+        let Some(calls) = Self::test_calls_all_succeeded(st) else {
+            return false;
+        };
+        let [
+            TestCall::Page(PageMethod::New),
+            TestCall::Write(key_ctl),
+            TestCall::Write(_),
+        ] = calls.as_slice()
+        else {
+            return false;
+        };
+        let engine = self.engine();
+        let page = page_of(&engine, st);
+        let table = self.page_rec(st).borrow().table as usize;
+        let key_field = engine.tables[table]
+            .as_ref()
+            .is_some_and(|t| matches!(page.controls[*key_ctl].binding, ir::Binding::Field(pos) if t.keys[0] == [pos]));
+        trapped_static && key_field && self.is_card(st)
+    }
+
     /// OnBeforeValidate and OnAfterValidate of `modify` blocks on a control bound to a page variable, on a Card opened as a
     /// TestPage: the extensions' OnBeforeValidate in extension order, the control's own OnValidate when it has one, then the
     /// extensions' OnAfterValidate (corpus pages/extensions/W2ExtModify.al:367-386 Validate_VariableControl `low.before.VarName(first);

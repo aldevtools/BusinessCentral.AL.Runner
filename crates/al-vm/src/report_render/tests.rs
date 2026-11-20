@@ -117,14 +117,14 @@ fn a_part_or_element_no_measured_layout_has_is_not_measured() {
     let doc = |f: &mut LayoutFacts, e: &str| {
         f.elements.get_mut("word/document.xml").unwrap().insert(e.into());
     };
-    // The font table part (styles and header parts are measured since corpus pull request 1419).
+    // The font table part (styles and header parts are measured, RxHtmlWidenTests.al:440, :568).
     let mut styles = measured();
     styles.parts.insert("word/fontTable.xml".into());
     let mut tab = measured();
     doc(&mut tab, "w:tab");
     let mut picture = measured();
     doc(&mut picture, "w:drawing");
-    // A footer part (a header part `word/header1.xml` is measured since corpus pull request 1419).
+    // A footer part (a header part `word/header1.xml` is measured, RxHtmlWidenTests.al:568).
     let mut header = measured();
     header.parts.insert("word/footer1.xml".into());
     let mut setting = measured();
@@ -165,7 +165,7 @@ fn bound_shape(rows: usize) -> SaveShape {
 fn the_four_columns_are_measured_with_one_to_three_rows_only() {
     assert!(shape_is_measured(SHAPES, &bound_shape(1)));
     assert!(shape_is_measured(SHAPES, &bound_shape(3)));
-    // Two rows: every cell of RxHtmlWidenTests.al but BlankZero_IntegerZero (corpus pull request 1419).
+    // Two rows: every cell of RxHtmlWidenTests.al but BlankZero_IntegerZero.
     assert!(shape_is_measured(SHAPES, &bound_shape(2)));
     for change in [
         // Four rows: the cells of this dataset have one, two and three.
@@ -184,7 +184,7 @@ fn the_four_columns_are_measured_with_one_to_three_rows_only() {
 
 /// The facts of the bound layout plus the part `part` with element names `names`, its relationship `rel`, the document
 /// elements `doc` and the namespace declarations `ns`, as RxWdStyles.docx, RxWdTheme.docx, RxWdNumbering.docx and
-/// RxWdHeader.docx add them to RxHashBound.docx (corpus pull request 1419, RxHtmlWidenTests.al).
+/// RxWdHeader.docx add them to RxHashBound.docx (RxHtmlWidenTests.al).
 fn with_part(part: &str, names: &[&str], rel: &str, doc: &[&str], ns: (&str, &str)) -> LayoutFacts {
     let mut f = LayoutFacts {
         parts: [
@@ -304,7 +304,7 @@ fn header() -> LayoutFacts {
 }
 
 #[test]
-fn each_part_corpus_pull_request_1419_adds_but_numbering_is_measured_with_its_elements() {
+fn each_part_rx_html_widen_tests_adds_but_numbering_is_measured_with_its_elements() {
     for f in [styles(), theme(), header()] {
         assert!(content_is_measured(&f), "{f:?}");
     }

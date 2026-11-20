@@ -38,6 +38,8 @@ const PLAIN_SYSTEM: &[&str] = &[
     "DWY",
     "Evaluate",
     "EvaluateBounded",
+    "EvaluateMemberlessVarOption",
+    "EvaluateMemberlessVarOptionElement",
     "EvaluateOptionField",
     "EvaluateVariableOption",
     "Format",
@@ -202,11 +204,8 @@ impl Walk<'_> {
     }
 
     fn single_instance(&self, object: usize) -> bool {
-        let o = &self.engine.program.objects[object];
-        o.kind == ObjKind::Codeunit
-            && o.properties
-                .iter()
-                .any(|(k, v)| k.eq_ignore_ascii_case("SingleInstance") && v.trim().eq_ignore_ascii_case("true"))
+        self.engine.program.objects[object].kind == ObjKind::Codeunit
+            && self.engine.object_facts[object].single_instance
     }
 
     fn routine(&mut self, object: usize, routine: usize, inst: Inst) -> Found {
@@ -240,8 +239,7 @@ impl Walk<'_> {
         // An event publisher also runs its subscribers, each on its own instance: the session's one instance of a
         // SingleInstance codeunit, the bound one of a manual subscriber, else a fresh one.
         if let Some(p) = self.engine.events.publishers.get(&at) {
-            let key = (p.object, p.event.clone());
-            if let Some(subs) = self.engine.events.subscribers.get(&key) {
+            if let Some(subs) = self.engine.events.subscribers_at(p.object, &p.event) {
                 for s in subs.clone() {
                     let on = if self.single_instance(s.object) {
                         Inst::Single
@@ -417,7 +415,8 @@ impl Walk<'_> {
             | Expr::DotNetCoerce(_, a)
             | Expr::DotNetOperand(a, _)
             | Expr::TddFit { inner: a, .. }
-            | Expr::FitOrRefuse { inner: a, .. } => self.expr(a, at, inst),
+            | Expr::FitOrRefuse { inner: a, .. }
+            | Expr::VarSectionValue(a) => self.expr(a, at, inst),
             Expr::Binary(_, a, b) | Expr::CharAt(a, b) => {
                 self.expr(a, at, inst)?;
                 self.expr(b, at, inst)
