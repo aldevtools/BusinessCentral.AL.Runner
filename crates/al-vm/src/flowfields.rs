@@ -849,7 +849,7 @@ impl Session {
             };
             {
                 let mut p = probe.borrow_mut();
-                p.fields = row.clone();
+                p.fields = row.clone().into();
                 p.company = rec.borrow().company.clone();
             }
             let mut pass = true;
@@ -1337,7 +1337,7 @@ impl Session {
         let probe = {
             let r = rec.borrow();
             let mut p = r.clone();
-            p.fields = row.to_vec();
+            p.fields = row.to_vec().into();
             p.temporary = false;
             p.auto_calc.clear();
             Rc::new(RefCell::new(p))

@@ -20,8 +20,8 @@ impl Session {
             let stored = rec.borrow().fields.clone();
             rows.push(crate::pages::WindowRow {
                 key,
-                stored: stored.clone(),
-                shown: stored,
+                stored: stored.to_vec(),
+                shown: stored.into_vec(),
             });
             if rows.len() > 3 || !self.nav_next(st, 1)? {
                 break;
@@ -44,9 +44,9 @@ impl Session {
             );
         }
         for row in rows.iter_mut().rev() {
-            rec.borrow_mut().fields = row.stored.clone();
+            rec.borrow_mut().fields = row.stored.clone().into();
             self.populate_current(st)?;
-            row.shown = rec.borrow().fields.clone();
+            row.shown = rec.borrow().fields.to_vec();
         }
         self.ret_used = true;
         self.record_op(RecordOp::Get, &rec, &mut start.clone())?;
@@ -56,16 +56,16 @@ impl Session {
         // Y80_SV_F1_HostMoves `previous log`; needs corpus bump).
         if self.declares(st, "onaftergetcurrrecord") && rows.len() > 1 {
             let last = rows.len() - 1;
-            rec.borrow_mut().fields = rows[last].stored.clone();
+            rec.borrow_mut().fields = rows[last].stored.clone().into();
             self.populate_current(st)?;
-            rows[last].shown = rec.borrow().fields.clone();
+            rows[last].shown = rec.borrow().fields.to_vec();
             self.page_trigger(st, "onaftergetrecord", vec![])?;
             let stored = rows[last].stored.clone();
             self.set_xrec_fields(st, stored);
             st.borrow_mut().window = rows;
             return Ok(true);
         }
-        rec.borrow_mut().fields = rows[0].shown.clone();
+        rec.borrow_mut().fields = rows[0].shown.clone().into();
         let first_stored = rows[0].stored.clone();
         self.set_xrec_fields(st, first_stored);
         st.borrow_mut().window = rows;

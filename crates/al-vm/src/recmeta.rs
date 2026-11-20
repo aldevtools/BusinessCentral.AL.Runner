@@ -2166,7 +2166,7 @@ impl Session {
             let copy = {
                 let r = rec.borrow();
                 RecordState {
-                    fields: row,
+                    fields: row.into(),
                     // The caller's filters and current key stay: the Rec and xRec of the modify events show them (corpus
                     // record/events/Y7408XRecInModifyEvent.al:310 `ModifyAll(true) under a filter`, al-runner issue 7408).
                     filters: r.filters.clone(),
