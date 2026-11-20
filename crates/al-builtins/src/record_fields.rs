@@ -1,10 +1,12 @@
 //! A record's field buffer (`RecordState::fields`): the field values in the table's field order. Its length never changes
 //! after the record is made, so it reads and writes as a slice (`[Value]`), never as a growable vector.
 //!
-//! PERF-22 (`/coord/handoff/PERF-22/design.md`) makes this type copy-on-write: a fresh record of a table whose initial values
-//! are all plain values will share them until its first write. This step is the inert type change only: every buffer is
-//! `Owned`, exactly the `Vec<Value>` it was before, so no value and no Blob holder count changes. The shared arm comes with
-//! the step that turns sharing on (design section 3, commit 3).
+//! The buffer is copy-on-write (PERF-22): a fresh record of a table whose initial values are all plain values shares them
+//! (`Shared`) until something takes `&mut` to them, which copies them first. Every other buffer is `Owned`.
+//!
+//! The one invariant: a `Shared` slice is never written and holds only plain values, never a value with identity or
+//! interior state (a Blob buffer, a RecordId, a List, ...). Al-vm `Session::initial_fields` is the only maker. So a Blob's
+//! holder count (`RecordState::blob_copies_of`, the `Arc::strong_count` rules) sees the same holders as with a copy.
 
 use crate::value::Value;
 use std::ops::{Deref, DerefMut};
@@ -13,26 +15,28 @@ use std::rc::Rc;
 /// The field values of a record, in the table's field order.
 #[derive(Clone)]
 pub enum Fields {
-    /// A buffer of the record's own.
+    /// A buffer of the record's own. Its clone is a deep copy.
     Owned(Vec<Value>),
+    /// Values shared with other buffers, read only; the first mutable access copies them into `Owned`. Its clone shares.
+    Shared(Rc<[Value]>),
 }
 
 impl Fields {
-    /// A buffer that starts out as `values` (a table's initial values). In this step it is a copy of its own
-    /// (`is_shared()` is false); the step that turns sharing on keeps `values` itself until the first write.
+    /// A buffer that shares `values` (a table's initial values, plain values only) until its first write.
     pub fn shared(values: Rc<[Value]>) -> Fields {
-        Fields::Owned(values.to_vec())
+        Fields::Shared(values)
     }
 
-    /// Whether the buffer still shares its values with another (copied on the first write). Always false in this step.
+    /// Whether the buffer still shares its values with another (copied on the first write).
     pub fn is_shared(&self) -> bool {
-        false
+        matches!(self, Fields::Shared(_))
     }
 
     /// The values as a vector of their own.
     pub fn into_vec(self) -> Vec<Value> {
         match self {
             Fields::Owned(v) => v,
+            Fields::Shared(rc) => rc.to_vec(),
         }
     }
 }
@@ -61,15 +65,22 @@ impl Deref for Fields {
     fn deref(&self) -> &[Value] {
         match self {
             Fields::Owned(v) => v,
+            Fields::Shared(rc) => rc,
         }
     }
 }
 
+/// Every `&mut` to the values (indexing, `get_mut`, `iter_mut`, `swap`, `mem::replace` of an element) comes through here, so
+/// a shared buffer is copied before the first write and the other holders keep their values.
 impl DerefMut for Fields {
     #[inline]
     fn deref_mut(&mut self) -> &mut [Value] {
+        if let Fields::Shared(rc) = self {
+            *self = Fields::Owned(rc.to_vec());
+        }
         match self {
             Fields::Owned(v) => v,
+            Fields::Shared(_) => unreachable!("copied above"),
         }
     }
 }

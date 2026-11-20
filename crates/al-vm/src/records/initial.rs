@@ -15,10 +15,13 @@ impl Session {
         // The values are the same for every record of the table, so they are worked out once per session and copied
         // (a text shares its buffer, copy on write). A value that is a shared object (a Blob's buffer) is built fresh
         // for each record in its slot of the copy (issue 6133: a local record variable of a table with a Blob field
-        // built every field anew on each call).
+        // built every field anew on each call). A table without such a slot hands out the cached values themselves,
+        // copied on the record's first write (PERF-22, `Fields`).
         if let Some(template) = self.initial_cache.get(&table) {
-            let mut fields = template.values.clone();
-            if !template.fresh.is_empty() {
+            let mut fields = if template.fresh.is_empty() {
+                Fields::shared(Rc::clone(&template.values))
+            } else {
+                let mut fields = template.values.to_vec();
                 let fresh = Rc::clone(&template.fresh);
                 let engine = self.engine.clone();
                 if let Some(t) = engine.program.objects[table].table.as_ref() {
@@ -26,9 +29,10 @@ impl Session {
                         fields[i] = self.initial_field(&t.fields[i]);
                     }
                 }
-            }
+                fields.into()
+            };
             self.clear_uninstalled_init_values(table, &mut fields);
-            return fields.into();
+            return fields;
         }
         let engine = self.engine.clone();
         let Some(t) = engine.program.objects[table].table.as_ref() else {
@@ -68,16 +72,22 @@ impl Session {
         for &i in fresh.iter() {
             values[i] = Value::Null;
         }
+        let values: Rc<[Value]> = values.into();
+        let mut fields = if fresh.is_empty() {
+            Fields::shared(Rc::clone(&values))
+        } else {
+            fields.into()
+        };
         self.initial_cache.insert(table, InitialFields { values, fresh });
-        let mut fields = fields;
         self.clear_uninstalled_init_values(table, &mut fields);
-        fields.into()
+        fields
     }
 
     /// The InitValue of a table extension field of an app not installed yet does not apply: the field holds its type's
     /// default (install-upgrade/install-order/Y8InstallOrderTests.al:88-110, row 1 that XApp A's install writes has an empty
     /// "Y8 XB Mark", XApp B's InitValue 'B init' applies to B's own install row and at test time).
-    fn clear_uninstalled_init_values(&mut self, table: usize, fields: &mut [Value]) {
+    /// It takes `&mut` to `fields` only for a slot it clears, so a shared buffer stays shared unless one is cleared.
+    fn clear_uninstalled_init_values(&mut self, table: usize, fields: &mut Fields) {
         if self.events.not_installed_apps.as_ref().is_none_or(|a| a.is_empty()) {
             return;
         }
@@ -109,7 +119,8 @@ impl Session {
 /// The field values of a fresh record of one table (`Session::initial_fields`): the values to copy, and the positions of
 /// those that are shared objects and are built fresh for each record instead.
 pub(crate) struct InitialFields {
-    values: Vec<Value>,
+    /// Shared by every record of a table without fresh slots (`Fields::Shared`).
+    values: Rc<[Value]>,
     fresh: Rc<[usize]>,
 }
 
