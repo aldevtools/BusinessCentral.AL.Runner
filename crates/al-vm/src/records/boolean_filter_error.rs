@@ -1,8 +1,30 @@
-//! The error of a Boolean filter value the session language does not accept (al-runner issue 7195).
+//! The error of a Boolean filter value the session language does not accept (al-runner issue 7195), and the Danish filter
+//! texts (al-runner issue 8197, shape 3).
 
 use super::*;
 
 impl Session {
+    /// A Boolean filter under GlobalLanguage 1030 in the measured shape whose whole text as written is `Ja` (the true rows), `Nej`
+    /// (the false rows) or `Yes` (the Danish error) (record/filters/FilterGlobalLanguageDateBool.al:380, :382, :434). `Ok(None)` for
+    /// every other field, language and text: the parser reads them as on main.
+    pub(super) fn danish_boolean_filter(
+        &self,
+        shape: &super::measured_setfilter::MeasuredSetFilter,
+        t: &TableDef,
+        pos: usize,
+    ) -> Result<Option<FilterExpr>, Signal> {
+        if !(matches!(t.fields[pos].ty, RtType::Boolean) && self.global_language == 1030) {
+            return Ok(None);
+        }
+        let Some(read) = al_builtins::filter_boolean_words::danish_filter_text(shape.text) else {
+            return Ok(None);
+        };
+        match read {
+            Some(b) => Ok(Some(FilterExpr::Eq(Value::Boolean(b)))),
+            None => Err(self.boolean_filter_error(t, pos, shape.text, shape.text)),
+        }
+    }
+
     /// `SetFilter` on a Boolean field with `text`, of which `word` is not a word of the session language.
     ///
     /// English: record/TestFilterTextBooleanFindContracts.al:130 (SetFilter_BooleanField_UnknownWord_Throws); a leading blank stays
@@ -21,6 +43,10 @@ impl Session {
         let message = match language {
             1031 => format!(
                 "Der Filter '{text}' ist für das Feld '{field}' der Tabelle '{table}' nicht gültig. Der Wert „{word}“ kann nicht in Typ Boolean ausgewertet werden."
+            ),
+            // record/filters/FilterGlobalLanguageDateBool.al:434, reached only from `danish_boolean_filter`.
+            1030 => format!(
+                "Filteret \"{text}\" er ikke gyldigt for feltet {field} i tabellen {table}. V\u{e6}rdien \"{word}\" kan ikke evalueres til typen Boolean."
             ),
             1036 => format!(
                 "Le filtre «\u{a0}{text}\u{a0}» n'est pas valide pour le champ {field} de la table {table}. La valeur «\u{a0}{word}\u{a0}» ne peut pas être évaluée en type Boolean."

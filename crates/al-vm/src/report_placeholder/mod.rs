@@ -40,7 +40,8 @@ pub(crate) enum SaveOutput {
 
 impl Session {
     /// Puts the output of a rendering save that ran to its end where the caller asked for it, and gives the save's answer.
-    /// `rows` is the number of data item records the run wrote to its dataset.
+    /// `rows` is the number of data item records the run wrote to its dataset; `render` what the gate of the real Html takes
+    /// beyond the save's facts (`None`: a save that never renders, such as `TestRequestPage.SaveAs*`).
     pub(crate) fn write_save_output(
         &mut self,
         target: SaveTarget,
@@ -48,21 +49,32 @@ impl Session {
         schema: &Schema,
         dataset: &[u8],
         rows: usize,
+        render: Option<crate::report_render::RenderInputs>,
     ) -> Result<bool, Signal> {
         use al_builtins::assumptions::{Assumption, assume};
         match (output, target) {
             (SaveOutput::Dataset, SaveTarget::Stream(blob)) => al_builtins::stream::write_bytes(&blob, dataset),
             (SaveOutput::Dataset, SaveTarget::File(name)) => self.write_save_file(&name, dataset)?,
             (SaveOutput::Rendered(plan), target) => {
-                let (renders, selected, rgba) = match self.save_after_run(&plan, schema, dataset, rows)? {
+                let (renders, selected, rgba, html_cell) = match self.save_after_run(&plan, schema, dataset, rows)? {
                     AfterRun::Answer(saved) => return Ok(saved),
                     AfterRun::Write {
                         renders,
                         selected,
                         rgba,
-                    } => (renders, selected, rgba),
+                        html_cell,
+                    } => (renders, selected, rgba, html_cell),
                 };
                 let format = plan.format();
+                // ADR-040 amendment 2026-11-15: the measured Html cells are BC's own render, plain text without a mark.
+                if format == Format::Html
+                    && let SaveTarget::Stream(blob) = &target
+                    && let Some(inputs) = &render
+                    && let Some(html) = self.rendered_html(html_cell, schema, renders, dataset, inputs)?
+                {
+                    al_builtins::stream::write_bytes(blob, &html);
+                    return Ok(true);
+                }
                 let layout_kind = match renders {
                     Renders::StoredRdlc => "rdlc",
                     Renders::Default | Renders::Selected => schema.report().default_layout_kind.as_str(),

@@ -602,14 +602,7 @@ fn second_open_of_the_same_variable_starts_without_the_first_opens_state() {
         }
         let seen: Vec<(String, String)> = all.into_iter().filter(|(n, _)| keep(n)).collect();
         assert_eq!(seen, want, "{routine}");
-        // Only the save that failed in the table's OnModify leaves a flag the reopen clears (`save_failed`). An action that ran
-        // and a variable control that was set leave no flag with a reader on these Cards, the save OnModifyRecord aborted sets
-        // none, and main does not take the temporary list's gone-row path (`gone_temp_list`) for the row its action deleted.
-        let flagged = *routine == "SaveFailed_CloseReopen_SaveAgain";
-        assert_eq!(
-            hits.contains(&Assumption::ReopenForgetsEarlierOpenFlags),
-            flagged,
-            "{routine}: {hits:?}"
-        );
+        // The reopen runs on pinned facts only (ReopenSameVariableState.al): no assumption is taken.
+        assert!(hits.is_empty(), "{routine}: {hits:?}");
     }
 }

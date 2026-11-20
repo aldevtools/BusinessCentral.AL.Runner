@@ -183,8 +183,8 @@ pub(crate) fn cancelled() -> bool {
 }
 
 /// The reason of the tests not reached once the run stopped for its hard memory limit (`Hooks::halt`); `None` while
-/// it runs on.
-pub(crate) fn halted() -> Option<String> {
+/// it runs on. On a test's thread only (a hook reads it there).
+pub fn halted() -> Option<String> {
     CURRENT.with(|c| {
         c.borrow()
             .0

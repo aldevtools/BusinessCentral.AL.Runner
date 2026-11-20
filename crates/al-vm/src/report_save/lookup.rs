@@ -14,10 +14,12 @@ macro_rules! each_fact {
         $m!(
             format: Format,
             target: Target,
+            call: Call,
             answer: Answer,
             kind: Kind,
             layout: Layout,
             decl: Decl,
+            declares: Declares,
             file: File,
             processing_only: ProcessingOnly,
             data_items: DataItems,

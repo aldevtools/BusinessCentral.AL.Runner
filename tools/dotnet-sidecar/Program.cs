@@ -16,7 +16,7 @@ namespace AlDotNetSidecar;
 
 public static class Program
 {
-    public const int ProtocolVersion = 5;
+    public const int ProtocolVersion = 6;
 
     public static int Main(string[] args)
     {
@@ -37,7 +37,22 @@ public static class Program
         // Stray Console.Write calls from .NET code under test must not corrupt the protocol.
         Console.SetOut(Console.Error);
 
-        var server = new Server();
+        // `--render`: the render process of ADR-040 amendment 2026-11-13b (Render.cs), one per run; else the DotNet
+        // sidecar of one session.
+        Func<JsonObject, JsonObject> handle;
+        Func<Exception, JsonObject> failureOf;
+        if (args.Contains("--render"))
+        {
+            var render = new RenderServer();
+            handle = render.Handle;
+            failureOf = render.FailureOf;
+        }
+        else
+        {
+            var server = new Server();
+            handle = server.Handle;
+            failureOf = server.FailureOf;
+        }
         while (true)
         {
             byte[]? frame = ReadFrame(protocolIn);
@@ -50,11 +65,11 @@ public static class Program
                 var req = JsonNode.Parse(Encoding.UTF8.GetString(frame))!.AsObject();
                 id = req["id"]?.GetValue<long>() ?? 0;
                 bye = req["op"]?.GetValue<string>() == "bye";
-                resp = server.Handle(req);
+                resp = handle(req);
             }
             catch (Exception ex)
             {
-                resp = server.FailureOf(ex);
+                resp = failureOf(ex);
             }
             resp["id"] = id;
             WriteFrame(protocolOut, Encoding.UTF8.GetBytes(resp.ToJsonString()));

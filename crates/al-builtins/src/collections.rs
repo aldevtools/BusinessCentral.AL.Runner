@@ -33,7 +33,10 @@ pub const REGISTRY: &[(&str, NativeFn)] = &[
         })
     }),
     ("List.Contains#1", |_, r, a| {
-        read_list(r, |l| Ok(Value::Boolean(position_checked(l, &a[0])?.is_some())))
+        read_list(r, |l| {
+            refuse_unmeasured_search(l, &a[0], "Contains")?;
+            Ok(Value::Boolean(position_checked(l, &a[0])?.is_some()))
+        })
     }),
     ("List.Count#1", |_, r, _| {
         read_list(r, |l| Ok(Value::Integer(l.len() as i32)))
@@ -77,6 +80,7 @@ pub const REGISTRY: &[(&str, NativeFn)] = &[
     }),
     ("List.IndexOf#1", |_, r, a| {
         read_list(r, |l| {
+            refuse_unmeasured_search(l, &a[0], "IndexOf")?;
             Ok(Value::Integer(position_checked(l, &a[0])?.map_or(0, |p| p as i32 + 1)))
         })
     }),
@@ -87,9 +91,15 @@ pub const REGISTRY: &[(&str, NativeFn)] = &[
             ));
         }
         read_list(r, |l| {
-            Ok(Value::Integer(
-                l.iter().rposition(|x| eq(x, &a[0])).map_or(0, |p| p as i32 + 1),
-            ))
+            refuse_unmeasured_search(l, &a[0], "LastIndexOf")?;
+            let mut at = 0;
+            for (i, x) in l.iter().enumerate().rev() {
+                if eq(x, &a[0])? {
+                    at = i as i32 + 1;
+                    break;
+                }
+            }
+            Ok(Value::Integer(at))
         })
     }),
     ("List.Insert#1", |_, r, a| {
@@ -105,11 +115,12 @@ pub const REGISTRY: &[(&str, NativeFn)] = &[
     ("List.Remove#1", |_, r, a| {
         let dictionary = matches!(a[0], Value::Dictionary(_));
         with_list(r, |l| {
+            refuse_unmeasured_search(l, &a[0], "Remove")?;
             // A Dictionary is found by identity, any other one cannot be compared (CsCollections.al:DictionaryList_ContainsAndIndexOf).
             let at = if dictionary {
                 position_checked(l, &a[0])?
             } else {
-                position(l, &a[0])
+                position(l, &a[0])?
             };
             Ok(Value::Boolean(match at {
                 Some(p) => {
@@ -224,7 +235,7 @@ pub const REGISTRY: &[(&str, NativeFn)] = &[
     ("Dictionary.Add#1", |c, r, a| {
         let ret_used = c.ret_used();
         with_dict(r, |d| {
-            if live(d).any(|(_, (k, _))| eq(k, &a[0])) {
+            if find_key(d, &a[0], "Add")?.is_some() {
                 return if ret_used {
                     Ok(Value::Boolean(false))
                 } else {
@@ -240,27 +251,22 @@ pub const REGISTRY: &[(&str, NativeFn)] = &[
         })
     }),
     ("Dictionary.ContainsKey#1", |_, r, a| {
-        with_dict(r, |d| Ok(Value::Boolean(live(d).any(|(_, (k, _))| eq(k, &a[0])))))
+        with_dict(r, |d| Ok(Value::Boolean(find_key(d, &a[0], "ContainsKey")?.is_some())))
     }),
     ("Dictionary.Count#1", |_, r, _| {
         with_dict(r, |d| Ok(Value::Integer(live(d).count() as i32)))
     }),
     ("Dictionary.Get#1", |_, r, a| {
         with_dict(r, |d| {
-            live(d)
-                .find(|(_, (k, _))| eq(k, &a[0]))
-                .map(|(_, (_, v))| v.clone())
-                .map_or_else(
-                    // GetLastErrorText(true): LastErrorFlagRuntimeCodes.al:210, :215. The `Get(Key, var Value)` form is not measured.
-                    || crate::native::with_origin(key_not_found(), not_classified()),
-                    Ok,
-                )
+            find_key(d, &a[0], "Get")?.map(|i| d[i].1.clone()).map_or_else(
+                // GetLastErrorText(true): LastErrorFlagRuntimeCodes.al:210, :215. The `Get(Key, var Value)` form is not measured.
+                || crate::native::with_origin(key_not_found(), not_classified()),
+                Ok,
+            )
         })
     }),
     ("Dictionary.Get#2", |c, r, a| {
-        let got = with_dict(r, |d| {
-            Ok(live(d).find(|(_, (k, _))| eq(k, &a[0])).map(|(_, (_, v))| v.clone()))
-        })?;
+        let got = with_dict(r, |d| Ok(find_key(d, &a[0], "Get")?.map(|i| d[i].1.clone())))?;
         match got {
             Some(v) => {
                 a[1] = v;
@@ -286,7 +292,7 @@ pub const REGISTRY: &[(&str, NativeFn)] = &[
     }),
     ("Dictionary.Remove#1", |_, r, a| {
         with_dict(r, |d| {
-            let found = live(d).find(|(_, (k, _))| eq(k, &a[0])).map(|(i, _)| i);
+            let found = find_key(d, &a[0], "Remove")?;
             Ok(Value::Boolean(match found {
                 Some(p) => {
                     // The slot is freed, not closed up: a key added next takes the slot freed last (.NET Dictionary; collections/
@@ -301,8 +307,8 @@ pub const REGISTRY: &[(&str, NativeFn)] = &[
     }),
     ("Dictionary.Set#1", |_, r, a| {
         with_dict(r, |d| {
-            match d.iter_mut().find(|(k, _)| !matches!(k, Value::Null) && eq(k, &a[0])) {
-                Some((_, v)) => *v = a[1].clone(),
+            match find_key(d, &a[0], "Set")? {
+                Some(i) => d[i].1 = a[1].clone(),
                 None => dict_insert(d, a[0].clone(), a[1].clone()),
             }
             Ok(Value::Null)
@@ -314,15 +320,13 @@ pub const REGISTRY: &[(&str, NativeFn)] = &[
     ("Dictionary.Set#2", |c, r, a| {
         refuse_result(c.ret_used(), "Dictionary.Set(Key, Value, var OldValue)")?;
         let old = with_dict(r, |d| {
-            Ok(
-                match d.iter_mut().find(|(k, _)| !matches!(k, Value::Null) && eq(k, &a[0])) {
-                    Some((_, v)) => Some(std::mem::replace(v, a[1].clone())),
-                    None => {
-                        dict_insert(d, a[0].clone(), a[1].clone());
-                        None
-                    }
-                },
-            )
+            Ok(match find_key(d, &a[0], "Set")? {
+                Some(i) => Some(std::mem::replace(&mut d[i].1, a[1].clone())),
+                None => {
+                    dict_insert(d, a[0].clone(), a[1].clone());
+                    None
+                }
+            })
         })?;
         if let Some(old) = old {
             a[2] = old;
@@ -353,6 +357,24 @@ fn live(d: &[(Value, Value)]) -> impl Iterator<Item = (usize, &(Value, Value))> 
     d.iter().enumerate().filter(|(_, e)| tombstone(e).is_none())
 }
 
+/// The slot of the live entry whose key equals `key`. A key of a type whose comparison no corpus case measures
+/// ([`unmeasured_compare`]) refuses when it is compared with an entry (al-runner issue 8173); an empty dictionary compares
+/// nothing.
+fn find_key(d: &[(Value, Value)], key: &Value, member: &str) -> Result<Option<usize>, Signal> {
+    let key_kind = unmeasured_compare(key);
+    for (i, (k, _)) in live(d) {
+        if let Some(kind) = key_kind.or_else(|| unmeasured_compare(k)) {
+            return Err(Signal::unsupported(format!(
+                "Dictionary.{member} with a key of {kind}: how BC compares them is not measured"
+            )));
+        }
+        if eq(k, key)? {
+            return Ok(Some(i));
+        }
+    }
+    Ok(None)
+}
+
 /// A new entry goes into the slot freed last, else after the last one.
 fn dict_insert(d: &mut Vec<(Value, Value)>, k: Value, v: Value) {
     let free = d
@@ -367,8 +389,80 @@ fn dict_insert(d: &mut Vec<(Value, Value)>, k: Value, v: Value) {
     }
 }
 
-fn eq(a: &Value, b: &Value) -> bool {
-    compare(a, b).ok() == Some(Ordering::Equal)
+/// `Contains`, `IndexOf`, `LastIndexOf` and `Remove` refuse when the searched value or an element of the list is of a type
+/// whose comparison no corpus case measures ([`unmeasured_compare`]). For a JSON type that is only when the list has an
+/// element (an empty list compares nothing and answers as before); an XML search refuses on an empty list too, until corpus
+/// PR 1422 is pinned (al-runner issue 8165).
+/// This includes the XmlNode that AsXmlNode of an unassigned XmlElement returned (al-builtins `xml/unassigned_element.rs`).
+/// A list holds values of one AL type (a list of Variant does not compile: must-not-compile/cases/2770-list-of-variant.al:1,
+/// 1747-collection-of-variant.al:1), so the searched value and the first element decide.
+fn refuse_unmeasured_search(l: &[Value], v: &Value, member: &str) -> Result<(), Signal> {
+    let kind = match l.first() {
+        None if is_xml_handle(v) => unmeasured_compare(v),
+        None => None,
+        Some(e) => unmeasured_compare(v).or_else(|| unmeasured_compare(e)),
+    };
+    if let Some(kind) = kind {
+        return Err(Signal::unsupported(format!(
+            "List.{member} on a list of {kind}: how BC compares them is not measured"
+        )));
+    }
+    Ok(())
+}
+
+/// The kinds of value whose comparison no corpus case measures, named for the refusal, where `eq` would answer "not equal":
+/// an XML handle (al-runner issue 8165) and a JSON value of any of the four types (issue 8173; an object, array, value or
+/// token against itself; probe P2 in docs/probes-needed.md).
+fn unmeasured_compare(v: &Value) -> Option<&'static str> {
+    use crate::library_kind::LibraryKind as K;
+    if is_xml_handle(v) {
+        return Some("XML handles");
+    }
+    match v {
+        Value::Library(K::JsonToken, _) => Some("JsonToken values"),
+        Value::Library(K::JsonObject, _) => Some("JsonObject values"),
+        Value::Library(K::JsonArray, _) => Some("JsonArray values"),
+        Value::Library(K::JsonValue, _) => Some("JsonValue values"),
+        _ => None,
+    }
+}
+
+/// A value of an XML handle type: a node or document, a node list, an attribute collection, a name table or a namespace
+/// manager, assigned or not. `XmlReadOptions` and `XmlWriteOptions` are not handles.
+fn is_xml_handle(v: &Value) -> bool {
+    use crate::library_kind::LibraryKind as K;
+    match v {
+        Value::Library(k, _) => matches!(
+            k,
+            K::XmlAttribute
+                | K::XmlAttributeCollection
+                | K::XmlCData
+                | K::XmlComment
+                | K::XmlDeclaration
+                | K::XmlDocument
+                | K::XmlDocumentType
+                | K::XmlElement
+                | K::XmlNamespaceManager
+                | K::XmlNameTable
+                | K::XmlNode
+                | K::XmlNodeList
+                | K::XmlProcessingInstruction
+                | K::XmlText
+        ),
+        _ => false,
+    }
+}
+
+/// Whether `a` equals `b` for a search of a List or a Dictionary. Every comparison `compare` refuses refuses the search:
+/// a SQL counter value (al-runner issue 7859), a placeholder's size, a value of an unknown column, a marked text, and two
+/// values of a kind `compare` cannot order (two ModuleInfo, ErrorInfo or SecretText values). Answering "not equal" there
+/// would be a guess. A comparison that fails with an AL error counts as not equal, as before.
+fn eq(a: &Value, b: &Value) -> Result<bool, Signal> {
+    match compare(a, b) {
+        Ok(o) => Ok(o == Ordering::Equal),
+        Err(refusal @ Signal::Unsupported(_)) => Err(refusal),
+        Err(_) => Ok(false),
+    }
 }
 
 /// `Contains` and `IndexOf`: a list of interfaces does not support them, and two lists are the same list or cannot be compared
@@ -412,11 +506,16 @@ fn position_checked(l: &[Value], v: &Value) -> Result<Option<usize>, Signal> {
         }
         return Ok(None);
     }
-    Ok(position(l, v))
+    position(l, v)
 }
 
-fn position(l: &[Value], v: &Value) -> Option<usize> {
-    l.iter().position(|x| eq(x, v))
+fn position(l: &[Value], v: &Value) -> Result<Option<usize>, Signal> {
+    for (i, x) in l.iter().enumerate() {
+        if eq(x, v)? {
+            return Ok(Some(i));
+        }
+    }
+    Ok(None)
 }
 
 fn error_code<T>(message: &str, code: &str) -> Result<T, Signal> {

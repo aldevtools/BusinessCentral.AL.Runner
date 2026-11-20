@@ -5,27 +5,8 @@
 use al_builtins::assumptions::{self, Assumption};
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
-use al_testkit::Built;
 
 const OBJECTS: &str = r#"
-table 9651 "Report Layout Selection"
-{
-    fields
-    {
-        field(1; "Report ID"; Integer) { }
-        field(3; "Company Name"; Text[30]) { }
-        field(4; Type; Option) { OptionMembers = "RDLC (built-in)","Word (built-in)","Custom Layout","Excel Layout","External Layout"; }
-        field(6; "Custom Report Layout Code"; Code[20]) { }
-    }
-    keys { key(PK; "Report ID", "Company Name") { } }
-}
-
-table 9650 "Custom Report Layout"
-{
-    fields { field(1; "Code"; Code[20]) { } field(2; "Report ID"; Integer) { } }
-    keys { key(PK; "Code") { } }
-}
-
 table 2000000233 "Tenant Report Layout Selection"
 {
     fields { field(1; "Report ID"; Integer) { } field(2; "Company Name"; Text[30]) { } field(3; "Layout Name"; Text[250]) { } }
@@ -182,6 +163,37 @@ codeunit 51064 "RS Tests"
     end;
     procedure EmptyCode(): Text begin Custom(''); exit(Saved(Report::"RS Word Rdlc", ReportFormat::Pdf)); end;
 
+    // The calls and reports the pin does not make (RxLayoutSelectionTests.al:116, :189; report 80020 declares an RDLC layout).
+    procedure UnknownCodeWordOnly(): Text
+    var S: Record "Report Layout Selection";
+    begin
+        Rows(2);
+        Select(Report::"RS Word Only", CompanyName(), S.Type::"Custom Layout", 'RSNOSUCH');
+        exit(Saved(Report::"RS Word Only", ReportFormat::Pdf));
+    end;
+    procedure UnknownCodeRecordRef(): Boolean
+    var Tmp: Record "RS Row" temporary; Out: OutStream; R: RecordRef;
+    begin
+        Custom('RSNOSUCH');
+        R.Open(Database::"RS Row");
+        Tmp.Data.CreateOutStream(Out);
+        exit(Report.SaveAs(Report::"RS Word Rdlc", '', ReportFormat::Pdf, Out, R));
+    end;
+    procedure RdlcPdfParameters(): Boolean
+    var Tmp: Record "RS Row" temporary; Out: OutStream;
+    begin
+        Rdlc(CompanyName());
+        Tmp.Data.CreateOutStream(Out);
+        exit(Report.SaveAs(Report::"RS Word Rdlc", '<?xml version="1.0" standalone="yes"?><ReportParameters/>', ReportFormat::Pdf, Out));
+    end;
+    procedure RdlcPdfVariable(): Boolean
+    var Tmp: Record "RS Row" temporary; Out: OutStream; Rep: Report "RS Word Rdlc";
+    begin
+        Rdlc(CompanyName());
+        Tmp.Data.CreateOutStream(Out);
+        exit(Rep.SaveAs('', ReportFormat::Pdf, Out));
+    end;
+
     procedure TwoRowsExcel(): Text
     var S: Record "Report Layout Selection";
     begin
@@ -229,7 +241,7 @@ codeunit 51064 "RS Tests"
 "#;
 
 fn run(proc: &str) -> Result<Value, Signal> {
-    Built::from_source(OBJECTS).run_in("RS Tests", proc)
+    super::report_management_stand_in::built(OBJECTS).run_in("RS Tests", proc)
 }
 
 fn text(proc: &str) -> String {
@@ -249,9 +261,7 @@ fn refused(proc: &str, want: &str) {
 fn stored_selection_the_companys_rdlc_row_renders_the_rdlc_layout() {
     assumptions::clear_hits();
     assert_eq!(text("RdlcHtml"), "No|No|ReportUnsupportedFormat|");
-    assert!(assumptions::take_hits().contains(&Assumption::ReportStoredLayoutSelection));
-    // The Company Name is compared as `report_save::fact_selection` compares it, ignoring case.
-    assert_eq!(text("CaseCompanyHtml"), "No|No|ReportUnsupportedFormat|");
+    assert!(assumptions::take_hits().is_empty());
     assert_eq!(
         text("RdlcHtmlText"),
         "The Html output format is not supported by the current report layout format."
@@ -259,25 +269,27 @@ fn stored_selection_the_companys_rdlc_row_renders_the_rdlc_layout() {
     for p in ["RdlcPdf", "RdlcWord", "RdlcExcel"] {
         assumptions::clear_hits();
         assert_eq!(text(p), "Yes|Yes||OnPreReport;", "{p}");
-        assert!(
-            assumptions::take_hits().contains(&Assumption::ReportStoredLayoutSelection),
-            "{p}"
-        );
+        // The bytes are the placeholder of the format's own entry; the selection relies on none.
+        let hits = assumptions::take_hits();
+        let placeholder = [
+            Assumption::ReportPdfPlaceholder,
+            Assumption::ReportWordPlaceholder,
+            Assumption::ReportExcelPlaceholder,
+        ];
+        assert!(hits.iter().all(|h| placeholder.contains(h)), "{p}: {hits:?}");
     }
     // Xml is the dataset, as without a row (:1082 `xml returned` Yes).
     assumptions::clear_hits();
     assert_eq!(text("RdlcXml"), "Yes|Yes||OnPreReport;");
-    assert!(!assumptions::take_hits().contains(&Assumption::ReportStoredLayoutSelection));
+    assert!(assumptions::take_hits().is_empty());
 }
 
 /// RxLayoutSelectionTests.al:795 and :1022: a row of another company or with an empty Company Name is not read. Main's answer.
 #[test]
 fn stored_selection_a_row_that_is_not_the_companys_keeps_the_default_word_layout() {
-    assumptions::clear_hits();
     assert_eq!(text("EmptyCompanyHtml"), "Yes|Yes||OnPreReport;");
     assert_eq!(text("OtherCompanyHtml"), "Yes|Yes||OnPreReport;");
     assert_eq!(text("EmptyCompanyExcel"), "No|No|ReportUnsupportedFormat|");
-    assert!(!assumptions::take_hits().contains(&Assumption::ReportStoredLayoutSelection));
 }
 
 /// RxLayoutSelectionTests.al:746 and :771: every format false with ReportNoLayout, no trigger.
@@ -286,10 +298,14 @@ fn stored_selection_a_custom_layout_code_that_names_nothing_answers_no_layout() 
     for p in ["UnknownHtml", "UnknownPdf", "UnknownWord", "UnknownExcel"] {
         assumptions::clear_hits();
         assert_eq!(text(p), "No|No|ReportNoLayout|", "{p}");
-        assert!(
-            assumptions::take_hits().contains(&Assumption::ReportStoredLayoutSelection),
-            "{p}"
-        );
+        // The bytes are the placeholder of the format's own entry; the selection relies on none.
+        let hits = assumptions::take_hits();
+        let placeholder = [
+            Assumption::ReportPdfPlaceholder,
+            Assumption::ReportWordPlaceholder,
+            Assumption::ReportExcelPlaceholder,
+        ];
+        assert!(hits.iter().all(|h| placeholder.contains(h)), "{p}: {hits:?}");
     }
     assert_eq!(
         text("UnknownText"),
@@ -300,9 +316,22 @@ fn stored_selection_a_custom_layout_code_that_names_nothing_answers_no_layout() 
 /// Neighbors of the two cells keep main's refusal of a selection.
 #[test]
 fn stored_selection_neighbors_keep_mains_refusal() {
-    for p in ["KnownCode", "EmptyCode", "RdlcRowWordOnly"] {
+    for p in ["KnownCode", "RdlcRowWordOnly"] {
         refused(p, "not measured on BC");
     }
+    // A Custom Layout row of a report without an RDLC layout: the selection is no measured value.
+    refused(
+        "UnknownCodeWordOnly",
+        "stored selection row none (row: the company's Custom Layout row",
+    );
+    // A Custom Layout row with a RecordRef: measured for the RDLC row only.
+    refused(
+        "UnknownCodeRecordRef",
+        "call Report.SaveAs by number, no request parameters, a RecordRef (row: Report.SaveAs by number, no request parameters)",
+    );
+    // The RDLC row on a report variable; parameters typed by hand are refused before the save.
+    refused("RdlcPdfVariable", "by a call other than Report.SaveAs by number");
+    refused("RdlcPdfParameters", "a parameters string this runtime did not produce");
     refused(
         "RdlcPdfNoRow",
         "dataset rows none (row: some) [reports/html-email-body/RxLayoutSelectionTests.al:452]",
@@ -312,7 +341,7 @@ fn stored_selection_neighbors_keep_mains_refusal() {
 const OTHER_KIND: &str = "layout selection";
 
 /// A selected built-in or tenant layout of another kind than the default layout renders that layout (RxLayoutSelectionTests.al
-/// :452 the company's RDLC row, :648 a tenant row). Outside the measured cells (the statement form, a file, two rows, a tenant
+/// :452 the company's RDLC row, :648 a tenant row). Outside the measured cells (the statement form, a file, a tenant
 /// row naming the RDLC layout, an RDLC default report with a Word row) a save as Html or Excel, where the grid differs between
 /// the two kinds, refuses. Main wrote the default layout's answer there.
 #[test]
@@ -320,8 +349,6 @@ fn a_selected_layout_of_another_kind_refuses_html_and_excel() {
     for p in [
         "RdlcHtmlStatement",
         "RdlcHtmlFile",
-        "TwoRowsHtml",
-        "TwoRowsExcel",
         "TenantRdlcHtml",
         "RdlcDefaultWordRowHtml",
         "RdlcDefaultWordRowExcel",
@@ -347,7 +374,6 @@ fn no_dataset_row_behind_a_stored_selection_row() {
     for (p, want) in [
         ("NoRowWordRowPdf", "not measured on BC"),
         ("NoRowWordRowHtml", "not measured on BC"),
-        ("NoRowOtherCompanyPdf", "not measured on BC"),
         ("NoRowTenantRdlcPdf", "not measured on BC"),
     ] {
         refused(p, want);
@@ -360,4 +386,20 @@ fn no_dataset_row_behind_a_stored_selection_row() {
             "{p}"
         );
     }
+}
+
+/// Base Application's ReportManagement decides which rows count (the runtime raises its subscribers and reads no Report
+/// Layout Selection row): `SelectedBuiltinLayoutType` reads only `Get(ReportID, CompanyName)` and answers 0 for a Custom
+/// Layout row, and `SelectReportLayoutCode` answers nothing for a Custom Layout row with an empty code. So a row of another
+/// company is not read, two rows answer as the company's row alone, and a Custom Layout row with an empty code answers as no
+/// row. Main read the table itself and refused these.
+#[test]
+fn stored_selection_report_management_decides_which_rows_count() {
+    assert_eq!(text("TwoRowsHtml"), text("RdlcHtml"));
+    assert_eq!(text("TwoRowsExcel"), text("RdlcExcel"));
+    assert_eq!(text("EmptyCode"), "Yes|Yes||OnPreReport;");
+    assert_eq!(text("NoRowOtherCompanyPdf"), "No|No|ReportResultEmpty|OnPreReport;");
+    // A row whose Company Name differs from the company only in case: the runtime's `Get` on a Text key treats a case tie as
+    // two keys (`al_builtins::collation::compare_key`), so ReportManagement finds no row; BC's answer is not measured.
+    assert_eq!(text("CaseCompanyHtml"), text("OtherCompanyHtml"));
 }

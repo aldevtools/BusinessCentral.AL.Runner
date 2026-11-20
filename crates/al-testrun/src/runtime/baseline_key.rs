@@ -128,7 +128,6 @@ pub(super) fn baseline_key(
     opts.compile_cache.as_ref()?;
     if opts.trace
         || opts.execute
-        || opts.coverage
         || suites.iter().any(|s| s.runner.is_some())
         || crate::host::uses_real_files()
         || crate::host::real_clock()
@@ -194,6 +193,12 @@ pub(super) fn baseline_key(
             for (name, content) in &a.package_data_files {
                 key.text("package_data", name);
                 key.bytes("package_data_content", content);
+            }
+            // Its install code stores labels and captions in another language from its translation files, which an app
+            // folder reads on demand and no layer key holds (al-runner issue 8073). A package's are in its layer key.
+            key.text("translations", if a.translations { "yes" } else { "no" });
+            if let Some(identity) = a.translation_source.as_ref().and_then(|s| s.0.identity()) {
+                key.bytes("translation_files", &identity);
             }
         }
         if ws.kinds.get(i) != Some(&al_sema::AppKind::Dependency) {

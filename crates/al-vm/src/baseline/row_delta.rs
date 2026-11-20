@@ -37,7 +37,7 @@ pub struct RowDelta {
     isolated_storage: HashMap<(String, String), (String, bool, bool)>,
     sequences: HashMap<(String, String), crate::sessionops::Sequence>,
     last_stamp: i64,
-    workspace_installs: Option<Vec<(BTreeSet<u32>, String)>>,
+    workspace_installs: Option<Vec<super::SkippedInstall>>,
     company_built: bool,
     install_rows: Option<BTreeSet<u32>>,
     company_unknown: Vec<(String, u32, String)>,

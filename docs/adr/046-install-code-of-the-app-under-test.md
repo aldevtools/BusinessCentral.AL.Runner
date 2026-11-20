@@ -55,7 +55,7 @@ Both tests below pass on real BC 27, 28 and 29 (`oracle/27|28|29/junit.xml`, cod
 6. **The test session does not see the SingleInstance state of the install run.** The subscribers also add to a list
    in a SingleInstance codeunit (`PeVFixtures.al:133-135`, `:248-252`). In the test session that list holds only the
    two Company Triggers entries (`PeVTests.al:297`).
-7. **The test company is "CRONUS International Ltd."** (`session-system/TestEnvironmentUserTenantContracts.al:253`).
+7. **The test company is "CRONUS International Ltd."** (`session-system/TestEnvironmentUserTenantContracts.al:250`).
 8. **For install codeunits (already pinned):** the per-company trigger runs in the test company and finds its Company row
    (`install-upgrade/TestInstallEnvVisible_Tests.al:39-58`); the test company holds exactly 2 per-company seed rows and the
    database exactly 1 per-database seed row (`install-upgrade/TestInstallTriggerSeed_Tests.al:58-59`). Two companies do not
@@ -67,7 +67,8 @@ Both tests below pass on real BC 27, 28 and 29 (`oracle/27|28|29/junit.xml`, cod
   company, then all per-database triggers with no company, per app, `baseline.rs:112-127`), then `Company-Initialize`,
   then the workspace apps' `Subtype = Install` codeunits (`baseline.rs:210`, through `run_install_codeunits`,
   `runtime/blocked.rs:8`). Without a baseline (skipped by the rule, `AL_NO_BASELINE`, or no dependency root,
-  `baseline.rs:139`) the workspace installs run per test codeunit instead (`runtime/run.rs:229-237`).
+  `baseline.rs:139`) the workspace installs run per test codeunit instead (`runtime/run.rs:229-237`; see the amendment
+  of 2026-11-15 below).
 - Everything runs in one company. The Company table holds one row. A read of the Company table, or a call that names
   another company, is answered as if the database held only the session company and the companies the run created.
 - Nothing raises the events of "Extension Triggers" (2000000010). Its subscribers never run.
@@ -225,7 +226,8 @@ Each step is built only after the probes it names have landed and the submodule 
   module comment ("the data a session holds after the dependency apps' install code ran") is updated to name the apps
   under test and the opt-in companies.
 - **The skip path stays correct** because of decision 7: when the baseline is skipped, step 4 runs per test codeunit
-  through the same function.
+  through the same function (or, since the amendment of 2026-11-15, once per run when that gives each codeunit the
+  same session).
 - **Checks after each build step:** `tools/baseline_rule_check.sh run` shows 0 differences (CLAUDE.md),
   `tools/demand_vs_eager.sh run` shows no difference, and after step B `tools/company_mode_check.sh run` passes.
 - **Demand roots.** Workspace objects are checked anyway. A dependency app's "Extension Triggers" subscribers become
@@ -1391,3 +1393,24 @@ already use (companies "TP" and "ProbeCo", `al-bcdb-std/tests/provider.rs`).
   companies. ADR-027's test data row changes from "only the demo company" to "only the selected companies".
 - `docs/manual/test-data.md` describes the repeated option and that the Company table lists only the selected
   companies.
+
+## Amendment 2026-11-15: the install code of the apps under test once per run without a baseline (al-runner issue 8144)
+
+A test codeunit whose session starts from no install baseline no longer always runs the install code of the apps under
+test itself. al-testrun `runtime/install_once.rs` runs it once per run, in a session of its own (as publishing the app
+does, record/BfInstallTests.al:142-144), and each codeunit's session starts from what it left. That holds only when the
+result is the session the codeunit would have had: al-vm `Session::install_left` (`install_left.rs`,
+`install_left/clients.rs`) names every field of `Session`, and returns what to carry (the `Baseline` data, WorkDate,
+GlobalLanguage, the clock, the counters a later read compares with) only when every other field still holds a new
+session's value. Otherwise, and for a run that follows the code it runs (coverage, the impact trace, `--explain`, the
+profiler), a scratch run, files on a real folder (`--files-dir`) and data `Baseline::freeze` cannot share, step 4 runs
+per test codeunit as before. When `install_left` refuses, the session the install code ran in becomes the session of the
+codeunit that started the run (it was made as that codeunit's session is), so such a run still runs the install code once
+per codeunit; once more when single instances of an earlier codeunit moved into that codeunit (the strict-order lane),
+whose session then runs it itself. Otherwise such a run keeps main's install count and CPU, not its wall time: the
+other test threads wait for the first run and then run the install code, so with as many threads as codeunits it can
+take two install times where main takes one. The calls of event subscribers are carried (their one reader is the Event
+Subscription row) when `install_left` accepts the run; a subscriber that writes a row is not accepted. With several
+entries (ADR-028 decision 11) the install code runs again only for an entry whose texts of the resource files it read
+(al-vm `resource_reads.rs`) differ. The decision 7 argument above holds for both paths.
+

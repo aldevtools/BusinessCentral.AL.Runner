@@ -135,10 +135,7 @@ fn source_of(lowered: &Lowered, object: usize, routine: usize) -> Result<Source,
     }
     // Whether the framework keeps one instance of the source codeunit between its calls is not pinned (the sources of
     // the corpus have no globals); a source with globals of its own that is not SingleInstance is not run.
-    let single = src
-        .properties
-        .iter()
-        .any(|(k, v)| k.eq_ignore_ascii_case("SingleInstance") && v.eq_ignore_ascii_case("true"));
+    let single = al_ir::ObjectFacts::of_properties(&src.properties).single_instance;
     if !src.globals.is_empty() && !single {
         return Err(format!(
             "the data source codeunit {id} has global variables: whether they keep their values between the calls of the test framework is not pinned"

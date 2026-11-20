@@ -1,9 +1,9 @@
 //! `TestAction.Enabled()` right after a GoToKey on the List of al-runner issue 7916: the action's Enabled expression reads the
-//! variables as OnAfterGetRecord left them for the row GoToKey landed on (assumption `action-enabled-follows-row-after-go-to-key`,
-//! the reporter's repro on real BC). Other shapes keep the variables' current value. The platform table Field is declared here by its
+//! variables as OnAfterGetRecord left them for the row GoToKey landed on (testpage/ActionEnabledAfterGoToKey.al:610, the
+//! reporter's repro on real BC). Other shapes keep the variables' current value. The platform table Field is declared here by its
 //! field list, as the System app declares it (Options as Integer).
 
-use al_builtins::assumptions::{Assumption, take_hits};
+use al_builtins::assumptions::take_hits;
 use al_testkit::{run_in, text};
 
 const SRC: &str = r#"
@@ -357,7 +357,7 @@ fn enabled_after_go_to_key_reads_the_rows_variables() {
     take_hits();
     let r = run_in(&src(), "T", "Trapped");
     assert_eq!(text(r), "Yes No Yes");
-    assert!(take_hits().contains(&Assumption::ActionEnabledFollowsRowAfterGoToKey));
+    assert!(take_hits().is_empty());
 }
 
 /// A control read between the GoToKey and Enabled() is no call the repro makes: the current value stays, as on main.
@@ -365,7 +365,7 @@ fn enabled_after_go_to_key_reads_the_rows_variables() {
 fn a_read_between_keeps_the_current_value() {
     take_hits();
     assert_eq!(text(run_in(&src(), "T", "ReadBetween")), "No");
-    assert!(!take_hits().contains(&Assumption::ActionEnabledFollowsRowAfterGoToKey));
+    assert!(take_hits().is_empty());
 }
 
 /// OpenView is not the repro's open: the current value stays, as on main.
@@ -373,18 +373,14 @@ fn a_read_between_keeps_the_current_value() {
 fn open_view_keeps_the_current_value() {
     take_hits();
     assert_eq!(text(run_in(&src(), "T", "OpenView")), "No");
-    assert!(!take_hits().contains(&Assumption::ActionEnabledFollowsRowAfterGoToKey));
+    assert!(take_hits().is_empty());
 }
 
-/// Runs `proc` and asserts its answer and that the path of the assumption did not run (the variables' current value, as on
-/// main).
+/// Runs `proc` and asserts its answer, the variables' current value as on main, and that no assumption was taken.
 fn keeps_main(proc: &str, want: &str) {
     take_hits();
     assert_eq!(text(run_in(&src(), "T", proc)), want, "{proc}");
-    assert!(
-        !take_hits().contains(&Assumption::ActionEnabledFollowsRowAfterGoToKey),
-        "{proc}"
-    );
+    assert!(take_hits().is_empty(), "{proc}");
 }
 
 /// The Enabled expression reads a variable OnAction sets and OnAfterGetRecord does not: no row read resets it.
@@ -422,7 +418,7 @@ fn a_page_variable_run_keeps_the_current_value() {
 fn the_reporters_on_action_takes_the_path() {
     take_hits();
     assert_eq!(text(run_in(&src(), "T", "ReporterOnAction")), "Yes No Yes");
-    assert!(take_hits().contains(&Assumption::ActionEnabledFollowsRowAfterGoToKey));
+    assert!(take_hits().is_empty());
 }
 
 /// A page procedure OnAction calls hands the variable to a `var` parameter inside `exit(...)` (review round 2, R03).

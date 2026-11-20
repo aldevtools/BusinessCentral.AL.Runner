@@ -26,6 +26,43 @@ const MEDIA_FIELDREF_FILTER_ARGUMENT_EVIDENCE: &[Evidence] = &[Evidence {
     lines: "258,296,336,397,434",
 }];
 
+/// Evidence of [`Gate::ThreeLineLeavesKeyOnceFrom28`] and [`Gate::ThreeLineLeavesKeyTwiceAgainFrom29`]: two journal lines
+/// posted from a worksheet opened with Page.Run log one OnNewRecord and OnAfterGetCurrRecord pair less on BC 28
+/// (testpage/R7821JournalPostVariants.al:421 TPV7821_TwoLines_PageRun).
+const THREE_LINE_LEAVES_KEY_EVIDENCE: &[Evidence] = &[
+    Evidence {
+        file: "pages/RtFilteredGoneRow.al",
+        lines: "662,685",
+    },
+    Evidence {
+        file: "testpage/Y1WorksheetPostLog.al",
+        lines: "165,181",
+    },
+    Evidence {
+        file: "testpage/R7821JournalPostVariants.al",
+        lines: "421",
+    },
+];
+
+/// Evidence of [`Gate::Base64TextIsWindows1252From28`]: also `Base64Convert.FromBase64` with `TextEncoding::Windows` and code
+/// page 0 (streams/Base64LineBreaks.al:506 FromBase64_Windows_CodePages).
+const BASE64_TEXT_IS_WINDOWS_1252_EVIDENCE: &[Evidence] = &[
+    Evidence {
+        file: "types/PVBase64.al",
+        lines: "83,88,231",
+    },
+    Evidence {
+        file: "streams/Base64LineBreaks.al",
+        lines: "506",
+    },
+];
+
+/// Evidence of [`Gate::ExtensionCodeWithoutBaseTableGrantFrom29`].
+const EXTENSION_CODE_WITHOUT_BASE_TABLE_GRANT_EVIDENCE: &[Evidence] = &[Evidence {
+    file: "permissions/testpermissions/Y19PermExtAndCompose.al",
+    lines: "318,333,339,349,364,370",
+}];
+
 /// Evidence of [`Gate::RecordRefIsDirtyFrom28`].
 const RECORD_REF_IS_DIRTY_EVIDENCE: &[Evidence] = &[
     Evidence {
@@ -165,10 +202,6 @@ pub enum Gate {
     /// null-App-ID row. Before, the lookup keys on the App ID. Not consumed yet: the
     /// permission provider is not implemented.
     SuperPermissionSetIgnoresAppId,
-    /// `Environment Information.IsSaaSInfrastructure` is false. Before, it is true (the oracle
-    /// runs of 27.5 and 28.5 answer true, the 29.0 run false, on the same container setup). It is
-    /// `NavUserAccountHelper.IsAzure()` in the server-class registry.
-    NotSaaSInfrastructure,
     /// The header of the dataset XML that `Report.SaveAs(..., ReportFormat::Xml, ...)` writes has a
     /// `ReportCaption` element after `ReportName` and, after `Minute`, the company information
     /// block. Before, it has neither.
@@ -353,7 +386,10 @@ pub enum Gate {
     /// its evidence row is added when the corpus pin holds the file). The texts of the format regions en-GB, da-DK, nl-NL, es-ES,
     /// sv-SE and nb-NO (a one-digit day, a Time, an hour below 10, a negative amount, the long date) are asserted from BC 29 only;
     /// BC 27 and 28 hold `Observer.Discard()` (reports/runtime/BdRegionTests.al:143-398; consumed by al-builtins
-    /// format/region.rs).
+    /// format/region.rs). The Media row of an app's baseline JPEG logo has the Mime Type `image/jpeg` from BC 29 and `image/png`
+    /// on BC 27.5 and 28.5 (al-language-onprem/session-system/UsAppLogoJpeg.al:111-115; consumed by al-vm platform/apps.rs).
+    /// The Html a Word layout converts to names the converter's version: Aspose.Words 26.10.0 on BC 27.5 and 28.5, 26.8.0 on
+    /// BC 29 (reports/html-email-body/RxHtmlWidenTests.al:17-18); the runtime does not consume that fact.
     ProbedValuesDifferFrom29,
     /// `Base64Convert.ToBase64` of a Text with `TextEncoding::Windows` or `MSDos` and no code page gives the code page 1252
     /// bytes from BC 28 (`äöü` is `5Pb8`); before, the UTF-8 bytes (`w6TDtsO8`) (types/PVBase64.al, corpus bump 13).
@@ -412,11 +448,6 @@ pub enum Gate {
     /// Pages 2000000002 and 2000000004 narrow the same way from BC 28 (metadata/platform-tables/LicensePermissionRows.al:443,
     /// :448).
     LicensePermissionTopRangePageFrom28,
-    /// `Media.ImportFile` of a .docx file keeps the file's bytes as Tenant Media content and gives them back on export on BC 27
-    /// and 28; BC 29 on the Linux CI tier stores a re-zipped package (same parts, 919 bytes against 911), a Linux suspect the
-    /// corpus ignores (al-language-onprem/streams/media/MediaFiles.al:505-513, RD_Media_ImportFile_Docx; corpus bump 57). Consumed by
-    /// `al-builtins` media.rs: from 29 a look at the row or the export is refused.
-    DocxMediaRezippedFrom29,
     /// A page control bound to an Option field of another record variable of the page shows the field's OptionCaption from BC 29
     /// (Windows and the Linux CI legs); BC 27 and 28 show the member names on the Linux CI legs only, a Linux suspect whose Windows
     /// check is queued (pages/controls/SaOtherRecordControl.al:13-15, the BC29PLUS guards). Consumed by `al-vm`
@@ -453,8 +484,9 @@ pub enum Gate {
     /// RtFilteredGoneRow.al:662 TD_LeavesKey_Line1WithUpdate_ThreeLines, guarded `#if BC28PLUS and not BC29PLUS`; two lines:
     /// the same file's :685 TD_LeavesKey_Line1WithUpdate_TwoLines and testpage/Y1WorksheetPostLog.al:165,181,
     /// al-runner issue 6292). BC 28
-    /// only: [`Gate::ThreeLineLeavesKeyTwiceAgainFrom29`] ends it. Consumed by `al-vm` pages/actions.rs (the `rec_moved_other`
-    /// settle of a list action).
+    /// only: [`Gate::ThreeLineLeavesKeyTwiceAgainFrom29`] ends it. Consumed by `al-vm` pages/post_left_new_line.rs (the
+    /// `rec_moved_other` settle of a list action; there also for two rows on the new-row line,
+    /// testpage/R7821JournalPostVariants.al:416).
     ThreeLineLeavesKeyOnceFrom28,
     /// A move (Next, Previous, First, Last, GoToKey) of a plain list onto a row that a deletion by code took from the table
     /// since the list read it: BC 27 re-reads the rows around the row the cursor stands on and stays there; BC 28 answers the
@@ -501,6 +533,11 @@ pub enum Gate {
     /// field 1 (metadata/platform-tables/FieldRowSystemId.al:56-169, guarded `#if BC28PLUS`). Consumed by `al-vm`
     /// platform/fields.rs.
     FieldRowSystemIdFrom28,
+    /// From BC 29 the `Permissions` property of a table is no object grant of the code of its table extensions (the OnInsert
+    /// trigger, a procedure of the extension); on BC 27 and 28 it is (permissions/testpermissions/Y19PermExtAndCompose.al:318,
+    /// 333, 339, 349, 364, 370, the `#if BC29PLUS` guards of PC_B_ExtensionCode for b13, b14, b17, b18, b23, b24, b27 and b28). Consumed by `al-vm`
+    /// permissions/permission_probed/extension_code.rs.
+    ExtensionCodeWithoutBaseTableGrantFrom29,
 }
 
 impl Gate {
@@ -513,7 +550,6 @@ impl Gate {
         Gate::FlowFieldSumIntegerIntoBigInteger,
         Gate::FlowFieldMinMaxOverRowVersionRefused,
         Gate::SuperPermissionSetIgnoresAppId,
-        Gate::NotSaaSInfrastructure,
         Gate::ReportSaveAsXmlHeaderHasCompanyBlock,
         Gate::ReportSaveAsDataItemIdentity,
         Gate::FeatureKeyListChangedFrom28,
@@ -578,13 +614,13 @@ impl Gate {
         Gate::QueryReadCommittedFrom29,
         Gate::TestRunnerHubRequiredIsolationFrom28,
         Gate::LicensePermissionTopRangePageFrom28,
-        Gate::DocxMediaRezippedFrom29,
         Gate::OtherRecordOptionCaptionFrom29,
         Gate::JpegMediaSetKeptFrom29,
         Gate::ExceptionTraceValueTaskFrameFrom29,
         Gate::DotNetRuntime10From29,
         Gate::LegacyStatisticsActionGoneFrom29,
         Gate::NoCodeunitAfterTestRunAfterFailedOnRunFrom29,
+        Gate::ExtensionCodeWithoutBaseTableGrantFrom29,
     ];
 
     /// The first BC major with the new behaviour.
@@ -593,7 +629,6 @@ impl Gate {
             Gate::FlowFieldSumIntegerIntoBigInteger
             | Gate::FlowFieldMinMaxOverRowVersionRefused
             | Gate::SuperPermissionSetIgnoresAppId
-            | Gate::NotSaaSInfrastructure
             | Gate::ReportSaveAsXmlHeaderHasCompanyBlock
             | Gate::PermissionObjectNameLongerFrom29
             | Gate::QueryAggregateOverBigInteger
@@ -618,7 +653,6 @@ impl Gate {
             | Gate::CaseTimeZeroLabelFrom29
             | Gate::FlowFieldCountFilterBigIntegerFromIntegerFrom29
             | Gate::HttpBlankHeaderNameIsFormatFrom29
-            | Gate::DocxMediaRezippedFrom29
             | Gate::OtherRecordOptionCaptionFrom29
             | Gate::JpegMediaSetKeptFrom29
             | Gate::ThreeLineLeavesKeyTwiceAgainFrom29
@@ -628,7 +662,8 @@ impl Gate {
             | Gate::ExceptionTraceValueTaskFrameFrom29
             | Gate::DotNetRuntime10From29
             | Gate::LegacyStatisticsActionGoneFrom29
-            | Gate::NoCodeunitAfterTestRunAfterFailedOnRunFrom29 => 29,
+            | Gate::NoCodeunitAfterTestRunAfterFailedOnRunFrom29
+            | Gate::ExtensionCodeWithoutBaseTableGrantFrom29 => 29,
             Gate::ReportSaveAsDataItemIdentity
             | Gate::FeatureKeyListChangedFrom28
             | Gate::FromBase64InvalidTextRaises
@@ -685,7 +720,6 @@ impl Gate {
             | Gate::JsonSelectTokensListFrom28
             | Gate::EnvironmentPreviewRingsFrom28
             | Gate::FieldClassKeyFieldReferenceFrom28
-            | Gate::DocxMediaRezippedFrom29
             | Gate::MovedOntoDeletedStaysFrom28
             | Gate::MovedOntoDeletedRefreshesAgainFrom29
             | Gate::PlatformMetadataColumnsFrom29
@@ -759,10 +793,6 @@ impl Gate {
                 file: "permissions/TestMetadataPermissionSet.al",
                 lines: "98,106",
             }],
-            Gate::NotSaaSInfrastructure => &[Evidence {
-                file: "session-system/TestEnvironmentUserTenantContracts.al",
-                lines: "169",
-            }],
             Gate::PermissionObjectNameLongerFrom29 => &[Evidence {
                 file: "permissions/W6PermissionColumns.al",
                 lines: "122",
@@ -830,16 +860,9 @@ impl Gate {
                 file: "testpage/Y15ReapplyMarksSecondaryKey.al",
                 lines: "336",
             }],
-            Gate::ThreeLineLeavesKeyOnceFrom28 | Gate::ThreeLineLeavesKeyTwiceAgainFrom29 => &[
-                Evidence {
-                    file: "pages/RtFilteredGoneRow.al",
-                    lines: "662,685",
-                },
-                Evidence {
-                    file: "testpage/Y1WorksheetPostLog.al",
-                    lines: "165,181",
-                },
-            ],
+            Gate::ThreeLineLeavesKeyOnceFrom28 | Gate::ThreeLineLeavesKeyTwiceAgainFrom29 => {
+                THREE_LINE_LEAVES_KEY_EVIDENCE
+            }
             Gate::BracketedRecordIdNameWithoutNamespaceFrom28 => BRACKETED_RECORD_ID_NAME_EVIDENCE,
             Gate::MediaFieldRefFilterArgumentEvaluateErrorFrom28 => MEDIA_FIELDREF_FILTER_ARGUMENT_EVIDENCE,
             Gate::RecordRefIsDirtyFrom28 => RECORD_REF_IS_DIRTY_EVIDENCE,
@@ -906,6 +929,7 @@ impl Gate {
             Gate::ReportSaveAsInherentPermissionsFrom29 => REPORT_SAVE_AS_INHERENT_PERMISSIONS_EVIDENCE,
             Gate::LegacyStatisticsActionGoneFrom29 => LEGACY_STATISTICS_EVIDENCE,
             Gate::NoCodeunitAfterTestRunAfterFailedOnRunFrom29 => NO_CODEUNIT_AFTER_TEST_RUN_EVIDENCE,
+            Gate::ExtensionCodeWithoutBaseTableGrantFrom29 => EXTENSION_CODE_WITHOUT_BASE_TABLE_GRANT_EVIDENCE,
             Gate::ObsoleteRequiredPendingAttributeFrom29 => &[Evidence {
                 file: "reports/runtime/ACAttributes.al",
                 lines: "146",
@@ -1018,10 +1042,7 @@ impl Gate {
             }],
             Gate::ProbedValuesDifferFrom28 => PROBED_VALUES_DIFFER_FROM_28,
             Gate::ProbedValuesDifferFrom29 => PROBED_VALUES_DIFFER_FROM_29,
-            Gate::Base64TextIsWindows1252From28 => &[Evidence {
-                file: "types/PVBase64.al",
-                lines: "83,88,231",
-            }],
+            Gate::Base64TextIsWindows1252From28 => BASE64_TEXT_IS_WINDOWS_1252_EVIDENCE,
             Gate::TestFieldTypedValueTexts => &[
                 Evidence {
                     file: "record/testfield/AsTestFieldTexts.al",
@@ -1248,10 +1269,6 @@ impl Gate {
                     lines: "122,127",
                 },
             ],
-            Gate::DocxMediaRezippedFrom29 => &[Evidence {
-                file: "../al-language-onprem/streams/media/MediaFiles.al",
-                lines: "506,511",
-            }],
             Gate::DotNetRuntime10From29 => &[Evidence {
                 file: "../al-language-onprem-dotnet/dotnet/runonclient/BgRunOnClient.al",
                 lines: "443",
@@ -1535,9 +1552,39 @@ const PROBED_VALUES_DIFFER_FROM_29: &[Evidence] = &[
         file: "testpage/F3ValidationAddinFilter.al",
         lines: "409,447",
     },
+    // Corpus bump to 2c02f723: the Html a Word layout converts to carries the converter's version (Aspose.Words 26.8.0 on
+    // BC 29, 26.10.0 on 27 and 28), so its char count and hash differ from BC 29 (RxHtmlHashTests.al:10-13).
+    Evidence {
+        file: "reports/html-email-body/RxHtmlHashTests.al",
+        lines: "156,181,203,230,266,277,285,306,327,348,370,407,422,445,460,484,495",
+    },
+    // Corpus bump to 8fcde9a6: the Html of Word layouts with a styles, theme, numbering or header part, a caption and a BlankZero
+    // column carries the converter's version too (Aspose.Words 26.8.0 on BC 29, 26.10.0 on 27 and 28; RxHtmlWidenTests.al:20-21).
+    Evidence {
+        file: "reports/html-email-body/RxHtmlWidenTests.al",
+        lines: "411,416,421,426,452,457,462,467,494,499,504,509,537,542,547,552,582,587,592,597,628,633,638,643,655,682,687,692,697",
+    },
+    // Corpus bump to 2c02f723: on BC 29 a temporary ListPart of a Document reads its rows a third time after an action and runs
+    // OnAfterGetCurrRecord on its empty rows after Next (HiddenPartJournalShape.al:20-22).
+    Evidence {
+        file: "testpage/parts/HiddenPartJournalShape.al",
+        lines: "557,591,625,659,697",
+    },
+    // Corpus bump to 2c02f723: the Media row of an app's baseline JPEG logo has the Mime Type image/jpeg from BC 29.
+    Evidence {
+        file: "../al-language-onprem/session-system/UsAppLogoJpeg.al",
+        lines: "111",
+    },
 ];
 
 const PROBED_VALUES_DIFFER_FROM_28: &[Evidence] = &[
+    // `Base64Convert.ToBase64(InStream, true)` after a part of the stream was read, and a second call on the same InStream
+    // (streams/Base64LineBreaks.al:200,212 ToBase64_InStream_EmptyPartReadAndSecondCall); the OutStream line-break tests
+    // exist from BC 28 only (:255-405).
+    Evidence {
+        file: "streams/Base64LineBreaks.al",
+        lines: "200,212,255",
+    },
     Evidence {
         file: "format-evaluate/format-matrix/FMOptionBlankField.al",
         lines: "254,519,784",

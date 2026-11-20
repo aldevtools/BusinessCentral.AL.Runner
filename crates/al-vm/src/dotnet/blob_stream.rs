@@ -99,7 +99,7 @@ impl Session {
             ));
         }
         let state = match &*h.borrow() {
-            LibraryValue::OutStream(blob, _) => {
+            LibraryValue::OutStream(blob, ..) => {
                 let mut buf = blob.borrow_mut();
                 plain(&buf)?;
                 if buf.write_pos != buf.bytes.len() {
@@ -332,6 +332,7 @@ fn put(state: &RefCell<Vec<Value>>, bytes: &[u8]) -> Result<(), Signal> {
         let overlap = bytes.len().min(buf.bytes.len() - at);
         buf.bytes[at..at + overlap].copy_from_slice(&bytes[..overlap]);
         buf.bytes.extend_from_slice(&bytes[overlap..]);
+        buf.content_edits = buf.content_edits.wrapping_add(1);
         buf.loaded = true;
         buf.refetch = false;
         buf.persisted = false;

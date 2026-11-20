@@ -11,6 +11,17 @@ pub(crate) enum Target {
     File,
 }
 
+/// How AL code called the save (`call_fact`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Call {
+    /// `Report.SaveAs(Id, '', Format, Target)`: the report by number, empty request parameters, no RecordRef.
+    StaticPlain,
+    /// The same with a RecordRef as the fifth argument.
+    StaticRecordRef,
+    /// A report variable, request parameters, or a test request page.
+    Other,
+}
+
 /// How the caller takes the answer.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum AnswerForm {
@@ -48,6 +59,15 @@ pub(crate) enum Decl {
     Legacy,
 }
 
+/// Which layouts the report declares, as the cells tell them apart.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Declares {
+    /// Exactly a `WordLayout` and an `RDLCLayout` property, no `ExcelLayout` property and no rendering section
+    /// (reports/html-email-body/RxdDeclFixtures.al:31, report 80040).
+    WordAndRdlcProperties,
+    Other,
+}
+
 /// `ir::Report::layout_file_missing`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum LayoutFile {
@@ -80,8 +100,8 @@ pub(crate) enum Triggers {
     OnPost,
 }
 
-/// Which layout selection BC follows, as Base Application's ReportManagement answers it today (round 2 takes it from the
-/// events; `fact_selection`).
+/// Which layout selection BC follows, from the answers of Base Application's ReportManagement to the layout events
+/// (`fact_selection`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Selection {
     /// No Report Layout Selection row of the company, no Tenant Report Layout Selection row, no design-time selection.
@@ -94,7 +114,8 @@ pub(crate) enum Selection {
     Unknown,
     /// "Design-time Report Selection" holds a selection outside the shape `TempWord` resolves.
     DesignTimeHeld,
-    /// A temporary selection named one user-defined Word layout of the report (ADR-040 amendment 2026-11-12, A7).
+    /// SelectReportLayoutCode named one user-defined Word layout of the report (ADR-040 amendment 2026-11-12, A7); BC then
+    /// raises no SelectedBuiltinLayoutType, so no row of the company is read.
     TempWord,
 }
 
@@ -119,10 +140,12 @@ pub(crate) enum Rows {
 pub(crate) struct Facts {
     pub format: Format,
     pub target: Target,
+    pub call: Call,
     pub answer: AnswerForm,
     pub kind: Kind,
     pub layout: Layout,
     pub decl: Decl,
+    pub declares: Declares,
     pub file: LayoutFile,
     pub processing_only: bool,
     pub data_items: DataItems,
@@ -149,10 +172,12 @@ pub(crate) struct Facts {
 pub(crate) enum Fact {
     Format,
     Target,
+    Call,
     Answer,
     Kind,
     Layout,
     Decl,
+    Declares,
     File,
     ProcessingOnly,
     DataItems,
@@ -169,13 +194,15 @@ pub(crate) enum Fact {
 }
 
 impl Fact {
-    pub(crate) const ALL: [Fact; 19] = [
+    pub(crate) const ALL: [Fact; 21] = [
         Fact::Format,
         Fact::Target,
+        Fact::Call,
         Fact::Answer,
         Fact::Kind,
         Fact::Layout,
         Fact::Decl,
+        Fact::Declares,
         Fact::File,
         Fact::ProcessingOnly,
         Fact::DataItems,
@@ -200,10 +227,12 @@ impl Fact {
         match self {
             Fact::Format => "format",
             Fact::Target => "target",
+            Fact::Call => "call",
             Fact::Answer => "answer",
             Fact::Kind => "default layout",
             Fact::Layout => "layout kind",
             Fact::Decl => "declared by",
+            Fact::Declares => "declared layouts",
             Fact::File => "layout file",
             Fact::ProcessingOnly => "processing only",
             Fact::DataItems => "data items",
@@ -242,10 +271,19 @@ macro_rules! describe {
 
 describe!(Format { Format::Pdf => "Pdf", Format::Word => "Word", Format::Excel => "Excel", Format::Html => "Html" });
 describe!(Target { Target::Stream => "a stream", Target::File => "a file" });
+describe!(Call {
+    Call::StaticPlain => "Report.SaveAs by number, no request parameters",
+    Call::StaticRecordRef => "Report.SaveAs by number, no request parameters, a RecordRef",
+    Call::Other => "another call",
+});
 describe!(AnswerForm { AnswerForm::Used => "used", AnswerForm::Statement => "a statement", AnswerForm::None => "none (request page)" });
 describe!(Kind { Kind::Rdlc => "RDLC", Kind::Word => "Word", Kind::Excel => "Excel", Kind::Other => "another kind" });
 describe!(Layout { Layout::Rdlc => "RDLC", Layout::NotRdlc => "not RDLC" });
 describe!(Decl { Decl::Rendering => "DefaultRenderingLayout", Decl::Legacy => "DefaultLayout or a single layout" });
+describe!(Declares {
+    Declares::WordAndRdlcProperties => "WordLayout and RDLCLayout properties",
+    Declares::Other => "another declaration",
+});
 describe!(LayoutFile { LayoutFile::Present => "present", LayoutFile::Missing => "missing" });
 describe!(DataItems { DataItems::One => "one", DataItems::ParentAndChild => "one inside one", DataItems::Other => "another tree" });
 describe!(Extensions {
@@ -285,10 +323,12 @@ impl Facts {
         match fact {
             Fact::Format => self.format.describe(),
             Fact::Target => self.target.describe(),
+            Fact::Call => self.call.describe(),
             Fact::Answer => self.answer.describe(),
             Fact::Kind => self.kind.describe(),
             Fact::Layout => self.layout.describe(),
             Fact::Decl => self.decl.describe(),
+            Fact::Declares => self.declares.describe(),
             Fact::File => self.file.describe(),
             Fact::ProcessingOnly => self.processing_only.describe(),
             Fact::DataItems => self.data_items.describe(),

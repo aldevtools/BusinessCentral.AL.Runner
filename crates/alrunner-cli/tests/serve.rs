@@ -383,6 +383,87 @@ fn another_test_runner_is_compiled_again() {
     assert_eq!(run(&mut s, None).last().unwrap()["cached"], true);
 }
 
+/// The reporter's repro of al-runner issue 7978, with a third codeunit.
+const CACHE_PROBE: &str = r#"
+codeunit 50120 "Cache Probe A"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure PassesA()
+    begin
+    end;
+}
+
+codeunit 50121 "Cache Probe B"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure PassesB()
+    begin
+    end;
+}
+
+codeunit 50122 "Cache Probe C"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure PassesC()
+    begin
+    end;
+}
+"#;
+
+/// The compile depends on the sources, not on the `test` filter: a request that selects another codeunit of the same
+/// sources reuses the compile, and runs only what it selects (al-runner issue 7978).
+#[test]
+fn another_test_filter_on_the_same_sources_reuses_the_compile() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app(d.path(), "cacheprobe", CACHE_PROBE);
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    s.line();
+    let mut run = |test: &str, coverage: bool| {
+        let mut request = json!({"command": "runTests", "sourcePaths": [a], "testIsolation": "test", "test": test});
+        if coverage {
+            request["coverage"] = json!(true);
+            request["perTestCoverage"] = json!(true);
+        }
+        s.send(request);
+        let lines = s.until_summary();
+        let ran: Vec<String> = lines
+            .iter()
+            .filter(|l| l["type"] == "test" && l["status"] == "pass")
+            .map(|l| l["name"].as_str().unwrap_or_default().to_string())
+            .collect();
+        let summary = lines.last().unwrap().clone();
+        (summary["cached"].clone(), summary["total"].clone(), ran)
+    };
+    let one = |name: &str| vec![name.to_string()];
+    assert_eq!(
+        run("Codeunit50120.", false),
+        (json!(false), json!(1), one("Codeunit50120.PassesA")),
+        "the first request compiles"
+    );
+    assert_eq!(
+        run("Codeunit50121.", false),
+        (json!(true), json!(1), one("Codeunit50121.PassesB"))
+    );
+    assert_eq!(
+        run("Codeunit50121.", false),
+        (json!(true), json!(1), one("Codeunit50121.PassesB"))
+    );
+    assert_eq!(
+        run("Codeunit50122.", true),
+        (json!(true), json!(1), one("Codeunit50122.PassesC"))
+    );
+    assert_eq!(
+        run("Codeunit50120.", true),
+        (json!(true), json!(1), one("Codeunit50120.PassesA"))
+    );
+}
+
 const TWO_UNITS: &str = r#"
 codeunit 50400 "Boom Tests"
 {
@@ -891,6 +972,75 @@ fn a_selection_that_matches_no_test_answers_a_summary_with_exit_code_6() {
     s.line();
 }
 
+/// Issue 8059: `excludeTestsExact` of a request and of an entry leaves out the test whose method name or qualified name
+/// is exactly the text, in any case; `excludeTests` with the same text matches by substring.
+#[test]
+fn exclude_tests_exact_leaves_out_only_the_test_named() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app(d.path(), "mixed", MIXED);
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    s.line();
+    let names = |s: &mut Server, req: Value| -> Vec<String> {
+        s.send(req);
+        let mut n: Vec<String> = s
+            .until_summary()
+            .iter()
+            .filter(|l| l["type"] == "test")
+            .map(|l| l["name"].as_str().unwrap().to_string())
+            .collect();
+        n.sort();
+        n
+    };
+    let all = ["Codeunit50100.Fails", "Codeunit50100.Passes"];
+    let req = |extra: Value| {
+        let mut r = json!({"command": "runTests", "sourcePaths": [a]});
+        r.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        r
+    };
+    assert_eq!(
+        names(&mut s, req(json!({"excludeTestsExact": ["passes"]}))),
+        ["Codeunit50100.Fails"]
+    );
+    assert_eq!(
+        names(&mut s, req(json!({"excludeTestsExact": ["Codeunit50100.FAILS"]}))),
+        ["Codeunit50100.Passes"]
+    );
+    assert_eq!(names(&mut s, req(json!({"excludeTestsExact": ["Pass"]}))), all);
+    assert_eq!(
+        names(&mut s, req(json!({"excludeTests": ["Pass"]}))),
+        ["Codeunit50100.Fails"]
+    );
+    // An entry has its own `excludeTestsExact`.
+    s.send(req(json!({"entries": [
+        {"id": "e1", "excludeTestsExact": ["Passes"]},
+        {"id": "e2", "excludeTestsExact": ["Fails"]},
+    ]})));
+    let lines = s.until_summary();
+    let of = |entry: &str| -> Vec<String> {
+        lines
+            .iter()
+            .filter(|l| l["type"] == "test" && l["entry"] == entry)
+            .map(|l| l["name"].as_str().unwrap().to_string())
+            .collect()
+    };
+    assert_eq!(
+        (of("e1"), of("e2")),
+        (vec![all[0].to_string()], vec![all[1].to_string()]),
+        "{lines:?}"
+    );
+    // Not a list, and not with `entries` or `affectedOnly`, as `excludeTests`.
+    for bad in [
+        json!({"excludeTestsExact": "Passes"}),
+        json!({"excludeTestsExact": ["Passes"], "entries": [{"id": "x"}]}),
+        json!({"excludeTestsExact": ["Passes"], "affectedOnly": true}),
+    ] {
+        s.send(req(bad.clone()));
+        assert!(s.line().get("error").is_some(), "{bad}");
+    }
+    s.send(json!({"command": "shutdown"}));
+    s.line();
+}
+
 #[test]
 fn execute_with_announce_start_writes_the_started_line_and_no_warning() {
     let mut s = started();
@@ -1014,6 +1164,35 @@ fn tdd_true_on_run_tests_runs_against_stubs_and_flags_the_line_and_the_summary()
     let summary = lines.last().unwrap();
     assert_eq!(summary["cached"], false, "{summary}");
     assert_no_tdd_al0132(&lines);
+    s.send(json!({"command": "shutdown"}));
+    s.line();
+}
+
+/// The kept compile holds every test codeunit (ADR-028 amendment of 2026-11-13), so with a `test` filter the summary's
+/// `generatedStubs` still lists the stubs of the test codeunits the filter leaves out.
+#[test]
+fn with_tdd_and_a_test_filter_the_summary_lists_the_stubs_of_unselected_test_codeunits() {
+    let d = tempfile::tempdir().unwrap();
+    let a = tdd_app(d.path());
+    write(
+        &a,
+        "src/Other.al",
+        "codeunit 50112 \"Serve Other Tests\"\n{\n    Subtype = Test;\n\n    [Test]\n    procedure Alone()\n    begin\n    end;\n}\n",
+    );
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    s.line();
+    s.send(json!({"command": "runTests", "sourcePaths": [a], "tdd": true, "test": "Codeunit50112."}));
+    let lines = s.until_summary();
+    let tests: Vec<&Value> = lines.iter().filter(|l| l["type"] == "test").collect();
+    assert_eq!(tests.len(), 1, "{lines:?}");
+    assert_eq!(line_of(&lines, "Alone")["status"], "pass", "{lines:?}");
+    let summary = lines.last().unwrap();
+    assert_eq!(summary["generatedStubs"], json!([DOUBLE_IT]), "{summary}");
+    assert_eq!(
+        summary["stubbed"],
+        json!({"passed": 0, "failed": 0, "error": 0}),
+        "{summary}"
+    );
     s.send(json!({"command": "shutdown"}));
     s.line();
 }
@@ -1724,6 +1903,20 @@ codeunit 50701 \"Seeding Install\" { Subtype = Install;
     (main, dep)
 }
 
+/// The parts of `setupMs` in a summary's `timings.setupParts` (al-runner issue 8205).
+const SETUP_PARTS: [&str; 10] = [
+    "optionsMs",
+    "sourcesMs",
+    "selectionMs",
+    "dependenciesMs",
+    "testDataMs",
+    "licenseMs",
+    "dotnetMs",
+    "affectedMs",
+    "entriesMs",
+    "prepareMs",
+];
+
 /// Al-runner issue 5856: every request says where its time went, and a request over a kept compile also keeps the
 /// engines and the install baseline, while it still starts from the rows the install code left and none of an earlier
 /// request's writes.
@@ -1773,6 +1966,19 @@ fn a_summary_says_where_the_time_went_and_a_kept_baseline_does_not_carry_writes(
         ] {
             assert!(t[key].as_f64().is_some_and(|v| v >= 0.0), "{key}: {summary}");
         }
+        // Al-runner issue 8205: `setupMs` split into its parts, which add up to it (each rounded to a tenth).
+        let parts = &t["setupParts"];
+        let mut sum = 0.0;
+        for key in SETUP_PARTS {
+            let v = parts[key]
+                .as_f64()
+                .unwrap_or_else(|| panic!("setupParts.{key}: {summary}"));
+            assert!(v >= 0.0, "setupParts.{key}: {summary}");
+            sum += v;
+        }
+        assert_eq!(parts.as_object().map(|o| o.len()), Some(SETUP_PARTS.len()), "{summary}");
+        let total = t["setupMs"].as_f64().unwrap();
+        assert!((sum - total).abs() <= 0.5, "parts {sum} vs setupMs {total}: {summary}");
     }
     assert_eq!(
         summaries.iter().map(|s| s["passed"].clone()).collect::<Vec<_>>(),
@@ -2042,4 +2248,604 @@ fn the_summary_lists_skipped_dependencies() {
     s.send(json!({"command": "runTests", "sourcePaths": [ok]}));
     let summary = s.until_summary().pop().unwrap();
     assert_eq!(summary["skippedDependencies"], json!([]), "{summary}");
+}
+
+/// Al-runner issue 8125: `testTimeoutSecs` sets the time limit of a request and of an entry (the entry's wins, then the
+/// request's, then the server's `--test-timeout`), on the kept compile. The time `Sleep` asks for counts.
+#[test]
+fn a_request_and_an_entry_set_the_test_time_limit_on_the_kept_compile() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app(
+        d.path(),
+        "timelimit",
+        "codeunit 50414 \"Time Limit\" { Subtype = Test;
+            [Test] procedure SleepsFive() begin Sleep(5000); end; }",
+    );
+    let mut s = Server::start(&["--no-download", "--no-test-data", "--test-timeout", "30"]);
+    assert_eq!(s.line(), json!({"ready": true}));
+    let mut run = |request: Value| {
+        s.send(request);
+        let lines = s.until_summary();
+        let summary = lines.last().unwrap().clone();
+        assert_eq!(summary["type"], "summary", "{lines:?}");
+        let rows: Vec<(String, String)> = lines
+            .iter()
+            .filter(|l| l["type"] == "test")
+            .map(|l| {
+                (
+                    l["entry"].as_str().unwrap_or("").to_string(),
+                    l["message"]
+                        .as_str()
+                        .unwrap_or(l["status"].as_str().unwrap())
+                        .to_string(),
+                )
+            })
+            .collect();
+        (rows, summary["cached"].as_bool())
+    };
+    let pass = |entry: &str| (entry.to_string(), "pass".to_string());
+    let stop = |entry: &str, n: u32| (entry.to_string(), format!("Test exceeded {n}s timeout."));
+    let (rows, cached) = run(json!({"command": "runTests", "sourcePaths": [a]}));
+    assert_eq!((rows, cached), (vec![pass("")], Some(false)), "the server's 30 s");
+    let (rows, cached) = run(json!({"command": "runTests", "sourcePaths": [a], "testTimeoutSecs": 2}));
+    assert_eq!(
+        (rows, cached),
+        (vec![stop("", 2)], Some(true)),
+        "the request's 2 s, no new compile"
+    );
+    let (rows, cached) = run(
+        json!({"command": "runTests", "sourcePaths": [a], "testTimeoutSecs": 2, "entries": [
+            {"id": "own", "test": "Codeunit50414.SleepsFive", "testTimeoutSecs": 4},
+            {"id": "none", "test": "Codeunit50414.SleepsFive", "testTimeoutSecs": 0},
+            {"id": "request", "test": "Codeunit50414.SleepsFive"},
+        ]}),
+    );
+    assert_eq!(
+        (rows, cached),
+        (vec![stop("own", 4), pass("none"), stop("request", 2)], Some(true)),
+        "an entry's own limit, 0 for none, else the request's"
+    );
+    let (rows, cached) = run(json!({"command": "runTests", "sourcePaths": [a], "entries": [
+        {"id": "server", "test": "Codeunit50414.SleepsFive"},
+        {"id": "own", "test": "Codeunit50414.SleepsFive", "testTimeoutSecs": 3},
+    ]}));
+    assert_eq!(
+        (rows, cached),
+        (vec![pass("server"), stop("own", 3)], Some(true)),
+        "an entry without a limit in a request without one: the server's"
+    );
+    let (rows, cached) = run(json!({"command": "runTests", "sourcePaths": [a]}));
+    assert_eq!(
+        (rows, cached),
+        (vec![pass("")], Some(true)),
+        "a request does not change the server's limit"
+    );
+    s.send(json!({"command": "runTests", "sourcePaths": [a], "testTimeoutSecs": -1}));
+    let lines = s.until_summary();
+    assert!(
+        lines[0]["error"].as_str().unwrap().contains("`testTimeoutSecs`"),
+        "{lines:?}"
+    );
+}
+
+// al-runner issue 7775: the reporter's repro, a FindSet on the Company table.
+const COMPANY_FINDSET: &str = r#"
+codeunit 50420 "Company FindSet"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure FindSetAll()
+    var
+        C: Record Company;
+    begin
+        if C.FindSet() then;
+    end;
+}
+"#;
+
+/// al-runner issue 7775: `companies` is `--companies` for one request. Without it (and without the server's flag) the
+/// FindSet is refused, and the refusal names the flag and the field; a request without it does not keep the last one's.
+#[test]
+fn the_companies_field_is_the_companies_flag_for_one_request() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app(d.path(), "companies", COMPANY_FINDSET);
+    // The Company table is a table of the platform's System app, which the app names through `platform`.
+    let manifest = std::fs::read_to_string(a.join("app.json")).unwrap();
+    write(
+        &a,
+        "app.json",
+        &manifest.replace(r#""dependencies""#, r#""platform":"27.0.0.0","dependencies""#),
+    );
+    let packages = d.path().join("packages");
+    std::fs::create_dir_all(&packages).unwrap();
+    std::fs::copy(al_testfiles::system_app(), packages.join("System.app")).unwrap();
+    let run = |s: &mut Server, req: Value| -> (Value, Value) {
+        s.send(req);
+        let lines = s.until_summary();
+        let t = lines
+            .iter()
+            .find(|l| l["type"] == "test")
+            .unwrap_or_else(|| panic!("{lines:?}"));
+        (t["status"].clone(), t["message"].clone())
+    };
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    s.line();
+    let refused = |o: &(Value, Value)| {
+        let m = o.1.as_str().unwrap_or_default();
+        o.0 != "pass" && m.contains("--companies") && m.contains("`companies`")
+    };
+    let o = run(
+        &mut s,
+        json!({"command": "runTests", "sourcePaths": [a], "packagePaths": [packages]}),
+    );
+    assert!(refused(&o), "{o:?}");
+    let o = run(
+        &mut s,
+        json!({"command": "runTests", "sourcePaths": [a], "packagePaths": [packages], "companies": "CRONUS International Ltd."}),
+    );
+    assert_eq!(o.0, "pass", "{o:?}");
+    let o = run(
+        &mut s,
+        json!({"command": "runTests", "sourcePaths": [a], "packagePaths": [packages]}),
+    );
+    assert!(refused(&o), "the next request without the field: {o:?}");
+    s.send(json!({"command": "runTests", "sourcePaths": [a], "packagePaths": [packages], "companies": ["CRONUS International Ltd."]}));
+    let lines = s.until_summary();
+    assert!(lines[0]["error"].as_str().unwrap().contains("`companies`"), "{lines:?}");
+    s.send(json!({"command": "runTests", "sourcePaths": [a], "packagePaths": [packages], "companies": "Other,CRONUS International Ltd."}));
+    let lines = s.until_summary();
+    assert_eq!(
+        lines[0]["error"].as_str(),
+        Some("`companies`: the first company must be the session company `CRONUS International Ltd.`, not `Other`"),
+        "the session company comes first: {lines:?}"
+    );
+    // The server's `--companies` holds for a request without the field, as the CLI flag does.
+    let mut s = Server::start(&[
+        "--no-download",
+        "--no-test-data",
+        "--companies",
+        "CRONUS International Ltd.",
+    ]);
+    s.line();
+    let o = run(
+        &mut s,
+        json!({"command": "runTests", "sourcePaths": [a], "packagePaths": [packages]}),
+    );
+    assert_eq!(o.0, "pass", "{o:?}");
+}
+
+/// Al-runner issue 8206: a dependency with install code (a row `INSTALL`), and an app under test with a resource file
+/// `flag.txt` whose test fails with the flag text and the row count in its message. With `install_reads_resource`, the
+/// app's own install code (which the install baseline runs too) adds a row holding the text of `flag.txt`.
+fn resource_baseline_apps(root: &Path, install_reads_resource: bool) -> (PathBuf, PathBuf) {
+    let dep = root.join("dep");
+    write(
+        &dep,
+        "app.json",
+        r#"{"id":"82060000-0000-0000-0000-000000000001","name":"Install Dep","publisher":"Someone","version":"1.0.0.0","dependencies":[]}"#,
+    );
+    write(
+        &dep,
+        "src/Dep.al",
+        "table 50830 Installed { fields { field(1; K; Code[20]) { } } keys { key(PK; K) { } } }
+codeunit 50831 \"Dep Install\" { Subtype = Install;
+    trigger OnInstallAppPerCompany() var S: Record Installed; begin S.K := 'INSTALL'; S.Insert(); end; }",
+    );
+    let main = root.join("main");
+    write(
+        &main,
+        "app.json",
+        r#"{"id":"82060000-0000-0000-0000-000000000002","name":"Resource Tests","publisher":"Test","version":"1.0.0.0","resourceFolders":["res"],"dependencies":[{"id":"82060000-0000-0000-0000-000000000001","name":"Install Dep","publisher":"Someone","version":"1.0.0.0"}]}"#,
+    );
+    write(&main, "res/flag.txt", "off");
+    let install = if install_reads_resource {
+        "codeunit 50833 \"Reads Flag\" { Subtype = Install;
+    trigger OnInstallAppPerCompany() var S: Record Installed; begin
+        S.K := CopyStr(NavApp.GetResourceAsText('flag.txt'), 1, 20); S.Insert(); end; }\n"
+    } else {
+        ""
+    };
+    write(
+        &main,
+        "src/T.al",
+        &format!(
+            "codeunit 50832 \"Resource Tests\" {{ Subtype = Test;
+    [Test] procedure Flag() var S: Record Installed; begin
+        Error('flag=%1 rows=%2', NavApp.GetResourceAsText('flag.txt'), S.Count()); end; }}\n{install}"
+        ),
+    );
+    (main, dep)
+}
+
+/// The test lines of a request (name, status, message) and its summary's `baselineSource`.
+fn outcomes_and_source(s: &mut Server, req: Value) -> (Vec<(String, String, String)>, Value) {
+    s.send(req);
+    let lines = s.until_summary();
+    let tests = lines
+        .iter()
+        .filter(|l| l["type"] == "test")
+        .map(|l| {
+            let text = |k: &str| l[k].as_str().unwrap_or_default().to_string();
+            (text("name"), text("status"), text("message"))
+        })
+        .collect();
+    let summary = lines.last().unwrap();
+    assert!(summary["type"] == "summary", "{lines:?}");
+    (tests, summary["timings"]["baselineSource"].clone())
+}
+
+/// Al-runner issue 8206: a kept daemon takes the kept install baseline for entries with `resources`, and every request
+/// gives what a fresh daemon gives for it: the entries' texts (the same or another), a resource file changed on disk,
+/// and install code that reads a resource (where a fresh run refuses an entry with resources of its own).
+#[test]
+fn entries_with_resources_take_the_kept_baseline_and_give_what_a_fresh_daemon_gives() {
+    for install_reads_resource in [false, true] {
+        let d = tempfile::tempdir().unwrap();
+        let (main, dep) = resource_baseline_apps(d.path(), install_reads_resource);
+        let dep = dep.to_string_lossy().to_string();
+        let start = |cache: &Path| {
+            let cache = cache.to_string_lossy().to_string();
+            let mut s = Server::start(&["--no-download", "--no-test-data", "--dep", &dep, "--cache-dir", &cache]);
+            s.line();
+            s
+        };
+        let request = |text: Option<&str>| {
+            let mut req = json!({"command": "runTests", "sourcePaths": [main], "testIsolation": "test"});
+            if let Some(t) = text {
+                req["entries"] = json!([{"id": "e0", "resources": {"flag.txt": t}, "test": "Codeunit50832."}]);
+            }
+            req
+        };
+        let mut kept = start(&d.path().join("kept-cache"));
+        let steps: [(Option<&str>, Option<&str>); 5] = [
+            (Some("on"), None),
+            (Some("on"), None),
+            (Some("other"), None),
+            (None, None),
+            // The app's own resource file changes on disk: a new compile and a new baseline.
+            (Some("on"), Some("changed")),
+        ];
+        let mut sources = Vec::new();
+        for (n, (text, on_disk)) in steps.into_iter().enumerate() {
+            if let Some(t) = on_disk {
+                write(&main, "res/flag.txt", t);
+            }
+            let (got, source) = outcomes_and_source(&mut kept, request(text));
+            let mut fresh = start(&d.path().join(format!("fresh-cache-{n}")));
+            let (want, fresh_source) = outcomes_and_source(&mut fresh, request(text));
+            assert_eq!(fresh_source, "ran", "a fresh daemon runs the install code");
+            assert_eq!(
+                got, want,
+                "step {n} (install reads a resource: {install_reads_resource})"
+            );
+            // What a fresh run gives: the entry's text and the install row, or, when the install code read a resource
+            // and the entry has resources of its own, the test not run (issue 5635).
+            let message = &want[0].2;
+            let expected = match (install_reads_resource, text) {
+                (true, Some(_)) => "the install code read a resource file".to_string(),
+                (false, Some(t)) => format!("flag={t} rows=1"),
+                (reads, None) => format!("flag=off rows={}", 1 + usize::from(reads)),
+            };
+            assert!(message.contains(&expected), "step {n}: {message}");
+            sources.push(source);
+        }
+        assert_eq!(
+            sources,
+            [json!("ran"), json!("kept"), json!("kept"), json!("kept"), json!("ran")],
+            "install reads a resource: {install_reads_resource}"
+        );
+    }
+}
+
+/// Al-runner issue 8244: `coverage: "hit"` lists in `coverage` only the statements the tests ran, each as the full list
+/// shows it, and `perTestCoverage` as without it. A coverage request keeps the install baseline of the server, and its
+/// coverage is the same as over a baseline it ran.
+#[test]
+fn coverage_hit_lists_the_statements_that_ran_and_a_coverage_request_keeps_the_baseline() {
+    let d = tempfile::tempdir().unwrap();
+    let (main, dep) = installing_apps(d.path());
+    let dep = dep.to_string_lossy().to_string();
+    let cache = d.path().join("cache").to_string_lossy().to_string();
+    let mut s = Server::start(&["--no-download", "--no-test-data", "--dep", &dep, "--cache-dir", &cache]);
+    s.line();
+    let mut run = |coverage: Value| {
+        s.send(
+            json!({"command": "runTests", "sourcePaths": [main], "test": "Codeunit50710.",
+            "coverage": coverage, "perTestCoverage": true}),
+        );
+        let lines = s.until_summary();
+        let summary = lines.last().unwrap().clone();
+        assert_eq!(
+            (summary["type"].as_str(), summary["passed"].as_u64()),
+            (Some("summary"), Some(1)),
+            "{lines:?}"
+        );
+        summary
+    };
+    let full = run(json!(true));
+    let hit = run(json!("hit"));
+    let again = run(json!(true));
+    assert_eq!(full["timings"]["baselineSource"], "ran", "{full}");
+    assert_eq!(hit["timings"]["baselineSource"], "kept", "{hit}");
+    assert_eq!(again["timings"]["baselineSource"], "kept", "{again}");
+    assert_eq!(again["coverage"], full["coverage"]);
+    assert_eq!(again["perTestCoverage"], full["perTestCoverage"]);
+    assert_eq!(hit["perTestCoverage"], full["perTestCoverage"]);
+    // The full list less its statements without a run, and less the files left with none.
+    let ran: Vec<Value> = full["coverage"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|f| {
+            let statements: Vec<Value> = f["statements"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|s| s["hits"] != 0)
+                .cloned()
+                .collect();
+            (!statements.is_empty()).then(|| json!({"file": f["file"], "statements": statements}))
+        })
+        .collect();
+    let all = |v: &Value| {
+        v.as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f["statements"].as_array().unwrap().len())
+            .sum::<usize>()
+    };
+    assert!(
+        all(&json!(ran)) > 0 && all(&json!(ran)) < all(&full["coverage"]),
+        "{full}"
+    );
+    assert_eq!(hit["coverage"], json!(ran), "{hit}");
+    s.send(json!({"command": "runTests", "sourcePaths": [main], "coverage": "all"}));
+    let lines = s.until_summary();
+    assert!(
+        lines.last().unwrap()["error"]
+            .as_str()
+            .is_some_and(|e| e.contains("`coverage`")),
+        "{lines:?}"
+    );
+    s.send(json!({"command": "shutdown"}));
+    assert_eq!(s.line(), json!({"status": "shutting down"}));
+}
+
+/// Al-runner issue 8210, the reporter's repro: with `stopAfterFirstFailure` each test codeunit stops at its first failing test. The
+/// rest of that entry and every later entry is not run, each with a `notRun` row whose message names the failed test.
+/// Without the field every test of every entry runs, as before.
+#[test]
+fn stop_after_first_failure_ends_the_request_at_its_first_failing_test() {
+    let d = tempfile::tempdir().unwrap();
+    let main = app(
+        d.path(),
+        "stopafterfail",
+        "codeunit 50110 \"Stop After Fail Tests\" { Subtype = Test;
+            [Test] procedure FailsFirst() begin Error('the first test fails'); end;
+            [Test] procedure SlowTwo() begin Burn(); end;
+            [Test] procedure SlowThree() begin Burn(); end;
+            [Test] procedure SlowFour() begin Burn(); end;
+            local procedure Burn() var i: Integer; x: Integer; begin for i := 1 to 3000 do x := (x + i) mod 7919; end; }",
+    );
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    s.line();
+    let entry = |id: &str| json!({"id": id, "test": "Codeunit50110."});
+    let mut rows = |stop: Option<bool>, entries: Vec<Value>| {
+        let mut req = json!({"command": "runTests", "sourcePaths": [main], "entries": entries});
+        if let Some(stop) = stop {
+            req["stopAfterFirstFailure"] = json!(stop);
+        }
+        s.send(req);
+        let lines = s.until_summary();
+        let tests: Vec<Value> = lines.iter().filter(|l| l["type"] == "test").cloned().collect();
+        (tests, lines)
+    };
+    let stopped = |t: &Value| {
+        t["notRun"] == true
+            && t["message"]
+                .as_str()
+                .is_some_and(|m| m.contains("Codeunit50110.FailsFirst") && m.contains("stopAfterFirstFailure"))
+    };
+    let (one, lines) = rows(Some(true), vec![entry("a")]);
+    assert_eq!(one.len(), 4, "{lines:?}");
+    assert_eq!(one[0]["status"], "fail", "{lines:?}");
+    assert!(one[1..].iter().all(stopped), "{lines:?}");
+    let (three, lines) = rows(Some(true), vec![entry("a"), entry("b"), entry("c")]);
+    assert_eq!(three.len(), 12, "{lines:?}");
+    assert_eq!(three[0]["status"], "fail", "{lines:?}");
+    assert!(three[1..].iter().all(stopped), "{lines:?}");
+    for stop in [None, Some(false)] {
+        let (all, lines) = rows(stop, vec![entry("a"), entry("b"), entry("c")]);
+        assert_eq!(all.len(), 12, "{lines:?}");
+        assert_eq!(all.iter().filter(|t| t["status"] == "pass").count(), 9, "{lines:?}");
+    }
+    s.send(json!({"command": "shutdown"}));
+    assert_eq!(s.line(), json!({"status": "shutting down"}));
+}
+
+/// Al-runner issue 8210: under `stopAfterFirstFailure` a selection runs only the tests it picks, as `runSelectedOnly`
+/// does, so a failing test the answer does not list cannot stop the run.
+#[test]
+fn stop_after_first_failure_runs_only_the_picked_tests() {
+    let d = tempfile::tempdir().unwrap();
+    let main = app(
+        d.path(),
+        "stoppicked",
+        "codeunit 50111 \"Stop Picked\" { Subtype = Test;
+            [Test] procedure A_FailsUnpicked() begin Error('not picked'); end;
+            [Test] procedure B_Picked() begin end;
+            [Test] procedure C_Picked() begin end; }",
+    );
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    s.line();
+    s.send(
+        json!({"command": "runTests", "sourcePaths": [main], "stopAfterFirstFailure": true,
+        "entries": [{"id": "e", "test": "Codeunit50111.", "excludeTests": ["FailsUnpicked"]},
+                    {"id": "f", "test": "Codeunit50111.", "excludeTests": ["FailsUnpicked"]}]}),
+    );
+    let lines = s.until_summary();
+    let tests: Vec<&Value> = lines.iter().filter(|l| l["type"] == "test").collect();
+    assert_eq!(tests.len(), 4, "{lines:?}");
+    assert!(tests.iter().all(|t| t["status"] == "pass"), "{lines:?}");
+    s.send(json!({"command": "shutdown"}));
+    assert_eq!(s.line(), json!({"status": "shutting down"}));
+}
+
+/// Al-runner issue 8334: a test the time limit stops in the middle of its work leaves nothing for the next test codeunit,
+/// the next entry or the next request: committed rows, WorkDate, a SingleInstance codeunit, NumberSequence and
+/// IsolatedStorage it set are gone, and the reader's answers equal those of a new daemon.
+#[test]
+fn a_daemon_after_a_test_timeout_answers_as_a_new_daemon() {
+    let d = tempfile::tempdir().unwrap();
+    let main = app(
+        d.path(),
+        "timeoutstate",
+        "table 50730 \"Timeout Row\" { fields { field(1; No; Integer) { } } keys { key(PK; No) { } } }
+codeunit 50731 \"Timeout Single\" { SingleInstance = true; var V: Integer;
+    procedure SetV(N: Integer) begin V := N; end; procedure GetV(): Integer begin exit(V); end; }
+codeunit 50732 Hanger { Subtype = Test;
+    [Test] procedure WritesThenHangs() var R: Record \"Timeout Row\"; S: Codeunit \"Timeout Single\"; i: Integer; begin
+        R.No := 1; R.Insert(); Commit(); R.No := 2; R.Insert();
+        WorkDate(20010101D); S.SetV(7);
+        NumberSequence.Insert('STATE8334'); IsolatedStorage.Set('state8334', 'x');
+        while true do i := (i + 1) mod 7919; end; }
+codeunit 50733 Reader { Subtype = Test;
+    [Test] procedure SeesNoState() var R: Record \"Timeout Row\"; S: Codeunit \"Timeout Single\"; begin
+        if not R.IsEmpty() then Error('rows leaked');
+        if WorkDate() = 20010101D then Error('WorkDate leaked');
+        if S.GetV() <> 0 then Error('SingleInstance leaked');
+        if NumberSequence.Exists('STATE8334') then Error('NumberSequence leaked');
+        if IsolatedStorage.Contains('state8334') then Error('IsolatedStorage leaked'); end; }\n",
+    );
+    let reader = |s: &mut Server| {
+        s.send(json!({"command": "runTests", "sourcePaths": [main], "test": "Codeunit50733."}));
+        let lines = s.until_summary();
+        let tests: Vec<Value> = lines
+            .iter()
+            .filter(|l| l["type"] == "test")
+            .map(|t| t["status"].clone())
+            .collect();
+        let summary = lines.last().unwrap().clone();
+        (
+            tests,
+            [
+                summary["exitCode"].clone(),
+                summary["passed"].clone(),
+                summary["total"].clone(),
+            ],
+        )
+    };
+    let mut fresh = Server::start(&["--no-download", "--no-test-data"]);
+    fresh.line();
+    let expected = reader(&mut fresh);
+    assert_eq!(expected.0, vec![json!("pass")], "{expected:?}");
+    fresh.send(json!({"command": "shutdown"}));
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    s.line();
+    s.send(
+        json!({"command": "runTests", "sourcePaths": [main], "testTimeoutSecs": 1,
+        "entries": [{"id": "h", "test": "Codeunit50732."}, {"id": "r", "test": "Codeunit50733."}]}),
+    );
+    let lines = s.until_summary();
+    let tests: Vec<&Value> = lines.iter().filter(|l| l["type"] == "test").collect();
+    assert_eq!(tests.len(), 2, "{lines:?}");
+    assert!(
+        tests[0]["notRun"] == true && tests[0]["message"].as_str().is_some_and(|m| m.contains("timeout")),
+        "{lines:?}"
+    );
+    assert_eq!(tests[1]["status"], "pass", "{lines:?}");
+    assert_eq!(reader(&mut s), expected);
+    s.send(json!({"command": "shutdown"}));
+    assert_eq!(s.line(), json!({"status": "shutting down"}));
+}
+
+/// Al-runner issue 8492: `stopAfterFirstFailure` over an app with a dependency whose install code writes a row. A later
+/// request keeps the install baseline and the engines; every request starts from the install row and none of the writes
+/// of an earlier one, with or without the stop.
+#[test]
+fn stop_after_first_failure_over_a_dependency_keeps_the_baseline_and_carries_no_writes() {
+    let d = tempfile::tempdir().unwrap();
+    let (main, dep) = installing_apps(d.path());
+    write(
+        &main,
+        "src/T.al",
+        "codeunit 50712 \"Seeded Stop\" { Subtype = Test;
+    [Test] procedure A_Fails() begin Error('fails first'); end;
+    [Test] procedure B_SeesTheInstallRowOnly() var S: Record Seeded; begin
+        if S.Count() <> 1 then Error('Seeded holds %1 rows', S.Count());
+        S.K := 'B'; S.Insert(); Commit(); end; }\n",
+    );
+    let dep = dep.to_string_lossy().to_string();
+    let cache = d.path().join("cache").to_string_lossy().to_string();
+    let mut s = Server::start(&["--no-download", "--no-test-data", "--dep", &dep, "--cache-dir", &cache]);
+    s.line();
+    let mut run = |stop: bool| {
+        s.send(json!({"command": "runTests", "sourcePaths": [main], "stopAfterFirstFailure": stop}));
+        let lines = s.until_summary();
+        let of = |name: &str| {
+            lines
+                .iter()
+                .find(|l| l["type"] == "test" && l["name"].as_str().is_some_and(|n| n.ends_with(name)))
+                .unwrap_or_else(|| panic!("{name}: {lines:?}"))
+                .clone()
+        };
+        let summary = lines.last().unwrap().clone();
+        (of("A_Fails"), of("B_SeesTheInstallRowOnly"), summary)
+    };
+    let stopped = |b: &Value| {
+        b["notRun"] == true
+            && b["message"]
+                .as_str()
+                .is_some_and(|m| m.contains("A_Fails") && m.contains("stopAfterFirstFailure"))
+    };
+    for (stop, source) in [(true, "ran"), (true, "kept"), (false, "kept"), (true, "kept")] {
+        let (a, b, summary) = run(stop);
+        assert_eq!(a["status"], "fail", "{stop}: {a}");
+        if stop {
+            assert!(stopped(&b), "{stop}: {b}");
+        } else {
+            assert_eq!(b["status"], "pass", "{b}");
+        }
+        assert_eq!(summary["timings"]["baselineSource"], source, "{stop}: {summary}");
+    }
+    s.send(json!({"command": "shutdown"}));
+    assert_eq!(s.line(), json!({"status": "shutting down"}));
+}
+
+/// Al-runner issue 8492: a coverage request after one without coverage gives the coverage a server's first request gives.
+#[test]
+fn a_coverage_request_after_one_without_coverage_gives_the_coverage_of_a_first_request() {
+    let d = tempfile::tempdir().unwrap();
+    let (main, dep) = installing_apps(d.path());
+    let dep = dep.to_string_lossy().to_string();
+    let cache = d.path().join("cache").to_string_lossy().to_string();
+    let start = || {
+        let mut s = Server::start(&["--no-download", "--no-test-data", "--dep", &dep, "--cache-dir", &cache]);
+        s.line();
+        s
+    };
+    let run = |s: &mut Server, coverage: Option<bool>| {
+        let mut req = json!({"command": "runTests", "sourcePaths": [main], "test": "Codeunit50710."});
+        if let Some(c) = coverage {
+            req["coverage"] = json!(c);
+            req["perTestCoverage"] = json!(c);
+        }
+        s.send(req);
+        let lines = s.until_summary();
+        let summary = lines.last().unwrap().clone();
+        assert_eq!(summary["passed"], 1, "{lines:?}");
+        summary
+    };
+    let mut first = start();
+    let want = run(&mut first, Some(true));
+    first.send(json!({"command": "shutdown"}));
+    let mut s = start();
+    let without = run(&mut s, None);
+    assert!(without.get("coverage").is_none(), "{without}");
+    let got = run(&mut s, Some(true));
+    assert_eq!(got["coverage"], want["coverage"], "{got}");
+    assert_eq!(got["perTestCoverage"], want["perTestCoverage"], "{got}");
+    s.send(json!({"command": "shutdown"}));
+    assert_eq!(s.line(), json!({"status": "shutting down"}));
 }

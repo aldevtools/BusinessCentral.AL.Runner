@@ -19,24 +19,28 @@ mod bgsession;
 mod blob_copy;
 mod blob_transfer;
 mod clientless;
+mod consistent_marks;
 mod get_key_value;
 mod package_data;
 mod partial_gone;
 mod placeholder_files;
 mod run_restore;
 pub mod single_track;
+mod single_unmeasured;
 mod state;
 pub(crate) use state::*;
 mod baseline;
 mod sequence_start;
-pub use sequence_start::SequenceStart;
+pub use sequence_start::{DataAccess, SequenceStart};
+mod storage_checkpoint;
+pub use storage_checkpoint::{StorageCheckpoint, Unkept};
 mod capture;
 mod ctx;
 mod debug;
 mod exec;
 mod interp;
 mod isolated_storage_reads;
-pub use baseline::{Baseline, NotShared, RowDelta, SharedBaseline};
+pub use baseline::{Baseline, NotShared, RowDelta, SharedBaseline, SkippedInstall};
 pub use capture::{CaptureConfig, Captured, ClosedBy, LoopRecord, MAX_RECORDS, MessageRecord, Rendered, ValueRecord};
 pub(crate) use ctx::base_slot_missing;
 pub use debug::{DebugFrame, DebugHook, DebugView, Resume};
@@ -50,8 +54,9 @@ pub use profile::{
     DbStat, PosStat, ProfFrame, ProfNode, ProfileMode, ProfileTree, reaches_database,
     routine_label as profile_routine_label,
 };
-pub use state_stamp::StateStamp;
+pub use state_stamp::{LeftChange, LeftStamp, StateStamp};
 pub use test_runner_host::TestCodeunitHost;
+mod auto_format_writer;
 mod callstack;
 mod caught_errors;
 mod clear_all_page_ext;
@@ -64,7 +69,6 @@ mod data_file_types;
 mod dataset;
 mod datatransfer;
 mod db_event_no_op;
-mod decimal_column;
 mod dev_endpoint_ui;
 mod dispatch;
 pub mod dotnet;
@@ -90,9 +94,11 @@ mod filterpage;
 mod flowfields;
 mod geturl;
 mod globaltriggers;
+pub mod group1_sessions;
 mod hostvalues;
 mod http;
 pub mod impact;
+mod install_left;
 mod interfaces;
 mod isdirty;
 mod license_ceiling;
@@ -100,16 +106,21 @@ mod load_fields_request;
 mod media_orphans;
 mod min_row_version;
 mod native_rows;
+mod object_ids;
 pub mod observer_tap;
 mod pages;
 mod partial;
+mod permission_bulk_no_match;
 mod permission_shadow;
+mod permission_system_flowfield;
+mod permission_trigger_setup;
 mod permission_triggers;
 mod permissions;
 mod platform;
 mod profile;
 mod queries;
 mod query_date_filter;
+mod query_reopen;
 mod query_save_as;
 mod raise_to;
 mod rdlc_fields;
@@ -131,8 +142,10 @@ mod report_layout_export;
 mod report_layout_streams;
 mod report_no_layout_file;
 pub mod report_placeholder;
+mod report_render;
 mod report_save;
 mod reports;
+mod resource_reads;
 mod run_page_link_open;
 mod sessionops;
 mod setup_no_op;
@@ -145,6 +158,8 @@ mod stale_rename;
 mod state_stamp;
 mod table_facts;
 mod tasks;
+mod temp_blob_impl_field;
+mod temp_blob_share;
 mod tenant_layout_cfg;
 mod tenant_layouts;
 mod tenant_set_delete;
@@ -154,22 +169,29 @@ mod testdata;
 mod transactions;
 mod translations;
 mod ui;
+mod unopened_refs;
 mod user_account_keys;
 mod user_email;
 mod user_password;
 mod usertable;
+mod var_option;
+mod variant_copy;
 mod view_empty;
 mod view_unknown;
 mod views;
 mod views_cross_enum;
 mod xmlports;
 mod xrec_blobs;
+pub use install_left::InstallLeft;
+pub use resource_reads::{ReadTexts, ResourceReads};
 pub use transactions::TxModel;
 pub use ui::{UiHandler, UiKind};
 
 static NEXT_ENGINE_UID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
-/// Program app index -> the resource files a run gives that app in place of the program's (`Engine::resource_overrides`).
+/// Program app index -> the resource files a run replaces in that app (`Engine::resource_overrides`): name, the content
+/// read in place of the program's. Only the replaced files: the app's other files are read from the program, which
+/// every entry shares (al-runner issue 8026).
 pub type ResourceOverrides = std::collections::HashMap<usize, Arc<Vec<(String, Vec<u8>)>>>;
 
 pub struct Engine {
@@ -186,8 +208,9 @@ pub struct Engine {
     /// The .NET host, the registry of runtime-provided classes and the policy (ADR-014).
     pub dotnet: dotnet::DotNetConfig,
     /// Table objects whose rows the install baseline should have created and did not (ADR-013
-    /// decision 5): a `Get` that finds nothing in dependency code is not BC's answer for them.
-    pub unseeded: std::collections::HashSet<usize>,
+    /// decision 5): a `Get` that finds nothing in dependency code is not BC's answer for them. Each with the root that
+    /// should have written it and why it stopped, for the refusal of a read (al-runner issue 8104).
+    pub unseeded: std::collections::HashMap<usize, std::sync::Arc<str>>,
     /// Stored platform tables whose fresh-tenant rows nothing pins (`al_builtins::platform::UNSEEDED_ROWS`):
     /// unseeded for the tests, but not for install code, which writes them.
     pub platform_unseeded: std::collections::HashSet<usize>,
@@ -201,8 +224,8 @@ pub struct Engine {
     /// (`` `Name` by Publisher ``). With one, a lookup by id of an object no loaded app declares may land in a skipped
     /// app, where BC finds it: it is refused instead of raising the missing-object error (al-runner issue 5749).
     pub skipped_apps: Vec<String>,
-    /// The resource files a run gives some apps in place of those of the program (an entry of a `serve` request, issue
-    /// 5635): program app index -> resources. Set between the passes of a run, while no session runs.
+    /// The resource files a run replaces in some apps (an entry of a `serve` request, issue 5635): program app index ->
+    /// the replaced files only ([`ResourceOverrides`]). Set between the passes of a run, while no session runs.
     pub resource_overrides: std::sync::RwLock<ResourceOverrides>,
     /// A session read the resource files of an app (`NavApp.GetResourceAsText` and the like).
     pub resources_read: std::sync::atomic::AtomicBool,
@@ -263,6 +286,8 @@ pub struct Engine {
     pub(crate) delete_subscribed: std::sync::OnceLock<std::collections::HashSet<String>>,
     /// What a run of a routine on a transient instance can leave behind (`effects.rs`), per (object, routine).
     pub(crate) lasting_effects: std::sync::Mutex<std::collections::HashMap<(usize, usize), Option<effects::Effect>>>,
+    /// What a run of a page's DataCaptionExpression can raise or leave behind (`effects/open_risk.rs`), per (object, routine).
+    pub(crate) caption_open_risks: std::sync::Mutex<std::collections::HashMap<(usize, usize), Option<String>>>,
     /// Per object, per routine: what a call needs to know about the routine, found once (see [`RoutineFacts`]).
     facts: Arc<[std::sync::OnceLock<Box<[RoutineFacts]>>]>,
     /// The register bytecode of the routines, compiled on first call (`exec/`).
@@ -295,11 +320,12 @@ pub struct InstallFacts {
     /// in one part writes (A2 item d). A read of `SystemRowVersion`, `SystemCreatedAt` or `SystemModifiedAt` of a row
     /// install code wrote is refused.
     pub row_order: std::collections::HashMap<usize, String>,
-    /// Table object -> (app under test, the assumption its install rows rely on): the install session of an app under test
-    /// raises Company Triggers OnCompanyOpen(Completed) to the subscribers of every installed app (ADR-046 amendment 1, A4
-    /// item 4, owner decision 2026-10-19), an assumption until probe Q3. A test that touches the table outside install code
-    /// is a flagged pass.
-    pub assumed: std::collections::HashMap<usize, (usize, al_builtins::assumptions::Assumption)>,
+    /// Table object -> the assumptions its install rows rely on: the install session of an app under test raises Company
+    /// Triggers OnCompanyOpen(Completed) to the subscribers of every installed app (ADR-046 amendment 1, A4 item 4, owner
+    /// decision 2026-10-19), an assumption until probe Q3; the install order of ids above the probed range; an install
+    /// subscriber written with the bare id (al-testrun `install::assume_by_id_install_tables`). A test that touches the
+    /// table outside install code is a flagged pass, through each of them.
+    pub assumed: std::collections::HashMap<usize, std::collections::BTreeSet<al_builtins::assumptions::Assumption>>,
 }
 
 /// The codeunit objects with one id, first in program order.
@@ -329,6 +355,9 @@ pub(crate) struct RoutineFacts {
     /// A call hands the routine the declared lengths of its `var` Text and Code arguments (`ir::Routine::reads_var_max_len`;
     /// never for a publisher, whose subscribers would see them).
     pub var_lens: bool,
+    /// A `var` Option parameter declared with members, of a routine that is no publisher: a call hands it whether its argument
+    /// is a variable the probes measure handing on to a publisher (`var_option::option_hops_of`, `Frame::option_hops`).
+    pub option_hops: bool,
 }
 
 fn routine_facts(r: &ir::Routine, publisher: bool) -> RoutineFacts {
@@ -353,6 +382,12 @@ fn routine_facts(r: &ir::Routine, publisher: bool) -> RoutineFacts {
     }
     f.odd_attributes |= commits > 1 || collects > 1;
     f.var_lens = r.reads_var_max_len && !publisher;
+    f.option_hops = !publisher
+        && r.locals
+            .iter()
+            .zip(&r.by_var)
+            .take(r.params)
+            .any(|(l, v)| *v && matches!(&l.ty, RtType::Option(m) if !al_builtins::option_members::memberless(m)));
     f
 }
 
@@ -504,6 +539,7 @@ impl Engine {
             catalog_maps: Default::default(),
             delete_subscribed: Default::default(),
             lasting_effects: Default::default(),
+            caption_open_risks: Default::default(),
             profile_seeds: Default::default(),
             seed_tables: Default::default(),
             seed_rows: Default::default(),
@@ -555,6 +591,7 @@ impl Engine {
             catalog_maps: self.catalog_maps.clone(),
             delete_subscribed: Default::default(),
             lasting_effects: Default::default(),
+            caption_open_risks: Default::default(),
             profile_seeds: Default::default(),
             seed_tables: self.seed_tables.clone(),
             seed_rows: Default::default(),
@@ -637,6 +674,7 @@ impl Engine {
             private_test_rows: _,
             delete_subscribed: _,
             lasting_effects: _,
+            caption_open_risks: _,
             positions_by_object: _,
             enumerable_fields: _,
             served_tables: _,
@@ -751,12 +789,32 @@ pub struct CarriedState {
     work_date: Option<i32>,
 }
 
-/// The isolated storage and the number sequences of a session at a test runner's checkpoint
-/// ([`Session::storage_checkpoint`]).
-#[derive(Debug, Clone, Default)]
-pub struct StorageCheckpoint {
-    isolated: std::collections::HashMap<(String, String), (String, bool, bool)>,
-    sequences: std::collections::HashMap<(String, String), sessionops::Sequence>,
+/// One part of a [`CarriedState`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CarriedPart {
+    /// `GlobalLanguage`.
+    Language,
+    /// `WorkDate`.
+    WorkDate,
+}
+
+impl CarriedState {
+    /// Whether `other` holds another value for `part`.
+    pub fn differs(&self, other: &CarriedState, part: CarriedPart) -> bool {
+        match part {
+            CarriedPart::Language => self.language != other.language,
+            CarriedPart::WorkDate => self.work_date != other.work_date,
+        }
+    }
+
+    /// This state with `part` taken from `from`.
+    pub fn with_part(mut self, from: &CarriedState, part: CarriedPart) -> CarriedState {
+        match part {
+            CarriedPart::Language => self.language = from.language,
+            CarriedPart::WorkDate => self.work_date = from.work_date,
+        }
+        self
+    }
 }
 
 pub struct Session {
@@ -774,6 +832,8 @@ pub struct Session {
     /// The objects of the routines on the call stack, innermost last (builtins scoped to an app,
     /// `NavApp.GetCallerModuleInfo`).
     pub(crate) frames: Vec<usize>,
+    /// Set by `exec/run.rs` `run_iface` around an interface call, taken by the callee's frame (`records::ByValueCall`).
+    pub(crate) next_interface_call: bool,
     /// The state of each table element without LinkTable right below another table element at the end of its last pass of the
     /// running export, by (xmlport instance address, node) (`xmlports.rs` `xp_unlinked_pass_start`).
     pub(crate) xp_unlinked_passes: Vec<(usize, usize, xmlports::UnlinkedPass)>,
@@ -803,6 +863,8 @@ pub struct Session {
     pub(crate) isolated_set_in_test: std::collections::HashSet<(String, String)>,
     /// The isolated storage keys this test codeunit set, in this test or an earlier one (isolated_storage_reads.rs).
     pub(crate) isolated_written_in_codeunit: std::collections::HashSet<(String, String)>,
+    /// What a later test of the running codeunit may not reach (`storage_checkpoint.rs`).
+    unmeasured: storage_checkpoint::Unmeasured,
     /// The TaskScheduler tasks this session created (`tasks.rs`).
     pub(crate) tasks: tasks::Tasks,
     /// An install codeunit is running.
@@ -839,6 +901,10 @@ pub struct Session {
     /// Each sequence this session restarted or deleted, as it was just before the first of those (`numbers_taken.rs` in
     /// al-testrun: what a codeunit under runner 130450 leaves of it).
     pub(crate) sequences_changed: std::collections::HashMap<(String, String), sessionops::SequenceChange>,
+    /// What AL code reached of the table data and when each sequence was inserted (`sequence_start.rs`).
+    access_notes: sequence_start::Notes,
+    /// Why no NumberSequence call of this session can have BC's answer (`storage_checkpoint.rs`); `None`: every call runs.
+    numbers_unmeasured: Option<Rc<str>>,
     /// The one instance of each `SingleInstance = true` codeunit in this session.
     singletons: std::collections::HashMap<usize, Rc<RefCell<Instance>>>,
     /// The notes on the watched single instances' globals (`single_track.rs`).
@@ -911,8 +977,8 @@ pub struct Session {
     pub(crate) truncate_undo: std::collections::HashMap<(String, u32), i64>,
     /// Records inside an OnValidate (by handle) with the field values from before the outermost
     /// Validate, which nested Validates of the same record see as xRec (corpus
-    /// record/TestXRecContracts.al:133).
-    pub(crate) validating: Vec<(usize, Vec<Value>)>,
+    /// record/TestXRecContracts.al:133), and the mark that xRec gets (`records::BeforeImage`).
+    pub(crate) validating: Vec<(usize, crate::records::BeforeImage)>,
     /// The records (by handle) whose `validating` entry a part's link stamp pushed (`stamp_from_filters_seen_as`): the
     /// platform validates the link value, so the entry holds whatever code runs at that moment.
     pub(crate) stamp_validating: Vec<usize>,
@@ -988,12 +1054,25 @@ pub struct Session {
     pub(crate) shadow_lower_bound: bool,
     /// Set by AL code's record method call right before `record_op` of a restricted session, taken there (ADR-062).
     pub(crate) permission_from_al: bool,
+    /// With `permission_from_al`: the call is a RecordRef's (`refs.rs`), taken by `record_op` with it.
+    pub(crate) permission_from_recordref: bool,
+    /// The record methods that run while the permission gate is on, innermost last (`permission_bulk_no_match.rs`).
+    pub(crate) record_calls: Vec<crate::permission_bulk_no_match::RecordCall>,
+    /// Set by AL code's `Record.SetFilter` right before `record_op_from_al`, taken by the SetFilter of `record_op_inner`.
+    pub(crate) setfilter_from_al: bool,
     /// True while the fields of `SetAutoCalcFields` are calculated after a read: that read is allowed (Y24PermReads.al
     /// Y24_P15_FlowFieldsNothingOnSource, `autocalc_findfirst`).
     pub(crate) permission_autocalc: bool,
     /// True while a page calculates the FlowFields of its controls: BC drops such a control when the session cannot read the
     /// source table (Y24PermReads.al Y24_P15, `testpage_field`), which the runtime does not model, so a denial refuses.
     pub(crate) permission_page_calc: bool,
+    /// True while the AL call `Record.FindFirst` of a fresh, stored record scans for its row and loads it (`Session::as_find_first`): the FlowField filters checked
+    /// then are checked for it (permission_system_flowfield.rs).
+    pub(crate) find_first_read: bool,
+    /// The record method AL code is calling on a Record variable, with that variable's identity (`Ctx::record`,
+    /// `Session::begin_al_record_call`): the one fact of an AL call site the system FlowField permission reads
+    /// (permission_system_flowfield.rs).
+    pub(crate) al_record_call: Option<(usize, al_builtins::record_op::RecordOp)>,
     /// The source table (object index) of a page while it opens (`open_page_as`): a read the page makes of it, when the table is
     /// empty, raises nothing (`Session::page_open_read_allowed`).
     pub(crate) permission_opening_source: Option<usize>,
@@ -1006,8 +1085,11 @@ pub struct Session {
     pub(crate) permission_caller: Option<usize>,
     /// The xmlport whose export runs: the reads the runtime makes for it (not AL code) are decided as that object's.
     pub(crate) permission_run_object: Option<usize>,
-    /// The query whose method runs (the object index), for the read check of `query_rows`.
-    pub(crate) query_object: usize,
+    /// The global variable (object index of the routine, slot) a query method is called on, from `run_native` to `query_op`.
+    pub(crate) query_receiver: Option<(usize, usize)>,
+    /// The KeyRef method that runs was called on a declared local variable of a codeunit procedure, from `run_native` to
+    /// `unopened_refs.rs` `keyref_unassigned_measured`.
+    pub(crate) keyref_receiver_local: bool,
     /// The object index of the test codeunit being run (set by the test runner).
     pub test_object: Option<usize>,
     /// The `TestHttpRequestPolicy` of the running test codeunit (`None`: the property is absent).
@@ -1017,9 +1099,8 @@ pub struct Session {
     pub(crate) scratch_messages: Option<Vec<String>>,
     /// `--tdd` (ADR-051 decision 5): the stubs that ran since the last [`Session::take_tdd_reached`].
     pub(crate) tdd_reached: std::collections::BTreeSet<String>,
-    /// The filters in filter group 1 (the global group) last set on a database record, per table object: BC keeps them on
-    /// every record of the table for the rest of the session (records.rs `global_group_check`).
-    pub(crate) global_group1: std::collections::HashMap<u32, String>,
+    /// The filters in filter group 1 (the global group) per table object, and when they end (`group1_sessions.rs`).
+    pub(crate) global_group1: group1_sessions::Group1Filters,
     /// Value capture and loop tracking (`capture.rs`); `None`: off, and the statements run as they always did.
     pub(crate) capture: Option<Box<capture::Capture>>,
     /// Which executable form the next routine runs (one byte): the plain one, the captured one (a capture is on and the
@@ -1038,6 +1119,8 @@ pub struct Session {
     /// it around a test method to see whether the method committed (test isolation, `isolation.rs`
     /// in al-test-cli).
     pub commits: u64,
+    /// Whether a record of the session may be a measured Blob source (`blob_transfer::Sources`).
+    pub(crate) blob_sources: blob_transfer::Sources,
     /// The `[ErrorBehavior(Collect)]` scopes on the call stack and the errors they hold
     /// (see `errorcollect.rs`).
     pub(crate) error_scopes: errorcollect::Scopes,
@@ -1095,6 +1178,8 @@ pub struct Session {
     pub(crate) package_load: bool,
     /// The time `Sleep` has waited, added to every clock reading.
     pub(crate) waited_ms: i64,
+    /// The resource files AL code of this session read (`resource_reads.rs`).
+    pub(crate) resource_reads: std::cell::RefCell<resource_reads::ResourceReads>,
     /// The running test's time limit in milliseconds, which its `Sleep` calls count toward (al-runner issue 5605), and
     /// the time they have asked for since the test started. `None` outside a test with a limit.
     pub(crate) sleep_budget: Option<i64>,
@@ -1112,6 +1197,8 @@ pub struct Session {
     pub(crate) render_pending_files: std::collections::HashMap<String, Arc<str>>,
     /// How a placeholder file came to be and whether an AL File holds it open (`placeholder_files.rs`).
     pub(crate) placeholder_files: placeholder_files::PlaceholderFiles,
+    /// The Blob fields "Temp Blob Impl." opened a stream on (`temp_blob_impl_field.rs`).
+    pub(crate) temp_blob_impl_fields: temp_blob_impl_field::TempBlobImplFields,
     /// The instant of the last system stamp (milliseconds since the Unix epoch).
     pub(crate) last_stamp: i64,
     /// The key and count of the draws of how far past a stamp the clock lands (`Session::stamp_millis`): the run seed's
@@ -1258,6 +1345,7 @@ impl Session {
             through_recordref: false,
             host,
             waited_ms: 0,
+            resource_reads: Default::default(),
             companies,
             company_unknown: Default::default(),
             full_copies: Default::default(),
@@ -1270,6 +1358,7 @@ impl Session {
             temp_files: 0,
             render_pending_files: std::collections::HashMap::new(),
             placeholder_files: Default::default(),
+            temp_blob_impl_fields: Default::default(),
             last_stamp: i64::MIN / 2,
             clock_key,
             clock_draws: 0,
@@ -1280,6 +1369,7 @@ impl Session {
             depth: 0,
             spare_vecs: Vec::new(),
             xp_pass_views: Vec::new(),
+            numbers_unmeasured: None,
             singletons: Default::default(),
             si_track: None,
             singles_unclaimed: Default::default(),
@@ -1331,6 +1421,7 @@ impl Session {
             error_finals: None,
             var_alias_watch: Vec::new(),
             frames: Vec::new(),
+            next_interface_call: false,
             call_stack: Vec::new(),
             error_raised_in: None,
             runner_frames: String::new(),
@@ -1341,6 +1432,7 @@ impl Session {
             isolated_committed: Default::default(),
             isolated_set_in_test: Default::default(),
             isolated_written_in_codeunit: Default::default(),
+            unmeasured: Default::default(),
             tasks: Default::default(),
             install_scope: false,
             company_build: false,
@@ -1354,6 +1446,7 @@ impl Session {
             setup_caption_read_early: false,
             sequences,
             sequences_changed: Default::default(),
+            access_notes: Default::default(),
             table_connections: Default::default(),
             default_table_connection: Default::default(),
             crm_stores: Default::default(),
@@ -1372,13 +1465,19 @@ impl Session {
             shadow_active: false,
             shadow_lower_bound: false,
             permission_from_al: false,
+            permission_from_recordref: false,
+            record_calls: Vec::new(),
+            setfilter_from_al: false,
             permission_autocalc: false,
             permission_page_calc: false,
+            find_first_read: false,
+            al_record_call: None,
             permission_opening_source: None,
             report_refusal_after_denial: None,
             permission_caller: None,
             permission_run_object: None,
-            query_object: 0,
+            query_receiver: None,
+            keyref_receiver_local: false,
             permissions: None,
             test_object: None,
             http_policy: None,
@@ -1391,6 +1490,7 @@ impl Session {
             constants: Default::default(),
             stop: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             commits: 0,
+            blob_sources: Default::default(),
             error_scopes: Default::default(),
             initial_cache: Default::default(),
             adhoc_tables: Default::default(),
@@ -1412,31 +1512,8 @@ impl Session {
             ui_state: UiState::default(),
             pages: PageClients::default(),
             events: EventState {
-                caption_context_revision: 0,
-                bindings: Vec::new(),
-                page_held: Vec::new(),
-                page_var_runs: Vec::new(),
-                pages_with_instance: Vec::new(),
                 event_stats,
-                publish_frame: false,
-                only_targets: None,
-                sender_refused: None,
-                var_origins: Vec::new(),
-                next_aliases: Vec::new(),
-                next_is_subscriber: false,
-                subscriber_stack: Vec::new(),
-                next_var_lens: Vec::new(),
-                publisher_var_lens: Vec::new(),
-                unpinned_event_depth: 0,
-                skip_dependency_subscribers: false,
-                not_installed_apps: None,
-                order_unknown_apps: None,
-                order_unknown_hits: Default::default(),
-                install_written: None,
-                install_rows: None,
-                setup_no_ops: Default::default(),
-                trial: Default::default(),
-                global_setups: Default::default(),
+                ..EventState::default()
             },
             coverage: CoverageState::default(),
             report: ReportState::default(),
@@ -1465,20 +1542,12 @@ impl Session {
         self.demo_written.clear();
         self.gl_setup_written = false;
         self.tx.transaction_type = 0;
-        self.tx.tx_phase = crate::transactions::TX_FRESH;
-        self.tx.lock_tx = false;
-        self.tx.isolation_lock = false;
-        self.tx.lock_unpinned = None;
-        self.tx.recref_lock_tx = false;
-        self.tx.isolation_lock_tables.clear();
-        self.tx.locking_reads.clear();
-        self.tx.db_reads = 0;
-        self.tx.locking_read_tx_unpinned = false;
+        self.tx.phase = crate::transactions::TxPhase::Fresh;
+        self.tx.open.locks = Default::default();
     }
 
     /// Makes every change so far durable (and a Truncate of this transaction final).
     pub fn commit_transaction(&mut self) {
-        self.tx.deferred_insert = None;
         self.guarded_body_commit();
         al_data::Store::commit(&mut self.store);
         self.crm_committed();
@@ -1487,25 +1556,17 @@ impl Session {
         self.truncate_undo.clear();
         // Rows at or below this rowversion are durable: a buffer older than one of them is stale.
         self.tx.committed_row_version = self.next_row_version;
-        self.tx.row_versions = Default::default();
-        self.tx.rows_touched.clear();
-        self.tx.tables_inserted.clear();
-        self.tx.locked_tables.clear();
-        self.tx.writes.clear();
-        self.tx.insert_buffer.clear();
-        self.tx.commit_counter = self.store.change_counter();
+        // A transaction a lock opened counts as one that wrote: MinimumActiveRowVersion after it is not pinned.
+        self.tx.last_commit_wrote = self.tx.phase == crate::transactions::TxPhase::Write || self.tx.open.locks.lock_tx;
+        self.end_open_transaction();
         self.tx.rolled_back = false;
-        self.tx.reads_after_rollback.clear();
         self.tx.rollback_unpinned = None;
         self.tx.rollback_kind = None;
-        // A transaction a lock opened counts as one that wrote: MinimumActiveRowVersion after it is not pinned.
-        self.tx.last_commit_wrote = self.tx.tx_phase == crate::transactions::TX_WRITE || self.tx.lock_tx;
         self.isolated_committed = self.isolated_storage.clone();
         self.pages.saved_values_committed = self.pages.saved_values.clone();
         self.tasks.commit();
         let removed = std::mem::take(&mut self.media_removed.0);
         self.media_removed.1.extend(removed);
-        self.end_write_phase();
     }
 
     /// The test runner took a checkpoint of the committed data: what was removed before it stays removed.
@@ -1528,47 +1589,15 @@ impl Session {
         self.restore_media(removed);
     }
 
-    /// The isolated storage and the number sequences now, for [`Session::restore_storage_checkpoint`] (a test runner's
-    /// TestIsolation = Function, al-testrun `isolation::Checkpoint`).
-    pub fn storage_checkpoint(&self) -> StorageCheckpoint {
-        StorageCheckpoint {
-            isolated: self.isolated_storage.clone(),
-            sequences: self.sequences.clone(),
-        }
-    }
-
-    /// Puts the isolated storage and the number sequences back as they were at `cp`. A key or a sequence that `cp`
-    /// already held and that changed or went away since is put back too, but the answer is `false`: only a new key's
-    /// `IsolatedStorage.Set` and a new sequence's `NumberSequence.Insert` are measured to be rolled back. `None`: nothing
-    /// changed since `cp`.
-    pub fn restore_storage_checkpoint(&mut self, cp: &StorageCheckpoint) -> Option<bool> {
-        if self.isolated_storage == cp.isolated && self.sequences == cp.sequences {
-            return None;
-        }
-        let kept_storage = cp.isolated.iter().all(|(k, v)| self.isolated_storage.get(k) == Some(v));
-        let kept_sequences = cp.sequences.iter().all(|(k, v)| self.sequences.get(k) == Some(v));
-        self.isolated_storage = cp.isolated.clone();
-        self.isolated_committed = cp.isolated.clone();
-        self.sequences = cp.sequences.clone();
-        Some(kept_storage && kept_sequences)
-    }
-
-    /// The transaction a write call started has ended (record/TestProbeRecordRefContracts.al:WriteTransaction_State starts
-    /// it with a write that changes nothing; codeunits/TestWriteTxTestBoundary.al:Test10 to Test13d end it with the run or
-    /// the page operation, and a rollback ends it too).
-    /// The `Consistent(false)` marks end with the transaction too.
-    fn end_write_phase(&mut self) {
-        self.tx.inconsistent.clear();
-        self.tx.lock_tx = false;
-        self.tx.isolation_lock = false;
-        self.tx.lock_unpinned = None;
-        self.tx.recref_lock_tx = false;
-        self.tx.isolation_lock_tables.clear();
-        self.tx.locking_reads.clear();
-        self.tx.db_reads = 0;
-        self.tx.locking_read_tx_unpinned = false;
-        if self.tx.tx_phase == crate::transactions::TX_WRITE {
-            self.tx.tx_phase = crate::transactions::TX_FRESH;
+    /// The open transaction has ended, at a Commit or a rollback: what it held goes (`OpenTx`), and so does the
+    /// `Consistent(false)` mark. The transaction a write call started has ended too (record/TestProbeRecordRefContracts.al:
+    /// WriteTransaction_State starts it with a write that changes nothing; codeunits/TestWriteTxTestBoundary.al:Test10 to
+    /// Test13d end it with the run or the page operation, and a rollback ends it too).
+    fn end_open_transaction(&mut self) {
+        self.tx.open = Default::default();
+        self.tx.commit_counter = self.store.change_counter();
+        if self.tx.phase == crate::transactions::TxPhase::Write {
+            self.tx.phase = crate::transactions::TxPhase::Fresh;
         }
     }
 
@@ -1590,20 +1619,12 @@ impl Session {
 
     pub fn rollback_transaction(&mut self) {
         self.note_rollback_for_stale_rule();
-        self.tx.deferred_insert = None;
         al_data::Store::rollback(&mut self.store);
         self.rollbacks += 1;
         self.crm_rolled_back();
         self.sql.rolled_back();
-        self.tx.row_versions = Default::default();
-        self.tx.rows_touched.clear();
-        self.tx.tables_inserted.clear();
-        self.tx.locked_tables.clear();
-        self.tx.writes.clear();
-        self.tx.insert_buffer.clear();
-        self.tx.commit_counter = self.store.change_counter();
+        self.end_open_transaction();
         self.tx.rolled_back = true;
-        self.tx.reads_after_rollback.clear();
         self.isolated_storage = self.isolated_committed.clone();
         // What SaveValues pages stored is kept in the database: a rollback takes back what was stored since the last commit. An
         // asserterror under TestIsolation = Codeunit (one transaction for the codeunit) takes back what an earlier test stored
@@ -1623,7 +1644,6 @@ impl Session {
         for (slot, value) in std::mem::take(&mut self.truncate_undo) {
             self.autoinc.insert(slot, value);
         }
-        self.end_write_phase();
     }
 
     /// The signatures of the `--tdd` stubs that ran since the last call, sorted (ADR-051 decision 5).
@@ -1649,6 +1669,7 @@ impl Session {
                     temporary: *temporary,
                     temp_id,
                     company: None,
+                    change_company_called: false,
                     crm: self.engine.object_facts[*table as usize].crm(),
                     fields: self.initial_fields(*table as usize),
                     filters: Vec::new(),
@@ -1678,9 +1699,10 @@ impl Session {
                     failed_insert: None,
                     row_origin: None,
                     own_read: Default::default(),
-                    own_variable: Default::default(),
+                    probed_source: Default::default(),
                     globals: Default::default(),
                     unpinned_buffer: None,
+                    view_assumption: None,
                     run_page_link: None,
                 })))
             }
@@ -1782,6 +1804,12 @@ impl Session {
         al_builtins::value::TempId::new(self.next_temp, self.temp_release.clone())
     }
 
+    /// [`Session::new_temp_id`] for the table of a temporary record's copy handed by value (`TempId::is_by_value_copy`).
+    pub(crate) fn new_by_value_temp_id(&mut self, source: &Rc<RefCell<RecordState>>) -> al_builtins::value::TempId {
+        self.next_temp += 1;
+        al_builtins::value::TempId::new_by_value_copy(self.next_temp, self.temp_release.clone(), source)
+    }
+
     /// The runner marks the time install codeunits run: `DataTransfer` is usable in it. Changes
     /// install code makes to rows the restored company holds are allowed and written down
     /// (ADR-020 amendment).
@@ -1854,12 +1882,11 @@ impl Session {
         self.no_client = on;
     }
 
-    /// `--no-client` (al-runner issue 7564): the test session is a session without a client. `GuiAllowed` answers false,
-    /// `Message` returns and reaches no handler, `Confirm` raises CallbackNotAllowed whatever its default (all three as a page
-    /// background task worker does, pages/background-tasks/BjNoGuiDialogs.al:8-10; that a web-service session does the same is
-    /// the assumption `no-client-session`), and the other dialogs answer as that worker does or are refused (`clientless.rs`).
+    /// `--no-client` (al-runner issue 7564): the test session is a session without a client, a web-service session as the
+    /// reporter of al-runner issues 8154, 8158 and 8028 measured it: what each call does there is in `clientless.rs`.
     pub fn set_clientless_session(&mut self, on: bool) {
         self.ui_state.clientless = on;
+        self.sync_no_client_test_session();
     }
 
     /// An install routine of an app runs (or no longer runs): BC runs it in a session without a client. `GuiAllowed()` is
@@ -1868,10 +1895,11 @@ impl Session {
     /// Not set while the company is built: Company-Initialize and the company data codeunit keep their own rules.
     pub fn set_install_without_client(&mut self, on: bool) {
         self.install_without_client = on;
+        self.sync_no_client_test_session();
     }
 
     /// The session state a test method can change for the next test besides the database and the globals: the language
-    /// (`GlobalLanguage`) and WorkDate. The test runner puts it back after a test refused while it ran (`restore_carried`).
+    /// (`GlobalLanguage`) and WorkDate (`restore_carried` puts it back).
     pub fn carried_state(&self) -> CarriedState {
         CarriedState {
             language: self.global_language,
@@ -1879,8 +1907,7 @@ impl Session {
         }
     }
 
-    /// Puts back what [`Session::carried_state`] took: a test refused while it ran leaves nothing of it behind, as its
-    /// database writes are rolled back (al-testrun `run.rs`).
+    /// Puts back what [`Session::carried_state`] took (al-testrun `stopped_state.rs` decides when).
     pub fn restore_carried(&mut self, state: CarriedState) {
         self.global_language = state.language;
         self.events.event_stats.language.set(state.language);
@@ -1987,10 +2014,10 @@ impl Session {
                 self.engine.program.objects[object].name, r.name
             )));
         }
-        let fresh = Rc::new(RefCell::new(Instance {
+        let fresh = al_builtins::instance_cycles::shared(Instance {
             object: object as u32,
             ..Default::default()
-        }));
+        });
         let inst = self.shared_instance(fresh);
         self.call(object, routine, inst, Vec::new()).map(|_| ())
     }
@@ -2066,9 +2093,11 @@ impl Session {
         let engine = self.engine.clone();
         let globals = self.slot_defaults(&engine.program.objects[object].globals);
         if engine.program.objects[object].kind == ir::ObjKind::Codeunit {
-            globals.iter().for_each(blob_transfer::new_variable);
+            globals
+                .iter()
+                .for_each(|v| blob_transfer::new_variable(v, self.commits, &mut self.blob_sources));
         }
-        Rc::new(RefCell::new(Instance {
+        al_builtins::instance_cycles::shared(Instance {
             object: object as u32,
             globals,
             initialized: true,
@@ -2078,7 +2107,9 @@ impl Session {
             xp_text: Vec::new(),
             born: Default::default(),
             single: false,
-        }))
+            unmeasured: None,
+            live: Default::default(),
+        })
     }
 
     /// A fresh instance of page or report extension `object` that is linked to `base`, the
@@ -2110,7 +2141,7 @@ impl Session {
                 }
             })
             .collect();
-        Rc::new(RefCell::new(Instance {
+        al_builtins::instance_cycles::shared(Instance {
             object: object as u32,
             globals,
             initialized: true,
@@ -2120,7 +2151,9 @@ impl Session {
             xp_text: Vec::new(),
             born: Default::default(),
             single: false,
-        }))
+            unmeasured: None,
+            live: Default::default(),
+        })
     }
 
     /// A record type whose default value has no state of its own (no temporary table): a record of a stored table.
@@ -2132,64 +2165,13 @@ impl Session {
         true
     }
 
-    /// A RecordRef (held by a Variant) handed by value to a Record parameter of table `table`: of the same table, the Record
-    /// `ops::record_ref_into_record` makes (streams/ArRecordProbes.al:366 VariantRecordRef_PassedToRecordParameter).
-    /// Of another table it raises ObjectDefinitionChanged, naming the first field of the ref's table: pinned for that field a Code
-    /// where the parameter's table has an Integer (ArRecordProbes.al SG_VariantRecordRef_OtherTable_AssignAndParameter `param`,
-    /// corpus bump PR 738); other pairs of types, and a ref that is not open, raise an error whose text is not pinned.
-    pub(crate) fn record_ref_into_record_param(
-        &mut self,
-        h: &Rc<RefCell<al_builtins::value::LibraryValue>>,
-        table: u32,
-    ) -> Result<Value, Signal> {
-        let other = match &*h.borrow() {
-            al_builtins::value::LibraryValue::RecordRef(rec) if rec.borrow().table == table => {
-                return al_builtins::ops::record_ref_into_record(&rec.borrow());
-            }
-            al_builtins::value::LibraryValue::RecordRef(rec) => rec.borrow().table,
-            al_builtins::value::LibraryValue::Empty => {
-                return Err(Signal::Error(Box::new(al_builtins::native::unpinned_error())));
-            }
-            _ => {
-                return Err(Signal::Unsupported(
-                    "a RecordRef value that is no record into a Record parameter".into(),
-                ));
-            }
-        };
-        let first = |t: u32| {
-            self.engine.program.objects[t as usize]
-                .table
-                .as_ref()
-                .and_then(|s| s.fields.first())
-                .map(|f| (f.name.clone(), f.ty.clone()))
-        };
-        if let (Some((_, RtType::Integer)), Some((name, RtType::Code(_)))) = (first(table), first(other)) {
-            return Err(Signal::Error(Box::new(al_builtins::native::AlError {
-                message: format!(
-                    "The definition of the {name} field has changed; old type: Integer, new type: Code. Start your activity again."
-                ),
-                code: "ObjectDefinitionChanged".into(),
-                call_stack: String::new(),
-                ..Default::default()
-            })));
-        }
-        Err(Signal::Error(Box::new(al_builtins::native::unpinned_error())))
-    }
-
     /// The copy a parameter declared `temporary` (or of a TableType = Temporary table) gets of a record handed by value: an
     /// empty table of its own, the current values, no filters, the primary key ascending, no marks (see `call_inner`).
     fn temporary_param_copy(&mut self, rc: &Rc<RefCell<RecordState>>) -> Value {
         let mut st = rc.borrow().copy_as_new_variable();
-        st.key = 0;
-        st.adhoc = None;
-        st.ascending = true;
-        st.field_descending = 0;
-        st.marks.clear();
-        st.marked_only = false;
-        st.filters.clear();
-        st.filter_group = 0;
+        records::primary_view(&mut st);
         st.temporary = true;
-        st.temp_id = Some(self.new_temp_id());
+        st.temp_id = Some(self.new_by_value_temp_id(rc));
         Value::Record(Rc::new(RefCell::new(st)))
     }
 
@@ -2199,7 +2181,7 @@ impl Session {
     pub(crate) fn record_by_value(&mut self, rc: &Rc<RefCell<RecordState>>) -> Value {
         let mut st = rc.borrow().copy_as_new_variable();
         if st.temporary {
-            st.temp_id = Some(self.new_temp_id());
+            st.temp_id = Some(self.new_by_value_temp_id(rc));
         }
         // A by-value copy of a record with a key on a Media field answers the primary key as its key (record/W4SortKeys.al:471);
         // the rest stays refused (`records::MEDIA_KEY`).
@@ -2342,19 +2324,20 @@ impl Session {
             // 101-137) for an integration event of a codeunit and OnAfterModifyEvent of a table; another event's text is not pinned.
             if let Some(top) = self.events.subscriber_stack.last() {
                 let objects = &self.engine.program.objects;
-                let text = top.map(|(publisher, so, sr)| {
+                let text = top.map(|(publisher, so, sr)| -> Result<String, Signal> {
                     let p = &objects[publisher];
                     let (event, kind) = if p.kind == al_ir::ObjKind::Table {
                         ("OnAfterModifyEvent", "Table")
                     } else {
                         ("None", "CodeUnit")
                     };
-                    format!(
+                    Ok(format!(
                         "Excessive recursion has been detected in event subscriber function {} for event {event} that is raised in {kind} {}.",
                         objects[so].routines[sr].name,
-                        p.id.unwrap_or(0)
-                    )
+                        crate::object_ids::declared_id(p.id)?
+                    ))
                 });
+                let text = text.transpose()?;
                 return Err(Signal::Error(Box::new(match text {
                     Some(message) => al_builtins::native::AlError {
                         message,
@@ -2415,6 +2398,33 @@ impl Session {
         r
     }
 
+    /// The `[CommitBehavior]` a call of `r` nests and whether it collects errors: from `facts`, or, for a routine with an
+    /// attribute the runtime does not understand, from the scan that reports it.
+    fn enter_attributes(&mut self, r: &ir::Routine, facts: &RoutineFacts) -> Result<bool, Signal> {
+        if !facts.odd_attributes {
+            if let Some(b) = facts.commit_behavior {
+                self.tx.commit_behavior = self.tx.commit_behavior.nested(b);
+            }
+            return Ok(facts.collects);
+        }
+        for a in r
+            .attributes
+            .iter()
+            .filter(|a| a.name.eq_ignore_ascii_case("CommitBehavior"))
+        {
+            match transactions::CommitBehavior::from_attribute(&a.text) {
+                Some(b) => self.tx.commit_behavior = self.tx.commit_behavior.nested(b),
+                None => {
+                    return Err(Signal::unsupported(format!(
+                        "{} (only Ignore and Error are pinned)",
+                        a.text
+                    )));
+                }
+            }
+        }
+        errorcollect::declares_collect(&r.attributes)
+    }
+
     fn call_inner(
         &mut self,
         object: usize,
@@ -2425,6 +2435,14 @@ impl Session {
     ) -> Result<(Value, Vec<Value>), Signal> {
         let aliases = std::mem::take(&mut self.events.next_aliases);
         let subscriber = std::mem::take(&mut self.events.next_is_subscriber);
+        let by_value = records::ByValueCall::new(
+            object,
+            &instance,
+            subscriber,
+            std::mem::take(&mut self.next_interface_call),
+            std::mem::take(&mut self.events.next_event_args),
+        );
+        let measured_event = std::mem::take(&mut self.events.next_blob_event);
         self.note_routine(object, routine);
         if self.coverage.cells.is_some() {
             self.tap_cells(object, routine, &instance);
@@ -2448,16 +2466,16 @@ impl Session {
                 locals.push(Value::Null);
             } else {
                 let v = self.slot_default(s);
-                if i >= r.params {
-                    blob_transfer::new_variable(&v);
+                if blob_transfer::measured_local(engine.program.objects[object].kind, r, i) {
+                    blob_transfer::new_variable(&v, self.commits, &mut self.blob_sources);
                 }
                 locals.push(v);
             }
         }
         let mut args = args;
-        // A procedure without attributes, called as a procedure: the call whose by-value arguments `blob_transfer::Argument`
-        // measures.
-        let measured_call = !subscriber && !r.is_trigger && r.attributes.is_empty();
+        // The call whose by-value arguments `blob_transfer::Argument` measures.
+        let measured_call =
+            blob_transfer::Argument::measured_call(engine.program.objects[object].kind, r, measured_event);
         for (i, a) in args.drain(..).enumerate().take(r.params) {
             // No arm below is for these pairs, and the last one hands them back unchanged.
             if passed_unchanged(&a, &r.locals[i].ty) {
@@ -2465,7 +2483,8 @@ impl Session {
                 continue;
             }
             let by_var = r.by_var.get(i).copied().unwrap_or(false);
-            let argument = blob_transfer::Argument::of(&a, measured_call && !by_var, &r.locals[i].ty);
+            let argument =
+                blob_transfer::Argument::of(&a, measured_call.filter(|_| !by_var), &r.locals[i].ty, self.commits);
             let bound = match (a, by_var) {
                 // A temporary record handed to a Variant parameter keeps its table: the callee counts the
                 // caller's rows through the Variant, though a by-value copy is an empty buffer
@@ -2480,16 +2499,13 @@ impl Session {
                 // stored table, not a temporary one: IsTemporary is No, Count sees the stored rows, Insert, Modify and DeleteAll reach the
                 // stored table and the caller's temporary rows do not change
                 // (record/temporary/TempRecordByValue.al:TempRecord_ByValue_ToPersistentParameter, :TempRecord_ByValue_ModifyAndDeleteAll).
-                // The copy keeps the record's current values and filters like any by-value copy. A parameter declared `temporary` gets
-                // an independent empty buffer (record/TestTempTableContracts.al:141-148). Base Application's To-do.InsertTask relies on it.
+                // Its view: `records/by_value_view.rs`. A parameter declared `temporary` gets an independent empty buffer
+                // (record/TestTempTableContracts.al:141-148). Base Application's To-do.InsertTask relies on it.
                 (Value::Record(rc), false)
                     if rc.borrow().temporary
                         && matches!(r.locals[i].ty, RtType::Record(t, false) if !self.engine.object_facts[t as usize].temporary()) =>
                 {
-                    let mut st = rc.borrow().copy_as_new_variable();
-                    st.temporary = false;
-                    st.temp_id = None;
-                    Value::Record(Rc::new(RefCell::new(st)))
+                    self.temporary_into_stored_param(&rc, &by_value, i)
                 }
                 // A record of the stored table handed by value to a parameter declared `temporary` gives the callee a temporary
                 // record with the record's values over an empty table of its own (events/ClEventLeads.al:70
@@ -2523,15 +2539,7 @@ impl Session {
                     st.unpinned_buffer = Some(crate::records::RUN_PAGE_LINK_VARIANT);
                     Value::Record(Rc::new(RefCell::new(st)))
                 }
-                // The copy keeps what Record.IsDirty compares with (record/Y8RecordIsDirtyShapes.al:321-324 `by_value_dirty` Yes,
-                // `by_value_clean` No).
-                (Value::Record(rc), false) => {
-                    let v = self.record_by_value_into(&rc, &r.locals[i].ty);
-                    if let Value::Record(copy) = &v {
-                        copy.borrow_mut().is_dirty_base = rc.borrow().is_dirty_base.copy();
-                    }
-                    v
-                }
+                (Value::Record(rc), false) => self.record_param_copy(&rc, &r.locals[i].ty, &by_value, i),
                 // A RecordRef handed by value to a RecordRef or Variant parameter, or bound to a `var` Variant parameter
                 // (`VariantRefs::param_value`).
                 (Value::Library(al_builtins::library_kind::LibraryKind::RecordRef, h), by_var)
@@ -2589,6 +2597,8 @@ impl Session {
                 // An event argument the platform leaves unknown (RequestPageXml of SubstituteReport for an Html SaveAs, reports.rs)
                 // is passed on by value as it is: a routine that never reads it runs, a read is refused where it happens.
                 (a @ Value::Unknown(_), false) => a,
+                // A `var` Option parameter with another member list than the value (`var_option`).
+                (a, true) if let Some(v) = crate::var_option::var_binding(&a, &r.locals[i].ty, subscriber) => v?,
                 (a, _) => ops::convert_plain(a, &r.locals[i].ty)?,
             };
             locals[i] = self.bind_blobs(argument, bound)?;
@@ -2599,6 +2609,7 @@ impl Session {
         } else {
             Vec::new()
         };
+        let option_hops = self.take_option_hops(facts.option_hops);
         let mut frame = Frame {
             object,
             routine,
@@ -2606,35 +2617,13 @@ impl Session {
             locals,
             aliases,
             var_lens,
+            option_hops,
         };
         let is_try = facts.is_try;
         // [CommitBehavior] governs the whole dynamic extent of the procedure and ends when it
         // returns (errors/TestCommitBehaviorAttribute.al:CommitBehavior_Ignore_ScopeIsPoppedOnReturn).
         let saved_commit_behavior = self.tx.commit_behavior;
-        let collecting = if facts.odd_attributes {
-            // An attribute the runtime does not understand: the scan that reports it.
-            for a in r
-                .attributes
-                .iter()
-                .filter(|a| a.name.eq_ignore_ascii_case("CommitBehavior"))
-            {
-                match transactions::CommitBehavior::from_attribute(&a.text) {
-                    Some(b) => self.tx.commit_behavior = self.tx.commit_behavior.nested(b),
-                    None => {
-                        return Err(Signal::unsupported(format!(
-                            "{} (only Ignore and Error are pinned)",
-                            a.text
-                        )));
-                    }
-                }
-            }
-            errorcollect::declares_collect(&r.attributes)?
-        } else {
-            if let Some(b) = facts.commit_behavior {
-                self.tx.commit_behavior = self.tx.commit_behavior.nested(b);
-            }
-            facts.collects
-        };
+        let collecting = self.enter_attributes(r, &facts)?;
         if collecting {
             self.error_scopes.open();
         }
@@ -2715,7 +2704,8 @@ impl Session {
             self.fault_site_lost = true;
             outcome = Err(Signal::unsupported(why));
         }
-        outcome = self.close_test_pages_at_test_end(&frame, r, outcome);
+        outcome =
+            al_builtins::placeholder_output::refuse_unanswered(self.close_test_pages_at_test_end(&frame, r, outcome));
         let ret = match outcome {
             Ok(()) => None,
             // A report flow call (Skip, Break, Quit) leaves every procedure between the report trigger and the call.
@@ -2880,6 +2870,9 @@ struct Frame {
     /// Per parameter: what `MaxStrLen` of a `var` Text or Code parameter answers, the declared length of the variable or
     /// field the caller passed (set by `finish_call`; `None`: not known, and `MaxStrLen` refuses).
     var_lens: Vec<Option<i32>>,
+    /// Per parameter: the caller handed this `var` Option parameter with members a variable the probes measure handing on
+    /// to an event publisher with a memberless subscriber (set by `finish_call`, `var_option::option_hops_of`).
+    option_hops: Vec<bool>,
 }
 
 fn int(v: &Value) -> Result<i64, Signal> {

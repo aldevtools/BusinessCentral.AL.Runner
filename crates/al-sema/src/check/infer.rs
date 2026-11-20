@@ -659,7 +659,7 @@ impl<'a> Checker<'a> {
     /// The target of `Proc := value` where `Proc` is a procedure of the workspace that takes one parameter and none takes
     /// none: AL reads it as the call `Proc(value)` (Base Application's Service Statistics writes
     /// `CurrPage.SubForm.PAGE.SetParentControl := PAGE::"Service Statistics"`). The call is picked with the value's type
-    /// and recorded on the target; the type of the target is unknown. Assumption `procedure-assign-is-call`.
+    /// and recorded on the target; the type of the target is unknown (pinned by codeunits/procedures/AssignIsCallRule.al).
     ///
     /// `plain` is false for a compound assignment (`X.M += v`), which only reports AL0129 for a builtin method `M`.
     pub(crate) fn assign_target_ty(
@@ -770,6 +770,37 @@ impl<'a> Checker<'a> {
             }
         }
         self.ty_of_inferred(sc, target, e)
+    }
+
+    /// `Caption` on a page variable or `CurrPage` of a page that declares procedures named Caption: the platform method
+    /// where BC names it (`own_named_page_methods::caption_names_platform`). `node` is the member, `recv` its receiver.
+    fn own_named_caption_member(
+        &mut self,
+        sc: &Scope,
+        node: &SyntaxNode,
+        recv: &SyntaxNode,
+        base_ty: &Ty,
+        mname: &str,
+    ) -> Option<E> {
+        use crate::own_named_page_methods::{CaptionReceiver, caption_names_platform, own_captions};
+        let Ty::Object(ObjKind::Page, page) = base_ty else {
+            return None;
+        };
+        if !mname.eq_ignore_ascii_case("Caption") || recv.kind() != SyntaxKind::NameRef {
+            return None;
+        }
+        let page = self.resolve(sc, ObjKind::Page, page)?;
+        let own = own_captions(self.ws, page);
+        let receiver = if is_currpage(sc, recv) {
+            CaptionReceiver::CurrPage
+        } else {
+            CaptionReceiver::PageVariable
+        };
+        let call_args = crate::own_named_page_methods::call_args(node);
+        if own.is_empty() || !caption_names_platform(self.ws, receiver, call_args, &own, sc.oi) {
+            return None;
+        }
+        Some(E::Callable(self.catalog_cands("Page", "Caption", true, base_ty)))
     }
 
     /// The compile error of the assignment form `X.M := v` of the builtin method `M` (the candidates `visible`), where alc
@@ -909,6 +940,17 @@ impl<'a> Checker<'a> {
                 }
             }
         }
+        // AL0161: `xRec` in the OnRun trigger of a codeunit with TableNo (al-runner issue 7974; corpus must-not-compile 3153,
+        // corpus PR 1386; app.json features `[]`, with `NoImplicitWith` alc gives AL0118, which this checker does not read).
+        if kind == ObjKind::Codeunit && sc.codeunit_on_run && sc.rec.is_some() && name.eq_ignore_ascii_case("xRec") {
+            self.diag(
+                sc,
+                node,
+                "AL0161",
+                format!("'{name}' is inaccessible due to its protection level"),
+            );
+            return;
+        }
         // AL0118 (corpus must-not-compile 0005, 0030 to 0033, 0059). A call of a bare name that nothing can
         // supply:
         // - in a codeunit without `TableNo` (no implicit record): no procedure of the codeunit and no system
@@ -984,11 +1026,16 @@ impl<'a> Checker<'a> {
                 _ => false,
             };
         if judged {
+            // alc shows the name as written, quotes included (issue 7974; corpus must-not-compile 3163 in a codeunit, 3161 in a
+            // table trigger, 3162 in a page trigger, corpus PR 1386; 0222 for a quoted codeunit name).
+            let written = ast::significant_green_tokens(node)
+                .find(|t| matches!(t.kind, SyntaxKind::Ident | SyntaxKind::QuotedIdent))
+                .map_or_else(|| name.clone(), |t| t.text.to_string());
             self.diag(
                 sc,
                 node,
                 "AL0118",
-                format!("The name '{name}' does not exist in the current context."),
+                format!("The name '{written}' does not exist in the current context."),
             );
         }
     }
@@ -1129,6 +1176,54 @@ impl<'a> Checker<'a> {
         );
     }
 
+    /// AL0107: the keyword `in`, unquoted, after `::` (`R.Direction::In`, `D::In` on an option variable,
+    /// `"Some Enum"::In`): al-runner issue 7803; corpus must-not-compile 3158, 3159 and 3160 (corpus PR 1386) give AL0107 at
+    /// `In`, then syntax errors this parser does not reproduce; `::"In"` compiles. Only the word `in` is measured.
+    fn al_unquoted_in_after_scope(&mut self, sc: &Scope, member: Option<&SyntaxNode>) {
+        let Some(member) = member else { return };
+        let unquoted_in = ast::significant_green_tokens(member)
+            .next()
+            .is_some_and(|t| t.kind == SyntaxKind::Ident && t.text.eq_ignore_ascii_case("in"));
+        if unquoted_in && !self.ws.is_dependency(sc.oi) {
+            self.diag(sc, member, "AL0107", crate::alcodes::IDENTIFIER_EXPECTED.to_string());
+        }
+    }
+
+    /// Member `name` of type `t` named as a type: its static methods, else unknown.
+    fn type_name_member(&mut self, sc: &Scope, node: &SyntaxNode, t: &Ty, name: &str) -> E {
+        match self.static_members(t, name) {
+            Some(c) => E::Callable(c),
+            None => {
+                self.al_unknown_type_name_member(sc, node, t, name);
+                E::Val(Ty::Unknown)
+            }
+        }
+    }
+
+    /// AL0132 for a member the type `Version`, named as a type, does not have in any version of the catalog, static or not,
+    /// in the code of a codeunit: `Version.ToUpper()` (al-runner issue 7974; corpus must-not-compile 3154 in a procedure of a
+    /// codeunit with TableNo, 3155 in a codeunit without TableNo, corpus PR 1386). Only `Version` in a codeunit is measured.
+    /// In a report or an xmlport the Rec of a request page SourceTable can supply the name where this checker does not model
+    /// it (alc compiles those), so every other object kind keeps main's result, as do a member the type has as an instance
+    /// method (alc: AL0310) and every other type. Under a `with` whose record lacks the field alc gives the same AL0132 (alc
+    /// 18.0.39.10160, review of PR 7980; no corpus case yet).
+    fn al_unknown_type_name_member(&mut self, sc: &Scope, node: &SyntaxNode, t: &Ty, name: &str) {
+        let measured =
+            matches!(t, Ty::Builtin(n) if &**n == "Version") && self.ws.objects[sc.oi].kind == ObjKind::Codeunit;
+        if !measured || self.ws.is_dependency(sc.oi) {
+            return;
+        }
+        if !self.catalog.overloads("Version", name).is_empty() || !self.catalog.hidden("Version", name).is_empty() {
+            return;
+        }
+        self.diag(
+            sc,
+            node,
+            "AL0132",
+            format!("'Version' does not contain a definition for '{name}'"),
+        );
+    }
+
     /// The AR1002 text. On a builtin type it says the name is in no version of the
     /// catalog, and how far the docs behind the catalog reach (ADR-015 3.3 point 5).
     pub(crate) fn no_member(&self, name: &str, t: &Ty) -> String {
@@ -1155,21 +1250,14 @@ impl<'a> Checker<'a> {
             // control is not called. Real BC compiles that code; no corpus test names a control like a method.
             Ty::Object(ObjKind::Page, page) => self.resolve(sc, ObjKind::Page, page).is_some_and(|oi| {
                 self.named_section(oi, mname).is_some()
-                        // AutoSplitSaveRecord.al: an explicit CurrPage.SaveRecord() calls
-                        // the platform method. A call through CurrPage.Part.Page calls
-                        // the internal procedure with that name.
-                        || (oi == sc.oi
-                            && mname.eq_ignore_ascii_case("SaveRecord")
-                            && node.children().next().is_some_and(|receiver| {
-                                receiver.kind() == SyntaxKind::NameRef
-                                    && name_of(&receiver).eq_ignore_ascii_case("CurrPage")
-                            })
-                            && !sc.vars.iter().any(|frame| frame.contains_key("currpage"))
-                            && node.parent().is_some_and(|call| {
-                                call.children().find(|n| n.kind() == SyntaxKind::ArgList)
-                                    .is_none_or(|args| args.children().next().is_none())
-                            })
-                            && crate::members::has_internal_parameterless_save_record(self.ws, oi))
+                    || crate::own_named_page_methods::save_record_names_platform(
+                        self.ws,
+                        oi,
+                        sc.oi,
+                        mname,
+                        node,
+                        node.children().next().is_some_and(|r| is_currpage(sc, &r)),
+                    )
             }),
             // `Q.Open()` is the query's method even when the query has a column named Open (Base
             // Application's "Summarized Stock By Item Trkg." has one): a column is not called.
@@ -1586,10 +1674,7 @@ impl<'a> Checker<'a> {
                         let r = kids[0].text_range();
                         self.types
                             .insert((sc.file, r.start().into(), r.end().into()), t.clone());
-                        return match self.static_members(&t, &mname) {
-                            Some(c) => E::Callable(c),
-                            None => E::Val(Ty::Unknown),
-                        };
+                        return self.type_name_member(sc, node, &t, &mname);
                     }
                     E::ObjKeyword(k) => {
                         // `Codeunit.Run(...)`, `Page.RunModal(...)`, `Database.Commit()`.
@@ -1611,6 +1696,9 @@ impl<'a> Checker<'a> {
                 self.types
                     .insert((sc.file, r.start().into(), r.end().into()), base_ty.clone());
                 if let Some(e) = self.called_builtin_over_member(sc, node, &base_ty, &mname) {
+                    return e;
+                }
+                if let Some(e) = self.own_named_caption_member(sc, node, &kids[0], &base_ty, &mname) {
                     return e;
                 }
                 if let Some(r) = self.field_res(sc, &base_ty, &mname) {
@@ -1643,17 +1731,14 @@ impl<'a> Checker<'a> {
             }
             ScopeExpr => {
                 let rhs = kids.get(1).map(name_of).unwrap_or_default();
+                self.al_unquoted_in_after_scope(sc, kids.get(1));
                 let base = if kids[0].kind() == NameRef {
-                    if let Some(e) = self.enum_type_before_rec_field(sc, &kids[0]) {
-                        e
-                    } else {
-                        match self.lookup_name(sc, &kids[0]) {
-                            Some(e) => e,
-                            None => {
-                                // `"Some Enum"::Value` where the enum is outside the workspace.
-                                self.diag(sc, node, "AR0002", format!("unresolved enum `{}`", name_of(&kids[0])));
-                                return E::Val(Ty::Unknown);
-                            }
+                    match self.lookup_name(sc, &kids[0]) {
+                        Some(e) => e,
+                        None => {
+                            // `"Some Enum"::Value` where the enum is outside the workspace.
+                            self.diag(sc, node, "AR0002", format!("unresolved enum `{}`", name_of(&kids[0])));
+                            return E::Val(Ty::Unknown);
                         }
                     }
                 } else if let Some(e) = self.namespaced_enum(sc, &kids[0]) {
@@ -1742,44 +1827,6 @@ impl<'a> Checker<'a> {
         }
     }
 
-    /// `X::Value` in a procedure of a codeunit with `TableNo`, where the implicit Rec has a field `X` and an enum type
-    /// `X` exists: `X` is the enum type, whatever values either enum has (al-runner issue 6129; corpus
-    /// types/enum-option/EnumTypeBeforeRecField.al:142-149, must-not-compile 2262, on the corpus
-    /// branch al-runtime-rs-staging-ub, bump PR 793). Everywhere else `X` stays the field or variable, as before: the
-    /// codeunit's OnRun trigger (:152-158, mnc 2267), a table procedure or trigger (:161-177, mnc 2263), a page on the
-    /// table (:180-187, mnc 2264), and a global or local variable `X` (:190-205, mnc 2265 and 2266). A `with` record
-    /// is not pinned and keeps the record. Until the pin is in the corpus the name records
-    /// [`Res::EnumTypeBeforeRecField`] and lowering marks the assumption.
-    fn enum_type_before_rec_field(&mut self, sc: &mut Scope, name: &SyntaxNode) -> Option<E> {
-        if !sc.rec_unqualified
-            || !sc.withs.is_empty()
-            || sc.codeunit_on_run
-            || self.ws.objects[sc.self_obj].kind != ObjKind::Codeunit
-        {
-            return None;
-        }
-        let rec = sc.rec.clone().filter(|r| matches!(r, Ty::Record { .. }))?;
-        let n = name_of(name);
-        let key = n.to_lowercase();
-        if sc.vars.iter().any(|frame| frame.contains_key(&key)) || sc.globals.contains_key(&key) {
-            return None;
-        }
-        let ei = self.resolve_quiet(sc.file, ObjKind::Enum, &n)?;
-        let Some(E::Val(field_ty)) = self.member(sc, &rec, &n) else {
-            return None;
-        };
-        // Only a field (not a method of the record) gives way to the enum type.
-        self.field_res(sc, &rec, &n)?;
-        let enum_name = self.ws.objects[ei].name.as_str();
-        if matches!(&field_ty, Ty::Enum(f) if self.resolve_quiet(sc.file, ObjKind::Enum, f) == Some(ei)) {
-            return None;
-        }
-        let ty = Ty::Enum(enum_name.into());
-        self.touch(ei);
-        self.record(sc, name, Res::EnumTypeBeforeRecField(ei));
-        Some(E::TypeName(ty))
-    }
-
     /// The receiver `recv` of member access `node`. `Ns.Sub."Enum".FromInteger(n)` names the enum through its namespace when
     /// the first name `Ns` is no variable, parameter, field or procedure in scope and no object of any kind in any app the
     /// file sees has that name (al-runner issue 7920, the reporter's alc 18.1 repro: alc compiles it;
@@ -1809,53 +1856,7 @@ impl<'a> Checker<'a> {
                 return E::TypeName(Ty::Enum(self.ws.objects[ei].name.as_str().into()));
             }
         }
-        if called && let Some(e) = self.builtin_type_before_rec_field(sc, node, recv) {
-            return e;
-        }
         self.infer(sc, recv)
-    }
-
-    /// The receiver `recv` (a plain or quoted name) of the method call `node` in a procedure (global, local or internal)
-    /// of a codeunit with `TableNo`, where the implicit Rec has a field of that name: `Version`, `Guid`, `Text`,
-    /// `Database` or `Session` is the built-in type when the type has a static method of the called name, as alc
-    /// compiles it (al-runner issue 7962; alc 18.0.39.10160, probe apps in lower/tests/type_before_rec_field.rs). OnRun,
-    /// a `with`, a variable of the name, a procedure of the codeunit with the name, another name, another object kind or a method the type does not have keep the
-    /// field (main's result).
-    fn builtin_type_before_rec_field(&mut self, sc: &mut Scope, node: &SyntaxNode, recv: &SyntaxNode) -> Option<E> {
-        const MEASURED: &[&str] = &["Version", "Guid", "Text", "Database", "Session"];
-        // A codeunit has one trigger, OnRun; every other routine of it is a procedure.
-        let in_procedure_of_table_no_codeunit = sc.rec_unqualified
-            && self.ws.objects[sc.oi].kind == ObjKind::Codeunit
-            && sc.self_obj == sc.oi
-            && sc.withs.is_empty()
-            && !sc.codeunit_on_run;
-        if !(in_procedure_of_table_no_codeunit && recv.kind() == SyntaxKind::NameRef) {
-            return None;
-        }
-        let written = name_of(recv);
-        let ty_name = *MEASURED.iter().find(|m| m.eq_ignore_ascii_case(&written))?;
-        let key = ty_name.to_ascii_lowercase();
-        if sc.vars.iter().any(|frame| frame.contains_key(&key)) || sc.globals.contains_key(&key) {
-            return None;
-        }
-        // A procedure of the codeunit with the name wins over the type (alc: AL0132 on its `Text` result).
-        if !self.members[sc.oi].procedures_named(ty_name).is_empty() {
-            return None;
-        }
-        let rec = sc.rec.clone().filter(|r| matches!(r, Ty::Record { .. }))?;
-        self.field_res(sc, &rec, ty_name)?;
-        let method = node.children().nth(1).map(|m| name_of(&m))?;
-        let (e, receiver) = match ty_name {
-            "Database" => (E::ObjKeyword(ObjKind::Table), "Database"),
-            _ => (E::TypeName(Ty::Builtin(ty_name.into())), ty_name),
-        };
-        let has_static = self
-            .catalog
-            .overloads(receiver, &method)
-            .into_iter()
-            .chain(self.catalog.hidden(receiver, &method))
-            .any(|s| !s.instance);
-        has_static.then_some(e)
     }
 
     /// `Ns.Sub."Enum"` before `::`: a chain of names that resolves to an enum through its namespace.
@@ -2142,6 +2143,13 @@ fn alc_param_type(t: &Ty) -> Option<String> {
 
 /// Whether `node` is inside the `requestpage` section of a report: its control, action and page triggers and its
 /// procedures.
+/// Whether `recv` is the bare name `CurrPage` and no variable of that name hides it.
+fn is_currpage(sc: &Scope, recv: &SyntaxNode) -> bool {
+    recv.kind() == SyntaxKind::NameRef
+        && name_of(recv).eq_ignore_ascii_case("CurrPage")
+        && !sc.vars.iter().any(|frame| frame.contains_key("currpage"))
+}
+
 pub(crate) fn in_request_page(node: &SyntaxNode) -> bool {
     node.ancestors().any(|a| {
         a.kind() == SyntaxKind::Section

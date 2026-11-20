@@ -201,7 +201,8 @@ pub(super) fn add_before_self(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [V
     Ok(Value::Boolean(true))
 }
 
-pub(super) fn remove(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
+pub(super) fn remove(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    unassigned_element::check(&r, unassigned_element::Member::Remove, a, c.ret_used())?;
     let h = recv_or_uninit(r, "XmlNode")?;
     // A declaration cannot be removed, from its document or detached; the document keeps it (xml/xml/
     // P104TreeBDecl.al:P104_Remove_InDoc).

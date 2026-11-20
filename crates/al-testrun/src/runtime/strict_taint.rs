@@ -66,18 +66,11 @@ impl Taint {
     }
 }
 
-/// The reach of everything test codeunit `oi` runs: its OnRun trigger and its test methods, in one walk.
+/// The reach of everything test codeunit `oi` runs: its OnRun trigger, its test methods and their handler functions, in
+/// one walk.
 pub(super) fn unit_facts(engine: &Arc<al_vm::Engine>, lowered: &Lowered, oi: usize) -> ReachFacts {
     let index = engine.derived(|| ReachIndex::new(&engine.events, lowered));
-    let o = &lowered.program.objects[oi];
-    let roots: Vec<(usize, usize)> = (0..o.routines.len())
-        .filter(|&r| {
-            let routine = &o.routines[r];
-            (routine.is_trigger && routine.name.eq_ignore_ascii_case("OnRun"))
-                || routine.attributes.iter().any(|a| a.name.eq_ignore_ascii_case("Test"))
-        })
-        .map(|r| (oi, r))
-        .collect();
+    let roots = super::handlers::unit_roots(lowered, oi, true);
     union_reach_facts_skipping(&engine.events, lowered, &index, &roots, &[])
 }
 

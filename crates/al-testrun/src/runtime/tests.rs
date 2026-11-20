@@ -3,7 +3,7 @@
 use super::*;
 use al_sema::workspace::AppSource;
 
-fn outcomes(src: &str) -> Vec<(String, Outcome)> {
+pub(super) fn outcomes(src: &str) -> Vec<(String, Outcome)> {
     let (ws, l) = al_sema::lower::compile(
         vec![AppSource {
             id: "a".into(),
@@ -698,59 +698,7 @@ fn company_triggers_run_in_the_install_session_before_the_per_company_routines()
     assert_eq!(o[1].1, Outcome::Pass, "{o:?}");
 }
 
-/// The outcomes, and per test the ids of the assumptions it hit.
-pub(super) type OutcomesAndHits = (Vec<(String, Outcome)>, Vec<(String, Vec<&'static str>)>);
-
-/// The outcomes and the assumption ids each test hit, of the test codeunit `codeunit` of a program of several apps (id,
-/// dependencies, source); the app with id `dep` is a dependency app (ADR-013), the others are under test.
-pub(super) fn outcomes_and_hits_of_apps(apps: &[(&str, &[&str], &str)], codeunit: &str) -> OutcomesAndHits {
-    let (ws, l) = al_sema::lower::compile_apps(
-        apps.iter()
-            .map(|(id, deps, src)| AppSource {
-                id: (*id).into(),
-                name: (*id).into(),
-                dependencies: deps.iter().map(|d| (*d).to_string()).collect(),
-                files: vec![(format!("{id}.al"), (*src).into())],
-            })
-            .collect(),
-        apps.iter()
-            .map(|(id, _, _)| {
-                if *id == "dep" {
-                    al_sema::AppKind::Dependency
-                } else {
-                    al_sema::AppKind::Workspace
-                }
-            })
-            .collect(),
-        &Default::default(),
-    );
-    assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
-    let blocked = l
-        .unsupported
-        .iter()
-        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
-        .collect();
-    let engine = Engine::new(l.program.clone(), blocked);
-    let oi = l.program.objects.iter().position(|o| o.name == codeunit).unwrap();
-    let mut hits = Vec::new();
-    let done = run_codeunit_full(
-        &engine,
-        &l,
-        oi,
-        None,
-        TestIsolation::Codeunit,
-        None,
-        &mut Vec::new(),
-        &mut Vec::new(),
-        &mut hits,
-        None,
-    );
-    let hits = hits
-        .into_iter()
-        .map(|(n, h)| (n, h.iter().map(|a| a.info().id).collect()))
-        .collect();
-    (done, hits)
-}
+pub(super) use super::app_outcomes_tests::{OutcomesAndHits, outcomes_and_hits_of_apps};
 
 // ADR-046 amendment 1, A4 item 4, owner decision 2026-10-19 (al-runner issue 6046): the install session of an app raises
 // Company Triggers OnCompanyOpen to the subscribers of every installed app, not only its own: an assumption until probe Q3.
@@ -810,7 +758,7 @@ fn when_another_apps_company_triggers_subscriber_cannot_run_the_per_company_inst
         "{o:?}"
     );
     assert!(
-        matches!(&o[1].1, Outcome::NotRun(r) if r.contains("Company Triggers")),
+        matches!(&o[1].1, Outcome::NotRun(r) if r.contains("Company Triggers") && r.contains("DepOpenLater.Open")),
         "{o:?}"
     );
     assert_eq!(o[2].1, Outcome::Pass, "{o:?}");
@@ -1829,7 +1777,7 @@ fn running_a_dependency_page_nothing_compiled_by_its_id_is_refused() {
 
 /// The full run (install baseline included) of workspace app `main` over dependency app `dep`:
 /// the outcome of test `name` of the test codeunit `50001`.
-fn with_baseline(main: &str, dep: &str) -> impl Fn(&str) -> Outcome {
+pub(super) fn with_baseline(main: &str, dep: &str) -> impl Fn(&str) -> Outcome {
     let app = |id: &str, deps: &[&str], src: &str| AppSource {
         id: id.into(),
         name: id.into(),
@@ -2444,49 +2392,6 @@ fn sleep_time_counts_toward_the_time_limit() {
     );
     // Sleep never waits: the whole codeunit takes far less than one limit.
     assert!(wall < std::time::Duration::from_secs(2), "{wall:?}");
-}
-
-/// The limit counts the CPU time of the test thread: a thread that waits is not stopped at the
-/// limit (the machine's load must not decide an outcome), one that computes is.
-#[cfg(unix)]
-#[test]
-fn the_time_limit_counts_cpu_time_not_wall_time() {
-    let limit = std::time::Duration::from_millis(200);
-    let flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let w = Watchdog::start(flag.clone(), limit);
-    std::thread::sleep(limit * 3);
-    assert!(!w.finish(), "a thread that waited was stopped");
-    assert!(!flag.load(std::sync::atomic::Ordering::Relaxed));
-
-    let flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let w = Watchdog::start(flag.clone(), limit);
-    let started = std::time::Instant::now();
-    let mut x = 0u64;
-    while !flag.load(std::sync::atomic::Ordering::Relaxed) && started.elapsed() < std::time::Duration::from_secs(10) {
-        x = x.wrapping_add(std::hint::black_box(1));
-    }
-    assert!(w.finish() && x > 0, "a thread that computed was not stopped");
-}
-
-/// The limit is per test: the CPU time a thread used before the test started does not count.
-/// Three tests on one thread, each using 60 % of the limit, all stay under it.
-#[cfg(any(unix, windows))]
-#[test]
-fn the_cpu_limit_is_measured_from_the_start_of_each_test() {
-    let limit = std::time::Duration::from_millis(500);
-    for n in 0..3 {
-        let flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let w = Watchdog::start(flag.clone(), limit);
-        let clock = crate::cpuclock::ThreadClock::current().expect("a CPU clock");
-        let from = clock.read().expect("a reading");
-        let mut x = 0u64;
-        while clock.read().expect("a reading") - from < limit * 6 / 10 {
-            x = x.wrapping_add(std::hint::black_box(1));
-        }
-        // Let the watchdog poll once more after the work.
-        std::thread::sleep(WATCHDOG_POLL * 3);
-        assert!(!w.finish() && x > 0, "test {n} was stopped under 60 % of the limit");
-    }
 }
 
 /// The test names with the unprobed assumptions each ran through, from the first test codeunit of `src`.

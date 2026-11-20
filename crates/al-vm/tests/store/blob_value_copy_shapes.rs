@@ -1,11 +1,11 @@
-//! The Blob copies of the second probe (assumption `blob-transfer-copies`: corpus PR 1372, streams/BlobValueCopyShapes.al;
+//! The Blob copies of the second probe (pinned since the corpus bump that took corpus PR 1372, streams/BlobValueCopyShapes.al;
 //! al-runner issue 7948): an empty and a not-loaded Blob, the Variant forms, SetTable(Rec, true), TransferFields with more
 //! arguments, Record.Copy, a record by value, and Blob fields with Compressed = false or of a table extension. The measured
 //! routines repeat cells of that file and expect the values it asserts. The `Neighbor` routines are shapes it does not
-//! measure: they expect what the runner gave before (the Blob is shared), unflagged where no measured move runs on the way.
+//! measure: they expect what the runner gave before (the Blob is shared).
 //! `hv:` / `nohv:` is `HasValue`, then the text a stream reads.
 
-use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
+use al_builtins::assumptions::clear_hits;
 use al_builtins::native::Signal;
 
 const SRC: &str = r#"
@@ -20,6 +20,37 @@ table 50440 "BS Row"
         field(5; Packed; Blob) { Compressed = true; }
     }
     keys { key(PK; Key1) { Clustered = true; } }
+
+    procedure Take(R: Record "BS Row")
+    var
+        OS: OutStream;
+    begin
+        R.Data.CreateOutStream(OS);
+        OS.WriteText('zz');
+    end;
+}
+
+table 50446 "BS Ev"
+{
+    fields
+    {
+        field(1; Key1; Integer) { }
+        field(2; Data; Blob) { }
+    }
+    keys { key(PK; Key1) { Clustered = true; } }
+}
+
+page 50445 "BS Page"
+{
+    SourceTable = "BS Row";
+
+    procedure Take(R: Record "BS Row")
+    var
+        OS: OutStream;
+    begin
+        R.Data.CreateOutStream(OS);
+        OS.WriteText('zz');
+    end;
 }
 
 tableextension 50441 "BS Row Ext" extends "BS Row"
@@ -41,6 +72,24 @@ codeunit 50443 "BS Sub"
         OS: OutStream;
     begin
         R.Data.CreateOutStream(OS);
+        OS.WriteText('zz');
+    end;
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::C, 'OnIsolated', '', false, false)]
+    local procedure OnIsolated(R: Record "BS Row")
+    var
+        OS: OutStream;
+    begin
+        R.Data.CreateOutStream(OS);
+        OS.WriteText('zz');
+    end;
+
+    [EventSubscriber(ObjectType::Table, Database::"BS Ev", 'OnBeforeInsertEvent', '', false, false)]
+    local procedure OnBeforeInsert(Rec: Record "BS Ev"; RunTrigger: Boolean)
+    var
+        OS: OutStream;
+    begin
+        Rec.Data.CreateOutStream(OS);
         OS.WriteText('zz');
     end;
 }
@@ -178,6 +227,11 @@ codeunit 50444 C
 
     [IntegrationEvent(false, false)]
     local procedure OnTake(R: Record "BS Row" temporary)
+    begin
+    end;
+
+    [IntegrationEvent(false, true)]
+    local procedure OnIsolated(R: Record "BS Row")
     begin
     end;
 
@@ -613,6 +667,19 @@ codeunit 50444 C
         exit(Rd(Src) + '|' + Rd(E));
     end;
 
+    // Record.Copy of an empty Blob from a record that is not temporary into a temporary one: corpus PR 1375 measures this
+    // pair only written in memory, written and inserted, and read with Get only (:2101-2145).
+    procedure NeighborCopyStoredToTemporaryEmpty(): Text
+    var
+        Src: Record "BS Row";
+        Dst: Record "BS Row" temporary;
+    begin
+        Src.Init();
+        Dst.Copy(Src);
+        W(Dst, 'zz');
+        exit(Rd(Src));
+    end;
+
     // TransferFields(Rec, true, false) and SetTable(Rec, false).
     procedure NeighborOtherArguments(): Text
     var
@@ -642,6 +709,7 @@ codeunit 50444 C
         Src.Key1 := 53;
         W(Src, 'alpha');
         Src.Insert();
+        Clear(Src);
         Src.Get(53);
         Src.CalcFields(Data);
         GVar := Src.Data;
@@ -649,8 +717,8 @@ codeunit 50444 C
         Dst.Data := GVar;
         A := Rd(Dst);
         E2.TransferFields(E, true);
-        W(E, 'x');
-        exit(A + '|' + Rd(E2));
+        W(E2, 'x');
+        exit(A + '|' + Rd(E));
     end;
 
     // ---- Compressed = false and table extension fields in the moves of the first probe ----
@@ -1124,26 +1192,240 @@ codeunit 50444 C
         RR.GetTable(Src);
         exit('ran');
     end;
+
+    // ---- Neighbors of the cells of streams/BlobCopyNeighbors.al (corpus PR 1387) that keep main's shared buffer ----
+
+    // A Commit between the Insert and the by-value call.
+    procedure NeighborCommitBeforeByValue(): Text
+    var
+        Src: Record "BS Row";
+    begin
+        Src.Key1 := 601;
+        W(Src, 'alpha');
+        Src.Insert();
+        Commit();
+        ByValue(Src);
+        exit(Rd(Src));
+    end;
+
+    // A record method none of the probes ran (SetRange) between the Insert and the by-value call.
+    procedure NeighborSetRangeBeforeByValue(): Text
+    var
+        Src: Record "BS Row";
+    begin
+        Src.Key1 := 602;
+        W(Src, 'alpha');
+        Src.Insert();
+        Src.SetRange(Key1, 602);
+        ByValue(Src);
+        exit(Rd(Src));
+    end;
+
+    // A temporary record handed by value to a table procedure.
+    procedure NeighborTemporaryToTableProcedure(): Text
+    var
+        Src: Record "BS Row" temporary;
+        T: Record "BS Row";
+    begin
+        W(Src, 'alpha');
+        T.Take(Src);
+        exit(Rd(Src));
+    end;
+
+    // A record handed by value to a procedure of a page.
+    procedure NeighborPageProcedure(): Text
+    var
+        Src: Record "BS Row";
+        P: Page "BS Page";
+    begin
+        W(Src, 'alpha');
+        P.Take(Src);
+        exit(Rd(Src));
+    end;
+
+    // A by-value subscriber of an isolated IntegrationEvent.
+    procedure NeighborIsolatedPublisher(): Text
+    var
+        Src: Record "BS Row";
+    begin
+        W(Src, 'alpha');
+        OnIsolated(Src);
+        exit(Rd(Src));
+    end;
+
+    // A by-value OnBeforeInsertEvent subscriber of a temporary record.
+    procedure NeighborTemporaryInsertEvent(): Text
+    var
+        Src: Record "BS Ev" temporary;
+        OS: OutStream;
+        IS: InStream;
+        T: Text;
+    begin
+        Src.Key1 := 606;
+        Src.Data.CreateOutStream(OS);
+        OS.WriteText('alpha');
+        Src.Insert();
+        Src.Data.CreateInStream(IS);
+        IS.ReadText(T);
+        exit(HV(Src.Data.HasValue()) + T);
+    end;
+
+    // FieldRef.Validate on the GetTable copy before SetTable(Rec, true).
+    procedure NeighborValidateBeforeSetTableShared(): Text
+    var
+        Src: Record "BS Row" temporary;
+        Dst: Record "BS Row" temporary;
+        RR: RecordRef;
+    begin
+        Src.Key1 := 607;
+        W(Src, 'alpha');
+        Src.Insert();
+        RR.GetTable(Src);
+        RR.Field(1).Validate(607);
+        RR.SetTable(Dst, true);
+        W(Dst, 'zz');
+        exit(RdRR(RR));
+    end;
+
+    // A Commit while the local is fresh, then a write, an Insert and the by-value call.
+    procedure NeighborCommitWhileFreshThenInsert(): Text
+    var
+        Src: Record "BS Row";
+    begin
+        Commit();
+        Src.Key1 := 608;
+        W(Src, 'alpha');
+        Src.Insert();
+        ByValue(Src);
+        exit(Rd(Src));
+    end;
+
+    // A Commit while the local is fresh, then a record assignment from another fresh local and the by-value call.
+    procedure NeighborCommitWhileFreshThenAssign(): Text
+    var
+        Src: Record "BS Row";
+        Other: Record "BS Row";
+    begin
+        Commit();
+        W(Other, 'alpha');
+        Src := Other;
+        ByValue(Src);
+        exit(Rd(Src));
+    end;
+
+    // One RecordRef call `Which` on the GetTable copy of a temporary record, then SetTable(Rec, true): what the RecordRef
+    // reads after a write to the target.
+    local procedure RrCallThenShare(Which: Integer): Text
+    var
+        Src: Record "BS Row" temporary;
+        Dst: Record "BS Row" temporary;
+        Mid: Record "BS Row" temporary;
+        RR: RecordRef;
+        RR2: RecordRef;
+        FR: FieldRef;
+        T: Text;
+        I: Integer;
+        B: Boolean;
+    begin
+        Src.Key1 := 610;
+        W(Src, 'alpha');
+        Src.Insert();
+        RR.GetTable(Src);
+        case Which of
+            1:
+                B := RR.IsTemporary();
+            2:
+                RR.SetView('WHERE(Key1=CONST(610))');
+            3:
+                RR.SetRecFilter();
+            4:
+                RR.Ascending(false);
+            5:
+                T := RR.Name();
+            6:
+                begin
+                    FR := RR.Field(1);
+                    I := FR.Value;
+                end;
+            7:
+                RR.Field(1).SetFilter('610');
+            8:
+                RR.Field(1).SetRange(610);
+            9:
+                begin
+                    RR2.Open(Database::"BS Row", true);
+                    RR2.Copy(RR);
+                end;
+            10:
+                RR.SetTable(Mid, false);
+            11:
+                RR.SetTable(Mid, true);
+        end;
+        RR.SetTable(Dst, true);
+        W(Dst, 'zz');
+        exit(RdRR(RR));
+    end;
+
+    procedure NeighborRrIsTemporary(): Text
+    begin
+        exit(RrCallThenShare(1));
+    end;
+
+    procedure NeighborRrSetView(): Text
+    begin
+        exit(RrCallThenShare(2));
+    end;
+
+    procedure NeighborRrSetRecFilter(): Text
+    begin
+        exit(RrCallThenShare(3));
+    end;
+
+    procedure NeighborRrAscending(): Text
+    begin
+        exit(RrCallThenShare(4));
+    end;
+
+    procedure NeighborRrName(): Text
+    begin
+        exit(RrCallThenShare(5));
+    end;
+
+    procedure NeighborRrFieldRead(): Text
+    begin
+        exit(RrCallThenShare(6));
+    end;
+
+    procedure NeighborRrFieldSetFilter(): Text
+    begin
+        exit(RrCallThenShare(7));
+    end;
+
+    procedure NeighborRrCopiedFrom(): Text
+    begin
+        exit(RrCallThenShare(9));
+    end;
+
+    procedure NeighborRrSetTableFalseFirst(): Text
+    begin
+        exit(RrCallThenShare(10));
+    end;
+
+    procedure NeighborRrSetTableTrueFirst(): Text
+    begin
+        exit(RrCallThenShare(11));
+    end;
+
+    procedure RrFieldSetRange(): Text
+    begin
+        exit(RrCallThenShare(8));
+    end;
 }
 "#;
 
-/// The text `routine` returns, and whether the run passed through the assumption.
-fn run(routine: &str) -> (String, bool) {
-    clear_hits();
-    let out = al_testkit::text(al_testkit::run_in(SRC, "C", routine));
-    (out, take_hits().contains(&Assumption::BlobTransferCopies))
-}
-
-fn flagged(routine: &str) -> String {
-    let (out, hit) = run(routine);
-    assert!(hit, "{routine} did not pass through the assumption");
-    out
-}
-
-fn unflagged(routine: &str) -> String {
-    let (out, hit) = run(routine);
-    assert!(!hit, "{routine} passed through the assumption");
-    out
+/// The text `routine` returns.
+fn run(routine: &str) -> String {
+    al_testkit::text(al_testkit::run_in(SRC, "C", routine))
 }
 
 fn refused(routine: &str) {
@@ -1156,118 +1438,124 @@ fn refused(routine: &str) {
 
 #[test]
 fn an_empty_blob_stays_empty_in_the_copy_and_in_the_inserted_row() {
-    assert_eq!(flagged("GetTableEmptyWriteSourceInsert"), "rr=nohv: row=nohv: src=hv:x");
+    assert_eq!(run("GetTableEmptyWriteSourceInsert"), "rr=nohv: row=nohv: src=hv:x");
     assert_eq!(
-        flagged("TransferFieldsEmptyWriteTargetInsertSource"),
+        run("TransferFieldsEmptyWriteTargetInsertSource"),
         "src=nohv: row=nohv: dst=hv:y"
     );
-    assert_eq!(flagged("ValidateAndVariantEmptyWriteSource"), "nohv:|nohv:");
+    assert_eq!(run("ValidateAndVariantEmptyWriteSource"), "nohv:|nohv:");
 }
 
 #[test]
 fn settable_of_a_row_read_without_calcfields_gives_a_blob_of_its_own() {
-    assert_eq!(flagged("SetTableUnloadedCalcFieldsTarget"), "dst=hv:alpha rr=hv:");
-    assert_eq!(flagged("SetTableUnloadedWriteTargetModify"), "rr=hv: row=hv:alpha");
+    assert_eq!(run("SetTableUnloadedCalcFieldsTarget"), "dst=hv:alpha rr=hv:");
+    assert_eq!(run("SetTableUnloadedWriteTargetModify"), "rr=hv: row=hv:alpha");
 }
 
 #[test]
 fn validate_and_a_variant_of_a_row_read_without_calcfields_are_empty() {
-    assert_eq!(flagged("ValidateAndVariantUnloaded"), "nohv:|nohv:");
+    assert_eq!(run("ValidateAndVariantUnloaded"), "nohv:|nohv:");
 }
 
 #[test]
 fn a_variant_parameter_an_array_element_and_a_global_hold_a_copy() {
-    assert_eq!(flagged("VariantByValueParameter"), "hv:alpha|hv:betaa");
-    assert_eq!(flagged("VariantArrayElementAndGlobal"), "hv:alpha|hv:alpha");
+    assert_eq!(run("VariantByValueParameter"), "hv:alpha|hv:betaa");
+    assert_eq!(run("VariantArrayElementAndGlobal"), "hv:alpha|hv:alpha");
 }
 
 #[test]
 fn settable_with_sharetable_and_transferfields_with_flags_copy() {
-    assert_eq!(flagged("SetTableShareTable"), "hv:alpha|hv:alpha|hv:zzpha");
-    assert_eq!(flagged("TransferFieldsWithFlags"), "hv:alpha|hv:alpha|hv:alpha");
+    assert_eq!(run("SetTableShareTable"), "hv:alpha|hv:alpha|hv:zzpha");
+    assert_eq!(run("TransferFieldsWithFlags"), "hv:alpha|hv:alpha|hv:alpha");
 }
 
 #[test]
 fn a_record_in_a_variant_holds_the_blob_of_the_moment_it_was_taken() {
-    assert_eq!(flagged("GetTableOfRecordInLocalVariant"), "hv:alpha");
-    assert_eq!(flagged("GetTableOfRecordAsVariantParameter"), "hv:alpha");
+    assert_eq!(run("GetTableOfRecordInLocalVariant"), "hv:alpha");
+    assert_eq!(run("GetTableOfRecordAsVariantParameter"), "hv:alpha");
 }
 
 #[test]
 fn record_copy_copies_and_the_inserted_source_row_keeps_its_content() {
-    assert_eq!(flagged("RecordCopyTemporary"), "hv:zzpha|hv:alpha|hv:betaa");
+    assert_eq!(run("RecordCopyTemporary"), "hv:zzpha|hv:alpha|hv:betaa");
     assert_eq!(
-        flagged("RecordCopyWriteTargetInsertSource"),
+        run("RecordCopyWriteTargetInsertSource"),
         "row=hv:alpha src=hv:alpha dst=hv:zzpha"
     );
 }
 
 #[test]
 fn a_record_passed_by_value_leaves_the_callers_blob() {
-    assert_eq!(flagged("RecordByValue"), "inside=hv:zzpha caller=hv:alpha");
-    assert_eq!(flagged("RecordByValueTemporary"), "inside=hv:zzpha caller=hv:alpha");
+    assert_eq!(run("RecordByValue"), "inside=hv:zzpha caller=hv:alpha");
+    assert_eq!(run("RecordByValueTemporary"), "inside=hv:zzpha caller=hv:alpha");
 }
 
 #[test]
 fn uncompressed_and_table_extension_fields_copy_in_the_measured_moves() {
     assert_eq!(
-        flagged("VariationFields"),
+        run("VariationFields"),
         "hv:zzpha|hv:zzmma|hv:alpha|hv:gamma|hv:alpha|hv:gamma"
     );
-    assert_eq!(
-        flagged("ExtensionFieldStoredGetTableModify"),
-        "row=hv:alpha src=hv:newha"
-    );
+    assert_eq!(run("ExtensionFieldStoredGetTableModify"), "row=hv:alpha src=hv:newha");
 }
 
 #[test]
 fn an_open_outstream_keeps_writing_to_the_blob_it_was_created_on() {
-    assert_eq!(flagged("OpenOutStreamGetTableSetTableSameRecord"), "hv:al|hv:al");
+    assert_eq!(run("OpenOutStreamGetTableSetTableSameRecord"), "hv:al|hv:al");
+}
+
+// P3 is corpus PR 1375, streams/BlobCopyStates.al; P4 is corpus PR 1387, streams/BlobCopyNeighbors.al. Each value below is the one
+// the cited probe line measured for the same move, source kind and state.
+
+#[test]
+fn a_record_by_value_copies_in_every_measured_state_and_taker() {
+    // P4 :587 states ins, calc, empty; :925 temporary into a Record parameter, state mem.
+    assert_eq!(run("NeighborByValueAfterInsert"), "hv:alpha");
+    assert_eq!(run("NeighborByValueAfterCalcFields"), "hv:alpha");
+    assert_eq!(run("NeighborByValueEmpty"), "nohv:");
+    assert_eq!(run("NeighborByValueTemporaryToRecordParameter"), "hv:alpha");
+    // P4 :613 into a `temporary` parameter; :639 into a Variant parameter (state mem), which GetTable then reads.
+    assert_eq!(run("NeighborByValueStoredToOtherParameters"), "hv:alpha|hv:alpha");
 }
 
 #[test]
-fn a_record_by_value_in_a_state_or_pair_that_is_not_measured_shares_as_before() {
-    assert_eq!(unflagged("NeighborByValueAfterInsert"), "hv:zzpha");
-    assert_eq!(unflagged("NeighborByValueAfterCalcFields"), "hv:zzpha");
-    assert_eq!(unflagged("NeighborByValueEmpty"), "hv:zz");
-    assert_eq!(unflagged("NeighborByValueTemporaryToRecordParameter"), "hv:zzpha");
-    // The SetTable of the read helper copies (flagged).
-    assert_eq!(run("NeighborByValueStoredToOtherParameters").0, "hv:zzpha|hv:betaa");
+fn a_record_by_value_to_a_tryfunction_copies() {
+    // P3 :2200, a codeunit's [TryFunction], state mem.
+    assert_eq!(run("NeighborByValueTryFunction"), "hv:alpha");
 }
 
 #[test]
-fn a_record_by_value_in_a_call_that_is_not_measured_shares_as_before() {
-    assert_eq!(unflagged("NeighborByValueTryFunction"), "hv:zzpha");
-    assert_eq!(unflagged("NeighborByValueEvent"), "hv:zzpha");
-}
-
-#[test]
-fn record_copy_outside_the_measured_cells_shares_as_before() {
+fn record_copy_copies_in_every_pair_but_not_an_extension_field() {
+    // P3 :3108 C6 and :3274 E2 (Compressed = false through Record.Copy); a table extension field through Record.Copy is not
+    // measured and shares, as on main.
     assert_eq!(
-        unflagged("NeighborVariationFieldsByValueAndCopy"),
-        "hv:zzpha|hv:zzpha|hv:yypha|hv:yypha"
+        run("NeighborVariationFieldsByValueAndCopy"),
+        "hv:alpha|hv:alpha|hv:yypha|hv:alpha"
     );
-    assert_eq!(unflagged("NeighborCopyTemporaryToStored"), "hv:zzpha");
-    assert_eq!(unflagged("NeighborCopyAfterInsertAndEmpty"), "hv:zzpha|hv:x");
+    // P4 :1256 temporary into not temporary, state mem.
+    assert_eq!(run("NeighborCopyTemporaryToStored"), "hv:alpha");
+    // P4 :1204 stored to stored, state ins; :1282 temporary to temporary, state empty.
+    assert_eq!(run("NeighborCopyAfterInsertAndEmpty"), "hv:alpha|nohv:");
+    // P4 :1230 stored into temporary, state empty.
+    assert_eq!(run("NeighborCopyStoredToTemporaryEmpty"), "nohv:");
 }
 
 #[test]
-fn arguments_and_states_that_are_not_measured_share_as_before() {
-    // GetTable copies on the way (flagged); TransferFields(Rec, true, false) and SetTable(Rec, false) share.
-    assert_eq!(run("NeighborOtherArguments").0, "hv:betaa|hv:zzpha");
-    assert_eq!(unflagged("NeighborOtherStates"), "hv:betaa|hv:x");
+fn other_arguments_share_and_the_measured_states_copy() {
+    // GetTable copies on the way; TransferFields(Rec, true, false) and SetTable(Rec, false) share, as on main.
+    assert_eq!(run("NeighborOtherArguments"), "hv:betaa|hv:zzpha");
+    // P4 :1434 a stored record's field read into a global Variant, state calc; :1107 TransferFields(Rec, true) between
+    // temporary records, state empty.
+    assert_eq!(run("NeighborOtherStates"), "hv:alpha|nohv:");
 }
 
-/// These were refused after al-runner PR 7936 and shared the buffer before it (issue 6924: three tests of an outside reporter
-/// stopped running). Corpus PR 1375 (streams/BlobCopyStates.al, procedure Into) measures FieldRef.Value and Validate into such a
-/// field: a copy in every source state, an empty target from a row read with Get only.
 #[test]
 fn fieldref_value_and_validate_into_an_extension_or_uncompressed_field_copy() {
-    assert_eq!(flagged("ValueAndValidateIntoExtensionField"), "hv:alpha|hv:alpha");
-    assert_eq!(flagged("ValueIntoUncompressedField"), "hv:alpha");
-    assert_eq!(flagged("GetTableUncompressedCalcFields"), "hv:alpha");
-    assert_eq!(flagged("ExtensionFieldValueFromUnreadSource"), "nohv:");
-    assert_eq!(flagged("ExtensionFieldValidateFromUnreadSource"), "nohv:");
+    assert_eq!(run("ValueAndValidateIntoExtensionField"), "hv:alpha|hv:alpha");
+    assert_eq!(run("ValueIntoUncompressedField"), "hv:alpha");
+    assert_eq!(run("GetTableUncompressedCalcFields"), "hv:alpha");
+    assert_eq!(run("ExtensionFieldValueFromUnreadSource"), "nohv:");
+    assert_eq!(run("ExtensionFieldValidateFromUnreadSource"), "nohv:");
 }
 
 #[test]
@@ -1278,71 +1566,128 @@ fn content_in_a_field_kind_that_is_not_measured_stays_refused() {
 
 /// A Blob an Insert or a Modify saved and a stream wrote again (A1 to A5 of the review of al-runner PR 7951): the probe measured
 /// the new moves only on a buffer that held nothing when its unsaved write began. They share, as before.
-#[test]
-fn a_saved_blob_written_again_shares_as_before() {
-    assert_eq!(unflagged("NeighborInsertWriteAgainByValue"), "hv:zztaa");
-    assert_eq!(unflagged("NeighborTempInsertWriteAgainByValue"), "hv:zztaa");
-    assert_eq!(unflagged("NeighborInsertWriteAgainCopyModify"), "hv:zztaa|hv:zztaa");
-    assert_eq!(unflagged("NeighborModifyWriteAgainByValue"), "hv:zztaa");
-    assert_eq!(
-        unflagged("NeighborInsertWriteAgainGlobalVariantTransferFlags"),
-        "hv:zztaa|hv:zztaa"
-    );
-}
 
-/// A Blob whose unsaved write came over with a copy (B1 and B3 of the review of al-runner PR 7951) shares when its record is
-/// passed by value, as before. FieldRef.Value and SetTable copy on the way of B3 (flagged).
 #[test]
-fn a_blob_written_by_a_copy_shares_by_value_as_before() {
-    assert_eq!(unflagged("NeighborAssignedBlobByValue"), "hv:zzpha");
-    assert_eq!(run("NeighborFieldRefValueBlobByValue").0, "hv:zzpha");
-}
-
-/// A Blob of a table extension, Compressed = false or Compressed = true field moved into a by-value Variant parameter, a global
-/// Variant or an array element (C1 to C5 of the review of al-runner PR 7951) is shared, as before. A local Variant copies it,
-/// as before (flagged).
-#[test]
-fn a_field_that_is_not_plain_into_a_variant_that_is_not_local_shares_as_before() {
+fn a_saved_blob_written_again_copies() {
+    // P4 :587 state inswrite; :925 the same from a temporary record; :1204 Record.Copy, inswrite (the Modify after it stores the
+    // source's own text); :587 insmodwrite.
+    assert_eq!(run("NeighborInsertWriteAgainByValue"), "hv:betaa");
+    assert_eq!(run("NeighborTempInsertWriteAgainByValue"), "hv:betaa");
+    assert_eq!(run("NeighborInsertWriteAgainCopyModify"), "hv:betaa|hv:betaa");
+    assert_eq!(run("NeighborModifyWriteAgainByValue"), "hv:betaa");
+    // P4 :1512 a temporary record's field read into a global Variant and :1107 TransferFields(Rec, true), state inswrite.
     assert_eq!(
-        unflagged("NeighborVariationFieldsToVariantParameter"),
-        "hv:betaa|hv:betaa|hv:betaa"
-    );
-    assert_eq!(unflagged("NeighborExtensionFieldToGlobalAndArray"), "hv:betaa|hv:betaa");
-    assert_eq!(flagged("NeighborCompressedFieldToGlobalAndLocal"), "hv:betaa|hv:alpha");
-}
-
-/// A record that was inserted or modified before its Blob was written, or whose field was cleared or that was set back with
-/// Init after an Insert (S1, S2, S4, S5, S12, S13, S14 of the round-2 review of al-runner PR 7951), is not the record the
-/// probe measured (one never inserted, modified or read). Its Blobs share, as before.
-#[test]
-fn a_record_that_was_stored_before_the_write_shares_as_before() {
-    assert_eq!(unflagged("NeighborInsertEmptyWriteByValue"), "hv:zzpha");
-    assert_eq!(unflagged("NeighborTempInsertEmptyWriteByValue"), "hv:zzpha");
-    assert_eq!(unflagged("NeighborInsertClearFieldWriteByValue"), "hv:zzta");
-    assert_eq!(unflagged("NeighborInsertEmptyModifyWriteByValue"), "hv:zzpha");
-    assert_eq!(unflagged("NeighborInsertInitWriteByValue"), "hv:zzta");
-    assert_eq!(unflagged("NeighborTempInsertEmptyWriteCopy"), "hv:betaa");
-    assert_eq!(
-        unflagged("NeighborTempInsertEmptyWriteGlobalVariantTransferFlags"),
+        run("NeighborInsertWriteAgainGlobalVariantTransferFlags"),
         "hv:betaa|hv:betaa"
     );
 }
 
-/// A Blob a Variant holds that moves on into a global Variant or a by-value Variant parameter (S8, S9 of the same review) is
-/// not read from a field at that move: it shares, as before.
 #[test]
-fn a_blob_a_variant_holds_shares_when_it_moves_on_as_before() {
-    assert_eq!(unflagged("NeighborVariantHeldBlobToGlobalVariant"), "hv:betaa");
-    assert_eq!(unflagged("NeighborVariantHeldBlobToVariantParameter"), "hv:betaa");
+fn a_blob_written_by_a_copy_copies_by_value() {
+    // P3 :2880 B1 (a field assignment), :2923 B3 (FieldRef.Value and SetTable).
+    assert_eq!(run("NeighborAssignedBlobByValue"), "hv:alpha");
+    assert_eq!(run("NeighborFieldRefValueBlobByValue"), "hv:alpha");
 }
 
-/// The probe read the field from a local temporary record and stored it in a global Variant or an element of a
-/// one-dimensional local array. A global record, a record in an array, a `var` parameter record, a record that is not
-/// temporary and a two-dimensional array (S11, S17, S18, S19, S16 of the same review) share, as before.
+#[test]
+fn other_field_kinds_into_a_variant_that_is_not_local_copy() {
+    // P3 :3017 C1-C3, :3087 C4-C5.
+    assert_eq!(
+        run("NeighborVariationFieldsToVariantParameter"),
+        "hv:alpha|hv:alpha|hv:alpha"
+    );
+    assert_eq!(run("NeighborExtensionFieldToGlobalAndArray"), "hv:alpha|hv:alpha");
+    assert_eq!(run("NeighborCompressedFieldToGlobalAndLocal"), "hv:alpha|hv:alpha");
+}
+
+#[test]
+fn a_record_stored_before_the_write_copies() {
+    // P4 :587 insemptywrite, :925 the same from a temporary record, :587 insclearfieldwrite; Insert of an empty Blob, Modify,
+    // then a write: :587 insemptywrite and insmodwrite run these calls in other orders; :587 insinitwrite; :1282 Record.Copy
+    // between temporary records, insemptywrite; :1512 and :1107, insemptywrite.
+    assert_eq!(run("NeighborInsertEmptyWriteByValue"), "hv:alpha");
+    assert_eq!(run("NeighborTempInsertEmptyWriteByValue"), "hv:alpha");
+    assert_eq!(run("NeighborInsertClearFieldWriteByValue"), "hv:beta");
+    assert_eq!(run("NeighborInsertEmptyModifyWriteByValue"), "hv:alpha");
+    assert_eq!(run("NeighborInsertInitWriteByValue"), "hv:beta");
+    assert_eq!(run("NeighborTempInsertEmptyWriteCopy"), "hv:alpha");
+    assert_eq!(
+        run("NeighborTempInsertEmptyWriteGlobalVariantTransferFlags"),
+        "hv:alpha|hv:alpha"
+    );
+}
+
+/// A field read of an empty temporary record into a global Variant copies (P4 :1512, state empty); the Variant that holds the
+/// copy moves on into another Variant, by assignment or as a by-value parameter, as before.
+#[test]
+fn a_blob_read_into_a_global_variant_is_copied_and_moves_on_with_the_variant() {
+    assert_eq!(run("NeighborVariantHeldBlobToGlobalVariant"), "nohv:");
+    assert_eq!(run("NeighborVariantHeldBlobToVariantParameter"), "nohv:");
+}
+
+/// The probe read the field from a local record variable. A global record, a record in an array, a `var` parameter record and
+/// a two-dimensional array share, as on main; a local record that is not temporary copies (P4 :1434, state mem).
 #[test]
 fn a_field_of_another_source_record_into_a_global_variant_shares_as_before() {
     assert_eq!(
-        unflagged("NeighborOtherSourceRecordsToGlobalVariant"),
-        "hv:betaa|hv:betaa|hv:betaa|hv:betaa|hv:betaa"
+        run("NeighborOtherSourceRecordsToGlobalVariant"),
+        "hv:betaa|hv:betaa|hv:betaa|hv:alpha|hv:betaa"
     );
+}
+
+/// Shapes next to the cells of P4 that no probe ran: main's shared buffer.
+#[test]
+fn neighbors_of_the_fourth_probe_keep_mains_shared_buffer() {
+    // A Commit between the Insert and the by-value call (P4 ran none).
+    assert_eq!(run("NeighborCommitBeforeByValue"), "hv:zzpha");
+    // A record method the probes did not run (SetRange) before the by-value call.
+    assert_eq!(run("NeighborSetRangeBeforeByValue"), "hv:zzpha");
+    // A temporary record into a table procedure, and into a codeunit subscriber (P4 measured a stored record there).
+    assert_eq!(run("NeighborTemporaryToTableProcedure"), "hv:zzpha");
+    assert_eq!(run("NeighborByValueEvent"), "hv:zzpha");
+    // A procedure of a page.
+    assert_eq!(run("NeighborPageProcedure"), "hv:zzpha");
+    // A subscriber of an isolated IntegrationEvent.
+    assert_eq!(run("NeighborIsolatedPublisher"), "hv:zzpha");
+    // A by-value OnBeforeInsertEvent subscriber of a temporary record.
+    assert_eq!(run("NeighborTemporaryInsertEvent"), "hv:zzpha");
+}
+
+/// FieldRef.Validate on the GetTable copy ends its fact: SetTable(Rec, true) after it shares, as on main. GetTable copies on the
+/// way.
+#[test]
+fn settable_sharetable_after_a_fieldref_validate_shares_as_before() {
+    assert_eq!(run("NeighborValidateBeforeSetTableShared"), "hv:zzpha");
+}
+
+/// A Commit while a local is fresh, before the call that makes it a measured source: no probe ran it (P3 :3208 D5 commits
+/// before a global record only Clear and a write touch), so the by-value call shares as on main.
+#[test]
+fn a_commit_before_the_first_record_method_keeps_mains_shared_buffer() {
+    assert_eq!(run("NeighborCommitWhileFreshThenInsert"), "hv:zzpha");
+    assert_eq!(run("NeighborCommitWhileFreshThenAssign"), "hv:zzpha");
+}
+
+/// A RecordRef call the probes did not run on the GetTable copy before SetTable(Rec, true): the copy's fact ends and the table
+/// is shared, as on main (GetTable copies on the way). FieldRef.SetRange with one value is a call P4 ran (:2446
+/// `ShareSetRange`): the RecordRef keeps its own Blob.
+#[test]
+fn a_recordref_call_not_measured_before_settable_sharetable_shares_as_before() {
+    for routine in [
+        "NeighborRrIsTemporary",
+        "NeighborRrSetView",
+        "NeighborRrSetRecFilter",
+        "NeighborRrAscending",
+        "NeighborRrName",
+        "NeighborRrFieldRead",
+        "NeighborRrFieldSetFilter",
+        "NeighborRrCopiedFrom",
+        // An earlier SetTable(Rec, false) or SetTable(Rec, true) on the RecordRef (probe r3probe RR3_SetTableFalseFirst,
+        // RR3_SetTableTrueFirst: the runner before shared too).
+        "NeighborRrSetTableFalseFirst",
+        "NeighborRrSetTableTrueFirst",
+    ] {
+        assert_eq!(run(routine), "hv:zzpha", "{routine}");
+    }
+    assert_eq!(run("RrFieldSetRange"), "hv:alpha");
 }

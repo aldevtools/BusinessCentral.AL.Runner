@@ -1,21 +1,17 @@
 //! `record_op_inner`: the dispatch of every Record method (moved out of `records.rs`).
 
 use super::*;
+use crate::state::{UnpinnedLock, WriteOfAl};
 
 impl Session {
     pub(crate) fn record_op_inner(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
         self.connection_check(rec)?;
-        if rec.borrow().unpinned_buffer.is_some() {
+        if rec.borrow().unpinned_buffer.is_some() && !self.by_value_view_runs(method, rec)? {
             return self.unpinned_buffer_op(method, rec, args);
         }
-        // Copy, CopyFilters, TransferFields and the like from a table element record after an export under SourceTableView
-        // would carry its unpinned view or buffer over.
-        if let Some(Value::Record(src)) = args.first() {
-            if let Some(why) = xp_export_marked(src) {
-                return unsupported(format!("Record.{}() from a record: {why}", method.name()));
-            }
-        }
+        Self::view_and_source_marks(method, rec, args)?;
         let t = self.table(rec)?;
+        crate::blob_transfer::record_write_starts(method, &rec.borrow());
         Self::refuse_filter_in_unpinned_group(method, rec)?;
         if !rec.borrow().temporary {
             self.install_assumed(t.object);
@@ -112,33 +108,16 @@ impl Session {
         // The next access of the table raises a deferred duplicate-key Insert, an Insert of another row not (the buffered inserts
         // stay buffered: record/P146TableExtProtected.al:P146_Triggers_BaseThenExtension, where
         // `R2.Insert(true)` succeeds and the next Modify raises it).
-        if matches!(
-            method,
-            RecordOp::Modify
-                | RecordOp::Delete
-                | RecordOp::DeleteAll
-                | RecordOp::ModifyAll
-                | RecordOp::Rename
-                | RecordOp::Truncate
-                | RecordOp::Get
-                | RecordOp::LoadFields
-                | RecordOp::Find
-                | RecordOp::FindFirst
-                | RecordOp::FindLast
-                | RecordOp::FindSet
-                | RecordOp::Next
-                | RecordOp::Count
-                | RecordOp::IsEmpty
-                | RecordOp::CalcFields
-                | RecordOp::CalcSums
-        ) && !rec.borrow().temporary
+        if insert_buffer::sends_queue(method)
+            && !rec.borrow().temporary
             && self
                 .tx
+                .open
                 .deferred_insert
                 .as_ref()
                 .is_some_and(|(o, _)| *o == t.object as usize)
         {
-            let (_, e) = self.tx.deferred_insert.take().expect("checked");
+            let (_, e) = self.tx.open.deferred_insert.take().expect("checked");
             self.tx.deferred_raised += 1;
             return Err(Signal::Error(Box::new(e)));
         }
@@ -273,8 +252,8 @@ impl Session {
             // A write call starts the transaction, also a DeleteAll that finds no row
             // (session-system/ProbeSystemEnumMembers.al:143-161, session-system/TestDatabaseExtended.al:
             // Database_CurrentTransactionType_SetAfterWriteOp_Throws over fixture DeleteAlls).
-            self.tx.tx_phase = crate::transactions::TX_WRITE;
-        } else if self.tx.tx_phase == crate::transactions::TX_FRESH
+            self.tx.phase = crate::transactions::TxPhase::Write;
+        } else if self.tx.phase == crate::transactions::TxPhase::Fresh
             && !rec.borrow().temporary
             && matches!(
                 method,
@@ -292,7 +271,7 @@ impl Session {
             )
         {
             // A read call starts it too (session-system/ProbeSystemEnumMembers.al:94-112).
-            self.tx.tx_phase = crate::transactions::TX_READ;
+            self.tx.phase = crate::transactions::TxPhase::Read;
         }
         if !rec.borrow().temporary
             && matches!(
@@ -321,6 +300,7 @@ impl Session {
             // table holds none, Next or Find('<') of the inserted table, Next(N) and other Find forms stay unpinned.
             let own_pending = self
                 .tx
+                .open
                 .row_versions
                 .pending_inserts
                 .iter()
@@ -373,24 +353,25 @@ impl Session {
                 RecordOp::Find => matches!(args.first(), Some(Value::Text(w)) if w.as_str() == "="),
                 _ => false,
             };
-            self.tx.db_reads += 1;
+            self.tx.open.locks.db_reads += 1;
+            let locks = &mut self.tx.open.locks;
             match rec.borrow().read_isolation {
                 ISOLATION_REPEATABLE_READ | ISOLATION_UPDLOCK
-                    if self.tx.lock_tx && matches!(method, RecordOp::FindFirst | RecordOp::FindSet) =>
+                    if locks.lock_tx && matches!(method, RecordOp::FindFirst | RecordOp::FindSet) =>
                 {
-                    self.tx.isolation_lock = true;
-                    self.tx.note_isolation_lock(t.object, rec.borrow().company.clone());
+                    locks.isolation_lock = true;
+                    locks.note_isolation_lock(t.object, rec.borrow().company.clone());
                 }
                 ISOLATION_REPEATABLE_READ | ISOLATION_UPDLOCK => {
-                    if !self.tx.lock_tx && !pinned_read {
-                        self.tx.locking_read_tx_unpinned = true;
+                    if !locks.lock_tx && !pinned_read {
+                        locks.locking_read_tx_unpinned = true;
                     }
                     // Another cause already recorded is kept: `lock_unpinned` names this read only while such reads are its
                     // only cause (see `read_of_others_only` in the stale-buffer decision).
-                    if self.tx.lock_unpinned.is_none_or(|w| w == UNPINNED_LOCKING_READ) {
-                        self.tx.lock_unpinned = Some(UNPINNED_LOCKING_READ);
+                    if locks.lock_unpinned.is_none_or(|w| w == UnpinnedLock::LockingRead) {
+                        locks.lock_unpinned = Some(UnpinnedLock::LockingRead);
                     }
-                    self.tx.note_isolation_lock(t.object, rec.borrow().company.clone());
+                    locks.note_isolation_lock(t.object, rec.borrow().company.clone());
                 }
                 _ => {}
             }
@@ -428,6 +409,7 @@ impl Session {
             }
             RecordOp::Clear => self.clear_record(&t, rec),
             RecordOp::Insert => {
+                let of_al = self.take_write_of_al(WriteOfAl::Insert);
                 if !rec.borrow().temporary {
                     self.page_metadata_before_insert(&t, &rec.borrow().fields)?;
                 }
@@ -565,6 +547,14 @@ impl Session {
                 // A unique secondary key refuses the row after its AutoIncrement value was taken
                 // (corpus record/TestAutoIncrementExplicitKey.al:131,163).
                 if let Some(unique_key) = self.unique_violation(rec, &t, &row, None)? {
+                    // A table whose statement-form Insert the platform queues (al-runner issue 8287): whether the unique key's
+                    // error comes at the Insert or with the queue is not pinned.
+                    if !self.ret_used && self.insert_is_queued(rec) {
+                        return unsupported(format!(
+                            "an Insert in its statement form into {}, a table without a Blob or AutoIncrement field, that breaks a unique secondary key: whether it raises at the Insert or when the insert queue is sent is not pinned (docs/probes-needed.md)",
+                            t.name
+                        ));
+                    }
                     Self::restore_row_version(rec, old_version);
                     Self::unstamp(rec, stamped);
                     if let Some(a) = auto {
@@ -594,50 +584,21 @@ impl Session {
                 }
                 let mut stored = Self::to_store(rec, view);
                 self.webhook_application_id(&t, rec, &mut stored)?;
-                if let Some(e) = self.sql_columns(rec, &t, &mut stored)? {
-                    // A value the SQL column cannot hold: the Insert does not fail, the next access of the table does
-                    // (record/filters/P130DateFilters.al:255-275, stage `get`), as for a duplicate key. With a Blob
-                    // field, an AutoIncrement field, the result used, an after-insert trigger or event, or a page write it is
-                    // not pinned.
-                    let has_blob = t
-                        .fields
-                        .iter()
-                        .any(|f| matches!(&f.ty, RtType::Library(al_builtins::library_kind::LibraryKind::Blob)));
-                    // A CRM table has no SQL column: what its table connection does with such a value is not pinned.
-                    if self.ret_used
-                        || rec.borrow().crm
-                        || has_blob
-                        || auto.is_some()
-                        || self.tx.immediate_errors
-                        || (run && !self.ext_triggers(&t, "OnAfterInsert").is_empty())
-                        || self.listened(&t, "onafterinsertevent", None)?
-                    {
-                        return unsupported(format!(
-                            "an Insert into {} of a value its SQL column cannot hold, in a form the corpus does not pin",
-                            t.name
-                        ));
-                    }
-                    Self::restore_row_version(rec, old_version);
-                    Self::unstamp(rec, stamped);
-                    self.defer_insert(rec, t.object, e);
-                    return Ok(Value::Boolean(true));
+                if let Some(bad) = self.sql_columns(rec, &t, &mut stored)? {
+                    let shape = InsertShape {
+                        auto: auto.is_some(),
+                        run,
+                        of_al,
+                    };
+                    return self.insert_sql_range(rec, &t, bad, shape, (old_version, stamped));
                 }
-                // A temporary table holds the record's own Blob object (streams/TestBlobUncommittedWriteIsolation.al:171); one
-                // that holds content now is copied by the next CreateOutStream on the record (`BlobBuf::temp_inserted`).
-                if rec.borrow().temporary {
-                    for v in &stored {
-                        if let Value::Blob(b) = v {
-                            let mut b = b.borrow_mut();
-                            b.temp_inserted = !b.bytes.is_empty();
-                        }
-                    }
-                }
+                let empty_blob = Self::temp_insert_blobs(rec, &stored);
                 Self::mark_blobs_inserted(rec, &stored, true);
                 let before = self.store.change_counter();
                 // The SQL counters' buffer before their first read (sqlcount.rs, `SqlCounters::pre_insert`).
                 let pre_ops = (!self.sql.active && !rec.borrow().temporary).then(al_data::memory::store_ops);
                 match self
-                    .store_for(rec)
+                    .store_for(rec)?
                     .insert(&cx, &t, stored)
                     .map_err(|e| Signal::unsupported(format!("{e}")))?
                 {
@@ -648,17 +609,19 @@ impl Session {
                             self.sql.pre_inserted(al_data::memory::store_ops());
                         }
                         self.note_insert(rec, &t, before);
+                        Self::note_empty_blob_insert(rec, &t, empty_blob);
                         Self::clear_blob_written(rec);
                         rec.borrow_mut().inserted = true;
                         if !rec.borrow().temporary {
                             let company = rec.borrow().company.clone();
                             if !self
                                 .tx
+                                .open
                                 .tables_inserted
                                 .iter()
                                 .any(|(o, c)| *o == t.object && *c == company)
                             {
-                                self.tx.tables_inserted.push((t.object, company));
+                                self.tx.open.tables_inserted.push((t.object, company));
                             }
                         }
                         let version = t
@@ -694,7 +657,7 @@ impl Session {
                         // A duplicate key in Active Session: Insert with a return value answers false and leaves an error whose
                         // text is not pinned (metadata/platform-tables/RvActiveSessionWrites.al:136-171, "Error code:
                         // 85132273" on Linux, a suspect). Its statement form is not pinned.
-                        if self.store_for(rec).takes_inserts(&t) {
+                        if self.store_for(rec)?.takes_inserts(&t) {
                             Self::restore_row_version(rec, old_version);
                             Self::unstamp(rec, stamped);
                             if self.ret_used {
@@ -775,6 +738,7 @@ impl Session {
                             && matches!(r, Ok(Value::Boolean(false)))
                             && self
                                 .tx
+                                .open
                                 .deferred_insert
                                 .as_ref()
                                 .is_some_and(|(o, _)| *o == t.object as usize)
@@ -786,12 +750,13 @@ impl Session {
                             );
                             if self
                                 .tx
+                                .open
                                 .deferred_insert
                                 .as_ref()
                                 .is_some_and(|(_, e)| e.message == same_key)
                             {
                                 // GetLastErrorText then gives the duplicate's text (`guarded`).
-                                let (_, e) = self.tx.deferred_insert.take().expect("checked");
+                                let (_, e) = self.tx.open.deferred_insert.take().expect("checked");
                                 self.last_error = e;
                             }
                         }
@@ -810,12 +775,13 @@ impl Session {
             }
             RecordOp::Modify => {
                 let run = arg_bool(args, 0)?;
+                let caller = self.take_modify_caller();
                 self.tenant_license_state_refuses(&t, "modify")?;
                 self.document_service_trigger_refused(&t, rec, run, "Modify")?;
                 // A key value the column rounds finds the rounded row (P130DateFilters.al:635-637, `modify var`).
                 let pk = Self::sql_key(rec, &t, &rec.borrow().fields);
                 let stored = self
-                    .store_for(rec)
+                    .store_for(rec)?
                     .get(&cx, &t, &pk)
                     .map_err(|e| Signal::unsupported(format!("{e}")))?;
                 self.feature_key_read_only_change(&t, rec, stored.as_deref())?;
@@ -942,14 +908,14 @@ impl Session {
                     }
                 }
                 let mut stored = Self::to_store(rec, view);
-                // Only the Insert of a value the SQL column cannot hold is pinned (record/filters/P130DateFilters.al:234-275).
-                if self.sql_columns(rec, &t, &mut stored)?.is_some() {
-                    return unsupported("a Modify of a value its SQL column cannot hold (not pinned)");
+                if let Some(bad) = self.sql_columns(rec, &t, &mut stored)? {
+                    let shape = (caller, stored_row.is_some(), run);
+                    return self.fail_modify_sql_range(rec, &t, bad, shape, (old_version, stamped));
                 }
                 Self::mark_blobs_inserted(rec, &stored, false);
                 let before = self.store.change_counter();
                 match self
-                    .store_for(rec)
+                    .store_for(rec)?
                     .modify(&cx, &t, stored)
                     .map_err(|e| Signal::unsupported(format!("{e}")))?
                 {
@@ -995,24 +961,10 @@ impl Session {
                                 }
                             }
                             let company = rec.borrow().company.clone();
-                            self.tx.rows_touched.push((t.object, company, pk.clone()));
+                            self.tx.open.rows_touched.push((t.object, company, pk.clone()));
                         }
-                        // The Modify that stores a Media field's new media removes the Tenant Media row of the one it held
-                        // (streams/ArRecordProbes.al:141-143). Only a media replaced by another is pinned; a
-                        // cleared field and a temporary record keep it.
                         if let (Some(old), false) = (stored_row.as_deref(), rec.borrow().temporary) {
-                            for (i, f) in t.fields.iter().enumerate() {
-                                if !matches!(f.ty, RtType::Library(al_builtins::library_kind::LibraryKind::Media)) {
-                                    continue;
-                                }
-                                if let (Value::Guid(was), Value::Guid(now)) = (&old[i], &row[i])
-                                    && was != now
-                                    && *was != [0; 16]
-                                    && *now != [0; 16]
-                                {
-                                    self.release_media(&cx, &t, i, *was)?;
-                                }
-                            }
+                            self.release_replaced_media(&cx, &t, old, &row)?;
                         }
                         // A Blob a Modify of a temporary record persisted does not survive a later Rename
                         // (streams/TestBlobRenameIsolation.al:TempBlob_CommittedWrite_Rename_SameInstanceReGet_LosesBlobValue);
@@ -1045,7 +997,7 @@ impl Session {
                     let row = rec.borrow().fields.clone();
                     let pk = Self::sql_key(rec, &t, &row);
                     let exists = self
-                        .store_for(rec)
+                        .store_for(rec)?
                         .get(&cx, &t, &pk)
                         .map_err(|e| Signal::unsupported(format!("{e}")))?
                         .is_some();
@@ -1068,8 +1020,7 @@ impl Session {
                 if !rec.borrow().temporary {
                     self.load_missing_fields(rec, None)?;
                 }
-                self.tenant_set_delete_one_refuses(&cx, &t, rec)?;
-                self.delete_row(&t, rec, run)
+                self.delete_one(&cx, &t, rec, run)
             }
             RecordOp::DeleteAll => {
                 let at = self.note_bulk_write(rec, &t, crate::state::TxWriteKind::DeleteAll);
@@ -1136,7 +1087,7 @@ impl Session {
                     pk = crate::sqltime::rounded_key(&pk);
                 }
                 match self
-                    .store_for(rec)
+                    .store_for(rec)?
                     .get(&cx, &t, &pk)
                     .map_err(|e| Signal::unsupported(format!("{e}")))?
                 {
@@ -1184,15 +1135,7 @@ impl Session {
                 // else, the empty text included, raises (record/PZFindDirections.al:Find_InvalidDirections and
                 // Find_InvalidDirection_ErrorText, Record and RecordRef alike; the text carries the backslashes as BC
                 // writes them).
-                let valid = match which.as_str() {
-                    "-" | "+" => true,
-                    w => {
-                        !w.is_empty()
-                            && w.chars().all(|c| matches!(c, '=' | '<' | '>'))
-                            && w.char_indices().all(|(i, c)| !w[i + 1..].contains(c))
-                    }
-                };
-                if !valid {
+                if !valid_find_direction(&which) {
                     return Err(Signal::Error(Box::new(AlError {
                         message: format!(
                             "There is an invalid character in the Find expression '{which}'.\\\\In Find expressions, you can use =, >, and < in combinations, where each sign can only appear once, or you can use - or +."
@@ -1202,8 +1145,8 @@ impl Session {
                         ..Default::default()
                     })));
                 }
-                let found = match which.as_str() {
-                    "-" => self.scan(rec, &t, asc, None)?,
+                let mut found = match which.as_str() {
+                    "-" => self.as_find_first(method, rec, |s| s.scan(rec, &t, asc, None))?,
                     "+" => self.scan(rec, &t, !asc, None)?,
                     // Every form honours the active filters
                     // (record/TestFilterTextBooleanFindContracts.al:143, Find_AllForms_HonourTheActiveFilters).
@@ -1216,7 +1159,7 @@ impl Session {
                         let fields = rec.borrow().fields.clone();
                         let pk = Self::exact_key(rec, &t, &fields, "Find('=')")?;
                         let row = self
-                            .store_for(rec)
+                            .store_for(rec)?
                             .get(&cx, &t, &pk)
                             .map_err(|e| Signal::unsupported(format!("{e}")))?;
                         match row {
@@ -1253,7 +1196,7 @@ impl Session {
                                     let fields = rec.borrow().fields.clone();
                                     let pk = Self::exact_key(rec, &t, &fields, "Find")?;
                                     let exact = self
-                                        .store_for(rec)
+                                        .store_for(rec)?
                                         .get(&cx, &t, &pk)
                                         .map_err(|e| Signal::unsupported(format!("{e}")))?;
                                     match exact {
@@ -1278,12 +1221,13 @@ impl Session {
                     }
                     other => return unsupported(format!("Find('{other}')")),
                 };
+                crate::platform::unmeasured_find(&self.engine, &t, &mut found, method, &which, args);
                 match found {
                     Some(row) => {
                         // Every form of Find gives the origin FindFirst gives (record/stale-find/Y89StaleFind.al:256-480,
                         // Y89_Part1_find_*, against record/crud/Y76StaleBuffers.al Y76_Part1_*).
                         self.find_load = true;
-                        let loaded = self.load(rec, row);
+                        let loaded = self.as_find_first(method, rec, |s| s.load(rec, row));
                         self.find_load = false;
                         loaded?;
                         Ok(Value::Boolean(true))
@@ -1294,7 +1238,7 @@ impl Session {
                     // events/TestProbeEventContracts.al:RecordErrors_GetMissing_TestField_Modify (FindFirst, FindLast, FindSet
                     // with a filter): the text lists the filters; without one it is not pinned.
                     None => {
-                        let filters = self.get_filters(rec, &t)?;
+                        let filters = self.get_filters(rec, &t, false)?;
                         // Without a filter the table itself is empty, on every version: FindFirst and FindLast
                         // record/filters/P68C_EmptyFinds.al:215-250 ( passes on the BC 27 oracle
                         // too), FindSet ErTTriggerErrors.al:140-147 and P68C_EmptyFinds.al:202-204.
@@ -1327,7 +1271,7 @@ impl Session {
                         let empty_table = filters.is_empty()
                             && method == RecordOp::Find
                             && self
-                                .store_for(rec)
+                                .store_for(rec)?
                                 .count(&cx, &t, &[])
                                 .map_err(|e| Signal::unsupported(format!("{e}")))?
                                 == 0;
@@ -1463,7 +1407,7 @@ impl Session {
             RecordOp::Count | RecordOp::IsEmpty => {
                 let (filters, flow_field_filters) = self.split_filters(rec);
                 let n = if flow_field_filters.is_empty() && !rec.borrow().marked_only {
-                    self.store_for(rec)
+                    self.store_for(rec)?
                         .count(&cx, &t, &filters)
                         .map_err(|e| Signal::unsupported(format!("{e}")))?
                 } else {
@@ -1505,6 +1449,7 @@ impl Session {
                 Ok(Value::Null)
             }
             RecordOp::SetFilter => {
+                let from_al = std::mem::take(&mut self.setfilter_from_al);
                 let pos = arg_pos(args, 0)?;
                 rec.borrow_mut().position = None;
                 let ty = t.fields[pos].ty.clone();
@@ -1520,6 +1465,7 @@ impl Session {
                     r.filters.retain(|f| !(f.field == pos && f.group == group));
                     return Ok(Value::Null);
                 }
+                self.check_set_filter_text(&t, pos, &text, &ty)?;
                 let enums = self.enum_members_fn();
                 let date_ctx = self.date_filter_context_for(&text);
                 let parse = |text: &str| {
@@ -1528,30 +1474,26 @@ impl Session {
                     })
                 };
                 // A RecordId text (`Format(RecordId)`, alone or after `<>`): see `record_id_filter_text`.
-                let record_id = if matches!(ty, RtType::Library(al_builtins::library_kind::LibraryKind::RecordId))
-                    && args.len() <= 2
-                {
-                    self.record_id_filter_text(text.trim())?
-                } else {
-                    None
+                let record_id = match ty {
+                    RtType::Library(al_builtins::library_kind::LibraryKind::RecordId) if args.len() <= 2 => {
+                        self.record_id_filter_text(text.trim())?
+                    }
+                    _ => None,
                 };
+                let shape = super::measured_setfilter::MeasuredSetFilter::of(from_al, &rec.borrow(), &text, args.len());
                 let mut parsed = match record_id {
                     Some(p) => p,
-                    None => parse(&text),
+                    None => match self.measured_language_filter(shape.as_ref(), &t, pos)? {
+                        Some(expr) => Ok(expr),
+                        None => parse(&text),
+                    },
                 };
                 // A Date text with a piece no filter reads asks `MakeDateFilter` subscribers first.
                 if matches!(&parsed, Err(e) if e.starts_with(al_builtins::filter::INVALID_DATE))
                     && matches!(ty, RtType::Date)
-                    && self
-                        .engine
-                        .events
-                        .is_subscribed(crate::events::FILTER_HELPER_TRIGGERS, "makedatefilter")
                 {
-                    // Outside the pinned shape (an English session, no placeholders) the event is not raised, as before.
-                    if self.global_language == 1033 && args.len() <= 2 {
-                        if let Some(fixed) = self.repair_date_filter_text(&text, &|t| parse(t).is_ok())? {
-                            parsed = parse(&fixed);
-                        }
+                    if let Some(fixed) = self.date_filter_before_error(&text, args.len() > 2, &|t| parse(t).is_ok())? {
+                        parsed = parse(&fixed);
                     }
                 }
                 // An Integer or Time text of letters asks `MakeIntFilter` / `MakeTimeFilter` subscribers first (PtObserve.al:Bad_Int,
@@ -1612,17 +1554,8 @@ impl Session {
                         let (type_name, value) = e[al_builtins::filter::NOT_EVALUATED.len()..]
                             .split_once('\t')
                             .expect("type and value");
-                        return Err(Signal::Error(Box::new(AlError {
-                            message: format!(
-                                "The filter \"{}\" is not valid for the {} field on the {} table. The value \"{value}\" can't be evaluated into type {type_name}.",
-                                text.trim(),
-                                self.field_caption(&t, pos),
-                                self.caption(&t)
-                            ),
-                            code: "Filter:CSide".into(),
-                            call_stack: String::new(),
-                            ..Default::default()
-                        })));
+                        let reason = format!("The value \"{value}\" can't be evaluated into type {type_name}.");
+                        return Err(self.filter_error(&t, pos, text.trim(), &reason));
                     }
                     // A number filter that starts with a placeholder kept as written next to a wildcard
                     // (record/filters/W4Filters.al:694 `num_star_after`).
@@ -1631,33 +1564,17 @@ impl Session {
                             && self.global_language == 1033 =>
                     {
                         let value = &e[al_builtins::filter::VARIABLE_NOT_UNDERSTOOD.len()..];
-                        return Err(Signal::Error(Box::new(AlError {
-                            message: format!(
-                                "The filter \"{}\" is not valid for the {} field on the {} table. The variable \"{value}\" was not understood.",
-                                text.trim(),
-                                self.field_caption(&t, pos),
-                                self.caption(&t)
-                            ),
-                            code: "Filter:CSide".into(),
-                            call_stack: String::new(),
-                            ..Default::default()
-                        })));
+                        let reason = format!("The variable \"{value}\" was not understood.");
+                        return Err(self.filter_error(&t, pos, text.trim(), &reason));
                     }
                     // The German error of a date no Date filter reads (P143Date_DePlain.al, _DeRanges.al, _DeFormulas.al).
                     Err(e) if e.starts_with(al_builtins::filter::INVALID_DATE) && self.global_language == 1033 => {
                         // P81DateFilters.al:SetFilter_Date_InvalidTexts.
                         let bad = &e[al_builtins::filter::INVALID_DATE.len()..];
-                        return Err(Signal::Error(Box::new(AlError {
-                            message: format!(
-                                "The filter \"{}\" is not valid for the {} field on the {} table. The format of the Date '{bad}' does not match your device's date settings.\\\\Make sure that the day, month, and year are in the correct order and use the correct separator (such as - or /). Alternatively, you can always use the format 'yyyy-mm-dd'.",
-                                text.trim(),
-                                self.field_caption(&t, pos),
-                                self.caption(&t)
-                            ),
-                            code: "Filter:CSide".into(),
-                            call_stack: String::new(),
-                            ..Default::default()
-                        })));
+                        let reason = format!(
+                            "The format of the Date '{bad}' does not match your device's date settings.\\\\Make sure that the day, month, and year are in the correct order and use the correct separator (such as - or /). Alternatively, you can always use the format 'yyyy-mm-dd'."
+                        );
+                        return Err(self.filter_error(&t, pos, text.trim(), &reason));
                     }
                     Err(e) if e.starts_with(al_builtins::filter::FILTER_SYNTAX) && self.global_language == 1033 => {
                         let inner = &e[al_builtins::filter::FILTER_SYNTAX.len()..];
@@ -1665,30 +1582,11 @@ impl Session {
                             Some(i) => (text.as_str(), i),
                             None => (text.trim(), inner),
                         };
-                        return Err(Signal::Error(Box::new(AlError {
-                            message: format!(
-                                "The filter \"{shown}\" is not valid for the {} field on the {} table. {inner}",
-                                self.field_caption(&t, pos),
-                                self.caption(&t)
-                            ),
-                            code: "Filter:CSide".into(),
-                            call_stack: String::new(),
-                            ..Default::default()
-                        })));
+                        return Err(self.filter_error(&t, pos, shown, inner));
                     }
                     Err(e) if e.starts_with(al_builtins::filter::INVALID_DATE) => {
                         let bad = &e[al_builtins::filter::INVALID_DATE.len()..];
-                        return Err(Signal::Error(Box::new(AlError {
-                            message: format!(
-                                "Der Filter '{}' ist für das Feld '{}' der Tabelle '{}' nicht gültig. Das Format Date „{bad}“ stimmt nicht mit den Datumseinstellungen Ihres Geräts überein.\\\\Stellen Sie sicher, dass Tag, Monat und Jahr die richtige Reihenfolge aufweisen und das richtige Trennzeichen verwendet wird (z. b. - oder /). Alternativ können Sie das Format „jjjj-mm-tt“ verwenden.",
-                                text.trim(),
-                                self.field_caption(&t, pos),
-                                self.caption(&t)
-                            ),
-                            code: "Filter:CSide".into(),
-                            call_stack: String::new(),
-                            ..Default::default()
-                        })));
+                        return Err(self.german_date_filter_error(&t, pos, text.trim(), bad));
                     }
                     // record/TestFilterTextBooleanFindContracts.al:130 (SetFilter_BooleanField_UnknownWord_Throws).
                     // A leading blank stays in the quoted filter (format-evaluate/EvalLastError.al:501-539,
@@ -1699,17 +1597,20 @@ impl Session {
                     }
                     // types/date-time/P143Guid_Filters.al:P143_GuidInvalid, P143Date_FieldRef.al:P143_FieldRefGuid.
                     Err(e) if e.starts_with(al_builtins::filter::INVALID_GUID) => {
-                        return Err(Signal::Error(Box::new(AlError {
-                            message: format!(
-                                "The filter \"{}\" is not valid for the {} field on the {} table. Invalid format of GUID string. The correct format of the GUID string is: CDEF7890-ABCD-0123-1234-567890ABCDEF where 0-9, A-F symbolizes hexadecimal digits.",
-                                text.trim(),
-                                self.field_caption(&t, pos),
-                                self.caption(&t)
-                            ),
-                            code: "Filter:CSide".into(),
-                            call_stack: String::new(),
-                            ..Default::default()
-                        })));
+                        let reason = "Invalid format of GUID string. The correct format of the GUID string is: CDEF7890-ABCD-0123-1234-567890ABCDEF where 0-9, A-F symbolizes hexadecimal digits.";
+                        return Err(self.filter_error(&t, pos, text.trim(), reason));
+                    }
+                    // An empty side of `|` in the measured shapes (`setfilter_empty_or_side`); every other text main refused.
+                    Err(e) if e == al_builtins::filter::EMPTY_TERM => {
+                        return Err(self
+                            .setfilter_empty_or_side(from_al, &t, pos, rec, args)
+                            .unwrap_or_else(|| Signal::unsupported(format!("SetFilter: {e}"))));
+                    }
+                    Err(e) if e.starts_with(al_builtins::filter::OPTION_NEGATIVE) => {
+                        return Err(self.option_negative_error(shape.as_ref(), &t, pos, &e));
+                    }
+                    Err(e) if e.starts_with(al_builtins::filter::OPTION_NOT_MEMBER) => {
+                        return Err(self.option_non_member_error(shape.as_ref(), &t, pos, &e));
                     }
                     Err(e) => return Err(Signal::unsupported(format!("SetFilter: {e}"))),
                 };
@@ -1947,6 +1848,13 @@ impl Session {
             RecordOp::Validate => {
                 let entry = self.take_validate_site(rec);
                 let pos = arg_pos(args, 0)?;
+                // `Validate(Field)` checks the value the field holds (its relation, its properties).
+                if args.get(1).is_none() {
+                    al_builtins::placeholder_output::size_read(
+                        &rec.borrow().fields[pos],
+                        "Validate of a record field holding the value",
+                    )?;
+                }
                 let engine = self.engine.clone();
                 let schema = engine.program.objects[t.object as usize].table.as_ref().expect("table");
                 let field = &schema.fields[pos];
@@ -1998,11 +1906,17 @@ impl Session {
                 };
                 // The relation is checked before the value goes in and before OnValidate runs; a
                 // refused value is never stored (corpus record/TestCalcFormulaSystemFieldsTests.Codeunit.al:253).
-                self.validate_relation(rec, &t, pos, new_value.clone().unwrap_or_else(|| old_value.clone()))?;
+                self.validate_relation(
+                    rec,
+                    &t,
+                    pos,
+                    new_value.clone().unwrap_or_else(|| old_value.clone()),
+                    entry.1,
+                )?;
                 if let Some(v) = new_value {
                     rec.borrow_mut().fields[pos] = v;
                 }
-                let xrec = Self::xrec_handle(rec, before.clone());
+                let xrec = Self::validate_xrec_handle(rec, &before);
                 let outermost = outer.is_none().then_some(before);
                 self.while_validating(entry, outermost, |s| s.validate_hooks(&t, rec, &xrec, field, snapshot))?;
                 if sum_flowfield {
@@ -2012,7 +1926,7 @@ impl Session {
             }
             RecordOp::Rename => {
                 let from_al = std::mem::take(&mut self.tx.rename_from_al);
-                let rename_note = (self.tx.writes.len(), self.store.change_counter());
+                let rename_note = (self.tx.open.writes.len(), self.store.change_counter());
                 self.note_bulk_write(rec, &t, crate::state::TxWriteKind::Other);
                 if !rec.borrow().temporary {
                     self.rename_jit_gone(rec)?;
@@ -2078,7 +1992,7 @@ impl Session {
                 // After the All Profile key check: a tenant profile renamed from the empty App ID gets that error
                 // (profiles/TestAllProfileTable.al:186).
                 // A stale record gets DB:RecordChanged before the blank-key error (stale_rename.rs).
-                self.stale_rename(&cx, rec, &t, &old, &new, from_al, rename_note.0)?;
+                self.stale_rename(&cx, rec, &t, &refs, &old, &new, from_al, rename_note.0)?;
                 let blank_key = self.blank_key_rename(&cx, rec, &t, &refs, &old, &new, from_al)?;
                 // The row is found under the key the column holds (P130DateFilters.al:641-648: the record holds 10:00:00 after
                 // Get('A', 10:00:00.001) and its Rename to 12:00:00.001 is found under 12:00:00).
@@ -2117,7 +2031,7 @@ impl Session {
                     let ff = self.flow_filter_positions(&t);
                     if !ff.is_empty() {
                         let stored_old = self
-                            .store_for(rec)
+                            .store_for(rec)?
                             .get(&cx, &t, &old_pk)
                             .map_err(|e| Signal::unsupported(format!("{e}")))?;
                         if let Some(o) = stored_old
@@ -2133,8 +2047,8 @@ impl Session {
                     }
                 }
                 let mut stored = Self::to_store(rec, self.stored_view(&t, &row));
-                if self.sql_columns(rec, &t, &mut stored)?.is_some() {
-                    return unsupported("a Rename with a value its SQL column cannot hold (not pinned)");
+                if let Some(bad) = self.sql_columns(rec, &t, &mut stored)? {
+                    return self.fail_rename_sql_range(rec, &t, bad, (from_al, refs.is_empty()), &old);
                 }
                 // A rename to the key the row has succeeds and writes the row again, which is what
                 // stamps it (record/TestRecordSystemId.al:752-775).
@@ -2142,7 +2056,7 @@ impl Session {
                 let before_store = self.store.change_counter();
                 let outcome = if same_key {
                     match self
-                        .store_for(rec)
+                        .store_for(rec)?
                         .modify(&cx, &t, stored.clone())
                         .map_err(|e| Signal::unsupported(format!("{e}")))?
                     {
@@ -2150,7 +2064,7 @@ impl Session {
                         WriteOutcome::NotFound => RenameOutcome::NotFound,
                     }
                 } else {
-                    self.store_for(rec)
+                    self.store_for(rec)?
                         .rename(&cx, &t, &old_pk, stored.clone())
                         .map_err(|e| Signal::unsupported(format!("{e}")))?
                 };
@@ -2163,8 +2077,8 @@ impl Session {
                         // write nobody notes, which `writes_all_noted` sees.
                         if !same_key
                             && before_store == rename_note.1
-                            && self.tx.writes.len() == rename_note.0 + 1
-                            && let Some(w) = self.tx.writes.last_mut()
+                            && self.tx.open.writes.len() == rename_note.0 + 1
+                            && let Some(w) = self.tx.open.writes.last_mut()
                             && w.kind == crate::state::TxWriteKind::Other
                         {
                             w.kind = crate::state::TxWriteKind::Rename;
@@ -2270,10 +2184,8 @@ impl Session {
                     }
                 }
             }
-            RecordOp::Truncate => {
-                self.note_bulk_write(rec, &t, crate::state::TxWriteKind::Truncate);
-                self.truncate(&t, rec, arg_bool(args, 0)?)
-            }
+            RecordOp::Truncate => self.truncate_all(&cx, &t, rec, arg_bool(args, 0)?),
+            // Only the AL call `Record.CalcFields` asks as `Asked::CalcFields` (permission_system_flowfield.rs).
             RecordOp::CalcFields | RecordOp::CalcSums | RecordOp::SetAutoCalcFields => self.flow_op(method, rec, args),
             RecordOp::LoadFields => self.load_fields_row(rec, &t, args),
             RecordOp::SetLoadFields
@@ -2341,5 +2253,57 @@ impl Session {
         r.load.buffer = buffer;
         r.load.partial = partial;
         Ok(Value::Null)
+    }
+
+    /// The Modify that stores a Media field's new media removes the Tenant Media row of the one it held
+    /// (streams/ArRecordProbes.al:141-143). Only a media replaced by another is pinned; a cleared field and a temporary
+    /// record keep it.
+    fn release_replaced_media(
+        &mut self,
+        cx: &al_data::AccessContext,
+        t: &TableDef,
+        old: &[Value],
+        row: &[Value],
+    ) -> Result<(), Signal> {
+        for (i, f) in t.fields.iter().enumerate() {
+            if !matches!(f.ty, RtType::Library(al_builtins::library_kind::LibraryKind::Media)) {
+                continue;
+            }
+            if let (Value::Guid(was), Value::Guid(now)) = (&old[i], &row[i])
+                && was != now
+                && *was != [0; 16]
+                && *now != [0; 16]
+            {
+                self.release_media(cx, t, i, *was)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Whether `which` is a direction of Find: `-` or `+` alone, or one to three of `=`, `<` and `>` with none repeated.
+fn valid_find_direction(which: &str) -> bool {
+    match which {
+        "-" | "+" => true,
+        w => {
+            !w.is_empty()
+                && w.chars().all(|c| matches!(c, '=' | '<' | '>'))
+                && w.char_indices().all(|(i, c)| !w[i + 1..].contains(c))
+        }
+    }
+}
+
+impl Session {
+    /// The marks `record_op_inner` checks before a method runs: the view of a by-value copy (`records/by_value_view.rs`
+    /// `by_value_view_marks`); and Copy, CopyFilters, TransferFields and the like from a record `copy_refused_mark` names, which
+    /// would carry its unpinned view or buffer over.
+    fn view_and_source_marks(method: RecordOp, rec: &Rec, args: &[Value]) -> Result<(), Signal> {
+        Self::by_value_view_marks(method, rec, args)?;
+        if let Some(Value::Record(src)) = args.first() {
+            if let Some(why) = copy_refused_mark(src) {
+                return unsupported(format!("Record.{}() from a record: {why}", method.name()));
+            }
+        }
+        Ok(())
     }
 }

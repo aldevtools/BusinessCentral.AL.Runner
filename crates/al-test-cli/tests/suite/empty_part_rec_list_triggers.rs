@@ -1,8 +1,8 @@
 //! al-runner issue 6924, the reporter's List host with page triggers: what Rec holds in a ListPart that shows no row when the
 //! host has OnOpenPage (CurrPage.Editable from a value read at run time, a notification) and OnAfterGetCurrRecord (the same
-//! notification). The objects and tests are corpus pull request 1378 (pages/parts/EmptyPartRecListHostTriggers.al, merged, not
-//! yet in the pinned corpus), unchanged, with the corpus's Probe Observer. Its values were asserted on BC 27.5, 28.5 and 29.0.
-//! The cells run through the assumption `empty-part-rec-list-host-triggers` until the file is pinned.
+//! notification). The objects and tests are pages/parts/EmptyPartRecListHostTriggers.al as corpus pull request 1378 merged it,
+//! with the corpus's Probe Observer. The host triggers are pinned there, and the List-host cells by
+//! tests/al-language/pages/parts/EmptyPartRecLinkList.al.
 
 use al_builtins::assumptions::Assumption;
 use al_testkit::{blocked, compile};
@@ -12,8 +12,11 @@ use al_testrun::isolation::TestIsolation;
 /// The corpus's Probe Observer (codeunits 69160 and 69163).
 const OBSERVER: &str = include_str!("../../../../corpus/tests/al-language/_fixtures/ProbeObserver.Codeunit.al");
 
-/// Each test of the codeunits named `codeunit`, its outcome and whether it went through `flag`.
-fn run(src: &str, codeunit: &str, flag: Assumption) -> Vec<(String, Outcome, bool)> {
+/// The assumption the tests' own `Error(...)` of a procedure result goes through; not one of the runtime paths under test.
+const HARNESS: Assumption = Assumption::ErrorTextProcedureResult;
+
+/// Each test of the codeunits named `codeunit`, its outcome and whether it went through an assumption other than `HARNESS`.
+fn run(src: &str, codeunit: &str) -> Vec<(String, Outcome, bool)> {
     let l = compile(&format!("{src}\n{OBSERVER}"));
     let engine = al_vm::Engine::new(l.program.clone(), blocked(&l));
     let mut hits = Vec::new();
@@ -36,7 +39,7 @@ fn run(src: &str, codeunit: &str, flag: Assumption) -> Vec<(String, Outcome, boo
         .map(|(name, outcome)| {
             let flagged = hits
                 .iter()
-                .any(|(n, h): &(String, Vec<Assumption>)| *n == name && h.contains(&flag));
+                .any(|(n, h): &(String, Vec<Assumption>)| *n == name && h.iter().any(|a| *a != HARNESS));
             (name, outcome, flagged)
         })
         .collect()
@@ -2427,16 +2430,16 @@ codeunit 76872 "PG EPT Tests"
 }
 "##;
 
-/// Every cell passes through the assumption: the action of the part reads BC's Rec (observation 1), TestPage.Editable is BC's
+/// Every cell passes through no assumption (EmptyPartRecLinkList.al and EmptyPartRecListHostTriggers.al are pinned): the action of the part reads BC's Rec (observation 1), TestPage.Editable is BC's
 /// (observation 2), and the trigger order is BC's (observation 3, `seq`), the part's OnAfterGetCurrRecord included: on a part
 /// in edit mode, at the row a GoToRecord passes on the reporter's form, and again after the part's action.
 #[test]
 fn empty_list_part_rec_trigger_hosts_cells() {
-    let o = run(PROBE, "PG EPT Tests", Assumption::EmptyPartRecListHostTriggers);
+    let o = run(PROBE, "PG EPT Tests");
     assert_eq!(o.len(), 85, "{o:?}");
     let wrong: Vec<_> = o
         .iter()
-        .filter(|(_, outcome, flagged)| *outcome != Outcome::Pass || !flagged)
+        .filter(|(_, outcome, flagged)| *outcome != Outcome::Pass || *flagged)
         .collect();
     assert!(wrong.is_empty(), "{} wrong: {wrong:#?}", wrong.len());
 }
@@ -2756,11 +2759,7 @@ fn empty_list_part_rec_trigger_hosts_neighbors_refuse() {
         ("FirstContent", first_form),
         ("FirstFilterLink", first_form),
     ];
-    let o = run(
-        &format!("{PROBE}\n{NEIGHBORS}"),
-        "PG EPTN Tests",
-        Assumption::EmptyPartRecListHostTriggers,
-    );
+    let o = run(&format!("{PROBE}\n{NEIGHBORS}"), "PG EPTN Tests");
     assert_eq!(o.len(), want.len(), "{o:?}");
     let wrong: Vec<_> = o
         .iter()
@@ -2802,11 +2801,7 @@ codeunit 76894 "PG EPTW Tests"
 
 #[test]
 fn empty_list_part_rec_trigger_hosts_walk_neighbors() {
-    let o = run(
-        &format!("{PROBE}\n{WALK_NEIGHBORS}"),
-        "PG EPTW Tests",
-        Assumption::EmptyPartRecListHostTriggers,
-    );
+    let o = run(&format!("{PROBE}\n{WALK_NEIGHBORS}"), "PG EPTW Tests");
     assert_eq!(o.len(), 8, "{o:?}");
     let passed_rb = |outcome: &Outcome| matches!(outcome, Outcome::Fail(m) if m.contains("pcur=76860/RB/0"));
     let wrong: Vec<_> = o

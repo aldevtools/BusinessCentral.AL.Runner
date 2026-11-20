@@ -12,7 +12,7 @@ use super::cell::*;
 use super::facts::*;
 use al_builtins::assumptions::Assumption;
 
-const fn pin(file: &'static str, line: u32) -> Pin {
+pub(super) const fn pin(file: &'static str, line: u32) -> Pin {
     Pin { file, line }
 }
 
@@ -63,21 +63,27 @@ const NO_ROW_WORD: &[Pin] = &[pin(RX, 852), pin(RX, 873), pin(RX, 915), pin(RX_B
 const NO_ROW_LEGACY: &[Pin] = &[pin(RX, 979), pin(RX, 1001)];
 const NO_ROW_RDLC: &[Pin] = &[pin(RX, 937), pin(RX, 958)];
 
+/// BC raises no SelectedBuiltinLayoutType once SelectReportLayoutCode answered a selected layout (HtRenderedTextTests.al:494,
+/// :530).
+const TEMP_EVENTS: &[&str] = &["selectedbuiltinlayouttype"];
+
 /// Events BC does not raise for a format the layout cannot give: SubstituteReport is raised by the caller, OnDocumentReady
 /// is not raised (AMReportOutputTests.al:221, :257).
-const UNSUPPORTED_EVENTS: &[&str] = &["substitutereport", "ondocumentready", "onafterdocumentready"];
+pub(super) const UNSUPPORTED_EVENTS: &[&str] = &["substitutereport", "ondocumentready", "onafterdocumentready"];
 
 const STATEMENT_UNSUPPORTED: &str = "as a statement, of a report whose layout cannot give the format (the layout events BC \
      raises before its error are not raised here; events/platform-triggers/PeVTests.al:713)";
 const FILE_UNSUPPORTED: &str =
     "to a file, of a report whose layout cannot give the format (only the stream form is pinned)";
+const STORED_RDLC_OTHER_CALL: &str = "under the company's stored RDLC (built-in) row, by a call other than Report.SaveAs by \
+     number with no request parameters (only that call is pinned: RxLayoutSelectionTests.al:116, :189)";
 const ON_POST: &str = "of a Word layout report whose run wrote no dataset row and that declares OnPostReport (BC does not \
      run it then; this runtime has run it before it counts the rows)";
 
 /// The table.
 pub(super) static CELLS: LazyLock<Vec<Cell>> = LazyLock::new(cells);
 
-fn cell(key: Key, answer: Answer, events: Events, evidence: Evidence) -> Cell {
+pub(super) fn cell(key: Key, answer: Answer, events: Events, evidence: Evidence) -> Cell {
     Cell {
         key,
         answer,
@@ -87,7 +93,7 @@ fn cell(key: Key, answer: Answer, events: Events, evidence: Evidence) -> Cell {
     }
 }
 
-const SAVE_FORMS: [AnswerForm; 2] = [AnswerForm::Used, AnswerForm::Statement];
+pub(super) const SAVE_FORMS: [AnswerForm; 2] = [AnswerForm::Used, AnswerForm::Statement];
 const FORMATS: [Format; 4] = [Format::Pdf, Format::Word, Format::Excel, Format::Html];
 
 fn cells() -> Vec<Cell> {
@@ -100,6 +106,7 @@ fn cells() -> Vec<Cell> {
     temp_rows(&mut t);
     rgba_rows(&mut t);
     no_row_rows(&mut t);
+    super::cells_decl::decl_rows(&mut t);
     t
 }
 
@@ -195,27 +202,32 @@ fn policy_rows(t: &mut Vec<Cell>) {
     }
 }
 
-/// A stored Report Layout Selection row of the company that the probe measured (corpus pull request 1371): a Word default
-/// layout `DefaultRenderingLayout` names, no report extension, a stream, the answer used. The RDLC row: Html answers false
-/// with `ReportUnsupportedFormat`, Pdf, Word and Excel render the RDLC layout (:452, :477, :1082, :1116); with no dataset row
-/// it is not measured. The Custom Layout row with an unknown code: every format answers false with `ReportNoLayout` (:746,
-/// :771).
+/// A stored Report Layout Selection row of the company, pinned in RxLayoutSelectionTests.al: a Word default
+/// layout `DefaultRenderingLayout` names, no report extension, a stream, the answer used, `Report.SaveAs` by number with no
+/// request parameters (:116, :189). The RDLC row: Html answers false with `ReportUnsupportedFormat`, Pdf, Word and Excel
+/// render the RDLC layout (:452, :477), also with a RecordRef (:1082, :1116); with no dataset row it is not measured. The
+/// Custom Layout row with an unknown code, without a RecordRef: every format answers false with `ReportNoLayout` (:746, :771).
 fn stored_rows(t: &mut Vec<Cell>) {
     let base = Key {
         answer: Is(AnswerForm::Used),
         target: Is(Target::Stream),
         kind: Is(Kind::Word),
         decl: Is(Decl::Rendering),
+        // A rendering section is never `Declares::WordAndRdlcProperties`; read so the rows nest with `kept_declares`.
+        declares: Is(Declares::Other),
         processing_only: Is(false),
         extensions: Is(Extensions::None),
         custom: Is(false),
         file: Is(LayoutFile::Present),
         ..Key::ANY
     };
-    let marks = |p| Evidence::Awaiting(Assumption::ReportStoredLayoutSelection, p);
-    for format in FORMATS {
+    for (format, call) in FORMATS
+        .into_iter()
+        .flat_map(|f| [(f, Call::StaticPlain), (f, Call::StaticRecordRef)])
+    {
         let rdlc = Key {
             format: Is(format),
+            call: Is(call),
             stored: Is(Stored::RdlcBuiltin),
             selection: Is(Selection::OtherKind),
             ..base
@@ -229,7 +241,7 @@ fn stored_rows(t: &mut Vec<Cell>) {
                 key,
                 Answer::False(ErrorId::UnsupportedFormat),
                 Events::NotRaised(&[]),
-                marks(STORED_RDLC),
+                Evidence::Pinned(STORED_RDLC),
             ));
         } else {
             let key = Key {
@@ -240,21 +252,36 @@ fn stored_rows(t: &mut Vec<Cell>) {
                 key,
                 Answer::Placeholder(Renders::StoredRdlc),
                 Events::NotRaised(&[]),
-                marks(STORED_RDLC),
+                Evidence::Pinned(STORED_RDLC),
             ));
         }
-        let none = Key {
-            format: Is(format),
-            stored: Is(Stored::CustomUnknownCode),
-            selection: Is(Selection::Unknown),
-            ..base
-        };
-        t.push(cell(
-            none,
-            Answer::False(ErrorId::NoLayout),
-            Events::NotRaised(&[]),
-            marks(STORED_NO_LAYOUT),
-        ));
+        // The Custom Layout row was measured without a RecordRef only; another call under the RDLC row refuses, where the
+        // rows of the other kind would answer with the default layout.
+        if call == Call::StaticPlain {
+            t.push(cell(
+                Key {
+                    call: Is(Call::Other),
+                    rows: Is(Rows::Some),
+                    ..rdlc
+                },
+                Answer::Refuse(STORED_RDLC_OTHER_CALL),
+                Events::NotChecked,
+                Evidence::Pinned(STORED_RDLC),
+            ));
+            let none = Key {
+                format: Is(format),
+                call: Is(call),
+                stored: Is(Stored::CustomUnknownCode),
+                selection: Is(Selection::Unknown),
+                ..base
+            };
+            t.push(cell(
+                none,
+                Answer::False(ErrorId::NoLayout),
+                Events::NotRaised(&[]),
+                Evidence::Pinned(STORED_NO_LAYOUT),
+            ));
+        }
     }
 }
 
@@ -270,6 +297,16 @@ fn selections(format: Format, pinned: &'static [Pin]) -> Vec<(Selection, Evidenc
         out.push((Selection::OtherKind, Evidence::Kept(pinned)));
     }
     out
+}
+
+/// A Kept row of the other kind keeps main's shapes only: main classed a row of the other kind only for a layout the rendering
+/// section declares, never for one the `RDLCLayout` property declares (`decl_rows` has those cells).
+fn kept_declares(selection: Selection) -> K<Declares> {
+    if selection == Selection::OtherKind {
+        Is(Declares::Other)
+    } else {
+        K::Unread
+    }
 }
 
 /// A format the default layout cannot give answers false with `ReportUnsupportedFormat` (the 2026-11-11 grid; RDLC to Html:
@@ -322,6 +359,7 @@ fn unsupported_rows(t: &mut Vec<Cell>) {
         for (selection, evidence) in sels {
             let key = Key {
                 selection: Is(selection),
+                declares: kept_declares(selection),
                 ..stream
             };
             t.push(cell(
@@ -357,9 +395,12 @@ fn unsupported_rows(t: &mut Vec<Cell>) {
     }
 }
 
+/// Main's refusal of the statement form; a report `cells_decl` measured has its own rows (`declares`), so the refusal keeps the
+/// other declarations only.
 fn refuse_statement(key: Key) -> Cell {
     let key = Key {
         answer: Is(AnswerForm::Statement),
+        declares: Is(Declares::Other),
         ..key
     };
     cell(
@@ -433,6 +474,7 @@ fn placeholder_rows(t: &mut Vec<Cell>) {
                 for (selection, evidence) in selections(format, GRID_WRITES) {
                     let key = Key {
                         selection: Is(selection),
+                        declares: kept_declares(selection),
                         ..key
                     };
                     t.push(cell(
@@ -472,7 +514,7 @@ fn temp_rows(t: &mut Vec<Cell>) {
         t.push(cell(
             temp_key(answer),
             Answer::Placeholder(Renders::Selected),
-            Events::AtFact,
+            Events::NotRaised(TEMP_EVENTS),
             Evidence::Awaiting(Assumption::ReportLayoutTempSelection, TEMP),
         ));
     }
@@ -523,7 +565,7 @@ fn rgba_rows(t: &mut Vec<Cell>) {
             ..cell(
                 measured(temp_key(answer), DataItems::One, Extensions::None, Decl::Rendering),
                 Answer::Placeholder(Renders::Selected),
-                Events::AtFact,
+                Events::NotRaised(TEMP_EVENTS),
                 Evidence::Awaiting(Assumption::ReportLayoutTempSelection, TEMP),
             )
         });

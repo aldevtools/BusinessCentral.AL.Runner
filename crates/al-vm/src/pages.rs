@@ -204,6 +204,7 @@ type Handler = (usize, usize, Rc<RefCell<al_builtins::value::Instance>>);
 
 mod action_enabled_row;
 mod areas;
+mod auto_format_writer_cell;
 mod background;
 mod end_move_no_read;
 mod flowfield_hidden;
@@ -212,13 +213,19 @@ mod choice_entry;
 mod document_handler_error;
 mod filter;
 mod filter_enum;
+mod filter_eq_text;
 mod filter_link_numbers;
+mod filter_option_ne;
 mod modal_handler_error;
 mod page_run_close;
 pub(crate) use page_run_close::PageRunCall;
+pub(crate) mod action_tally;
+mod blank_enum_rows;
+mod empty_list_one_row;
 mod param_read;
 mod part_tree_typed;
 mod part_unsettled;
+mod part_view_host_new;
 mod parts;
 mod qualified_name;
 mod read_backwards;
@@ -226,10 +233,12 @@ mod relation_lookup;
 pub(crate) mod relation_lookup_close;
 mod row_var_outside_call;
 mod split_key_view;
+mod split_part_second_control_xrec;
 mod text_control_value;
 use text_control_value::TextConv;
 pub(crate) mod request;
 mod request_expr_params;
+mod request_ok_only;
 pub(crate) mod request_options;
 pub(crate) use request::{ParamsCall, RequestClosed};
 mod access_by_permission;
@@ -240,16 +249,24 @@ mod caption_class;
 mod caption_expr_list;
 mod caption_relation;
 mod caption_runs;
+pub(crate) use caption_runs::CaptionDialogs;
 mod caption_translation;
 mod clear_test_page;
 mod close_save_failed;
 mod code_close_veto;
+mod code_inserted_new_line;
 mod modal_close_save_error;
+mod own_area_caption;
 mod triggerless_action;
 pub(crate) use code_close_veto::{CodeCloseVeto, TriggerKind};
 mod controls;
 mod currpage_run_typed_key;
+mod data_caption_get_body;
+mod data_caption_get_open;
+mod data_caption_kept_open;
+mod data_caption_open;
 mod data_caption_run;
+mod delayed_blank_key_save;
 mod dev_endpoint;
 mod dirty_step;
 mod draft;
@@ -258,6 +275,7 @@ mod empty_view_update;
 mod ext_column_visible;
 mod fn_controls;
 mod format;
+mod format_procedure;
 mod format_type11;
 mod gone_after_action;
 mod gone_new_line;
@@ -267,6 +285,7 @@ mod held_page_part;
 mod host_follows;
 mod inserted_rows;
 mod leave_new_line;
+mod list_factbox_new_line;
 mod list_refresh;
 mod list_view_switch;
 mod long_view;
@@ -301,6 +320,7 @@ mod card_part_new_host;
 mod empty_part_rec;
 mod empty_part_rec_list;
 mod empty_part_rec_list_triggers;
+mod go_to_key_read_up;
 mod hidden_part_journal;
 mod hidden_part_journal_code;
 mod list_card_action;
@@ -315,10 +335,12 @@ mod part_filter_unsaved_host;
 mod part_host_update;
 mod part_insert_swallowed;
 mod part_refresh_find_forward;
+mod part_update_left_view;
 mod part_visible_gate;
 mod pinned_body;
 mod post_left_new_line;
 mod provider_hidden;
+mod provider_no_row;
 mod record_trigger_answer;
 mod refill;
 mod refresh_new_line;
@@ -335,9 +357,11 @@ mod temp_list_refill;
 mod test_end;
 mod typed_handler_temp;
 mod walk_parts;
+pub(crate) mod ws_trigger_order;
 pub(crate) use shown::ShownNote;
 pub(crate) use state::{
-    ClosedBy, ControlRef, ControlTarget, Cursor, LookupKind, PageMode, PageState, ReadBackwards, WindowRow, control_of,
+    ActionSaveCaptions, ChainRefill, ClosedBy, ControlRef, ControlTarget, Cursor, LiteralClassesAtOpen, LookupKind,
+    ModalRun, OpenEditable, PageMode, PageState, ReadBackwards, ReadUpFromLast, UnreadEdges, WindowRow, control_of,
     into_st, page_value, st_of, test_control,
 };
 
@@ -347,6 +371,7 @@ impl Session {
         match page {
             Value::TestPage(p) => {
                 let p = into_st(p);
+                self.request_ok_only_control(&p)?;
                 // A part control reads as the page it shows (a `TestPart`).
                 let is_part = {
                     let engine = self.engine();
@@ -441,8 +466,10 @@ impl Session {
     /// is the page's own.
     fn page_trigger(&mut self, st: &St, name: &str, args: Vec<Value>) -> Result<Option<Value>, Signal> {
         self.data_caption_before_trigger(st, name)?;
+        self.ws_caption_before_trigger(st, name)?;
         let r = self.in_page_trigger(st, name, |s| s.page_trigger_run(st, name, args))?;
         self.data_caption_after_trigger(st, name);
+        self.ws_caption_after_trigger(st, name)?;
         self.show_ext_columns_after_first_open_row(st, name)?;
         Ok(r)
     }

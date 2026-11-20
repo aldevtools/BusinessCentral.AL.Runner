@@ -1,5 +1,7 @@
 use super::*;
 use crate::blob_transfer::{BlobMove, FieldKind, Holder};
+use crate::var_option::Store;
+use al_builtins::builtin_id::BuiltinId;
 
 /// The start of the refusal of an index with fewer positions than the array has dimensions.
 const ROW_REFUSAL: &str = "a row of a ";
@@ -59,7 +61,7 @@ impl Session {
         }
         if class == Class::Report {
             self.ret_used = ret_used;
-            return self.report_builtin(id, recv, &values, f.instance.clone());
+            return self.report_call(id, recv, &values, f.instance.clone());
         }
         if class == Class::FilterPageBuilder {
             return self.filter_page_builder_op(id, recv, &values, ret_used);
@@ -73,6 +75,7 @@ impl Session {
     pub(crate) fn run_native(
         &mut self,
         native: al_builtins::native::NativeFn,
+        id: BuiltinId,
         class: al_builtins::builtin_id::Class,
         receiver: Option<&ir::Arg>,
         args: &[ir::Arg],
@@ -82,14 +85,37 @@ impl Session {
         f: &mut Frame,
     ) -> Result<Value, Signal> {
         self.ret_used = ret_used;
+        // The global a query method is called on, for `query_reopen`; cleared once the native returns.
+        let query_call = matches!(recv, Some(Value::Query(_)));
+        if query_call {
+            self.query_receiver = match receiver {
+                Some(ir::Arg::Ref(ir::Place::Global(g))) => Some((f.object, *g)),
+                _ => None,
+            };
+        }
+        // The variable a KeyRef method is called on, for `keyref_unassigned_measured`; cleared once the native returns.
+        let keyref_call = matches!(
+            recv,
+            Some(Value::Library(al_builtins::library_kind::LibraryKind::KeyRef, _))
+        );
+        if keyref_call {
+            self.keyref_receiver_local = self.keyref_receiver_measured(receiver, f);
+        }
         // A background task this call enqueued runs once the call wrote its arguments back; one that a call further out
         // enqueued waits for that call.
         let drain_pending = self.pages.bg_drain_after_call.is_some();
-        let ret = native(self, recv.as_mut(), &mut values)?;
+        let ret = native(self, recv.as_mut(), &mut values);
+        if query_call {
+            self.query_receiver = None;
+        }
+        if keyref_call {
+            self.keyref_receiver_local = false;
+        }
+        let ret = ret?;
         // ADR-068 item 3: a builtin that read a text with half of a surrogate pair without an audit refuses.
         al_builtins::text::check_unaudited()?;
         if let (Some(ir::Arg::Ref(p)), Some(v)) = (receiver, recv) {
-            self.write_native_back(p, v, f)?;
+            self.write_native_back(p, v, f, id)?;
         }
         for (a, v) in args.iter().zip(values.drain(..)) {
             if let ir::Arg::Ref(p) = a {
@@ -99,7 +125,7 @@ impl Session {
                 } else {
                     self.fit_ref_number(p, v, f)?
                 };
-                self.write_native_back(p, v, f)?;
+                self.write_native_back(p, v, f, id)?;
             }
         }
         self.return_vec(values);
@@ -529,8 +555,10 @@ impl Session {
     #[inline(always)]
     pub(crate) fn binary_op(op: ir::BinOp, l: &Value, r: &Value) -> Result<Value, Signal> {
         use ir::BinOp as B;
-        if matches!(l, Value::SqlCount(_)) || matches!(r, Value::SqlCount(_)) {
-            return Self::sql_count_op(op, l, r);
+        if matches!(l, Value::SqlCount(_) | Value::TextConst(..))
+            || matches!(r, Value::SqlCount(_) | Value::TextConst(..))
+        {
+            return Self::special_operand_op(op, l, r);
         }
         Ok(match op {
             B::Add => ops::arith(ops::Arith::Add, l, r)?,
@@ -555,6 +583,20 @@ impl Session {
             B::DotNetGt => Value::Boolean(dotnet::dotnet_order(l, r)? == Ordering::Greater),
             B::DotNetGe => Value::Boolean(dotnet::dotnet_order(l, r)? != Ordering::Less),
         })
+    }
+
+    /// An operator with a SQL counter value or a TextConstant a Variant held on either side. A TextConstant operand is read
+    /// first (`al_builtins::conv::text_constant`: a Label is its Text, a TextConst is refused).
+    #[cold]
+    #[inline(never)]
+    fn special_operand_op(op: ir::BinOp, l: &Value, r: &Value) -> Result<Value, Signal> {
+        use al_builtins::conv::text_constant::{Reader, read};
+        if matches!(l, Value::TextConst(..)) || matches!(r, Value::TextConst(..)) {
+            let l = read(l.clone(), Reader::Operator)?;
+            let r = read(r.clone(), Reader::Operator)?;
+            return Self::binary_op(op, &l, &r);
+        }
+        Self::sql_count_op(op, l, r)
     }
 
     /// An operator with a SQL counter value on either side (`al_builtins::sqlcount`).
@@ -703,8 +745,13 @@ impl Session {
                 // A table procedure runs with the record as its Rec, on the record
                 // variable's own globals (ADR-021).
                 Value::Record(rc) => {
-                    // The caller's xRec the procedure shares (`table_proc_xrec`: the page's or the field trigger's), else none.
-                    let caller_xrec = self.table_proc_xrec(object, &rc, f);
+                    // The caller's xRec the procedure shares (`table_proc_xrec`: the page's, the field trigger's or the running
+                    // call's), else none.
+                    let proc_xrec = self.table_proc_xrec(object, &rc, f);
+                    let caller_xrec = match &proc_xrec {
+                        crate::records::ProcXrec::Shared(x) => Some(x.clone()),
+                        _ => None,
+                    };
                     let handle = Rc::as_ptr(&rc) as usize;
                     let (inst, saved) = self.enter_record(object, rc, caller_xrec.as_ref())?;
                     // A plain call: the procedure's xRec is the blank record `enter_record` made (`plain_proc_xrec`).
@@ -715,6 +762,9 @@ impl Session {
                             _ => None,
                         }
                     });
+                    if let (crate::records::ProcXrec::PlainUnpinned, Some(Some(x))) = (&proc_xrec, &plain) {
+                        x.borrow_mut().unpinned_buffer = Some(crate::records::XREC_OF_RUNNING_CALL);
+                    }
                     let pushed = if let Some(Some(x)) = plain {
                         self.plain_proc_xrec.push((handle, self.call_stack.len() + 1, x));
                         true
@@ -777,7 +827,11 @@ impl Session {
         // A publisher's `var` argument that is a global of the caller's instance is that variable itself for its subscribers
         // (events/binding-senders/EventVarThroughSender.al): they alias it, see `Frame::aliases`.
         let facts = self.engine.routine_facts(object, routine);
+        let mut kept = Vec::new();
         if facts.publisher {
+            kept = self.var_option_publisher_args(object, routine, args, &values, f)?;
+            self.events.raise_arg_var_param =
+                self.raise_arg_var_param((object, routine), &values, (f.object, f.routine), &f.locals);
             let by_var = &self.engine.program.objects[object].routines[routine].by_var;
             self.events.var_origins = args
                 .iter()
@@ -803,6 +857,11 @@ impl Session {
         let own_aliases = self.set_alias_live(f, false);
         // Only a routine that reads MaxStrLen of a `var` parameter, or hands one on, gets them (known at lowering), so other
         // calls pay nothing. An event's subscribers get the lengths of the publisher's arguments (`publish`).
+        // A procedure's `var` Option parameter with members learns whether its caller's variable is one the probes measure
+        // handing on to an event publisher (`var_option::option_hops_of`); not through an interface.
+        if facts.option_hops && !self.next_interface_call {
+            self.events.next_option_hops = self.option_hops_of(object, routine, args, &values, f);
+        }
         let var_lens = facts.var_lens;
         if var_lens {
             self.events.next_var_lens = self.var_lens_of(object, routine, args, f);
@@ -818,7 +877,7 @@ impl Session {
             self.watch_var_globals(object, routine, &inst, args, &values, f)
         };
         if try_call {
-            self.enter_used_try();
+            self.enter_used_try(object, routine);
         }
         let result = self.call_with_facts(object, routine, inst, values, facts);
         if try_call {
@@ -830,6 +889,9 @@ impl Session {
             // A call refused before its frame was made leaves them behind.
             self.events.next_aliases.clear();
         }
+        if facts.option_hops {
+            self.events.next_option_hops.clear();
+        }
         if var_lens {
             self.events.next_var_lens.clear();
         } else if facts.publisher {
@@ -839,6 +901,7 @@ impl Session {
             // A publisher call refused before `publish` took them leaves them behind; the next event must not alias this
             // caller's globals (al-runner issue 7615).
             self.events.var_origins.clear();
+            self.events.raise_arg_var_param = false;
         }
         for (slot, inst, g) in &f.aliases {
             f.locals[*slot] = inst.borrow().globals[*g].clone();
@@ -848,11 +911,7 @@ impl Session {
         }
         if let Err(Signal::Error(_)) = &result {
             if let Some(finals) = self.error_finals.take() {
-                for (a, v) in args.iter().zip(finals) {
-                    if let ir::Arg::Ref(p) = a {
-                        self.write_back(p, v, f)?;
-                    }
-                }
+                self.write_backs(args, finals.into_iter(), &kept, f)?;
             }
         }
         let (ret, finals) = match (result, try_call) {
@@ -862,18 +921,14 @@ impl Session {
             }
             (Err(Signal::Error(mut e)), true) => {
                 self.add_top_frame(&mut e);
-                self.catch_error(*e);
+                self.catch_error(*e)?;
                 return Ok(Value::Boolean(false));
             }
             (Ok((_, finals)), true) => (Value::Boolean(true), finals),
             (r, _) => r?,
         };
         let mut finals = finals;
-        for (a, v) in args.iter().zip(finals.drain(..)) {
-            if let ir::Arg::Ref(p) = a {
-                self.write_back(p, v, f)?;
-            }
-        }
+        self.write_backs(args, finals.drain(..), &kept, f)?;
         self.return_vec(finals);
         Ok(ret)
     }
@@ -981,12 +1036,16 @@ impl Session {
         any
     }
 
-    /// A read of global `i` of the frame's instance: the alias watch, then the single-instance notes.
+    /// The value of global `i` of the frame's instance, read by its name: the alias watch, the refusal of a single instance
+    /// whose value is not known (`single_unmeasured.rs`), then the single-instance notes.
     #[inline]
-    pub(crate) fn global_read(&mut self, i: usize, f: &Frame) -> Result<(), Signal> {
+    pub(crate) fn global_value(&mut self, i: usize, f: &Frame) -> Result<Value, Signal> {
         self.alias_access(i, f)?;
+        if let Some(why) = &f.instance.borrow().unmeasured {
+            return Err(crate::single_unmeasured::read_refused(why));
+        }
         self.single_read(&f.instance, i);
-        Ok(())
+        Ok(f.instance.borrow().globals[i].clone())
     }
 
     /// Before a read or a write of global `i` of the frame's instance by its own name while a procedure that got the same
@@ -1065,6 +1124,25 @@ impl Session {
     /// The final value of a by-reference parameter goes back to the caller's place. An `HttpContent` the callee only worked on is the
     /// caller's own object: writing it back would store a copy (an HttpContent is a value on assignment) and cut the headers handed
     /// out before from it.
+    /// Stores the final values of a call's `var` arguments back into the caller's places, except the arguments in `kept`:
+    /// those an event publisher no subscriber hears leaves as they were (`var_option::unheard_publisher_caller`).
+    fn write_backs(
+        &mut self,
+        args: &[ir::Arg],
+        finals: impl Iterator<Item = Value>,
+        kept: &[usize],
+        f: &mut Frame,
+    ) -> Result<(), Signal> {
+        for (i, (a, v)) in args.iter().zip(finals).enumerate() {
+            if let ir::Arg::Ref(p) = a
+                && !kept.contains(&i)
+            {
+                self.write_back(p, v, f)?;
+            }
+        }
+        Ok(())
+    }
+
     fn write_back(&mut self, p: &ir::Place, v: Value, f: &mut Frame) -> Result<(), Signal> {
         if let Value::Library(n, cell) = &v {
             if n == "HttpContent" {
@@ -1075,20 +1153,24 @@ impl Session {
                 }
             }
         }
+        // A local or global Option variable, or an array of them, has its own members again (`var_option::written_back`).
+        let v = match p {
+            ir::Place::Local(_) | ir::Place::Global(_) if matches!(v, Value::Option(..) | Value::Array(_)) => {
+                let ty = self.place_type(p, f);
+                crate::var_option::written_back(&v, &ty, || self.read(p, f).ok()).unwrap_or(v)
+            }
+            _ => v,
+        };
         // A `var Text` parameter can stand for a variable of a declared length.
         let v = self.rendered_into_place(p, v, f)?;
-        self.write(p, v, f)
+        self.write_as(p, v, f, Store::CallBack)
     }
 
     /// The instance a call on codeunit value `i` runs on: the session's
     /// singleton for `SingleInstance = true` codeunits, `i` itself otherwise.
     pub(crate) fn shared_instance(&mut self, i: Rc<RefCell<Instance>>) -> Rc<RefCell<Instance>> {
         let object = i.borrow().object as usize;
-        let single = self.engine.program.objects[object]
-            .properties
-            .iter()
-            .any(|(k, v)| k.eq_ignore_ascii_case("SingleInstance") && v.trim().eq_ignore_ascii_case("true"));
-        if !single {
+        if !self.engine.object_facts[object].single_instance {
             return i;
         }
         if !self.singletons.contains_key(&object) {
@@ -1352,11 +1434,7 @@ impl Session {
     pub(crate) fn read_place(&mut self, p: &ir::Place, value: bool, f: &mut Frame) -> Result<Value, Signal> {
         match p {
             ir::Place::Local(i) => Ok(f.locals[*i].clone()),
-            ir::Place::Global(i) => {
-                self.alias_access(*i, f)?;
-                self.single_read(&f.instance, *i);
-                Ok(f.instance.borrow().globals[*i].clone())
-            }
+            ir::Place::Global(i) => self.global_value(*i, f),
             ir::Place::BaseGlobal(i) => {
                 let base = self.base_instance(f)?;
                 let v = base.borrow().globals.get(*i).cloned();
@@ -1403,11 +1481,7 @@ impl Session {
         match record {
             Value::Record(rc) => {
                 self.connection_check(&rc)?;
-                if let Some(why) = rc
-                    .borrow()
-                    .unpinned_buffer
-                    .filter(|w| !crate::records::run_page_link_fields_read(w) && *w != crate::records::HELD_PART_REC)
-                {
+                if let Some(why) = crate::records::buffer_read_refused(&rc) {
                     if why == crate::records::RUN_PAGE_LINK_OPEN {
                         return Err(Signal::unsupported(format!("a read of a field of Rec {why}")));
                     }
@@ -1478,17 +1552,38 @@ impl Session {
     }
 
     pub(crate) fn write(&mut self, p: &ir::Place, v: Value, f: &mut Frame) -> Result<(), Signal> {
-        self.write_as(p, v, f, true)
+        self.write_as(p, v, f, Store::Assign)
     }
 
     /// The write-back of a builtin's by-reference receiver or argument (`run_native`): a Blob it hands back is stored as the
     /// buffer it is, never copied (a stream `CreateOutStream` created on it writes there; `blob_transfer::moved`).
-    fn write_native_back(&mut self, p: &ir::Place, v: Value, f: &mut Frame) -> Result<(), Signal> {
-        self.write_as(p, v, f, false)
+    fn write_native_back(&mut self, p: &ir::Place, v: Value, f: &mut Frame, id: BuiltinId) -> Result<(), Signal> {
+        let v = crate::var_option::cleared_array(v, &self.place_type(p, f), id);
+        self.write_as(p, v, f, Store::Builtin(id))
     }
 
-    /// [`Self::write`]; `assign` is false for a builtin's write-back.
-    fn write_as(&mut self, p: &ir::Place, v: Value, f: &mut Frame, assign: bool) -> Result<(), Signal> {
+    /// Global `i` of the running instance takes `v` as it is: the end of [`Self::write_as`] (and of a Variant's shared record,
+    /// `variant_copy.rs`). `assign` is false for a builtin's write-back.
+    pub(crate) fn put_global(&mut self, i: usize, v: Value, f: &mut Frame, assign: bool) -> Result<(), Signal> {
+        self.alias_access(i, f)?;
+        // A builtin's write-back of the value the global holds is no write (`D.ContainsKey(K)` on a global).
+        let noted = if assign {
+            self.single_wrote(&f.instance, i);
+            true
+        } else {
+            self.single_wrote_back(&f.instance, i, &v)
+        };
+        f.instance.borrow_mut().globals[i] = v;
+        if noted {
+            self.single_written(&f.instance, i);
+        }
+        self.alias_wrote(i, f);
+        Ok(())
+    }
+
+    /// [`Self::write`]; `how` names the store: a builtin's write-back is no assignment.
+    pub(crate) fn write_as(&mut self, p: &ir::Place, v: Value, f: &mut Frame, how: Store) -> Result<(), Signal> {
+        let assign = how.assigns();
         // A column a platform row leaves unknown never reaches a variable: every read of one is refused where it happens; this
         // catches a reader that missed it.
         if let Value::Unknown(why) = &v {
@@ -1497,13 +1592,6 @@ impl Session {
         // A counter value in a field would reach the database and every reader of the row (`al_builtins::sqlcount`).
         if let (Value::SqlCount(_), ir::Place::Field(..)) = (&v, p) {
             return Err(al_builtins::sqlcount::refusal("storing in a record field"));
-        }
-        // A placeholder's size in a field would be stored as a number (`al_builtins::placeholder_output::size`).
-        if let (Value::PlaceholderSize(m), ir::Place::Field(..)) = (&v, p) {
-            return Err(al_builtins::placeholder_output::size_refusal(
-                m,
-                "storing in a record field",
-            ));
         }
         if self.sql.active && matches!(p, ir::Place::Field(..)) && al_builtins::sqlcount::formatted(&v) {
             return Err(al_builtins::sqlcount::refusal(
@@ -1517,6 +1605,15 @@ impl Session {
                 al_builtins::library_kind::LibraryKind::FilterPageBuilder,
                 filterpage::copy_for_assignment(&cell),
             ),
+            // `:=` from a KeyRef cleared after it held a key (`recordref_closed::keyref_assigned_copy`); a builtin's write-back
+            // (`Clear` itself) keeps the handle.
+            Value::Library(al_builtins::library_kind::LibraryKind::KeyRef, cell) if assign => {
+                let copy = al_builtins::recordref_closed::keyref_assigned_copy(&cell.borrow());
+                Value::Library(
+                    al_builtins::library_kind::LibraryKind::KeyRef,
+                    copy.map_or(cell, |c| Rc::new(std::cell::RefCell::new(c))),
+                )
+            }
             v => v,
         };
         // `:=` between records copies the fields into the target record (ADR-010); the target keeps its own SecurityFiltering
@@ -1560,9 +1657,8 @@ impl Session {
                         if let ir::Place::Global(i) = p {
                             self.single_replaced(&f.instance, *i);
                         }
-                        // The source's buffer after an export under SourceTableView is not pinned (records.rs
-                        // `XP_VIEW_AFTER_EXPORT`).
-                        if let Some(why) = crate::records::xp_export_marked(src) {
+                        // A source whose buffer is not pinned and must not be copied (records.rs `copy_refused_mark`).
+                        if let Some(why) = crate::records::copy_refused_mark(src) {
                             return Err(Signal::unsupported(format!("an assignment from a record: {why}")));
                         }
                         // A copied record holds copies of its Blobs (value semantics). The corpus
@@ -1595,7 +1691,6 @@ impl Session {
                                             // (`Session::load_blobs`, al-runner issue 7360).
                                             written: b.written,
                                             written_base: b.written_base.clone(),
-                                            write_origin: al_builtins::stream::WriteOrigin::Copy,
                                             render_pending: b.render_pending.clone(),
                                             inserted: b.inserted,
                                             temp_inserted: false,
@@ -1606,8 +1701,9 @@ impl Session {
                                             dotnet_view: 0,
                                             unread_content: false,
                                             assigned_unsaved: false,
+                                            assigned_write: al_builtins::stream::AssignedWrite::No,
                                             utf16_binary: b.utf16_binary,
-                                            unicode_read: None,
+                                            ..Default::default()
                                         },
                                     )))
                                 }
@@ -1624,7 +1720,7 @@ impl Session {
                         d.fields = fields;
                         d.row_origin = row_origin;
                         d.own_read = Default::default();
-                        crate::blob_transfer::buffer_replaced(&mut d);
+                        d.probed_source = crate::blob_transfer::assigned(&d, &src.borrow(), self.commits);
                         d.is_dirty_base = dirty_base;
                         // The copy holds what the source's buffer held, if that is known.
                         d.load.buffer = load.buffer;
@@ -1659,7 +1755,11 @@ impl Session {
                     if let Some(why) = r.unpinned_buffer {
                         crate::records::held_part_field_write(why)?;
                     }
-                    let how = if assign { BlobMove::Assign } else { BlobMove::WriteBack };
+                    let how = if assign {
+                        crate::blob_transfer::assign_into(&r, &v)
+                    } else {
+                        BlobMove::WriteBack
+                    };
                     let v =
                         crate::blob_transfer::moved(Some(&r.fields[*pos]), v, how, Holder::Other, || FieldKind::Plain)?;
                     r.before_field_write();
@@ -1679,13 +1779,14 @@ impl Session {
         let v = match &v {
             Value::Record(rc) if matches!(self.place_type(p, f), RtType::Variant) => {
                 let copy = self.record_by_value_unmeasured(rc);
-                // An assignment to a local Variant moves the copy's Blobs as `Session::blobs_by_value` says.
-                if assign && matches!(p, ir::Place::Local(_)) {
+                crate::variant_copy::keep_rows_mark(&rc.borrow(), &copy);
+                // An assignment to a Variant the probes measured moves the copy's Blobs as `Session::blobs_by_value` says.
+                if let (true, Some(taker)) = (assign, crate::blob_transfer::Taker::variant_at(p)) {
                     let (temporary, holder) = {
                         let r = rc.borrow();
-                        (r.temporary, Holder::of(&r))
+                        (r.temporary, self.holder(&r))
                     };
-                    self.blobs_by_value(copy, temporary, holder, crate::blob_transfer::Taker::LocalVariant)?
+                    self.blobs_by_value(copy, temporary, holder, taker, crate::blob_transfer::Call::Plain)?
                 } else {
                     copy
                 }
@@ -1711,28 +1812,14 @@ impl Session {
             Value::Blob(_)
                 if assign && matches!(p, ir::Place::Local(_)) && matches!(self.place_type(p, f), RtType::Variant) =>
             {
-                let how = BlobMove::Variant { local: true };
+                let how = BlobMove::Variant;
                 crate::blob_transfer::moved(None, v, how, Holder::Other, || FieldKind::Plain)?
             }
             _ => v,
         };
         match p {
-            ir::Place::Local(i) => f.locals[*i] = v,
-            ir::Place::Global(i) => {
-                self.alias_access(*i, f)?;
-                // A builtin's write-back of the value the global holds is no write (`D.ContainsKey(K)` on a global).
-                let noted = if assign {
-                    self.single_wrote(&f.instance, *i);
-                    true
-                } else {
-                    self.single_wrote_back(&f.instance, *i, &v)
-                };
-                f.instance.borrow_mut().globals[*i] = v;
-                if noted {
-                    self.single_written(&f.instance, *i);
-                }
-                self.alias_wrote(*i, f);
-            }
+            ir::Place::Local(i) => f.locals[*i] = self.option_param_store(*i, v, f),
+            ir::Place::Global(i) => self.put_global(*i, v, f, assign)?,
             ir::Place::BaseGlobal(i) => {
                 let base = self.base_instance(f)?;
                 let mut b = base.borrow_mut();
@@ -1779,7 +1866,8 @@ impl Session {
                     }
                     Err(e) => return Err(e),
                 };
-                arr.borrow_mut()[flat] = ops::convert(v, &el_ty)?;
+                let value = self.element_value(v, &el_ty, &arr.borrow()[flat], how, base, f)?;
+                arr.borrow_mut()[flat] = value;
             }
             ir::Place::Field(..) => unreachable!("handled above"),
         }

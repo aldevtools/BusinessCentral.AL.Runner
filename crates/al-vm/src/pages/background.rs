@@ -144,11 +144,13 @@ impl Session {
             return unsupported("a background task started from a background task");
         }
         self.pages.bg_worker = Some(BgWorker { params, result: None });
+        self.sync_no_client_test_session();
         let parked = self.bg_enter_child_session();
         let inst = self.instance(object);
         let ran = self.call(object, on_run, inst, Vec::new());
         self.bg_leave_child_session(parked);
         let worker = self.pages.bg_worker.take().expect("the worker is still set");
+        self.sync_no_client_test_session();
         match ran {
             Ok(_) => Ok(Ok(worker.result.unwrap_or_else(|| V::Dictionary(Default::default())))),
             Err(Signal::Error(e)) => Ok(Err(*e)),
@@ -389,7 +391,7 @@ impl Session {
             ));
         }
         let o = &self.engine.program.objects[table];
-        Err(self.bg_read_only_error(o.id.unwrap_or(0), &o.name, o.app, method))
+        Err(self.bg_read_only_error(crate::object_ids::declared_id(o.id)?, &o.name, o.app, method))
     }
 
     /// `Sorry, the current permissions prevented the action. (TableData <id> <name> <method>: <app>)`, code

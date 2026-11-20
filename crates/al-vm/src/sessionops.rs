@@ -176,6 +176,7 @@ impl Session {
 
     /// The key of sequence `args[0]`; `scope` is the position of the optional CompanySpecific
     /// argument (company specific when omitted, as the default overload is: session-system/TestNumberSequence.al:15-30).
+    /// Refused when an earlier test of the codeunit left that sequence unmeasured (`storage_checkpoint.rs`).
     fn sequence_key(&self, args: &[Value], scope: usize) -> Result<(String, String), Signal> {
         let Some(name) = args.first().and_then(al_builtins::native::text_of) else {
             return unsupported("a number sequence name that is not text");
@@ -191,6 +192,7 @@ impl Session {
             String::new()
         };
         let key = (company, name.to_string());
+        self.check_unmeasured_sequence(&key)?;
         Ok(key)
     }
 
@@ -209,7 +211,7 @@ impl Session {
         }
         // A tainted value whose number is the runtime's model (sqlcount.rs, issue 5580).
         if id == ids::SESSIONINFORMATION_SQLSTATEMENTSEXECUTED_1 {
-            let nothing_inserted = self.tx.tables_inserted.is_empty();
+            let nothing_inserted = self.tx.open.tables_inserted.is_empty();
             let pre_known = self.sql_pre_known();
             return Ok(self.sql.read(
                 al_builtins::value::SqlCounter::Statements,
@@ -219,7 +221,7 @@ impl Session {
             ));
         }
         if id == ids::SESSIONINFORMATION_SQLROWSREAD_1 {
-            let nothing_inserted = self.tx.tables_inserted.is_empty();
+            let nothing_inserted = self.tx.open.tables_inserted.is_empty();
             let pre_known = self.sql_pre_known();
             return Ok(self.sql.read(
                 al_builtins::value::SqlCounter::RowsRead,
@@ -239,10 +241,7 @@ impl Session {
             };
         }
         if id == ids::COMPANYPROPERTY_DISPLAYNAME_1 {
-            // Non-empty (session-system/TestBCPlatformContracts.al:CompanyProperty_DisplayName_NonEmpty). That it is
-            // the company's name when no display name is set is an assumption (docs/probes-needed.md); a
-            // company that states a display name is not modelled.
-            return Ok(Value::Text(self.cx.company.clone().into()));
+            return self.company_display_name();
         }
         if id == ids::COMPANYPROPERTY_ID_1 {
             // The `Id` of the company's row of the Company table (session-system/company/CompanyRecord.al:ID_EqualsTheCompanyRecordId).
@@ -331,7 +330,7 @@ impl Session {
             // - once a read call has run, a set of Report reads back as Update.
             // Every other set after the transaction has started is not pinned and refused.
             ids::DATABASE_CURRENTTRANSACTIONTYPE_1 => {
-                use crate::transactions::{TX_FRESH, TX_READ, TX_WRITE};
+                use crate::transactions::TxPhase;
                 let members: std::sync::Arc<[String]> = al_builtins::sysenum::option_members("TransactionType")
                     .expect("a system option")
                     .into();
@@ -342,16 +341,16 @@ impl Session {
                 };
                 let (update, snapshot, report) = (1, 2, 4);
                 // After a lock (codeunits/TestCodeunitRunWriteTransaction.al:211-278) the set is not pinned.
-                if self.tx.tx_phase != TX_WRITE && (self.tx.lock_tx || self.tx.lock_unpinned.is_some()) {
+                if self.tx.phase != TxPhase::Write && self.tx.open.locks.any() {
                     return unsupported(
                         "Database.CurrentTransactionType set after a LockTable or a locking ReadIsolation (not pinned)",
                     );
                 }
-                match self.tx.tx_phase {
-                    TX_FRESH => self.tx.transaction_type = new,
-                    TX_WRITE if new == self.tx.transaction_type => {}
-                    TX_WRITE if new == snapshot || new == report => {}
-                    TX_WRITE if new == update => {
+                match self.tx.phase {
+                    TxPhase::Fresh => self.tx.transaction_type = new,
+                    TxPhase::Write if new == self.tx.transaction_type => {}
+                    TxPhase::Write if new == snapshot || new == report => {}
+                    TxPhase::Write if new == update => {
                         let name = |t: i32| members.get(t as usize).cloned().unwrap_or_default();
                         return Err(crate::transactions::al_error_code(
                             &format!(
@@ -362,7 +361,7 @@ impl Session {
                             "DB:CannotChangeTransactionType",
                         ));
                     }
-                    TX_READ if new == report => self.tx.transaction_type = update,
+                    TxPhase::Read if new == report => self.tx.transaction_type = update,
                     _ => {
                         return unsupported(format!(
                             "Database.CurrentTransactionType set to {} after a database call (not pinned)",
@@ -421,17 +420,7 @@ impl Session {
         if let Some((method, n)) = isolated {
             return self.isolated_storage_op(method, n, args);
         }
-        let method = match id {
-            ids::NUMBERSEQUENCE_CURRENT_1 => Some("Current"),
-            ids::NUMBERSEQUENCE_DELETE_1 => Some("Delete"),
-            ids::NUMBERSEQUENCE_EXISTS_1 => Some("Exists"),
-            ids::NUMBERSEQUENCE_INSERT_1 => Some("Insert"),
-            ids::NUMBERSEQUENCE_NEXT_1 => Some("Next"),
-            ids::NUMBERSEQUENCE_RANGE_1 | ids::NUMBERSEQUENCE_RANGE_2 => Some("Range"),
-            ids::NUMBERSEQUENCE_RESTART_1 => Some("Restart"),
-            _ => None,
-        };
-        let Some(method) = method else {
+        let Some(method) = number_sequence_method(id) else {
             return unsupported(format!("builtin {id}"));
         };
         // The position of the optional CompanySpecific argument per overload.
@@ -464,14 +453,12 @@ impl Session {
                         "Sql:Sql",
                     );
                 }
-                self.sequences.insert(
-                    key,
-                    Sequence {
-                        increment,
-                        seed,
-                        last: None,
-                    },
-                );
+                let sequence = Sequence {
+                    increment,
+                    seed,
+                    last: None,
+                };
+                self.insert_sequence(key, sequence);
                 Ok(Value::Null)
             }
             "Exists" => Ok(Value::Boolean(self.sequences.contains_key(&key))),
@@ -650,6 +637,7 @@ impl Session {
             return r;
         }
         let scope = self.storage_scope(scope_at.and_then(|i| args.get(i)))?;
+        self.check_unmeasured_key(&scope, &key)?;
         // A key that matches a stored key only without their trailing spaces (isolated_storage_reads.rs `trailing_twin`).
         let slot = self.trailing_twin(method, scope, &key)?;
         let found = self.ret_used;
@@ -708,7 +696,7 @@ impl Session {
                 // well, also with the same value (session-system/CnIsolatedStorageLeads.al:293-317
                 // TO_IsoOverwrite_OutsideWriteTransaction); SetEncrypted over an existing key, and a Set over an encrypted one,
                 // are assumed alike (assumption isolated-storage-overwrite-tx). Inside a write transaction the phase cannot change.
-                if self.tx.tx_phase != crate::transactions::TX_WRITE
+                if self.tx.phase != crate::transactions::TxPhase::Write
                     && self
                         .isolated_storage
                         .get(&slot)
@@ -716,7 +704,7 @@ impl Session {
                 {
                     al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::IsolatedStorageOverwriteTx);
                 }
-                self.tx.tx_phase = crate::transactions::TX_WRITE;
+                self.tx.phase = crate::transactions::TxPhase::Write;
                 self.isolated_set_in_test.insert(slot.clone());
                 self.isolated_written_in_codeunit.insert(slot.clone());
                 self.isolated_storage
@@ -759,13 +747,13 @@ impl Session {
                 match self.isolated_storage.remove(&slot) {
                     Some(_) => {
                         // A Delete opens the write transaction (session-system/CnIsolatedStorageLeads.al:254-255).
-                        self.tx.tx_phase = crate::transactions::TX_WRITE;
+                        self.tx.phase = crate::transactions::TxPhase::Write;
                         Ok(Value::Boolean(true))
                     }
                     // A Delete of a missing key answers false and still opens the write transaction (misc/lt-y76-assumptions/
                     // Y76IsolatedStorage.al Y76_PlainStorage_Transactions `delete_missing`: ret=No tx=Yes).
                     None if found => {
-                        self.tx.tx_phase = crate::transactions::TX_WRITE;
+                        self.tx.phase = crate::transactions::TxPhase::Write;
                         Ok(Value::Boolean(false))
                     }
                     None => {
@@ -931,5 +919,19 @@ impl Session {
             }
             _ => return None,
         })
+    }
+}
+
+/// The NumberSequence method of session builtin `id`; `None`: another builtin.
+pub(crate) fn number_sequence_method(id: al_ir::BuiltinId) -> Option<&'static str> {
+    match id {
+        ids::NUMBERSEQUENCE_CURRENT_1 => Some("Current"),
+        ids::NUMBERSEQUENCE_DELETE_1 => Some("Delete"),
+        ids::NUMBERSEQUENCE_EXISTS_1 => Some("Exists"),
+        ids::NUMBERSEQUENCE_INSERT_1 => Some("Insert"),
+        ids::NUMBERSEQUENCE_NEXT_1 => Some("Next"),
+        ids::NUMBERSEQUENCE_RANGE_1 | ids::NUMBERSEQUENCE_RANGE_2 => Some("Range"),
+        ids::NUMBERSEQUENCE_RESTART_1 => Some("Restart"),
+        _ => None,
     }
 }

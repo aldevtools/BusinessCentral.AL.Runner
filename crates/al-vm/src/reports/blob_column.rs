@@ -92,7 +92,7 @@ impl Session {
         let cx = self.cx_for(rec, &t)?;
         let pk = t.primary_key(&rec.borrow().fields);
         let stored =
-            al_data::Store::get(self.store_for(rec), &cx, &t, &pk).map_err(|e| Signal::unsupported(format!("{e}")))?;
+            al_data::Store::get(self.store_for(rec)?, &cx, &t, &pk).map_err(|e| Signal::unsupported(format!("{e}")))?;
         match stored.map(|row| row[pos].clone()) {
             Some(Value::Blob(src)) if src.borrow().render_pending.is_none() => {
                 Ok(al_builtins::platform_native::b64_encode(&src.borrow().bytes, false))

@@ -150,10 +150,16 @@ fn manifest(p: &str) -> Manifest {
 
 fn run(src: &str, opts: &RunOptions) -> CorpusRuntime {
     // ADR-066 amendment 12: these runs measure the carry chain and the lane, which run in BC's order only.
-    let opts = &RunOptions {
-        strict_order: true,
-        ..opts.clone()
-    };
+    run_with(
+        src,
+        &RunOptions {
+            strict_order: true,
+            ..opts.clone()
+        },
+    )
+}
+
+pub(crate) fn run_with(src: &str, opts: &RunOptions) -> CorpusRuntime {
     CorpusRuntime::try_run_suites_with(
         vec![app("main", &["base"], src), app("base", &[], BASE)],
         vec![al_sema::AppKind::Workspace, al_sema::AppKind::Dependency],
@@ -168,7 +174,7 @@ fn run(src: &str, opts: &RunOptions) -> CorpusRuntime {
 }
 
 /// A budget of `limit` MB whose resident memory is what `rss` says, in MB, at each read.
-fn budget(limit: u64, hard: bool, rss: impl Fn() -> u64 + Send + Sync + 'static) -> Option<MemoryBudget> {
+pub(crate) fn budget(limit: u64, hard: bool, rss: impl Fn() -> u64 + Send + Sync + 'static) -> Option<MemoryBudget> {
     Some(MemoryBudget {
         limit: limit << 20,
         source: "--max-memory".into(),
@@ -177,7 +183,7 @@ fn budget(limit: u64, hard: bool, rss: impl Fn() -> u64 + Send + Sync + 'static)
     })
 }
 
-fn outcomes(rt: &CorpusRuntime) -> Vec<(u32, String, String)> {
+pub(crate) fn outcomes(rt: &CorpusRuntime) -> Vec<(u32, String, String)> {
     let mut v: Vec<_> = rt
         .results()
         .iter()

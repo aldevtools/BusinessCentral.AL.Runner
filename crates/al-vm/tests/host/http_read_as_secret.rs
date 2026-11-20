@@ -1,8 +1,8 @@
-//! `HttpContent.ReadAs(var SecretText)` as a statement and on the content of a request that has none: the call sequences the
-//! probe al-language-onprem/http/N4ReadAsSecretStatement.al measured run through assumption http-readas-secret-statement, the
-//! sequence corpus http/CzHttpNoNetwork.al:25-57 pins runs, and every other one keeps main's refusal.
+//! `HttpContent.ReadAs(var SecretText)` as a statement and on the content of a request that has none: the call sequences
+//! al-language-onprem/http/N4ReadAsSecretStatement.al measures and the sequence of http/CzHttpNoNetwork.al:25-57 run without an
+//! assumption, and every other one keeps main's refusal.
 
-use al_builtins::assumptions::{Assumption, take_hits};
+use al_builtins::assumptions::take_hits;
 use al_builtins::native::Signal;
 
 const SRC: &str = r#"
@@ -872,13 +872,11 @@ codeunit 50192 C
 const STATEMENT: &str = "HttpContent.ReadAs(SecretText) as a statement (not pinned)";
 const NO_CONTENT: &str = "HttpContent.ReadAs(SecretText) on the content of a request that has none (not pinned)";
 
-fn assumed(routine: &str) -> String {
+fn pinned(routine: &str) -> String {
     take_hits();
     let got = al_testkit::text(al_testkit::run_in(SRC, "C", routine));
-    assert!(
-        take_hits().contains(&Assumption::HttpReadasSecretStatement),
-        "{routine} not flagged"
-    );
+    let hits = take_hits();
+    assert!(hits.is_empty(), "{routine}: {hits:?}");
     got
 }
 
@@ -890,43 +888,49 @@ fn refused(routine: &str, want: &str) {
 }
 
 #[test]
-fn the_probe_sequences_on_content_variables_are_assumed() {
+fn the_probe_sequences_on_content_variables_are_pinned() {
     // N4ReadAsSecretStatement.al:120-132.
     assert_eq!(
-        assumed("Contents"),
+        pinned("Contents"),
         "ok|No|s3cret body;ok|No|plain body;ok|Yes|;ok|Yes|;ok|No|s3cret body;"
     );
 }
 
 #[test]
-fn the_probe_sequence_on_a_request_with_content_is_assumed() {
+fn the_probe_sequence_on_a_request_with_content_is_pinned() {
     // N4ReadAsSecretStatement.al:167-183.
     assert_eq!(
-        assumed("RequestWithContent"),
+        pinned("RequestWithContent"),
         "ok|No|token=abc;Yes|No|token=abc;ok|No|{\"a\":1};Yes|No|{\"a\":1};ok|No|token=abc;Yes|No|token=abc;"
     );
 }
 
 #[test]
-fn the_probe_sequences_on_a_request_without_content_are_assumed() {
+fn the_probe_sequences_on_a_request_without_content_are_pinned() {
     // N4ReadAsSecretStatement.al:193-206 and :216-223.
     assert_eq!(
-        assumed("RequestWithoutContent"),
+        pinned("RequestWithoutContent"),
         "NotInitialized|No|before;No|No|before;NotInitialized|No|before;No|No|before;"
     );
-    assert_eq!(assumed("RequestWithoutContentPlain"), "NotInitialized|No|before");
+    assert_eq!(pinned("RequestWithoutContentPlain"), "NotInitialized|No|before");
 }
 
 #[test]
 fn the_pinned_http_content_impl_sequence_runs() {
-    // CzHttpNoNetwork.al:34 with :80 pins `empty=No`; the body is the assumption's.
-    assert_eq!(assumed("ImplShape"), "No");
+    // CzHttpNoNetwork.al:34 with :80 pins `empty=No`. The header the sequence adds runs through its own assumption.
+    take_hits();
+    let got = al_testkit::text(al_testkit::run_in(SRC, "C", "ImplShape"));
+    assert_eq!(
+        take_hits(),
+        vec![al_builtins::assumptions::Assumption::HttpTypedHeaderValueShapes]
+    );
+    assert_eq!(got, "No");
 }
 
 #[test]
 fn a_cleared_variable_is_a_new_content() {
     // http/client/UfHttpClear.al:83-104: after `Clear(Cnt)` the content reads, lists its headers and takes a body as a new one.
-    assert_eq!(assumed("AfterClearVariable"), "");
+    assert_eq!(pinned("AfterClearVariable"), "");
 }
 
 #[test]
@@ -1026,5 +1030,5 @@ fn a_used_read_of_a_content_with_a_body_is_answered_as_on_main() {
         al_testkit::text(al_testkit::run_in(SRC, "C", "UsedAfterAnything")),
         "YesbYesb"
     );
-    assert!(!take_hits().contains(&Assumption::HttpReadasSecretStatement));
+    assert!(take_hits().is_empty());
 }

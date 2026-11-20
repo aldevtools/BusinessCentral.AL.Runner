@@ -12,12 +12,14 @@
 
 mod cell;
 mod cells;
+mod cells_decl;
 mod errors;
 mod events;
 mod fact_report;
 mod fact_run;
 mod fact_selection;
 mod facts;
+mod html_cell;
 mod lookup;
 
 #[cfg(test)]
@@ -27,12 +29,13 @@ use std::sync::Arc;
 
 pub(crate) use crate::report_placeholder::Format;
 use crate::report_placeholder::SaveOutput;
+use crate::report_render::SaveCall;
 use crate::reports::{SaveTarget, Schema};
 use crate::{Session, Signal};
 use al_builtins::native::AlError;
 pub(crate) use cell::Renders;
 use cell::{Answer, Cell, Events};
-pub(crate) use facts::AnswerForm;
+pub(crate) use facts::{AnswerForm, Call};
 use facts::{Facts, Selection, Target};
 
 /// A save that runs: its facts, to look up again after the run.
@@ -63,11 +66,13 @@ pub(crate) enum BeforeRun {
 
 /// What a save that ran writes or answers.
 pub(crate) enum AfterRun {
-    /// Write the placeholder of the format, rendered by this layout; `rgba` the row's rgba column.
+    /// Write the placeholder of the format, rendered by this layout; `rgba` the row's rgba column; `html_cell` whether the
+    /// whole fact vector after the run is the one of the Html hash cells (`html_cell::HTML_HASH_CELL`), with no layout named.
     Write {
         renders: Renders,
         selected: Option<Arc<str>>,
         rgba: al_builtins::rendered_text::RgbaReplace,
+        html_cell: bool,
     },
     /// The answer, with nothing written (the last error is set).
     Answer(bool),
@@ -97,38 +102,40 @@ fn target_fact(target: &SaveTarget) -> Target {
     }
 }
 
+/// The call fact of a save to a stream from what `Session::save_call` took of it (`None`: a save to a file or a request page's).
+fn call_fact(save_call: Option<SaveCall>) -> Call {
+    match save_call.map(|c| (c.by_number, c.parameters, c.record_ref)) {
+        Some((true, false, false)) => Call::StaticPlain,
+        Some((true, false, true)) => Call::StaticRecordRef,
+        _ => Call::Other,
+    }
+}
+
 impl Session {
-    /// The facts of a save of `schema` as `format` to `target`, taken as `answer`, before the run. `custom`: a layout of Type
-    /// Custom renders.
+    /// The facts of a save of `schema` as `format` to `target` by `call`, taken as `answer`, before the run. `custom`: a
+    /// layout of Type Custom renders.
     fn save_facts(
         &mut self,
         schema: &Schema,
         format: Format,
-        target: &SaveTarget,
+        (target, call): (&SaveTarget, Call),
         answer: AnswerForm,
         custom: bool,
     ) -> Result<(Facts, Option<Arc<str>>), Signal> {
         let r = fact_report::report_facts(&self.engine.program, schema);
         let target = target_fact(target);
-        let what = format!("Report.SaveAs as {}", format.name());
-        let entry = fact_selection::TempEntry {
-            format,
-            target,
-            kind: r.kind,
-            extensions: r.extensions,
-            processing_only: r.processing_only,
-            file: r.file,
-            custom,
-            what: &what,
-        };
-        let (selection, selected) = self.selection_fact(schema, Some(&entry))?;
+        // A save that reaches the layout selection raises SelectReportLayoutCode (`fact_selection`).
+        let reaches = !r.processing_only && !custom && !self.company_build;
+        let sel = self.selection_fact(schema, reaches.then_some(r.declares))?;
         let facts = Facts {
             format,
             target,
+            call,
             answer,
             kind: r.kind,
             layout: r.layout,
             decl: r.decl,
+            declares: r.declares,
             file: r.file,
             processing_only: r.processing_only,
             data_items: r.data_items,
@@ -137,13 +144,13 @@ impl Session {
             custom,
             company_build: self.company_build,
             listed: self.output_is_ignored(schema),
-            selection,
-            stored: self.stored_fact(schema)?,
+            selection: sel.selection,
+            stored: sel.stored,
             named: None,
             rows: None,
             dataset_rgba: None,
         };
-        Ok((facts, selected))
+        Ok((facts, sel.selected))
     }
 
     /// What a save as `format` (not Xml) does before the report runs.
@@ -151,11 +158,11 @@ impl Session {
         &mut self,
         schema: &Schema,
         format: Format,
-        target: &SaveTarget,
+        how: (&SaveTarget, Call),
         answer: AnswerForm,
         custom: bool,
     ) -> Result<BeforeRun, Signal> {
-        let (facts, selected) = self.save_facts(schema, format, target, answer, custom)?;
+        let (facts, selected) = self.save_facts(schema, format, how, answer, custom)?;
         let table: &[Cell] = &cells::CELLS;
         match lookup::before_run(table, &facts) {
             lookup::Before::Answer(row) => {
@@ -164,7 +171,7 @@ impl Session {
                 match row.answer {
                     Answer::False(e) => Ok(BeforeRun::False(errors::error_of(
                         e,
-                        self.object_id_of(schema.object as u32),
+                        self.object_id_of(schema.object as u32)?,
                         format,
                     ))),
                     Answer::Refuse(why) => Err(Signal::unsupported(format!("{}, {why}", what(&facts, schema)))),
@@ -177,6 +184,7 @@ impl Session {
                 for row in &all {
                     self.check_events(schema, &facts, row.events)?;
                 }
+                refuse_unmeasured_data_items_before_false(&all, &facts, schema, &self.engine.tables)?;
                 // When every row the run can end in marks the same assumption (a stored selection, a temporary
                 // selection), it is marked now, as main did; otherwise the row the run ends in marks it.
                 if let Some(a) = lookup::one_mark_after_any_run(table, &facts) {
@@ -200,7 +208,7 @@ impl Session {
         &mut self,
         schema: &Schema,
         format: &str,
-        target: &SaveTarget,
+        (target, save_call): (&SaveTarget, Option<SaveCall>),
         result_used: bool,
         custom: bool,
     ) -> Result<Result<SaveOutput, AlError>, Signal> {
@@ -216,10 +224,12 @@ impl Session {
             AnswerForm::Statement
         };
         Ok(Ok(
-            match self.save_before_run(schema, format, target, answer, custom)? {
+            match self.save_before_run(schema, format, (target, call_fact(save_call)), answer, custom)? {
                 BeforeRun::Run(plan) => SaveOutput::Rendered(Box::new(plan)),
                 BeforeRun::Dataset => SaveOutput::Dataset,
                 BeforeRun::Discard => SaveOutput::Discard,
+                // A statement raises the error (reports/html-email-body/RxdDeclLayoutTests.al:284, :409).
+                BeforeRun::False(e) if answer == AnswerForm::Statement => return Err(Signal::Error(Box::new(e))),
                 BeforeRun::False(e) => return Ok(Err(e)),
             },
         ))
@@ -248,6 +258,7 @@ impl Session {
                 } else {
                     al_builtins::rendered_text::RgbaReplace::NotMeasured(lookup::rgba_reason(&cells::CELLS, &facts))
                 },
+                html_cell: facts == html_cell::HTML_HASH_CELL && plan.selected.is_none(),
             }),
             Answer::Empty if used => {
                 self.last_error = empty();
@@ -256,6 +267,14 @@ impl Session {
             Answer::Empty => Err(Signal::Error(Box::new(empty()))),
             Answer::FalseKeepError => Ok(AfterRun::Answer(false)),
             Answer::TrueNothing => Ok(AfterRun::Answer(true)),
+            Answer::FalseAfterRun(e) => {
+                let error = errors::error_of(e, self.object_id_of(schema.object as u32)?, facts.format);
+                if !used {
+                    return Err(Signal::Error(Box::new(error)));
+                }
+                self.last_error = error;
+                Ok(AfterRun::Answer(false))
+            }
             Answer::Refuse(why) => Err(Signal::unsupported(format!("{}, {why}", what(&facts, schema)))),
             Answer::False(_) | Answer::Dataset | Answer::Discard => unreachable!("rows read no run fact"),
         }
@@ -267,9 +286,9 @@ impl Session {
                 schema,
                 &format!("Report.SaveAs as {}", facts.format.name()),
                 except,
-                None,
+                self.report_management_object(),
             ),
-            Events::NotChecked | Events::AtFact => Ok(()),
+            Events::NotChecked => Ok(()),
         }
     }
 
@@ -298,7 +317,7 @@ impl Session {
     /// the report (`report_placeholder::run`; it joins the table in round 3).
     pub(crate) fn refuse_run_layout_events(&mut self, schema: &Schema) -> Result<(), Signal> {
         self.refuse_layout_event_subscribers(schema, "a run", &["substitutereport"], None)?;
-        let (selection, _) = self.selection_fact(schema, None)?;
+        let selection = self.selection_fact(schema, None)?.selection;
         if matches!(selection, Selection::None | Selection::SameKind | Selection::OtherKind) {
             return Ok(());
         }
@@ -309,6 +328,29 @@ impl Session {
             facts::Describe::describe(&selection)
         )))
     }
+}
+
+/// Refuses a run that can end in a false answer after the run unless every data item is as the cells of those rows ran it
+/// (`fact_report::data_items_as_measured_for_false`): whether BC runs a data item trigger or a computed column source before
+/// it answers false is not measured.
+fn refuse_unmeasured_data_items_before_false(
+    rows: &[&Cell],
+    facts: &Facts,
+    schema: &Schema,
+    tables: &[Option<std::sync::Arc<al_data::TableDef>>],
+) -> Result<(), Signal> {
+    let Some(row) = rows.iter().find(|c| matches!(c.answer, Answer::FalseAfterRun(_))) else {
+        return Ok(());
+    };
+    if fact_report::data_items_as_measured_for_false(schema, tables) {
+        return Ok(());
+    }
+    Err(Signal::unsupported(format!(
+        "{} while a data item declares a trigger or a column whose source is not a stored field of its table: not \
+         measured on BC (the cells of {} ran a data item without either)",
+        what(facts, schema),
+        row.evidence.cite()
+    )))
 }
 
 fn mark(row: &Cell) {

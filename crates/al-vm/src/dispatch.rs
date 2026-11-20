@@ -77,10 +77,15 @@ impl Session {
         let p = &engine.events.publishers[&(object, routine)];
         self.note_event(p.object, &p.event, None);
         let r = &engine.program.objects[object].routines[routine];
+        let blob_publisher = crate::blob_transfer::measured_publisher(engine.program.objects[object].kind, r);
         let mut values = Vec::with_capacity(r.params);
         for (i, a) in args.into_iter().enumerate().take(r.params) {
             values.push(match (a, r.by_var.get(i).copied().unwrap_or(false)) {
-                (Value::Record(rc), false) => self.record_by_value_unmeasured(&rc),
+                (Value::Record(rc), false) => {
+                    let copy = self.record_by_value_unmeasured(&rc);
+                    crate::blob_transfer::publisher_copy(blob_publisher.is_some(), &rc, &copy);
+                    copy
+                }
                 // A Notification handed by value to an event is the caller's own notification: a subscriber's SetData and Message
                 // reach the publisher's caller (events/binding-senders/NotificationByValue.al:Event_ByValueArgument_SubscriberChanges).
                 (a @ Value::Library(al_builtins::library_kind::LibraryKind::Notification, _), false) => a,
@@ -96,6 +101,8 @@ impl Session {
                     };
                     self.record_ref_into_record_param(&h, *table)?
                 }
+                // A `var` Option parameter with another member list than the value (`var_option`).
+                (a, true) if let Some(v) = crate::var_option::var_binding(&a, &r.locals[i].ty, false) => v?,
                 (a, _) => ops::convert(a, &r.locals[i].ty)?,
             });
         }
@@ -174,6 +181,9 @@ impl Session {
         });
         self.profile_enter(object, routine, true);
         self.events.publish_frame = true;
+        self.events.blob_publisher = blob_publisher;
+        let var_param_arg = std::mem::take(&mut self.events.raise_arg_var_param);
+        self.events.by_value_publisher = Some((object, routine, var_param_arg));
         self.events.sender_refused = sender_refused;
         self.events.var_origins = origins;
         self.events.publisher_var_lens = lens;
@@ -243,6 +253,9 @@ impl Session {
         let (object, event, element, isolated) = (*object, *event, *element, *isolated);
         let engine = self.engine.clone();
         let sender_refused = self.events.sender_refused.take();
+        let blob_publisher = std::mem::take(&mut self.events.blob_publisher);
+        let by_value_publisher = self.events.by_value_publisher.take();
+        let by_value_publisher = self.event_publisher(by_value_publisher);
         let origins = std::mem::take(&mut self.events.var_origins);
         // The declared lengths of the publisher's `var` Text and Code arguments: a subscriber's `var` parameter reports the
         // length of the publisher's argument (text/text-methods/MaxStrLen.Codeunit.al:172-201,
@@ -267,6 +280,7 @@ impl Session {
         self.events.trial.allowed = false;
         let trials = std::mem::take(&mut self.events.trial.picked);
         let targets = targets?;
+        let subscribers = targets.len();
         for (s, inst) in targets {
             // A manual instance unbound since the raise began. One that unbound itself in an earlier method of this raise
             // is not called again (events/ProbeEventSubscriberOrder.al:253
@@ -321,7 +335,7 @@ impl Session {
                 .or_insert(0) += 1;
             let isolate = isolated && !self.store.has_uncommitted();
             let before = isolate.then(|| self.store.clone());
-            let phase = self.tx.tx_phase;
+            let phase = self.tx.phase;
             // A `var` argument that is a global of the publisher is the same variable as the subscriber's parameter.
             self.events.next_aliases = map
                 .iter()
@@ -341,6 +355,8 @@ impl Session {
                     .collect();
             }
             self.events.next_is_subscriber = true;
+            self.events.next_event_args = self.event_args(by_value_publisher.as_ref(), &s, &map, subscribers);
+            self.events.next_blob_event = crate::blob_transfer::measured_subscriber(blob_publisher, s.manual);
             let manual_inst = s.manual.then(|| inst.clone());
             // What the event recursion error would name (see `Session::call`): the publisher and the subscriber routine, for the
             // pinned shapes only (an event a codeunit publishes, a table's OnAfterModifyEvent).
@@ -365,6 +381,8 @@ impl Session {
                     }
                     Err(_why) => {
                         self.events.next_is_subscriber = false;
+                        self.events.next_blob_event = false;
+                        self.events.next_event_args.clear();
                         self.events.next_aliases.clear();
                         self.events.next_var_lens.clear();
                         let app = engine.program.objects[s.object].app;
@@ -383,19 +401,21 @@ impl Session {
                 }
             }
             self.events.next_is_subscriber = false;
+            self.events.next_blob_event = false;
             if let Some(i) = manual_inst {
                 if !self.is_bound(&i) {
                     self_unbound.push(i);
                 }
             }
             self.events.next_aliases.clear();
+            self.events.next_event_args.clear();
             self.events.next_var_lens.clear();
             let (_, finals) = match called {
                 Err(Signal::Error(e)) if isolate => {
                     self.store = before.expect("snapshot taken when isolating");
                     // The subscriber's own transaction is gone with its writes.
-                    self.tx.tx_phase = phase;
-                    self.catch_error(*e);
+                    self.tx.phase = phase;
+                    self.catch_error(*e)?;
                     continue;
                 }
                 r => r?,
@@ -428,6 +448,42 @@ impl Session {
         !matches!(self.event_targets(object, event, None), Ok(v) if v.is_empty())
     }
 
+    /// The first subscriber of a dependency app that raising `event` under the runtime-raised platform key `key` would reach now,
+    /// other than the System Application's codeunit `stand_in` (`al_ir::is_system_application_codeunit`), as `codeunit "Name"`:
+    /// a compiled one (a manual one only while an instance is bound, as `event_targets` reaches it), else one the program
+    /// cannot run: left out by the compile (`MissingWhy::NotCompiled`; the demand lists no manual one) or compiled with a
+    /// publisher it binds to no object (a bare id, `Missing::bound_only` for a manual one). What such a subscriber does is
+    /// pinned by no case, so the caller refuses (`filterevents`, `pages/ui_caption_translate`, `pages/caption_class`).
+    pub(crate) fn receiving_dependency_subscriber(&self, key: usize, event: &str, stand_in: &str) -> Option<String> {
+        let program = &self.engine.program;
+        let heads = program.objects.heads();
+        let foreign = |object: usize| {
+            let o = &heads[object];
+            program
+                .apps
+                .get(o.app as usize)
+                .is_some_and(|a| a.dependency && !al_ir::is_system_application_codeunit(stand_in, &o.name, &a.id))
+        };
+        let compiled = (self
+            .engine
+            .events
+            .subscribers
+            .get(&(key, event.to_string()))
+            .into_iter()
+            .flatten())
+        .find(|s| foreign(s.object) && (!s.manual || self.is_bound_object(s.object)));
+        if let Some(s) = compiled {
+            let o = &heads[s.object];
+            return Some(format!("{} \"{}\"", o.kind.label(), o.name));
+        }
+        (self.engine.events.missing_at(key, event).iter())
+            .find(|m| match m.from {
+                None => m.why == crate::events::MissingWhy::NotCompiled,
+                Some(o) => foreign(o) && m.bound_only().is_none_or(|b| self.is_bound_object(b)),
+            })
+            .map(|m| m.subscriber.clone())
+    }
+
     /// The subscribers an event reaches right now, each with the instance it
     /// runs on: static subscribers always, manual ones once per bound instance.
     /// `element` filters field events by field name.
@@ -442,21 +498,20 @@ impl Session {
         // would be a wrong answer (ADR-013 decision 6, hard rule 4).
         // A raise to some subscribers only (`Session::raise_to`) does not reach the others, compiled or not.
         let only = self.events.only_targets.take();
-        if let Some(m) = engine
-            .events
-            .missing_for(object, event, element)
-            .filter(|_| only.is_none())
-        {
-            return unsupported(format!(
-                "event {event}: {} subscribes to it and was not compiled (no code the workspace reaches uses it)",
-                m.subscriber
-            ));
-        }
-        let Some(subs) = engine.events.subscribers.get(&(object, event.to_string())) else {
-            return Ok(Vec::new());
-        };
         // A binding only a gone page held ends before the event picks its targets (page_held_bindings.rs).
         self.prune_page_held();
+        if only.is_none() {
+            // A manual subscriber with no bound instance receives nothing (the manual arm below), so a refusal held for one
+            // only while bound does not hold then (`Missing::bound_only`).
+            let refusal = (engine.events.missing_at(object, event).iter())
+                .find(|m| m.reaches(element) && m.bound_only().is_none_or(|c| !self.bound_instances(c).is_empty()));
+            if let Some(m) = refusal {
+                return unsupported(m.refusal(event));
+            }
+        }
+        let Some(subs) = engine.events.subscribers_at(object, event) else {
+            return Ok(Vec::new());
+        };
         let mut targets = Vec::new();
         for s in subs {
             if only.as_ref().is_some_and(|o| !o.contains(&(s.object, s.routine))) {
@@ -662,15 +717,28 @@ impl Session {
         Ok(!self.event_targets(object, event, element)?.is_empty())
     }
 
+    /// The subscribers `event` of table or codeunit `object` reaches right now (`event_targets`), without their instances.
+    pub(crate) fn event_subscribers(
+        &mut self,
+        object: usize,
+        event: &str,
+    ) -> Result<Vec<crate::events::Subscriber>, Signal> {
+        Ok(self
+            .event_targets(object, event, None)?
+            .into_iter()
+            .map(|(s, _)| s)
+            .collect())
+    }
+
     /// The instance a static (automatic) subscriber runs on: the session's one instance for a
     /// `SingleInstance` codeunit, else a fresh one per event, so its globals start at their defaults
     /// every time (corpus record/TestTableEventSequenceContracts.al:Insert_EventsAndTrigger_WithAndWithoutRunTrigger,
     /// where the After event sees `hits=0` after the Before event counted 1).
     fn static_instance(&mut self, object: usize) -> Result<Inst, Signal> {
-        let fresh = Rc::new(RefCell::new(Instance {
+        let fresh = al_builtins::instance_cycles::shared(Instance {
             object: object as u32,
             ..Default::default()
-        }));
+        });
         Ok(self.shared_instance(fresh))
     }
 
@@ -690,6 +758,15 @@ impl Session {
             Value::Array(items) => items.borrow().iter().any(|i| self.holds_bound_codeunit(i)),
             _ => false,
         }
+    }
+
+    /// Whether an instance of codeunit `object` is bound right now.
+    pub(crate) fn is_bound_object(&self, object: usize) -> bool {
+        self.events
+            .bindings
+            .iter()
+            .filter_map(|b| b.instance.upgrade())
+            .any(|i| i.borrow().object as usize == object)
     }
 
     /// Live bound instances of codeunit `object`, oldest binding first.
@@ -748,7 +825,7 @@ impl Session {
                 } else {
                     // corpus record/TestTableEventSequenceContracts.al:BindSubscription_Manual_Twice_And_Static_Errors
                     Err(binding_error(
-                        self.engine.program.objects[object].id.unwrap_or(0),
+                        crate::object_ids::declared_id(self.engine.program.objects[object].id)?,
                         "The codeunit does not use manual binding",
                     ))
                 };
@@ -759,7 +836,7 @@ impl Session {
                     Ok(Value::Boolean(false))
                 } else {
                     Err(binding_error(
-                        self.engine.program.objects[object].id.unwrap_or(0),
+                        crate::object_ids::declared_id(self.engine.program.objects[object].id)?,
                         "The codeunit has already been bound.",
                     ))
                 };

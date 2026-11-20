@@ -21,10 +21,12 @@ use K::Unread;
 pub(crate) struct Key {
     pub format: K<Format>,
     pub target: K<Target>,
+    pub call: K<Call>,
     pub answer: K<AnswerForm>,
     pub kind: K<Kind>,
     pub layout: K<Layout>,
     pub decl: K<Decl>,
+    pub declares: K<Declares>,
     pub file: K<LayoutFile>,
     pub processing_only: K<bool>,
     pub data_items: K<DataItems>,
@@ -45,10 +47,12 @@ impl Key {
     pub(crate) const ANY: Key = Key {
         format: Unread,
         target: Unread,
+        call: Unread,
         answer: Unread,
         kind: Unread,
         layout: Unread,
         decl: Unread,
+        declares: Unread,
         file: Unread,
         processing_only: Unread,
         data_items: Unread,
@@ -109,6 +113,10 @@ pub(crate) enum Answer {
     FalseKeepError,
     /// After the run with no dataset row: true, nothing written.
     TrueNothing,
+    /// After a run that wrote dataset rows: false with this error as the last error, nothing written (a statement raises
+    /// it). The row reads the run fact its cells measured; the run itself writes nothing a test can see when the report and
+    /// its data items are as measured (`fact_report::data_items_as_measured_for_false`).
+    FalseAfterRun(ErrorId),
 }
 
 impl Answer {
@@ -126,8 +134,6 @@ pub(crate) enum Events {
     NotRaised(&'static [&'static str]),
     /// The row's path checks no subscriber (main's answer).
     NotChecked,
-    /// Checked by the fact owner before it raised SelectReportLayoutCode to ReportManagement (`fact_selection`).
-    AtFact,
 }
 
 /// A corpus line.

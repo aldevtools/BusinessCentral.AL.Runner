@@ -4,6 +4,7 @@
 //!
 //! Needs `System.app` of the pinned build in the artifact cache (`al_testfiles`).
 
+use al_builtins::assumptions::Assumption;
 use al_deps::package::read_package;
 use al_test_cli::report::Outcome;
 use al_test_cli::runtime::run_codeunit;
@@ -21,6 +22,88 @@ pub(crate) fn outcomes(main: &str) -> Vec<(String, Outcome)> {
 
 /// [`outcomes`] with the id of the app under test chosen (a platform table lists apps by Guid).
 fn outcomes_app(app_id: &str, main: &str) -> Vec<(String, Outcome)> {
+    let (engine, l) = compile_on_system(app_id, main);
+    let oi = l
+        .program
+        .objects
+        .iter()
+        .position(|o| o.name == "T")
+        .expect("test codeunit T");
+    run_codeunit(&engine, &l, oi)
+}
+
+/// The outcome of each test of the codeunit named `codeunit` in `main` (compiled as [`outcomes`] does), with the assumptions
+/// each test went through.
+pub(crate) fn outcomes_with_hits(main: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<Assumption>)> {
+    outcomes_with_hits_app("main", main, codeunit)
+}
+
+/// [`outcomes_with_hits`] with the id of the app under test chosen (a platform table lists apps by Guid).
+pub(crate) fn outcomes_with_hits_app(
+    app_id: &str,
+    main: &str,
+    codeunit: &str,
+) -> Vec<(String, Outcome, Vec<Assumption>)> {
+    let (engine, l) = compile_on_system(app_id, main);
+    let oi = l
+        .program
+        .objects
+        .iter()
+        .position(|o| o.name == codeunit)
+        .unwrap_or_else(|| panic!("test codeunit {codeunit}"));
+    let mut hits = Vec::new();
+    let o = al_testrun::runtime::run_codeunit_full(
+        &engine,
+        &l,
+        oi,
+        None,
+        al_testrun::isolation::TestIsolation::Codeunit,
+        None,
+        &mut Vec::new(),
+        &mut Vec::new(),
+        &mut hits,
+        None,
+    );
+    o.into_iter()
+        .map(|(name, outcome)| {
+            let h = hits
+                .iter()
+                .filter(|(n, _)| *n == name)
+                .flat_map(|(_, h)| h.iter().copied())
+                .collect();
+            (name, outcome, h)
+        })
+        .collect()
+}
+
+/// `main` as the app `app_id` on the System app, compiled, and an engine for it that runs as BC 27.5.
+fn compile_on_system(app_id: &str, main: &str) -> (std::sync::Arc<Engine>, al_sema::lower::Lowered) {
+    compile_on_system_edited(app_id, main, |_| {})
+}
+
+/// [`outcomes`] of a program changed by `edit` before the engine is made, with `skipped` as the dependency apps the run
+/// skipped (`Engine::skipped_apps`): for shapes a source alone does not make, such as a shell of an uncompiled app.
+pub(crate) fn outcomes_edited(
+    main: &str,
+    edit: impl FnOnce(&mut al_ir::Program),
+    skipped: Vec<String>,
+) -> Vec<(String, Outcome)> {
+    let (mut engine, l) = compile_on_system_edited("main", main, edit);
+    std::sync::Arc::get_mut(&mut engine).expect("not shared").skipped_apps = skipped;
+    let oi = l
+        .program
+        .objects
+        .iter()
+        .position(|o| o.name == "T")
+        .expect("test codeunit T");
+    run_codeunit(&engine, &l, oi)
+}
+
+fn compile_on_system_edited(
+    app_id: &str,
+    main: &str,
+    edit: impl FnOnce(&mut al_ir::Program),
+) -> (std::sync::Arc<Engine>, al_sema::lower::Lowered) {
     use al_sema::workspace::{AppKind, AppSource};
     let app = |id: &str, name: &str, files: Vec<(String, String)>| AppSource {
         id: id.into(),
@@ -49,6 +132,7 @@ fn outcomes_app(app_id: &str, main: &str) -> Vec<(String, Outcome)> {
     for a in program.apps.iter_mut().filter(|a| a.version.is_empty()) {
         a.version = "1.0.0.0".into();
     }
+    edit(&mut program);
     let engine = Engine::with_target(
         std::sync::Arc::new(program),
         blocked,
@@ -56,13 +140,7 @@ fn outcomes_app(app_id: &str, main: &str) -> Vec<(String, Outcome)> {
             al_version::BcVersion::parse("27.5.0.0").unwrap(),
         )),
     );
-    let oi = l
-        .program
-        .objects
-        .iter()
-        .position(|o| o.name == "T")
-        .expect("test codeunit T");
-    run_codeunit(&engine, &l, oi)
+    (engine, l)
 }
 
 fn passes(src: &str) {

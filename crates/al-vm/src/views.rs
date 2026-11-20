@@ -193,6 +193,17 @@ impl Session {
                 return unsupported("the filter text of a DateTime with seconds and no milliseconds (not pinned)");
             }
         }
+        // A closing date under another language than English: Format marks it with the letter of the language
+        // (localization/global-language/GlobalLanguageClosingDate.al:155, :264). GetFilter of it is pinned
+        // (record/filters/FilterGlobalLanguageDateBool.al:271, :325) but not answered here; GetFilters and GetView are not measured.
+        if let Value::Date(_, true) = v
+            && self.global_language != 1033
+        {
+            return unsupported(format!(
+                "the filter text of a closing date under GlobalLanguage {} (not implemented)",
+                self.global_language
+            ));
+        }
         let text = self.message_value(v)?;
         // A value that is only blank space is shown in single quotes (corpus
         // record/TestRecordRuntimeTextsAndViews.al:Record_GetView_And_GetFilters_Texts, the blank
@@ -326,7 +337,7 @@ impl Session {
         Ok(parts.join(""))
     }
 
-    /// The filters of the current filter group, in field order.
+    /// The filters of the current filter group, in declaration order (field position).
     fn filters_in_field_order(rec: &Rec) -> Vec<FieldFilter> {
         let r = rec.borrow();
         let mut v: Vec<FieldFilter> = r
@@ -389,15 +400,16 @@ impl Session {
         !Self::filters_in_field_order(rec).is_empty()
     }
 
-    /// `GetFilters`: `Caption: filter` pairs joined by `, ` (docs/probes-needed.md).
-    pub(crate) fn get_filters(&self, rec: &Rec, t: &TableDef) -> Result<String, Signal> {
+    /// `GetFilters`: `Caption: filter` pairs joined by `, ` (docs/probes-needed.md), in the order `get_filters_order` gives
+    /// (`record`: the record method GetFilters, not RecordRef.GetFilters or the text of a Find error).
+    pub(crate) fn get_filters(&self, rec: &Rec, t: &TableDef, record: bool) -> Result<String, Signal> {
         let mut parts = Vec::new();
         // A record on MarkedOnly names it first (testpage/P128SelectionFilter.al `marked A only`,
         // lt-ms-refusals-135/P135SelectionFilter.al:357 `filters=[Marked: Yes]` with no other filter).
         if rec.borrow().marked_only {
             parts.push("Marked: Yes".to_string());
         }
-        for f in Self::filters_in_field_order(rec) {
+        for f in self.get_filters_order(rec, t, record)? {
             self.enum_ml_filter_check(t, &f)?;
             parts.push(format!(
                 "{}: {}",
@@ -406,6 +418,52 @@ impl Session {
             ));
         }
         Ok(parts.join(", "))
+    }
+
+    /// The filters `get_filters` lists, in declaration order, except where a filter on a FlowField and a filter on a FlowFilter
+    /// field form a pair: the FlowField comes first by declaration position or by field number. BC lists the FlowFilter first in
+    /// the one shape pinned (record/filters/ByValueRecordView.al:575-576 with :582, :593-594 with :598):
+    /// `Record.GetFilters`, filter group 0, no MarkedOnly, exactly those two filters, both fields declared by the table itself,
+    /// the FlowField before the FlowFilter by position and by number alike, the FlowFilter's set first. Every other shape with
+    /// such a pair refuses, also RecordRef.GetFilters and the filter list of a Find error: the order over field classes is not
+    /// measured.
+    fn get_filters_order(&self, rec: &Rec, t: &TableDef, record: bool) -> Result<Vec<FieldFilter>, Signal> {
+        let filters = Self::filters_in_field_order(rec);
+        let schema = self.engine.program.objects[t.object as usize]
+            .table
+            .as_ref()
+            .expect("table");
+        let flow_filter = |f: &FieldFilter| schema.fields[f.field].flow_filter;
+        let flow_field = |f: &FieldFilter| schema.fields[f.field].calc.is_some();
+        let number = |f: &FieldFilter| schema.fields[f.field].id;
+        let pair = filters.iter().any(|a| {
+            flow_field(a)
+                && filters
+                    .iter()
+                    .any(|b| flow_filter(b) && (a.field < b.field || number(a) < number(b)))
+        });
+        if !pair {
+            return Ok(filters);
+        }
+        let r = rec.borrow();
+        let set_at = |f: &FieldFilter| r.filters.iter().position(|g| g.field == f.field && g.group == f.group);
+        let own = |f: &FieldFilter| schema.fields[f.field].declared_in == Some(t.object);
+        let measured = record
+            && r.filter_group == 0
+            && !r.marked_only
+            && filters.len() == 2
+            && flow_field(&filters[0])
+            && flow_filter(&filters[1])
+            && number(&filters[0]) < number(&filters[1])
+            && own(&filters[0])
+            && own(&filters[1])
+            && set_at(&filters[1]) < set_at(&filters[0]);
+        if !measured {
+            return unsupported(
+                "GetFilters of a filter on a FlowField and a filter on a FlowFilter field, outside the one pinned shape (ByValueRecordView.al:575-582; the order over field classes is not pinned)",
+            );
+        }
+        Ok(vec![filters[1].clone(), filters[0].clone()])
     }
 
     /// `GetView(UseNames)`: `SORTING(keyfields) [ORDER(Descending)] [WHERE(f=FILTER(x),...)]`.
@@ -495,9 +553,15 @@ impl Session {
                     !use_names && record_form && matches!(t.fields[f.field].ty, RtType::Option(_) | RtType::Enum(_));
                 let text = if option_ordinals || numeric_option {
                     // A Date or DateTime value takes the XML form here too (events/platform-triggers/PtObserve.al:600
-                    // `WHERE(Field5=1(2020-01-01..))`); a Boolean of this form is not pinned and keeps its session form.
-                    let iso = !matches!(t.fields[f.field].ty, RtType::Boolean);
-                    self.filter_text_with(&ordinals(&f.expr), iso)?
+                    // `WHERE(Field5=1(2020-01-01..))`). A Boolean filter of a FilterPageBuilder's GetView(Name, false) is not
+                    // pinned (al-runner issue 7632).
+                    if matches!(t.fields[f.field].ty, RtType::Boolean) {
+                        return unsupported(format!(
+                            "FilterPageBuilder.GetView(Name, false) with a filter on the Boolean field {}: the text is not pinned",
+                            t.fields[f.field].name
+                        ));
+                    }
+                    self.filter_text_with(&ordinals(&f.expr), true)?
                 } else {
                     self.enum_ml_filter_check(t, f)?;
                     self.filter_text_with(&f.expr, true)?

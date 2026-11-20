@@ -38,6 +38,13 @@ pub(crate) struct Tasks {
 }
 
 impl Tasks {
+    /// Holds what a new session holds (`install_left.rs`). Every field is named: a new one does not compile here until
+    /// it is decided.
+    pub(crate) fn as_new(&self) -> bool {
+        let Tasks { open, committed } = self;
+        open.is_empty() && committed.is_empty()
+    }
+
     pub(crate) fn commit(&mut self) {
         let open = std::mem::take(&mut self.open);
         self.committed.extend(open);
@@ -98,13 +105,19 @@ impl Session {
     }
 
     /// SetTaskReady(Id): a task of the session answers true and becomes ready (Y43TaskAfterCommit.al:284-288); an unknown
-    /// id returns (PlTTaskScheduler.al), its answer is not pinned. A NotBefore argument is not pinned.
+    /// id returns (W6TaskScheduler.al:128-136, PnC16HyperlinkTask.al:130); its answer is not pinned, so with the result used it is
+    /// refused. A NotBefore argument is not pinned.
     fn set_task_ready(&mut self, args: &[Value]) -> Result<Value, Signal> {
         let t = self.task_id(args, "SetTaskReady")?;
         if args.len() > 1 {
             return unsupported("TaskScheduler.SetTaskReady with a NotBefore argument");
         }
         if !self.task_exists(t) {
+            if self.ret_used {
+                return unsupported(
+                    "TaskScheduler.SetTaskReady of a task id the session does not know, with its result used (not pinned)",
+                );
+            }
             return Ok(Value::Null);
         }
         if let Some(def) = self.table_def(SCHEDULED_TASK) {

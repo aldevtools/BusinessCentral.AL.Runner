@@ -224,10 +224,20 @@ public sealed class Server
                     if (noFit != null) throw noFit;
                 }
                 if (cands.Length == 0)
-                    throw new Refusal(target == null && type.GetMethods(BindingFlags.Public | BindingFlags.Instance).Any(m => m.Name == name)
-                        ? $"'{type.FullName}.{name}' is an instance member and the variable holds no object"
-                        : $"member '{name}' not found on '{type.FullName}'");
-                var (best, coerced, _) = Pick(cands, args, $"{type.FullName}.{name}", textAsGuidFallback: true);
+                    throw new Refusal(NoObjectOrMissing(target, type, name, $"member '{name}' not found on '{type.FullName}'"));
+                // With no object only the static overloads are candidates. When none of them takes the argument count and
+                // an instance overload does (`Regex.IsMatch('a')`, `Regex.Replace('a', 'b')` on a variable never assigned;
+                // al-runner issue 8036), the call meant the instance member: say the variable holds no object. A static
+                // overload with that count keeps the overload refusal.
+                (MethodBase Best, object?[] Coerced, int Score) picked;
+                try { picked = Pick(cands, args, $"{type.FullName}.{name}", textAsGuidFallback: true); }
+                catch (Refusal) when (target == null && !cands.Any(m => TakesArgCount(m, args.Length))
+                    && type.GetMethods(BindingFlags.Public | BindingFlags.Instance)
+                        .Any(m => m.Name == name && !m.IsGenericMethodDefinition && TakesArgCount(m, args.Length)))
+                {
+                    throw new Refusal(NoObject(type, name));
+                }
+                var (best, coerced, _) = picked;
                 bound = PlainParameters(best) ? "method" : null;
                 object? result = ((MethodInfo)best).Invoke(((MethodInfo)best).IsStatic ? null : target, coerced);
                 return Done(result, best, coerced, args, ((MethodInfo)best).ReturnType);
@@ -253,7 +263,7 @@ public sealed class Server
                 var m = type.GetMethods(flags).Where(x => x.Name == name && x.GetParameters().Length == 0 && !x.IsGenericMethodDefinition).FirstOrDefault();
                 if (m != null)
                     return Done(m.Invoke(m.IsStatic ? null : target, Array.Empty<object>()), null, null, null, m.ReturnType);
-                throw new Refusal($"property, field or method '{name}' not found on '{type.FullName}'");
+                throw new Refusal(NoObjectOrMissing(target, type, name, $"property, field or method '{name}' not found on '{type.FullName}'"));
             }
             case "set":
             {
@@ -275,7 +285,7 @@ public sealed class Server
                     field.SetValue(field.IsStatic ? null : target, v.Value);
                     return Done(null, null, null, null);
                 }
-                throw new Refusal($"settable property or field '{name}' not found on '{type.FullName}'");
+                throw new Refusal(NoObjectOrMissing(target, type, name, $"settable property or field '{name}' not found on '{type.FullName}'"));
             }
             default:
                 throw new Refusal("unknown op " + req["op"]);
@@ -299,6 +309,19 @@ public sealed class Server
 
     // Every parameter of the bound member is passed by value. A member with a ref or out parameter gets no "bound": what it
     // wrote before it threw does not reach the host, so the host keeps it refused.
+    // A public instance method, property (an indexer is the property "Item") or field of this name: the call named a member
+    // that exists on a constructed object. With no object (target null) the refusal says the variable holds no object.
+    static bool HasPublicInstanceMember(Type type, string name) =>
+        type.GetMethods(BindingFlags.Public | BindingFlags.Instance).Any(m => m.Name == name)
+        || type.GetProperties(BindingFlags.Public | BindingFlags.Instance).Any(p => p.Name == name)
+        || type.GetFields(BindingFlags.Public | BindingFlags.Instance).Any(f => f.Name == name);
+
+    static string NoObjectOrMissing(object? target, Type type, string name, string missing) =>
+        target == null && HasPublicInstanceMember(type, name) ? NoObject(type, name) : missing;
+
+    static string NoObject(Type type, string name) =>
+        $"'{type.FullName}.{name}' is an instance member and the variable holds no object";
+
     static bool PlainParameters(MethodBase m) => m.GetParameters().All(p => p.ParameterType.IsByRef == false);
 
     /// The reply for an exception the request raised: [Failure], with the binding that threw and whether the member name
@@ -364,6 +387,7 @@ public sealed class Server
         if (bridges.Count > 0) streams["bridges"] = bridges;
         var written = marshal.DrainBridges();
         if (written.Count > 0) streams["written"] = written;
+        if (marshal.Overwritten.Count > 0) streams["overwritten"] = marshal.Overwritten.DeepClone();
         if (streams.Count > 0) reply["streams"] = streams;
         return reply;
     }
