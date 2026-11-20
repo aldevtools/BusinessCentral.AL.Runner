@@ -303,6 +303,9 @@ pub(crate) struct PageClients {
     pub(crate) bg_worker: Option<pages::BgWorker>,
     /// Which dialogs and errors the CaptionClass runs in progress may raise (`Session::caption_dialog_refusal`).
     pub(crate) caption_dialogs: crate::pages::CaptionDialogs,
+    /// The CaptionClass expression whose own call runs now, on a page whose open ran its empty-record runs without a pinned
+    /// number (`Session::caption_write_refusal`).
+    pub(crate) caption_write_guard: Option<crate::pages::CaptionWriteGuard>,
     /// The page whose enqueued background tasks run once the `EnqueueBackgroundTask` call that queued them has
     /// written its by-reference task id back (see `Session::bg_enqueue`).
     pub(crate) bg_drain_after_call: Option<Rc<RefCell<crate::pages::PageState>>>,
