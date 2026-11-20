@@ -33,7 +33,7 @@ impl Describe for Value {
             Value::Null => "an unassigned Variant".into(),
             Value::Unknown(why) => format!("an unknown value ({why})"),
             Value::SqlCount(_) => "a SQL counter value".into(),
-            Value::PlaceholderSize(m) => format!("the byte size of {m}"),
+            Value::PlaceholderSize(m, _) => format!("the byte size of {m}"),
             Value::Boolean(b) => format!("Boolean {b}"),
             Value::Integer(i) => format!("Integer {i}"),
             Value::BigInteger(i) => format!("BigInteger {i}"),
@@ -44,7 +44,7 @@ impl Describe for Value {
                 _ => format!("Char {c}"),
             },
             Value::Text(s) => format!("Text {}", quoted(s)),
-            Value::TextConst(s) => format!("TextConst {}", quoted(s)),
+            Value::TextConst(s, _) => format!("TextConst {}", quoted(s)),
             Value::Code(s) => format!("Code {}", quoted(s)),
             Value::Date(0, _) => "an undefined Date".into(),
             Value::Date(_, true) => "a closing Date".into(),
@@ -280,18 +280,19 @@ impl<T: Describe> Describe for [T] {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::value::{LibraryValue, RecordState};
     use std::cell::RefCell;
     use std::rc::Rc;
 
-    fn record(table: u32, temporary: bool) -> Value {
+    pub(crate) fn record(table: u32, temporary: bool) -> Value {
         Value::Record(Rc::new(RefCell::new(RecordState {
             table,
             temporary,
             temp_id: None,
             company: None,
+            change_company_called: false,
             crm: false,
             fields: Vec::new(),
             filters: Vec::new(),
@@ -323,6 +324,7 @@ mod tests {
             probed_source: Default::default(),
             globals: Default::default(),
             unpinned_buffer: None,
+            view_assumption: None,
             run_page_link: None,
         })))
     }

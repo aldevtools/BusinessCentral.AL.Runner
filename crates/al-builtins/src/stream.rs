@@ -141,9 +141,9 @@ pub const MEDIA_REENCODED: &str = "Media.ExportStream";
 /// 29; al-builtins media.rs `set_export_file`): the file exists, its bytes are not pinned.
 pub const MEDIA_SET_FILE_REENCODED: &str = "MediaSet.ExportFile";
 
-/// The mark a .docx `Media.ImportFile` puts on its media from BC 29, whose Linux tier stores a re-zipped package the corpus
-/// does not pin (`Gate::DocxMediaRezippedFrom29`).
-pub const MEDIA_DOCX_REZIPPED: &str = "Media.ImportFile of a .docx";
+/// The mark on a Word package imported as a Word document: BC stores it re-zipped on every major, with bytes that depend on the
+/// host (al-builtins `media_word_package`).
+pub const MEDIA_DOCX_REZIPPED: &str = "a Word package in a Media";
 
 /// The mark on the Layout media of a Tenant Report Layout row of format RDLC, Word or Excel: BC rewrites the stored bytes
 /// (reports/runtime/TrlResourceRows.al `length equals the file` No for all three, version-dependent lengths), so any look at
@@ -172,6 +172,17 @@ pub const UNLOADED_THEN_LOADED: &str = "Blob.CreateOutStream without CalcFields,
 /// it leaves in the Blob is not pinned (al-vm `dotnet/blob_stream.rs`).
 pub const DOTNET_WRITE_AFTER_CLOSE: &str = "System.IO.Stream write after Close";
 
+/// The mark a `DotNet` call puts on the Blob behind an `OutStream` argument when .NET wrote over bytes it had already handed back
+/// to the Blob after an earlier call, or set the stream's length below them: the call succeeds
+/// (tests/al-language-onprem-dotnet/dotnet/zip-create/Y44ZipCreateMode.al, Zip_OpenTemporaryNoCopy_SecondCreate), what the Blob
+/// then holds is not pinned (al-runner issue 7947; the bridge is in tools/dotnet-sidecar/Marshal.cs).
+pub const DOTNET_BRIDGE_OVERWRITTEN: &str = "a DotNet write over bytes an OutStream had handed back";
+
+/// Whether a mark says a .NET stream left bytes in the Blob that no later `CreateOutStream` makes known.
+fn dotnet_bytes_unknown(mark: Option<&str>) -> bool {
+    matches!(mark, Some(DOTNET_WRITE_AFTER_CLOSE | DOTNET_BRIDGE_OVERWRITTEN))
+}
+
 /// The mark on the Metadata Blob of a query's Application Object Metadata row: the bytes hold only the query's id, for
 /// Microsoft's `QueryMetadataReader.FromStream` (al-vm `dotnet/query_metadata.rs`). What BC stores there is not pinned, so
 /// every other look at the Blob is refused; `HasValue` is Yes (ODataUtility.GetTenantWebServiceMetadata reads it before
@@ -183,8 +194,8 @@ pub const QUERY_METADATA: &str = "Application Object Metadata.Metadata of a quer
 /// and 108 on the Linux image for a 1x1 PNG: windows-check-results 2026-10-23 RJ item B) moves through File.Exists, File.Open
 /// and CreateInStream, CopyStream, a Blob field (Config. Media Buffer) and the package export as an opaque value. Any read of
 /// its bytes, length, hash or text is still refused with the mark. Only the company build (`Ctx::company_build`) carries it.
-/// Also the .docx a Media.ExportStream re-zips (`MEDIA_DOCX_REZIPPED`: Windows BC of the newest major re-zips it too, probe cu
-/// 61288 case DX) and a file .NET saved with such content in it (`PACKAGE_CARRIED`).
+/// Also the .docx a Media.ExportStream re-zips (`MEDIA_DOCX_REZIPPED`: Windows BC re-zips it on every major, probe cu 61288 case
+/// DX and corpus PR 1469) and a file .NET saved with such content in it (`PACKAGE_CARRIED`).
 pub fn is_carried_mark(what: &str) -> bool {
     what == MEDIA_SET_FILE_REENCODED || what == MEDIA_DOCX_REZIPPED || what == PACKAGE_CARRIED
 }
@@ -286,6 +297,13 @@ pub fn render_pending_error(report: &str) -> Signal {
                 .into(),
         );
     }
+    if report == DOTNET_BRIDGE_OVERWRITTEN {
+        return Signal::Unsupported(
+            "a Blob whose bytes a DotNet call wrote over after it had handed them back (the call succeeds; what the Blob holds \
+             then is not pinned)"
+                .into(),
+        );
+    }
     if report == DOTNET_WRITE_AFTER_CLOSE {
         return Signal::Unsupported(
             "a Blob a DotNet System.IO.Stream wrote to after Close or Dispose (the write succeeds; what the Blob holds then is not \
@@ -307,8 +325,8 @@ pub fn render_pending_error(report: &str) -> Signal {
     }
     if report == MEDIA_DOCX_REZIPPED {
         return Signal::Unsupported(
-            "the Tenant Media row and the exported bytes of a .docx Media.ImportFile on this major (a re-zipped package on the Linux \
-             tier, not pinned: MediaFiles.al:505-509)"
+            "the Tenant Media row and the exported bytes of a Word package (.docx, .dotx, .docm) imported into a Media or MediaSet \
+             (BC stores a re-zipped package whose bytes depend on the host: corpus PR 1469, MediaDocxRezip.al)"
                 .into(),
         );
     }
@@ -1124,11 +1142,11 @@ fn blob_create_out(_: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) 
         buf.dotnet_view = 0;
         if unloaded_content || buf.render_pending.as_deref().is_some_and(is_unloaded_write_mark) {
             buf.render_pending = Some(UNLOADED_WRITE.into());
-        } else if buf.render_pending.as_deref() != Some(DOTNET_WRITE_AFTER_CLOSE)
-            && crate::placeholder_output::of(&buf).is_none()
+        } else if !dotnet_bytes_unknown(buf.render_pending.as_deref()) && crate::placeholder_output::of(&buf).is_none()
         {
-            // The bytes a .NET stream wrote after Close stay unknown: the new stream writes over the content. So do a
-            // placeholder report output's: the stream writes over its first bytes and the rest stays (`placeholder_output`).
+            // The bytes a .NET stream wrote after Close or over handed-back bytes stay unknown: the new stream writes over
+            // the content, so the mark stays and a later read still refuses. So do a placeholder report output's: the stream
+            // writes over its first bytes and the rest stays (`placeholder_output`).
             buf.render_pending = None;
         }
         buf.write_pos = 0;

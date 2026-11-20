@@ -27,9 +27,17 @@ dotnet
         type("System.IO.Path"; DnPath) { }
         type("System.TimeSpan"; DnTimeSpan) { }
         type("System.IO.MemoryStream"; DnMemoryStream) { }
+        type("System.IO.StreamWriter"; DnStreamWriter) { }
+        type("System.IO.Stream"; DnStream) { }
         type("System.String[]"; DnStringArray) { }
         type("System.Collections.ArrayList"; DnArrayList) { }
         type("System.Collections.Queue"; DnQueue) { }
+    }
+    assembly("netstandard")
+    {
+        type("System.IO.Compression.ZipArchive"; DnZip) { }
+        type("System.IO.Compression.ZipArchiveMode"; DnZipMode) { }
+        type("System.IO.Compression.ZipArchiveEntry"; DnZipEntry) { }
     }
     assembly("System.Text.RegularExpressions")
     {
@@ -122,6 +130,98 @@ codeunit 50100 C
         Target.Data.CreateOutStream(O);
         CopyStream(O, Memory);
         exit(ReadBlob(Target) + '|' + Format(Memory.Position));
+    end;
+
+    local procedure WriterOver(var Target: Record "ALT Blob" temporary; var Base: DotNet DnStream)
+    var
+        Writer: DotNet DnStreamWriter;
+        O: OutStream;
+    begin
+        Target.Data.CreateOutStream(O);
+        Writer := Writer.StreamWriter(O);
+        Writer.Write('abc');
+        Writer.Flush();
+        Base := Writer.BaseStream;
+    end;
+
+    procedure WriterAppendsAfterFlush(): Text
+    var
+        Target: Record "ALT Blob" temporary;
+        Base: DotNet DnStream;
+    begin
+        WriterOver(Target, Base);
+        Base.WriteByte(100);
+        exit(ReadBlob(Target));
+    end;
+
+    procedure WriterOverwritesAfterFlush(): Text
+    var
+        Target: Record "ALT Blob" temporary;
+        Base: DotNet DnStream;
+    begin
+        WriterOver(Target, Base);
+        Base.Position := 0;
+        Base.WriteByte(120);
+        exit(ReadBlob(Target));
+    end;
+
+    procedure ZipEntryWriteByteThenRead(): Text
+    var
+        Target: Record "ALT Blob" temporary;
+        Zip: DotNet DnZip;
+        Mode: DotNet DnZipMode;
+        E: DotNet DnZipEntry;
+        O: OutStream;
+    begin
+        Target.Data.CreateOutStream(O);
+        Zip := Zip.ZipArchive(O, Mode.Create);
+        E := Zip.CreateEntry('a.txt');
+        E.Open().WriteByte(65);
+        exit(ReadBlob(Target));
+    end;
+
+    procedure WriterSetLengthBelowFlush(): Text
+    var
+        Target: Record "ALT Blob" temporary;
+        Base: DotNet DnStream;
+    begin
+        WriterOver(Target, Base);
+        Base.SetLength(1);
+        exit(ReadBlob(Target));
+    end;
+
+    procedure BlobHandedToDotNetAgain(): Integer
+    var
+        Target: Record "ALT Blob" temporary;
+        Writer: DotNet DnStreamWriter;
+        W2: DotNet DnStreamWriter;
+        O: OutStream;
+    begin
+        Target.Data.CreateOutStream(O);
+        Writer := Writer.StreamWriter(O);
+        Writer.Write('abc');
+        Writer.Flush();
+        W2 := W2.StreamWriter(O);
+        exit(W2.BaseStream.Length);
+    end;
+
+    procedure OverwrittenBlobHandedToDotNetAgain(): Integer
+    var
+        Target: Record "ALT Blob" temporary;
+        Writer: DotNet DnStreamWriter;
+        W2: DotNet DnStreamWriter;
+        Base: DotNet DnStream;
+        O: OutStream;
+    begin
+        Target.Data.CreateOutStream(O);
+        Writer := Writer.StreamWriter(O);
+        Writer.Write('abc');
+        Writer.Flush();
+        Base := Writer.BaseStream;
+        Base.Position := 0;
+        Base.WriteByte(120);
+        W2 := W2.StreamWriter(O);
+        exit(W2.BaseStream.Length);
     end;
 
     procedure CopyOutWithACount(): Text
@@ -721,6 +821,41 @@ fn copystream_out_of_a_memorystream_copies_the_whole_stream_or_the_count_from_th
         Some("hello world|0") | None
     ));
     assert!(matches!(txt("CopyOutWithACount").as_deref(), Some("hello|5") | None));
+}
+
+// al-runner issue 7947: a .NET write over bytes a bridge already handed back to the Blob runs (as the zip archive's patch of its
+// header does in Y44ZipCreateMode.al, Zip_OpenTemporaryNoCopy_SecondCreate), and the Blob is marked: reading it is refused. A
+// write after them reaches the Blob.
+#[test]
+fn a_dotnet_write_over_bytes_handed_back_to_a_blob_marks_the_blob() {
+    assert!(matches!(txt("WriterAppendsAfterFlush").as_deref(), Some("abcd") | None));
+    if let Some(w) = refusal("WriterOverwritesAfterFlush") {
+        assert!(w.contains("wrote over after it had handed them back"), "{w}");
+    }
+    // Setting the length below the handed-back bytes marks the Blob too.
+    if let Some(w) = refusal("WriterSetLengthBelowFlush") {
+        assert!(w.contains("wrote over after it had handed them back"), "{w}");
+    }
+}
+
+// The archive writes the entry's header again when the temporary stream of ZipArchiveEntry.Open() closes (the Dispose of
+// that stream): over bytes the Blob already holds. Reading the Blob then is refused, as for any other .NET write over them.
+#[test]
+fn a_zip_entry_stream_closed_after_writebyte_marks_the_blob() {
+    if let Some(w) = refusal("ZipEntryWriteByteThenRead") {
+        assert!(w.contains("wrote over after it had handed them back"), "{w}");
+    }
+}
+
+// The OutStream of a Blob whose bytes a .NET call wrote over goes to .NET again: BC hands .NET the Blob's own stream
+// (WdZipArchiveOverOutStream.al:77-96), whose bytes are not known. Refused.
+#[test]
+fn an_outstream_of_a_marked_blob_handed_to_dotnet_is_refused() {
+    if let Some(w) = refusal("OverwrittenBlobHandedToDotNetAgain") {
+        assert!(w.contains("a DotNet call wrote over"), "{w}");
+    }
+    // Without the write over them, .NET gets the Blob's bytes, as before.
+    assert!(matches!(int("BlobHandedToDotNetAgain"), 3 | i32::MIN));
 }
 
 #[test]

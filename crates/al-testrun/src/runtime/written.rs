@@ -323,11 +323,46 @@ impl ReachIndex {
         Some(cell.get_or_init(|| Box::new(Rec::record(events, lowered, self, o, r))))
     }
 
+    /// The tables routine `r` of `o` writes in its own body, when what it does beyond its static calls is known. `None`
+    /// when it runs an object (by an id, or through a codeunit variable), writes a table not known statically (a
+    /// `RecordRef`, an xmlport, media, `DataTransfer`) or has a part that is not known (a refused routine or construct,
+    /// triggers run on a table not known). For `table_reads::ReadOnlyTables`.
+    pub(crate) fn own_writes(
+        &self,
+        events: &al_vm::events::Registry,
+        lowered: &Lowered,
+        o: usize,
+        r: usize,
+    ) -> Option<Vec<u32>> {
+        let mut out = Vec::new();
+        for step in &self.summary(events, lowered, o, r)?.steps {
+            match step {
+                Step::Write(Some(t), _) => out.push(*t),
+                Step::Push(..) | Step::Events(_) | Step::TableOps(..) => {}
+                Step::Write(None, _) | Step::Run(_) | Step::Unknown(_) => return None,
+            }
+        }
+        Some(out)
+    }
+
     /// How many routines have a recorded [`Summary`].
     #[cfg(test)]
     fn recorded(&self) -> usize {
         self.summaries.iter().flatten().filter(|c| c.get().is_some()).count()
     }
+}
+
+/// The reach facts of test (or trigger) `routine` of `object` together with the handler functions it names
+/// (`handlers::test_roots`), which the test runner calls while it runs: one walk of their joined reach.
+pub(crate) fn test_reach_facts(
+    events: &al_vm::events::Registry,
+    lowered: &Lowered,
+    index: &ReachIndex,
+    object: usize,
+    routine: usize,
+) -> ReachFacts {
+    let roots = super::handlers::test_roots(lowered, object, routine);
+    walk_reach(events, lowered, index, &roots, &|_| false)
 }
 
 /// The reach facts of routine `routine` of `object`.
@@ -582,11 +617,7 @@ pub(crate) fn union_reach_has(
     fact(&walk_reach(events, lowered, index, roots, fact))
 }
 
-/// The reach facts of an unfinished test (the earlier side of [`ReachFacts::changes_read_by`]): the walk stops at
-/// the first part of the reach that is not known, because that alone decides both questions asked of it
-/// (`changes_read_by` and `random` answer from `unknown` before anything else). The rest of the facts are then
-/// incomplete and must not be read. A walk of the whole reach visits about 49 000 routines with Microsoft's apps
-/// (150 ms), once per unfinished test of a codeunit.
+/// The first report in the reach of routine `routine` of `object` that cannot run here, if any.
 pub(crate) fn report_that_cannot_run(
     events: &al_vm::events::Registry,
     lowered: &Lowered,
@@ -612,6 +643,12 @@ pub(crate) fn report_that_cannot_run(
     walk.out.report_cannot_run
 }
 
+/// The reach facts of unfinished test `routine` of `object` and the handler functions it names (`handlers::test_roots`;
+/// the earlier side of [`ReachFacts::changes_read_by`]): the walk stops at
+/// the first part of the reach that is not known, because that alone decides both questions asked of it
+/// (`changes_read_by` and `random` answer from `unknown` before anything else). The rest of the facts are then
+/// incomplete and must not be read. A walk of the whole reach visits about 49 000 routines with Microsoft's apps
+/// (150 ms), once per unfinished test of a codeunit.
 pub(crate) fn unfinished_reach_facts(
     events: &al_vm::events::Registry,
     lowered: &Lowered,
@@ -619,7 +656,8 @@ pub(crate) fn unfinished_reach_facts(
     object: usize,
     routine: usize,
 ) -> ReachFacts {
-    walk_reach(events, lowered, index, &[(object, routine)], &|f| f.unknown.is_some())
+    let roots = super::handlers::test_roots(lowered, object, routine);
+    walk_reach(events, lowered, index, &roots, &|f| f.unknown.is_some())
 }
 
 /// The index in the body of test routine `routine` of `object` of the statement that holds the statement position
@@ -639,6 +677,46 @@ pub(crate) fn statement_at(lowered: &Lowered, object: usize, routine: usize, pos
     }
     let body = &lowered.program.objects[object].routines.get(routine)?.body;
     body.iter().position(|s| holds(std::slice::from_ref(s), pos))
+}
+
+/// The local (`false`) or global (`true`) slot a place is part of; `None` for a slot of another instance.
+pub(crate) fn root(p: &Place) -> Option<(bool, usize)> {
+    let mut p = p;
+    loop {
+        match p {
+            Place::Index(b, _) | Place::Field(b, _) | Place::RecGlobal(b, ..) => p = b,
+            Place::Local(i) => return Some((false, *i)),
+            Place::Global(i) => return Some((true, *i)),
+            Place::BaseGlobal(_) | Place::ExtGlobal(..) => return None,
+        }
+    }
+}
+/// Calls `note` on every place `body` assigns, its loop variables included (statements only; the places of expressions
+/// are found by walking them).
+pub(crate) fn stmt_places(body: &[Stmt], note: &mut dyn FnMut(&Place)) {
+    for s in body {
+        match s {
+            Stmt::Assign(p, _) => note(p),
+            Stmt::For { var, body, .. } | Stmt::Foreach { var, body, .. } => {
+                note(var);
+                stmt_places(body, note);
+            }
+            Stmt::If(_, a, b) => {
+                stmt_places(a, note);
+                stmt_places(b, note);
+            }
+            Stmt::While(_, b) | Stmt::Repeat(b, _) | Stmt::AssertError(b) => stmt_places(b, note),
+            Stmt::Case {
+                branches, otherwise, ..
+            } => {
+                for (_, b) in branches {
+                    stmt_places(b, note);
+                }
+                stmt_places(otherwise, note);
+            }
+            _ => {}
+        }
+    }
 }
 
 /// The reach facts of a test refused while it ran, when the refusal came from a statement of the test method itself
@@ -674,42 +752,6 @@ pub(crate) fn remainder_reach_facts(
     let rest = rt.body.get(from..)?;
     // Per slot (global or not, index) the rest names: how often, and how often as the test page of a filter read.
     let mut named: BTreeMap<(bool, usize), (usize, usize)> = BTreeMap::new();
-    fn root(p: &Place) -> Option<(bool, usize)> {
-        let mut p = p;
-        loop {
-            match p {
-                Place::Index(b, _) | Place::Field(b, _) | Place::RecGlobal(b, ..) => p = b,
-                Place::Local(i) => return Some((false, *i)),
-                Place::Global(i) => return Some((true, *i)),
-                Place::BaseGlobal(_) | Place::ExtGlobal(..) => return None,
-            }
-        }
-    }
-    fn stmt_places(body: &[Stmt], note: &mut dyn FnMut(&Place)) {
-        for s in body {
-            match s {
-                Stmt::Assign(p, _) => note(p),
-                Stmt::For { var, body, .. } | Stmt::Foreach { var, body, .. } => {
-                    note(var);
-                    stmt_places(body, note);
-                }
-                Stmt::If(_, a, b) => {
-                    stmt_places(a, note);
-                    stmt_places(b, note);
-                }
-                Stmt::While(_, b) | Stmt::Repeat(b, _) | Stmt::AssertError(b) => stmt_places(b, note),
-                Stmt::Case {
-                    branches, otherwise, ..
-                } => {
-                    for (_, b) in branches {
-                        stmt_places(b, note);
-                    }
-                    stmt_places(otherwise, note);
-                }
-                _ => {}
-            }
-        }
-    }
     fn note(named: &mut BTreeMap<(bool, usize), (usize, usize)>, p: &Place) {
         if let Some(k) = root(p) {
             named.entry(k).or_default().0 += 1;
@@ -1055,7 +1097,7 @@ impl<'a> Walk<'a> {
             return;
         }
         // A report the runtime refuses when it runs (`Session::report_schema`): what the test does before it is not followed.
-        if let Some(why) = obj.report.as_ref().and_then(|r| r.unsupported.first()) {
+        if let Some(why) = obj.report.as_ref().and_then(|r| r.run_refusal()) {
             self.unknown(|| format!("runs {}, which cannot run: {why}", obj.name));
             if self.out.report_cannot_run.is_none() {
                 self.out.report_cannot_run = Some(format!("runs {}, which cannot run: {why}", obj.name));

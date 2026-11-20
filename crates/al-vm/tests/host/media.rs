@@ -313,14 +313,35 @@ fn import_file(body: &str) -> Result<String, Signal> {
     import_file_on(None, body)
 }
 
-/// A Word package as far as the import looks at it: a zip local file header.
-fn docx() -> Vec<u8> {
-    let mut b = vec![b'P', b'K', 3, 4];
-    b.extend_from_slice(b"word/document.xml");
+/// The 911-byte Word package every cell of corpus PR 1469 imports (onprem streams/media/MediaDocxRezip.al:46-57 DocxBase64, the
+/// RdDocxBase64 of MediaFiles.al): `[Content_Types].xml`, `_rels/.rels` and `word/document.xml`, deflated.
+pub(crate) fn word_package() -> Vec<u8> {
+    al_host::inproc::from_base64(WORD_PACKAGE_BASE64).unwrap()
+}
+
+const WORD_PACKAGE_BASE64: &str = "UEsDBBQAAAAIAAAAIVx5bjPX6AAAAK0BAAATAAAAW0NvbnRlbnRfVHlwZXNdLnhtbH1QyU7DMBD9FWuuKHHggBCK0wPLETiUDxjZk8SqN3nc0v49Tlt6QIXjzFv1+tXeO7GjzDYGBbdtB4KCjsaGScHn+rV5AMEFg0EXAyk4EMNq6NeHRCyqNrCCuZT0KCXrmTxyGxOFiowxeyz1zJNMqDc4kbzrunupYygUSlMWDxj6Zxpx64p42df3qUcmxyCeTsQlSwGm5KzGUnG5C+ZXSnNOaKvyyOHZJr6pBJBXExbk74Cz7r0Ok60h8YG5vKGvLPkVs5Em6q2vyvZ/mys94zhaTRf94pZy1MRcF/euvSAebfjpL49zD99QSwMEFAAAAAgAAAAhXJv9N+qtAAAAKQEAAAsAAABfcmVscy8ucmVsc43POw7CMAwG4KtE3mlaBoRQ0y4IqSsqB7ASN61oHkrCo7cnAwNFDIy2f3+W6/ZpZnanECdnBVRFCYysdGqyWsClP232wGJCq3B2lgQsFKFt6jPNmPJKHCcfWTZsFDCm5A+cRzmSwVg4TzZPBhcMplwGzT3KK2ri27Lc8fBpwNpknRIQOlUB6xdP/9huGCZJRydvhmz6ceIrkWUMmpKAhwuKq3e7yCzwpuarF5sXUEsDBBQAAAAIAAAAIVzXDGLpogAAANcAAAARAAAAd29yZC9kb2N1bWVudC54bWxFjkEOwiAQRa9C2FuqC2Oa0m6MK1emHgBhbJvADAG09vZCXbh5PzOT/zJt/3GWvSHEmVDyfVVzBqjJzDhKfh8uuxNnMSk0yhKC5CtE3nft0hjSLweYWBZgbBbJp5R8I0TUEzgVK/KA+fak4FTKYxjFQsH4QBpizH5nxaGuj8KpGXlRPsisJX1BKEjddWC3M0vgvFUJWlF2hWGj3/jrif9P3RdQSwECFAMUAAAACAAAACFceW4z1+gAAACtAQAAEwAAAAAAAAAAAAAAgAEAAAAAW0NvbnRlbnRfVHlwZXNdLnhtbFBLAQIUAxQAAAAIAAAAIVyb/TfqrQAAACkBAAALAAAAAAAAAAAAAACAARkBAABfcmVscy8ucmVsc1BLAQIUAxQAAAAIAAAAIVzXDGLpogAAANcAAAARAAAAAAAAAAAAAACAAe8BAAB3b3JkL2RvY3VtZW50LnhtbFBLBQYAAAAAAwADALkAAADAAgAAAAA=";
+
+/// One zip local file header for the entry `first`, with no data and no central directory: a cut package.
+pub(crate) fn local_header(first: &str) -> Vec<u8> {
+    let mut b = b"PK\x03\x04".to_vec();
+    b.extend_from_slice(&[20, 0, 0, 0, 8, 0, 0, 0, 0, 0]);
+    b.extend_from_slice(&[0; 12]);
+    b.extend_from_slice(&u16::try_from(first.len()).unwrap().to_le_bytes());
+    b.extend_from_slice(&[0, 0]);
+    b.extend_from_slice(first.as_bytes());
     b
 }
 
+fn docx() -> Vec<u8> {
+    word_package()
+}
+
 fn import_file_on(bc: Option<&str>, body: &str) -> Result<String, Signal> {
+    import_with_files(bc, &[], body)
+}
+
+/// Runs `body` as the procedure F of a codeunit with `Rec`, `T` (Tenant Media) and `id`, over the files below plus `extra`.
+pub(crate) fn import_with_files(bc: Option<&str>, extra: &[(&str, Vec<u8>)], body: &str) -> Result<String, Signal> {
     use al_host::FileSystem;
     let src = format!(
         "{TABLE}{TENANT_MEDIA}codeunit 50101 C {{ procedure F(): Text var Rec: Record \"ALT Media\"; T: Record \"Tenant Media\"; id: Guid; {body} }}"
@@ -342,6 +363,9 @@ fn import_file_on(bc: Option<&str>, body: &str) -> Result<String, Signal> {
     files.write("\\TEMP\\E.PNG", &png()).unwrap();
     files.write("\\TEMP\\t.docx", &docx()).unwrap();
     files.write("\\TEMP\\u.docx", &jpeg()).unwrap();
+    for (name, bytes) in extra {
+        files.write(name, bytes).unwrap();
+    }
     let target = bc.map(|bc| al_version::Target::for_bc(al_version::BcVersion::parse(bc).unwrap()));
     let engine = al_vm::Engine::with_target(l.program.clone(), al_testkit::blocked(&l), target);
     let mut s = Session::with_host(engine, al_host::Host::default().with_files(files));
@@ -466,57 +490,42 @@ fn media_set_import_file_third_member_is_refused() {
     );
 }
 
-// onprem streams/media/MediaFiles.al:461-517 RD_Media_ImportFile_Docx: a .docx file imports into a Media with its description, the Word
-// MIME type, width and height 0 and the path as File Name ('<tmp><name>'); on BC 27 and 28 the Tenant Media content and the
-// exported bytes are the file's. BC 29 on Linux stores a re-zipped package (a Linux suspect, :505-509 ignore it): there a look
-// at the row or at the export is refused.
-const DOCX_ROW: &str = "Rec.Code := 'A'; Rec.Insert(); T.Get(id); T.CalcFields(Content); exit(Format(id = Rec.Picture.MediaId()) + '|' + \
-                        Format(Rec.Picture.HasValue()) + '|' + T.Description + '|' + T.\"Mime Type\" + '|' + Format(T.Width) + 'x' + \
-                        Format(T.Height) + '|' + T.\"File Name\" + '|' + Format(T.Content.Length()));";
+// onprem streams/media/MediaFiles.al:470-530 RD_Media_ImportFile_Docx pins the import of a .docx file (HasValue Yes). What BC stores is
+// a re-zipped package (on BC 27 and 28 neither the Tenant Media content nor the export is the file, :525-527; BC 29 ignores both cells,
+// :515-519; corpus PR 1469, MediaDocxRezip.al:392 Docx_MediaImportFile_Stored, measured on Windows BC 27.5, 28.5 and 29.0): a look at the
+// row or at the export is refused on every major.
+const DOCX_ROW: &str =
+    "Rec.Code := 'A'; Rec.Insert(); T.Get(id); T.CalcFields(Content); exit(Format(T.Content.Length()));";
 
 #[test]
-fn import_file_of_a_docx_file_keeps_the_file_on_bc_28() {
-    let r = import_file_on(
-        Some("28.5"),
-        &format!("begin id := Rec.Picture.ImportFile('\\TEMP\\t.docx', 'Template'); {DOCX_ROW} end;"),
-    );
-    assert_eq!(
-        r.unwrap(),
-        "Yes|Yes|Template|application/vnd.openxmlformats-officedocument.wordprocessingml.document|0x0|\\TEMP\\t.docx|21"
-    );
-    let r = import_file_on(
-        Some("27.5"),
-        "Out: OutStream; InS: InStream; B: Record \"ALT Media\" temporary; t: Text; begin id := Rec.Picture.ImportFile('\\TEMP\\t.docx', 'x'); \
-         Rec.Code := 'A'; Rec.Insert(); Rec.Get('A'); B.Src.CreateOutStream(Out); Rec.Picture.ExportStream(Out); B.Src.CreateInStream(InS); \
-         InS.ReadText(t); exit(Format(B.Src.Length()) + '|' + CopyStr(t, 5, 4)); end;",
-    );
-    assert_eq!(r.unwrap(), "21|word");
-}
-
-#[test]
-fn import_file_of_a_docx_file_on_bc_29_refuses_a_look_at_its_bytes() {
-    let ok = import_file_on(
-        Some("29.0"),
-        "begin id := Rec.Picture.ImportFile('\\TEMP\\t.docx', 'Template'); Rec.Code := 'A'; Rec.Insert(); \
-         exit(Format(Rec.Picture.HasValue())); end;",
-    );
-    assert_eq!(ok.unwrap(), "Yes");
-    for body in [
-        format!("begin id := Rec.Picture.ImportFile('\\TEMP\\t.docx', 'Template'); {DOCX_ROW} end;"),
-        "Out: OutStream; B: Record \"ALT Media\" temporary; begin Rec.Picture.ImportFile('\\TEMP\\t.docx', 'x'); \
-         B.Src.CreateOutStream(Out); Rec.Picture.ExportStream(Out); exit(Format(B.Src.Length())); end;"
-            .into(),
-        // A .docx name over content that is no zip package.
-        "begin Rec.Picture.ImportFile('\\TEMP\\u.docx', 'x'); exit(''); end;".into(),
-    ] {
-        let r = import_file_on(Some("29.0"), &body);
-        assert!(matches!(&r, Err(Signal::Unsupported(_))), "{body}: {r:?}");
+fn import_file_of_a_docx_file_refuses_a_look_at_its_bytes_on_every_major() {
+    for bc in ["27.5", "28.5", "29.0"] {
+        let ok = import_file_on(
+            Some(bc),
+            "begin id := Rec.Picture.ImportFile('\\TEMP\\t.docx', 'Template'); Rec.Code := 'A'; Rec.Insert(); \
+             exit(Format(Rec.Picture.HasValue())); end;",
+        );
+        assert_eq!(ok.unwrap(), "Yes", "{bc}");
+        for body in [
+            format!("begin id := Rec.Picture.ImportFile('\\TEMP\\t.docx', 'Template'); {DOCX_ROW} end;"),
+            "Out: OutStream; InS: InStream; B: Record \"ALT Media\" temporary; s: Text; begin Rec.Picture.ImportFile('\\TEMP\\t.docx', 'x'); \
+             B.Src.CreateOutStream(Out); Rec.Picture.ExportStream(Out); B.Src.CreateInStream(InS); InS.ReadText(s); exit(s); end;"
+                .into(),
+            // A .docx name over content that is neither a zip package nor plain text.
+            "begin Rec.Picture.ImportFile('\\TEMP\\u.docx', 'x'); exit(''); end;".into(),
+        ] {
+            let r = import_file_on(Some(bc), &body);
+            assert!(
+                matches!(&r, Err(Signal::Unsupported(w)) if !w.contains("no callee")),
+                "{bc} {body}: {r:?}"
+            );
+        }
     }
 }
 
-// onprem streams/media/MediaFiles.al:490-509 RD_Media_ImportFile_Docx on BC 29: ExportStream of the imported .docx runs without an error
-// (the test passes there; only the bytes are ignored), as Config. XML Exchange.ExportMedia needs it in the DemoTool company build
-// (ConfigXMLExchange.Codeunit.al:1486). The stream is marked: a look at what it holds stays refused.
+// onprem streams/media/MediaFiles.al:500-502 RD_Media_ImportFile_Docx: ExportStream of the imported .docx runs without an error, as
+// Config. XML Exchange.ExportMedia needs it in the DemoTool company build (ConfigXMLExchange.Codeunit.al:1486). The stream is marked:
+// a look at what it holds stays refused.
 // Windows BC 29.0 probe (winprobe-wc6 cu 61288 SC_DemoTool_Media_ExportStream, case JD): Media.ExportStream of a JPEG that
 // Media.ImportFile read, with a JFIF header of units 1 and density 300 x 300 (the DemoTool's Person and item pictures), gives the
 // file's bytes. A JFIF header of units 0 is rewritten (case JS), so it stays refused, as on BC 28.
@@ -545,9 +554,9 @@ fn export_stream_of_a_300_dpi_jfif_jpeg_gives_the_file_bytes_on_bc_29() {
 }
 
 #[test]
-fn export_stream_of_a_docx_file_on_bc_29_runs_and_a_look_at_the_bytes_is_refused() {
+fn export_stream_of_a_docx_file_runs_and_a_look_at_the_bytes_is_refused() {
     let ok = import_file_on(
-        Some("29.0"),
+        Some("27.5"),
         "Out: OutStream; B: Record \"ALT Media\" temporary; begin Rec.Picture.ImportFile('\\TEMP\\t.docx', 'x'); \
          B.Code := 'B'; B.Insert(); B.Src.CreateOutStream(Out); Rec.Picture.ExportStream(Out); B.Modify(); exit('ran'); end;",
     );
@@ -633,7 +642,7 @@ fn export_file_in(bc: &str, serve: bool, company_build: bool, body: &str) -> Res
 const LEN: &str = "local procedure Len(Name: Text): Integer var G: File; begin if not Exists(Name) then exit(-1); \
                    G.Open(Name); exit(G.Len()); end;";
 
-// onprem streams/media/MediaFiles.al:772 RJ_MediaSet_ExportFile_ConfigPackageShape (Config. XML Exchange.ExportMediaSet): ExportFile
+// onprem streams/media/MediaFiles.al:776 RJ_MediaSet_ExportFile_ConfigPackageShape (Config. XML Exchange.ExportMediaSet): ExportFile
 // returns the number of items and writes <prefix>-1 with no extension. Whether a JPEG's bytes are kept is not pinned since corpus
 // bump 62 (Windows BC 29.0 re-encodes it, the Linux image keeps it; corpus issue 723): the file is written with a mark and a look
 // at its bytes is refused, on BC 29 too.
@@ -653,7 +662,7 @@ fn media_set_export_file_of_one_jpeg_writes_prefix_dash_1() {
     assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
 }
 
-// MediaFiles.al:772: file -n holds the n-th Tenant Media Set row in primary key order (ID, Media ID); how BC orders the Media
+// MediaFiles.al:776: file -n holds the n-th Tenant Media Set row in primary key order (ID, Media ID); how BC orders the Media
 // ID Guids is not pinned, so a set of two items is refused.
 #[test]
 fn media_set_export_file_of_two_items_is_refused() {
@@ -667,7 +676,7 @@ fn media_set_export_file_of_two_items_is_refused() {
     assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
 }
 
-// MediaFiles.al:772: a PNG item is re-encoded (W7Media.al:141-145, every major), a JPEG on BC 27 and 28 (corpus bump 61):
+// MediaFiles.al:776: a PNG item is re-encoded (W7Media.al:141-145, every major), a JPEG on BC 27 and 28 (corpus bump 61):
 // the count and the name are pinned, the bytes are not, so the file is written with a mark and any look at it is refused.
 #[test]
 fn media_set_export_file_of_a_re_encoded_item_counts_it_and_refuses_a_look_at_the_file() {

@@ -36,11 +36,12 @@ pub fn test_codeunits_named(src: &str) -> Vec<(u32, String, Vec<String>)> {
 /// One test codeunit of [`scan`]: id, `[Test]` procedures, `TestType`, `RequiredTestIsolation` (as written), name.
 type Scanned = (u32, Vec<String>, Option<String>, Option<String>, String);
 
-/// Blanks `//` line comments and `/* */` block comments and the text of string
+/// Blanks `//` line comments, `/* */` block comments, directive lines and the text of string
 /// literals, so a `//` inside quotes is not mistaken for a comment and words in a string are not code.
 /// Every byte keeps its offset (a blanked byte becomes a space, a newline stays): the scan reads a quoted
 /// procedure name from the original text at the same offset.
 fn strip_comments(src: &str) -> String {
+    let directives = directive_starts(src);
     let b = src.as_bytes();
     let mut out = String::with_capacity(src.len());
     let mut i = 0;
@@ -63,6 +64,16 @@ fn strip_comments(src: &str) -> String {
                 }
                 blank(&mut out, &src[start..i], false);
             }
+            // A directive (`#region`, `#endregion`, `#pragma`, `#if`) starts where the lexer reads a `Directive` token
+            // and runs to the end of its line. Its text is not code: `#region (former codeunit 50149)` is no object header
+            // (al-runner issue 8350).
+            b'#' if directives.binary_search(&i).is_ok() => {
+                let start = i;
+                while i < b.len() && b[i] != b'\n' && b[i] != b'\r' {
+                    i += 1;
+                }
+                blank(&mut out, &src[start..i], false);
+            }
             b'/' if b.get(i + 1) == Some(&b'*') => {
                 let start = i;
                 i += 2;
@@ -74,7 +85,7 @@ fn strip_comments(src: &str) -> String {
             }
             _ => {
                 let start = i;
-                while i < b.len() && b[i] != b'\'' && b[i] != b'"' && b[i] != b'/' {
+                while i < b.len() && !matches!(b[i], b'\'' | b'"' | b'/' | b'#') {
                     i += 1;
                 }
                 if i == start {
@@ -83,6 +94,20 @@ fn strip_comments(src: &str) -> String {
                 out.push_str(&src[start..i]);
             }
         }
+    }
+    out
+}
+
+/// The byte offsets where the `al_syntax` lexer starts a `Directive` token, in order: the lexer owns which white space
+/// and comments may come before a directive on its line.
+fn directive_starts(src: &str) -> Vec<usize> {
+    let mut at = 0;
+    let mut out = Vec::new();
+    for t in al_syntax::lex(src) {
+        if t.kind == al_syntax::SyntaxKind::Directive {
+            out.push(at);
+        }
+        at += t.len as usize;
     }
     out
 }
@@ -112,6 +137,14 @@ fn name_at(src: &str, at: usize) -> Option<&str> {
     (end > 0).then(|| &rest[..end])
 }
 
+/// Whether bracket word `w` is `name` (lower case) once its spaces are dropped: `[ Test ]` is `[test]`.
+fn attribute_is(w: &str, name: &str) -> bool {
+    w.chars()
+        .filter(|c| !matches!(c, ' ' | '\t'))
+        .map(|c| c.to_ascii_lowercase())
+        .eq(name.chars())
+}
+
 /// Returns `(codeunit id, [Test] procedure names)` for every test codeunit in `src`.
 fn scan(original: &str) -> Vec<Scanned> {
     let stripped = strip_comments(original);
@@ -121,7 +154,10 @@ fn scan(original: &str) -> Vec<Scanned> {
     let mut spans: Vec<(usize, &str)> = Vec::new();
     let mut start = None;
     for (i, c) in src.char_indices() {
-        let word = c.is_alphanumeric() || c == '_' || c == '[' || c == ']';
+        // A word that starts with `[` runs on over spaces up to its `]`, so `[ Test ]` is one word: the scan must find
+        // every test the full run executes (review of al-runner PR 8237, probe 8237b).
+        let in_brackets = start.is_some_and(|s| src.as_bytes()[s] == b'[') && matches!(c, ' ' | '\t');
+        let word = c.is_alphanumeric() || c == '_' || c == '[' || c == ']' || in_brackets;
         match (word, start) {
             (true, None) => start = Some(i),
             (false, Some(s)) => {
@@ -129,6 +165,12 @@ fn scan(original: &str) -> Vec<Scanned> {
                 start = None;
             }
             _ => {}
+        }
+        // A `]` ends its word, so `[Test][HandlerFunctions(..)]` is `[Test]` and then the next attribute (issue 8207).
+        if c == ']'
+            && let Some(s) = start.take()
+        {
+            spans.push((s, &src[s..=i]));
         }
     }
     if let Some(s) = start {
@@ -163,7 +205,7 @@ fn scan(original: &str) -> Vec<Scanned> {
                 if let Some(v) = words.get(i + 1) {
                     cur.3.get_or_insert_with(|| v.to_string());
                 }
-            } else if w.eq_ignore_ascii_case("[test]") || w.eq_ignore_ascii_case("[testdatasource") {
+            } else if attribute_is(w, "[test]") || attribute_is(w, "[testdatasource") {
                 // A data-driven procedure carries `[TestDataSource(...)]` and no `[Test]` (al-runner issue 7180; corpus
                 // al-language-testlibraries/test-framework/data-driven-tests-and-handlers/BiTestHandlerDefault.al:12, :257-291).
                 if let Some(pos) = words[i + 1..].iter().position(|w| w.eq_ignore_ascii_case("procedure")) {
@@ -194,6 +236,46 @@ mod tests {
                 (50101, "Plain".to_string(), vec![])
             ]
         );
+    }
+
+    // al-runner issue 8207: `[Test]` followed by another attribute on its line still marks the procedure a test.
+    #[test]
+    fn a_test_attribute_followed_by_another_attribute_on_its_line_is_found() {
+        let src = "codeunit 50100 \"Scan Gap Tests\"\n{\n    Subtype = Test;\n    [Test]\n    procedure Alpha()\n    begin end;\n    [Test][HandlerFunctions('MsgHandler')]\n    procedure Beta()\n    begin end;\n    [Test] procedure Gamma()\n    begin end;\n    [MessageHandler]\n    procedure MsgHandler(Msg: Text[1024])\n    begin end;\n}\n";
+        let names = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(test_codeunits(src), vec![(50100, names(&["Alpha", "Beta", "Gamma"]))]);
+    }
+
+    // Review of PR 8237, probe 8237b: spaces inside the brackets still mark a test; the full run executes these tests.
+    #[test]
+    fn a_test_attribute_with_spaces_inside_its_brackets_is_found() {
+        let src = "codeunit 50150 \"Spaces\"\n{\n    Subtype = Test;\n    [Test]\n    procedure Plain()\n    begin end;\n    [ Test ]\n    procedure SpacesInside()\n    begin end;\n    [Test ]\n    procedure SpaceBeforeClose()\n    begin end;\n    [ Test]\n    procedure SpaceAfterOpen()\n    begin end;\n    [\tTEST\t]\n    procedure Tabs()\n    begin end;\n    [ TestDataSource(Codeunit::\"S\", 'v')]\n    procedure Data(C: Interface ITestContext)\n    begin end;\n}\n";
+        let names = [
+            "Plain",
+            "SpacesInside",
+            "SpaceBeforeClose",
+            "SpaceAfterOpen",
+            "Tabs",
+            "Data",
+        ]
+        .map(String::from)
+        .to_vec();
+        assert_eq!(test_codeunits(src), vec![(50150, names)]);
+    }
+
+    // Neighbors: an index or a length in brackets is not the attribute, with or without spaces.
+    #[test]
+    fn an_index_or_a_length_in_brackets_is_not_a_test_attribute() {
+        let src = "codeunit 50151 \"Not Tests\"\n{\n    Subtype = Test;\n    procedure Helper(T: Text[30])\n    var Arr: array[2] of Integer; Test: Integer;\n    begin Arr[Test] := 1; Arr[ Test ] := 2; end;\n    procedure NotATest()\n    begin end;\n}\n";
+        assert_eq!(test_codeunits(src), vec![(50151, vec![])]);
+    }
+
+    // The shapes the "]" rule of issue 8207 added: another attribute first, no space before `procedure`, three on a line.
+    #[test]
+    fn a_test_attribute_among_other_attributes_on_its_line_is_found() {
+        let src = "codeunit 50152 \"Shapes\"\n{\n    Subtype = Test;\n    [HandlerFunctions('H')][Test]\n    procedure HandlerFirst()\n    begin end;\n    [Test]procedure Glued()\n    begin end;\n    [Test][HandlerFunctions('H')][TransactionModel(TransactionModel::AutoRollback)]\n    procedure Three()\n    begin end;\n    [Test][HandlerFunctions('H')] procedure OneLine()\n    begin end;\n}\n";
+        let names = ["HandlerFirst", "Glued", "Three", "OneLine"].map(String::from).to_vec();
+        assert_eq!(test_codeunits(src), vec![(50152, names)]);
     }
 
     #[test]
@@ -245,6 +327,50 @@ mod tests {
                    codeunit 2 \"B\" { Subtype = Test; RequiredTestIsolation = None; [Test] procedure Y() begin end; }\n\
                    codeunit 3 \"C\" { Subtype = Test; TestType = UnitTest; [Test] procedure Z() begin end; }";
         assert_eq!(isolation_disabled_codeunits(src), vec![1]);
+    }
+
+    /// al-runner issue 8350, the reporter's repro: `#region` text that names "codeunit <id>" is a directive, not an
+    /// object header. The scan took it for one and lost the codeunit's tests from every selection.
+    #[test]
+    fn region_text_that_names_a_codeunit_does_not_start_a_codeunit() {
+        let src = "codeunit 50100 \"Region Plain Test\"\n{\n    Subtype = Test;\n    #region First block\n    [Test]\n    procedure PlainRegionRuns()\n    begin\n    end;\n    #endregion\n}\n\ncodeunit 50101 \"Region Names Missing Test\"\n{\n    Subtype = Test;\n    #region First block (former codeunit 50149)\n    [Test]\n    procedure RegionNamingAMissingCodeunitRuns()\n    begin\n    end;\n    #endregion\n}\n\ncodeunit 50102 \"Region Names Own Id Test\"\n{\n    Subtype = Test;\n    #region First block (former codeunit 50102)\n    [Test]\n    procedure RegionNamingItsOwnIdRuns()\n    begin\n    end;\n    #endregion\n}\n";
+        let one = |id, name: &str| (id, vec![name.to_string()]);
+        assert_eq!(
+            test_codeunits(src),
+            vec![
+                one(50100, "PlainRegionRuns"),
+                one(50101, "RegionNamingAMissingCodeunitRuns"),
+                one(50102, "RegionNamingItsOwnIdRuns")
+            ]
+        );
+    }
+
+    /// Neighbors of issue 8350: a header under `#if` is still found (the scan does not preprocess; both branches count, as
+    /// before), and a `#` that is not first on its line, or sits in a string, does not blank the line.
+    #[test]
+    fn lines_after_a_directive_and_a_hash_inside_code_keep_their_meaning() {
+        let src = "#if BC28PLUS // codeunit 7 \"No\"\ncodeunit 1 \"A\"\n#else\ncodeunit 2 \"B\"\n#endif\n{ Subtype = Test;\n  #pragma warning disable AA0001\n  [Test] procedure X() begin Message('#region codeunit 9'); end; }\ncodeunit 3 \"C\" { Subtype = Test; [Test] procedure Y() begin end; }";
+        assert_eq!(
+            test_codeunits(src),
+            vec![(2, vec!["X".to_string()]), (3, vec!["Y".to_string()])]
+        );
+    }
+
+    /// The white space before a directive is the lexer's (`al_syntax` lexer): a non-breaking space (U+00A0) or a form
+    /// feed before `#region` makes the line a directive too, so its "codeunit <id>" text starts no codeunit (review of
+    /// al-runner issue 8350).
+    #[test]
+    fn a_directive_after_a_non_breaking_space_or_form_feed_is_no_header() {
+        for indent in ["\u{a0}\u{a0} ", "\u{c}"] {
+            let src = format!(
+                "codeunit 50101 \"Shape Test\"\n{{\n    Subtype = Test;\n{indent}#region First block (former codeunit 50149)\n    [Test]\n    procedure ShapeRuns()\n    begin\n    end;\n    #endregion\n}}\n"
+            );
+            assert_eq!(
+                test_codeunits(&src),
+                vec![(50101, vec!["ShapeRuns".to_string()])],
+                "{indent:?}"
+            );
+        }
     }
 
     #[test]

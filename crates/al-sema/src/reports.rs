@@ -129,6 +129,10 @@ pub struct Layout {
     pub caption_attributes: bool,
     /// The `FormatRegion` property (a text literal).
     pub format_region: Option<String>,
+    /// `ExcelLayoutMultipleDataSheets = true` (al-vm `reports/excel_sheets.rs` says which runs of it run).
+    pub excel_multiple_data_sheets: bool,
+    /// The report declares a global variable.
+    pub declares_globals: bool,
     /// The request page's `AboutTitle` and `AboutText` when they are text literals.
     pub about_title: Option<String>,
     pub about_text: Option<String>,
@@ -405,6 +409,8 @@ pub fn layout(obj: &ast::Object, timer_trigger: Option<&str>) -> Layout {
         caption: None,
         caption_attributes: false,
         format_region: None,
+        excel_multiple_data_sheets: false,
+        declares_globals: obj.var_decls().next().is_some(),
         about_title: None,
         about_text: None,
         default_layout: default_layout(obj),
@@ -458,6 +464,7 @@ pub fn layout(obj: &ast::Object, timer_trigger: Option<&str>) -> Layout {
                     .reasons
                     .push(format!("FormatRegion = {} is not a text literal", value.trim())),
             },
+            "excellayoutmultipledatasheets" if bool_prop(&value) == Some(true) => out.excel_multiple_data_sheets = true,
             n if INERT_OBJECT_PROPERTIES.contains(&n) => {}
             // Rendering-only: how the report prints. `PreviewMode` belongs to the Base Application's
             // G/L Register (xml/TestReportDatasetHelpLink.al runs its SaveAs).
@@ -481,9 +488,7 @@ pub fn layout(obj: &ast::Object, timer_trigger: Option<&str>) -> Layout {
             "wordmergedataitem" => out
                 .output
                 .push(format!("report property {name} (a layout) is not supported yet")),
-            other => out
-                .reasons
-                .push(format!("report property {other} is not supported yet")),
+            other => out.reasons.push(unsupported_property(other)),
         }
     }
     for t in obj.triggers() {
@@ -531,6 +536,21 @@ pub fn layout(obj: &ast::Object, timer_trigger: Option<&str>) -> Layout {
             .push("the report is not ProcessingOnly, so running it renders output".into());
     }
     out
+}
+
+/// The reason for a report property the runtime does not take.
+fn unsupported_property(other: &str) -> String {
+    format!("report property {other} is not supported yet")
+}
+
+/// Why a variable of report `r` is refused: why the report cannot run (`ir::Report::unsupported`), else the reason of a
+/// report property the runtime does not take for `ExcelLayoutMultipleDataSheets = true`: only the instances that measured
+/// static calls make run such a report (al-vm `reports/excel_sheets.rs`).
+pub fn variable_refusal(r: &ir::Report) -> Option<String> {
+    (r.unsupported.first().cloned()).or_else(|| {
+        r.excel_multiple_data_sheets
+            .then(|| unsupported_property("excellayoutmultipledatasheets"))
+    })
 }
 
 /// Request page properties that change nothing a test client can observe.
@@ -951,7 +971,8 @@ pub struct Context<'a> {
     pub request_flag_slot: usize,
     /// (object, source offset) to routine index.
     pub routine_at: &'a crate::lower::RoutineAt,
-    /// Reportextensions that change what a run does: why the report cannot run yet.
+    /// Why the order of the reportextensions that change what a run does is not pinned (`lower/ext_order.rs`). It becomes
+    /// `ir::Report::extension_order`, which refuses a run of the report but not a variable of it.
     pub extension_reasons: Vec<String>,
     /// The unprobed assumptions the order of [`Context::extensions`] rests on.
     pub extension_assumes: Vec<al_builtins::assumptions::Assumption>,
@@ -1141,6 +1162,7 @@ impl<'a> Owner<'a> {
                     field,
                     item_field,
                     include_caption,
+                    stated_properties: c.properties().map(|p| p.name().to_ascii_lowercase()).collect(),
                     // A bare field or one written with the own data item's name (also one named like its table,
                     // P138ColCaptionQualified.al:QS_Labels_DataItemNamedLikeTable); other items are resolved by `caption_sources`.
                     caption_table: field.or(item_field).and(table),
@@ -1336,6 +1358,7 @@ fn item_ir(
         max_iteration: prop("MaxIteration")
             .and_then(|v| v.trim().parse::<u32>().ok())
             .filter(|n| *n > 0),
+        stated_properties: sec.properties().map(|p| p.name().to_ascii_lowercase()).collect(),
     }
 }
 
@@ -1449,7 +1472,6 @@ pub fn build(cx: &Context, obj: &ast::Object, mut reasons: Vec<String>) -> ir::R
     }
     caption_sources(cx.members, &layout.items, &mut items);
     reasons.extend(layout.reasons.iter().cloned());
-    reasons.extend(cx.extension_reasons.iter().cloned());
     ir::Report {
         processing_only: layout.processing_only,
         use_request_page: layout.use_request_page,
@@ -1468,9 +1490,12 @@ pub fn build(cx: &Context, obj: &ast::Object, mut reasons: Vec<String>) -> ir::R
         bare_processing_only: bare_processing_report(obj),
         output: layout.output.clone(),
         unsupported: reasons,
+        extension_order: cx.extension_reasons.first().cloned(),
         caption: layout.caption.clone(),
         caption_attributes: layout.caption_attributes,
         format_region: layout.format_region.clone(),
+        excel_multiple_data_sheets: layout.excel_multiple_data_sheets,
+        declares_globals: layout.declares_globals,
         about_title: layout.about_title.clone(),
         about_text: layout.about_text.clone(),
         layout: layout.default_layout,

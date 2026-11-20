@@ -22,7 +22,7 @@ fn measured(c: &mut dyn Ctx, v: Option<&mut Value>) -> Result<bool, Signal> {
         | Value::Char(_)
         | Value::Text(_)
         | Value::Code(_)
-        | Value::TextConst(_)
+        | Value::TextConst(..)
         | Value::Enum(..)
         | Value::Date(..)
         | Value::Time(_)

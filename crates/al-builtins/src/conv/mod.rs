@@ -7,6 +7,7 @@ pub mod byte_char;
 mod compare;
 mod engine;
 mod rows;
+pub mod text_constant;
 mod variant;
 mod variant_records;
 mod variant_scalars;

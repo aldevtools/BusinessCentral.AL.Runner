@@ -311,9 +311,23 @@ fn walk_routine<V: RefVisitor>(r: &mut Routine, v: &mut V) {
     } = r;
     field_opt(v, field, TableOf::Trigger);
     for a in attributes {
-        let Attribute { name: _, args, text: _ } = a;
+        let Attribute {
+            name: _,
+            args,
+            text: _,
+            publisher,
+        } = a;
         for c in args {
             walk_const(c, v);
+        }
+        match publisher {
+            PublisherRef::NotSubscriber | PublisherRef::Unread | PublisherRef::NotVisible => {}
+            PublisherRef::Only(o) => object32(v, o),
+            PublisherRef::Picked { object, twins } => {
+                object32(v, object);
+                twins.iter_mut().for_each(|t| object32(v, t));
+            }
+            PublisherRef::Unpicked(twins) => twins.iter_mut().for_each(|t| object32(v, t)),
         }
     }
     for s in locals {
@@ -585,7 +599,9 @@ fn walk_expr<V: RefVisitor>(e: &mut Expr, v: &mut V) {
             }
             walk_args(args, v);
         }
-        Expr::TddFit { inner, .. } | Expr::FitOrRefuse { inner, .. } => walk_expr(inner, v),
+        Expr::TddFit { inner, .. } | Expr::FitOrRefuse { inner, .. } | Expr::VarSectionValue(inner) => {
+            walk_expr(inner, v)
+        }
         Expr::TddStub { stub: _, args, ty } => {
             if let Some(t) = ty {
                 walk_rt(t, v);
@@ -1131,6 +1147,7 @@ fn walk_report_item<V: RefVisitor>(i: &mut ReportItem, parent: TableOf, v: &mut 
         max_iteration: _,
         print_only_if_detail: _,
         calc_fields,
+        stated_properties: _,
     } = i;
     let own = TableOf::object(*table);
     for f in calc_fields {
@@ -1154,6 +1171,7 @@ fn walk_report_column<V: RefVisitor>(c: &mut ReportColumn, table: TableOf, v: &m
         field,
         item_field,
         include_caption: _,
+        stated_properties: _,
         caption_table,
         caption_field,
         value_unsupported: _,
@@ -1192,9 +1210,12 @@ fn walk_report<V: RefVisitor>(r: &mut Report, v: &mut V) {
         bare_processing_only: _,
         output: _,
         unsupported: _,
+        extension_order: _,
         caption: _,
         caption_attributes: _,
         format_region: _,
+        excel_multiple_data_sheets: _,
+        declares_globals: _,
         about_title: _,
         about_text: _,
         layout: _,
