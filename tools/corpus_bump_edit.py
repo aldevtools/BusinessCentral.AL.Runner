@@ -5,8 +5,10 @@
 
 Writes the new pin, the run and the artifact ids of each leg (the version's own oracle and its onprem suite;
 other suites, such as the isolation probe from another run, are left alone), and the README's pin and leg rows.
+PROVENANCE=FILE (written by tools/corpus_bump_provenance.py files) gives per major the fields of ADR-077 decision 7:
+they replace the version's own; a major the file does not name (a run without a results manifest) loses them.
 """
-import os, re, sys
+import json, os, re, sys
 root, sha, run, rest = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
 # DOTNET_IDS="27=ID 28=ID 29=ID": the artifact ids of the OnPrem DotNet files (suite onprem-dotnet).
 dotnet = {k: v for k, v in (x.split("=") for x in os.environ.get("DOTNET_IDS", "").split()) if v != "0"}
@@ -37,6 +39,9 @@ baseline = "metrics/{major}/not-passing-trywrite-allowed.txt"
 # The corpus job "BC TryWrites" (corpus .github/workflows/ci.yml, job test-trywrite-allowed, `server_settings`).
 server_settings = ["DisableWriteInsideTryFunctions=false"]
 '''
+# PROVENANCE: {major: {mode, fresh, reused, oldest_source_run, ci_bc_build}}; None when unset (the file is left alone).
+provenance = json.load(open(os.environ["PROVENANCE"])) if os.environ.get("PROVENANCE") else None
+PROVENANCE_FIELDS = ("mode", "fresh", "reused", "oldest_source_run", "ci_bc_build")
 legs = [rest[i:i + 5] for i in range(0, len(rest), 5)]
 # oracle.toml: the pin, then per [[version]] table its run and artifact, and its onprem suite's.
 p = root + "/oracle/oracle.toml"
@@ -51,6 +56,16 @@ def leg_fields(part, artifact):
     part = re.sub(r'^workflow_run = \d+', f'workflow_run = {run}', part, count=1, flags=re.M)
     return re.sub(r'^artifact_id = \d+', f'artifact_id = {artifact}', part, count=1, flags=re.M)
 
+
+def provenance_fields(part, major):
+    """The version's own table with the fields of ADR-077 decision 7 replaced, after its artifact_id."""
+    part = re.sub(r'(?m)^(%s) = .*\n' % "|".join(PROVENANCE_FIELDS), '', part)
+    p = provenance.get(major)
+    if not p:
+        return part
+    lines = "".join(f'{k} = {json.dumps(p[k])}\n' for k in PROVENANCE_FIELDS)
+    return re.sub(r'(?m)^(artifact_id = \d+\n)', lambda m: m.group(1) + lines, part, count=1)
+
 for b in blocks[1:]:
     major = re.search(r'^major = (\d+)', b, re.M).group(1)
     leg = next((l for l in legs if l[0] == major), None)
@@ -58,7 +73,8 @@ for b in blocks[1:]:
         _, oracle, onprem, _, _ = leg
         parts = re.split(r'(?m)^(?=\[\[version\.suite\]\])', b)
         # The version's own oracle, then its onprem suite; other suites come from other runs.
-        parts = [leg_fields(parts[0], oracle)] + [
+        head = leg_fields(parts[0], oracle)
+        parts = [provenance_fields(head, major) if provenance is not None else head] + [
             leg_fields(s, onprem) if re.search(r'^name = "onprem"', s, re.M)
             else leg_fields(s, dotnet[major]) if re.search(r'^name = "onprem-dotnet"', s, re.M) and major in dotnet
             else leg_fields(s, testlib[major]) if re.search(r'^name = "testlibraries"', s, re.M) and major in testlib

@@ -391,7 +391,7 @@ impl Session {
             ));
         }
         let o = &self.engine.program.objects[table];
-        Err(self.bg_read_only_error(o.id.unwrap_or(0), &o.name, o.app, method))
+        Err(self.bg_read_only_error(crate::object_ids::declared_id(o.id)?, &o.name, o.app, method))
     }
 
     /// `Sorry, the current permissions prevented the action. (TableData <id> <name> <method>: <app>)`, code

@@ -204,11 +204,8 @@ impl Walk<'_> {
     }
 
     fn single_instance(&self, object: usize) -> bool {
-        let o = &self.engine.program.objects[object];
-        o.kind == ObjKind::Codeunit
-            && o.properties
-                .iter()
-                .any(|(k, v)| k.eq_ignore_ascii_case("SingleInstance") && v.trim().eq_ignore_ascii_case("true"))
+        self.engine.program.objects[object].kind == ObjKind::Codeunit
+            && self.engine.object_facts[object].single_instance
     }
 
     fn routine(&mut self, object: usize, routine: usize, inst: Inst) -> Found {
@@ -418,7 +415,8 @@ impl Walk<'_> {
             | Expr::DotNetCoerce(_, a)
             | Expr::DotNetOperand(a, _)
             | Expr::TddFit { inner: a, .. }
-            | Expr::FitOrRefuse { inner: a, .. } => self.expr(a, at, inst),
+            | Expr::FitOrRefuse { inner: a, .. }
+            | Expr::VarSectionValue(a) => self.expr(a, at, inst),
             Expr::Binary(_, a, b) | Expr::CharAt(a, b) => {
                 self.expr(a, at, inst)?;
                 self.expr(b, at, inst)

@@ -90,6 +90,7 @@ impl Index {
             dotnet: false,
             order_hint: None,
             cells: None,
+            skipped_by_option: false,
         }
     }
 
@@ -290,8 +291,8 @@ pub fn of_run(c: &Collected) -> Index {
 /// `al-runner impact-index build APP...`: runs the tests of the APPs with the trace on and writes the index.
 pub fn build(a: &TestArgs) -> Result<u8, String> {
     // The index must hold every test codeunit an impact run of these APPs can run.
-    if !a.codeunits.is_empty() || !a.filters.is_empty() || !a.exact.is_empty() || !a.excludes.is_empty() {
-        return Err("al-runner impact-index build runs every test of the APPs: --codeunit, --test, --exact and --exclude do not apply (an impact run selects from the whole index)".into());
+    if a.selects_tests() {
+        return Err("al-runner impact-index build runs every test of the APPs: --codeunit, --test, --test-exact, --exclude-test and --exclude-test-exact do not apply (an impact run selects from the whole index)".into());
     }
     build_run(a)
 }
@@ -606,7 +607,7 @@ mod tests {
         let file = dir.join("file.txt");
         std::fs::write(&file, "text").unwrap();
         type Change = fn(&mut TestArgs, &Path);
-        let options: [(&str, Change); 13] = [
+        let options: [(&str, Change); 14] = [
             ("test_runner", |a, _| {
                 a.test_runner = Some(al_testrun::runtime::TestRunner::Builtin)
             }),
@@ -624,6 +625,7 @@ mod tests {
             ("ignore_permission_mock", |a, _| a.ignore_permission_mock = true),
             ("license", |a, f| a.license = Some(f.to_path_buf())),
             ("skip_after_timeout", |a, _| a.skip_after_timeout = true),
+            ("stop_after_first_failure", |a, _| a.stop_after_first_failure = true),
             ("test_suites", |a, f| a.test_suites = Some(f.to_path_buf())),
             ("max_replay", |a, _| a.max_replay = Some(3)),
         ];

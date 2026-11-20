@@ -103,10 +103,14 @@ pub(super) fn events_as_new(e: &EventState) -> bool {
         var_origins,
         next_aliases,
         next_is_subscriber,
+        by_value_publisher,
+        raise_arg_var_param,
+        next_event_args,
         blob_publisher,
         next_blob_event,
         subscriber_stack,
         next_var_lens,
+        next_option_hops,
         publisher_var_lens,
         unpinned_event_depth,
         skip_dependency_subscribers,
@@ -149,10 +153,14 @@ pub(super) fn events_as_new(e: &EventState) -> bool {
         && var_origins.is_empty()
         && next_aliases.is_empty()
         && !next_is_subscriber
+        && by_value_publisher.is_none()
+        && !raise_arg_var_param
+        && next_event_args.is_empty()
         && blob_publisher.is_none()
         && !next_blob_event
         && subscriber_stack.is_empty()
         && next_var_lens.is_empty()
+        && next_option_hops.is_empty()
         && publisher_var_lens.is_empty()
         && *unpinned_event_depth == 0
         && !skip_dependency_subscribers
@@ -215,6 +223,7 @@ pub(super) fn report_as_new(r: &ReportState) -> bool {
         report_executed,
         execute_parameters,
         report_run_modal_done,
+        excel_sheets,
         report_running,
         request_captions,
         print_only_if_detail,
@@ -248,6 +257,7 @@ pub(super) fn report_as_new(r: &ReportState) -> bool {
         && report_executed.is_empty()
         && execute_parameters.is_none()
         && report_run_modal_done.is_empty()
+        && excel_sheets.is_idle()
         && report_running.is_empty()
         && request_captions.is_empty()
         && !print_only_if_detail

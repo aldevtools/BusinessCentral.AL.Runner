@@ -2,7 +2,7 @@
 //! in a plain table procedure call, in a page's OnModifyRecord, else the record before the call. What a table procedure called
 //! on a record value (`Rec.Proc()`) runs with (`table_proc_xrec`, by `call_site` in `interp.rs`). Where a Validate was called
 //! from (`ValidateSite`, `validate_at`). What a table procedure called on a record through other code sees while a call on the
-//! same record runs (`running_call_xrec`, al-runner issue 8189).
+//! same record runs (`running_call_xrec`, record/validate/XRecTableProcThroughCodeunit.al).
 
 use crate::records::Rec;
 use crate::{Frame, Session};
@@ -15,8 +15,8 @@ use std::rc::Rc;
 
 /// The `RecordState::unpinned_buffer` reason of the blank xRec of a table procedure called on a record through other code while a
 /// trigger or procedure of the same record runs with an xRec that is not blank (`Session::running_call_xrec`): BC hands that
-/// call's xRec on in the shape al-runner issue 8189 measured; here a read of it refuses.
-pub(crate) const XREC_OF_RUNNING_CALL: &str = "xRec in a table procedure called through other code on a record whose trigger or procedure runs: real BC hands it the running call's xRec in the shape al-runner issue 8189 measured, this shape is not pinned";
+/// call's xRec on in the shape record/validate/XRecTableProcThroughCodeunit.al pins; here a read of it refuses.
+pub(crate) const XREC_OF_RUNNING_CALL: &str = "xRec in a table procedure called through other code on a record whose trigger or procedure runs: real BC hands it the running call's xRec in the shape XRecTableProcThroughCodeunit.al:365-414 pins, this shape is not run";
 
 /// The before-image a Validate hands its triggers as xRec: the field values, and the `RecordState::unpinned_buffer` reason
 /// the xRec gets (`Some(XREC_OF_RUNNING_CALL)` when the values stand for a running call's xRec, `validate_before_image`).
@@ -226,8 +226,8 @@ impl Session {
     ///   variable (ADR-021) of its table and of its table extensions that hold `rc` as Rec, and those calls' xRecs
     ///   (`running_xrecs`); while a validate event of `rc` is raised, also the xRec it hands its subscribers
     ///   (`raised_validate_event_xrec`).
-    /// - The shape al-runner issue 8189 measured (`through_codeunit_measured`): the xRec of the call running on the instance of
-    ///   `object`, shared, on assumption `xrec-table-proc-through-codeunit` (the reporter's repro passes on real BC).
+    /// - The shape record/validate/XRecTableProcThroughCodeunit.al:365-414 pins (`through_codeunit_measured`): the xRec of the call running on the
+    ///   instance of `object`, shared (`T x=10;C x=10;` :372, `T x=10;I x=10;` :398).
     /// - Any other shape, when one of those xRecs holds other values than the blank record a plain call gets: the blank xRec
     ///   marked [`XREC_OF_RUNNING_CALL`], so a read of it refuses.
     /// - Else, and when no call on the record runs: a plain call (record/PWTableGlobals.al:196-260 XRecPlainProc_*).
@@ -247,7 +247,6 @@ impl Session {
         if let Some(x) = of_object
             && not_blank(&x)
             && self.through_codeunit_measured(object, rc, f)
-            && assumptions::hit(Assumption::XrecTableProcThroughCodeunit)
         {
             return ProcXrec::Shared(x);
         }
@@ -280,13 +279,13 @@ impl Session {
         running
     }
 
-    /// Whether the call of a procedure of table `object` on `rc` from frame `f` is the shape al-runner issue 8189 measured
-    /// (ways 3 and 4 of the reporter's repro), every fact by equality:
+    /// Whether the call of a procedure of table `object` on `rc` from frame `f` is the shape record/validate/XRecTableProcThroughCodeunit.al pins
+    /// (`Way3_*` and `Way4_*`, :365-414), every fact by equality:
     /// - `object` is a table (not an extension) and `f` runs a procedure of a codeunit, reached directly or through an interface,
-    ///   that has `rc` as a `var` parameter;
+    ///   that has `rc` as a `var` parameter (`XTC Mover.Handle` :294-296, `XTC Iface Mover.Handle` :322-324);
     /// - the three innermost frames are, from the inside out: that codeunit procedure, a procedure of table `object` that is no
-    ///   trigger, and the field OnValidate trigger of table `object`;
-    /// - the Validate is the one `Record.Validate` AL code called on the record (`sole_validate_from_al`);
+    ///   trigger (`CallPlain` :141-145, `CallIface` :148-154), and the field OnValidate trigger of table `object` (:46-58);
+    /// - the Validate is the one `Record.Validate` AL code called on the record (`sole_validate_from_al`, :358);
     /// - the record is stored and its buffer came from its own Insert or from a Get of the row the open transaction inserted
     ///   and wrote nothing to since (`measured_buffer`).
     fn through_codeunit_measured(&self, object: usize, rc: &Rec, f: &Frame) -> bool {
@@ -320,7 +319,7 @@ impl Session {
             && self.measured_buffer(&rc.borrow())
     }
 
-    /// The two buffers al-runner issue 8189 measured (the reporter's `PrepareAfterInsert` and `PrepareAfterGet`): a record that is
+    /// The two buffers record/validate/XRecTableProcThroughCodeunit.al pins (`AfterInsert` :337-344 and `AfterGet` :348-352): a record that is
     /// not temporary, whose buffer came from its own `Insert` (no Modify, Rename or read after it), or from a `Get` of the row
     /// that its own transaction inserted and wrote nothing to since (`inserted_unwritten_in_tx`). A Find, a GetBySystemId, a
     /// Get of a committed row, a Get of a row the open transaction modified or a TransferFields refuse.
@@ -347,7 +346,7 @@ impl Session {
             return false;
         };
         let pk = t.primary_key(&r.fields);
-        let last = self.tx.writes.iter().rev().find(|w| {
+        let last = self.tx.open.writes.iter().rev().find(|w| {
             w.table == t.object
                 && w.company == r.company
                 && (crate::records::same_key(&w.pk, &pk)

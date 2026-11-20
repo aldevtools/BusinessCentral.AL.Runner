@@ -194,8 +194,38 @@ pub fn format_with_field_places(
     v: &Value,
     length: i32,
     template: &str,
-    (min_decimals, negative_zero): (u32, bool),
+    places: (u32, bool),
+    ctx: &dyn FormatCtx,
+) -> Result<String, String> {
+    // A DateFormula runs only with the length its pins cover (owner: `format::date_formula_length`).
+    if matches!(v, Value::DateFormula(_)) {
+        crate::format::date_formula_length(length).map_err(fail)?;
+    }
+    // `<Text>` alone on a TextBuilder is its text, padded on the right to the length like a plain Format (TxCTextBuilderEdit.al:
+    // 716-733 `text_string`, `length8_text_string`). Other codes on it are not pinned.
+    if template == "<Text>" && matches!(v, Value::Library(crate::library_kind::LibraryKind::TextBuilder, _)) {
+        return format_value(v, length, 0, ctx).map_err(fail);
+    }
+    let out = format_codes(v, length, template, places, ctx)?;
+    if length != 0 {
+        // Whether the text may take the length (owner: `format::length`): a lone `<Standard Format,N>` by `Format(v, length, N)`,
+        // any other string by the text it gives without a length.
+        if let Some(gate) = crate::format::length::lone_standard_format(v, length, template, &out, ctx) {
+            gate?;
+        } else {
+            let bare = format_codes(v, 0, template, places, ctx)?;
+            crate::format::length::with_format_string(v, length, template, bare.chars().count())?;
+        }
+    }
+    Ok(out)
+}
 
+/// `format_with_field_places` of a value that is no DateFormula and no TextBuilder under `<Text>`.
+fn format_codes(
+    v: &Value,
+    length: i32,
+    template: &str,
+    (min_decimals, negative_zero): (u32, bool),
     ctx: &dyn FormatCtx,
 ) -> Result<String, String> {
     // A Guid takes no format string without codes: the platform asks for the standard format number -1
@@ -204,11 +234,6 @@ pub fn format_with_field_places(
         return Err(format!(
             "{RAISE_MARK}InvalidStandardFormat{RAISE_MARK}Standard format number -1 does not exist for the type 'GUID'."
         ));
-    }
-    // `<Text>` alone on a TextBuilder is its text, padded on the right to the length like a plain Format (TxCTextBuilderEdit.al:
-    // 716-733 `text_string`, `length8_text_string`). Other codes on it are not pinned.
-    if template == "<Text>" && matches!(v, Value::Library(crate::library_kind::LibraryKind::TextBuilder, _)) {
-        return format_value(v, length, 0, ctx).map_err(fail);
     }
     if template.contains("<1000Character,") && !template.contains("<Comma") {
         if let Some(r) = separators_template(v, length, template) {
@@ -304,18 +329,7 @@ pub fn format_with_field_places(
         _ => None,
     };
     if let Some(defined) = defined {
-        // The stand-in value is no date of the test: a name the pass takes from an assumption (`date_name`) is no answer, and its
-        // marks are dropped; the pass then counts as failed, as on a path without that name.
-        let before = crate::assumptions::take_hit_bits();
         let pass = format_with_field_places(&defined, 0, template, (min_decimals, negative_zero), ctx);
-        let pass_hits = crate::assumptions::take_hit_bits();
-        crate::assumptions::add_hit_bits(before);
-        let pass = if pass_hits.has(crate::assumptions::Assumption::MonthWeekdayNamesByLanguage) {
-            Err("a name of the stand-in date that only an assumption gives".to_string())
-        } else {
-            crate::assumptions::add_hit_bits(pass_hits);
-            pass
-        };
         return match pass {
             Ok(_) => Ok(crate::format::pad(String::new(), length)),
             Err(e) if matches!(v, Value::DateTime(0)) && e.contains("InvalidStandardFormat") => {
@@ -424,17 +438,13 @@ pub fn format_with_field_places(
             out.push_str(text);
         }
     }
-    // A result longer than the length is cut to it (P86FormatDecimal.al:Len_WithFormatString `l4`; a Date:
-    // types/date-time/Format.al:527,537 `date len 5 custom`; a Time: writer TU's branch al-runtime-rs-staging-tu, Format.al
-    // TU_Time_Format_CodeNames `len5` ` 9:05`, `0905 len8 ...<Thousands,3>` ` 9:05:03`).
+    // A result longer than the length is cut to it (P86FormatDecimal.al:1091 `l4`; a Date: types/date-time/Format.al:537
+    // `date len 5 custom`; a Time: Format.al:912, :918 TU_Time_Format_CodeNames). Which values may take a length at all:
+    // `format::length::with_format_string`.
     if length > 0
         && out.chars().count() > length as usize
-        && matches!(
-            v,
-            Value::Decimal(_) | Value::Integer(_) | Value::BigInteger(_) | Value::Date(..) | Value::Time(_)
-        )
+        && matches!(v, Value::Decimal(_) | Value::Date(..) | Value::Time(_))
     {
-        // Pinned by types/date-time/Format.al TU_Time_Format_CodeNames (was assumption `format-time-code-names`).
         return Ok(out.chars().take(length as usize).collect());
     }
     Ok(crate::format::pad(out, length))
@@ -1480,8 +1490,8 @@ fn iso_week(day: i32) -> i32 {
     (thursday - crate::format::day_from_civil(y, 1, 1)) / 7 + 1
 }
 
-/// The month and weekday names the reporter of al-runner issue 8183 measured (assumption `month-weekday-names-by-language`):
-/// March and August under 1030, 1036, 1044 and 1053, Friday and Tuesday under those and 1031. `weekday` counts from Monday = 0.
+/// The month and weekday names pinned in localization/global-language/GlobalLanguageMonthWeekday.al:107-363: March and August
+/// under 1030, 1036, 1044 and 1053, Friday and Tuesday under those and 1031. `weekday` counts from Monday = 0.
 fn reported_name(base: &str, month: u32, weekday: i32, language: i32) -> Option<&'static str> {
     Some(match (base, language, month, weekday) {
         ("Month Text", 1030, 3, _) => "marts",
@@ -1501,8 +1511,8 @@ fn reported_name(base: &str, month: u32, weekday: i32, language: i32) -> Option<
 }
 
 /// The name `<Month Text>` or `<Weekday Text>` (`width` `None`) or `<Month Text,N>` / `<Weekday Text,N>` (`Some(N)`, before the cut)
-/// shows of `v`. The reporter of al-runner issue 8183 measured the names of [`reported_name`] on a plain Date, with no width and
-/// with the widths 3 (a month) and 2 (a weekday) (assumption `month-weekday-names-by-language`); another width of these names
+/// shows of `v`. The names of [`reported_name`] are pinned on a plain Date, with no width and
+/// with the widths 3 (a month) and 2 (a weekday) (GlobalLanguageMonthWeekday.al:61, :87); another width of these names
 /// refuses, and a DateTime or a closing date takes the pinned names of [`code_name`] only.
 fn date_name(
     v: &Value,
@@ -1527,7 +1537,6 @@ fn date_name(
             ctx.language()
         ));
     }
-    crate::assumptions::assume(crate::assumptions::Assumption::MonthWeekdayNamesByLanguage);
     Ok(name.to_string())
 }
 
@@ -1854,13 +1863,15 @@ mod tests {
         );
     }
 
+    /// No corpus case measures an Integer shorter than a positive length under a format string: refused (al-runner issue 8389,
+    /// owner `format::length::with_format_string`).
     #[test]
-    fn length_pads_the_result() {
+    fn length_under_a_format_string_of_an_integer_refuses() {
         let r = call(
             "System.Format#2",
             vec![Value::Integer(10), Value::Integer(5), t("<Integer>")],
         );
-        assert_eq!(text(r), "   10");
+        assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
     }
     // Mutation-testing additions (docs/status.md debt).
 
@@ -2221,8 +2232,7 @@ mod tests {
         );
         assert!(code_name("Weekday Text", Some((2027, 3, 16)), Some(tue), 1031, false).is_err());
     }
-    // Assumption month-weekday-names-by-language (al-runner issue 8183): the German Tuesday and Friday of a plain Date; Wednesday
-    // stays refused.
+    // GlobalLanguageMonthWeekday.al: the German Tuesday and Friday of a plain Date; Wednesday stays refused.
     #[test]
     fn german_weekday_names_the_reporter_measured() {
         use super::reported_name;

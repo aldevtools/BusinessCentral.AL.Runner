@@ -381,9 +381,10 @@ fn media_export(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out 
         }
         return unsupported("Media.ExportStream of a media the session does not hold");
     };
-    // A .docx imported on BC 29 exports without an error (streams/media/MediaFiles.al:490-509 RD_Media_ImportFile_Docx passes there and
-    // ignores only the bytes; Config. XML Exchange.ExportMedia in the DemoTool company build): the stream is marked with the
-    // import's mark, so a look at what it holds is refused.
+    // A .docx imported on every major exports without an error (al-language-onprem/streams/media/MediaFiles.al:500-505
+    // RD_Media_ImportFile_Docx; BC 29 ignores the stored and exported bytes, :515-519, and BC 27 and 28 store and export a
+    // re-zipped package that is not the file, :525-527; Config. XML Exchange.ExportMedia in the DemoTool company build): the stream
+    // is marked with the import's mark, so a look at what it holds is refused.
     let docx_mark = obj.pending.as_deref() == Some(crate::stream::MEDIA_DOCX_REZIPPED);
     // A placeholder report output exports byte for byte with its mark (`placeholder_output`).
     if let Some(mark) = obj
@@ -415,8 +416,6 @@ fn media_export(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out 
             buf.written = true;
             buf.render_pending = Some(crate::stream::MEDIA_DOCX_REZIPPED.into());
         }
-        // The file's bytes come back on BC 27 and 28 (MediaFiles.al:510-512 'export length', 'export is the file').
-        LibraryValue::OutStream(blob, ..) if obj.mime == DOCX_MIME => crate::stream::write_bytes(blob, &obj.bytes),
         // A 300 dpi JFIF JPEG that Media.ImportFile read comes back unchanged on Windows BC 29.0 (probe cu 61288
         // SC_DemoTool_Media_ExportStream, case JD; the DemoTool's pictures). No corpus test pins it yet: a registered assumption
         // under the Microsoft-test exception (CLAUDE.md rule 3).
@@ -582,8 +581,9 @@ fn import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
         }
     };
     let description = text_arg(a, 1)?;
-    let pending = (mime == DOCX_MIME && c.gate(al_version::Gate::DocxMediaRezippedFrom29))
-        .then(|| crate::stream::MEDIA_DOCX_REZIPPED.into());
+    // BC stores a .docx as a re-zipped package whose bytes are not pinned: on BC 27 and 28 neither the Tenant Media content nor
+    // the export is the file (onprem streams/media/MediaFiles.al:525-527); BC 29 ignores both cells (:515-519).
+    let pending = (mime == DOCX_MIME).then(|| crate::stream::MEDIA_DOCX_REZIPPED.into());
     let id = c.new_guid();
     store(c)?.objects.borrow_mut().insert(
         id,
@@ -674,7 +674,7 @@ fn set_import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> O
 }
 
 /// `MediaSet.ExportFile(Prefix)` as Config. XML Exchange.ExportMediaSet calls it in the company build (onprem
-/// streams/media/MediaFiles.al:772, RJ_MediaSet_ExportFile_ConfigPackageShape): it returns the number of items and writes one file per
+/// streams/media/MediaFiles.al:776, RJ_MediaSet_ExportFile_ConfigPackageShape): it returns the number of items and writes one file per
 /// item, `<Prefix>-1`, `<Prefix>-2` ... with no extension; file n holds the Tenant Media content of the n-th Tenant Media Set
 /// row of the set in primary key order (ID, Media ID), not Item(n); only a set of one item is served. Only the company build's file system is served (owner rule
 /// 2026-10-22), and only items `MediaSet.ImportFile` read: each is written as a file a look at is refused (a PNG is re-encoded

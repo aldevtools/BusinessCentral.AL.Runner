@@ -171,10 +171,7 @@ pub(crate) fn install_code_of(
 }
 
 fn is_single_instance(o: &al_ir::ObjectHead) -> bool {
-    o.is_kind(al_ir::ObjKind::Codeunit)
-        && o.properties
-            .iter()
-            .any(|(k, v)| k.eq_ignore_ascii_case("SingleInstance") && v.trim().eq_ignore_ascii_case("true"))
+    o.is_kind(al_ir::ObjKind::Codeunit) && al_ir::ObjectFacts::of_properties(&o.properties).single_instance
 }
 
 fn per_company(o: &al_ir::ObjectHead) -> bool {
@@ -374,20 +371,16 @@ pub fn facts_of(lowered: &Lowered, events: &al_vm::events::Registry, dependency:
                     let written: BTreeSet<u32> = others.iter().flat_map(|c| c.written.iter().copied()).collect();
                     let singles: BTreeSet<usize> = others.iter().flat_map(|c| c.singles.iter().copied()).collect();
                     for &t in &written {
-                        out.assumed.entry(t as usize).or_insert((
-                            app.app,
-                            al_builtins::assumptions::Assumption::InstallCompanyTriggersAllApps,
-                        ));
+                        (out.assumed.entry(t as usize).or_default())
+                            .insert(al_builtins::assumptions::Assumption::InstallCompanyTriggersAllApps);
                     }
                     for c in &closures {
                         if c.read.intersection(&written).next().is_some()
                             || c.singles.intersection(&singles).next().is_some()
                         {
                             for &t in &c.written {
-                                out.assumed.entry(t as usize).or_insert((
-                                    app.app,
-                                    al_builtins::assumptions::Assumption::InstallCompanyTriggersAllApps,
-                                ));
+                                (out.assumed.entry(t as usize).or_default())
+                                    .insert(al_builtins::assumptions::Assumption::InstallCompanyTriggersAllApps);
                             }
                         }
                     }
@@ -429,7 +422,7 @@ pub fn facts_of(lowered: &Lowered, events: &al_vm::events::Registry, dependency:
                         let hit = |map: &mut InstallFacts, t: u32, why: String| match known {
                             Order::Pinned => {}
                             Order::Assumed(assumption) => {
-                                map.assumed.entry(t as usize).or_insert((app.app, assumption));
+                                map.assumed.entry(t as usize).or_default().insert(assumption);
                             }
                             Order::Unknown => {
                                 map.unknown.entry(t as usize).or_insert(why);
@@ -479,7 +472,8 @@ pub fn facts_of(lowered: &Lowered, events: &al_vm::events::Registry, dependency:
 /// tables the dependency apps' per-company install code writes (ADR-046 decision 4, "Not decided": not refused).
 pub(crate) fn ensure_facts<'a>(engine: &'a Engine, lowered: &Lowered) -> &'a InstallFacts {
     engine.install_facts.get_or_init(|| {
-        let f = facts(lowered, &engine.events);
+        let mut f = facts(lowered, &engine.events);
+        assume_by_id_install_tables(engine, lowered, &mut f);
         if std::env::var_os("AL_INSTALL_FACTS").is_some() {
             print_facts(lowered, &engine.events, &f);
         }
@@ -840,11 +834,38 @@ fn refused_tables(engine: &Engine, lowered: &Lowered, (oi, ri): (usize, usize), 
     if at_home {
         return touched(engine, lowered, oi, ri);
     }
-    let mut written = crate::baseline::tables_written_or_loaded(lowered, oi, ri);
+    with_subscribers(engine, lowered, (oi, ri), crate::baseline::tables_written_or_loaded)
+}
+
+/// The tables `of` finds for install code `(oi, ri)` and for each subscriber it reaches.
+fn with_subscribers(
+    engine: &Engine,
+    lowered: &Lowered,
+    (oi, ri): (usize, usize),
+    of: fn(&Lowered, usize, usize) -> BTreeSet<u32>,
+) -> BTreeSet<u32> {
+    let mut tables = of(lowered, oi, ri);
     for (so, sr) in crate::runtime::subscribers_reached(engine, lowered, oi, ri) {
-        written.extend(crate::baseline::tables_written_or_loaded(lowered, so, sr));
+        tables.extend(of(lowered, so, sr));
     }
-    written
+    tables
+}
+
+/// Assumption `subscriber-publisher-by-id` for install code: an Extension Triggers install subscriber of an app under test
+/// written with the bare id 2000000010 runs as the one that names the codeunit (corpus PR 1466, SbiSubscriberByIdTests.al:276;
+/// al-vm `Registry::is_by_id_install`; a dependency app's one refuses every test, `Registry::dependency_platform_by_id`). Its
+/// row changes exist only through it, so every table it and the subscribers it reaches insert into, modify, rename or delete
+/// from (`baseline::tables_changed_or_loaded`) marks a test that touches it (`InstallFacts::assumed`).
+fn assume_by_id_install_tables(engine: &Engine, lowered: &Lowered, out: &mut InstallFacts) {
+    for app in plan(lowered, &engine.events, false) {
+        let routines = app.company.iter().chain(&app.database);
+        for &(o, r) in routines.filter(|&&(o, r)| engine.events.is_by_id_install(o, r)) {
+            for t in with_subscribers(engine, lowered, (o, r), crate::baseline::tables_changed_or_loaded) {
+                let marks = out.assumed.entry(t as usize).or_default();
+                marks.insert(al_builtins::assumptions::Assumption::SubscriberPublisherById);
+            }
+        }
+    }
 }
 
 /// Whether install code that runs in `in_company` runs in the session company or in the per-database part (`""`).
