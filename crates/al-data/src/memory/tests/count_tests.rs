@@ -96,3 +96,50 @@ fn count_and_exists_answer_what_a_walk_of_every_row_answers() {
     s.delete(&cx(), &t, &[int(150), int(3)]).unwrap();
     check(&s, "after writes");
 }
+
+/// Companies A and B of the backing hold the same 100 primary keys of table 7 (keys [No.] and [Group, No.]), with Group
+/// = No. mod 7 in A and No. mod 5 in B.
+struct SamePkSources;
+impl Backing for SamePkSources {
+    fn company(&self) -> &str {
+        "A"
+    }
+    fn rows(&self, company: &str, object: u32) -> Option<Rows> {
+        let modulus = match company {
+            "A" => 7,
+            "B" => 5,
+            _ => return None,
+        };
+        if object != 7 {
+            return None;
+        }
+        let rows = (0..100)
+            .map(|i| crate::contract::row(&format!("{i:03}"), i, i % modulus))
+            .collect();
+        Rows::from_rows(&crate::contract::table(), rows).ok()
+    }
+}
+
+/// Al-runner issue 8597 under a count: X copied from A, counted in the band of (Group, No.), the copy taken back, then X
+/// copied from B. X holds B's rows (session-system/company/Y22CopyCompany.al:65, :262-288), so Count and IsEmpty answer
+/// for them, not from the order of A's rows.
+#[test]
+fn a_count_after_a_company_is_copied_again_from_another_source_answers_for_the_new_rows() {
+    let t = crate::contract::table();
+    let x = crate::contract::cx("X");
+    let group = |g: i32| [FieldFilter::new(2, FilterExpr::Eq(Value::Integer(g)), 0)];
+    let mut s = MemStore::default().with_backing(std::rc::Rc::new(SamePkSources));
+    s.commit();
+    s.copy_company("A", "X");
+    assert_eq!(s.count(&x, &t, &group(3)).unwrap(), 14);
+    assert!(s.exists(&x, &t, &group(6)).unwrap());
+    s.rollback();
+    s.copy_company("B", "X");
+    assert_eq!(s.count(&x, &t, &group(3)).unwrap(), 20, "Count of Group 3 in B's rows");
+    assert!(!s.exists(&x, &t, &group(6)).unwrap(), "IsEmpty of Group 6 in B's rows");
+    assert_eq!(
+        s.count_up_to(&x, &t, &group(4), 1).unwrap(),
+        1,
+        "IsEmpty of Group 4 in B's rows"
+    );
+}
