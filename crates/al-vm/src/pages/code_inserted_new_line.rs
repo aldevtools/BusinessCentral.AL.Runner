@@ -373,12 +373,16 @@ impl Session {
     /// the primary key is a Code field, then an AutoIncrement Integer field (:23-27, :44); the AutoIncrement field was blank when
     /// the line started and the Code field holds the line's value; the row is stored and was written after the line started and
     /// before the control's own OnValidate began (its SystemRowVersion above the store's mark when the line started,
-    /// `new_line_writes`, and not above the mark when the control's OnValidate began, `control_onvalidate_writes`). The table has
+    /// `new_line_writes`, and not above the mark when the control's OnValidate began, `control_onvalidate`). The table has
     /// no table extension and no event subscriber.
     fn inserted_by_table_field(&mut self, st: &St) -> Result<bool, Signal> {
         let (Some(start), Some((line_mark, _)), Some((control_mark, _))) = ({
             let s = st.borrow();
-            (s.draft_start.clone(), s.new_line_writes, s.control_onvalidate_writes)
+            (
+                s.draft_start.clone(),
+                s.new_line_writes,
+                s.control_onvalidate.as_ref().map(|v| v.writes),
+            )
         }) else {
             return Ok(false);
         };
@@ -428,13 +432,24 @@ impl Session {
         })
     }
 
-    /// The page control's own OnValidate trigger `r` of control `idx`, with the store's write mark at its start in
-    /// `PageState::control_onvalidate_writes` while it runs (`inserted_by_table_field` reads it).
+    /// The page control's own OnValidate trigger `r` of control `idx`, recorded in `PageState::control_onvalidate` while it runs
+    /// (`inserted_by_table_field` and `refresh_new_line.rs` `found_row_cell` read it).
     pub(super) fn run_control_onvalidate(&mut self, st: &St, idx: usize, r: usize) -> Result<Value, Signal> {
-        let mark = Some(self.write_mark());
-        let outer = std::mem::replace(&mut st.borrow_mut().control_onvalidate_writes, mark);
+        let start = Some(crate::pages::state::ControlOnValidate::new(
+            self.write_mark(),
+            self.store.change_counter(),
+        ));
+        let outer = std::mem::replace(&mut st.borrow_mut().control_onvalidate, start);
+        self.pages.onvalidate_pages.push(st.clone());
         let result = self.control_routine(st, idx, r);
-        st.borrow_mut().control_onvalidate_writes = outer;
+        self.pages.onvalidate_pages.pop();
+        let mut s = st.borrow_mut();
+        s.control_onvalidate = outer;
+        // An OnValidate that failed after its save left the new-row line runs no refresh (`ValidateStart::left_new_line`).
+        if let (Err(_), Some(start)) = (&result, s.filters_before_validate.as_mut()) {
+            start.left_new_line = false;
+        }
+        drop(s);
         result
     }
 

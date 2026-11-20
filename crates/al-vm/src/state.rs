@@ -288,6 +288,13 @@ pub(crate) struct PageClients {
     pub(crate) saved_values: std::collections::HashMap<u32, Vec<(Option<usize>, usize, Value)>>,
     /// `saved_values` at the last commit: a rollback goes back to it (`Session::rollback_transaction`).
     pub(crate) saved_values_committed: std::collections::HashMap<u32, Vec<(Option<usize>, usize, Value)>>,
+    /// For each report whose request page stored values while the program has the Object Options table: whether those
+    /// values stand in a row this runtime wrote (`pages/open/saved_row.rs`). A rollback keeps it: a row is written only just
+    /// before its run commits.
+    pub(crate) saved_rows: std::collections::HashMap<u32, crate::pages::SavedRow>,
+    /// The rows OKs of request pages ask for, until their runs return, innermost last: (report object, the transaction
+    /// world of the run, the store's change counter at the save).
+    pub(crate) saved_row_pending: Vec<(u32, usize, u64)>,
     pub(crate) traps: Vec<Rc<RefCell<crate::pages::PageState>>>,
     /// Open TestPages in a state whose end of scope is not pinned (what BC saves when the variable goes away): a routine
     /// whose local holds the last reference to one is refused when it returns.
@@ -360,6 +367,9 @@ pub(crate) struct PageClients {
     pub(crate) code_close_vetoes: Vec<crate::pages::CodeCloseVeto>,
     /// Pages whose close, requested by OnAfterGetCurrRecord at OpenView, OnQueryClosePage refused twice (`pages/code_close_veto.rs`).
     pub(crate) open_vetoed: Vec<std::rc::Weak<RefCell<crate::pages::PageState>>>,
+    /// The pages whose control OnValidate runs now, innermost last (`Session::run_control_onvalidate`): page code's record calls
+    /// on their Rec are recorded in that OnValidate (`Session::note_page_rec_call`).
+    pub(crate) onvalidate_pages: Vec<Rc<RefCell<crate::pages::PageState>>>,
 }
 
 /// Event subscriptions and what the Event Subscription table reports.
@@ -557,6 +567,9 @@ pub(crate) struct ReportState {
     pub(crate) report_preview_pinned: Vec<ReportStart>,
     /// The report running now was started by `RunModal` (its request page's Preview and Print are not pinned).
     pub(crate) run_modal: bool,
+    /// The report running now was started by the static `Report.Run` or `Report.RunModal` with the report id as its only
+    /// argument and not swapped by SubstituteReport (`run_started_as`): not on a report variable, not another overload.
+    pub(crate) run_bare: bool,
     /// The report running now was started with SystemPrinter `true` (`Report.Run(Id, .., true)`): a run that renders would
     /// print (`report_placeholder::run`).
     pub(crate) system_printer: bool,
