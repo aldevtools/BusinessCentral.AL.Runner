@@ -44,6 +44,7 @@ mod platform_rows;
 mod stale;
 mod stale_rule;
 mod tenant_media_rows;
+mod time_rollover;
 pub(crate) use stale_rule::{TrappedRollback, same_key};
 mod guarded_run_body;
 pub(crate) use guarded_run_body::GuardedBody;
@@ -1706,7 +1707,7 @@ impl Session {
         }
     }
 
-    pub(crate) fn scan(
+    fn scan_in_order(
         &mut self,
         rec: &Rec,
         t: &TableDef,
@@ -1953,6 +1954,10 @@ impl Session {
         if via_get && !temporary && self.tx.open.locked_tables.contains(&t.object) {
             let company = rec.borrow().company.clone();
             self.tx.open.rows_touched.push((t.object, company, pk.clone()));
+        }
+        // After the filters saw the row as stored: a Time a database column holds past the day reads 00:00:00 (`sqltime`).
+        if !temporary {
+            crate::sqltime::read_back(&mut row);
         }
         {
             let mut r = rec.borrow_mut();
