@@ -95,14 +95,7 @@ impl Session {
             ));
         };
         let engine = self.engine();
-        let names =
-            |o: &al_ir::Object, n: &str| o.name.eq_ignore_ascii_case(n) || o.id.is_some_and(|i| i.to_string() == n);
-        let tables: Vec<usize> = (0..engine.program.objects.len())
-            .filter(|&i| {
-                let o = &engine.program.objects[i];
-                o.is_kind(al_ir::ObjKind::Table) && o.table.is_some() && names(o, &table_name)
-            })
-            .collect();
+        let tables = tables_named(&engine, &table_name);
         let [table] = tables.as_slice() else {
             return unsupported(format!(
                 "Lookup on a control whose own TableRelation names table {table_name}, which is not one table of the workspace"
@@ -135,7 +128,7 @@ impl Session {
                 .program
                 .objects
                 .iter()
-                .position(|o| o.is_kind(al_ir::ObjKind::Page) && names(o, n))
+                .position(|o| o.is_kind(al_ir::ObjKind::Page) && named(o, n))
         };
         let wanted = match (&ctl_page, &table_page) {
             (Some(c), Some(t)) if find_page(c) != find_page(t) => {
@@ -164,7 +157,7 @@ impl Session {
             .iter()
             .find(|(k, _)| k.eq_ignore_ascii_case("SourceTable"))
             .map(|(_, v)| v.trim().trim_matches('"').to_string());
-        if !source_table.is_some_and(|t| names(table_obj, &t)) {
+        if !source_table.is_some_and(|t| named(table_obj, &t)) {
             return unsupported(format!(
                 "Lookup through page {wanted}, whose source table is not the related table {table_name} (not pinned)"
             ));
@@ -251,9 +244,24 @@ impl Session {
     }
 }
 
+/// The tables of the workspace a control's own TableRelation names as `name` (its name or its id).
+pub(super) fn tables_named(engine: &Engine, name: &str) -> Vec<usize> {
+    (0..engine.program.objects.len())
+        .filter(|&i| {
+            let o = &engine.program.objects[i];
+            o.is_kind(al_ir::ObjKind::Table) && o.table.is_some() && named(o, name)
+        })
+        .collect()
+}
+
+/// Whether object `o` is the one a relation or a page property names as `n` (its name or its id).
+fn named(o: &al_ir::Object, n: &str) -> bool {
+    o.name.eq_ignore_ascii_case(n) || o.id.is_some_and(|i| i.to_string() == n)
+}
+
 /// A `TableRelation` of the plain shape `Table` or `Table.Field` (each name bare or in double quotes): the table and
 /// field names. Any other shape (`where`, `if`, `filter`) gives `None`.
-fn simple_relation(text: &str) -> Option<(String, Option<String>)> {
+pub(super) fn simple_relation(text: &str) -> Option<(String, Option<String>)> {
     let mut names = Vec::new();
     let mut rest = text.trim();
     loop {
