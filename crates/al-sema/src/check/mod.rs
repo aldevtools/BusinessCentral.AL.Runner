@@ -149,6 +149,14 @@ impl CheckResult {
             .find(&self.diagnostics, app, path, offset, codes)
     }
 
+    /// The checker's note that refuses the routine spanning `range` of the file at `path` of `app`
+    /// ([`diag_index::ROUTINE_REFUSALS`]), if one lies in it.
+    pub fn routine_refusal(&self, app: usize, path: &str, range: std::ops::Range<usize>) -> Option<&Diagnostic> {
+        self.diag_index
+            .get_or_init(|| diag_index::DiagIndex::build(&self.diagnostics))
+            .routine_refusal(&self.diagnostics, app, path, range)
+    }
+
     /// Whether object `oi` was left out by a lean compile (`Roots::lean`).
     pub fn is_left_out(&self, oi: usize) -> bool {
         self.left_out.get(oi).copied().unwrap_or(false)

@@ -8,7 +8,7 @@ use super::*;
 pub(crate) enum FieldEnumReading {
     /// The field's own enum (an object index), in a shape a probe measured (assumption enum-member-of-field-type).
     Field(usize),
-    /// A shape no probe measured: why `Field::Member` is refused (checker note AR1010, which the lowering refuses).
+    /// A shape no probe measured: why the field is refused (checker note AR1010, which refuses the routine).
     Unmeasured(String),
 }
 
@@ -18,7 +18,7 @@ enum Receiver {
     Variable,
     /// The current record: `Rec.Kind`, or the bare field name `Kind`.
     CurrentRecord,
-    /// Anything else: a global variable, `xRec`, an array element, a call's result, a `with` statement's record.
+    /// Anything else: a global variable, `xRec`, `this`, an array element, a call's result, a `with` statement's record.
     Other,
 }
 
@@ -41,19 +41,24 @@ impl<'a> Checker<'a> {
         if !differs {
             return None;
         }
+        // A field enum of the global namespace has no qualified name that reaches it from a file that finds another
+        // enum by its name, so `Rec.Field` could not have its type here.
+        let nameable = self.ws.objects[own].namespace.is_some();
         let kind = self.ws.objects[sc.oi].kind;
-        let measured = match receiver {
-            Receiver::Variable => matches!(kind, ObjKind::Codeunit | ObjKind::TableExtension | ObjKind::Page),
-            Receiver::CurrentRecord => matches!(kind, ObjKind::TableExtension | ObjKind::Page),
-            Receiver::Other => false,
-        };
+        let measured = nameable
+            && match receiver {
+                Receiver::Variable => matches!(kind, ObjKind::Codeunit | ObjKind::TableExtension | ObjKind::Page),
+                Receiver::CurrentRecord => matches!(kind, ObjKind::TableExtension | ObjKind::Page),
+                Receiver::Other => false,
+            };
         Some(if measured {
             FieldEnumReading::Field(own)
         } else {
             FieldEnumReading::Unmeasured(format!(
                 "`{}`: this file finds another enum than the field's by the name {}; that the field's enum is read is \
                  measured only for a local variable or parameter in a codeunit, table extension or page, and for Rec or \
-                 the bare field name in a table extension or page (assumption enum-member-of-field-type, corpus PR 1480)",
+                 the bare field name in a table extension or page, with the field's enum in a namespace (assumption \
+                 enum-member-of-field-type, corpus PR 1480)",
                 left.text_string().trim(),
                 crate::types::display_name(&written)
             ))
@@ -62,13 +67,19 @@ impl<'a> Checker<'a> {
 
     /// The type of `node` (`e`), a field of an Enum, with the enum named by its namespace where the field's enum is not the
     /// file's reading of its name in a measured shape ([`Self::field_enum_reading`]), so that the lowering finds that enum
-    /// from this file; the field's resolution then carries the assumption. Elsewhere the type stays the file's reading.
+    /// from this file; the field's resolution then carries the assumption. In a shape not measured every use of the field
+    /// depends on which enum it has: checker note AR1010, which refuses the routine (`check/diag_index.rs`).
     pub(crate) fn field_member_type(&mut self, sc: &mut Scope, node: &SyntaxNode, e: E) -> E {
         if !matches!(e, E::Val(Ty::Enum(_))) {
             return e;
         }
-        let Some(FieldEnumReading::Field(own)) = self.field_enum_reading(sc, node) else {
-            return e;
+        let own = match self.field_enum_reading(sc, node) {
+            None => return e,
+            Some(FieldEnumReading::Unmeasured(why)) => {
+                self.diag(sc, node, "AR1010", why);
+                return e;
+            }
+            Some(FieldEnumReading::Field(own)) => own,
         };
         let key = (
             sc.file,
@@ -106,9 +117,7 @@ impl<'a> Checker<'a> {
         let (res, receiver) = match left.kind() {
             SyntaxKind::MemberExpr => {
                 let base = left.first_child()?;
-                if !matches!(self.types.get(&key(&base)), Some(Ty::Record { .. })) {
-                    return None;
-                }
+                // `this.Field` records no type for `this`: it is classified by its resolution alone.
                 let receiver = match (base.kind(), self.resolutions.get(&key(&base))) {
                     (SyntaxKind::NameRef, Some(Res::Local(_))) => Receiver::Variable,
                     (SyntaxKind::NameRef, Some(Res::Global(g))) if g == "rec" => Receiver::CurrentRecord,

@@ -1619,7 +1619,7 @@ impl<'a> Checker<'a> {
                     )
                 {
                     if let Some(e) = kids.get(1).and_then(|m| self.this_member(sc, node, m)) {
-                        return e;
+                        return self.field_member_type(sc, node, e);
                     }
                 }
                 // `CurrPage.<protected var of the base page>` in a page extension: the base page's variable, as the plain name
@@ -1920,11 +1920,8 @@ impl<'a> Checker<'a> {
                         self.touch(*own);
                         Some(*own)
                     }
-                    // A shape no probe measured: noted for the lowering, which refuses the member.
-                    Some(super::field_enum::FieldEnumReading::Unmeasured(why)) => {
-                        self.diag(sc, node, "AR1010", why.clone());
-                        return;
-                    }
+                    // A shape no probe measured: `field_member_type` noted AR1010 on the field, which refuses the routine.
+                    Some(super::field_enum::FieldEnumReading::Unmeasured(_)) => return,
                     None => self.resolve(sc, ObjKind::Enum, name),
                 };
                 let assumed = reading.is_some();

@@ -42,6 +42,11 @@ fn reader(header: &str) -> String {
 
 /// App "a" holds the field's enum and table; app "b" (depends on "a") holds `files`.
 fn apps(files: Vec<String>) -> Vec<AppSource> {
+    apps_over(vec![FIELD_APP.to_string(), FIELD_TABLE.to_string()], files)
+}
+
+/// App "a" holds `field_files`; app "b" (depends on "a") holds `files`.
+fn apps_over(field_files: Vec<String>, files: Vec<String>) -> Vec<AppSource> {
     let app = |id: &str, deps: &[&str], files: Vec<String>| AppSource {
         id: id.into(),
         name: id.into(),
@@ -54,14 +59,18 @@ fn apps(files: Vec<String>) -> Vec<AppSource> {
     };
     vec![
         app(PLATFORM_APP_ID, &[], vec![]),
-        app("a", &[], vec![FIELD_APP.to_string(), FIELD_TABLE.to_string()]),
+        app("a", &[], field_files),
         app("b", &["a"], files),
     ]
 }
 
 /// Runs C.ProductionOrdinal of [`apps`] and the assumptions it marked.
 fn run(files: Vec<String>) -> (Result<Value, Signal>, Vec<Assumption>) {
-    let mut b = al_testkit::Built::new(al_testkit::compile_apps(apps(files)));
+    run_apps(apps(files))
+}
+
+fn run_apps(apps: Vec<AppSource>) -> (Result<Value, Signal>, Vec<Assumption>) {
+    let mut b = al_testkit::Built::new(al_testkit::compile_apps(apps));
     assumptions::clear_hits();
     let r = b.run_in("C", "ProductionOrdinal");
     (r, assumptions::take_hits())
@@ -145,11 +154,63 @@ fn a_global_record_variable_is_not_measured_and_refuses() {
                    procedure ProductionOrdinal(): Integer\n\
                    begin Line.Kind := Line.Kind::Production; exit(Line.Kind.AsInteger()); end;\n\
                }\n";
-    let (r, _) = run(vec![twin(Some("T.Twin")), src.to_string()]);
+    refused(run(vec![twin(Some("T.Twin")), src.to_string()]).0);
+}
+
+/// Asserts that `r` is a refusal that names the assumption.
+fn refused(r: Result<Value, Signal>) {
     match r {
         Err(Signal::Unsupported(why)) => assert!(why.contains("enum-member-of-field-type"), "{why}"),
         r => panic!("not refused: {r:?}"),
     }
+}
+
+#[test]
+fn a_global_record_variables_field_without_a_member_refuses_too() {
+    // Not measured: every use of the field depends on its enum (`Line.Kind.Ordinals()`, a twin-typed variable), so the
+    // routine refuses also where no `::` names a member.
+    let src = "namespace T.Twin;\nusing T.Data;\n\
+               codeunit 70112 C\n\
+               {\n\
+                   var Line: Record \"TF Line\";\n\
+                   procedure ProductionOrdinal(): Integer\n\
+                   begin exit(Line.Kind.AsInteger()); end;\n\
+               }\n";
+    refused(run(vec![twin(Some("T.Twin")), src.to_string()]).0);
+}
+
+#[test]
+fn a_field_enum_of_the_global_namespace_refuses_where_the_file_finds_a_twin() {
+    // No qualified name reaches an enum of the global namespace from a file that finds a twin, so the field's type could
+    // not be its enum's: refused (EnumMemberFieldTypeShapes_Tests.al measures the value, 1).
+    let field_app =
+        "enum 70110 \"TF Kind\" { Extensible = true; value(0; \" \") { } value(1; Production) { } }\n".to_string();
+    let table = "namespace T.Data;\n\
+                 table 70110 \"TF Line\" { fields { field(1; Id; Integer) { } field(2; Kind; Enum \"TF Kind\") { } } keys { key(PK; Id) { } } }\n"
+        .to_string();
+    let (r, _) = run_apps(apps_over(
+        vec![field_app, table],
+        vec![twin(Some("T.Twin")), reader("namespace T.Twin;\nusing T.Data;")],
+    ));
+    refused(r);
+}
+
+#[test]
+fn this_field_in_a_table_extension_is_not_measured_and_refuses() {
+    // `this.Kind::Production` in a table extension in the twin's namespace: no probe; main read the twin's Production (5).
+    let ext = "namespace T.Twin;\nusing T.Data;\n\
+               tableextension 70113 X extends \"TF Line\"\n\
+               {\n\
+                   procedure ThisOrdinal(): Integer\n\
+                   begin this.Kind := this.Kind::Production; exit(this.Kind.AsInteger()); end;\n\
+               }\n\
+               codeunit 70112 C\n\
+               {\n\
+                   procedure ProductionOrdinal(): Integer\n\
+                   var Line: Record \"TF Line\";\n\
+                   begin exit(Line.ThisOrdinal()); end;\n\
+               }\n";
+    refused(run(vec![twin(Some("T.Twin")), ext.to_string()]).0);
 }
 
 #[test]

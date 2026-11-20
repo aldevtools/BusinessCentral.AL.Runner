@@ -10,16 +10,45 @@ use crate::workspace::Diagnostic;
 #[derive(Debug, Default)]
 pub struct DiagIndex {
     at: FxMap<usize, Vec<u32>>,
+    /// The diagnostics that refuse the routine they lie in ([`ROUTINE_REFUSALS`]), in list order. Almost always empty.
+    routine: Vec<u32>,
     len: usize,
 }
+
+/// The checker's notes that refuse the whole routine they lie in: AR1010, a record field of an Enum read where the file
+/// finds another enum by the enum's name, in a shape no probe measured (`check/field_enum.rs`). Every use of the field
+/// depends on which enum it has, so the routine refuses rather than one expression.
+pub const ROUTINE_REFUSALS: &[&str] = &["AR1010"];
 
 impl DiagIndex {
     pub fn build(diags: &[Diagnostic]) -> DiagIndex {
         let mut at: FxMap<usize, Vec<u32>> = FxMap::default();
+        let mut routine = Vec::new();
         for (i, d) in diags.iter().enumerate() {
             at.entry(d.offset).or_default().push(i as u32);
+            if ROUTINE_REFUSALS.contains(&d.code) {
+                routine.push(i as u32);
+            }
         }
-        DiagIndex { at, len: diags.len() }
+        DiagIndex {
+            at,
+            routine,
+            len: diags.len(),
+        }
+    }
+
+    /// The first diagnostic of `diags` (in list order) of [`ROUTINE_REFUSALS`] in `start..end` of `file` of `app`.
+    pub fn routine_refusal<'a>(
+        &self,
+        diags: &'a [Diagnostic],
+        app: usize,
+        file: &str,
+        range: std::ops::Range<usize>,
+    ) -> Option<&'a Diagnostic> {
+        self.routine
+            .iter()
+            .map(|&i| &diags[i as usize])
+            .find(|d| d.app == app && d.file == file && range.contains(&d.offset))
     }
 
     /// The first diagnostic of `diags` (in list order) at `offset` of `file` of `app` whose code is one of `codes`.
