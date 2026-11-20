@@ -717,8 +717,9 @@ fn issue_8285_unmeasured_factbox_shapes_keep_main_refusal() {
 /// on the changed page (on every page, for the table) is refused, and none passes.
 #[test]
 fn issue_8285_other_code_is_refused() {
-    // (what, the text the variant replaces, its replacement, the tests the change reaches by name).
-    let variants: [(&str, &str, &str, fn(&str) -> bool); 5] = [
+    // What a variant is called, the text it replaces, its replacement, and the tests the change reaches, by name.
+    type Variant = (&'static str, &'static str, &'static str, fn(&str) -> bool);
+    let variants: [Variant; 5] = [
         (
             "OnModifyRecord exits false",
             "        Log.Add('P.MOD(' + Rec.Name + '/' + Rec.Value + ')');\n        exit(true);",
