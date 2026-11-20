@@ -206,7 +206,8 @@ mod tests {
         std::fs::write(p, text).unwrap();
     }
 
-    /// An app folder `app` with a codeunit, a translation file, and outside it a layout its code names and a resource folder.
+    /// An app folder `app` with a codeunit, a translation file, and outside it a resource folder `../shared` that holds a
+    /// layout its code names.
     fn workspace(root: &Path) -> PathBuf {
         let app = root.join("app");
         write(
@@ -295,7 +296,12 @@ mod tests {
         assert_eq!(k.reads, 2, "the resource outside the folder");
         write(&d.path().join("shared/L.rdlc"), "<Report />");
         assert_eq!(once(&mut k, &app), fresh(&app));
-        assert_eq!(k.reads, 3, "the layout outside the folder");
+        // The layout is never read as a layout (al-testrun `layout_file_at`: a path outside the folder), but it is a file
+        // of the resource folder `../shared`, so the app is read again.
+        assert_eq!(
+            k.reads, 3,
+            "the layout outside the folder, a file of its resource folder"
+        );
         write(&d.path().join("app.json"), r#"{"build":"28.5.54151.58194"}"#);
         assert_eq!(once(&mut k, &app), fresh(&app));
         assert_eq!(k.reads, 4, "the record next to the folder");
