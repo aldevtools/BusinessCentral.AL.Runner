@@ -358,7 +358,7 @@ impl Session {
     ///   Application's codeunit 5530 "Calc. Item Availability" calls table 5530 "Inventory Event Buffer".TransferInventoryQty
     ///   this way (al-runner issue 8385). A call from the code of the callee's or the parameter's table, and a table
     ///   extension's procedure (an object of its own kind), are not measured.
-    /// - `by-value-report-procedure` (corpus PR 1450, record/filters/ByValueRecordView.al codeunit 78731, open): a report's
+    /// - `by-value-report-procedure` (corpus PR 1450, record/filters/ByValueRecordView.al codeunit 78731, merged, not pinned yet): a report's
     ///   procedure called from the report itself, from a codeunit or from a page. A data item trigger hands its data item to a
     ///   local procedure in `ByValue_ReportProcedure_DataItemAfterReset` (:1327) and `_ChildDataItemLink` (:1357),
     ///   OnPreReport hands a local record in `_FromOnPreReport` (:1556), the request page's OnOpenPage in `_FromRequestPage`
