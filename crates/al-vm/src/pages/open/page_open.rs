@@ -202,6 +202,10 @@ impl Session {
         let handed_record = record.as_ref().map(|r| r.borrow().clone());
         let handler = self.open_page_as(st, mode, record, bind, false)?;
         self.note_open_end(st, handed_record);
+        // A view the open left filtered or ordered on the Field table's RelationFieldNo is not measured.
+        if self.has_source(st) {
+            self.relation_field_no_page_view(&self.page_rec(st))?;
+        }
         let trapped = bind.is_none() && st.borrow().caught_by_trap;
         if handler.is_some() || trapped {
             self.data_caption_at_handled_open(st, bind, handed)?;

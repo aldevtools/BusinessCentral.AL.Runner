@@ -1,9 +1,30 @@
 use super::auto_format_writer_cell::ControlRead;
 use super::*;
+use crate::platform::relation_field_no_readers as rfn;
 
 impl Session {
     /// The value a control shows: its binding, read now.
     pub(super) fn control_value(&mut self, st: &St, idx: usize) -> Result<Value, Signal> {
+        self.control_value_read(st, idx, rfn::ControlRead::Other)
+    }
+
+    /// How page `st` was opened, as `relation_field_no_readers::relation_field_no_read` tells the opens apart.
+    pub(super) fn field_page_open(&self, st: &St) -> rfn::PageOpen {
+        let engine = self.engine();
+        let s = st.borrow();
+        let page_type = engine.object_facts[s.object as usize].page_type_lower();
+        match (page_type, s.test_open_view(), s.caught_by_trap, &s.trapped_run) {
+            ("list", true, _, _) => rfn::PageOpen::ListOpenView,
+            ("card", true, _, _) => rfn::PageOpen::CardOpenView,
+            ("card", false, true, Some(super::page_run_close::PageRunCall::StaticWithRecord)) => {
+                rfn::PageOpen::CardTrappedStaticRunWithRecord
+            }
+            _ => rfn::PageOpen::Other,
+        }
+    }
+
+    /// [`Session::control_value`] for a read of kind `read`.
+    pub(super) fn control_value_read(&mut self, st: &St, idx: usize, read: rfn::ControlRead) -> Result<Value, Signal> {
         if let Some(held) = Self::deferred_value_read(st, idx) {
             return Ok(held);
         }
@@ -58,11 +79,17 @@ impl Session {
                         "reading a row after CurrPage.Update on a page with OnFindRecord (the row it settles on is not pinned)",
                     );
                 }
-                let v = self.page_rec(st).borrow().fields[pos].clone();
+                let rec = self.page_rec(st);
+                let v = rec.borrow().fields[pos].clone();
                 // A column the platform row leaves unknown is not shown.
                 if let Some(why) = v.unknown() {
                     return unsupported(why.to_string());
                 }
+                self.relation_field_no_row_read(
+                    &rec,
+                    Some(pos),
+                    rfn::Reader::PageControl(self.field_page_open(st), read),
+                )?;
                 Ok(v)
             }
             ir::Binding::Var(_) | ir::Binding::BaseVar(_) => unreachable!("read above as a page variable"),
@@ -118,7 +145,11 @@ impl Session {
         if self.shows_no_row(st, idx) {
             return Ok(Value::default_for(to));
         }
-        let v = self.control_value(st, idx)?;
+        let read = match to {
+            RtType::Integer => rfn::ControlRead::AsInteger,
+            _ => rfn::ControlRead::Other,
+        };
+        let v = self.control_value_read(st, idx, read)?;
         // AsDecimal of a Text control that holds no number: '', ' ' and a word raise AL:Format naming the text
         // (testpage/notifications-and-control-values/CaTestPageTests.al:90-91, :130-135). A text with digits that does not convert is not pinned.
         if let (RtType::Decimal, Value::Text(t)) = (to, &v) {
