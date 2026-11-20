@@ -155,14 +155,22 @@ fn a_page_typed_handler_reads_the_lookup_mode_of_the_page_variable() {
 // function the error names the test codeunit, not the test runner.
 #[test]
 fn a_missing_page_run_in_a_try_function_names_the_test_codeunit() {
-    passes(
-        "[Test]
+    // The number is the emit version of the run's build (al-vm `emit_version`), here one the test names.
+    let tests = "[Test]
         procedure Missing() begin
             if TryRun(62999) then Error('ran');
             Check('You tried to invoke the Page object with the ID 62999 from the object T. An object with that ID does not exist in the current application compiled with emit version 29022.', GetLastErrorText());
         end;
-        [TryFunction] local procedure TryRun(Id: Integer) begin Page.Run(Id); end;",
-    );
+        [TryFunction] local procedure TryRun(Id: Integer) begin Page.Run(Id); end;";
+    let src =
+        format!("{OBJECTS}\ncodeunit 62590 T {{ Subtype = Test; var AtOpen: Text; Rows: Text; {HELPERS} {tests} }}");
+    let o = al_testkit::outcomes_in_with(&src, "T", |e| {
+        e.emit_version = al_vm::emit_version::EmitVersion::known(29022)
+    });
+    assert!(!o.is_empty());
+    for (n, r) in &o {
+        assert_eq!(r, &Outcome::Pass, "{n}");
+    }
 }
 
 const TREE: &str = r#"

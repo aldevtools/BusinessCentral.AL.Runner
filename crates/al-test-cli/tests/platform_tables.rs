@@ -2178,8 +2178,9 @@ fn the_session_rows_name_the_cronus_database() {
 
 /// A table the app declares with `ObsoleteState = Moved` is not in the runtime app: AllObj has no row for it and
 /// `RecordRef.Open` fails with AL:MetadataNotFound (metadata/platform-tables/AwTests.al:413-442). Issued by the test
-/// method itself, the text names the test runner (AwTests.al:434-438, corpus bump 34); issued from a helper it is not
-/// pinned and a read of it is refused. A record operation on the table is not pinned and is refused.
+/// method itself, the text names the test runner (AwTests.al:434-438, corpus bump 34;
+/// `the_missing_object_text_carries_the_emit_version_of_the_build`); issued from a helper it is not pinned and a read of
+/// it is refused. A record operation on the table is not pinned and is refused.
 #[test]
 fn a_moved_table_has_no_all_obj_row_and_does_not_open() {
     let o = outcomes(
@@ -2187,46 +2188,58 @@ fn a_moved_table_has_no_all_obj_row_and_does_not_open() {
 codeunit 50000 "T" { Subtype = Test;
   [Test] procedure NoAllObjRow() var A: Record AllObj; begin A.SetRange("Object Type", A."Object Type"::Table); A.SetRange("Object ID", 50001); if A.Count() <> 0 then Error('rows %1', A.Count()); end;
   [Test] procedure OpenFails() var RR: RecordRef; begin asserterror RR.Open(50001); if GetLastErrorCode() <> 'AL:MetadataNotFound' then Error('code %1', GetLastErrorCode()); end;
-  [Test] procedure OpenText() var RR: RecordRef; begin asserterror RR.Open(50001); if GetLastErrorText() <> 'You tried to invoke the Table object with the ID 50001 from the object Test Runner - Mgt. An object with that ID does not exist in the current application compiled with emit version 27025.' then Error('%1', GetLastErrorText()); end;
   [Test] procedure OpenTextViaHelper() var H: Codeunit "H"; begin asserterror H.Open(50001); if GetLastErrorText() = '' then; end;
   [Test] procedure RecordUse() var M: Record "Moved"; begin if M.IsEmpty() then; end; }
 codeunit 50002 "H" { procedure Open(No: Integer) var RR: RecordRef; begin RR.Open(No); end; }"#,
     );
     passes(&o, "NoAllObjRow");
     passes(&o, "OpenFails");
-    passes(&o, "OpenText");
     assert!(not_run(&o, "OpenTextViaHelper").contains("not pinned"));
     assert!(not_run(&o, "RecordUse").contains("ObsoleteState = Moved"));
 }
 
-/// The number in the missing-object text is the emit version the corpus recorded for the run's build
-/// (errors/error-texts/AzErrorTexts.al:125: 27025 on 27.5, 28015 on 28.5, 29022 on 29.0), here on the moved-table shape
-/// of `a_moved_table_has_no_all_obj_row_and_does_not_open`. On any other build the error is refused, also for a test
-/// that reads only its code.
+/// The number in the missing-object text is the emit version of the run's build (al-vm `emit_version`; assumption
+/// `missing-object-emit-version-from-artifact`), here on the moved-table shape of
+/// `a_moved_table_has_no_all_obj_row_and_does_not_open`. Without the number the error is still raised on every build: a test
+/// that reads its code passes, one that reads its text is refused.
 #[test]
-fn the_missing_object_text_carries_the_emit_version_recorded_for_the_build() {
-    for (bc, n) in [("27.5.0.0", 27025), ("28.5.0.0", 28015), ("29.0.0.0", 29022)] {
-        let o = outcomes_bc(
-            "main",
-            &format!(
-                r#"table 50001 "Moved" {{ ObsoleteState = Moved; ObsoleteReason = 'x'; ObsoleteTag = '1.0'; MovedTo = '11111111-2222-3333-4444-555555555555'; fields {{ field(1; Id; Integer) {{ }} }} keys {{ key(PK; Id) {{ }} }} }}
+fn the_missing_object_text_carries_the_emit_version_of_the_build() {
+    let src = |n: &str| {
+        format!(
+            r#"table 50001 "Moved" {{ ObsoleteState = Moved; ObsoleteReason = 'x'; ObsoleteTag = '1.0'; MovedTo = '11111111-2222-3333-4444-555555555555'; fields {{ field(1; Id; Integer) {{ }} }} keys {{ key(PK; Id) {{ }} }} }}
 codeunit 50000 "T" {{ Subtype = Test;
-  [Test] procedure OpenText() var RR: RecordRef; begin asserterror RR.Open(50001); if GetLastErrorText() <> 'You tried to invoke the Table object with the ID 50001 from the object Test Runner - Mgt. An object with that ID does not exist in the current application compiled with emit version {n}.' then Error('%1', GetLastErrorText()); end; }}"#
-            ),
-            al_sema::check::Roots::default(),
-            bc,
-        );
+  [Test] procedure OpenCode() var RR: RecordRef; begin asserterror RR.Open(50001); if GetLastErrorCode() <> 'AL:MetadataNotFound' then Error('%1', GetLastErrorCode()); end;
+  [Test] procedure OpenText() var RR: RecordRef; begin asserterror RR.Open(50001); if GetLastErrorText() <> 'You tried to invoke the Table object with the ID 50001 from the object Test Runner - Mgt. An object with that ID does not exist in the current application compiled with emit version {n}.' then Error('%1', GetLastErrorText()); end;
+  [Test] procedure OpenTextWithStack() var RR: RecordRef; begin asserterror RR.Open(50001); if GetLastErrorText(true) = '' then; end;
+  [Test] procedure OpenUncaught() var RR: RecordRef; begin RR.Open(50001); end; }}"#
+        )
+    };
+    let run = |bc: &str, n: Option<u32>| {
+        let (mut engine, l) = engine_over("main", &src(&n.unwrap_or(0).to_string()), None, Default::default(), bc);
+        if let Some(n) = n {
+            std::sync::Arc::get_mut(&mut engine)
+                .expect("a fresh engine")
+                .emit_version = al_vm::emit_version::EmitVersion::known(n);
+        }
+        run_all(&engine, &l)
+    };
+    for (bc, n) in [("27.5.0.0", 27024), ("28.4.0.0", 28015), ("29.1.0.0", 29022)] {
+        let o = run(bc, Some(n));
+        passes(&o, "OpenCode");
         passes(&o, "OpenText");
     }
-    let o = outcomes_bc(
-        "main",
-        r#"table 50001 "Moved" { ObsoleteState = Moved; ObsoleteReason = 'x'; ObsoleteTag = '1.0'; MovedTo = '11111111-2222-3333-4444-555555555555'; fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
-codeunit 50000 "T" { Subtype = Test;
-  [Test] procedure OpenCode() var RR: RecordRef; begin asserterror RR.Open(50001); if GetLastErrorCode() <> 'AL:MetadataNotFound' then Error('%1', GetLastErrorCode()); end; }"#,
-        al_sema::check::Roots::default(),
-        "28.4.0.0",
-    );
-    assert!(not_run(&o, "OpenCode").contains("emit version"));
+    for bc in ["28.4.0.0", "29.1.0.0"] {
+        let o = run(bc, None);
+        passes(&o, "OpenCode");
+        for reads_text in ["OpenText", "OpenUncaught"] {
+            assert!(
+                not_run(&o, reads_text).contains("emit version of the run's build is not known"),
+                "{o:?}"
+            );
+        }
+        // Refused with or without the number: the flag's form of the text is not pinned for this error.
+        not_run(&o, "OpenTextWithStack");
+    }
 }
 
 /// BC 29 adds four FlowFields to every table, listed in the Field table after SystemModifiedBy: 2000000005

@@ -31,7 +31,11 @@ codeunit 69996 "MC Tests"
 
 #[test]
 fn a_missing_codeunit_names_the_test_runner_or_the_test_codeunit() {
-    for (n, o) in al_testkit::outcomes_in(SRC, "MC Tests") {
+    // The number is the emit version of the run's build (al-vm `emit_version`), here one the test names.
+    let o = al_testkit::outcomes_in_with(SRC, "MC Tests", |e| {
+        e.emit_version = al_vm::emit_version::EmitVersion::known(29022)
+    });
+    for (n, o) in o {
         assert_eq!(o, Outcome::Pass, "{n}");
     }
 }

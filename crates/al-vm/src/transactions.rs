@@ -200,16 +200,25 @@ impl Session {
             })
     }
 
-    /// The missing-object error with the object it names as the caller.
+    /// The missing-object error with the object it names as the caller. The text ends in the emit version of the run's
+    /// build, read from its platform artifact (`Engine::emit_version`; assumption
+    /// `missing-object-emit-version-from-artifact`: the corpus masks the number, errors/error-texts/AzErrorTexts.al:125).
+    /// When the number is not known the error is raised with its pinned code and no text, so only a read of the text is
+    /// refused.
     pub(crate) fn missing_object_from(&self, kind: &str, id: i64, caller: &str) -> Signal {
         if let Some(why) = self.missing_may_be_skipped(kind, id) {
             return Signal::unsupported(why);
         }
-        let Some(emit_version) = al_version::missing_object_emit_version(self.engine.target.as_ref()) else {
-            return Signal::unsupported(format!(
-                "the emit version this BC build writes in the error for a missing {kind} object is not recorded"
-            ));
+        let emit_version = match self.engine.emit_version.get() {
+            Ok(n) => n,
+            Err(why) => {
+                return Signal::Error(Box::new(al_builtins::native::unpinned_text_error(
+                    "AL:MetadataNotFound",
+                    &format!("Missing object, the emit version of the run's build is not known: {why}"),
+                )));
+            }
         };
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::MissingObjectEmitVersionFromArtifact);
         al_error_code(
             &format!(
                 "You tried to invoke the {kind} object with the ID {id} from the object {caller}. \
