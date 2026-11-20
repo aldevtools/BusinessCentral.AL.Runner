@@ -517,8 +517,9 @@ impl Session {
                     match self.report_enter_world(&schema, window) {
                         Ok(enters) => {
                             let outer = std::mem::replace(&mut self.report.run_modal, id == ids::REPORT_RUNMODAL_1);
+                            let outer_static = std::mem::replace(&mut self.report.run_static, false);
                             let ran = self.report_run_entered(&inst, &schema, Entry::Run, window, enters, None);
-                            self.report.run_modal = outer;
+                            (self.report.run_modal, self.report.run_static) = (outer, outer_static);
                             ran
                         }
                         // A RunModal whose request page the platform refuses to open (a pending write) leaves the

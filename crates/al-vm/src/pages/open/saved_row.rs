@@ -1,12 +1,12 @@
 //! The Object Options row a report request page with SaveValues keeps what an OK confirmed in (al-runner issue 8250), and
-//! the values the next run of the report reads from it. Corpus PR 1462 (merged on the corpus master, not pinned yet),
-//! tests/al-language/reports/ReportObjectOptionsSaveValues.al, measures it; until it is pinned it runs through assumption
-//! `report-saved-values-object-options` in the measured shapes, and the shapes it did not measure refuse. The values
-//! themselves stay in `PageClients::saved_values` (`values.rs`); the row decides whether and which of them a run shows.
+//! the values the next run of the report reads from it. Pinned by corpus tests/al-language/reports/
+//! ReportObjectOptionsSaveValues.al in the shapes it measures (`measured_save`); every other save keeps its values outside
+//! the rows, as before, and a later change to the rows refuses its next read. The values themselves stay in
+//! `PageClients::saved_values` (`values.rs`); the row decides whether and which of them a run shows.
 
 use super::*;
 use crate::platform::{blank, pos};
-use al_builtins::assumptions::{Assumption, assume};
+use std::sync::Arc;
 
 /// The platform table "Object Options".
 const OBJECT_OPTIONS: u32 = 2_000_000_196;
@@ -19,18 +19,23 @@ const F_COMPANY_NAME: u32 = 4;
 const F_USER_NAME: u32 = 5;
 const F_OPTION_DATA: u32 = 6;
 const F_CREATED_BY: u32 = 9;
+/// The system fields of the written row the probe does not read: SystemCreatedAt, SystemCreatedBy, SystemModifiedAt and
+/// SystemModifiedBy.
+const UNREAD_STAMPS: [u32; 4] = [2_000_000_001, 2_000_000_002, 2_000_000_003, 2_000_000_004];
 
 /// What a SaveValues page stored (`PageClients::saved_values`): (owner, global slot, value).
 type Stored = Vec<(Option<usize>, usize, Value)>;
 
 /// Whether the values a report's request page stored stand in an Object Options row.
 #[derive(Clone, Debug)]
-pub(crate) enum SavedRow {
-    /// The runtime wrote the row: its Option Data text, and the store's change counter after the write.
-    Written(String, u64),
-    /// The values are kept outside the rows (a save outside the measured shapes); the store's change counter after that
-    /// save. A change to the Object Options rows since is refused at the next read.
-    Unmirrored(u64),
+pub(crate) struct SavedRow {
+    /// The runtime wrote the row: the mark its Option Data carries (`stream::SAVED_OPTION_DATA`, one allocation per write, so a
+    /// copy of the row keeps it and no other row has it). `None`: the values are kept outside the rows.
+    written: Option<Arc<str>>,
+    /// The store's change counter after the save, or after the runtime's latest own write of a row.
+    since: u64,
+    /// AL changed the Object Options rows after the save, before a later own write moved `since`.
+    al_changed: bool,
 }
 
 impl Session {
@@ -47,45 +52,70 @@ impl Session {
             return;
         }
         let object = st.borrow().object;
-        match self.measured_save(st, saved, by_ok) {
-            Some(text) => {
-                let counter = self.store.change_counter();
-                self.pages.saved_row_pending = Some((object, text, self.tx.tx_world, counter));
-            }
-            None => {
-                let counter = self.store.change_counter();
-                self.pages.saved_rows.insert(object, SavedRow::Unmirrored(counter));
-            }
+        let counter = self.store.change_counter();
+        if self.measured_save(st, saved, by_ok) {
+            self.pages.saved_row_pending.push((object, self.tx.tx_world, counter));
+        } else {
+            self.pages.saved_rows.insert(
+                object,
+                SavedRow {
+                    written: None,
+                    since: counter,
+                    al_changed: false,
+                },
+            );
         }
     }
 
     /// When the run whose request page stored values returns (`reports.rs` `report_in_world`, after its world ended):
     /// `commits`, the run commits, as a run that enters its world does (record/TestTxModelReportRun.al:177-196): the row
-    /// is written just before that commit, so it is committed with the save. A run that does not commit writes no row; its
-    /// values are kept outside the rows, as before.
+    /// is written just before that commit, so it is committed with the save. A run that does not commit, or whose rows AL
+    /// changed since the OK, writes no row; its values are kept outside the rows, as before.
     pub(crate) fn settle_saved_row(&mut self, commits: bool) -> Result<(), Signal> {
         // The run that just returned is the one whose request page asked for the row.
         let world = self.tx.tx_world + 1;
-        let Some((object, text, _, saved_at)) = self.pages.saved_row_pending.take_if(|(_, _, w, _)| *w == world) else {
+        let Some(at) = self.pages.saved_row_pending.iter().rposition(|(_, w, _)| *w == world) else {
             return Ok(());
         };
+        let (object, _, saved_at) = self.pages.saved_row_pending.remove(at);
+        let kept_outside = SavedRow {
+            written: None,
+            since: saved_at,
+            al_changed: false,
+        };
         let t = match self.table_def(OBJECT_OPTIONS) {
-            Some(t) if commits => t,
+            Some(t) if commits && !self.store.tables_changed_since(saved_at).contains(&t.object) => t,
             _ => {
-                self.pages.saved_rows.insert(object, SavedRow::Unmirrored(saved_at));
+                self.pages.saved_rows.insert(object, kept_outside);
                 return Ok(());
             }
         };
-        assume(Assumption::ReportSavedValuesObjectOptions);
+        // The written row (:178-214): its key, Created By, Public Visible and Temporary No (the blank row's), Option Data.
         let mut row = blank(&t);
         let key = self.saved_row_key(&t, object as usize);
         for (id, v) in &key {
             row[pos(&t, *id)] = v.clone();
         }
         row[pos(&t, F_CREATED_BY)] = key[3].1.clone();
+        // Only that Option Data holds the value as UTF-8 text is pinned (:197), not the text: every look at it refuses.
+        let mark: Arc<str> = Arc::from(al_builtins::stream::SAVED_OPTION_DATA);
         let blob = al_builtins::stream::new_blob();
-        blob.borrow_mut().bytes = text.as_bytes().to_vec();
+        blob.borrow_mut().render_pending = Some(mark.clone());
         row[pos(&t, F_OPTION_DATA)] = Value::Blob(blob);
+        // A SystemId, as every stored row has (platform/seed.rs `insert_seed`); the stamps are not pinned.
+        if let Some(p) = t.fields.iter().position(|f| f.id == crate::hostvalues::SYSTEM_ID) {
+            row[p] = Value::Guid(self.fresh_system_id());
+        }
+        for id in UNREAD_STAMPS {
+            if t.fields.iter().any(|f| f.id == id) {
+                row[pos(&t, id)] =
+                    crate::platform::unknown(&t, id, "the Object Options row of saved request page values");
+            }
+        }
+        // AL's changes to the rows before this write still count for the other saves.
+        for entry in self.pages.saved_rows.values_mut() {
+            entry.al_changed |= self.store.tables_changed_since(entry.since).contains(&t.object);
+        }
         let cx = self.cx.clone();
         let pk: Vec<Value> = key.iter().map(|(_, v)| v.clone()).collect();
         if self.store.get(&cx, &t, &pk)?.is_some() {
@@ -93,58 +123,48 @@ impl Session {
         } else {
             self.store.insert(&cx, &t, row)?;
         }
-        // The runtime's own write is no change by AL to the rows of the other saves.
         let counter = self.store.change_counter();
         for entry in self.pages.saved_rows.values_mut() {
-            match entry {
-                SavedRow::Unmirrored(c) | SavedRow::Written(_, c) => *c = counter,
-            }
+            entry.since = counter;
         }
-        self.pages.saved_rows.insert(object, SavedRow::Written(text, counter));
+        self.pages.saved_rows.insert(
+            object,
+            SavedRow {
+                written: Some(mark),
+                since: counter,
+                al_changed: false,
+            },
+        );
         Ok(())
     }
 
-    /// The Option Data text of a save in the shapes ReportObjectOptionsSaveValues.al measured, `None` for any other save. Each
-    /// fact is required by equality: the request page of `Report.RunModal` (:106-112 `RunSet`), closed by OK (:394-398; Cancel writes
-    /// no row, :374), no write transaction open (`RunSet` commits first), and every stored control bound to a Text global of the
-    /// report itself (:27 `SaveValues`, :39 `SomeFilter: Text`).
-    fn measured_save(&mut self, st: &St, saved: &[(Option<usize>, usize, Value)], by_ok: bool) -> Option<String> {
-        let request = self.is_request_page(st);
-        let run_modal =
-            self.report.run_modal && self.report.report_preview_pinned.last() == Some(&crate::state::ReportStart::Run);
-        let committed = matches!(self.in_write_transaction(), Ok(false));
-        let texts = !saved.is_empty()
-            && saved
-                .iter()
-                .all(|(owner, _, v)| owner.is_none() && matches!(v, Value::Text(_)));
-        if !(request && by_ok && run_modal && committed && texts) {
-            return None;
-        }
-        Some(self.option_data(st.borrow().object as usize, saved))
+    /// Whether a save is in the shapes ReportObjectOptionsSaveValues.al measures. Each fact is required by equality: the
+    /// request page of the static `Report.RunModal(Id)` (:106-112 `RunSet`), closed by OK (:394-398; Cancel writes no row,
+    /// :374), no write transaction open (`RunSet` commits first), a ProcessingOnly report with no data item, no report
+    /// extension and no trigger or procedure (:20-40), and one stored control, bound to a global of the report itself of type
+    /// Text (:33, :39).
+    fn measured_save(&mut self, st: &St, saved: &[(Option<usize>, usize, Value)], by_ok: bool) -> bool {
+        let object = st.borrow().object as usize;
+        let o = &self.engine.program.objects[object];
+        let report = o.routines.is_empty()
+            && o.report.as_ref().is_some_and(|r| {
+                r.processing_only && r.items.is_empty() && r.extensions.is_empty() && r.output.is_empty()
+            });
+        let one_text = matches!(saved, [(None, slot, Value::Text(_))]
+            if o.globals.get(*slot).is_some_and(|g| g.ty == RtType::Text(None)));
+        self.is_request_page(st)
+            && by_ok
+            && report
+            && one_text
+            && self.static_run_modal_read()
+            && matches!(self.in_write_transaction(), Ok(false))
     }
 
-    /// The Option Data text the runtime writes for `saved`: the parameters form of `Report.RunRequestPage`, one Field per variable.
-    /// Only that it holds each value as UTF-8 text is measured (:197 `Option Data holds the value (UTF-8)`, :305-313 an edit of the
-    /// value inside it); the rest of the form is the runtime's own.
-    fn option_data(&self, object: usize, saved: &[(Option<usize>, usize, Value)]) -> String {
-        let o = &self.engine.program.objects[object];
-        let fields: String = saved
-            .iter()
-            .map(|(_, slot, v)| {
-                let name = o.globals.get(*slot).map_or("", |g| g.name.as_str());
-                let text = match v {
-                    Value::Text(t) => t.to_string(),
-                    _ => String::new(),
-                };
-                crate::pages::request::option_field(name, &text)
-            })
-            .collect();
-        format!(
-            "{}<ReportParameters name=\"{}\" id=\"{}\"><Options>{fields}</Options></ReportParameters>",
-            crate::pages::request_options::PARAMETERS_DECLARATION,
-            crate::pages::request::xml_escape(&o.name),
-            o.id.unwrap_or(0)
-        )
+    /// The run is the static `Report.RunModal(Id)` the probe makes (:111, :119).
+    fn static_run_modal_read(&self) -> bool {
+        self.report.run_modal
+            && self.report.run_static
+            && self.report.report_preview_pinned.last() == Some(&crate::state::ReportStart::Run)
     }
 
     /// The primary key of the row of report `object` for this session: Parameter Name, Object ID, Object Type Report, User Name =
@@ -188,81 +208,38 @@ impl Session {
                 "the request page of report \"{name}\" after {what} (Object Options rows of saved values, not measured)"
             ))
         };
-        let (SavedRow::Unmirrored(counter) | SavedRow::Written(_, counter)) = entry;
-        let changed = self.store.tables_changed_since(counter).contains(&t.object);
-        // AL changed no row since the save: the stored values, as before. A row gone without a change, as when the
-        // rollback that ends an isolated test puts the store back (`Checkpoint::restore`), is this case too.
-        if !changed {
+        // AL changed no row since the save: the stored values, as before. The store tracks changes per table, so a change to
+        // any Object Options row counts. A row gone without a change, as when the rollback that ends an isolated test puts the
+        // store back (`Checkpoint::restore`), is this case too: main's result, not measured.
+        if !entry.al_changed && !self.store.tables_changed_since(entry.since).contains(&t.object) {
             return Ok(saved);
         }
-        let SavedRow::Written(written, _) = entry else {
+        let Some(mark) = entry.written else {
             return refuse("a change to the rows that follows a save the runtime keeps outside them");
         };
         let key = self.saved_row_key(&t, object as usize);
         let cx = self.cx.clone();
         let pk: Vec<Value> = key.iter().map(|(_, v)| v.clone()).collect();
         let row = self.store.get(&cx, &t, &pk)?;
-        let data = row.map(|r| match &r[pos(&t, F_OPTION_DATA)] {
-            Value::Blob(b) => String::from_utf8_lossy(&b.borrow().bytes).into_owned(),
-            _ => String::new(),
-        });
-        let stored = saved.as_ref().map(|s| self.option_data(object as usize, s));
-        // The row as the runtime wrote it, over the values it was written for: what was stored (:218, :277).
-        if data.is_some() && data == stored {
-            return Ok(saved);
-        }
-        // The read the probe measured: the request page of RunModal with no write transaction open (:114-121 `RunRead`).
-        let run_modal =
-            self.report.run_modal && self.report.report_preview_pinned.last() == Some(&crate::state::ReportStart::Run);
-        let committed = matches!(self.in_write_transaction(), Ok(false));
-        if !(run_modal && committed) {
-            return refuse(
-                "a deleted, moved or edited row, read by a run other than RunModal or in a write transaction",
-            );
-        }
-        match data {
-            // No row under this session's key: the page's own values (:232 delete, :259 another report keeps its row, :321
-            // another User Name, :339 another Company Name, :357 another Parameter Name, :374 after a Cancel).
+        let carries_mark = |r: &al_data::Row| match &r[pos(&t, F_OPTION_DATA)] {
+            Value::Blob(b) => b
+                .borrow()
+                .render_pending
+                .as_ref()
+                .is_some_and(|m| Arc::ptr_eq(m, &mark)),
+            _ => false,
+        };
+        match row {
+            // The row the runtime wrote, as written or deleted and inserted again: what was stored (:218, :277).
+            Some(r) if carries_mark(&r) => Ok(saved),
+            // No row under this session's key, read by the static RunModal with no write transaction open (:114-121
+            // `RunRead`): the page's own values (:232 delete, :259 another report keeps its row, :321 another User Name, :339
+            // another Company Name, :357 another Parameter Name, :374 after a Cancel).
+            None if self.static_run_modal_read() && matches!(self.in_write_transaction(), Ok(false)) => Ok(None),
             None => {
-                assume(Assumption::ReportSavedValuesObjectOptions);
-                Ok(None)
+                refuse("a deleted or moved row, read by a run other than the static RunModal or in a write transaction")
             }
-            // An edit of the Option Data the runtime wrote for the values still stored (:294).
-            Some(edited) => {
-                let edit_of_written = saved.as_ref().filter(|_| stored.as_deref() == Some(written.as_str()));
-                match edit_of_written.and_then(|s| self.edited_texts(object as usize, s, &edited)) {
-                    Some(texts) => {
-                        assume(Assumption::ReportSavedValuesObjectOptions);
-                        Ok(Some(texts))
-                    }
-                    None => refuse("an edit of the row's Option Data that changes its form"),
-                }
-            }
+            Some(_) => refuse("an edit of the row's Option Data, or another row under its key"),
         }
-    }
-
-    /// `saved` with the texts an edited Option Data gives each variable, `None` when the edit changed anything but the values: the
-    /// same declaration, root and Field names in the same order.
-    fn edited_texts(&self, object: usize, saved: &[(Option<usize>, usize, Value)], edited: &str) -> Option<Stored> {
-        let empty: Vec<_> = saved.iter().map(|(o, s, _)| (*o, *s, Value::Text("".into()))).collect();
-        let blank = self.option_data(object, &empty);
-        let (head, tail) = blank.split_once("<Options>")?;
-        let options = edited.strip_prefix(head)?.strip_prefix("<Options>")?;
-        let options = options
-            .strip_suffix(tail.split_once("</Options>")?.1)?
-            .strip_suffix("</Options>")?;
-        let fields = crate::pages::request_options::option_fields(options).ok()?;
-        let o = &self.engine.program.objects[object];
-        if fields.len() != saved.len() {
-            return None;
-        }
-        saved
-            .iter()
-            .zip(fields)
-            .map(|((owner, slot, _), (name, text))| {
-                let own = o.globals.get(*slot).map_or("", |g| g.name.as_str());
-                (name == own).then(|| (*owner, *slot, Value::Text(text.as_str().into())))
-            })
-            .collect()
     }
 }

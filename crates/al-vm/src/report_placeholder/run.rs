@@ -85,10 +85,12 @@ impl Session {
         run: impl FnOnce(&mut Self) -> Result<(), Signal>,
     ) -> Result<(), Signal> {
         let outer = std::mem::replace(&mut self.report.run_modal, modal);
+        let outer_static = std::mem::replace(&mut self.report.run_static, true);
         let printer = matches!(printer, Some(Value::Boolean(true)));
         let outer_printer = std::mem::replace(&mut self.report.system_printer, printer);
         let ran = run(self);
         (self.report.run_modal, self.report.system_printer) = (outer, outer_printer);
+        self.report.run_static = outer_static;
         ran
     }
 

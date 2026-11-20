@@ -1509,7 +1509,7 @@ fn xml_text(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
-pub(in crate::pages) fn xml_escape(s: &str) -> String {
+fn xml_escape(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
@@ -1518,7 +1518,7 @@ pub(in crate::pages) fn xml_escape(s: &str) -> String {
 
 /// One `Field` element of `<Options>`. An empty value is an empty element, `<Field name="TxtVal" />`, for Text, Code, Date, Time
 /// and DateTime alike (reports/W3ReportParametersText.al:255).
-pub(in crate::pages) fn option_field(name: &str, text: &str) -> String {
+fn option_field(name: &str, text: &str) -> String {
     if text.is_empty() {
         format!("<Field name=\"{}\" />", xml_escape(name))
     } else {

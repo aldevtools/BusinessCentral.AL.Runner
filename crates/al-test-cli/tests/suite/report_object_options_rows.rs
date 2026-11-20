@@ -1,7 +1,6 @@
 //! al-runner issue 8250: a request page with SaveValues keeps what an OK confirmed in an "Object Options" row, so deleting the
-//! report's rows makes the next run show a blank field. Corpus PR 1462 (merged on the corpus master, not pinned yet),
-//! tests/al-language/reports/ReportObjectOptionsSaveValues.al, measures it; until it is pinned the row runs through assumption
-//! `report-saved-values-object-options`, in the measured shapes only.
+//! report's rows makes the next run show a blank field. Pinned by corpus tests/al-language/reports/
+//! ReportObjectOptionsSaveValues.al, in the shapes it measures; the others keep main's result or refuse.
 //!
 //! Needs `System.app` of the pinned build in the artifact cache (`al_testfiles`).
 
@@ -46,6 +45,87 @@ report 51323 "Repro Unsaved"
     UsageCategory = None;
     requestpage
     {
+        layout { area(content) { field("Some Filter"; SomeFilter) { ApplicationArea = All; } } }
+    }
+    var
+        SomeFilter: Text;
+}
+
+report 51325 "Repro Saved Del"
+{
+    ProcessingOnly = true;
+    UsageCategory = None;
+    requestpage
+    {
+        SaveValues = true;
+        layout { area(content) { field("Some Filter"; SomeFilter) { ApplicationArea = All; } } }
+    }
+    var
+        SomeFilter: Text;
+
+    trigger OnPreReport()
+    var
+        ObjectOptions: Record "Object Options";
+    begin
+        ObjectOptions.SetRange("Object Type", ObjectOptions."Object Type"::Report);
+        ObjectOptions.SetRange("Object ID", Report::"Repro Saved Del");
+        ObjectOptions.DeleteAll();
+    end;
+}
+
+report 51326 "Repro Outer"
+{
+    ProcessingOnly = true;
+    UsageCategory = None;
+    requestpage
+    {
+        SaveValues = true;
+        layout { area(content) { field("Some Filter"; SomeFilter) { ApplicationArea = All; } } }
+    }
+    var
+        SomeFilter: Text;
+
+    trigger OnPreReport()
+    begin
+        Report.RunModal(Report::"Repro Saved B");
+    end;
+}
+
+report 51327 "Repro Two Texts"
+{
+    ProcessingOnly = true;
+    UsageCategory = None;
+    requestpage
+    {
+        SaveValues = true;
+        layout
+        {
+            area(content)
+            {
+                field("Some Filter"; SomeFilter) { ApplicationArea = All; }
+                field("Other Filter"; OtherFilter) { ApplicationArea = All; }
+            }
+        }
+    }
+    var
+        SomeFilter: Text;
+        OtherFilter: Text;
+}
+
+report 51328 "Repro Data Item"
+{
+    ProcessingOnly = true;
+    UsageCategory = None;
+    dataset
+    {
+        dataitem(Num; Integer)
+        {
+            DataItemTableView = where(Number = const(1));
+        }
+    }
+    requestpage
+    {
+        SaveValues = true;
         layout { area(content) { field("Some Filter"; SomeFilter) { ApplicationArea = All; } } }
     }
     var
@@ -205,6 +285,55 @@ const HELPERS: &str = r#"
     end;
 
     [RequestPageHandler]
+    procedure HandlerDel(var RequestPage: TestRequestPage "Repro Saved Del")
+    begin
+        if Mode = Mode::Set then begin
+            RequestPage."Some Filter".SetValue(SetTxt);
+            RequestPage.OK().Invoke();
+        end else begin
+            SeenTxt := RequestPage."Some Filter".Value();
+            RequestPage.Cancel().Invoke();
+        end;
+    end;
+
+    [RequestPageHandler]
+    procedure HandlerOuter(var RequestPage: TestRequestPage "Repro Outer")
+    begin
+        if Mode = Mode::Set then begin
+            RequestPage."Some Filter".SetValue(SetTxt);
+            RequestPage.OK().Invoke();
+        end else begin
+            SeenTxt := RequestPage."Some Filter".Value();
+            RequestPage.Cancel().Invoke();
+        end;
+    end;
+
+    [RequestPageHandler]
+    procedure HandlerTwo(var RequestPage: TestRequestPage "Repro Two Texts")
+    begin
+        if Mode = Mode::Set then begin
+            RequestPage."Some Filter".SetValue(SetTxt);
+            RequestPage."Other Filter".SetValue(SetTxt);
+            RequestPage.OK().Invoke();
+        end else begin
+            SeenTxt := RequestPage."Some Filter".Value();
+            RequestPage.Cancel().Invoke();
+        end;
+    end;
+
+    [RequestPageHandler]
+    procedure HandlerItem(var RequestPage: TestRequestPage "Repro Data Item")
+    begin
+        if Mode = Mode::Set then begin
+            RequestPage."Some Filter".SetValue(SetTxt);
+            RequestPage.OK().Invoke();
+        end else begin
+            SeenTxt := RequestPage."Some Filter".Value();
+            RequestPage.Cancel().Invoke();
+        end;
+    end;
+
+    [RequestPageHandler]
     procedure HandlerI(var RequestPage: TestRequestPage "Repro Saved Int")
     begin
         if Mode = Mode::Set then begin
@@ -234,19 +363,11 @@ fn outcome<'a>(o: &'a [(String, Outcome, Vec<Assumption>)], n: &str) -> &'a (Str
         .unwrap_or_else(|| panic!("no test {n}: {o:?}"))
 }
 
-fn assert_flagged_pass(o: &[(String, Outcome, Vec<Assumption>)], names: &[&str]) {
-    for n in names {
-        let (_, r, h) = outcome(o, n);
-        assert_eq!(*r, Outcome::Pass, "{n}: {r:?}");
-        assert!(h.contains(&Assumption::ReportSavedValuesObjectOptions), "{n}: {h:?}");
-    }
-}
-
 fn assert_clean_pass(o: &[(String, Outcome, Vec<Assumption>)], names: &[&str]) {
     for n in names {
         let (_, r, h) = outcome(o, n);
         assert_eq!(*r, Outcome::Pass, "{n}: {r:?}");
-        assert!(!h.contains(&Assumption::ReportSavedValuesObjectOptions), "{n}: {h:?}");
+        assert!(h.is_empty(), "{n}: {h:?}");
     }
 }
 
@@ -260,7 +381,7 @@ fn assert_refused(o: &[(String, Outcome, Vec<Assumption>)], names: &[&str]) {
     }
 }
 
-/// The reporter's repro (issue 8250, BC 29 sandbox: both pass) and the cells of corpus PR 1462.
+/// The reporter's repro (issue 8250, BC 29 sandbox: both pass) and the cells of ReportObjectOptionsSaveValues.al.
 #[test]
 fn issue_8250_saved_values_live_in_object_options_rows() {
     let o = run_tests(
@@ -313,7 +434,6 @@ fn issue_8250_saved_values_live_in_object_options_rows() {
         Expect('Created By', Format(ObjectOptions."Created By" = UserId()), 'Yes');
         Expect('Public Visible', Format(ObjectOptions."Public Visible"), 'No');
         Expect('Temporary', Format(ObjectOptions.Temporary), 'No');
-        Expect('Option Data', Format(OptionDataText(ObjectOptions).Contains('OBO-ABC')), 'Yes');
         RunSet(Report::"Repro Unsaved", 'OBO-UNSAVED');
         Expect('rows without SaveValues', Format(RowCount(Report::"Repro Unsaved")), '0');
     end;
@@ -374,26 +494,6 @@ fn issue_8250_saved_values_live_in_object_options_rows() {
         Expect('next run', RunRead(Report::"Repro Saved Values"), 'OBO-AGAIN');
     end;
 
-    // :294
-    [Test]
-    [HandlerFunctions('HandlerA')]
-    procedure H_EditOptionData()
-    var
-        ObjectOptions: Record "Object Options";
-        OutStr: OutStream;
-        Data: Text;
-    begin
-        ClearRows(Report::"Repro Saved Values");
-        RunSet(Report::"Repro Saved Values", 'OBO-OLD');
-        FindRow(Report::"Repro Saved Values", ObjectOptions);
-        Data := OptionDataText(ObjectOptions);
-        ObjectOptions."Option Data".CreateOutStream(OutStr, TextEncoding::UTF8);
-        OutStr.WriteText(Data.Replace('OBO-OLD', 'OBO-NEW'));
-        ObjectOptions.Modify();
-        Commit();
-        Expect('next run', RunRead(Report::"Repro Saved Values"), 'OBO-NEW');
-    end;
-
     // :321, :339, :357
     [Test]
     [HandlerFunctions('HandlerA')]
@@ -441,15 +541,16 @@ fn issue_8250_saved_values_live_in_object_options_rows() {
     end;
 "#,
     );
-    assert_flagged_pass(
+    assert_clean_pass(
         &o,
         &[
             "A_RunSavesAValue",
             "B_DeletedObjectOptionsForgetTheValue",
             "C_SavedRunWritesOneRow",
+            "D_NoDeleteNextRunShowsTheValue",
             "E_DeleteRowsNextRunShowsBlank",
             "F_DeleteRowsOfOneReport",
-            "H_EditOptionData",
+            "G_DeleteAndInsertAgain",
             "I_RowOfAnotherUser",
             "J_RowOfAnotherCompany",
             "K_RowUnderAnotherParameterName",
@@ -457,11 +558,9 @@ fn issue_8250_saved_values_live_in_object_options_rows() {
             "L_CancelledRun",
         ],
     );
-    // The saved row stands as written: the value comes back as on main, the write itself is assumed.
-    assert_flagged_pass(&o, &["D_NoDeleteNextRunShowsTheValue", "G_DeleteAndInsertAgain"]);
 }
 
-/// The shapes corpus PR 1462 did not measure: a Report.Run that would read a deleted row, a delete still pending under
+/// The shapes ReportObjectOptionsSaveValues.al does not measure: a Report.Run that would read a deleted row, a delete still pending under
 /// AutoRollback, and a save the runtime keeps outside the rows (a SaveValues page with a non-Text field) whose report's
 /// rows AL changed after. A save outside the measured shapes without any later change to the rows keeps main's result.
 #[test]
@@ -564,11 +663,11 @@ fn issue_8250_isolation_rollback_keeps_mains_result() {
 "#,
         TestIsolation::Function,
     );
-    assert_flagged_pass(&o, &["Q1_Save"]);
-    assert_clean_pass(&o, &["Q2_ReadAfterIsolation"]);
+    assert_clean_pass(&o, &["Q1_Save", "Q2_ReadAfterIsolation"]);
 }
 
-/// Issue 8250: an Option Data edit that changes its form is not measured and refuses.
+/// Issue 8250: Option Data written over without a read (the Option Data the runtime wrote is gone from the row): the next
+/// run's read refuses.
 #[test]
 fn issue_8250_option_data_edit_of_another_form_refuses() {
     let o = run_tests(
@@ -592,4 +691,229 @@ fn issue_8250_option_data_edit_of_another_form_refuses() {
 "#,
     );
     assert_refused(&o, &["R1_EditChangesTheForm"]);
+}
+
+/// Issue 8250: only that Option Data holds the value is pinned (ReportObjectOptionsSaveValues.al:197), not its text, so every
+/// look at the Option Data the runtime wrote refuses: a read, and the edit of :294, which reads it first.
+#[test]
+fn issue_8250_option_data_read_refuses() {
+    let o = run_tests(
+        r#"
+    [Test]
+    [HandlerFunctions('HandlerA')]
+    procedure C_OptionDataRead()
+    var
+        ObjectOptions: Record "Object Options";
+    begin
+        ClearRows(Report::"Repro Saved Values");
+        RunSet(Report::"Repro Saved Values", 'OBO-ABC');
+        FindRow(Report::"Repro Saved Values", ObjectOptions);
+        Expect('Option Data', Format(OptionDataText(ObjectOptions).Contains('OBO-ABC')), 'Yes');
+    end;
+
+    [Test]
+    [HandlerFunctions('HandlerA')]
+    procedure H_EditOptionData()
+    var
+        ObjectOptions: Record "Object Options";
+        OutStr: OutStream;
+        Data: Text;
+    begin
+        ClearRows(Report::"Repro Saved Values");
+        RunSet(Report::"Repro Saved Values", 'OBO-OLD');
+        FindRow(Report::"Repro Saved Values", ObjectOptions);
+        Data := OptionDataText(ObjectOptions);
+        ObjectOptions."Option Data".CreateOutStream(OutStr, TextEncoding::UTF8);
+        OutStr.WriteText(Data.Replace('OBO-OLD', 'OBO-NEW'));
+        ObjectOptions.Modify();
+        Commit();
+        Expect('next run', RunRead(Report::"Repro Saved Values"), 'OBO-NEW');
+    end;
+
+"#,
+    );
+    assert_refused(&o, &["C_OptionDataRead"]);
+    assert_refused(&o, &["H_EditOptionData"]);
+}
+
+/// Review of PR 8511, HIGH-1: the row the runtime writes for one report's save does not hide a change AL made before to the
+/// rows of another report. Deleting A's rows then saving B: the next run of A finds no row and shows blank (:232, :259).
+#[test]
+fn issue_8250_save_of_another_report_keeps_a_delete() {
+    let o = run_tests(
+        r#"
+    [Test]
+    [HandlerFunctions('HandlerA,HandlerB')]
+    procedure C2_DeleteThenSaveOther()
+    begin
+        ClearRows(Report::"Repro Saved Values");
+        ClearRows(Report::"Repro Saved B");
+        RunSet(Report::"Repro Saved Values", 'OBO-A1');
+        ClearRows(Report::"Repro Saved Values");
+        RunSet(Report::"Repro Saved B", 'OBO-B1');
+        Expect('A', RunRead(Report::"Repro Saved Values"), '');
+        Expect('B', RunRead(Report::"Repro Saved B"), 'OBO-B1');
+    end;
+"#,
+    );
+    assert_clean_pass(&o, &["C2_DeleteThenSaveOther"]);
+}
+
+/// Review of PR 8511, HIGH-1: a change to the rows after a save kept outside them still refuses after a later save of another
+/// report writes its row.
+#[test]
+fn issue_8250_save_of_another_report_keeps_a_refusal() {
+    let o = run_tests(
+        r#"
+    [Test]
+    [HandlerFunctions('HandlerI,HandlerB')]
+    procedure C4_UnmirroredThenChangeThenSaveOther()
+    var
+        ObjectOptions: Record "Object Options";
+    begin
+        Mode := Mode::Set;
+        SetInt := 5;
+        Commit();
+        Report.RunModal(Report::"Repro Saved Int");
+        ObjectOptions."Object Type" := ObjectOptions."Object Type"::Report;
+        ObjectOptions."Object ID" := 99999;
+        ObjectOptions."Parameter Name" := 'X';
+        ObjectOptions.Insert();
+        ObjectOptions.Delete();
+        Commit();
+        RunSet(Report::"Repro Saved B", 'OBO-B');
+        Mode := Mode::Read;
+        Commit();
+        Report.RunModal(Report::"Repro Saved Int");
+    end;
+"#,
+    );
+    assert_refused(&o, &["C4_UnmirroredThenChangeThenSaveOther"]);
+}
+
+/// Review of PR 8511, HIGH-2: the row has a SystemId, as every stored row; the stamps the probe did not read refuse.
+#[test]
+fn issue_8250_written_row_has_a_system_id() {
+    let o = run_tests(
+        r#"
+    [Test]
+    [HandlerFunctions('HandlerA')]
+    procedure S01_SystemId()
+    var
+        ObjectOptions: Record "Object Options";
+    begin
+        ClearRows(Report::"Repro Saved Values");
+        RunSet(Report::"Repro Saved Values", 'OBO-S');
+        FindRow(Report::"Repro Saved Values", ObjectOptions);
+        Expect('SystemId null', Format(IsNullGuid(ObjectOptions.SystemId)), 'No');
+    end;
+"#,
+    );
+    assert_clean_pass(&o, &["S01_SystemId"]);
+}
+
+/// Review of PR 8511, HIGH-2: SystemCreatedAt of the row the runtime wrote is not pinned.
+#[test]
+fn issue_8250_written_row_stamps_refuse() {
+    let o = run_tests(
+        r#"
+    [Test]
+    [HandlerFunctions('HandlerA')]
+    procedure S01_CreatedAt()
+    var
+        ObjectOptions: Record "Object Options";
+    begin
+        ClearRows(Report::"Repro Saved Values");
+        RunSet(Report::"Repro Saved Values", 'OBO-S');
+        FindRow(Report::"Repro Saved Values", ObjectOptions);
+        Expect('SystemCreatedAt', Format(ObjectOptions.SystemCreatedAt = 0DT), 'No');
+    end;
+"#,
+    );
+    assert_refused(&o, &["S01_CreatedAt"]);
+}
+
+/// Review of PR 8511, MED-3: a request page of a report run inside the run of another does not lose the outer save. The
+/// outer report has a trigger, so its save is kept outside the rows; once the inner report's row is deleted, its next read
+/// refuses instead of answering the old value.
+#[test]
+fn issue_8250_nested_run_keeps_the_outer_save() {
+    let o = run_tests(
+        r#"
+    [Test]
+    [HandlerFunctions('HandlerOuter,HandlerB')]
+    procedure S08_Nested()
+    begin
+        ClearRows(Report::"Repro Outer");
+        ClearRows(Report::"Repro Saved B");
+        RunSet(Report::"Repro Outer", 'OBO-OUT');
+        ClearRows(Report::"Repro Outer");
+        ClearRows(Report::"Repro Saved B");
+        Expect('outer', RunRead(Report::"Repro Outer"), '');
+    end;
+"#,
+    );
+    let (_, r, h) = outcome(&o, "S08_Nested");
+    assert!(
+        matches!(r, Outcome::Pass) && h.is_empty()
+            || matches!(r, Outcome::NotRun(why) if why.contains("Object Options")),
+        "{r:?} {h:?}"
+    );
+}
+
+/// Saves outside the measured shapes keep main's result: no row, and the next run shows the stored value. A report variable's
+/// RunModal (the probe runs `Report.RunModal(Id)`, :111), two saved Text controls (the probe report has one, :33), a report
+/// with a data item, and one whose OnPreReport deletes its rows (review of PR 8511, MED-4; the probe reports have neither,
+/// :20-40).
+#[test]
+fn issue_8250_saves_outside_the_measured_shapes_keep_mains_result() {
+    let o = run_tests(
+        r#"
+    [Test]
+    [HandlerFunctions('HandlerA')]
+    procedure V_ReportVariable()
+    var
+        R: Report "Repro Saved Values";
+    begin
+        ClearRows(Report::"Repro Saved Values");
+        Mode := Mode::Set;
+        SetTxt := 'OBO-VAR';
+        Commit();
+        R.RunModal();
+        Expect('rows', Format(RowCount(Report::"Repro Saved Values")), '0');
+        Expect('next run', RunRead(Report::"Repro Saved Values"), 'OBO-VAR');
+    end;
+
+    [Test]
+    [HandlerFunctions('HandlerTwo')]
+    procedure W_TwoTexts()
+    begin
+        ClearRows(Report::"Repro Two Texts");
+        RunSet(Report::"Repro Two Texts", 'OBO-TWO');
+        Expect('rows', Format(RowCount(Report::"Repro Two Texts")), '0');
+        Expect('next run', RunRead(Report::"Repro Two Texts"), 'OBO-TWO');
+    end;
+
+    [Test]
+    [HandlerFunctions('HandlerItem')]
+    procedure X_DataItem()
+    begin
+        ClearRows(Report::"Repro Data Item");
+        RunSet(Report::"Repro Data Item", 'OBO-ITEM');
+        Expect('rows', Format(RowCount(Report::"Repro Data Item")), '0');
+        Expect('next run', RunRead(Report::"Repro Data Item"), 'OBO-ITEM');
+    end;
+
+    [Test]
+    [HandlerFunctions('HandlerDel')]
+    procedure Y_BodyDeletes()
+    begin
+        ClearRows(Report::"Repro Saved Del");
+        RunSet(Report::"Repro Saved Del", 'OBO-DEL');
+        Expect('rows', Format(RowCount(Report::"Repro Saved Del")), '0');
+        Expect('next run', RunRead(Report::"Repro Saved Del"), 'OBO-DEL');
+    end;
+"#,
+    );
+    assert_clean_pass(&o, &["V_ReportVariable", "W_TwoTexts", "X_DataItem", "Y_BodyDeletes"]);
 }
