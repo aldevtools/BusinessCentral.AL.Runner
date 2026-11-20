@@ -160,18 +160,26 @@ impl Session {
 
     /// The shape every cell shared (pages/parts/PartRefillTestFilter.al, merged in corpus PR 1474, the two-field key part in corpus
     /// PR 1475; pages/parts/PartRefillShapes.al, corpus PR 1487), and the reporter's repro of al-runner issue 8537:
-    /// - the host, the part and the part's table have the facts of `refill_rule` (`part_refill_rule.rs`);
+    /// - the host, the part and the part's table have the facts of `refill_rule` (`part_refill_rule.rs`), and the part control
+    ///   shows the part (its Visible and its groups' read true now): every cell's did, its Visible a literal or a page variable
+    ///   OnOpenPage set true (PartRefillShapes.al `LT PS Visible Host`), and the partner's;
     /// - the part's Rec in the primary key, ascending, not MarkedOnly, with one filter in group 0: the test's (`test_typed_filter`),
     ///   a single value (`Eq`) on the key field `refill_rule` names (the part's own `Rec.Reset()` took any other);
     /// - exactly one row in that view: every cell had one there.
     fn measured_reread(&mut self, st: &St) -> Result<bool, Signal> {
-        let host = st.borrow().host.as_ref().and_then(|(h, _)| h.upgrade());
-        let Some(host) = host else {
+        let host = st.borrow().host.as_ref().and_then(|(h, i)| Some((h.upgrade()?, *i)));
+        let Some((host, idx)) = host else {
             return Ok(false);
         };
         let Some(field) = self.refill_rule(&host, st) else {
             return Ok(false);
         };
+        let used = self.ret_used;
+        let shown = self.control_visible(&host, idx);
+        self.ret_used = used;
+        if !shown? {
+            return Ok(false);
+        }
         let rec = self.page_rec(st);
         let filtered = {
             let s = st.borrow();

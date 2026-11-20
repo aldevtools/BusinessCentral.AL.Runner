@@ -28,16 +28,19 @@ impl Session {
     /// The position of the part's key field the test's filter must be on, when host `host` and part `part` have the facts every
     /// cell shared; `None` otherwise:
     /// - the host: a top-level page (no part of a part), PageType Worksheet (every cell but one) or List (:200 "LT PR Load List
-    ///   Host"), page triggers among `HOST_TRIGGERS`, no page extension and no subscriber. Its controls, actions, procedures and
+    ///   Host"), page triggers among `HOST_TRIGGERS` with OnAfterGetCurrRecord among them (every cell's makes the part clear and
+    ///   refill its rows), no page extension and no subscriber. Its controls, actions, procedures and
     ///   the code of its triggers are not compared: the cells varied them (`LT PS Code Host`, `LT PS Filter Host`, `LT PS Full
     ///   Host`) without a change in what the part shows;
     /// - its other parts: ListParts and CardParts, with any code (`LT PS Parts Host`, `LT PS PartsCode Host`);
     /// - the part's control: in the content area, not linked (no SubPageLink, SubPageView or provider), with no property but
     ///   ApplicationArea and Visible, Visible a literal or a page variable (`LT PS Visible Host`);
-    /// - the part: PageType ListPart over a temporary source, page triggers among `PART_TRIGGERS`, no page extension and no
-    ///   subscriber, no action; field controls bound to a field of Rec with no trigger but OnDrillDown (`LT PS Drill Part`), a
-    ///   control bound to a page variable with no trigger but OnValidate (`LT PS Group Part`). Its procedures are not compared:
-    ///   the cells varied them (enum parameters, `LT PS Enum Part`; Rec handed by var to a codeunit, `LT PS Filler Part`);
+    /// - the part: PageType ListPart over a temporary source with InsertAllowed and DeleteAllowed false (every cell; with page
+    ///   Editable false, or without it and a read-only repeater, `LT PS Editable Part`), page triggers among `PART_TRIGGERS`, no
+    ///   page extension and no subscriber, no action; field controls bound to a field of Rec with no trigger but OnDrillDown
+    ///   (`LT PS Drill Part`), a control bound to a page variable with no trigger but OnValidate (`LT PS Group Part`). Its
+    ///   procedures are not compared: the cells varied them (enum parameters, `LT PS Enum Part`; Rec handed by var to a codeunit,
+    ///   `LT PS Filler Part`);
     /// - the part's table: no trigger, no table extension, no subscriber; a primary key of one field (:52 "LT PR Load Line") or
     ///   two (PR 1475's "LT PR Load Line Typed", Base Application's Load Buffer in `LT PS Buffer Part`), the filter on its last.
     pub(super) fn refill_rule(&self, host: &St, part: &St) -> Option<usize> {
@@ -48,8 +51,21 @@ impl Session {
         let top_host =
             host.borrow().host.is_none() && matches!(host_type, Some(ir::PageType::Worksheet | ir::PageType::List));
         let list_part = engine.object_facts[part_object].page_type == Some(ir::PageType::Other("listpart".into()));
+        let part_props = &engine.program.objects[part_object].properties;
+        let says_false = |name: &str| {
+            part_props
+                .iter()
+                .any(|(k, v)| k.eq_ignore_ascii_case(name) && v.trim().eq_ignore_ascii_case("false"))
+        };
+        let read_only_rows = says_false("insertallowed") && says_false("deleteallowed");
+        let refills_on_current_row = page_of(&engine, host)
+            .triggers
+            .iter()
+            .any(|(n, _)| n == "onaftergetcurrrecord");
         if !(top_host
             && list_part
+            && read_only_rows
+            && refills_on_current_row
             && page_code_within(&engine, host, &HOST_TRIGGERS)
             && page_code_within(&engine, part, &PART_TRIGGERS)
             && self.part_control_measured(&engine, host, part_object)
