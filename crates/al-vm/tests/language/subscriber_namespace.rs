@@ -201,12 +201,14 @@ fn single_app_by_id(publisher_arg: &str) -> Vec<AppSource> {
 
 #[test]
 fn a_bare_id_names_the_object_of_that_id() {
+    // The bare-id form runs through its own assumption, `subscriber-publisher-by-id`, and through no other.
+    let by_id = vec![assumptions::Assumption::SubscriberPublisherById];
     let (r, hits) = run(single_app_by_id("51650"), "Ping");
     assert!(al_testkit::boolean(r), "the codeunit subscriber by id runs");
-    assert!(hits.is_empty());
+    assert_eq!(hits, by_id);
     let (r, hits) = run(single_app_by_id("51650"), "Insert");
     assert!(al_testkit::boolean(r), "the table subscriber by id runs");
-    assert!(hits.is_empty());
+    assert_eq!(hits, by_id);
 }
 
 /// A second argument that is neither `<Kind>::<name>` nor a bare id is not read: raising the event refuses instead of skipping

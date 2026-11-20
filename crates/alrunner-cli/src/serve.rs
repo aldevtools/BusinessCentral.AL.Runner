@@ -286,9 +286,10 @@ fn flag(fields: &Map<String, Value>, name: &str) -> Result<bool, String> {
 /// (`"hit"`, issue 8244) rather than every statement with its runs.
 fn coverage_field(fields: &Map<String, Value>) -> Result<(bool, bool), String> {
     match fields.get("coverage") {
+        None | Some(Value::Null) => Ok((false, false)),
+        Some(Value::Bool(b)) => Ok((*b, false)),
         Some(Value::String(s)) if s == "hit" => Ok((true, true)),
-        Some(Value::String(_)) => Err("`coverage` is true, false or \"hit\"".into()),
-        _ => Ok((flag(fields, "coverage")?, false)),
+        Some(_) => Err("`coverage` is true, false or \"hit\"".into()),
     }
 }
 
@@ -1162,6 +1163,8 @@ mod tests {
         assert!(full.coverage && !full.coverage_hit_only);
         assert!(!cov(json!(false)).unwrap().0.coverage);
         assert!(cov(json!("all")).is_err());
+        // Issue 8492: a value of another type gets the same answer as another text.
+        assert_eq!(cov(json!(1)).unwrap_err(), cov(json!("all")).unwrap_err());
         let per_test = run(json!({"sourcePaths": ["/a"], "perTestCoverage": true})).unwrap().0;
         assert!(per_test.coverage && !per_test.coverage_hit_only);
         // Issue 8210: `stopAfterFirstFailure` is `--stop-after-first-failure` for one request; absent, the server's setting.
@@ -1170,6 +1173,25 @@ mod tests {
         assert!(!stop(json!(false)).unwrap().0.stop_after_first_failure);
         assert!(!run(json!({"sourcePaths": ["/a"]})).unwrap().0.stop_after_first_failure);
         assert!(stop(json!("yes")).is_err());
+        // Issue 8492: against a server started with the option, `false` turns it off and `null` keeps it.
+        let started = TestArgs {
+            stop_after_first_failure: true,
+            ..base()
+        };
+        let stop_on = |v: Value| {
+            request_args(
+                &started,
+                &fields(json!({"sourcePaths": ["/a"], "stopAfterFirstFailure": v})),
+            )
+        };
+        assert!(!stop_on(json!(false)).unwrap().0.stop_after_first_failure);
+        assert!(stop_on(json!(null)).unwrap().0.stop_after_first_failure);
+        assert!(
+            request_args(&started, &fields(json!({"sourcePaths": ["/a"]})))
+                .unwrap()
+                .0
+                .stop_after_first_failure
+        );
         // ADR-066 amendment 4: `strictOrder` is `--strict-order` for one request.
         assert!(
             run(json!({"sourcePaths": ["/a"], "strictOrder": true}))

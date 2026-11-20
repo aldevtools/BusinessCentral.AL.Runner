@@ -1204,9 +1204,9 @@ impl Lowerer<'_> {
     /// only one procedure on each side with the same parameters). Also a bare call in a third object's code to a name a
     /// table and another app's table extension declare with the same parameters (`same_signature_in_two_objects`).
     fn report_item_same_name_refusal(&self, node: &SyntaxNode) -> L<()> {
-        let path = &self.ws.files[self.file].path;
+        let (app, path) = (self.ws.files[self.file].app, &self.ws.files[self.file].path);
         let at: usize = node.text_range().start().into();
-        match self.checked.diagnostic_at(path, at, &["AR1006"]) {
+        match self.checked.diagnostic_at(app, path, at, &["AR1006"]) {
             Some(d) => Err(d.message.clone()),
             None => Ok(()),
         }
@@ -1216,9 +1216,9 @@ impl Lowerer<'_> {
     /// enum conversion (the checker's AR1008, `check/enum_overload.rs`), or the procedure has a twin in a page or report
     /// extension (`twin_call_refusal`). An overload chosen by an assumed rule (AR1009) marks the assumption.
     fn proc_call_refusal(&mut self, node: &SyntaxNode, object: usize, offset: usize) -> L<()> {
-        let path = &self.ws.files[self.file].path;
+        let (app, path) = (self.ws.files[self.file].app, &self.ws.files[self.file].path);
         let at: usize = node.text_range().start().into();
-        let here = |code: &str| self.checked.diagnostic_at(path, at, &[code]);
+        let here = |code: &str| self.checked.diagnostic_at(app, path, at, &[code]);
         if let Some(d) = here("AR1008") {
             return Err(d.message.clone());
         }
@@ -1246,10 +1246,10 @@ impl Lowerer<'_> {
     /// The checker's runtime refusal of this call, if any: AL0666 (a builtin newer than the app's runtime) or AR1007
     /// (an app below the runtime floor calls a builtin AL Runner cannot clear for it; al-runner issue 5573).
     pub(crate) fn runtime_refusal(&self, node: &SyntaxNode) -> Option<String> {
-        let path = &self.ws.files[self.file].path;
+        let (app, path) = (self.ws.files[self.file].app, &self.ws.files[self.file].path);
         let at: usize = node.text_range().start().into();
         self.checked
-            .diagnostic_at(path, at, &["AL0666", "AR1007"])
+            .diagnostic_at(app, path, at, &["AL0666", "AR1007"])
             .map(|d| format!("{} {}", d.code, d.message))
     }
 }

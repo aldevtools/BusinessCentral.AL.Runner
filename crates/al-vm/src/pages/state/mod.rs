@@ -11,11 +11,13 @@ mod after_go_to_key;
 mod close;
 mod list_view;
 mod lookup_left;
+mod refresh;
 mod stages;
 pub use after_go_to_key::AfterGoToKey;
 pub use close::CloseOutcome;
 pub use list_view::ListViewSwitch;
 pub use lookup_left::LookupLeft;
+pub use refresh::{RefreshRequest, TakenRefresh};
 pub use stages::{ActionSaveCaptions, ChainRefill, ModalRun, ReadUpFromLast, UnreadEdges};
 
 use al_builtins::page_handle::{ControlHandle, PageHandle};
@@ -476,20 +478,14 @@ pub struct PageState {
     pub result: Option<String>,
     /// `TestPage.Trap()` was called on this variable and no page has been caught yet.
     pub trapping: bool,
-    /// `CurrPage.Update` was called: the client re-reads the row once the call that made it returns.
-    pub refresh: bool,
+    /// The refresh the page waits for and what was noted for it (`refresh.rs`).
+    pub refresh: RefreshRequest,
     /// The host row to reread before its next SetValue after a CardPart drilldown.
     pub deferred_part_drilldown_refresh: Option<crate::pages::part_host_update::DeferredReread>,
     /// `CurrPage.SaveRecord` ran in the action being invoked.
     pub save_record_called: bool,
     /// A SetValue on a control of this page is running its validation (CurrPage.SaveRecord inside it keeps xRec).
     pub validating_control: bool,
-    /// The next refresh reads the row (OnAfterGetRecord) without OnAfterGetCurrRecord: a card action that only saved.
-    pub refresh_without_curr: bool,
-    /// The next refresh does not make the parts read their rows again (they just did).
-    pub refresh_without_parts: bool,
-    /// The row's read keeps xRec as it was while its triggers run (a host re-read after a part's Update).
-    pub read_keeps_xrec: bool,
     /// The row CurrPage.SaveRecord stored inside a control's validation: it becomes xRec once the SetValue returns.
     pub xrec_after_validate: Option<Vec<Value>>,
     /// The control validation step that runs now and what it asked of the page's xRec (`pages/validate_xrec.rs`).
@@ -497,8 +493,6 @@ pub struct PageState {
     /// Rec as it was when a page variable control started to validate; a change its OnValidate makes in code marks the row
     /// edited (`pages/dirty_step.rs`, al-runner issue 6669).
     pub rec_before_var_validate: Option<Vec<Value>>,
-    /// CurrPage.Update ran while the page's row was stored but outside the view the action had just set (list refresh).
-    pub view_left: bool,
     /// An OnDrillDown turned MarkedOnly on for Rec without `CurrPage.Update`: the client still shows the rows of the view
     /// without MarkedOnly (testpage/ScDrillDownMarkedOnly.al, DrilldownWithoutUpdateListAndGoTo).
     pub marked_only_unshown: bool,
@@ -593,9 +587,6 @@ pub struct PageState {
     pub lookup_page_from_table: bool,
     /// Page triggers (the page's or an extension's) run on this page so far.
     pub triggers_run: u64,
-    /// The reads after an action on a list without OnAfterGetCurrRecord ended the refresh: `CurrPage.Update` reads nothing more
-    /// (pages/list-order/AiListOrderTests.al:233 Keep_Plain).
-    pub refresh_read_done: bool,
     /// The fields of the row a list showed when the running action started (None outside an action): an action that put another
     /// row into Rec and called CurrPage.Close() gets this row back (testpage/PnGRefresh.al:608).
     pub action_shown_row: Option<Vec<Value>>,
@@ -611,9 +602,6 @@ pub struct PageState {
     /// after its only row went): its first line is numbered 10000 by AutoSplitKey, not 20000 (misc/lt-probes-needed-7/
     /// PnGRefresh.al:672, :792 `P.INSR(T1/B1/10000,typed)`).
     pub split_starts_low: bool,
-    /// The action changed the row a list shows: it is saved after the first read of the refresh (misc/lt-probes-needed-7/
-    /// PnGRefresh.al:503).
-    pub save_after_first_read: bool,
     /// The parts read their rows for a host row a GoToKey walked past (pages/parts/QjPartPropagation.al:1183):
     /// on the target row they read again even when the host stayed on it.
     pub walk_synced_parts: bool,
@@ -863,21 +851,8 @@ pub struct PageState {
     /// passes one (pages/close-errors/ModalCloseSaveErrorShapes.al:250, :271, :292, :314, :336, :356, :376;
     /// pages/close-errors/CemModalHandlerTests.al:900, :1743); without one such an error keeps the refusal.
     pub static_run_record: bool,
-    /// The refresh about to run follows an action on a card with OnFindRecord, without CurrPage.Update: pinned
-    /// (pages/triggers/BeCardOnFindRecord.al), so it marks no assumption.
-    pub refresh_pinned: bool,
     /// A SetValue wrote a control bound to an expression on this page with no source table (an action after it is refused).
     pub expr_set_no_source: bool,
-    /// The refresh about to run was asked for by `CurrPage.Update` (not by an action that saved an edit).
-    pub refresh_by_update: bool,
-    /// The keys of the rows the client held when the part's own `CurrPage.Update`, which asked for the refresh about to run,
-    /// found its view no longer starting with them (`part_update_left_view.rs`). Read only together with `refresh_by_update`:
-    /// every site that sets that flag to true writes this one too.
-    pub update_left_view: Option<Vec<Vec<Value>>>,
-    /// The last `CurrPage.Update` call was `Update(false)` (it saves nothing).
-    pub refresh_update_false: bool,
-    /// The refresh about to run starts from a new line the table code inserted inside the validation (`code_inserted_new_line.rs`).
-    pub refresh_from_code_inserted_line: bool,
     /// The key of the row that refresh landed on and the number of test calls then, until the next move
     /// (`code_inserted_new_line.rs`).
     pub code_inserted_row: Option<(Vec<Value>, usize)>,
@@ -1059,7 +1034,7 @@ impl PageState {
     /// What `code_inserted_new_line.rs` noted when the page landed on the row its new line became is gone: the page opens or
     /// closes, or the validation that landed ended with an error.
     pub(crate) fn forget_code_inserted_line(&mut self) {
-        self.refresh_from_code_inserted_line = false;
+        self.refresh.forget_code_inserted_line();
         self.code_inserted_row = None;
     }
 

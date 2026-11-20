@@ -90,6 +90,7 @@ impl Index {
             dotnet: false,
             order_hint: None,
             cells: None,
+            skipped_by_option: false,
         }
     }
 

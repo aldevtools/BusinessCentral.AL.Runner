@@ -200,7 +200,7 @@ impl Session {
             match s.temp_ws_edit {
                 Some((moves, edit))
                     if s.temp_ws_preloaded
-                        && s.refresh_update_false
+                        && s.refresh.update_false()
                         && moves == Self::moves_and_writes(&s.test_calls) =>
                 {
                     edit
@@ -241,7 +241,7 @@ impl Session {
         {
             let mut s = st.borrow_mut();
             s.window = rows;
-            s.refresh = false;
+            s.refresh.cancel();
         }
         self.current_record_trigger(st, None)?;
         Ok(true)

@@ -665,12 +665,7 @@ impl Session {
     /// pages/currpage/TestPageUpdate.al: ValidateBegin;ValidateEnd;HostAGCR).
     fn ask_update_refresh(&mut self, st: &St, save: bool, arg: Option<&Value>) -> Result<(), Signal> {
         self.refuse_update_in_action(st)?;
-        {
-            let mut s = st.borrow_mut();
-            s.refresh = true;
-            s.refresh_by_update = true;
-            s.refresh_update_false = !save;
-        }
+        st.borrow_mut().refresh.ask_by_update(save);
         self.note_view_left(st)?;
         self.note_part_update_left_view(st)?;
         self.land_on_code_inserted_line(st, arg)
@@ -1213,10 +1208,7 @@ impl Session {
             // (testpage/TestPageCloseTriggersSelectionCardPageContracts.al:250-285).
             PageMethod::GetRecord => self.page_get_record(st, args),
             PageMethod::SetTableView => match args.first() {
-                Some(Value::Record(r)) => {
-                    self.note_kept_view(st, r);
-                    self.page_var_set_table_view(st, r)
-                }
+                Some(Value::Record(r)) => self.page_var_set_table_view(st, r),
                 other => unsupported(format!("Page.SetTableView with {}", other.describe())),
             },
             PageMethod::EnqueueBackgroundTask => {
@@ -1232,11 +1224,7 @@ impl Session {
                 self.bg_run_page_task(st, args)
             }
             PageMethod::Run => self.run_page_var(st, false),
-            PageMethod::RunModal => {
-                st.borrow_mut().modal_run = ModalRun::Variable;
-                self.note_kept_run_modal(st);
-                self.run_page_var(st, true)
-            }
+            PageMethod::RunModal => self.page_var_run_modal(st),
             // `CurrPage.Close()` in a procedure of a Page variable that never ran does nothing and the procedure goes on
             // (pages/currpage/ClosedPageVariableCurrPageClose.al:83-99, Close_NeverRun), and so does
             // `Close()` of a Page variable whose modal page closed: after its handler failed (ClosedPageVariableCurrPageClose.al:55
