@@ -1,10 +1,11 @@
 //! al-runner issue 8537: a ListPart on a temporary table that the host's OnAfterGetCurrRecord clears and refills, each step ending
 //! with the part's own `CurrPage.Update(false)`, then the test's own `Filter.SetFilter` on the part and a move or a read. The
 //! corpus probe (tests/al-language/pages/parts/PartRefillTestFilter.al: corpus pull request 1474, merged, not pinned yet, plus
-//! the two-field key cell of corpus pull request 1475, open; green 10/10 on a local Business Central 29.1) with a stand-in for
+//! the two-field key cell of corpus pull request 1475, open; green 10/10 on a local Business Central 29.1) and the shapes probe
+//! (tests/al-language/pages/parts/PartRefillShapes.al, corpus pull request 1487, open; green 15/15 there), with a stand-in for
 //! the corpus's Assert, and the reporter's repro (green on Business Central 29.1).
-//! The calls the probe did not make after the test's filter keep the refusal of `part_update_left_view.rs`. When the probe is
-//! pinned, delete the probe's test and read the objects from the corpus file.
+//! The calls the probe did not make after the test's filter, and the pages and tables outside the facts of
+//! `part_refill_rule.rs`, keep the refusal of `part_update_left_view.rs`. When the probes are pinned, delete their tests.
 
 use al_builtins::assumptions::Assumption;
 use al_testrun::Outcome;
@@ -49,6 +50,37 @@ fn outcomes(src: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<Assumption>)
 
 const PROBE: &str = include_str!("../fixtures/outside-fb/Issue8537Probe.al");
 const REPRO: &str = include_str!("../fixtures/outside-fb/Issue8537.al");
+/// The shapes probe (corpus PR 1487, open: tests/al-language/pages/parts/PartRefillShapes.al, green 15/15 on a local Business
+/// Central 29.1): each cell varies the measured Worksheet cell by one fact of a partner page, and one cell has them all.
+const SHAPES: &str = include_str!("../fixtures/outside-fb/Issue8537Shapes.al");
+
+/// The shapes probe with its Base Application "Load Buffer" (which the suite does not compile) swapped for an own table with
+/// the fields the probe uses and the same primary key (Period Type, Period Start).
+fn shapes() -> String {
+    const LOAD_BUFFER: &str = r#"
+table 90460 "LT PS Load Buffer"
+{
+    DataClassification = SystemMetadata;
+
+    fields
+    {
+        field(1; "Period Type"; Option) { OptionMembers = Day,Week,Month,Quarter,Year,"Accounting Period"; }
+        field(2; "Period Start"; Date) { }
+        field(3; "Allocated Qty."; Decimal) { }
+    }
+
+    keys
+    {
+        key(PK; "Period Type", "Period Start") { Clustered = true; }
+    }
+}
+"#;
+    assert!(SHAPES.contains("\"Load Buffer\""));
+    format!(
+        "{}\n{LOAD_BUFFER}",
+        SHAPES.replace("\"Load Buffer\"", "\"LT PS Load Buffer\"")
+    )
+}
 
 fn outcome_of<'a>(
     list: &'a [(String, Outcome, Vec<Assumption>)],
@@ -341,47 +373,6 @@ fn issue_8537_a_part_over_a_stored_table_stays_refused() {
     );
 }
 
-/// The two-field key part without its two triggers (no cell had that combination) keeps the refusal at the probe's First.
-#[test]
-fn issue_8537_a_two_field_key_part_without_triggers_stays_refused() {
-    let (head, rest) = PROBE.split_once("page 97113").expect("the typed part");
-    let (part, tail) = rest.split_once("page 97114").expect("the typed host");
-    let part = part
-        .replace("trigger OnOpenPage()", "procedure NoOpenPage()")
-        .replace("trigger OnAfterGetRecord()", "procedure NoAfterGetRecord()");
-    let src = format!("{head}page 97113{part}page 97114{tail}");
-    let list = outcomes(&src, "LT PR Tests");
-    assert_refused(
-        &list,
-        "PartRefill_TypedKeyTriggerPartActionThenFilterFirst_FindsRefilledRow",
-        "First",
-    );
-}
-
-/// The objects are compared as written, not only by their trigger names (`part_refill_pins.rs`): the repro with one statement
-/// less in a part procedure, one more control on the host, or the part's table with one more field keeps the refusal.
-#[test]
-fn issue_8537_the_repro_changed_in_its_code_stays_refused() {
-    for (what, from, to) in [
-        ("part procedure", "if Rec.FindFirst() then;", "if Rec.FindLast() then;"),
-        (
-            "host control",
-            "field(\"Resource No.\"; Rec.\"Resource No.\") { }",
-            "field(\"Resource No.\"; Rec.\"Resource No.\") { }\n                field(Other; Rec.\"No.\") { }",
-        ),
-        (
-            "part table field",
-            "field(2; \"Allocated Qty.\"; Decimal) { }",
-            "field(2; \"Allocated Qty.\"; Decimal) { }\n        field(3; Note; Text[30]) { }",
-        ),
-    ] {
-        assert!(REPRO.contains(from), "{what}");
-        let src = REPRO.replacen(from, to, 1);
-        let list = outcomes(&src, "Repro Part Refill Tests");
-        assert_refused(&list, "RefreshRefillsPartThenFirstFindsFilteredRow", "First");
-    }
-}
-
 /// The two-field key part whose refill inserts a Day and a Week row for each day (no cell had two rows in the filtered view):
 /// the filter on Period Start leaves two rows, and First keeps the refusal.
 #[test]
@@ -396,4 +387,75 @@ fn issue_8537_two_rows_left_by_the_filter_stay_refused() {
         "PartRefill_TypedKeyTriggerPartActionThenFilterFirst_FindsRefilledRow",
         "First",
     );
+}
+
+/// Every cell of the shapes probe passes through the assumption: the other parts and their code, the part control's Visible
+/// variable, the host's code and row triggers, its view filters, a page background task and its error trigger, a Load Buffer
+/// source, a group above the repeater, OnDrillDown and StyleExpr, enum parameters, and the rows inserted by a codeunit that gets
+/// Rec by var.
+#[test]
+fn issue_8537_the_shapes_of_a_partner_page_pass_through_the_rule() {
+    let list = outcomes(&format!("{PROBE}\n{}", shapes()), "LT PS Tests");
+    assert_eq!(list.len(), 15, "{list:#?}");
+    for (name, ..) in &list {
+        assert_flagged_pass(&list, name);
+    }
+}
+
+/// The facts the rule names, each changed on the probe's Worksheet cell (`LT PR Load Host` with `LT PR Load Part`, whose objects
+/// come first in the probe, so each anchor's first occurrence is theirs), keep the refusal at the probe's First: a part with an
+/// action, a part field with OnValidate on a field of Rec, the part control with UpdatePropagation, a host with OnNewRecord, a
+/// ListPlus host; and the two-field key part with a third key field, or with its fields swapped so the filter is on the first.
+#[test]
+fn issue_8537_facts_outside_the_rule_stay_refused() {
+    let worksheet = "PartRefill_WorksheetActionThenFilterFirst_FindsRefilledRow";
+    let typed = "PartRefill_TypedKeyTriggerPartActionThenFilterFirst_FindsRefilledRow";
+    for (what, from, to, test) in [
+        (
+            "part action",
+            "\n    var\n        ResourceNo: Code[20];",
+            "\n    actions { area(Processing) { action(Poke) { ApplicationArea = All; trigger OnAction() begin end; } } }\n    var\n        ResourceNo: Code[20];",
+            worksheet,
+        ),
+        (
+            "OnValidate on a field of Rec",
+            "field(\"Period Start\"; Rec.\"Period Start\") { ApplicationArea = All; }",
+            "field(\"Period Start\"; Rec.\"Period Start\") { ApplicationArea = All; trigger OnValidate() begin end; }",
+            worksheet,
+        ),
+        (
+            "part control property",
+            "part(Load; \"LT PR Load Part\") { ApplicationArea = All; }",
+            "part(Load; \"LT PR Load Part\") { ApplicationArea = All; UpdatePropagation = Both; }",
+            worksheet,
+        ),
+        (
+            "host OnNewRecord",
+            "    trigger OnAfterGetCurrRecord()\n    var\n        LoadCalc",
+            "    trigger OnNewRecord(BelowxRec: Boolean)\n    begin\n    end;\n\n    trigger OnAfterGetCurrRecord()\n    var\n        LoadCalc",
+            worksheet,
+        ),
+        (
+            "ListPlus host",
+            "PageType = Worksheet;",
+            "PageType = ListPlus;",
+            worksheet,
+        ),
+        (
+            "three key fields",
+            "field(3; \"Allocated Qty.\"; Decimal) { }\n    }\n\n    keys\n    {\n        key(PK; \"Period Type\", \"Period Start\") { Clustered = true; }",
+            "field(3; \"Allocated Qty.\"; Decimal) { }\n        field(4; \"Period End\"; Date) { }\n    }\n\n    keys\n    {\n        key(PK; \"Period Type\", \"Period Start\", \"Period End\") { Clustered = true; }",
+            typed,
+        ),
+        (
+            "the filter on the first of two key fields",
+            "key(PK; \"Period Type\", \"Period Start\") { Clustered = true; }",
+            "key(PK; \"Period Start\", \"Period Type\") { Clustered = true; }",
+            typed,
+        ),
+    ] {
+        assert!(PROBE.contains(from), "{what}");
+        let list = outcomes(&PROBE.replacen(from, to, 1), "LT PR Tests");
+        assert_refused(&list, test, "First");
+    }
 }
