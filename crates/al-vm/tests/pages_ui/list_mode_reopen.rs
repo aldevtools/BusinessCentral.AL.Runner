@@ -8,6 +8,7 @@ use al_testkit::{Built, run_in, text};
 const SRC: &str = r#"
 table 69890 "LMR Line"
 {
+    DataClassification = SystemMetadata;
     fields { field(1; "Line No."; Integer) { } field(2; Description; Text[30]) { } }
     keys { key(PK; "Line No.") { Clustered = true; } }
 }
@@ -15,17 +16,96 @@ codeunit 69891 "LMR Log"
 {
     SingleInstance = true;
     var Entries: Text;
-    procedure Add(Entry: Text) begin if Entries <> '' then Entries += ' '; Entries += Entry; end;
+    procedure Add(Line: Text) begin if Entries <> '' then Entries += ' '; Entries += Line; end;
     procedure Take(): Text var R: Text; begin R := '[' + Entries + ']'; Entries := ''; exit(R); end;
 }
+// The list of ReopenAfterListModeSwitch.al:39-88 (corpus PR 1467), line for line.
 page 69892 "LMR Lines"
 {
     PageType = List; SourceTable = "LMR Line"; ApplicationArea = All; UsageCategory = None;
-    layout { area(Content) { repeater(Rows) { field("Line No."; Rec."Line No.") { } field(Description; Rec.Description) { } } } }
-    var Log: Codeunit "LMR Log";
-    trigger OnOpenPage() begin Log.Add('open'); end;
+    layout
+    {
+        area(Content)
+        {
+            repeater(Rows)
+            {
+                field("Line No."; Rec."Line No.") { ApplicationArea = All; }
+                field(Description; Rec.Description) { ApplicationArea = All; }
+                field(Opens; OpenCount) { ApplicationArea = All; Caption = 'Opens'; Editable = false; }
+            }
+        }
+    }
+    var Log: Codeunit "LMR Log"; OpenCount: Integer;
+    trigger OnOpenPage() begin OpenCount += 1; Log.Add('open'); end;
     trigger OnAfterGetRecord() begin Log.Add('agr(' + Format(Rec."Line No.") + ')'); end;
     trigger OnAfterGetCurrRecord() begin Log.Add('agcr(' + Format(Rec."Line No.") + ')'); end;
+    trigger OnNewRecord(BelowxRec: Boolean) begin Log.Add('new'); end;
+    trigger OnClosePage() begin Log.Add('close'); end;
+}
+// The probe list with one more statement in one trigger (review of PR 8540, round 2: B1, B2, B8).
+page 69906 "LMR Editable Lines"
+{
+    PageType = List; SourceTable = "LMR Line"; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content)
+        {
+            repeater(Rows)
+            {
+                field("Line No."; Rec."Line No.") { ApplicationArea = All; }
+                field(Description; Rec.Description) { ApplicationArea = All; }
+                field(Opens; OpenCount) { ApplicationArea = All; Caption = 'Opens'; Editable = false; }
+            }
+        }
+    }
+    var Log: Codeunit "LMR Log"; OpenCount: Integer;
+    trigger OnOpenPage() begin OpenCount += 1; Log.Add('open'); CurrPage.Editable(false); end;
+    trigger OnAfterGetRecord() begin Log.Add('agr(' + Format(Rec."Line No.") + ')'); end;
+    trigger OnAfterGetCurrRecord() begin Log.Add('agcr(' + Format(Rec."Line No.") + ')'); end;
+    trigger OnNewRecord(BelowxRec: Boolean) begin Log.Add('new'); end;
+    trigger OnClosePage() begin Log.Add('close'); end;
+}
+page 69907 "LMR Assign Lines"
+{
+    PageType = List; SourceTable = "LMR Line"; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content)
+        {
+            repeater(Rows)
+            {
+                field("Line No."; Rec."Line No.") { ApplicationArea = All; }
+                field(Description; Rec.Description) { ApplicationArea = All; }
+                field(Opens; OpenCount) { ApplicationArea = All; Caption = 'Opens'; Editable = false; }
+            }
+        }
+    }
+    var Log: Codeunit "LMR Log"; OpenCount: Integer;
+    trigger OnOpenPage() begin OpenCount += 1; Log.Add('open'); end;
+    trigger OnAfterGetRecord() begin Log.Add('agr(' + Format(Rec."Line No.") + ')'); Rec.Description := 'x' + Format(Rec."Line No."); end;
+    trigger OnAfterGetCurrRecord() begin Log.Add('agcr(' + Format(Rec."Line No.") + ')'); end;
+    trigger OnNewRecord(BelowxRec: Boolean) begin Log.Add('new'); end;
+    trigger OnClosePage() begin Log.Add('close'); end;
+}
+page 69908 "LMR Count Lines"
+{
+    PageType = List; SourceTable = "LMR Line"; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content)
+        {
+            repeater(Rows)
+            {
+                field("Line No."; Rec."Line No.") { ApplicationArea = All; }
+                field(Description; Rec.Description) { ApplicationArea = All; }
+                field(Opens; OpenCount) { ApplicationArea = All; Caption = 'Opens'; Editable = false; }
+            }
+        }
+    }
+    var Log: Codeunit "LMR Log"; OpenCount: Integer;
+    trigger OnOpenPage() begin OpenCount += 1; Log.Add('open'); end;
+    trigger OnAfterGetRecord() begin Log.Add('agr(' + Format(Rec."Line No.") + ')'); end;
+    trigger OnAfterGetCurrRecord() begin Log.Add('agcr(' + Format(Rec."Line No.") + ')'); OpenCount += 100; end;
     trigger OnNewRecord(BelowxRec: Boolean) begin Log.Add('new'); end;
     trigger OnClosePage() begin Log.Add('close'); end;
 }
@@ -447,6 +527,43 @@ codeunit 69896 "LMR Test"
         exit(R + '|' + Format(P.Editable()) + '|' + P.Description.Value());
     end;
 
+
+    procedure ViewEditOnEditableList()
+    var P: TestPage "LMR Editable Lines";
+    begin
+        Init();
+        P.OpenEdit();
+        P.First();
+        P.View().Invoke();
+        P.Edit().Invoke();
+        P.Close();
+        P.OpenEdit();
+    end;
+
+    procedure ViewEditOnAssignList()
+    var P: TestPage "LMR Assign Lines";
+    begin
+        Init();
+        P.OpenEdit();
+        P.First();
+        P.View().Invoke();
+        P.Edit().Invoke();
+        P.Close();
+        P.OpenEdit();
+    end;
+
+    procedure ViewEditOnCountList()
+    var P: TestPage "LMR Count Lines";
+    begin
+        Init();
+        P.OpenEdit();
+        P.First();
+        P.View().Invoke();
+        P.Edit().Invoke();
+        P.Close();
+        P.OpenEdit();
+    end;
+
     procedure GlobalViewEditClose()
     var H: Codeunit "LMR Holder";
     begin
@@ -585,12 +702,17 @@ fn a_switch_on_a_list_that_can_see_the_read_is_refused() {
 
 /// Routine `routine` of "LMR Test" compiled for BC `bc`, whose platform fields every table gets.
 fn run_on(bc: &str, routine: &str) -> Result<al_builtins::value::Value, Signal> {
+    run_src_on(SRC, bc, "LMR Test", routine)
+}
+
+/// Routine `routine` of codeunit `object` in `src`, compiled for BC `bc`.
+fn run_src_on(src: &str, bc: &str, object: &str, routine: &str) -> Result<al_builtins::value::Value, Signal> {
     let target = al_version::Target::for_bc(al_version::BcVersion::parse(bc).unwrap());
     let apps = vec![al_sema::workspace::AppSource {
         id: "a".into(),
         name: "a".into(),
         dependencies: vec![],
-        files: vec![("f.al".into(), SRC.into())],
+        files: vec![("f.al".into(), src.into())],
     }];
     let (ws, l) = al_sema::lower::compile_for(apps, &Default::default(), &target);
     assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
@@ -599,7 +721,7 @@ fn run_on(bc: &str, routine: &str) -> Result<al_builtins::value::Value, Signal> 
         .iter()
         .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
-    let oi = l.program.objects.iter().position(|o| o.name == "LMR Test").unwrap();
+    let oi = l.program.objects.iter().position(|o| o.name == object).unwrap();
     let ri = l.program.objects[oi]
         .routines
         .iter()
@@ -622,6 +744,62 @@ fn on_bc_29_the_platform_s_user_name_flowfields_keep_the_measured_list() {
             "BC {bc}"
         );
     }
+}
+
+/// The probe list that also shows the platform's user-name FlowField of BC 29 (review of PR 8540, round 2: F1).
+const SRC_29: &str = r#"
+page 69909 "LMR User Lines"
+{
+    PageType = List; SourceTable = "LMR Line"; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content)
+        {
+            repeater(Rows)
+            {
+                field("Line No."; Rec."Line No.") { ApplicationArea = All; }
+                field(Description; Rec.Description) { ApplicationArea = All; }
+                field(Opens; OpenCount) { ApplicationArea = All; Caption = 'Opens'; Editable = false; }
+                field(CreatedByName; Rec.SystemCreatedByUserName) { ApplicationArea = All; }
+            }
+        }
+    }
+    var Log: Codeunit "LMR Log"; OpenCount: Integer;
+    trigger OnOpenPage() begin OpenCount += 1; Log.Add('open'); end;
+    trigger OnAfterGetRecord() begin Log.Add('agr(' + Format(Rec."Line No.") + ')'); end;
+    trigger OnAfterGetCurrRecord() begin Log.Add('agcr(' + Format(Rec."Line No.") + ')'); end;
+    trigger OnNewRecord(BelowxRec: Boolean) begin Log.Add('new'); end;
+    trigger OnClosePage() begin Log.Add('close'); end;
+}
+codeunit 69910 "LMR Test 29"
+{
+    procedure ViewOnUserList()
+    var Line: Record "LMR Line"; P: TestPage "LMR User Lines";
+    begin
+        Line."Line No." := 10000; Line.Insert();
+        P.OpenEdit();
+        P.First();
+        P.View().Invoke();
+    end;
+}
+"#;
+
+#[test]
+fn the_probe_list_that_shows_a_platform_flowfield_is_not_the_measured_list() {
+    // The probe's list shows two fields of Rec and a page variable; a shown FlowField can change on the read.
+    match run_src_on(&format!("{SRC}{SRC_29}"), "29.0", "LMR Test 29", "ViewOnUserList") {
+        Err(Signal::Unsupported(m)) => assert!(m.contains("could see the row read again"), "{m}"),
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+}
+
+#[test]
+fn the_probe_list_with_one_more_statement_in_a_trigger_is_not_the_measured_list() {
+    // The gate compares the probe's page, table and log procedure line for line: one more statement in OnOpenPage,
+    // OnAfterGetRecord or OnAfterGetCurrRecord is other code, and its triggers see the read.
+    refused("ViewEditOnEditableList", "could see the row read again");
+    refused("ViewEditOnAssignList", "could see the row read again");
+    refused("ViewEditOnCountList", "could see the row read again");
 }
 
 #[test]

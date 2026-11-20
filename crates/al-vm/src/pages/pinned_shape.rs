@@ -527,12 +527,6 @@ impl Session {
     /// - the source table's triggers are exactly `pin.table_triggers`; it has no procedure, no field trigger, no table extension
     ///   and no subscriber.
     pub(super) fn page_code_is(&self, st: &St, pin: &PinnedCode) -> Result<bool, Signal> {
-        self.page_code_bound_is(st, pin, false)
-    }
-
-    /// `page_code_is`; with `var_fields` a Field control may also be bound to a global variable of the page (a page variable
-    /// shows what the page's code put in it; a read of it runs no code).
-    pub(super) fn page_code_bound_is(&self, st: &St, pin: &PinnedCode, var_fields: bool) -> Result<bool, Signal> {
         const PLAIN: [&str; 5] = ["pagetype", "sourcetable", "applicationarea", "usagecategory", "caption"];
         let engine = self.engine();
         let object = st.borrow().object as usize;
@@ -555,9 +549,7 @@ impl Session {
         let controls = page.controls.iter().all(|c| {
             let kind = match c.kind {
                 ir::ControlKind::Repeater | ir::ControlKind::Group => c.binding == ir::Binding::None,
-                ir::ControlKind::Field => {
-                    matches!(c.binding, ir::Binding::Field(_)) || var_fields && matches!(c.binding, ir::Binding::Var(_))
-                }
+                ir::ControlKind::Field => matches!(c.binding, ir::Binding::Field(_)),
                 ir::ControlKind::Action => pin.action_props.is_some() && c.binding == ir::Binding::None,
                 ir::ControlKind::Part => pin.part_props.is_some() && c.binding == ir::Binding::None,
                 _ => false,

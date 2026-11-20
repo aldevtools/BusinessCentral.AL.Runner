@@ -3,9 +3,9 @@
 //! :142, :164); Edit then switches it back (R6977ListAfterView.al:187). After that second switch only what the probes read is
 //! measured; the rest is refused here. BC reads the row again on each switch (corpus PR 1467, open): on the list of that probe
 //! (`reopen_probe_list`) the switch reads it, Edit also switches the list opened for view, and the page opens again after a
-//! Close; on another list the switch runs without a read only where nothing can see one (`switch_read_unseen`).
+//! Close; on another list the switch runs without a read, as on main, only where `switch_read_unseen` holds.
 
-use super::pinned_shape::PinnedCode;
+use super::pinned_body::{Callees, Names, callees_are, page_is, table_is};
 use super::state::ListViewSwitch;
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};
@@ -17,22 +17,37 @@ const EDIT_BACK: &str =
 const EDIT_FROM_VIEW: &str =
     "after the built-in Edit switched a list without a card opened for view to edit mode (not pinned)";
 
-/// The code of the list of testpage/lifecycle/ReopenAfterListModeSwitch.al (corpus PR 1467, open): page 75641 "RLS Lines" logs
-/// its five triggers, its fields show Rec's two fields and a page variable, its table runs no code.
-const PROBE_LIST: PinnedCode = PinnedCode {
-    triggers: &[
-        "onopenpage",
-        "onaftergetrecord",
-        "onaftergetcurrrecord",
-        "onnewrecord",
-        "onclosepage",
-    ],
-    control_triggers: &[],
-    properties: &[],
-    action_props: None,
-    part_props: None,
-    table_triggers: &[],
-};
+/// The lines of the probe's page 75641 "RLS Lines" (`pinned_body::page_lines`; corpus PR 1467, open, at corpus commit 5e238026:
+/// testpage/lifecycle/ReopenAfterListModeSwitch.al:39-88). `«T»` is the table's name.
+const PROBE_PAGE: [&str; 13] = [
+    "PageType = List",
+    "SourceTable = \"«T»\"",
+    "ApplicationArea = All",
+    "UsageCategory = None",
+    "repeater Rows in - {}",
+    "field Line No. in Rows = Line No. {applicationarea=All}",
+    "field Description in Rows = Description {applicationarea=All}",
+    "field Opens in Rows = var OpenCount: Integer {applicationarea=All; caption='Opens'; editable=false}",
+    "trigger onopenpage: begin OpenCount := (OpenCount + 1); Log.Add('open'); end",
+    "trigger onaftergetrecord: begin Log.Add((('agr(' + Format(Rec.\"Line No.\")) + ')')); end",
+    "trigger onaftergetcurrrecord: begin Log.Add((('agcr(' + Format(Rec.\"Line No.\")) + ')')); end",
+    "trigger onnewrecord: begin Log.Add('new'); end",
+    "trigger onclosepage: begin Log.Add('close'); end",
+];
+
+/// The lines of its table 75640 "RLS Line" (ReopenAfterListModeSwitch.al:23-37; `pinned_body::table_lines`).
+const PROBE_TABLE: [&str; 4] = [
+    "DataClassification = SystemMetadata",
+    "field 1 \"Line No.\": Integer",
+    "field 2 \"Description\": Text[30]",
+    "key \"Line No.\" {Clustered=true}",
+];
+
+/// The procedure the page calls (`pinned_body::callees_are`): Add of codeunit 75642 "RLS Log" (`«L»`;
+/// ReopenAfterListModeSwitch.al:102-107).
+const PROBE_CALLEES: [&str; 1] = [
+    "\"«L»\".Add: begin if (Entries <> '') then begin Entries := (Entries + ' '); end; Entries := (Entries + Line); end",
+];
 
 impl Session {
     /// The enabled built-in Edit or View of a list without a card, invoked. View on the list opened for edit switches the page to
@@ -42,7 +57,7 @@ impl Session {
     /// switches the page back to edit on the same row (R6977ListAfterView.al:187 `back|page=Yes;back|description=Yes;
     /// back|editEnabled=No;back|viewEnabled=Yes;back|row=10000`); whether the new-row line comes back is not pinned
     /// (`refuse_after_list_edit_back`). The pinned lists have no code and no FlowField: on another list the switch runs without a
-    /// read only where nothing can see it (`switch_read_unseen`). On the probe's list each switch reads the row again, and Edit
+    /// read only where `switch_read_unseen` holds. On the probe's list each switch reads the row again, and Edit
     /// switches the list opened for view to edit (`measured_switch_read`); Edit on another list opened for view is refused.
     pub(super) fn switch_list_without_card(&mut self, st: &St, edit: bool) -> Result<Value, Signal> {
         let state = st.borrow().list_view;
@@ -108,37 +123,33 @@ impl Session {
     }
 
     /// Whether `st` is the list of corpus PR 1467 (open; testpage/lifecycle/ReopenAfterListModeSwitch.al, measured on a local BC
-    /// of each supported major): PageType List, no CardPageId, not a part, the code `PROBE_LIST` names, Rec in the plain view of
-    /// its primary key (no filter, ascending, no marks), every field the apps declare on its table a Normal field (the probe table
-    /// declares two; `table_fields_are_normal`). The rules of `list-mode-switch-reads-row`, `list-reopen-after-mode-switch` and
-    /// `mode-actions-bound-to-earlier-open` are measured on it only.
+    /// of each supported major): not a part; the page, its source table and the procedure the page calls read line for line as
+    /// the probe's (`PROBE_PAGE`, `PROBE_TABLE`, `PROBE_CALLEES`), under any object names, with no extension and no subscriber
+    /// of the page, the table or the log codeunit (`pinned_body::page_is`, `table_is`, `callees_are`); Rec in the plain view of
+    /// its primary key (no filter, ascending, no marks). The table's lines leave out the platform's own fields (ids from
+    /// 2000000000): the probe gave the same result on BC 27, 28 and 29, and on BC 29 every table has the platform's user-name
+    /// FlowFields; the page's lines show none of them. The rules of `list-mode-switch-reads-row`, `list-reopen-after-mode-switch`
+    /// and `mode-actions-bound-to-earlier-open` are measured on it only.
     pub(super) fn reopen_probe_list(&self, st: &St) -> Result<bool, Signal> {
-        Ok(self.is_list_page(st)
-            && st.borrow().host.is_none()
-            && self.list_card_page(st)?.is_none()
-            && self.rec_view_is(st, 0)
-            && self.table_fields_are_normal(st)?
-            && self.page_code_bound_is(st, &PROBE_LIST, true)?)
-    }
-
-    /// Whether every field the apps declare on the source table of `st` has FieldClass Normal. The platform's fields (ids from
-    /// 2000000000) are those the probe's table had: it gave the same result on BC 27, 28 and 29, and on BC 29 every table has
-    /// the platform's user-name FlowFields.
-    fn table_fields_are_normal(&self, st: &St) -> Result<bool, Signal> {
-        let t = self.table(&self.page_rec(st))?;
-        let facts = &self.engine.field_facts[t.object as usize];
-        Ok(t.fields
-            .iter()
-            .zip(facts)
-            .all(|(f, facts)| f.id >= 2_000_000_000 || facts.class == ir::FieldClass::Normal))
+        let code = {
+            let engine = self.engine();
+            let object = st.borrow().object as usize;
+            let table = self.page_rec(st).borrow().table as usize;
+            let (mut callees, mut names) = (Callees::new(), Names::default());
+            page_is(&engine, object, &PROBE_PAGE, &mut callees, &mut names)
+                && table_is(&engine, table, &PROBE_TABLE, &mut callees, &mut names)
+                && callees_are(&engine, &callees, &PROBE_CALLEES, &mut names)
+        };
+        Ok(code && st.borrow().host.is_none() && self.rec_view_is(st, 0))
     }
 
     /// Whether nothing on the list `st` can see its row read again, as on the pinned lists (testpage/R6977ListAfterView.al:32,
     /// R6977ListViewNext.al:31, :52, TestPageModeSwitchAction_Objects.al:175: no trigger, fields of Rec). BC reads the row on the
-    /// switch (corpus PR 1467, open: ReopenAfterListModeSwitch.al `view-1`, `edit-1`); the switch without a read gives BC's
-    /// result only where no code and no value can tell. That is: no OnAfterGetRecord or OnAfterGetCurrRecord of the page or of
-    /// a page extension; no subscriber of the page's events; no part; every field control bound to a Normal field of Rec, a page
-    /// variable or a caption; and the row the page stands on as stored, as the window read it and as the page shows it.
+    /// switch (corpus PR 1467, open: ReopenAfterListModeSwitch.al `view-1`, `edit-1`); main's switch without a read is kept only
+    /// where: the page and its page extensions have no OnAfterGetRecord or OnAfterGetCurrRecord; nothing subscribes to the page's
+    /// events; no part; every field control is bound to a Normal field of Rec, a page variable or a caption; and the row the page
+    /// stands on is as stored, as the window read it and as the page shows it. Other page triggers (OnFindRecord, OnNextRecord)
+    /// are not checked.
     fn switch_read_unseen(&mut self, st: &St) -> Result<bool, Signal> {
         let rec = self.page_rec(st);
         let table = self.table(&rec)?.object as usize;
