@@ -64,7 +64,7 @@ impl crate::Session {
             } else {
                 Stream::Other
             },
-            language: self.global_language,
+            language: self.global_language(),
         }
     }
 }

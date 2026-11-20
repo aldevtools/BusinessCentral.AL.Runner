@@ -33,7 +33,7 @@ impl Session {
                 .any(|m| m.to_lowercase().starts_with(&word.to_lowercase()))
             && self.field_property(t, pos, "OptionCaption").is_none()
             && self.field_property(t, pos, "OptionCaptionML").is_none()
-            && self.global_language == 1033;
+            && self.global_language() == 1033;
         if !measured {
             return refused();
         }
@@ -70,7 +70,7 @@ impl Session {
             && members.iter().all(|m| !m.trim().is_empty())
             && self.field_property(t, pos, "OptionCaption").is_none()
             && self.field_property(t, pos, "OptionCaptionML").is_none()
-            && self.global_language == 1033;
+            && self.global_language() == 1033;
         if !measured {
             return refused();
         }

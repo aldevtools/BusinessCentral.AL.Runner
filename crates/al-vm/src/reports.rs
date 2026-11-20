@@ -163,9 +163,10 @@ impl Session {
                 let inst = self.variable_outside_run(&receiver).expect("checked");
                 let i = self.variable_culture(&inst)?;
                 match args.first() {
-                    None => Ok(Value::Integer(
-                        self.report.variable_culture[i].language.unwrap_or(self.global_language),
-                    )),
+                    None => {
+                        let set = self.report.variable_culture[i].language;
+                        Ok(Value::Integer(set.unwrap_or(self.global_language())))
+                    }
                     Some(Value::Integer(0)) => Err(crate::transactions::al_error_code(
                         "Invalid language ID supplied: 0.",
                         "Argument",
@@ -211,7 +212,7 @@ impl Session {
                     self.report
                         .curr_report_language
                         .or(self.report.run_language)
-                        .unwrap_or(self.global_language),
+                        .unwrap_or(self.global_language()),
                 )),
                 Some(other) => unsupported(format!("CurrReport.Language with {}", other.describe())),
             },
@@ -2685,16 +2686,16 @@ impl Session {
             }
             None => (None, None),
         };
-        let language = variable_language.unwrap_or(self.global_language);
+        let language = variable_language.unwrap_or(self.global_language());
         let pinned = matches!(
-            (self.global_language, variable_language, variable_region.as_deref()),
+            (self.global_language(), variable_language, variable_region.as_deref()),
             (1033, None | Some(1033), None | Some("de-DE")) | (1031, None, None) | (1033, Some(1031), None)
         );
         if !pinned {
             return unsupported(format!(
                 "Report.SaveAs with the session language {}, the report variable's Language {} and FormatRegion {} (only en-US, \
                  GlobalLanguage 1031, Language := 1031 and FormatRegion := 'de-DE' on the variable are pinned)",
-                self.global_language,
+                self.global_language(),
                 variable_language.map_or("not set".to_string(), |l| l.to_string()),
                 variable_region.as_deref().unwrap_or("not set")
             ));
@@ -3804,7 +3805,7 @@ impl Session {
         let report_language = self.report.curr_report_language.or(self.report.run_language);
         if let Some(l) = self.report.dataset.as_ref().and_then(|d| d.language.clone()) {
             if matches!(value, Value::Option(..) | Value::Enum(..))
-                && report_language.is_some_and(|r| r != self.global_language)
+                && report_language.is_some_and(|r| r != self.global_language())
             {
                 return unsupported(format!(
                     "report column {} holds {} in a dataset in {l} (not pinned)",

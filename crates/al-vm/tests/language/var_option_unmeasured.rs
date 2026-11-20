@@ -782,8 +782,10 @@ fn unmeasured_callers_of_a_memberless_subscriber_refuse() {
     refused("DirectMemberlessLocalToMembersPublisher", PUBLISHER);
 }
 
-// A publisher called directly with a variable of another member list refuses when a subscriber hears it
-// (OptionVarMemberlessDirectCallers.al `Direct_*_BothPublishers` pins it; not run yet). One no subscriber hears changes nothing: the caller's variable keeps its value and members, also an
+// A publisher called directly with a variable of another member list refuses when a subscriber hears it, unless the event
+// and the caller are those of OptionVarMemberlessHeard.al (corpus PR 1453, merged, not pinned yet; a subscriber with the publisher's members);
+// OptionVarMemberlessDirectCallers.al `Direct_*_BothPublishers` pins memberless subscribers, not run yet. One no subscriber
+// hears changes nothing: the caller's variable keeps its value and members, also an
 // element of a `var` memberless array that holds its caller's members (OptionVarMemberlessUnheard.al:115,
 // :281, :327, :347).
 #[test]
