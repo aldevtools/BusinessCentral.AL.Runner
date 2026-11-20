@@ -402,21 +402,23 @@ impl Session {
     /// - An event subscriber's copy: [`subscriber_view`], told what [`Session::event_args`] says of parameter `index`.
     ///   The cases below are for a call by name or through an interface.
     /// - Caller in filter group 0, ascending, no marks, MarkedOnly off, no filter, on the primary key or an ad hoc key
-    ///   (`RecordState::adhoc`), any callee: the copy has the primary key, also after an ad hoc key on a normal field, on a
+    ///   (`RecordState::adhoc`), with no SetLoadFields before a read when the key is on a FlowField or the callee is a
+    ///   report's procedure no cell measured, any callee: the copy has the primary key, also after an ad hoc key on a normal field, on a
     ///   FlowField whose value depends on the row (whose `FLOWFIELD_KEY` mark it does not take) or on a FlowField and then
     ///   the primary key field (record/keys-sorting/PwFlowFieldKeyRule.al:249-252 `byValue=Id order=1 2 3`). With a
     ///   SetLoadFields of a caller that read no row, for a codeunit's or a report's procedure [`Session::measured_callee`]
     ///   names, in the state [`measured_state`] names, the request is dropped and the copy marked `by-value-report-procedure`
     ///   (corpus PR 1450, record/filters/ByValueRecordView.al:1586 `ByValue_FlowFieldKeyLoadFields_CodeunitProcedure` and
     ///   :1603 `_ReportProcedure`: `key=Id first=1 amount loaded=Yes name loaded=Yes`); for any other callee or state the
-    ///   copy is marked [`BY_VALUE_VIEW`].
+    ///   copy is marked [`BY_VALUE_VIEW`], as is a SetLoadFields before a read handed to a report procedure no cell measured.
     /// - A callee [`Session::measured_callee`] names, no mark on `source`, a view [`measured_view`] names: the view of
     ///   [`primary_view`], and a SetLoadFields of a caller that read no row is dropped (`ByValue_SetLoadFields`
     ///   `amount loaded=Yes`). Under [`Evidence::Assumed`] the copy is marked (`RecordState::view_assumption`)
     ///   so that a read of its view marks the assumption (`by_value_view_read`, `by_value_view_handed`).
-    /// - Another callee, or the callee of `by-value-table-proc-other-table` with a view [`measured_view`] does not name, no
-    ///   filter and no mark on `source`, the caller in filter group 0, ascending, with no marks: main's view (a declared
-    ///   secondary key stays).
+    /// - Another callee that is not a report's procedure, or the callee of `by-value-table-proc-other-table` with a view
+    ///   [`measured_view`] does not name, no filter and no mark on `source`, the caller in filter group 0, ascending, with no
+    ///   marks: main's view (a declared secondary key stays). A report procedure's copy is marked [`BY_VALUE_VIEW`] there,
+    ///   from a measured caller or not.
     /// - Else, with no mark on `source`, the copy keeps main's view and is marked [`BY_VALUE_VIEW`]: a read of its view
     ///   refuses (`by_value_view_runs`, `by_value_view_handed`). A copy of a marked `source` keeps main's view and the mark.
     pub(crate) fn by_value_view(&self, source: &Rec, copy: &Rec, param: &RtType, call: &ByValueCall, index: usize) {
@@ -439,15 +441,21 @@ impl Session {
             s.filter_group == 0 && s.ascending && s.field_descending == 0 && s.marks.is_empty() && !s.marked_only;
         let no_filter = s.filters.is_empty();
         let pinned_key = s.key == 0 || s.adhoc.as_ref().is_some_and(|(k, _)| *k == s.key);
-        let load_dropped = measured.is_some() && s.load.request.is_some() && s.load.buffer.is_none();
-        let load_key_measured = measured_state(&s)
-            && matches!(
-                self.engine.program.objects[call.callee].kind,
-                ObjKind::Codeunit | ObjKind::Report
-            );
+        let load_pending = s.load.request.is_some() && s.load.buffer.is_none();
+        let load_dropped = measured.is_some() && load_pending;
+        let callee_kind = self.engine.program.objects[call.callee].kind;
+        // A report procedure from a caller no cell measured: its copy keeps main's view only where that is a fresh record's.
+        let unmeasured_report = callee_kind == ObjKind::Report && measured.is_none();
+        let load_key_measured =
+            measured.is_some() && measured_state(&s) && matches!(callee_kind, ObjKind::Codeunit | ObjKind::Report);
         let mut c = copy.borrow_mut();
         match s.unpinned_buffer {
-            None | Some(FLOWFIELD_KEY) if plain_view && no_filter && pinned_key && !load_dropped => {
+            None if plain_view && no_filter && pinned_key && !load_dropped && !(unmeasured_report && load_pending) => {
+                c.key = 0;
+                c.adhoc = None;
+                c.unpinned_buffer = None;
+            }
+            Some(FLOWFIELD_KEY) if plain_view && no_filter && pinned_key && !load_pending => {
                 c.key = 0;
                 c.adhoc = None;
                 c.unpinned_buffer = None;
@@ -467,13 +475,10 @@ impl Session {
                 c.view_assumption = measured.and_then(Evidence::assumption);
             }
             // Another callee, or one of `by-value-table-proc-other-table` whose view the probe did not measure: main's view. A
-            // report procedure's copy refuses there: its cells show BC drops a secondary key main kept
+            // report procedure's copy refuses there, whoever calls it: its cells show BC drops a secondary key main kept
             // (record/filters/ByValueRecordView.al:1378 `ByValue_ReportProcedure_FromCodeunit_SecondaryKeyNoFilter`).
-            None if !matches!(
-                measured,
-                Some(Evidence::Pinned | Evidence::Assumed(Assumption::ByValueReportProcedure))
-            ) && plain_view
-                && no_filter => {}
+            None if measured != Some(Evidence::Pinned) && callee_kind != ObjKind::Report && plain_view && no_filter => {
+            }
             None => c.unpinned_buffer = Some(BY_VALUE_VIEW),
             Some(FLOWFIELD_KEY) if plain_view && no_filter && pinned_key => c.unpinned_buffer = Some(BY_VALUE_VIEW),
             Some(_) => {}

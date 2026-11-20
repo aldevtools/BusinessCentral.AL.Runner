@@ -1,8 +1,9 @@
 //! A record handed by value to a procedure of a report (al-runner issue 8386): the copy gets the view of a fresh record,
 //! flagged under `by-value-report-procedure` (corpus PR 1450, record/filters/ByValueRecordView.al, the
 //! `ByValue_ReportProcedure_*` and `ByValue_FlowFieldKeyLoadFields_*` tests of codeunit 78731, :1252-1703). Measured callers: the report itself (a data item trigger, a local procedure), a
-//! codeunit and a page. Every other caller, a report extension procedure, and a data item that still holds its
-//! DataItemTableView filters refuse a read of the copy's view.
+//! codeunit and a page. Every other caller (also with no filter on the record, when it has a secondary key or a SetLoadFields
+//! before a read), a report extension procedure, and a data item that still holds its DataItemTableView filters refuse a
+//! read of the copy's view.
 
 use crate::record_copy_reports::{PASS, VIEW_REFUSED, check, run};
 
@@ -159,6 +160,30 @@ table 50180 "BR Row"
         Copy.SetRange(Status, Copy.Status::Open);
         exit(Rep.Describe(Copy));
     end;
+
+    procedure HandToReport(Mode: Integer): Text
+    begin
+        exit(HandOn(Mode));
+    end;
+
+    local procedure HandOn(Mode: Integer): Text
+    var
+        Copy: Record "BR Row";
+        Rep: Report "BR Report";
+    begin
+        case Mode of
+            1:
+                begin
+                    Copy.SetLoadFields(Name);
+                    Copy.SetCurrentKey(Total);
+                end;
+            2:
+                Copy.SetCurrentKey(Name);
+            3:
+                Copy.SetLoadFields(Name);
+        end;
+        exit(Rep.KeyAndLoad(Copy));
+    end;
 }
 
 table 50181 "BR Line"
@@ -249,6 +274,12 @@ report 50182 "BR Report"
     begin
         exit('f={' + R.GetFilters() + '} n=' + Format(R.Count()) + ' key=' + R.CurrentKey());
     end;
+
+    procedure KeyAndLoad(R: Record "BR Row"): Text
+    begin
+        R.FindFirst();
+        exit('key=' + R.CurrentKey() + ' amount loaded=' + Format(R.AreFieldsLoaded(R.Amount)));
+    end;
 }
 
 reportextension 50183 "BR Report Ext" extends "BR Report"
@@ -285,6 +316,25 @@ report 50184 "BR Other Report"
     procedure GetResult(): Text
     begin
         exit(Outcome);
+    end;
+
+    procedure HandToReport(Mode: Integer): Text
+    var
+        Copy: Record "BR Row";
+        Rep: Report "BR Report";
+    begin
+        case Mode of
+            1:
+                begin
+                    Copy.SetLoadFields(Name);
+                    Copy.SetCurrentKey(Total);
+                end;
+            2:
+                Copy.SetCurrentKey(Name);
+            3:
+                Copy.SetLoadFields(Name);
+        end;
+        exit(Rep.KeyAndLoad(Copy));
     end;
 }
 
@@ -550,6 +600,51 @@ codeunit 50186 "BR Test"
     end;
 
     [Test]
+    procedure FromTable_FlowFieldKeyLoadFieldsNoFilter_Refused()
+    var
+        Row: Record "BR Row";
+    begin
+        Seed();
+        Expect(Row.HandToReport(1), '');
+    end;
+
+    [Test]
+    procedure FromAnotherReport_FlowFieldKeyLoadFieldsNoFilter_Refused()
+    var
+        Other: Report "BR Other Report";
+    begin
+        Seed();
+        Expect(Other.HandToReport(1), '');
+    end;
+
+    [Test]
+    procedure FromTable_SecondaryKeyNoFilter_Refused()
+    var
+        Row: Record "BR Row";
+    begin
+        Seed();
+        Expect(Row.HandToReport(2), '');
+    end;
+
+    [Test]
+    procedure FromAnotherReport_SecondaryKeyNoFilter_Refused()
+    var
+        Other: Report "BR Other Report";
+    begin
+        Seed();
+        Expect(Other.HandToReport(2), '');
+    end;
+
+    [Test]
+    procedure FromTable_LoadFieldsNoFilter_Refused()
+    var
+        Row: Record "BR Row";
+    begin
+        Seed();
+        Expect(Row.HandToReport(3), '');
+    end;
+
+    [Test]
     procedure FromAnotherReport_Refused()
     var
         Row: Record "BR Row";
@@ -626,6 +721,18 @@ fn by_value_report_procedure_neighbors_are_flagged_where_measured_and_refused_el
         ("FromPageAction_Flagged", PASS, true),
         ("FromTableProcedure_Refused", VIEW_REFUSED, false),
         ("FromAnotherReport_Refused", VIEW_REFUSED, false),
+        // The same callers with no filter on the record: main kept their view with no flag (`key=Id amount loaded=No` for a
+        // SetLoadFields with or without a FlowField key, `key=Name` for a secondary key), where the measured callers' cells show BC
+        // drops both (record/filters/ByValueRecordView.al:1378, :1586, :1603).
+        ("FromTable_FlowFieldKeyLoadFieldsNoFilter_Refused", VIEW_REFUSED, false),
+        (
+            "FromAnotherReport_FlowFieldKeyLoadFieldsNoFilter_Refused",
+            VIEW_REFUSED,
+            false,
+        ),
+        ("FromTable_SecondaryKeyNoFilter_Refused", VIEW_REFUSED, false),
+        ("FromAnotherReport_SecondaryKeyNoFilter_Refused", VIEW_REFUSED, false),
+        ("FromTable_LoadFieldsNoFilter_Refused", VIEW_REFUSED, false),
         ("ReportExtensionProcedure_Refused", VIEW_REFUSED, false),
         // BC hands no DataItemTableView filter (ByValue_ReportProcedure_DataItemView); the runtime keeps them in a filter
         // group of its own, which no rule admits.
