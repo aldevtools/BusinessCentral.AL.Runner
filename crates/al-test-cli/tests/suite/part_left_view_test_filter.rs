@@ -2,7 +2,7 @@
 //! with the part's own `CurrPage.Update(false)`, then the test's own `Filter.SetFilter` on the part and a move or a read. The
 //! corpus probe (tests/al-language/pages/parts/PartRefillTestFilter.al: corpus pull request 1474, merged, not pinned yet, plus
 //! the two-field key cell of corpus pull request 1475, open; green 10/10 on a local Business Central 29.1) and the shapes probe
-//! (tests/al-language/pages/parts/PartRefillShapes.al, corpus pull request 1487, open; green 15/15 there), with a stand-in for
+//! (tests/al-language/pages/parts/PartRefillShapes.al, corpus pull request 1487, open; green 16/16 there), with a stand-in for
 //! the corpus's Assert, and the reporter's repro (green on Business Central 29.1).
 //! The calls the probe did not make after the test's filter, and the pages and tables outside the facts of
 //! `part_refill_rule.rs`, keep the refusal of `part_update_left_view.rs`. When the probes are pinned, delete their tests.
@@ -50,7 +50,7 @@ fn outcomes(src: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<Assumption>)
 
 const PROBE: &str = include_str!("../fixtures/outside-fb/Issue8537Probe.al");
 const REPRO: &str = include_str!("../fixtures/outside-fb/Issue8537.al");
-/// The shapes probe (corpus PR 1487, open: tests/al-language/pages/parts/PartRefillShapes.al, green 15/15 on a local Business
+/// The shapes probe (corpus PR 1487, open: tests/al-language/pages/parts/PartRefillShapes.al, green 16/16 on a local Business
 /// Central 29.1): each cell varies the measured Worksheet cell by one fact of a partner page, and one cell has them all.
 const SHAPES: &str = include_str!("../fixtures/outside-fb/Issue8537Shapes.al");
 
@@ -396,16 +396,44 @@ fn issue_8537_two_rows_left_by_the_filter_stay_refused() {
 #[test]
 fn issue_8537_the_shapes_of_a_partner_page_pass_through_the_rule() {
     let list = outcomes(&format!("{PROBE}\n{}", shapes()), "LT PS Tests");
-    assert_eq!(list.len(), 15, "{list:#?}");
+    assert_eq!(list.len(), 16, "{list:#?}");
     for (name, ..) in &list {
         assert_flagged_pass(&list, name);
     }
 }
 
+/// The Visible variable cell with the part control bound to a variable no code sets (no cell hid the part): the part is hidden
+/// when the steps start, and First keeps the refusal.
+#[test]
+fn issue_8537_a_hidden_part_stays_refused() {
+    let shapes = shapes();
+    let (from, to) = (
+        "                Visible = ShowLoad;",
+        "                Visible = HideLoad;",
+    );
+    let var = "        ShowLoad: Boolean;";
+    // The first of each is the Visible host's (the Full host has them too, further down).
+    let host = shapes
+        .find("page 90446 \"LT PS Visible Host\"")
+        .expect("the Visible host");
+    let next = host + 1 + shapes[host + 1..].find("\npage ").expect("the next page");
+    assert!(
+        [from, var]
+            .iter()
+            .all(|a| (host..next).contains(&shapes.find(a).unwrap()))
+    );
+    let src = shapes
+        .replacen(from, to, 1)
+        .replacen(var, "        ShowLoad: Boolean;\n        HideLoad: Boolean;", 1);
+    let list = outcomes(&format!("{PROBE}\n{src}"), "LT PS Tests");
+    assert_refused(&list, "PartRefillShape_VisibleVariable_FindsRefilledRow", "First");
+}
+
 /// The facts the rule names, each changed on the probe's Worksheet cell (`LT PR Load Host` with `LT PR Load Part`, whose objects
 /// come first in the probe, so each anchor's first occurrence is theirs), keep the refusal at the probe's First: a part with an
 /// action, a part field with OnValidate on a field of Rec, the part control with UpdatePropagation, a host with OnNewRecord, a
-/// ListPlus host; and the two-field key part with a third key field, or with its fields swapped so the filter is on the first.
+/// ListPlus host, a part that allows inserts; and the two-field key part with a third key field, or with its fields swapped so
+/// the filter is on the first.
 #[test]
 fn issue_8537_facts_outside_the_rule_stay_refused() {
     let worksheet = "PartRefill_WorksheetActionThenFilterFirst_FindsRefilledRow";
@@ -441,6 +469,7 @@ fn issue_8537_facts_outside_the_rule_stay_refused() {
             "PageType = ListPlus;",
             worksheet,
         ),
+        ("part allows inserts", "    InsertAllowed = false;\n", "", worksheet),
         (
             "three key fields",
             "field(3; \"Allocated Qty.\"; Decimal) { }\n    }\n\n    keys\n    {\n        key(PK; \"Period Type\", \"Period Start\") { Clustered = true; }",
