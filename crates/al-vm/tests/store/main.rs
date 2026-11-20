@@ -99,6 +99,7 @@ mod query_read_state;
 mod query_save_as_types;
 mod quoted_enum_init_value;
 mod record_builtins;
+mod record_fields_shared;
 mod record_id_filter_text;
 mod record_into_recordref;
 mod record_is_dirty;
