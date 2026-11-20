@@ -328,3 +328,35 @@ fn other_accents_in_a_key_keep_mains_order() {
     let s = store(&[("Bravo", "A"), ("émile", "B")], false);
     assert_eq!(name(&first(&s, 0, &[]).unwrap().unwrap()), "Bravo");
 }
+
+/// The rows `with_committed_row_changes` puts on top of a store are noted as a write notes them, so the store refuses
+/// what the store they were taken from refuses (a lane worker's carried start, al-testrun `lane_starts.rs`): the whole
+/// table put on an empty store, and two rows put row by row on a store that holds the third.
+#[test]
+fn rows_put_on_top_refuse_an_order_the_written_rows_refuse() {
+    let rows = [("Alpha", "A"), ("ærø", "B"), ("Bravo", "C")];
+    let changes = |next: &MemStore, base: &MemStore| {
+        next.committed_row_changes_from(base, &mut |a, b| Some(format!("{a:?}") == format!("{b:?}")))
+            .unwrap()
+    };
+    let mut written = store(&rows, true);
+    written.commit();
+    assert!(refused(first(&written, 0, &[])), "written");
+    let empty = MemStore::default().as_database();
+    let whole = empty
+        .clone()
+        .with_committed_row_changes(changes(&written, &empty))
+        .unwrap();
+    assert!(refused(first(&whole, 0, &[])), "the whole table put on an empty store");
+    let mut base = store(&rows[..1], true);
+    base.commit();
+    let mut next = base.clone();
+    for (n, c) in &rows[1..] {
+        next.insert(&cx("C"), &names(), vec![text(n), Value::Code((*c).into())])
+            .unwrap();
+    }
+    next.commit();
+    assert!(refused(first(&next, 0, &[])), "written on a copy of the base");
+    let by_row = base.clone().with_committed_row_changes(changes(&next, &base)).unwrap();
+    assert!(refused(first(&by_row, 0, &[])), "two rows put on the base row by row");
+}
