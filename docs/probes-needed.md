@@ -1840,3 +1840,11 @@ Needs probe. Each row is a neighbor of the cells of the registry entry `list-new
 | A field of Rec assigned in the control's OnValidate before `CurrPage.Update`, with `Update()` and with `Update(false)` | The new path answers, flagged | The probe's steps with the assignment, on a view with one row before: trigger log, the row shown, the stored rows | al-vm `pages/code_inserted_new_line.rs` |
 | `First()` on the landed row, the view's only row | The new path answers, flagged | First after the landing on an empty view: answer, trigger log, rows | al-vm `pages/code_inserted_new_line.rs` |
 | `Close()` right after the landing SetValue | The new path answers, flagged | Close after only SetValue Name: trigger log and the stored rows | al-vm `pages/code_inserted_new_line.rs` |
+
+## A TableRelation condition a table extension sets, on an enum of an app it does not depend on: a shape the probe did not measure (al-runner PR 8301, 2026-11-20)
+
+Needs probe. A neighbor of the cells of the registry entry `relation-condition-enum-of-declaring-file` (corpus pull request 1437, tests/al-language/table-objects/extensions/ExtRelationEnumNamespace_Tests.al). There the table extension's app depends on the app that holds both the table and the field's enum (:424).
+
+| Shape | Runtime now | Probe wanted | Code |
+|---|---|---|---|
+| The field's enum in an app the table's app depends on, and the table extension in a third app that depends on the table's app but not on the enum's | The member is taken from the field's own enum, flagged by `relation-condition-enum-of-declaring-file` | `if (Kind = const(Production))` set by such an extension, with and without `modify`: Validate of a matching, a missing and a filtered-out value, an arm that does not apply, FieldRef.Relation and the Table Relations Metadata row | al-sema `lower/tables.rs` `relation_condition_const` |
