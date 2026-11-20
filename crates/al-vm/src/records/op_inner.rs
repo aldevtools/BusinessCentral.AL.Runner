@@ -776,6 +776,7 @@ impl Session {
             RecordOp::Modify => {
                 let run = arg_bool(args, 0)?;
                 let caller = self.take_modify_caller();
+                let read_rolled = Self::modify_read_the_rolled_row(rec, &t, caller);
                 self.tenant_license_state_refuses(&t, "modify")?;
                 self.document_service_trigger_refused(&t, rec, run, "Modify")?;
                 // A key value the column rounds finds the rounded row (P130DateFilters.al:635-637, `modify var`).
@@ -815,6 +816,7 @@ impl Session {
                 });
                 if let Some(old) = &stored {
                     self.check_modify_auto_increment(&t, rec, old, run)?;
+                    self.refuse_rolled_modify_with_code(&t, old, run)?;
                 }
                 // A Modify loads every field of a partially loaded record: the subscribers' Rec and xRec and the caller's record
                 // report all fields loaded afterwards, for Modify(true) and Modify(false)
@@ -848,29 +850,10 @@ impl Session {
                 if self.is_user_row(&t, rec.borrow().temporary) {
                     self.user_before_modify(&t, rec)?;
                 }
-                // A Modify that changes no field leaves the row version as it is: Microsoft's tests Modify a record after a refresh report
-                // modified its row without a change (Create Prod. Order Lines.Copy) and pass, which a bumped version would make a
-                // stale write (record/PriorityAssumptions.al:143-244, real BC: after a Modify that changes nothing and a Commit, the
-                // other variable's Modify of a changed field is accepted, while a Modify that changed a field makes it fail with DB:RecordChanged).
                 self.check_code_storage(&t, rec, true)?;
                 self.check_failed_insert_stale(&t, rec, stored_row.as_deref())?;
                 self.sql_timestamp_before(&t, rec, stored_row.as_deref())?;
-                // A bulk ModifyAll(.., false) without subscribers stamps SystemModifiedAt of a row that has the value already
-                // (RcBTriggers.al:ModifyAll_Equal_Value_Rows_BQ) and gives it a new row version, with or without an OnModify
-                // trigger (record/crud/ModifyWithoutChange.al:375-448, `row1_version_changed = Yes`).
-                let unchanged = match stored_row.as_deref() {
-                    Some(old) if !rec.borrow().temporary && Session::modify_changes_nothing(&t, old, rec) => Some(old),
-                    _ => None,
-                };
-                let old_version = match unchanged {
-                    Some(old) if !self.bulk_modify => {
-                        if let Some(i) = t.fields.iter().position(|f| f.id == 2_000_000_005) {
-                            rec.borrow_mut().fields[i] = old[i].clone();
-                        }
-                        None
-                    }
-                    _ => self.bump_row_version(&t, rec),
-                };
+                let old_version = self.modify_row_version(&t, rec, stored_row.as_deref());
                 self.sql_timestamp_after(&t, rec);
                 let keeps_assigned = stored_row.as_deref().is_some_and(|s| {
                     crate::assigned_audit::modify_keeps_assigned_modified(&t, s, &rec.borrow().fields, &audit)
@@ -908,6 +891,9 @@ impl Session {
                     }
                 }
                 let mut stored = Self::to_store(rec, view);
+                if let (false, Some(old)) = (rec.borrow().temporary, stored_row.as_deref()) {
+                    crate::sqltime::keep_rolled(old, &mut stored, read_rolled)?;
+                }
                 if let Some(bad) = self.sql_columns(rec, &t, &mut stored)? {
                     let shape = (caller, stored_row.is_some(), run);
                     return self.fail_modify_sql_range(rec, &t, bad, shape, (old_version, stamped));
@@ -1521,7 +1507,7 @@ impl Session {
                                     text.trim()
                                 ));
                             }
-                            if self.global_language == 1033 && args.len() <= 2 {
+                            if self.global_language() == 1033 && args.len() <= 2 {
                                 let failing = parsed
                                     .as_ref()
                                     .err()
@@ -1540,7 +1526,7 @@ impl Session {
                                 return unsupported(format!(
                                     "SetFilter of `{}` with {event} subscribers in session language {} or with placeholders (not pinned)",
                                     text.trim(),
-                                    self.global_language
+                                    self.global_language()
                                 ));
                             }
                         }
@@ -1550,7 +1536,7 @@ impl Session {
                     Ok(e) => e,
                     // record/crud/RcAFilters.al:SetFilter_Integer_Invalid, events/platform-triggers/PtObserve.al:Bad_Int,
                     // Bad_Decimal, Bad_Time, Bad_DateTime m0.
-                    Err(e) if e.starts_with(al_builtins::filter::NOT_EVALUATED) && self.global_language == 1033 => {
+                    Err(e) if e.starts_with(al_builtins::filter::NOT_EVALUATED) && self.global_language() == 1033 => {
                         let (type_name, value) = e[al_builtins::filter::NOT_EVALUATED.len()..]
                             .split_once('\t')
                             .expect("type and value");
@@ -1561,14 +1547,14 @@ impl Session {
                     // (record/filters/W4Filters.al:694 `num_star_after`).
                     Err(e)
                         if e.starts_with(al_builtins::filter::VARIABLE_NOT_UNDERSTOOD)
-                            && self.global_language == 1033 =>
+                            && self.global_language() == 1033 =>
                     {
                         let value = &e[al_builtins::filter::VARIABLE_NOT_UNDERSTOOD.len()..];
                         let reason = format!("The variable \"{value}\" was not understood.");
                         return Err(self.filter_error(&t, pos, text.trim(), &reason));
                     }
                     // The German error of a date no Date filter reads (P143Date_DePlain.al, _DeRanges.al, _DeFormulas.al).
-                    Err(e) if e.starts_with(al_builtins::filter::INVALID_DATE) && self.global_language == 1033 => {
+                    Err(e) if e.starts_with(al_builtins::filter::INVALID_DATE) && self.global_language() == 1033 => {
                         // P81DateFilters.al:SetFilter_Date_InvalidTexts.
                         let bad = &e[al_builtins::filter::INVALID_DATE.len()..];
                         let reason = format!(
@@ -1576,7 +1562,7 @@ impl Session {
                         );
                         return Err(self.filter_error(&t, pos, text.trim(), &reason));
                     }
-                    Err(e) if e.starts_with(al_builtins::filter::FILTER_SYNTAX) && self.global_language == 1033 => {
+                    Err(e) if e.starts_with(al_builtins::filter::FILTER_SYNTAX) && self.global_language() == 1033 => {
                         let inner = &e[al_builtins::filter::FILTER_SYNTAX.len()..];
                         let (shown, inner) = match inner.strip_prefix(al_builtins::filter::AS_WRITTEN) {
                             Some(i) => (text.as_str(), i),
@@ -1985,6 +1971,7 @@ impl Session {
                         new[field] = ops::convert(v.clone(), &ty)?;
                     }
                 }
+                self.refuse_selected_company_rename(rec.borrow().temporary, &t, &old, &new)?;
                 let auto_increment_refusal = self.check_rename_values(rec, &t, &old, &mut new)?;
                 if self.is_profile_row(&t, rec.borrow().temporary) {
                     self.profile_before_rename(&t, &old, &new)?;
@@ -1997,6 +1984,16 @@ impl Session {
                 // The row is found under the key the column holds (P130DateFilters.al:641-648: the record holds 10:00:00 after
                 // Get('A', 10:00:00.001) and its Rename to 12:00:00.001 is found under 12:00:00).
                 let old_pk = Self::sql_key(rec, &t, &old);
+                // A Rename of a row that holds a Time past the day: whether the row keeps it is not probed.
+                if !rec.borrow().temporary
+                    && self
+                        .store_for(rec)?
+                        .get(&cx, &t, &old_pk)
+                        .map_err(|e| Signal::unsupported(format!("{e}")))?
+                        .is_some_and(|r| r.iter().any(crate::sqltime::is_rolled))
+                {
+                    return unsupported("a Rename of a row that holds a Time stored as 23:59:59.999 (not probed)");
+                }
                 // Read before the triggers, on the buffer the test left (`assigned_audit::rename_audit`).
                 let audit = self.rename_audit(&cx, &t, rec, &old_pk)?;
                 let new_rounds = !rec.borrow().temporary && crate::sqltime::key_rounds(&t.primary_key(&new));
@@ -2050,6 +2047,7 @@ impl Session {
                 if let Some(bad) = self.sql_columns(rec, &t, &mut stored)? {
                     return self.fail_rename_sql_range(rec, &t, bad, (from_al, refs.is_empty()), &old);
                 }
+                Self::refuse_rename_writing_rolled(&stored)?;
                 // A rename to the key the row has succeeds and writes the row again, which is what
                 // stamps it (record/TestRecordSystemId.al:752-775).
                 let same_key = ops::compare_keys(&old_pk, &Self::sql_key(rec, &t, &row))?;

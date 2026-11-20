@@ -1377,7 +1377,12 @@ impl Session {
         let mut rows: Vec<Vec<Value>> = Vec::new();
         if !parent_missing {
             let cx = self.cx.clone();
+            self.refuse_filter_over_rolled(&cx, &t, &filters)?;
             self.each_row(&cx, &t, &filters, |row| {
+                // A query over a Time a database column holds past the day: its value and order are not probed (`sqltime`).
+                if row.iter().any(crate::sqltime::is_rolled) {
+                    return unsupported("a query over a Time stored as 23:59:59.999 (not probed)");
+                }
                 rows.push(row.to_vec());
                 Ok(())
             })?;
@@ -1417,7 +1422,12 @@ impl Session {
         let ct: Arc<TableDef> = self.engine.tables[item.table].clone().expect("table");
         let cx = self.cx.clone();
         let mut children: Vec<Vec<Value>> = Vec::new();
+        self.refuse_filter_over_rolled(&cx, &ct, &plan.scan[level])?;
         self.each_row(&cx, &ct, &plan.scan[level], |row| {
+            // A query over a Time a database column holds past the day: its value and order are not probed (`sqltime`).
+            if row.iter().any(crate::sqltime::is_rolled) {
+                return unsupported("a query over a Time stored as 23:59:59.999 (not probed)");
+            }
             children.push(row.to_vec());
             Ok(())
         })?;

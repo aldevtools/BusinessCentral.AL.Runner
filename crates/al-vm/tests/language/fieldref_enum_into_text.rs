@@ -136,6 +136,50 @@ fn an_option_from_fieldref_value_into_a_bounded_text_or_code_parameter_is_its_ca
 }
 
 #[test]
+fn an_option_without_a_caption_is_refused_by_both_fieldref_text_setters() {
+    let src = r#"
+table 50718 ORow {
+    fields {
+        field(1; Id; Integer) { }
+        field(2; Opt; Option) { OptionMembers = " ",First; }
+        field(3; Txt; Text[50]) { }
+        field(4; Cd; Code[20]) { }
+    }
+}
+codeunit 50772 C {
+    procedure SetValue(Validate: Boolean; FieldNo: Integer)
+    var Row: Record ORow; RR: RecordRef; FR: FieldRef;
+    begin
+        Row.Opt := 9;
+        RR.GetTable(Row);
+        FR := RR.Field(FieldNo);
+        if Validate then
+            FR.Validate(RR.Field(2).Value())
+        else
+            FR.Value := RR.Field(2).Value();
+    end;
+}
+"#;
+    for validate in [false, true] {
+        for field in [3, 4] {
+            let result = al_testkit::run_with(
+                src,
+                "C",
+                "SetValue",
+                vec![
+                    al_builtins::value::Value::Boolean(validate),
+                    al_builtins::value::Value::Integer(field),
+                ],
+            );
+            assert!(
+                matches!(&result, Err(al_builtins::native::Signal::Unsupported(why)) if why.contains("ordinal 9")),
+                "validate={validate}, field={field}: {result:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn fieldref_validate_of_an_enum_field_with_a_caption_raises_the_option_evaluate_error() {
     let e = al_testkit::error_message(al_testkit::run_in(SRC, "C", "ValidateCaption"));
     assert_eq!(e, "The value \"Beta Cap\" can't be evaluated into type Option.");

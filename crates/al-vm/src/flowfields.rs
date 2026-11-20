@@ -683,6 +683,7 @@ impl Session {
             self.permission_gate_flowfield(rec, calc.table, &[])?;
         }
         let cx = self.cx_for(rec, &src_t)?;
+        self.refuse_filter_over_rolled(&cx, &src_t, &filters)?;
         let n = self
             .store
             .count(&cx, &src_t, &filters)
@@ -750,6 +751,7 @@ impl Session {
             self.permission_gate_flowfield(rec, calc.table, stack)?;
         }
         let cx = self.cx_for(rec, &src_t)?;
+        self.refuse_filter_over_rolled(&cx, &src_t, &filters)?;
         let src_fields = &engine.program.objects[calc.table].table.as_ref().expect("table").fields;
         let (stored, flow): (Vec<FieldFilter>, Vec<FieldFilter>) = filters
             .iter()
@@ -933,9 +935,10 @@ impl Session {
                     }
                     return Ok(tally.best.unwrap_or_else(|| self.default_value(&src_ty)));
                 }
-                // Nothing matched: the type default (corpus record/TestCalcFormulaMinMaxAvgTests.Codeunit.al:250).
+                // Nothing matched: the type default (corpus record/TestCalcFormulaMinMaxAvgTests.Codeunit.al:250). A Time held past
+                // the day reads 00:00:00 (`sqltime::read_back`).
                 match tally.best {
-                    Some(v) => v,
+                    Some(v) => crate::sqltime::read_back_value(v),
                     None => self.default_value(&f.ty),
                 }
             }
@@ -1312,8 +1315,11 @@ impl Session {
         // A database table compares its Time and DateTime columns with the filter values rounded as the columns hold them
         // (record/filters/P130DateFilters.al:206-227).
         if !r.temporary {
-            if let Some(t) = self.engine.tables[r.table as usize].as_ref() {
-                crate::sqltime::round_filters(t, &mut stored);
+            if let (Some(t), Some(schema)) = (
+                self.engine.tables[r.table as usize].as_ref(),
+                self.engine.program.objects[r.table as usize].table.as_ref(),
+            ) {
+                crate::sqltime::round_filters(t, schema, &mut stored);
             }
         }
         (stored, flow_fields)
