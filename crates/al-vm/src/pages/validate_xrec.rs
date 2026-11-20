@@ -276,9 +276,7 @@ impl Session {
             // SetValue lands on that row, which holds no edit).
             let mut s = st.borrow_mut();
             s.dirty = false;
-            s.refresh = false;
-            s.refresh_by_update = false;
-            s.refresh_update_false = false;
+            s.refresh.cancel_update();
         }
         rec.borrow_mut().fields = row;
         Ok(())

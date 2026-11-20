@@ -144,8 +144,7 @@ impl Session {
             self.save_row(st)?;
         }
         // The refresh the action asks for reads the row again.
-        st.borrow_mut().refresh = true;
-        st.borrow_mut().refresh_by_update = false;
+        st.borrow_mut().refresh.ask_after_action();
         Ok(())
     }
 

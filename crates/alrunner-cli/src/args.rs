@@ -107,6 +107,9 @@ pub struct TestArgs {
     pub defines: Vec<String>,
     /// `--coverage`: count the statements of the APPs each test runs.
     pub coverage: bool,
+    /// `serve` only, `coverage: "hit"` (issue 8244): the coverage JSON lists only the statements that ran
+    /// (`coverage::json`).
+    pub coverage_hit_only: bool,
     /// `--tdd` (ADR-051): a call in a test app of a procedure that does not exist yet runs against a stub.
     pub tdd: bool,
     /// `--run-selected-only` (issue 5611): of a selected codeunit, only the selected tests run.
@@ -197,6 +200,9 @@ pub struct TestArgs {
     /// `--skip-after-timeout` (al-runner issue 7517): once a test is stopped at the time limit, the rest of its codeunit is
     /// not run and ends as not run, naming that test.
     pub skip_after_timeout: bool,
+    /// `--stop-after-first-failure` (al-runner issue 8210): once a test fails, the rest of its codeunit and every later
+    /// serve entry are not run and end as not run, naming that test; a selection runs only the tests it picks.
+    pub stop_after_first_failure: bool,
     pub require_dotnet: bool,
     /// `--require-report-renderer` (ADR-040 amendment 2026-11-15): a save whose real Html needs BC's own merger and converter
     /// refuses when the report renderer is unavailable, instead of keeping the opaque Html.
@@ -1268,6 +1274,11 @@ OTHER
                          `serve` (start option; a runTests request can set `skipAfterTimeout`). The
                          summary shows the time spent on tests that ended not run, and the JSON
                          document has it as `notRunSeconds`.
+    --stop-after-first-failure  Once a test fails, do not run the rest of its codeunit nor, in `serve`,
+                         the later entries: their tests end as not run, with a reason that names the
+                         failed test. Each test codeunit stops on its own; every other test codeunit of
+                         the same entry, or of a request without entries, still runs. A selection then runs only the tests it picks, as --run-selected-only.
+                         `serve`: a start option; a runTests request can set `stopAfterFirstFailure`.
     --dotnet-sidecar PATH, --dotnet-assembly-dir DIR, --dotnet-allow-roll-forward,
     --dotnet-timeout-secs N, --require-dotnet     The optional .NET helper (ADR-014).
     --require-report-renderer  A save whose real Html needs BC's own Word merger and converter refuses
@@ -1714,12 +1725,10 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             "--dotnet-allow-roll-forward" => a.dotnet_allow_roll_forward = true,
             "--require-dotnet" => a.require_dotnet = true,
             "--require-report-renderer" => a.require_report_renderer = true,
-            "--dotnet-timeout-secs" => {
-                let v = text()?;
-                a.dotnet_timeout_secs = Some(number(&flag, &v)? as u64);
-            }
+            "--dotnet-timeout-secs" => a.dotnet_timeout_secs = Some(number(&flag, &text()?)? as u64),
             "--test-timeout-secs" | "--test-timeout" => a.test_timeout_secs = Some(number(&flag, &text()?)? as u64),
             "--skip-after-timeout" => a.skip_after_timeout = true,
+            "--stop-after-first-failure" => a.stop_after_first_failure = true,
             "--test-data-company" => a.test_data_company = Some(text()?),
             "--country" => {
                 let v = text()?;

@@ -406,3 +406,81 @@ fn a_microsoft_package_the_project_carries_sets_the_demotool_release() {
         text(&o)
     );
 }
+
+/// Al-runner issue 8492: the tests `--stop-after-first-failure` and `--skip-after-timeout` leave out count as not run, but
+/// they are not refusals, so "Top refusals" and `--refusal-detail` do not rank them; the ranking says how many it left
+/// out. A refused test is still ranked.
+#[test]
+fn top_refusals_leaves_out_the_tests_a_stop_option_left_out() {
+    let d = tempfile::tempdir().unwrap();
+    let app = one_file_app(
+        d.path(),
+        "stops",
+        "11111111-0000-0000-0000-000000008492",
+        "Stops",
+        "src/Tests.al",
+        r#"
+codeunit 50120 "Stop Tests"
+{
+    Subtype = Test;
+    [Test]
+    procedure A_Fails() begin Error('first'); end;
+    [Test]
+    procedure B_Later() begin end;
+}
+codeunit 50121 "Skip Tests"
+{
+    Subtype = Test;
+    [Test]
+    procedure C_TimesOut() begin Sleep(5000); end;
+    [Test]
+    procedure D_Later() begin end;
+}
+codeunit 50122 "Refused Tests"
+{
+    Subtype = Test;
+    [Test]
+    procedure E_Refused() begin Codeunit.Run(Codeunit::"Not There"); end;
+}
+"#,
+    );
+    let o = alrunner(&[
+        "test",
+        app.to_str().unwrap(),
+        "--no-download",
+        "--stop-after-first-failure",
+        "--skip-after-timeout",
+        "--test-timeout-secs",
+        "1",
+        "--refusal-detail",
+        "-after-",
+    ]);
+    let t = text(&o);
+    assert!(t.contains("1 failed, 4 not run"), "{t}");
+    assert!(
+        t.contains("2 not-run tests a stop option left out are not ranked"),
+        "{t}"
+    );
+    let detail = &t[t.find("containing `-after-`").unwrap_or_else(|| panic!("{t}"))..];
+    assert!(!detail.contains("B_Later") && !detail.contains("D_Later"), "{detail}");
+    let top = &t[t.find("Top refusals").unwrap_or_else(|| panic!("{t}"))..];
+    let top = &top[..top.find("Result:").unwrap_or(top.len())];
+    assert!(
+        top.contains("Not There") || top.contains("<name>"),
+        "the refused test is ranked: {top}"
+    );
+    assert!(!top.contains("stopAfterFirstFailure"), "{top}");
+    assert!(!top.contains("--skip-after-timeout"), "{top}");
+    // With only the stopped tests not run there is nothing to rank.
+    let o = alrunner(&[
+        "test",
+        app.to_str().unwrap(),
+        "--no-download",
+        "--stop-after-first-failure",
+        "--test",
+        "Codeunit50120.",
+    ]);
+    let t = text(&o);
+    assert!(t.contains("1 failed, 1 not run"), "{t}");
+    assert!(!t.contains("Top refusals"), "{t}");
+}
