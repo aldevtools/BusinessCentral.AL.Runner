@@ -214,7 +214,7 @@ impl RootRun<'_> {
             let mut skipped: Vec<_> = self
                 .stopped
                 .iter()
-                .map(|root| (root.tables.clone(), root.cause.clone()))
+                .map(|root| al_vm::SkippedInstall::new(root.tables.clone(), root.cause.clone()))
                 .collect();
             match crate::install::company_open(self.lowered, session, &skipped, true) {
                 Ok(()) => {
@@ -249,11 +249,11 @@ impl RootRun<'_> {
                         (&company, &self.company_name),
                         &refused,
                     );
-                    for (tables, cause) in skipped.drain(skipped_before..) {
+                    for s in skipped.drain(skipped_before..) {
                         self.stopped.push(StoppedRoot {
-                            tables,
+                            tables: s.tables,
                             kept: false,
-                            cause,
+                            cause: s.why,
                         });
                     }
                     if let Some(why) = unknown {
