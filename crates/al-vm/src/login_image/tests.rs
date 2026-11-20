@@ -98,6 +98,12 @@ codeunit 50100 Keeper
     end;
     procedure NotedAndGone() var L: RecordRef; V: Variant; begin L.Open(50100); V := L; end;
     procedure NotedAndHeld() begin RR.Open(50100); V1 := RR; end;
+    procedure WriteUtf16Byte() var O: OutStream; B: Byte; begin Rec.Id := 5; Rec.Data.CreateOutStream(O, TextEncoding::UTF16); B := 65; O.Write(B); Rec.Insert(); end;
+    procedure ReadUtf16(): Text
+    var R: Record Row; I: InStream; T: Text;
+    begin
+        R.Get(5); R.CalcFields(Data); R.Data.CreateInStream(I, TextEncoding::UTF16); I.Read(T); exit(T);
+    end;
     procedure ReadAccent(): Text begin Rec.SetRange(Name, 'é'); T1.SetRange(Name, 'é'); exit(Format(Rec.Count()) + '|' + Format(T1.Count())); end;
 }
 "#;
@@ -772,4 +778,79 @@ fn a_session_not_at_rest_names_the_first_field_of_the_rule_that_does_not_hold() 
     // Two fields: the first in the rule's order is named.
     f.session.install_scope = true;
     assert_eq!(refused(&mut f), NotImaged::NotAtRest("install_scope"));
+}
+
+/// The Blob buffer of field `Data` of the committed row `id` of table Row: the store's own buffer, not a copy.
+fn committed_blob(s: &mut Session, row_table: usize, id: i32) -> al_builtins::stream::BlobRef {
+    let tables = s.store_mut().export_committed().expect("plain rows");
+    (tables.iter().filter(|t| t.object as usize == row_table))
+        .flat_map(|t| &t.rows)
+        .find_map(|(_, row)| match (&row[0], &row[2]) {
+            (Value::Integer(i), Value::Blob(b)) if *i == id => Some(b.clone()),
+            _ => None,
+        })
+        .expect("the committed row")
+}
+
+// PERF-01 step 2c (lethal): a committed row's Blob that `write_bytes` filled on a new buffer (a test-data row, al-vm
+// `testdata.rs`) holds `written_base = Some([])` and `content_edits = 1`, and the twin's row held `None` and 0. The image
+// carries every field of the buffer exactly, so the round trip stays a proof; here each field the bytes form left out is
+// set apart from its default.
+#[test]
+fn a_committed_row_blob_keeps_every_buffer_field() {
+    use al_builtins::stream::{AssignedWrite, Encoding};
+    let mut f = fx();
+    f.run("FillDatabase");
+    let blob = committed_blob(&mut f.session, f.row, 1);
+    {
+        let mut b = blob.borrow_mut();
+        b.bytes = vec![b'x'; 168];
+        b.write_pos = 168;
+        b.loaded = false;
+        b.fetched = false;
+        b.refetch = true;
+        b.persisted = true;
+        b.temp_row = true;
+        b.db_row = true;
+        b.first_write_truncates = true;
+        b.written = true;
+        b.written_base = Some(Vec::new());
+        b.content_edits = 1;
+        b.uncompressed = true;
+        b.render_pending = Some("a report".into());
+        b.inserted = true;
+        b.temp_inserted = true;
+        b.file = true;
+        b.dotnet_view = 3;
+        b.assigned_unsaved = true;
+        b.assigned_write = AssignedWrite::Unmeasured;
+        b.unread_content = true;
+        b.utf16_binary = true;
+        b.unicode_read = Some(Encoding::Utf16);
+        b.line_breaks = al_builtins::stream_line_breaks::LineBreakHistory::cleared(5);
+        b.line_breaks.in_creates = 2;
+        b.line_breaks.in_uses = 4;
+    }
+    let ours = format!("{:?}", *committed_blob(&mut f.session, f.row, 1).borrow());
+    assert!(
+        ours.contains("written_base: Some([])"),
+        "the store's own buffer: {ours}"
+    );
+    let image = image(&mut f.session);
+    let mut twin = thaw(&f.session, &image);
+    assert_eq!(format!("{:?}", *committed_blob(&mut twin, f.row, 1).borrow()), ours);
+}
+
+// What AL sees of a field the bytes form left out: a UTF-16 Read(Text) of bytes a Write of a Byte put through a UTF-16
+// OutStream is refused (`BlobBuf::utf16_binary`, stream_read_len.rs `utf16`; streams/PnE04Streams.al:162-183); a Get hands
+// out the row's mark with the copy (`copy_blob`), so the twin refuses as the original does.
+#[test]
+fn a_committed_row_blob_mark_refuses_in_the_twin_as_in_the_original() {
+    let mut f = fx();
+    f.run("WriteUtf16Byte");
+    let image = image(&mut f.session);
+    let mut twin = thaw(&f.session, &image);
+    let ours = outcome(&mut f.session, f.keeper, "ReadUtf16");
+    assert!(ours.contains("UTF-16"), "the original refuses: {ours}");
+    assert_eq!(outcome(&mut twin, f.keeper, "ReadUtf16"), ours);
 }
