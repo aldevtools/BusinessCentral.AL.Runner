@@ -1148,6 +1148,9 @@ pub struct Session {
     /// The host move whose parts are reading again: Next and Previous, a GoToKey or GoToRecord that stayed on the row, and the
     /// moves `pageops.rs` syncs in its last branch (GoToRecord, GoToKey and the others) (`pages/empty_part_rec.rs`).
     pub(crate) host_move_running: Option<pages::HostMove>,
+    /// The part whose calls after the test's own filter take the steps of `pages/part_update_left_view.rs`
+    /// (`TestFilterReread`): a test call on any other page ends them.
+    pub(crate) test_filter_steps: Option<std::rc::Weak<std::cell::RefCell<pages::PageState>>>,
     /// A host move syncs a part that serves its rows from OnFindRecord or OnNextRecord: the part keeps its rows when its link
     /// values did not change (`pages/parts.rs` `sync_parts_with`).
     /// `Some(true)`: a part that shows no row or only its blank line stays as it is too (a part linked through a Provider that
@@ -1502,6 +1505,7 @@ impl Session {
             host_new_running: None,
             part_open_running: false,
             host_move_running: None,
+            test_filter_steps: None,
             part_sync_keeps_same_link: None,
             dotnet: Default::default(),
             application_areas: String::new(),

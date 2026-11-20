@@ -5,9 +5,11 @@
 //! refused until the refresh runs.
 //!
 //! The answer is decided once, when the Update is asked (`note_part_update_left_view`, by `ask_update_refresh`), and kept in
-//! `RefreshRequest::update_left_view` (`state/refresh.rs`) with the keys of the held rows; rows the test stores after that keep the answer from the held
-//! rows, as before, and so does a step that read the part's rows again (a host action, the test's own `Filter.SetFilter`). It cannot
-//! tell who changed the rows before the Update was asked: rows the test stored then refuse too.
+//! `RefreshRequest::update_left_view` (`state/refresh.rs`) with the keys of the held rows; rows the test stores after that keep
+//! the answer from the held rows, as before, and so does a step that read rows other than the held ones again (a host action,
+//! the test's own `Filter.SetFilter`). A step that read rows with the held keys again is refused like the held rows, except
+//! after the test's own filter in the measured cells (below). It cannot tell who changed the rows before the Update was asked:
+//! rows the test stored then refuse too.
 //!
 //! A pending refresh whose view still starts with the held rows keeps the answer from the held rows, as before: the corpus cases
 //! that reach it pass with it (pages/parts/R6889RealShape.al:1346 PG6889RS_Step1_HostCallsPartSetEditable and the Step2* and
@@ -19,15 +21,15 @@
 //! A step that read the rows again keeps main's answer only when the rows it read differ from the held ones. The test's own
 //! `Filter.SetFilter` can read rows with the keys of the held rows (al-runner issue 8537: the host's OnAfterGetCurrRecord makes a
 //! ListPart on a temporary table delete and insert its rows, each step ending with the part's `CurrPage.Update(false)`, and the
-//! test filters the part to one day before and after). The calls a probe cell made after that filter answer from the rows it
-//! read, as main does, under assumption `part-left-view-test-filter` (pages/parts/PartRefillTestFilter.al, corpus PR 1474,
-//! merged, not pinned yet; its two-field key cell PartRefill_TypedKeyTriggerPartActionThenFilterFirst_FindsRefilledRow is in
-//! corpus PR 1475, open): `TestFilterReread` admits each in turn (`measured_step_after_test_filter`). Every other call keeps the
-//! refusal.
+//! test filters the part to one day before and after). In the cells the probe measured (`part_refill_pins.rs`), the calls a cell
+//! made after that filter answer from the rows it read, as main does, under assumption `part-left-view-test-filter`
+//! (pages/parts/PartRefillTestFilter.al, corpus PR 1474, merged, not pinned yet; its two-field key cell
+//! PartRefill_TypedKeyTriggerPartActionThenFilterFirst_FindsRefilledRow is in corpus PR 1475, open): `TestFilterReread` admits
+//! each in turn (`measured_step_after_test_filter`), until a test call on another page. Every other call keeps the refusal.
 
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};
-use al_builtins::page_op::PageMethod;
+use al_builtins::page_op::{PageMethod, PageOp, PageRecv};
 
 /// The calls the test made on a part since its own `Filter.SetFilter` read the part's rows again while the refresh of
 /// `update_left_view` waits (`PageState::left_view_test_filter`). Each step admits only the calls a probe cell made after it.
@@ -118,9 +120,10 @@ impl Session {
     }
 
     /// The test's own `Filter.SetFilter` on part `st` read its rows again (`filter.rs` `filter_changed`, `set_filter`) while the
-    /// refresh of `update_left_view` waits: the steps of `TestFilterReread` start when `measured_reread` holds. Any other re-read
-    /// (`Ascending`, `SetCurrentKey`, a filter outside the measured shape) ends them.
-    pub(super) fn note_part_rows_read_by_test_filter(&self, st: &St, set_filter: bool) -> Result<(), Signal> {
+    /// refresh of `update_left_view` waits: the steps of `TestFilterReread` start when `measured_reread` holds, and the session
+    /// notes the part (`Session::test_filter_steps`). Any other re-read (`Ascending`, `SetCurrentKey`, a filter outside the
+    /// measured shape) ends them.
+    pub(super) fn note_part_rows_read_by_test_filter(&mut self, st: &St, set_filter: bool) -> Result<(), Signal> {
         let waits = {
             let s = st.borrow();
             s.open && s.refresh.asked_by_update() && s.refresh.update_left_view().is_some()
@@ -131,63 +134,66 @@ impl Session {
         } else {
             TestFilterReread::Off
         };
+        if start {
+            self.test_filter_steps = Some(Rc::downgrade(st));
+        }
         Ok(())
     }
 
+    /// A test call (`method`, not page code's) on page `st`: when another page holds steps after the test's filter, they end.
+    /// No cell made a call on the host or on another page between the filter and the part's calls (a host action could change
+    /// the part's rows without `CurrPage.Update`).
+    pub(super) fn end_test_filter_steps_elsewhere(&mut self, st: &St, method: PageOp) {
+        if method.recv() == PageRecv::Page {
+            return;
+        }
+        let Some(part) = self.test_filter_steps.as_ref().and_then(std::rc::Weak::upgrade) else {
+            self.test_filter_steps = None;
+            return;
+        };
+        if !Rc::ptr_eq(&part, st) {
+            part.borrow_mut().left_view_test_filter = TestFilterReread::Off;
+            self.test_filter_steps = None;
+        }
+    }
+
     /// The shape every cell of the probe shared (pages/parts/PartRefillTestFilter.al, merged in corpus PR 1474, the two-field key
-    /// part in corpus PR 1475):
-    /// - the part: PageType ListPart over a temporary source (`SourceTableTemporary`), shown directly on a top-level Worksheet
-    ///   (:152 "LT PR Load Host", :248 "LT PR Load Bg Host", :403 "LT PR Load Trig Host") or List (:200 "LT PR Load List Host")
-    ///   host;
-    /// - its page triggers none (:90 "LT PR Load Part") or exactly OnOpenPage and OnAfterGetRecord (:323 "LT PR Load Trig Part",
-    ///   PR 1475's "LT PR Typed Trig Part"), no page extension, no subscriber;
-    /// - its Rec in the primary key, ascending, not MarkedOnly, with one filter: the test's, a single value (`Eq`) on the one
-    ///   field of a one-field primary key, or on the second field of a two-field key on the part with those two triggers, in
-    ///   group 0 (the part's own `Rec.Reset()` took any other).
-    fn measured_reread(&self, st: &St) -> Result<bool, Signal> {
-        let engine = self.engine();
-        let object = st.borrow().object as usize;
+    /// part in corpus PR 1475), and the reporter's repro of al-runner issue 8537:
+    /// - the host, the part, their tables and every procedure their code calls read as one measured cell (`refill_cell`,
+    ///   `part_refill_pins.rs`); the host is a top-level page;
+    /// - the part's Rec in the primary key, ascending, not MarkedOnly, with one filter in group 0: the test's (`test_typed_filter`),
+    ///   a single value (`Eq`) on the field `refill_cell` names (the part's own `Rec.Reset()` took any other);
+    /// - exactly one row in that view: every cell had one there.
+    fn measured_reread(&mut self, st: &St) -> Result<bool, Signal> {
         let host = st.borrow().host.as_ref().and_then(|(h, _)| h.upgrade());
         let Some(host) = host else {
             return Ok(false);
         };
-        let host_type = engine.object_facts[host.borrow().object as usize].page_type.clone();
-        let top_host = host.borrow().host.is_none()
-            && matches!(host_type, Some(al_ir::PageType::Worksheet | al_ir::PageType::List));
-        let list_part = engine.object_facts[object].page_type == Some(al_ir::PageType::Other("listpart".into()));
-        let page = page_of(&engine, st);
-        let mut triggers: Vec<&str> = page.triggers.iter().map(|(n, _)| n.as_str()).collect();
-        triggers.sort_unstable();
-        let trigger_part = match triggers.as_slice() {
-            [] => false,
-            ["onaftergetrecord", "onopenpage"] => true,
-            _ => return Ok(false),
-        };
-        let code =
-            page.extensions.is_empty() && page.ext_triggers.is_empty() && !engine.events.any_subscriber_of(object);
-        if !(top_host && list_part && code) {
+        if host.borrow().host.is_some() {
             return Ok(false);
         }
+        let Some(field) = self.refill_cell(&host, st) else {
+            return Ok(false);
+        };
         let rec = self.page_rec(st);
-        let table = self.table(&rec)?;
-        // A one-field key; or, on the part with OnOpenPage and OnAfterGetRecord, a two-field key filtered on its second field
-        // ("LT PR Typed Trig Part", as Base Application's Load Buffer: "Period Type", "Period Start").
-        let key = match (table.keys[0].as_slice(), trigger_part) {
-            ([key], _) | ([_, key], true) => *key,
-            _ => return Ok(false),
+        let filtered = {
+            let s = st.borrow();
+            let r = rec.borrow();
+            let eq = matches!(s.test_filters.as_slice(), [t] if t.field == field
+                && matches!(t.expr, al_builtins::filter::FilterExpr::Eq(_)));
+            eq && s.test_typed_filter(&r, field).is_some()
+                && r.key == 0
+                && r.ascending
+                && !r.marked_only
+                && r.filters.len() == 1
         };
-        let s = st.borrow();
-        let r = rec.borrow();
-        let filter = match s.test_filters.as_slice() {
-            [t] if t.field == key => matches!(t.expr, al_builtins::filter::FilterExpr::Eq(_)),
-            _ => false,
-        };
-        Ok(filter
-            && r.temporary
-            && r.key == 0
-            && r.ascending
-            && !r.marked_only
-            && matches!(r.filters.as_slice(), [f] if f.field == key && f.group == 0))
+        if !filtered {
+            return Ok(false);
+        }
+        let used = self.ret_used;
+        let rows = self.view_rows(&rec, 2);
+        self.ret_used = used;
+        Ok(rows?.len() == 1)
     }
 
     /// The step call `m` on part `st` (on its control `target`) makes after the test's filter, when a probe cell made it there
@@ -196,8 +202,7 @@ impl Session {
     /// (:512 PartRefill_WorksheetActionThenFilterFirst_FindsRefilledRow) or `Last()` (:590
     /// PartRefill_WorksheetActionThenFilterLast_FindsRefilledRow) after the filter; `Next()` after that `First()` and
     /// `Previous()` after that `Next()` (:561 PartRefill_WorksheetActionThenFilterFirstNextPrevious_StayOnRefilledRow). `None`
-    /// for any other call, a Value with an argument
-    /// included.
+    /// for any other call, a Value with an argument included.
     fn measured_step_after_test_filter(
         &self,
         st: &St,
@@ -224,14 +229,6 @@ impl Session {
             (S::First, PageMethod::Next, None) => Some(S::Next),
             (S::Next, PageMethod::Previous, None) => Some(S::Previous),
             _ => None,
-        }
-    }
-
-    /// A test call on page `st` ended with an error: the steps after the test's filter end, so the calls after it keep the
-    /// refusal (no cell raised an error there).
-    pub(super) fn end_test_filter_steps_on_error<T>(st: &St, r: &Result<T, Signal>) {
-        if r.is_err() {
-            st.borrow_mut().left_view_test_filter = TestFilterReread::Off;
         }
     }
 

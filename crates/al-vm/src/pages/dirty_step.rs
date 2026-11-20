@@ -271,6 +271,7 @@ impl Session {
     /// `TestPage.*` with the rules above in front. The page notes the call (`note_test_call`), so a rule pinned for one
     /// scenario knows what the test did since the page opened.
     pub(super) fn test_page_op_held(&mut self, method: PageOp, st: &St, args: &mut [Value]) -> Result<Value, Signal> {
+        self.end_test_filter_steps_elsewhere(st, method);
         let call = self.note_test_call(st, method, None, args.len());
         self.end_read_at_test_call(st, call);
         Self::end_deferred_host_reread(st, call, method.method());
@@ -339,7 +340,6 @@ impl Session {
         let card_next = name == PageMethod::Next && self.is_card(st) && st.borrow().host.is_none() && st.borrow().dirty;
         if !card_next {
             let r = self.test_page_op(method, st, args);
-            Self::end_test_filter_steps_on_error(st, &r);
             return Self::journal_next_after_turn(st, name, r);
         }
         let depth = self.frames.len();
@@ -361,6 +361,7 @@ impl Session {
         args: &mut [Value],
     ) -> Result<Value, Signal> {
         let st = &c.page;
+        self.end_test_filter_steps_elsewhere(st, method);
         let call = self.note_test_call(st, method, Some(&c.target), args.len());
         self.end_read_at_test_call(st, call);
         Self::end_deferred_host_reread(st, call, method.method());
@@ -372,9 +373,7 @@ impl Session {
         self.refuse_rec_control_after_open(st, control)?;
         Self::refuse_ws_trigger_order_step(st, call)?;
         // An Invoke of an action of a part that shows no row may be a read of its Rec a List-host cell measured.
-        let r = self.reading_empty_list_rec(st, call, |s| s.test_control_op_noted(method, c, args));
-        Self::end_test_filter_steps_on_error(st, &r);
-        r
+        self.reading_empty_list_rec(st, call, |s| s.test_control_op_noted(method, c, args))
     }
 
     /// `test_control_op_held` after the call is noted.
