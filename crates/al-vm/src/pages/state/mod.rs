@@ -251,6 +251,10 @@ pub struct PageState {
     /// The open ran the empty-record CaptionClass runs without a pinned number, or in a cell of `Session::caption_state_free_pin`:
     /// a dialog or an Error with a text raised by a later row run of the page refuses (`Session::fill_field_captions_with_row`).
     pub caption_dialogs_refused: bool,
+    /// The open ran the empty-record CaptionClass runs without a pinned number (`Session::run_caption_empty_unpinned`): a Record
+    /// write the walk of `effects.rs` let through refuses when a later row run's expression runs it
+    /// (`Session::fill_field_captions_with_row`).
+    pub caption_writes_checked: bool,
     /// The open has filled its first rows (`field_captions` no longer changes at the fills of the open itself).
     pub field_captions_settled: bool,
     /// The row (its field values) the CaptionClass expressions last ran with for the controls' captions.
@@ -1075,6 +1079,7 @@ impl PageState {
         self.field_captions = Vec::new();
         self.field_captions_opened = false;
         self.caption_dialogs_refused = false;
+        self.caption_writes_checked = false;
         self.field_captions_settled = false;
         self.field_captions_row = None;
         self.field_captions_quiet = false;
