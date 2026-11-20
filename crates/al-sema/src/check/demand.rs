@@ -553,8 +553,8 @@ impl Checker<'_> {
 
     /// The roots the install run adds (ADR-046 step A): with `baseline`, a dependency app's subscribers to the install
     /// events of `Extension Triggers`, which run with its install codeunits; with `install_code` (an app under test has
-    /// install code that runs), the dependency apps' subscribers to `OnCompanyOpen` and `OnCompanyOpenCompleted` of
-    /// `Company Triggers`, which the install session raises before the per-company install code.
+    /// install code that runs, or backup companies run dependency installs), the dependency apps' subscribers to
+    /// `OnCompanyOpen` and `OnCompanyOpenCompleted` of `Company Triggers`, raised before per-company install code.
     ///
     /// With `login` (an app under test subscribes to a login event, al-testrun `login.rs`), the dependency apps'
     /// subscribers to `OnCompanyOpenCompleted`, which raise the login in the test session.

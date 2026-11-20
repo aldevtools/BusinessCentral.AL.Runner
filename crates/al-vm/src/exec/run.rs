@@ -6,7 +6,7 @@ use crate::{Frame, Session};
 use al_builtins::describe::Describe;
 use al_builtins::native::Signal;
 use al_builtins::ops;
-use al_builtins::value::Value;
+use al_builtins::value::{RtType, Value};
 
 /// The value in register `r`: a temporary is moved out (so it holds nothing alive afterwards), a local is cloned.
 #[inline(always)]
@@ -70,9 +70,44 @@ fn release(f: &mut Frame, r: u16, nl: u16) {
 
 impl Session {
     /// `Op::StorePlace`: `v` written to place `p`.
-    fn store_place(&mut self, chunk: &Chunk, p: u32, v: Value, f: &mut Frame) -> Result<(), Signal> {
+    fn store_place(
+        &mut self,
+        chunk: &Chunk,
+        p: u32,
+        v: Value,
+        f: &mut Frame,
+        from_fieldref: bool,
+    ) -> Result<(), Signal> {
+        let place = &chunk.places[p as usize];
+        let v = if from_fieldref && matches!(v, Value::Option(..)) {
+            self.option_fieldref_assignment(place, v, f)?
+        } else {
+            v
+        };
         mark_assigned_stream(&v);
-        self.write(&chunk.places[p as usize], v, f)
+        self.write(place, v, f)
+    }
+
+    // Corpus PR 1464, VariantEnumOptionToText.al: FieldRef_Value_OptionToTextAndCode_UsesCaption.
+    #[cold]
+    fn option_fieldref_assignment(&self, place: &ir::Place, v: Value, f: &Frame) -> Result<Value, Signal> {
+        let ty = self.place_type(place, f);
+        if !matches!(ty, RtType::Text(_) | RtType::Code(_))
+            || !matches!(self.engine.target.as_ref().map_or(29, |t| t.bc.major), 27..=29)
+        {
+            return Ok(v);
+        }
+        match al_builtins::fieldref_value_text::fieldref_value_into_text(&v, &ty, self) {
+            Some(Ok(text)) => {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::OptionFieldRefToTextField);
+                Ok(text)
+            }
+            Some(Err(Signal::Error(_))) => Err(Signal::unsupported(
+                "Option FieldRef.Value caption too long for the destination field (not pinned)",
+            )),
+            Some(Err(e)) => Err(e),
+            None => Ok(v),
+        }
     }
 
     /// `Op::StoreVarSectionValue`: `v`, a variable of the running routine's `var` section, into element place `p` of an
@@ -211,7 +246,7 @@ impl Session {
                         set(&mut f.locals[i as usize], v);
                     }
                 }
-                Op::StorePlace { p, a } => self.store_place(chunk, p, take(f, a, nl), f)?,
+                Op::StorePlace { p, a, fr } => self.store_place(chunk, p, take(f, a, nl), f, fr)?,
                 Op::StoreVarSectionValue { p, a } => self.store_var_section(chunk, p, take(f, a, nl), f)?,
                 Op::StoreVariantCopy { s, a } => self.variant_copy_op(chunk, s, a, f)?,
                 Op::Bin { op, d, a, b } => {
