@@ -39,6 +39,45 @@ fn the_company_is_picked_by_name_and_a_wrong_name_lists_the_companies() {
 }
 
 #[test]
+fn explicitly_selected_companies_can_read_their_own_rows() {
+    for f in FILES {
+        let p = BackupProvider::open_with_index_dir_and_companies(&fixture(f), Some("TP"), &["ProbeCo".into()], None)
+            .unwrap();
+        assert_eq!(p.known_companies(), Some(vec!["TP".into(), "ProbeCo".into()]));
+        let request = request("ambig", Some("11111111-1111-1111-1111-111111111111"), true);
+        assert_eq!(
+            p.read_for_company("TP", &request).err(),
+            Some(TableError::Absent),
+            "{f}"
+        );
+        let additional = p.read_for_company("ProbeCo", &request).unwrap();
+
+        assert_eq!(additional.rows.len(), 1, "{f}");
+        assert_eq!(
+            p.read_for_company("Unselected", &request).err(),
+            Some(TableError::Absent),
+            "{f}"
+        );
+        let duplicate =
+            BackupProvider::open_with_index_dir_and_companies(&fixture(f), Some("TP"), &["tp".into()], None)
+                .err()
+                .expect("duplicate company selection should fail");
+        assert!(duplicate.contains("selected more than once"), "{duplicate}");
+    }
+}
+
+#[test]
+fn all_companies_keeps_the_session_company_first() {
+    for f in FILES {
+        let p =
+            BackupProvider::open_with_index_dir_company_selection(&fixture(f), Some("TP"), &[], true, None).unwrap();
+        assert_eq!(p.known_companies(), Some(vec!["TP".into(), "ProbeCo".into()]), "{f}");
+        let request = request("ambig", Some("11111111-1111-1111-1111-111111111111"), true);
+        assert_eq!(p.read_for_company("ProbeCo", &request).unwrap().rows.len(), 1, "{f}");
+    }
+}
+
+#[test]
 fn a_table_extension_companion_is_merged_into_the_base_rows() {
     for f in FILES {
         let p = BackupProvider::open(&fixture(f), Some("TP")).unwrap();
@@ -209,12 +248,14 @@ fn the_cached_artifact_is_the_apps_build_else_the_newest_of_the_version() {
 struct Counting {
     inner: Box<dyn al_bcdb::BcSource>,
     asked: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    tables: Vec<al_bcdb::SourceTable>,
+    reads: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
 }
 
 impl al_bcdb::BcSource for Counting {
     fn tables(&self) -> al_bcdb::Result<&[al_bcdb::SourceTable]> {
         self.asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        self.inner.tables()
+        Ok(&self.tables)
     }
     fn row_count(&self, t: &al_bcdb::SourceTable) -> al_bcdb::Result<i64> {
         self.inner.row_count(t)
@@ -231,6 +272,7 @@ impl al_bcdb::BcSource for Counting {
         columns: &[al_bcdb::types::SysColumn],
         sink: &mut dyn FnMut(&[al_bcdb::value::Value]) -> al_bcdb::Result<bool>,
     ) -> al_bcdb::Result<()> {
+        self.reads.lock().unwrap().push(t.name.clone());
         self.inner.read_rows(t, columns, sink)
     }
     fn banner(&self) -> al_bcdb::Result<String> {
@@ -244,9 +286,12 @@ fn reading_a_table_does_not_list_and_parse_every_table_of_the_backup_again() {
     let asked = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let file = al_bcdb_std::FileSource::open(fixture("typeprobe.bak")).unwrap();
     let inner = al_bcdb::open(Box::new(file)).unwrap();
+    let tables = inner.tables().unwrap().to_vec();
     let src = Counting {
         inner,
         asked: asked.clone(),
+        tables,
+        reads: Default::default(),
     };
     let p = BackupProvider::from_source(Box::new(src), Some("TP"), "typeprobe.bak".into()).unwrap();
     let after_open = asked.load(std::sync::atomic::Ordering::SeqCst);
@@ -259,6 +304,40 @@ fn reading_a_table_does_not_list_and_parse_every_table_of_the_backup_again() {
         after_open,
         "reads must reuse the table list parsed at open"
     );
+}
+
+#[test]
+fn selected_companies_never_read_an_unselected_company_even_for_reference_checks() {
+    let file = al_bcdb_std::FileSource::open(fixture("typeprobe.bak")).unwrap();
+    let inner = al_bcdb::open(Box::new(file)).unwrap();
+    let mut tables = inner.tables().unwrap().to_vec();
+    // A third company over the fixture's real table: any read would decode the same backing rows.
+    let mut unselected = tables
+        .iter()
+        .find(|t| t.name.starts_with("TP$exttest$"))
+        .unwrap()
+        .clone();
+    unselected.name = unselected.name.replacen("TP$", "Unselected$", 1);
+    tables.push(unselected);
+    let reads = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let src = Counting {
+        inner,
+        asked: Default::default(),
+        tables,
+        reads: reads.clone(),
+    };
+    let p = BackupProvider::from_source_with_companies(
+        Box::new(src),
+        Some("TP"),
+        &["ProbeCo".into()],
+        "three companies".into(),
+    )
+    .unwrap();
+    let req = request("exttest", None, true);
+    p.read_for_company("TP", &req).unwrap();
+    assert_eq!(p.read_for_company("Unselected", &req).err(), Some(TableError::Absent));
+    assert_eq!(p.holds_rows_in("Unselected", &req), Some(false));
+    assert!(!reads.lock().unwrap().iter().any(|name| name.starts_with("Unselected$")));
 }
 
 #[test]
