@@ -73,6 +73,30 @@ impl Session {
         self.engine.program.objects[t.object as usize].id == Some(COMPANY_TABLE)
     }
 
+    /// A Rename of the Company row of a company `--companies` selected is refused (ADR-046).
+    pub(crate) fn refuse_selected_company_rename(
+        &self,
+        temporary: bool,
+        t: &TableDef,
+        old: &[Value],
+        new: &[Value],
+    ) -> Result<(), Signal> {
+        if !temporary
+            && self.is_company_table(t)
+            && let (Some(from), Some(to)) = (
+                old.first().and_then(al_builtins::native::text_of),
+                new.first().and_then(al_builtins::native::text_of),
+            )
+            && from != to
+            && self.companies.iter().any(|company| company == &from)
+        {
+            return unsupported(format!(
+                "renaming selected company {from} under --companies is not supported (ADR-046)"
+            ));
+        }
+        Ok(())
+    }
+
     /// The name of the company `name` refers to, as the Company table spells it. The session
     /// company always exists; another one exists while its row does. A program that never compiled
     /// the Company table has no way to make a company, so the session company is the only one.
