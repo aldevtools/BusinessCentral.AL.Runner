@@ -239,9 +239,9 @@ fn issue_8186_parts_host_neighbors_keep_main_open() {
     }
 }
 
-/// The shapes the probe does not measure keep the refusal: DelayedInsert, a Worksheet, `Update(true)` written out under the
-/// unfiltered `Page.RunModal` (under OpenEdit ListNewLineSaveRecordUpdate.al:494-526 pins it), a page with a
-/// part.
+/// The shapes the probe does not measure keep the refusal: DelayedInsert, a Worksheet, `Update(true)` written out (under OpenEdit
+/// and the unfiltered `Page.RunModal`: ListNewLineSaveRecordUpdate.al:494-526 pins it for its own page's code only), a page with
+/// a part.
 #[test]
 fn issue_8186_unmeasured_neighbors_stay_refused() {
     let with_part = "area(FactBoxes) { part(Peek; \"LT NI Peek X\") { SubPageLink = \"Entry No.\" = field(\"Entry No.\"); } }\n        area(Content)";
@@ -276,13 +276,9 @@ fn issue_8186_unmeasured_neighbors_stay_refused() {
                 n.starts_with("ListNewLine_FieldValidateInserts") || n.starts_with("ListNewLine_RunModal_")
             })
             .filter(|(n, _, _)| what != "Update(true)" || !n.contains("UpdateFalse"))
-            .filter(
-                |(n, r, marks)| match what == "Update(true)" && n.starts_with("ListNewLine_FieldValidateInserts") {
-                    // ListNewLineSaveRecordUpdate.al:494-526 pins Update(true) on this page under OpenEdit.
-                    true => *r != Outcome::Pass || !marks.is_empty(),
-                    false => !matches!(r, Outcome::NotRun(_)),
-                },
-            )
+            // Under the Update(true) variant the page's code is not the code ListNewLineSaveRecordUpdate.al measures (its page 97472
+            // runs Update(true) under OpenEdit, :494-526): refused as well.
+            .filter(|(_, r, _)| !matches!(r, Outcome::NotRun(_)))
             .collect();
         assert!(split.is_empty(), "{what}: {split:#?}");
     }
@@ -457,24 +453,31 @@ const ISSUE_8285_NEIGHBORS: &str = include_str!("../fixtures/outside-fb/Issue828
 
 /// The corpus probe of issue 8285 (pinned: tests/al-language/pages/currpage/ListNewLineSaveRecordUpdate.al) and the reporter's
 /// repro: `CurrPage.SaveRecord()` then `CurrPage.Update(false)`, and `CurrPage.Update(true)`, on the new line the table field
-/// inserted, also on the host with a CardPart FactBox. Every test passes with no assumption.
+/// inserted, also on the host with a CardPart FactBox. Every test passes: the probe's with no assumption, the repro's (whose code
+/// is not the probe's) under list-new-line-save-record-repro.
 #[test]
 fn issue_8285_save_record_and_update_true_land_on_the_row() {
-    for (src, codeunit) in [
-        (ISSUE_8285_PROBE, "LT NS Tests"),
+    use al_builtins::assumptions::Assumption::ListNewLineSaveRecordRepro;
+    for (src, codeunit, want) in [
+        (ISSUE_8285_PROBE, "LT NS Tests", vec![]),
         (
             include_str!("../fixtures/outside-fb/Issue8285.al"),
             "Repro New Line Update Tests",
+            vec![ListNewLineSaveRecordRepro],
         ),
     ] {
         let o = issue_8186_outcomes(src, codeunit);
         let bad: Vec<_> = o
             .iter()
-            .filter(|(_, r, marks)| *r != Outcome::Pass || !marks.is_empty())
+            .filter(|(_, r, marks)| *r != Outcome::Pass || *marks != want)
             .collect();
-        assert!(bad.is_empty(), "{codeunit}: {bad:#?}");
+        assert!(!o.is_empty() && bad.is_empty(), "{codeunit}: {bad:#?}");
     }
 }
+
+/// The refusal of a SaveRecord or Update(true) cell whose code is not the measured code (`code_inserted_pinned.rs`).
+const UNMEASURED_CODE: &str =
+    "is not the code ListNewLineSaveRecordUpdate.al or the repro of al-runner issue 8285 runs";
 
 /// The outcome and marks of each test of `codeunit` in Issue8285Neighbors.al, with the probe's objects; `host` changes the
 /// FactBox host page 97483 (the part of the file from its declaration on), `probe` the probe's objects.
@@ -499,37 +502,28 @@ const FACTBOX_MOVE_REFUSAL: &str = "a call on a List page with a CardPart FactBo
 /// Call sequences the probe does not measure are refused: SaveRecord without the Update(false) after it, SaveRecord then
 /// Update() or Update(true), two SaveRecord calls, an error after SaveRecord and Update(false) (`asserterror` around the
 /// SetValue), SaveRecord then CurrPage.Close(); and a change of Rec's filters or of the table, or a further CurrPage.Update or
-/// SaveRecord, after SaveRecord or Update(true). Main answers the first and the last without the modify BC runs at the SaveRecord (ListNewLineSaveRecordUpdate.al:445
-/// `P.MOD(X/);T.M(X/);P.SR;`). `Update(true)` on the page without AutoSplitKey keeps main's refusal.
+/// SaveRecord, after SaveRecord or Update(true). Their page's OnValidate is not the probe's code, so each is refused at its first
+/// SaveRecord or Update(true) (review of #8305, round 3); main answers the first and the last without the modify BC runs at the
+/// SaveRecord (ListNewLineSaveRecordUpdate.al:445 `P.MOD(X/);T.M(X/);P.SR;`). `Update(true)` on the page without AutoSplitKey
+/// keeps main's refusal.
 #[test]
 fn issue_8285_unmeasured_calls_are_refused() {
     let o = issue_8285_neighbor_outcomes("LT NS Neighbor Tests", same, same);
     for (name, why) in [
-        (
-            "SaveRecordWithoutUpdate",
-            "the validation ended without the CurrPage.Update(false)",
-        ),
-        (
-            "SaveRecordThenUpdate",
-            "CurrPage.Update() or Update(true) after CurrPage.SaveRecord",
-        ),
-        (
-            "SaveRecordThenUpdateTrue",
-            "CurrPage.Update() or Update(true) after CurrPage.SaveRecord",
-        ),
-        ("SaveRecordTwice", "a further CurrPage.SaveRecord"),
-        ("ErrorAfterSaveRecord", "an error ended the validation"),
-        ("SaveRecordThenClose", "the page closed after CurrPage.SaveRecord"),
-        // The cell holds at every call after the landing, not only at the first: Rec, its view and the table stay as the save left
-        // them, and no further CurrPage.Update or SaveRecord follows (review of #8305, point 1).
-        ("SaveRecordFilterUpdateFalse", "changed between CurrPage.SaveRecord"),
-        ("SaveRecordInsertUpdateFalse", "changed between CurrPage.SaveRecord"),
-        ("SaveRecordUpdateFalseSaveRecord", "a further CurrPage.SaveRecord"),
-        ("SaveRecordUpdateFalseUpdate", "a further CurrPage.Update"),
-        ("UpdateTrueUpdateFalse", "a further CurrPage.Update"),
-        ("UpdateTrueSaveRecord", "a further CurrPage.SaveRecord"),
-        ("UpdateTrueFilter", "the validation changed the page's record"),
-        ("UpdateTrueInsert", "the validation changed the page's record"),
+        ("SaveRecordWithoutUpdate", UNMEASURED_CODE),
+        ("SaveRecordThenUpdate", UNMEASURED_CODE),
+        ("SaveRecordThenUpdateTrue", UNMEASURED_CODE),
+        ("SaveRecordTwice", UNMEASURED_CODE),
+        ("ErrorAfterSaveRecord", UNMEASURED_CODE),
+        ("SaveRecordThenClose", UNMEASURED_CODE),
+        ("SaveRecordFilterUpdateFalse", UNMEASURED_CODE),
+        ("SaveRecordInsertUpdateFalse", UNMEASURED_CODE),
+        ("SaveRecordUpdateFalseSaveRecord", UNMEASURED_CODE),
+        ("SaveRecordUpdateFalseUpdate", UNMEASURED_CODE),
+        ("UpdateTrueUpdateFalse", UNMEASURED_CODE),
+        ("UpdateTrueSaveRecord", UNMEASURED_CODE),
+        ("UpdateTrueFilter", UNMEASURED_CODE),
+        ("UpdateTrueInsert", UNMEASURED_CODE),
         ("UpdateTrueWithoutAutoSplitKey", MAIN_8186_REFUSAL),
     ] {
         let (_, r, marks) = o.iter().find(|(n, _, _)| n == name).expect("the test");
@@ -597,7 +591,7 @@ fn issue_8285_unmeasured_factbox_shapes_keep_main_refusal() {
     let peek = "page 97475 \"LT NS Peek\"\n{\n    PageType = CardPart;";
     let link = "SubPageLink = \"Group Code\" = field(\"Group Code\"), \"Entry No.\" = field(\"Entry No.\");";
     let host_save = "CurrPage.SaveRecord();\n                        CurrPage.Update(false);";
-    let host_agr = "    trigger OnAfterGetRecord()\n    begin\n        Log.Add('P.AGR(' + Rec.Name + ')');\n    end;";
+    let host_agr = "    trigger OnAfterGetRecord()\n    begin\n        Log.Add('P.AGR(' + Rec.Name + '/' + Rec.Value + ')');\n    end;";
     let second_part = "        area(FactBoxes)\n        {";
     // What a variant is called, and how it changes the source.
     type Variant = (&'static str, Box<dyn Fn(&str) -> String>);
@@ -718,11 +712,61 @@ fn issue_8285_unmeasured_factbox_shapes_keep_main_refusal() {
     }
 }
 
-/// An OnAfterGetRecord on the FactBox host that changes Rec: the read of the stored row before the close is not measured with
-/// it, and refused there.
+/// Code the probe does not run, on its own pages and table, is refused at the first SaveRecord or Update(true) (review of #8305,
+/// round 3): main refused these, and BC has not been measured with them. Each variant changes one body of the probe; every test
+/// on the changed page (on every page, for the table) is refused, and none passes.
 #[test]
-fn issue_8285_factbox_host_trigger_that_changes_rec_is_refused_at_the_read() {
-    let agr = "        Log.Add('P.AGR(' + Rec.Name + ')');";
+fn issue_8285_other_code_is_refused() {
+    // (what, the text the variant replaces, its replacement, the tests the change reaches by name).
+    let variants: [(&str, &str, &str, fn(&str) -> bool); 5] = [
+        (
+            "OnModifyRecord exits false",
+            "        Log.Add('P.MOD(' + Rec.Name + '/' + Rec.Value + ')');\n        exit(true);",
+            "        Log.Add('P.MOD(' + Rec.Name + '/' + Rec.Value + ')');\n        exit(false);",
+            |n| !n.contains("_Quiet_") && !n.contains("_PartHost_"),
+        ),
+        (
+            "a page trigger assigns a field",
+            "        Log.Add('P.AGR(' + Rec.Name + ')');",
+            "        Log.Add('P.AGR(' + Rec.Name + ')');\n        Rec.Value := 'Z';",
+            |n| !n.contains("_Quiet_") && !n.contains("_PartHost_"),
+        ),
+        (
+            "a table trigger writes",
+            "        Log.Add('T.M(' + Name + '/' + Value + ')');",
+            "        Log.Add('T.M(' + Name + '/' + Value + ')');\n        Value := Value + '!';",
+            |_| true,
+        ),
+        (
+            "code before SaveRecord in the control's OnValidate",
+            "                            CurrPage.SaveRecord();\n                            CurrPage.Update(false);",
+            "                            Rec.Value := 'P';\n                            CurrPage.SaveRecord();\n                            CurrPage.Update(false);",
+            |n| n.contains("_Quiet_"),
+        ),
+        (
+            "code after Update(false) on the FactBox host",
+            "                        CurrPage.SaveRecord();\n                        CurrPage.Update(false);",
+            "                        CurrPage.SaveRecord();\n                        CurrPage.Update(false);\n                        Rec.Value := 'H';",
+            |n| n.contains("_PartHost_"),
+        ),
+    ];
+    for (what, from, to, reached) in variants {
+        assert_eq!(ISSUE_8285_PROBE.matches(from).count(), 1, "{what}");
+        let o = issue_8186_outcomes(&ISSUE_8285_PROBE.replacen(from, to, 1), "LT NS Tests");
+        let mine: Vec<_> = o.iter().filter(|(n, _, _)| reached(n)).collect();
+        assert!(!mine.is_empty(), "{what}");
+        let bad: Vec<_> = mine
+            .iter()
+            .filter(|(_, r, _)| !matches!(r, Outcome::NotRun(w) if w.contains(UNMEASURED_CODE)))
+            .collect();
+        assert!(bad.is_empty(), "{what}: {bad:#?}");
+    }
+}
+
+/// An OnAfterGetRecord on the FactBox host that changes Rec: not the probe's code, so the SaveRecord is refused.
+#[test]
+fn issue_8285_factbox_host_trigger_that_changes_rec_is_refused() {
+    let agr = "        Log.Add('P.AGR(' + Rec.Name + '/' + Rec.Value + ')');";
     let o = issue_8285_neighbor_outcomes("LT NS Host Neighbor Tests", same, |s| {
         s.replacen(agr, &format!("{agr}\n        Rec.Value := 'Z';"), 1)
     });
@@ -730,5 +774,5 @@ fn issue_8285_factbox_host_trigger_that_changes_rec_is_refused_at_the_read() {
         .iter()
         .find(|(n, _, _)| n == "Host_RowBefore_Close")
         .expect("the test");
-    assert!(matches!(r, Outcome::NotRun(w) if w.contains("changed Rec")), "{r:?}");
+    assert!(matches!(r, Outcome::NotRun(w) if w.contains(UNMEASURED_CODE)), "{r:?}");
 }
