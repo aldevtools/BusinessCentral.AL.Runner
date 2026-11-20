@@ -1,6 +1,6 @@
-//! A Time of 23:59:59.999 in a database table rounds past the day in SQL: a row outside the primary key reads 00:00:00 but filters,
-//! counts and deletes after every time of the day, and so does a filter value of 23:59:59.999. Assumption
-//! `time-rolled-past-midnight`, corpus pull request 1364 (record/filters/TimeRolledPastMidnight.al), measured on BC 28.5.
+//! A Time of 23:59:59.999 in a database table rounds past the day in SQL: a row of the field shape
+//! record/filters/TimeRolledPastMidnight.al:11-25 measures reads 00:00:00 but filters, counts and deletes after every time of the
+//! day, and so does a filter value of 23:59:59.999. Other field shapes keep main's rounding to 00:00:00.
 
 use al_builtins::native::Signal;
 use al_testkit::text;
@@ -36,8 +36,99 @@ table 69973 "TF Sum"
     }
     keys { key(PK; Id) { } }
 }
+table 69974 "TF Plain"
+{
+    fields
+    {
+        field(1; Id; Integer) { }
+        field(2; Tm; Time) { }
+        field(3; Tm2; Time) { }
+    }
+    keys { key(PK; Id) { } key(Both; Tm2, Id) { } }
+}
+table 69975 "TF Trig"
+{
+    fields
+    {
+        field(1; Id; Integer) { }
+        field(2; Tm; Time) { }
+        field(3; Note; Text[30]) { }
+    }
+    keys { key(PK; Id) { } key(TmKey; Tm) { } }
+    trigger OnModify() begin end;
+}
+table 69976 "TF Base"
+{
+    fields { field(1; Id; Integer) { } }
+    keys { key(PK; Id) { } }
+}
+tableextension 69977 "TF Ext" extends "TF Base"
+{
+    fields { field(69977; Tm; Time) { } field(69978; Note; Text[30]) { } }
+    keys { key(TmKey; Tm) { } }
+}
+table 69978 "TF Sub"
+{
+    fields
+    {
+        field(1; Id; Integer) { }
+        field(2; Tm; Time) { }
+        field(3; Note; Text[30]) { }
+    }
+    keys { key(PK; Id) { } key(TmKey; Tm) { } }
+}
+codeunit 69979 "TF Subscriber"
+{
+    [EventSubscriber(ObjectType::Table, Database::"TF Sub", 'OnBeforeModifyEvent', '', false, false)]
+    local procedure OnBeforeModify(var Rec: Record "TF Sub")
+    begin
+    end;
+}
 codeunit 69971 C
 {
+    procedure PlainFields(): Text
+    var R: Record "TF Plain"; s: Text;
+    begin
+        R.Id := 1; R.Tm := 000000T; R.Tm2 := 000000T; R.Insert();
+        R.Id := 4; R.Tm := 235959.999T; R.Tm2 := 235959.999T; R.Insert();
+        R.SetRange(Tm, 000000T); s += 'tm_eq0=' + Format(R.Count()) + ';';
+        R.SetFilter(Tm, '<%1', 235959.999T); s += 'tm_lt999=' + Format(R.Count()) + ';';
+        R.Reset();
+        R.SetRange(Tm2, 000000T); s += 'tm2_eq0=' + Format(R.Count()) + ';';
+        R.SetFilter(Tm2, '<%1', 235959.999T); exit(s + 'tm2_lt999=' + Format(R.Count()));
+    end;
+
+    procedure ExtensionField(): Text
+    var R: Record "TF Base"; s: Text;
+    begin
+        R.Id := 1; R.Tm := 000000T; R.Insert();
+        R.Id := 4; R.Tm := 235959.999T; R.Insert();
+        R.SetRange(Tm, 000000T); s += 'eq0=' + Format(R.Count()) + ';';
+        R.SetFilter(Tm, '<%1', 235959.999T); exit(s + 'lt999=' + Format(R.Count()));
+    end;
+
+    procedure ModifyTrueWithTrigger()
+    var R: Record "TF Trig";
+    begin
+        R.Id := 4; R.Tm := 235959.999T; R.Insert();
+        R.Get(4); R.Note := 'x'; R.Modify(true);
+    end;
+
+    procedure ModifyWithSubscriber()
+    var R: Record "TF Sub";
+    begin
+        R.Id := 4; R.Tm := 235959.999T; R.Insert();
+        R.Get(4); R.Note := 'x'; R.Modify();
+    end;
+
+    procedure ModifyFalseWithTrigger(): Text
+    var R: Record "TF Trig";
+    begin
+        R.Id := 4; R.Tm := 235959.999T; R.Insert();
+        R.Get(4); R.Note := 'x'; R.Modify(false);
+        R.Reset(); R.SetRange(Tm, 235959.999T); exit(Format(R.Count()));
+    end;
+
     procedure Filters(): Text
     var R: Record "TF Row"; s: Text;
     begin
@@ -236,4 +327,34 @@ fn unmodelled_rollover_shapes_are_refused() {
         let r = run(routine);
         assert!(matches!(r, Err(Signal::Unsupported(_))), "{routine}: {r:?}");
     }
+}
+
+// TimeRolledPastMidnight.al:17, :23: a Time field without a secondary key of its own keeps main's rounding to 00:00:00.
+#[test]
+fn a_time_field_without_a_key_of_its_own_keeps_main_rounding() {
+    assert_eq!(text(run("PlainFields")), "tm_eq0=2;tm_lt999=0;tm2_eq0=2;tm2_lt999=0");
+}
+
+// TimeRolledPastMidnight.al:17: a Time field a table extension declares keeps main's rounding to 00:00:00.
+#[test]
+fn a_table_extension_time_field_keeps_main_rounding() {
+    assert_eq!(text(run("ExtensionField")), "eq0=2;lt999=0");
+}
+
+// TimeRolledPastMidnight.al:12-25, :203-262 measure a Modify with no trigger code or subscriber around it.
+#[test]
+fn a_modify_of_a_rolled_row_with_trigger_code_or_a_subscriber_is_refused() {
+    for routine in ["ModifyTrueWithTrigger", "ModifyWithSubscriber"] {
+        let r = run(routine);
+        assert!(
+            matches!(&r, Err(Signal::Unsupported(m)) if m.contains("trigger code or subscribers")),
+            "{routine}: {r:?}"
+        );
+    }
+}
+
+// The same row and trigger with Modify(false): no code runs, as at TimeRolledPastMidnight.al:212, and the row keeps the rollover.
+#[test]
+fn a_modify_false_of_a_rolled_row_runs_as_pinned() {
+    assert_eq!(text(run("ModifyFalseWithTrigger")), "1");
 }

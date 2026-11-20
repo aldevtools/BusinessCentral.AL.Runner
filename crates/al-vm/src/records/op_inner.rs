@@ -815,6 +815,7 @@ impl Session {
                 });
                 if let Some(old) = &stored {
                     self.check_modify_auto_increment(&t, rec, old, run)?;
+                    self.refuse_rolled_modify_with_code(&t, old, run)?;
                 }
                 // A Modify loads every field of a partially loaded record: the subscribers' Rec and xRec and the caller's record
                 // report all fields loaded afterwards, for Modify(true) and Modify(false)

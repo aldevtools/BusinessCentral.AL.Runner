@@ -52,24 +52,36 @@ pub(crate) fn rounded(v: &Value) -> Value {
     }
 }
 
-/// What a database Time column outside the primary key holds for 23:59:59.999: midnight of the next day, after every time of
-/// the day. No AL Time reaches it (Time arithmetic wraps at midnight), so a value of it in a row is always this rollover.
-/// Assumption `time-rolled-past-midnight` (corpus pull request 1364, record/filters/TimeRolledPastMidnight.al:99-158).
+/// What the column of a [`keeps_past_midnight`] field holds for 23:59:59.999: midnight of the next day, after every time of the
+/// day (record/filters/TimeRolledPastMidnight.al:143-158). No AL Time reaches it (Time arithmetic wraps at midnight), so a value
+/// of it in a row is always this rollover.
 const ROLLED: i64 = MS_PER_DAY + 1;
+
+/// Whether field `i` of database table `t` has the shape record/filters/TimeRolledPastMidnight.al measures (table 75011, :11-25):
+/// a Normal Time field the table itself declares (:17), outside the primary key (:22), with a secondary key of its own (:23).
+/// Its column keeps 23:59:59.999 past the day (`ROLLED`). Every other field rounds as [`rounded`] does; a Time primary key
+/// field among them (:305-346, `eq0` and `rows` still differ from BC).
+pub(crate) fn keeps_past_midnight(t: &TableDef, schema: &al_ir::Table, i: usize) -> bool {
+    let f = &t.fields[i];
+    f.ty == RtType::Time
+        && f.stored
+        && f.id < 2_000_000_000
+        && schema.fields.get(i).is_some_and(|s| s.declared_in == Some(t.object))
+        && !t.keys[0].contains(&i)
+        && t.keys.iter().skip(1).any(|k| k.as_slice() == [i])
+}
 
 /// Whether `t` (a Time, not 0) rounds to a whole day in the column.
 fn rolls(t: i64) -> bool {
     t != 0 && round_ms(t - 1) == MS_PER_DAY
 }
 
-/// A filter value of a Time field outside the primary key rounded as the column rounds it: 23:59:59.999 compares after every
-/// time of the day, as the stored value does (`ROLLED`; TimeRolledPastMidnight.al:99-158, `lt999`, `eq999`, `gt997`).
+/// A filter value of a [`keeps_past_midnight`] field rounded as the column rounds it: 23:59:59.999 compares after every time
+/// of the day, as the stored value does (`ROLLED`; TimeRolledPastMidnight.al:113-158, `lt999`, `eq999`, `gt997`; FieldRef
+/// SetRange :369-376).
 fn rounded_filter(v: &Value) -> Value {
     match v {
-        Value::Time(t) if rolls(*t) => {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::TimeRolledPastMidnight);
-            Value::Time(ROLLED)
-        }
+        Value::Time(t) if rolls(*t) => Value::Time(ROLLED),
         other => rounded(other),
     }
 }
@@ -79,12 +91,11 @@ pub(crate) fn is_rolled(v: &Value) -> bool {
     matches!(v, Value::Time(ROLLED))
 }
 
-/// The values of a database row as AL reads them: a Time held past the day reads 00:00:00 (TimeRolledPastMidnight.al:142
-/// `read`, :250 `set_read`, :362-365 FlowField max and lookup, FieldRef).
+/// The values of a database row as AL reads them: a Time held past the day reads 00:00:00 (TimeRolledPastMidnight.al:143
+/// `read`, :257 `set_read`, :371-375 FlowField max, min and lookup, FieldRef).
 pub(crate) fn read_back(row: &mut [Value]) {
     for v in row {
         if is_rolled(v) {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::TimeRolledPastMidnight);
             *v = Value::Time(1);
         }
     }
@@ -97,12 +108,11 @@ pub(crate) fn read_back_value(mut v: Value) -> Value {
 }
 
 /// A Modify writes only what changed: a field that still holds what it read from a Time held past the day keeps it
-/// (TimeRolledPastMidnight.al:245 `note_eq999`, :247 `midnight_eq999` after `Tm := 000000T`, :252 `modifyallnote_eq999`).
+/// (TimeRolledPastMidnight.al:252 `note_eq999`, :254 `midnight_eq999` after `Tm := 000000T`, :260 `modifyallnote_eq999`).
 /// `old` is the stored row, `new` the row about to be written.
 pub(crate) fn keep_rolled(old: &[Value], new: &mut [Value]) {
     for (o, n) in old.iter().zip(new) {
         if is_rolled(o) && matches!(n, Value::Time(1)) {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::TimeRolledPastMidnight);
             *n = o.clone();
         }
     }
@@ -145,13 +155,12 @@ pub(crate) fn key_rounds(pk: &[Value]) -> bool {
 }
 
 /// The filters of a database table read with their Time and DateTime values rounded as the column rounds them; the record keeps
-/// its own (GetFilters shows `11:59:59.999 PM`): P130DateFilters.al:206-227.
-pub(crate) fn round_filters(t: &TableDef, filters: &mut [FieldFilter]) {
+/// its own (GetFilters shows `11:59:59.999 PM`): P130DateFilters.al:206-227. A [`keeps_past_midnight`] field compares
+/// 23:59:59.999 after the day ([`rounded_filter`]).
+pub(crate) fn round_filters(t: &TableDef, schema: &al_ir::Table, filters: &mut [FieldFilter]) {
     for f in filters {
         if t.fields[f.field].id < 2_000_000_000 && matches!(t.fields[f.field].ty, RtType::Time | RtType::DateTime) {
-            // A primary key field keeps 23:59:59.999 as 00:00:00 (`store`), so its filter values do too.
-            let rolls_over = t.fields[f.field].ty == RtType::Time && !t.keys[0].contains(&f.field);
-            f.expr = round_expr(&f.expr, rolls_over);
+            f.expr = round_expr(&f.expr, keeps_past_midnight(t, schema, f.field));
         }
     }
 }
@@ -398,6 +407,7 @@ pub(crate) fn bad_field(
 /// is not measured).
 pub(crate) fn store(
     t: &TableDef,
+    schema: &al_ir::Table,
     field_caption: &dyn Fn(usize) -> String,
     table_caption: &str,
     row: &mut [Value],
@@ -423,9 +433,8 @@ pub(crate) fn store(
         // rounded key while the record keeps its own value (P130DateFilters.al:527-735, al-runner issue 5689). The system
         // fields keep the value the runtime stamps: whether the buffer then holds the rounded value is not pinned.
         if f.stored && f.id < 2_000_000_000 && matches!(f.ty, RtType::Time | RtType::DateTime) {
-            // Outside the primary key the rollover stays after the day (TimeRolledPastMidnight.al:99-158).
-            if matches!(&row[i], Value::Time(v) if f.ty == RtType::Time && rolls(*v)) && !t.keys[0].contains(&i) {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::TimeRolledPastMidnight);
+            // The pinned field shape keeps the rollover after the day (TimeRolledPastMidnight.al:143-158).
+            if matches!(&row[i], Value::Time(v) if rolls(*v)) && keeps_past_midnight(t, schema, i) {
                 row[i] = Value::Time(ROLLED);
             } else {
                 row[i] = rounded(&row[i]);

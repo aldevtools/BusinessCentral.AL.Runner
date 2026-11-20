@@ -1312,8 +1312,11 @@ impl Session {
         // A database table compares its Time and DateTime columns with the filter values rounded as the columns hold them
         // (record/filters/P130DateFilters.al:206-227).
         if !r.temporary {
-            if let Some(t) = self.engine.tables[r.table as usize].as_ref() {
-                crate::sqltime::round_filters(t, &mut stored);
+            if let (Some(t), Some(schema)) = (
+                self.engine.tables[r.table as usize].as_ref(),
+                self.engine.program.objects[r.table as usize].table.as_ref(),
+            ) {
+                crate::sqltime::round_filters(t, schema, &mut stored);
             }
         }
         (stored, flow_fields)

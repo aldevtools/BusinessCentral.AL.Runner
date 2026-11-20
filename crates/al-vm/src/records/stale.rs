@@ -239,7 +239,7 @@ impl Session {
         rec: &Rec,
         stored: Option<&[Value]>,
     ) -> Option<(usize, Value)> {
-        // A Time held past the day compares as the midnight it reads (TimeRolledPastMidnight.al:245-252).
+        // A Time held past the day compares as the midnight it reads (record/filters/TimeRolledPastMidnight.al:251-260).
         let rolled_read = stored.filter(|r| r.iter().any(crate::sqltime::is_rolled)).map(|r| {
             let mut r = r.to_vec();
             crate::sqltime::read_back(&mut r);

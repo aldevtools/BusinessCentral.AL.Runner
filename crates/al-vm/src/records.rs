@@ -1991,7 +1991,9 @@ impl Session {
             return Ok(None);
         }
         let caption = self.caption(t);
-        match crate::sqltime::store(t, &|i| self.field_caption(t, i), &caption, row)? {
+        let engine = self.engine.clone();
+        let schema = engine.program.objects[t.object as usize].table.as_ref().expect("table");
+        match crate::sqltime::store(t, schema, &|i| self.field_caption(t, i), &caption, row)? {
             crate::sqltime::Stored::Fits => Ok(None),
             crate::sqltime::Stored::Bad(bad) => Ok(Some(bad)),
         }
