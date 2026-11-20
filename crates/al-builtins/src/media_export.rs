@@ -1,6 +1,6 @@
 //! Which media `Media.ExportStream` gives back byte for byte.
 
-use crate::media::MediaObject;
+use crate::media::{MediaObject, StreamCall};
 
 /// Content that is no picture comes back unchanged from ExportStream: UTF-8 text (ASCII and non-ASCII) and binary bytes,
 /// imported with no MIME type or with `text/plain`, with or without a file name (.txt, .pdf, none), and the export of an
@@ -16,6 +16,21 @@ pub(crate) fn exports_unchanged(o: &MediaObject) -> bool {
         && o.file_column.is_none()
         && !o.bytes.is_empty()
         && !has_picture_signature(&o.bytes)
+}
+
+/// The measured Word package imported by a three-argument `Media.ImportStream` as `application/zip` into a Media field that held no
+/// media comes back unchanged (corpus PR 1469, merged, not pinned yet: MediaDocxRezip.al:677 Docx_MediaImportStream_ZipMime, the call
+/// at :690, 'stored is the file' and 'export is the stored content' Yes on Windows BC 27.5, 28.5 and 29.0; assumption
+/// `media-zip-mime-export-kept`, which the caller marks). Other content, another call or a field that held a media keeps the refusal.
+pub(crate) fn zip_package_exports_unchanged(o: &MediaObject) -> bool {
+    o.mime == "application/zip"
+        && o.pending.is_none()
+        && o.stream_call
+            == Some(StreamCall {
+                args: 3,
+                into_empty_media: true,
+            })
+        && crate::media_word_package::is_measured_package(&o.bytes)
 }
 
 /// PNG, JPEG, GIF, BMP, TIFF, ICO/CUR and WebP signatures.

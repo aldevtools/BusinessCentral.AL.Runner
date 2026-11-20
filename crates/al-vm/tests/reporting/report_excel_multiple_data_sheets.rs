@@ -1,9 +1,7 @@
-//! `ExcelLayoutMultipleDataSheets = true` on a report (al-runner issue 7836): the calls the corpus probe measured run as the
-//! same report without the property (assumption excel-layout-multiple-data-sheets, ExcelMultipleDataSheetsReport.al, corpus
-//! pull request 1368), also with a SubstituteReport subscriber that leaves the report as it is; every other use of such a
-//! report refuses. A report without the property keeps its answer. Rust tests until the probe is pinned.
+//! `ExcelLayoutMultipleDataSheets = true` on a report (al-runner issue 7836): the calls ExcelMultipleDataSheetsReport.al pins run as
+//! the same report without the property, also with a SubstituteReport subscriber that leaves the report as it is; every other use of such a
+//! report refuses. A report without the property keeps its answer.
 
-use al_builtins::assumptions::{self, Assumption};
 use al_builtins::native::Signal;
 use al_testkit::Built;
 
@@ -462,16 +460,12 @@ const EXCEL: &str =
 
 #[test]
 fn multiple_data_sheets_saveas_xml_gives_the_dataset_of_the_report_without_it() {
-    assumptions::take_hits();
     assert_eq!(text("SameDataset"), "Yes|Yes|Yes|Yes|Yes");
-    assert!(assumptions::take_hits().contains(&Assumption::ExcelLayoutMultipleDataSheets));
 }
 
 #[test]
 fn multiple_data_sheets_run_without_a_request_page_raises_as_measured() {
-    assumptions::take_hits();
     assert_eq!(text("RunNoLayout"), NO_LAYOUT);
-    assert!(assumptions::take_hits().contains(&Assumption::ExcelLayoutMultipleDataSheets));
     assert_eq!(text("RunModalNoLayout"), NO_LAYOUT);
     assert_eq!(text("RunExcel"), EXCEL);
     assert_eq!(text("RunModalExcel"), EXCEL);
@@ -479,26 +473,18 @@ fn multiple_data_sheets_run_without_a_request_page_raises_as_measured() {
 
 #[test]
 fn multiple_data_sheets_saveas_excel_answers_as_measured() {
-    assumptions::take_hits();
     assert_eq!(text("SaveExcelLayout"), "Yes|Yes|Yes");
-    assert!(assumptions::take_hits().contains(&Assumption::ExcelLayoutMultipleDataSheets));
     assert_eq!(text("SaveExcelNoLayout"), "Yes|No|No");
-    assert!(assumptions::take_hits().contains(&Assumption::ExcelLayoutMultipleDataSheets));
 }
 
 /// The probe ran with SubstituteReport subscribers that leave the report as it is (Base Application's ReportManagement, the
-/// corpus app's AMReports.al:229-234): the subscriber runs and the run is the measured one, flagged.
+/// corpus app's AMReports.al:229-235): the subscriber runs and the run is the measured one.
 #[test]
 fn multiple_data_sheets_run_admitted_when_a_subscriber_leaves_the_report() {
     for (body, what) in [("", "untouched"), ("NewReportId := ReportId;", "same id")] {
-        assumptions::take_hits();
         assert_eq!(
             al_testkit::text(with_subscriber(body, "RunNoLayout")),
             format!("{NO_LAYOUT}|50961,Normal;"),
-            "{what}"
-        );
-        assert!(
-            assumptions::take_hits().contains(&Assumption::ExcelLayoutMultipleDataSheets),
             "{what}"
         );
         assert_eq!(
@@ -522,7 +508,6 @@ fn multiple_data_sheets_run_refused_when_a_subscriber_sets_another_such_report()
 /// A subscriber that puts a report without the property in its place: that report runs as it does without this change.
 #[test]
 fn multiple_data_sheets_run_substituted_by_a_report_without_it_keeps_that_reports_answer() {
-    assumptions::take_hits();
     let plain = "No|Report 50960 does not have a valid layout. Valid layout types are: Word, RDLC, Excel, and Custom.|ReportNoLayout";
     assert_eq!(text("RunPlain"), plain);
     assert_eq!(
@@ -532,7 +517,6 @@ fn multiple_data_sheets_run_substituted_by_a_report_without_it_keeps_that_report
         )),
         format!("{plain}|50961,Normal;")
     );
-    assert!(!assumptions::take_hits().contains(&Assumption::ExcelLayoutMultipleDataSheets));
 }
 
 /// Only the instance the measured call makes runs as measured: a variable of the same report that a subscriber uses while the
@@ -550,7 +534,6 @@ fn multiple_data_sheets_variable_used_during_an_admitted_run_refuses() {
 /// (docs/probes-needed.md): a subscriber that would set another report is not asked, and the report asked for is saved.
 #[test]
 fn multiple_data_sheets_saveas_xml_does_not_ask_a_substituting_subscriber() {
-    assumptions::take_hits();
     assert_eq!(
         al_testkit::text(with_subscriber(
             "if ReportId = 50961 then NewReportId := 50960;",
@@ -558,7 +541,6 @@ fn multiple_data_sheets_saveas_xml_does_not_ask_a_substituting_subscriber() {
         )),
         "Yes|Yes|"
     );
-    assert!(assumptions::take_hits().contains(&Assumption::ExcelLayoutMultipleDataSheets));
 }
 
 /// A variable of a report that declares the property refuses before the code runs, as on main: declared only, its getters,

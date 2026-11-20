@@ -1,6 +1,6 @@
 //! `GZipStream` and `CompressionMode`, the DotNet types behind System Application's "Data Compression"
 //! (`GZipCompress`, `GZipDecompress`), served by the runtime. Every literal is what the real service tier
-//! answered in the corpus staging branch: tests/al-language/types/PZGzip.al (BC 29.0, staging 2c09ecd).
+//! answered in the pinned corpus: tests/al-language/types/PZGzip.al (BC 29.0).
 //! The AL below is my own minimal version of the System Application's two procedures.
 
 use al_builtins::native::Signal;

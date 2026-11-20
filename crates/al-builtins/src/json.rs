@@ -984,11 +984,11 @@ fn decimal_from_text(t: &str) -> Result<Value, Signal> {
     match text_number::decimal_text(t) {
         TextNumber::Number(value) => {
             // Beyond the Decimal range: the range error (JsonValueGetters.al Y65_DecimalShapedText_AsDecimal_2, writer Y65).
-            if let Some(crate::format::FormatFail::Error { message, code }) = crate::format::decimal_range_error(&value)
-            {
-                return Err(error(message, &code));
+            match crate::format::decimal_range_error(&value) {
+                Some(crate::format::FormatFail::Error { message, code }) => Err(error(message, &code)),
+                Some(crate::format::FormatFail::Unsupported(why)) => unsupported(why),
+                None => Ok(Value::Decimal(value)),
             }
-            Ok(Value::Decimal(value))
         }
         TextNumber::NotANumber => Err(conversion(NAV_JSON_VALUE, "Microsoft.Dynamics.Nav.Runtime.Decimal18")),
         TextNumber::Unpinned => unsupported(format!("reading Text '{t}' as Decimal (conversion not pinned yet)")),
@@ -2839,6 +2839,17 @@ mod tests {
             "{r:?}"
         );
         assert!(parse("{\"a\":\"\\ud83d\\ude00\"}").is_ok());
+    }
+
+    /// A text above the Decimal range whose 18-digit form is below 1,000,000,000,000,000 refuses (not pinned); the
+    /// pinned negative of 16 integer digits keeps the range error (json/DbJsonLeads.al:252).
+    #[test]
+    fn a_decimal_text_just_above_the_range_refuses() {
+        let r = decimal_from_text("999999999999999.9900001");
+        assert!(matches!(&r, Err(Signal::Unsupported(_))), "{r:?}");
+        let r = decimal_from_text("-9999999999999999.99");
+        assert!(r.is_err() && !matches!(&r, Err(Signal::Unsupported(_))), "{r:?}");
+        assert!(matches!(decimal_from_text("999999999999999.99"), Ok(Value::Decimal(_))));
     }
 
     /// Np4FormatJson.al NP4_JsonValue_AsInteger_SetValueDecimal (corpus master, corpus PR 871).

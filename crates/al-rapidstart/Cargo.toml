@@ -8,5 +8,5 @@ description = "Reads a RapidStart configuration package (gzip, UTF-16 XML) and s
 
 [dependencies]
 al-host.workspace = true
-flate2 = { version = "1.1", default-features = false, features = ["zlib-rs"] }
+flate2.workspace = true
 quick-xml.workspace = true

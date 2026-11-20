@@ -36,11 +36,12 @@ pub fn test_codeunits_named(src: &str) -> Vec<(u32, String, Vec<String>)> {
 /// One test codeunit of [`scan`]: id, `[Test]` procedures, `TestType`, `RequiredTestIsolation` (as written), name.
 type Scanned = (u32, Vec<String>, Option<String>, Option<String>, String);
 
-/// Blanks `//` line comments and `/* */` block comments and the text of string
+/// Blanks `//` line comments, `/* */` block comments, directive lines and the text of string
 /// literals, so a `//` inside quotes is not mistaken for a comment and words in a string are not code.
 /// Every byte keeps its offset (a blanked byte becomes a space, a newline stays): the scan reads a quoted
 /// procedure name from the original text at the same offset.
 fn strip_comments(src: &str) -> String {
+    let directives = directive_starts(src);
     let b = src.as_bytes();
     let mut out = String::with_capacity(src.len());
     let mut i = 0;
@@ -63,6 +64,16 @@ fn strip_comments(src: &str) -> String {
                 }
                 blank(&mut out, &src[start..i], false);
             }
+            // A directive (`#region`, `#endregion`, `#pragma`, `#if`) starts where the lexer reads a `Directive` token
+            // and runs to the end of its line. Its text is not code: `#region (former codeunit 50149)` is no object header
+            // (al-runner issue 8350).
+            b'#' if directives.binary_search(&i).is_ok() => {
+                let start = i;
+                while i < b.len() && b[i] != b'\n' && b[i] != b'\r' {
+                    i += 1;
+                }
+                blank(&mut out, &src[start..i], false);
+            }
             b'/' if b.get(i + 1) == Some(&b'*') => {
                 let start = i;
                 i += 2;
@@ -74,7 +85,7 @@ fn strip_comments(src: &str) -> String {
             }
             _ => {
                 let start = i;
-                while i < b.len() && b[i] != b'\'' && b[i] != b'"' && b[i] != b'/' {
+                while i < b.len() && !matches!(b[i], b'\'' | b'"' | b'/' | b'#') {
                     i += 1;
                 }
                 if i == start {
@@ -83,6 +94,20 @@ fn strip_comments(src: &str) -> String {
                 out.push_str(&src[start..i]);
             }
         }
+    }
+    out
+}
+
+/// The byte offsets where the `al_syntax` lexer starts a `Directive` token, in order: the lexer owns which white space
+/// and comments may come before a directive on its line.
+fn directive_starts(src: &str) -> Vec<usize> {
+    let mut at = 0;
+    let mut out = Vec::new();
+    for t in al_syntax::lex(src) {
+        if t.kind == al_syntax::SyntaxKind::Directive {
+            out.push(at);
+        }
+        at += t.len as usize;
     }
     out
 }
@@ -302,6 +327,50 @@ mod tests {
                    codeunit 2 \"B\" { Subtype = Test; RequiredTestIsolation = None; [Test] procedure Y() begin end; }\n\
                    codeunit 3 \"C\" { Subtype = Test; TestType = UnitTest; [Test] procedure Z() begin end; }";
         assert_eq!(isolation_disabled_codeunits(src), vec![1]);
+    }
+
+    /// al-runner issue 8350, the reporter's repro: `#region` text that names "codeunit <id>" is a directive, not an
+    /// object header. The scan took it for one and lost the codeunit's tests from every selection.
+    #[test]
+    fn region_text_that_names_a_codeunit_does_not_start_a_codeunit() {
+        let src = "codeunit 50100 \"Region Plain Test\"\n{\n    Subtype = Test;\n    #region First block\n    [Test]\n    procedure PlainRegionRuns()\n    begin\n    end;\n    #endregion\n}\n\ncodeunit 50101 \"Region Names Missing Test\"\n{\n    Subtype = Test;\n    #region First block (former codeunit 50149)\n    [Test]\n    procedure RegionNamingAMissingCodeunitRuns()\n    begin\n    end;\n    #endregion\n}\n\ncodeunit 50102 \"Region Names Own Id Test\"\n{\n    Subtype = Test;\n    #region First block (former codeunit 50102)\n    [Test]\n    procedure RegionNamingItsOwnIdRuns()\n    begin\n    end;\n    #endregion\n}\n";
+        let one = |id, name: &str| (id, vec![name.to_string()]);
+        assert_eq!(
+            test_codeunits(src),
+            vec![
+                one(50100, "PlainRegionRuns"),
+                one(50101, "RegionNamingAMissingCodeunitRuns"),
+                one(50102, "RegionNamingItsOwnIdRuns")
+            ]
+        );
+    }
+
+    /// Neighbors of issue 8350: a header under `#if` is still found (the scan does not preprocess; both branches count, as
+    /// before), and a `#` that is not first on its line, or sits in a string, does not blank the line.
+    #[test]
+    fn lines_after_a_directive_and_a_hash_inside_code_keep_their_meaning() {
+        let src = "#if BC28PLUS // codeunit 7 \"No\"\ncodeunit 1 \"A\"\n#else\ncodeunit 2 \"B\"\n#endif\n{ Subtype = Test;\n  #pragma warning disable AA0001\n  [Test] procedure X() begin Message('#region codeunit 9'); end; }\ncodeunit 3 \"C\" { Subtype = Test; [Test] procedure Y() begin end; }";
+        assert_eq!(
+            test_codeunits(src),
+            vec![(2, vec!["X".to_string()]), (3, vec!["Y".to_string()])]
+        );
+    }
+
+    /// The white space before a directive is the lexer's (`al_syntax` lexer): a non-breaking space (U+00A0) or a form
+    /// feed before `#region` makes the line a directive too, so its "codeunit <id>" text starts no codeunit (review of
+    /// al-runner issue 8350).
+    #[test]
+    fn a_directive_after_a_non_breaking_space_or_form_feed_is_no_header() {
+        for indent in ["\u{a0}\u{a0} ", "\u{c}"] {
+            let src = format!(
+                "codeunit 50101 \"Shape Test\"\n{{\n    Subtype = Test;\n{indent}#region First block (former codeunit 50149)\n    [Test]\n    procedure ShapeRuns()\n    begin\n    end;\n    #endregion\n}}\n"
+            );
+            assert_eq!(
+                test_codeunits(&src),
+                vec![(50101, vec!["ShapeRuns".to_string()])],
+                "{indent:?}"
+            );
+        }
     }
 
     #[test]
