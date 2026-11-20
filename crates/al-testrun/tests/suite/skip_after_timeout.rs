@@ -90,4 +90,16 @@ fn with_the_option_the_rest_of_the_codeunit_is_not_run_naming_the_stopped_test()
     }
     // Another codeunit is not affected.
     assert!(matches!(outcome(&rt, 50701, "E_Quick"), Outcome::Pass));
+    // The rows the option left out are marked as left out by an option of the run; the stopped test is not
+    // (al-runner issue 8492).
+    let marked = |name: &str| {
+        rt.results()
+            .iter()
+            .find(|t| t.test == name)
+            .map(|t| t.skipped_by_option)
+    };
+    assert_eq!(marked("C_Quick"), Some(true));
+    assert_eq!(marked("D_TimesOutToo"), Some(true));
+    assert_eq!(marked("B_TimesOut"), Some(false));
+    assert_eq!(marked("A_Quick"), Some(false));
 }

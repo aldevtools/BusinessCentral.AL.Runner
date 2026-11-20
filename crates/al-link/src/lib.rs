@@ -839,6 +839,7 @@ fn uncompiled_subscribers<S: Space + ?Sized>(
                 SubscriberTarget::CaptionClass => (2, 0, P::CaptionClass),
                 SubscriberTarget::ReportingTriggers => (3, 0, P::ReportingTriggers),
                 SubscriberTarget::FilterHelperTriggers => (4, 0, P::FilterHelperTriggers),
+                SubscriberTarget::UiHelperTriggers => (5, 0, P::UiHelperTriggers),
             };
             found.push((
                 group,

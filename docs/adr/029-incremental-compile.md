@@ -119,5 +119,5 @@ change (`Lowered::calls`): a reader can reach a codeunit through a procedure of 
 naming it or its id. A call or member that did not resolve before the change is in no call list, and may resolve to a
 changed object after it. So an object outside those readers compiles everything again when the program before the
 change holds, for it, a call lowering refused because the checker resolved no callee (`Lowered::unresolved_calls`; a
-`--tdd` stub site counts as one), or a compile error in its file. The decision above stands: the program after an
+`--tdd` procedure stub site counts as one), or a compile error in its file. The decision above stands: the program after an
 update equals the one a complete compile gives.
