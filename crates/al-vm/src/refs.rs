@@ -1542,6 +1542,11 @@ impl Session {
                     if let Value::Unknown(why) = &v {
                         return unsupported(why.to_string());
                     }
+                    self.relation_field_no_row_read(
+                        &rec,
+                        Some(pos),
+                        crate::platform::relation_field_no_readers::Reader::FieldRefValue,
+                    )?;
                     // A coverage Test ID read by number: no pinned shape (platform::coverage_test_id_refusal).
                     if !rec.borrow().temporary && self.is_coverage_test_id(&t, field.id) {
                         return unsupported(al_builtins::platform::coverage_test_id_refusal(

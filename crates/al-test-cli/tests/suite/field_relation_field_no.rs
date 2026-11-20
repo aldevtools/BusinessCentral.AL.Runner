@@ -272,13 +272,16 @@ codeunit 50120 T
 }
 "#;
 
-fn outcome<'a>(o: &'a [(String, Outcome, Vec<Assumption>)], n: &str) -> &'a (String, Outcome, Vec<Assumption>) {
+pub(super) fn outcome<'a>(
+    o: &'a [(String, Outcome, Vec<Assumption>)],
+    n: &str,
+) -> &'a (String, Outcome, Vec<Assumption>) {
     o.iter()
         .find(|(x, ..)| x == n)
         .unwrap_or_else(|| panic!("no test {n}: {o:?}"))
 }
 
-fn assert_clean_pass(o: &[(String, Outcome, Vec<Assumption>)], names: &[&str]) {
+pub(super) fn assert_clean_pass(o: &[(String, Outcome, Vec<Assumption>)], names: &[&str]) {
     for n in names {
         let (_, r, hits) = outcome(o, n);
         assert_eq!(*r, Outcome::Pass, "{n}: {r:?}");
@@ -286,7 +289,7 @@ fn assert_clean_pass(o: &[(String, Outcome, Vec<Assumption>)], names: &[&str]) {
     }
 }
 
-fn assert_refused(o: &[(String, Outcome, Vec<Assumption>)], names: &[&str]) {
+pub(super) fn assert_refused(o: &[(String, Outcome, Vec<Assumption>)], names: &[&str]) {
     for n in names {
         let r = &outcome(o, n).1;
         assert!(

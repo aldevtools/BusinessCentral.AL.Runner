@@ -238,6 +238,13 @@ impl Session {
             return Ok(Value::Boolean(true));
         }
         match method {
+            "Open" if self.field_table_query_open(def, object) => {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RelationFieldNoReaders);
+                Err(crate::transactions::al_error_code(
+                    "A query cannot be based on a virtual table. Please contact your system administrator.",
+                    "DB:Ok",
+                ))
+            }
             "Open" => {
                 // Opening an open query is not an error (queries/TestQueryRuntimeContracts.al:
                 // Query_StateMisuse_DoesNotThrow); once rows were read what it does is not pinned.
@@ -1042,6 +1049,25 @@ impl Session {
     /// Execute permission and table reads are checked (the check of Query.Open, Y24PermExecute.al:62-63). What a static
     /// SaveAs of a query the set denies raises is not pinned: refused (docs/probes-needed.md, "Static Query.SaveAs under a
     /// set that denies the query").
+    /// Whether table object `table` is the Field table.
+    fn field_table_object(&self, table: usize) -> bool {
+        self.engine.program.objects[table].id == Some(crate::platform::relation_field_no_readers::FIELD_TABLE)
+    }
+
+    /// `Query.Open` of query object `object` raises 'A query cannot be based on a virtual table. ...' (code DB:Ok) when its one
+    /// data item is the Field table and it has no trigger: plain columns, a run-time filter on RelationFieldNo, a
+    /// DataItemTableFilter and a ColumnFilter on it alike (corpus PR 1477, FieldRelationFieldNoReaders.al:27-73, :327-353; assumption
+    /// relation-field-no-readers). Every other query over the Field table is refused in `query_rows`.
+    fn field_table_query_open(&self, def: &ir::Query, object: usize) -> bool {
+        let one_field_item = matches!(def.items.as_slice(), [item] if self.field_table_object(item.table));
+        let triggers = self.engine.program.objects[object]
+            .routines
+            .iter()
+            .filter(|r| r.is_trigger)
+            .count();
+        one_field_item && triggers == 0
+    }
+
     fn query_rows(
         &mut self,
         run: QueryReader,
@@ -1057,6 +1083,12 @@ impl Session {
                 );
             }
             gate?;
+        }
+        // A query over the Field table that Open did not refuse (`field_table_query_open`): not measured.
+        if def.items.iter().any(|i| self.field_table_object(i.table)) {
+            return unsupported(
+                "a query over the Field table other than Query.Open of one Field data item and no trigger (not measured; docs/probes-needed.md, relation-field-no-readers)",
+            );
         }
         let stamps = self.query_stamps(def);
         for (table, _) in &stamps {

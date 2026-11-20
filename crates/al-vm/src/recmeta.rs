@@ -150,6 +150,11 @@ impl Session {
             },
             _ => return None,
         };
+        if let Err(e) =
+            self.relation_field_no_row_read(&rec, only, crate::platform::relation_field_no_readers::Reader::Format)
+        {
+            return Some(Err(e));
+        }
         Some(self.format_record_fields(&rec, only))
     }
 
@@ -1022,8 +1027,7 @@ impl Session {
             }
             RecordOp::CopyFilters => Self::copy_filters(rec, args),
             RecordOp::Copy => self.record_copy(rec, args),
-            RecordOp::TestField => self.test_field(rec, t, args),
-            RecordOp::FieldError => self.field_error(rec, t, args),
+            RecordOp::TestField | RecordOp::FieldError => self.test_field_or_field_error(method, rec, t, args),
             other => unsupported(format!("Record.{other}")),
         }
     }
@@ -1116,6 +1120,24 @@ impl Session {
                 .find(|(o, _, _)| *o == ordinal)
                 .map_or_else(|| ordinal.to_string(), |(_, _, caption)| caption.clone())),
             None => self.message_value(v),
+        }
+    }
+
+    /// `TestField` or `FieldError` (`method`): both read the field's value, which on the no-field RelationFieldNo 0 of the
+    /// Field table is not measured (`relation_field_no_readers`).
+    fn test_field_or_field_error(
+        &mut self,
+        method: RecordOp,
+        rec: &Rec,
+        t: &TableDef,
+        args: &[Value],
+    ) -> Result<Value, Signal> {
+        use crate::platform::relation_field_no_readers::Reader;
+        self.relation_field_no_row_read(rec, Some(arg_pos(args, 0)?), Reader::TestFieldOrFieldError)?;
+        if method == RecordOp::TestField {
+            self.test_field(rec, t, args)
+        } else {
+            self.field_error(rec, t, args)
         }
     }
 

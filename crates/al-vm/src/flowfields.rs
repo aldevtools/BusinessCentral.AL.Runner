@@ -1235,6 +1235,7 @@ impl Session {
     /// A Duration field sums too, also one in no SumIndexFields (record/flowfields/CalcSumsDuration.al
     /// CalcSums_Duration_All, _Filtered, _NotInSumIndexFields; `FieldRef.CalcSum`: FieldRefCalcSumTypes).
     pub(crate) fn calc_sums(&mut self, rec: &Rec, positions: &[usize]) -> Result<(), Signal> {
+        self.relation_field_no_calc_sum(rec, positions)?;
         let engine = self.engine.clone();
         let table = rec.borrow().table as usize;
         let t = self.engine.tables[table].clone().expect("table");
