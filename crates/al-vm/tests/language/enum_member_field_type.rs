@@ -1,8 +1,9 @@
-//! `Rec.Field::Member` names a member of the field's own enum, whatever enum of that name the file finds (al-runner issue
-//! 8317). Measured shapes, under assumption `enum-member-of-field-type` until corpus PR 1442
-//! (merged: types/enum-option/EnumMemberFieldType_Tests.al:29, :59, :77) is pinned: the file finds the name twice, or finds another enum of that
-//! name in its own namespace or through a `using`. The corpus probe pins the values; these tests pin where the assumption is
-//! marked, main's wrong value in the twin shapes, and the neighbors that keep main's answer.
+//! `Field::Member` on an Enum field names a member of the field's own enum, whatever enum of that name the file finds
+//! (al-runner issue 8317), and `Rec.Field` itself is of the field's enum type there. Measured shapes, under assumption
+//! `enum-member-of-field-type` until corpus PR 1442 (merged: types/enum-option/EnumMemberFieldType_Tests.al:29, :59, :77)
+//! and corpus PR 1480 (open: types/enum-option/EnumMemberFieldTypeShapes_Tests.al, must-not-compile 3290 to 3293) are
+//! pinned. The corpus probes pin the values; these tests pin where the assumption is marked, main's wrong value in the twin
+//! shapes, the refusal of the shapes no probe measured, and the messages of the type errors.
 
 use al_builtins::assumptions::{self, Assumption};
 use al_builtins::native::Signal;
@@ -39,8 +40,8 @@ fn reader(header: &str) -> String {
     )
 }
 
-/// App "a" holds the field's enum and table; app "b" (depends on "a") holds `files`. Runs C.ProductionOrdinal.
-fn run(files: Vec<String>) -> (Result<Value, Signal>, Vec<Assumption>) {
+/// App "a" holds the field's enum and table; app "b" (depends on "a") holds `files`.
+fn apps(files: Vec<String>) -> Vec<AppSource> {
     let app = |id: &str, deps: &[&str], files: Vec<String>| AppSource {
         id: id.into(),
         name: id.into(),
@@ -51,12 +52,16 @@ fn run(files: Vec<String>) -> (Result<Value, Signal>, Vec<Assumption>) {
             .map(|(i, f)| (format!("{id}{i}.al"), f))
             .collect(),
     };
-    let apps = vec![
+    vec![
         app(PLATFORM_APP_ID, &[], vec![]),
         app("a", &[], vec![FIELD_APP.to_string(), FIELD_TABLE.to_string()]),
         app("b", &["a"], files),
-    ];
-    let mut b = al_testkit::Built::new(al_testkit::compile_apps(apps));
+    ]
+}
+
+/// Runs C.ProductionOrdinal of [`apps`] and the assumptions it marked.
+fn run(files: Vec<String>) -> (Result<Value, Signal>, Vec<Assumption>) {
+    let mut b = al_testkit::Built::new(al_testkit::compile_apps(apps(files)));
     assumptions::clear_hits();
     let r = b.run_in("C", "ProductionOrdinal");
     (r, assumptions::take_hits())
@@ -102,8 +107,73 @@ fn a_file_that_names_the_fields_enum_marks_nothing() {
 }
 
 #[test]
-fn a_same_named_enum_of_the_global_namespace_keeps_mains_answer() {
-    // Not measured: the twin found through the global namespace. No mark, whatever main answers.
-    let (_, hits) = run(vec![twin(None), reader("namespace T.Tests;\nusing T.Data;")]);
-    assert!(!hits.contains(&MARK), "{hits:?}");
+fn a_same_named_enum_of_the_global_namespace_gives_way_to_the_fields_enum() {
+    // EnumMemberFieldTypeShapes_Tests.al FieldMember_TwinInGlobalNamespace_IsTheFieldsEnumMember: main read the twin's
+    // Production (5).
+    let (r, hits) = run(vec![twin(None), reader("namespace T.Tests;\nusing T.Data;")]);
+    assert_eq!(al_testkit::int(r), 1);
+    assert!(hits.contains(&MARK), "{hits:?}");
+}
+
+#[test]
+fn a_bare_field_in_a_table_extension_reads_the_fields_enum() {
+    // FieldMember_InTableExtension_IsTheFieldsEnumMember: main read the twin's Production (5) for the bare `Kind`.
+    let ext = "namespace T.Twin;\nusing T.Data;\n\
+               tableextension 70113 X extends \"TF Line\"\n\
+               {\n\
+                   procedure BareOrdinal(): Integer\n\
+                   begin Kind := Kind::Production; exit(Kind.AsInteger()); end;\n\
+               }\n\
+               codeunit 70112 C\n\
+               {\n\
+                   procedure ProductionOrdinal(): Integer\n\
+                   var Line: Record \"TF Line\";\n\
+                   begin exit(Line.BareOrdinal()); end;\n\
+               }\n";
+    let (r, hits) = run(vec![twin(Some("T.Twin")), ext.to_string()]);
+    assert_eq!(al_testkit::int(r), 1);
+    assert!(hits.contains(&MARK), "{hits:?}");
+}
+
+#[test]
+fn a_global_record_variable_is_not_measured_and_refuses() {
+    // No probe reads the member through a global variable: refused where main read the twin's Production (5).
+    let src = "namespace T.Twin;\nusing T.Data;\n\
+               codeunit 70112 C\n\
+               {\n\
+                   var Line: Record \"TF Line\";\n\
+                   procedure ProductionOrdinal(): Integer\n\
+                   begin Line.Kind := Line.Kind::Production; exit(Line.Kind.AsInteger()); end;\n\
+               }\n";
+    let (r, _) = run(vec![twin(Some("T.Twin")), src.to_string()]);
+    match r {
+        Err(Signal::Unsupported(why)) => assert!(why.contains("enum-member-of-field-type"), "{why}"),
+        r => panic!("not refused: {r:?}"),
+    }
+}
+
+#[test]
+fn the_field_into_a_variable_of_the_same_named_enum_names_both_enums_by_their_namespaces() {
+    // must-not-compile 3291: AL0122 `Cannot implicitly convert type 'Enum <field's namespace>."<name>"' ...`; the internal
+    // name separator is never shown.
+    let src = "namespace T.Twin;\nusing T.Data;\n\
+               codeunit 70112 C\n\
+               {\n\
+                   procedure P()\n\
+                   var Line: Record \"TF Line\"; Twin: Enum \"TF Kind\";\n\
+                   begin Twin := Line.Kind; end;\n\
+               }\n";
+    let l = al_testkit::compile_apps(apps(vec![twin(Some("T.Twin")), src.to_string()]));
+    let al0122: Vec<&str> = l
+        .al_diagnostics
+        .iter()
+        .filter(|d| d.code == "AL0122")
+        .map(|d| d.message.as_str())
+        .collect();
+    assert_eq!(al0122.len(), 1, "{:?}", l.al_diagnostics);
+    assert!(
+        al0122[0].starts_with("Cannot implicitly convert type 'Enum T.Enums.\"TF Kind\"' to"),
+        "{}",
+        al0122[0]
+    );
 }

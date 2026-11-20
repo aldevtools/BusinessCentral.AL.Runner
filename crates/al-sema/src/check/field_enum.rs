@@ -1,30 +1,73 @@
-//! `Rec.Field` reads the field's own enum, whatever enum of that name the file finds (al-runner issue 8317; corpus PR 1442,
-//! merged, not pinned yet: types/enum-option/EnumMemberFieldType_Tests.al).
+//! `Field::Member` on an Enum field reads the field's own enum, whatever enum of that name the file finds (al-runner issue
+//! 8317; corpus PR 1442, merged, not pinned yet: types/enum-option/EnumMemberFieldType_Tests.al; corpus PR 1480, open:
+//! types/enum-option/EnumMemberFieldTypeShapes_Tests.al). `Rec.Field` itself then has the field's enum type (corpus PR 1480,
+//! must-not-compile 3290 to 3293).
 use super::*;
 
+/// How a file reads the enum of an Enum field where it does not find the field's enum by its name.
+pub(crate) enum FieldEnumReading {
+    /// The field's own enum (an object index), in a shape a probe measured (assumption enum-member-of-field-type).
+    Field(usize),
+    /// A shape no probe measured: why `Field::Member` is refused (checker note AR1010, which the lowering refuses).
+    Unmeasured(String),
+}
+
+/// What holds the record whose field is read.
+enum Receiver {
+    /// A local variable or a parameter: `Line.Kind`.
+    Variable,
+    /// The current record: `Rec.Kind`, or the bare field name `Kind`.
+    CurrentRecord,
+    /// Anything else: a global variable, `xRec`, an array element, a call's result, a `with` statement's record.
+    Other,
+}
+
 impl<'a> Checker<'a> {
-    /// The field's own enum, when `left` is `Rec.Field` of an Enum field and the file reads the enum's name otherwise in a
-    /// shape the probe measured: the file finds the name twice, or finds another enum of that name in its own namespace or
-    /// through a `using` (EnumMemberFieldType_Tests.al:29, :59, :77; assumption enum-member-of-field-type). `None` where the
-    /// file finds the field's enum itself, and in every shape not measured: the file's reading stays.
-    pub(crate) fn field_enum_reading(&self, sc: &Scope, left: &SyntaxNode) -> Option<usize> {
-        let (own, written) = self.field_enum(sc, left)?;
-        let measured = match self.ws.resolve_ref(sc.file, ObjKind::Enum, &split_qualified(&written)) {
-            Resolution::Found(e) => e != own && self.own_namespace_or_using(sc.file, e),
+    /// How the file reads the enum of the Enum field `left` names (`Rec.Field` or the bare field name), where it finds
+    /// another enum by the enum's name, in any namespace tier, or finds the name more than once. Business Central reads the
+    /// field's enum in every shape measured (EnumMemberFieldType_Tests.al:29, :59, :77; EnumMemberFieldTypeShapes_Tests.al:
+    /// a temporary record, a member of an enum extension, a field of a table extension, a field enum of the global
+    /// namespace, Rec and the bare field in a table extension and in a page, usings that find the field's enum and a twin
+    /// or two twins, a twin of the global namespace). Measured: the record a local variable or parameter in a codeunit,
+    /// table extension or page, or Rec or the bare field name in a table extension or page; every other shape is
+    /// [`FieldEnumReading::Unmeasured`]. `None` where the file finds the field's enum itself, or no enum of that name.
+    pub(crate) fn field_enum_reading(&self, sc: &Scope, left: &SyntaxNode) -> Option<FieldEnumReading> {
+        let (own, written, receiver) = self.field_enum(sc, left)?;
+        let differs = match self.ws.resolve_ref(sc.file, ObjKind::Enum, &split_qualified(&written)) {
+            Resolution::Found(e) => e != own,
             Resolution::Ambiguous(_) => true,
             Resolution::Missing => false,
         };
-        measured.then_some(own)
+        if !differs {
+            return None;
+        }
+        let kind = self.ws.objects[sc.oi].kind;
+        let measured = match receiver {
+            Receiver::Variable => matches!(kind, ObjKind::Codeunit | ObjKind::TableExtension | ObjKind::Page),
+            Receiver::CurrentRecord => matches!(kind, ObjKind::TableExtension | ObjKind::Page),
+            Receiver::Other => false,
+        };
+        Some(if measured {
+            FieldEnumReading::Field(own)
+        } else {
+            FieldEnumReading::Unmeasured(format!(
+                "`{}`: this file finds another enum than the field's by the name {}; that the field's enum is read is \
+                 measured only for a local variable or parameter in a codeunit, table extension or page, and for Rec or \
+                 the bare field name in a table extension or page (assumption enum-member-of-field-type, corpus PR 1480)",
+                left.text_string().trim(),
+                crate::types::display_name(&written)
+            ))
+        })
     }
 
-    /// The type of member `node` (`e`), with the enum named by its namespace where the field's enum is not the file's
-    /// reading of its name ([`Self::field_enum_reading`]), so that the lowering finds that enum from this file; the field's
-    /// resolution then carries the assumption.
+    /// The type of `node` (`e`), a field of an Enum, with the enum named by its namespace where the field's enum is not the
+    /// file's reading of its name in a measured shape ([`Self::field_enum_reading`]), so that the lowering finds that enum
+    /// from this file; the field's resolution then carries the assumption. Elsewhere the type stays the file's reading.
     pub(crate) fn field_member_type(&mut self, sc: &mut Scope, node: &SyntaxNode, e: E) -> E {
         if !matches!(e, E::Val(Ty::Enum(_))) {
             return e;
         }
-        let Some(own) = self.field_enum_reading(sc, node) else {
+        let Some(FieldEnumReading::Field(own)) = self.field_enum_reading(sc, node) else {
             return e;
         };
         let key = (
@@ -56,23 +99,43 @@ impl<'a> Checker<'a> {
         }
     }
 
-    /// The enum of the record field `Rec.Field` that `left` reads, named in the file that declares the field, with the
-    /// field's type name as written there.
-    fn field_enum(&self, sc: &Scope, left: &SyntaxNode) -> Option<(usize, String)> {
-        if left.kind() != SyntaxKind::MemberExpr {
-            return None;
-        }
+    /// The enum of the record field that `left` reads (`Rec.Field`, or the bare field name of the current record), named
+    /// in the file that declares the field, with the field's type name as written there, and what holds the record.
+    fn field_enum(&self, sc: &Scope, left: &SyntaxNode) -> Option<(usize, String, Receiver)> {
         let key = |n: &SyntaxNode| (sc.file, n.text_range().start().into(), n.text_range().end().into());
-        let base = left.first_child()?;
-        if !matches!(self.types.get(&key(&base)), Some(Ty::Record { .. })) {
-            return None;
-        }
-        let res = self
-            .resolutions
-            .get(&key(left))
-            .or_else(|| left.children().nth(1).and_then(|m| self.resolutions.get(&key(&m))))
-            .map(Res::inner)?;
-        let Res::Field { table, id } = res else {
+        let (res, receiver) = match left.kind() {
+            SyntaxKind::MemberExpr => {
+                let base = left.first_child()?;
+                if !matches!(self.types.get(&key(&base)), Some(Ty::Record { .. })) {
+                    return None;
+                }
+                let receiver = match (base.kind(), self.resolutions.get(&key(&base))) {
+                    (SyntaxKind::NameRef, Some(Res::Local(_))) => Receiver::Variable,
+                    (SyntaxKind::NameRef, Some(Res::Global(g))) if g == "rec" => Receiver::CurrentRecord,
+                    _ => Receiver::Other,
+                };
+                let res = self
+                    .resolutions
+                    .get(&key(left))
+                    .or_else(|| left.children().nth(1).and_then(|m| self.resolutions.get(&key(&m))))?;
+                (res, receiver)
+            }
+            SyntaxKind::NameRef => {
+                let res = self.resolutions.get(&key(left))?;
+                // A field the current record supplies, also once marked by `field_member_type`; not one of a `with`.
+                let direct = match res {
+                    Res::Assumed { inner, .. } => &**inner,
+                    r => r,
+                };
+                let receiver = match direct {
+                    Res::Field { .. } => Receiver::CurrentRecord,
+                    _ => Receiver::Other,
+                };
+                (res, receiver)
+            }
+            _ => return None,
+        };
+        let Res::Field { table, id } = res.inner() else {
             return None;
         };
         let field = self.members[*table].fields.iter().find(|f| f.id == *id)?;
@@ -80,16 +143,10 @@ impl<'a> Checker<'a> {
             return None;
         };
         let file = self.ws.objects[field.declared_in?].file;
-        Some((self.resolve_quiet(file, ObjKind::Enum, written)?, written.to_string()))
-    }
-
-    /// Object `object` is declared in the namespace file `file` declares, or in a namespace the file has a `using` of.
-    fn own_namespace_or_using(&self, file: usize, object: usize) -> bool {
-        let Some(ns) = &self.ws.objects[object].namespace else {
-            return false;
-        };
-        let f = &self.ws.files[file];
-        f.namespace.as_ref().is_some_and(|n| n.eq_ignore_ascii_case(ns))
-            || f.usings.iter().any(|u| u.eq_ignore_ascii_case(ns))
+        Some((
+            self.resolve_quiet(file, ObjKind::Enum, written)?,
+            written.to_string(),
+            receiver,
+        ))
     }
 }

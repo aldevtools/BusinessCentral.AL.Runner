@@ -1119,6 +1119,13 @@ impl Lowerer<'_> {
                 },
                 Some(Res::ObjectId(id)) => Ok(ir::Expr::Const(ir::Const::Integer(id))),
                 _ => {
+                    // The checker's AR1010: `Field::Member` where the file finds another enum by the field's enum's
+                    // name, in a shape no probe measured (`check/field_enum.rs`).
+                    let (app, path) = (self.ws.files[self.file].app, &self.ws.files[self.file].path);
+                    let at: usize = n.text_range().start().into();
+                    if let Some(d) = self.checked.diagnostic_at(app, path, at, &["AR1010"]) {
+                        return Err(d.message.clone());
+                    }
                     // `Enum::Member` of a system enum whose member list has no such member.
                     let text = n.text_string();
                     match text.split_once("::") {

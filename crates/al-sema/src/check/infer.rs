@@ -1734,7 +1734,8 @@ impl<'a> Checker<'a> {
                 self.al_unquoted_in_after_scope(sc, kids.get(1));
                 let base = if kids[0].kind() == NameRef {
                     match self.lookup_name(sc, &kids[0]) {
-                        Some(e) => e,
+                        // A bare field name of the current record: its enum as `Rec.Field` reads it (`field_enum.rs`).
+                        Some(e) => self.field_member_type(sc, &kids[0], e),
                         None => {
                             // `"Some Enum"::Value` where the enum is outside the workspace.
                             self.diag(sc, node, "AR0002", format!("unresolved enum `{}`", name_of(&kids[0])));
@@ -1914,13 +1915,19 @@ impl<'a> Checker<'a> {
         match t {
             Ty::Enum(name) => {
                 let reading = left.and_then(|l| self.field_enum_reading(sc, l));
-                let enum_index = match reading {
-                    Some(own) => {
-                        self.touch(own);
-                        Some(own)
+                let enum_index = match &reading {
+                    Some(super::field_enum::FieldEnumReading::Field(own)) => {
+                        self.touch(*own);
+                        Some(*own)
+                    }
+                    // A shape no probe measured: noted for the lowering, which refuses the member.
+                    Some(super::field_enum::FieldEnumReading::Unmeasured(why)) => {
+                        self.diag(sc, node, "AR1010", why.clone());
+                        return;
                     }
                     None => self.resolve(sc, ObjKind::Enum, name),
                 };
+                let assumed = reading.is_some();
                 if let Some(ei) = enum_index {
                     if let Some((v, _)) = self.members[ei]
                         .enum_values
@@ -1929,7 +1936,7 @@ impl<'a> Checker<'a> {
                     {
                         let value = *v as i32;
                         let res = Res::EnumValue { object: ei, value };
-                        self.record(sc, node, Self::assumed_if(reading.is_some(), res));
+                        self.record(sc, node, Self::assumed_if(assumed, res));
                     } else if self.tdd_enum_value(sc, node, ei, rhs) {
                         // `--tdd` (ADR-051 decision 10): the next compile declares the value.
                     } else if !self.ws.is_dependency(sc.oi) && !self.ws.is_dependency(ei) {
@@ -1977,7 +1984,7 @@ impl<'a> Checker<'a> {
 
     pub(crate) fn name(&mut self, sc: &mut Scope, node: &SyntaxNode) -> E {
         match self.lookup_name(sc, node) {
-            Some(e) => e,
+            Some(e) => self.field_member_type(sc, node, e),
             None if self.tdd_bare(sc, node) => E::Val(Ty::Unknown),
             None if self.tdd_bare_field(sc, node) => E::Val(Ty::Unknown),
             None => {

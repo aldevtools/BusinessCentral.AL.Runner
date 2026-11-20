@@ -1,5 +1,5 @@
 //! Finds the diagnostics at one position of one file without scanning the whole list: lowering asks once per call it
-//! lowers whether the checker refused that call (AR1006, AR1008, AR1009, AL0666, AR1007).
+//! lowers whether the checker refused that call (AR1006, AR1008, AR1009, AL0666, AR1007), or the enum member it lowers (AR1010).
 
 use super::posmap::FxMap;
 use crate::workspace::Diagnostic;
