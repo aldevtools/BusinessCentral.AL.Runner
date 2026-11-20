@@ -2078,20 +2078,18 @@ impl Session {
     fn refresh_after_validate_filter(
         &mut self,
         st: &St,
-        filters_before: Option<Vec<al_builtins::filter::FieldFilter>>,
+        filters_before: Option<crate::pages::state::ValidateStart>,
         without_curr: bool,
         without_parts: bool,
     ) -> Result<bool, Signal> {
-        let Some(before) = filters_before else {
+        let Some(start) = filters_before else {
             return Ok(false);
         };
         let shape = {
             let s = st.borrow();
             s.open && !s.dirty && (!s.draft || s.cursor == Cursor::NewLine) && s.host.is_none()
         };
-        // A page that offers the new-row line is pinned on a Worksheet (Y17JournalBatchSwitch.al), and on a List from that line
-        // (`validate_refresh_start`); from a row a List that offers it keeps the refresh below.
-        let shape = shape && (!st.borrow().new_line || self.is_worksheet(st) || st.borrow().cursor == Cursor::NewLine);
+        let shape = shape && self.validate_refresh_offers_line(st, &start);
         if !shape
             || !self.has_source(st)
             || !self.is_list(st)
@@ -2102,8 +2100,8 @@ impl Session {
         }
         let rec = self.page_rec(st);
         let now = rec.borrow().filters.clone();
-        let same = before.len() == now.len()
-            && before.iter().zip(&now).all(|(a, b)| {
+        let same = start.filters.len() == now.len()
+            && start.filters.iter().zip(&now).all(|(a, b)| {
                 a.field == b.field
                     && a.group == b.group
                     && matches!((self.filter_text(&a.expr), self.filter_text(&b.expr)), (Ok(x), Ok(y)) if x == y)
@@ -2454,7 +2452,7 @@ impl Session {
     /// changed the view so that the stored row the cursor stands on is outside it: the call itself reads the row (pages/lt-f3-pages/
     /// F3ListTests.al:72 Nav_ActionChangesViewThenUpdate `after_update` begins `AGR(R1003) | AGR(R1003) | OnlyBig done`, both reads
     /// before the action: the one after the GoToKey and the one before every action). Remembers it for the refresh.
-    fn is_worksheet(&self, st: &St) -> bool {
+    pub(super) fn is_worksheet(&self, st: &St) -> bool {
         self.engine.object_facts[st.borrow().object as usize].page_type == Some(al_ir::PageType::Worksheet)
     }
 

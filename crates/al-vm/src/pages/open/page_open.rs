@@ -545,7 +545,7 @@ impl Session {
                 self.refuse_seeded_view_after_init(&inst, object, &xml)?;
                 self.apply_request_parameters(&inst, &exts, object, &xml, crate::pages::ParamsCall::RunRequestPage)?;
             }
-            self.restore_page_values(st);
+            self.restore_page_values(st)?;
             self.check_page_events(st)?;
             // A temporary source: Rec as it stands before OnOpenPage, to tell a row set before the open from one OnOpenPage set.
             let before_open = if has_source { self.temp_rec_position(st)? } else { None };

@@ -2813,7 +2813,11 @@ impl Session {
         if self.permission_checks() {
             self.permission_from_al = true;
         }
-        self.with_group1(rec, group1, |s| s.record_op_of_al(method, rec, args))
+        let r = self.with_group1(rec, group1, |s| s.record_op_of_al(method, rec, args));
+        if !self.pages.onvalidate_pages.is_empty() {
+            self.note_page_rec_call(method, rec, args);
+        }
+        r
     }
 
     /// What a filter does in a negative filter group other than -1, the OR group, is not pinned (only reading the group back is:
