@@ -5,8 +5,8 @@
 //! Set as a whole: each kind of ask is one transition. Taken as a whole: `take` takes the ask with every note `run_refresh` reads
 //! at its start.
 //! What is not one `Option`: a cancel (`cancel`) withdraws the ask and keeps the notes, an Update's argument outlives the
-//! refresh it asked for, and two readers read a note while no refresh is asked (`by_update_noted`,
-//! `starts_from_code_inserted_line`). Those are main's behavior and stay as they are (al-runner issue 7687).
+//! refresh it asked for, and a reader reads a note while no refresh is asked
+//! (`starts_from_code_inserted_line`). Those are main's behavior and stay as they are (al-runner issue 7687).
 
 use al_builtins::value::Value;
 
@@ -214,11 +214,6 @@ impl RefreshRequest {
     /// A refresh waits and `CurrPage.Update(false)` asked for it.
     pub fn asked_by_update_false(&self) -> bool {
         self.asked_by_update() && self.update_false
-    }
-
-    /// An Update asked for the next refresh, also when the ask was withdrawn since (`cancel` keeps the note).
-    pub fn by_update_noted(&self) -> bool {
-        self.next.by_update
     }
 
     /// The last `CurrPage.Update` was `Update(false)`, and no action start or `cancel_update` came since.

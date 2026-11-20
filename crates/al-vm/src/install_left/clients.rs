@@ -29,6 +29,8 @@ pub(super) fn pages_as_new(p: &PageClients) -> bool {
         action_tally,
         saved_values,
         saved_values_committed,
+        saved_rows,
+        saved_row_pending,
         traps,
         scope_unpinned,
         bg_worker,
@@ -56,10 +58,13 @@ pub(super) fn pages_as_new(p: &PageClients) -> bool {
         client_depth,
         code_close_vetoes,
         open_vetoed,
+        onvalidate_pages,
     } = p;
     action_tally.is_none()
         && saved_values.is_empty()
         && saved_values_committed.is_empty()
+        && saved_rows.is_empty()
+        && saved_row_pending.is_empty()
         && traps.is_empty()
         && scope_unpinned.is_empty()
         && bg_worker.is_none()
@@ -87,6 +92,7 @@ pub(super) fn pages_as_new(p: &PageClients) -> bool {
         && *client_depth == 0
         && code_close_vetoes.is_empty()
         && open_vetoed.is_empty()
+        && onvalidate_pages.is_empty()
 }
 
 /// Event subscriptions, what the Event Subscription table reports and the install's own event state. Not checked:
@@ -237,6 +243,7 @@ pub(super) fn report_as_new(r: &ReportState) -> bool {
         rp_init_by_handler,
         report_preview_pinned,
         run_modal,
+        run_bare,
         system_printer,
         set_view_filters,
         dataset,
@@ -271,6 +278,7 @@ pub(super) fn report_as_new(r: &ReportState) -> bool {
         && rp_init_by_handler.is_empty()
         && report_preview_pinned.is_empty()
         && !run_modal
+        && !run_bare
         && !system_printer
         && set_view_filters.is_empty()
         && dataset.is_none()
