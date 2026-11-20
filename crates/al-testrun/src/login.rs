@@ -89,17 +89,7 @@ pub(crate) struct OwnEvent {
     pub subscribers: Vec<(usize, usize)>,
 }
 
-/// The publishers of the login events an app under test can subscribe to: (codeunit id, name, event in lower case), in
-/// the order the login raises them: "Guided Experience".`OnRegisterAssistedSetup` before "System Initialization".
-/// `OnAfterLogin` (LgnLoginChecklistTests.al:140, the expected entries).
-/// `OnRegisterManualSetup` and `OnRegisterGuidedExperienceItem` follow the first in Microsoft's
-/// `Checklist.InitializeGuidedExperienceItems`; the pin covers only the first ([`RAISE_ONLY`]).
-const LOGIN_EVENTS: &[(u32, &str, &str)] = &[
-    (1990, "Guided Experience", "onregisterassistedsetup"),
-    (1990, "Guided Experience", "onregistermanualsetup"),
-    (1990, "Guided Experience", "onregisterguidedexperienceitem"),
-    (150, "System Initialization", "onafterlogin"),
-];
+use al_ir::LOGIN_EVENTS;
 
 /// The login events whose raise at login no corpus test pins (review of al-runner issue 7717, round four, probes p12,
 /// p12b): a subscriber of an app under test to one of them gets the login raised through Microsoft's code, which
@@ -605,15 +595,8 @@ fn held_codeunits(lowered: &Lowered, o: usize) -> impl Iterator<Item = usize> + 
 
 /// Whether a routine of `obj` declares a subscriber to one of the login events, read from its attributes.
 fn declares_login_subscriber(obj: &al_ir::Object) -> bool {
-    obj.routines.iter().any(|r| {
-        r.attributes.iter().any(|a| {
-            a.name.eq_ignore_ascii_case("EventSubscriber") && {
-                let t = a.text.to_lowercase();
-                LOGIN_EVENTS.iter().any(|&(id, name, event)| {
-                    (t.contains(&format!("\"{}\"", name.to_lowercase())) || t.contains(&format!("::{id},")))
-                        && t.contains(event)
-                })
-            }
-        })
+    (obj.routines.iter()).any(|r| {
+        (r.attributes.iter())
+            .any(|a| a.name.eq_ignore_ascii_case("EventSubscriber") && al_ir::names_login_event(&a.text))
     })
 }

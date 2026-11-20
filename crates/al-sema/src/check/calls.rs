@@ -324,6 +324,9 @@ impl<'a> Checker<'a> {
         // Pinned only for one procedure on each side, declared by the table itself, with the same parameters. Any other
         // shape (other parameters, more overloads, a procedure of a table extension) is not pinned: AR1006 here, and the
         // lowering refuses the call (`Lowerer::report_item_same_name_refusal`).
+        if let Some(c) = self.own_named_caption_bare(sc, node, n) {
+            return Some(c);
+        }
         if sc.report_item && sc.rec_unqualified && !self.members[sc.self_obj].procedures_named(n).is_empty() {
             if let Some(rec @ Ty::Record { .. }) = sc.rec.clone() {
                 let Ty::Record { table, .. } = &rec else { unreachable!() };
@@ -490,6 +493,28 @@ impl<'a> Checker<'a> {
             c = self.global_cands(n);
         }
         (!c.is_empty()).then_some(c)
+    }
+
+    /// The bare call `Caption(..)` in a page or page extension that declares procedures named Caption: the platform method
+    /// where BC names it (`own_named_page_methods::caption_names_platform`). `call` is the call node.
+    fn own_named_caption_bare(&self, sc: &Scope, call: &SyntaxNode, n: &str) -> Option<Vec<Cand>> {
+        use crate::own_named_page_methods::{CaptionReceiver, call_args, caption_names_platform, own_captions};
+        let page = match self.ws.objects[sc.oi].kind {
+            ObjKind::Page => sc.oi,
+            ObjKind::PageExtension => self.ws.extension_target(sc.oi)?,
+            _ => return None,
+        };
+        if !n.eq_ignore_ascii_case("Caption") {
+            return None;
+        }
+        let me @ Ty::Object(ObjKind::Page, _) = sc.globals.get("currpage")? else {
+            return None;
+        };
+        let own = own_captions(self.ws, page);
+        if own.is_empty() || !caption_names_platform(self.ws, CaptionReceiver::Bare, call_args(call), &own, sc.oi) {
+            return None;
+        }
+        Some(self.catalog_cands("Page", "Caption", true, me))
     }
 
     /// A table and a table extension of another app may declare a procedure with the same name and parameter types (BC

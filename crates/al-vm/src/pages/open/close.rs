@@ -43,7 +43,7 @@ impl Session {
         if let Some((_, _, message)) = deferred {
             return Err(error_code(message, "TestWrapped"));
         }
-        st.borrow_mut().close_error = false;
+        st.borrow_mut().close.test_close_started();
         self.pages.close_save_error = None;
         self.pages.test_close = true;
         let page_run = self.page_run_close(st, action, false, true)?;
@@ -56,7 +56,7 @@ impl Session {
         // testpage/TestPageCloseVeto_Tests.al: PlainVeto_SecondCloseRaisesNotOpen), and so does an error of OnQueryClosePage
         // shown as an unhandled message (testpage/CcPageLeads.al:611-621 TriggerError_OnQueryClosePage).
         let r = match r {
-            Err(Signal::Error(e)) if st.borrow().close_error => {
+            Err(Signal::Error(e)) if st.borrow().close.error() => {
                 self.mark_closed(st);
                 Err(Signal::Error(e))
             }
@@ -86,13 +86,13 @@ impl Session {
             // Modal_HandlerOkThenClose_VetoAlways).
             let vetoed_in_handler = {
                 let s = st.borrow();
-                s.close_vetoed && s.modal && self.ui_state.page_handler_depth > 0
+                s.close.vetoed() && s.modal && self.ui_state.page_handler_depth > 0
             };
             if vetoed_in_handler {
-                st.borrow_mut().test_close_vetoed = true;
-            } else if st.borrow().modal && self.ui_state.page_handler_depth > 0 && !st.borrow().close_vetoed {
-                st.borrow_mut().test_closed_in_handler = true;
-            } else if st.borrow().close_vetoed {
+                st.borrow_mut().close.test_close_vetoed_in_handler();
+            } else if st.borrow().modal && self.ui_state.page_handler_depth > 0 && !st.borrow().close.vetoed() {
+                st.borrow_mut().close.test_close_closed_in_handler();
+            } else if st.borrow().close.vetoed() {
                 // A Close() the page's own OnQueryClosePage refused returns, and the veto is the last error, also inside a
                 // TryFunction and over an earlier error (testpage/TestPageCloseVeto_Tests.al:245 RP_PlainVeto_LastErrorAfterClose,
                 // :269 _LastErrorPerOpenMode, :335 _ReplacesAnEarlierLastError, :351 RP_ConfirmNoVeto_LastErrorAfterClose;
@@ -210,7 +210,7 @@ impl Session {
     ) -> Result<Value, Signal> {
         let test_close = std::mem::take(&mut self.pages.test_close);
         self.require_open(st)?;
-        st.borrow_mut().close_vetoed = false;
+        st.borrow_mut().close.close_started();
         self.note_relation_close(st, action, test_close, via_action);
         let page_run = self.page_run_close(st, action, via_action, test_close)?;
         let mapped = self.close_action(st, action);
@@ -380,8 +380,7 @@ impl Session {
             // is not asked (pages/triggers/PageModalQueryCloseVeto.al:530 RP_ListWithFactBox_PartVetoes_HostAllows:
             // `part_noinvoke_hostcount` 0, None, FormCloseNotAllowed). A part's veto of a page not run modally is not pinned.
             if answer == Some(false) && st.borrow().modal {
-                st.borrow_mut().close_error = false;
-                st.borrow_mut().close_vetoed = true;
+                st.borrow_mut().close.vetoed_by_part();
                 return Ok(Value::Null);
             }
             if answer == Some(false) || !self.page_event(part, "onqueryclosepageevent", Some(true), None)? {
@@ -409,14 +408,14 @@ impl Session {
             Err(Signal::Error(e)) => {
                 // A Confirm with no ConfirmHandler at TestPage.Close() raises its own error (query_close_unhandled.rs).
                 if let Some(raised) = test_close.then(|| self.unhandled_confirm_in_query_close(&e)).flatten() {
-                    st.borrow_mut().close_error = true;
+                    st.borrow_mut().close.refused_by_error();
                     return Err(raised);
                 }
                 if let Some(r) = self.page_run_query_close_error(page_run, st, &e) {
                     return r;
                 }
                 al_builtins::native::refuse_unpinned_text(&e, "The message shown for an error of OnQueryClosePage")?;
-                st.borrow_mut().close_error = true;
+                st.borrow_mut().close.refused_by_error();
                 // The error stays the last error once a MessageHandler consumed it: GetLastErrorText after Close() is its text, with
                 // its code (corpus master text/TestPageQueryCloseErrorMessageHandler_Tests.al: clean row, row dirty from another
                 // field, row dirty after a confirmed OnValidate; al-runner issue 7457).
@@ -430,11 +429,10 @@ impl Session {
             }
             other => other?,
         };
-        st.borrow_mut().close_error = false;
         // A veto of a modal page with open parts answers as one without parts: the parts are asked first, with None, once per
         // close attempt (PageModalQueryCloseVeto.al:448 RP_ListWithFactBox_HandlerDoesNothing_HostVetoes, :463 _HandlerOk_HostVetoes,
         // :509 RP_CardWithListPart_HostVetoes; al-runner issue 5762).
-        st.borrow_mut().close_vetoed = veto == Some(false);
+        st.borrow_mut().close.query_answered(veto == Some(false));
         if veto == Some(false) {
             self.refuse_relation_close_veto(st)?;
             return Ok(Value::Null);
@@ -476,7 +474,7 @@ impl Session {
         // Close() and a platform close store too, docs/probes-needed.md).
         // A Cancel keeps what the earlier OK stored, filters included (reports/request-page/Y86RequestFilters.al Y86_CancelKeeps_*).
         if !(via_action && matches!(action, "Cancel" | "LookupCancel" | "No")) {
-            self.store_page_values(st);
+            self.store_page_values(st, via_action && action == "OK")?;
         }
         // Not on the blank new-line row of a page: corpus misc/lt-page-run-overloads RunModal_NonTempRecord_ShowsDbRows keeps
         // `Row.Code` = D1 after a handler that read the page down to its new line and pressed OK.

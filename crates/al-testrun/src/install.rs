@@ -371,20 +371,16 @@ pub fn facts_of(lowered: &Lowered, events: &al_vm::events::Registry, dependency:
                     let written: BTreeSet<u32> = others.iter().flat_map(|c| c.written.iter().copied()).collect();
                     let singles: BTreeSet<usize> = others.iter().flat_map(|c| c.singles.iter().copied()).collect();
                     for &t in &written {
-                        out.assumed.entry(t as usize).or_insert((
-                            app.app,
-                            al_builtins::assumptions::Assumption::InstallCompanyTriggersAllApps,
-                        ));
+                        (out.assumed.entry(t as usize).or_default())
+                            .insert(al_builtins::assumptions::Assumption::InstallCompanyTriggersAllApps);
                     }
                     for c in &closures {
                         if c.read.intersection(&written).next().is_some()
                             || c.singles.intersection(&singles).next().is_some()
                         {
                             for &t in &c.written {
-                                out.assumed.entry(t as usize).or_insert((
-                                    app.app,
-                                    al_builtins::assumptions::Assumption::InstallCompanyTriggersAllApps,
-                                ));
+                                (out.assumed.entry(t as usize).or_default())
+                                    .insert(al_builtins::assumptions::Assumption::InstallCompanyTriggersAllApps);
                             }
                         }
                     }
@@ -426,7 +422,7 @@ pub fn facts_of(lowered: &Lowered, events: &al_vm::events::Registry, dependency:
                         let hit = |map: &mut InstallFacts, t: u32, why: String| match known {
                             Order::Pinned => {}
                             Order::Assumed(assumption) => {
-                                map.assumed.entry(t as usize).or_insert((app.app, assumption));
+                                map.assumed.entry(t as usize).or_default().insert(assumption);
                             }
                             Order::Unknown => {
                                 map.unknown.entry(t as usize).or_insert(why);
@@ -476,7 +472,8 @@ pub fn facts_of(lowered: &Lowered, events: &al_vm::events::Registry, dependency:
 /// tables the dependency apps' per-company install code writes (ADR-046 decision 4, "Not decided": not refused).
 pub(crate) fn ensure_facts<'a>(engine: &'a Engine, lowered: &Lowered) -> &'a InstallFacts {
     engine.install_facts.get_or_init(|| {
-        let f = facts(lowered, &engine.events);
+        let mut f = facts(lowered, &engine.events);
+        assume_by_id_install_tables(engine, lowered, &mut f);
         if std::env::var_os("AL_INSTALL_FACTS").is_some() {
             print_facts(lowered, &engine.events, &f);
         }
@@ -650,10 +647,10 @@ fn install_app_under_test(
             // A4 item 2: SingleInstance state starts again in each company and in the per-database part.
             session.reset_single_instances();
             session.set_company(&in_company);
-            // A4 item 4: Company Triggers in each company, before the routines. Under `--companies` the dependency
-            // apps stay in the session company (decision 5): in another company only the subscribers of the apps
-            // under test run (decided without owner review, 2026-10-29, ADR-046 amendment 2).
-            let with_dependencies = in_company == company;
+            // A4 item 4: Company Triggers in each company, before the routines. Dependency apps stay in the session
+            // company without backup data (decision 5); selected backup companies also run their subscribers
+            // (ADR-046 amendment 9).
+            let with_dependencies = in_company == company || engine.test_data.is_some();
             if let Some(why) = &unknown {
                 let subscribers = if part == Part::Company {
                     company_open_subscribers(lowered, &engine.events, |o| {
@@ -837,11 +834,38 @@ fn refused_tables(engine: &Engine, lowered: &Lowered, (oi, ri): (usize, usize), 
     if at_home {
         return touched(engine, lowered, oi, ri);
     }
-    let mut written = crate::baseline::tables_written_or_loaded(lowered, oi, ri);
+    with_subscribers(engine, lowered, (oi, ri), crate::baseline::tables_written_or_loaded)
+}
+
+/// The tables `of` finds for install code `(oi, ri)` and for each subscriber it reaches.
+fn with_subscribers(
+    engine: &Engine,
+    lowered: &Lowered,
+    (oi, ri): (usize, usize),
+    of: fn(&Lowered, usize, usize) -> BTreeSet<u32>,
+) -> BTreeSet<u32> {
+    let mut tables = of(lowered, oi, ri);
     for (so, sr) in crate::runtime::subscribers_reached(engine, lowered, oi, ri) {
-        written.extend(crate::baseline::tables_written_or_loaded(lowered, so, sr));
+        tables.extend(of(lowered, so, sr));
     }
-    written
+    tables
+}
+
+/// Assumption `subscriber-publisher-by-id` for install code: an Extension Triggers install subscriber of an app under test
+/// written with the bare id 2000000010 runs as the one that names the codeunit (corpus PR 1466, SbiSubscriberByIdTests.al:276;
+/// al-vm `Registry::is_by_id_install`; a dependency app's one refuses every test, `Registry::dependency_platform_by_id`). Its
+/// row changes exist only through it, so every table it and the subscribers it reaches insert into, modify, rename or delete
+/// from (`baseline::tables_changed_or_loaded`) marks a test that touches it (`InstallFacts::assumed`).
+fn assume_by_id_install_tables(engine: &Engine, lowered: &Lowered, out: &mut InstallFacts) {
+    for app in plan(lowered, &engine.events, false) {
+        let routines = app.company.iter().chain(&app.database);
+        for &(o, r) in routines.filter(|&&(o, r)| engine.events.is_by_id_install(o, r)) {
+            for t in with_subscribers(engine, lowered, (o, r), crate::baseline::tables_changed_or_loaded) {
+                let marks = out.assumed.entry(t as usize).or_default();
+                marks.insert(al_builtins::assumptions::Assumption::SubscriberPublisherById);
+            }
+        }
+    }
 }
 
 /// Whether install code that runs in `in_company` runs in the session company or in the per-database part (`""`).
@@ -1055,7 +1079,7 @@ pub(crate) fn apps_under_test(lowered: &Lowered) -> BTreeSet<u32> {
 /// The subscribers of `Company Triggers` OnCompanyOpen, then OnCompanyOpenCompleted, that are not manual and whose object
 /// `keep` selects, each event in the order BC raises an event to its subscribers (ascending codeunit id: `al-vm`
 /// `dispatch.rs` `event_targets`).
-fn company_open_subscribers(
+pub(crate) fn company_open_subscribers(
     lowered: &Lowered,
     events: &al_vm::events::Registry,
     keep: impl Fn(usize) -> bool,
@@ -1084,10 +1108,10 @@ fn company_open_subscribers(
 /// probe Q3: the tables that relies on mark the tests that touch them (`facts`, `InstallFacts::assumed`). A subscriber of
 /// any app that cannot run here stops the app's per-company install routines, and what it and they touch is refused.
 ///
-/// `with_dependencies` false (a company other than the session company under `--companies`): the dependency apps' subscribers
-/// do not run there, since the dependency apps stay in the session company (ADR-046 decision 5, amendment 2). They run with
-/// the tables of `skipped` watched ([`watching_skipped`]).
-fn company_open(
+/// `with_dependencies` false (a company other than the session company under `--companies`): the dependency apps'
+/// subscribers do not run there without backup data (ADR-046 decision 5, amendment 2). Selected backup companies also
+/// run their subscribers (ADR-046 amendment 9). They run with the tables of `skipped` watched ([`watching_skipped`]).
+pub(crate) fn company_open(
     lowered: &Lowered,
     session: &mut Session,
     skipped: &[al_vm::SkippedInstall],
@@ -1118,7 +1142,7 @@ fn company_open(
         });
     }
     let all = company_open_subscribers(lowered, &engine.events, |o| {
-        (lowered.dependency[o] || !not_installed.contains(&objs[o].app))
+        !not_installed.contains(&objs[o].app)
             && (with_dependencies || !lowered.dependency[o])
             && !unknown.contains(&objs[o].app)
     });
@@ -1850,8 +1874,8 @@ fn replayable(
 }
 
 /// Install code that did not run to its end: why, and what `stopped_state::roll_back_stopped_install` needs.
-struct Stopped {
-    why: String,
+pub(crate) struct Stopped {
+    pub(crate) why: String,
     root: (usize, usize),
     /// The session language and WorkDate right before `root` ran.
     before: al_vm::CarriedState,
@@ -1872,7 +1896,7 @@ impl Stopped {
     /// end and kept them: those tables join `skipped` too, besides the ones the callers' [`refuse`] names from the static
     /// reach of the install code `refused`, which misses a table written through a RecordRef (review of al-runner PR
     /// 8119, probes n19, n19b and n19c). A table [`refuse`] names keeps that refusal's reason, as on main.
-    fn roll_back(
+    pub(crate) fn roll_back(
         &self,
         lowered: &Lowered,
         session: &mut Session,

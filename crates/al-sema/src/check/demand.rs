@@ -553,8 +553,8 @@ impl Checker<'_> {
 
     /// The roots the install run adds (ADR-046 step A): with `baseline`, a dependency app's subscribers to the install
     /// events of `Extension Triggers`, which run with its install codeunits; with `install_code` (an app under test has
-    /// install code that runs), the dependency apps' subscribers to `OnCompanyOpen` and `OnCompanyOpenCompleted` of
-    /// `Company Triggers`, which the install session raises before the per-company install code.
+    /// install code that runs, or backup companies run dependency installs), the dependency apps' subscribers to
+    /// `OnCompanyOpen` and `OnCompanyOpenCompleted` of `Company Triggers`, raised before per-company install code.
     ///
     /// With `login` (an app under test subscribes to a login event, al-testrun `login.rs`), the dependency apps'
     /// subscribers to `OnCompanyOpenCompleted`, which raise the login in the test session.
@@ -1915,6 +1915,20 @@ pub fn uncompiled_subscriber_sites(ws: &Workspace, active: &dyn Fn(usize) -> boo
             .any(|e| ws.objects[so].subscribers[si].event.eq_ignore_ascii_case(e))
         {
             add(None, ir::PlatformPublisher::FilterHelperTriggers, so, si);
+        }
+    }
+    // The `CaptionClassTranslate` statement and every caption class the client translates raise it
+    // (events/platform-triggers/P114GlobalTriggerEvents.al:301-330), so a subscriber nothing compiled is listed whatever code
+    // is reached, and al-vm refuses the translation for it. The System Application's Caption Class Impl. is the one the
+    // runtime stands in for (al-vm `pages/ui_caption_translate`).
+    for (so, si) in ws.ui_helper_triggers_subscribers() {
+        let o = &ws.objects[so];
+        if o.subscribers[si]
+            .event
+            .eq_ignore_ascii_case(al_ir::CAPTION_CLASS_TRANSLATE)
+            && !al_ir::is_system_application_codeunit(al_ir::CAPTION_CLASS_IMPL, &o.name, &ws.apps[o.app].id)
+        {
+            add(None, ir::PlatformPublisher::UiHelperTriggers, so, si);
         }
     }
     out

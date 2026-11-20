@@ -7,10 +7,12 @@
 //!
 //! Not pinned, so refused when a subscriber would see it: a subscriber that changes `Translation`; the same text translated
 //! again; the empty text; a translation that other subscribers (OnResolveCaptionClass, OnAfterCaptionClassResolve) changed
-//! (the order of the events is not observable by the pinned cases). A TestPage control's caption class still refuses
-//! (`refuse_caption_class_translate`).
+//! (the order of the events is not observable by the pinned cases). Refused whatever the test can see: a subscriber of a
+//! dependency app other than the System Application's "Caption Class Impl." (compiled or not; a manual one only while bound).
+//! A TestPage control's caption class still refuses (`refuse_caption_class_translate`).
 
 use super::*;
+use crate::events::UI_HELPER_TRIGGERS;
 
 impl Session {
     /// FieldCaption's translation of an area 3 class: no UI Helper event.
@@ -23,6 +25,15 @@ impl Session {
 
     /// The `CaptionClassTranslate(Text)` statement.
     pub(crate) fn caption_class_translate_statement(&mut self, text: &str) -> Result<String, Signal> {
+        let event = al_ir::CAPTION_CLASS_TRANSLATE.to_ascii_lowercase();
+        // The System Application's "Caption Class Impl." subscribes to raise Caption Class's events, which the runtime raises
+        // itself (`caption_class_translate_unrefused`), so it is not run. What any other dependency subscriber does is pinned by
+        // no case, whether or not the test can see it: refused (al-runner issue 8470).
+        if let Some(s) = self.receiving_dependency_subscriber(UI_HELPER_TRIGGERS, &event, al_ir::CAPTION_CLASS_IMPL) {
+            return unsupported(format!(
+                "CaptionClassTranslate with the subscriber {s} of a dependency app (what it does is not pinned)"
+            ));
+        }
         // A subscriber the test cannot see (it holds no variable of the subscriber's codeunit or of a SingleInstance codeunit
         // the subscriber logs to) changes nothing the test can observe: the translation runs as it did before the event was
         // raised (decided without owner review, 2026-10-19, `Registry::unraised_subscriber`).
@@ -31,8 +42,8 @@ impl Session {
             .engine
             .events
             .unraised_subscriber(
-                "ui helper triggers",
-                Some("captionclasstranslate"),
+                &crate::events::unraised_key(al_ir::UI_HELPER_CODEUNIT),
+                Some(&event),
                 test,
                 self.test_object,
             )
@@ -40,7 +51,7 @@ impl Session {
         if !visible {
             return self.caption_class_translate(text);
         }
-        let language = self.global_language;
+        let language = self.global_language();
         if text.is_empty()
             || self
                 .ui_caption_translated
@@ -74,8 +85,8 @@ impl Session {
             Value::Text(before.clone().into()),
         ];
         let call = crate::dispatch::EventCall {
-            object: crate::events::UI_HELPER_TRIGGERS,
-            event: "captionclasstranslate",
+            object: UI_HELPER_TRIGGERS,
+            event: &event,
             element: None,
             isolated: false,
             names: &names,
@@ -83,7 +94,6 @@ impl Session {
         };
         // The platform declares `CaptionExpr: Text[1024]` and `var Translation: Text[1024]` (PtFixtures.al:174-175).
         self.events.publisher_var_lens = vec![None, None, Some(1024)];
-        // Microsoft's own subscribers of the event are not run: no case pins what they do.
         self.events.skip_dependency_subscribers = true;
         let raised = self.raise(&call, &mut args);
         self.events.skip_dependency_subscribers = false;

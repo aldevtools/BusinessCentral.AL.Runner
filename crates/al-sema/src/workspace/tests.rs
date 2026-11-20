@@ -184,7 +184,7 @@ fn parsing_report_and_page_files_in_parallel_gives_the_same_trees_as_parsing_the
     let report = |i: usize| {
         format!(
             "report {} R{i} {{ ProcessingOnly = true; dataset {{ dataitem(A; Integer) {{ column(Num; Number) {{ }} column(Twice; Number * 2) {{ }} dataitem(B; Integer) {{ column(Inner; Number + {i}) {{ }} }} }} }} \
-             requestpage {{ layout {{ area(Content) {{ field(F; Opt) {{ ApplicationArea = All; Visible = Opt > {i}; }} }} }} }} var Opt: Integer; }}",
+                 requestpage {{ layout {{ area(Content) {{ field(F; Opt) {{ ApplicationArea = All; Visible = Opt > {i}; }} }} }} }} var Opt: Integer; }}",
             60000 + i
         )
     };
@@ -280,8 +280,8 @@ fn reference_diagnostics_keep_object_then_source_order_over_many_files() {
                 format!("f{i:03}.al"),
                 format!(
                     "codeunit {} C{i} implements MissingI{i} {{ var R: Record MissingT{i}; L: List of [Codeunit MissingC{i}]; \
-                     procedure P(x: Page MissingP{i}) begin end; }}\n\
-                     tableextension {} E{i} extends MissingBase{i} {{ }}",
+                         procedure P(x: Page MissingP{i}) begin end; }}\n\
+                         tableextension {} E{i} extends MissingBase{i} {{ }}",
                     50000 + i,
                     70000 + i
                 ),
@@ -723,7 +723,7 @@ fn a_moved_stub_does_not_make_the_real_table_ambiguous() {
         &[(
             "t.al",
             "namespace M.NoSeries; table 308 \"No. Series\" { ObsoleteState = Moved; MovedTo = 'x'; \
-             fields { field(1; Code; Code[20]) { } } }",
+                 fields { field(1; Code; Code[20]) { } } }",
         )],
     );
     let lib = app("lib", &["base", "bf"], &[("c.al", "codeunit 131000 \"Lib\" { }")]);
@@ -777,7 +777,7 @@ fn a_removed_table_does_not_make_the_real_table_ambiguous() {
         &[(
             "t.al",
             "namespace M.PowerBIReports; table 36950 \"Dimension Set Entry\" { Access = Internal; \
-             ObsoleteState = Removed; ObsoleteReason = 'r'; ObsoleteTag = '25.0'; fields { field(1; Id; Integer) { } } }",
+                 ObsoleteState = Removed; ObsoleteReason = 'r'; ObsoleteTag = '25.0'; fields { field(1; Id; Integer) { } } }",
         )],
     );
     let sub = app(
@@ -897,8 +897,8 @@ fn a_workspace_grown_by_appended_apps_equals_one_loaded_with_them_all() {
         &[(
             "l.al",
             "tableextension 20 LibCust extends Cust { fields { field(20; Note; Text[20]) { } } }
-             codeunit 21 LibGreet implements IGreet { procedure Hello(): Text begin end; }
-             codeunit 22 LibSub { [EventSubscriber(ObjectType::Codeunit, Codeunit::Pub, 'OnThing', '', false, false)] local procedure S() begin end; }",
+                 codeunit 21 LibGreet implements IGreet { procedure Hello(): Text begin end; }
+                 codeunit 22 LibSub { [EventSubscriber(ObjectType::Codeunit, Codeunit::Pub, 'OnThing', '', false, false)] local procedure S() begin end; }",
         )],
     );
     let top = app(
@@ -908,14 +908,14 @@ fn a_workspace_grown_by_appended_apps_equals_one_loaded_with_them_all() {
             (
                 "t1.al",
                 "tableextension 30 TopCust extends Cust { fields { field(30; Top; Text[20]) { } } }
-                 enumextension 31 TopKind extends Kind { value(1; Top) { } }
-                 interface ITop extends IMore { procedure Top(); }",
+                     enumextension 31 TopKind extends Kind { value(1; Top) { } }
+                     interface ITop extends IMore { procedure Top(); }",
             ),
             (
                 "t2.al",
                 "codeunit 32 TopGreet implements IGreet { procedure Hello(): Text begin end; }
-                 codeunit 33 TopSub { [EventSubscriber(ObjectType::Codeunit, 12, 'OnThing', '', false, false)] local procedure S() begin end; }
-                 codeunit 34 Broken { procedure P() begin x := ; end; }",
+                     codeunit 33 TopSub { [EventSubscriber(ObjectType::Codeunit, 12, 'OnThing', '', false, false)] local procedure S() begin end; }
+                     codeunit 34 Broken { procedure P() begin x := ; end; }",
             ),
         ],
     );
@@ -946,7 +946,7 @@ fn a_workspace_with_workspace_apps_grown_by_apps_of_both_kinds_equals_one_loaded
         &[(
             "b.al",
             "table 10 Cust { fields { field(1; No; Code[20]) { } } }
-             codeunit 12 Pub { [IntegrationEvent(false, false)] procedure OnThing() begin end; }",
+                 codeunit 12 Pub { [IntegrationEvent(false, false)] procedure OnThing() begin end; }",
         )],
     );
     let main = app(
@@ -960,7 +960,7 @@ fn a_workspace_with_workspace_apps_grown_by_apps_of_both_kinds_equals_one_loaded
         &[(
             "x.al",
             "tableextension 20 XCust extends Cust { fields { field(20; Note; Text[20]) { } } }
-             codeunit 22 XSub { [EventSubscriber(ObjectType::Codeunit, Codeunit::Pub, 'OnThing', '', false, false)] local procedure S() begin end; }",
+                 codeunit 22 XSub { [EventSubscriber(ObjectType::Codeunit, Codeunit::Pub, 'OnThing', '', false, false)] local procedure S() begin end; }",
         )],
     );
     let suite = app(
@@ -1016,8 +1016,8 @@ fn a_workspace_cut_back_to_its_first_apps_equals_one_loaded_with_them() {
         &[(
             "b.al",
             "table 10 Cust { fields { field(1; No; Code[20]) { } } }
-             interface IGreet { procedure Hello(): Text; }
-             codeunit 12 Pub { [IntegrationEvent(false, false)] procedure OnThing() begin end; }",
+                 interface IGreet { procedure Hello(): Text; }
+                 codeunit 12 Pub { [IntegrationEvent(false, false)] procedure OnThing() begin end; }",
         )],
     );
     let main = app(
@@ -1031,11 +1031,11 @@ fn a_workspace_cut_back_to_its_first_apps_equals_one_loaded_with_them() {
         &[(
             "s.al",
             "tableextension 20 SCust extends Cust { fields { field(20; Note; Text[20]) { } } }
-             codeunit 21 SGreet implements IGreet { procedure Hello(): Text begin end; }
-             interface IMore extends IGreet { procedure More(); }
-             codeunit 22 SSub { [EventSubscriber(ObjectType::Codeunit, Codeunit::Pub, 'OnThing', '', false, false)] local procedure S() begin end; }
-             dotnet { assembly(mscorlib) { type(System.Text.StringBuilder; SB) { } } }
-             codeunit 23 Broken { procedure P() begin x := ; end; }",
+                 codeunit 21 SGreet implements IGreet { procedure Hello(): Text begin end; }
+                 interface IMore extends IGreet { procedure More(); }
+                 codeunit 22 SSub { [EventSubscriber(ObjectType::Codeunit, Codeunit::Pub, 'OnThing', '', false, false)] local procedure S() begin end; }
+                 dotnet { assembly(mscorlib) { type(System.Text.StringBuilder; SB) { } } }
+                 codeunit 23 Broken { procedure P() begin x := ; end; }",
         )],
     );
     let symbols = al_version::corpus_symbols(27);

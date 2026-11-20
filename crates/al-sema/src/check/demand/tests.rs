@@ -1,10 +1,12 @@
+//! Tests of the demand-driven check (`demand.rs`).
+
 use crate::lower::{Lowered, compile_apps};
 
 /// One pass over an object's text finds the same names as one `text_contains_ignore_case` per name.
 #[test]
 fn one_pass_finds_each_name_as_a_search_per_name_does() {
     let src = "codeunit 50100 X { procedure P() var r: Record Item; begin r.SETFILTER(\"No.\", 'a'); \
-               // Rendering Custom\n end; }\npage 50101 Y { CaptionClass = '1'; }\ncodeunit 50102 Z { }";
+                   // Rendering Custom\n end; }\npage 50101 Y { CaptionClass = '1'; }\ncodeunit 50102 Z { }";
     let file = al_syntax::parse(src, &Default::default());
     let objects: Vec<_> = file
         .syntax()
@@ -132,8 +134,8 @@ fn checking_on_several_threads_compiles_the_same_program() {
                 format!("lib{i}.al"),
                 format!(
                     "codeunit {} Lib{i} {{ procedure Entry() begin Helper(); end; \
-                     local procedure Helper() var T: Text; begin {broken} end; \
-                     procedure Unused() begin end; }}",
+                         local procedure Helper() var T: Text; begin {broken} end; \
+                         procedure Unused() begin end; }}",
                     100 + i
                 ),
             )
@@ -333,14 +335,14 @@ fn a_page_part_s_procedure_called_from_a_dependency_page_is_compiled() {
         (
             "sub.al",
             "namespace Ns.Docs; page 12 \"Sub\" { PageType = ListPart; SourceTable = T; layout { area(Content) { repeater(R) { field(K; Rec.K) { } } group(\"Page\") { } } } \
-             procedure Force() begin end; }",
+                 procedure Force() begin end; }",
         ),
         (
             "host.al",
             "namespace Ns.Docs; page 11 \"Host\" { PageType = Card; SourceTable = T; layout { area(Content) { field(V; Rec.V) { \
-             trigger OnValidate() begin AfterValid(); end; } \
-             part(Lines; \"Sub\") { ApplicationArea = Basic, Suite; Editable = IsEditable; Enabled = IsEditable; SubPageLink = K = field(K); UpdatePropagation = Both; } } } \
-             var IsEditable: Boolean; local procedure AfterValid() begin CurrPage.Lines.Page.Force(); end; }",
+                 trigger OnValidate() begin AfterValid(); end; } \
+                 part(Lines; \"Sub\") { ApplicationArea = Basic, Suite; Editable = IsEditable; Enabled = IsEditable; SubPageLink = K = field(K); UpdatePropagation = Both; } } } \
+                 var IsEditable: Boolean; local procedure AfterValid() begin CurrPage.Lines.Page.Force(); end; }",
         ),
     ];
     let (_, l) = compile(
@@ -356,7 +358,7 @@ fn reading_a_table_runs_no_trigger_and_writing_runs_the_trigger_of_that_operatio
     let dep = [(
         "t.al",
         "table 10 T { fields { field(1; K; Code[10]) { } } \
-         trigger OnInsert() begin end; trigger OnModify() begin end; trigger OnDelete() begin end; }",
+             trigger OnInsert() begin end; trigger OnModify() begin end; trigger OnDelete() begin end; }",
     )];
     let (_, read) = compile(
         "codeunit 1 Main { procedure Go() var R: Record T; begin R.FindFirst(); end; }",
@@ -384,10 +386,10 @@ fn writing_a_table_reaches_its_event_subscribers_for_that_operation_only() {
         (
             "s.al",
             "codeunit 20 Subs {\n\
-             [EventSubscriber(ObjectType::Table, Database::T, 'OnAfterInsertEvent', '', false, false)]\n\
-             local procedure OnIns() begin end;\n\
-             [EventSubscriber(ObjectType::Table, Database::T, 'OnAfterModifyEvent', '', false, false)]\n\
-             local procedure OnMod() begin end; }",
+                 [EventSubscriber(ObjectType::Table, Database::T, 'OnAfterInsertEvent', '', false, false)]\n\
+                 local procedure OnIns() begin end;\n\
+                 [EventSubscriber(ObjectType::Table, Database::T, 'OnAfterModifyEvent', '', false, false)]\n\
+                 local procedure OnMod() begin end; }",
         ),
     ];
     let (_, l) = compile(
@@ -410,16 +412,16 @@ fn a_reached_event_publisher_reaches_the_subscribers_of_that_event() {
         (
             "p.al",
             "codeunit 10 Pub { procedure Do() begin OnThing(); OnOther(); end;\n\
-             [IntegrationEvent(false, false)] local procedure OnThing() begin end;\n\
-             [IntegrationEvent(false, false)] local procedure OnOther() begin end; }",
+                 [IntegrationEvent(false, false)] local procedure OnThing() begin end;\n\
+                 [IntegrationEvent(false, false)] local procedure OnOther() begin end; }",
         ),
         (
             "s.al",
             "codeunit 20 Subs {\n\
-             [EventSubscriber(ObjectType::Codeunit, Codeunit::Pub, 'OnThing', '', false, false)]\n\
-             local procedure A() begin end;\n\
-             [EventSubscriber(ObjectType::Codeunit, Codeunit::Pub, 'OnNever', '', false, false)]\n\
-             local procedure B() begin end; }",
+                 [EventSubscriber(ObjectType::Codeunit, Codeunit::Pub, 'OnThing', '', false, false)]\n\
+                 local procedure A() begin end;\n\
+                 [EventSubscriber(ObjectType::Codeunit, Codeunit::Pub, 'OnNever', '', false, false)]\n\
+                 local procedure B() begin end; }",
         ),
     ];
     let (_, l) = compile(
@@ -438,16 +440,16 @@ fn a_write_anywhere_reaches_the_global_triggers_subscribers_of_that_operation() 
     let dep = [(
         "s.al",
         "codeunit 20 Subs {\n\
-         [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Global Triggers\", 'GetDatabaseTableTriggerSetup', '', false, false)]\n\
-         local procedure Setup(TableId: Integer; var OnDatabaseInsert: Boolean; var OnDatabaseModify: Boolean; var OnDatabaseDelete: Boolean; var OnDatabaseRename: Boolean) begin end;\n\
-         [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Global Triggers\", 'OnDatabaseInsert', '', false, false)]\n\
-         local procedure Ins(RecRef: RecordRef) begin end;\n\
-         [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Global Triggers\", 'OnDatabaseModify', '', false, false)]\n\
-         local procedure Mod(RecRef: RecordRef) begin end; }",
+             [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Global Triggers\", 'GetDatabaseTableTriggerSetup', '', false, false)]\n\
+             local procedure Setup(TableId: Integer; var OnDatabaseInsert: Boolean; var OnDatabaseModify: Boolean; var OnDatabaseDelete: Boolean; var OnDatabaseRename: Boolean) begin end;\n\
+             [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Global Triggers\", 'OnDatabaseInsert', '', false, false)]\n\
+             local procedure Ins(RecRef: RecordRef) begin end;\n\
+             [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Global Triggers\", 'OnDatabaseModify', '', false, false)]\n\
+             local procedure Mod(RecRef: RecordRef) begin end; }",
     )];
     let (_, l) = compile(
         "table 5 Mine { fields { field(1; K; Code[10]) { } } }\n\
-         codeunit 1 Main { procedure Go() var R: Record Mine; begin R.Insert(); end; }",
+             codeunit 1 Main { procedure Go() var R: Record Mine; begin R.Insert(); end; }",
         &dep,
     );
     assert!(compiled(&l, "Subs", "Setup"));
@@ -458,7 +460,7 @@ fn a_write_anywhere_reaches_the_global_triggers_subscribers_of_that_operation() 
     );
     let (_, l) = compile(
         "table 5 Mine { fields { field(1; K; Code[10]) { } } }\n\
-         codeunit 1 Main { procedure Go() var R: Record Mine; begin R.FindFirst(); end; }",
+             codeunit 1 Main { procedure Go() var R: Record Mine; begin R.FindFirst(); end; }",
         &dep,
     );
     assert!(
@@ -528,8 +530,8 @@ fn a_dependency_app_without_a_reference_from_the_workspace_compiles_nothing() {
 }
 
 const T_WITH_TRIGGERS: &str = "table 10 T { fields { field(1; K; Code[10]) { } field(2; V; Integer) { } } \
-     trigger OnInsert() begin end; trigger OnModify() begin end; trigger OnDelete() begin end; \
-     procedure Bump() begin V := 1; Modify(true); end; }";
+         trigger OnInsert() begin end; trigger OnModify() begin end; trigger OnDelete() begin end; \
+         procedure Bump() begin V := 1; Modify(true); end; }";
 
 #[test]
 fn a_write_without_the_record_name_inside_table_code_runs_the_trigger_of_that_operation() {
@@ -560,11 +562,11 @@ fn the_run_object_actions_of_a_workspace_page_run_their_targets() {
     let dep = [(
         "c.al",
         "codeunit 10 Lib { trigger OnRun() begin end; procedure Other() begin end; } \
-         codeunit 11 Unused { trigger OnRun() begin end; }",
+             codeunit 11 Unused { trigger OnRun() begin end; }",
     )];
     let (_, l) = compile(
         "page 5 Mine { PageType = Card; layout { area(Content) { } } \
-         actions { area(Processing) { action(A) { RunObject = Codeunit Lib; } } } }",
+             actions { area(Processing) { action(A) { RunObject = Codeunit Lib; } } } }",
         &dep,
     );
     assert!(compiled(&l, "Lib", "OnRun"));
@@ -581,16 +583,16 @@ fn a_page_named_by_many_test_pages_reaches_its_run_targets_once_and_the_same() {
         (
             "c.al".to_string(),
             "codeunit 10 Lib { trigger OnRun() begin end; procedure Other() begin end; } \
-             codeunit 11 Lib2 { trigger OnRun() begin end; }"
+                 codeunit 11 Lib2 { trigger OnRun() begin end; }"
                 .to_string(),
         ),
         (
             "p.al".to_string(),
             "page 20 P { PageType = Card; layout { area(Content) { } } \
-             actions { area(Processing) { action(A) { RunObject = Codeunit Lib; } \
-             action(B) { RunObject = Page Q; } } } } \
-             page 21 Q { PageType = Card; layout { area(Content) { } } \
-             actions { area(Processing) { action(C) { RunObject = Codeunit Lib2; } } } }"
+                 actions { area(Processing) { action(A) { RunObject = Codeunit Lib; } \
+                 action(B) { RunObject = Page Q; } } } } \
+                 page 21 Q { PageType = Card; layout { area(Content) { } } \
+                 actions { area(Processing) { action(C) { RunObject = Codeunit Lib2; } } } }"
                 .to_string(),
         ),
     ];
@@ -598,7 +600,7 @@ fn a_page_named_by_many_test_pages_reaches_its_run_targets_once_and_the_same() {
         .map(|k| {
             format!(
                 "codeunit {} M{k} {{ procedure A() var P: TestPage P; begin P.OpenView(); end; \
-                 procedure B() var P1: TestPage P; P2: TestPage P; begin P1.OpenEdit(); P2.OpenView(); end; }}",
+                     procedure B() var P1: TestPage P; P2: TestPage P; begin P1.OpenEdit(); P2.OpenView(); end; }}",
                 k + 1
             )
         })
@@ -627,10 +629,10 @@ fn a_page_the_client_opens_reaches_the_subscribers_of_the_events_it_raises_and_n
         (
             "s.al",
             "codeunit 30 Subs {\n\
-             [EventSubscriber(ObjectType::Page, Page::P, 'OnOpenPageEvent', '', false, false)]\n\
-             local procedure Opened() begin end;\n\
-             [EventSubscriber(ObjectType::Page, Page::P, 'OnDeleteRecordEvent', '', false, false)]\n\
-             local procedure Row(var Rec: Record T; var AllowDelete: Boolean) begin end; }",
+                 [EventSubscriber(ObjectType::Page, Page::P, 'OnOpenPageEvent', '', false, false)]\n\
+                 local procedure Opened() begin end;\n\
+                 [EventSubscriber(ObjectType::Page, Page::P, 'OnDeleteRecordEvent', '', false, false)]\n\
+                 local procedure Row(var Rec: Record T; var AllowDelete: Boolean) begin end; }",
         ),
     ];
     let (_, l) = compile(
@@ -657,12 +659,12 @@ fn caption_class_resolvers_are_reached_by_a_workspace_page_that_has_a_caption_cl
     let resolver = (
         "r.al",
         "codeunit 30 Resolver {\n\
-         [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Caption Class\", 'OnResolveCaptionClass', '', false, false)]\n\
-         local procedure R(CaptionArea: Text; CaptionExpr: Text; Language: Integer; var Caption: Text; var Resolved: Boolean) begin end; }",
+             [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Caption Class\", 'OnResolveCaptionClass', '', false, false)]\n\
+             local procedure R(CaptionArea: Text; CaptionExpr: Text; Language: Integer; var Caption: Text; var Resolved: Boolean) begin end; }",
     );
     let with = "table 5 Mine { fields { field(1; K; Code[10]) { } } }\n\
-         page 5 Mine { PageType = Card; SourceTable = Mine; layout { area(Content) { \
-         field(K; Rec.K) { CaptionClass = 'ZZ,x'; } } } }";
+             page 5 Mine { PageType = Card; SourceTable = Mine; layout { area(Content) { \
+             field(K; Rec.K) { CaptionClass = 'ZZ,x'; } } } }";
     let (_, l) = compile(with, &[resolver]);
     assert!(compiled(&l, "Resolver", "R"));
     let without = with.replace("CaptionClass = 'ZZ,x';", "");
@@ -675,6 +677,87 @@ fn caption_class_resolvers_are_reached_by_a_workspace_page_that_has_a_caption_cl
     assert_eq!(u.event, "onresolvecaptionclass");
 }
 
+/// A dependency subscriber whose publisher is a bare id is reached as one written with the name is, or listed as not
+/// compiled (al-runner issue 8466). A `CaptionClassTranslate` subscriber of a dependency is listed whatever code is
+/// reached, except the System Application's Caption Class Impl. (by its app id: a twin of another app is listed).
+/// Apps: `s` holds the subscribers, `p` the codeunits they name, `w` the code under test.
+#[test]
+fn a_dependency_subscriber_written_with_a_bare_id_is_reached_or_listed() {
+    let subs = "codeunit 30 Subs {\n\
+             [EventSubscriber(ObjectType::Codeunit, 10, 'OnX', '', false, false)] local procedure X() begin end;\n\
+             [EventSubscriber(ObjectType::Codeunit, 2000000007, 'MakeDateFilter', '', false, false)]\n\
+             local procedure F(var DateFilterText: Text) begin end;\n\
+             [EventSubscriber(ObjectType::Codeunit, 2000000004, 'CaptionClassTranslate', '', false, false)]\n\
+             local procedure U(Language: Integer; CaptionExpr: Text[1024]; var Translation: Text[1024]) begin end; }\n\
+             codeunit 31 \"Caption Class Impl.\" {\n\
+             [EventSubscriber(ObjectType::Codeunit, Codeunit::\"UI Helper Triggers\", 'CaptionClassTranslate', '', false, false)]\n\
+             local procedure V(Language: Integer; CaptionExpr: Text[1024]; var Translation: Text[1024]) begin end; }";
+    let system = "codeunit 32 \"Caption Class Impl.\" {\n\
+             [EventSubscriber(ObjectType::Codeunit, Codeunit::\"UI Helper Triggers\", 'CaptionClassTranslate', '', false, false)]\n\
+             local procedure V(Language: Integer; CaptionExpr: Text[1024]; var Translation: Text[1024]) begin end; }";
+    let pubs = "codeunit 10 Pub { procedure Fire() begin OnX(); end; [IntegrationEvent(false, false)] local procedure OnX() begin end; }\n\
+             codeunit 2000000007 \"Filter Helper Triggers\" { }";
+    let build = |main: &str| {
+        let app = |id: &str, deps: &[&str], src: &str| AppSource {
+            id: id.into(),
+            name: id.into(),
+            dependencies: deps.iter().map(|d| d.to_string()).collect(),
+            files: vec![(format!("{id}.al"), src.to_string())],
+        };
+        let sa = al_ir::SYSTEM_APPLICATION_APP_ID;
+        compile_apps(
+            vec![
+                app("w", &["s", "p", sa], main),
+                app("s", &["p"], subs),
+                app("p", &[], pubs),
+                app(sa, &[], system),
+            ],
+            vec![
+                AppKind::Workspace,
+                AppKind::Dependency,
+                AppKind::Dependency,
+                AppKind::Dependency,
+            ],
+            &Default::default(),
+        )
+        .1
+    };
+    let listed = |l: &Lowered| -> Vec<(al_ir::PlatformPublisher, String, String)> {
+        let mut v: Vec<_> = (l.program.uncompiled_subscribers.iter())
+            .map(|u| (u.platform, u.event.clone(), u.subscriber.clone()))
+            .collect();
+        v.sort_by(|a, b| (&a.1, &a.2).cmp(&(&b.1, &b.2)));
+        v
+    };
+    let ui = |s: &str| {
+        (
+            al_ir::PlatformPublisher::UiHelperTriggers,
+            "captionclasstranslate".to_string(),
+            s.to_string(),
+        )
+    };
+    let l = build("codeunit 1 Main { procedure Go() begin end; }");
+    assert_eq!(
+        listed(&l),
+        [
+            ui("codeunit \"Caption Class Impl.\""),
+            ui("codeunit \"Subs\""),
+            (
+                al_ir::PlatformPublisher::FilterHelperTriggers,
+                "makedatefilter".to_string(),
+                "codeunit \"Subs\"".to_string()
+            ),
+        ]
+    );
+    let l = build(
+        "codeunit 1 Main { procedure Go() var P: Codeunit Pub; R: Record Integer; T: Text; begin P.Fire(); \
+             R.SetFilter(Number, '1'); T := CaptionClassTranslate('3,x'); end; }",
+    );
+    assert!(compiled(&l, "Subs", "X") && compiled(&l, "Subs", "F"));
+    // The statement reaches no UI Helper subscriber: each stays listed, and al-vm refuses the translation for it.
+    assert_eq!(listed(&l), [ui("codeunit \"Caption Class Impl.\"")]);
+}
+
 #[test]
 fn an_event_published_by_an_extension_reaches_the_subscribers_of_its_base_object() {
     let dep = [
@@ -682,13 +765,13 @@ fn an_event_published_by_an_extension_reaches_the_subscribers_of_its_base_object
         (
             "x.al",
             "tableextension 11 TX extends T { procedure Fire() begin OnThing(); end; \
-             [IntegrationEvent(false, false)] local procedure OnThing() begin end; }",
+                 [IntegrationEvent(false, false)] local procedure OnThing() begin end; }",
         ),
         (
             "s.al",
             "codeunit 30 Subs {\n\
-             [EventSubscriber(ObjectType::Table, Database::T, 'OnThing', '', false, false)]\n\
-             local procedure A() begin end; }",
+                 [EventSubscriber(ObjectType::Table, Database::T, 'OnThing', '', false, false)]\n\
+                 local procedure A() begin end; }",
         ),
     ];
     let (_, l) = compile(
@@ -703,10 +786,10 @@ fn a_record_ref_write_raises_the_global_events_of_that_operation() {
     let dep = [(
         "s.al",
         "codeunit 20 Subs {\n\
-         [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Global Triggers\", 'OnDatabaseModify', '', false, false)]\n\
-         local procedure Mod(RecRef: RecordRef) begin end;\n\
-         [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Global Triggers\", 'OnDatabaseDelete', '', false, false)]\n\
-         local procedure Del(RecRef: RecordRef) begin end; }",
+             [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Global Triggers\", 'OnDatabaseModify', '', false, false)]\n\
+             local procedure Mod(RecRef: RecordRef) begin end;\n\
+             [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Global Triggers\", 'OnDatabaseDelete', '', false, false)]\n\
+             local procedure Del(RecRef: RecordRef) begin end; }",
     )];
     let (_, l) = compile(
         "codeunit 1 Main { procedure Go() var RR: RecordRef; begin RR.Modify(); end; }",
@@ -817,7 +900,7 @@ fn the_triggers_before_and_after_a_table_trigger_that_an_extension_declares_are_
         (
             "x.al",
             "tableextension 11 TX extends T { trigger OnBeforeInsert() begin end; trigger OnAfterInsert() begin end; \
-             trigger OnBeforeDelete() begin end; }",
+                 trigger OnBeforeDelete() begin end; }",
         ),
     ];
     let (_, l) = compile(
@@ -839,14 +922,14 @@ fn subscribers_nothing_compiled_are_listed_by_publisher_unless_they_are_manual()
         (
             "s.al",
             "codeunit 30 Auto {\n\
-             [EventSubscriber(ObjectType::Codeunit, Codeunit::Pub, 'OnX', '', false, false)]\n\
-             local procedure A() begin end; }",
+                 [EventSubscriber(ObjectType::Codeunit, Codeunit::Pub, 'OnX', '', false, false)]\n\
+                 local procedure A() begin end; }",
         ),
         (
             "m.al",
             "codeunit 31 Manual { EventSubscriberInstance = Manual;\n\
-             [EventSubscriber(ObjectType::Codeunit, Codeunit::Pub, 'OnX', '', false, false)]\n\
-             local procedure A() begin end; }",
+                 [EventSubscriber(ObjectType::Codeunit, Codeunit::Pub, 'OnX', '', false, false)]\n\
+                 local procedure A() begin end; }",
         ),
     ];
     // The workspace uses the publisher without calling the event routine, so its subscribers
@@ -885,11 +968,11 @@ fn a_panic_checking_a_reached_routine_refuses_it_and_nothing_else() {
         let dep = [(
             "lib.al".to_string(),
             "codeunit 10 Lib { procedure Fine() begin end; procedure InjectedCheckPanic() begin end; \
-             procedure Other() begin end; }"
+                 procedure Other() begin end; }"
                 .to_string(),
         )];
         let main = "codeunit 1 Main { procedure Go() var L: Codeunit Lib; begin L.Fine(); L.InjectedCheckPanic(); L.Other(); end; \
-                    procedure Clean() var L: Codeunit Lib; begin L.Fine(); end; }";
+                        procedure Clean() var L: Codeunit Lib; begin L.Fine(); end; }";
         let out = compile_with_workers(main, &dep, workers);
         assert!(
             out.contains("internal error while checking"),
@@ -902,7 +985,7 @@ fn a_panic_checking_a_reached_routine_refuses_it_and_nothing_else() {
 fn a_panic_lowering_a_routine_refuses_it_and_nothing_else() {
     let (_, l) = compile(
         "codeunit 1 Main { procedure Go() var L: Codeunit Lib; begin L.Fine(); L.InjectedLowerPanic(); end; \
-         procedure Clean() var L: Codeunit Lib; begin L.Fine(); end; }",
+             procedure Clean() var L: Codeunit Lib; begin L.Fine(); end; }",
         &[(
             "lib.al",
             "codeunit 10 Lib { procedure Fine() begin end; procedure InjectedLowerPanic() begin end; }",
@@ -927,7 +1010,7 @@ fn a_panic_lowering_a_routine_refuses_it_and_nothing_else() {
 fn a_panic_in_the_workspace_refuses_that_routine_only() {
     let (_, l) = compile(
         "codeunit 1 Main { procedure InjectedCheckPanic() begin end; procedure InjectedLowerPanic() begin end; \
-         procedure Fine() begin end; }",
+             procedure Fine() begin end; }",
         &[("lib.al", "codeunit 10 Lib { }")],
     );
     for name in ["InjectedCheckPanic", "InjectedLowerPanic"] {

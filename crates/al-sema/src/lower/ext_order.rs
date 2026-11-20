@@ -16,7 +16,7 @@
 //! all put B first (al-language-xapp-b and -d app.json; the corpus CI publishes D before B). The reporter's own case needs
 //! an order (al-runner issue 7358).
 //!
-//! Everything else is refused: apps on a path with ids against it, more than two apps where one pair has no path, and two
+//! Everything else is refused: other apps on a path with ids against it, more than two apps where one pair has no path, and two
 //! apps without a path whose app id and app name sort differently. The refusal stops the report's run, not a variable of the
 //! report: it is kept in `ir::Report::extension_order`, apart from `unsupported` (the reasons a variable is refused for), and
 //! `ir::Report::run_refusal` reads both where the report runs (al-vm `Session::report_schema`, al-testrun `written.rs`).
@@ -35,7 +35,7 @@ pub(crate) struct ExtOrder {
 }
 
 /// The report extensions `exts` in the order they apply, or why that order is not pinned.
-pub(crate) fn report_extension_order(ws: &Workspace, exts: &[usize]) -> Result<ExtOrder, String> {
+pub(crate) fn report_extension_order(ws: &Workspace, base: usize, exts: &[usize]) -> Result<ExtOrder, String> {
     let pinned = |exts| ExtOrder {
         exts,
         assumes: Vec::new(),
@@ -58,6 +58,13 @@ pub(crate) fn report_extension_order(ws: &Workspace, exts: &[usize]) -> Result<E
     if along_path {
         return Ok(pinned(by_id));
     }
+    if let [consumer, owner] = by_id[..]
+        && app(consumer) != app(owner)
+        && crate::reports::direct_report_dependency(ws, consumer, owner)
+        && modifies_dependency_item(ws, base, consumer, owner)
+    {
+        return Ok(pinned(vec![owner, consumer]));
+    }
     let mut apps: Vec<usize> = by_id.iter().map(|&e| app(e)).collect();
     apps.sort_unstable();
     apps.dedup();
@@ -78,6 +85,16 @@ pub(crate) fn report_extension_order(ws: &Workspace, exts: &[usize]) -> Result<E
         exts: by_id,
         assumes: vec![Assumption::ReportExtIndependentAppOrder],
     })
+}
+
+/// A consumer with a lower object ID than the owner whose item it modifies runs after the owner: pinned at
+/// reports/extensions/TestReportDependencyDataItems.al:12 and :46 (consumer 61124 in
+/// al-language-xapp-c/ReportDependencyC.ReportExt.al:7, owner 61144 in al-language-xapp-b/ReportDependencyB.ReportExt.al:7).
+fn modifies_dependency_item(ws: &Workspace, base: usize, consumer: usize, owner: usize) -> bool {
+    // `dependency_dataset_items` gives the owner's items only when the consumer modifies one as pinned.
+    crate::reports::dependency_dataset_items(ws, consumer, base)
+        .iter()
+        .any(|(source, _, _)| *source == owner)
 }
 
 /// How app `a` sorts against app `b` when no dependency path orders them: by app id, pinned only where the app name sorts

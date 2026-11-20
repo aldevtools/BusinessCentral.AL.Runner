@@ -72,7 +72,7 @@ impl Session {
         self.coverage_cleared(t, temporary, &filters);
         // The platform asks for the table's Global Triggers setup, as the first write to the table, before it looks
         // for rows: a row the setup subscriber inserts is deleted (events/W4GlobalTriggers.al:327, :341), and a table
-        // with no row asks too (session-system/TestEnvironmentUserTenantContracts.al:289-290, `GtTable.DeleteAll()` on an
+        // with no row asks too (session-system/TestEnvironmentUserTenantContracts.al:286-287, `GtTable.DeleteAll()` on an
         // empty table). A temporary record is not pinned and stays as it was.
         if !temporary {
             self.global_setup_asked(t)?;
@@ -137,6 +137,19 @@ impl Session {
                 after = Some(position(t, key, &row));
                 rows.push(row);
             }
+            // The order of the per-row code over two or more rows of a record sorted descending (Ascending(false) or
+            // SetAscending(Field, false)) is pinned only with a FlowField filter (record/crud/R6961DeleteAllFlowFilter.al:
+            // 258-266, `delete_all_flow_filtered`), not here (al-runner issue 7632). One row has no order.
+            let descending = {
+                let r = rec.borrow();
+                !(r.ascending && r.field_descending == 0)
+            };
+            if (events || global || (run && trigger)) && descending && rows.len() >= 2 {
+                return unsupported(
+                    "DeleteAll with delete events, database triggers or OnDelete over two or more rows of a record sorted \
+                     descending: the order of the row code is not pinned",
+                );
+            }
             // One fresh set of table globals for all rows, not the caller's
             // (ADR-021 decision 6; corpus probe TableGlobals_DeleteAll_TriggersRunOnOneInstanceForAllRows).
             let shared = al_builtins::value::TableGlobals::new_shared();
@@ -154,6 +167,8 @@ impl Session {
                     // record/crud/DeleteAllSkipsDeleted.al:DeleteAllTrue_FirstDeletesAnEarlierSibling_NoneEarlier.
                     continue;
                 }
+                let mut row = row;
+                crate::sqltime::read_back(&mut row);
                 let mut st = state_with_fields(rec, row);
                 st.filters.clear();
                 st.globals = shared.share();
