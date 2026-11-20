@@ -86,11 +86,7 @@ impl Lowerer<'_> {
             _ => None,
         };
         match caption_gate(self.ws, self.oi, page, kind, node, platform, proc) {
-            CaptionGate::Keep => Ok(()),
-            CaptionGate::Assume(a) => {
-                self.assume(a);
-                Ok(())
-            }
+            CaptionGate::Keep | CaptionGate::Platform => Ok(()),
             CaptionGate::Refuse(why) => Err(why),
         }
     }

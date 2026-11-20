@@ -37,7 +37,7 @@ use sql_range::InsertShape;
 mod nested_validate;
 pub(crate) use nested_validate::{BeforeImage, ProcXrec, ValidateSite, XREC_OF_RUNNING_CALL};
 mod by_value_view;
-pub(crate) use by_value_view::{BY_VALUE_VIEW, ByValueCall, EventArg, primary_view};
+pub(crate) use by_value_view::{ByValueCall, EventArg, by_value_mark, primary_view};
 mod op_inner;
 mod own_rolled_back_modify;
 mod platform_rows;
@@ -171,7 +171,7 @@ pub(crate) fn media_key_marked(rec: &Rec) -> bool {
 pub(crate) fn buffer_read_refused(rec: &Rec) -> Option<&'static str> {
     rec.borrow()
         .unpinned_buffer
-        .filter(|w| !run_page_link_fields_read(w) && *w != HELD_PART_REC && *w != BY_VALUE_VIEW)
+        .filter(|w| !run_page_link_fields_read(w) && *w != HELD_PART_REC && !by_value_mark(w))
 }
 
 /// Whether field reads of a record whose buffer has the reason `why` run.

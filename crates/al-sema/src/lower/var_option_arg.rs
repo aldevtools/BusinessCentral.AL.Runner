@@ -1,9 +1,9 @@
 //! A `var` Option argument whose declared member list differs from the parameter's (al-runner issues 7994 and 8291). The run
 //! gives a parameter declared without members the caller's members, and the caller's variable its own back after the call
-//! (al-vm `var_option`, assumption var-option-caller-members, corpus PR 1432: tests/al-language/types/enum-option/
-//! OptionVarMemberLists.al and OptionVarMemberlessEvaluate.al; corpus PR 1439: OptionVarMemberlessCallers.al and
-//! OptionVarMemberlessWrites.al). This module refuses each pair of call kind (procedure, interface method) and caller the
-//! probes do not measure, leaves an event publisher called directly to the run (al-vm
+//! (al-vm `var_option`; tests/al-language/types/enum-option/OptionVarMemberLists.al,
+//! OptionVarMemberlessEvaluate.al, OptionVarMemberlessCallers.al, OptionVarMemberlessWrites.al and
+//! OptionVarMemberlessDirectCallers.al). This module refuses each pair of call kind (procedure, interface method) and caller
+//! the corpus does not pin, leaves an event publisher called directly to the run (al-vm
 //! `Session::var_option_publisher_args`), and routes `A[i] := x` into an array of memberless Options to the run, marking
 //! `x` when it is a variable of the routine's `var` section.
 use super::*;
@@ -66,11 +66,10 @@ enum Caller {
     Other,
 }
 
-const REFUSED: &str = "an Option variable handed to a `var` Option parameter with another member list, from a caller the probe does not measure (assumption var-option-caller-members)";
+const REFUSED: &str = "an Option variable handed to a `var` Option parameter with another member list, from a caller the probe does not measure (not pinned)";
 
-/// Whether the probes measure `caller`, with members, handed by `call` to a `var` Option parameter declared without
-/// members (corpus PR 1432, OptionVarMemberLists.al (OVML); corpus PR 1439, OptionVarMemberlessCallers.al (OVMC) and
-/// OptionVarMemberlessWrites.al (OVMW)). An event's cells reach the publisher through a procedure (`RaiseMemberless`), so
+/// Whether the corpus pins `caller`, with members, handed by `call` to a `var` Option parameter declared without
+/// members (OptionVarMemberLists.al (OVML), OptionVarMemberlessCallers.al (OVMC), OptionVarMemberlessWrites.al (OVMW)). An event's cells reach the publisher through a procedure (`RaiseMemberless`), so
 /// they measure the procedure call.
 fn measured_memberless(call: Call, caller: Caller) -> bool {
     use Call::{Interface, Procedure};
@@ -119,8 +118,8 @@ impl Lowerer<'_> {
     ///   names.
     /// - a parameter with members: a record field or an array element (the usual conversion, as on main); from a procedure
     ///   call, a variable of the `var` section with other members or without members (OVML:398, :432), a parameter passed by
-    ///   value (OVMC:131, :215) and a global with members of the running object (corpus PR 1444,
-    ///   OptionVarMemberlessUnheard.al:415, :423).
+    ///   value (OVMC:131, :215) and a global with members of the running object
+    ///   (OptionVarMemberlessUnheard.al:415, :423).
     /// - a procedure's `var` array parameter of memberless Options, the caller an array with members of the `var` section
     ///   or passed by value (OVML:468; OVMC:145).
     ///
@@ -162,12 +161,12 @@ impl Lowerer<'_> {
             (true, false, false) => match caller {
                 Caller::CaptionField => {
                     return Some(
-                        "an Option field whose OptionCaption differs from its members handed to a `var` Option parameter declared without members: the callee reads its captions, which the value does not carry (assumption var-option-caller-members)".into(),
+                        "an Option field whose OptionCaption differs from its members handed to a `var` Option parameter declared without members: the callee reads its captions, which the value does not carry (not pinned)".into(),
                     );
                 }
                 Caller::VarParameterWithMembers => {
                     return Some(
-                        "a `var` parameter with members handed to a `var` Option parameter declared without members: a rejected Evaluate there is measured to leave the first member (assumption var-option-caller-members)".into(),
+                        "a `var` parameter with members handed to a `var` Option parameter declared without members: a rejected Evaluate there is measured to leave the first member (not pinned)".into(),
                     );
                 }
                 _ => measured_memberless(call, caller),
@@ -297,7 +296,7 @@ impl Lowerer<'_> {
 
     /// `A[i] := x` into an element of an array of Options declared without members, `x` an Integer or an Option: the value goes
     /// in unconverted, so that the run tells an Integer, an Option without members and an Option with its own members apart
-    /// in an element that holds a caller's members (al-vm `var_option::element_store`, corpus PR 1439,
+    /// in an element that holds a caller's members (al-vm `var_option::element_store`,
     /// OptionVarMemberlessWrites.al:472); in any other element the run converts it as the assignment would. An Option `x` that is
     /// a variable of the routine's `var` section goes in as `ir::Expr::VarSectionValue`: the measured stores take their value
     /// from one (OVMW:762, :771, :780); the value of another place may hold another list than its declared one. `A := B` of an
@@ -314,7 +313,7 @@ impl Lowerer<'_> {
         match (self.ty_of(&kids[0]), self.ty_of(&kids[1])) {
             (Ty::Array(_, to), Ty::Array(_, from)) => match (*to, *from) {
                 (Ty::Option(to), Ty::Option(from)) if memberless(&to) && !memberless(&from) => Some(Err(
-                    "the assignment of an array of Options with members to an array of Options declared without members: the probe notes that BC does not compile it (AL0145, assumption var-option-caller-members)".into(),
+                    "the assignment of an array of Options with members to an array of Options declared without members: the probe notes that BC does not compile it (AL0145)".into(),
                 )),
                 _ => None,
             },

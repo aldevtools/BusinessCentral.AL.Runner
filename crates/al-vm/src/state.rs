@@ -397,9 +397,12 @@ pub(crate) struct EventState {
     pub(crate) next_aliases: Vec<(usize, Rc<RefCell<crate::Instance>>, usize)>,
     /// Set just before a subscriber is called, taken by its frame: the call is an event subscriber dispatch.
     pub(crate) next_is_subscriber: bool,
-    /// Set by `publish` just before the raise: the publisher routine (object, routine); taken by `raise_to_subscribers`
-    /// for `Session::event_publisher`.
-    pub(crate) by_value_publisher: Option<(usize, usize)>,
+    /// Set by `publish` just before the raise: the publisher routine (object, routine) and the answer of
+    /// `Session::raise_arg_var_param` it took from `raise_arg_var_param`; taken by `raise_to_subscribers` for
+    /// `Session::event_publisher`.
+    pub(crate) by_value_publisher: Option<(usize, usize, bool)>,
+    /// Set by `finish_call` for a publisher call, taken by `publish`, cleared after the call: `Session::raise_arg_var_param`.
+    pub(crate) raise_arg_var_param: bool,
     /// Set just before a subscriber is called, taken by its frame (`records::ByValueCall`), cleared after the call: per
     /// subscriber parameter, what `Session::event_args` says of it.
     pub(crate) next_event_args: Vec<crate::records::EventArg>,

@@ -279,7 +279,7 @@ impl Identity for AlRunnerIdentity {
     fn user_security_id(&self) -> [u8; 16] {
         USER_SECURITY_ID
     }
-    /// The company of the oracle's test database (session-system/TestEnvironmentUserTenantContracts.al:238);
+    /// The company of the oracle's test database (session-system/TestEnvironmentUserTenantContracts.al:235);
     /// AL Runner's `My Company` (ADR-013 decision 9) is superseded.
     fn company_name(&self) -> String {
         "CRONUS International Ltd.".into()
