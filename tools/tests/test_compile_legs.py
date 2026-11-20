@@ -165,7 +165,9 @@ class T(unittest.TestCase):
         self.assertIn("nuget is down", r.stdout)
 
     def test_a_stale_fixture_package_does_not_survive_the_build(self):
-        pk = os.path.join(self.d, "corpus", "tests", "al-language", ".alpackages")
+        # The fake corpus app's package folder, in the scratch dir (corpus-writer tool test; the runner never reads it).
+        app = os.path.join(self.d, "corpus", "tests", "al-language")
+        pk = os.path.join(app, ".alpackages")
         os.makedirs(pk)
         for n in ["P_al-language-xapp-a_0.9.0.0.app", "Microsoft_System_1.0.app"]:
             open(os.path.join(pk, n), "w").close()
