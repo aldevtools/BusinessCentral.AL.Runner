@@ -1104,3 +1104,38 @@ fn issue_8250_report_with_another_global_keeps_mains_result() {
     );
     assert_clean_pass(&o, &["N07_ExtraGlobal"]);
 }
+
+/// Review of PR 8511 round 3, D: an OK over a row AL inserted under the key writes no row. AL's columns stay and the values
+/// are kept outside the rows: main's result.
+#[test]
+fn issue_8250_save_over_a_row_al_wrote_keeps_mains_result() {
+    let o = run_tests(
+        r#"
+    [Test]
+    [HandlerFunctions('HandlerA')]
+    procedure N11_SaveOverALRow()
+    var
+        ObjectOptions: Record "Object Options";
+    begin
+        ClearRows(Report::"Repro Saved Values");
+        ObjectOptions.Init();
+        ObjectOptions."Parameter Name" := 'Last used options and filters';
+        ObjectOptions."Object Type" := ObjectOptions."Object Type"::Report;
+        ObjectOptions."Object ID" := Report::"Repro Saved Values";
+        ObjectOptions."User Name" := UserId();
+        ObjectOptions."Company Name" := CompanyName();
+        ObjectOptions."Public Visible" := true;
+        ObjectOptions."Created By" := 'SOMEONE';
+        ObjectOptions.Insert();
+        Commit();
+        RunSet(Report::"Repro Saved Values", 'OBO-N11');
+        Expect('rows', Format(RowCount(Report::"Repro Saved Values")), '1');
+        FindRow(Report::"Repro Saved Values", ObjectOptions);
+        Expect('public visible', Format(ObjectOptions."Public Visible"), 'Yes');
+        Expect('created by', ObjectOptions."Created By", 'SOMEONE');
+        Expect('next run', RunRead(Report::"Repro Saved Values"), 'OBO-N11');
+    end;
+"#,
+    );
+    assert_clean_pass(&o, &["N11_SaveOverALRow"]);
+}

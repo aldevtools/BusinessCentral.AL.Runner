@@ -45,6 +45,24 @@ pub(crate) struct SavedRow {
     al_changed: bool,
 }
 
+impl SavedRow {
+    /// `r` is the row the runtime wrote: it carries the mark of that write and every column as written.
+    fn is_written_row(&self, t: &al_data::TableDef, r: &al_data::Row) -> bool {
+        let Some(mark) = &self.written else {
+            return false;
+        };
+        let carries_mark = match &r[pos(t, F_OPTION_DATA)] {
+            Value::Blob(b) => b.borrow().render_pending.as_ref().is_some_and(|m| Arc::ptr_eq(m, mark)),
+            _ => false,
+        };
+        carries_mark
+            && self
+                .columns
+                .iter()
+                .all(|(p, v)| Session::same_values(std::slice::from_ref(&r[*p]), std::slice::from_ref(v)))
+    }
+}
+
 impl Session {
     /// After a request page stored `saved` (`store_page_values`): the Object Options row of the save, written when the
     /// report run commits (`settle_saved_row`). `by_ok`: the OK action closed the page.
@@ -120,10 +138,20 @@ impl Session {
             .collect();
         let cx = self.cx.clone();
         let pk: Vec<Value> = key.iter().map(|(_, v)| v.clone()).collect();
-        let standing = self.store.get(&cx, &t, &pk)?.is_some();
-        // The first write gets a SystemId, as every stored row has (platform/seed.rs `insert_seed`). A second OK while a row
-        // stands under the key is not measured (every probe test deletes the rows first, :232 writes after a delete): that
-        // row's SystemId is Unknown, so a read refuses. The stamps are not pinned for either.
+        // Every probe test deletes the rows first (:232 writes after a delete), so an OK over a standing row is not measured.
+        // The runtime's own written row of this report is written over; any other row under the key (AL's, or the
+        // runtime's after AL edited it) stays as it is and the values are kept outside the rows: main's result.
+        let before = self.pages.saved_rows.get(&object).cloned();
+        let standing = match self.store.get(&cx, &t, &pk)? {
+            None => false,
+            Some(r) if before.as_ref().is_some_and(|e| e.is_written_row(&t, &r)) => true,
+            Some(_) => {
+                self.pages.saved_rows.insert(object, kept_outside);
+                return Ok(());
+            }
+        };
+        // The first write gets a SystemId, as every stored row has (platform/seed.rs `insert_seed`). The SystemId of the own
+        // row written over is Unknown, so a read refuses. The stamps are not pinned for either.
         if let Some(p) = t.fields.iter().position(|f| f.id == crate::hostvalues::SYSTEM_ID) {
             row[p] = match standing {
                 false => Value::Guid(self.fresh_system_id()),
@@ -244,32 +272,17 @@ impl Session {
         if !entry.al_changed && !self.store.tables_changed_since(entry.since).contains(&t.object) {
             return Ok(saved);
         }
-        let Some(mark) = entry.written else {
+        if entry.written.is_none() {
             return refuse("a change to the rows that follows a save the runtime keeps outside them");
-        };
+        }
         let key = self.saved_row_key(&t, object as usize);
         let cx = self.cx.clone();
         let pk: Vec<Value> = key.iter().map(|(_, v)| v.clone()).collect();
         let row = self.store.get(&cx, &t, &pk)?;
-        let carries_mark = |r: &al_data::Row| match &r[pos(&t, F_OPTION_DATA)] {
-            Value::Blob(b) => b
-                .borrow()
-                .render_pending
-                .as_ref()
-                .is_some_and(|m| Arc::ptr_eq(m, &mark)),
-            _ => false,
-        };
-        let as_written = |r: &al_data::Row| {
-            carries_mark(r)
-                && entry
-                    .columns
-                    .iter()
-                    .all(|(p, v)| Self::same_values(std::slice::from_ref(&r[*p]), std::slice::from_ref(v)))
-        };
         match row {
             // The row the runtime wrote, with every column as written, also after it was deleted and inserted again: what
             // was stored (:218, :277).
-            Some(r) if as_written(&r) => Ok(saved),
+            Some(r) if entry.is_written_row(&t, &r) => Ok(saved),
             // No row under this session's key, read by the static RunModal with no write transaction open (:114-121
             // `RunRead`): the page's own values (:232 delete, :259 another report keeps its row, :321 another User Name, :339
             // another Company Name, :357 another Parameter Name, :374 after a Cancel).
