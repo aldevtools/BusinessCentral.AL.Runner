@@ -192,6 +192,9 @@ impl al_builtins::native::Ctx for Session {
     fn format_composite(&mut self, v: &Value) -> Option<Result<String, Signal>> {
         self.format_composite_value(v)
     }
+    fn format_fieldref_read(&mut self, fr: &Value) -> Result<(), Signal> {
+        self.format_fieldref_value_read(fr)
+    }
     fn copy_stream_dotnet(&mut self, out: &Value, src: &Value, count: Option<i64>) -> Option<Result<(), Signal>> {
         Some(self.copy_stream_with_dotnet(out, src, count))
     }
