@@ -120,6 +120,7 @@ mod lookup_deferred_refresh_part_move;
 mod lookup_deferred_refresh_second_part;
 mod lookup_global_record_field;
 mod lookup_holds_value;
+mod lookup_move_error_drops_refresh;
 mod lookup_ok_no_row;
 mod lookup_relation_arms;
 mod lookup_relation_find_record;

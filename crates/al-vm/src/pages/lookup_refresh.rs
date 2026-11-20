@@ -320,14 +320,18 @@ impl Session {
             && s.window.len() == 1
     }
 
-    /// A host move that carried the refresh a Lookup left (`LookupLeft::move_refresh`) raised an error that closed the TestPage
-    /// before the refresh ran: the refresh is dropped, so the same variable opens again as a fresh page whose first move reads
-    /// once (assumption `lookup-move-error-drops-refresh`, corpus pull request 1467, testpage/LookupLeftMoveStops.al:368
-    /// Next_MoveReadFails and :450 First_MoveReadFails). A move that raised and left the page open keeps the refresh, as before.
-    pub(super) fn lookup_move_stopped(&mut self, st: &St, moved: &Result<Value, Signal>) {
+    /// A host Next or First that carried the refresh a Lookup left (`LookupLeft::move_refresh`) raised an error that closed the
+    /// TestPage before the refresh ran: the refresh is dropped, so the same variable opens again as a fresh page whose first move
+    /// reads once (assumption `lookup-move-error-drops-refresh`, corpus pull request 1467, testpage/LookupLeftMoveStops.al:368
+    /// Next_MoveReadFails and :450 First_MoveReadFails). Previous and Last, and a move that raised and left the page open, keep
+    /// the refresh as before.
+    pub(super) fn lookup_move_stopped(&mut self, method: PageOp, st: &St, moved: &Result<Value, Signal>) {
         let closed = {
             let s = st.borrow();
-            matches!(moved, Err(Signal::Error(_))) && s.lookup_left.move_refresh() && !s.open
+            matches!(method, PageOp::TestPageNext | PageOp::TestPageFirst)
+                && matches!(moved, Err(Signal::Error(_)))
+                && s.lookup_left.move_refresh()
+                && !s.open
         };
         if closed {
             al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::LookupMoveErrorDropsRefresh);

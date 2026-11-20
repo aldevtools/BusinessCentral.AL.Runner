@@ -285,7 +285,7 @@ impl Session {
                     })
                 });
                 self.test_call_ended(&st, &moved);
-                self.lookup_move_stopped(&st, &moved);
+                self.lookup_move_stopped(method, &st, &moved);
                 let moved = moved?;
                 self.lookup_move_refresh_after(&st, &moved)?;
                 Ok(moved)
