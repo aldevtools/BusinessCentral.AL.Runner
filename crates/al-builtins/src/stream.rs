@@ -219,6 +219,11 @@ fn base64_impl_asks(ctx: &dyn Ctx) -> bool {
             .is_some_and(|(app, object)| app == "System Application" && object == "Base64 Convert Impl.")
 }
 
+/// The mark on the Option Data of the Object Options row the runtime writes for the values a SaveValues request page's OK
+/// confirmed (al-vm `pages/open/saved_row.rs`): only that it holds the value as UTF-8 text is pinned
+/// (reports/ReportObjectOptionsSaveValues.al:197), not the text, so every look at it is refused.
+pub const SAVED_OPTION_DATA: &str = "the Option Data of an Object Options row of saved request page values";
+
 /// Makes `blob` an opaque copy of content behind `mark`: no bytes, and any look refused with the mark.
 pub fn mark_carried(blob: &BlobRef, mark: std::sync::Arc<str>) {
     let mut buf = blob.borrow_mut();
@@ -327,6 +332,13 @@ pub fn render_pending_error(report: &str) -> Signal {
         return Signal::Unsupported(
             "the Tenant Media row and the exported bytes of a Word package (.docx, .dotx, .docm) imported into a Media or MediaSet \
              (BC stores a re-zipped package whose bytes depend on the host: corpus PR 1469, MediaDocxRezip.al)"
+                .into(),
+        );
+    }
+    if report == SAVED_OPTION_DATA {
+        return Signal::Unsupported(
+            "the Option Data of the Object Options row a SaveValues request page's OK wrote (only that it holds the value is \
+             pinned, not its text)"
                 .into(),
         );
     }
