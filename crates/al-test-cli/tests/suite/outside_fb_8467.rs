@@ -1,4 +1,4 @@
-//! The corpus probe of al-runner issue 8467 (corpus pull request 1457, open: tests/al-language/pages/background-tasks/
+//! The corpus probe of al-runner issue 8467 (corpus pull request 1457, merged, not pinned yet: tests/al-language/pages/background-tasks/
 //! BgTaskQueryCache.al, measured on BC 29.1, 34 of 34 green) and the reporter's repro, run here until a bump pins the probe: the
 //! query cache page background tasks and the test session read through (`al-vm` query_cache.rs). Delete this file and the
 //! fixtures when the pin is in the corpus.
