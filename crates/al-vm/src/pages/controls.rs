@@ -13,7 +13,7 @@ impl Session {
             return unsupported("SetValue on a request page after New() (only Close, OK and Cancel are pinned)");
         }
         if st.borrow().lookup_setting_value {
-            st.borrow_mut().lookup_value_set = true;
+            st.borrow_mut().lookup_left.value_written();
         }
         // A filter field (a page variable) whose OnValidate refills a temporary Worksheet: the client reads the new rows
         // (`reread_after_refill_by_validate`, RmTempRefill.al:215-:320), on a collapsed tree too (al-runner issue 6550).
@@ -35,7 +35,7 @@ impl Session {
         st.borrow_mut().row_before_write = held_row;
         let r = self.control_set_value_now(st, idx, args);
         if let (Ok(_), Some(held)) = (&r, refill_held) {
-            if !st.borrow().refresh && self.temp_refill_shape_or_tree(st) && self.held_rows_changed(st)? {
+            if !st.borrow().refresh.asked() && self.temp_refill_shape_or_tree(st) && self.held_rows_changed(st)? {
                 self.reread_after_refill_by_validate(st, &held, expanded)?;
             }
         }
@@ -273,7 +273,7 @@ impl Session {
         }
         activated?;
         // Only an Update() requested by this call's triggers refreshes at its end.
-        st.borrow_mut().refresh = false;
+        st.borrow_mut().refresh.cancel();
         let engine = self.engine();
         let page = page_of(&engine, st);
         let ctl = &page.controls[idx];
@@ -1011,7 +1011,7 @@ impl Session {
                 self.validated_row_typed(st, rec_bound, discard)?;
                 clear_refused_entries(st, idx);
                 let saved = std::mem::take(&mut st.borrow_mut().save_record_called);
-                let update_asked = st.borrow().refresh;
+                let update_asked = st.borrow().refresh.asked();
                 if update_asked && st.borrow().lookup_setting_value {
                     self.defer_lookup_refresh(st);
                 }
@@ -1025,7 +1025,7 @@ impl Session {
                 Ok(Value::Null)
             }
             Err(Signal::Error(e)) => {
-                st.borrow_mut().refresh = false;
+                st.borrow_mut().refresh.cancel();
                 st.borrow_mut().dirty = was_dirty;
                 // The refused edit does not stay (corpus testpage/TestPageBooleanSpelling_Tests.al,
                 // SetValue_TrueFalseSpelling_IsRefused: the stored value is untouched).
@@ -1303,7 +1303,7 @@ impl Session {
         // tests). The other field reads (properties, `As*`) read nothing more either (not pinned; kept for baseline cases 78862
         // Paging_GoToKey_Nav and 68164 TestPage_Control_Texts_GuidDurationAndBlankNumbers), and an action after them is refused
         // (`actions.rs`). Any other control call is refused.
-        if m != PageMethod::Invoke && st.borrow().read_after_goto {
+        if m != PageMethod::Invoke && st.borrow().after_goto.active() {
             // AsBoolean and AsInteger of a field, Visible, Editable and Caption of a field and Enabled of an action read
             // nothing either, and the action after them reads the row twice as after a Value read (pages/lt-wd/
             // WdGoToKeyTypedReads.al:124-247, corpus branch al-runtime-rs-staging-1030c, al-runner issue 6304). Pinned on a
@@ -1327,7 +1327,7 @@ impl Session {
             match m {
                 PageMethod::Value => {}
                 _ if pinned_read && !st.borrow().lookup => {}
-                PageMethod::SetValue => st.borrow_mut().read_after_goto_set = true,
+                PageMethod::SetValue => st.borrow_mut().after_goto.set_value_between(),
                 PageMethod::AsBoolean
                 | PageMethod::AsDate
                 | PageMethod::AsDateTime
@@ -1338,7 +1338,7 @@ impl Session {
                 | PageMethod::Visible
                 | PageMethod::Editable
                 | PageMethod::Enabled
-                | PageMethod::Caption => st.borrow_mut().read_after_goto_doubt = true,
+                | PageMethod::Caption => st.borrow_mut().after_goto.unpinned_call_between(),
                 _ => {
                     return unsupported(format!(
                         "TestField.{m} right after a GoToKey moved a list without OnAfterGetCurrRecord (whether the row is read again is not pinned)"
@@ -1441,14 +1441,9 @@ impl Session {
                 // also after a Value read between them (pages/list-order/QgGoToKeyNextCall.al:404
                 // Plain_LookupHandler_GoToKey_ThenOK `H:goto;R:R1003;H:ok`, :426 Plain_LookupHandler_GoToKey_ValueRead_ThenOK, :629 Nav_LookupHandler_GoToKey_ThenOK).
                 // Other built-in actions after it are not pinned.
-                if std::mem::take(&mut st.borrow_mut().read_after_goto) {
-                    let doubt = {
-                        let mut s = st.borrow_mut();
-                        s.read_after_goto_quiet = false;
-                        s.read_after_goto_set = false;
-                        s.read_after_goto_prev = false;
-                        std::mem::take(&mut s.read_after_goto_doubt)
-                    };
+                let taken = st.borrow_mut().after_goto.take();
+                if let Some(left) = taken {
+                    let doubt = left.doubt();
                     if name != "OK" || !st.borrow().lookup || doubt {
                         return unsupported(format!(
                             "TestAction {name} after a GoToKey moved a list without OnAfterGetCurrRecord (whether the row is read again is not pinned)"

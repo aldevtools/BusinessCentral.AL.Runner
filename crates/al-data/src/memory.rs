@@ -151,6 +151,13 @@ fn next_stamp() -> u64 {
     STAMPS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1
 }
 
+/// The counts behind [`MemStore::accesses`] and [`MemStore::writes`].
+#[derive(Debug, Default)]
+struct AccessCounts {
+    accesses: std::cell::Cell<u64>,
+    writes: std::cell::Cell<u64>,
+}
+
 #[derive(Clone, Default)]
 pub struct MemStore {
     tables: Tables,
@@ -220,6 +227,9 @@ pub struct MemStore {
     /// While set, the tables whose access is watched and the first one that was read or written ([`MemStore::watch`]).
     /// Shared by the clones of the store, so a snapshot, a restore or a rollback does not lose it.
     watch: Option<std::rc::Rc<std::cell::RefCell<Watch>>>,
+    /// How many reads and writes of a table the store took ([`MemStore::accesses`], [`MemStore::writes`]). Shared by the
+    /// clones of the store, so a snapshot put back does not lower them.
+    counts: std::rc::Rc<AccessCounts>,
     /// The store stands for the database ([`MemStore::as_database`]): a Decimal it keeps carries no trailing zeros.
     database: bool,
 }
@@ -943,8 +953,20 @@ impl MemStore {
         hit
     }
 
-    /// Notes an access to table `object` for the watch.
+    /// How many reads and writes of a table this store and its clones took so far (al-testrun `isolation/failed_test.rs`:
+    /// what a failed test reached of the tables).
+    pub fn accesses(&self) -> u64 {
+        self.counts.accesses.get()
+    }
+
+    /// How many of [`MemStore::accesses`] were writes.
+    pub fn writes(&self) -> u64 {
+        self.counts.writes.get()
+    }
+
+    /// Notes an access to table `object` for the watch and the count of [`MemStore::accesses`].
     fn seen(&self, object: u32) {
+        self.counts.accesses.set(self.counts.accesses.get() + 1);
         if let Some(w) = &self.watch {
             let mut w = w.borrow_mut();
             if w.tables.contains(&object) {
@@ -961,6 +983,7 @@ impl MemStore {
 
     /// Notes an access to every watched table (a read of the whole store).
     fn seen_all(&self) {
+        self.counts.accesses.set(self.counts.accesses.get() + 1);
         if let Some(w) = &self.watch {
             let mut w = w.borrow_mut();
             if w.hit.is_none() {
@@ -1243,12 +1266,6 @@ impl MemStore {
         }
     }
 
-    /// Whether table `t` changed in the open transaction, in the company of `cx`.
-    pub fn table_changed(&self, cx: &AccessContext, t: &TableDef) -> bool {
-        let slot = slot(cx, t);
-        self.versions.get(&slot) != self.committed_versions.get(&slot)
-    }
-
     /// Whether a table of `company` changed in the open transaction.
     pub fn company_changed(&self, company: &str) -> bool {
         self.versions
@@ -1267,7 +1284,9 @@ impl MemStore {
         self.versions.get(&slot(cx, t)).copied().unwrap_or(0)
     }
 
+    /// A write of the table: a new version, and one more of [`MemStore::writes`].
     fn touch(&mut self, cx: &AccessContext, t: &TableDef) {
+        self.counts.writes.set(self.counts.writes.get() + 1);
         self.counter = next_stamp();
         self.versions.insert(slot(cx, t), self.counter);
     }

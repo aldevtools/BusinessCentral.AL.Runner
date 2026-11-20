@@ -9,7 +9,7 @@ use al_testrun::Outcome;
 use al_testrun::isolation::TestIsolation;
 use al_testrun::runtime::{CorpusRuntime, RunOptions, SuiteRun};
 
-const ROWS: &str = r#"
+pub(super) const ROWS: &str = r#"
 table 50700 "Row" { fields { field(1; K; Code[30]) { } } keys { key(PK; K) { Clustered = true; } } }
 table 50701 "Counter" { fields { field(1; "Entry No."; Integer) { AutoIncrement = true; } field(2; Note; Text[30]) { } }
     keys { key(PK; "Entry No.") { Clustered = true; } } }
@@ -21,7 +21,7 @@ codeunit 50702 "Rows"
 }
 "#;
 
-fn results(src: &str, isolation: TestIsolation) -> Vec<(u32, String, Outcome, Vec<&'static str>)> {
+pub(super) fn results(src: &str, isolation: TestIsolation) -> Vec<(u32, String, Outcome, Vec<&'static str>)> {
     let opts = RunOptions {
         isolation: Some(isolation),
         ..Default::default()
@@ -57,25 +57,25 @@ fn results(src: &str, isolation: TestIsolation) -> Vec<(u32, String, Outcome, Ve
     out
 }
 
-fn run(src: &str, isolation: TestIsolation) -> Vec<(u32, String, Outcome)> {
+pub(super) fn run(src: &str, isolation: TestIsolation) -> Vec<(u32, String, Outcome)> {
     results(src, isolation)
         .into_iter()
         .map(|(c, t, o, _)| (c, t, o))
         .collect()
 }
 
-fn outcome<'a>(o: &'a [(u32, String, Outcome)], test: &str) -> &'a Outcome {
+pub(super) fn outcome<'a>(o: &'a [(u32, String, Outcome)], test: &str) -> &'a Outcome {
     &o.iter()
         .find(|(_, t, _)| t == test)
         .unwrap_or_else(|| panic!("no {test} in {o:?}"))
         .2
 }
 
-fn fails_with(o: &Outcome, part: &str) -> bool {
+pub(super) fn fails_with(o: &Outcome, part: &str) -> bool {
     matches!(o, Outcome::Fail(m) if m.contains(part))
 }
 
-fn not_run(o: &Outcome, part: &str) -> bool {
+pub(super) fn not_run(o: &Outcome, part: &str) -> bool {
     matches!(o, Outcome::NotRun(m) if m.contains(part))
 }
 
@@ -311,13 +311,16 @@ codeunit 50734 "Reads Old Later"
 // test that reaches that sequence is refused (al-runner issue 8002); a new sequence's Insert is rolled back with the failed
 // test (IsolProbeAfterRollback.Codeunit.al:58-78, :117-132 under runner 61301).
 #[test]
+// A failed test that wrote a row: what it leaves of a sequence it restarted is not measured (corpus PR 1465 measured the
+// restart only in a failed test without table access, B3 SqCommitFail.al:1051, failed_test_isolation.rs).
 fn under_a_codeunit_runner_only_a_test_that_reaches_the_changed_sequence_after_a_failure_is_refused() {
     let src = r#"
 codeunit 50735 "Old Sequence Failed"
 {
     Subtype = Test;
     trigger OnRun() begin NumberSequence.Insert('OLDSEQ6', 1, 1); NumberSequence.Insert('OTHERSEQ6', 5, 1); end;
-    [Test] procedure A_RestartsAndFails() begin NumberSequence.Restart('OLDSEQ6', 10); Error('A fails on purpose'); end;
+    var Rows: Codeunit "Rows";
+    [Test] procedure A_RestartsAndFails() begin NumberSequence.Restart('OLDSEQ6', 10); Rows.Put('A'); Error('A fails on purpose'); end;
     [Test] procedure B_DrawsFromAnother() begin if NumberSequence.Next('OTHERSEQ6') <> 5 then Error('B'); end;
     [Test] procedure C_DrawsFromTheOldOne() begin NumberSequence.Next('OLDSEQ6'); end;
 }
@@ -339,8 +342,9 @@ codeunit 50735 "Old Sequence Failed"
 
 // al-runner issue 8152, the reporter's repro unchanged (a comment on the issue): a failed test that committed rows keyed by a
 // NumberSequence it inserted. Under Codeunit isolation the failed test is undone back to its last Commit()
-// (SdIsolCommitError.Codeunit.al:26-27 under runner 61301, E2 :43-49 and E3 :52-55, rows); what that leaves of a sequence inserted since the tests began is not measured,
-// so the later test that reaches the sequence is refused instead of drawing a number a committed row already holds.
+// (SdIsolCommitError.Codeunit.al:26-27 under runner 61301, E2 :43-49 and E3 :52-55, rows), and the sequence it inserted
+// before that Commit() stays: the next insert takes number 3 (corpus PR 1465, cell C4 SqCommitFail.al:130, SqReader.al:75;
+// assumption sequence-after-failed-test).
 const REPRO_8152: &str = r#"
 table 50200 "Repro Sequenced Entry"
 {
@@ -421,13 +425,19 @@ codeunit 50202 "Repro Seq After Passed Test"
 "#;
 
 #[test]
-fn issue_8152_after_a_failed_test_that_committed_a_new_sequence_the_next_reader_is_refused() {
+fn issue_8152_after_a_failed_test_that_committed_a_new_sequence_the_next_test_continues_it() {
+    let flagged = results(REPRO_8152, TestIsolation::Codeunit);
+    let t2 = flagged.iter().find(|r| r.1 == "T2_InsertAfterFailedTest").unwrap();
+    assert_eq!(
+        (&t2.2, t2.3.as_slice()),
+        (&Outcome::Pass, ["sequence-after-failed-test"].as_slice()),
+        "{flagged:?}"
+    );
     let o = run(REPRO_8152, TestIsolation::Codeunit);
     assert_eq!(
         outcome(&o, "T1_CommitTwiceThenFail"),
         &Outcome::Fail("deliberate failure after two commits".into())
     );
-    assert!(not_run(outcome(&o, "T2_InsertAfterFailedTest"), "'ReproSeq'"), "{o:?}");
     assert_eq!(outcome(&o, "U1_CommitTwice"), &Outcome::Pass, "{o:?}");
     assert_eq!(outcome(&o, "U2_InsertAfterPassedTest"), &Outcome::Pass, "{o:?}");
     // Without a Commit() the failed test takes the new sequence back with its rows (IsolProbeAfterRollback.Codeunit.al:58-78,
@@ -451,7 +461,8 @@ codeunit 50736 "Untrusted Failure"
 {
     Subtype = Test;
     trigger OnRun() begin NumberSequence.Insert('CS1', 1, 1); NumberSequence.Insert('CS2', 1, 1); NumberSequence.Insert('CS3', 1, 1); end;
-    [Test] procedure T01_RestartFails() begin NumberSequence.Restart('CS1', 7); Error('boom'); end;
+    var Rows: Codeunit "Rows";
+    [Test] procedure T01_RestartFails() begin NumberSequence.Restart('CS1', 7); Rows.Put('T01'); Error('boom'); end;
     [Test] procedure T02_NextRefused() begin if NumberSequence.Next('CS1') = 0 then; end;
     [Test] procedure T03_DeleteFails() begin NumberSequence.Delete('CS2'); NumberSequence.Restart('CS3', 40); Error('boom'); end;
     [Test] procedure T04_DeletedGone() begin if NumberSequence.Exists('CS2') then Error('exists'); end;
@@ -680,11 +691,13 @@ codeunit 50762 "Reads Storage"
     assert!(not_run(outcome(&o, "SeesTheKey"), "isolated storage"), "{o:?}");
 }
 
-// The probe of the review of al-runner PR 8363 (shapes A to I). A, B, D and H have no Commit() in a test method body:
-// the failed test takes a new sequence back (IsolProbeAfterRollback.Codeunit.al:58-69 S3 inserts, :77-78 S4 fails, :117-123
-// S8 finds it gone, under runner 61301). C, E, F and I have one, and the next reader of the new sequence is refused. The
-// runner's own commits (the end of a passing test, the commit after an AL runner's OnBeforeTestRun) are no Commit() of a
-// test body. G: Next on a sequence that was there before the tests is kept (SeqCarry.al:26-27).
+// The probe of the review of al-runner PR 8363 (shapes A to I). The failed test of A, B, D, E and F reaches no table, and
+// the new sequence stays (corpus PR 1465, assumption sequence-after-failed-test: A as D1 SqCommitFail.al:758, B and D as
+// C13 :541, E as D2 :800, F as D6 :1225). C inserts, writes a row and commits before it fails: the sequence stays (C4 :130).
+// H inserts in an AutoRollback test, which the probe does not measure: main's result, the failed test takes it back
+// (IsolProbeAfterRollback.Codeunit.al:58-69 S3 inserts, :77-78 S4 fails, :117-123 S8 finds it gone, under runner 61301).
+// I commits after its insert and fails without table access, which the probe does not measure: the next reader is refused.
+// G: Next on a sequence that was there before the tests is kept (SeqCarry.al:26-27).
 const SEQ_SHAPES: &str = r#"
 table 50300 "Seq Row" { fields { field(1; "Entry No."; Integer) { } } keys { key(PK; "Entry No.") { Clustered = true; } } }
 codeunit 50301 "Seq A"
@@ -762,13 +775,13 @@ fn seq_run() -> Vec<(u32, String, Outcome)> {
 }
 
 #[test]
-fn without_a_commit_in_a_test_body_a_failed_test_takes_a_new_sequence_back() {
+fn a_failed_test_keeps_a_new_sequence_unless_an_autorollback_test_inserted_it() {
     let o = seq_run();
     for (test, seen) in [
-        ("A3_ReadsExists", "OBS exists=No"),
+        ("A3_ReadsExists", "OBS exists=Yes"),
         ("A4_ReadsNothing", "OBS ran"),
-        ("B2_ReadsExists", "OBS exists=No"),
-        ("D3_ReadsExists", "OBS exists=No"),
+        ("B2_ReadsExists", "OBS exists=Yes"),
+        ("D3_ReadsExists", "OBS exists=Yes"),
         ("H3_ReadsExists", "OBS exists=No"),
         ("C3_ReadsRowsOnly", "OBS rows=1"),
         ("C4_FailsPlain", "C4 deliberate"),
@@ -780,16 +793,28 @@ fn without_a_commit_in_a_test_body_a_failed_test_takes_a_new_sequence_back() {
 }
 
 #[test]
-fn after_a_commit_in_a_test_body_the_next_reader_of_a_new_sequence_is_refused() {
-    let o = seq_run();
-    for (test, seq) in [
-        ("C2_ReadsExists", "'SEQC'"),
-        ("E3_ReadsExists", "'SEQE'"),
-        ("F3_ReadsExists", "'SEQF'"),
-        ("I4_ReadsExists", "'SEQI'"),
+fn after_a_commit_in_a_test_body_a_measured_failure_keeps_the_new_sequence_and_an_unmeasured_one_is_refused() {
+    let flagged = results(SEQ_SHAPES, TestIsolation::Codeunit);
+    for test in [
+        "A3_ReadsExists",
+        "B2_ReadsExists",
+        "C2_ReadsExists",
+        "D3_ReadsExists",
+        "E3_ReadsExists",
+        "F3_ReadsExists",
     ] {
-        assert!(not_run(outcome(&o, test), seq), "{test}: {o:?}");
+        let r = flagged.iter().find(|r| r.1 == test).unwrap();
+        assert_eq!(
+            (&r.2, r.3.as_slice()),
+            (
+                &Outcome::Fail("OBS exists=Yes".into()),
+                ["sequence-after-failed-test"].as_slice()
+            ),
+            "{test}: {flagged:?}"
+        );
     }
+    let o = seq_run();
+    assert!(not_run(outcome(&o, "I4_ReadsExists"), "'SEQI'"), "{o:?}");
     assert_eq!(outcome(&o, "I2_PassesWithoutSequence"), &Outcome::Pass, "{o:?}");
 }
 

@@ -31,7 +31,7 @@ mod state;
 pub(crate) use state::*;
 mod baseline;
 mod sequence_start;
-pub use sequence_start::SequenceStart;
+pub use sequence_start::{DataAccess, SequenceStart};
 mod storage_checkpoint;
 pub use storage_checkpoint::{StorageCheckpoint, Unkept};
 mod capture;
@@ -321,11 +321,12 @@ pub struct InstallFacts {
     /// in one part writes (A2 item d). A read of `SystemRowVersion`, `SystemCreatedAt` or `SystemModifiedAt` of a row
     /// install code wrote is refused.
     pub row_order: std::collections::HashMap<usize, String>,
-    /// Table object -> (app under test, the assumption its install rows rely on): the install session of an app under test
-    /// raises Company Triggers OnCompanyOpen(Completed) to the subscribers of every installed app (ADR-046 amendment 1, A4
-    /// item 4, owner decision 2026-10-19), an assumption until probe Q3. A test that touches the table outside install code
-    /// is a flagged pass.
-    pub assumed: std::collections::HashMap<usize, (usize, al_builtins::assumptions::Assumption)>,
+    /// Table object -> the assumptions its install rows rely on: the install session of an app under test raises Company
+    /// Triggers OnCompanyOpen(Completed) to the subscribers of every installed app (ADR-046 amendment 1, A4 item 4, owner
+    /// decision 2026-10-19), an assumption until probe Q3; the install order of ids above the probed range; an install
+    /// subscriber written with the bare id (al-testrun `install::assume_by_id_install_tables`). A test that touches the
+    /// table outside install code is a flagged pass, through each of them.
+    pub assumed: std::collections::HashMap<usize, std::collections::BTreeSet<al_builtins::assumptions::Assumption>>,
 }
 
 /// The codeunit objects with one id, first in program order.
@@ -901,6 +902,8 @@ pub struct Session {
     /// Each sequence this session restarted or deleted, as it was just before the first of those (`numbers_taken.rs` in
     /// al-testrun: what a codeunit under runner 130450 leaves of it).
     pub(crate) sequences_changed: std::collections::HashMap<(String, String), sessionops::SequenceChange>,
+    /// What AL code reached of the table data and when each sequence was inserted (`sequence_start.rs`).
+    access_notes: sequence_start::Notes,
     /// Why no NumberSequence call of this session can have BC's answer (`storage_checkpoint.rs`); `None`: every call runs.
     numbers_unmeasured: Option<Rc<str>>,
     /// The one instance of each `SingleInstance = true` codeunit in this session.
@@ -1444,6 +1447,7 @@ impl Session {
             setup_caption_read_early: false,
             sequences,
             sequences_changed: Default::default(),
+            access_notes: Default::default(),
             table_connections: Default::default(),
             default_table_connection: Default::default(),
             crm_stores: Default::default(),

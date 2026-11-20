@@ -96,7 +96,7 @@ impl Session {
         let engine = self.engine();
         let object = host.object as usize;
         if host.lookup
-            || host.run_static != Some(false)
+            || host.modal_run != ModalRun::Variable
             || host.tree_calls_unknown
             || engine.object_facts[object].page_type != Some(ir::PageType::Document)
         {

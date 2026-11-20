@@ -398,7 +398,7 @@ impl Session {
         let Some(t) = self.company_table() else {
             return unsupported("Database.CopyCompany without the Company table");
         };
-        if self.store.table_changed(&self.cx, &t) {
+        if self.store.written_since_commit(&self.cx, &t) {
             return unsupported(
                 "Database.CopyCompany after a write to the Company table in the open transaction (not pinned)",
             );

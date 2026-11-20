@@ -47,9 +47,8 @@ impl Session {
         {
             let s = st.borrow();
             if !(s.open
-                && s.refresh
-                && s.refresh_by_update
-                && (s.refresh_update_false || s.empty_after_action)
+                && s.refresh.asked_by_update()
+                && (s.refresh.update_false() || s.empty_after_action)
                 && !s.dirty
                 && s.cursor == Cursor::None)
             {
@@ -60,7 +59,7 @@ impl Session {
         let mode = st.borrow().mode;
         match mode {
             PageMode::Edit => {
-                if !(n == 1 && st.borrow().refresh_update_false && self.empty_edit_worksheet_kept(st)?) {
+                if !(n == 1 && st.borrow().refresh.update_false() && self.empty_edit_worksheet_kept(st)?) {
                     return Ok(false);
                 }
             }
@@ -80,9 +79,7 @@ impl Session {
         }
         {
             let mut s = st.borrow_mut();
-            s.refresh = false;
-            s.refresh_by_update = false;
-            s.refresh_update_false = false;
+            s.refresh.cancel_update();
             s.empty_after_action = false;
         }
         self.page_first_row(st)?;

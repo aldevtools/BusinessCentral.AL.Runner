@@ -45,7 +45,7 @@ impl Session {
         let fresh = self.initial_fields(rec.borrow().table as usize);
         rec.borrow_mut().fields = fresh;
         let mut s = st.borrow_mut();
-        s.refresh = false;
+        s.refresh.cancel();
         s.cursor = Cursor::None;
         s.gone_view_list = true;
         s.gone_temp_list = true;
@@ -108,7 +108,7 @@ impl Session {
         {
             let mut s = st.borrow_mut();
             s.gone_blank_no_new_line = false;
-            s.refresh = false;
+            s.refresh.cancel();
         }
         // The cursor stands on the row Rec holds. The page reads it once (:252 `refill log` `R:10;` before) and then lists its rows as
         // when it opens on that row (:252 `R:10;R:10;R:10;C:10;` after one row, :459 `R:20;R:20;R:10;R:20;R:20;C:20;` with the
@@ -124,7 +124,7 @@ impl Session {
             s.cursor = Cursor::Row;
             s.window = Vec::new();
             s.draft = false;
-            s.refresh = false;
+            s.refresh.cancel();
         }
         self.page_trigger(st, "onaftergetrecord", vec![])?;
         if first {
