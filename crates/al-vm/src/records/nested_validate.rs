@@ -63,7 +63,7 @@ pub(crate) struct ValidateRun {
     pub(crate) site: Option<ValidateSite>,
     /// The record's fields when its triggers start, the new value in.
     pub(crate) entered: Vec<Value>,
-    /// A record method ran on the record since (`Session::note_record_op_under_validate`): it was written or read again.
+    /// A record method that writes the record or reads it again ran on it since (`Session::note_record_op_under_validate`).
     pub(crate) touched: bool,
 }
 
@@ -161,8 +161,40 @@ impl Session {
         }
     }
 
-    /// Notes that a record method runs on `rec`: each running Validate of it counts as touched (`ValidateRun::touched`).
-    pub(crate) fn note_record_op_under_validate(&mut self, rec: &Rec) {
+    /// Notes that record method `method` runs on `rec`: when it writes the record (its buffer or its row) or reads it again,
+    /// each running Validate of it counts as touched (`ValidateRun::touched`). A method that only reads the buffer or the view
+    /// (TestField, GetFilter, FieldCaption) or sets the view (SetRange, SetCurrentKey) does not; one that changes a field
+    /// value (CalcFields) shows in the fields (`ValidateRun::entered`).
+    pub(crate) fn note_record_op_under_validate(&mut self, method: RecordOp, rec: &Rec) {
+        use RecordOp::*;
+        let writes_or_reads = matches!(
+            method,
+            Clear
+                | Copy
+                | ChangeCompany
+                | Delete
+                | DeleteAll
+                | Find
+                | FindFirst
+                | FindLast
+                | FindSet
+                | Get
+                | GetBySystemId
+                | Init
+                | Insert
+                | LoadFields
+                | Modify
+                | ModifyAll
+                | Next
+                | Rename
+                | SetPosition
+                | TransferFields
+                | Truncate
+                | Validate
+        );
+        if !writes_or_reads {
+            return;
+        }
         let handle = Rc::as_ptr(rec) as usize;
         for v in self.validate_sites.iter_mut().filter(|v| v.handle == handle) {
             v.touched = true;
