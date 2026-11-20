@@ -823,8 +823,8 @@ impl Session {
 
     /// Drops the mark of a file that holds a placeholder report output, for a delete of the file: a delete looks at no byte
     /// (ADR-040 amendment 2026-11-11). AL `File.Erase` of a saved report file after it was opened, copied and closed:
-    /// reports/layouts-saveas/AMRdlcSaveAs.al:179. The DotNet delete calls it only for the shape of assumption
-    /// dotnet-file-delete-placeholder (`placeholder_files.rs`). Whether the path held one.
+    /// reports/layouts-saveas/AMRdlcSaveAs.al:179. The DotNet delete calls it only for the shape
+    /// HtmlServerFileRoundTrip.al:149 pins (`placeholder_files.rs`). Whether the path held one.
     pub(crate) fn forget_placeholder_file(&mut self, path: &str) -> bool {
         if self.placeholder_file_mark(path).is_none() {
             return false;

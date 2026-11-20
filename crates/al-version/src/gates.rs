@@ -202,10 +202,6 @@ pub enum Gate {
     /// null-App-ID row. Before, the lookup keys on the App ID. Not consumed yet: the
     /// permission provider is not implemented.
     SuperPermissionSetIgnoresAppId,
-    /// `Environment Information.IsSaaSInfrastructure` is false. Before, it is true (the oracle
-    /// runs of 27.5 and 28.5 answer true, the 29.0 run false, on the same container setup). It is
-    /// `NavUserAccountHelper.IsAzure()` in the server-class registry.
-    NotSaaSInfrastructure,
     /// The header of the dataset XML that `Report.SaveAs(..., ReportFormat::Xml, ...)` writes has a
     /// `ReportCaption` element after `ReportName` and, after `Minute`, the company information
     /// block. Before, it has neither.
@@ -392,6 +388,8 @@ pub enum Gate {
     /// BC 27 and 28 hold `Observer.Discard()` (reports/runtime/BdRegionTests.al:143-398; consumed by al-builtins
     /// format/region.rs). The Media row of an app's baseline JPEG logo has the Mime Type `image/jpeg` from BC 29 and `image/png`
     /// on BC 27.5 and 28.5 (al-language-onprem/session-system/UsAppLogoJpeg.al:111-115; consumed by al-vm platform/apps.rs).
+    /// The Html a Word layout converts to names the converter's version: Aspose.Words 26.10.0 on BC 27.5 and 28.5, 26.8.0 on
+    /// BC 29 (reports/html-email-body/RxHtmlWidenTests.al:17-18); the runtime does not consume that fact.
     ProbedValuesDifferFrom29,
     /// `Base64Convert.ToBase64` of a Text with `TextEncoding::Windows` or `MSDos` and no code page gives the code page 1252
     /// bytes from BC 28 (`äöü` is `5Pb8`); before, the UTF-8 bytes (`w6TDtsO8`) (types/PVBase64.al, corpus bump 13).
@@ -552,7 +550,6 @@ impl Gate {
         Gate::FlowFieldSumIntegerIntoBigInteger,
         Gate::FlowFieldMinMaxOverRowVersionRefused,
         Gate::SuperPermissionSetIgnoresAppId,
-        Gate::NotSaaSInfrastructure,
         Gate::ReportSaveAsXmlHeaderHasCompanyBlock,
         Gate::ReportSaveAsDataItemIdentity,
         Gate::FeatureKeyListChangedFrom28,
@@ -632,7 +629,6 @@ impl Gate {
             Gate::FlowFieldSumIntegerIntoBigInteger
             | Gate::FlowFieldMinMaxOverRowVersionRefused
             | Gate::SuperPermissionSetIgnoresAppId
-            | Gate::NotSaaSInfrastructure
             | Gate::ReportSaveAsXmlHeaderHasCompanyBlock
             | Gate::PermissionObjectNameLongerFrom29
             | Gate::QueryAggregateOverBigInteger
@@ -796,10 +792,6 @@ impl Gate {
             Gate::SuperPermissionSetIgnoresAppId => &[Evidence {
                 file: "permissions/TestMetadataPermissionSet.al",
                 lines: "98,106",
-            }],
-            Gate::NotSaaSInfrastructure => &[Evidence {
-                file: "session-system/TestEnvironmentUserTenantContracts.al",
-                lines: "169",
             }],
             Gate::PermissionObjectNameLongerFrom29 => &[Evidence {
                 file: "permissions/W6PermissionColumns.al",
@@ -1565,6 +1557,12 @@ const PROBED_VALUES_DIFFER_FROM_29: &[Evidence] = &[
     Evidence {
         file: "reports/html-email-body/RxHtmlHashTests.al",
         lines: "156,181,203,230,266,277,285,306,327,348,370,407,422,445,460,484,495",
+    },
+    // Corpus bump to 8fcde9a6: the Html of Word layouts with a styles, theme, numbering or header part, a caption and a BlankZero
+    // column carries the converter's version too (Aspose.Words 26.8.0 on BC 29, 26.10.0 on 27 and 28; RxHtmlWidenTests.al:20-21).
+    Evidence {
+        file: "reports/html-email-body/RxHtmlWidenTests.al",
+        lines: "411,416,421,426,452,457,462,467,494,499,504,509,537,542,547,552,582,587,592,597,628,633,638,643,655,682,687,692,697",
     },
     // Corpus bump to 2c02f723: on BC 29 a temporary ListPart of a Document reads its rows a third time after an action and runs
     // OnAfterGetCurrRecord on its empty rows after Next (HiddenPartJournalShape.al:20-22).

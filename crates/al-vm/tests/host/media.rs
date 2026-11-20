@@ -490,9 +490,9 @@ fn media_set_import_file_third_member_is_refused() {
     );
 }
 
-// onprem streams/media/MediaFiles.al:470-526 RD_Media_ImportFile_Docx pins the import of a .docx file (HasValue Yes). What BC stores is
-// a re-zipped package on every major (corpus PR 1469, MediaDocxRezip.al:392 Docx_MediaImportFile_Stored, measured on Windows BC 27.5,
-// 28.5 and 29.0; the 27 and 28 lines of MediaFiles.al:521-523 expect the file's bytes, which Windows BC does not store): a look at the
+// onprem streams/media/MediaFiles.al:470-530 RD_Media_ImportFile_Docx pins the import of a .docx file (HasValue Yes). What BC stores is
+// a re-zipped package (on BC 27 and 28 neither the Tenant Media content nor the export is the file, :525-527; BC 29 ignores both cells,
+// :515-519; corpus PR 1469, MediaDocxRezip.al:392 Docx_MediaImportFile_Stored, measured on Windows BC 27.5, 28.5 and 29.0): a look at the
 // row or at the export is refused on every major.
 const DOCX_ROW: &str =
     "Rec.Code := 'A'; Rec.Insert(); T.Get(id); T.CalcFields(Content); exit(Format(T.Content.Length()));";
@@ -642,7 +642,7 @@ fn export_file_in(bc: &str, serve: bool, company_build: bool, body: &str) -> Res
 const LEN: &str = "local procedure Len(Name: Text): Integer var G: File; begin if not Exists(Name) then exit(-1); \
                    G.Open(Name); exit(G.Len()); end;";
 
-// onprem streams/media/MediaFiles.al:772 RJ_MediaSet_ExportFile_ConfigPackageShape (Config. XML Exchange.ExportMediaSet): ExportFile
+// onprem streams/media/MediaFiles.al:776 RJ_MediaSet_ExportFile_ConfigPackageShape (Config. XML Exchange.ExportMediaSet): ExportFile
 // returns the number of items and writes <prefix>-1 with no extension. Whether a JPEG's bytes are kept is not pinned since corpus
 // bump 62 (Windows BC 29.0 re-encodes it, the Linux image keeps it; corpus issue 723): the file is written with a mark and a look
 // at its bytes is refused, on BC 29 too.
@@ -662,7 +662,7 @@ fn media_set_export_file_of_one_jpeg_writes_prefix_dash_1() {
     assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
 }
 
-// MediaFiles.al:772: file -n holds the n-th Tenant Media Set row in primary key order (ID, Media ID); how BC orders the Media
+// MediaFiles.al:776: file -n holds the n-th Tenant Media Set row in primary key order (ID, Media ID); how BC orders the Media
 // ID Guids is not pinned, so a set of two items is refused.
 #[test]
 fn media_set_export_file_of_two_items_is_refused() {
@@ -676,7 +676,7 @@ fn media_set_export_file_of_two_items_is_refused() {
     assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
 }
 
-// MediaFiles.al:772: a PNG item is re-encoded (W7Media.al:141-145, every major), a JPEG on BC 27 and 28 (corpus bump 61):
+// MediaFiles.al:776: a PNG item is re-encoded (W7Media.al:141-145, every major), a JPEG on BC 27 and 28 (corpus bump 61):
 // the count and the name are pinned, the bytes are not, so the file is written with a mark and any look at it is refused.
 #[test]
 fn media_set_export_file_of_a_re_encoded_item_counts_it_and_refuses_a_look_at_the_file() {

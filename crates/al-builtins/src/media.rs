@@ -378,9 +378,10 @@ fn media_export(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out 
         }
         return unsupported("Media.ExportStream of a media the session does not hold");
     };
-    // A Word package stored re-zipped exports without an error (streams/media/MediaFiles.al:500-502 RD_Media_ImportFile_Docx; Config. XML
-    // Exchange.ExportMedia in the DemoTool company build) and gives the stored bytes (corpus PR 1469, MediaDocxRezip.al:667 'export is the
-    // stored content'): the stream is marked with the import's mark, so a look at what it holds is refused (`media_word_package`).
+    // A Word package stored re-zipped exports without an error (al-language-onprem/streams/media/MediaFiles.al:500-505
+    // RD_Media_ImportFile_Docx; Config. XML Exchange.ExportMedia in the DemoTool company build) and gives the stored bytes (corpus PR
+    // 1469, MediaDocxRezip.al:667 'export is the stored content'): the stream is marked with the import's mark, so a look at what it
+    // holds is refused (`media_word_package`).
     let docx_mark = obj.pending.as_deref() == Some(crate::stream::MEDIA_DOCX_REZIPPED);
     // A placeholder report output exports byte for byte with its mark (`placeholder_output`).
     if let Some(mark) = obj
@@ -685,7 +686,7 @@ fn set_import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> O
 }
 
 /// `MediaSet.ExportFile(Prefix)` as Config. XML Exchange.ExportMediaSet calls it in the company build (onprem
-/// streams/media/MediaFiles.al:772, RJ_MediaSet_ExportFile_ConfigPackageShape): it returns the number of items and writes one file per
+/// streams/media/MediaFiles.al:776, RJ_MediaSet_ExportFile_ConfigPackageShape): it returns the number of items and writes one file per
 /// item, `<Prefix>-1`, `<Prefix>-2` ... with no extension; file n holds the Tenant Media content of the n-th Tenant Media Set
 /// row of the set in primary key order (ID, Media ID), not Item(n); only a set of one item is served. Only the company build's file system is served (owner rule
 /// 2026-10-22), and only items `MediaSet.ImportFile` read: each is written as a file a look at is refused (a PNG is re-encoded
