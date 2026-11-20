@@ -36,8 +36,8 @@ impl Session {
 
     /// The date-format error of a Date filter whose whole text `value` no Date filter reads under the session language, for the
     /// closing-date text of another language's letter (`closing_letter_date_filter`, its caller and shape). 1031: the pinned German
-    /// text. 1030, 1036, 1044, 1053: the language's text as measured (assumption `date-filter-error-by-language`, corpus PR 1428
-    /// FilterGlobalLanguageDateBool.al:229-372 at 04e1fa0a), which quotes the filter as written. Every other language refuses.
+    /// text. 1030, 1036, 1044, 1053: the language's text (record/filters/FilterGlobalLanguageDateBool.al:326 for 1030, :347-348
+    /// for 1036, :359 for 1044, :369 for 1053), which quotes the filter as written. Every other language refuses.
     pub(crate) fn date_filter_error_in_language(&self, t: &TableDef, pos: usize, value: &str) -> Signal {
         if self.global_language() == 1031 {
             return self.german_date_filter_error(t, pos, value, value);
@@ -63,7 +63,6 @@ impl Session {
                 ));
             }
         };
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DateFilterErrorByLanguage);
         Signal::Error(Box::new(AlError {
             message,
             code: "Filter:CSide".into(),

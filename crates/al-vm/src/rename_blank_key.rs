@@ -227,10 +227,10 @@ impl Session {
                     if r.filters.is_empty()
                         && r.key == 0
                         && r.adhoc.is_none()
-                        && tx.locked_tables.is_empty()
-                        && !tx.lock_tx
-                        && !tx.recref_lock_tx
-                        && tx.lock_unpinned.is_none() =>
+                        && tx.open.locked_tables.is_empty()
+                        && !tx.open.locks.lock_tx
+                        && !tx.open.locks.recref_lock_tx
+                        && tx.open.locks.lock_unpinned.is_none() =>
                 {
                     Ok(false)
                 }

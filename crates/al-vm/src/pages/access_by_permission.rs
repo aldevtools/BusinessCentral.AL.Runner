@@ -47,7 +47,7 @@ impl Session {
     /// (Y84PermAbp.al: a guarded part is left off, and `GuardPart.IdCol.Visible()` raises "The part with ID = n was not found on
     /// the page."). An undecidable guard refuses.
     pub(super) fn part_removed(&self, st: &St, idx: usize) -> Result<bool, Signal> {
-        if self.area_removed(st, idx)? || self.access_by_permission_off(st, idx)? {
+        if self.area_removed(st, idx) || self.access_by_permission_off(st, idx)? {
             return Ok(true);
         }
         // A part whose page the session may not execute is left off too. Guarded part: Y84PermAbp.al Y84_Abp_ObjectKinds `GOP`,
@@ -61,9 +61,8 @@ impl Session {
     }
 
     /// Whether the application areas or AccessByPermission take control `idx` off the page (after
-    /// [`access_by_permission_check`](Self::access_by_permission_check) passed); areas the page did not know refuse
-    /// (`area_removed`).
-    pub(super) fn off_page(&self, st: &St, idx: usize) -> Result<bool, Signal> {
-        Ok(self.area_removed(st, idx)? || self.access_by_permission_off(st, idx).unwrap_or(false))
+    /// [`access_by_permission_check`](Self::access_by_permission_check) passed).
+    pub(super) fn off_page(&self, st: &St, idx: usize) -> bool {
+        self.area_removed(st, idx) || self.access_by_permission_off(st, idx).unwrap_or(false)
     }
 }

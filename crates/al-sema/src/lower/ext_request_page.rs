@@ -48,7 +48,7 @@ pub(crate) fn pinned_request_page(
     if a != b || a.len() != 2 {
         return None;
     }
-    let order = super::ext_order::report_extension_order(ws, changing).ok()?;
+    let order = super::ext_order::report_extension_order(ws, oi, changing).ok()?;
     if !order.independent_pair {
         return None;
     }

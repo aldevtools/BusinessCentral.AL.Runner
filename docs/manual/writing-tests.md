@@ -426,25 +426,6 @@ Risks:
   summary counts it apart from clean passes. `--junit` adds a `dev_endpoint_ui`
   property with the answered calls, and `--output-json` adds `uiAnswered` to the
   test.
-- Microsoft's Test Runner app empties the session's application areas before
-  every test, and al-runner does the same. The dev-endpoint test runner of
-  BC 28 and 29 does not, and what the areas hold there is not measured yet.
-  With the flag on BC 28 and 29, until the test method sets the areas with
-  `ApplicationArea(...)`, these are not run:
-  - a call of `ApplicationArea()`, also in a test codeunit's `OnRun`;
-  - a page control whose `ApplicationArea` list has no `All` (a field or an
-    action, when the test touches it), or that sits in a group whose list has
-    no `All`;
-  - opening a page that has a part whose `ApplicationArea` list has no `All`.
-    A page copies the areas when it opens, so setting them in the page's own
-    `OnInit` does not help.
-
-  A control with `ApplicationArea = All` is on the page whatever the areas
-  are, so a test that touches only such controls still runs.
-- On BC 27 the flag has no effect, also not on the application areas:
-  al-runner empties them before every test, as Microsoft's Test Runner app
-  does. The flag changes nothing there because the BC 27 dev-endpoint runner
-  answers no UI call either; whether it empties the areas is not measured.
 
 In `serve`, the `runTests` field `devEndpointUi` does the same.
 

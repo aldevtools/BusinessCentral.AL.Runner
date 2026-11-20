@@ -113,10 +113,10 @@ impl Session {
         }
         let root = shown_root(st);
         if !Rc::ptr_eq(st, &root) {
-            st.borrow_mut().lookup_part_touched = true;
+            st.borrow_mut().lookup_left.touched_as_part();
         }
         if method == PageOp::TestFieldLookup {
-            root.borrow_mut().lookup_value_set = false;
+            root.borrow_mut().lookup_left.lookup_started();
         }
         self.pages.shown_frames.push((Rc::as_ptr(&root), Vec::new()));
         let r = f(self);
@@ -159,7 +159,7 @@ impl Session {
                         && target.is_none()
                         && notes.is_empty()
                         && r.is_ok()
-                        && root.borrow().lookup_cancelled =>
+                        && root.borrow().lookup_left.cancelled() =>
                 {
                     0
                 }
@@ -541,7 +541,7 @@ impl Session {
         }
         // The Lookup left the refresh for later on a tree `defer_lookup_refresh` checked, also with a CardPart FactBox
         // (corpus writer Y63, Y15LookupThreeFieldLink.al Y63_CardPart_LookupReadEachControl `resource no` `R2`).
-        if with_parts && root.borrow().lookup_refresh_deferred {
+        if with_parts && root.borrow().lookup_left.deferred() {
             return true;
         }
         let engine = self.engine();
@@ -597,11 +597,11 @@ impl Session {
         // Y15 host); a Lookup that did not leave it is refused, and so is a host with row triggers whose part links no field or
         // one (not measured).
         if with_parts && (self.declares(root, "onaftergetrecord") || self.declares(root, "onaftergetcurrrecord")) {
-            if !root.borrow().lookup_refresh_deferred {
+            if !root.borrow().lookup_left.deferred() {
                 // A cancelled Lookup (OnLookup returned false, no OnValidate) shows the values as they are: nothing changed
                 // (Y15LookupThreeFieldLink.al:272 Y15_ThreeLink_LookupCancelled `resource no` '', `part` R1).
                 // Measured with three entries only.
-                return three && notes.is_empty() && !root.borrow().lookup_value_set;
+                return three && notes.is_empty() && !root.borrow().lookup_left.value_set();
             }
             return true;
         }

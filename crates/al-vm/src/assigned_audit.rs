@@ -12,8 +12,9 @@
 //! - the variable is in the state the cells' variables are in: no filter, no MarkedOnly and no other company, and no load
 //!   fields, the default ReadIsolation, filter group 0 and no marks (`default_variable`).
 //!
-//! `ModifyAll` on an audit field (:594-632) has no rule: two of its three observations run after the rollback of the
-//! `asserterror` before them, over a row the variable did not insert, and no case measures that state apart from the first.
+//! `ModifyAll` on an audit field (:594-631) is not a write of this module: it raises its error before it writes, whatever the
+//! buffer holds (its three observations run in three buffer and transaction states, the same error each time), see
+//! `Session::modify_all_audit_field` in `recmeta.rs`.
 
 use crate::Session;
 use crate::globaltriggers::GlobalOp;
@@ -84,7 +85,7 @@ fn same(a: &Value, b: &Value) -> bool {
     al_builtins::ops::compare(a, b).ok() == Some(std::cmp::Ordering::Equal)
 }
 
-fn non_blank(v: &Value) -> bool {
+pub(crate) fn non_blank(v: &Value) -> bool {
     matches!(crate::recmeta::is_blank(v), Ok(false))
 }
 
@@ -485,7 +486,7 @@ impl Session {
 
 /// The variable is in the state the cells' variables are in after `Clear` (:143) or as declared (:641): no filter, no
 /// MarkedOnly, no other company, no load fields, the default ReadIsolation, filter group 0 and no marks.
-fn default_variable(r: &al_builtins::value::RecordState) -> bool {
+pub(crate) fn default_variable(r: &al_builtins::value::RecordState) -> bool {
     r.filters.is_empty()
         && !r.marked_only
         && r.company.is_none()

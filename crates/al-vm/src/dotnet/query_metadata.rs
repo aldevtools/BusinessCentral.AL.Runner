@@ -115,7 +115,7 @@ fn from_stream(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: &[Value]) ->
             QUERY_FIELDS,
             vec![
                 Value::Integer(field_no),
-                Value::Integer(table.id.unwrap_or(0) as i32),
+                Value::Integer(crate::object_ids::declared_id(table.id)? as i32),
                 Value::Text(c.name.clone().into()),
             ],
         ));

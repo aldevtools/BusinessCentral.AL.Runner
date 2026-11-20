@@ -271,30 +271,6 @@ impl Session {
         r
     }
 
-    /// After OnInit: the handler of `bind` for the page `st` opens, and whether the open is unattended (a RunObject
-    /// action that found no handler).
-    fn bind_open_handler(
-        &mut self,
-        st: &St,
-        mode: PageMode,
-        bind: Option<UiKind>,
-    ) -> Result<(Option<Handler>, bool), Signal> {
-        let Some(kind) = bind else {
-            return Ok((None, false));
-        };
-        if !self.pages.lenient_bind {
-            return Ok((Some(self.bind_page_handler(kind, st.borrow().object)?), false));
-        }
-        // A RunObject action opens the page, runs OnInit and OnOpenPage, and only then
-        // looks for a handler; with none it goes no further, so the first row is never
-        // read (testpage/TestPageRunObjectContracts.al:330-346: "card.OnInit;card.OnOpenPage;").
-        // A page opened in Create mode reads its new row first (:testpage/TestPageCreateModeNewRecordArgs.al:273-296).
-        let object = st.borrow().object;
-        let handler = self.try_bind_page_handler(kind, object)?;
-        let unattended = handler.is_none() && mode != PageMode::New;
-        Ok((handler, unattended))
-    }
-
     /// The object index of the source table of the page `st` runs; `None` for a page without one.
     fn page_source_table(&self, st: &St) -> Option<usize> {
         let engine = self.engine();
@@ -391,11 +367,7 @@ impl Session {
             reset_row_line_flags(&mut s);
             s.parts = Vec::new();
             s.closed_parts = Vec::new();
-            // The page is built from the areas it opens with; whether they are known is decided here too, before OnInit
-            // can set the session's areas (`session_areas.rs`).
-            let (areas, known) = self.page_application_areas();
-            s.areas = areas;
-            s.areas_unknown = !known;
+            s.areas = self.application_areas.clone();
         }
         if let Err(e) = self.create_parts(st) {
             self.mark_closed(st);
@@ -545,8 +517,20 @@ impl Session {
             // The parts' OnInit runs between the host's OnInit and its OnOpenPage (corpus
             // testpage/parts/TestPartTriggerOrderAndRefresh.al:236-247).
             self.init_parts(st)?;
-            let (bound, unattended) = self.bind_open_handler(st, mode, bind)?;
-            handler = bound;
+            let mut unattended = false;
+            if let Some(kind) = bind {
+                if self.pages.lenient_bind {
+                    // A RunObject action opens the page, runs OnInit and OnOpenPage, and only then
+                    // looks for a handler; with none it goes no further, so the first row is never
+                    // read (testpage/TestPageRunObjectContracts.al:330-346: "card.OnInit;card.OnOpenPage;").
+                    // A page opened in Create mode reads its new row first (:testpage/TestPageCreateModeNewRecordArgs.al:273-296).
+                    let object = st.borrow().object;
+                    handler = self.try_bind_page_handler(kind, object)?;
+                    unattended = handler.is_none() && mode != PageMode::New;
+                } else {
+                    handler = Some(self.bind_page_handler(kind, st.borrow().object)?);
+                }
+            }
             // The parameters string of `Report.RunRequestPage(Id, Parameters)`, after OnInit (see `run_request_page`).
             let seed = st.borrow_mut().request_seed.take();
             if let Some(xml) = seed {
@@ -561,7 +545,7 @@ impl Session {
                 self.refuse_seeded_view_after_init(&inst, object, &xml)?;
                 self.apply_request_parameters(&inst, &exts, object, &xml, crate::pages::ParamsCall::RunRequestPage)?;
             }
-            self.restore_page_values(st);
+            self.restore_page_values(st)?;
             self.check_page_events(st)?;
             // A temporary source: Rec as it stands before OnOpenPage, to tell a row set before the open from one OnOpenPage set.
             let before_open = if has_source { self.temp_rec_position(st)? } else { None };
@@ -1434,7 +1418,7 @@ impl Session {
             && !rec.borrow().temporary
             && st.borrow().modal
             && !st.borrow().lookup
-            && st.borrow().run_static == Some(false)
+            && st.borrow().modal_run == ModalRun::Variable
             && !self.declares(st, "onnextrecord");
         if dialog_run_modal {
             return Ok(true);
@@ -1583,8 +1567,7 @@ fn reset_row_line_flags(s: &mut crate::pages::PageState) {
     s.gone_blank_no_new_line = false;
     s.gone_blank_shows_line = false;
     s.gone_view_list = false;
-    s.list_view_switched = false;
-    s.list_edit_back = false;
+    s.list_view.reset();
 }
 
 /// The flags a new host row, a first part access and New() on a request

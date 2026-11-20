@@ -162,12 +162,16 @@ codeunit 50340 "Random Reached"
 "#;
 
 fn run() -> CorpusRuntime {
+    run_src(SRC)
+}
+
+fn run_src(src: &str) -> CorpusRuntime {
     CorpusRuntime::run_suites_with(
         vec![AppSource {
             id: "main".into(),
             name: "main".into(),
             dependencies: vec![],
-            files: vec![("main.al".into(), SRC.into())],
+            files: vec![("main.al".into(), src.into())],
         }],
         vec![al_sema::AppKind::Workspace],
         &[],
@@ -250,4 +254,51 @@ fn a_refused_test_that_can_seed_random_distrusts_a_drawing_failure_only() {
     let rt = run();
     assert!(not_trusted(outcome(&rt, 50350, "B_DrawsAndFails")));
     assert!(matches!(outcome(&rt, 50350, "C_FailsWithoutDrawing"), Outcome::Fail(_)));
+}
+
+// The handler functions a test names are part of its reach on both sides (review of al-runner PR 8363, probe trust): a
+// failure that reads the table only in its handler, after a refused test that writes it, is not trusted; so is a failure
+// after a refused test that writes the table only in its handler. A refused test whose handlers write nothing leaves the
+// failure a failure.
+const HANDLERS: &str = r#"
+table 50335 "Trust Row" { fields { field(1; K; Code[10]) { } } keys { key(PK; K) { } } }
+codeunit 50336 "Later Handler Reads"
+{
+    Subtype = Test;
+    var Seen: Integer;
+    [Test] [HandlerFunctions('H')] procedure T1_RefusedWritesInBody() var R: Record "Trust Row"; begin R.K := 'T1'; R.Insert(); end;
+    [Test] [HandlerFunctions('MsgRead')] procedure T2_ReadsInHandlerAndFails() begin Message('x'); if Seen = 0 then Error('T2 sees no row'); end;
+    [MessageHandler] procedure MsgRead(T: Text[1024]) var R: Record "Trust Row"; begin Seen := R.Count(); end;
+    [FilterPageHandler] procedure H(var Builder: FilterPageBuilder): Boolean begin end;
+}
+codeunit 50337 "Earlier Handler Writes"
+{
+    Subtype = Test;
+    [Test] [HandlerFunctions('H,MsgW')] procedure U1_RefusedWritesInHandler() begin Message('x'); end;
+    [Test] procedure U2_ReadsInBodyAndFails() var R: Record "Trust Row"; begin if R.IsEmpty() then Error('U2 sees no row'); end;
+    [MessageHandler] procedure MsgW(T: Text[1024]) var R: Record "Trust Row"; begin R.K := 'U1'; R.Insert(); end;
+    [FilterPageHandler] procedure H(var Builder: FilterPageBuilder): Boolean begin end;
+}
+codeunit 50338 "Handler Writes Nothing"
+{
+    Subtype = Test;
+    [Test] [HandlerFunctions('H,Msg')] procedure V1_RefusedWritesNothing() begin Message('x'); end;
+    [Test] procedure V2_ReadsInBodyAndFails() var R: Record "Trust Row"; begin if R.IsEmpty() then Error('V2 sees no row'); end;
+    [MessageHandler] procedure Msg(T: Text[1024]) begin end;
+    [FilterPageHandler] procedure H(var Builder: FilterPageBuilder): Boolean begin end;
+}
+"#;
+
+#[test]
+fn the_handler_functions_a_test_names_count_on_both_sides_of_the_trust_check() {
+    let rt = run_src(HANDLERS);
+    for (codeunit, test) in [(50336, "T1_RefusedWritesInBody"), (50337, "U1_RefusedWritesInHandler")] {
+        assert!(matches!(outcome(&rt, codeunit, test), Outcome::NotRun(_)), "{test}");
+    }
+    assert!(not_trusted(outcome(&rt, 50336, "T2_ReadsInHandlerAndFails")));
+    assert!(not_trusted(outcome(&rt, 50337, "U2_ReadsInBodyAndFails")));
+    assert_eq!(
+        outcome(&rt, 50338, "V2_ReadsInBodyAndFails"),
+        Outcome::Fail("V2 sees no row".into())
+    );
 }

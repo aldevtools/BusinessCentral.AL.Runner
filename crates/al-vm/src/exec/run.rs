@@ -495,7 +495,10 @@ impl Session {
     fn op_assert(&mut self, chunk: &Chunk, f: &mut Frame, pc: usize, stop: usize, from: u16) -> Result<usize, Signal> {
         let nl = chunk.nlocals;
         let open = self.cap_stmt_depth();
-        match self.run_range::<true>(chunk, f, pc, stop) {
+        self.tx.assert_depth += 1;
+        let body = self.run_range::<true>(chunk, f, pc, stop);
+        self.tx.assert_depth -= 1;
+        match body {
             Ok(at) if at == stop => {
                 self.refuse_pending_at_assert_end()?;
                 Err(Signal::Error(Box::new(al_builtins::native::AlError {

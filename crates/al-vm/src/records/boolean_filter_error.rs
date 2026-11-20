@@ -5,9 +5,8 @@ use super::*;
 
 impl Session {
     /// A Boolean filter under GlobalLanguage 1030 in the measured shape whose whole text as written is `Ja` (the true rows), `Nej`
-    /// (the false rows) or `Yes` (the Danish error) (assumption `boolean-filter-words-danish`, corpus PR 1428
-    /// FilterGlobalLanguageDateBool.al:375-391 and :429-441 at 04e1fa0a). `Ok(None)` for every other field, language and text: the parser
-    /// reads them as on main.
+    /// (the false rows) or `Yes` (the Danish error) (record/filters/FilterGlobalLanguageDateBool.al:380, :382, :434). `Ok(None)` for
+    /// every other field, language and text: the parser reads them as on main.
     pub(super) fn danish_boolean_filter(
         &self,
         shape: &super::measured_setfilter::MeasuredSetFilter,
@@ -20,7 +19,6 @@ impl Session {
         let Some(read) = al_builtins::filter_boolean_words::danish_filter_text(shape.text) else {
             return Ok(None);
         };
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::BooleanFilterWordsDanish);
         match read {
             Some(b) => Ok(Some(FilterExpr::Eq(Value::Boolean(b)))),
             None => Err(self.boolean_filter_error(t, pos, shape.text, shape.text)),
@@ -46,8 +44,7 @@ impl Session {
             1031 => format!(
                 "Der Filter '{text}' ist für das Feld '{field}' der Tabelle '{table}' nicht gültig. Der Wert „{word}“ kann nicht in Typ Boolean ausgewertet werden."
             ),
-            // Assumption boolean-filter-words-danish (al-runner issue 8197): the reporter's measured text, reached only from
-            // `danish_boolean_filter`.
+            // record/filters/FilterGlobalLanguageDateBool.al:434, reached only from `danish_boolean_filter`.
             1030 => format!(
                 "Filteret \"{text}\" er ikke gyldigt for feltet {field} i tabellen {table}. V\u{e6}rdien \"{word}\" kan ikke evalueres til typen Boolean."
             ),

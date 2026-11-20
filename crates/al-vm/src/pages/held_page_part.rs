@@ -42,12 +42,7 @@ impl Session {
     pub(super) fn mark_closed_by_test(&mut self, st: &St) {
         let clean = {
             let s = st.borrow();
-            s.opened_by_test
-                && !s.modal
-                && !s.close_vetoed
-                && !s.close_error
-                && !s.test_close_vetoed
-                && !s.test_closed_in_handler
+            s.opened_by_test && !s.modal && !s.close.refused_or_handled()
         };
         let by = if clean { ClosedBy::TestClose } else { ClosedBy::Other };
         self.mark_closed_as(st, by);
@@ -63,11 +58,9 @@ impl Session {
             return unsupported(REFUSED);
         }
         let shown = own_part(&st.borrow().closed_parts, control);
-        let hidden = || -> Result<Option<St>, Signal> {
-            let Some(c) = own_part(&st.borrow().hidden_parts, control) else {
-                return Ok(None);
-            };
-            Ok((!(self.part_eliminated(st, control) || self.off_page(st, control)?)).then_some(c))
+        let hidden = || {
+            own_part(&st.borrow().hidden_parts, control)
+                .filter(|_| !(self.part_eliminated(st, control) || self.off_page(st, control)))
         };
         let found = match by {
             // A page the test opened and closed with TestPage.Close(), held in a variable (the sender of its own event a
@@ -77,7 +70,7 @@ impl Session {
             // HeldSenderPartAccess.al:286-307 HS01 `closed.touch` 2, `closed.read`, `closed.mark`; :311-323 HS02; :328-346
             // HS03; :762-789 HS08 and :881-908 HS12, hidden and shown part).
             Some(ClosedBy::TestClose) => {
-                let found = shown.map_or_else(hidden, |c| Ok(Some(c)))?;
+                let found = shown.or_else(hidden);
                 if let Some(c) = &found {
                     self.mark_held_part_rec(c);
                 }
@@ -93,9 +86,7 @@ impl Session {
             // option switched to part B, gives its row 10000). A handler that does nothing leaves the close to the platform,
             // and the part answers the same (pages/parts/NeverRanReadRec.al:101 P182b_HostRanAndClosed_PartReadRec
             // `id=1 name=one`).
-            Some(ClosedBy::Action | ClosedBy::PageCode | ClosedBy::Platform) if modal_run => {
-                shown.map_or_else(hidden, |c| Ok(Some(c)))?
-            }
+            Some(ClosedBy::Action | ClosedBy::PageCode | ClosedBy::Platform) if modal_run => shown.or_else(hidden),
             // A page that closed itself with CurrPage.Close in a trigger or an action, opened by a TestPage, and whose code goes
             // on to call a procedure of a part it showed: the part answers, its globals as its OnClosePage left them
             // (pages/parts/Y37PartAfterClose.al:652 CLP_AGCR_CloseAllowed_PartAccess_Observe, :668

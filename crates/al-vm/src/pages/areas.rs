@@ -7,7 +7,6 @@
 //! corpus test restores the session's areas only after it is done with the page.
 
 use super::*;
-use crate::session_areas::CONTROL_UNKNOWN;
 
 /// The areas the text `areas` (`#Basic,#Suite`) enables; `None` for the empty text, which enables all.
 fn enabled(areas: &str) -> Option<Vec<String>> {
@@ -26,19 +25,10 @@ fn enabled(areas: &str) -> Option<Vec<String>> {
 /// Whether a control that states `ApplicationArea = <value>` is on a page whose session enables
 /// `areas`. `All` is on every page.
 fn states_enabled(value: &str, areas: &[String]) -> bool {
-    states_all(value) || tags(value).any(|a| areas.contains(&a))
-}
-
-/// Whether the list `value` has `All`: such a control is on the page for every area text
-/// (pages/application-area/W2AppAreas.al:42 AllCtl, 'found' at :194, :246, :301, :327, :360).
-fn states_all(value: &str) -> bool {
-    tags(value).any(|a| a == "all")
-}
-
-fn tags(value: &str) -> impl Iterator<Item = String> + '_ {
     value
         .split(',')
         .map(|a| a.trim().trim_start_matches('#').to_ascii_lowercase())
+        .any(|a| a == "all" || areas.contains(&a))
 }
 
 impl Session {
@@ -69,52 +59,26 @@ impl Session {
 
     /// Whether application-area removal takes control `idx` off the page: a field, action, part or
     /// actionref whose area the session does not enable, or that has none while the session
-    /// restricts the areas. On a page whose areas are not known, such a control refuses unless it is on the page for
-    /// every area text (`on_for_every_area`). Every reader goes through here: the TestPage control call, the parts
-    /// the page creates when it opens, the TestPage part lookup and a held page's part.
-    pub(super) fn area_removed(&self, st: &St, idx: usize) -> Result<bool, Signal> {
+    /// restricts the areas.
+    pub(super) fn area_removed(&self, st: &St, idx: usize) -> bool {
         if self.flowfield_hidden(st, idx) {
-            return Ok(true);
+            return true;
         }
+        let Some(areas) = enabled(&st.borrow().areas) else {
+            return false;
+        };
         let engine = self.engine();
         let kind = &page_of(&engine, st).controls[idx].kind;
         if !matches!(
             kind,
             ir::ControlKind::Field | ir::ControlKind::Action | ir::ControlKind::Part
         ) {
-            return Ok(false);
-        }
-        let unknown = st.borrow().areas_unknown;
-        if unknown && !self.on_for_every_area(st, idx) {
-            return unsupported(CONTROL_UNKNOWN);
-        }
-        let Some(areas) = enabled(&st.borrow().areas) else {
-            return Ok(false);
-        };
-        Ok(match self.control_area(st, idx) {
-            Some(v) => !states_enabled(&v, &areas),
-            None => true,
-        })
-    }
-
-    /// Whether control `idx` is on the page for every area text: its list has `All`, and so has the list of every group
-    /// around it that states an area (an `All` control: W2AppAreas.al:42 AllCtl, 'found' at :194, :246, :301, :327, :360).
-    fn on_for_every_area(&self, st: &St, idx: usize) -> bool {
-        if !self.control_area(st, idx).is_some_and(|v| states_all(&v)) {
             return false;
         }
-        let engine = self.engine();
-        let page = page_of(&engine, st);
-        let mut parent = page.controls[idx].parent;
-        while let Some(p) = parent {
-            if let Some(ir::PropVal::Lit(v)) = page.controls[p].prop("applicationarea")
-                && !states_all(v)
-            {
-                return false;
-            }
-            parent = page.controls[p].parent;
+        match self.control_area(st, idx) {
+            Some(v) => !states_enabled(&v, &areas),
+            None => true,
         }
-        true
     }
 
     /// Refuses what the corpus does not pin: a group around the control that states an area of its own that is not enabled.
