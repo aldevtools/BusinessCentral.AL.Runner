@@ -788,9 +788,15 @@ impl Session {
                     } else {
                         false
                     };
+                    if let Some(x) = &caller_xrec {
+                        self.shared_proc_xrec.push(x.clone());
+                    }
                     let r = self.finish_call(object, routine, inst.clone(), args, values, try_call, f);
                     if pushed {
                         self.plain_proc_xrec.pop();
+                    }
+                    if caller_xrec.is_some() {
+                        self.shared_proc_xrec.pop();
                     }
                     Self::leave_record(&inst, saved);
                     if let Some((x, fields, view, assigned)) = read_only {

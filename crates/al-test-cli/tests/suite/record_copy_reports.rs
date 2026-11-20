@@ -828,7 +828,7 @@ codeunit 50144 "XG Test"
     end;
 
     [Test]
-    procedure ExtCode_CallsOtherExtProc_PlainCall()
+    procedure ExtCode_CallsOtherExtProc_Refused()
     var
         Item: Record "XG Item";
     begin
@@ -860,9 +860,9 @@ fn issue_8189_get_of_a_written_row_and_running_extension_triggers_refuse() {
         // record/validate/XRecTableProcThroughCodeunit.al BaseField_Codeunit_ExtProc, record/validate/
         // XRecTableProcThroughSubscriber.al:647).
         ("BaseTrigger_Codeunit_ExtProc_ReadsXRec_Runs", PASS, false),
-        // A table extension's procedure that the codeunit calls (as above) calls another table extension's procedure: a
-        // plain call from table extension code, as on main.
-        ("ExtCode_CallsOtherExtProc_PlainCall", PASS, false),
+        // A table extension's procedure that the codeunit calls (as above, with the trigger's xRec) calls another table
+        // extension's procedure on Rec: not measured, and no longer main's blank xRec (review of PR 8304, 2026-11-20).
+        ("ExtCode_CallsOtherExtProc_Refused", XREC_REFUSED, false),
     ];
     check(&o, &want);
 }

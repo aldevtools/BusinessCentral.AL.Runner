@@ -70,6 +70,10 @@ pub(crate) struct ValidateRun {
     pub(crate) depth: usize,
     /// The xRec it hands its trigger and events.
     pub(crate) xrec: Rec,
+    /// The record's fields when its triggers start, the new value in.
+    pub(crate) entered: Vec<Value>,
+    /// A record method that writes the record or reads it again ran on it since (`Session::note_record_op_under_validate`).
+    pub(crate) touched: bool,
 }
 
 impl Session {
@@ -116,12 +120,14 @@ impl Session {
         (handle, site.map(|(_, s)| s))
     }
 
-    /// Runs `hooks` (the triggers and events of a Validate) with the Validate noted as running: its `entry` (`take_validate_site`)
-    /// in `validate_sites` with the depth of the call stack its trigger runs at and the xRec `xrec` it hands its trigger, and,
-    /// for the outermost Validate of the record, its before-image `outermost` in `validating`.
+    /// Runs `hooks` (the triggers and events of a Validate of `rec`) with the Validate noted as running: its `entry`
+    /// (`take_validate_site`) in `validate_sites` with the depth of the call stack its trigger runs at, the xRec `xrec` it hands
+    /// its trigger and the record's fields, and, for the outermost Validate of the record, its before-image `outermost` in
+    /// `validating`.
     pub(crate) fn while_validating<T>(
         &mut self,
         entry: (usize, Option<ValidateSite>),
+        rec: &Rec,
         xrec: &Rec,
         outermost: Option<BeforeImage>,
         hooks: impl FnOnce(&mut Self) -> Result<T, Signal>,
@@ -135,6 +141,8 @@ impl Session {
             site: entry.1,
             depth: self.call_stack.len(),
             xrec: xrec.clone(),
+            entered: rec.borrow().fields.clone(),
+            touched: false,
         });
         let r = hooks(self);
         self.validate_sites.pop();
@@ -154,6 +162,46 @@ impl Session {
     /// [`Session::sole_validate_from_al`], with the Validate's trigger running in frame `depth` (from the outside in).
     pub(super) fn sole_validate_from_al_at(&self, handle: usize, depth: usize) -> bool {
         self.sole_validate_from_al_depth(handle) == Some(depth)
+    }
+
+    /// Notes that record method `method` runs on `rec`: when it writes the record (its buffer or its row) or reads it again,
+    /// each running Validate of it counts as touched (`ValidateRun::touched`). A method that only reads the buffer or the view
+    /// (TestField, GetFilter, FieldCaption) or sets the view (SetRange, SetCurrentKey) does not; one that changes a field
+    /// value (CalcFields) shows in the fields (`ValidateRun::entered`).
+    pub(crate) fn note_record_op_under_validate(&mut self, method: RecordOp, rec: &Rec) {
+        use RecordOp::*;
+        let writes_or_reads = matches!(
+            method,
+            Clear
+                | Copy
+                | ChangeCompany
+                | Delete
+                | DeleteAll
+                | Find
+                | FindFirst
+                | FindLast
+                | FindSet
+                | Get
+                | GetBySystemId
+                | Init
+                | Insert
+                | LoadFields
+                | Modify
+                | ModifyAll
+                | Next
+                | Rename
+                | SetPosition
+                | TransferFields
+                | Truncate
+                | Validate
+        );
+        if !writes_or_reads {
+            return;
+        }
+        let handle = Rc::as_ptr(rec) as usize;
+        for v in self.validate_sites.iter_mut().filter(|v| v.handle == handle) {
+            v.touched = true;
+        }
     }
 
     /// The depth of the call stack the trigger of the one Validate of the record at `handle` runs at, when that Validate is a

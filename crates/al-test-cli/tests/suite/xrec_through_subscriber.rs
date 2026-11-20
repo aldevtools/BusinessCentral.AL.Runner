@@ -272,8 +272,17 @@ table 50202 "XS Line"
                 Log.Add('T x=' + Log.Fmt(xRec));
                 if Log.Mode() = 'nested-inner-assign' then
                     xRec.Series := 'INN';
+                if Log.Mode() = 'sub-validate-first' then
+                    Validate(Series, Series);
                 case Log.Mode() of
-                    'sub', 'nested', 'nested0', 'nested1', 'nested3', 'nested4', 'sub-assign', 'nested-assign', 'nested-assign-err', 'nested-assign-restore', 'nested-cu', 'nested-peer', 'nested-ext', 'sub-manual',
+                    'sub-manual':
+                        OnModeManual(Rec);
+                    'sub-single':
+                        OnModeSingle(Rec);
+                    'sub-two-subs':
+                        OnModeTwoSubs(Rec);
+                    'sub', 'nested', 'nested0', 'nested1', 'nested3', 'nested4', 'sub-assign', 'nested-assign', 'nested-assign-err', 'nested-assign-restore', 'nested-cu', 'nested-peer', 'nested-ext',
+                    'sub-modify', 'sub-get', 'sub-validate-first', 'sub-oninsert', 'sub-rec-proc', 'sub-own-proc',
                     'nested-outer-assign', 'nested-inner-assign', 'nested-filter', 'nested-marked', 'nested-recproc', 'nested-onearg', 'sub-proc-val':
                         OnModeElse(Rec);
                     'sub-two':
@@ -346,6 +355,7 @@ table 50202 "XS Line"
                 Log: Codeunit "XS Log";
                 Helper: Codeunit "XS Helper";
                 IfaceMover: Codeunit "XS Iface Mover";
+                SingleHelper: Codeunit "XS Single Helper";
                 Mover: Interface "XS IMover";
             begin
                 Log.Add('V x=' + Log.Fmt(xRec));
@@ -369,6 +379,8 @@ table 50202 "XS Line"
                     'cu-try':
                         if Helper.TryCallExt(Rec) then
                             Log.Add('try ok');
+                    'cu-single':
+                        SingleHelper.CallExt(Rec);
                 end;
             end;
         }
@@ -387,6 +399,14 @@ table 50202 "XS Line"
     var
         OtherRow: Record "XS Other";
 
+    trigger OnInsert()
+    var
+        Log: Codeunit "XS Log";
+    begin
+        if Log.Mode() = 'sub-oninsert' then
+            Validate(Mode, Mode::Production);
+    end;
+
     local procedure StartFromItem() begin PrepareFromItem(); end;
     local procedure PrepareFromItem() begin CopyFromItem(); end;
     local procedure CopyFromItem() begin UpdateMode(); end;
@@ -402,6 +422,12 @@ table 50202 "XS Line"
 
     [IntegrationEvent(false, false)]
     local procedure OnModeElse(var Line: Record "XS Line") begin end;
+    [IntegrationEvent(false, false)]
+    local procedure OnModeManual(var Line: Record "XS Line") begin end;
+    [IntegrationEvent(false, false)]
+    local procedure OnModeSingle(var Line: Record "XS Line") begin end;
+    [IntegrationEvent(false, false)]
+    local procedure OnModeTwoSubs(var Line: Record "XS Line") begin end;
     [IntegrationEvent(false, false)]
     local procedure OnModeTwo(var Line: Record "XS Line"; var Other: Record "XS Other") begin end;
     [IntegrationEvent(true, false)]
@@ -435,6 +461,8 @@ tableextension 50203 "XS Line Ext" extends "XS Line"
     procedure ExtFilter() var Log: Codeunit "XS Log"; begin xRec.SetRange(Series, 'F'); Log.Add('XF filters=' + xRec.GetFilters()); end;
     procedure ExtValidateOther() begin Rec.Validate(Other, 5); end;
     procedure ExtMarkedOnly() begin xRec.MarkedOnly(true); end;
+    procedure ExtCallsRecProc() begin Rec.TableRead('R'); end;
+    procedure ExtCallsOwnProc() begin ExtRead('U'); end;
 }
 
 interface "XS IMover"
@@ -454,8 +482,22 @@ codeunit 50204 "XS Subscriber"
     var
         Log: Codeunit "XS Log";
     begin
-        if Log.Mode() = 'sub-manual' then
-            exit;
+        case Log.Mode() of
+            'sub-modify':
+                Line.Modify();
+            'sub-get':
+                Line.Get(Line."Line No.");
+            'sub-rec-proc':
+                begin
+                    Line.ExtCallsRecProc();
+                    exit;
+                end;
+            'sub-own-proc':
+                begin
+                    Line.ExtCallsOwnProc();
+                    exit;
+                end;
+        end;
         if Log.Mode() in ['sub-assign', 'nested-assign'] then begin
             Line.ExtAssign();
             exit;
@@ -482,6 +524,12 @@ codeunit 50204 "XS Subscriber"
         end;
         Line.ExtRead('X');
         Line.TableRead('P');
+    end;
+
+    [EventSubscriber(ObjectType::Table, Database::"XS Line", 'OnModeTwoSubs', '', false, false)]
+    local procedure OnModeTwoSubs(var Line: Record "XS Line")
+    begin
+        Line.ExtRead('X');
     end;
 
     [EventSubscriber(ObjectType::Table, Database::"XS Line", 'OnModeTwo', '', false, false)]
@@ -524,11 +572,36 @@ codeunit 50205 "XS Manual Subscriber"
 {
     EventSubscriberInstance = Manual;
 
-    [EventSubscriber(ObjectType::Table, Database::"XS Line", 'OnModeElse', '', false, false)]
-    local procedure OnModeElse(var Line: Record "XS Line")
+    [EventSubscriber(ObjectType::Table, Database::"XS Line", 'OnModeManual', '', false, false)]
+    local procedure OnModeManual(var Line: Record "XS Line")
     begin
         Line.ExtRead('XM');
     end;
+}
+
+codeunit 50209 "XS Single Subscriber"
+{
+    SingleInstance = true;
+
+    [EventSubscriber(ObjectType::Table, Database::"XS Line", 'OnModeSingle', '', false, false)]
+    local procedure OnModeSingle(var Line: Record "XS Line")
+    begin
+        Line.ExtRead('X');
+    end;
+}
+
+codeunit 50210 "XS Second Subscriber"
+{
+    [EventSubscriber(ObjectType::Table, Database::"XS Line", 'OnModeTwoSubs', '', false, false)]
+    local procedure OnModeTwoSubs(var Line: Record "XS Line")
+    begin
+    end;
+}
+
+codeunit 50211 "XS Single Helper"
+{
+    SingleInstance = true;
+    procedure CallExt(var Line: Record "XS Line") begin Line.ExtRead('C'); end;
 }
 
 codeunit 50206 "XS Helper"
@@ -664,6 +737,17 @@ codeunit 50207 "XS Tests"
     // BC: the filter shows in both triggers (T filters=Series: F;I filters=Series: F).
     // Not measured: any other change of the shared xRec's view refuses the same way.
     [Test] procedure RefusedAssign_Nested_ProcedureMarksXRec() var L: Record "XS Line"; begin AfterInsert(L); ValidateItem(L, 'nested-marked', ''); end;
+    // Shapes no cell measured (review of PR 8304, 2026-11-20): each refuses a read of xRec.
+    [Test] procedure Refused_Sub_SingleInstanceSubscriber() var L: Record "XS Line"; begin AfterInsert(L); ValidateMode(L, 'sub-single', ''); end;
+    [Test] procedure Refused_Codeunit_SingleInstanceHelper() var L: Record "XS Line"; begin AfterInsert(L); ValidateViaCodeunit(L, 'cu-single', ''); end;
+    [Test] procedure Refused_Sub_TwoSubscribers() var L: Record "XS Line"; begin AfterInsert(L); ValidateMode(L, 'sub-two-subs', ''); end;
+    [Test] procedure Refused_Sub_ModifyBeforeRead() var L: Record "XS Line"; begin AfterInsert(L); ValidateMode(L, 'sub-modify', ''); end;
+    [Test] procedure Refused_Sub_GetBeforeRead() var L: Record "XS Line"; begin AfterInsert(L); ValidateMode(L, 'sub-get', ''); end;
+    [Test] procedure Refused_Sub_OtherFieldValidatedFirst() var L: Record "XS Line"; begin AfterInsert(L); ValidateMode(L, 'sub-validate-first', ''); end;
+    [Test] procedure Refused_Sub_ValidateFromOnInsert() var L: Record "XS Line"; begin Log.Set(''); L.DeleteAll(); L."Line No." := 1; L.Series := 'NEW'; L."Item No." := 'I1'; Log.Set('sub-oninsert'); L.Insert(true); end;
+    // Rec.OtherProc() inside the procedure that shares the trigger's xRec: not measured; the unqualified call shares it.
+    [Test] procedure Refused_Sub_RecDotProcInSharedProc() var L: Record "XS Line"; begin AfterInsert(L); ValidateMode(L, 'sub-rec-proc', ''); end;
+    [Test] procedure Sub_UnqualifiedProcInSharedProc() var L: Record "XS Line"; begin AfterInsert(L); ValidateMode(L, 'sub-own-proc', 'T x=0/NEW/I1;U x=0/NEW/I1;'); end;
     [Test] procedure RefusedAssign_Nested_ProcedureFiltersXRec() var L: Record "XS Line"; begin AfterInsert(L); ValidateItem(L, 'nested-filter', ''); end;
 }
 "##;
@@ -680,10 +764,11 @@ fn measured_chains_share_the_trigger_xrec_and_their_neighbors_refuse() {
     let o = run(CHAINS, "XS Tests");
     let mut wrong = Vec::new();
     for (name, outcome, hits) in &o {
+        // The test's own refusal, not the distrust a refusal earlier in the codeunit puts on a later failure.
         let ok = if name.starts_with("Refused_") {
-            outcome.starts_with("NotRun") && outcome.contains(XREC_REFUSED)
+            outcome.starts_with(&format!("NotRun(\"{XREC_REFUSED}"))
         } else if name.starts_with("RefusedAssign_") {
-            outcome.starts_with("NotRun") && outcome.contains(ASSIGN_REFUSED)
+            outcome.starts_with(&format!("NotRun(\"{ASSIGN_REFUSED}"))
         } else {
             outcome == "Pass" && hits.is_empty()
         };
@@ -691,6 +776,6 @@ fn measured_chains_share_the_trigger_xrec_and_their_neighbors_refuse() {
             wrong.push(format!("{name}: {outcome} {hits:?}"));
         }
     }
-    assert_eq!(o.len(), 44);
+    assert_eq!(o.len(), 53);
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }

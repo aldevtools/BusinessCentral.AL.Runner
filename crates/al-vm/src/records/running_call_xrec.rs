@@ -11,7 +11,7 @@
 //!   table's own code nested, BC keeps one xRec for both Validates where this runner keeps two: the xRec is shared only while
 //!   neither was assigned or filtered (`nested_xrecs_untouched`), and for reading only (`ProcXrec::SharedReadOnly`).
 
-use super::nested_validate::{ProcXrec, ValidateSite};
+use super::nested_validate::{ProcXrec, ValidateRun, ValidateSite};
 use crate::records::Rec;
 use crate::{Frame, Session};
 use al_builtins::value::{RecordState, RtType, Value};
@@ -40,7 +40,8 @@ impl Session {
     /// A procedure of table `object` (or of one of its table extensions) called on `rc` by code that holds no xRec of it (frame
     /// `f`, no case of `frame_xrec`).
     /// - Called from the code of the record's table or of one of its table extensions (a trigger or procedure of any of them): a
-    ///   plain call, as `table_proc_xrec` lists (record/PWTableGlobals.al:196-260; al-test-cli suite `xrec_proc_call_scope.rs`).
+    ///   plain call, as `table_proc_xrec` lists (record/PWTableGlobals.al:196-260; al-test-cli suite `xrec_proc_call_scope.rs`),
+    ///   unless the caller shares a running call's xRec (`shared_xrec_of_own_procedure`).
     /// - Called from other code while triggers or procedures on the same record run further up: the instances of the record
     ///   variable (ADR-021) of its table and of its table extensions that hold `rc` as Rec, and those calls' xRecs
     ///   (`running_xrecs`).
@@ -54,7 +55,15 @@ impl Session {
     pub(super) fn running_call_xrec(&mut self, object: usize, rc: &Rec, f: &Frame) -> ProcXrec {
         let table = rc.borrow().table as usize;
         if self.table_or_its_extension(f.object, table) {
-            return ProcXrec::Plain;
+            let Some(x) = self.shared_xrec_of_own_procedure(rc, f) else {
+                return ProcXrec::Plain;
+            };
+            let blank = self.initial_fields(table);
+            return if Self::same_values(&x.borrow().fields, &blank) {
+                ProcXrec::Plain
+            } else {
+                ProcXrec::PlainUnpinned
+            };
         }
         let blank = self.initial_fields(table);
         let not_blank = |x: &Rec| !Self::same_values(&x.borrow().fields, &blank);
@@ -75,6 +84,30 @@ impl Session {
             };
         }
         ProcXrec::PlainUnpinned
+    }
+
+    /// The xRec of the procedure in frame `f`, of the table or of one of its table extensions, when it runs on `rc` with an xRec
+    /// it shares with its caller or a running call (`shared_proc_xrec`; not a trigger, nor a procedure the table's own trigger
+    /// calls unqualified, whose instance holds the trigger's xRec). A procedure
+    /// it calls on `rc` (`Rec.OtherProc()`) refuses a read of xRec when that xRec holds other values than a blank record
+    /// (`running_call_xrec`): BC gives the unqualified call the caller's xRec, as here (both run on one instance); the call on
+    /// Rec from such a procedure is not measured.
+    fn shared_xrec_of_own_procedure(&self, rc: &Rec, f: &Frame) -> Option<Rec> {
+        let objects = &self.engine.program.objects;
+        if objects[f.object].routines[f.routine].is_trigger {
+            return None;
+        }
+        let fi = f.instance.borrow();
+        let o = &objects[fi.object as usize];
+        let slot = |s: Option<usize>| s.and_then(|s| fi.globals.get(s));
+        match (slot(o.rec_slot), slot(o.xrec_slot)) {
+            (Some(Value::Record(r)), Some(Value::Record(x)))
+                if Rc::ptr_eq(r, rc) && self.shared_proc_xrec.iter().any(|p| Rc::ptr_eq(p, x)) =>
+            {
+                Some(x.clone())
+            }
+            _ => None,
+        }
     }
 
     /// The xRecs of the calls running on the record variable `rc` of table `table`: of each instance (ADR-021) of the table
@@ -170,6 +203,27 @@ impl Session {
             && self.field_on_validate_at(table, n - 2)
             && self.sole_validate_from_al_at(Rc::as_ptr(rc) as usize, n - 2)
             && self.measured_buffer(&rc.borrow())
+            && self.cell_facts(rc, self.frames[n - 1], n - 2, n - 2)
+    }
+
+    /// The facts every cell of the two chains of al-runner issue 8284 shares beyond its frames (review of PR 8304, 2026-11-20):
+    /// - the codeunit in `cu` (the subscriber's or the one the trigger calls) is not SingleInstance;
+    /// - the Validate whose trigger runs in frame `trigger` finds the record as it was when its triggers started: no record
+    ///   method ran on it since (`ValidateRun::touched`: a Modify, a Get, a Validate of another field), its fields are the same
+    ///   (`ValidateRun::entered`), and its buffer came from no TransferFields;
+    /// - the outermost Validate, whose trigger runs in frame `caller`, was called by a test codeunit's own procedures, as every
+    ///   cell's (`ValidateModeAndObserve` and the like): not by the table's own trigger, Codeunit.Run or a TryFunction.
+    fn cell_facts(&self, rc: &Rec, cu: usize, trigger: usize, caller: usize) -> bool {
+        let handle = Rc::as_ptr(rc) as usize;
+        let r = rc.borrow();
+        let untouched = |v: &ValidateRun| {
+            v.handle == handle && v.depth == trigger && !v.touched && Self::same_values(&r.fields, &v.entered)
+        };
+        !self.engine.object_facts[cu].single_instance
+            && self.validate_sites.iter().any(untouched)
+            && r.row_origin.is_none_or(|o| !o.lock_only)
+            && caller > 0
+            && self.only_test_codeunit_frames(0, self.frames.len() - caller)
     }
 
     /// The subscriber of an integration event of the table, raised by the table's field OnValidate, calls a procedure of the
@@ -209,6 +263,7 @@ impl Session {
             && all_var(publisher)
             && second_is_other_table
             && !self.engine.object_facts[cu].manual_subscriber
+            && self.sole_subscriber(pub_o, &publisher.name)
             && subscriber.params == publisher.params
             && all_var(subscriber)
             && matches!(f.locals.first(), Some(Value::Record(p)) if Rc::ptr_eq(p, rc))
@@ -218,11 +273,21 @@ impl Session {
         }
         let handle = Rc::as_ptr(rc) as usize;
         if self.sole_validate_from_al_at(handle, n - 3) {
-            return Some(Chain { nested: None });
+            return self.cell_facts(rc, cu, n - 3, n - 3).then_some(Chain { nested: None });
         }
         let (outer, inner) = self.nested_by_own_code(table, handle, n - 3)?;
-        self.nested_xrecs_untouched(handle, &outer, &inner)
-            .then_some(Chain { nested: Some(inner) })
+        (self.cell_facts(rc, cu, n - 3, outer.depth) && self.nested_xrecs_untouched(handle, &outer.xrec, &inner.xrec))
+            .then(|| Chain {
+                nested: Some(inner.xrec.clone()),
+            })
+    }
+
+    /// Whether event `event` of object `publisher` has one subscriber, as each event of the cells.
+    fn sole_subscriber(&self, publisher: usize, event: &str) -> bool {
+        self.engine
+            .events
+            .subscribers_at(publisher, &event.to_lowercase())
+            .is_some_and(|s| s.len() == 1)
     }
 
     /// Whether `publisher` is marked `[IntegrationEvent(false, false)]`, the publisher record/validate/
@@ -242,14 +307,14 @@ impl Session {
         o == table && !cf.event && r.is_trigger && r.field.is_some() && r.name.eq_ignore_ascii_case("OnValidate")
     }
 
-    /// The xRecs of the outer and the inner Validate when the Validate of the record at `handle` whose trigger runs in frame
+    /// The outer and the inner Validate when the Validate of the record at `handle` whose trigger runs in frame
     /// `inner` was nested by the table's own code in one other Validate of the record, the shape
     /// record/validate/XRecTableProcThroughSubscriber.al:590-618, :663-718 measured: two Validates of the record run, both
     /// `Record.Validate` from AL code (:1098 with one argument); the outer one's trigger is a field OnValidate of the table, of
     /// another field; between the two triggers run at most [`NESTING_PROCEDURES_MEASURED`] procedures of the table that are no
     /// triggers, each called on the outer trigger's own record: unqualified (:591), as `Rec.Proc()` (:1084) or as
     /// `this.Proc()`, which the runner does not tell apart from the two (`plain_proc_xrec` notes a call on another record).
-    fn nested_by_own_code(&self, table: usize, handle: usize, inner: usize) -> Option<(Rec, Rec)> {
+    fn nested_by_own_code(&self, table: usize, handle: usize, inner: usize) -> Option<(&ValidateRun, &ValidateRun)> {
         let mut running = self.validate_sites.iter().filter(|v| v.handle == handle);
         let (Some(outer), Some(inner_run), None) = (running.next(), running.next(), running.next()) else {
             return None;
@@ -271,7 +336,7 @@ impl Session {
                 && !objects[ob].routines[cf.routine].is_trigger
                 && !self.plain_proc_xrec.iter().any(|(_, depth, _)| *depth == d + 1)
         });
-        (field(o) != field(i) && own_procedures).then(|| (outer.xrec.clone(), inner_run.xrec.clone()))
+        (field(o) != field(i) && own_procedures).then_some((outer, inner_run))
     }
 
     /// Whether the two xRecs of a nested Validate (`nested_by_own_code`) still hold what the outer Validate handed its trigger:

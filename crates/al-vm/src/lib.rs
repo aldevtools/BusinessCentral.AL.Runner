@@ -990,6 +990,9 @@ pub struct Session {
     /// last: the record's handle, the depth of `call_stack` inside the procedure and its blank xRec. A Validate of that
     /// record in the procedure's own body passes this xRec (`RecordOp::Validate`).
     pub(crate) plain_proc_xrec: Vec<(usize, usize, crate::records::Rec)>,
+    /// The xRecs of the table procedures that run on a record with an xRec they share with their caller or a running call
+    /// (`ProcXrec::Shared` and `ProcXrec::SharedReadOnly`), innermost last.
+    pub(crate) shared_proc_xrec: Vec<crate::records::Rec>,
     /// The `call_stack` index of each frame an interface method call entered (`run_iface`), innermost last: the codeunit
     /// procedure is reached through an interface (records/running_call_xrec.rs tells the chains apart by it).
     pub(crate) iface_frames: Vec<usize>,
@@ -1411,6 +1414,7 @@ impl Session {
             validate_site: None,
             validate_sites: Vec::new(),
             plain_proc_xrec: Vec::new(),
+            shared_proc_xrec: Vec::new(),
             iface_frames: Vec::new(),
             cx: al_data::AccessContext {
                 company: company.into(),
