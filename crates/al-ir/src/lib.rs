@@ -1593,6 +1593,10 @@ pub struct Table {
     /// parallel to `keys`; empty for a key the compiler adds.
     #[serde(default)]
     pub key_props: Vec<Vec<(String, String)>>,
+    /// The object index of the table or table extension that declares each key, parallel to `keys`; `None` for the primary
+    /// key the compiler adds to a table without a keys section. Empty in an IR written before it.
+    #[serde(default)]
+    pub key_declared_in: Vec<Option<u32>>,
     pub per_company: bool,
     /// Object index of each table extension (their triggers are not run yet).
     pub extensions: Vec<usize>,
@@ -1693,6 +1697,16 @@ pub struct Field {
     pub caption_modified: bool,
 }
 
+impl Field {
+    /// The unprobed assumption a condition of the field's relation rests on (`RelationCond::assumes`), if any.
+    pub fn relation_condition_assumption(&self) -> Option<al_builtins::assumptions::Assumption> {
+        self.relation_arms
+            .iter()
+            .flat_map(|arm| &arm.conditions)
+            .find_map(|c| c.assumes)
+    }
+}
+
 /// One arm of a `TableRelation`: `if (Kind = const(A)) Table.Field where(...)`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RelationArm {
@@ -1738,6 +1752,9 @@ pub struct RelationCond {
     /// `Field = filter(text)`: the arm applies when the field's value passes the filter `value` holds.
     #[serde(default)]
     pub filter: bool,
+    /// The unprobed assumption `value` rests on; the VM marks it each time it evaluates the condition.
+    #[serde(default)]
+    pub assumes: Option<al_builtins::assumptions::Assumption>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

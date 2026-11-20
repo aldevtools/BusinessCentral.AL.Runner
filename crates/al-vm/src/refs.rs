@@ -805,7 +805,11 @@ impl Session {
                             "RecordRef.IsDirty after GetTable of a record whose row was stored again since it was read (not pinned)",
                         );
                     }
-                    Some(row) => row,
+                    Some(mut row) => {
+                        // Compared with what the record reads (`sqltime::read_back`).
+                        crate::sqltime::read_back(&mut row);
+                        row
+                    }
                     None => self.initial_fields(t.object as usize),
                 }
             }

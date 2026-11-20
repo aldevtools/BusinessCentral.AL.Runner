@@ -139,6 +139,15 @@ struct Walk<'a> {
     strict: bool,
     /// The routines on the current call path, kept by the strict walk only (a call back into one of them is a recursion).
     path: Vec<(usize, usize)>,
+    /// The routine the walk starts from (the CaptionClass expression's own routine).
+    top: (usize, usize),
+    /// How many `if` branches of `top` the walk is in whose condition reads only fields of Rec and constants
+    /// ([`Walk::reads_rec_and_constants_only`]); counted by the walk of [`Engine::lasting_effect`] only, and 0 again in every
+    /// routine it enters.
+    rec_guarded: usize,
+    /// The first Record write the walk let through because a run of it is checked (`record_write_checked_at_run_time`), as
+    /// `calls Record.<Method>`.
+    checked_write: Option<String>,
 }
 
 /// The instance code runs on, for what its writes to the instance's variables do.
@@ -165,10 +174,31 @@ pub(crate) enum Effect {
     Refused(String),
 }
 
+/// What the walk of [`Engine::lasting_effect`] found for one routine.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Walked {
+    effect: Option<Effect>,
+    checked_write: Option<String>,
+}
+
 impl Engine {
     /// What a run of routine `routine` of object `object` on a transient instance (the empty record of a page open) can
     /// leave behind that AL code may read later; `None` when it leaves nothing. Worked out once per routine.
     pub(crate) fn lasting_effect(&self, object: usize, routine: usize) -> Option<Effect> {
+        self.walked(object, routine).effect
+    }
+
+    /// The first Record write of the routine that [`Engine::lasting_effect`] let through because a run of it is checked
+    /// (`calls Record.<Method>`), when the routine leaves nothing refused behind.
+    pub(crate) fn caption_checked_write(&self, object: usize, routine: usize) -> Option<String> {
+        let walked = self.walked(object, routine);
+        match walked.effect {
+            Some(Effect::Refused(_)) => None,
+            _ => walked.checked_write,
+        }
+    }
+
+    fn walked(&self, object: usize, routine: usize) -> Walked {
         if let Some(known) = self
             .lasting_effects
             .lock()
@@ -183,16 +213,47 @@ impl Engine {
             kept: None,
             strict: false,
             path: Vec::new(),
+            top: self.caption_expression_body(object, routine),
+            rec_guarded: 0,
+            checked_write: None,
         };
-        let found = match w.routine(object, routine, Inst::Transient) {
+        let effect = match w.routine(object, routine, Inst::Transient) {
             Err(why) => Some(Effect::Refused(why)),
-            Ok(()) => w.kept.map(Effect::Kept),
+            Ok(()) => w.kept.take().map(Effect::Kept),
+        };
+        let found = Walked {
+            effect,
+            checked_write: w.checked_write,
         };
         self.lasting_effects
             .lock()
             .expect("lasting effects lock")
             .insert((object, routine), found.clone());
         found
+    }
+}
+
+impl Engine {
+    /// The routine that runs the code of the CaptionClass expression whose synthetic routine (one per field section, al-sema
+    /// `pages.rs` `field_expression_routines`, body `exit(<expression>)`) is `routine` of `object`: the procedure of the same
+    /// object the expression calls on the same record when the expression is that call alone (`CaptionClass = NotTakenCc()`,
+    /// record/captions/CaptionClassStateFreeCalls.al:148, :168), else the synthetic routine itself.
+    pub(crate) fn caption_expression_body(&self, object: usize, routine: usize) -> (usize, usize) {
+        let Some(r) = self.program.objects.get(object).and_then(|o| o.routines.get(routine)) else {
+            return (object, routine);
+        };
+        let stmts: Vec<&Stmt> = r.body.stmts().iter().filter(|s| !matches!(s, Stmt::Pos(_))).collect();
+        match stmts.as_slice() {
+            [
+                Stmt::Exit(Some(Expr::Call {
+                    object: o,
+                    routine: r,
+                    instance: None,
+                    ..
+                })),
+            ] if *o == object => (*o, *r),
+            _ => (object, routine),
+        }
     }
 }
 
@@ -235,7 +296,10 @@ impl Walk<'_> {
             ));
         };
         let at = (object, routine);
-        self.stmts(r.body.stmts(), at, inst)?;
+        let outer_guarded = std::mem::take(&mut self.rec_guarded);
+        let found = self.stmts(r.body.stmts(), at, inst);
+        self.rec_guarded = outer_guarded;
+        found?;
         // An event publisher also runs its subscribers, each on its own instance: the session's one instance of a
         // SingleInstance codeunit, the bound one of a manual subscriber, else a fresh one.
         if let Some(p) = self.engine.events.publishers.get(&at) {
@@ -311,6 +375,22 @@ impl Walk<'_> {
         }
     }
 
+    /// Whether condition `e` of code in object `object` reads only fields of the implicit Rec and constants (the guard
+    /// `Id = 777` of record/captions/CaptionClassStateFreeCalls.al:174): what a page trigger writes elsewhere cannot change it.
+    fn reads_rec_and_constants_only(&self, e: &Expr, object: usize) -> bool {
+        match e {
+            Expr::Const(_) => true,
+            Expr::Load(Place::Field(base, _)) => self.engine.program.objects[object]
+                .rec_slot
+                .is_some_and(|slot| **base == Place::Global(slot)),
+            Expr::Unary(_, a) | Expr::Convert(_, a) => self.reads_rec_and_constants_only(a, object),
+            Expr::Binary(_, a, b) => {
+                self.reads_rec_and_constants_only(a, object) && self.reads_rec_and_constants_only(b, object)
+            }
+            _ => false,
+        }
+    }
+
     fn args(&mut self, args: &[Arg], at: (usize, usize), inst: Inst) -> Found {
         for a in args {
             match a {
@@ -340,8 +420,11 @@ impl Walk<'_> {
             Stmt::Expr(e) => self.expr(e, at, inst),
             Stmt::If(c, a, b) => {
                 self.expr(c, at, inst)?;
-                self.stmts(a, at, inst)?;
-                self.stmts(b, at, inst)
+                let guarded = !self.strict && at == self.top && self.reads_rec_and_constants_only(c, at.0);
+                self.rec_guarded += usize::from(guarded);
+                let found = self.stmts(a, at, inst).and_then(|()| self.stmts(b, at, inst));
+                self.rec_guarded -= usize::from(guarded);
+                found
             }
             Stmt::While(c, b) | Stmt::Repeat(b, c) => {
                 self.expr(c, at, inst)?;
@@ -489,7 +572,11 @@ impl Walk<'_> {
                     && !get_table_on_local(*id, receiver.as_deref())
                     && !dialog_checked_at_run_time(*id)
                 {
-                    return Err(format!("calls {}", id.name().split('#').next().unwrap_or(id.name())));
+                    let what = format!("calls {}", id.name().split('#').next().unwrap_or(id.name()));
+                    if !(self.rec_guarded > 0 && at == self.top && record_write_checked_at_run_time(*id)) {
+                        return Err(what);
+                    }
+                    self.checked_write.get_or_insert(what);
                 }
                 if let Some(r) = receiver {
                     self.args(std::slice::from_ref(r), at, inst)?;
@@ -529,6 +616,27 @@ fn dialog_checked_at_run_time(id: al_builtins::builtin_id::BuiltinId) -> bool {
             | "Dialog.ErrorComputed#1"
             | "Dialog.ErrorConstant#1"
             | "Dialog.ErrorNotLiteral#1"
+    )
+}
+
+/// The Record writes of AL code (Insert, Modify, Delete, Rename, ModifyAll, DeleteAll) that the walk of
+/// [`Engine::lasting_effect`] lets through when they sit in the expression's own routine inside an `if` whose condition reads
+/// only fields of Rec and constants, as the dialogs of record/captions/CaptionClassStateFreeCalls.al:168-181 NotTakenCc do
+/// (`if Id = 777 then`; al-runner issue 7391): a write no run takes leaves nothing, so the number of runs has no reader. Such a
+/// write refuses when a run of the expression on a page whose empty-record runs have no pinned number executes it
+/// (`Session::caption_write_refusal`). Any other write, and every write in the strict walk of the DataCaptionExpression open,
+/// is refused from the code as on main.
+fn record_write_checked_at_run_time(id: al_builtins::builtin_id::BuiltinId) -> bool {
+    matches!(
+        id.name(),
+        "Record.Insert#1"
+            | "Record.Insert#2"
+            | "Record.Insert#3"
+            | "Record.Modify#1"
+            | "Record.Delete#1"
+            | "Record.Rename#1"
+            | "Record.ModifyAll#1"
+            | "Record.DeleteAll#1"
     )
 }
 
