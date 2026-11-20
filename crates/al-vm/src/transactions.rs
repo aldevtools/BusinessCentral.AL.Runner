@@ -155,18 +155,6 @@ pub(crate) fn al_error_code(message: &str, code: &str) -> Signal {
     }))
 }
 
-/// The emit version BC reports in a missing-object error. Only the measured builds are known
-/// (BC 27.5 is 27024 and BC 28.1 is 28014, read off the service tier by AL Runner v2:
-/// tests/runner-extras/object-metadata-system-table/OmstTests.Codeunit.al); any other build gets
-/// `<major>000`, which keeps the shape the corpus asserts (a number).
-fn emit_version(major: u16) -> u32 {
-    match major {
-        27 => 27024,
-        28 => 28014,
-        m => u32::from(m) * 1000,
-    }
-}
-
 impl Session {
     /// The error BC raises when code names an object that no app declares
     /// (codeunits/TestCodeunitRunErrorTextsAndModels.al:162-196 for `CodeUnit`,
@@ -215,17 +203,31 @@ impl Session {
             })
     }
 
-    /// The missing-object error with the object it names as the caller.
+    /// The missing-object error with the object it names as the caller. The text ends in the emit version of the run's
+    /// build, read from its platform artifact (`Engine::emit_version`; assumption
+    /// `missing-object-emit-version-from-artifact`: the corpus masks the number, errors/error-texts/AzErrorTexts.al:125).
+    /// When the number is not known the error is raised with its pinned code and no text, so only a read of the text is
+    /// refused.
     pub(crate) fn missing_object_from(&self, kind: &str, id: i64, caller: &str) -> Signal {
         if let Some(why) = self.missing_may_be_skipped(kind, id) {
             return Signal::unsupported(why);
         }
-        let major = self.engine.target.as_ref().map_or(29, |t| t.bc.major);
+        let emit_version = match self.engine.emit_version.get() {
+            Ok(n) => n,
+            Err(why) => {
+                return Signal::Error(Box::new(al_builtins::native::unpinned_text_error(
+                    "AL:MetadataNotFound",
+                    &format!(
+                        "the missing-object text: it ends with the emit version of the run's BC build, which is not known ({why})"
+                    ),
+                )));
+            }
+        };
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::MissingObjectEmitVersionFromArtifact);
         al_error_code(
             &format!(
                 "You tried to invoke the {kind} object with the ID {id} from the object {caller}. \
-                 An object with that ID does not exist in the current application compiled with emit version {}.",
-                emit_version(major)
+                 An object with that ID does not exist in the current application compiled with emit version {emit_version}."
             ),
             "AL:MetadataNotFound",
         )

@@ -544,6 +544,8 @@ pub struct WarmCtx {
     pub dependencies: Option<KeptDependencies>,
     /// The license of the BC artifacts a request used, by build, held in memory only (ADR-060: never written anywhere).
     pub license: Option<(String, al_testrun::license::LicenseUse)>,
+    /// The emit version of the build a request used, by build (`run_emit_version`).
+    pub emit_version: Option<(String, al_vm::emit_version::EmitVersion)>,
 }
 
 /// The dependency apps a warm server read for a request ([`WarmCtx::dependencies`]).
@@ -834,6 +836,36 @@ fn run_license(
         w.license = Some((build, l.clone()));
     }
     Ok(l)
+}
+
+/// The emit version of the build the run uses (`al_testrun::emit_version`), read when the missing-object error first needs
+/// it; a server keeps it for its next request of that build. No build: none.
+fn run_emit_version(
+    a: &TestArgs,
+    warm: Option<&mut WarmCtx>,
+    dependencies: &deps::Dependencies,
+) -> al_vm::emit_version::EmitVersion {
+    let Some(u) = &dependencies.build else {
+        return Default::default();
+    };
+    let build = u.build.to_string();
+    if let Some((_, v)) = warm
+        .as_deref()
+        .and_then(|w| w.emit_version.as_ref())
+        .filter(|(b, _)| *b == build)
+    {
+        return v.clone();
+    }
+    let v = al_testrun::emit_version::of_build(
+        &u.build,
+        &al_deps::cache::cache_root_from_env(a.cache_dir.as_deref()),
+        !a.no_download,
+        al_deps::cache::bcartifacts_sandbox_from_env().as_deref(),
+    );
+    if let Some(w) = warm {
+        w.emit_version = Some((build, v.clone()));
+    }
+    v
 }
 
 /// The runs of a server request's entries (al-runner issue 5635): each entry's test codeunits, its selected tests when
@@ -1306,20 +1338,13 @@ fn test_inner(
                 downloadable.push(b);
             }
         }
-        {
-            let chosen_data = choose_test_data(
-                a,
-                &builds,
-                &downloadable,
-                chosen.target.bc.major,
-                Some(chosen.target.bc.minor),
-            )?;
-            test_data = chosen_data.data;
-            data_notes = chosen_data.notes;
-        }
+        let bc = &chosen.target.bc;
+        let chosen_data = choose_test_data(a, &builds, &downloadable, bc.major, Some(bc.minor))?;
+        (test_data, data_notes) = (chosen_data.data, chosen_data.notes);
     }
     laps.lap(Part::TestData);
     let license = run_license(a, warm.as_deref_mut(), &dependencies, &chosen, floor_versions, &country)?;
+    let emit_version = run_emit_version(a, warm.as_deref_mut(), &dependencies);
     laps.lap(Part::License);
     // The resolver repeats a note on each round of the artifact feed; say each once.
     let mut seen = BTreeSet::new();
@@ -1584,6 +1609,7 @@ fn test_inner(
     let mut opts = RunOptions {
         run_seed,
         license: license.license.clone(),
+        emit_version,
         only: opts_only,
         lazy: std::iter::repeat_n(None, inputs.len())
             .chain(dependencies.lazy.iter().cloned())
