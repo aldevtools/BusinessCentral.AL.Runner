@@ -9,6 +9,7 @@
 //! ([`first_difference`]). Outcomes do not change. [`report`] is the line the front ends print.
 
 mod difference;
+mod key_parts;
 
 use al_vm::{Engine, Session};
 pub(crate) use difference::differences;
@@ -63,6 +64,10 @@ pub(crate) struct Key {
     /// The license the session runs under (ADR-060, `Engine::license`, chosen per request): the permission checks of the
     /// login code read it. Compared by content.
     license: Option<std::sync::Arc<al_host::license::License>>,
+    /// The parts of `database` and `session`, each with a digest of its own (`key_parts.rs`): which tables and which state
+    /// lines a new key differs in, for the keys line. Made of the same rows and lines, so equal whole digests mean equal
+    /// parts and comparing them changes no key equality.
+    parts: key_parts::KeyParts,
 }
 
 impl Key {
@@ -70,7 +75,8 @@ impl Key {
     /// the session took.
     pub(crate) fn of(session: &mut Session, disabled: bool, flags: crate::runtime::session_flags::SessionFlags) -> Key {
         let store = session.store_mut();
-        let database = digest(&committed_rows(store));
+        let tables = store.export_committed().unwrap_or_default();
+        let database = digest(&rows(&tables));
         let uncommitted = store.has_uncommitted().then(|| digest(&current_rows(store)));
         let backing = store.backing_identity();
         let resources = {
@@ -106,6 +112,7 @@ impl Key {
             ),
             flags,
             license: session.engine.license.clone(),
+            parts: key_parts::KeyParts::of(&tables, &state),
         }
     }
 }
@@ -127,6 +134,8 @@ impl Key {
             client,
             flags,
             license,
+            // A detail of `database` and `session` (see `differs_detail`), not a field of its own.
+            parts: _,
         } = self;
         [
             (*database != other.database, "database"),
@@ -145,6 +154,23 @@ impl Key {
         .into_iter()
         .filter_map(|(differs, name)| differs.then_some(name))
         .collect()
+    }
+
+    /// [`Key::differs_in`], joined by `+`, with the parts of `database` and `session` that differ named after each: by
+    /// name only, never a value (`key_parts.rs`).
+    pub(crate) fn differs_detail(&self, other: &Key) -> String {
+        let named = |field: &str, parts: Vec<String>| match parts.is_empty() {
+            true => field.to_string(),
+            false => format!("{field} ({})", parts.join(", ")),
+        };
+        (self.differs_in(other).into_iter())
+            .map(|field| match field {
+                "database" => named(field, self.parts.database_differs(&other.parts)),
+                "session" => named(field, self.parts.session_differs(&other.parts)),
+                _ => field.to_string(),
+            })
+            .collect::<Vec<_>>()
+            .join("+")
     }
 }
 
@@ -308,9 +334,9 @@ impl Tally {
     /// Compares `state` with the first state of `key`, or keeps it as that. `true`: the key was new.
     fn note(&mut self, key: Key, state: LoginState) -> bool {
         let Some((_, first)) = self.firsts.iter().find(|(k, _)| *k == key) else {
-            let nearest = self.firsts.iter().map(|(k, _)| key.differs_in(k)).min_by_key(Vec::len);
-            if let Some(fields) = nearest {
-                *self.new_keys_by.entry(fields.join("+")).or_default() += 1;
+            let nearest = (self.firsts.iter()).min_by_key(|(k, _)| key.differs_in(k).len());
+            if let Some((k, _)) = nearest {
+                *self.new_keys_by.entry(key.differs_detail(k)).or_default() += 1;
             }
             self.firsts.push((key, state));
             return true;
@@ -497,12 +523,7 @@ pub(crate) fn report(engine: &Engine) -> Option<String> {
     })
 }
 
-/// Every committed row of `store`, one line each ([`rows`]).
-fn committed_rows(store: &al_data::memory::MemStore) -> Vec<String> {
-    rows(&store.export_committed().unwrap_or_default())
-}
-
-/// Every row `store` holds now, the uncommitted changes included, one line each as [`committed_rows`] writes them.
+/// Every row `store` holds now, the uncommitted changes included, one line each ([`rows`]).
 fn current_rows(store: &al_data::memory::MemStore) -> Vec<String> {
     rows(&store.export_current())
 }
@@ -596,6 +617,7 @@ mod tests {
             client: (true, false, false),
             flags: Default::default(),
             license: None,
+            parts: Default::default(),
         }
     }
 
@@ -619,6 +641,7 @@ mod tests {
             client,
             flags,
             license,
+            parts,
         } = &k;
         let digests: [&LinesDigest; 3] = [database, session, resources];
         let _: &Option<LinesDigest> = uncommitted;
@@ -627,12 +650,15 @@ mod tests {
         let _: &(bool, bool, bool) = client;
         let _: &crate::runtime::session_flags::SessionFlags = flags;
         let _: &Option<std::sync::Arc<al_host::license::License>> = license;
+        // SHA-256 digests per table and per state line name (key_parts.rs scanned below too).
+        let _: &key_parts::KeyParts = parts;
         for d in digests {
             assert_eq!(std::mem::size_of_val(&d.0), 32);
         }
         let code = include_str!("login_replay.rs").split("#[cfg(test)]").next().unwrap();
+        let parts = include_str!("login_replay/key_parts.rs");
         for hasher in ["DefaultHasher", "std::hash::", "FxHash", "ahash", "-> u64"] {
-            assert!(!code.contains(hasher), "{hasher}");
+            assert!(!code.contains(hasher) && !parts.contains(hasher), "{hasher}");
         }
     }
 
@@ -755,6 +781,66 @@ mod tests {
         for (_, what) in differences(&a, &missing).into_iter().chain(differences(&missing, &a)) {
             assert!(!what.contains("SECRET"), "{what}");
         }
+    }
+
+    /// A key whose parts are made of the rows `rows` ((company, table object, values)) and the state lines `lines`.
+    fn key_with(table_rows: &[(&str, u32, Vec<Value>)], lines: &[&str]) -> Key {
+        let tables: Vec<al_data::memory::ExportedTable> = (table_rows.iter())
+            .map(|(company, object, row)| al_data::memory::ExportedTable {
+                company: company.to_string(),
+                object: *object,
+                pk_storage: None,
+                rows: vec![(Vec::new(), row.clone())],
+            })
+            .collect();
+        let state = al_vm::StateLines {
+            lines: lines.iter().map(|s| s.to_string()).collect(),
+            opaque: Vec::new(),
+        };
+        Key {
+            database: digest(&rows(&tables)),
+            session: digest(&state.lines),
+            parts: key_parts::KeyParts::of(&tables, &state),
+            ..key(1)
+        }
+    }
+
+    // PERF-01 step 3: a new key names the session state lines and the database tables it differs in from its nearest
+    // earlier key, by name only. A planted value in a row, in a company name and in a state line never appears.
+    #[test]
+    fn a_new_key_names_the_session_lines_and_tables_it_differs_in_and_no_value() {
+        let secret = |s: &str| Value::Text(format!("SECRET-VALUE-{s}").as_str().into());
+        let lines = |n: &str| {
+            [
+                "session SECRET-VALUE-0".to_string(),
+                format!("counters clock {n} SECRET-VALUE-1"),
+            ]
+        };
+        let (a, b) = (lines("1"), lines("2"));
+        let check = Check::default();
+        let first = key_with(
+            &[
+                ("SECRET-CO", 15, vec![secret("1")]),
+                ("SECRET-CO", 18, vec![secret("2")]),
+            ],
+            &a.iter().map(String::as_str).collect::<Vec<_>>(),
+        );
+        let second = key_with(
+            &[
+                ("SECRET-CO", 15, vec![secret("3")]),
+                ("SECRET-CO", 18, vec![secret("2")]),
+            ],
+            &b.iter().map(String::as_str).collect::<Vec<_>>(),
+        );
+        check.note(first, state(&["r"], &["s"]));
+        check.note(second, state(&["r"], &["s"]));
+        let line = check.keys_line().unwrap();
+        assert_eq!(
+            line,
+            "login replay keys: 2 keys, 1 new after the first; each differs from its nearest earlier key in: \
+             database (company 1/table 15)+session (counters) 1"
+        );
+        assert!(!line.contains("SECRET"), "{line}");
     }
 
     #[test]
