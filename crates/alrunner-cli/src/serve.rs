@@ -575,11 +575,16 @@ fn stop_group(e: &Map<String, Value>) -> Result<Option<String>, String> {
     }
 }
 
-/// A `stopGroup` needs the stop after a failure (`stop`: the request's field, or the server's
-/// `--stop-after-first-failure` when it is absent): without the stop a group changes nothing, so it is refused as a
-/// likely client mistake. A request may mix entries with and without a group.
+/// The `stopGroup`s of `entries` are all or none (PERF-18): a mix is refused, as an entry without a group has more than
+/// one plausible reading there, and a refusal can be lifted later. Groups need the stop after a failure (`stop`: the
+/// request's field, or the server's `--stop-after-first-failure` when it is absent): without the stop a group changes
+/// nothing, so it is refused as a likely client mistake. The mix is checked first: it is wrong whatever the stop.
 fn stop_groups_checked(entries: &[run::Entry], stop: bool) -> Result<(), String> {
-    if !stop && entries.iter().any(|e| e.stop_group.is_some()) {
+    let grouped = entries.iter().filter(|e| e.stop_group.is_some()).count();
+    if grouped > 0 && grouped < entries.len() {
+        return Err("some entries have a `stopGroup` and some do not: give every entry one (an entry that stops alone gets a group of its own), or none (a failure then stops the whole request)".into());
+    }
+    if !stop && grouped > 0 {
         return Err("`stopGroup` needs `stopAfterFirstFailure` (or a server started with `--stop-after-first-failure`): without the stop a group changes nothing".into());
     }
     Ok(())
