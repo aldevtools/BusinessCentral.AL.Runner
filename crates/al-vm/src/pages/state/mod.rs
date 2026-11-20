@@ -354,10 +354,11 @@ pub struct PageState {
     /// The DataCaptionExpression of this page ran at the open as `data_caption_open.rs` measured: a TestPage's Caption() shows
     /// what that run left (`data_caption_value`) and does not evaluate the expression again. Cleared at the next open.
     pub data_caption_at_open: bool,
-    /// This Worksheet's DataCaptionExpression did not run at the open, where BC runs it, under the assumption
-    /// `data-caption-two-microsoft-opens-skipped` (`data_caption_kept_open.rs`): a TestPage's Caption() refuses. Cleared at the
-    /// next open.
+    /// This Worksheet's DataCaptionExpression did not run at the open, where BC runs it, in a shape
+    /// DataCaptionKeptOpen.al pins (`data_caption_kept_open.rs`): a TestPage's Caption() refuses. Cleared at the next open.
     pub data_caption_open_kept: bool,
+    /// What this page variable's `SetTableView` and `RunModal` calls were, for the modal shape of `data_caption_kept_open.rs`.
+    pub data_caption_kept_modal: crate::pages::data_caption_kept_open::KeptModalCalls,
     /// The measured cell of WorksheetTriggersOpen.al this page opened in (`ws_trigger_order.rs`). Cleared at the next open.
     pub ws_trigger_order: Option<crate::pages::ws_trigger_order::WsTriggerOrder>,
     /// A lookup page handed the related row a field holds opens on it as a list opens on a row its OnOpenPage left Rec on

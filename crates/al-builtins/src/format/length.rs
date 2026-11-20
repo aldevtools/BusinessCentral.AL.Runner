@@ -61,17 +61,16 @@ fn measured(v: &Value, standard: i32, fit: Ordering, positive: bool) -> bool {
 /// The pinned shapes where a cited line measures only some lengths, each by its value type, the standard format number and
 /// the lengths (or the sign of the length and how the text compares with it).
 fn measured_length(v: &Value, standard: i32, fit: Ordering, length: i32) -> bool {
-    // The file's results (format-evaluate/format-length/FormatLengthDates.al:8-9) name every length; the cells measure lengths
-    // up to 30.
-    let within_30 = (1..=30).contains(&length.unsigned_abs());
+    // The lengths the cells of 0D in formats 0 and 9 and of 0DT in format 0 measure, each with both signs.
+    let measured_undefined = matches!(length.unsigned_abs(), 1 | 3 | 8 | 10 | 30);
     match (v, standard, length > 0, fit) {
         // 0D: blanks in a positive length, '' in a negative one; L = ±1, 3, 8, 10, 30 in formats 0 and 9, L = 10 in 1 and 2
         // (FormatLengthDates.al:62-72, :99-113, :162-168).
-        (Value::Date(0, false), 0 | 9, _, _) => within_30,
+        (Value::Date(0, false), 0 | 9, _, _) => measured_undefined,
         (Value::Date(0, false), 1 | 2, true, _) => length == 10,
         // 0DT the same: L = ±1, 3, 8, 10, 30 in format 0; L = 3, 10, 30, -3, -30 in format 9 (FormatLengthDates.al:352-366,
         // :169-171).
-        (Value::DateTime(0), 0, _, _) => within_30,
+        (Value::DateTime(0), 0, _, _) => measured_undefined,
         (Value::DateTime(0), 9, _, _) => matches!(length, 3 | 10 | 30 | -3 | -30),
         // A Text as long as a negative length stays (format-evaluate/format-length/FormatLengthTypes.al:888).
         (Value::Text(_), 0, false, Ordering::Equal) => true,
@@ -536,6 +535,12 @@ mod tests {
         for (v, length, standard) in [
             (&undefined, 31, 9),
             (&undefined, -31, 0),
+            // Lengths between the pinned ±1, 3, 8, 10 and 30 (FormatLengthDates.al:62-72, :84-93, :337-361).
+            (&undefined, 2, 9),
+            (&undefined, 20, 0),
+            (&undefined, -5, 9),
+            (&Value::DateTime(0), 2, 0),
+            (&Value::DateTime(0), -20, 0),
             (&undefined, 3, 1),
             (&undefined, 10, 4),
             (&Value::DateTime(0), 8, 9),

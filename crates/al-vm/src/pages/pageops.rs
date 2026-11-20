@@ -1213,7 +1213,10 @@ impl Session {
             // (testpage/TestPageCloseTriggersSelectionCardPageContracts.al:250-285).
             PageMethod::GetRecord => self.page_get_record(st, args),
             PageMethod::SetTableView => match args.first() {
-                Some(Value::Record(r)) => self.page_var_set_table_view(st, r),
+                Some(Value::Record(r)) => {
+                    self.note_kept_view(st, r);
+                    self.page_var_set_table_view(st, r)
+                }
                 other => unsupported(format!("Page.SetTableView with {}", other.describe())),
             },
             PageMethod::EnqueueBackgroundTask => {
@@ -1231,6 +1234,7 @@ impl Session {
             PageMethod::Run => self.run_page_var(st, false),
             PageMethod::RunModal => {
                 st.borrow_mut().modal_run = ModalRun::Variable;
+                self.note_kept_run_modal(st);
                 self.run_page_var(st, true)
             }
             // `CurrPage.Close()` in a procedure of a Page variable that never ran does nothing and the procedure goes on

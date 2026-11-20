@@ -14,18 +14,30 @@ use al_builtins::assumptions::{self, Assumption};
 use al_builtins::native::{Signal, unsupported};
 use al_builtins::record_op::RecordOp;
 use al_builtins::value::{Instance, RecordState, RtType, Value};
-use al_ir::ObjKind;
+use al_ir::{self as ir, ObjKind};
 use std::cell::RefCell;
 use std::rc::Rc;
 
 /// The `RecordState::unpinned_buffer` reason of a by-value copy whose view [`Session::by_value_view`] does not decide.
-pub(crate) const BY_VALUE_VIEW: &str = "a record handed by value whose view the probe did not measure (a filter in filter group 1 or in a group other than -1, 0, 2 and 4, the caller standing in a group other than 0 and 2, a field sorted descending by SetAscending, a SetLoadFields after a read, SetAutoCalcFields or ReadIsolation on the record, a call through an interface, a parameter of an object other than a codeunit or of a table procedure other than Row.Proc(Row) or Buffer.Proc(Entry) of another table from a codeunit or a third table, or an event subscriber's parameter whose publisher parameter is a by-value Record, other than one of a codeunit's IntegrationEvent(false, false) whose record has filters in group 0 only and the plain view): what the copy's view holds is not pinned";
+pub(crate) const BY_VALUE_VIEW: &str = "a record handed by value whose view the probe did not measure (a filter in filter group 1 or in a group other than -1, 0, 2 and 4, the caller standing in a group other than 0 and 2, a field sorted descending by SetAscending, a SetLoadFields after a read, SetAutoCalcFields or ReadIsolation on the record, a call through an interface, a parameter of an object other than a codeunit or of a table procedure other than Row.Proc(Row) or Buffer.Proc(Entry) of another table from a codeunit or a third table, or an event subscriber's parameter whose publisher parameter is a by-value Record, other than in the one cell record/filters/ByValueRecordView.al:286-308 and :964-978 measures): what the copy's view holds is not pinned";
+
+/// The `RecordState::unpinned_buffer` reason of the copy an event subscriber's parameter gets in the cell
+/// record/filters/ByValueRecordView.al:286-308 measures ([`subscriber_view`]): the subscriber reads GetFilters and Count of it
+/// only (:306), so every other read of its view refuses.
+pub(crate) const BY_VALUE_EVENT_READS: &str = "a by-value event subscriber record read other than by GetFilters and Count, the two reads record/filters/ByValueRecordView.al:306 measures: what it answers is not pinned";
+
+/// Whether `why` is one of the marks of a by-value copy whose view is not pinned for every read: [`BY_VALUE_VIEW`] and
+/// [`BY_VALUE_EVENT_READS`]. Field reads of such a copy run (`records.rs` `buffer_read_refused`).
+pub(crate) fn by_value_mark(why: &str) -> bool {
+    why == BY_VALUE_VIEW || why == BY_VALUE_EVENT_READS
+}
 
 /// What record/filters/ByValueRecordView.al pins of one Record parameter of an event subscriber ([`Session::event_args`]).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum EventArg {
-    /// The parameter of the measured cell (record/filters/ByValueRecordView.al:286-308): the publisher, its parameter and the
-    /// subscriber have every fact [`Session::event_args`] names.
+    /// The parameter of the measured cell (record/filters/ByValueRecordView.al:286-308): the publisher, its parameter, the raise
+    /// and the subscriber have every fact [`Session::event_publisher`] and [`Session::event_args`] name. The caller's record
+    /// is checked at the copy (`Session::cell_record`).
     Measured,
     /// The publisher's parameter is a by-value Record, the fact the cell measured (:294), but another fact of the publisher
     /// or the subscriber is not the cell's.
@@ -191,20 +203,33 @@ fn fresh_view(s: &RecordState) -> bool {
 /// [`Session::event_args`] says `arg`.
 /// - [`EventArg::Main`]: the copy keeps main's view (not measured).
 /// - `s` has the view of a fresh record ([`fresh_view`]): the copy keeps it (main; there is nothing to drop).
-/// - [`EventArg::Measured`] and the view [`group0_view`] names: the view of [`primary_view`]
-///   (record/filters/ByValueRecordView.al:975 `sub f={} n=3;`).
+/// - [`EventArg::Measured`] and `cell_record` (`s` is the caller's record of the cell, `Session::cell_record`): the view of
+///   [`primary_view`] (record/filters/ByValueRecordView.al:975 `sub f={} n=3;`), marked [`BY_VALUE_EVENT_READS`]: only
+///   GetFilters and Count of it run (:306).
 /// - Else (the publisher's parameter is a by-value Record) the copy keeps main's view and is marked [`BY_VALUE_VIEW`]: a
 ///   read of its view refuses. A copy of a marked `s` keeps main's view and the mark.
-fn subscriber_view(s: &RecordState, copy: &Rec, arg: EventArg) {
+fn subscriber_view(s: &RecordState, copy: &Rec, arg: EventArg, cell_record: bool) {
     let mut c = copy.borrow_mut();
     match (s.unpinned_buffer, arg) {
         (Some(_), _) | (None, EventArg::Main) => {}
         (None, _) if fresh_view(s) => {}
-        (None, EventArg::Measured) if group0_view(s) => {
+        (None, EventArg::Measured) if cell_record => {
             primary_view(&mut c);
+            c.unpinned_buffer = Some(BY_VALUE_EVENT_READS);
         }
         (None, EventArg::Measured | EventArg::PublisherByValue) => c.unpinned_buffer = Some(BY_VALUE_VIEW),
     }
+}
+
+/// Whether `a` is the subscriber attribute of the cell (record/filters/ByValueRecordView.al:301): `[EventSubscriber]` with six
+/// arguments, the element '' and SkipOnMissingLicense and SkipOnMissingPermission `false`.
+fn cell_subscriber_attribute(a: &ir::Attribute) -> bool {
+    let args = crate::events::split_args(&a.text);
+    a.name.eq_ignore_ascii_case("EventSubscriber")
+        && matches!(args.as_slice(), [_, _, _, element, license, permission]
+            if crate::events::unquote(element).is_empty()
+                && license.eq_ignore_ascii_case("false")
+                && permission.eq_ignore_ascii_case("false"))
 }
 
 /// The view of a fresh record: no filters in any filter group, filter group 0, the primary key ascending, no marks,
@@ -235,16 +260,23 @@ impl Session {
         v
     }
 
-    /// The publisher of one raise (`publisher`: the routine `publish` raises; `None` for an event the platform raises) and
-    /// whether its own facts are those of the pinned cell (record/filters/ByValueRecordView.al:286-296), every fact by equality: a codeunit (:286) that does not state
-    /// `SingleInstance = true` (it states no property, :286-296), the event declared `[IntegrationEvent(false, false)]` with IncludeSender,
-    /// GlobalVarAccess and Isolated off and no `[CommitBehavior]` attribute (:293), raised by a call of the publisher
-    /// procedure (:290).
-    pub(crate) fn event_publisher(&self, publisher: Option<(usize, usize)>) -> Option<EventPublisher> {
-        let (object, routine) = publisher?;
+    /// The publisher of one raise (`publisher`: the routine `publish` raises and whether its argument is a `var` parameter of
+    /// the raising routine, [`Session::raise_arg_var_param`]; `None` for an event the platform raises) and whether its own
+    /// facts are those of the pinned cell (record/filters/ByValueRecordView.al:286-296), every fact by equality: a codeunit
+    /// that states no property (:286-296), the event a `local` procedure with exactly one parameter (:294), declared
+    /// `[IntegrationEvent(false, false)]` with IncludeSender, GlobalVarAccess and Isolated off and no `[CommitBehavior]`
+    /// attribute (:293), raised by a call of the publisher procedure whose argument is a `var` parameter of the raising
+    /// procedure (:288-290).
+    pub(crate) fn event_publisher(&self, publisher: Option<(usize, usize, bool)>) -> Option<EventPublisher> {
+        let (object, routine, var_param_arg) = publisher?;
         let engine = &self.engine;
-        let measured = engine.program.objects[object].kind == ObjKind::Codeunit
-            && !engine.object_facts[object].single_instance
+        let o = &engine.program.objects[object];
+        let r = &o.routines[routine];
+        let measured = o.kind == ObjKind::Codeunit
+            && o.properties.is_empty()
+            && r.local
+            && r.params == 1
+            && var_param_arg
             && engine.routine_facts(object, routine).commit_behavior.is_none()
             && engine.events.publishers.get(&(object, routine)).is_some_and(|p| {
                 p.kind == EventKind::Integration && !p.include_sender && !p.global_var_access && !p.isolated
@@ -257,11 +289,13 @@ impl Session {
     }
 
     /// Per parameter of subscriber `s` (`map`: the publisher's parameter each one takes) of the raise of `publisher`
-    /// ([`Session::event_publisher`]), what the corpus pins of it (record/filters/ByValueRecordView.al:286-308,
-    /// `ByValue_EventSubscriberParameter` :964-978). [`EventArg::Measured`], every fact by equality: the publisher's own
-    /// facts are the cell's ([`EventPublisher`]); its parameter is a Record of a table that is not TableType = Temporary,
-    /// passed by value (:294); `s` is of a codeunit that states neither `EventSubscriberInstance = Manual` nor
-    /// `SingleInstance = true` (:299-301), and its parameter is a Record of the same table, by value (:302).
+    /// ([`Session::event_publisher`]), one of `subscribers` the raise reaches, what the corpus pins of it
+    /// (record/filters/ByValueRecordView.al:286-308, `ByValue_EventSubscriberParameter` :964-978). [`EventArg::Measured`],
+    /// every fact by equality: the publisher's own facts are the cell's ([`EventPublisher`]); its parameter is a Record of a
+    /// table that is not TableType = Temporary, passed by value (:294); `s` is the event's only subscriber, of a codeunit that
+    /// states no property (:299-300), a `local` procedure with exactly one parameter, a Record of the same table, by value
+    /// (:302), under `[EventSubscriber(.., '', false, false)]`: no element, SkipOnMissingLicense and SkipOnMissingPermission
+    /// false (:301).
     /// [`EventArg::PublisherByValue`]: the publisher's parameter is a by-value Record, another fact differs.
     /// [`EventArg::Main`]: every other parameter, and each one of an event the platform raises (`publisher` `None`); an
     /// empty list when no parameter is anything else.
@@ -270,6 +304,7 @@ impl Session {
         publisher: Option<&EventPublisher>,
         s: &Subscriber,
         map: &[Option<usize>],
+        subscribers: usize,
     ) -> Vec<EventArg> {
         let Some(publisher) = publisher else {
             return Vec::new();
@@ -283,9 +318,14 @@ impl Session {
             return Vec::new();
         }
         let sub = &objects[s.object];
-        let measured_subscriber =
-            sub.kind == ObjKind::Codeunit && !s.manual && !engine.object_facts[s.object].single_instance;
         let r = &sub.routines[s.routine];
+        let measured_subscriber = subscribers == 1
+            && sub.kind == ObjKind::Codeunit
+            && sub.properties.is_empty()
+            && r.local
+            && r.params == 1
+            && s.element.is_empty()
+            && r.attributes.iter().any(cell_subscriber_attribute);
         map.iter()
             .enumerate()
             .map(|(i, m)| match *m {
@@ -374,7 +414,7 @@ impl Session {
             return;
         }
         if call.dispatch == Dispatch::Subscriber {
-            subscriber_view(&s, copy, call.event_arg(index));
+            subscriber_view(&s, copy, call.event_arg(index), self.cell_record(&s));
             return;
         }
         let measured = self.measured_callee(call, param, source);
@@ -402,6 +442,49 @@ impl Session {
             None => c.unpinned_buffer = Some(BY_VALUE_VIEW),
             Some(_) => {}
         }
+    }
+
+    /// Whether `s` is the caller's record of the subscriber cell (record/filters/ByValueRecordView.al:964-972), every fact by
+    /// equality: a fresh record (it read no row, no field written, no Insert of its own, no ChangeCompany) with the view
+    /// [`group0_view`] names and exactly one filter, `SetRange(Status, ..)` in group 0 on a field of FieldClass Normal (:969).
+    fn cell_record(&self, s: &RecordState) -> bool {
+        let normal = |field: usize| {
+            self.engine.program.objects[s.table as usize]
+                .table
+                .as_ref()
+                .and_then(|t| t.fields.get(field))
+                .is_some_and(|f| f.stored)
+        };
+        matches!(s.filters.as_slice(), [f] if normal(f.field))
+            && group0_view(s)
+            && s.position.is_none()
+            && !s.touched
+            && !s.inserted
+            && !s.change_company_called
+    }
+
+    /// Whether the call of publisher `routine` of `object` from routine `caller` of the same object, whose locals are
+    /// `caller_locals`, hands the publisher's only parameter (`values`) the record a `var` parameter of `caller` holds
+    /// (`Raise(var R)` calls `OnThing(R)`, record/filters/ByValueRecordView.al:288-290). `finish_call` asks it at each
+    /// publisher call; [`Session::event_publisher`] reads the answer.
+    pub(crate) fn raise_arg_var_param(
+        &self,
+        (object, routine): (usize, usize),
+        values: &[Value],
+        caller: (usize, usize),
+        caller_locals: &[Value],
+    ) -> bool {
+        let objects = &self.engine.program.objects;
+        let c = &objects[caller.0].routines[caller.1];
+        let [Value::Record(arg)] = values else {
+            return false;
+        };
+        caller.0 == object
+            && objects[object].routines[routine].params == 1
+            && (0..c.params).any(|l| {
+                c.by_var.get(l) == Some(&true)
+                    && matches!(caller_locals.get(l), Some(Value::Record(r)) if Rc::ptr_eq(r, arg))
+            })
     }
 
     /// The copy a by-value parameter that is not declared temporary, of a table that is not TableType = Temporary, of the
@@ -463,10 +546,20 @@ impl Session {
         match (method, args.first()) {
             (RecordOp::TransferFields, _) => {}
             (RecordOp::Copy | RecordOp::CopyFilters, Some(Value::Record(src))) if !Rc::ptr_eq(src, rec) => {
-                let (assumed, unpinned) = {
+                let (assumed, unpinned, event_reads) = {
                     let s = src.borrow();
-                    (s.view_assumption, s.unpinned_buffer == Some(BY_VALUE_VIEW))
+                    (
+                        s.view_assumption,
+                        s.unpinned_buffer == Some(BY_VALUE_VIEW),
+                        s.unpinned_buffer == Some(BY_VALUE_EVENT_READS),
+                    )
                 };
+                if event_reads {
+                    return unsupported(format!(
+                        "Record.{}() from a record: {BY_VALUE_EVENT_READS}",
+                        method.name()
+                    ));
+                }
                 if let Some(a) = assumed {
                     assumptions::assume(a);
                 }
@@ -490,7 +583,7 @@ impl Session {
     }
 
     /// `rec` handed to code that reads its view (`to` names it): a copy that holds `RecordState::view_assumption` marks the
-    /// assumption, one marked [`BY_VALUE_VIEW`] refuses. Callers: `by_value_view_marks` (the source of a record method other
+    /// assumption, one marked [`BY_VALUE_VIEW`] or [`BY_VALUE_EVENT_READS`] refuses. Callers: `by_value_view_marks` (the source of a record method other
     /// than Copy, CopyFilters and TransferFields), `refs.rs` `gettable_record_copy`, the record a page opens on
     /// (`pages/open/record_refusals.rs` `page_record_refusal`: Page.Run, RunModal, SetRecord or SetTableView), the view of a
     /// report (`reports.rs` `report_set_view`) and of an XmlPort (`xmlports/mod.rs` `xp_set_view`), and
@@ -500,20 +593,28 @@ impl Session {
         if let Some(a) = r.view_assumption {
             assumptions::assume(a);
         }
-        if r.unpinned_buffer == Some(BY_VALUE_VIEW) {
-            return unsupported(format!("{}: {BY_VALUE_VIEW}", to()));
+        match r.unpinned_buffer {
+            Some(why) if by_value_mark(why) => unsupported(format!("{}: {why}", to())),
+            _ => Ok(()),
         }
-        Ok(())
     }
 
-    /// Whether `method` runs on `rec` with its mark kept, by `record_op_inner`, when `rec` is marked [`BY_VALUE_VIEW`]
-    /// (`false`: another mark, for `unpinned_buffer_op`). It runs when it reads neither the view nor the marks
-    /// ([`reads_no_view`]), when it is `CalcFields` and no filter of the copy is on a FlowFilter field (in no filter group: BC
-    /// hands the copy none of group 0), and when it is `Reset`, which gives the copy the view of a reset record: the mark
-    /// goes when the copy holds no marks. Every other method refuses. The triggers and events a method runs see the mark.
+    /// Whether `method` runs on `rec` with its mark kept, by `record_op_inner`, when `rec` is marked [`BY_VALUE_VIEW`] or
+    /// [`BY_VALUE_EVENT_READS`] (`false`: another mark, for `unpinned_buffer_op`). It runs when it reads neither the view
+    /// nor the marks ([`reads_no_view`]). Under [`BY_VALUE_EVENT_READS`] only GetFilters and Count run besides
+    /// (record/filters/ByValueRecordView.al:306). Under [`BY_VALUE_VIEW`] it runs when it is `CalcFields` and no filter of
+    /// the copy is on a FlowFilter field (in no filter group: BC hands the copy none of group 0), and when it is `Reset`,
+    /// which gives the copy the view of a reset record: the mark goes when the copy holds no marks. Every other method
+    /// refuses. The triggers and events a method runs see the mark.
     pub(crate) fn by_value_view_runs(&self, method: RecordOp, rec: &Rec) -> Result<bool, Signal> {
-        let marked = rec.borrow().unpinned_buffer == Some(BY_VALUE_VIEW);
-        if !marked {
+        let mark = rec.borrow().unpinned_buffer;
+        if mark == Some(BY_VALUE_EVENT_READS) {
+            if reads_no_view(method) || matches!(method, RecordOp::GetFilters | RecordOp::Count) {
+                return Ok(true);
+            }
+            return unsupported(format!("Record.{}(): {BY_VALUE_EVENT_READS}", method.name()));
+        }
+        if mark != Some(BY_VALUE_VIEW) {
             return Ok(false);
         }
         let runs = reads_no_view(method)
