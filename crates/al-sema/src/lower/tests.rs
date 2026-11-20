@@ -694,7 +694,7 @@ fn a_dotnet_alias_without_a_declaration_is_a_lowering_reason() {
     );
 }
 
-// session-system/TestEnvironmentUserTenantContracts.al:204-216 reaches `CopyStr(TenantInfo.PreferredLanguage(), 1, 2)`
+// session-system/TestEnvironmentUserTenantContracts.al:201-213 reaches `CopyStr(TenantInfo.PreferredLanguage(), 1, 2)`
 // and `IsNull(TenantInfo)` in Microsoft's Azure AD Tenant Impl.: a DotNet result passed to a Text
 // parameter must fit it exactly (ADR-014 section 4), and IsNull takes a DotNet value.
 #[test]

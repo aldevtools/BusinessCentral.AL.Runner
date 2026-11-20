@@ -24,12 +24,12 @@ pub(crate) fn datetime_difference(a: i64, b: i64) -> Result<Value, Signal> {
     date_invalid()
 }
 
-/// A subtraction of Dates with a closing date on either side. Only the shape the reporter of al-runner issue 8199 measured runs
-/// (assumption `closing-date-minus-date-raises`): the closing date of a defined day minus the plain date of the same day, under
-/// GlobalLanguage 1033, raises. Every other day, side, undefined date and language is refused.
+/// A subtraction of Dates with a closing date on either side. Only the closing date of a defined day minus the plain date of the
+/// same day, under GlobalLanguage 1033, runs: it raises ClosingDateOperation (localization/global-language/
+/// GlobalLanguageClosingDate.al:296, :346). Every other day, side, undefined date and language is refused (`D - CD` and
+/// `CD - CD` are pinned at :347-348 but not answered here).
 pub(crate) fn closing_date_minus((a, a_closing): (i32, bool), (b, b_closing): (i32, bool)) -> Result<Value, Signal> {
     if a_closing && !b_closing && a > 0 && a == b && crate::filter::filter_language() == 1033 {
-        crate::assumptions::assume(crate::assumptions::Assumption::ClosingDateMinusDateRaises);
         return closing_date_operation();
     }
     Err(Signal::unsupported(

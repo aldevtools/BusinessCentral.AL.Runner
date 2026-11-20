@@ -180,7 +180,7 @@ fn get_module(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     };
     if id == [0; 16] {
         // True, with a module whose data version is the installed application's (at least 27):
-        // session-system/TestEnvironmentUserTenantContracts.al:195-201. Its other properties are not pinned.
+        // session-system/TestEnvironmentUserTenantContracts.al:192-198. Its other properties are not pinned.
         if a.len() < 2 {
             return unsupported("GetModuleInfo without its var parameter");
         }
