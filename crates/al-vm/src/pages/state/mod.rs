@@ -16,7 +16,7 @@ mod refresh;
 mod stages;
 pub use after_go_to_key::AfterGoToKey;
 pub use close::CloseOutcome;
-pub use control_onvalidate::{ControlOnValidate, CurrPageSave};
+pub use control_onvalidate::{ControlOnValidate, CurrPageSave, RecCall};
 pub use list_view::ListViewSwitch;
 pub use lookup_left::LookupLeft;
 pub use refresh::{RefreshRequest, TakenRefresh};

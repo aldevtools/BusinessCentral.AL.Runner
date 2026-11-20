@@ -318,7 +318,9 @@ impl Session {
             self.store.change_counter(),
         ));
         let outer = std::mem::replace(&mut st.borrow_mut().control_onvalidate, start);
+        self.pages.onvalidate_pages.push(st.clone());
         let result = self.control_routine(st, idx, r);
+        self.pages.onvalidate_pages.pop();
         let mut s = st.borrow_mut();
         s.control_onvalidate = outer;
         // An OnValidate that failed after its save left the new-row line runs no refresh (`ValidateStart::left_new_line`).

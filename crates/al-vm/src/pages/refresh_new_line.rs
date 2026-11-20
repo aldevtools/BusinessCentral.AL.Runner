@@ -3,7 +3,28 @@
 
 use super::pinned_shape::{PinnedCode, TestCall};
 use super::*;
+use crate::pages::state::RecCall;
 use al_builtins::record_op::RecordOp;
+
+/// The record methods that load a row into Rec or move it, recorded while a control's OnValidate runs (`note_page_rec_call`).
+const POSITIONING: [RecordOp; 16] = [
+    RecordOp::Find,
+    RecordOp::FindFirst,
+    RecordOp::FindLast,
+    RecordOp::FindSet,
+    RecordOp::Get,
+    RecordOp::GetBySystemId,
+    RecordOp::Next,
+    RecordOp::SetPosition,
+    RecordOp::Init,
+    RecordOp::Clear,
+    RecordOp::Copy,
+    RecordOp::TransferFields,
+    RecordOp::Insert,
+    RecordOp::Modify,
+    RecordOp::Rename,
+    RecordOp::Delete,
+];
 
 /// The page call that saves the row page code moved Rec onto from the new-row line (`save_found_row_from_new_line`).
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -189,9 +210,9 @@ impl Session {
     /// OnModify running inside the OnValidate (Y50UpdateFromNewLine.al:610 G520_FromNewLine_ToBatchWithRows_UpdateTrue
     /// `V:start 0;M:B2/10000;L.OnModify:B2/10000;V:done 10000;...`). `CurrPage.SaveRecord()` in the same place saves the row
     /// too, then the page refreshes as after Update(true): assumption `new-line-saverecord-found-row` (corpus pull request 1470,
-    /// pages/failed-update/StaleUpdateNewLine.al:498, :914, :1242, :1318), only in `found_row_cell` and only when the row was
-    /// written (an OnModifyRecord that answers false is not measured); another SaveRecord in this place is refused. True when it
-    /// saved.
+    /// pages/failed-update/StaleUpdateNewLine.al:498, :914, :1242, :1318), only in `found_row_cell` and only when the save was
+    /// the measured one (`modified_alone`: OnModifyRecord answered true and wrote nothing, then the page's own Modify ran);
+    /// another SaveRecord in this place is refused. True when it saved.
     pub(super) fn save_found_row_from_new_line(&mut self, st: &St, call: FoundRowSave) -> Result<bool, Signal> {
         let shape = {
             let s = st.borrow();
@@ -218,13 +239,14 @@ impl Session {
             s.dirty = true;
         }
         // The row is written even though it holds what is stored (the buffer before it was the blank new line).
-        self.save_row(st)?;
+        let modify = self.save_row_outcome(st)?;
         self.set_xrec(st);
-        let written = self.store.change_counter() != changes;
+        // The cells' OnModifyRecord logs and answers true (StaleUpdateNewLine.al:156-160), the page's own Modify writes the row.
+        let modified_alone = modify.is_some_and(|m| m.answered_true && m.changes_before == changes);
         if call == FoundRowSave::SaveRecord {
-            if !written {
+            if !modified_alone {
                 return unsupported(
-                    "CurrPage.SaveRecord() on the new-row line whose row was not written (OnModifyRecord answered false; not measured)",
+                    "CurrPage.SaveRecord() on the new-row line whose row the page did not modify alone (OnModifyRecord answered false or wrote to the store; not measured)",
                 );
             }
             let mut s = st.borrow_mut();
@@ -233,7 +255,7 @@ impl Session {
             s.refresh.ask_by_update(true);
         }
         if cell
-            && written
+            && modified_alone
             && self.engine.object_facts[st.borrow().object as usize].page_type == Some(al_ir::PageType::List)
         {
             if let Some(start) = st.borrow_mut().filters_before_validate.as_mut() {
@@ -257,6 +279,35 @@ impl Session {
                 "a SetValue that fails after CurrPage.SaveRecord() saved the row page code found from the new-row line (not measured)",
             ),
             result => result,
+        }
+    }
+
+    /// Page code called record method `method` on `rec` (`Session::record_op_from_al`): when `rec` is the Rec of a page whose
+    /// control OnValidate runs and the method is one of `POSITIONING`, that OnValidate records the call
+    /// (`ControlOnValidate::positioned`, read by `found_row_cell`).
+    pub(crate) fn note_page_rec_call(&mut self, method: RecordOp, rec: &Rec, args: &[Value]) {
+        if !POSITIONING.contains(&method) {
+            return;
+        }
+        let which = match (method, args.first()) {
+            (RecordOp::Find, Some(Value::Text(w))) => Some(w.as_str().to_string()),
+            _ => None,
+        };
+        for st in self.pages.onvalidate_pages.clone() {
+            let Some(slot) = self.engine.program.objects[st.borrow().object as usize].rec_slot else {
+                continue;
+            };
+            let own = st
+                .borrow()
+                .instance
+                .as_ref()
+                .is_some_and(|i| matches!(&i.borrow().globals[slot], Value::Record(r) if Rc::ptr_eq(r, rec)));
+            if let Some(v) = st.borrow_mut().control_onvalidate.as_mut().filter(|_| own) {
+                v.positioned = Some(RecCall {
+                    op: method,
+                    which: which.clone(),
+                });
+            }
         }
     }
 
@@ -297,6 +348,8 @@ impl Session {
     /// - the CurrPage calls of that OnValidate, this one last (`ControlOnValidate::saves`): on the Worksheet SaveRecord alone
     ///   (:914) or after a first SaveRecord (:498, :1318); on the List SaveRecord (:1242) or Update(true) (:1280) after a first
     ///   SaveRecord; nothing written to the store since the OnValidate began;
+    /// - the last record call of page code on Rec in that OnValidate (`ControlOnValidate::positioned`) is Find('-') (SetBatch,
+    ///   :168-174; Get, FindFirst and FindSet are not measured);
     /// - the row: `found_row_first_of_view`, Rec as stored, or on the Worksheet after a first SaveRecord with one Text field
     ///   outside the key set by code (:1318 `Rec.Description := 'code'`).
     fn found_row_cell(&mut self, st: &St, call: FoundRowSave) -> Result<bool, Signal> {
@@ -332,15 +385,22 @@ impl Session {
                 | (false, FoundRowSave::UpdateTrue, [Save, Update(true)])
         );
         let touch = worksheet && call == FoundRowSave::SaveRecord && first_save;
+        let find_first_row = onvalidate.positioned
+            == Some(RecCall {
+                op: RecordOp::Find,
+                which: Some("-".to_string()),
+            });
         Ok(calls_ok
             && saves_ok
+            && find_first_row
             && self.store.change_counter() == onvalidate.changes
             && self.found_row_first_of_view(st, touch)?)
     }
 
     /// Rec stands on the first row of a view whose only filter is the one the cells' SetBatch sets (StaleUpdateNewLine.al:168-174):
-    /// an equality on the primary key's first field in filter group 2, to Rec's value, in the primary key's ascending order, not
-    /// limited to marked rows. Rec holds that row as stored, or (`touch`) differs from it in one Text field outside the primary key.
+    /// an equality on the primary key's first field in filter group 2, to Rec's value, with Rec's filter group set back to 0, in
+    /// the primary key's ascending order, not limited to marked rows. Rec holds that row as stored, or (`touch`) differs from it
+    /// in one Text field outside the primary key.
     fn found_row_first_of_view(&mut self, st: &St, touch: bool) -> Result<bool, Signal> {
         let rec = self.page_rec(st);
         let table = self.table(&rec)?;
@@ -354,7 +414,7 @@ impl Session {
                     && matches!(&f.expr, al_builtins::filter::FilterExpr::Range(Some(a), Some(b))
                         if Self::same_values(std::slice::from_ref(a), value) && Self::same_values(std::slice::from_ref(b), value))
             };
-            sorted && matches!(r.filters.as_slice(), [f] if batch(f))
+            sorted && r.filter_group == 0 && matches!(r.filters.as_slice(), [f] if batch(f))
         };
         let Some(stored) = self.stored_row(&rec)?.filter(|_| view_ok) else {
             return Ok(false);
