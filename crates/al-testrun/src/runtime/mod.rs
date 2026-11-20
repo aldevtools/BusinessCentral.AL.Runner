@@ -1231,6 +1231,7 @@ mod apply_manifests;
 mod baseline_key;
 mod blocked;
 mod cache;
+mod carry_after;
 mod case_lookup;
 mod chain;
 mod chain_walk;
