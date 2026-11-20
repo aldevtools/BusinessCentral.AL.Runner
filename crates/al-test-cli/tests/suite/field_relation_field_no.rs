@@ -1,7 +1,6 @@
 //! al-runner issue 8249: Field.RelationFieldNo of a TableRelation that names a table and no field is 0, not the target's first key
-//! field. Corpus PR 1461 (open), tests/al-language/metadata/platform-tables/FieldRelationFieldNo.al, measures it; until it is
-//! pinned the value runs through assumption `relation-field-no-without-field`, and the shapes the probe did not measure refuse a
-//! read of RelationFieldNo while the row's other columns read as on main.
+//! field (metadata/platform-tables/FieldRelationFieldNo.al). The shapes the probe did not measure refuse a read of RelationFieldNo
+//! while the row's other columns read as on main.
 //!
 //! Needs `System.app` of the pinned build in the artifact cache (`al_testfiles`).
 
@@ -72,8 +71,37 @@ table 50110 "Item Like"
         field(27; TwoWheres; Code[20]) { TableRelation = Category where(Name = const('X'), Code = const('Y')); }
         field(28; RowVersion; Code[20]) { TableRelation = Category.SystemRowVersion; }
         field(29; Flow; Code[20]) { FieldClass = FlowField; CalcFormula = lookup(Category.Code); TableRelation = Category; }
+        field(30; ShortCode; Code[10]) { TableRelation = Category; }
+        field(31; LongCode; Code[30]) { TableRelation = Category; }
+        field(32; TempTarget; Code[20]) { TableRelation = "Temp Category"; }
+        field(33; Pending; Code[20]) { TableRelation = Category; ObsoleteState = Pending; ObsoleteReason = 'x'; }
+        field(34; Disabled; Code[20]) { TableRelation = Category; Enabled = false; }
+        field(35; NoTest; Code[20]) { TableRelation = Category; TestTableRelation = false; }
+        field(36; SelfRef; Code[20]) { TableRelation = "Item Like"; }
+        field(37; UserWhere; Guid) { TableRelation = User where("User Name" = const('X')); }
+        field(38; KeyFiveWhere; Integer) { TableRelation = "Key Five" where(Desc = const('X')); }
     }
     keys { key(PK; "No.") { Clustered = true; } }
+}
+
+table 50106 "Temp Category"
+{
+    TableType = Temporary;
+    fields { field(1; Code; Code[20]) { } }
+    keys { key(PK; Code) { Clustered = true; } }
+}
+
+table 50107 "Temp Source"
+{
+    TableType = Temporary;
+    fields { field(1; Id; Integer) { } field(2; CategoryRef; Code[20]) { TableRelation = Category; } }
+    keys { key(PK; Id) { Clustered = true; } }
+}
+
+table 50108 "Key Source"
+{
+    fields { field(1; CategoryRef; Code[20]) { TableRelation = Category; } }
+    keys { key(PK; CategoryRef) { Clustered = true; } }
 }
 
 tableextension 50111 "Item Like Ext" extends "Item Like"
@@ -196,6 +224,50 @@ codeunit 50120 T
     [Test]
     procedure FlowFieldSource() begin if FieldNoOf(29) = 0 then; end;
     [Test]
+    procedure ShorterCodeField() begin if FieldNoOf(30) = 0 then; end;
+    [Test]
+    procedure LongerCodeField() begin if FieldNoOf(31) = 0 then; end;
+    [Test]
+    procedure TemporaryTarget() begin if FieldNoOf(32) = 0 then; end;
+    [Test]
+    procedure ObsoletePendingField() begin if FieldNoOf(33) = 0 then; end;
+    [Test]
+    procedure DisabledField() begin if FieldNoOf(34) = 0 then; end;
+    [Test]
+    procedure TestTableRelationFalse() begin if FieldNoOf(35) = 0 then; end;
+    [Test]
+    procedure RelationOntoOwnTable() begin if FieldNoOf(36) = 0 then; end;
+    [Test]
+    procedure GuidToUserWithWhere() begin if FieldNoOf(37) = 0 then; end;
+    [Test]
+    procedure IntegerKeyWithWhere() begin if FieldNoOf(38) = 0 then; end;
+    [Test]
+    procedure TemporarySource()
+    var
+        F: Record Field;
+    begin
+        F.Get(Database::"Temp Source", 2);
+        if F.RelationFieldNo = 0 then;
+    end;
+    [Test]
+    procedure FieldIsPrimaryKey()
+    var
+        F: Record Field;
+    begin
+        F.Get(Database::"Key Source", 1);
+        if F.RelationFieldNo = 0 then;
+    end;
+    // A read of the row that does not read RelationFieldNo, of a field outside the measured shapes: main's answer.
+    [Test]
+    procedure UnmeasuredRowOtherColumn()
+    var
+        F: Record Field;
+    begin
+        F.Get(Database::"Item Like", 30);
+        if F.FieldName <> 'ShortCode' then
+            Error('name %1', F.FieldName);
+    end;
+    [Test]
     procedure OptionTargetTableNo() begin if TableNoOf(20) <> Database::"Option Key" then Error('table %1', TableNoOf(20)); end;
 }
 "#;
@@ -206,25 +278,11 @@ fn outcome<'a>(o: &'a [(String, Outcome, Vec<Assumption>)], n: &str) -> &'a (Str
         .unwrap_or_else(|| panic!("no test {n}: {o:?}"))
 }
 
-fn assert_flagged_pass(o: &[(String, Outcome, Vec<Assumption>)], names: &[&str]) {
-    for n in names {
-        let (_, r, hits) = outcome(o, n);
-        assert_eq!(*r, Outcome::Pass, "{n}: {r:?}");
-        assert!(
-            hits.contains(&Assumption::RelationFieldNoWithoutField),
-            "{n} not flagged: {hits:?}"
-        );
-    }
-}
-
 fn assert_clean_pass(o: &[(String, Outcome, Vec<Assumption>)], names: &[&str]) {
     for n in names {
         let (_, r, hits) = outcome(o, n);
         assert_eq!(*r, Outcome::Pass, "{n}: {r:?}");
-        assert!(
-            !hits.contains(&Assumption::RelationFieldNoWithoutField),
-            "{n} flagged: {hits:?}"
-        );
+        assert!(hits.is_empty(), "{n} flagged: {hits:?}");
     }
 }
 
@@ -238,12 +296,38 @@ fn assert_refused(o: &[(String, Outcome, Vec<Assumption>)], names: &[&str]) {
     }
 }
 
-/// The measured shapes read 0 and are flagged passes; named fields and conditional relations keep main's pinned answer.
+/// The measured shapes read 0, clean passes; every other shape refuses a read of RelationFieldNo; named fields and conditional relations keep main's pinned answer.
 #[test]
 fn issue_8249_relation_without_field_reads_field_no_zero() {
     let src = format!("{TABLES}{TESTS}");
     let o = run(&[(APP_ID, AppKind::Workspace, &src)]);
-    assert_flagged_pass(
+    assert_refused(
+        &o,
+        &[
+            "OptionTargetKey",
+            "EnumTargetKey",
+            "FilterWhere",
+            "FieldWhere",
+            "TextSourceField",
+            "CodeOntoIntegerKey",
+            "GuidOntoOtherTable",
+            "TwoConstWheres",
+            "RowVersionRelation",
+            "FlowFieldSource",
+            "ShorterCodeField",
+            "LongerCodeField",
+            "TemporaryTarget",
+            "ObsoletePendingField",
+            "DisabledField",
+            "TestTableRelationFalse",
+            "RelationOntoOwnTable",
+            "GuidToUserWithWhere",
+            "IntegerKeyWithWhere",
+            "TemporarySource",
+            "FieldIsPrimaryKey",
+        ],
+    );
+    assert_clean_pass(
         &o,
         &[
             "ReporterShape",
@@ -264,21 +348,7 @@ fn issue_8249_relation_without_field_reads_field_no_zero() {
             "NamedOtherField",
             "ConditionalRelation",
             "OptionTargetTableNo",
-        ],
-    );
-    assert_refused(
-        &o,
-        &[
-            "OptionTargetKey",
-            "EnumTargetKey",
-            "FilterWhere",
-            "FieldWhere",
-            "TextSourceField",
-            "CodeOntoIntegerKey",
-            "GuidOntoOtherTable",
-            "TwoConstWheres",
-            "RowVersionRelation",
-            "FlowFieldSource",
+            "UnmeasuredRowOtherColumn",
         ],
     );
 }
@@ -336,4 +406,39 @@ codeunit 50120 T
     ]);
     assert_refused(&o, &["OtherAppExtension", "OtherAppTarget"]);
     assert_clean_pass(&o, &["OtherAppTargetTableNo"]);
+}
+
+/// A target named after its namespace reads as the same relation named alone (FieldRelationFieldNo.al:88, :161-180).
+#[test]
+fn issue_8249_namespace_qualified_target_reads_field_no_zero() {
+    let src = r#"namespace Review.Rfn;
+
+table 50140 "N Category"
+{
+    fields { field(1; Code; Code[20]) { } }
+    keys { key(PK; Code) { Clustered = true; } }
+}
+
+table 50141 "N Source"
+{
+    fields { field(1; Id; Integer) { } field(2; Qualified; Code[20]) { TableRelation = Review.Rfn."N Category"; } }
+    keys { key(PK; Id) { Clustered = true; } }
+}
+
+codeunit 50142 T
+{
+    Subtype = Test;
+
+    [Test]
+    procedure QualifiedTarget()
+    var
+        F: Record Field;
+    begin
+        F.Get(Database::"N Source", 2);
+        if Format(F.RelationTableNo) + '/' + Format(F.RelationFieldNo) <> '50140/0' then
+            Error('row %1/%2', F.RelationTableNo, F.RelationFieldNo);
+    end;
+}"#;
+    let o = run(&[(APP_ID, AppKind::Workspace, src)]);
+    assert_clean_pass(&o, &["QualifiedTarget"]);
 }

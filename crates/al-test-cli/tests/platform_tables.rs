@@ -1375,8 +1375,8 @@ codeunit 50000 "T" { Subtype = Test;
   [Test] procedure ConditionalRelation() var F: Record "Field"; begin F.Get(50003, 6); if (F.RelationTableNo <> 0) or (F.RelationFieldNo <> 0) then Error('conditional relation reads 0/0'); end; }"#,
     );
     passes(&o, "FieldRelation");
-    // A relation without a field that the runtime keeps only as Table Relations Metadata: corpus PR 1461 did not measure
-    // its RelationFieldNo (assumption `relation-field-no-without-field`), so a read refuses.
+    // A relation without a field that the runtime keeps only as Table Relations Metadata: metadata/platform-tables/
+    // FieldRelationFieldNo.al does not measure its RelationFieldNo, so a read refuses.
     assert!(
         not_run(&o, "FieldRelationFieldNo").contains("RelationFieldNo"),
         "{:?}",
@@ -1410,8 +1410,8 @@ codeunit 50000 "T" { Subtype = Test;
   [Test] procedure CondBase() var F: Record "Field"; begin F.Get(50003, 6); if (F.RelationTableNo <> 0) or (F.RelationFieldNo <> 0) then Error('condbase %1', F.RelationTableNo); end; }"#,
     );
     passes(&o, "Uncond");
-    // The RelationFieldNo of a modify-extended relation without a field is not measured (corpus PR 1461, assumption
-    // `relation-field-no-without-field`): a read refuses.
+    // The RelationFieldNo of a modify-extended relation without a field is not measured (metadata/platform-tables/
+    // FieldRelationFieldNo.al): a read refuses.
     assert!(
         not_run(&o, "UncondFieldNo").contains("RelationFieldNo"),
         "{:?}",

@@ -258,8 +258,7 @@ fn table_entries(
         let extension = extension_packages(c, o, f, t);
         let row_packages = extension.as_deref().unwrap_or(&packages[..]);
         match field_row(c, o, f, t, blank, row_packages, &mut r) {
-            Ok(None) => out.push(Entry::ok(r)),
-            Ok(Some(a)) => out.push(Entry::ok(r).assuming_in(a, vec![pos(t, 22)])),
+            Ok(()) => out.push(Entry::ok(r)),
             Err(why) => {
                 let mut k = blank.row();
                 k[pos(t, 1)] = Value::Integer(tid as i32);
@@ -556,7 +555,7 @@ fn field_row(
     blank: &Blank,
     packages: &[(usize, Value)],
     r: &mut al_data::Row,
-) -> Result<Option<al_builtins::assumptions::Assumption>, String> {
+) -> Result<(), String> {
     let what = || format!("field '{}' of table '{}'", f.name, table.name);
     let fprop = |name: &str| {
         f.properties

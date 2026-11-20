@@ -573,7 +573,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `platform/apps.rs` (67): The tables that list the apps of the tenant.
 - `platform/date.rs` (361): The `Date` table (2000000007).
 - `platform/fields.rs` (264): The Field and Key platform tables. Entry: `field_row` 116, `shell_entries` 65.
-- `platform/field_relation.rs`: RelationTableNo and RelationFieldNo of a Field row (`relation_columns`, called by `field_row`); a relation without a field reads RelationFieldNo 0 in the shapes `no_field_measured` allows (assumption `relation-field-no-without-field`) and refuses a read of it in every other.
+- `platform/field_relation.rs`: RelationTableNo and RelationFieldNo of a Field row (`relation_columns`, called by `field_row`); a relation without a field reads RelationFieldNo 0 in the shapes `no_field_measured` allows (metadata/platform-tables/FieldRelationFieldNo.al) and refuses a read of it in every other.
 - `platform/field_key_lookup.rs` (289): App Package ID and App Runtime Package ID of a Field row a read of one key (TableNo, No.) finds: the Get rule (`KeyIds`, `key_lookup`), the measured scan forms (`measured_key_scan`, `measured_key_package_scan`), `Providers::field_key_scan`, and `unmeasured_key_read` (the VM calls it for Find(), multi-character Find and RecordRef.Get(RecordId)).
 - `platform/host_tables.rs` (145): Tables whose rows are facts about the host.
 - `platform/identity.rs` (67): The Session and Active Session tables.
