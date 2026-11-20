@@ -1697,3 +1697,60 @@ fn a_lane_reader_outside_the_chain_sees_the_rows_a_member_left() {
         );
     }
 }
+
+/// A member on the TestRunnerHub (`Lane Hub Writer`), then, outside the chain, a codeunit that sets the flag and one with
+/// handlers that counts the writer's rows and reads the flag. BC's CI runs a codeunit with handlers through another runner
+/// than the hub (QuCommitIsolation.al:11-13), so whether it runs before or after the member is not pinned.
+const HANDLERS_AFTER_HUB: &str = r#"
+table 60830 "Lane Hub Row" { fields { field(1; Name; Text[30]) { } } keys { key(PK; Name) { } } }
+codeunit 60830 "Lane Hub Writer"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    [Test] procedure WritesHubNames() var R: Record "Lane Hub Row";
+    begin R.Name := 'Alpha'; R.Insert(); R.Name := 'Bravo'; R.Insert(); end;
+}
+codeunit 60831 "Lane Hub Setter"
+{
+    Subtype = Test;
+    [Test] procedure SetsHubFlag() var S: Codeunit "Lane State"; begin S.SetFlag('left'); end;
+}
+codeunit 60832 "Lane Hub Handler Reader"
+{
+    Subtype = Test;
+    [Test]
+    [HandlerFunctions('LaneHubMessage')]
+    procedure CountsWithHandler() var S: Codeunit "Lane State"; R: Record "Lane Hub Row";
+    begin
+        Message('counting');
+        if S.GetFlag() = '' then;
+        Error('count=%1 flag=%2', R.Count(), S.GetFlag());
+    end;
+    [MessageHandler] procedure LaneHubMessage(Msg: Text[1024]) begin end;
+}
+"#;
+
+/// A codeunit with handlers outside the chain that reads a table a hub member wrote is refused after the parallel part
+/// (`carry_after.rs` `After::outside_refusal`); the lane keeps that refusal instead of running it again from what the
+/// member left.
+#[test]
+fn a_lane_reader_with_handlers_after_a_hub_member_stays_refused() {
+    let opts = RunOptions {
+        required_isolation: true,
+        strict_order: true,
+        replay_every_dependent: true,
+        ..Default::default()
+    };
+    let rt = runtime_opts(HANDLERS_AFTER_HUB, STATE, &opts);
+    let o = rt
+        .results()
+        .iter()
+        .find(|r| r.test == "CountsWithHandler")
+        .map(|r| r.outcome.clone());
+    assert!(
+        matches!(&o, Some(Outcome::NotRun(why)) if why.contains("which has handlers, before or after it is not pinned")),
+        "{o:?}"
+    );
+    let lane = &rt.phases.chain.single_lane;
+    assert!(lane.rerun >= 1, "{:?}", lane);
+}
