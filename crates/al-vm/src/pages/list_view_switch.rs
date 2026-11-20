@@ -1,8 +1,9 @@
 //! TestPage View() and Edit() on a list without a card (al-runner issues 6977, 8501). On a list opened for edit View switches the
 //! page to view mode and drops the new-row line (testpage/R6977ListViewNext.al:138, :156, :174, :191; R6977ListAfterView.al:125,
 //! :142, :164); Edit then switches it back (R6977ListAfterView.al:187). After that second switch only what the probes read is
-//! measured; the rest is refused here. On the list of corpus PR 1467 (open, `reopen_probe_list`) each switch reads the row again,
-//! Edit also switches the list opened for view, and the page opens again after a Close.
+//! measured; the rest is refused here. BC reads the row again on each switch (corpus PR 1467, open): on the list of that probe
+//! (`reopen_probe_list`) the switch reads it, Edit also switches the list opened for view, and the page opens again after a
+//! Close; on another list the switch runs without a read only where nothing can see one (`switch_read_unseen`).
 
 use super::pinned_shape::PinnedCode;
 use super::state::ListViewSwitch;
@@ -40,8 +41,9 @@ impl Session {
     /// and Edit is enabled, View not (R6977ListAfterView.al:125, :142, :164): view mode serves these. Edit after that View
     /// switches the page back to edit on the same row (R6977ListAfterView.al:187 `back|page=Yes;back|description=Yes;
     /// back|editEnabled=No;back|viewEnabled=Yes;back|row=10000`); whether the new-row line comes back is not pinned
-    /// (`refuse_after_list_edit_back`). On the probe's list each switch reads the row again, and Edit switches the list opened
-    /// for view to edit (`measured_switch_read`); Edit on another list opened for view is refused.
+    /// (`refuse_after_list_edit_back`). The pinned lists have no code and no FlowField: on another list the switch runs without a
+    /// read only where nothing can see it (`switch_read_unseen`). On the probe's list each switch reads the row again, and Edit
+    /// switches the list opened for view to edit (`measured_switch_read`); Edit on another list opened for view is refused.
     pub(super) fn switch_list_without_card(&mut self, st: &St, edit: bool) -> Result<Value, Signal> {
         let state = st.borrow().list_view;
         let to = match (edit, state) {
@@ -57,6 +59,7 @@ impl Session {
             (true, ListViewSwitch::InView | ListViewSwitch::EditBackThenView | ListViewSwitch::None) => PageMode::Edit,
             (true, ListViewSwitch::EditBack | ListViewSwitch::EditFromView) => return Ok(Value::Null),
         };
+        let name = if edit { "Edit" } else { "View" };
         let read = self.reopen_probe_list(st)?;
         let row = if read {
             self.measured_switch_read(st, edit)?
@@ -65,9 +68,16 @@ impl Session {
         };
         if read && row.is_none() {
             return unsupported(format!(
-                "TestAction.Invoke of the built-in {} of a list without a card that reads its row again, not on the first \
-                 stored, unchanged row of a page the test opened, or in a state not measured (corpus PR 1467)",
-                if edit { "Edit" } else { "View" }
+                "TestAction.Invoke of the built-in {name} of a list without a card that reads its row again, not on the first \
+                 stored, unchanged row of a page the test opened in this test method, or in a state not measured (corpus PR \
+                 1467)"
+            ));
+        }
+        if !read && !self.switch_read_unseen(st)? {
+            return unsupported(format!(
+                "TestAction.Invoke of the built-in {name} of a list without a card where a page trigger, a page extension, a \
+                 subscriber, a FlowField, an expression or part control or a changed row could see the row read again (BC \
+                 reads it on the switch, corpus PR 1467)"
             ));
         }
         if (edit, state, read) == (true, ListViewSwitch::None, false) {
@@ -98,21 +108,86 @@ impl Session {
     }
 
     /// Whether `st` is the list of corpus PR 1467 (open; testpage/lifecycle/ReopenAfterListModeSwitch.al, measured on a local BC
-    /// of each supported major): PageType List, no CardPageId, not a part, the code `PROBE_LIST` names. The rules of
-    /// `list-mode-switch-reads-row`, `list-reopen-after-mode-switch` and `mode-actions-bound-to-earlier-open` are measured on it
-    /// only.
+    /// of each supported major): PageType List, no CardPageId, not a part, the code `PROBE_LIST` names, Rec in the plain view of
+    /// its primary key (no filter, ascending, no marks), every field the apps declare on its table a Normal field (the probe table
+    /// declares two; `table_fields_are_normal`). The rules of `list-mode-switch-reads-row`, `list-reopen-after-mode-switch` and
+    /// `mode-actions-bound-to-earlier-open` are measured on it only.
     pub(super) fn reopen_probe_list(&self, st: &St) -> Result<bool, Signal> {
         Ok(self.is_list_page(st)
             && st.borrow().host.is_none()
             && self.list_card_page(st)?.is_none()
+            && self.rec_view_is(st, 0)
+            && self.table_fields_are_normal(st)?
             && self.page_code_bound_is(st, &PROBE_LIST, true)?)
+    }
+
+    /// Whether every field the apps declare on the source table of `st` has FieldClass Normal. The platform's fields (ids from
+    /// 2000000000) are those the probe's table had: it gave the same result on BC 27, 28 and 29, and on BC 29 every table has
+    /// the platform's user-name FlowFields.
+    fn table_fields_are_normal(&self, st: &St) -> Result<bool, Signal> {
+        let t = self.table(&self.page_rec(st))?;
+        let facts = &self.engine.field_facts[t.object as usize];
+        Ok(t.fields
+            .iter()
+            .zip(facts)
+            .all(|(f, facts)| f.id >= 2_000_000_000 || facts.class == ir::FieldClass::Normal))
+    }
+
+    /// Whether nothing on the list `st` can see its row read again, as on the pinned lists (testpage/R6977ListAfterView.al:32,
+    /// R6977ListViewNext.al:31, :52, TestPageModeSwitchAction_Objects.al:175: no trigger, fields of Rec). BC reads the row on the
+    /// switch (corpus PR 1467, open: ReopenAfterListModeSwitch.al `view-1`, `edit-1`); the switch without a read gives BC's
+    /// result only where no code and no value can tell. That is: no OnAfterGetRecord or OnAfterGetCurrRecord of the page or of
+    /// a page extension; no subscriber of the page's events; no part; every field control bound to a Normal field of Rec, a page
+    /// variable or a caption; and the row the page stands on as stored, as the window read it and as the page shows it.
+    fn switch_read_unseen(&mut self, st: &St) -> Result<bool, Signal> {
+        let rec = self.page_rec(st);
+        let table = self.table(&rec)?.object as usize;
+        let code_unseen = {
+            let engine = self.engine();
+            let page = page_of(&engine, st);
+            let fields = &engine.field_facts[table];
+            let reads = |n: &str| matches!(n, "onaftergetrecord" | "onaftergetcurrrecord");
+            page.triggers.iter().all(|(n, _)| !reads(n))
+                && page.ext_triggers.iter().all(|(n, _, _)| !reads(n))
+                && !engine.events.any_subscriber_of(st.borrow().object as usize)
+                && page.controls.iter().all(|c| match (&c.kind, &c.binding) {
+                    (
+                        ir::ControlKind::Repeater
+                        | ir::ControlKind::Group
+                        | ir::ControlKind::CueGroup
+                        | ir::ControlKind::Action
+                        | ir::ControlKind::ActionGroup
+                        | ir::ControlKind::SystemAction,
+                        _,
+                    ) => true,
+                    (ir::ControlKind::Field, ir::Binding::Field(f)) => {
+                        fields.get(*f).is_some_and(|x| x.class == ir::FieldClass::Normal)
+                    }
+                    (ir::ControlKind::Field, ir::Binding::Var(_) | ir::Binding::Caption) => true,
+                    _ => false,
+                })
+        };
+        if !code_unseen {
+            return Ok(false);
+        }
+        let key = self.row_key(&rec)?;
+        let Some(stored) = self.stored_row(&rec)? else {
+            return Ok(false);
+        };
+        let s = st.borrow();
+        Ok(Self::same_values(&rec.borrow().fields, &stored)
+            && s.window.iter().any(|w| {
+                Self::same_key(&w.key, &key)
+                    && Self::same_values(&w.stored, &stored)
+                    && Self::same_values(&w.shown, &stored)
+            }))
     }
 
     /// The switch of `switch_list_without_card` on the probe's list reads its row the way the probe measured: View on the page
     /// the test opened for edit, before any switch (`view-1` of every cell: `[agr(10000) agcr(10000)]`); Edit after that View
     /// (`edit-1`); Edit on the page the test opened for view (OpenView_Edit_Close_OpenEdit_Reads `edit-1`, `edit1|page = Yes`).
-    /// Each with the page on its first row, which is stored and unchanged since the page showed it, nothing typed. The stored
-    /// row when it does.
+    /// Each with the page on its first row, which is stored and unchanged since the page showed it, nothing typed, the page
+    /// opened in the running test method. The stored row when it does.
     fn measured_switch_read(&mut self, st: &St, edit: bool) -> Result<Option<Vec<Value>>, Signal> {
         let rec = self.page_rec(st);
         let key = self.row_key(&rec)?;
@@ -134,7 +209,13 @@ impl Session {
             && s.window.first().is_some_and(|w| {
                 Self::same_key(&w.key, &key) && stored.as_ref().is_some_and(|v| Self::same_values(&w.stored, v))
             });
-        let measured = state && first && s.opened_by_test && s.cursor == Cursor::Row && !s.draft && !s.dirty;
+        let measured = state
+            && first
+            && s.opened_by_test
+            && s.opened_in_test_method == self.pages.test_methods_started
+            && s.cursor == Cursor::Row
+            && !s.draft
+            && !s.dirty;
         Ok(stored.filter(|_| measured))
     }
 
@@ -196,17 +277,20 @@ impl Session {
     /// _Walk, _SwitchAgain, ViewEdit_SetValue_Close_OpenEdit_ShowsValue, ViewEdit_Close_OpenView_Reads, _WalkThenEdit,
     /// ViewEdit_Close_OpenNew_Reads; `list_view` is reset at open); OpenEdit on that page still open raises 'The TestPage is
     /// already open.' and changes nothing (ViewEdit_OpenEditWithoutClose, `page_open`); after Edit on the list opened for view
-    /// and a clean Close, OpenEdit opens a fresh page (OpenView_Edit_Close_OpenEdit_Reads).
+    /// and a clean Close, OpenEdit opens a fresh page (OpenView_Edit_Close_OpenEdit_Reads). Each in the test method the earlier
+    /// page opened in: the probe measures nothing across two test methods.
     fn reopen_after_switch_measured(&self, st: &St, m: PageMethod) -> Result<bool, Signal> {
         let measured = {
             let s = st.borrow();
             let after_close = !s.open && s.closed_by == Some(ClosedBy::TestClose);
-            match (s.list_view, m) {
-                (ListViewSwitch::EditBack, PageMethod::OpenEdit) => after_close || s.open,
-                (ListViewSwitch::EditBack, PageMethod::OpenView | PageMethod::OpenNew) => after_close,
-                (ListViewSwitch::EditFromView, PageMethod::OpenEdit) => after_close,
-                _ => false,
-            }
+            let this_test_method = s.opened_in_test_method == self.pages.test_methods_started;
+            this_test_method
+                && match (s.list_view, m) {
+                    (ListViewSwitch::EditBack, PageMethod::OpenEdit) => after_close || s.open,
+                    (ListViewSwitch::EditBack, PageMethod::OpenView | PageMethod::OpenNew) => after_close,
+                    (ListViewSwitch::EditFromView, PageMethod::OpenEdit) => after_close,
+                    _ => false,
+                }
         };
         Ok(measured && self.reopen_probe_list(st)?)
     }

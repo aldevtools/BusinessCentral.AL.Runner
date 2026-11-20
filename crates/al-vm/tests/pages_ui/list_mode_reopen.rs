@@ -3,7 +3,7 @@
 //! The pinned corpus does not hold the probe yet, so these tests keep its measured paths and the refusals around them.
 
 use al_builtins::native::Signal;
-use al_testkit::{run_in, text};
+use al_testkit::{Built, run_in, text};
 
 const SRC: &str = r#"
 table 69890 "LMR Line"
@@ -45,6 +45,96 @@ page 69895 "LMR Card"
 {
     PageType = Card; SourceTable = "LMR Line"; ApplicationArea = All; UsageCategory = None;
     layout { area(Content) { field("Line No."; Rec."Line No.") { } field(Description; Rec.Description) { } } }
+}
+table 69897 "LMR FLine"
+{
+    fields
+    {
+        field(1; "Line No."; Integer) { }
+        field(2; Description; Text[30]) { }
+        field(3; Lines; Integer) { FieldClass = FlowField; CalcFormula = count("LMR Line" where("Line No." = field("Line No."))); }
+    }
+    keys { key(PK; "Line No.") { Clustered = true; } }
+}
+page 69898 "LMR FLines"
+{
+    PageType = List; SourceTable = "LMR FLine"; ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { repeater(Rows) { field("Line No."; Rec."Line No.") { } field(Lines; Rec.Lines) { } } } }
+    var Log: Codeunit "LMR Log";
+    trigger OnOpenPage() begin Log.Add('open'); end;
+    trigger OnAfterGetRecord() begin Log.Add('agr(' + Format(Rec."Line No.") + ')'); end;
+    trigger OnAfterGetCurrRecord() begin Log.Add('agcr(' + Format(Rec."Line No.") + ')'); end;
+    trigger OnNewRecord(BelowxRec: Boolean) begin Log.Add('new'); end;
+    trigger OnClosePage() begin Log.Add('close'); end;
+}
+page 69899 "LMR Plain FLines"
+{
+    PageType = List; SourceTable = "LMR FLine"; ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { repeater(Rows) { field("Line No."; Rec."Line No.") { } field(Lines; Rec.Lines) { } } } }
+}
+page 69900 "LMR Ext Lines"
+{
+    PageType = List; SourceTable = "LMR Line"; ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { repeater(Rows) { field("Line No."; Rec."Line No.") { } field(Description; Rec.Description) { } } } }
+}
+pageextension 69901 "LMR Ext Lines Ext" extends "LMR Ext Lines"
+{
+    var Log: Codeunit "LMR Log";
+    trigger OnAfterGetRecord() begin Log.Add('ext agr'); end;
+}
+page 69902 "LMR Sub Lines"
+{
+    PageType = List; SourceTable = "LMR Line"; ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { repeater(Rows) { field("Line No."; Rec."Line No.") { } field(Description; Rec.Description) { } } } }
+    trigger OnOpenPage() begin end;
+}
+codeunit 69903 "LMR Sub"
+{
+    [EventSubscriber(ObjectType::Page, Page::"LMR Sub Lines", 'OnOpenPageEvent', '', false, false)]
+    local procedure OnOpenPage(var Rec: Record "LMR Line")
+    var Log: Codeunit "LMR Log";
+    begin
+        Log.Add('sub open');
+    end;
+}
+page 69904 "LMR Expr Lines"
+{
+    PageType = List; SourceTable = "LMR Line"; ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { repeater(Rows) { field("Line No."; Rec."Line No.") { } field(Shown; Format(Rec.Description)) { } } } }
+}
+codeunit 69905 "LMR Holder"
+{
+    SingleInstance = true;
+    var G: TestPage "LMR Lines";
+
+    procedure ViewEditClose()
+    begin
+        G.OpenEdit();
+        G.First();
+        G.View().Invoke();
+        G.Edit().Invoke();
+        G.Close();
+    end;
+
+    procedure OpenEdit(): Text
+    begin
+        G.OpenEdit();
+        G.First();
+        exit(Format(G.Edit().Enabled()) + '|' + Format(G.View().Enabled()));
+    end;
+
+    procedure TakeViewClose()
+    begin
+        G.OpenEdit();
+        G.View().Enabled();
+        G.Close();
+    end;
+
+    procedure BoundViewEnabled(): Text
+    begin
+        G.OpenEdit();
+        exit(Format(G.View().Enabled()));
+    end;
 }
 codeunit 69896 "LMR Test"
 {
@@ -250,6 +340,138 @@ codeunit 69896 "LMR Test"
         P.View().Invoke();
         exit(Log.Take() + Format(P.Editable()));
     end;
+
+    procedure ViewOnExtList()
+    var P: TestPage "LMR Ext Lines";
+    begin
+        Init();
+        P.OpenEdit();
+        P.First();
+        P.View().Invoke();
+    end;
+
+    procedure ViewOnSubscribedList()
+    var P: TestPage "LMR Sub Lines";
+    begin
+        Init();
+        P.OpenEdit();
+        P.First();
+        P.View().Invoke();
+    end;
+
+    procedure ViewOnExprList()
+    var P: TestPage "LMR Expr Lines";
+    begin
+        Init();
+        P.OpenEdit();
+        P.First();
+        P.View().Invoke();
+    end;
+
+    local procedure InitF()
+    var Line: Record "LMR FLine";
+    begin
+        Init();
+        Line.DeleteAll();
+        Line."Line No." := 10000; Line.Description := 'a'; Line.Insert();
+        Line."Line No." := 20000; Line.Description := 'b'; Line.Insert();
+    end;
+
+    procedure ViewOnPlainFlowFieldList()
+    var P: TestPage "LMR Plain FLines";
+    begin
+        InitF();
+        P.OpenEdit();
+        P.First();
+        P.View().Invoke();
+    end;
+
+    procedure ViewOnProbeFlowFieldList()
+    var P: TestPage "LMR FLines";
+    begin
+        InitF();
+        P.OpenEdit();
+        P.First();
+        P.View().Invoke();
+    end;
+
+    procedure ViewOnFilteredProbeList()
+    var P: TestPage "LMR Lines";
+    begin
+        Init();
+        P.OpenEdit();
+        P.Filter.SetFilter("Line No.", '20000..');
+        P.First();
+        P.View().Invoke();
+    end;
+
+    local procedure ChangeStored()
+    var Line: Record "LMR Line";
+    begin
+        Line.Get(10000);
+        Line.Description := 'z';
+        Line.Modify();
+    end;
+
+    procedure ViewOnPlainListAfterStoreChange()
+    var P: TestPage "LMR Plain Lines";
+    begin
+        Init();
+        P.OpenEdit();
+        P.First();
+        ChangeStored();
+        P.View().Invoke();
+    end;
+
+    procedure EditOnPlainListAfterStoreChange()
+    var P: TestPage "LMR Plain Lines";
+    begin
+        Init();
+        P.OpenEdit();
+        P.First();
+        P.View().Invoke();
+        ChangeStored();
+        P.Edit().Invoke();
+    end;
+
+    procedure ViewEditOnPlainList(): Text
+    var P: TestPage "LMR Plain Lines"; R: Text;
+    begin
+        Init();
+        P.OpenEdit();
+        P.First();
+        P.Next();
+        P.View().Invoke();
+        R := Format(P.Editable()) + '|' + P.Description.Value();
+        P.Edit().Invoke();
+        exit(R + '|' + Format(P.Editable()) + '|' + P.Description.Value());
+    end;
+
+    procedure GlobalViewEditClose()
+    var H: Codeunit "LMR Holder";
+    begin
+        Init();
+        H.ViewEditClose();
+    end;
+
+    procedure GlobalOpenEdit(): Text
+    var H: Codeunit "LMR Holder";
+    begin
+        exit(H.OpenEdit());
+    end;
+
+    procedure GlobalTakeViewClose()
+    var H: Codeunit "LMR Holder";
+    begin
+        Init();
+        H.TakeViewClose();
+    end;
+
+    procedure GlobalBoundViewEnabled(): Text
+    var H: Codeunit "LMR Holder";
+    begin
+        exit(H.BoundViewEnabled());
+    end;
 }
 "#;
 
@@ -335,11 +557,111 @@ fn edit_on_another_list_opened_for_view_is_refused() {
 
 #[test]
 fn other_lists_keep_main_s_result() {
-    // The reopen after View and Edit stays refused on a list the probe did not measure, and View on a list with other code
-    // reads no row, as on main.
+    // The reopen after View and Edit stays refused on a list the probe did not measure. View and Edit on the plain list of the
+    // pins (no trigger, Normal fields, the row as stored) switch without a read, on any row, as on main
+    // (testpage/R6977ListAfterView.al:125, :187; TestPageModeSwitchAction_Tests.al:199-200 after Next).
     refused(
         "PlainListReopenAfterViewEdit",
         "TestPage.OpenEdit after the built-in View and then Edit",
     );
-    assert_eq!(text(run_in(SRC, "LMR Test", "ViewOnAgrList")), "[]No");
+    assert_eq!(text(run_in(SRC, "LMR Test", "ViewEditOnPlainList")), "No|b|Yes|b");
+}
+
+#[test]
+fn a_switch_on_a_list_that_can_see_the_read_is_refused() {
+    // Corpus PR 1467: BC reads the row again on View and on Edit. Main's no-read switch stays only where nothing sees it.
+    for routine in [
+        "ViewOnAgrList",
+        "ViewOnExtList",
+        "ViewOnSubscribedList",
+        "ViewOnExprList",
+        "ViewOnPlainFlowFieldList",
+        "ViewOnPlainListAfterStoreChange",
+        "EditOnPlainListAfterStoreChange",
+    ] {
+        refused(routine, "could see the row read again");
+    }
+}
+
+/// Routine `routine` of "LMR Test" compiled for BC `bc`, whose platform fields every table gets.
+fn run_on(bc: &str, routine: &str) -> Result<al_builtins::value::Value, Signal> {
+    let target = al_version::Target::for_bc(al_version::BcVersion::parse(bc).unwrap());
+    let apps = vec![al_sema::workspace::AppSource {
+        id: "a".into(),
+        name: "a".into(),
+        dependencies: vec![],
+        files: vec![("f.al".into(), SRC.into())],
+    }];
+    let (ws, l) = al_sema::lower::compile_for(apps, &Default::default(), &target);
+    assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
+    let blocked = l
+        .unsupported
+        .iter()
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
+        .collect();
+    let oi = l.program.objects.iter().position(|o| o.name == "LMR Test").unwrap();
+    let ri = l.program.objects[oi]
+        .routines
+        .iter()
+        .position(|r| r.name == routine)
+        .unwrap();
+    let mut s = al_vm::Session::new(al_vm::Engine::with_target(l.program, blocked, Some(target)));
+    let inst = s.instance(oi);
+    s.call(oi, ri, inst, vec![]).map(|(v, _)| v)
+}
+
+#[test]
+fn on_bc_29_the_platform_s_user_name_flowfields_keep_the_measured_list() {
+    // The probe ran on BC 27, 28 and 29 with the same result; on BC 29 every table has the platform's user-name
+    // FlowFields, so they are part of the measured table.
+    for bc in ["27.5", "29.0"] {
+        assert_eq!(
+            text(run_on(bc, "ViewEditCloseOpenEdit")),
+            "view=[agr(10000) agcr(10000)] edit=[agr(10000) agcr(10000)] open=[close open agr(10000) agr(20000) agr(10000) \
+             agr(10000) agcr(10000)] modes=Yes|No|Yes",
+            "BC {bc}"
+        );
+    }
+}
+
+#[test]
+fn the_probe_list_with_a_filter_or_a_flowfield_is_not_the_measured_list() {
+    // The probe's list has no filter and a table of Normal fields: a filtered view or a FlowField takes the other path,
+    // which refuses because the page's triggers see the read.
+    refused("ViewOnFilteredProbeList", "could see the row read again");
+    refused("ViewOnProbeFlowFieldList", "could see the row read again");
+}
+
+#[test]
+fn a_global_testpage_does_not_carry_the_switch_or_its_actions_into_the_next_test_method() {
+    // The probe measures the earlier open and the reopen inside one test method.
+    let refused_in = |b: &mut Built, routine: &str, part: &str| match b.run_in("LMR Test", routine) {
+        Err(Signal::Unsupported(m)) => assert!(m.contains(part), "{routine}: {m}"),
+        other => panic!("{routine}: expected a refusal, got {other:?}"),
+    };
+    let mut b = Built::from_source(SRC);
+    b.session.start_test_method();
+    b.run_in("LMR Test", "GlobalViewEditClose").unwrap();
+    b.session.start_test_method();
+    refused_in(
+        &mut b,
+        "GlobalOpenEdit",
+        "TestPage.OpenEdit after the built-in View and then Edit",
+    );
+
+    let mut b = Built::from_source(SRC);
+    b.session.start_test_method();
+    b.run_in("LMR Test", "GlobalTakeViewClose").unwrap();
+    b.session.start_test_method();
+    refused_in(&mut b, "GlobalBoundViewEnabled", "taken on an earlier open");
+
+    // Inside one test method the same calls run as measured.
+    let mut b = Built::from_source(SRC);
+    b.session.start_test_method();
+    b.run_in("LMR Test", "GlobalViewEditClose").unwrap();
+    assert_eq!(text(b.run_in("LMR Test", "GlobalOpenEdit")), "No|Yes");
+    let mut b = Built::from_source(SRC);
+    b.session.start_test_method();
+    b.run_in("LMR Test", "GlobalTakeViewClose").unwrap();
+    assert_eq!(text(b.run_in("LMR Test", "GlobalBoundViewEnabled")), "Yes");
 }

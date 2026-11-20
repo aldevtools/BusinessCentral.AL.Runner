@@ -2,6 +2,7 @@
 //! Enabled and Invoke of it answer. A list without a card switches its own mode (`list_view_switch.rs`); an action the variable
 //! handed out on an earlier open stays bound to it (`state/mode_actions.rs`).
 
+use super::state::EarlierOpen;
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::page_op::PageMethod;
@@ -77,25 +78,20 @@ impl Session {
         }
     }
 
-    /// The built-in Edit (`edit`) or View action of `st`, taken on an earlier open of the variable that closed in `mode`, by a clean
-    /// `TestPage.Close()` when `test_close` (assumption `mode-actions-bound-to-earlier-open`, corpus PR 1467, open:
-    /// testpage/lifecycle/ReopenAfterListModeSwitch.al, measured on a local BC of each supported major). Measured on the probe's
-    /// list (`reopen_probe_list`), reopened by the test, after an earlier page that closed in edit or view mode: Enabled answers
-    /// what it answered when that page closed (`reopened|editEnabled`, `reopened|viewEnabled` of every reopen cell;
+    /// The built-in Edit (`edit`) or View action of `st`, taken on the `earlier` open of the variable (assumption
+    /// `mode-actions-bound-to-earlier-open`, corpus PR 1467, open: testpage/lifecycle/ReopenAfterListModeSwitch.al, measured on a
+    /// local BC of each supported major). Measured on the probe's list (`reopen_probe_list`), reopened by the test in the test
+    /// method of the earlier open, after an earlier page that a clean `TestPage.Close()` closed in edit or view mode: Enabled
+    /// answers what it answered when that page closed (`reopened|editEnabled`, `reopened|viewEnabled` of every reopen cell;
     /// Close_Reopen_Modes_PerOpenMode `view then openNew = Yes|Yes|Yes|No`), and Invoke, after an earlier page that closed in edit
     /// mode, on the reopened page in edit or view mode standing on a row, raises 'Server page is not open.' and runs nothing
-    /// (ViewEdit_Close_OpenEdit_SwitchAgain `view-2`, `edit-2`; ReadViewEnabled_Close_OpenEdit_View; ViewEdit_Close_OpenView_WalkThenEdit
-    /// `edit-2`). The text is the platform's (reports/request-page/P105RpClose.al:93); its code is not measured here. Every
-    /// other shape refuses.
-    fn bound_mode_action(
-        &mut self,
-        st: &St,
-        edit: bool,
-        earlier: (PageMode, bool),
-        m: PageMethod,
-    ) -> Result<Value, Signal> {
-        let (mode, test_close) = earlier;
-        let measured = test_close
+    /// (ViewEdit_Close_OpenEdit_SwitchAgain `view-2`, `edit-2`; ReadViewEnabled_Close_OpenEdit_View;
+    /// ViewEdit_Close_OpenView_WalkThenEdit `edit-2`). The text is the platform's (reports/request-page/P105RpClose.al:93); its
+    /// code is not measured here. Every other shape refuses.
+    fn bound_mode_action(&mut self, st: &St, edit: bool, earlier: EarlierOpen, m: PageMethod) -> Result<Value, Signal> {
+        let mode = earlier.mode;
+        let measured = earlier.test_close
+            && earlier.test_method == self.pages.test_methods_started
             && st.borrow().opened_by_test
             && matches!(mode, PageMode::Edit | PageMode::View)
             && self.reopen_probe_list(st)?;

@@ -6,6 +6,15 @@
 
 use super::PageMode;
 
+/// An earlier open of the variable: the mode its page closed in, whether a clean `TestPage.Close()` closed it, and the test
+/// method it opened in (`PageState::opened_in_test_method`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EarlierOpen {
+    pub mode: PageMode,
+    pub test_close: bool,
+    pub test_method: u32,
+}
+
 /// One built-in action of the variable.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ModeAction {
@@ -14,8 +23,8 @@ pub enum ModeAction {
     Free,
     /// Taken on the page that is open now (or was, until its Close).
     Live,
-    /// Taken on an earlier open of the variable: that page closed in `mode`, with `test_close` by a clean `TestPage.Close()`.
-    Bound { mode: PageMode, test_close: bool },
+    /// Taken on an earlier open of the variable.
+    Bound(EarlierOpen),
 }
 
 /// The variable's built-in View and Edit actions (`PageState::mode_actions`).
@@ -38,21 +47,21 @@ impl ModeActions {
         }
     }
 
-    /// The variable opens again: an action taken on the earlier open stays bound to it, which closed in `mode`, by a clean
-    /// `TestPage.Close()` when `test_close`. An action bound to an open before that keeps it.
-    pub fn page_reopens(&mut self, mode: PageMode, test_close: bool) {
+    /// The variable opens again: an action taken on the earlier open (`earlier`) stays bound to it. An action bound to an open
+    /// before that keeps it.
+    pub fn page_reopens(&mut self, earlier: EarlierOpen) {
         for a in [&mut self.view, &mut self.edit] {
             if *a == ModeAction::Live {
-                *a = ModeAction::Bound { mode, test_close };
+                *a = ModeAction::Bound(earlier);
             }
         }
     }
 
-    /// The earlier open the built-in Edit (`edit`) or View action is bound to: the mode that page closed in, and whether a clean
-    /// `TestPage.Close()` closed it. `None`: the action is free or taken on the open page.
-    pub fn bound(&self, edit: bool) -> Option<(PageMode, bool)> {
+    /// The earlier open the built-in Edit (`edit`) or View action is bound to. `None`: the action is free or taken on the open
+    /// page.
+    pub fn bound(&self, edit: bool) -> Option<EarlierOpen> {
         match if edit { self.edit } else { self.view } {
-            ModeAction::Bound { mode, test_close } => Some((mode, test_close)),
+            ModeAction::Bound(earlier) => Some(earlier),
             ModeAction::Free | ModeAction::Live => None,
         }
     }
@@ -61,6 +70,14 @@ impl ModeActions {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn closed(mode: PageMode, test_close: bool, test_method: u32) -> EarlierOpen {
+        EarlierOpen {
+            mode,
+            test_close,
+            test_method,
+        }
+    }
 
     #[test]
     fn an_action_taken_on_the_open_page_is_not_bound_to_an_earlier_one() {
@@ -74,8 +91,8 @@ mod tests {
     fn a_reopen_binds_only_the_actions_taken_before_it() {
         let mut a = ModeActions::default();
         a.taken(false);
-        a.page_reopens(PageMode::Edit, true);
-        assert_eq!(a.bound(false), Some((PageMode::Edit, true)));
+        a.page_reopens(closed(PageMode::Edit, true, 1));
+        assert_eq!(a.bound(false), Some(closed(PageMode::Edit, true, 1)));
         assert_eq!(a.bound(true), None);
         a.taken(true);
         assert_eq!(a.bound(true), None);
@@ -85,16 +102,16 @@ mod tests {
     fn a_bound_action_keeps_its_page_over_later_opens() {
         let mut a = ModeActions::default();
         a.taken(true);
-        a.page_reopens(PageMode::View, true);
+        a.page_reopens(closed(PageMode::View, true, 1));
         a.taken(true);
-        a.page_reopens(PageMode::New, false);
-        assert_eq!(a.bound(true), Some((PageMode::View, true)));
+        a.page_reopens(closed(PageMode::New, false, 2));
+        assert_eq!(a.bound(true), Some(closed(PageMode::View, true, 1)));
     }
 
     #[test]
     fn a_reopen_with_nothing_taken_binds_nothing() {
         let mut a = ModeActions::default();
-        a.page_reopens(PageMode::Edit, true);
+        a.page_reopens(closed(PageMode::Edit, true, 1));
         assert_eq!(a, ModeActions::default());
     }
 }

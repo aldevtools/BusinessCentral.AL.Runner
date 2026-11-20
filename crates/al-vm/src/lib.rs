@@ -1544,6 +1544,7 @@ impl Session {
         self.tx.transaction_type = 0;
         self.tx.phase = crate::transactions::TxPhase::Fresh;
         self.tx.open.locks = Default::default();
+        self.pages.test_methods_started += 1;
     }
 
     /// Makes every change so far durable (and a Truncate of this transaction final).

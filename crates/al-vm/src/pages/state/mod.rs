@@ -18,7 +18,7 @@ pub use after_go_to_key::AfterGoToKey;
 pub use close::CloseOutcome;
 pub use list_view::ListViewSwitch;
 pub use lookup_left::LookupLeft;
-pub use mode_actions::ModeActions;
+pub use mode_actions::{EarlierOpen, ModeActions};
 pub use refresh::{RefreshRequest, TakenRefresh};
 pub use stages::{ActionSaveCaptions, ChainRefill, ModalRun, ReadUpFromLast, UnreadEdges};
 
@@ -622,6 +622,8 @@ pub struct PageState {
     /// The built-in View and Edit actions the test took from the variable, and the open each is bound to (`mode_actions.rs`).
     /// It survives Close and reopen; `Clear(P)` frees both.
     pub mode_actions: ModeActions,
+    /// The test method the page last opened in (`PageClients::test_methods_started` at the open).
+    pub opened_in_test_method: u32,
     /// A list with the new-row line lost its only row to an action and stands on that line: its fields show the blank Rec's
     /// values, an Integer key 0 (testpage/RmWorksheetGoneRow.al:436 `shown after action = 0|`).
     pub gone_blank_shows_line: bool,
