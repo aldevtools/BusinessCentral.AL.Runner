@@ -1,6 +1,6 @@
 //! `Rec.Field::Member` names a member of the field's own enum, whatever enum of that name the file finds (al-runner issue
 //! 8317). Measured shapes, under assumption `enum-member-of-field-type` until corpus PR 1442
-//! (types/enum-option/EnumMemberFieldType_Tests.al) is pinned: the file finds the name twice, or finds another enum of that
+//! (merged: types/enum-option/EnumMemberFieldType_Tests.al:29, :59, :77) is pinned: the file finds the name twice, or finds another enum of that
 //! name in its own namespace or through a `using`. The corpus probe pins the values; these tests pin where the assumption is
 //! marked, main's wrong value in the twin shapes, and the neighbors that keep main's answer.
 

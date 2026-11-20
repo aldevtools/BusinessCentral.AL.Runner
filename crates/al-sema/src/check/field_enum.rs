@@ -1,12 +1,11 @@
 //! `Rec.Field` reads the field's own enum, whatever enum of that name the file finds (al-runner issue 8317; corpus PR 1442,
-//! types/enum-option/EnumMemberFieldType_Tests.al).
+//! merged, not pinned yet: types/enum-option/EnumMemberFieldType_Tests.al).
 use super::*;
 
 impl<'a> Checker<'a> {
     /// The field's own enum, when `left` is `Rec.Field` of an Enum field and the file reads the enum's name otherwise in a
     /// shape the probe measured: the file finds the name twice, or finds another enum of that name in its own namespace or
-    /// through a `using` (EnumMemberFieldType_Tests.al FieldMember_NameFoundTwice_IsTheFieldsEnumMember,
-    /// _SameNamedEnumInOwnNamespace_, _SameNamedEnumThroughUsing_; assumption enum-member-of-field-type). `None` where the
+    /// through a `using` (EnumMemberFieldType_Tests.al:29, :59, :77; assumption enum-member-of-field-type). `None` where the
     /// file finds the field's enum itself, and in every shape not measured: the file's reading stays.
     pub(crate) fn field_enum_reading(&self, sc: &Scope, left: &SyntaxNode) -> Option<usize> {
         let (own, written) = self.field_enum(sc, left)?;
