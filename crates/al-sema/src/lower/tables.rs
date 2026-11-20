@@ -970,6 +970,8 @@ impl Lowerer<'_> {
                 }
             }
         }
+        // The primary key the compiler adds is declared by no object.
+        let added_key = keys.is_empty();
         if keys.is_empty() {
             // Without a keys section the first field is the primary key (doc: Table keys).
             keys.push(vec![0]);
@@ -977,6 +979,7 @@ impl Lowerer<'_> {
             unique_keys.push(false);
             key_props.push(Vec::new());
         }
+        let key_declared_in: Vec<Option<u32>> = key_owners.iter().map(|&o| (!added_key).then_some(o as u32)).collect();
         let per_company = !obj.properties().any(|p| {
             p.name().eq_ignore_ascii_case("DataPerCompany") && p.value_text().trim().eq_ignore_ascii_case("false")
         });
@@ -986,6 +989,7 @@ impl Lowerer<'_> {
                 keys,
                 unique_keys,
                 key_props,
+                key_declared_in,
                 per_company,
                 extensions,
                 unsupported: super::shared::over_max_length_of(self.ws, oi),
