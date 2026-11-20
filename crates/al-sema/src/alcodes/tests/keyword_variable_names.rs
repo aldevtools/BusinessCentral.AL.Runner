@@ -301,3 +301,55 @@ fn every_object_type_with_a_var_section() {
         assert_eq!(diags(&src, "Key"), one(&want, "@word"), "{src}");
     }
 }
+
+/// The request page var section of a report, a report extension and an xmlport follows the rule of a global var section,
+/// for every word, as the first or a later declaration, after a comma and after an attribute; a request page trigger
+/// follows the trigger rule.
+#[test]
+fn request_page_var_sections() {
+    let hosts = [
+        "report 50100 \"R\"\n{\n    ProcessingOnly = true;\n\n    dataset\n    {\n        dataitem(Cust; Customer)\n        {\n        }\n    }\n    requestpage\n    {\nRP    }\n}\n",
+        "reportextension 50100 \"R\" extends \"Customer - List\"\n{\n    requestpage\n    {\nRP    }\n}\n",
+        "xmlport 50100 \"R\"\n{\n    schema\n    {\n        textelement(Root)\n        {\n        }\n    }\n    requestpage\n    {\nRP    }\n}\n",
+    ];
+    for host in hosts {
+        let src = |rp: &str| host.replace("RP", rp);
+        for w in WORDS {
+            let first = diags(&src(&format!("        var\n            {w}: Integer;\n")), w);
+            let later = diags(
+                &src(&format!(
+                    "        var\n            Other: Integer;\n            {w}: Integer;\n"
+                )),
+                w,
+            );
+            let (want_first, want_later) = match w {
+                "Event" => (one(AL0107, "@after"), one(AL0107, "@after")),
+                _ if AL0519_LATER.contains(&w) => (one(BRACE, "@word"), one(&al0519(w), "@word")),
+                _ => (one(BRACE, "@word"), one(BRACE, "@word")),
+            };
+            assert_eq!(first, want_first, "first {w} {host}");
+            assert_eq!(later, want_later, "later {w} {host}");
+            let list = diags(&src(&format!("        var\n            Other, {w}: Integer;\n")), w);
+            assert_eq!(list, one(AL0107, "@word"), "list {w} {host}");
+            let attributed = diags(
+                &src(&format!(
+                    "        var\n            [NonDebuggable]\n            {w}: Text;\n"
+                )),
+                w,
+            );
+            let want_attributed = match w {
+                "Event" => one(AL0107, "@after"),
+                "True" | "False" => one(PROCEDURE, "@word"),
+                _ => vec![],
+            };
+            assert_eq!(attributed, want_attributed, "attributed {w} {host}");
+            let trigger = diags(
+                &src(&format!(
+                    "        trigger OnOpenPage()\n        var\n            {w}: Integer;\n        begin\n        end;\n"
+                )),
+                w,
+            );
+            assert_eq!(trigger, one(BEGIN, "@word"), "trigger {w} {host}");
+        }
+    }
+}

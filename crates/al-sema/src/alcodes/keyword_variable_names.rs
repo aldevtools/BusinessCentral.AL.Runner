@@ -12,12 +12,13 @@
 //!
 //! Measured with the AL compilers of the BC artifacts of every supported major (the same codes and places on all of them;
 //! the oldest gives AL0107 without the sentence after "identifier expected") and in a BC container, for every word, in the
-//! global var section, `protected var`, a report's request page var section, procedure var sections (local procedures and
-//! event subscribers too) and trigger var sections (object triggers; field, action, data item, xmlport element and request
-//! page triggers) of codeunits, tables, table extensions, pages, page extensions, reports, report extensions, xmlports and
-//! queries. Assumption `keyword-variable-names` until corpus PR 1476 (must-not-compile 3222-3275) is pinned; the page
-//! global `area` is pinned by must-not-compile 0334-variable-named-area.al:1 (AL0104 `'}' expected`). Other object types
-//! and other var sections (an xmlport's or report extension's request page) are not judged.
+//! global var section, `protected var`, the request page var section of a report, a report extension and an xmlport,
+//! procedure var sections (local procedures and event subscribers too) and trigger var sections (object triggers; field,
+//! action, data item, xmlport element and request page triggers) of codeunits, tables, table extensions, pages, page
+//! extensions, reports, report extensions, xmlports and queries. Assumption `keyword-variable-names` until corpus PR 1476
+//! (must-not-compile 3222-3277) is pinned; the page global `area` is pinned by must-not-compile
+//! 0334-variable-named-area.al:1 (AL0104 `'}' expected`). Other object types, and a named return value
+//! (`procedure P() Key: Integer`, which alc also rejects), are not judged.
 
 use super::{IDENTIFIER_EXPECTED, PARAM_NAME_KEYWORDS, offset_of, push};
 use crate::workspace::{Diagnostic, ObjKind, Workspace};
@@ -46,7 +47,8 @@ const AFTER_ATTRIBUTE: &[&str] = &["event", "true", "false"];
 /// The kind of var section a declaration stands in.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Section {
-    /// The object's global var section, `protected var`, or a report's request page var section.
+    /// The object's global var section, `protected var`, or the request page var section of a report, a report extension
+    /// or an xmlport.
     Global,
     Procedure,
     Trigger,
@@ -119,7 +121,7 @@ fn section_of(kind: ObjKind, decl: &SyntaxNode) -> Option<Section> {
         SyntaxKind::ObjectBody => {
             let owner = holder.parent()?;
             let request_page = owner.kind() == SyntaxKind::Section
-                && kind == ObjKind::Report
+                && matches!(kind, ObjKind::Report | ObjKind::ReportExtension | ObjKind::XmlPort)
                 && first_word(&owner).is_some_and(|w| w.eq_ignore_ascii_case("requestpage"))
                 && owner
                     .parent()
