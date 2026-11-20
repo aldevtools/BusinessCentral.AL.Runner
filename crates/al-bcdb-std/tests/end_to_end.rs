@@ -2,42 +2,12 @@
 //! database (no Microsoft data). The rows reach AL as the database holds them, with names taken
 //! from the compiled tables only.
 
-use al_bcdb_std::BackupProvider;
+mod common;
+
 use al_host::testdata::TestData;
-use al_sema::workspace::AppSource;
-use al_testrun::runtime::{CorpusRuntime, RunOptions, SuiteRun};
+use al_testrun::runtime::CorpusRuntime;
 use al_testrun::{CaseId, Outcome};
-use std::path::PathBuf;
-use std::sync::Arc;
-
-const BASE_ID: &str = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
-const EXT_ID: &str = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
-
-const BASE: &str = r#"
-table 50100 "exttest" { fields { field(1; id; Integer) { } field(2; own; Text[50]) { } } keys { key(PK; id) { } } }
-table 50101 "exttest4" { fields { field(1; id; Integer) { } field(2; own; Text[50]) { } } keys { key(PK; id) { } } }
-table 50102 "probe" { DataPerCompany = false; fields {
-    field(1; id; Integer) { }
-    field(2; c_tinyint; Byte) { }
-    field(3; c_smallint; Integer) { }
-    field(4; c_int; Integer) { }
-    field(5; c_bigint; BigInteger) { }
-    field(6; c_bit; Boolean) { }
-    field(8; c_dec18_2; Decimal) { }
-    field(9; c_datetime; DateTime) { }
-    field(10; c_date; Date) { }
-    field(11; c_time7; Time) { }
-    field(12; c_guid; Guid) { }
-    field(13; c_nvarchar; Text[100]) { }
-    field(14; c_varchar; Text[50]) { }
-    field(15; c_nchar; Text[10]) { }
-  } keys { key(PK; id) { } } }
-table 50103 "probe_lob" { fields { field(1; id; Integer) { } } keys { key(PK; id) { } } }
-"#;
-
-const EXT: &str = r#"
-tableextension 50200 "exttest ext" extends "exttest" { fields { field(50200; extra; Text[20]) { } field(50201; num; Integer) { } } }
-"#;
+use common::{BASE, run_with_companies};
 
 const MAIN: &str = r#"
 codeunit 50001 "T" { Subtype = Test;
@@ -83,100 +53,6 @@ fn run(path: &str) -> (CorpusRuntime, TestData) {
 
 fn run_with(path: &str, base: &str, main: &str) -> (CorpusRuntime, TestData) {
     run_with_companies(path, base, main, &[])
-}
-
-fn run_with_companies(path: &str, base: &str, main: &str, companies: &[String]) -> (CorpusRuntime, TestData) {
-    let file = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../al-bcdb/tests/fixtures")
-        .join(path);
-    let provider = BackupProvider::open_with_index_dir_and_companies(&file, Some("TP"), companies, None).unwrap();
-    let data = TestData::new(Arc::new(provider));
-    let app = |id: &str, deps: &[&str], src: &str| AppSource {
-        id: id.into(),
-        name: id.into(),
-        dependencies: deps.iter().map(|d| d.to_string()).collect(),
-        files: vec![(format!("{id}.al"), src.into())],
-    };
-    let rt = CorpusRuntime::run_suites_with(
-        vec![
-            app("main", &[BASE_ID, EXT_ID], main),
-            app(BASE_ID, &[], base),
-            app(EXT_ID, &[BASE_ID], EXT),
-        ],
-        vec![
-            al_sema::AppKind::Workspace,
-            al_sema::AppKind::Dependency,
-            al_sema::AppKind::Dependency,
-        ],
-        &[],
-        &Default::default(),
-        None,
-        Default::default(),
-        &[SuiteRun::everything()],
-        &RunOptions {
-            test_data: Some(data.clone()),
-            ..Default::default()
-        },
-    );
-    (rt, data)
-}
-
-#[test]
-fn selected_backup_companies_are_available_end_to_end_and_single_company_keeps_its_guard() {
-    let base = format!(
-        "{BASE}
-        table 2000000006 Company {{ DataPerCompany = false;
-          fields {{ field(1; Name; Text[30]) {{ }} field(2; \"Evaluation Company\"; Boolean) {{ }}
-            field(3; \"Display Name\"; Text[250]) {{ }} field(8000; Id; Guid) {{ }} }}
-          keys {{ key(PK; Name) {{ }} }} }}"
-    );
-    let main = r#"codeunit 50001 T { Subtype = Test;
-      [Test] procedure Companies() var C: Record Company; begin
-        if not C.FindSet() then Error('no companies');
-        if C.Count() <> 2 then Error('company count %1', C.Count());
-        C.Get('TP'); C.Get('ProbeCo');
-      end;
-      [Test] procedure OtherCompany() var R: Record exttest; begin
-        if R.Count() <> 3 then Error('session rows %1', R.Count());
-        R.ChangeCompany('ProbeCo');
-        if not R.IsEmpty() then Error('other rows %1', R.Count());
-        R.id := 99; R.own := 'other'; R.Insert(); R.Get(99);
-        R.own := 'changed'; R.Modify(); R.Get(99);
-        if R.own <> 'changed' then Error('modify');
-        R.Delete();
-        R.ChangeCompany('TP'); if R.Count() <> 3 then Error('session changed');
-      end;
-    }"#;
-    for file in ["typeprobe.bak", "typeprobe.bacpac"] {
-        let (rt, _) = run_with_companies(file, &base, main, &["ProbeCo".into()]);
-        for name in ["Companies", "OtherCompany"] {
-            assert_eq!(
-                rt.first_outcome(&CaseId {
-                    codeunit: 50001,
-                    name: name.into()
-                }),
-                Outcome::Pass,
-                "{file} {name}"
-            );
-        }
-        let (rt, _) = run_with(file, &base, main);
-        let scan = rt.first_outcome(&CaseId {
-            codeunit: 50001,
-            name: "Companies".into(),
-        });
-        assert!(
-            matches!(scan, Outcome::NotRun(ref why) if why.contains("Company table")),
-            "{file}: {scan:?}"
-        );
-        assert_eq!(
-            rt.first_outcome(&CaseId {
-                codeunit: 50001,
-                name: "OtherCompany".into()
-            }),
-            Outcome::Fail("The company \"ProbeCo\" does not exist.".into()),
-            "{file}"
-        );
-    }
 }
 
 #[test]
