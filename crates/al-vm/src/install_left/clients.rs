@@ -239,7 +239,7 @@ pub(super) fn report_as_new(r: &ReportState) -> bool {
         rp_init_by_handler,
         report_preview_pinned,
         run_modal,
-        run_static,
+        run_bare,
         system_printer,
         set_view_filters,
         dataset,
@@ -274,7 +274,7 @@ pub(super) fn report_as_new(r: &ReportState) -> bool {
         && rp_init_by_handler.is_empty()
         && report_preview_pinned.is_empty()
         && !run_modal
-        && !run_static
+        && !run_bare
         && !system_printer
         && set_view_filters.is_empty()
         && dataset.is_none()

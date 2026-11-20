@@ -132,6 +132,20 @@ report 51328 "Repro Data Item"
         SomeFilter: Text;
 }
 
+report 51329 "Repro Extra Global"
+{
+    ProcessingOnly = true;
+    UsageCategory = None;
+    requestpage
+    {
+        SaveValues = true;
+        layout { area(content) { field("Some Filter"; SomeFilter) { ApplicationArea = All; } } }
+    }
+    var
+        SomeFilter: Text;
+        Other: Integer;
+}
+
 report 51324 "Repro Saved Int"
 {
     ProcessingOnly = true;
@@ -323,6 +337,18 @@ const HELPERS: &str = r#"
 
     [RequestPageHandler]
     procedure HandlerItem(var RequestPage: TestRequestPage "Repro Data Item")
+    begin
+        if Mode = Mode::Set then begin
+            RequestPage."Some Filter".SetValue(SetTxt);
+            RequestPage.OK().Invoke();
+        end else begin
+            SeenTxt := RequestPage."Some Filter".Value();
+            RequestPage.Cancel().Invoke();
+        end;
+    end;
+
+    [RequestPageHandler]
+    procedure HandlerE(var RequestPage: TestRequestPage "Repro Extra Global")
     begin
         if Mode = Mode::Set then begin
             RequestPage."Some Filter".SetValue(SetTxt);
@@ -916,4 +942,165 @@ fn issue_8250_saves_outside_the_measured_shapes_keep_mains_result() {
 "#,
     );
     assert_clean_pass(&o, &["V_ReportVariable", "W_TwoTexts", "X_DataItem", "Y_BodyDeletes"]);
+}
+
+/// Review of PR 8511 round 2, A: the probe saves through `Report.RunModal(Id)` only (:111). A save through another overload of
+/// the static RunModal keeps main's result: no row, and the next run shows the stored value.
+#[test]
+fn issue_8250_other_run_modal_overloads_keep_mains_result() {
+    let o = run_tests(
+        r#"
+    [Test]
+    [HandlerFunctions('HandlerA')]
+    procedure N01_RunModalIdTrue()
+    begin
+        ClearRows(Report::"Repro Saved Values");
+        Mode := Mode::Set;
+        SetTxt := 'OBO-N01';
+        Commit();
+        Report.RunModal(Report::"Repro Saved Values", true);
+        Expect('rows', Format(RowCount(Report::"Repro Saved Values")), '0');
+        ClearRows(Report::"Repro Saved Values");
+        Expect('next run', RunRead(Report::"Repro Saved Values"), 'OBO-N01');
+    end;
+
+    [Test]
+    [HandlerFunctions('HandlerA')]
+    procedure N02_RunModalIdTrueFalse()
+    begin
+        ClearRows(Report::"Repro Saved Values");
+        Mode := Mode::Set;
+        SetTxt := 'OBO-N02';
+        Commit();
+        Report.RunModal(Report::"Repro Saved Values", true, false);
+        Expect('rows', Format(RowCount(Report::"Repro Saved Values")), '0');
+        ClearRows(Report::"Repro Saved Values");
+        Expect('next run', RunRead(Report::"Repro Saved Values"), 'OBO-N02');
+    end;
+"#,
+    );
+    assert_clean_pass(&o, &["N01_RunModalIdTrue", "N02_RunModalIdTrueFalse"]);
+}
+
+/// Review of PR 8511 round 2, A: after a measured save and a delete, a read through `Report.RunModal(Id, true)` is not the
+/// probe's read (:114-121): it refuses.
+#[test]
+fn issue_8250_read_by_another_run_modal_overload_refuses() {
+    let o = run_tests(
+        r#"
+    [Test]
+    [HandlerFunctions('HandlerA')]
+    procedure N04_ReadByRunModalIdTrue()
+    begin
+        ClearRows(Report::"Repro Saved Values");
+        RunSet(Report::"Repro Saved Values", 'OBO-N04');
+        ClearRows(Report::"Repro Saved Values");
+        Mode := Mode::Read;
+        SeenTxt := 'not read';
+        Commit();
+        Report.RunModal(Report::"Repro Saved Values", true);
+        Expect('next run', SeenTxt, '');
+    end;
+"#,
+    );
+    assert_refused(&o, &["N04_ReadByRunModalIdTrue"]);
+}
+
+/// Review of PR 8511 round 2, A: the probe's run is not substituted. A run that SubstituteReport swaps for another report keeps
+/// main's result: no row for either report.
+#[test]
+fn issue_8250_substituted_run_keeps_mains_result() {
+    let o = run_tests(
+        r#"
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Reporting Triggers", 'SubstituteReport', '', false, false)]
+    local procedure OnSubstitute(ReportId: Integer; RunMode: Option Normal,ParametersOnly,Execute,Print,SaveAs,RunModal; RequestPageXml: Text; RecordRef: RecordRef; var NewReportId: Integer)
+    begin
+        if ReportId = Report::"Repro Saved Values" then
+            NewReportId := Report::"Repro Saved B";
+    end;
+
+    [Test]
+    [HandlerFunctions('HandlerB')]
+    procedure N10_Substituted()
+    begin
+        ClearRows(Report::"Repro Saved Values");
+        ClearRows(Report::"Repro Saved B");
+        RunSet(Report::"Repro Saved Values", 'OBO-N10');
+        Expect('rows', Format(RowCount(Report::"Repro Saved Values")), '0');
+        Expect('rows of the substitute', Format(RowCount(Report::"Repro Saved B")), '0');
+    end;
+"#,
+    );
+    assert_clean_pass(&o, &["N10_Substituted"]);
+}
+
+/// Review of PR 8511 round 2, B: the probe never confirms a second OK while a row stands (every test deletes the rows first).
+/// The SystemId of the row after such a re-save is not pinned: its read refuses.
+#[test]
+fn issue_8250_second_save_over_a_row_refuses_its_system_id() {
+    let o = run_tests(
+        r#"
+    [Test]
+    [HandlerFunctions('HandlerA')]
+    procedure N08_SecondSaveSystemId()
+    var
+        ObjectOptions: Record "Object Options";
+        First: Guid;
+    begin
+        ClearRows(Report::"Repro Saved Values");
+        RunSet(Report::"Repro Saved Values", 'OBO-N08a');
+        FindRow(Report::"Repro Saved Values", ObjectOptions);
+        First := ObjectOptions.SystemId;
+        RunSet(Report::"Repro Saved Values", 'OBO-N08b');
+        FindRow(Report::"Repro Saved Values", ObjectOptions);
+        Expect('same SystemId', Format(First = ObjectOptions.SystemId), 'No');
+    end;
+"#,
+    );
+    assert_refused(&o, &["N08_SecondSaveSystemId"]);
+}
+
+/// Review of PR 8511 round 2, C: the probe reads the row as written (:218) and an exact copy inserted again (:277). A row
+/// whose Public Visible AL changed refuses the next read.
+#[test]
+fn issue_8250_edit_of_another_column_refuses() {
+    let o = run_tests(
+        r#"
+    [Test]
+    [HandlerFunctions('HandlerA')]
+    procedure N09_PublicVisible()
+    var
+        ObjectOptions: Record "Object Options";
+    begin
+        ClearRows(Report::"Repro Saved Values");
+        RunSet(Report::"Repro Saved Values", 'OBO-N09');
+        FindRow(Report::"Repro Saved Values", ObjectOptions);
+        ObjectOptions."Public Visible" := true;
+        ObjectOptions.Modify();
+        Commit();
+        Expect('next run', RunRead(Report::"Repro Saved Values"), 'OBO-N09');
+    end;
+"#,
+    );
+    assert_refused(&o, &["N09_PublicVisible"]);
+}
+
+/// Review of PR 8511 round 2, L1: the probe report has one global (:37-38). A report with a second global keeps main's result.
+#[test]
+fn issue_8250_report_with_another_global_keeps_mains_result() {
+    let o = run_tests(
+        r#"
+    [Test]
+    [HandlerFunctions('HandlerE')]
+    procedure N07_ExtraGlobal()
+    begin
+        ClearRows(Report::"Repro Extra Global");
+        RunSet(Report::"Repro Extra Global", 'OBO-N07');
+        Expect('rows', Format(RowCount(Report::"Repro Extra Global")), '0');
+        ClearRows(Report::"Repro Extra Global");
+        Expect('next run', RunRead(Report::"Repro Extra Global"), 'OBO-N07');
+    end;
+"#,
+    );
+    assert_clean_pass(&o, &["N07_ExtraGlobal"]);
 }

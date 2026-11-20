@@ -564,9 +564,9 @@ pub(crate) struct ReportState {
     pub(crate) report_preview_pinned: Vec<ReportStart>,
     /// The report running now was started by `RunModal` (its request page's Preview and Print are not pinned).
     pub(crate) run_modal: bool,
-    /// The report running now was started by the static `Report.Run` or `Report.RunModal` (`run_started_as`), not on a
-    /// report variable.
-    pub(crate) run_static: bool,
+    /// The report running now was started by the static `Report.Run` or `Report.RunModal` with the report id as its only
+    /// argument and not swapped by SubstituteReport (`run_started_as`): not on a report variable, not another overload.
+    pub(crate) run_bare: bool,
     /// The report running now was started with SystemPrinter `true` (`Report.Run(Id, .., true)`): a run that renders would
     /// print (`report_placeholder::run`).
     pub(crate) system_printer: bool,
