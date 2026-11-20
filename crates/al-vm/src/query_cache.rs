@@ -1,5 +1,5 @@
 //! The query cache BC's page background tasks read through, and the test session with them (al-runner issue 8467; corpus
-//! pull request 1457, open: tests/al-language/pages/background-tasks/BgTaskQueryCache.al, measured on Business Central 29.1).
+//! pull request 1457, merged, not pinned yet: tests/al-language/pages/background-tasks/BgTaskQueryCache.al, measured on Business Central 29.1).
 //!
 //! A worker's read that repeats an earlier read answers what the earlier read answered, also after the test session changed
 //! the rows without committing. Two kinds of read are measured, and only they are kept here:

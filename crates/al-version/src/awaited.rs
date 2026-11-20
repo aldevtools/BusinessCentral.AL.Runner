@@ -28,7 +28,7 @@ pub fn web_service_session_measured(target: Option<&Target>) -> bool {
 }
 
 /// Whether a commit of a ModifyAll of another row of a table ends the query cache entry of a row a page background task read
-/// (al-runner issue 8467, open corpus PR 1457, tests/al-language/pages/background-tasks/BgTaskQueryCache.al: the cell was
+/// (al-runner issue 8467, corpus PR 1457 (merged, not pinned yet), tests/al-language/pages/background-tasks/BgTaskQueryCache.al: the cell was
 /// dropped from the file, as the preprocessor cannot tell the minors apart): `Some(true)` on 27.5, 28.5 and 29.0 (the PR's CI),
 /// `Some(false)` on 29.1 (a local container); on every other minor, and with no target, not measured.
 pub fn bulk_commit_ends_cached_row(target: Option<&Target>) -> Option<bool> {
