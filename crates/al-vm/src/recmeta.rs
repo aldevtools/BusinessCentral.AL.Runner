@@ -2151,6 +2151,17 @@ impl Session {
         shared: al_builtins::value::TableGlobals,
     ) -> Result<Value, Signal> {
         for mut row in rows {
+            // ModifyAll(Field, 00:00:00) over a row whose Field is held past the day: whether it writes 00:00:00 is not probed.
+            if crate::sqltime::is_rolled(&row[pos]) && matches!(value, Value::Time(1)) {
+                return unsupported("ModifyAll of 00:00:00 into a Time field a row holds as 23:59:59.999 (not probed)");
+            }
+            // The record of each row holds what it reads: a Time held past the day reads 00:00:00 (`sqltime::read_back`), which the
+            // Modify below keeps as stored when the field is not the one set (`sqltime::keep_rolled`, ModifyAll's own read).
+            let rolled_read = row.iter().any(crate::sqltime::is_rolled).then(|| {
+                let t = self.engine.tables[rec.borrow().table as usize].clone().expect("table");
+                (al_builtins::value::RolledReadBy::ModifyAll, t.primary_key(&row))
+            });
+            crate::sqltime::read_back(&mut row);
             row[pos] = value.clone();
             let copy = {
                 let r = rec.borrow();
@@ -2166,6 +2177,7 @@ impl Session {
                     failed_insert: None,
                     row_origin: None,
                     own_read: Default::default(),
+                    rolled_read: al_builtins::value::RolledRead(rolled_read),
                     probed_source: Default::default(),
                     globals: shared.share(),
                     // The scanned row is whole: a partial load of the variable is not the copy's (al-runner issue 6654).
