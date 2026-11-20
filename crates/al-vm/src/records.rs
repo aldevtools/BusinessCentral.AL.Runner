@@ -37,7 +37,7 @@ use sql_range::InsertShape;
 mod nested_validate;
 pub(crate) use nested_validate::{BeforeImage, ProcXrec, ValidateSite, XREC_OF_RUNNING_CALL};
 mod by_value_view;
-pub(crate) use by_value_view::{BY_VALUE_VIEW, ByValueCall, EventArg, primary_view};
+pub(crate) use by_value_view::{ByValueCall, EventArg, by_value_mark, primary_view};
 mod op_inner;
 mod own_rolled_back_modify;
 mod platform_rows;
@@ -171,7 +171,7 @@ pub(crate) fn media_key_marked(rec: &Rec) -> bool {
 pub(crate) fn buffer_read_refused(rec: &Rec) -> Option<&'static str> {
     rec.borrow()
         .unpinned_buffer
-        .filter(|w| !run_page_link_fields_read(w) && *w != HELD_PART_REC && *w != BY_VALUE_VIEW)
+        .filter(|w| !run_page_link_fields_read(w) && *w != HELD_PART_REC && !by_value_mark(w))
 }
 
 /// Whether field reads of a record whose buffer has the reason `why` run.
@@ -676,8 +676,8 @@ impl Session {
         let Some(facts) = self.engine.install_facts.get() else {
             return;
         };
-        if let Some((_, a)) = facts.assumed.get(&(object as usize)) {
-            al_builtins::assumptions::assume(*a);
+        for &a in facts.assumed.get(&(object as usize)).into_iter().flatten() {
+            al_builtins::assumptions::assume(a);
         }
     }
 
@@ -2808,7 +2808,11 @@ impl Session {
         if self.permission_checks() {
             self.permission_from_al = true;
         }
-        self.with_group1(rec, group1, |s| s.record_op_of_al(method, rec, args))
+        let r = self.with_group1(rec, group1, |s| s.record_op_of_al(method, rec, args));
+        if !self.pages.onvalidate_pages.is_empty() {
+            self.note_page_rec_call(method, rec, args);
+        }
+        r
     }
 
     /// What a filter does in a negative filter group other than -1, the OR group, is not pinned (only reading the group back is:

@@ -1,9 +1,8 @@
 //! `HttpContent.ReadAs(var SecretText)` as a statement and on the content of a request that has none: the call sequences
-//! al-language-onprem/http/N4ReadAsSecretStatement.al measures run without an assumption, the sequence corpus
-//! http/CzHttpNoNetwork.al:25-57 pins as not empty runs through assumption http-readas-secret-statement (its body), and every
-//! other one keeps main's refusal.
+//! al-language-onprem/http/N4ReadAsSecretStatement.al measures and the sequence of http/CzHttpNoNetwork.al:25-57 run without an
+//! assumption, and every other one keeps main's refusal.
 
-use al_builtins::assumptions::{Assumption, take_hits};
+use al_builtins::assumptions::take_hits;
 use al_builtins::native::Signal;
 
 const SRC: &str = r#"
@@ -873,16 +872,6 @@ codeunit 50192 C
 const STATEMENT: &str = "HttpContent.ReadAs(SecretText) as a statement (not pinned)";
 const NO_CONTENT: &str = "HttpContent.ReadAs(SecretText) on the content of a request that has none (not pinned)";
 
-fn assumed(routine: &str) -> String {
-    take_hits();
-    let got = al_testkit::text(al_testkit::run_in(SRC, "C", routine));
-    assert!(
-        take_hits().contains(&Assumption::HttpReadasSecretStatement),
-        "{routine} not flagged"
-    );
-    got
-}
-
 fn pinned(routine: &str) -> String {
     take_hits();
     let got = al_testkit::text(al_testkit::run_in(SRC, "C", routine));
@@ -928,8 +917,14 @@ fn the_probe_sequences_on_a_request_without_content_are_pinned() {
 
 #[test]
 fn the_pinned_http_content_impl_sequence_runs() {
-    // CzHttpNoNetwork.al:34 with :80 pins `empty=No`; the body is the assumption's.
-    assert_eq!(assumed("ImplShape"), "No");
+    // CzHttpNoNetwork.al:34 with :80 pins `empty=No`. The header the sequence adds runs through its own assumption.
+    take_hits();
+    let got = al_testkit::text(al_testkit::run_in(SRC, "C", "ImplShape"));
+    assert_eq!(
+        take_hits(),
+        vec![al_builtins::assumptions::Assumption::HttpTypedHeaderValueShapes]
+    );
+    assert_eq!(got, "No");
 }
 
 #[test]
@@ -1035,5 +1030,5 @@ fn a_used_read_of_a_content_with_a_body_is_answered_as_on_main() {
         al_testkit::text(al_testkit::run_in(SRC, "C", "UsedAfterAnything")),
         "YesbYesb"
     );
-    assert!(!take_hits().contains(&Assumption::HttpReadasSecretStatement));
+    assert!(take_hits().is_empty());
 }

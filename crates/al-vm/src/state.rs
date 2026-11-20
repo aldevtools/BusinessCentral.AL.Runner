@@ -288,6 +288,13 @@ pub(crate) struct PageClients {
     pub(crate) saved_values: std::collections::HashMap<u32, Vec<(Option<usize>, usize, Value)>>,
     /// `saved_values` at the last commit: a rollback goes back to it (`Session::rollback_transaction`).
     pub(crate) saved_values_committed: std::collections::HashMap<u32, Vec<(Option<usize>, usize, Value)>>,
+    /// For each report whose request page stored values while the program has the Object Options table: whether those
+    /// values stand in a row this runtime wrote (`pages/open/saved_row.rs`). A rollback keeps it: a row is written only just
+    /// before its run commits.
+    pub(crate) saved_rows: std::collections::HashMap<u32, crate::pages::SavedRow>,
+    /// The rows OKs of request pages ask for, until their runs return, innermost last: (report object, the transaction
+    /// world of the run, the store's change counter at the save).
+    pub(crate) saved_row_pending: Vec<(u32, usize, u64)>,
     pub(crate) traps: Vec<Rc<RefCell<crate::pages::PageState>>>,
     /// Open TestPages in a state whose end of scope is not pinned (what BC saves when the variable goes away): a routine
     /// whose local holds the last reference to one is refused when it returns.
@@ -360,6 +367,9 @@ pub(crate) struct PageClients {
     pub(crate) code_close_vetoes: Vec<crate::pages::CodeCloseVeto>,
     /// Pages whose close, requested by OnAfterGetCurrRecord at OpenView, OnQueryClosePage refused twice (`pages/code_close_veto.rs`).
     pub(crate) open_vetoed: Vec<std::rc::Weak<RefCell<crate::pages::PageState>>>,
+    /// The pages whose control OnValidate runs now, innermost last (`Session::run_control_onvalidate`): page code's record calls
+    /// on their Rec are recorded in that OnValidate (`Session::note_page_rec_call`).
+    pub(crate) onvalidate_pages: Vec<Rc<RefCell<crate::pages::PageState>>>,
 }
 
 /// Event subscriptions and what the Event Subscription table reports.
@@ -392,9 +402,12 @@ pub(crate) struct EventState {
     pub(crate) next_aliases: Vec<(usize, Rc<RefCell<crate::Instance>>, usize)>,
     /// Set just before a subscriber is called, taken by its frame: the call is an event subscriber dispatch.
     pub(crate) next_is_subscriber: bool,
-    /// Set by `publish` just before the raise: the publisher routine (object, routine); taken by `raise_to_subscribers`
-    /// for `Session::event_publisher`.
-    pub(crate) by_value_publisher: Option<(usize, usize)>,
+    /// Set by `publish` just before the raise: the publisher routine (object, routine) and the answer of
+    /// `Session::raise_arg_var_param` it took from `raise_arg_var_param`; taken by `raise_to_subscribers` for
+    /// `Session::event_publisher`.
+    pub(crate) by_value_publisher: Option<(usize, usize, bool)>,
+    /// Set by `finish_call` for a publisher call, taken by `publish`, cleared after the call: `Session::raise_arg_var_param`.
+    pub(crate) raise_arg_var_param: bool,
     /// Set just before a subscriber is called, taken by its frame (`records::ByValueCall`), cleared after the call: per
     /// subscriber parameter, what `Session::event_args` says of it.
     pub(crate) next_event_args: Vec<crate::records::EventArg>,
@@ -554,6 +567,9 @@ pub(crate) struct ReportState {
     pub(crate) report_preview_pinned: Vec<ReportStart>,
     /// The report running now was started by `RunModal` (its request page's Preview and Print are not pinned).
     pub(crate) run_modal: bool,
+    /// The report running now was started by the static `Report.Run` or `Report.RunModal` with the report id as its only
+    /// argument and not swapped by SubstituteReport (`run_started_as`): not on a report variable, not another overload.
+    pub(crate) run_bare: bool,
     /// The report running now was started with SystemPrinter `true` (`Report.Run(Id, .., true)`): a run that renders would
     /// print (`report_placeholder::run`).
     pub(crate) system_printer: bool,

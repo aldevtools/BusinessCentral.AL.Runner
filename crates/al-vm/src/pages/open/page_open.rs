@@ -545,7 +545,7 @@ impl Session {
                 self.refuse_seeded_view_after_init(&inst, object, &xml)?;
                 self.apply_request_parameters(&inst, &exts, object, &xml, crate::pages::ParamsCall::RunRequestPage)?;
             }
-            self.restore_page_values(st);
+            self.restore_page_values(st)?;
             self.check_page_events(st)?;
             // A temporary source: Rec as it stands before OnOpenPage, to tell a row set before the open from one OnOpenPage set.
             let before_open = if has_source { self.temp_rec_position(st)? } else { None };
@@ -1418,7 +1418,7 @@ impl Session {
             && !rec.borrow().temporary
             && st.borrow().modal
             && !st.borrow().lookup
-            && st.borrow().run_static == Some(false)
+            && st.borrow().modal_run == ModalRun::Variable
             && !self.declares(st, "onnextrecord");
         if dialog_run_modal {
             return Ok(true);
@@ -1567,8 +1567,7 @@ fn reset_row_line_flags(s: &mut crate::pages::PageState) {
     s.gone_blank_no_new_line = false;
     s.gone_blank_shows_line = false;
     s.gone_view_list = false;
-    s.list_view_switched = false;
-    s.list_edit_back = false;
+    s.list_view.reset();
 }
 
 /// The flags a new host row, a first part access and New() on a request

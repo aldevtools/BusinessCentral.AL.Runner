@@ -209,8 +209,8 @@ impl Session {
         if var_run {
             return if outside { Fate::Unknown } else { Fate::Gone };
         }
-        match s.run_static {
-            Some(false) if outside => Fate::Lives,
+        match s.modal_run {
+            crate::pages::ModalRun::Variable if outside => Fate::Lives,
             _ => Fate::Gone,
         }
     }

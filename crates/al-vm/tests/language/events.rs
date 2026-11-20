@@ -992,7 +992,7 @@ fn deleteall_with_nothing_to_delete_raises_no_global_trigger_event() {
     assert_eq!(text(run(&src, "Empty")), "");
 }
 
-// session-system/TestEnvironmentUserTenantContracts.al:275-299 and :377-399 (probe batch 3): the first write
+// session-system/TestEnvironmentUserTenantContracts.al:272-296 and :374-396 (probe batch 3): the first write
 // to a table, a DeleteAll that finds no row included, asks for the mask and then the setup, once per
 // session; a subscriber that sets OnDatabaseInsert gets OnDatabaseInsert for Insert(true) and Insert(false).
 fn setup_log_src(extra: &str) -> String {
@@ -1507,7 +1507,7 @@ codeunit 50100 C
     assert!(!boolean(run(src, "Value")));
 }
 
-// session-system/TestEnvironmentUserTenantContracts.al:414-444: a write to a temporary record asks for no
+// session-system/TestEnvironmentUserTenantContracts.al:411-441: a write to a temporary record asks for no
 // trigger setup and raises no database event, also when the table's database triggers are enabled;
 // the real table still does.
 #[test]
