@@ -1234,8 +1234,8 @@ fn run_codeunit_inner(
                 Err(o) => (o, None),
             };
             let ended = ended_of(&outcome, began, untrusted.is_some());
-            if scratch.stop_after_first_failure && matches!(outcome, Outcome::Fail(_)) {
-                stopped.get_or_insert_with(|| stopped_after_failure(obj.id.unwrap_or(0), &name));
+            if let (Some(stop), Outcome::Fail(_)) = (&scratch.stop_after_first_failure, &outcome) {
+                stopped.get_or_insert_with(|| stopped_after_failure(stop, obj.id.unwrap_or(0), &name));
             }
             note_unfinished(scratch, ended, runner_refused.is_some(), test_no, &name);
             if let (Some(ended), Outcome::NotRun(why) | Outcome::Fail(why)) = (ended, &outcome) {
@@ -1758,10 +1758,24 @@ fn not_run_reason(r: Refusal) -> String {
     }
 }
 
+/// The scope of `RunOptions::stop_after_first_failure` for one pass (PERF-18); a pass the stop does not apply to has none.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum StopAfterFailure {
+    /// No entry has a `stop_group` (or there are no entries): a failure stops every later entry (al-runner issue 8210).
+    Request,
+    /// The entry's `EntryRun::stop_group`: a failure stops the later entries of this group only.
+    Group(Arc<str>),
+}
+
 /// The reason of a test `RunOptions::stop_after_first_failure` does not run, after test `test` of codeunit `codeunit` failed.
-pub(crate) fn stopped_after_failure(codeunit: u32, test: &str) -> String {
+/// Without a group it is al-runner issue 8210's text, byte for byte; with one it names the group.
+pub(crate) fn stopped_after_failure(stop: &StopAfterFailure, codeunit: u32, test: &str) -> String {
+    let later = match stop {
+        StopAfterFailure::Request => "a later entry".to_string(),
+        StopAfterFailure::Group(g) => format!("a later entry of its stopGroup `{g}`"),
+    };
     format!(
-        "the test Codeunit{codeunit}.{test} failed before it, and stopAfterFirstFailure (--stop-after-first-failure) runs no test of its codeunit or of a later entry after a failure"
+        "the test Codeunit{codeunit}.{test} failed before it, and stopAfterFirstFailure (--stop-after-first-failure) runs no test of its codeunit or of {later} after a failure"
     )
 }
 

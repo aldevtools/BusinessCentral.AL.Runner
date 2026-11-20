@@ -60,6 +60,7 @@ const ENTRY_FIELDS: &[&str] = &[
     "excludeTests",
     "excludeTestsExact",
     "testTimeoutSecs",
+    "stopGroup",
 ];
 /// The request fields of `execute`.
 const EXECUTE_FIELDS: &[&str] = &[
@@ -528,10 +529,8 @@ fn entries_of(fields: &Map<String, Value>) -> Result<(Vec<run::Entry>, Vec<Value
             Some(id @ (Value::String(_) | Value::Number(_))) => id.clone(),
             Some(_) => return Err("the `id` of an entry is a text or a number".into()),
         };
-        // Al-runner issue 5703: the answers of two entries with one id cannot be told apart. A text and a number that
-        // read alike count as one id, as a client may key its answers by text.
-        let key = |id: &Value| id.as_str().map_or_else(|| id.to_string(), String::from);
-        if ids.iter().any(|seen| key(seen) == key(&id)) {
+        // Al-runner issue 5703: the answers of two entries with one id cannot be told apart.
+        if ids.iter().any(|seen| id_key(seen) == id_key(&id)) {
             return Err(format!(
                 "more than one entry has the `id` {id}: each entry needs its own id (the default id is the entry's index)"
             ));
@@ -555,16 +554,34 @@ fn entries_of(fields: &Map<String, Value>) -> Result<(Vec<run::Entry>, Vec<Value
             excludes_exact: string_list(e, "excludeTestsExact")?,
             resources,
             test_timeout_secs: test_timeout_secs(e)?,
-            stop_group: None,
+            stop_group: stop_group(e)?,
         });
     }
     Ok((entries, ids))
 }
 
-/// Whether the `stopGroup`s of `entries` may run with the stop after a failure set to `stop`. Stub until PERF-18 A1.
-#[allow(dead_code)] // PERF-18 A1 calls it from `run_tests`.
+/// The key of an entry's `id` or `stopGroup`: a text and a number that read alike are one key, as a client may key its
+/// answers by text (al-runner issue 5703).
+fn id_key(v: &Value) -> String {
+    v.as_str().map_or_else(|| v.to_string(), String::from)
+}
+
+/// The `stopGroup` of an entry (PERF-18): a text or a number, keyed as `id_key`; absent or `null`: none.
+fn stop_group(e: &Map<String, Value>) -> Result<Option<String>, String> {
+    match e.get("stopGroup") {
+        None | Some(Value::Null) => Ok(None),
+        Some(g @ (Value::String(_) | Value::Number(_))) => Ok(Some(id_key(g))),
+        Some(_) => Err("the `stopGroup` of an entry is a text or a number".into()),
+    }
+}
+
+/// A `stopGroup` needs the stop after a failure (`stop`: the request's field, or the server's
+/// `--stop-after-first-failure` when it is absent): without the stop a group changes nothing, so it is refused as a
+/// likely client mistake. A request may mix entries with and without a group.
 fn stop_groups_checked(entries: &[run::Entry], stop: bool) -> Result<(), String> {
-    let _ = (entries, stop);
+    if !stop && entries.iter().any(|e| e.stop_group.is_some()) {
+        return Err("`stopGroup` needs `stopAfterFirstFailure` (or a server started with `--stop-after-first-failure`): without the stop a group changes nothing".into());
+    }
     Ok(())
 }
 
@@ -577,6 +594,9 @@ fn run_tests(base: &TestArgs, fields: &Map<String, Value>, ctx: &mut WarmCtx, fl
         Ok(x) => x,
         Err(e) => return error(e),
     };
+    if let Err(e) = stop_groups_checked(&entries, args.stop_after_first_failure) {
+        return error(e);
+    }
     if let Ok(mut v) = flags.entry_ids.lock() {
         v.clone_from(&ids);
     }
