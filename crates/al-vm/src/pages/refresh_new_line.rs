@@ -217,14 +217,19 @@ impl Session {
         Ok(true)
     }
 
-    /// The refresh after the save of a List from its new-row line (`ValidateStart::left_new_line`) reads the view from its first
-    /// row, as from that line, not as from a stored row: assumption `new-line-found-row-list-refresh` (corpus pull request 1470,
+    /// Whether `refresh_after_validate_filter` runs on this page: one that offers the new-row line is pinned on a Worksheet
+    /// (Y17JournalBatchSwitch.al), and on a List from that line (`validate_refresh_start`); from a row a List that offers it keeps
+    /// the refresh after it. A List the OnValidate's save moved from that line (`ValidateStart::left_new_line`) reads the view
+    /// from its first row as from the line: assumption `new-line-found-row-list-refresh` (corpus pull request 1470,
     /// StaleUpdateNewLine.al:1242 SaveRecord and :1258 Update(true), `R:B2/10000;R:B2/20000;R:B2/10000;R:B2/10000;C:B2/10000`).
-    pub(super) fn found_row_list_refresh(&self, left_new_line: bool) -> bool {
-        if left_new_line {
+    pub(super) fn validate_refresh_offers_line(&self, st: &St, start: &crate::pages::state::ValidateStart) -> bool {
+        if !st.borrow().new_line || self.is_worksheet(st) || st.borrow().cursor == Cursor::NewLine {
+            return true;
+        }
+        if start.left_new_line {
             al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::NewLineFoundRowListRefresh);
         }
-        left_new_line
+        start.left_new_line
     }
 
     /// The cells of StaleUpdateNewLine.al that measure the save from the new-row line (`CurrPage.SaveRecord()`, and the refresh

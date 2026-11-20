@@ -309,7 +309,7 @@ fn a_cancel_keeps_the_notes_until_the_next_take() {
     r.ask_by_update(false);
     r.read_without_curr();
     r.cancel();
-    assert!(!r.asked() && r.by_update_noted() && r.update_false());
+    assert!(!r.asked() && r.update_false());
     r.ask();
     let t = r.take().unwrap();
     assert!(t.by_update && t.without_curr);
@@ -320,7 +320,9 @@ fn a_cancel_of_the_update_drops_its_argument() {
     let mut r = RefreshRequest::default();
     r.ask_by_update(false);
     r.cancel_update();
-    assert!(!r.asked() && !r.by_update_noted() && !r.update_false());
+    assert!(!r.asked() && !r.update_false());
+    r.ask();
+    assert!(!r.take().unwrap().by_update);
 }
 
 #[test]

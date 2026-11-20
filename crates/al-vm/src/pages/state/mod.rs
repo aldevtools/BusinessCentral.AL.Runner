@@ -176,8 +176,18 @@ pub struct ValidateStart {
     /// The filters of the page's record when the OnValidate began.
     pub filters: Vec<al_builtins::filter::FieldFilter>,
     /// A save in the OnValidate moved a List from its new-row line onto the row page code found, in the cells of
-    /// `refresh_new_line.rs` `found_row_cell`: the refresh reads the view as from that line.
+    /// `refresh_new_line.rs` `found_row_cell`: the refresh reads the view as from that line (`validate_refresh_offers_line`).
     pub left_new_line: bool,
+}
+
+impl ValidateStart {
+    /// The start of an OnValidate with the record's `filters`.
+    pub fn new(filters: Vec<al_builtins::filter::FieldFilter>) -> Self {
+        Self {
+            filters,
+            left_new_line: false,
+        }
+    }
 }
 
 /// The test client's state for one page (ADR-012). Fields grow with the

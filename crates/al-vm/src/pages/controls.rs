@@ -985,10 +985,7 @@ impl Session {
             if let Some(r) = ctl.trigger("onvalidate") {
                 if self.has_source(st) {
                     let filters = self.page_rec(st).borrow().filters.clone();
-                    st.borrow_mut().filters_before_validate = Some(crate::pages::state::ValidateStart {
-                        filters,
-                        left_new_line: false,
-                    });
+                    st.borrow_mut().filters_before_validate = Some(crate::pages::state::ValidateStart::new(filters));
                 }
                 if let Err(e) = self.run_control_onvalidate(st, idx, r) {
                     from_page_trigger.set(true);
