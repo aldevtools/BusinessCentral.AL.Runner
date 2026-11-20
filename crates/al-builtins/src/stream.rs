@@ -141,9 +141,9 @@ pub const MEDIA_REENCODED: &str = "Media.ExportStream";
 /// 29; al-builtins media.rs `set_export_file`): the file exists, its bytes are not pinned.
 pub const MEDIA_SET_FILE_REENCODED: &str = "MediaSet.ExportFile";
 
-/// The mark a .docx `Media.ImportFile` puts on its media: BC stores a re-zipped package whose bytes the corpus does not pin
-/// (onprem streams/media/MediaFiles.al:515-527).
-pub const MEDIA_DOCX_REZIPPED: &str = "Media.ImportFile of a .docx";
+/// The mark on a Word package imported as a Word document: BC stores it re-zipped on every major, with bytes that depend on the
+/// host (al-builtins `media_word_package`).
+pub const MEDIA_DOCX_REZIPPED: &str = "a Word package in a Media";
 
 /// The mark on the Layout media of a Tenant Report Layout row of format RDLC, Word or Excel: BC rewrites the stored bytes
 /// (reports/runtime/TrlResourceRows.al `length equals the file` No for all three, version-dependent lengths), so any look at
@@ -194,8 +194,8 @@ pub const QUERY_METADATA: &str = "Application Object Metadata.Metadata of a quer
 /// and 108 on the Linux image for a 1x1 PNG: windows-check-results 2026-10-23 RJ item B) moves through File.Exists, File.Open
 /// and CreateInStream, CopyStream, a Blob field (Config. Media Buffer) and the package export as an opaque value. Any read of
 /// its bytes, length, hash or text is still refused with the mark. Only the company build (`Ctx::company_build`) carries it.
-/// Also the .docx a Media.ExportStream re-zips (`MEDIA_DOCX_REZIPPED`: Windows BC of the newest major re-zips it too, probe cu
-/// 61288 case DX) and a file .NET saved with such content in it (`PACKAGE_CARRIED`).
+/// Also the .docx a Media.ExportStream re-zips (`MEDIA_DOCX_REZIPPED`: Windows BC re-zips it on every major, probe cu 61288 case
+/// DX and corpus PR 1469) and a file .NET saved with such content in it (`PACKAGE_CARRIED`).
 pub fn is_carried_mark(what: &str) -> bool {
     what == MEDIA_SET_FILE_REENCODED || what == MEDIA_DOCX_REZIPPED || what == PACKAGE_CARRIED
 }
@@ -325,8 +325,8 @@ pub fn render_pending_error(report: &str) -> Signal {
     }
     if report == MEDIA_DOCX_REZIPPED {
         return Signal::Unsupported(
-            "the Tenant Media row and the exported bytes of a .docx Media.ImportFile (BC stores a re-zipped package whose bytes are \
-             not pinned: MediaFiles.al:515-527)"
+            "the Tenant Media row and the exported bytes of a Word package (.docx, .dotx, .docm) imported into a Media or MediaSet \
+             (BC stores a re-zipped package whose bytes depend on the host: corpus PR 1469, MediaDocxRezip.al)"
                 .into(),
         );
     }

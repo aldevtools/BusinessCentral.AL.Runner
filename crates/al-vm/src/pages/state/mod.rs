@@ -9,6 +9,7 @@
 
 mod after_go_to_key;
 mod close;
+mod control_onvalidate;
 mod list_view;
 mod lookup_left;
 mod mode_actions;
@@ -16,6 +17,7 @@ mod refresh;
 mod stages;
 pub use after_go_to_key::AfterGoToKey;
 pub use close::CloseOutcome;
+pub use control_onvalidate::{ControlOnValidate, CurrPageSave, RecCall};
 pub use list_view::ListViewSwitch;
 pub use lookup_left::LookupLeft;
 pub use mode_actions::{EarlierOpen, ModeActions};
@@ -170,6 +172,26 @@ pub enum ClosedBy {
     /// Any other close: a refused or failed `TestPage.Close()`, the close at the end of the test, a modal page closed after
     /// its handler raised an error, an error while the page opened, a failed save.
     Other,
+}
+
+/// The start of a control's OnValidate, as the refresh it asks for reads it (`PageState::filters_before_validate`).
+#[derive(Debug, Clone)]
+pub struct ValidateStart {
+    /// The filters of the page's record when the OnValidate began.
+    pub filters: Vec<al_builtins::filter::FieldFilter>,
+    /// A save in the OnValidate moved a List from its new-row line onto the row page code found, in the cells of
+    /// `refresh_new_line.rs` `found_row_cell`: the refresh reads the view as from that line (`validate_refresh_offers_line`).
+    pub left_new_line: bool,
+}
+
+impl ValidateStart {
+    /// The start of an OnValidate with the record's `filters`.
+    pub fn new(filters: Vec<al_builtins::filter::FieldFilter>) -> Self {
+        Self {
+            filters,
+            left_new_line: false,
+        }
+    }
 }
 
 /// The test client's state for one page (ADR-012). Fields grow with the
@@ -863,12 +885,14 @@ pub struct PageState {
     /// The key of the row that refresh landed on and the number of test calls then, until the next move
     /// (`code_inserted_new_line.rs`).
     pub code_inserted_row: Option<(Vec<Value>, usize)>,
-    /// The store's write mark (`Session::write_mark`) when the page control's own OnValidate began, while it runs
-    /// (`code_inserted_new_line.rs` `run_control_onvalidate`).
-    pub control_onvalidate_writes: Option<(i64, u64)>,
-    /// The filters of the page's record when a control's OnValidate began, for the refresh a `CurrPage.Update` in it asks for
-    /// (`al-vm` `refresh_after_validate_filter`).
-    pub filters_before_validate: Option<Vec<al_builtins::filter::FieldFilter>>,
+    /// The page control's own OnValidate while it runs (`code_inserted_new_line.rs` `run_control_onvalidate`).
+    pub control_onvalidate: Option<ControlOnValidate>,
+    /// `CurrPage.SaveRecord()` saved the row page code found from the new-row line through assumption
+    /// `new-line-saverecord-found-row` in the running test call; taken when that call ends (`refresh_new_line.rs`).
+    pub found_row_save_assumed: bool,
+    /// What a control's OnValidate began with, for the refresh a `CurrPage.Update` in it asks for (`al-vm`
+    /// `refresh_after_validate_filter`); taken by that refresh.
+    pub filters_before_validate: Option<ValidateStart>,
     /// Page background tasks the page enqueued and the client has not run yet: (task id, codeunit id,
     /// parameters, the position of the `PageBackgroundTaskErrorLevel` member passed, if any), and the next task id.
     pub bg_tasks: std::collections::VecDeque<(i32, i32, Value, Option<i32>)>,

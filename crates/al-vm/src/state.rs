@@ -363,6 +363,9 @@ pub(crate) struct PageClients {
     pub(crate) code_close_vetoes: Vec<crate::pages::CodeCloseVeto>,
     /// Pages whose close, requested by OnAfterGetCurrRecord at OpenView, OnQueryClosePage refused twice (`pages/code_close_veto.rs`).
     pub(crate) open_vetoed: Vec<std::rc::Weak<RefCell<crate::pages::PageState>>>,
+    /// The pages whose control OnValidate runs now, innermost last (`Session::run_control_onvalidate`): page code's record calls
+    /// on their Rec are recorded in that OnValidate (`Session::note_page_rec_call`).
+    pub(crate) onvalidate_pages: Vec<Rc<RefCell<crate::pages::PageState>>>,
 }
 
 /// Event subscriptions and what the Event Subscription table reports.

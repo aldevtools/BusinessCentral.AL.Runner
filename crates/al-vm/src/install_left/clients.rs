@@ -56,6 +56,7 @@ pub(super) fn pages_as_new(p: &PageClients) -> bool {
         code_close_vetoes,
         open_vetoed,
         test_methods_started,
+        onvalidate_pages,
     } = p;
     action_tally.is_none()
         && saved_values.is_empty()
@@ -87,6 +88,7 @@ pub(super) fn pages_as_new(p: &PageClients) -> bool {
         && code_close_vetoes.is_empty()
         && open_vetoed.is_empty()
         && *test_methods_started == 0
+        && onvalidate_pages.is_empty()
 }
 
 /// Event subscriptions, what the Event Subscription table reports and the install's own event state. Not checked:
