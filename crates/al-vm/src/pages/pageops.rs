@@ -836,10 +836,7 @@ impl Session {
                 }
                 Ok(test_control(st.clone(), ControlTarget::BuiltIn(m.to_string())))
             }
-            m @ (PageMethod::Edit | PageMethod::View) => {
-                self.require_open(st)?;
-                Ok(test_control(st.clone(), ControlTarget::BuiltIn(m.to_string())))
-            }
+            m @ (PageMethod::Edit | PageMethod::View) => self.take_mode_action(st, m),
             // `ObjectId(UseNames)`: `Page <id>`, or with names (the default) `Page <Caption>`, the object name when
             // the page has no Caption. Taken from the probed report form (recordref-fieldref/PWRefusedBuiltins.al:78-107,
             // BC 27.5; the page form is pinned by pages/PRPageObjectId.al). It reads the object, so

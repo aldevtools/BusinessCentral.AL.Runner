@@ -11,12 +11,14 @@ mod after_go_to_key;
 mod close;
 mod list_view;
 mod lookup_left;
+mod mode_actions;
 mod refresh;
 mod stages;
 pub use after_go_to_key::AfterGoToKey;
 pub use close::CloseOutcome;
 pub use list_view::ListViewSwitch;
 pub use lookup_left::LookupLeft;
+pub use mode_actions::ModeActions;
 pub use refresh::{RefreshRequest, TakenRefresh};
 pub use stages::{ActionSaveCaptions, ChainRefill, ModalRun, ReadUpFromLast, UnreadEdges};
 
@@ -616,6 +618,9 @@ pub struct PageState {
     pub gone_blank_no_new_line: bool,
     /// What the built-in View and Edit left on a list without a card (`list_view.rs`).
     pub list_view: ListViewSwitch,
+    /// The built-in View and Edit actions the test took from the variable, and the open each is bound to (`mode_actions.rs`).
+    /// It survives Close and reopen; `Clear(P)` frees both.
+    pub mode_actions: ModeActions,
     /// A list with the new-row line lost its only row to an action and stands on that line: its fields show the blank Rec's
     /// values, an Integer key 0 (testpage/RmWorksheetGoneRow.al:436 `shown after action = 0|`).
     pub gone_blank_shows_line: bool,

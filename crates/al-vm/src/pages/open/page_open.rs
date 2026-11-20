@@ -1585,12 +1585,15 @@ fn reset_host_row_flags(s: &mut crate::pages::PageState) {
     s.request_new_blank = false;
 }
 
-/// Before page `s` takes the open `now` (opened by the test, mode): on a second open (`!first_run`), clears the flags of the
-/// first open that `forget_earlier_open_flags` names.
+/// Before page `s` takes the open `now` (opened by the test, mode): on a second open (`!first_run`), binds the built-in View and
+/// Edit actions taken on the earlier open to it (`ModeActions::page_reopens`, with the mode and the close it left) and clears the
+/// flags of the first open that `forget_earlier_open_flags` names.
 fn forget_flags_at_reopen(s: &mut crate::pages::PageState, first_run: bool, now: (bool, PageMode), engine: &Engine) {
     if first_run {
         return;
     }
+    let (mode, test_close) = (s.mode, s.closed_by == Some(crate::pages::ClosedBy::TestClose));
+    s.mode_actions.page_reopens(mode, test_close);
     let page_type = engine.object_facts[s.object as usize].page_type.clone();
     let reopen = Reopen {
         earlier: (s.opened_by_test, s.mode),

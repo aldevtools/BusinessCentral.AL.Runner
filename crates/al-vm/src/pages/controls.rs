@@ -1377,61 +1377,7 @@ impl Session {
         let idx = match &c.target {
             ControlTarget::Control(i) => *i,
             ControlTarget::BuiltIn(name) if matches!(name.as_str(), "Edit" | "View") => {
-                // On a card the built-in Edit and View switch the open page's mode in place; both stay
-                // visible, and only the one the current mode does not already have is enabled (corpus
-                // testpage/TestPageModeSwitchAction_Tests.al:Claim 1 and 2). A list opens its card
-                // instead, like a RunObject action with RunPageOnRec, answered by a page handler (corpus
-                // testpage/TestPageListViewEditAction_Tests.al:ListViewActionOpensTheCardOnTheListsCurrentRowReadOnly,
-                // ListEditActionOpensTheCardOnTheListsCurrentRowEditable). Whether the action is visible or
-                // enabled on a list is not pinned.
-                if self.is_list(st) {
-                    // Both actions are visible on a list whether or not it names a card; View is
-                    // enabled, Edit only when the list names a card that can be edited; a disabled
-                    // action does nothing, and so does View on a list with no card (corpus
-                    // testpage/TestPageModeSwitchAction_Tests.al:
-                    // PlainListWithoutCardPageIdOffersBothActionsAndEnablesOnlyView,
-                    // ListWhoseCardIsReadOnlyLeavesTheEditActionVisibleButNotEnabled,
-                    // ListWithAnEditableCardPageIdEnablesBothActions).
-                    let edit = name == "Edit";
-                    let card = self.list_card_page(st)?;
-                    // A list without a card switches the mode of its own page, as a card does: opened for view,
-                    // Edit is enabled and View is not; opened for edit, the other way round. A list that names a
-                    // card with no row to open it for has both disabled (testpage/W2ListActions.al:NoCard_WithRows,
-                    // List_NoRows, BC 27.5 and 29.0).
-                    let no_rows = st.borrow().cursor == Cursor::None;
-                    let editable = st.borrow().mode != PageMode::View;
-                    let enabled = match (edit, card) {
-                        (_, None) => edit == !editable,
-                        (_, Some(_)) if no_rows => false,
-                        (false, _) => true,
-                        (true, Some(target)) => self.card_allows_edit(target)?,
-                    };
-                    return match m {
-                        PageMethod::Visible => Ok(Value::Boolean(true)),
-                        PageMethod::Enabled => Ok(Value::Boolean(enabled)),
-                        // A list without a card switches its own mode (testpage/R6977ListViewNext.al, R6977ListAfterView.al).
-                        PageMethod::Invoke if enabled && card.is_none() => self.switch_list_without_card(st, edit),
-                        PageMethod::Invoke if !enabled || card.is_none() => Ok(Value::Null),
-                        PageMethod::Invoke => self.list_card_action(st, edit),
-                        other => unsupported(format!(
-                            "TestAction.{other} of the built-in {name} action of a list page"
-                        )),
-                    };
-                }
-                let editable = st.borrow().mode != PageMode::View;
-                let applies = (name == "Edit") == !editable;
-                return match m {
-                    PageMethod::Visible => Ok(Value::Boolean(true)),
-                    PageMethod::Enabled => Ok(Value::Boolean(applies)),
-                    PageMethod::Invoke => {
-                        if applies {
-                            let mode = if name == "Edit" { PageMode::Edit } else { PageMode::View };
-                            return self.switch_mode(st, mode);
-                        }
-                        Ok(Value::Null)
-                    }
-                    other => unsupported(format!("TestAction.{other}")),
-                };
+                return self.builtin_mode_action(st, name, m);
             }
             ControlTarget::Filter => {
                 return self.test_filter_op(m, st, args);

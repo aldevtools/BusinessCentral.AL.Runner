@@ -1,0 +1,11 @@
+ListModeSwitchReadsRow => {
+    id: "list-mode-switch-reads-row",
+    assumed: "On a List page with no CardPageId, not a part, whose own triggers are exactly OnOpenPage, OnAfterGetRecord, OnAfterGetCurrRecord, OnNewRecord and OnClosePage, with no extension, no subscriber of its events, no control trigger, no action or part control, no property but PageType, SourceTable, ApplicationArea, UsageCategory and Caption, fields bound to fields of Rec or to page variables, on a table with no trigger, no extension and no subscriber (al-vm pages/list_view_switch.rs `reopen_probe_list`), opened by the test: the built-in View invoked on the page in edit mode before any switch, and the built-in Edit invoked after that View or on the page opened for view, switch the mode and read the row the page stands on again: OnAfterGetRecord, then OnAfterGetCurrRecord, of that row. Edit on the page opened for view switches it to edit; after that only Editable of the page and of a field, Enabled of the built-in Edit and View, Close and OpenEdit after Close are let through (al-vm pages/list_view_switch.rs `switch_list_without_card`, `measured_switch_read`). The read is measured with the page on its first row, a stored row unchanged since the page showed it, nothing typed. On that page every other position or state refuses; on every other page View keeps main's result (no read) and Edit on a page opened for view refuses.",
+    tests: "No Microsoft test. Corpus PR 1467 (merged, not yet pinned), measured on a local BC of each of the three supported majors, the same on each.",
+    probe: "Corpus PR 1467, tests/al-language/testpage/lifecycle/ReopenAfterListModeSwitch.al: view-1 and edit-1 of every cell (`[agr(10000) agcr(10000)]`), Close_OpenEdit_ViewThenEdit, ViewEdit_Close_Clear_OpenEdit_SwitchAgain, OpenView_Edit_Close_OpenEdit_Reads (`edit1|page` Yes). Not measured: another row than the first, a typed or changed row, other page or table code, a list with a card, a page not opened by the test.",
+    awaiting: Awaiting {
+        issues: &[8501],
+        files: &["tests/al-language/testpage/lifecycle/ReopenAfterListModeSwitch.al"],
+        since: "2026-11-20",
+    },
+}
