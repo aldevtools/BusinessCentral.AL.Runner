@@ -80,7 +80,7 @@ impl Session {
             || !state.parts.is_empty()
             || state.host.is_some()
             || self.engine.object_facts[state.object as usize].page_type != Some(ir::PageType::Document)
-            || !self.tx.writes.is_empty()
+            || !self.tx.open.writes.is_empty()
         {
             return Ok(false);
         }

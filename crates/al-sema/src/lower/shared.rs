@@ -39,9 +39,21 @@ pub(crate) struct Shared<'a> {
     pub(crate) ext_base: Vec<Option<usize>>,
     /// Keep what a cache needs (`Lowered::exported`).
     pub(crate) export: bool,
-    /// The parse diagnostics (`AR0000`) of `ws.diagnostics` by file path, in their order: each object asks for those of
-    /// its file, and a scan of every diagnostic per object grows with the number of objects times diagnostics.
-    pub(crate) parse_diags: HashMap<&'a str, Vec<&'a crate::workspace::Diagnostic>>,
+    /// The parse diagnostics (`AR0000`) of `ws.diagnostics` by app and file path (a path is relative to its app; two apps
+    /// can hold the same one), in their order: each object asks for those of its file, and a scan of every diagnostic per
+    /// object grows with the number of objects times diagnostics.
+    pub(crate) parse_diags: HashMap<(usize, &'a str), Vec<&'a crate::workspace::Diagnostic>>,
+}
+
+impl<'a> Shared<'a> {
+    /// The parse diagnostics (`AR0000`) of the file `fi`, in their order (`parse_diags`).
+    fn parse_diags_of(&self, fi: usize) -> &[&'a crate::workspace::Diagnostic] {
+        let f = &self.ws.files[fi];
+        self.parse_diags
+            .get(&(f.app, f.path.as_str()))
+            .map(Vec::as_slice)
+            .unwrap_or_default()
+    }
 }
 
 /// The routine nodes of the objects, built when first asked for. A syntax tree belongs to the
@@ -217,6 +229,7 @@ pub(crate) fn make_lowerer<'a>(sh: &'a Shared<'a>, tl: &'a Local<'a>, seq: &'a S
         with_places: HashMap::default(),
         reasons: Vec::new(),
         refusal_at: None,
+        unresolved_call: false,
         calls: Vec::new(),
         page_reasons: &sh.page_reasons,
         layouts: seq,
@@ -231,6 +244,7 @@ pub(crate) fn make_lowerer<'a>(sh: &'a Shared<'a>, tl: &'a Local<'a>, seq: &'a S
         stream_scope: Vec::new(),
         loops: Vec::new(),
         var_params: Vec::new(),
+        named_ret: None,
         reads_var_max_len: false,
         ret_decl: None,
         routine_nodes: &tl.nodes,
@@ -350,6 +364,7 @@ pub(crate) fn lower_object<'a>(
             positions: Vec::new(),
             unsupported: Vec::new(),
             refusal_at: Vec::new(),
+            unresolved_call: false,
             calls: Vec::new(),
             direct: Vec::new(),
             ndirect: Vec::new(),
@@ -378,8 +393,7 @@ pub(crate) fn lower_object<'a>(
     let mut global_reasons = Vec::new();
     // An `#undef` of a symbol defined only in another case (the preprocessor reports it, see `al_syntax::preprocessor`):
     // which branches the file keeps is not pinned, so nothing in it runs.
-    let path = &ws.files[o.file].path;
-    let parse_diags = sh.parse_diags.get(path.as_str()).map(Vec::as_slice).unwrap_or_default();
+    let parse_diags = sh.parse_diags_of(o.file);
     if let Some(d) = parse_diags
         .iter()
         .find(|d| d.message.starts_with("#undef ") && d.message.contains("only in another case"))
@@ -389,7 +403,7 @@ pub(crate) fn lower_object<'a>(
         // Source of an app under test that our parser did not accept. It is not a compile error: the parser can reject
         // valid AL (al-runner issue 5576), so nothing in the file runs and the tests that need it are not run, with the
         // parse error as the reason (orchestrator decision 2026-10-21). A dependency app's file is handled by its load.
-        if let Some(d) = parse_diags.iter().find(|d| d.app == ws.files[o.file].app) {
+        if let Some(d) = parse_diags.first() {
             global_reasons.push(format!("the parser did not accept {}: {}", d.file, d.message));
         }
     }
@@ -776,6 +790,7 @@ pub(crate) fn lower_object<'a>(
         positions,
         unsupported,
         refusal_at,
+        unresolved_call: lw.unresolved_call,
         calls,
         direct,
         ndirect,

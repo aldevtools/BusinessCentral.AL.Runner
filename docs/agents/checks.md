@@ -4,6 +4,11 @@ Read this when your change touches the areas named below. Moved out of `brief.md
 
 Rule 1 in `CLAUDE.md` applies: a corpus case run red then green counts as the red/green test; write a Rust test only for what the corpus cannot reach.
 
+- **Test isolation.** If you touched `al-testrun/src/isolation.rs`, `al-vm/src/sequence_start.rs`,
+  `al-vm/src/storage_checkpoint.rs` or the test loop of `al-testrun/src/runtime/run.rs`, run
+  `cargo test -p al-test-cli --test suite isolation_probe`: it compares the isolation probe with the oracle, and
+  `--baseline-diff` does not report a case BC fails on purpose that the runtime stops failing.
+
 - **One build, one result.** A corpus run must give each case the same outcome whatever the
   thread counts, the run order and HOME hold (`corpus_harness.rs`
   `outcomes_do_not_depend_on_threads_or_home` checks it). Before you call two runs "the same

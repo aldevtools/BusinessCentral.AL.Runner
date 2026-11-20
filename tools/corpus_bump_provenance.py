@@ -6,8 +6,8 @@
 
 run: before any JUnit file is downloaded. RUN-JSON is gh run view --json databaseId,status,conclusion,headSha,attempt,
 event,headBranch,workflowDatabaseId; ARTIFACTS the run's artifact listing; DIR the corpus, already fetched (the run's
-commit and the nightly runs' commits are read). Checks that the run's results manifest belongs to its latest attempt
-(decision 4), the chain cap, that the manifest's modes agree with its chains and counts, that the run is green or is the
+commit and the nightly runs' commits are read). Checks that a nightly (schedule) run has a results manifest and that
+the run's results manifest belongs to its latest attempt (decision 4), the chain cap, that the manifest's modes agree with its chains and counts, that the run is green or is the
 nightly exception (decision 6), that it is a push or schedule run on master, the nightly comparison (decision 5) and, for
 a run that reuses results, the first nightly run after it (decision 6, owner 2026-11-18).
 Writes the run id, its attempt, the kind and the manifest to OUT.
@@ -51,7 +51,8 @@ MODES = ("full", "subset")
 APPS = ("full", "partial")
 # The jobs of corpus ci.yml a nightly run may skip: the coverage job runs only for pull_request (its "if").
 NIGHTLY_SKIPPED = ("Coverage facts must not shrink",)
-# The corpus writes a manifest for push runs (ci.yml, job "Results manifest") and for the nightly run (decision 6).
+# The corpus writes a manifest for push runs (ci.yml, job "Results manifest") and for the nightly run (decision 6); the
+# bump bot lists both (tools/corpus_bump_bot.sh find).
 EVENTS = ("push", "schedule")
 # Decision 5: the corpus script whose --check-reuse mode answers whether a reused result still holds at the new pin. The
 # whole scripts folder is taken from the pin, so that a later import of a sibling script still works.
@@ -254,9 +255,10 @@ def check_first_nightly_after(repo, corpus, run_id, run, manifest):
     it and found no difference. Among the nightly runs of any status whose commit is the run's commit or a descendant,
     the one created first must have ended, check_nightly_identical must hold for it with every BC version of the run's
     manifest, and for each of those versions its comparison_detail.compared_run must be this run (corpus PR 1440,
-    .github/scripts/compare-results.py:134 at 2ff21242, the base run of the comparison). So a nightly that compared an
-    older, a later or no run confirms nothing about this one. With no such nightly yet the run is refused; a first
-    nightly that refuses keeps refusing the run, because the first nightly after it does not change."""
+    .github/scripts/compare-results.py:134 at 2ff21242, the base run of the comparison) and its compared_attempt this
+    run's attempt (see the comment below). So a nightly that compared an older, a later or no run, or another attempt
+    of this run, confirms nothing about it. With no such nightly yet the run is refused; a first nightly that
+    refuses keeps refusing the run, because the first nightly after it does not change."""
     nightlies = list_nightlies(repo, run_id, run, completed=False)
     after = [n for n in nightlies if is_ancestor(corpus, run["headSha"], n["headSha"])]
     if len(nightlies) >= NIGHTLY_LIMIT:
@@ -273,10 +275,18 @@ def check_first_nightly_after(repo, corpus, run_id, run, manifest):
         refuse("run %s: %s, %s, has not ended (status %s)" % (run_id, which, n["databaseId"], n.get("status")))
     nm = check_nightly_identical(repo, run_id, n, manifest["versions"], which, 6)
     for v in sorted(manifest["versions"]):
-        compared = ((nm["versions"].get(v) or {}).get("comparison_detail") or {}).get("compared_run")
-        if compared != run_id:
+        detail = (nm["versions"].get(v) or {}).get("comparison_detail") or {}
+        if detail.get("compared_run") != run_id:
             refuse("run %s: %s, %s, compared run %r for BC %s, not this run (ADR-077 decision 6)"
-                   % (run_id, which, n["databaseId"], compared, v))
+                   % (run_id, which, n["databaseId"], detail.get("compared_run"), v))
+        # compared_attempt: the attempt of the compared run that the nightly downloaded (corpus PR 1443, branch
+        # nightly-compared-attempt, .github/scripts/compare-results.py:138 at ea48d31c). It must be an integer equal to
+        # the attempt bumped; a missing or null key refuses (a "Re-run all jobs" after the nightly compared the run
+        # makes an attempt that no nightly compared).
+        attempt = detail.get("compared_attempt")
+        if type(attempt) is not int or attempt != run.get("attempt"):
+            refuse("run %s: %s, %s, compared attempt %r of this run for BC %s, the run is at attempt %r (ADR-077 decision 6)"
+                   % (run_id, which, n["databaseId"], attempt, v, run.get("attempt")))
     print("run %s: %s, %s, compared this run and reports no difference" % (run_id, which, n["databaseId"]))
 
 
@@ -285,6 +295,12 @@ def cmd_run(a):
     run = json.load(open(a.run_json))
     manifest = download_manifest(a.repo, json.load(open(a.artifacts)))
     if manifest is None:
+        # Decision 4 accepts a run without a manifest only from before the corpus wrote one. The corpus writes one for
+        # every nightly (corpus PR 1440, .github/workflows/ci.yml:662 at 2ff21242, job "Results manifest"), and the bump
+        # bot lists nightlies.
+        if run.get("event") == "schedule":
+            refuse("run %s is a nightly (schedule) run without a results manifest; the corpus writes one for every "
+                   "nightly (ADR-077 decision 4)" % run_id)
         kind = check_green(a.repo, run_id, run, None)
         print("run %s: no results manifest, a full run from before ADR-077 only if no suite carries provenance" % run_id)
     else:
