@@ -1656,6 +1656,25 @@ pub fn alias_slot(i: usize) -> usize {
     i
 }
 
+/// Whether an added item may carry `DataItemLinkReference`. Pinned (TestReportExtensionParentLink.al:46-61, :72): an item
+/// added with addbefore of a base sibling names its base parent, and an item nested in an added item names that item.
+/// Pinned (TestReportDependencyDataItems.al:46 `after=2`; al-language-xapp-c/ReportDependencyC.ReportExt.al:38-43): an
+/// item added with addafter of a nested item of a dependency's extension names that item's parent. Every other anchor
+/// refuses.
+fn pinned_link_anchor(
+    raw: &RawItem,
+    place: &ir::AddedPlace,
+    base_parent: Option<usize>,
+    parent: Option<usize>,
+    foreign_parent: Option<ir::ForeignReportItem>,
+) -> bool {
+    (base_parent.is_some() && matches!(place, ir::AddedPlace::Before(ir::ItemAnchor::Base(_))))
+        || (raw.target.is_none() && parent.is_some())
+        || (base_parent.is_none()
+            && foreign_parent.is_some()
+            && matches!(place, ir::AddedPlace::After(ir::ItemAnchor::Foreign(_))))
+}
+
 fn has_explicit_reference(raw: &RawItem) -> bool {
     raw.section
         .properties()
@@ -1869,16 +1888,7 @@ pub fn build_ext(cx: &ExtContext, obj: &ast::Object) -> (ir::ReportExt, Vec<Stri
                 .map(|(index, _)| (index, parent_table))
         };
         let item = item_ir(&o, raw, Some(n + j), parent, parent_table, &enclosing, &mut reasons);
-        // Pinned (TestReportExtensionParentLink.al:46-61, :72): an item added with addbefore of a base sibling names its
-        // base parent, and an item nested in an added item names that item. Pinned (TestReportDependencyDataItems.al:46
-        // `after=2`; al-language-xapp-c/ReportDependencyC.ReportExt.al:38-43): an item added with addafter of a nested item
-        // of a dependency's extension names that item's parent. Every other anchor refuses.
-        let pinned_anchor = (base_parent.is_some() && matches!(place, ir::AddedPlace::Before(ir::ItemAnchor::Base(_))))
-            || (raw.target.is_none() && parent.is_some())
-            || (base_parent.is_none()
-                && foreign_parent.is_some()
-                && matches!(place, ir::AddedPlace::After(ir::ItemAnchor::Foreign(_))));
-        if has_explicit_reference(raw) && !pinned_anchor {
+        if has_explicit_reference(raw) && !pinned_link_anchor(raw, &place, base_parent, parent, foreign_parent) {
             reasons.push(format!(
                 "dataitem {}: DataItemLinkReference on an item added by addfirst, addlast or addafter is not pinned",
                 raw.name

@@ -4092,7 +4092,10 @@ fn dependency_report_outcomes(owner: &str, consumer: &str, test: &str) -> Vec<(S
 
 fn dependency_report_mode(owner: &str, consumer: &str, test: &str, cached: usize) -> Vec<(String, Outcome)> {
     let base = include_str!("../fixtures/cross-app-report-items-base.al");
-    dependency_report_graph(&[(base, &[]), (owner, &[0]), (consumer, &[0, 1]), (test, &[0, 1, 2])], cached)
+    dependency_report_graph(
+        &[(base, &[]), (owner, &[0]), (consumer, &[0, 1]), (test, &[0, 1, 2])],
+        cached,
+    )
 }
 
 /// Each app with the indices of the apps it depends on; the last one is the workspace app with the test codeunit.
@@ -4109,7 +4112,13 @@ fn dependency_report_graph(graph: &[(&str, &[usize])], cached: usize) -> Vec<(St
         })
         .collect();
     let kinds = (0..graph.len())
-        .map(|i| if i + 1 < graph.len() { AppKind::Dependency } else { AppKind::Workspace })
+        .map(|i| {
+            if i + 1 < graph.len() {
+                AppKind::Dependency
+            } else {
+                AppKind::Workspace
+            }
+        })
         .collect();
     report_outcomes(apps, kinds, cached)
 }
