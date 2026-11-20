@@ -517,8 +517,9 @@ impl Session {
                     match self.report_enter_world(&schema, window) {
                         Ok(enters) => {
                             let outer = std::mem::replace(&mut self.report.run_modal, id == ids::REPORT_RUNMODAL_1);
+                            let outer_bare = std::mem::replace(&mut self.report.run_bare, false);
                             let ran = self.report_run_entered(&inst, &schema, Entry::Run, window, enters, None);
-                            self.report.run_modal = outer;
+                            (self.report.run_modal, self.report.run_bare) = (outer, outer_bare);
                             ran
                         }
                         // A RunModal whose request page the platform refuses to open (a pending write) leaves the
@@ -605,7 +606,8 @@ impl Session {
                     return Ok(Value::Null);
                 }
                 let run = |s: &mut Self| s.report_run(&inst, &schema, Entry::Run, window, None);
-                self.run_started_as(id == ids::REPORT_RUNMODAL_3, args.get(2), run)
+                let bare = args.len() == 1 && number.is_none();
+                self.run_started_as(id == ids::REPORT_RUNMODAL_3, args.get(2), bare, run)
                     .map(|()| Value::Null)
             }
             ids::REPORT_EXECUTE_1 => {
@@ -1571,18 +1573,22 @@ impl Session {
             Ok(v) => {
                 if (enters || began_world) && self.tx_model != TxModel::AutoRollback {
                     if self.tx.try_depth > 0 && self.in_write_transaction()? {
+                        self.settle_saved_row(false)?;
                         return unsupported(
                             "a report run inside a TryFunction that wrote in its transaction world (whether it commits is not pinned)",
                         );
                     }
+                    self.settle_saved_row(true)?;
                     // A world that is entered commits its own writes when the run returns
                     // (record/TestTxModelReportRun.al:177-196, Test07). That `RunRequestPage` does
                     // the same is docs/probes-needed.md.
                     self.commit_transaction();
                 }
+                self.settle_saved_row(false)?;
                 Ok(v)
             }
             Err(e) => {
+                self.settle_saved_row(false)?;
                 // A run that raises inside its world does not commit what it wrote
                 // (record/TestTxModelReportRun.al:252-269, Test12).
                 if enters && matches!(e, Signal::Error(_)) {

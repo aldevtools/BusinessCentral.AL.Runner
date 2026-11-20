@@ -577,7 +577,7 @@ impl Session {
         st.borrow_mut().result = Some("SaveAsXml".into());
         // SaveValues: the close stores the values of the page and of its extensions; the next run opens with them (al-language-onprem/
         // reports/layouts-saveas/Y60ReportExtSaveAsXml.al ReportExt_SaveValues_SaveAsXml_NextRun).
-        self.store_page_values(st);
+        self.store_page_values(st, false)?;
         self.mark_closed(st);
         Ok(Value::Null)
     }
