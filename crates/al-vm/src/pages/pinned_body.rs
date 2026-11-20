@@ -70,6 +70,11 @@ pub(super) fn page_lines(program: &ir::Program, object: usize, callees: &mut Cal
         let binding = match c.binding {
             ir::Binding::None => String::new(),
             ir::Binding::Field(f) => format!(" = {}", table?.fields.get(f)?.name),
+            // A global variable of the page (`field(CurrentBatch; CurrentBatch)`), with its type.
+            ir::Binding::Var(g) => {
+                let v = o.globals.get(g)?;
+                format!(" = var {}: {}", v.name, type_text(program, &v.ty)?)
+            }
             _ => return None,
         };
         let mut props = Vec::new();
@@ -211,8 +216,8 @@ pub(super) fn routine_text(program: &ir::Program, object: usize, r: usize, calle
 }
 
 /// The names the name slots of pinned lines stand for, once bound: the same slot stands for the same name in every line of
-/// one comparison. Slots: `«T»` and `«L»` an object name (anything but a double quote), `«V»` a variable name (letters,
-/// digits, underscore).
+/// one comparison. Slots: `«V»` a variable name (letters, digits, underscore); any other letter (`«T»`, `«L»`, `«P»`) an object
+/// name (anything but a double quote).
 #[derive(Debug, Default)]
 pub(super) struct Names(Vec<(char, String)>);
 
@@ -364,6 +369,27 @@ impl Writer<'_> {
                         s += &format!(" else begin {}end", self.stmts(other, callees)?);
                     }
                     s += "; ";
+                }
+                ir::Stmt::Case {
+                    scrutinee,
+                    branches,
+                    otherwise,
+                } => {
+                    s += &format!("case {} of ", self.expr(scrutinee, callees)?);
+                    for (values, body) in branches {
+                        let values: Option<Vec<String>> = values
+                            .iter()
+                            .map(|v| match v {
+                                ir::SetElem::One(e) => self.expr(e, callees),
+                                ir::SetElem::Range(..) => None,
+                            })
+                            .collect();
+                        s += &format!("{}: begin {}end; ", values?.join(", "), self.stmts(body, callees)?);
+                    }
+                    if !otherwise.is_empty() {
+                        s += &format!("else begin {}end; ", self.stmts(otherwise, callees)?);
+                    }
+                    s += "end; ";
                 }
                 _ => return None,
             }
@@ -591,6 +617,57 @@ page 50762 "Journal Post New Row Wks"
                 "field 1 \"Batch Name\": Code[10]",
                 "field 2 \"Line No.\": Integer",
                 "key \"Batch Name\", \"Line No.\" {Clustered=true}"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_control_bound_to_a_variable_and_a_case_render_as_written() {
+        let src = r#"
+table 50763 "Case Line"
+{
+    fields { field(1; "No."; Integer) { } }
+    keys { key(PK; "No.") { Clustered = true; } }
+}
+page 50764 "Case Page"
+{
+    PageType = List;
+    SourceTable = "Case Line";
+    layout
+    {
+        area(Content)
+        {
+            field(Mode; Mode)
+            {
+                trigger OnValidate()
+                begin
+                    case Mode of
+                        1, 2:
+                            CurrPage.Update(true);
+                        3:
+                            Mode := 0;
+                        else
+                            Error('x');
+                    end;
+                end;
+            }
+        }
+    }
+    var
+        Mode: Integer;
+}
+"#;
+        let l = al_testkit::compile(src);
+        let p = &l.program;
+        let at = |name: &str| p.objects.iter().position(|o| o.name == name).unwrap();
+        assert_eq!(
+            page_lines(p, at("Case Page"), &mut Vec::new()).unwrap(),
+            [
+                "PageType = List",
+                "SourceTable = \"Case Line\"",
+                "field Mode in - = var Mode: Integer {}",
+                "  trigger onvalidate: begin case Mode of 1, 2: begin CurrPage.Update(true); end; 3: begin Mode := 0; end; \
+                 else begin Error('x'); end; end; end",
             ]
         );
     }

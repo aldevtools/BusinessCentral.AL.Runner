@@ -55,6 +55,7 @@ pub(super) fn pages_as_new(p: &PageClients) -> bool {
         client_depth,
         code_close_vetoes,
         open_vetoed,
+        onvalidate_pages,
     } = p;
     action_tally.is_none()
         && saved_values.is_empty()
@@ -85,6 +86,7 @@ pub(super) fn pages_as_new(p: &PageClients) -> bool {
         && *client_depth == 0
         && code_close_vetoes.is_empty()
         && open_vetoed.is_empty()
+        && onvalidate_pages.is_empty()
 }
 
 /// Event subscriptions, what the Event Subscription table reports and the install's own event state. Not checked:
