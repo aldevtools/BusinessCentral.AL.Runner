@@ -478,7 +478,7 @@ impl Session {
     }
 
     /// Whether the caller's SetAutoCalcFields of `s` is one record/filters/ByValueAutoCalcFields.al measured, which BC does
-    /// not hand a by-value copy (assumption `by-value-record-no-auto-calc`, corpus PR 1473, open): each cell's copy has the
+    /// not hand a by-value copy (assumption `by-value-record-no-auto-calc`, corpus PR 1473, merged, not pinned yet): each cell's copy has the
     /// caller's field values, its calculated FlowField included, but a FindLast of it leaves the FlowFields 0
     /// (`lastTotal=0 lastCount=0`), while the caller still calculates them (:265-605: a codeunit procedure :284-377, through a
     /// Variant to RecordRef.GetTable :378-413, `Buffer.Proc(Head)` :414-451 and :470-494, `Head.Proc(Head)` :452-469 and
