@@ -151,10 +151,10 @@ fn issue_8306_reporter_repro_hands_the_validate_xrec_to_procedures_an_after_vali
     assert_eq!(o.len(), 1);
     let (name, outcome, hits) = &o[0];
     assert_eq!(outcome, "Pass", "{name}");
-    assert!(hits.contains(&Assumption::XrecTableProcFromValidateEvent), "{name}");
+    assert!(hits.is_empty(), "{name}: {hits:?}");
 }
 
-/// The validate-event cells of record/validate/XRecTableProcThroughSubscriber.al (corpus PR 1438, merged, not pinned yet; measured on a local
+/// The validate-event cells of record/validate/XRecTableProcThroughSubscriber.al (pinned at corpus 8fcde9a6; measured on a local
 /// Business Central container) and their neighbors. Each test validates Mode of a record whose stored row holds Series OLD
 /// and whose variable holds Series NEW; the log holds what each subscriber and procedure read of xRec.Series.
 const EVENTS: &str = r##"
@@ -430,17 +430,16 @@ codeunit 50407 "VE Tests"
 "##;
 
 #[test]
-fn validate_event_subscribers_share_the_validate_xrec_and_their_neighbors_refuse() {
-    use Assumption::XrecTableProcFromValidateEvent as A;
+fn validate_event_subscribers_share_the_validate_xrec_clean_and_their_neighbors_refuse() {
     let o = run(EVENTS, "VE Tests");
     let mut wrong = Vec::new();
     for (name, outcome, hits) in &o {
         let ok = if name.starts_with("KeepsMain_") {
-            outcome == "Pass" && !hits.contains(&A)
+            outcome == "Pass" && hits.is_empty()
         } else if name.starts_with("Refused_") {
             outcome.starts_with("NotRun") && outcome.contains("xRec in a table procedure called through other code")
         } else {
-            outcome == "Pass" && hits.contains(&A)
+            outcome == "Pass" && hits.is_empty()
         };
         if !ok {
             wrong.push(format!("{name}: {outcome} {hits:?}"));

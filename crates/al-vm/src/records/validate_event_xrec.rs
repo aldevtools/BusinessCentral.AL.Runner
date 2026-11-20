@@ -6,7 +6,6 @@
 
 use crate::records::{Rec, ValidateSite};
 use crate::{Frame, Session};
-use al_builtins::assumptions::{self, Assumption};
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
 use al_data::TableDef;
@@ -37,7 +36,7 @@ impl Session {
     /// subscriber's xRec parameter and in the trigger (record/validate/XRecTableProcThroughSubscriber.al:633
     /// OnAfterValidateEvent after Insert, :935 after Get, :952 on a fresh record, :1011 on a temporary record, :1025 after
     /// FindFirst, :969 the assignment, :983 OnBeforeValidateEvent, :1326 its assignment the trigger reads, :997 and :1312 a
-    /// subscriber that does not declare xRec), on assumption `xrec-table-proc-from-validate-event`. Every fact by equality:
+    /// subscriber that does not declare xRec), pinned at corpus 8fcde9a6. Every fact by equality:
     /// - the innermost event being raised is a validate event of `rc`, and `f` is the subscriber's frame the event put right
     ///   above the code that called the Validate (table events put no frame of their own between them);
     /// - `f` runs an event subscriber of a codeunit that is not bound manually; it declares Rec by `var`, holding `rc`, alone or
@@ -80,7 +79,7 @@ impl Session {
             && self.table_or_its_extension(object, table)
             && self.sole_validate_measured_for_event(*handle)
             && self.running_xrecs(table, rc).is_empty();
-        (measured && assumptions::hit(Assumption::XrecTableProcFromValidateEvent)).then(|| xrec.clone())
+        measured.then(|| xrec.clone())
     }
 
     /// Whether the one Validate of the record at `handle` that runs now has a call site the probe measured for a validate
