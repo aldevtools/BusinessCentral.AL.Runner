@@ -3237,8 +3237,7 @@ fn without_stop_groups_the_reason_is_upstreams_text() {
     for r in &tests[1..] {
         assert_eq!(r["notRun"], true, "{r}");
         let m = r["message"].as_str().unwrap();
-        assert!(m.ends_with(UPSTREAM_STOP_TEXT), "{m}");
-        assert!(!m.contains("stopGroup"), "{m}");
+        assert_eq!(m, format!("NotRun: out-of-scope: {UPSTREAM_STOP_TEXT}"));
     }
     shut_down(s);
 }
