@@ -281,6 +281,12 @@ table 50202 "XS Line"
                         OnModeSingle(Rec);
                     'sub-two-subs':
                         OnModeTwoSubs(Rec);
+                    'sub-two-single':
+                        OnModeTwoSingle(Rec);
+                    'sub-wide':
+                        OnModeWide(Rec, OtherRow);
+                    'sub-two-noparams':
+                        OnModeTwoNoParams(Rec);
                     'sub', 'nested', 'nested0', 'nested1', 'nested3', 'nested4', 'sub-assign', 'nested-assign', 'nested-assign-err', 'nested-assign-restore', 'nested-cu', 'nested-peer', 'nested-ext',
                     'sub-modify', 'sub-get', 'sub-validate-first', 'sub-oninsert', 'sub-rec-proc', 'sub-own-proc',
                     'nested-outer-assign', 'nested-inner-assign', 'nested-filter', 'nested-marked', 'nested-recproc', 'nested-onearg', 'sub-proc-val':
@@ -429,6 +435,12 @@ table 50202 "XS Line"
     [IntegrationEvent(false, false)]
     local procedure OnModeTwoSubs(var Line: Record "XS Line") begin end;
     [IntegrationEvent(false, false)]
+    local procedure OnModeTwoSingle(var Line: Record "XS Line") begin end;
+    [IntegrationEvent(false, false)]
+    local procedure OnModeWide(var Line: Record "XS Line"; var Other: Record "XS Other") begin end;
+    [IntegrationEvent(false, false)]
+    local procedure OnModeTwoNoParams(var Line: Record "XS Line") begin end;
+    [IntegrationEvent(false, false)]
     local procedure OnModeTwo(var Line: Record "XS Line"; var Other: Record "XS Other") begin end;
     [IntegrationEvent(true, false)]
     local procedure OnModeSender(var Line: Record "XS Line") begin end;
@@ -532,6 +544,24 @@ codeunit 50204 "XS Subscriber"
         Line.ExtRead('X');
     end;
 
+    [EventSubscriber(ObjectType::Table, Database::"XS Line", 'OnModeTwoSingle', '', false, false)]
+    local procedure OnModeTwoSingle(var Line: Record "XS Line")
+    begin
+        Line.ExtRead('X');
+    end;
+
+    [EventSubscriber(ObjectType::Table, Database::"XS Line", 'OnModeWide', '', false, false)]
+    local procedure OnModeWide(var Line: Record "XS Line"; var Other: Record "XS Other")
+    begin
+        Line.ExtRead('X');
+    end;
+
+    [EventSubscriber(ObjectType::Table, Database::"XS Line", 'OnModeTwoNoParams', '', false, false)]
+    local procedure OnModeTwoNoParams(var Line: Record "XS Line")
+    begin
+        Line.ExtRead('X');
+    end;
+
     [EventSubscriber(ObjectType::Table, Database::"XS Line", 'OnModeTwo', '', false, false)]
     local procedure OnModeTwo(var Line: Record "XS Line"; var Other: Record "XS Other")
     begin
@@ -588,6 +618,11 @@ codeunit 50209 "XS Single Subscriber"
     begin
         Line.ExtRead('X');
     end;
+
+    [EventSubscriber(ObjectType::Table, Database::"XS Line", 'OnModeTwoSingle', '', false, false)]
+    local procedure OnModeTwoSingle(var Line: Record "XS Line")
+    begin
+    end;
 }
 
 codeunit 50210 "XS Second Subscriber"
@@ -596,12 +631,110 @@ codeunit 50210 "XS Second Subscriber"
     local procedure OnModeTwoSubs(var Line: Record "XS Line")
     begin
     end;
+
+    // Base Application's Asm. Requisition Line: only the record of a two-parameter event.
+    [EventSubscriber(ObjectType::Table, Database::"XS Line", 'OnModeWide', '', false, false)]
+    local procedure OnModeWide(var Line: Record "XS Line")
+    begin
+    end;
+
+    [EventSubscriber(ObjectType::Table, Database::"XS Line", 'OnModeTwoNoParams', '', false, false)]
+    local procedure OnModeTwoNoParams()
+    begin
+    end;
 }
 
 codeunit 50211 "XS Single Helper"
 {
     SingleInstance = true;
     procedure CallExt(var Line: Record "XS Line") begin Line.ExtRead('C'); end;
+    procedure ValidateMode(var Line: Record "XS Line") begin Line.Validate(Mode, Line.Mode::Production); end;
+}
+
+// The callers of the Validate record/validate/XRecTableProcCallers.al measured (corpus PR 1482): Codeunit.Run and a report.
+codeunit 50212 "XS Runner"
+{
+    TableNo = "XS Line";
+
+    trigger OnRun()
+    var
+        Log: Codeunit "XS Log";
+    begin
+        case Log.Mode() of
+            'nested':
+                Rec.Validate("Item No.", 'I2');
+            'cu-ext':
+                Rec.Validate(ViaCodeunit, true);
+            else
+                Rec.Validate(Mode, Rec.Mode::Production);
+        end;
+    end;
+}
+
+report 50213 "XS Report"
+{
+    ProcessingOnly = true;
+    UseRequestPage = false;
+    dataset
+    {
+        dataitem(Line; "XS Line")
+        {
+            trigger OnAfterGetRecord()
+            begin
+                Line.Series := 'NEW';
+                Codeunit.Run(Codeunit::"XS Runner", Line);
+            end;
+        }
+    }
+}
+
+report 50214 "XS Direct Report"
+{
+    ProcessingOnly = true;
+    UseRequestPage = false;
+    dataset
+    {
+        dataitem(Line; "XS Line")
+        {
+            trigger OnAfterGetRecord()
+            begin
+                Line.Series := 'NEW';
+                Line.Validate(Mode, Line.Mode::Production);
+            end;
+        }
+    }
+}
+
+// Base Application's Calculate Plan - Plan. Wksh.: a Commit, then the codeunit run guarded.
+report 50215 "XS Guarded Report"
+{
+    ProcessingOnly = true;
+    UseRequestPage = false;
+    dataset
+    {
+        dataitem(Line; "XS Line")
+        {
+            trigger OnAfterGetRecord()
+            var
+                Log: Codeunit "XS Log";
+            begin
+                Line.Series := 'NEW';
+                Commit();
+                if Codeunit.Run(Codeunit::"XS Runner", Line) then
+                    Log.Add('run ok');
+            end;
+        }
+    }
+}
+
+interface "XS IValidator"
+{
+    procedure ValidateMode(var Line: Record "XS Line");
+}
+
+codeunit 50216 "XS Iface Validator" implements "XS IValidator"
+{
+    procedure ValidateMode(var Line: Record "XS Line") begin Line.Validate(Mode, Line.Mode::Production); end;
 }
 
 codeunit 50206 "XS Helper"
@@ -610,6 +743,8 @@ codeunit 50206 "XS Helper"
     procedure CallBase(var Line: Record "XS Line") begin Line.TableRead('CP'); end;
     procedure CallExtAssign(var Line: Record "XS Line") begin Line.ExtAssign(); end;
     procedure ValidateMode(var Line: Record "XS Line") begin Line.Validate(Mode, Line.Mode::Production); end;
+    procedure ValidateViaCodeunit(var Line: Record "XS Line") begin Line.Validate(ViaCodeunit, true); end;
+    [TryFunction] procedure TryValidateMode(var Line: Record "XS Line") begin Line.Validate(Mode, Line.Mode::Production); end;
     [TryFunction] procedure TryCallExt(var Line: Record "XS Line") begin Line.ExtRead('CT'); end;
 }
 
@@ -740,7 +875,6 @@ codeunit 50207 "XS Tests"
     // Shapes no cell measured (review of PR 8304, 2026-11-20): each refuses a read of xRec.
     [Test] procedure Refused_Sub_SingleInstanceSubscriber() var L: Record "XS Line"; begin AfterInsert(L); ValidateMode(L, 'sub-single', ''); end;
     [Test] procedure Refused_Codeunit_SingleInstanceHelper() var L: Record "XS Line"; begin AfterInsert(L); ValidateViaCodeunit(L, 'cu-single', ''); end;
-    [Test] procedure Refused_Sub_TwoSubscribers() var L: Record "XS Line"; begin AfterInsert(L); ValidateMode(L, 'sub-two-subs', ''); end;
     [Test] procedure Refused_Sub_ModifyBeforeRead() var L: Record "XS Line"; begin AfterInsert(L); ValidateMode(L, 'sub-modify', ''); end;
     [Test] procedure Refused_Sub_GetBeforeRead() var L: Record "XS Line"; begin AfterInsert(L); ValidateMode(L, 'sub-get', ''); end;
     [Test] procedure Refused_Sub_OtherFieldValidatedFirst() var L: Record "XS Line"; begin AfterInsert(L); ValidateMode(L, 'sub-validate-first', ''); end;
@@ -749,6 +883,26 @@ codeunit 50207 "XS Tests"
     [Test] procedure Refused_Sub_RecDotProcInSharedProc() var L: Record "XS Line"; begin AfterInsert(L); ValidateMode(L, 'sub-rec-proc', ''); end;
     [Test] procedure Sub_UnqualifiedProcInSharedProc() var L: Record "XS Line"; begin AfterInsert(L); ValidateMode(L, 'sub-own-proc', 'T x=0/NEW/I1;U x=0/NEW/I1;'); end;
     [Test] procedure RefusedAssign_Nested_ProcedureFiltersXRec() var L: Record "XS Line"; begin AfterInsert(L); ValidateItem(L, 'nested-filter', ''); end;
+    // Assumption xrec-table-proc-callers-subscribers (record/validate/XRecTableProcCallers.al, corpus PR 1482): the Validate
+    // called by other code than the test procedure, and an event with two subscribers.
+    [Test] procedure Assumed_Sub_TwoSubscribers() var L: Record "XS Line"; begin AfterInsert(L); ValidateMode(L, 'sub-two-subs', 'T x=0/NEW/I1;X x=0/NEW/I1;'); end;
+    [Test] procedure Assumed_Sub_FromCodeunitProcedure() var L: Record "XS Line"; H: Codeunit "XS Helper"; begin AfterInsert(L); Log.Set('sub'); H.ValidateMode(L); Check('T x=0/NEW/I1;X x=0/NEW/I1;P x=0/NEW/I1;'); end;
+    [Test] procedure Assumed_Sub_FromCodeunitRun() var L: Record "XS Line"; begin AfterInsert(L); Log.Set('sub'); Codeunit.Run(Codeunit::"XS Runner", L); Check('T x=0/NEW/I1;X x=0/NEW/I1;P x=0/NEW/I1;'); end;
+    [Test] procedure Assumed_Sub_FromTryFunction() var L: Record "XS Line"; H: Codeunit "XS Helper"; begin AfterInsert(L); Log.Set('sub'); if H.TryValidateMode(L) then Log.Add('try ok'); Check('T x=0/NEW/I1;X x=0/NEW/I1;P x=0/NEW/I1;try ok;'); end;
+    [Test] procedure Assumed_Nested_FromReportThroughCodeunitRun() var L: Record "XS Line"; begin AfterInsert(L); Log.Set('nested'); L.SetRange("Line No.", 1); Report.Run(Report::"XS Report", false, false, L); Check('I x=0/NEW/I1;T x=0/NEW/I1;X x=0/NEW/I1;P x=0/NEW/I1;'); end;
+    [Test] procedure Assumed_Codeunit_FromCodeunitProcedure() var L: Record "XS Line"; H: Codeunit "XS Helper"; begin AfterInsert(L); Log.Set('cu-ext'); H.ValidateViaCodeunit(L); Check('V x=0/NEW/I1;C x=0/NEW/I1;'); end;
+    // Callers and subscribers no cell measured: each refuses a read of xRec.
+    [Test] procedure Refused_Codeunit_FromCodeunitRun() var L: Record "XS Line"; begin AfterInsert(L); Log.Set('cu-ext'); Codeunit.Run(Codeunit::"XS Runner", L); end;
+    [Test] procedure Refused_Sub_FromReportDirectly() var L: Record "XS Line"; begin AfterInsert(L); Log.Set('sub'); L.SetRange("Line No.", 1); Report.Run(Report::"XS Direct Report", false, false, L); end;
+    [Test] procedure Refused_Sub_FromSingleInstanceCodeunit() var L: Record "XS Line"; H: Codeunit "XS Single Helper"; begin AfterInsert(L); Log.Set('sub'); H.ValidateMode(L); end;
+    [Test] procedure Refused_Sub_TwoSubscribersOneSingleInstance() var L: Record "XS Line"; begin AfterInsert(L); ValidateMode(L, 'sub-two-single', ''); end;
+    [Test] procedure Refused_Sub_TwoSubscribersOneWithoutParams() var L: Record "XS Line"; begin AfterInsert(L); ValidateMode(L, 'sub-two-noparams', ''); end;
+    [Test] procedure Assumed_Sub_FromTryFunctionStatement() var L: Record "XS Line"; H: Codeunit "XS Helper"; begin AfterInsert(L); Log.Set('sub'); H.TryValidateMode(L); Check('T x=0/NEW/I1;X x=0/NEW/I1;P x=0/NEW/I1;'); end;
+    [Test] procedure Refused_Sub_FromInterface() var L: Record "XS Line"; V: Codeunit "XS Iface Validator"; I: Interface "XS IValidator"; begin AfterInsert(L); Log.Set('sub'); I := V; I.ValidateMode(L); end;
+    [Test] procedure Refused_Sub_FromGuardedCodeunitRunInTest() var L: Record "XS Line"; begin AfterInsert(L); Log.Set('sub'); Commit(); if Codeunit.Run(Codeunit::"XS Runner", L) then; end;
+    // Base Application's planning shapes (record/validate/XRecTableProcCallers.al Wide_*, *ThroughGuardedCodeunitRun).
+    [Test] procedure Assumed_Sub_TwoSubscribersOneDeclaringOnlyTheRecord() var L: Record "XS Line"; begin AfterInsert(L); ValidateMode(L, 'sub-wide', 'T x=0/NEW/I1;X x=0/NEW/I1;'); end;
+    [Test] procedure Assumed_Nested_FromReportThroughGuardedCodeunitRun() var L: Record "XS Line"; begin AfterInsert(L); Log.Set('nested'); L.SetRange("Line No.", 1); Report.Run(Report::"XS Guarded Report", false, false, L); Check('I x=0/NEW/I1;T x=0/NEW/I1;X x=0/NEW/I1;P x=0/NEW/I1;run ok;'); end;
 }
 "##;
 
@@ -769,6 +923,8 @@ fn measured_chains_share_the_trigger_xrec_and_their_neighbors_refuse() {
             outcome.starts_with(&format!("NotRun(\"{XREC_REFUSED}"))
         } else if name.starts_with("RefusedAssign_") {
             outcome.starts_with(&format!("NotRun(\"{ASSIGN_REFUSED}"))
+        } else if name.starts_with("Assumed_") {
+            outcome == "Pass" && hits.as_slice() == [Assumption::XrecTableProcCallersSubscribers]
         } else {
             outcome == "Pass" && hits.is_empty()
         };
@@ -776,6 +932,6 @@ fn measured_chains_share_the_trigger_xrec_and_their_neighbors_refuse() {
             wrong.push(format!("{name}: {outcome} {hits:?}"));
         }
     }
-    assert_eq!(o.len(), 53);
+    assert_eq!(o.len(), 68);
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }

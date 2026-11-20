@@ -10,10 +10,15 @@
 //!   event the trigger raises (`through_subscriber`), record/validate/XRecTableProcThroughSubscriber.al. Under a Validate the
 //!   table's own code nested, BC keeps one xRec for both Validates where this runner keeps two: the xRec is shared only while
 //!   neither was assigned or filtered (`nested_xrecs_untouched`), and for reading only (`ProcXrec::SharedReadOnly`).
+//!
+//! Every chain also needs the facts its cells share (`cell_facts`); the Validate called by other code than a test procedure, and
+//! an event with two subscribers, run through assumption `xrec-table-proc-callers-subscribers` (`callers_assumed`,
+//! `subscribers_measured`).
 
 use super::nested_validate::{ProcXrec, ValidateRun, ValidateSite};
 use crate::records::Rec;
 use crate::{Frame, Session};
+use al_builtins::assumptions::{self, Assumption};
 use al_builtins::value::{RecordState, RtType, Value};
 use al_ir::{ObjKind, Routine};
 use std::rc::Rc;
@@ -31,9 +36,11 @@ const NESTING_PROCEDURES_MEASURED: usize = 3;
 pub(crate) const XREC_CHANGED_UNDER_NESTED_VALIDATE: &str = "a change to xRec (an assignment, a filter or another view of it) in a table procedure called through an event subscriber under a Validate that the table's own code nested: real BC shows it to the outer Validate's trigger too, which this runner keeps apart";
 
 /// The chain of calls `measured_chain` found below a procedure call: when a Validate the table's own code nested runs, that
-/// Validate's xRec (the procedure's xRec is then shared for reading only).
+/// Validate's xRec (the procedure's xRec is then shared for reading only), and whether a fact of the chain is only measured by
+/// the open probe of assumption `xrec-table-proc-callers-subscribers` (`cell_facts`, `subscribers_measured`).
 struct Chain {
     nested: Option<Rec>,
+    assumed: bool,
 }
 
 impl Session {
@@ -76,6 +83,7 @@ impl Session {
             && not_blank(&x)
             && let Some(chain) = self.measured_chain(object, table, rc, f)
             && chain.nested.as_ref().is_none_or(|inner| Rc::ptr_eq(inner, &x))
+            && (!chain.assumed || assumptions::hit(Assumption::XrecTableProcCallersSubscribers))
         {
             return if chain.nested.is_some() {
                 ProcXrec::SharedReadOnly(x)
@@ -165,9 +173,16 @@ impl Session {
             return None;
         }
         // A subscriber of a table event right above the trigger (a Modify in the trigger) is not the codeunit called from it.
-        (self.through_own_procedure(object, table, rc)
-            || (!subscriber && self.straight_from_trigger(object, table, rc)))
-        .then_some(Chain { nested: None })
+        if self.through_own_procedure(object, table, rc) {
+            return Some(Chain {
+                nested: None,
+                assumed: false,
+            });
+        }
+        let assumed = (!subscriber)
+            .then(|| self.straight_from_trigger(object, table, rc))
+            .flatten()?;
+        Some(Chain { nested: None, assumed })
     }
 
     /// The chain record/validate/XRecTableProcThroughCodeunit.al pins (`Way3_*` and `Way4_*`, :365-414): `object` is the table
@@ -195,15 +210,19 @@ impl Session {
     /// table's field OnValidate calls a procedure of the table or of one of its table extensions: the trigger's xRec on a buffer
     /// of `measured_buffer`, the Validate being the one `Record.Validate` AL code called on the record, whose trigger is that
     /// frame (record/validate/XRecTableProcThroughCodeunit.al `CodeunitFromTriggerDirectly_AfterGet`,
-    /// `BaseField_Codeunit_ExtProc`; record/validate/XRecTableProcThroughSubscriber.al:647, :764, :780).
-    fn straight_from_trigger(&self, object: usize, table: usize, rc: &Rec) -> bool {
+    /// `BaseField_Codeunit_ExtProc`; record/validate/XRecTableProcThroughSubscriber.al:647, :764, :780). Whether a fact is
+    /// only assumed (`cell_facts`).
+    fn straight_from_trigger(&self, object: usize, table: usize, rc: &Rec) -> Option<bool> {
         let n = self.frames.len();
-        self.table_or_its_extension(object, table)
+        let shape = self.table_or_its_extension(object, table)
             && !self.iface_frames.contains(&(n - 1))
             && self.field_on_validate_at(table, n - 2)
             && self.sole_validate_from_al_at(Rc::as_ptr(rc) as usize, n - 2)
-            && self.measured_buffer(&rc.borrow())
-            && self.cell_facts(rc, self.frames[n - 1], n - 2, n - 2)
+            && self.measured_buffer(&rc.borrow());
+        if !shape {
+            return None;
+        }
+        self.cell_facts(rc, self.frames[n - 1], n - 2, n - 2, false)
     }
 
     /// The facts every cell of the two chains of al-runner issue 8284 shares beyond its frames (review of PR 8304, 2026-11-20):
@@ -212,18 +231,116 @@ impl Session {
     ///   method ran on it since (`ValidateRun::touched`: a Modify, a Get, a Validate of another field), its fields are the same
     ///   (`ValidateRun::entered`), and its buffer came from no TransferFields;
     /// - the outermost Validate, whose trigger runs in frame `caller`, was called by a test codeunit's own procedures, as every
-    ///   cell's (`ValidateModeAndObserve` and the like): not by the table's own trigger, Codeunit.Run or a TryFunction.
-    fn cell_facts(&self, rc: &Rec, cu: usize, trigger: usize, caller: usize) -> bool {
+    ///   cell's (`ValidateModeAndObserve` and the like): pinned. Or by the callers `callers_assumed` lists (`subscriber`: the
+    ///   subscriber chain's): assumed (`Some(true)`).
+    fn cell_facts(&self, rc: &Rec, cu: usize, trigger: usize, caller: usize, subscriber: bool) -> Option<bool> {
         let handle = Rc::as_ptr(rc) as usize;
         let r = rc.borrow();
         let untouched = |v: &ValidateRun| {
             v.handle == handle && v.depth == trigger && !v.touched && Self::same_values(&r.fields, &v.entered)
         };
-        !self.engine.object_facts[cu].single_instance
+        let facts = !self.engine.object_facts[cu].single_instance
             && self.validate_sites.iter().any(untouched)
             && r.row_origin.is_none_or(|o| !o.lock_only)
-            && caller > 0
-            && self.only_test_codeunit_frames(0, self.frames.len() - caller)
+            && caller > 0;
+        if !facts {
+            return None;
+        }
+        if self.only_test_codeunit_frames(0, self.frames.len() - caller) {
+            return Some(false);
+        }
+        self.callers_assumed(caller, subscriber).then_some(true)
+    }
+
+    /// Whether the frames below frame `caller` (the outermost Validate's trigger) are the callers record/validate/
+    /// XRecTableProcCallers.al measured (corpus PR 1482, open; assumption `xrec-table-proc-callers-subscribers`): from the test
+    /// procedure (`[Test]`, also naming handlers, `TwoSubscribers_MaintainLineFromReport_TestWithHandler`) through procedures of
+    /// its test codeunit and procedures of other codeunits (`Sub_FromCodeunitProcedure`, `Codeunit_FromCodeunitProcedure`),
+    /// every codeunit not SingleInstance, called directly (not through an event or an interface). For the subscriber chain
+    /// (`subscriber`) also a `[TryFunction]`, its result used or not (`Sub_FromTryFunction`, `Sub_FromTryFunctionAsStatement`;
+    /// no other try scope runs: the try depth counts only those), a
+    /// codeunit's OnRun as a statement (`Sub_FromCodeunitRun`, `Nested_FromCodeunitRun`) and a report's OnAfterGetRecord that
+    /// runs one, as a statement or guarded (`Sub_FromReportThroughCodeunitRun`, `Sub_FromReportThroughGuardedCodeunitRun`,
+    /// `Nested_MaintainLineFromReportThroughGuardedCodeunitRun`).
+    fn callers_assumed(&self, caller: usize, subscriber: bool) -> bool {
+        let base = self.test_frame_base();
+        if caller <= base || caller > self.frames.len() || self.call_stack.len() != self.frames.len() {
+            return false;
+        }
+        let objects = &self.engine.program.objects;
+        let tries = (base..caller)
+            .filter(|&i| {
+                Self::has_attribute(
+                    &objects[self.frames[i]].routines[self.call_stack[i].routine],
+                    "TryFunction",
+                )
+            })
+            .count();
+        Self::is_test_codeunit(&objects[self.frames[base]])
+            && self.tx.try_depth == tries
+            && (base..caller).all(|i| self.caller_frame_measured(i, base, caller, subscriber))
+    }
+
+    /// Whether frame `i`, between the test procedure in frame `base` and the outermost Validate's trigger in frame `caller`, is
+    /// one `callers_assumed` lists.
+    fn caller_frame_measured(&self, i: usize, base: usize, caller: usize, subscriber: bool) -> bool {
+        let objects = &self.engine.program.objects;
+        let (o, cf) = (self.frames[i], self.call_stack[i]);
+        let r = &objects[o].routines[cf.routine];
+        let only = |names: &[&str]| {
+            r.attributes
+                .iter()
+                .all(|a| names.iter().any(|n| a.name.eq_ignore_ascii_case(n)))
+        };
+        if cf.event || self.iface_frames.contains(&i) {
+            return false;
+        }
+        if i == base {
+            return Self::has_attribute(r, "Test") && only(&["Test", "HandlerFunctions"]);
+        }
+        if o == self.frames[base] {
+            return !r.is_trigger && r.attributes.is_empty();
+        }
+        let trigger_at = |j: usize, kind: ObjKind, name: &str| {
+            j < caller && {
+                let t = &objects[self.frames[j]].routines[self.call_stack[j].routine];
+                objects[self.frames[j]].kind == kind
+                    && !self.call_stack[j].event
+                    && t.is_trigger
+                    && t.name.eq_ignore_ascii_case(name)
+            }
+        };
+        match objects[o].kind {
+            ObjKind::Codeunit
+                if !Self::is_test_codeunit(&objects[o]) && !self.engine.object_facts[o].single_instance =>
+            {
+                if r.is_trigger {
+                    let guarded = self.tx.guarded_runs.contains(&i);
+                    subscriber
+                        && r.name.eq_ignore_ascii_case("OnRun")
+                        && (!guarded || trigger_at(i - 1, ObjKind::Report, "OnAfterGetRecord"))
+                } else {
+                    only(&[]) || (subscriber && only(&["TryFunction"]))
+                }
+            }
+            ObjKind::Report => {
+                subscriber
+                    && trigger_at(i, ObjKind::Report, "OnAfterGetRecord")
+                    && trigger_at(i + 1, ObjKind::Codeunit, "OnRun")
+            }
+            _ => false,
+        }
+    }
+
+    fn has_attribute(r: &Routine, name: &str) -> bool {
+        r.attributes.iter().any(|a| a.name.eq_ignore_ascii_case(name))
+    }
+
+    fn is_test_codeunit(o: &al_ir::Object) -> bool {
+        o.kind == ObjKind::Codeunit
+            && o.properties
+                .iter()
+                .any(|(k, v)| k.eq_ignore_ascii_case("Subtype") && v.trim().eq_ignore_ascii_case("Test"))
     }
 
     /// The subscriber of an integration event of the table, raised by the table's field OnValidate, calls a procedure of the
@@ -263,7 +380,6 @@ impl Session {
             && all_var(publisher)
             && second_is_other_table
             && !self.engine.object_facts[cu].manual_subscriber
-            && self.sole_subscriber(pub_o, &publisher.name)
             && subscriber.params == publisher.params
             && all_var(subscriber)
             && matches!(f.locals.first(), Some(Value::Record(p)) if Rc::ptr_eq(p, rc))
@@ -271,23 +387,47 @@ impl Session {
         if !shape {
             return None;
         }
+        let two_subscribers = self.subscribers_measured(pub_o, publisher)?;
         let handle = Rc::as_ptr(rc) as usize;
         if self.sole_validate_from_al_at(handle, n - 3) {
-            return self.cell_facts(rc, cu, n - 3, n - 3).then_some(Chain { nested: None });
+            let assumed = self.cell_facts(rc, cu, n - 3, n - 3, true)?;
+            return Some(Chain {
+                nested: None,
+                assumed: assumed || two_subscribers,
+            });
         }
         let (outer, inner) = self.nested_by_own_code(table, handle, n - 3)?;
-        (self.cell_facts(rc, cu, n - 3, outer.depth) && self.nested_xrecs_untouched(handle, &outer.xrec, &inner.xrec))
+        let assumed = self.cell_facts(rc, cu, n - 3, outer.depth, true)?;
+        self.nested_xrecs_untouched(handle, &outer.xrec, &inner.xrec)
             .then(|| Chain {
                 nested: Some(inner.xrec.clone()),
+                assumed: assumed || two_subscribers,
             })
     }
 
-    /// Whether event `event` of object `publisher` has one subscriber, as each event of the cells.
-    fn sole_subscriber(&self, publisher: usize, event: &str) -> bool {
-        self.engine
+    /// Whether the event `publisher` of object `publisher_o` has the subscribers the cells measured: one (each event of
+    /// record/validate/XRecTableProcThroughSubscriber.al, `Some(false)`), or two, each of a codeunit neither bound manually nor
+    /// SingleInstance, each declaring the publisher's first parameters, all `var` (the reading one all of them, checked by
+    /// `through_subscriber`; the other all, `TwoSubscribers_*`, or only the record, `Wide_*`; record/validate/
+    /// XRecTableProcCallers.al, corpus PR 1482, open: assumed, `Some(true)`).
+    fn subscribers_measured(&self, publisher_o: usize, publisher: &Routine) -> Option<bool> {
+        let subscribers = self
+            .engine
             .events
-            .subscribers_at(publisher, &event.to_lowercase())
-            .is_some_and(|s| s.len() == 1)
+            .subscribers_at(publisher_o, &publisher.name.to_lowercase())?;
+        let measured = |s: &crate::events::Subscriber| {
+            let r = &self.engine.program.objects[s.object].routines[s.routine];
+            !s.manual
+                && !self.engine.object_facts[s.object].manual_subscriber
+                && !self.engine.object_facts[s.object].single_instance
+                && (1..=publisher.params).contains(&r.params)
+                && (0..r.params).all(|i| r.by_var.get(i) == Some(&true))
+        };
+        match subscribers.len() {
+            1 => Some(false),
+            2 if subscribers.iter().all(measured) => Some(true),
+            _ => None,
+        }
     }
 
     /// Whether `publisher` is marked `[IntegrationEvent(false, false)]`, the publisher record/validate/
