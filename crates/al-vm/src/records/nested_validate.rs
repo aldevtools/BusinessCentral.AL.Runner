@@ -2,7 +2,7 @@
 //! in a plain table procedure call, in a page's OnModifyRecord, else the record before the call. What a table procedure called
 //! on a record value (`Rec.Proc()`) runs with (`table_proc_xrec`, by `call_site` in `interp.rs`). Where a Validate was called
 //! from (`ValidateSite`, `validate_at`). What a table procedure called on a record through other code sees while a call on the
-//! same record runs: `running_call_xrec.rs` (al-runner issues 8189 and 8284).
+//! same record runs: `running_call_xrec.rs` (record/validate/XRecTableProcThroughCodeunit.al, XRecTableProcThroughSubscriber.al).
 
 use crate::records::Rec;
 use crate::{Frame, Session};
@@ -15,8 +15,9 @@ use std::rc::Rc;
 
 /// The `RecordState::unpinned_buffer` reason of the blank xRec of a table procedure called on a record through other code while a
 /// trigger or procedure of the same record runs with an xRec that is not blank (`Session::running_call_xrec`): BC hands that
-/// call's xRec on in the shapes al-runner issues 8189 and 8284 measured; here a read of it refuses.
-pub(crate) const XREC_OF_RUNNING_CALL: &str = "xRec in a table procedure called through other code on a record whose trigger or procedure runs: real BC hands it the running call's xRec in the shapes al-runner issues 8189 and 8284 measured, this shape is not pinned";
+/// call's xRec on in the shapes record/validate/XRecTableProcThroughCodeunit.al and XRecTableProcThroughSubscriber.al pin;
+/// here a read of it refuses.
+pub(crate) const XREC_OF_RUNNING_CALL: &str = "xRec in a table procedure called through other code on a record whose trigger or procedure runs: real BC hands it the running call's xRec in the shapes XRecTableProcThroughCodeunit.al and XRecTableProcThroughSubscriber.al pin, this shape is not run";
 
 /// The before-image a Validate hands its triggers as xRec: the field values, and the `RecordState::unpinned_buffer` reason
 /// the xRec gets (`Some(XREC_OF_RUNNING_CALL)` when the values stand for a running call's xRec, `validate_before_image`).

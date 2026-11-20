@@ -43,7 +43,7 @@ impl Session {
         let rows = self.view_rows(&rec, 3)?;
         let table = self.table(&rec)?;
         let held = self.row_key(&rec)?;
-        let update_asked = st.borrow().refresh || st.borrow().save_record_called;
+        let update_asked = st.borrow().refresh.asked() || st.borrow().save_record_called;
         let pinned = rows.len() == 2
             && Self::same_key(&table.primary_key(&rows[1]), &held)
             && self.on_pinned_tree_host(st)
@@ -89,10 +89,10 @@ impl Session {
         s.view_read_to_end = false;
         s.window_read_up = false;
         s.window_top_unread = false;
-        s.read_up_from_last = None;
+        s.read_up_from_last = ReadUpFromLast::Off;
         s.opened_on_moved_rec = false;
         s.settled_first_row = false;
-        s.refresh = false;
+        s.refresh.cancel();
         s.cursor = Cursor::Row;
     }
 

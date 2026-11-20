@@ -33,7 +33,7 @@ fn evaluate_reads_only_the_closing_letter_of_the_language() {
     let bodies: Vec<(&str, &str)> = cells.iter().map(|(n, b, _)| (*n, b.as_str())).collect();
     let o = tests(&bodies);
     for (name, _, value) in &cells {
-        reports(&o, name, value, Some(Assumption::ClosingDateLetterByLanguage));
+        reports(&o, name, value, None);
     }
 }
 
@@ -140,7 +140,7 @@ fn date_filter_reads_only_the_closing_letter_of_the_language() {
         ],
         "",
     );
-    let flag = Some(Assumption::ClosingDateLetterByLanguage);
+    let flag = None;
     reports(
         &o,
         "DanishC",
@@ -261,7 +261,7 @@ fn calcdate_letters_by_language() {
     ];
     let bodies: Vec<(&str, &str)> = cells.iter().map(|(n, b)| (*n, b.as_str())).collect();
     let o = calc_tests(&bodies);
-    let flag = Some(Assumption::CalcdateLettersByLanguage);
+    let flag = None;
     reports(
         &o,
         "German1D",

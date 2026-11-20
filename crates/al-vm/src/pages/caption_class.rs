@@ -375,11 +375,21 @@ impl Session {
     /// Every caption class the client translates raises `CaptionClassTranslate` of the platform codeunit `UI Helper Triggers`,
     /// area 3 included (events/platform-triggers/P114GlobalTriggerEvents.al:301, :304, :323-327). The runtime does
     /// not raise it, so a translation while a subscriber listens is refused.
+    /// A subscriber of a dependency app other than the System Application's "Caption Class Impl." refuses whatever the test can
+    /// see (`receiving_dependency_subscriber`, al-runner issue 8470).
     pub(crate) fn refuse_caption_class_translate(&self) -> Result<(), Signal> {
+        let event = al_ir::CAPTION_CLASS_TRANSLATE.to_ascii_lowercase();
+        if let Some(s) =
+            self.receiving_dependency_subscriber(crate::events::UI_HELPER_TRIGGERS, &event, al_ir::CAPTION_CLASS_IMPL)
+        {
+            return unsupported(format!(
+                "a caption class is translated while the subscriber {s} of a dependency app subscribes to CaptionClassTranslate of UI Helper Triggers (what it does is not pinned)"
+            ));
+        }
         let test = self.test_object.and_then(|t| self.engine.program.objects.get(t));
-        match self.engine.events.unraised_subscriber(
-            "ui helper triggers",
-            Some("captionclasstranslate"),
+        match (self.engine.events).unraised_subscriber(
+            &crate::events::unraised_key(al_ir::UI_HELPER_CODEUNIT),
+            Some(&event),
             test,
             self.test_object,
         ) {

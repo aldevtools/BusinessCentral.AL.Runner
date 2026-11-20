@@ -280,13 +280,13 @@ impl<T: Describe> Describe for [T] {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::value::{LibraryValue, RecordState};
     use std::cell::RefCell;
     use std::rc::Rc;
 
-    fn record(table: u32, temporary: bool) -> Value {
+    pub(crate) fn record(table: u32, temporary: bool) -> Value {
         Value::Record(Rc::new(RefCell::new(RecordState {
             table,
             temporary,

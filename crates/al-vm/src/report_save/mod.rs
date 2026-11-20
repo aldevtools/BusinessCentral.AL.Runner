@@ -171,7 +171,7 @@ impl Session {
                 match row.answer {
                     Answer::False(e) => Ok(BeforeRun::False(errors::error_of(
                         e,
-                        self.object_id_of(schema.object as u32),
+                        self.object_id_of(schema.object as u32)?,
                         format,
                     ))),
                     Answer::Refuse(why) => Err(Signal::unsupported(format!("{}, {why}", what(&facts, schema)))),
@@ -268,7 +268,7 @@ impl Session {
             Answer::FalseKeepError => Ok(AfterRun::Answer(false)),
             Answer::TrueNothing => Ok(AfterRun::Answer(true)),
             Answer::FalseAfterRun(e) => {
-                let error = errors::error_of(e, self.object_id_of(schema.object as u32), facts.format);
+                let error = errors::error_of(e, self.object_id_of(schema.object as u32)?, facts.format);
                 if !used {
                     return Err(Signal::Error(Box::new(error)));
                 }

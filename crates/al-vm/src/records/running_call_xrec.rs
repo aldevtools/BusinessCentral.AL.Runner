@@ -5,7 +5,7 @@
 //!
 //! Each chain starts in a field OnValidate trigger of the table and ends in a codeunit procedure that has the record as a `var`
 //! parameter and calls the procedure on it (al-runner issues 8189 and 8284):
-//! - through a procedure of the table that is no trigger (`through_own_procedure`, assumption `xrec-table-proc-through-codeunit`);
+//! - through a procedure of the table that is no trigger (`through_own_procedure`, record/validate/XRecTableProcThroughCodeunit.al:365-414);
 //! - straight from the trigger (`straight_from_trigger`, not through an interface), or from the subscriber of an integration
 //!   event the trigger raises (`through_subscriber`), assumption `xrec-table-proc-through-subscriber`. Under a Validate the
 //!   table's own code nested, BC keeps one xRec for both Validates where this runner keeps two: the xRec is shared only while
@@ -31,10 +31,10 @@ const NESTING_PROCEDURES_MEASURED: usize = 3;
 /// `I filters=Series: F`), where this runner keeps the two triggers' xRecs apart.
 pub(crate) const XREC_CHANGED_UNDER_NESTED_VALIDATE: &str = "a change to xRec (an assignment, a filter or another view of it) in a table procedure called through an event subscriber under a Validate that the table's own code nested: real BC shows it to the outer Validate's trigger too, which this runner keeps apart";
 
-/// The chain of calls `measured_chain` found below a procedure call: the assumption it runs through, and, when a Validate the
+/// The chain of calls `measured_chain` found below a procedure call: the assumption it runs through (none when pinned), and, when a Validate the
 /// table's own code nested runs, that Validate's xRec (the procedure's xRec is then shared for reading only).
 struct Chain {
-    assumption: Assumption,
+    assumption: Option<Assumption>,
     nested: Option<Rec>,
 }
 
@@ -69,7 +69,7 @@ impl Session {
             && not_blank(&x)
             && let Some(chain) = self.measured_chain(object, table, rc, f)
             && chain.nested.as_ref().is_none_or(|inner| Rc::ptr_eq(inner, &x))
-            && assumptions::hit(chain.assumption)
+            && chain.assumption.is_none_or(assumptions::hit)
         {
             return if chain.nested.is_some() {
                 ProcXrec::SharedReadOnly(x)
@@ -136,9 +136,9 @@ impl Session {
         }
         // A subscriber of a table event right above the trigger (a Modify in the trigger) is not the codeunit called from it.
         let assumption = if self.through_own_procedure(object, table, rc) {
-            Assumption::XrecTableProcThroughCodeunit
+            None
         } else if !subscriber && self.straight_from_trigger(object, table, rc) {
-            Assumption::XrecTableProcThroughSubscriber
+            Some(Assumption::XrecTableProcThroughSubscriber)
         } else {
             return None;
         };
@@ -148,10 +148,11 @@ impl Session {
         })
     }
 
-    /// The chain al-runner issue 8189 measured (ways 3 and 4 of the reporter's repro): `object` is the table itself; below the
-    /// codeunit procedure (plain or reached through an interface, as on main also a subscriber of a table event the procedure
-    /// raised), a procedure of the table that is no trigger, then the table's field OnValidate; the Validate is the one
-    /// `Record.Validate` AL code called on the record (`sole_validate_from_al`), on a buffer of `measured_buffer`.
+    /// The chain record/validate/XRecTableProcThroughCodeunit.al pins (`Way3_*` and `Way4_*`, :365-414): `object` is the table
+    /// itself; below the codeunit procedure (plain or reached through an interface, as on main also a subscriber of a table event
+    /// the procedure raised; `XTC Mover.Handle` :294-296, `XTC Iface Mover.Handle` :322-324), a procedure of the table that is no
+    /// trigger (`CallPlain` :141-145, `CallIface` :148-154), then the table's field OnValidate (:46-58); the Validate is the one
+    /// `Record.Validate` AL code called on the record (`sole_validate_from_al`, :358), on a buffer of `measured_buffer`.
     fn through_own_procedure(&self, object: usize, table: usize, rc: &Rec) -> bool {
         let n = self.frames.len();
         if n < 3 {
@@ -227,7 +228,7 @@ impl Session {
             return None;
         }
         let handle = Rc::as_ptr(rc) as usize;
-        let assumption = Assumption::XrecTableProcThroughSubscriber;
+        let assumption = Some(Assumption::XrecTableProcThroughSubscriber);
         if self.sole_validate_from_al_at(handle, n - 3) {
             return Some(Chain {
                 assumption,
@@ -305,7 +306,7 @@ impl Session {
             && Self::same_values(&i.fields, before)
             && XrecView::of(&o).same(&XrecView::of(&i))
     }
-    /// The two buffers al-runner issue 8189 measured (the reporter's `PrepareAfterInsert` and `PrepareAfterGet`): a record that is
+    /// The two buffers record/validate/XRecTableProcThroughCodeunit.al pins (`AfterInsert` :337-344 and `AfterGet` :348-352): a record that is
     /// not temporary, whose buffer came from its own `Insert` (no Modify, Rename or read after it), or from a `Get` of the row
     /// that its own transaction inserted and wrote nothing to since (`inserted_unwritten_in_tx`). A Find, a GetBySystemId, a
     /// Get of a committed row, a Get of a row the open transaction modified or a TransferFields refuse.

@@ -94,6 +94,8 @@ impl Session {
             // Carried: the Baseline.
             sequences: _,
             sequences_changed: _,
+            // Counts and insert stamps al-testrun compares within one test only (`sequence_start.rs`).
+            access_notes: _,
             // Set by the caller after the install code, from the run's order (al-testrun `order_hint.rs`).
             numbers_unmeasured: _,
             singletons: _,

@@ -88,7 +88,7 @@ impl Session {
         completed: bool,
     ) -> Result<(), Signal> {
         if !completed {
-            st.borrow_mut().refresh = false;
+            st.borrow_mut().refresh.cancel();
         }
         let Some((field, key, blank)) = linked_key else {
             return Ok(());
