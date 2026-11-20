@@ -210,7 +210,7 @@ impl Session {
             let page = st.borrow();
             if !page.open
                 || !page.modal
-                || page.run_static != Some(true)
+                || page.modal_run != ModalRun::Static
                 || page.lookup
                 || page.statement_run
                 || page.field_run

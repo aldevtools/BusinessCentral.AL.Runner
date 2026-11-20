@@ -109,7 +109,7 @@ impl Session {
         let (open_edit, run_modal) = {
             let s = st.borrow();
             let run_modal = s.modal
-                && s.run_static == Some(true)
+                && s.modal_run == ModalRun::Static
                 && s.statement_run
                 && s.static_run_record
                 && !s.lookup
@@ -233,7 +233,7 @@ impl Session {
     /// page onto the row (an OnValidate that fails after `CurrPage.Update`, whose insert the error rolls back) is not measured,
     /// and refused. Every other signal goes on.
     pub(super) fn refuse_error_after_landing(&mut self, st: &St, e: Signal) -> Signal {
-        let landed = st.borrow().refresh_from_code_inserted_line;
+        let landed = st.borrow().refresh.starts_from_code_inserted_line();
         match e {
             Signal::Error(_) if landed => {
                 st.borrow_mut().forget_code_inserted_line();
@@ -266,7 +266,7 @@ impl Session {
             s.draft = false;
             s.new_by_call = false;
             s.dirty = false;
-            s.refresh_from_code_inserted_line = true;
+            s.refresh.land_on_code_inserted_line();
         }
         if !save {
             self.set_xrec(st);

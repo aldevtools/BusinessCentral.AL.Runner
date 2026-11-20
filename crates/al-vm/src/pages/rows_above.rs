@@ -27,7 +27,7 @@ impl Session {
             return unsupported("the open read of a part on the row its OnOpenPage left Rec on (not pinned)");
         }
         let rec = self.page_rec(st);
-        if st.borrow().lookup_next_plain {
+        if st.borrow().lookup_left.next_plain() {
             // The first row of the window once more, with no function control (Y26_ThreeLinkPlain_LookupRefresh `next log`).
             self.page_trigger_skipping_fn(st)?;
         }
@@ -58,7 +58,7 @@ impl Session {
         // The move back onto the row is the client's two reads of a row it holds: the first runs no function control
         // (Y15LookupThreeFieldLink.al:337 Y26_ThreeLinkCurr_LookupRefresh `next log`). A host without OnAfterGetCurrRecord
         // reads nothing here (:467 Y26_ThreeLinkPlain_LookupRefresh).
-        if st.borrow().lookup_next_plain {
+        if st.borrow().lookup_left.next_plain() {
             self.record_op(RecordOp::Get, &rec, &mut start.clone())?;
         } else {
             self.populate_current_pair_first(st)?;
@@ -73,7 +73,10 @@ impl Session {
         let forward = std::mem::take(&mut s.window);
         above.extend(forward);
         s.window = above;
-        s.moved_rec_open_partial = (s.window.len() > Self::WINDOW).then_some((top_unread, !end_reached));
+        s.moved_rec_open_partial = (s.window.len() > Self::WINDOW).then_some(UnreadEdges {
+            above: top_unread,
+            below: !end_reached,
+        });
         drop(s);
         Ok(())
     }
