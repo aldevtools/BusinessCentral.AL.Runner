@@ -33,7 +33,6 @@ impl Session {
             action_props: None,
             part_props: None,
             table_triggers: &[],
-            var_fields: false,
         };
         let rec = self.page_rec(st);
         let opened = {

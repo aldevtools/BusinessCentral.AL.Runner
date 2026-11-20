@@ -125,7 +125,6 @@ impl Session {
                     action_props: None,
                     part_props: None,
                     table_triggers: &[],
-                    var_fields: false,
                 },
             )?;
         Ok((field_ok && lookup_page).then_some(origin))

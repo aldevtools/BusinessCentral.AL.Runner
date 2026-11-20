@@ -110,7 +110,6 @@ impl Session {
             action_props: None,
             part_props: None,
             table_triggers: &[],
-            var_fields: false,
         };
         let rec = self.page_rec(st);
         let calls = match Self::test_calls(st).as_deref() {
@@ -231,7 +230,6 @@ impl Session {
             action_props: None,
             part_props: None,
             table_triggers: &[],
-            var_fields: false,
         };
         const ROWS: usize = 60;
         let rec = self.page_rec(st);

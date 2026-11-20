@@ -20,7 +20,6 @@ const CODE: PinnedCode = PinnedCode {
     action_props: None,
     part_props: None,
     table_triggers: &[],
-    var_fields: false,
 };
 
 impl Session {

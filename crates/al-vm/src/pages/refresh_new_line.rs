@@ -1,7 +1,8 @@
 //! Where the refresh after a control's OnValidate changed the filters starts (`refresh_after_validate_filter`), including from
 //! the new-row line (gap G5-20).
 
-use super::pinned_shape::{PinnedCode, TestCall};
+use super::pinned_body::{Callees, Names, callees_are, page_is, table_is};
+use super::pinned_shape::TestCall;
 use super::*;
 use crate::pages::state::RecCall;
 use al_builtins::record_op::RecordOp;
@@ -35,28 +36,62 @@ pub(super) enum FoundRowSave {
     SaveRecord,
 }
 
-/// The page triggers every page of the SaveRecord cells declares (StaleUpdateNewLine.al, pages 73682 and 73683).
-const FOUND_ROW_TRIGGERS: [&str; 6] = [
-    "onopenpage",
-    "onaftergetrecord",
-    "onaftergetcurrrecord",
-    "onnewrecord",
-    "onmodifyrecord",
-    "oninsertrecord",
+/// The lines of the SaveRecord cells' pages after their PageType (`pinned_body::page_lines`): page 73682 "LT FU Worksheet"
+/// (StaleUpdateNewLine.al:57-179) and page 73683 "LT FU List" (:185-307) read the same. `«T»` is the table's name.
+const FOUND_ROW_PAGE: [&str; 20] = [
+    "SourceTable = \"«T»\"",
+    "AutoSplitKey = true",
+    "DelayedInsert = true",
+    "ApplicationArea = All",
+    "UsageCategory = None",
+    "group Header in - {}",
+    "field CurrentBatch in Header = var CurrentBatch: Code[10] {applicationarea=All; caption='Batch'}",
+    "  trigger onvalidate: begin Log.Add(('V:start ' + Format(Rec.\"Line No.\"))); if Log.FirstSave() then begin \
+     CurrPage.SaveRecord(); end; SetBatch(); if Log.Touch() then begin Rec.\"Description\" := 'code'; end; case Log.Second() of \
+     1: begin CurrPage.SaveRecord(); end; 2: begin CurrPage.Update(true); end; 3: begin CurrPage.Update(false); end; end; \
+     Log.Add(('V:done ' + Format(Rec.\"Line No.\"))); end",
+    "field Boom in Header = var Boom: Integer {applicationarea=All; caption='Boom'}",
+    "  trigger onvalidate: begin Log.Add(('B:start ' + Format(Rec.\"Line No.\"))); case Log.BoomMode() of 1: begin \
+     CurrPage.Update(true); end; 2: begin CurrPage.Update(false); end; 3: begin CurrPage.SaveRecord(); end; end; \
+     Log.Add('B:error'); Error('LT FU boom'); end",
+    "repeater Lines in - {}",
+    "field Line No. in Lines = Line No. {applicationarea=All}",
+    "field No. in Lines = No. {applicationarea=All}",
+    "field Description in Lines = Description {applicationarea=All}",
+    "trigger onopenpage: begin CurrentBatch := 'B3'; SetBatch(); end",
+    "trigger onaftergetrecord: begin Log.Add(((('R:' + Rec.\"Batch Name\") + '/') + Format(Rec.\"Line No.\"))); end",
+    "trigger onaftergetcurrrecord: begin Log.Add(((('C:' + Rec.\"Batch Name\") + '/') + Format(Rec.\"Line No.\"))); end",
+    "trigger onnewrecord: begin Log.Add(((((('N:' + Rec.\"Batch Name\") + '/') + Format(Rec.\"Line No.\")) + ' below=') + \
+     Format(BelowxRec))); end",
+    "trigger onmodifyrecord: begin Log.Add(((((((((('M:' + Rec.\"Batch Name\") + '/') + Format(Rec.\"Line No.\")) + '/') + \
+     Rec.\"Description\") + ' x=') + xRec.\"Batch Name\") + '/') + Format(xRec.\"Line No.\"))); exit(true); end",
+    "trigger oninsertrecord: begin Log.Add(((('I:' + Rec.\"Batch Name\") + '/') + Format(Rec.\"Line No.\"))); exit(true); end",
 ];
 
-/// The code of those pages and their table 73680 (StaleUpdateNewLine.al:24-50, :54-180, :182-308): the triggers above, the
-/// OnValidate of the batch control and of the control that raises, both bound to page variables, fields of Rec, no action and no
-/// part; the table's OnInsert and OnModify.
-const FOUND_ROW_CODE: PinnedCode = PinnedCode {
-    triggers: &FOUND_ROW_TRIGGERS,
-    control_triggers: &["onvalidate", "onvalidate"],
-    properties: &["autosplitkey", "delayedinsert"],
-    action_props: None,
-    part_props: None,
-    table_triggers: &["oninsert", "onmodify"],
-    var_fields: true,
-};
+/// The lines of their table 73680 "LT FU Line" (StaleUpdateNewLine.al:24-52; `pinned_body::table_lines`).
+const FOUND_ROW_TABLE: [&str; 8] = [
+    "DataClassification = SystemMetadata",
+    "field 1 \"Batch Name\": Code[10]",
+    "field 2 \"Line No.\": Integer",
+    "field 3 \"No.\": Code[20]",
+    "field 4 \"Description\": Text[30]",
+    "key \"Batch Name\", \"Line No.\" {Clustered=true}",
+    "trigger OnInsert: begin Log.Add(((('L.OnInsert:' + Rec.\"Batch Name\") + '/') + Format(Rec.\"Line No.\"))); end",
+    "trigger OnModify: begin Log.Add(((((('L.OnModify:' + Rec.\"Batch Name\") + '/') + Format(Rec.\"Line No.\")) + '/') + \
+     Rec.\"Description\")); end",
+];
+
+/// The procedures the pages and the table call (`pinned_body::callees_are`): codeunit 73681 "LT FU Log" (`«L»`;
+/// StaleUpdateNewLine.al:322-327 Add, :345-363 FirstSave, Second, Touch, BoomMode) and the page's SetBatch (`«P»`, :168-174).
+const FOUND_ROW_CALLEES: [&str; 6] = [
+    "\"«L»\".Add: begin if (Entries <> '') then begin Entries := (Entries + ';'); end; Entries := (Entries + Entry); end",
+    "\"«L»\".FirstSave: begin exit(DoFirstSave); end",
+    "\"«L»\".Second: begin exit(SecondStep); end",
+    "\"«L»\".Touch: begin exit(DoTouch); end",
+    "\"«L»\".BoomMode: begin exit(Boom); end",
+    "\"«P»\".SetBatch: begin Rec.FilterGroup(2); Rec.SetRange(field#0, CurrentBatch); Rec.FilterGroup(0); if Rec.Find('-') then \
+     begin end; end",
+];
 
 impl Session {
     /// `Some(true)` on a stored row, `Some(false)` on no row (`Cursor::None`), `None` for a start that is not pinned.
@@ -237,11 +272,16 @@ impl Session {
             s.draft = false;
             s.placeholder_line = false;
             s.dirty = true;
+            // Set before the save: an error raised inside it is refused as one after it (`refuse_error_after_found_row_save`).
+            if call == FoundRowSave::SaveRecord {
+                s.found_row_save_assumed = true;
+            }
         }
         // The row is written even though it holds what is stored (the buffer before it was the blank new line).
         let modify = self.save_row_outcome(st)?;
         self.set_xrec(st);
         // The cells' OnModifyRecord logs and answers true (StaleUpdateNewLine.al:156-160), the page's own Modify writes the row.
+        // `found_row_code_is` already requires that body; this checks the save that ran.
         let modified_alone = modify.is_some_and(|m| m.answered_true && m.changes_before == changes);
         if call == FoundRowSave::SaveRecord {
             if !modified_alone {
@@ -249,10 +289,8 @@ impl Session {
                     "CurrPage.SaveRecord() on the new-row line whose row the page did not modify alone (OnModifyRecord answered false or wrote to the store; not measured)",
                 );
             }
-            let mut s = st.borrow_mut();
-            s.found_row_save_assumed = true;
             // The refresh of the cells is the one Update(true) asks for (StaleUpdateNewLine.al:498 and :602 log the same reads).
-            s.refresh.ask_by_update(true);
+            st.borrow_mut().refresh.ask_by_update(true);
         }
         if cell
             && modified_alone
@@ -341,8 +379,8 @@ impl Session {
 
     /// The cells of StaleUpdateNewLine.al that measure the save from the new-row line (`CurrPage.SaveRecord()`, and the refresh
     /// of a List after it or after `CurrPage.Update(true)`), every fact by equality:
-    /// - the page: PageType Worksheet (page 73682, :54) or List (page 73683, :182) whose code is `FOUND_ROW_CODE`, AutoSplitKey and
-    ///   DelayedInsert true, over a database table, opened by the test with OpenEdit, no part shown;
+    /// - the page: PageType Worksheet (page 73682, :54) or List (page 73683, :182), the probe's code line for line
+    ///   (`found_row_code_is`), over a database table, opened by the test with OpenEdit, no part shown;
     /// - the test's calls since the open are value reads and the running SetValue of a control bound to a page variable, none of
     ///   them failed (a failed earlier step changes the refresh: :514-580, not run here);
     /// - the CurrPage calls of that OnValidate, this one last (`ControlOnValidate::saves`): on the Worksheet SaveRecord alone
@@ -360,11 +398,7 @@ impl Session {
             Some(al_ir::PageType::List) => false,
             _ => return Ok(false),
         };
-        let page_ok = self.page_code_is(st, &FOUND_ROW_CODE)?
-            && self.page_property_true(st, "AutoSplitKey")
-            && self.page_property_true(st, "DelayedInsert")
-            && self.has_source(st)
-            && !self.page_rec(st).borrow().temporary;
+        let page_ok = self.found_row_code_is(st, worksheet) && !self.page_rec(st).borrow().temporary;
         let (opened, onvalidate) = {
             let s = st.borrow();
             let opened = s.test_open_edit() && s.parts.is_empty() && s.hidden_parts.is_empty();
@@ -395,6 +429,25 @@ impl Session {
             && find_first_row
             && self.store.change_counter() == onvalidate.changes
             && self.found_row_first_of_view(st, touch)?)
+    }
+
+    /// Whether page `st`, its source table and the procedures they call read line for line as the probe's (`FOUND_ROW_PAGE` after
+    /// the PageType of `worksheet`, `FOUND_ROW_TABLE`, `FOUND_ROW_CALLEES`), with no extension and no subscriber of the page, the
+    /// table or a callee's object (`pinned_body::page_is`, `table_is`, `callees_are`).
+    fn found_row_code_is(&self, st: &St, worksheet: bool) -> bool {
+        let engine = self.engine();
+        let object = st.borrow().object as usize;
+        let table = self.page_rec(st).borrow().table as usize;
+        let mut want = vec![if worksheet {
+            "PageType = Worksheet"
+        } else {
+            "PageType = List"
+        }];
+        want.extend_from_slice(&FOUND_ROW_PAGE);
+        let (mut callees, mut names) = (Callees::new(), Names::default());
+        page_is(&engine, object, &want, &mut callees, &mut names)
+            && table_is(&engine, table, &FOUND_ROW_TABLE, &mut callees, &mut names)
+            && callees_are(&engine, &callees, &FOUND_ROW_CALLEES, &mut names)
     }
 
     /// Rec stands on the first row of a view whose only filter is the one the cells' SetBatch sets (StaleUpdateNewLine.al:168-174):

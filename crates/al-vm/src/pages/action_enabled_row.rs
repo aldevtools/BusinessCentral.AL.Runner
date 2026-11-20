@@ -20,7 +20,6 @@ const CODE: PinnedCode = PinnedCode {
     action_props: Some(&["enabled"]),
     part_props: None,
     table_triggers: &[],
-    var_fields: false,
 };
 
 /// The virtual table `Field` the repro's page shows.
