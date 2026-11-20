@@ -8,6 +8,9 @@ pub use key::PkStorage;
 use key::{Key, table_storage};
 use std::cmp::Ordering;
 
+mod alt_cache;
+#[cfg(test)]
+mod alt_cache_tests;
 mod band;
 #[cfg(test)]
 mod collation_read_tests;
@@ -122,19 +125,6 @@ struct OrderEntry {
     used: bool,
 }
 
-/// What `alt_next` knows about one scan (a table, a key and a set of filters) as of a table version.
-#[derive(Clone)]
-struct AltEntry {
-    version: u64,
-    /// How many scan steps came at this version: the first is answered by a pass over the band, the second builds
-    /// `keys`, the later ones search it.
-    calls: u32,
-    /// No other key narrows this scan: the caller walks.
-    not_applicable: bool,
-    /// The primary keys of the rows that pass the filters, in the order of the scan's key.
-    keys: Option<std::rc::Rc<Vec<Key>>>,
-}
-
 /// A primary key in a cached key order: shared, so a write that carries the order (`order_carry`) copies pointers,
 /// not keys.
 type OrderKey = std::rc::Rc<Key>;
@@ -194,7 +184,7 @@ pub struct MemStore {
     order_cache: std::rc::Rc<std::cell::RefCell<OrderCache>>,
     /// The rows that pass one set of filters, in the order of one key, for scans whose filters bound the leading
     /// fields of another key (see `alt_next`).
-    alt_cache: std::cell::RefCell<std::collections::HashMap<(Slot, usize, String), AltEntry>>,
+    alt_cache: std::cell::RefCell<alt_cache::AltCache>,
     /// The stamp of the store's last write (`next_stamp`); never goes back, so a stamp is never reused.
     counter: u64,
     /// Tables that have no stored rows (ADR-019).
@@ -549,6 +539,12 @@ fn passes(row: &Row, filters: &[FieldFilter]) -> bool {
     #[cfg(test)]
     ROWS_LOOKED_AT.with(|c| c.set(c.get() + 1));
     al_builtins::filter::row_passes_checked(row, filters)
+}
+
+/// Whether two sets of filters are exactly the same filters, in the same order ([`FieldFilter::identical`]): the key of
+/// what a store keeps for a read (`alt_cache`, the collation verdicts).
+fn same_filters(a: &[FieldFilter], b: &[FieldFilter]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.identical(y))
 }
 
 impl MemStore {
@@ -1440,8 +1436,7 @@ impl MemStore {
             return None;
         }
         let slot = slot(cx, t);
-        let version = self.stamp_of(&slot, &self.versions);
-        let ck = (slot.clone(), scan.key, format!("{:?}", scan.filters));
+        let stamp = self.stamp_of(&slot, &self.versions);
         let fields: Vec<usize> = if scan.key == 0 {
             t.keys[0].clone()
         } else {
@@ -1467,53 +1462,14 @@ impl MemStore {
                 }
             })
         };
-        let calls;
-        {
-            let mut cache = self.alt_cache.borrow_mut();
-            if cache.len() > 256 {
-                cache.clear();
-            }
-            match cache.get_mut(&ck) {
-                Some(e) if e.version == version => {
-                    if e.not_applicable {
-                        return None;
-                    }
-                    if let Some(keys) = e.keys.clone() {
-                        drop(cache);
-                        return Some(self.search_sorted(table, &keys, scan, &cmp_after));
-                    }
-                    e.calls += 1;
-                    calls = e.calls;
-                }
-                Some(e) => {
-                    // The first step after a write: walk.
-                    *e = AltEntry {
-                        version,
-                        calls: 1,
-                        not_applicable: false,
-                        keys: None,
-                    };
-                    return None;
-                }
-                None => {
-                    cache.insert(
-                        ck.clone(),
-                        AltEntry {
-                            version,
-                            calls: 1,
-                            not_applicable: false,
-                            keys: None,
-                        },
-                    );
-                    calls = 1;
-                }
-            }
-        }
+        let calls = match self.alt_step(&slot, scan.key, scan.filters, stamp) {
+            alt_cache::AltStep::Walk => return None,
+            alt_cache::AltStep::Sorted(keys) => return Some(self.search_sorted(table, &keys, scan, &cmp_after)),
+            alt_cache::AltStep::Band(calls) => calls,
+        };
         // When `own` is `None` the filters do not bound the scan's key (checked above), so it has no band to leave out.
         let Some(band) = self.narrowest_band(&slot, t, table, scan.filters, scan.key, own) else {
-            if let Some(e) = self.alt_cache.borrow_mut().get_mut(&ck) {
-                e.not_applicable = true;
-            }
+            self.alt_keep(&slot, scan.key, scan.filters, None);
             return None;
         };
         let band_keys: Vec<Key> = match &band {
@@ -1549,9 +1505,7 @@ impl MemStore {
             .collect();
         rows.sort_by(|a, b| cmp_rows(t, scan.key, a.1, b.1));
         let keys = std::rc::Rc::new(rows.into_iter().map(|(k, _)| k.clone()).collect::<Vec<_>>());
-        if let Some(e) = self.alt_cache.borrow_mut().get_mut(&ck) {
-            e.keys = Some(keys.clone());
-        }
+        self.alt_keep(&slot, scan.key, scan.filters, Some(keys.clone()));
         Some(self.search_sorted(table, &keys, scan, &cmp_after))
     }
 
