@@ -830,6 +830,8 @@ impl Session {
         let mut kept = Vec::new();
         if facts.publisher {
             kept = self.var_option_publisher_args(object, routine, args, &values, f)?;
+            self.events.raise_arg_var_param =
+                self.raise_arg_var_param((object, routine), &values, (f.object, f.routine), &f.locals);
             let by_var = &self.engine.program.objects[object].routines[routine].by_var;
             self.events.var_origins = args
                 .iter()
@@ -899,6 +901,7 @@ impl Session {
             // A publisher call refused before `publish` took them leaves them behind; the next event must not alias this
             // caller's globals (al-runner issue 7615).
             self.events.var_origins.clear();
+            self.events.raise_arg_var_param = false;
         }
         for (slot, inst, g) in &f.aliases {
             f.locals[*slot] = inst.borrow().globals[*g].clone();
