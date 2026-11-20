@@ -320,6 +320,21 @@ impl Session {
             && s.window.len() == 1
     }
 
+    /// A host move that carried the refresh a Lookup left (`LookupLeft::move_refresh`) raised an error that closed the TestPage
+    /// before the refresh ran: the refresh is dropped, so the same variable opens again as a fresh page whose first move reads
+    /// once (assumption `lookup-move-error-drops-refresh`, corpus pull request 1467, testpage/LookupLeftMoveStops.al:368
+    /// Next_MoveReadFails and :450 First_MoveReadFails). A move that raised and left the page open keeps the refresh, as before.
+    pub(super) fn lookup_move_stopped(&mut self, st: &St, moved: &Result<Value, Signal>) {
+        let closed = {
+            let s = st.borrow();
+            matches!(moved, Err(Signal::Error(_))) && s.lookup_left.move_refresh() && !s.open
+        };
+        if closed {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::LookupMoveErrorDropsRefresh);
+            st.borrow_mut().lookup_left.take_move_refresh();
+        }
+    }
+
     /// After a host move that carried the refresh a Lookup left (`LookupLeft::move_refresh`): the refresh runs on the row the host moved
     /// to. A move that found no row is not pinned.
     pub(super) fn lookup_move_refresh_after(&mut self, st: &St, moved: &Value) -> Result<(), Signal> {
