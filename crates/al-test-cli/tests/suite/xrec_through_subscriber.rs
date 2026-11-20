@@ -231,11 +231,11 @@ fn issue_8284_reporter_repro_hands_the_validate_xrec_through_a_subscriber_and_a_
     assert_eq!(o.len(), 3);
     for (name, outcome, hits) in &o {
         assert_eq!(outcome, "Pass", "{name}");
-        assert!(!hits.is_empty(), "{name} runs through an assumption");
+        assert!(hits.is_empty(), "{name}: {hits:?}");
     }
 }
 
-/// The cells of record/validate/XRecTableProcThroughSubscriber.al (corpus PR 1438, merged, not pinned yet; measured on a local Business Central
+/// The cells of record/validate/XRecTableProcThroughSubscriber.al (pinned at corpus 8fcde9a6; measured on a local Business Central
 /// container) and their neighbors. Each test validates a record whose stored row holds 0/OLD/I1 and whose variable holds
 /// 0/NEW/I1 (Mode ordinal/Series/"Item No."), and checks the log of xRecs against what BC logged; a neighbor that is not
 /// measured refuses a read of xRec.
@@ -677,7 +677,6 @@ const ASSIGN_REFUSED: &str = "a change to xRec (an assignment, a filter or anoth
 
 #[test]
 fn measured_chains_share_the_trigger_xrec_and_their_neighbors_refuse() {
-    use Assumption::XrecTableProcThroughSubscriber as A;
     let o = run(CHAINS, "XS Tests");
     let mut wrong = Vec::new();
     for (name, outcome, hits) in &o {
@@ -685,10 +684,8 @@ fn measured_chains_share_the_trigger_xrec_and_their_neighbors_refuse() {
             outcome.starts_with("NotRun") && outcome.contains(XREC_REFUSED)
         } else if name.starts_with("RefusedAssign_") {
             outcome.starts_with("NotRun") && outcome.contains(ASSIGN_REFUSED)
-        } else if name.ends_with("_KeepsMain") {
-            outcome == "Pass" && hits.is_empty()
         } else {
-            outcome == "Pass" && hits.contains(&A)
+            outcome == "Pass" && hits.is_empty()
         };
         if !ok {
             wrong.push(format!("{name}: {outcome} {hits:?}"));

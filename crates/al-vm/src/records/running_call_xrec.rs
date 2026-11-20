@@ -7,14 +7,13 @@
 //! parameter and calls the procedure on it (al-runner issues 8189 and 8284):
 //! - through a procedure of the table that is no trigger (`through_own_procedure`, record/validate/XRecTableProcThroughCodeunit.al:365-414);
 //! - straight from the trigger (`straight_from_trigger`, not through an interface), or from the subscriber of an integration
-//!   event the trigger raises (`through_subscriber`), assumption `xrec-table-proc-through-subscriber`. Under a Validate the
+//!   event the trigger raises (`through_subscriber`), record/validate/XRecTableProcThroughSubscriber.al. Under a Validate the
 //!   table's own code nested, BC keeps one xRec for both Validates where this runner keeps two: the xRec is shared only while
 //!   neither was assigned or filtered (`nested_xrecs_untouched`), and for reading only (`ProcXrec::SharedReadOnly`).
 
 use super::nested_validate::{ProcXrec, ValidateSite};
 use crate::records::Rec;
 use crate::{Frame, Session};
-use al_builtins::assumptions::{self, Assumption};
 use al_builtins::value::{RecordState, RtType, Value};
 use al_ir::{ObjKind, Routine};
 use std::rc::Rc;
@@ -31,10 +30,9 @@ const NESTING_PROCEDURES_MEASURED: usize = 3;
 /// `I filters=Series: F`), where this runner keeps the two triggers' xRecs apart.
 pub(crate) const XREC_CHANGED_UNDER_NESTED_VALIDATE: &str = "a change to xRec (an assignment, a filter or another view of it) in a table procedure called through an event subscriber under a Validate that the table's own code nested: real BC shows it to the outer Validate's trigger too, which this runner keeps apart";
 
-/// The chain of calls `measured_chain` found below a procedure call: the assumption it runs through (none when pinned), and, when a Validate the
-/// table's own code nested runs, that Validate's xRec (the procedure's xRec is then shared for reading only).
+/// The chain of calls `measured_chain` found below a procedure call: when a Validate the table's own code nested runs, that
+/// Validate's xRec (the procedure's xRec is then shared for reading only).
 struct Chain {
-    assumption: Option<Assumption>,
     nested: Option<Rec>,
 }
 
@@ -69,7 +67,6 @@ impl Session {
             && not_blank(&x)
             && let Some(chain) = self.measured_chain(object, table, rc, f)
             && chain.nested.as_ref().is_none_or(|inner| Rc::ptr_eq(inner, &x))
-            && chain.assumption.is_none_or(assumptions::hit)
         {
             return if chain.nested.is_some() {
                 ProcXrec::SharedReadOnly(x)
@@ -135,17 +132,9 @@ impl Session {
             return None;
         }
         // A subscriber of a table event right above the trigger (a Modify in the trigger) is not the codeunit called from it.
-        let assumption = if self.through_own_procedure(object, table, rc) {
-            None
-        } else if !subscriber && self.straight_from_trigger(object, table, rc) {
-            Some(Assumption::XrecTableProcThroughSubscriber)
-        } else {
-            return None;
-        };
-        Some(Chain {
-            assumption,
-            nested: None,
-        })
+        (self.through_own_procedure(object, table, rc)
+            || (!subscriber && self.straight_from_trigger(object, table, rc)))
+        .then_some(Chain { nested: None })
     }
 
     /// The chain record/validate/XRecTableProcThroughCodeunit.al pins (`Way3_*` and `Way4_*`, :365-414): `object` is the table
@@ -228,18 +217,12 @@ impl Session {
             return None;
         }
         let handle = Rc::as_ptr(rc) as usize;
-        let assumption = Some(Assumption::XrecTableProcThroughSubscriber);
         if self.sole_validate_from_al_at(handle, n - 3) {
-            return Some(Chain {
-                assumption,
-                nested: None,
-            });
+            return Some(Chain { nested: None });
         }
         let (outer, inner) = self.nested_by_own_code(table, handle, n - 3)?;
-        self.nested_xrecs_untouched(handle, &outer, &inner).then_some(Chain {
-            assumption,
-            nested: Some(inner),
-        })
+        self.nested_xrecs_untouched(handle, &outer, &inner)
+            .then_some(Chain { nested: Some(inner) })
     }
 
     /// Whether `publisher` is marked `[IntegrationEvent(false, false)]`, the publisher record/validate/
