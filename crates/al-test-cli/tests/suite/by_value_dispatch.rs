@@ -130,7 +130,7 @@ codeunit 50166 "BD Test"
     end;
 
     [Test]
-    procedure Codeunit_Group0Filter_Flagged()
+    procedure Codeunit_Group0Filter_Pinned()
     var
         Line: Record "BD Row";
     begin
@@ -222,7 +222,7 @@ codeunit 50166 "BD Test"
     end;
 
     [Test]
-    procedure TableProcedure_SameRecord_Flagged()
+    procedure TableProcedure_SameRecord_Pinned()
     var
         Line: Record "BD Row";
     begin
@@ -268,7 +268,7 @@ codeunit 50166 "BD Test"
 fn by_value_copies_outside_the_measured_calls_and_record_state_refuse_or_keep_main() {
     let o = run(DISPATCH, "BD Test");
     let want = [
-        ("Codeunit_Group0Filter_Flagged", PASS, true),
+        ("Codeunit_Group0Filter_Pinned", PASS, false),
         // A subscriber's copy of a temporary record with a filter is not measured (al-runner issue 8295): its view reads refuse.
         ("TemporaryToSubscriber_Refused", VIEW_REFUSED, false),
         ("Interface_Group0Filter_Refused", VIEW_REFUSED, false),
@@ -277,7 +277,7 @@ fn by_value_copies_outside_the_measured_calls_and_record_state_refuse_or_keep_ma
         ("SetLoadFields_AfterARead_Refused", VIEW_REFUSED, false),
         ("SetAutoCalcFields_Refused", VIEW_REFUSED, false),
         ("ReadIsolation_Refused", VIEW_REFUSED, false),
-        ("TableProcedure_SameRecord_Flagged", PASS, true),
+        ("TableProcedure_SameRecord_Pinned", PASS, false),
         ("TableProcedure_OtherVariable_Refused", VIEW_REFUSED, false),
         ("TableProcedure_RecFromTableCode_Refused", VIEW_REFUSED, false),
         ("TableProcedure_OtherVariable_NoFilter_KeepsMain", PASS, false),
