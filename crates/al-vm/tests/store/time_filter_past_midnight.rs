@@ -84,8 +84,191 @@ codeunit 69979 "TF Subscriber"
     begin
     end;
 }
+table 69980 "TF Ext Key Base"
+{
+    fields { field(1; Id; Integer) { } field(2; Tm; Time) { } }
+    keys { key(PK; Id) { } }
+}
+tableextension 69981 "TF Ext Key" extends "TF Ext Key Base"
+{
+    keys { key(TmKeyExt; Tm) { } }
+}
+table 69982 "TF Key Props"
+{
+    fields { field(1; Id; Integer) { } field(2; Tm; Time) { } }
+    keys { key(PK; Id) { } key(TmKey; Tm) { MaintainSQLIndex = false; } }
+}
+table 69983 "TF Count"
+{
+    fields
+    {
+        field(1; Id; Integer) { }
+        field(2; Cnt0; Integer) { FieldClass = FlowField; CalcFormula = count("TF Row" where(Tm = const(000000T))); }
+        field(3; TmFilter; Time) { FieldClass = FlowFilter; }
+        field(4; CntF; Integer) { FieldClass = FlowField; CalcFormula = count("TF Row" where(Tm = field(TmFilter))); }
+        field(5; CntId; Integer) { FieldClass = FlowField; CalcFormula = count("TF Row" where(Id = filter(1..3))); }
+    }
+    keys { key(PK; Id) { } }
+}
+query 69984 "TF Q"
+{
+    elements
+    {
+        dataitem(R; "TF Row")
+        {
+            column(Id; Id) { }
+            column(Tm; Tm) { }
+        }
+    }
+}
 codeunit 69971 C
 {
+    procedure ModifyWithoutRead()
+    var R: Record "TF Row";
+    begin
+        Seed();
+        R.Init(); R.Id := 4; R.Tm := 000000T; R.Modify();
+    end;
+
+    procedure ModifyAfterReadingAnotherRow()
+    var R: Record "TF Row"; R2: Record "TF Row";
+    begin
+        Seed();
+        R2.Get(1); R := R2; R.Id := 4; R.Note := 'n'; R.Modify();
+    end;
+
+    procedure ModifyTwiceAfterOneGet()
+    var R: Record "TF Row";
+    begin
+        Seed();
+        R.Get(4); R.Note := 'a'; R.Modify(); R.Note := 'b'; R.Modify();
+    end;
+
+    procedure ModifyAfterGetAndInit()
+    var R: Record "TF Row";
+    begin
+        Seed();
+        R.Get(4); R.Init(); R.Tm := 000000T; R.Modify();
+    end;
+
+    procedure ModifyAfterGetOfACopy()
+    var R: Record "TF Row"; R2: Record "TF Row";
+    begin
+        Seed();
+        R2.Get(4); R := R2; R.Note := 'n'; R.Modify();
+    end;
+
+    procedure ModifyAfterSetTable()
+    var R: Record "TF Row"; RR: RecordRef;
+    begin
+        Seed();
+        R.Get(4); RR.GetTable(R); RR.SetTable(R); R.Note := 'n'; R.Modify();
+    end;
+
+    procedure ModifyOfAByValueCopy()
+    var R: Record "TF Row";
+    begin
+        Seed();
+        R.Get(4); ModifyCopy(R);
+    end;
+
+    local procedure ModifyCopy(R: Record "TF Row")
+    begin
+        R.Note := 'n'; R.Modify();
+    end;
+
+    procedure ModifyWithoutReadWritesAnotherTime(): Text
+    var R: Record "TF Row";
+    begin
+        Seed();
+        R.Init(); R.Id := 4; R.Tm := 120000T; R.Modify();
+        R.Reset(); R.SetRange(Tm, 120000T); exit(Ids(R));
+    end;
+
+    procedure QueryFilterEq0(): Text
+    var Q: Query "TF Q"; s: Text;
+    begin
+        Seed();
+        Q.SetRange(Tm, 000000T); Q.Open();
+        while Q.Read() do s += Format(Q.Id);
+        exit(s);
+    end;
+
+    procedure QueryFilterLt999(): Text
+    var Q: Query "TF Q"; s: Text;
+    begin
+        Seed();
+        Q.SetFilter(Tm, '<%1', 235959.999T); Q.Open();
+        while Q.Read() do s += Format(Q.Id);
+        exit(s);
+    end;
+
+    procedure QueryFilterOnId(): Text
+    var Q: Query "TF Q"; s: Text;
+    begin
+        Seed();
+        Q.SetRange(Id, 1, 3); Q.Open();
+        while Q.Read() do s += Format(Q.Id) + ':' + Format(Q.Tm, 0, 9) + ';';
+        exit(s);
+    end;
+
+    procedure CalcFormulaConst(): Text
+    var S: Record "TF Count";
+    begin
+        Seed();
+        S.Id := 1; S.Insert(); S.CalcFields(Cnt0);
+        exit(Format(S.Cnt0));
+    end;
+
+    procedure FlowFilterEq0(): Text
+    var S: Record "TF Count";
+    begin
+        Seed();
+        S.Id := 1; S.Insert(); S.SetRange(TmFilter, 000000T); S.CalcFields(CntF);
+        exit(Format(S.CntF));
+    end;
+
+    procedure CalcFormulaOnId(): Text
+    var S: Record "TF Count";
+    begin
+        Seed();
+        S.Id := 1; S.Insert(); S.CalcFields(CntId);
+        exit(Format(S.CntId));
+    end;
+
+    procedure RenameWrites999()
+    var R: Record "TF Row";
+    begin
+        Seed();
+        R.Get(2); R.Tm := 235959.999T; R.Rename(20);
+    end;
+
+    procedure RenameWritesAnotherTime(): Text
+    var R: Record "TF Row";
+    begin
+        Seed();
+        R.Get(2); R.Tm := 130000T; R.Rename(20);
+        R.Reset(); R.SetRange(Tm, 130000T); exit(Ids(R));
+    end;
+
+    procedure ExtensionKey(): Text
+    var E: Record "TF Ext Key Base"; s: Text;
+    begin
+        E.Id := 1; E.Tm := 000000T; E.Insert(); E.Id := 4; E.Tm := 235959.999T; E.Insert();
+        E.SetRange(Tm, 235959.999T); s := 'eq999=' + Format(E.Count());
+        E.SetRange(Tm, 000000T); s += ';eq0=' + Format(E.Count());
+        E.SetFilter(Tm, '<%1', 235959.999T); exit(s + ';lt999=' + Format(E.Count()));
+    end;
+
+    procedure KeyWithProperties(): Text
+    var E: Record "TF Key Props"; s: Text;
+    begin
+        E.Id := 1; E.Tm := 000000T; E.Insert(); E.Id := 4; E.Tm := 235959.999T; E.Insert();
+        E.SetRange(Tm, 235959.999T); s := 'eq999=' + Format(E.Count());
+        E.SetRange(Tm, 000000T); s += ';eq0=' + Format(E.Count());
+        E.SetFilter(Tm, '<%1', 235959.999T); exit(s + ';lt999=' + Format(E.Count()));
+    end;
+
     procedure PlainFields(): Text
     var R: Record "TF Plain"; s: Text;
     begin
@@ -357,4 +540,77 @@ fn a_modify_of_a_rolled_row_with_trigger_code_or_a_subscriber_is_refused() {
 #[test]
 fn a_modify_false_of_a_rolled_row_runs_as_pinned() {
     assert_eq!(text(run("ModifyFalseWithTrigger")), "1");
+}
+
+fn refused(routine: &str, why: &str) {
+    let r = run(routine);
+    assert!(
+        matches!(&r, Err(Signal::Unsupported(m)) if m.contains(why)),
+        "{routine}: {r:?}"
+    );
+}
+
+// TimeRolledPastMidnight.al:210-212, :221-223 keep the rollover only after a Get of the same row. A Modify of 00:00:00 over it by a
+// record that did not read the row since (Init, a copy of another row's or of another variable's read, a second Modify, a builtin
+// that wrote the buffer, a by-value copy) is not measured.
+#[test]
+fn a_modify_of_midnight_over_a_rolled_row_without_its_own_read_is_refused() {
+    for routine in [
+        "ModifyWithoutRead",
+        "ModifyAfterReadingAnotherRow",
+        "ModifyTwiceAfterOneGet",
+        "ModifyAfterGetAndInit",
+        "ModifyAfterGetOfACopy",
+        "ModifyAfterSetTable",
+        "ModifyOfAByValueCopy",
+    ] {
+        refused(routine, "did not read it");
+    }
+}
+
+// A Modify without a read that writes another time over the rolled row keeps main's answer.
+#[test]
+fn a_modify_without_a_read_that_writes_another_time_keeps_main() {
+    assert_eq!(text(run("ModifyWithoutReadWritesAnotherTime")), "24");
+}
+
+// The pin measures the record's own filters and FieldRef filters (TimeRolledPastMidnight.al:99-159, :369-376), not a query's
+// filters, a CalcFormula const or a FlowFilter on the field.
+#[test]
+fn a_query_or_calcformula_filter_on_the_field_over_a_rolled_row_is_refused() {
+    for routine in [
+        "QueryFilterEq0",
+        "QueryFilterLt999",
+        "CalcFormulaConst",
+        "FlowFilterEq0",
+    ] {
+        refused(routine, "filter on a Time field over a row that holds");
+    }
+}
+
+// A query or a CalcFormula that filters on another field and does not reach the rolled row keeps main's answer.
+#[test]
+fn a_query_or_calcformula_filter_on_another_field_keeps_main() {
+    assert_eq!(text(run("QueryFilterOnId")), "1:00:00:00;2:12:00:00;3:23:59:59.997;");
+    assert_eq!(text(run("CalcFormulaOnId")), "3");
+}
+
+// The pin measures the rollover written by Insert, Modify and ModifyAll (TimeRolledPastMidnight.al:203-262), not by a Rename.
+#[test]
+fn a_rename_that_writes_a_rollover_is_refused() {
+    refused("RenameWrites999", "a Rename that writes a Time of 23:59:59.999");
+}
+
+// A Rename that writes another time keeps main's answer.
+#[test]
+fn a_rename_that_writes_another_time_keeps_main() {
+    assert_eq!(text(run("RenameWritesAnotherTime")), "20");
+}
+
+// TimeRolledPastMidnight.al:23: the key on the field is the table's own and has no properties. A key a table extension adds, or
+// one with properties, keeps main's rounding to 00:00:00.
+#[test]
+fn a_key_of_a_table_extension_or_with_properties_keeps_main_rounding() {
+    assert_eq!(text(run("ExtensionKey")), "eq999=2;eq0=2;lt999=0");
+    assert_eq!(text(run("KeyWithProperties")), "eq999=2;eq0=2;lt999=0");
 }

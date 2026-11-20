@@ -683,6 +683,7 @@ impl Session {
             self.permission_gate_flowfield(rec, calc.table, &[])?;
         }
         let cx = self.cx_for(rec, &src_t)?;
+        self.refuse_filter_over_rolled(&cx, &src_t, &filters)?;
         let n = self
             .store
             .count(&cx, &src_t, &filters)
@@ -750,6 +751,7 @@ impl Session {
             self.permission_gate_flowfield(rec, calc.table, stack)?;
         }
         let cx = self.cx_for(rec, &src_t)?;
+        self.refuse_filter_over_rolled(&cx, &src_t, &filters)?;
         let src_fields = &engine.program.objects[calc.table].table.as_ref().expect("table").fields;
         let (stored, flow): (Vec<FieldFilter>, Vec<FieldFilter>) = filters
             .iter()

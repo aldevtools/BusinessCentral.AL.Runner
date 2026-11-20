@@ -46,6 +46,7 @@ mod stale_rule;
 mod tenant_media_rows;
 mod time_rollover;
 pub(crate) use stale_rule::{TrappedRollback, same_key};
+pub(crate) use time_rollover::rolled_read_end_for_operands;
 mod guarded_run_body;
 pub(crate) use guarded_run_body::GuardedBody;
 mod locking_read_cells;
@@ -1955,12 +1956,14 @@ impl Session {
             let company = rec.borrow().company.clone();
             self.tx.open.rows_touched.push((t.object, company, pk.clone()));
         }
+        let rolled_read = self.rolled_read_of_load(&row, &pk, via_get && !via_sysid && !via_find, temporary);
         // After the filters saw the row as stored: a Time a database column holds past the day reads 00:00:00 (`sqltime`).
         if !temporary {
             crate::sqltime::read_back(&mut row);
         }
         {
             let mut r = rec.borrow_mut();
+            r.rolled_read = rolled_read;
             r.position = passes.then_some(pk);
             r.fields = row;
             r.row_origin = origin;
@@ -2460,6 +2463,7 @@ impl Session {
     /// (isdirty.rs).
     pub(crate) fn record_op(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
         self.probed_source_before(method, rec, args);
+        Self::rolled_read_before(method, rec);
         let inserted = self.own_read_before(method, rec, args);
         let r = if self.coverage.profiler.is_some() {
             self.record_op_profiled(method, rec, args)

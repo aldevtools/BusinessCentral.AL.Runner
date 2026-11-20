@@ -776,6 +776,7 @@ impl Session {
             RecordOp::Modify => {
                 let run = arg_bool(args, 0)?;
                 let caller = self.take_modify_caller();
+                let read_rolled = Self::modify_read_the_rolled_row(rec, &t, caller);
                 self.tenant_license_state_refuses(&t, "modify")?;
                 self.document_service_trigger_refused(&t, rec, run, "Modify")?;
                 // A key value the column rounds finds the rounded row (P130DateFilters.al:635-637, `modify var`).
@@ -891,7 +892,7 @@ impl Session {
                 }
                 let mut stored = Self::to_store(rec, view);
                 if let (false, Some(old)) = (rec.borrow().temporary, stored_row.as_deref()) {
-                    crate::sqltime::keep_rolled(old, &mut stored);
+                    crate::sqltime::keep_rolled(old, &mut stored, read_rolled)?;
                 }
                 if let Some(bad) = self.sql_columns(rec, &t, &mut stored)? {
                     let shape = (caller, stored_row.is_some(), run);
@@ -2045,6 +2046,7 @@ impl Session {
                 if let Some(bad) = self.sql_columns(rec, &t, &mut stored)? {
                     return self.fail_rename_sql_range(rec, &t, bad, (from_al, refs.is_empty()), &old);
                 }
+                Self::refuse_rename_writing_rolled(&stored)?;
                 // A rename to the key the row has succeeds and writes the row again, which is what
                 // stamps it (record/TestRecordSystemId.al:752-775).
                 let same_key = ops::compare_keys(&old_pk, &Self::sql_key(rec, &t, &row))?;

@@ -659,10 +659,14 @@ fn walk_table<V: RefVisitor>(t: &mut Table, v: &mut V) {
         keys,
         unique_keys: _,
         key_props: _,
+        key_declared_in,
         per_company: _,
         extensions,
         unsupported: _,
     } = t;
+    for d in key_declared_in.iter_mut().flatten() {
+        object32(v, d);
+    }
     for k in keys {
         for f in k {
             fld(v, f, TableOf::Own);

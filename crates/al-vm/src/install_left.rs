@@ -450,6 +450,7 @@ impl Session {
             failed_sql_rename,
             insert_from_al,
             rename_from_al,
+            get_from_al,
             write_of_al,
             deferred_by,
             deferred_raised,
@@ -474,6 +475,7 @@ impl Session {
             && failed_sql_rename.is_none()
             && !insert_from_al
             && !rename_from_al
+            && !get_from_al
             && write_of_al.is_none()
             && deferred_by.is_none()
             && *deferred_raised == 0

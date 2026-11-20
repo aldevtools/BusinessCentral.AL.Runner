@@ -1593,6 +1593,10 @@ pub struct Table {
     /// parallel to `keys`; empty for a key the compiler adds.
     #[serde(default)]
     pub key_props: Vec<Vec<(String, String)>>,
+    /// The object index of the table or table extension that declares each key, parallel to `keys`; `None` for the primary
+    /// key the compiler adds to a table without a keys section. Empty in an IR written before it.
+    #[serde(default)]
+    pub key_declared_in: Vec<Option<u32>>,
     pub per_company: bool,
     /// Object index of each table extension (their triggers are not run yet).
     pub extensions: Vec<usize>,

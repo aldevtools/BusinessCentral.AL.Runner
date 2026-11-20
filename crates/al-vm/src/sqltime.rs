@@ -58,7 +58,8 @@ pub(crate) fn rounded(v: &Value) -> Value {
 const ROLLED: i64 = MS_PER_DAY + 1;
 
 /// Whether field `i` of database table `t` has the shape record/filters/TimeRolledPastMidnight.al measures (table 75011, :11-25):
-/// a Normal Time field the table itself declares (:17), outside the primary key (:22), with a secondary key of its own (:23).
+/// a Normal Time field the table itself declares (:17), outside the primary key (:22), with a secondary key of its own that the
+/// table itself declares with no properties (:23).
 /// Its column keeps 23:59:59.999 past the day (`ROLLED`). Every other field rounds as [`rounded`] does; a Time primary key
 /// field among them (:305-346, `eq0` and `rows` still differ from BC).
 pub(crate) fn keeps_past_midnight(t: &TableDef, schema: &al_ir::Table, i: usize) -> bool {
@@ -68,7 +69,11 @@ pub(crate) fn keeps_past_midnight(t: &TableDef, schema: &al_ir::Table, i: usize)
         && f.id < 2_000_000_000
         && schema.fields.get(i).is_some_and(|s| s.declared_in == Some(t.object))
         && !t.keys[0].contains(&i)
-        && t.keys.iter().skip(1).any(|k| k.as_slice() == [i])
+        && schema.keys.iter().enumerate().skip(1).any(|(k, key)| {
+            key.as_slice() == [i]
+                && schema.key_declared_in.get(k) == Some(&Some(t.object))
+                && schema.key_props.get(k).is_some_and(Vec::is_empty)
+        })
 }
 
 /// Whether `t` (a Time, not 0) rounds to a whole day in the column.
@@ -107,15 +112,23 @@ pub(crate) fn read_back_value(mut v: Value) -> Value {
     v
 }
 
-/// A Modify writes only what changed: a field that still holds what it read from a Time held past the day keeps it
+/// A Modify writes only what changed: after the record read the row (`read`: the variable's own Get or ModifyAll's read,
+/// `records/time_rollover.rs`), a field that still holds the 00:00:00 it read from a Time held past the day keeps it
 /// (TimeRolledPastMidnight.al:252 `note_eq999`, :254 `midnight_eq999` after `Tm := 000000T`, :260 `modifyallnote_eq999`).
-/// `old` is the stored row, `new` the row about to be written.
-pub(crate) fn keep_rolled(old: &[Value], new: &mut [Value]) {
+/// A record that did not read the row writing 00:00:00 there is not measured and refused. `old` is the stored row, `new` the row
+/// about to be written.
+pub(crate) fn keep_rolled(old: &[Value], new: &mut [Value], read: bool) -> Result<(), Signal> {
     for (o, n) in old.iter().zip(new) {
         if is_rolled(o) && matches!(n, Value::Time(1)) {
+            if !read {
+                return Err(Signal::unsupported(
+                    "a Modify of a row that holds a Time stored as 23:59:59.999 by a record that did not read it (not measured)",
+                ));
+            }
             *n = o.clone();
         }
     }
+    Ok(())
 }
 
 fn round_expr(e: &FilterExpr, rolls_over: bool) -> FilterExpr {
