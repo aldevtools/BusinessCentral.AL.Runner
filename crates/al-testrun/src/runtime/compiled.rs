@@ -287,6 +287,9 @@ pub struct EntryRun {
     /// The time limit of this entry's tests (al-runner issue 8125): `None`: `RunOptions::test_time_limit`;
     /// `Some(None)`: no limit.
     pub test_time_limit: Option<Option<std::time::Duration>>,
+    /// With `RunOptions::stop_after_first_failure`, a failure skips the later entries with the same `stop_group`
+    /// (`None` is one group); the serve protocol refuses a mix.
+    pub stop_group: Option<String>,
 }
 
 /// One pass of `CorpusRuntime::run_compiled` (an entry, or the whole run), in program order.

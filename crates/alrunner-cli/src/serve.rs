@@ -555,9 +555,17 @@ fn entries_of(fields: &Map<String, Value>) -> Result<(Vec<run::Entry>, Vec<Value
             excludes_exact: string_list(e, "excludeTestsExact")?,
             resources,
             test_timeout_secs: test_timeout_secs(e)?,
+            stop_group: None,
         });
     }
     Ok((entries, ids))
+}
+
+/// Whether the `stopGroup`s of `entries` may run with the stop after a failure set to `stop`. Stub until PERF-18 A1.
+#[allow(dead_code)] // PERF-18 A1 calls it from `run_tests`.
+fn stop_groups_checked(entries: &[run::Entry], stop: bool) -> Result<(), String> {
+    let _ = (entries, stop);
+    Ok(())
 }
 
 fn run_tests(base: &TestArgs, fields: &Map<String, Value>, ctx: &mut WarmCtx, flags: &Flags) {
