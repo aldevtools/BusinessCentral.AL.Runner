@@ -474,7 +474,7 @@ impl Session {
         // Close() and a platform close store too, docs/probes-needed.md).
         // A Cancel keeps what the earlier OK stored, filters included (reports/request-page/Y86RequestFilters.al Y86_CancelKeeps_*).
         if !(via_action && matches!(action, "Cancel" | "LookupCancel" | "No")) {
-            self.store_page_values(st);
+            self.store_page_values(st, via_action && action == "OK")?;
         }
         // Not on the blank new-line row of a page: corpus misc/lt-page-run-overloads RunModal_NonTempRecord_ShowsDbRows keeps
         // `Row.Code` = D1 after a handler that read the page down to its new line and pressed OK.
