@@ -1,11 +1,10 @@
-//! The Variant.IsXxx methods that corpus PR 1382 measured first (al-runner issue 7963; types/variant/VariantIsMatrix.al:135-493,
-//! not pinned yet, assumption `variant-is-matrix`): IsTransactionType, IsDataClassificationType and IsSecurityFiltering answer
+//! The Variant.IsXxx methods that tests/al-language/types/variant/VariantIsMatrix.al:135-493 pins (al-runner issue 7963):
+//! IsTransactionType, IsDataClassificationType and IsSecurityFiltering answer
 //! only for the kinds the probe held ([`measured`]); every other kind refuses. IsOption of a TransactionType value is false. A
 //! TransactionType value is one whose declared type is TransactionType (`sysenum::is_transaction_type`); an Option with the same
 //! members is an Option. The IsJson and IsXml methods stay in `xml::lists`.
 
 use super::*;
-use crate::assumptions::{Assumption, assume};
 use crate::library_kind::LibraryKind;
 
 /// The kinds of value the probe put into a Variant (VariantIsMatrix.al:135 TransactionType, :176 unassigned, :186 simple kinds,
@@ -23,7 +22,7 @@ fn measured(c: &mut dyn Ctx, v: Option<&mut Value>) -> Result<bool, Signal> {
         | Value::Char(_)
         | Value::Text(_)
         | Value::Code(_)
-        | Value::TextConst(_)
+        | Value::TextConst(..)
         | Value::Enum(..)
         | Value::Date(..)
         | Value::Time(_)
@@ -85,7 +84,7 @@ fn is_kind(c: &mut dyn Ctx, r: Option<&mut Value>, kind: &str) -> Result<Value, 
     let mut r = r;
     if !measured(c, r.as_deref_mut())? {
         return unsupported(format!(
-            "Variant.Is{kind} of a {held} value (corpus PR 1382 measures only the kinds it puts into a Variant)"
+            "Variant.Is{kind} of a {held} value (VariantIsMatrix.al measures only the kinds it puts into a Variant)"
         ));
     }
     // The default TransactionType value is IsTransactionType: pinned by types/TestVariantExtended.al:238.
@@ -94,12 +93,6 @@ fn is_kind(c: &mut dyn Ctx, r: Option<&mut Value>, kind: &str) -> Result<Value, 
     {
         return Ok(Value::Boolean(true));
     }
-    // A TextConstant answers false to all three: pinned by types/variant/VaTTextConst.al:287-289 (a TextConst assigned, handed
-    // through a Variant parameter and back, and a Label assigned: `more=TextConstant,` only).
-    if matches!(r.as_deref(), Some(Value::TextConst(_))) {
-        return Ok(Value::Boolean(false));
-    }
-    assume(Assumption::VariantIsMatrix);
     let answer = match r {
         None | Some(Value::Null) => false,
         Some(Value::Option(_, members)) => match kind {
@@ -117,7 +110,6 @@ fn is_kind(c: &mut dyn Ctx, r: Option<&mut Value>, kind: &str) -> Result<Value, 
 fn is_option(r: Option<&mut Value>) -> Result<Value, Signal> {
     if let Some(Value::Option(_, members)) = r.as_deref() {
         if crate::sysenum::is_transaction_type(members) {
-            assume(Assumption::VariantIsMatrix);
             return Ok(Value::Boolean(false));
         }
     }

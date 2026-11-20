@@ -286,6 +286,7 @@ impl Session {
     /// `[RequestPageHandler]` and reports how the handler closed it. The page's `OnInit` and
     /// `OnOpenPage` run before the handler sees it, and write the report's own variables
     /// (reports/TestRequestPageOnInit.al, reports/TestReportRunRequestPage.al: `rp-open`).
+    /// The page that two reportextensions of independent apps extend with triggers opens only as `request_ok_only_open` lets it.
     pub(crate) fn run_request_page(
         &mut self,
         inst: &Inst,
@@ -294,7 +295,23 @@ impl Session {
         run_ext: Vec<(usize, Inst)>,
         want_parameters: bool,
     ) -> Result<(RequestClosed, Option<String>), Signal> {
+        self.request_ok_only_open(object, want_parameters, |s| {
+            s.open_request_page(inst, object, seed, run_ext, want_parameters)
+        })
+    }
+
+    fn open_request_page(
+        &mut self,
+        inst: &Inst,
+        object: usize,
+        seed: Option<&str>,
+        run_ext: Vec<(usize, Inst)>,
+        want_parameters: bool,
+    ) -> Result<(RequestClosed, Option<String>), Signal> {
         let engine = self.engine();
+        if let Some(report) = engine.program.objects[object].report.as_ref() {
+            crate::reports::dependency_items::require_pinned_entry(report, false)?;
+        }
         let name = engine.program.objects[object].name.clone();
         let Some(page) = engine.program.objects[object].page.as_ref() else {
             return unsupported(format!(
@@ -354,6 +371,7 @@ impl Session {
         else {
             return unsupported("a request page without a handler");
         };
+        self.request_ok_only_handler(object, hobject, hroutine)?;
         self.request_page_takes_init_caption(inst, &st);
         self.ui_state.page_handler_depth += 1;
         // The handler of a `RunRequestPage` finds no transaction, while the page's own triggers write as ever
@@ -562,7 +580,7 @@ impl Session {
         st.borrow_mut().result = Some("SaveAsXml".into());
         // SaveValues: the close stores the values of the page and of its extensions; the next run opens with them (al-language-onprem/
         // reports/layouts-saveas/Y60ReportExtSaveAsXml.al ReportExt_SaveValues_SaveAsXml_NextRun).
-        self.store_page_values(st);
+        self.store_page_values(st, false)?;
         self.mark_closed(st);
         Ok(Value::Null)
     }
@@ -594,11 +612,11 @@ impl Session {
         let target = crate::reports::SaveTarget::File(name);
         // `None`: the ADR-040 allow-list's answer, run and write nothing.
         let placeholder = {
-            use crate::report_save::{AnswerForm, BeforeRun};
+            use crate::report_save::{AnswerForm, BeforeRun, Call};
             let Some(f) = crate::report_placeholder::Format::from_name(format) else {
                 return unsupported(format!("SaveAs{format} of \"{}\"", schema.name()));
             };
-            match self.save_before_run(&schema, f, &target, AnswerForm::None, false)? {
+            match self.save_before_run(&schema, f, (&target, Call::Other), AnswerForm::None, false)? {
                 BeforeRun::Run(plan) => Some(crate::report_placeholder::SaveOutput::Rendered(Box::new(plan))),
                 BeforeRun::Discard => None,
                 // No row of the request page's form answers before the run (`report_save` test
@@ -627,7 +645,7 @@ impl Session {
         let rows = written.rows;
         drop(written);
         let output = placeholder.unwrap_or(crate::report_placeholder::SaveOutput::Discard);
-        self.write_save_output(target, output, &schema, &[], rows)?;
+        self.write_save_output(target, output, &schema, &[], rows, None)?;
         st.borrow_mut().result = Some(format!("SaveAs{format}"));
         self.mark_closed(st);
         Ok(Value::Null)
@@ -1030,9 +1048,6 @@ impl Session {
         call: ParamsCall,
     ) -> Result<(), Signal> {
         let written = super::request_options::written_bare_root(xml, call);
-        if written.is_some() {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ReportParamsWrittenDeclaration);
-        }
         let xml = written.as_deref().unwrap_or(xml);
         let engine = self.engine();
         let o = &engine.program.objects[object];

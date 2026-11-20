@@ -12,12 +12,23 @@
 //! seen by the other (:460-482) and a RecordRef parameter by value that the callee closes (:484-500).
 
 use al_builtins::library_kind::LibraryKind;
+use al_builtins::native::Signal;
 use al_builtins::value::{LibraryValue, RecordState, RtType, Value};
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 
 type Lib = Rc<RefCell<LibraryValue>>;
 type WeakLib = Weak<RefCell<LibraryValue>>;
+
+/// "Microsoft.Dynamics.Nav.Runtime.NavVariant variable not initialized." (NotInitialized): `RecordRef.SetTable` and
+/// `RecordRef.GetTable` of a Variant that holds nothing (types/WcSetTableVariant.al:188-203 WC_SetTable_EmptyVariant;
+/// recordref-fieldref/recordref/GetTableVariantKinds.al:79-116).
+pub(crate) fn variant_not_initialized() -> Signal {
+    crate::transactions::al_error_code(
+        "Microsoft.Dynamics.Nav.Runtime.NavVariant variable not initialized.",
+        "NotInitialized",
+    )
+}
 
 /// What the `RecordRef.GetTable` that runs was given (refs.rs `ref_op`).
 #[derive(Default)]
@@ -41,6 +52,14 @@ pub(crate) fn own_copy(h: &Lib) -> Value {
     Value::Library(LibraryKind::RecordRef, copy)
 }
 
+/// RecordRef `h` goes into a Variant or a parameter: its record is a measured Blob source no longer
+/// (`blob_transfer::recordref_aliased`). A RecordRef assignment keeps it.
+fn handed_on(h: &Lib) {
+    if let LibraryValue::RecordRef(rec) = &*h.borrow() {
+        crate::blob_transfer::recordref_aliased(rec);
+    }
+}
+
 /// Whether a RecordRef handed to a parameter of type `ty` goes through `VariantRefs::param_value`: by value to a RecordRef or
 /// Variant parameter, or bound to a `var` Variant parameter. A `var` RecordRef parameter keeps the caller's handle as it is.
 pub(crate) fn takes_param(ty: &RtType, by_var: bool) -> bool {
@@ -52,11 +71,23 @@ pub(crate) fn takes_param(ty: &RtType, by_var: bool) -> bool {
 }
 
 impl VariantRefs {
+    /// Holds what a new session holds (`install_left.rs`). Every field is named: a new one does not compile here until
+    /// it is decided.
+    pub(crate) fn as_new(&self) -> bool {
+        let VariantRefs {
+            get_table,
+            typed_aliases,
+            variant_held,
+        } = self;
+        !get_table && typed_aliases.is_empty() && variant_held.is_empty()
+    }
+
     /// The value a parameter of type `ty` gets for RecordRef `handle` (`takes_param`). By value: a RecordRef of its own on
     /// the same buffer, so the callee's Close leaves the caller's open; a subscriber's RecordRef parameter is a typed alias.
     /// Bound to a `var` Variant: the Variant holds the caller's handle, noted as Variant-held, so a RecordRef assigned from
     /// it is no typed alias.
     pub(crate) fn param_value(&mut self, handle: Lib, ty: &RtType, by_var: bool, is_subscriber: bool) -> Value {
+        handed_on(&handle);
         match ty {
             RtType::Variant if by_var => {
                 self.note_variant_held(&handle);
@@ -70,6 +101,7 @@ impl VariantRefs {
 
     /// The copy of RecordRef `source` that a Variant gets (`own_copy`); its handle is noted as held by a Variant.
     pub(crate) fn variant_copy(&mut self, source: &Lib) -> Value {
+        handed_on(source);
         let copy = own_copy(source);
         if let Value::Library(_, handle) = &copy {
             self.note_variant_held(handle);
@@ -84,8 +116,8 @@ impl VariantRefs {
     }
 
     /// The copy of RecordRef `source` that a RecordRef variable or a RecordRef parameter of a subscriber gets. The pair is
-    /// kept as a typed alias (AL Runner issue 7885, corpus pull request 1357: an assigned RecordRef, a by-value event
-    /// argument) only when `source` is not a handle a Variant holds; a RecordRef assigned from a Variant was not measured.
+    /// kept as a typed alias (an assigned RecordRef, a by-value event argument: TestRecordRefGetTableAlias.al:13-29,
+    /// :37-52) only when `source` is not a handle a Variant holds; a RecordRef assigned from a Variant was not measured.
     pub(crate) fn copy_typed_alias(&mut self, source: &Lib) -> Value {
         if self
             .variant_held
@@ -105,8 +137,8 @@ impl VariantRefs {
         copy
     }
 
-    /// Whether `receiver` is the copy of a typed alias pair (corpus pull request 1357 measures GetTable on the copy, not on
-    /// the source) and both handles still share `current`.
+    /// Whether `receiver` is the copy of a typed alias pair (TestRecordRefGetTableAlias.al:51 measures GetTable on the copy,
+    /// not on the source) and both handles still share `current`.
     fn has_typed_alias(&self, receiver: &Lib, current: &crate::records::Rec) -> bool {
         self.typed_aliases.iter().any(|(a, b)| {
             let (Some(a), Some(b)) = (a.upgrade(), b.upgrade()) else {
@@ -119,25 +151,86 @@ impl VariantRefs {
         })
     }
 
-    /// Corpus PR 1357 (issue 7885) measures typed same-table replacement through a RecordRef alias.
-    pub(crate) fn install_get_table_buffer(&self, lib: &Lib, copy: RecordState, typed_source: bool) {
+    /// GetTable on the copy of a typed alias pair (an assigned RecordRef or a by-value subscriber argument) with a Record of the
+    /// same table replaces the row both handles share, in the pinned shape only (recordref-fieldref/recordref/
+    /// TestRecordRefGetTableAlias.al:13-29 and :37-52): the Record is not temporary, unfiltered and in its primary key, and the
+    /// shared buffer is not temporary, unfiltered, in its primary key and held by exactly the two handles of the pair. With a
+    /// Record and a buffer of that table, both not temporary, another filter, key or number of handles refuses. `record_source`:
+    /// the argument was a Record, not a Variant. Every other GetTable gives the receiver a buffer of its own (main's path).
+    pub(crate) fn install_get_table_buffer(
+        &self,
+        lib: &Lib,
+        copy: RecordState,
+        record_source: bool,
+    ) -> Result<(), Signal> {
         let shared = match &*lib.borrow() {
             LibraryValue::RecordRef(current)
-                if typed_source && !copy.temporary && self.has_typed_alias(lib, current) =>
+                if record_source && !copy.temporary && self.has_typed_alias(lib, current) && {
+                    let buffer = current.borrow();
+                    !buffer.temporary && buffer.table == copy.table
+                } =>
             {
-                let same_table = {
-                    let current = current.borrow();
-                    !current.temporary && current.table == copy.table
+                let pinned = {
+                    let buffer = current.borrow();
+                    let plain = |r: &RecordState| r.filters.is_empty() && r.key == 0 && r.adhoc.is_none();
+                    plain(&copy) && plain(&buffer) && Rc::strong_count(current) == 2
                 };
-                same_table.then(|| current.clone())
+                if !pinned {
+                    return Err(Signal::Unsupported(
+                        "GetTable on a RecordRef that shares its row with another handle, outside the pinned shape (two handles, unfiltered, primary key, same table, not temporary) (not pinned)".into(),
+                    ));
+                }
+                Some(current.clone())
             }
             _ => None,
         };
         if let Some(current) = shared {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RecordRefGetTableSharedSameTable);
             *current.borrow_mut() = copy;
         } else {
             *lib.borrow_mut() = LibraryValue::RecordRef(Rc::new(RefCell::new(copy)));
         }
+        Ok(())
+    }
+}
+
+impl crate::Session {
+    /// A RecordRef (held by a Variant) handed by value to a Record parameter of table `table`: of the same table, the Record
+    /// `ops::record_ref_into_record` makes (streams/ArRecordProbes.al:366 VariantRecordRef_PassedToRecordParameter).
+    /// Of another table it raises ObjectDefinitionChanged, naming the first field of the ref's table: pinned for that field a Code
+    /// where the parameter's table has an Integer (ArRecordProbes.al SG_VariantRecordRef_OtherTable_AssignAndParameter `param`, corpus bump PR
+    /// 738); other pairs of types and a ref not open raise an unpinned error.
+    pub(crate) fn record_ref_into_record_param(&mut self, h: &Lib, table: u32) -> Result<Value, Signal> {
+        let other = match &*h.borrow() {
+            LibraryValue::RecordRef(rec) if rec.borrow().table == table => {
+                return al_builtins::ops::record_ref_into_record(&rec.borrow());
+            }
+            LibraryValue::RecordRef(rec) => rec.borrow().table,
+            l if al_builtins::recordref_closed::not_open(l) => {
+                return Err(Signal::Error(Box::new(al_builtins::native::unpinned_error())));
+            }
+            _ => {
+                return Err(Signal::Unsupported(
+                    "a RecordRef value that is no record into a Record parameter".into(),
+                ));
+            }
+        };
+        let first = |t: u32| {
+            self.engine.program.objects[t as usize]
+                .table
+                .as_ref()
+                .and_then(|s| s.fields.first())
+                .map(|f| (f.name.clone(), f.ty.clone()))
+        };
+        if let (Some((_, RtType::Integer)), Some((name, RtType::Code(_)))) = (first(table), first(other)) {
+            return Err(Signal::Error(Box::new(al_builtins::native::AlError {
+                message: format!(
+                    "The definition of the {name} field has changed; old type: Integer, new type: Code. Start your activity again."
+                ),
+                code: "ObjectDefinitionChanged".into(),
+                call_stack: String::new(),
+                ..Default::default()
+            })));
+        }
+        Err(Signal::Error(Box::new(al_builtins::native::unpinned_error())))
     }
 }

@@ -694,7 +694,7 @@ fn a_dotnet_alias_without_a_declaration_is_a_lowering_reason() {
     );
 }
 
-// session-system/TestEnvironmentUserTenantContracts.al:204-216 reaches `CopyStr(TenantInfo.PreferredLanguage(), 1, 2)`
+// session-system/TestEnvironmentUserTenantContracts.al:201-213 reaches `CopyStr(TenantInfo.PreferredLanguage(), 1, 2)`
 // and `IsNull(TenantInfo)` in Microsoft's Azure AD Tenant Impl.: a DotNet result passed to a Text
 // parameter must fit it exactly (ADR-014 section 4), and IsNull takes a DotNet value.
 #[test]
@@ -1102,6 +1102,85 @@ fn an_app_below_the_runtime_floor_runs_only_the_routines_whose_builtins_the_comp
     target.app_runtimes[0].1 = al_version::Runtime { major: 14, minor: 0 };
     let (_, l) = compile_for(apps(), &Default::default(), &target);
     assert!(l.unsupported[0][vi].is_empty(), "{:?}", l.unsupported[0][vi]);
+}
+
+#[test]
+fn an_overload_refusal_of_one_app_does_not_refuse_the_call_at_the_same_position_of_another_apps_file_with_the_same_path()
+ {
+    // App a's call Take(I) fits two enum overloads, each by an Integer-to-enum conversion: which one BC calls is not
+    // pinned, so the call is refused (AR1008, `check/enum_overload.rs`). App b's f.al has the same call at the same
+    // offset and only Take(Integer): the call is BC's one overload and lowers.
+    let a = "codeunit 50100 \"Caller A\" { procedure Run() var I: Integer; begin Take(I); end; procedure Take(E: Enum \"Kind A\") begin end; procedure Take(F: Enum \"Kind B\") begin end; }";
+    let b = "codeunit 50200 \"Caller B\" { procedure Run() var I: Integer; begin Take(I); end; procedure Take(I: Integer) begin end; }".to_string();
+    let apps = vec![
+        AppSource {
+            id: "a".into(),
+            name: "a".into(),
+            dependencies: vec![],
+            files: vec![
+                ("f.al".into(), a.into()),
+                (
+                    "e.al".into(),
+                    "enum 50101 \"Kind A\" { value(0; X) { } }\nenum 50102 \"Kind B\" { value(0; Y) { } }".into(),
+                ),
+            ],
+        },
+        AppSource {
+            id: "b".into(),
+            name: "b".into(),
+            dependencies: vec![],
+            files: vec![("f.al".into(), b)],
+        },
+    ];
+    let target = al_version::Target::for_bc(al_version::BcVersion::parse("28.5").unwrap());
+    let (_, l) = compile_for(apps, &Default::default(), &target);
+    let run = |object: &str| {
+        let oi = l.program.objects.iter().position(|o| o.name == object).expect("object");
+        let ri = l.program.objects[oi]
+            .routines
+            .iter()
+            .position(|r| r.name == "Run")
+            .expect("routine");
+        l.unsupported[oi][ri].clone()
+    };
+    assert_eq!(run("Caller A").len(), 1, "{:?}", run("Caller A"));
+    assert!(run("Caller B").is_empty(), "{:?}", run("Caller B"));
+}
+
+#[test]
+fn an_undef_refusal_of_one_apps_file_does_not_refuse_the_file_with_the_same_path_of_another_app() {
+    // App a's f.al has an `#undef` of a symbol defined only in another case (refused, `al_syntax::preprocessor`); app b's
+    // f.al is plain code and lowers.
+    let app = |id: &str, text: &str| AppSource {
+        id: id.into(),
+        name: id.into(),
+        dependencies: vec![],
+        files: vec![("f.al".into(), text.into())],
+    };
+    let apps = vec![
+        app(
+            "a",
+            "#define X\n#undef x\ncodeunit 50100 \"Undef A\" { procedure P() begin end; }\n",
+        ),
+        app("b", "codeunit 50200 \"Undef B\" { procedure P() begin end; }\n"),
+    ];
+    let target = al_version::Target::for_bc(al_version::BcVersion::parse("28.5").unwrap());
+    let (_, l) = compile_for(apps, &Default::default(), &target);
+    let p = |object: &str| {
+        let oi = l.program.objects.iter().position(|o| o.name == object).expect("object");
+        let ri = l.program.objects[oi]
+            .routines
+            .iter()
+            .position(|r| r.name == "P")
+            .expect("routine");
+        l.unsupported[oi][ri].clone()
+    };
+    assert!(
+        p("Undef A").iter().any(|r| r.starts_with("#undef x")),
+        "{:?}",
+        p("Undef A")
+    );
+    assert!(p("Undef B").is_empty(), "{:?}", p("Undef B"));
 }
 
 #[test]
@@ -2561,4 +2640,6 @@ fn lowered_bodies_stay_compact_until_read() {
 
 mod do_name;
 mod namespaced_receiver;
+mod own_caption;
 mod type_before_rec_field;
+mod unknown_object_literal;

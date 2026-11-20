@@ -53,6 +53,9 @@ pub struct Args {
     pub dotnet_timeout_secs: Option<u64>,
     /// `--require-dotnet`: a machine without a usable .NET is an error, not a skip (CI).
     pub require_dotnet: bool,
+    /// `--require-report-renderer` (ADR-040 amendment 2026-11-15): a save whose real Html needs BC's own merger and converter
+    /// refuses when the report renderer is unavailable.
+    pub require_report_renderer: bool,
     /// `--files-dir DIR`: the `File` data type reads and writes real files under DIR. Without it
     /// files live in memory and are gone when the test ends.
     pub files_dir: Option<PathBuf>,
@@ -71,6 +74,10 @@ pub struct Args {
     pub cache_dir: Option<PathBuf>,
     /// `--fetch-deps`: resolve and download the dependency apps, then stop (warms the cache).
     pub fetch_deps: bool,
+    /// `--fetch-render-pieces` (with `--fetch-deps`): also fetch the report render pieces of each build, the ones a run
+    /// fetches on its first Word-layout save (`al_testrun::report_render_pieces::fetch_run_pieces`). CI warms its
+    /// artifact cache with it, so the timed corpus step downloads nothing.
+    pub fetch_render_pieces: bool,
     /// `--compile-cache`: use the compile cache of the dependency apps (ADR-022). The corpus
     /// ratchet runs without it: it is recorded under the demand-driven compile.
     pub compile_cache: bool,
@@ -267,13 +274,17 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Parsed, String> {
             "--dotnet-assembly-dir" => a.dotnet_assembly_dirs.push(text()?.into()),
             "--dotnet-allow-roll-forward" => a.dotnet_allow_roll_forward = true,
             "--require-dotnet" => a.require_dotnet = true,
+            "--require-report-renderer" => a.require_report_renderer = true,
             "--files-dir" => a.files_dir = Some(text()?.into()),
             "--environment" => a.environment = Some(text()?.parse().map_err(|e| format!("--environment: {e}"))?),
-            "--companies" => a.companies = Some(al_host::Companies::parse(&text()?)?),
+            "--companies" => {
+                a.companies = Some(al_host::Companies::parse(&text()?).map_err(|e| format!("--companies {e}"))?)
+            }
             "--one-company" => a.one_company = true,
             "--no-download" => a.no_download = true,
             "--cache-dir" => a.cache_dir = Some(text()?.into()),
             "--fetch-deps" => a.fetch_deps = true,
+            "--fetch-render-pieces" => a.fetch_render_pieces = true,
             "--compile-cache" => a.compile_cache = true,
             "--require-compile-cache" => {
                 a.compile_cache = true;
@@ -354,6 +365,11 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Parsed, String> {
             return Err(format!("{flag} cannot be combined with --no-ratchet"));
         }
     }
+    if a.fetch_render_pieces && (!a.fetch_deps || a.project.is_some() || a.no_deps) {
+        return Err(
+            "--fetch-render-pieces goes with --fetch-deps of the corpus, without --project or --no-deps".into(),
+        );
+    }
     if a.update_work {
         if let Some(why) = crate::work::not_full_corpus(&a) {
             return Err(format!(
@@ -381,8 +397,8 @@ INPUT
   --all-versions              run every version in the oracle table, then compare them
   --deps DIR, --dep DIR       extra directory of .app packages for the dependencies (repeatable)
   --no-deps                   run the corpus alone, without Microsoft's apps
-  --no-client                 run the tests as a session without a client (dialogs answer as in a page background task
-                              worker, calls not probed there are refused; as `al-runner test --no-client`)
+  --no-client                 run the tests as a web-service session (the handlers answer the dialogs, as measured by a
+                              user on BC; calls not measured there are refused; as `al-runner test --no-client`)
   --test-runner R             builtin (default), microsoft (runner 130450 run as BcContainerHelper runs it;
                               not on the TestRunnerHub path of the newer majors) or a runner codeunit id (ADR-066)
   --no-download               never fetch a dependency app from the artifact feed
@@ -477,6 +493,7 @@ DOTNET (ADR-014)
   --dotnet-allow-roll-forward when the .NET major the BC version needs is missing, run the sidecar on a newer one, with a warning
   --dotnet-timeout-secs N     the deadline of one DotNet call (default 60)
   --require-dotnet            a machine without .NET is an error, not a skip (CI)
+  --require-report-renderer   a save whose real Html needs BC's own merger and converter refuses when they are unavailable
 
 DEPENDENCY TOOLING
   --compile-cache             use the compile cache of the dependency apps (ADR-022), in
@@ -486,6 +503,8 @@ DEPENDENCY TOOLING
   --build-compile-cache       build the entry for each selected version (or read and check the one
                               there), print how long it took, then stop
   --fetch-deps                resolve and download the dependency apps, then stop
+  --fetch-render-pieces       with --fetch-deps: also fetch the report render pieces of each build
+                              (the merge and conversion sets, on Linux the pinned nuget pieces)
   --project DIR               with --fetch-deps: any AL project, not the corpus
   --print-builds              print the newest published build of each version, then stop
 
@@ -618,5 +637,15 @@ mod tests {
                 assert!(HELP.contains(&format!("--{flag}")), "--{flag} is not in HELP");
             }
         }
+    }
+
+    #[test]
+    fn fetch_render_pieces_goes_with_the_corpus_fetch_of_the_dependencies_only() {
+        let a = run(&["--fetch-deps", "--fetch-render-pieces"]).unwrap();
+        assert!(a.fetch_deps && a.fetch_render_pieces);
+        assert!(!run(&["--fetch-deps"]).unwrap().fetch_render_pieces);
+        assert!(run(&["--fetch-render-pieces"]).is_err());
+        assert!(run(&["--fetch-deps", "--fetch-render-pieces", "--project", "p"]).is_err());
+        assert!(run(&["--fetch-deps", "--fetch-render-pieces", "--no-deps"]).is_err());
     }
 }

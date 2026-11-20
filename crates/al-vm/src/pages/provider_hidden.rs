@@ -15,8 +15,9 @@ pub(super) struct BeforeActionBody {
     /// the pinned Document host it does not have; `None` when no part was hidden.
     pinned_host_rec: Option<Result<Vec<Value>, &'static str>>,
     /// The host is the one of the journal shape before its measured turn (`Session::journal_turn_host_miss`), not the pinned
-    /// Document: the session's commits and the store's change counter before the action's body.
-    journal: Option<(u64, u64)>,
+    /// Document: the session's commits and the store before the action's body (`journal_turn` compares the rows the body
+    /// changed with it).
+    journal: Option<(u64, al_data::memory::MemStore)>,
 }
 
 impl Session {
@@ -55,10 +56,10 @@ impl Session {
     pub(super) fn read_chain_parts_skipped_at_refill(&mut self, st: &St) -> Result<(), Signal> {
         let pending: Vec<(usize, St)> = Self::open_parts_with_hidden(st)
             .into_iter()
-            .filter(|(_, c)| c.borrow().chain_refill == 2)
+            .filter(|(_, c)| c.borrow().chain_refill == ChainRefill::AwaitingKey)
             .collect();
         for (i, c) in pending {
-            c.borrow_mut().chain_refill = 0;
+            c.borrow_mut().chain_refill = ChainRefill::Off;
             let linked = {
                 let engine = self.engine();
                 page_of(&engine, st).controls[i]
@@ -290,8 +291,7 @@ impl Session {
                 Some(_) => self.journal_turn_host_miss(st)?,
                 None => None,
             };
-            before.journal =
-                (mismatch.is_some() && journal_miss.is_none()).then_some((self.commits, self.store.change_counter()));
+            before.journal = (mismatch.is_some() && journal_miss.is_none()).then(|| (self.commits, self.store.clone()));
             before.pinned_host_rec = Some(match (mismatch, journal_miss) {
                 (Some(_), Some(journal)) if self.journal_host_type(st).is_some() => Err(journal),
                 (Some(reason), Some(_)) => Err(reason),
@@ -328,8 +328,8 @@ impl Session {
                 c.seen_visible = true;
                 c.visible_at_sync = true;
             }
-            match before.journal {
-                Some((commits, writes)) => self.journal_turn(st, i, &child, commits, writes)?,
+            match &before.journal {
+                Some((commits, store)) => self.journal_turn(st, i, &child, *commits, store)?,
                 None => self.sync_part(st, i, &child)?,
             }
         }
@@ -361,12 +361,12 @@ impl Session {
             s.open
                 && s.cursor == Cursor::Row
                 && !s.draft
-                && !s.refresh
+                && !s.refresh.asked()
                 && !s.save_record_called
                 && Self::same_values(&self.page_rec(st).borrow().fields, rec_before)
                 && Self::open_parts_with_hidden(st)
                     .iter()
-                    .all(|(_, c)| !c.borrow().refresh && !c.borrow().save_record_called)
+                    .all(|(_, c)| !c.borrow().refresh.asked() && !c.borrow().save_record_called)
         };
         let linked_by_fields = before.journal.is_some() || {
             let engine = self.engine();

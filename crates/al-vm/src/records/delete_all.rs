@@ -1,9 +1,27 @@
-//! `DeleteAll`: the rows it deletes, row by row (with delete events, database triggers, OnDelete for DeleteAll(true), the
-//! User table, MarkedOnly) or in one step in the store; a filter on a FlowField goes to `delete_all_flow`.
+//! `Delete` of one row with what it takes along (`delete_one`). `DeleteAll`: the rows it deletes, row by row (with delete
+//! events, database triggers, OnDelete for DeleteAll(true), the User table, MarkedOnly) or in one step in the store; a filter
+//! on a FlowField goes to `delete_all_flow`.
 
 use super::*;
 
 impl Session {
+    /// `Delete(run)` of `rec` on `t`, after the refusals of the Delete arm of `record_op_inner`: the row, and for a stored Tenant
+    /// Permission Set row the permission rows it takes with it (tenant_set_delete.rs).
+    pub(super) fn delete_one(
+        &mut self,
+        cx: &al_data::AccessContext,
+        t: &TableDef,
+        rec: &Rec,
+        run: bool,
+    ) -> Result<Value, Signal> {
+        let cascade = self.tenant_set_delete_one(cx, t, rec)?;
+        let deleted = self.delete_row(t, rec, run)?;
+        if let Some(c) = cascade {
+            self.tenant_set_cascade_apply(cx, t, c)?;
+        }
+        Ok(deleted)
+    }
+
     /// `DeleteAll(run)` of `rec` on `t` (the arm of `record_op_inner`; `Session::note_bulk_write` notes it around this call).
     pub(super) fn delete_all(
         &mut self,
@@ -15,7 +33,37 @@ impl Session {
         // The platform takes no delete on Tenant License State (record/TestPlatformTablesWritableContracts.al:96-101).
         self.tenant_license_state_refuses(t, "delete")?;
         self.document_service_trigger_refused(t, rec, run, "DeleteAll")?;
-        self.tenant_set_delete_all_refuses(cx, t, rec)?;
+        // A stored Tenant Permission Set row takes its permission rows with it (tenant_set_delete.rs).
+        let cascade = self.tenant_set_delete_all(cx, t, rec)?;
+        let deleted = self.delete_all_selected(t, rec, cx, run)?;
+        if let Some(c) = cascade {
+            self.tenant_set_cascade_apply(cx, t, c)?;
+        }
+        Ok(deleted)
+    }
+
+    /// `Truncate(reset)` of `rec` on `t`: refused when it would leave rows that name a stored tenant set it removes
+    /// (tenant_set_delete.rs), else noted as a bulk write and run.
+    pub(super) fn truncate_all(
+        &mut self,
+        cx: &al_data::AccessContext,
+        t: &TableDef,
+        rec: &Rec,
+        reset: bool,
+    ) -> Result<Value, Signal> {
+        self.tenant_set_truncate(cx, t, rec)?;
+        self.note_bulk_write(rec, t, crate::state::TxWriteKind::Truncate);
+        self.truncate(t, rec, reset)
+    }
+
+    /// The rows `delete_all` deletes, after its refusals.
+    fn delete_all_selected(
+        &mut self,
+        t: &TableDef,
+        rec: &Rec,
+        cx: &al_data::AccessContext,
+        run: bool,
+    ) -> Result<Value, Signal> {
         let (filters, flow_field_filters) = self.split_filters(rec);
         if !flow_field_filters.is_empty() {
             return self.delete_all_flow_filtered(t, rec, run);
@@ -24,13 +72,13 @@ impl Session {
         self.coverage_cleared(t, temporary, &filters);
         // The platform asks for the table's Global Triggers setup, as the first write to the table, before it looks
         // for rows: a row the setup subscriber inserts is deleted (events/W4GlobalTriggers.al:327, :341), and a table
-        // with no row asks too (session-system/TestEnvironmentUserTenantContracts.al:289-290, `GtTable.DeleteAll()` on an
+        // with no row asks too (session-system/TestEnvironmentUserTenantContracts.al:286-287, `GtTable.DeleteAll()` on an
         // empty table). A temporary record is not pinned and stays as it was.
         if !temporary {
             self.global_setup_asked(t)?;
         }
         let n = self
-            .store_for(rec)
+            .store_for(rec)?
             .count(cx, t, &filters)
             .map_err(|e| Signal::unsupported(format!("{e}")))?;
         // A platform table whose fresh-tenant rows nothing pins (`UNSEEDED_ROWS`): a DeleteAll without filters removes
@@ -51,7 +99,7 @@ impl Session {
                     t.name
                 ));
             }
-            self.store_for(rec)
+            self.store_for(rec)?
                 .delete_all(cx, t, &filters)
                 .map_err(|e| Signal::unsupported(format!("{e}")))?;
             self.deletes += 1;
@@ -89,6 +137,19 @@ impl Session {
                 after = Some(position(t, key, &row));
                 rows.push(row);
             }
+            // The order of the per-row code over two or more rows of a record sorted descending (Ascending(false) or
+            // SetAscending(Field, false)) is pinned only with a FlowField filter (record/crud/R6961DeleteAllFlowFilter.al:
+            // 258-266, `delete_all_flow_filtered`), not here (al-runner issue 7632). One row has no order.
+            let descending = {
+                let r = rec.borrow();
+                !(r.ascending && r.field_descending == 0)
+            };
+            if (events || global || (run && trigger)) && descending && rows.len() >= 2 {
+                return unsupported(
+                    "DeleteAll with delete events, database triggers or OnDelete over two or more rows of a record sorted \
+                     descending: the order of the row code is not pinned",
+                );
+            }
             // One fresh set of table globals for all rows, not the caller's
             // (ADR-021 decision 6; corpus probe TableGlobals_DeleteAll_TriggersRunOnOneInstanceForAllRows).
             let shared = al_builtins::value::TableGlobals::new_shared();
@@ -98,7 +159,7 @@ impl Session {
                 // (Tests-SCM-Manufacturing B42538_UserIDOnReqLine; assumption delete-all-skips-rows-deleted-meanwhile).
                 let pk: Vec<Value> = t.keys[0].iter().map(|&f| row[f].clone()).collect();
                 let still_there = self
-                    .store_for(rec)
+                    .store_for(rec)?
                     .get(cx, t, &pk)
                     .map_err(|e| Signal::unsupported(format!("{e}")))?
                     .is_some();
@@ -118,7 +179,7 @@ impl Session {
                 "DeleteAll on the Company table without delete events (a deleted company's rows go with it; not pinned)",
             );
         }
-        self.store_for(rec)
+        self.store_for(rec)?
             .delete_all(cx, t, &filters)
             .map_err(|e| Signal::unsupported(format!("{e}")))?;
         self.deletes += 1;

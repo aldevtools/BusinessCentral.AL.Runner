@@ -40,7 +40,7 @@ impl Session {
         let object = st.borrow().object as usize;
         let shape = {
             let s = st.borrow();
-            s.host.is_none() && s.modal && s.lookup && s.run_static == Some(true) && !s.tree_calls_unknown
+            s.host.is_none() && s.modal && s.lookup && s.modal_run == ModalRun::Static && !s.tree_calls_unknown
         };
         if !shape || engine.object_facts[object].page_type != Some(ir::PageType::Document) {
             return Ok(false);
@@ -264,7 +264,7 @@ impl Session {
                 "a page left open by a ModalPageHandler that caught an error before it raised its own (not pinned)",
             );
         }
-        if st.borrow().close_error {
+        if st.borrow().close.error() {
             self.mark_closed(st);
             if err.code != "MissingUIHandler" {
                 return Err(Signal::Error(Box::new(al_builtins::native::unpinned_error())));

@@ -3,7 +3,7 @@
 //! testpage/TestPageBlankKeyInsert.al:256 TestPage_OpenNew_VariableControlCanModifyDocument, page 67997; :272
 //! TestPage_OpenNew_VariableControlCanModifyDocumentWithPart, pages 67994 and 67995). `activate` (draft.rs) calls it.
 
-use super::pinned_shape::{NextEnd, PinnedEnd, TestCall, code_stmts, table_code};
+use super::pinned_shape::{NextEnd, PinnedEnd, Reads, TestCall, code_stmts, table_code};
 use super::*;
 
 impl Session {
@@ -66,7 +66,8 @@ impl Session {
         st.borrow_mut().pinned_end = Some(PinnedEnd {
             reason: "a call of the test after the header of an OpenNew Document was stored before its variable control \
                      validated, other than Close (not pinned)",
-            reads: false,
+            reads: Reads::No,
+            caption: false,
             part_reads: false,
             one_action: false,
             first_ends: false,
@@ -74,6 +75,9 @@ impl Session {
             part_moves: false,
             no_writes: false,
             next: NextEnd::Refused,
+            close: true,
+            ok: false,
+            walk: false,
         });
         self.inserted_outside_view(st, idx)
     }

@@ -99,6 +99,10 @@ impl DotNetSession for FakeSession {
         self.0.log.lock().unwrap().push(Req::StreamRead(handle));
         Ok(b"hello".to_vec())
     }
+    /// Handle 8 is the zone of the id `UTC` as the in-process stand-in makes it (`linux_zone_host`).
+    fn is_in_process_utc_zone(&self, handle: DotNetHandle) -> bool {
+        handle == 8
+    }
     fn release(&mut self, handles: &[DotNetHandle]) {
         self.0.log.lock().unwrap().push(Req::Release(handles.to_vec()));
     }
@@ -130,6 +134,7 @@ fn handle(h: u64, ty: &str) -> DotNetValue {
 
 const DOTNET: &str = "dotnet { assembly(\"netstandard\") {
     type(\"System.Convert\"; \"Convert\") { }
+    type(\"System.Security.Cryptography.X509Certificates.X509Certificate2\"; \"X509Certificate2\") { }
     type(\"System.Uri\"; \"Uri\") { }
     type(\"System.Timers.Timer\"; \"Timer\") { }
     type(\"System.IO.Compression.ZipArchive\"; \"ZipArchive\") { }
@@ -137,6 +142,7 @@ const DOTNET: &str = "dotnet { assembly(\"netstandard\") {
     type(\"System.IO.MemoryStream\"; \"MemoryStream\") { }
     type(\"System.Text.Encoding\"; \"Encoding\") { }
     type(\"System.DateTime\"; \"ClrDateTime\") { }
+    type(\"System.DateTimeOffset\"; \"ClrDateTimeOffset\") { }
     type(\"System.Byte\"; \"ClrByte\") { }
     type(\"System.IO.File\"; \"File\") { }
     type(\"System.IO.Directory\"; \"Directory\") { }
@@ -147,6 +153,7 @@ const DOTNET: &str = "dotnet { assembly(\"netstandard\") {
     type(\"System.Xml.XmlDocument\"; \"XmlDocument\") { }
     type(\"Microsoft.Dynamics.Nav.NavUserAccount.NavTenantSettingsHelper\"; \"NavTenantSettingsHelper\") { }
     type(\"System.Base64FormattingOptions\"; \"Base64FormattingOptions\") { }
+    type(\"System.TimeZoneInfo\"; \"TimeZoneInfo\") { }
     type(\"Microsoft.Dynamics.Nav.Types.Base64UrlHelper\"; \"Base64UrlHelper\") { }
     type(\"Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorkbookWriter\"; \"WorkbookWriter\") { }
     type(\"Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorkbookReader\"; \"WorkbookReader\") { }
@@ -273,6 +280,7 @@ fn cfg(host: &Fake) -> DotNetConfig {
         host: Arc::new(host.clone()),
         registry: Arc::new(Registry::builtin()),
         policy: Arc::new(Policy::builtin()),
+        ..DotNetConfig::default()
     }
 }
 
@@ -752,6 +760,242 @@ fn a_key_vault_provider_variable_never_constructed_is_not_instantiated() {
         ": Text",
     );
     assert_eq!(text(r), "DotNetVariableNotCreated");
+}
+
+/// A `TimeZoneInfo` host as .NET on Linux answers (al-runner issue 8012): the IANA data of Pacific/Honolulu has DST in
+/// 1933-1947, so `SupportsDaylightSavingTime` is true and the 1945 offset is -9:30, where BC on Windows reads the Windows
+/// zone data. Handle 7 is `Hawaiian Standard Time`, handle 8 the zone of the id `UTC`; every other member answers a fixed
+/// value, so a test sees whether the call reached the host.
+fn linux_zone_host() -> Fake {
+    Fake::new(|r| match r {
+        Req::Invoke(DotNetTarget::Static(t), m, a)
+            if t.name == "System.TimeZoneInfo" && m == "FindSystemTimeZoneById" =>
+        {
+            let utc = matches!(a.first().map(|a| &a.value), Some(DotNetValue::Str(s)) if s == "UTC");
+            reply(handle(if utc { 8 } else { 7 }, "System.TimeZoneInfo"))
+        }
+        Req::Construct(t, _) if t == "System.DateTimeOffset" => reply(handle(9, "System.DateTimeOffset")),
+        Req::Construct(t, _) if t == "System.Text.StringBuilder" => reply(handle(10, "System.Text.StringBuilder")),
+        Req::Invoke(DotNetTarget::Instance(10), m, _) if m == "Append" => {
+            reply(handle(10, "System.Text.StringBuilder"))
+        }
+        Req::Get(DotNetTarget::Instance(7), m) | Req::Invoke(DotNetTarget::Instance(7), m, _)
+            if m == "SupportsDaylightSavingTime" =>
+        {
+            reply(DotNetValue::Bool(true))
+        }
+        Req::Get(DotNetTarget::Instance(7), m) | Req::Invoke(DotNetTarget::Instance(7), m, _)
+            if m == "BaseUtcOffset" =>
+        {
+            reply(DotNetValue::TimeSpan(-36_000 * 10_000_000))
+        }
+        Req::Invoke(DotNetTarget::Instance(7), m, _) if m == "GetUtcOffset" => {
+            reply(DotNetValue::TimeSpan(-34_200 * 10_000_000))
+        }
+        Req::Invoke(DotNetTarget::Instance(8), m, _) if m == "GetUtcOffset" => reply(DotNetValue::TimeSpan(0)),
+        Req::Invoke(DotNetTarget::Instance(7), m, _) if m == "ToString" => {
+            reply(DotNetValue::Str("(UTC-10:00) Hawaii-Aleutian Time (Honolulu)".into()))
+        }
+        other => panic!("unexpected {other:?}"),
+    })
+}
+
+/// Whether a request of `member` reached the host.
+fn reached(host: &Fake, member: &str) -> bool {
+    host.calls()
+        .iter()
+        .any(|c| matches!(c, Req::Get(_, m) | Req::Invoke(_, m, _) if m == member))
+}
+
+fn zone_cfg(host: &Fake, windows: bool) -> DotNetConfig {
+    DotNetConfig {
+        policy: Arc::new(Policy::builtin_for(windows)),
+        ..cfg(host)
+    }
+}
+
+const ZONE_DST: &str = "Z := Z.FindSystemTimeZoneById('Hawaiian Standard Time'); exit(Z.SupportsDaylightSavingTime);";
+
+/// Issue 8012: off Windows the sidecar answers from IANA zone data, so `SupportsDaylightSavingTime` is refused before it
+/// reaches the host. No corpus test pins the member (needs a Windows BC probe).
+#[test]
+fn supports_daylight_saving_time_is_refused_off_windows() {
+    let host = linux_zone_host();
+    let r = run_with(zone_cfg(&host, false), "Z: DotNet TimeZoneInfo;", ZONE_DST, ": Boolean");
+    let why = unsupported(&r);
+    assert!(
+        why.contains("System.TimeZoneInfo.SupportsDaylightSavingTime") && why.contains("Windows zone data"),
+        "{why}"
+    );
+    assert!(!reached(&host, "SupportsDaylightSavingTime"), "{:?}", host.calls());
+}
+
+/// On a Windows .NET host the sidecar reads the Windows zone data, as BC does: the member keeps reaching .NET.
+#[test]
+fn supports_daylight_saving_time_reaches_dotnet_on_windows() {
+    let host = linux_zone_host();
+    let r = run_with(zone_cfg(&host, true), "Z: DotNet TimeZoneInfo;", ZONE_DST, ": Boolean");
+    assert!(matches!(r.result, Ok(Value::Boolean(true))), "{:?}", r.result);
+}
+
+/// A neighbor the refusal does not cover keeps main's result: `BaseUtcOffset` still reaches the host off Windows.
+#[test]
+fn base_utc_offset_still_reaches_dotnet_off_windows() {
+    let host = linux_zone_host();
+    let r = run_with(
+        zone_cfg(&host, false),
+        "Z: DotNet TimeZoneInfo; D: Duration;",
+        "Z := Z.FindSystemTimeZoneById('Hawaiian Standard Time'); D := Z.BaseUtcOffset; exit(Format(D));",
+        ": Text",
+    );
+    assert!(r.result.is_ok(), "{:?}", r.result);
+    assert!(reached(&host, "BaseUtcOffset"), "{:?}", host.calls());
+}
+
+const ZONE_VARS: &str = "Z: DotNet TimeZoneInfo; D: Duration;";
+const HAWAII: &str = "Z := Z.FindSystemTimeZoneById('Hawaiian Standard Time');";
+
+/// `GetUtcOffset` on `Hawaiian Standard Time` for 1945 (the session clock is in 2024): off Windows the host answers from
+/// the IANA data (DST in 1933-1947), Windows has no DST for the zone. Refused before the host (issue 8012).
+#[test]
+fn utc_offset_of_another_year_is_refused_off_windows() {
+    let host = linux_zone_host();
+    let body = format!("{HAWAII} D := Z.GetUtcOffset(CreateDateTime(DMY2Date(1, 6, 1945), 120000T)); exit(Format(D));");
+    let r = run_with(zone_cfg(&host, false), ZONE_VARS, &body, ": Text");
+    let why = unsupported(&r);
+    assert!(
+        why.contains("System.TimeZoneInfo.GetUtcOffset") && why.contains("Windows zone data"),
+        "{why}"
+    );
+    assert!(!reached(&host, "GetUtcOffset"), "{:?}", host.calls());
+}
+
+/// The `DateTimeOffset` overload of `GetUtcOffset` is refused off Windows, also for a date of the session clock's year.
+#[test]
+fn utc_offset_of_a_datetimeoffset_is_refused_off_windows() {
+    let host = linux_zone_host();
+    let body = format!(
+        "{HAWAII} O := O.DateTimeOffset(CreateDateTime(DMY2Date(1, 7, 2024), 120000T)); D := Z.GetUtcOffset(O); exit(Format(D));"
+    );
+    let r = run_with(
+        zone_cfg(&host, false),
+        "Z: DotNet TimeZoneInfo; O: DotNet ClrDateTimeOffset; D: Duration;",
+        &body,
+        ": Text",
+    );
+    let why = unsupported(&r);
+    assert!(why.contains("System.TimeZoneInfo.GetUtcOffset"), "{why}");
+    assert!(!reached(&host, "GetUtcOffset"), "{:?}", host.calls());
+}
+
+/// `ToString()` and `Format` of a zone give its display name, which off Windows comes from the host's ICU data, where
+/// BC gives the Windows text (record/table-properties/UvTimeZoneRows.al:45 pins "(UTC-10:00) Hawaii"). Refused there.
+#[test]
+fn text_of_a_zone_is_refused_off_windows() {
+    for text in ["exit(Z.ToString());", "exit(Format(Z));"] {
+        let host = linux_zone_host();
+        let r = run_with(zone_cfg(&host, false), ZONE_VARS, &format!("{HAWAII} {text}"), ": Text");
+        let why = unsupported(&r);
+        assert!(
+            why.contains("System.TimeZoneInfo.ToString") && why.contains("Windows zone data"),
+            "{text}: {why}"
+        );
+        assert!(!reached(&host, "ToString"), "{text}: {:?}", host.calls());
+    }
+}
+
+/// A zone passed to a member of another type (`StringBuilder.Append(Object)` calls the zone's `ToString` in .NET) is
+/// refused off Windows: the zone's data would reach AL code past the member list.
+#[test]
+fn a_zone_passed_to_another_member_is_refused_off_windows() {
+    let host = linux_zone_host();
+    let body = format!("{HAWAII} SB := SB.StringBuilder(); SB.Append(Z); exit('');");
+    let r = run_with(
+        zone_cfg(&host, false),
+        "Z: DotNet TimeZoneInfo; SB: DotNet StringBuilder;",
+        &body,
+        ": Text",
+    );
+    let why = unsupported(&r);
+    assert!(
+        why.contains("System.TimeZoneInfo") && why.contains("Windows zone data"),
+        "{why}"
+    );
+    assert!(!reached(&host, "Append"), "{:?}", host.calls());
+}
+
+/// Neighbor that keeps main's result: one `DateTime` of the session clock's year (2024, the fixed test clock) reaches
+/// the host off Windows (Base App TypeHelper passes the current UTC time).
+#[test]
+fn utc_offset_of_the_session_year_reaches_dotnet_off_windows() {
+    let host = linux_zone_host();
+    let body = format!("{HAWAII} D := Z.GetUtcOffset(CreateDateTime(DMY2Date(1, 6, 2024), 120000T)); exit(Format(D));");
+    let r = run_with(zone_cfg(&host, false), ZONE_VARS, &body, ": Text");
+    assert!(r.result.is_ok(), "{:?}", r.result);
+    assert!(reached(&host, "GetUtcOffset"), "{:?}", host.calls());
+}
+
+/// The zone of the id `UTC` made in process keeps main's answer for one `DateTime` of any year (ADR-038 amendment
+/// 2026-10-27). Its other members are refused like any zone's, and so is the `DateTimeOffset` overload.
+#[test]
+fn the_utc_zone_keeps_its_offset_for_any_year_and_nothing_else_off_windows() {
+    let utc = "Z := Z.FindSystemTimeZoneById('UTC');";
+    let host = linux_zone_host();
+    let body = format!("{utc} D := Z.GetUtcOffset(CreateDateTime(DMY2Date(1, 6, 1945), 120000T)); exit(Format(D));");
+    let r = run_with(zone_cfg(&host, false), ZONE_VARS, &body, ": Text");
+    assert!(r.result.is_ok(), "{:?}", r.result);
+    assert!(reached(&host, "GetUtcOffset"), "{:?}", host.calls());
+    for (vars, body) in [
+        (ZONE_VARS, "exit(Format(Z.SupportsDaylightSavingTime));"),
+        (ZONE_VARS, "exit(Z.ToString());"),
+        (
+            "Z: DotNet TimeZoneInfo; O: DotNet ClrDateTimeOffset; D: Duration;",
+            "O := O.DateTimeOffset(CreateDateTime(DMY2Date(1, 7, 1975), 120000T)); D := Z.GetUtcOffset(O); exit(Format(D));",
+        ),
+    ] {
+        let host = linux_zone_host();
+        let r = run_with(zone_cfg(&host, false), vars, &format!("{utc} {body}"), ": Text");
+        assert!(unsupported(&r).contains("Windows zone data"), "{body}");
+    }
+}
+
+/// A `Date` of the session clock's year is not the measured shape (one `DateTime`): refused off Windows.
+#[test]
+fn utc_offset_of_a_date_is_refused_off_windows() {
+    let host = linux_zone_host();
+    let body = format!("{HAWAII} D := Z.GetUtcOffset(DMY2Date(1, 6, 2024)); exit(Format(D));");
+    let r = run_with(zone_cfg(&host, false), ZONE_VARS, &body, ": Text");
+    let why = unsupported(&r);
+    assert!(
+        why.contains("System.TimeZoneInfo.GetUtcOffset") && why.contains("Windows zone data"),
+        "{why}"
+    );
+    assert!(!reached(&host, "GetUtcOffset"), "{:?}", host.calls());
+}
+
+/// On a Windows .NET host every member keeps reaching .NET, whatever the year or the overload.
+#[test]
+fn every_zone_member_reaches_dotnet_on_windows() {
+    for (vars, body) in [
+        (
+            ZONE_VARS,
+            "D := Z.GetUtcOffset(CreateDateTime(DMY2Date(1, 6, 1945), 120000T)); exit(Format(D));",
+        ),
+        (
+            "Z: DotNet TimeZoneInfo; O: DotNet ClrDateTimeOffset; D: Duration;",
+            "O := O.DateTimeOffset(CreateDateTime(DMY2Date(1, 7, 1975), 120000T)); D := Z.GetUtcOffset(O); exit(Format(D));",
+        ),
+        (ZONE_VARS, "exit(Z.ToString());"),
+        (ZONE_VARS, "exit(Format(Z));"),
+        (
+            "Z: DotNet TimeZoneInfo; SB: DotNet StringBuilder;",
+            "SB := SB.StringBuilder(); SB.Append(Z); exit('');",
+        ),
+    ] {
+        let host = linux_zone_host();
+        let r = run_with(zone_cfg(&host, true), vars, &format!("{HAWAII} {body}"), ": Text");
+        assert!(r.result.is_ok(), "{body}: {:?}", r.result);
+    }
 }
 
 // ---- lifetime ----------------------------------------------------------------------------
@@ -1306,6 +1550,39 @@ fn an_outstream_argument_is_bridged_and_the_bytes_dotnet_wrote_are_appended_to_t
     assert_eq!(text(r), "from .net!", "a later call can still write into the bridge");
 }
 
+// A reply that names a bridge the session never opened is refused: for written bytes and for an overwrite alike.
+#[test]
+fn a_reply_naming_an_unknown_stream_bridge_is_refused() {
+    for (effects, want) in [
+        (
+            StreamEffects {
+                written: vec![(77, b"x".to_vec())],
+                ..Default::default()
+            },
+            "bytes for an unknown stream bridge 77",
+        ),
+        (
+            StreamEffects {
+                overwritten: vec![77],
+                ..Default::default()
+            },
+            "an unknown stream bridge 77",
+        ),
+    ] {
+        let host = Fake::new(move |r| match r {
+            Req::Invoke(_, m, _) if m == "Touch" => Ok(DotNetReply {
+                value: DotNetValue::Null,
+                by_ref: vec![],
+                streams: effects.clone(),
+            }),
+            other => panic!("{other:?}"),
+        });
+        let r = run(&host, "C: DotNet Convert;", "C.Touch(); exit('');", ": Text");
+        let why = unsupported(&r);
+        assert!(why.contains(want), "{why}");
+    }
+}
+
 // al-runner issue 6317: BC hands .NET the Blob's own stream, so a ZipArchive in Read mode over an OutStream sees the bytes AL
 // wrote through it (corpus tests/al-language-onprem-dotnet/dotnet/dotnet/WdZipArchiveOverOutStream.al WD_Zip_ReadThroughAnOutStream).
 #[test]
@@ -1392,7 +1669,7 @@ fn the_server_class_members_answer_the_values_of_the_probe_and_al_runner_v2() {
         run_text(t, "T.GetEnvironmentApplicationSetting('EnableAgentBuilder')"),
         ""
     );
-    // IsAzure is the one answer that follows the BC major: see `is_azure_follows_the_bc_major`.
+    // IsAzure is false on every major (session-system/TestEnvironmentUserTenantContracts.al:185), 27.5 included.
     assert_eq!(
         text(run_as(
             Some("27.5"),
@@ -1400,12 +1677,12 @@ fn the_server_class_members_answer_the_values_of_the_probe_and_al_runner_v2() {
             "exit(Format(U.IsAzure()));",
             ": Text"
         )),
-        "Yes"
+        "No"
     );
 }
 
 /// Tests-ERM `Azure AD Identity Mgmt.IsUserDelegatedAdmin`: the session user is not delegated (corpus
-/// `session-system/TestEnvironmentUserTenantContracts.al:245`, `IsUserDelegated` false), and a delegated admin is a
+/// `session-system/TestEnvironmentUserTenantContracts.al:242`, `IsUserDelegated` false), and a delegated admin is a
 /// delegated user, so it is not a delegated admin either.
 #[test]
 fn the_session_user_is_not_a_delegated_admin() {
@@ -1455,15 +1732,14 @@ fn the_session_user_is_not_a_delegated_helpdesk() {
     }
 }
 
-/// `Environment Information.IsSaaSInfrastructure` is `NavUserAccountHelper.IsAzure()`: true on the
-/// BC 27.5 and 28.5 oracle runs, false on the 29.0 run (corpus
-/// `session-system/TestEnvironmentUserTenantContracts.al:164-174`, `#if BC29PLUS`). No target is the newest.
+/// `Environment Information.IsSaaSInfrastructure` is `NavUserAccountHelper.IsAzure()`: false on every
+/// major (corpus `session-system/TestEnvironmentUserTenantContracts.al:185`). No target is the newest.
 #[test]
-fn is_azure_follows_the_bc_major() {
+fn is_azure_is_false_on_every_major() {
     let u = "U: DotNet NavUserAccountHelper;";
     for (bc, want) in [
-        (Some("27.5"), "Yes"),
-        (Some("28.5"), "Yes"),
+        (Some("27.5"), "No"),
+        (Some("28.5"), "No"),
         (Some("29.0"), "No"),
         (Some("30.0"), "No"),
         (None, "No"),
@@ -1571,19 +1847,19 @@ fn an_instance_of_a_registered_type_serves_its_members_from_the_registry() {
 #[test]
 fn registry_results_are_operands() {
     let host = no_host();
-    // BC 27.5, where IsAzure is true.
+    // IsAzure is false on every major (session-system/TestEnvironmentUserTenantContracts.al:185).
     let r = run_as(
         Some("27.5"),
         "U: DotNet NavUserAccountHelper; C: DotNet ALConfigSettings; N: Integer;",
         "C := C.Instance(); if C.ApiSubscriptionDelayTime() > 1000 then N := 1; \
-         if U.IsAzure() and C.ApiServicesEnabled() then N += 10; exit(N);",
+         if not U.IsAzure() and C.ApiServicesEnabled() then N += 10; exit(N);",
         ": Integer",
     );
     assert!(matches!(r.result, Ok(Value::Integer(11))), "{:?}", r.result);
     assert_eq!(host.log(), vec![]);
 }
 
-/// session-system/TestEnvironmentUserTenantContracts.al:TenantAndAzureAd_Answers (:209-212) pins the three
+/// session-system/TestEnvironmentUserTenantContracts.al:TenantAndAzureAd_Answers (:206-209) pins the three
 /// settings System Application reads through `TryGetStringTenantSetting(name, var value)`.
 #[test]
 fn try_get_string_tenant_setting_answers_the_pinned_names_and_not_the_others() {
@@ -1849,7 +2125,7 @@ fn graph_get_current_user_returns_null_without_an_error() {
 
 // GetTenantDetail answers a TenantInfo, not null, whose InitialDomain, CountryLetterCode and PreferredLanguage are
 // empty: Microsoft's Azure AD Tenant Impl. raises "Failed to retrieve ..." for a null TenantInfo, and the corpus
-// test expects '' from all three (session-system/TestEnvironmentUserTenantContracts.al:213-232).
+// test expects '' from all three (session-system/TestEnvironmentUserTenantContracts.al:210-229).
 #[test]
 fn graph_get_tenant_detail_answers_an_empty_tenant_info() {
     let host = no_host();
@@ -3653,11 +3929,11 @@ fn position_follows_al_reads_and_a_set_after_the_end_does_not_restart() {
     assert_eq!(text(r), "1;4|bcd|3;6|ef|2;10|ghij|4|Yes;2|Yes;10||0");
 }
 
-// GetDotNetType of an unassigned Dictionary`2 is System.Type.GetType of its name, marked as assumed
-// (assumption dotnet-type-open-generic); an unassigned Queue`1 keeps main's refusal. (An unassigned List`1 was the refused
+// GetDotNetType of an unassigned Dictionary`2 is System.Type.GetType of its name, pinned (no assumption hit)
+// (N4GetDotNetTypeGeneric.al:118-134); an unassigned Queue`1 keeps main's refusal. (An unassigned List`1 was the refused
 // neighbor here until corpus PR 1365, N4GetDotNetTypeGeneric.al:119-134, measured it as its open definition.)
 #[test]
-fn get_dotnet_type_of_an_unassigned_dictionary_is_assumed_and_of_a_queue_refused() {
+fn get_dotnet_type_of_an_unassigned_dictionary_is_its_definition_and_of_a_queue_refused() {
     let host = Fake::new(|r| match r {
         Req::Invoke(DotNetTarget::Static(t), m, a) if t.name == "System.Type" && m == "GetType" => {
             assert!(
@@ -3677,10 +3953,7 @@ fn get_dotnet_type_of_an_unassigned_dictionary_is_assumed_and_of_a_queue_refused
     );
     let hits = al_builtins::assumptions::take_hits();
     assert_eq!(text(r), "ok");
-    assert!(
-        hits.contains(&al_builtins::assumptions::Assumption::DotnetTypeOpenGeneric),
-        "{hits:?}"
-    );
+    assert!(hits.is_empty(), "{hits:?}");
     let host = Fake::new(|r| panic!("unexpected request {r:?}"));
     let r = run(
         &host,
@@ -3717,7 +3990,6 @@ fn hits() -> Vec<al_builtins::assumptions::Assumption> {
 // GetLastErrorObject is a NavNCLDotNetInvokeException over the .NET exception (DotNetExceptionOutcome.al:305-323).
 #[test]
 fn a_measured_dotnet_exception_is_an_al_error_with_the_measured_text_code_and_object() {
-    use al_builtins::assumptions::Assumption;
     let host = throwing("System.ArgumentNullException", URI_NULL, "method", false);
     hits();
     let r = run(
@@ -3735,7 +4007,7 @@ fn a_measured_dotnet_exception_is_an_al_error_with_the_measured_text_code_and_ob
          #Microsoft.Dynamics.Nav.Types.Exceptions.NavNCLDotNetInvokeException#Yes#System.ArgumentNullException\
          #Value cannot be null. (Parameter 'uri')"
     );
-    assert!(hits().contains(&Assumption::DotnetExceptionMeasuredText));
+    assert!(hits().is_empty(), "the measured calls run without an assumption");
 }
 
 // A static method, a property get and a constructor (DotNetExceptionOutcome.al:229-256): a constructor names the type only, and the
@@ -3793,12 +4065,40 @@ fn a_static_method_a_property_get_and_a_constructor_raise_the_measured_texts() {
     );
 }
 
-// An exception of a class whose text is not measured, but that an oracle case shows as an AL error (System.ArgumentException of a
-// constructor, Y58AzureKeyVault.al:317-325), is an error: asserterror catches it and the test goes on, but a read of its text, its
-// code or its object refuses (assumption dotnet-exception-other-class).
+// The inner exception's Message of a message with more than one line is measured only for the StringBuilder constructor
+// (DotNetExceptionOutcome.al:369-385, the probe reads its first line, :184). The same multi-line message from another measured
+// call refuses its inner Message; the error text itself is kept.
 #[test]
-fn an_unmeasured_exception_class_is_an_error_whose_text_is_refused() {
-    use al_builtins::assumptions::Assumption;
+fn a_multi_line_inner_message_runs_only_for_the_measured_constructor() {
+    const CTOR_MSG: &str = "capacity ('-1') must be a non-negative value. (Parameter 'capacity')\nActual value was -1.";
+    let host = throwing("System.ArgumentOutOfRangeException", CTOR_MSG, "constructor", false);
+    let r = run(
+        &host,
+        "B: DotNet StringBuilder; Exc: DotNet ClrObject; Inner: DotNet ClrObject;",
+        "asserterror B := B.StringBuilder(-1); Exc := GetLastErrorObject(); Inner := Exc.InnerException; exit(Inner.Message);",
+        ": Text",
+    );
+    assert_eq!(text(r), CTOR_MSG);
+    let host = throwing(
+        "System.FormatException",
+        "The input string 'abc' was not in a correct format.\nSecond line.",
+        "method",
+        false,
+    );
+    let r = run(
+        &host,
+        "C: DotNet Convert; N: Integer; Exc: DotNet ClrObject; Inner: DotNet ClrObject;",
+        "asserterror N := C.ToInt32('abc'); Exc := GetLastErrorObject(); Inner := Exc.InnerException; exit(Inner.Message);",
+        ": Text",
+    );
+    assert!(unsupported(&r).contains("more than one line"), "{}", unsupported(&r));
+}
+
+// System.ArgumentException of the X509Certificate2 constructor is an AL error a TryFunction catches (System Application's
+// TryInitializeCertificate answers false, Y58AzureKeyVault.al:317-325); its text and code are not pinned, so a read of them, or of
+// its object, refuses. No assumption: the oracle case pins it.
+#[test]
+fn argument_exception_of_the_certificate_constructor_is_an_error_whose_text_is_refused() {
     let host = throwing(
         "System.ArgumentException",
         "The value is not valid.",
@@ -3808,12 +4108,12 @@ fn an_unmeasured_exception_class_is_an_error_whose_text_is_refused() {
     hits();
     let r = run(
         &host,
-        "B: DotNet StringBuilder;",
-        "asserterror B := B.StringBuilder(-1); exit('caught');",
+        "X: DotNet X509Certificate2;",
+        "asserterror X := X.X509Certificate2('cert-value'); exit('caught');",
         ": Text",
     );
     assert_eq!(text(r), "caught");
-    assert!(hits().contains(&Assumption::DotnetExceptionOtherClass));
+    assert!(hits().is_empty(), "the oracle case pins it");
     for read in [
         "GetLastErrorText()",
         "GetLastErrorCode()",
@@ -3821,42 +4121,79 @@ fn an_unmeasured_exception_class_is_an_error_whose_text_is_refused() {
     ] {
         let r = run(
             &host,
-            "B: DotNet StringBuilder;",
-            &format!("asserterror B := B.StringBuilder(-1); exit({read});"),
+            "X: DotNet X509Certificate2;",
+            &format!("asserterror X := X.X509Certificate2('cert-value'); exit({read});"),
             ": Text",
         );
         assert!(unsupported(&r).contains("not pinned"), "{read}: {}", unsupported(&r));
     }
     // A plain call ends the routine on the error, as on BC.
-    let r = run(&host, "B: DotNet StringBuilder;", "B := B.StringBuilder(-1);", "");
-    assert!(matches!(r.result, Err(Signal::Error(_))), "{:?}", r.result);
-    // The same class thrown by a method is not shown as an AL error by any case: main's refusal.
-    let host = throwing("System.ArgumentException", "bad", "method", false);
     let r = run(
         &host,
-        "C: DotNet Convert; N: Integer;",
-        "asserterror N := C.ToInt32('abc'); exit('caught');",
-        ": Text",
+        "X: DotNet X509Certificate2;",
+        "X := X.X509Certificate2('cert-value');",
+        "",
     );
-    assert!(
-        unsupported(&r).contains("raised the .NET exception"),
-        "{}",
-        unsupported(&r)
-    );
+    assert!(matches!(r.result, Err(Signal::Error(_))), "{:?}", r.result);
 }
 
-// A measured class with a member written in another letter case, an inner exception or a generic type: its text is not measured,
-// so it is an error whose text is refused.
+// Outside the measured calls nothing is shown as an AL error: ArgumentException of another constructor or of a method, a measured
+// class thrown by another member, by a measured member with another class, by a member written in another letter case, or with an
+// inner exception. Each keeps main's refusal.
 #[test]
-fn a_measured_class_outside_the_measured_spelling_has_an_unpinned_text() {
-    let host = throwing("System.FormatException", "bad", "method", true);
-    let r = run(
-        &host,
-        "C: DotNet Convert; N: Integer;",
-        "asserterror N := C.toint32('abc'); exit(GetLastErrorText());",
-        ": Text",
-    );
-    assert!(unsupported(&r).contains("not pinned"), "{}", unsupported(&r));
+fn a_dotnet_exception_outside_the_measured_calls_keeps_the_refusal() {
+    let cases: [(&str, &str, bool, &str); 6] = [
+        (
+            "System.ArgumentException",
+            "constructor",
+            false,
+            "asserterror B := B.StringBuilder(-1);",
+        ),
+        (
+            "System.ArgumentException",
+            "method",
+            false,
+            "asserterror N := C.ToInt32('abc');",
+        ),
+        (
+            "System.FormatException",
+            "method",
+            false,
+            "asserterror L := C.ToInt64('abc');",
+        ),
+        (
+            "System.FormatException",
+            "method",
+            false,
+            "U := U.Uri('a'); asserterror if U.IsBaseOf(Other) then;",
+        ),
+        (
+            "System.FormatException",
+            "method",
+            true,
+            "asserterror N := C.toint32('abc');",
+        ),
+        (
+            "System.ArgumentNullException",
+            "constructor",
+            false,
+            "asserterror B := B.StringBuilder(-1);",
+        ),
+    ];
+    for (class, bound, folded, body) in cases {
+        let host = throwing(class, "bad", bound, folded);
+        let r = run(
+            &host,
+            "C: DotNet Convert; N: Integer; L: BigInteger; U: DotNet Uri; Other: DotNet Uri; B: DotNet StringBuilder;",
+            &format!("{body} exit('caught');"),
+            ": Text",
+        );
+        assert!(
+            unsupported(&r).contains("raised the .NET exception"),
+            "{class} {body}: {}",
+            unsupported(&r)
+        );
+    }
     let host = Fake::new(|_| {
         Err(DotNetFailure::Exception(DotNetException {
             clr_type: "System.FormatException".into(),
@@ -3869,10 +4206,14 @@ fn a_measured_class_outside_the_measured_spelling_has_an_unpinned_text() {
     let r = run(
         &host,
         "C: DotNet Convert; N: Integer;",
-        "asserterror N := C.ToInt32('abc'); exit(GetLastErrorText());",
+        "asserterror N := C.ToInt32('abc'); exit('caught');",
         ": Text",
     );
-    assert!(unsupported(&r).contains("not pinned"), "{}", unsupported(&r));
+    assert!(
+        unsupported(&r).contains("raised the .NET exception"),
+        "{}",
+        unsupported(&r)
+    );
 }
 
 // Bindings the probe did not measure keep main's refusal: no binding named (an older sidecar, an indexer, a property reached
@@ -3946,7 +4287,7 @@ fn a_failed_call_with_a_stream_argument_keeps_the_refusal() {
     }
 }
 
-// ---- GetDotNetType of an open generic (al-runner issue 7833; corpus PR 1365, N4GetDotNetTypeGeneric.al) ----------------------
+// ---- GetDotNetType of an open generic (al-runner issue 7833; N4GetDotNetTypeGeneric.al) ----------------------
 
 /// A host that answers `System.Type.GetType(name)` with a type object and records the names asked.
 fn type_host(asked: Arc<Mutex<Vec<String>>>) -> Fake {
@@ -3962,10 +4303,9 @@ fn type_host(asked: Arc<Mutex<Vec<String>>>) -> Fake {
 }
 
 // An unassigned List`1 or KeyValuePair`2, and a Dictionary`2 its own constructor made, give the open generic type definition
-// (N4GetDotNetTypeGeneric.al:119-134, :153-161), marked as assumed; an unassigned Queue`1 stays refused (not measured).
+// (N4GetDotNetTypeGeneric.al:119-134, :164-172), with no assumption hit; an unassigned Queue`1 stays refused (not measured).
 #[test]
 fn get_dotnet_type_of_the_measured_open_generics_is_their_definition() {
-    use al_builtins::assumptions::Assumption;
     let asked = Arc::new(Mutex::new(Vec::new()));
     let host = type_host(asked.clone());
     for (vars, body) in [
@@ -3984,7 +4324,8 @@ fn get_dotnet_type_of_the_measured_open_generics_is_their_definition() {
     ] {
         hits();
         assert_eq!(text(run(&host, vars, body, ": Text")), "ok", "{vars}");
-        assert!(hits().contains(&Assumption::DotnetTypeOpenGeneric), "{vars}");
+        let hits = hits();
+        assert!(hits.is_empty(), "{vars}: {hits:?}");
     }
     assert_eq!(
         *asked.lock().unwrap(),
@@ -4004,7 +4345,32 @@ fn get_dotnet_type_of_the_measured_open_generics_is_their_definition() {
     assert!(unsupported(&r).contains("Queue`1"), "{}", unsupported(&r));
 }
 
-// ---- [WithEvents] Timer with an Elapsed trigger (al-runner issue 7832; corpus PR 1365, N4WithEventsNoRaise.al) --------------
+// The pin makes the dictionary with the parameterless constructor in the variable it reads, and adds nothing
+// (N4GetDotNetTypeGeneric.al:100-108). A dictionary copied from another variable, one made with a capacity and one that holds
+// entries are not measured: GetDotNetType refuses.
+#[test]
+fn get_dotnet_type_of_a_dictionary_outside_the_pin_is_refused() {
+    let host = Fake::new(|r| panic!("unexpected request {r:?}"));
+    for (vars, body) in [
+        (
+            "D: DotNet GenDict; E: DotNet GenDict; T: DotNet ClrType;",
+            "D := D.Dictionary(); E := D; T := GetDotNetType(E); exit('ok');",
+        ),
+        (
+            "D: DotNet GenDict; T: DotNet ClrType;",
+            "D := D.Dictionary(3); T := GetDotNetType(D); exit('ok');",
+        ),
+        (
+            "D: DotNet GenDict; T: DotNet ClrType;",
+            "D := D.Dictionary(); D.Add(1, 'a'); T := GetDotNetType(D); exit('ok');",
+        ),
+    ] {
+        let r = run(&host, vars, body, ": Text");
+        assert!(unsupported(&r).contains("Dictionary`2"), "{body}: {}", unsupported(&r));
+    }
+}
+
+// ---- [WithEvents] Timer, no trigger or an Elapsed trigger (al-runner issue 7832; pinned N4WithEventsNoRaise.al) ------------
 
 /// Runs `routine` of `object` in `src` (after the shared DotNet declarations) on `host`.
 fn run_src(host: &Fake, src: &str, object: &str, routine: &str) -> Ran {
@@ -4071,10 +4437,15 @@ const TIMER_USES: &str = "procedure F(): Text var S: Text; begin S := Format(IsN
 const ELAPSED: &str = "trigger Tm::Elapsed(sender: Variant; e: DotNet ClrObject) begin N += 1; end;";
 
 // The uses the probe made run on a codeunit, a page, a table and a report, and the Elapsed trigger never runs
-// (N4WithEventsNoRaise.al:291-318, :372-385, :387-403, :405-417).
+// (N4WithEventsNoRaise.al:291-318, :372-385, :387-403, :405-417); on a codeunit with no trigger for the Timer they run too
+// (:320-345). The file is pinned: no assumption.
 #[test]
 fn a_with_events_timer_with_an_elapsed_trigger_runs_its_measured_uses() {
-    use al_builtins::assumptions::Assumption;
+    let src = format!("codeunit 50100 W {{ var [WithEvents] Tm: DotNet Timer; N: Integer; {TIMER_USES} }}");
+    hits();
+    let r = run_src(&timer_host(), &src, "W", "F");
+    assert_eq!(text(r), "Yes|No|1,000|No|2,000|Yes|0", "no trigger");
+    assert!(hits().is_empty(), "no trigger");
     for (kind, head) in [
         ("codeunit", "codeunit 50100 W"),
         ("page", "page 50100 W"),
@@ -4089,7 +4460,7 @@ fn a_with_events_timer_with_an_elapsed_trigger_runs_its_measured_uses() {
         hits();
         let r = run_src(&timer_host(), &src, "W", "F");
         assert_eq!(text(r), "Yes|No|1,000|No|2,000|Yes|0", "{kind}");
-        assert!(hits().contains(&Assumption::WithEventsTimerElapsedNotStarted), "{kind}");
+        assert!(hits().is_empty(), "{kind}");
     }
 }
 
@@ -4098,7 +4469,6 @@ fn a_with_events_timer_with_an_elapsed_trigger_runs_its_measured_uses() {
 // (N4WithEventsNoRaise.al:113-152, :405-415; the probe's data item is the Integer table, outside this test's workspace).
 #[test]
 fn a_report_with_a_with_events_timer_runs_as_the_probe_runs_it() {
-    use al_builtins::assumptions::Assumption;
     let src = format!(
         "{TABLE} report 50101 R {{ ProcessingOnly = true; UsageCategory = None; \
          dataset {{ dataitem(One; \"ALT Blob\") {{ \
@@ -4113,11 +4483,11 @@ fn a_report_with_a_with_events_timer_runs_as_the_probe_runs_it() {
     hits();
     let r = run_src(&timer_host(), &src, "W", "F");
     assert_eq!(text(r), "0");
-    assert!(hits().contains(&Assumption::WithEventsTimerElapsedNotStarted));
+    assert!(hits().is_empty());
 }
 
 // ClearAll nulls the WithEvents Timer, which the probe does not measure (it measures Clear): refused in the object that holds
-// the Timer and in an extension of it. ClearAll in an object whose WithEvents variable has no trigger keeps main's result.
+// the Timer and in an extension of it, and in a codeunit whose WithEvents Timer has no trigger.
 #[test]
 fn clear_all_where_it_reaches_a_with_events_timer_is_refused() {
     let host = Fake::new(|r| match r {
@@ -4138,7 +4508,8 @@ fn clear_all_where_it_reaches_a_with_events_timer_is_refused() {
     assert!(unsupported(&r).contains("WithEvents"), "{}", unsupported(&r));
     let src = "codeunit 50100 W { var [WithEvents] Tm: DotNet Timer; N: Integer; \
          procedure F(): Text begin N := 5; ClearAll(); exit(Format(N) + Format(IsNull(Tm))); end; }";
-    assert_eq!(text(run_src(&host, src, "W", "F")), "0Yes");
+    let r = run_src(&host, src, "W", "F");
+    assert!(unsupported(&r).contains("WithEvents"), "{}", unsupported(&r));
 }
 
 // Every other use, member, trigger set or type keeps the refusal.
@@ -4185,4 +4556,81 @@ fn a_with_events_timer_outside_the_measured_uses_stays_refused() {
     );
     let r = run_src(&host, &src, "W", "F");
     assert!(unsupported(&r).contains("WithEvents"), "{}", unsupported(&r));
+}
+
+// ---- [WithEvents] AzureML variable, no trigger: the shape of Microsoft's test 139540 (al-runner issue 7832) -------------------
+
+/// A host that takes no request: the AzureML types are server classes the DotNet policy refuses before a request.
+fn azure_ml_shape_host() -> Fake {
+    Fake::new(|r| panic!("unexpected request {r:?}"))
+}
+
+/// The uses codeunit 2001 "Azure ML Connector" makes of its WithEvents variables (Base Application
+/// System/AI/AzureMLConnector.Codeunit.al:17-22, :42-61), which Microsoft's test 139540 reaches: IsNull, the assignment from
+/// the variable's own constructor with and without arguments, a method call, and the variable as the argument of a method call
+/// of another such variable; then the neighbors that stay refused.
+const AZURE_ML_SHAPE: &str = "dotnet { assembly(\"Microsoft.Dynamics.Nav.AzureMLWrapper\") { \
+    type(\"Microsoft.Dynamics.Nav.AzureMLWrapper.AzureMLRequest\"; AzureMLRequest) { } \
+    type(\"Microsoft.Dynamics.Nav.AzureMLWrapper.AzureMLInputBuilder\"; AzureMLInputBuilder) { } } } \
+    codeunit 50100 W { var [WithEvents] Req: DotNet AzureMLRequest; [WithEvents] Inp: DotNet AzureMLInputBuilder; \
+    Other: DotNet AzureMLRequest; \
+    procedure IsInit(): Boolean begin exit(not IsNull(Req) and not IsNull(Inp)); end; \
+    procedure Init(): Integer begin Req := Req.AzureMLRequest('k', 'u', 0); Inp := Inp.AzureMLInputBuilder(); \
+      Req.SetInput('input1', Inp); exit(Req.GetOutputLength('Output1')); end; \
+    procedure Cleared() begin Clear(Req); end; \
+    procedure Copied() begin Other := Req; end; \
+    procedure FromOther() begin Req := Other; end; \
+    procedure Passed() begin Keep(Req); end; \
+    procedure ArgOfPlain() begin Other.SetInput('input1', Inp); end; \
+    procedure PropRead(): Integer begin exit(Req.Timeout); end; \
+    procedure All() begin ClearAll(); end; \
+    procedure NotCtor() begin Req := Req.SetInput('input1', Inp); end; \
+    procedure Keep(X: DotNet AzureMLRequest) begin end; }";
+
+// An AzureML WithEvents variable in a codeunit that declares no trigger for it: the uses codeunit 2001 makes run as a plain
+// DotNet variable's, a flagged pass (assumption with-events-no-trigger-azure-ml-shape; no probe measures it, Microsoft's 139540
+// passes on real BC through these uses). Every other use, a trigger for the variable, another object type and another DotNet
+// type keep the refusal.
+#[test]
+fn an_azure_ml_with_events_variable_runs_flagged_in_the_shape_of_codeunit_2001() {
+    let ids = || hits().iter().map(|a| a.info().id).collect::<Vec<_>>();
+    let host = azure_ml_shape_host();
+    hits();
+    let r = run_src(&host, AZURE_ML_SHAPE, "W", "IsInit");
+    assert!(matches!(r.result, Ok(Value::Boolean(false))), "{:?}", r.result);
+    assert_eq!(ids(), ["with-events-no-trigger-azure-ml-shape"]);
+    // The constructor lowers as a plain DotNet variable's; the DotNet policy then refuses the AzureML server class, as for any
+    // variable of it.
+    let r = run_src(&host, AZURE_ML_SHAPE, "W", "Init");
+    assert!(unsupported(&r).contains("refused by policy"), "{}", unsupported(&r));
+    for routine in [
+        "Cleared",
+        "Copied",
+        "FromOther",
+        "Passed",
+        "ArgOfPlain",
+        "PropRead",
+        "All",
+        "NotCtor",
+    ] {
+        let r = run_src(&host, AZURE_ML_SHAPE, "W", routine);
+        assert!(unsupported(&r).contains("WithEvents"), "{routine}: {}", unsupported(&r));
+    }
+    let with_trigger = AZURE_ML_SHAPE.replace(
+        "Other: DotNet AzureMLRequest;",
+        "Other: DotNet AzureMLRequest; trigger Req::Disposed(sender: Variant; e: DotNet ClrObject) begin end;",
+    );
+    let r = run_src(&host, &with_trigger, "W", "IsInit");
+    assert!(unsupported(&r).contains("WithEvents"), "{}", unsupported(&r));
+    let page = AZURE_ML_SHAPE.replace("codeunit 50100 W {", "page 50100 W {");
+    let r = run_src(&host, &page, "W", "IsInit");
+    assert!(unsupported(&r).contains("WithEvents"), "page: {}", unsupported(&r));
+    let other_type = "codeunit 50100 W { var [WithEvents] Sb: DotNet StringBuilder; \
+        procedure IsInit(): Boolean begin exit(IsNull(Sb)); end; }";
+    let r = run_src(&host, other_type, "W", "IsInit");
+    assert!(
+        unsupported(&r).contains("WithEvents"),
+        "StringBuilder: {}",
+        unsupported(&r)
+    );
 }

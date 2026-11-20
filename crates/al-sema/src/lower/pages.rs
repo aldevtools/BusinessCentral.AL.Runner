@@ -184,6 +184,7 @@ impl Lowerer<'_> {
             // `modify` blocks replace what the control states, in the order the extensions apply. What each
             // block changes is also kept apart (`PageMods`), so that the symbolic form can leave it to link.
             let mut ext_triggers = Vec::new();
+            let mut caption_modifies = Vec::new();
             let mut ext_replaced = Vec::new();
             let props_before = (!raw.modifies.is_empty()).then(|| props.clone());
             for (e, msec) in &raw.modifies {
@@ -217,9 +218,14 @@ impl Lowerer<'_> {
                         }
                     }
                 }
+                let written = msec.args().first().cloned().unwrap_or_default();
+                if ir::Control::sets_caption(&changed) {
+                    caption_modifies.push((*e, written.clone()));
+                }
                 self.page_mods.borrow_mut().mods.push(super::localize::PageMod {
                     control: controls.len(),
                     ext: *e,
+                    name: written,
                     props: changed,
                     triggers: added,
                 });
@@ -449,23 +455,7 @@ impl Lowerer<'_> {
                 },
                 _ => None,
             };
-            let action_ref = if sec.name().eq_ignore_ascii_case("actionref") {
-                Some(match sec.args().get(1) {
-                    None => ir::ActionRef::Unresolved("an actionref names no action".into()),
-                    Some(t) => match layout.controls.iter().position(|c| {
-                        c.kind == ir::ControlKind::Action
-                            && !c.section.name().eq_ignore_ascii_case("actionref")
-                            && c.name.eq_ignore_ascii_case(t.trim().trim_matches('"'))
-                    }) {
-                        Some(i) => ir::ActionRef::Target(i),
-                        None => {
-                            ir::ActionRef::Unresolved(format!("actionref to `{t}`, which is not an action of the page"))
-                        }
-                    },
-                })
-            } else {
-                None
-            };
+            let action_ref = action_ref(sec, layout);
             // An action that declares both RunObject and OnAction runs only the RunObject
             // (testpage/TestPageRunObjectContracts.al:371-390).
             let run_object = self.run_object(oi, file, sec);
@@ -491,6 +481,7 @@ impl Lowerer<'_> {
                 part_link,
                 owner: raw.owner,
                 ext_triggers,
+                caption_modifies,
                 ext_replaced,
                 run_object,
                 action_ref,
@@ -915,6 +906,24 @@ fn expr_source_text(binding: &ir::Binding, listed: bool, sec: &ast::Section) -> 
         .flatten()
 }
 
+/// The action an `actionref` section delegates to: an action of the page that is no actionref itself.
+fn action_ref(sec: &ast::Section, layout: &crate::pages::Layout) -> Option<ir::ActionRef> {
+    if !sec.name().eq_ignore_ascii_case("actionref") {
+        return None;
+    }
+    Some(match sec.args().get(1) {
+        None => ir::ActionRef::Unresolved("an actionref names no action".into()),
+        Some(t) => match layout.controls.iter().position(|c| {
+            c.kind == ir::ControlKind::Action
+                && !c.section.name().eq_ignore_ascii_case("actionref")
+                && c.name.eq_ignore_ascii_case(t.trim().trim_matches('"'))
+        }) {
+            Some(i) => ir::ActionRef::Target(i),
+            None => ir::ActionRef::Unresolved(format!("actionref to `{t}`, which is not an action of the page")),
+        },
+    })
+}
+
 fn data_item_control(name: &str, binding: ir::Binding) -> ir::Control {
     ir::Control {
         name: name.to_string(),
@@ -927,6 +936,7 @@ fn data_item_control(name: &str, binding: ir::Binding) -> ir::Control {
         part_link: None,
         owner: None,
         ext_triggers: Vec::new(),
+        caption_modifies: Vec::new(),
         ext_replaced: Vec::new(),
         run_object: None,
         action_ref: None,

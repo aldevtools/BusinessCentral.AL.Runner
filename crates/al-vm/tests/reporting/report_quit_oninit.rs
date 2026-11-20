@@ -1,9 +1,7 @@
 //! CurrReport.Quit in OnInitReport of a processing-only report with a request page, then each way to start the report
-//! (al-runner issue 7964 item 3; corpus PR 1382, reports/runtime/ReportQuitInOnInit.al:235-355, not pinned yet, assumption
-//! `report-quit-in-oninit-request-page`). The probe's objects; its test codeunit's RunForm is the driver's `Form`, which
+//! (al-runner issue 7964 item 3; reports/runtime/ReportQuitInOnInit.al:235-355). The probe's objects; its test codeunit's RunForm is the driver's `Form`, which
 //! answers `Yes|result|log`, or `No|error text`.
 
-use al_builtins::assumptions::{Assumption, take_hits};
 use al_builtins::value::Value;
 
 const SRC: &str = r#"
@@ -258,27 +256,17 @@ fn the_forms_that_refused_now_run_only_oninitreport_flagged() {
         (9, "Yes|ok=No length=0|OnInitReport;"),
         (10, "Yes|ok=No length=0|OnInitReport;"),
     ] {
-        take_hits();
         assert_eq!(form(&mut b, mode), expected, "mode {mode}");
-        assert!(
-            take_hits().contains(&Assumption::ReportQuitInOninitRequestPage),
-            "mode {mode} must mark"
-        );
     }
 }
 
 #[test]
-fn the_forms_main_ran_keep_their_result_unflagged() {
+fn the_forms_main_ran_keep_their_result() {
     let mut b = al_testkit::Built::from_source(SRC);
     // :275 variable Run, :285 static Run, :295 static Run without request page, :315 variable RunModal, :345 Execute: the run
     // itself runs OnInitReport and stops there, as on main.
     for mode in [4, 5, 6, 8, 11] {
-        take_hits();
         assert_eq!(form(&mut b, mode), "Yes||OnInitReport;", "mode {mode}");
-        assert!(
-            !take_hits().contains(&Assumption::ReportQuitInOninitRequestPage),
-            "mode {mode}"
-        );
     }
 }
 
@@ -335,7 +323,5 @@ fn clear_drops_the_kept_quit_and_the_next_run_is_a_first_run() {
     // Clear gives the variable a new instance (as for Execute, reports/request-page/ExecuteParamsTwiceAndViews.al:146-183),
     // so the quit UseRequestPage(false) kept stays with the old one: the Run runs OnInitReport again, which quits, as mode 4.
     let mut b = al_testkit::Built::from_source(&with_neighbor_forms(SRC));
-    take_hits();
     assert_eq!(form(&mut b, 17), "Yes||OnInitReport;OnInitReport;");
-    assert!(take_hits().contains(&Assumption::ReportQuitInOninitRequestPage));
 }

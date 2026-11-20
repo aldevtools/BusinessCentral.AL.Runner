@@ -104,6 +104,45 @@ fn a_qualified_test_name_selects_one_test_and_exclude_test_removes_tests() {
     );
 }
 
+/// Issue 8059: `--exclude-test-exact NAME` leaves out the test whose method name or qualified name is exactly NAME, in any
+/// case; `--exclude-test` with the same text also leaves out every test whose name contains it.
+#[test]
+fn exclude_test_exact_leaves_out_only_the_test_named() {
+    let d = tempfile::tempdir().unwrap();
+    let app = mixed_app(d.path());
+    let a = app.to_str().unwrap();
+    let total = |extra: &[&str]| {
+        let mut args = vec!["test", a, "--no-download", "--output-json"];
+        args.extend_from_slice(extra);
+        json_of(&alrunner(&args))["total"].as_u64().unwrap()
+    };
+    // The substring form: `Passes` is also in `AlsoPasses`.
+    assert_eq!(total(&["--exclude-test", "Passes"]), 2);
+    // The exact form: the method name, in any case, or the whole qualified name.
+    assert_eq!(total(&["--exclude-test-exact", "Passes"]), 3);
+    assert_eq!(total(&["--exclude-test-exact", "passes"]), 3);
+    assert_eq!(total(&["--exclude-test-exact", "codeunit50100.passes"]), 3);
+    // A part of a name matches nothing; the form is repeatable.
+    assert_eq!(total(&["--exclude-test-exact", "Pass"]), 4);
+    assert_eq!(
+        total(&["--exclude-test-exact", "Passes", "--exclude-test-exact", "Fails"]),
+        2
+    );
+    // It wins over a selecting option, as `--exclude-test` does.
+    assert_eq!(
+        code(&alrunner(&[
+            "test",
+            a,
+            "--no-download",
+            "--test-exact",
+            "Codeunit50100.Passes",
+            "--exclude-test-exact",
+            "Codeunit50100.Passes"
+        ])),
+        6
+    );
+}
+
 const ISO: &str = r#"
 table 50300 "Iso Row" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
 codeunit 50300 "Iso Tests"
@@ -180,8 +219,8 @@ codeunit 50310 "Clock Tests"
 }
 "#;
 
-/// Two runs that start at different moments read the same time of day: the run clock starts at 12:00:00 UTC of the day
-/// (ADR-045 amendment), so an outcome that depends on `Time` does not depend on when the run, or the run that kept its
+/// Two runs that start at different moments read the same time of day: the run clock starts at 12:34:56.789 UTC of the
+/// day (ADR-045 amendments of 2026-10-19 and 2026-11-15), so an outcome that depends on `Time` does not depend on when the run, or the run that kept its
 /// install baseline, began. Before, the clock started at the wall time of the first read: `Job Posting.
 /// PurchaseOrderFCYWithJob` (Tests-Job, codeunit 136309) seeds `Random` from `Time` in an earlier test of its codeunit
 /// and passed or failed depending on which other codeunits were selected (ADR-043 condition 1).
@@ -211,8 +250,8 @@ fn the_run_clock_starts_at_the_same_time_of_day_in_every_run() {
         first, second,
         "the time of day a test reads depends on when its run began"
     );
-    // The first read of a session is the run clock's start: noon (12 h after midnight, in ms).
-    assert_eq!(first.replace(',', ""), "43200000");
+    // The first read of a session is the run clock's start: 12:34:56.789 (in ms after midnight).
+    assert_eq!(first.replace(',', ""), "45296789");
 }
 
 #[test]

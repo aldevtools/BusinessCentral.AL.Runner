@@ -6,7 +6,7 @@
 mod awaited;
 mod choose;
 mod gates;
-pub use awaited::journal_temp_part_reads_after_refresh;
+pub use awaited::{journal_temp_part_reads_after_refresh, web_service_session_measured};
 pub use choose::{AppVersions, Chosen, TargetError, choose_target};
 pub use gates::{
     Evidence, FeatureKeyRows, Gate, dev_endpoint_answers_unhandled_ui, feature_key_rows, has as gate_on,
@@ -85,6 +85,24 @@ impl BcVersion {
             minor: parts.get(1).copied().unwrap_or(0),
             build,
         })
+    }
+
+    /// The run's version once the Microsoft apps were found: `build` is that build (`29.1.57326.58275`). The minor follows
+    /// it, so a major-only `--bc-version 29` on a 29.1 build is the target `29.1` names (al-runner issue 8209). A build of
+    /// another major is an error: the run would answer from the lists of a major the apps do not come from (al-runner
+    /// issue 8243).
+    pub fn resolved_to(&mut self, build: &str) -> Result<(), String> {
+        if let Ok(b) = BcVersion::parse(build) {
+            if b.major != self.major {
+                return Err(format!(
+                    "the Microsoft apps come from build {build} (BC {}), but the run targets BC {}; name the build to run on with --bc-version",
+                    b.major, self.major
+                ));
+            }
+            self.minor = b.minor;
+        }
+        self.build = Some(build.to_string());
+        Ok(())
     }
 
     /// True when `prefix` (`27`, `27.5`) is a whole-segment prefix of this
@@ -228,7 +246,9 @@ fn numbers(s: &str, max: usize) -> Result<Vec<u16>, VersionError> {
 /// where the artifact has it): 27.5.46862.48827 and 28.1.49838.50621 target `net8.0`; 29.0.54011.56307's
 /// `Microsoft.Dynamics.Nav.OpenXml.dll` and `System.Drawing.Common.dll` target `.NETCoreApp,Version=v10.0` and reference
 /// `System.Runtime 10.0.0.0` (al-runner issues 6924 and 5590). A newer major than the table knows gets the newest major
-/// it names: the .NET helper then says which assembly did not load, and the table gets its row.
+/// it names: the .NET helper then says which assembly did not load, and the table gets its row. Used only by a run with no
+/// service tier to ask: BC 27 and 28 builds published from 2026-11-17 run on .NET 10, which their service tier's runtime
+/// configuration says (`al_deps::service_runtime`).
 pub fn dotnet_major_for_bc(major: u16) -> u32 {
     match major {
         ..=28 => 8,
@@ -236,12 +256,63 @@ pub fn dotnet_major_for_bc(major: u16) -> u32 {
     }
 }
 
+/// The builds whose service-tier runtime configuration was measured (`al_deps::service_runtime`, 2026-11-17), with the
+/// `Microsoft.NETCore.App` major their runtime configuration names. A test of `al-test-cli` requires every `bc_build` of `oracle/oracle.toml` here, with the major the corpus sidecar's table
+/// gives its BC major (the corpus sidecar asks no service tier).
+pub const MEASURED_SERVICE_RUNTIMES: &[(&str, u32)] = &[
+    ("26.5.38752.58303", 8),
+    ("27.5.46862.56249", 8),
+    ("27.5.46862.58057", 8),
+    ("27.5.46862.58294", 8),
+    ("28.5.54151.56267", 8),
+    ("28.5.54151.58194", 8),
+    ("27.0.54905.58351", 10),
+    ("27.5.54899.58349", 10),
+    ("28.5.54976.58348", 10),
+    ("29.0.54011.56262", 10),
+    ("29.0.54011.58356", 10),
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn bc(s: &str) -> BcVersion {
         BcVersion::parse(s).unwrap()
+    }
+
+    // al-runner issue 8209: `--bc-version 29`, `29.1` and the full build pick the same 29.1 build, so the target is that
+    // build however it was named, and the Feature Key rows measured on 29.0 only are refused on it in all three.
+    #[test]
+    fn the_target_follows_the_build_the_microsoft_apps_come_from() {
+        let build = "29.1.57326.58275";
+        for asked in ["29", "29.1", build] {
+            let mut t = Target::for_bc(bc(asked));
+            t.bc.resolved_to(build).unwrap();
+            assert_eq!(
+                (t.bc.major, t.bc.minor, t.bc.to_string()),
+                (29, 1, build.to_string()),
+                "{asked}"
+            );
+            assert_eq!(feature_key_rows(Some(&t)), None, "{asked}");
+        }
+        // Neighbor: a 29.0 build keeps main's 29.0 rows.
+        let mut t = Target::for_bc(bc("29"));
+        t.bc.resolved_to("29.0.54011.56262").unwrap();
+        assert_eq!(feature_key_rows(Some(&t)), Some(FeatureKeyRows::Bc29));
+    }
+
+    // al-runner issue 8243: Microsoft apps of another major than the target's stop the run with both versions named, so
+    // no reader of the minor answers from the list of a major the apps do not come from.
+    #[test]
+    fn a_build_of_another_major_is_an_error_that_names_both() {
+        let mut t = Target::for_bc(bc("28"));
+        let e = t.bc.resolved_to("27.5.46862.58057").unwrap_err();
+        assert!(e.contains("27.5.46862.58057") && e.contains("BC 28"), "{e}");
+        // Neighbor: a build of the same major still sets the minor.
+        let mut t = Target::for_bc(bc("28"));
+        t.bc.resolved_to("28.5.54151.58194").unwrap();
+        assert_eq!((t.bc.major, t.bc.minor), (28, 5));
     }
 
     #[test]

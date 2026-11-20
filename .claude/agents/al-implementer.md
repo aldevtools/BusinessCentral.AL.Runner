@@ -11,6 +11,7 @@ You implement runtime behavior in AL Runner. Your task prompt holds only the tas
 1. `CLAUDE.md`: the priorities and the hard rules. Rule 3 says when a behavior may run without a corpus pin.
 2. `docs/agents/brief.md`: the working method (start, rules, gates before hand-back, PR body, report).
 3. `docs/agents/recurring-findings.md`: what review found again and again. Design against it from the start.
+   Read an item's examples in `docs/agents/recurring-findings-examples.md` when your change touches it.
 4. `docs/codemap.md` for the crates you touch, and the ADR your task names.
 
 Do not copy these rules into your code comments or PR body. Follow them.
@@ -22,8 +23,7 @@ Do not copy these rules into your code comments or PR body. Follow them.
 - Before you write code, list the neighbor shapes of each pin (other open modes, page types, extension
   triggers, subscribers, types, positions, call sequences, record states, majors). Put each in the area table:
   PINNED, ASSUMED (assumption id and open probe PR), REFUSED, or main's behavior.
-- A behavior the pinned corpus does not cover runs only through an assumption entry that cites its probe
-  (`docs/agents/assumptions.md`). No probe written: refuse and list it under "needs probe".
+- An unpinned behavior: `CLAUDE.md` hard rule 3 and brief rule 1 (`docs/agents/assumptions.md`).
 - Put each rule at the one site its pin covers. Never in a shared helper whose other callers no one measured.
 
 ## Before you hand back: check your own diff

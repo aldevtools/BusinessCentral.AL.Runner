@@ -26,7 +26,24 @@ pub(crate) fn run_with_deps(apps: &[&str], objects: &str) -> Vec<(String, Outcom
         });
         ids.push(id);
     }
-    let (ws, l) = al_sema::lower::compile_apps(sources, kinds, &Default::default());
+    report_outcomes(sources, kinds, 0)
+}
+
+fn report_outcomes(sources: Vec<AppSource>, kinds: Vec<AppKind>, cached: usize) -> Vec<(String, Outcome)> {
+    let (ws, l) = if cached > 0 {
+        let set = al_sema::lower::lower_for_cache(sources[..cached].to_vec(), &Default::default(), None);
+        al_sema::lower::compile_apps_cached(
+            sources,
+            kinds,
+            &Default::default(),
+            None,
+            Default::default(),
+            std::sync::Arc::new(set),
+        )
+        .unwrap_or_else(|error| panic!("the cached dependency reports can be linked: {}", error.1))
+    } else {
+        al_sema::lower::compile_apps(sources, kinds, &Default::default())
+    };
     assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
     let oi = l.program.objects.iter().position(|o| o.name == "T").unwrap();
     let blocked = l
@@ -1634,6 +1651,37 @@ fn run_over_system(
     dep: Option<&str>,
     main: &str,
 ) -> Vec<(String, Outcome)> {
+    run_over_system_as(None, main_id, logo, dep, main)
+        .into_iter()
+        .map(|(n, o, _)| (n, o))
+        .collect()
+}
+
+/// [`run_over_system`] as BC `target` (none: the newest), with the assumptions each test passed through.
+fn run_over_system_as(
+    target: Option<&str>,
+    main_id: &str,
+    logo: Option<al_ir::AppLogo>,
+    dep: Option<&str>,
+    main: &str,
+) -> Vec<(String, Outcome, Vec<al_builtins::assumptions::Assumption>)> {
+    run_over_system_with(target, main_id, logo, dep.map(|d| (d, None)), false, main)
+}
+
+/// [`run_over_system_as`] with the dependency's logo, and dependency apps published as global when `global`
+/// (`Engine::dependencies_published_global`).
+fn run_over_system_with(
+    target: Option<&str>,
+    main_id: &str,
+    logo: Option<al_ir::AppLogo>,
+    dep: Option<(&str, Option<al_ir::AppLogo>)>,
+    global: bool,
+    main: &str,
+) -> Vec<(String, Outcome, Vec<al_builtins::assumptions::Assumption>)> {
+    let (dep, dep_logo) = match dep {
+        Some((d, l)) => (Some(d), l),
+        None => (None, None),
+    };
     use al_deps::package::read_package;
     let system = read_package(&std::fs::read(al_testfiles::system_app()).unwrap())
         .expect("System.app reads")
@@ -1670,10 +1718,39 @@ fn run_over_system(
         if a.id == main_id {
             a.logo = logo.clone();
         }
+        if a.id == DEP_ID {
+            a.logo = dep_logo.clone();
+        }
     }
-    let engine = Engine::new(std::sync::Arc::new(program), blocked);
+    let target = target.map(|v| al_version::Target::for_bc(al_version::BcVersion::parse(v).unwrap()));
+    let mut engine = Engine::with_target(std::sync::Arc::new(program), blocked, target);
+    std::sync::Arc::get_mut(&mut engine)
+        .expect("a new engine is not shared")
+        .dependencies_published_global = global;
     let oi = l.program.objects.iter().position(|o| o.name == "T").unwrap();
-    run_codeunit(&engine, &l, oi)
+    let mut hits = Vec::new();
+    let out = al_testrun::runtime::run_codeunit_full(
+        &engine,
+        &l,
+        oi,
+        None,
+        al_testrun::isolation::TestIsolation::Disabled,
+        None,
+        &mut Vec::new(),
+        &mut Vec::new(),
+        &mut hits,
+        None,
+    );
+    out.into_iter()
+        .map(|(n, o)| {
+            let marks = hits
+                .iter()
+                .filter(|(h, _)| *h == n)
+                .flat_map(|(_, m)| m.clone())
+                .collect();
+            (n, o, marks)
+        })
+        .collect()
 }
 
 const DEP_ID: &str = "437dbf0e-84ff-417a-965d-ed2bb9650972";
@@ -1739,9 +1816,8 @@ const TINY_PNG: [u8; 67] = [
 
 /// al-runner issue 6148, the rest of cause 2: the Published Application Logo of an app whose manifest declares a logo is a
 /// media with a value, the same id on every read, and a Media row that holds the logo file's bytes unchanged: image/png, the
-/// picture's height and width, every other column empty, Prohibit Cache No. Pin: onprem session-system/UsAppLogo.al:79-117
-/// UsLogo_TinyPng_AppD and :120-148 UsLogo_BigPng_AppC (corpus PR 816; assumption `published-application-logo-is-the-logo-file`
-/// until the pin includes it). A logo that is no PNG stays refused.
+/// picture's height and width, every other column empty, Prohibit Cache No. Pin: onprem session-system/UsAppLogo.al:82-118
+/// UsLogo_TinyPng_AppD and :121-147 UsLogo_BigPng_AppC. A logo that is no PNG stays refused.
 #[test]
 fn issue_6148_extension_logo_of_an_app_with_a_logo() {
     let main = format!(
@@ -1784,6 +1860,177 @@ codeunit 50000 T {{ Subtype = Test;
     // A logo that is no PNG: its MIME type and size are not pinned.
     let o = run_over_system(MAIN_ID, Some(al_ir::AppLogo::File(b"GIF89a".to_vec())), None, &main);
     assert!(matches!(&o[0].1, Outcome::NotRun(why) if why.contains("Logo")), "{o:?}");
+}
+
+/// The 307-byte 8 x 8 baseline JPEG of cross-app fixture E (corpus PR 1412: tests/al-language-xapp-e/logo.jpg, SHA-256
+/// fe4b2404...8f7d20, onprem session-system/UsAppLogoJpeg.al:18).
+const XAPP_E_JPEG: [u8; 307] = [
+    0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00,
+    0x00, 0xff, 0xdb, 0x00, 0x43, 0x00, 0x03, 0x02, 0x02, 0x03, 0x02, 0x02, 0x03, 0x03, 0x03, 0x03, 0x04, 0x03, 0x03,
+    0x04, 0x05, 0x08, 0x05, 0x05, 0x04, 0x04, 0x05, 0x0a, 0x07, 0x07, 0x06, 0x08, 0x0c, 0x0a, 0x0c, 0x0c, 0x0b, 0x0a,
+    0x0b, 0x0b, 0x0d, 0x0e, 0x12, 0x10, 0x0d, 0x0e, 0x11, 0x0e, 0x0b, 0x0b, 0x10, 0x16, 0x10, 0x11, 0x13, 0x14, 0x15,
+    0x15, 0x15, 0x0c, 0x0f, 0x17, 0x18, 0x16, 0x14, 0x18, 0x12, 0x14, 0x15, 0x14, 0xff, 0xdb, 0x00, 0x43, 0x01, 0x03,
+    0x04, 0x04, 0x05, 0x04, 0x05, 0x09, 0x05, 0x05, 0x09, 0x14, 0x0d, 0x0b, 0x0d, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14,
+    0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14,
+    0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14,
+    0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x00, 0x08, 0x00, 0x08, 0x03, 0x01, 0x22, 0x00,
+    0x02, 0x11, 0x01, 0x03, 0x11, 0x01, 0xff, 0xc4, 0x00, 0x15, 0x00, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0xff, 0xc4, 0x00, 0x18, 0x10, 0x01, 0x00, 0x03, 0x01,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x17, 0x53, 0xa1, 0xff, 0xc4,
+    0x00, 0x15, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x06, 0x07, 0xff, 0xc4, 0x00, 0x1a, 0x11, 0x00, 0x02, 0x02, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x05, 0x16, 0x52, 0x53, 0x91, 0xf0, 0xff, 0xda, 0x00, 0x0c, 0x03, 0x01, 0x00, 0x02,
+    0x11, 0x03, 0x11, 0x00, 0x3f, 0x00, 0x9a, 0xab, 0x9c, 0x78, 0x02, 0x4f, 0x31, 0x71, 0x97, 0xb6, 0x2a, 0x8e, 0xaf,
+    0xa1, 0xff, 0xd9,
+];
+
+/// al-runner issue 8061: the Published Application Logo of an app whose manifest declares a baseline JPEG logo is a media with a
+/// value and the same id on every read; its Media row holds the file's bytes unchanged, the picture's size, every other column
+/// empty, and Mime Type image/png on BC 27.5 and 28.5, image/jpeg on BC 29.0 (onprem session-system/UsAppLogoJpeg.al:82-120,
+/// pinned). A pass without an assumption. A progressive JPEG, and a JPEG of another size, stay refused.
+#[test]
+fn issue_8061_extension_logo_of_an_app_with_a_jpeg_logo() {
+    let main = |mime: &str| {
+        format!(
+            r#"
+codeunit 50000 T {{ Subtype = Test;
+  [Test] procedure JpegLogo() var App: Record "Published Application"; Media: Record Media; First: Guid; InS: InStream; B: Byte; N: Integer; begin
+    App.SetRange(ID, '{MAIN_ID}');
+    App.SetRange("Tenant Visible", true);
+    if not App.FindFirst() then Error('no row');
+    if not App.Logo.HasValue() then Error('no logo');
+    if IsNullGuid(App.Logo.MediaId()) then Error('null media id');
+    First := App.Logo.MediaId();
+    App.FindFirst();
+    if App.Logo.MediaId() <> First then Error('other media id');
+    Media.SetRange(ID, App.Logo.MediaId());
+    if not Media.FindFirst() then Error('no media row');
+    if Media.Description <> '' then Error('description');
+    if Media."Mime Type" <> '{mime}' then Error('mime %1', Media."Mime Type");
+    if (Media.Height <> 8) or (Media.Width <> 8) then Error('size %1 x %2', Media.Height, Media.Width);
+    if (Media."Company Name" <> '') or (Media."Expiration Date" <> 0DT) or Media."Prohibit Cache" then Error('columns');
+    if (Media."File Name" <> '') or (Media."Security Token" <> '') or (Media."Creating User" <> '') then Error('columns');
+    if not Media.Content.HasValue() then Error('content');
+    Media.CalcFields(Content);
+    Media.Content.CreateInStream(InS);
+    while not InS.EOS() do begin InS.Read(B); N += 1; if N = 307 then if B <> 217 then Error('last byte %1', B); end;
+    if N <> 307 then Error('length %1', N); end; }}"#
+        )
+    };
+    let jpeg = || Some(al_ir::AppLogo::File(XAPP_E_JPEG.to_vec()));
+    for (target, mime) in [
+        (Some("27.5"), "image/png"),
+        (Some("28.5"), "image/png"),
+        (Some("29.0"), "image/jpeg"),
+    ] {
+        let o = run_over_system_as(target, MAIN_ID, jpeg(), None, &main(mime));
+        assert_eq!(o[0].1, Outcome::Pass, "{target:?}: {o:?}");
+        assert!(o[0].2.is_empty(), "{target:?}: pinned, no assumption");
+    }
+    // A JPEG built otherwise than the measured one, or built so in another size than 8 x 8: not measured, refused as on main.
+    let sized = [
+        include_bytes!("../fixtures/jpeg/wide16x8.jpg").to_vec(),
+        include_bytes!("../fixtures/jpeg/big400x300.jpg").to_vec(),
+    ];
+    for other in unmeasured_jpegs().into_iter().chain(sized) {
+        let o = run_over_system_as(
+            None,
+            MAIN_ID,
+            Some(al_ir::AppLogo::File(other)),
+            None,
+            &main("image/jpeg"),
+        );
+        assert!(matches!(&o[0].1, Outcome::NotRun(why) if why.contains("Logo")), "{o:?}");
+    }
+}
+
+/// JPEG files built otherwise than the measured logo [`XAPP_E_JPEG`]: progressive (start-of-frame FF C2), cut after the
+/// start-of-frame segment, bytes after FF D9, one component, an EXIF segment after the JFIF one, and precision 12.
+fn unmeasured_jpegs() -> Vec<Vec<u8>> {
+    let sof = XAPP_E_JPEG.windows(2).position(|w| w == [0xFF, 0xC0]).unwrap();
+    let sos = XAPP_E_JPEG.windows(2).position(|w| w == [0xFF, 0xDA]).unwrap();
+    let mut progressive = XAPP_E_JPEG.to_vec();
+    progressive[sof + 1] = 0xC2;
+    let cut = XAPP_E_JPEG[..sos].to_vec();
+    let mut trailing = XAPP_E_JPEG.to_vec();
+    trailing.extend_from_slice(b"GE");
+    let mut gray = XAPP_E_JPEG.to_vec();
+    gray[sof + 9] = 1;
+    let mut exif = XAPP_E_JPEG[..20].to_vec();
+    exif.extend_from_slice(&[0xFF, 0xE1, 0x00, 0x08, b'E', b'x', b'i', b'f', 0, 0]);
+    exif.extend_from_slice(&XAPP_E_JPEG[20..]);
+    let mut precision = XAPP_E_JPEG.to_vec();
+    precision[sof + 4] = 12;
+    // The images of the round-2 review of al-runner PR 8131: bytes and a second FF D9 after the real end marker
+    // (trail_ffd9.jpg), the file twice (double.jpg), FF D9 right after the start-of-scan header (noscan.jpg), and a width
+    // of 0 in the frame (zerowidth.jpg); a height of 0 (the height comes from a DNL marker) and a restart marker.
+    let mut trail_ffd9 = XAPP_E_JPEG.to_vec();
+    trail_ffd9.extend_from_slice(b"XXXX\xff\xd9");
+    let double = [XAPP_E_JPEG, XAPP_E_JPEG].concat();
+    let mut noscan = XAPP_E_JPEG[..sos + 14].to_vec();
+    noscan.extend_from_slice(&[0xFF, 0xD9]);
+    let mut zero_width = XAPP_E_JPEG.to_vec();
+    zero_width[sof + 7..sof + 9].copy_from_slice(&[0, 0]);
+    let mut zero_height = XAPP_E_JPEG.to_vec();
+    zero_height[sof + 5..sof + 7].copy_from_slice(&[0, 0]);
+    let mut restart = XAPP_E_JPEG[..sos + 15].to_vec();
+    restart.extend_from_slice(&[0xFF, 0xD0]);
+    restart.extend_from_slice(&XAPP_E_JPEG[sos + 15..]);
+    vec![
+        progressive,
+        cut,
+        trailing,
+        gray,
+        exif,
+        precision,
+        trail_ffd9,
+        double,
+        noscan,
+        zero_width,
+        zero_height,
+        restart,
+    ]
+}
+
+/// The JPEG logo reader takes the measured file's structure by equality and reads the size from its frame.
+#[test]
+fn jfif_logo_size_takes_the_measured_structure_only() {
+    assert_eq!(al_builtins::media::jfif_logo_size(&XAPP_E_JPEG), Some((8, 8)));
+    // Two baseline JFIF files of the same structure in other sizes (round-2 review of al-runner PR 8131).
+    let wide = include_bytes!("../fixtures/jpeg/wide16x8.jpg");
+    assert_eq!(al_builtins::media::jfif_logo_size(wide), Some((16, 8)));
+    let big = include_bytes!("../fixtures/jpeg/big400x300.jpg");
+    assert_eq!(al_builtins::media::jfif_logo_size(big), Some((400, 300)));
+    for other in unmeasured_jpegs() {
+        assert_eq!(
+            al_builtins::media::jfif_logo_size(&other),
+            None,
+            "{:02x?}",
+            &other[..24]
+        );
+    }
+}
+
+/// al-runner issue 8061: a dependency app published as global rests on `dependency-published-as-global`; its JPEG logo, pinned
+/// only on a row that rests on no assumption (UsAppLogoJpeg.al:82-120), is not served on that row, and its Media row is not
+/// listed either (`apps::served_logo`, the one owner of both). A read of the Logo refuses.
+#[test]
+fn issue_8061_jpeg_logo_of_a_dependency_published_as_global_is_refused() {
+    let main = format!(
+        r#"
+codeunit 50000 T {{ Subtype = Test;
+  [Test] procedure DepLogo() var App: Record "Published Application"; begin
+    App.SetRange(ID, '{DEP_ID}');
+    if not App.FindFirst() then Error('no row');
+    if not App.Logo.HasValue() then Error('no logo'); end; }}"#
+    );
+    let dep = "codeunit 50100 D { }";
+    let jpeg = Some(al_ir::AppLogo::File(XAPP_E_JPEG.to_vec()));
+    let o = run_over_system_with(None, MAIN_ID, None, Some((dep, jpeg.clone())), true, &main);
+    assert!(matches!(&o[0].1, Outcome::NotRun(why) if why.contains("Logo")), "{o:?}");
+    // Published as Dev (the default): the logo is served, without an assumption.
+    let o = run_over_system_with(None, MAIN_ID, None, Some((dep, jpeg)), false, &main);
+    assert_eq!(o[0].1, Outcome::Pass, "{o:?}");
 }
 
 /// al-runner issue 6148: Guided Experience Impl.InsertGuidedExperienceItem imports the app's logo with the extension id (a
@@ -2698,6 +2945,14 @@ fn issue_7877_other_group_two_flowfilter_shapes_keep_their_refusals() {
                 r#"Source.SetRange("Kind Filter", Source."Kind Filter"::Other, Source."Kind Filter"::Selected);"#,
             ),
         ),
+        // The pin sets the group 2 filter with SetRange (TestRecordEnumFlowFilterGroup.al:139); SetFilter is not measured.
+        (
+            "SetFilter",
+            source.replace(
+                narrow,
+                r#"Source.SetFilter("Kind Filter", '%1', Source."Kind Filter"::Selected);"#,
+            ),
+        ),
         (
             "assigned buffer",
             source.replace(
@@ -2757,6 +3012,38 @@ codeunit 50993 T {
     all_pass(run_with_deps(&[], source));
 }
 
+/// The pin calls `CurrPage.SaveRecord()` on a ListPart (TestCurrPageSaveRecordName1Fixture51744.al:9,28); on a Card the
+/// same collision is not measured and refuses.
+#[test]
+fn currpage_save_record_collision_on_a_card_refuses() {
+    let source = r#"
+page 50992 "Save Collision Control" {
+    PageType = Card;
+    layout { area(Content) { field(Observed; Called) {} } }
+    actions { area(Processing) {
+        action(Check) { trigger OnAction() begin CurrPage.SaveRecord(); end; }
+    } }
+    var Called: Boolean;
+    internal procedure SaveRecord() begin Called := true; end;
+}
+codeunit 50993 T {
+    Subtype = Test;
+    [Test] procedure CurrPageCall() var P: TestPage "Save Collision Control";
+    begin
+        P.OpenView();
+        P.Check.Invoke();
+        if P.Observed.AsBoolean() then Error('CurrPage.SaveRecord invoked the page procedure.');
+        P.Close();
+    end;
+}
+"#;
+    let outcomes = run_with_deps(&[], source);
+    assert!(
+        matches!(outcomes.as_slice(), [(_, Outcome::NotRun(why))] if why.contains("internal SaveRecord")),
+        "{outcomes:?}"
+    );
+}
+
 #[test]
 fn extension_save_record_still_calls_the_base_procedure() {
     let outcomes = run_with_deps(
@@ -2802,6 +3089,21 @@ fn measured_card_new_skips_empty_part_current_record() {
     all_pass(run_with_deps(&[], include_str!("../fixtures/card-new-empty-part.al")));
 }
 
+/// The pin opens the Card host with the test's own OpenEdit (TestCardNewEmptyPartRead.al:22); a host that AL code ran and
+/// the test trapped is not measured and refuses.
+#[test]
+fn card_new_empty_part_on_a_trapped_host_refuses() {
+    let src = include_str!("../fixtures/card-new-empty-part.al").replace(
+        "        Document.OpenEdit();",
+        "        Document.Trap();\n        Page.Run(Page::\"Document Repro With Part\", Row);",
+    );
+    let outcomes = run_with_deps(&[], &src);
+    assert!(
+        matches!(outcomes.as_slice(), [(_, Outcome::NotRun(why))] if why.contains("host runs New()")),
+        "{outcomes:?}"
+    );
+}
+
 #[test]
 fn measured_report_extension_items_link_to_named_immediate_parents() {
     all_pass(run_with_deps(
@@ -2838,6 +3140,23 @@ fn report_extension_refuses_unmeasured_parent_references() {
             fixture.replacen("DataItemLink = ParentId = field(Id);", "", 1),
             "DataItemLinkReference",
         ),
+        // The pin adds the item with addbefore of a base sibling (TestReportExtensionParentLink.al:46-51): the other
+        // anchors that name the same parent are not measured.
+        (
+            "addlast",
+            fixture.replace("addbefore(Line)", "addlast(Header)"),
+            "DataItemLinkReference on an item added",
+        ),
+        (
+            "addfirst",
+            fixture.replace("addbefore(Line)", "addfirst(Header)"),
+            "DataItemLinkReference on an item added",
+        ),
+        (
+            "addafter",
+            fixture.replace("addbefore(Line)", "addafter(Line)"),
+            "DataItemLinkReference on an item added",
+        ),
     ] {
         let outcomes = run_with_deps(&[], &source);
         assert_eq!(outcomes.len(), 1, "{shape}: {outcomes:?}");
@@ -2854,6 +3173,27 @@ fn measured_trapped_card_sets_non_key_field_with_blank_part_rows() {
         &[],
         include_str!("../fixtures/trapped-card-draft-blank-part-rows.al"),
     ));
+}
+
+/// The pin runs the Card with a static `Page.Run(Id, Header)` (TestTrappedCardBlankPart.al:26); a Page.Run without a record
+/// is not measured and keeps the refusal.
+#[test]
+fn trapped_card_run_without_a_record_keeps_the_refusal() {
+    let source = include_str!("../fixtures/trapped-card-draft-blank-part-rows.al");
+    let changed = source.replace(
+        "        Page.Run(Page::\"Draft Probe Card\", Header);",
+        "        Page.Run(Page::\"Draft Probe Card\");",
+    );
+    assert_ne!(source, changed);
+    let results = run_with_deps(&[], &changed);
+    let (_, outcome) = results
+        .iter()
+        .find(|(name, _)| name == "SetValueOnNewCardWithBlankLinkedRows")
+        .unwrap();
+    assert!(
+        matches!(outcome, Outcome::NotRun(reason) if reason.contains("whose part shows rows of the blank key")),
+        "{outcome:?}"
+    );
 }
 
 #[test]
@@ -2997,6 +3337,31 @@ fn measured_assist_edit_uses_the_linked_card_part_primary_key() {
     ));
 }
 
+/// The pin opens the Document host with the test's own OpenEdit (TestCardPartAssistEditKey.al:52); a trapped host keeps the
+/// previous result.
+#[test]
+fn linked_card_part_assist_edit_on_a_trapped_host_keeps_the_previous_result() {
+    let source = include_str!("../fixtures/linked-card-part-assist.al");
+    let changed = source.replacen(
+        "        Host.OpenEdit();\n        Host.GoToRecord(Header);\n",
+        "        Host.Trap();\n        Page.Run(Page::\"Linked Part Host\", Header);\n",
+        1,
+    );
+    assert_ne!(source, changed);
+    let results = run_with_deps(&[], &changed);
+    let (_, outcome) = results
+        .iter()
+        .find(|(name, _)| name == "AssistEditUsesTheLinkedPrimaryKey")
+        .unwrap();
+    assert_eq!(
+        outcome,
+        &Outcome::Fail(
+            "Before Assist must be equal to 'DETAIL-A'  in Linked Part Detail Row: Code=DETAIL-A. Current value is ''."
+                .into()
+        )
+    );
+}
+
 #[test]
 fn issue_7883_neighbor_keeps_the_previous_result() {
     let source = include_str!("../fixtures/linked-card-part-assist.al");
@@ -3040,6 +3405,23 @@ fn default_update_propagation_keeps_main_scan_result() {
     );
 }
 
+/// The pin opens the Document host with the test's own OpenEdit (TestCardPartDrilldownRefresh.al:22); a trapped host is not
+/// measured and keeps main's scan result (no deferred reread).
+#[test]
+fn trapped_document_host_keeps_main_scan_result() {
+    let source = include_str!("../fixtures/card-part-drilldown-refresh.al");
+    let trapped = source.replace(
+        "        Document.OpenEdit();\n        Document.GoToRecord(Row);\n",
+        "        Document.Trap();\n        Page.Run(Page::\"Probe Packing Document\", Row);\n",
+    );
+    assert_ne!(source, trapped);
+    let outcomes = run_with_deps(&[], &trapped);
+    assert!(
+        matches!(outcomes.as_slice(), [(_, Outcome::Fail(reason))] if reason == "Before the next scan the page showed FIRST. The scan used package FIRST."),
+        "{outcomes:?}"
+    );
+}
+
 #[test]
 fn measured_literal_field_caption_reuses_the_resolution_on_repeated_reads() {
     all_pass(run_with_deps(&[], include_str!("../fixtures/literal-field-caption.al")));
@@ -3064,12 +3446,78 @@ fn issue_7884_caption_after_language_or_binding_change_stays_refused() {
     }
 }
 
+/// The pin writes a page-variable control without OnValidate between the reads
+/// (TestLiteralFieldCaptionResolution1Fixture*.al: `field(EditValue; EditValue)`); a write that runs an OnValidate is not
+/// measured and keeps the refusal.
+#[test]
+fn literal_field_caption_after_a_validated_write_stays_refused() {
+    let source = include_str!("../fixtures/literal-field-caption.al");
+    let changed = source.replace(
+        "field(EditValue; EditValue) { ApplicationArea = All; }",
+        "field(EditValue; EditValue) { ApplicationArea = All; trigger OnValidate() begin end; }",
+    );
+    assert_ne!(source, changed);
+    let results = run_with_deps(&[], &changed);
+    assert!(
+        matches!(results.as_slice(), [(_, Outcome::NotRun(reason))] if reason.contains("a second Caption()")),
+        "{results:?}"
+    );
+}
+
 #[test]
 fn measured_recordref_get_table_updates_the_shared_event_buffer() {
     all_pass(run_with_deps(
         &[],
         include_str!("../fixtures/recordref-gettable-shared.al"),
     ));
+}
+
+/// The pin hands GetTable an unfiltered Record in its primary key, on the copy of a pair of handles that share an unfiltered
+/// buffer in its primary key (TestRecordRefGetTableAlias.al:44-52). A filtered or keyed source, a filtered original and a
+/// third handle are not measured: GetTable refuses.
+#[test]
+fn recordref_get_table_on_an_alias_outside_the_pin_is_refused() {
+    let source = include_str!("../fixtures/recordref-gettable-shared.al");
+    let get_table = "        Row.Category := 7;\n        Alias.GetTable(Row);";
+    let vars = "        Alias: RecordRef;\n        Observed: Variant;\n";
+    assert!(source.contains(get_table) && source.contains(vars));
+    let shapes = [
+        (
+            "filtered source",
+            source.replace(get_table, "        Row.Category := 7;\n        Row.SetRange(Id, 1);\n        Alias.GetTable(Row);"),
+        ),
+        (
+            "source with another key",
+            source.replace(get_table, "        Row.Category := 7;\n        Row.SetCurrentKey(Category);\n        Alias.GetTable(Row);"),
+        ),
+        (
+            "filtered original",
+            source.replace(
+                "        Original.GetTable(Row);\n        Alias := Original;",
+                "        Original.GetTable(Row);\n        Original.Field(1).SetRange(1, 3);\n        Alias := Original;",
+            ),
+        ),
+        (
+            "three handles",
+            source
+                .replace(
+                    "        Alias := Original;\n        Row.Category := 7;\n        Alias.GetTable(Row);",
+                    "        Alias := Original;\n        Third := Alias;\n        Row.Category := 7;\n        Third.GetTable(Row);",
+                )
+                .replace(vars, &format!("{vars}        Third: RecordRef;\n")),
+        ),
+    ];
+    for (shape, changed) in shapes {
+        assert_ne!(source, changed, "{shape}");
+        let outcome = outcome_named(
+            &run_with_deps(&[], &changed),
+            "GetTableUpdatesAnAssignedAliasOfTheSameTable",
+        );
+        assert!(
+            matches!(&outcome, Outcome::NotRun(reason) if reason.contains("GetTable on a RecordRef that shares")),
+            "{shape}: {outcome:?}"
+        );
+    }
 }
 
 #[test]
@@ -3430,5 +3878,467 @@ fn issue_7885_var_variant_and_source_side_keep_main_result() {
             Outcome::Fail("The assigned alias changed the value to 0.".into()),
             "{shape}"
         );
+    }
+}
+
+/// Issue 7410: the reporter's pattern (fixtures/outside-fb/Issue7410.al), two Caption() reads in a row of a field whose
+/// CaptionClass an OnResolveCaptionClass subscriber resolves, after OpenEdit on an empty table.
+#[test]
+fn issue_7410_second_caption_read_of_a_resolved_field() {
+    all_pass(repro_outcomes(
+        include_str!("../fixtures/outside-fb/Issue7410.al"),
+        "My Caption Tests",
+    ));
+}
+
+#[test]
+fn report_xml_column_line_breaks_are_limited_to_static_save_as() {
+    let fixture = r#"
+table 52010 LineBreakRow {
+    fields { field(1; Id; Integer) { } field(2; Payload; Text[100]) { } field(3; Bytes; Blob) { } }
+    keys { key(PK; Id) { } }
+}
+report 52011 LineBreakReport {
+    dataset { dataitem(Row; LineBreakRow) { column(Payload; Payload) { } } }
+}
+codeunit 52013 T {
+    Subtype = Test;
+    [Test] procedure LineBreaks()
+    var Row: Record LineBreakRow; Buffer: Record LineBreakRow temporary; R: Report LineBreakReport;
+        OutS: OutStream; InS: InStream; Raw: Text; Ch: Text[1]; B: Byte; Cr: Char; Lf: Char;
+    begin
+        Cr := 13;
+        Lf := 10;
+        Row.Payload := 'A' + Format(Cr) + 'B' + Format(Lf) + 'C' + Format(Cr) + Format(Lf) + 'D';
+        Row.Insert();
+        Buffer.Bytes.CreateOutStream(OutS);
+        Report.SaveAs(Report::LineBreakReport, '', ReportFormat::Xml, OutS);
+        Buffer.Bytes.CreateInStream(InS);
+        while not InS.EOS() do begin
+            InS.Read(B);
+            Ch[1] := B;
+            Raw += Ch;
+        end;
+        if not Raw.Contains('A' + Format(Cr) + Format(Lf) + 'B' + Format(Cr) + Format(Lf) + 'C' + Format(Cr) + Format(Lf) + 'D') then
+            Error('The XML did not contain all three CRLF pairs.');
+    end;
+}
+"#;
+    all_pass(run_with_deps(&[], fixture));
+    let call = "Report.SaveAs(Report::LineBreakReport, '', ReportFormat::Xml, OutS);";
+    let with_ref = fixture
+        .replace("OutS: OutStream;", "OutS: OutStream; Ref: RecordRef;")
+        .replace(
+            call,
+            "Ref.Open(52010); Report.SaveAs(Report::LineBreakReport, '', ReportFormat::Xml, OutS, Ref);",
+        );
+    let with_parameters = fixture.replace(
+        call,
+        r#"Report.SaveAs(Report::LineBreakReport, '<?xml version="1.0" standalone="yes"?><ReportParameters name="LineBreakReport" id="52011"><DataItems><DataItem name="Row">VERSION(1) SORTING(Field1)</DataItem></DataItems></ReportParameters>', ReportFormat::Xml, OutS);"#,
+    );
+    let extension_column = fixture.replace("column(Payload; Payload) { }", "").replace(
+        "codeunit 52013 T {",
+        "reportextension 52012 LineBreakExt extends LineBreakReport {
+    dataset { add(Row) { column(Payload; Payload) { } } }
+}
+codeunit 52013 T {",
+    );
+    for (shape, src) in [
+        (
+            "variable SaveAs",
+            fixture.replace("Report.SaveAs(Report::LineBreakReport, ", "R.SaveAs("),
+        ),
+        ("RecordRef argument", with_ref),
+        ("parameters", with_parameters),
+        (
+            "text expression column",
+            fixture.replace("column(Payload; Payload)", "column(Payload; Payload + '')"),
+        ),
+        ("report extension column", extension_column),
+    ] {
+        let result = run_with_deps(&[], &src);
+        assert!(matches!(&result[0].1, Outcome::NotRun(_)), "{shape}: {result:?}");
+    }
+}
+
+#[test]
+fn measured_integer_record_field_in_set_and_boolean() {
+    all_pass(run_with_deps(&[], include_str!("../fixtures/record-in-and-boolean.al")));
+}
+
+#[test]
+fn integer_record_field_boolean_neighbors_still_refuse() {
+    let src = include_str!("../fixtures/record-in-and-boolean.al");
+    let measured = "Row.Id in [1, 2] and Row.Approved";
+    for other in [
+        "Row.Id in [1, 2] or Row.Approved",
+        "Row.Id in [1, 2] xor Row.Approved",
+        "N in [1, 2] and Row.Approved",
+        "Row.Id in [1, 2] and false",
+        "Row.Id in [1, 2] and B",
+        "Row.Id in [N, 2] and Row.Approved",
+        "Row.Id in [1..3] and Row.Approved",
+        "Row.Id in [1, 2] and Row.IsEmpty()",
+        "Row.Id in [1, 2] and Other.Approved",
+        "Row.Id in [1, 2] and Row.IsApproved()",
+        "Row.Id in [1] and Row.Approved",
+        "Row.Id in [1, 2, 3] and Row.Approved",
+    ] {
+        let result = run_with_deps(
+            &[],
+            &src.replace(
+                "N: Integer;",
+                "N: Integer; B: Boolean; Other: Record \"Probe Predicate Row\";",
+            )
+            .replace(
+                "keys { key(PK; Id) { Clustered = true; } }",
+                "keys { key(PK; Id) { Clustered = true; } }\n    procedure IsApproved(): Boolean begin exit(Approved); end;",
+            )
+            .replace(measured, other),
+        );
+        assert!(
+            matches!(&result[0].1, Outcome::NotRun(why) if why.contains("set followed by")),
+            "{other}: {result:?}"
+        );
+    }
+    for kind in ["BigInteger", "Decimal"] {
+        let result = run_with_deps(&[], &src.replace("Id; Integer", &format!("Id; {kind}")));
+        assert!(
+            matches!(&result[0].1, Outcome::NotRun(why) if why.contains("set followed by")),
+            "{kind}: {result:?}"
+        );
+    }
+}
+
+#[test]
+fn measured_modal_document_closes_three_draft_parts_after_validation_error() {
+    all_pass(run_with_deps(
+        &[],
+        include_str!("../fixtures/modal-three-draft-parts.al"),
+    ));
+}
+
+#[test]
+fn modal_validation_three_draft_parts_refuses_unmeasured_layouts() {
+    let src = include_str!("../fixtures/modal-three-draft-parts.al");
+    let third = r#"            part(ThirdLines; "Three Part Probe Part")
+            {
+                ApplicationArea = All;
+                SubPageLink = Id = field(Id);
+            }
+"#;
+    assert!(src.contains(third));
+    let two = src.replace(third, "").replace("Document.ThirdLines.New();", "");
+    let four = src
+        .replace(third, &format!("{third}{}", third.replace("ThirdLines", "FourthLines")))
+        .replace(
+            "Document.ThirdLines.New();",
+            "Document.ThirdLines.New(); Document.FourthLines.New();",
+        );
+    let dirty = src
+        .replace(
+            "Error('Repro part validation failed.');",
+            "if Rec.Payload = 'INPUT' then Error('Repro part validation failed.');",
+        )
+        .replace(
+            "Document.Lines.Payload.SetValue('INPUT');",
+            "Document.OtherLines.Payload.SetValue('DIRTY'); Document.Lines.Payload.SetValue('INPUT');",
+        );
+    let extension = format!(
+        r#"{src}
+pageextension 50999 UnmeasuredClose extends "Three Part Probe Part" {{
+    trigger OnQueryClosePage(CloseAction: Action): Boolean begin exit(true); end;
+}}
+"#
+    );
+    let subscriber = format!(
+        r#"{src}
+codeunit 50999 UnmeasuredClose {{
+    [EventSubscriber(ObjectType::Page, Page::"Three Part Probe Part", OnQueryClosePageEvent, '', false, false)]
+    local procedure ObserveClose() begin end;
+}}
+"#
+    );
+    let document_extension = format!(
+        r#"{src}
+pageextension 50999 UnmeasuredClose extends "Three Part Probe Document" {{
+    trigger OnQueryClosePage(CloseAction: Action): Boolean begin exit(true); end;
+}}
+"#
+    );
+    let part_id = "field(Id; Rec.Id) { ApplicationArea = All; }\n                field(Payload";
+    assert!(src.contains(part_id));
+    let second_validate = src.replace(
+        part_id,
+        "field(Id; Rec.Id) { ApplicationArea = All; trigger OnValidate() begin end; }\n                field(Payload",
+    );
+    for (shape, fixture) in [
+        ("two parts", two),
+        ("four parts", four),
+        ("dirty", dirty),
+        ("extension", extension),
+        ("subscriber", subscriber),
+        ("document extension", document_extension),
+        ("second OnValidate on the part", second_validate),
+    ] {
+        let result = run_with_deps(&[], &fixture);
+        assert!(matches!(&result[0].1, Outcome::NotRun(_)), "{shape}: {result:?}");
+    }
+}
+
+fn dependency_report_outcomes(owner: &str, consumer: &str, test: &str) -> Vec<(String, Outcome)> {
+    dependency_report_mode(owner, consumer, test, 0)
+}
+
+fn dependency_report_mode(owner: &str, consumer: &str, test: &str, cached: usize) -> Vec<(String, Outcome)> {
+    let base = include_str!("../fixtures/cross-app-report-items-base.al");
+    dependency_report_graph(
+        &[(base, &[]), (owner, &[0]), (consumer, &[0, 1]), (test, &[0, 1, 2])],
+        cached,
+    )
+}
+
+/// Each app with the indices of the apps it depends on; the last one is the workspace app with the test codeunit.
+fn dependency_report_graph(graph: &[(&str, &[usize])], cached: usize) -> Vec<(String, Outcome)> {
+    let id = |i: usize| format!("e0b74651-fb05-47ab-8d77-57b3b30c{i:04x}");
+    let apps = graph
+        .iter()
+        .enumerate()
+        .map(|(i, (source, dependencies))| AppSource {
+            name: id(i),
+            dependencies: dependencies.iter().map(|&d| id(d)).collect(),
+            files: vec![(format!("{}.al", id(i)), source.to_string())],
+            id: id(i),
+        })
+        .collect();
+    let kinds = (0..graph.len())
+        .map(|i| {
+            if i + 1 < graph.len() {
+                AppKind::Dependency
+            } else {
+                AppKind::Workspace
+            }
+        })
+        .collect();
+    report_outcomes(apps, kinds, cached)
+}
+
+// The pinned shape (reports/extensions/TestReportDependencyDataItems.al:12, :26, :46) in both extension ID orders, also
+// with the base and owner apps from the compile cache.
+#[test]
+fn measured_report_extension_targets_dependency_data_items() {
+    let owner = include_str!("../fixtures/cross-app-report-items-alpha.al");
+    let consumer = include_str!("../fixtures/cross-app-report-items-leaf.al");
+    let test = include_str!("../fixtures/cross-app-report-items-tests.al");
+    for cached in [0, 2, 3] {
+        all_pass(dependency_report_mode(owner, consumer, test, cached));
+        all_pass(dependency_report_mode(
+            owner,
+            &consumer.replace("50880", "50891"),
+            test,
+            cached,
+        ));
+    }
+}
+
+#[test]
+fn dependency_report_extension_refuses_unmeasured_entry_points() {
+    let owner = include_str!("../fixtures/cross-app-report-items-alpha.al");
+    let consumer = include_str!("../fixtures/cross-app-report-items-leaf.al");
+    let test = include_str!("../fixtures/cross-app-report-items-tests.al");
+    let xml = "Report.SaveAs(Report::\"Cross Report Base\", '', ReportFormat::Xml, Output);";
+    for call in [
+        "Report.Run(Report::\"Cross Report Base\", false);",
+        "Report.RunModal(Report::\"Cross Report Base\", false);",
+        "Report.SaveAs(Report::\"Cross Report Base\", '', ReportFormat::Xml, Output, Ref);",
+        "Report.SaveAs(Report::\"Cross Report Base\", '', ReportFormat::Word, Output);",
+        "Report.SaveAs(Report::\"Cross Report Base\", '', ReportFormat::Excel, Output);",
+        "Report.SaveAs(Report::\"Cross Report Base\", '', ReportFormat::Html, Output);",
+        "ReportVariable.SaveAs('', ReportFormat::Xml, Output);",
+        "Report.RunRequestPage(Report::\"Cross Report Base\");",
+        "Report.SaveAsXml(Report::\"Cross Report Base\", 'unused.xml');",
+        "Report.WordXmlPart(Report::\"Cross Report Base\");",
+        "Report.SaveAs(Report::\"Cross Report Base\", 'params', ReportFormat::Xml, Output);",
+        "Report.SaveAs(Report::\"Cross Report Base\", '', ReportFormat::Pdf, Output);",
+    ] {
+        let src = test.replace(xml, call).replace(
+            "        Number: Integer;",
+            "        Number: Integer; Ref: RecordRef; ReportVariable: Report \"Cross Report Base\";",
+        );
+        let outcomes = dependency_report_outcomes(owner, consumer, &src);
+        assert!(
+            matches!(&outcomes[0].1, Outcome::NotRun(why) if why.contains("dependency report data items") || (call.contains("SaveAsXml") && why.to_ascii_lowercase().contains("saveasxml"))),
+            "{call}: {outcomes:?}"
+        );
+    }
+}
+
+#[test]
+fn dependency_report_extension_refuses_unmeasured_targets() {
+    let owner = include_str!("../fixtures/cross-app-report-items-alpha.al");
+    let consumer = include_str!("../fixtures/cross-app-report-items-leaf.al");
+    let test = include_str!("../fixtures/cross-app-report-items-tests.al");
+    for (from, to, refusal) in [
+        ("modify(AddedRow)", "modify(FooterRow)", "modify(FooterRow)"),
+        ("add(AddedRow)", "add(FooterRow)", "add("),
+        ("addbefore(FooterRow)", "addbefore(AddedRow)", "add"),
+        ("addbefore(FooterRow)", "addfirst(AddedRow)", "add"),
+        ("addafter(FooterRow)", "addlast(AddedRow)", "add"),
+        (
+            "DataItemLinkReference = AddedRow",
+            "DataItemLinkReference = BaseRow",
+            "DataItemLinkReference",
+        ),
+    ] {
+        let changed = consumer.replace(from, to);
+        let outcomes = dependency_report_outcomes(owner, &changed, test);
+        assert!(
+            matches!(&outcomes[0].1, Outcome::NotRun(why) if why.contains(refusal)),
+            "{from}: {outcomes:?}"
+        );
+    }
+}
+
+#[test]
+fn dependency_report_extension_without_foreign_references_can_run_normally() {
+    let owner = include_str!("../fixtures/cross-app-report-items-alpha.al");
+    let consumer = r#"
+        reportextension 50891 LocalOnly extends "Cross Report Base"
+        {
+            dataset { add(BaseRow) { column(LocalNo; Number) { } } }
+        }
+    "#;
+    let test = r#"
+        codeunit 50899 T { Subtype = Test;
+            [Test] procedure OrdinaryXml()
+            var Row: Record "Cross Report Number"; Buffer: Record "Cross Report Number" temporary; Output: OutStream;
+            begin
+                Row.Number := 1;
+                Row.Insert();
+                Buffer.Data.CreateOutStream(Output);
+                Report.SaveAs(Report::"Cross Report Base", '', ReportFormat::Xml, Output);
+            end;
+        }
+    "#;
+    all_pass(dependency_report_outcomes(owner, consumer, test));
+}
+
+#[test]
+fn dependency_report_extension_refuses_unmeasured_owners_and_modifications() {
+    let owner = include_str!("../fixtures/cross-app-report-items-alpha.al");
+    let consumer = include_str!("../fixtures/cross-app-report-items-leaf.al").replace("50880", "50891");
+    let test = include_str!("../fixtures/cross-app-report-items-tests.al");
+    for (owner, consumer) in [
+        (
+            owner.replace("DataItemTableView = where(Number = const(2));", "UseTemporary = true;"),
+            consumer.clone(),
+        ),
+        (
+            owner.to_string(),
+            consumer.replace("OnAfterAfterGetRecord", "OnBeforeAfterGetRecord"),
+        ),
+        (
+            owner.to_string(),
+            consumer.replace(
+                "trigger OnAfterAfterGetRecord",
+                "RequestFilterFields = Number; trigger OnAfterAfterGetRecord",
+            ),
+        ),
+        (
+            owner.to_string(),
+            format!(
+                "{consumer} reportextension 50892 Third extends \"Cross Report Base\" {{ dataset {{ add(BaseRow) {{ column(ThirdNo; Number) {{ }} }} }} }}"
+            ),
+        ),
+    ] {
+        // Remove the reference in the trigger and column expressions so the refusal is about the dataset shape.
+        let consumer = consumer.replace("AddedRow.Number", "2");
+        let outcomes = dependency_report_outcomes(&owner, &consumer, test);
+        assert!(matches!(&outcomes[0].1, Outcome::NotRun(_)), "{outcomes:?}");
+    }
+}
+
+/// Shapes next to the pinned ones (reports/extensions/TestReportDependencyDataItems.al:12, :26) that the corpus does not
+/// measure: a consumer modify without the one OnAfterAfterGetRecord trigger (al-language-xapp-c/ReportDependencyC.ReportExt.al:11-19),
+/// an owner item added with addfirst instead of addlast (al-language-xapp-b/ReportDependencyB.ReportExt.al:11), an
+/// addafter item without DataItemLinkReference (the pinned one has it, ReportDependencyC.ReportExt.al:42), and a
+/// consumer variable named like an owner item. Each refuses, in both extension ID orders.
+#[test]
+fn dependency_report_extension_refuses_unmeasured_neighbors() {
+    let owner = include_str!("../fixtures/cross-app-report-items-alpha.al");
+    let consumer = include_str!("../fixtures/cross-app-report-items-leaf.al");
+    let test = include_str!("../fixtures/cross-app-report-items-tests.al");
+    let trigger = "            trigger OnAfterAfterGetRecord()
+            var
+                Trace: Codeunit \"Cross Report Trace\";
+            begin
+                Trace.Push('dependent=' + Format(AddedRow.Number));
+            end;
+";
+    assert!(consumer.contains(trigger));
+    let collision = "    dataset\n    {\n        modify(AddedRow)";
+    assert!(consumer.contains(collision));
+    for (shape, owner, consumer, test) in [
+        (
+            "modify without a trigger",
+            owner.to_string(),
+            consumer.replace(trigger, ""),
+            test.replace("dependent=2|", ""),
+        ),
+        (
+            "owner addfirst",
+            owner.replace("addlast(BaseRow)", "addfirst(BaseRow)"),
+            consumer.to_string(),
+            test.to_string(),
+        ),
+        (
+            "addafter without DataItemLinkReference",
+            owner.to_string(),
+            consumer.replace("                DataItemLinkReference = AddedRow;\n", ""),
+            test.to_string(),
+        ),
+        (
+            "addafter without a link",
+            owner.to_string(),
+            consumer
+                .replace("                DataItemLinkReference = AddedRow;\n", "")
+                .replace("                DataItemLink = Number = field(Number);\n", ""),
+            test.to_string(),
+        ),
+        (
+            "consumer variable named like an owner item",
+            owner.to_string(),
+            consumer.replace(collision, &format!("    var\n        FooterRow: Integer;\n{collision}")),
+            test.to_string(),
+        ),
+    ] {
+        for consumer in [consumer.clone(), consumer.replace("50880", "50891")] {
+            let outcomes = dependency_report_outcomes(&owner, &consumer, &test);
+            assert!(matches!(&outcomes[0].1, Outcome::NotRun(_)), "{shape}: {outcomes:?}");
+        }
+    }
+}
+
+/// A consumer whose app reaches the owner's app only through another app keeps main's refusal: the pinned consumer
+/// depends on the owner directly (al-language-xapp-c's app.json).
+#[test]
+fn dependency_report_extension_refuses_an_indirect_owner() {
+    let base = include_str!("../fixtures/cross-app-report-items-base.al");
+    let owner = include_str!("../fixtures/cross-app-report-items-alpha.al");
+    let consumer = include_str!("../fixtures/cross-app-report-items-leaf.al");
+    let test = include_str!("../fixtures/cross-app-report-items-tests.al");
+    let middle = "codeunit 50870 MiddleApp { }";
+    for consumer in [consumer.to_string(), consumer.replace("50880", "50891")] {
+        let outcomes = dependency_report_graph(
+            &[
+                (base, &[]),
+                (owner, &[0]),
+                (middle, &[0, 1]),
+                (&consumer, &[0, 2]),
+                (test, &[0, 1, 2, 3]),
+            ],
+            0,
+        );
+        assert!(matches!(&outcomes[0].1, Outcome::NotRun(_)), "{outcomes:?}");
     }
 }

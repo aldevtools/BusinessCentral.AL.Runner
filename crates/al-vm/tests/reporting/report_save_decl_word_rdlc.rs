@@ -1,8 +1,8 @@
 //! A rendering save of a report whose `WordLayout` and `RDLCLayout` properties declare its layouts (`DefaultLayout = Word`,
-//! no rendering section, one data item, no trigger, no extension), saved to a stream: the two cells of corpus pull request
-//! 1381 (reports/html-email-body/RxdDeclLayoutTests.al, RxdDeclEmailBodyTests.al), which mark `report-save-decl-word-rdlc`
-//! (`report_save::cells_decl`). The false answers come before the run, so they hold with no dataset row too (flagged); every
-//! other neighbor, and every save while the test can see a subscriber to a layout event, keeps main's refusal.
+//! no rendering section, one data item, no trigger, no extension), saved to a stream with dataset rows: the two cells of
+//! reports/html-email-body/RxdDeclLayoutTests.al and RxdDeclEmailBodyTests.al (`report_save::cells_decl`). Every other
+//! neighbor, a save with no dataset row, a false answer while a data item declares a trigger or a computed column, and every save while the test
+//! can see a subscriber to a layout event, refuses.
 
 use al_builtins::assumptions::{self, Assumption};
 use al_builtins::native::Signal;
@@ -56,6 +56,31 @@ report 51403 "RD Decl Excel"
     ExcelLayout = 'RdDeclExcel.xlsx';
     DefaultLayout = Word;
     dataset { dataitem(T; "RD Row") { column(Id; Id) { } } }
+}
+
+report 51405 "RD Decl Item Trigger"
+{
+    WordLayout = 'RdDeclWord.docx';
+    RDLCLayout = 'RdDeclRdlc.rdl';
+    DefaultLayout = Word;
+    dataset { dataitem(T; "RD Row") { column(Id; Id) { } trigger OnAfterGetRecord() begin end; } }
+}
+
+report 51406 "RD Decl Col Call"
+{
+    WordLayout = 'RdDeclWord.docx';
+    RDLCLayout = 'RdDeclRdlc.rdl';
+    DefaultLayout = Word;
+    dataset { dataitem(T; "RD Row") { column(Id; Id) { } column(Calls; Bump()) { } } }
+    local procedure Bump(): Integer begin exit(1); end;
+}
+
+report 51407 "RD Decl Col Expr"
+{
+    WordLayout = 'RdDeclWord.docx';
+    RDLCLayout = 'RdDeclRdlc.rdl';
+    DefaultLayout = Word;
+    dataset { dataitem(T; "RD Row") { column(Id; T.Id + 1) { } } }
 }
 
 codeunit 51404 "RD Tests"
@@ -125,13 +150,21 @@ codeunit 51404 "RD Tests"
     procedure NoRowsRdlcHtmlStatement() begin Rows(0); RdlcRow(Report::"RD Decl Word"); Statement(Report::"RD Decl Word", ReportFormat::Html); end;
     procedure NoRowsTempExcel(): Text begin Rows(0); TempWord(Report::"RD Decl Word"); exit(Saved(Report::"RD Decl Word", ReportFormat::Excel)); end;
 
+    procedure ItemTriggerRdlcPdf(): Text begin Rows(2); RdlcRow(Report::"RD Decl Item Trigger"); exit(Saved(Report::"RD Decl Item Trigger", ReportFormat::Pdf)); end;
+    procedure ItemTriggerRdlcHtml(): Text begin Rows(2); RdlcRow(Report::"RD Decl Item Trigger"); exit(Saved(Report::"RD Decl Item Trigger", ReportFormat::Html)); end;
+    procedure ItemTriggerTempExcel(): Text begin Rows(2); TempWord(Report::"RD Decl Item Trigger"); exit(Saved(Report::"RD Decl Item Trigger", ReportFormat::Excel)); end;
+
+    procedure ColCallRdlcPdf(): Text begin Rows(2); RdlcRow(Report::"RD Decl Col Call"); exit(Saved(Report::"RD Decl Col Call", ReportFormat::Pdf)); end;
+    procedure ColCallRdlcHtml(): Text begin Rows(2); RdlcRow(Report::"RD Decl Col Call"); exit(Saved(Report::"RD Decl Col Call", ReportFormat::Html)); end;
+    procedure ColCallTempExcel(): Text begin Rows(2); TempWord(Report::"RD Decl Col Call"); exit(Saved(Report::"RD Decl Col Call", ReportFormat::Excel)); end;
+    procedure ColExprRdlcHtml(): Text begin Rows(2); RdlcRow(Report::"RD Decl Col Expr"); exit(Saved(Report::"RD Decl Col Expr", ReportFormat::Html)); end;
     procedure RdlcRowOf(Id: Integer) begin RdlcRow(Id); end;
     procedure TempWordOf(Id: Integer) begin TempWord(Id); end;
     procedure RowsOf(N: Integer) begin Rows(N); end;
 }
 "#;
 
-/// A manual subscriber of one layout event each: no cell of pull request 1381 has one.
+/// A manual subscriber of one layout event each: no cell of RxdDeclLayoutTests.al has one.
 const SUBSTITUTE: &str = r#"
 codeunit 51405 "RD Substitute"
 {
@@ -212,8 +245,16 @@ fn marked(proc: &str, want: &str) {
     assumptions::clear_hits();
     assert_eq!(al_testkit::text(run(proc)), want, "{proc}");
     let hits = assumptions::take_hits();
-    assert!(hits.contains(&Assumption::ReportSaveDeclWordRdlc), "{proc}: {hits:?}");
+    assert!(hits.iter().all(|a| PLACEHOLDERS.contains(a)), "{proc}: {hits:?}");
 }
+
+/// The assumptions of the placeholder bytes a rendering save writes; the save's answer itself is pinned.
+const PLACEHOLDERS: [Assumption; 4] = [
+    Assumption::ReportPdfPlaceholder,
+    Assumption::ReportWordPlaceholder,
+    Assumption::ReportExcelPlaceholder,
+    Assumption::ReportHtmlPlaceholder,
+];
 
 /// RxdDeclLayoutTests.al:130, :177, :219, :266: the company's "RDLC (built-in)" row renders the RDLC layout as Pdf, Word and
 /// Excel; Html answers false with ReportUnsupportedFormat, and the statement form raises it (:284).
@@ -244,7 +285,7 @@ fn decl_word_rdlc_a_temporary_selection_renders_the_selected_word_layout() {
     }
 }
 
-/// A report trigger, an `ExcelLayout` property, or no dataset row: not a cell of pull request 1381. A stored RDLC row
+/// A report trigger, an `ExcelLayout` property, or no dataset row: not a cell of RxdDeclLayoutTests.al. A stored RDLC row
 /// refuses as on main; an Html save under the temporary selection keeps main's row (HtRenderedTextTests.al:494, which reads
 /// neither the trigger nor the layout properties), and a save that writes with no dataset row refuses as on main.
 #[test]
@@ -264,7 +305,10 @@ fn decl_word_rdlc_neighbors_keep_mains_answer() {
                 assert_eq!(al_testkit::text(Ok(v)), "Yes|Yes|", "{p}");
                 let hits = assumptions::take_hits();
                 assert!(hits.contains(&a), "{p}");
-                assert!(!hits.contains(&Assumption::ReportSaveDeclWordRdlc), "{p}");
+                assert!(
+                    hits.iter().all(|h| *h == a || PLACEHOLDERS.contains(h)),
+                    "{p}: {hits:?}"
+                );
             }
             (other, _) => panic!("{p}: got {other:?}"),
         }
@@ -273,7 +317,7 @@ fn decl_word_rdlc_neighbors_keep_mains_answer() {
 
 /// A test that binds a subscriber to SubstituteReport, OnDocumentReady or SelectedBuiltinLayoutType: BC raises
 /// SubstituteReport first for a static SaveAs (events/platform-triggers/PeVTests.al:721) and this runtime raises none of them
-/// to a test's subscriber, and pull request 1381 measured no subscriber. Every save refuses. Main refused these shapes too,
+/// to a test's subscriber, and RxdDeclLayoutTests.al measured no subscriber. Every save refuses. Main refused these shapes too,
 /// except a temporary Word selection saved as Html with a SelectedBuiltinLayoutType subscriber, which main answered (flagged).
 #[test]
 fn decl_word_rdlc_a_subscriber_to_a_layout_event_refuses() {
@@ -298,17 +342,38 @@ fn decl_word_rdlc_a_subscriber_to_a_layout_event_refuses() {
     assert!(answered.is_empty(), "expected refusals: {answered:#?}");
 }
 
-/// With no dataset row, Html of the company's RDLC row and Excel of the temporary selection answer before the run, as with
-/// two rows; pull request 1381 measured them with two rows only, so the answer stays flagged.
+/// With no dataset row, Html of the company's RDLC row and Excel of the temporary selection: every cell of
+/// RxdDeclLayoutTests.al saved with dataset rows (`Rows(2)`, RxdDeclFixtures.al:54), so these refuse after the run.
 #[test]
-fn decl_word_rdlc_false_answers_come_before_the_run() {
-    marked("NoRowsRdlcHtml", &format!("No|No|{UNSUPPORTED}"));
-    let excel = "The Excel output format is not supported by the current report layout format.";
-    marked("NoRowsTempExcel", &format!("No|No|{excel}"));
-    assumptions::clear_hits();
-    match run("NoRowsRdlcHtmlStatement") {
-        Err(Signal::Error(e)) => assert_eq!(e.message, UNSUPPORTED),
-        other => panic!("expected the error, got {other:?}"),
-    }
-    assert!(assumptions::take_hits().contains(&Assumption::ReportSaveDeclWordRdlc));
+fn decl_word_rdlc_false_answers_with_no_dataset_row_refuse() {
+    refused(&["NoRowsRdlcHtml", "NoRowsTempExcel", "NoRowsRdlcHtmlStatement"]);
+}
+
+/// A data item with a trigger: the probe's data item has none (RxdDeclFixtures.al:39), so whether BC runs it before the false
+/// answer is not measured, and the false answers refuse before the run. A save that renders runs it, as every run does.
+#[test]
+fn decl_word_rdlc_false_answers_with_a_data_item_trigger_refuse() {
+    refused(&["ItemTriggerRdlcHtml", "ItemTriggerTempExcel"]);
+    marked("ItemTriggerRdlcPdf", "Yes|Yes|");
+}
+
+/// A column whose source is not a plain field of the data item's table: the probe's columns are (RxdDeclFixtures.al:41-42),
+/// so whether BC evaluates such a source before the false answer is not measured, and the false answers refuse before the
+/// run. A save that renders runs it, as every run does.
+#[test]
+fn decl_word_rdlc_false_answers_with_a_computed_column_refuse() {
+    refused(&["ColCallRdlcHtml", "ColCallTempExcel", "ColExprRdlcHtml"]);
+    marked("ColCallRdlcPdf", "Yes|Yes|");
+}
+
+#[track_caller]
+fn refused(procs: &[&str]) {
+    let answered: Vec<String> = procs
+        .iter()
+        .filter_map(|p| match run(p) {
+            Err(Signal::Unsupported(why)) if why.contains("not measured on BC") => None,
+            other => Some(format!("{p}: {other:?}")),
+        })
+        .collect();
+    assert!(answered.is_empty(), "expected refusals: {answered:#?}");
 }

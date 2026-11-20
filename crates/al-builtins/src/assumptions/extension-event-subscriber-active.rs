@@ -1,0 +1,11 @@
+ExtensionEventSubscriberActive => {
+    id: "extension-event-subscriber-active",
+    assumed: "Active Yes and a blank Error Information, and nothing else, of the Event Subscription row of a subscriber to an event that a page extension of the publisher page declares, in the two cells only Microsoft's Tests-Misc measures (al-vm platform/ext_event_row.rs ACTIVE_CELLS): a page extension's local `[IntegrationEvent(false, false)]`, the subscriber's element '' and both Skip flags true, the base page a ListPart of another app; the same with both flags false and the base page a List of the subscriber's app. In both, exactly one extension declares the event under the name the subscriber writes, and the subscriber codeunit is in the extension's app and states neither Subtype nor SingleInstance nor EventSubscriberInstance = Manual. A filter `Active = No` or `Error Information <> ''` leaves the row out; every read that returns or counts the row stays refused (its Event Type and Published Function are not known). Every other cell outside the pinned ROW_CELLS is refused.",
+    tests: "Microsoft's Tests-Misc codeunit 134299 \"Test Partner Integration Event\", TestPartnerIntegrationEvent.Codeunit.al:157-172 TestAllSubscriptionsAreActive (`SetRange(Active, false)`, Count, FindSet) and :176-191 TestSubscriptionTableHasNoErrors (`SetFilter(\"Error Information\", '<>%1', '')`, Count, FindSet), passing on real BC over Base Application's \"Serv. Integration Mgt.\".SetIsDocumentArchiveTable_OnAfterSetIsDocumentArchiveTable (pageextension 3997 of System Application's ListPart \"Retention Policy Setup Lines\") and \"Check Dimensions\".OnOpenRelatedRecord (pageextension 705 of the List \"Error Messages\"). al-runner issue 8060.",
+    probe: "Not written yet: events/extension-events/ExtensionEventSubscriptionPageCells.al, next to ExtensionEventSubscriptionRows.al (which pins the ROW_CELLS cells): the whole row of a page extension's event on another app's ListPart page with both Skip flags true and on a List page of the subscriber's app with both flags false.",
+    awaiting: Awaiting {
+        issues: &[8060],
+        files: &["tests/al-language/events/extension-events/ExtensionEventSubscriptionPageCells.al"],
+        since: "2026-11-15",
+    },
+}

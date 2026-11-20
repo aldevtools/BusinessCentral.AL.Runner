@@ -2,7 +2,7 @@
   "bc_build": "27.5.46862.56249",
   "passes": {
     "extra apps: Tests-TestLibraries, Data Archive": {
-      "baseline_rows": 2602,
+      "baseline_rows": 2604,
       "cache_layers_built": 0,
       "cache_layers_hit": 0,
       "compiles": 1,
@@ -12,14 +12,14 @@
       "dependency_objects_lowered": 159,
       "dependency_routines_lowered": 4133,
       "objects_from_cache": 0,
-      "objects_from_kept": 18811,
-      "objects_loaded": 22653,
-      "objects_lowered": 3540,
+      "objects_from_kept": 19160,
+      "objects_loaded": 23089,
+      "objects_lowered": 3627,
       "routines_lowered": 158,
       "tests_run": 53
     },
     "main": {
-      "baseline_rows": 2668,
+      "baseline_rows": 2690,
       "cache_layers_built": 0,
       "cache_layers_hit": 0,
       "compiles": 1,
@@ -27,16 +27,16 @@
       "dependency_apps_from_cache": 0,
       "dependency_apps_from_source": 9,
       "dependency_objects_lowered": 8875,
-      "dependency_routines_lowered": 104525,
+      "dependency_routines_lowered": 104531,
       "objects_from_cache": 0,
       "objects_from_kept": 0,
-      "objects_loaded": 22698,
-      "objects_lowered": 12977,
-      "routines_lowered": 61548,
-      "tests_run": 24837
+      "objects_loaded": 23143,
+      "objects_lowered": 13422,
+      "routines_lowered": 64427,
+      "tests_run": 26704
     },
     "server settings: DisableWriteInsideTryFunctions=false": {
-      "baseline_rows": 2704,
+      "baseline_rows": 2712,
       "cache_layers_built": 0,
       "cache_layers_hit": 0,
       "compiles": 1,
@@ -46,14 +46,14 @@
       "dependency_objects_lowered": 32,
       "dependency_routines_lowered": 3745,
       "objects_from_cache": 0,
-      "objects_from_kept": 22313,
-      "objects_loaded": 22356,
+      "objects_from_kept": 22749,
+      "objects_loaded": 22792,
       "objects_lowered": 9,
       "routines_lowered": 54,
       "tests_run": 33
     },
     "total": {
-      "baseline_rows": 7974,
+      "baseline_rows": 8006,
       "cache_layers_built": 0,
       "cache_layers_hit": 0,
       "compiles": 3,
@@ -61,13 +61,13 @@
       "dependency_apps_from_cache": 0,
       "dependency_apps_from_source": 32,
       "dependency_objects_lowered": 9066,
-      "dependency_routines_lowered": 112403,
+      "dependency_routines_lowered": 112409,
       "objects_from_cache": 0,
-      "objects_from_kept": 41124,
-      "objects_loaded": 67707,
-      "objects_lowered": 16526,
-      "routines_lowered": 61760,
-      "tests_run": 24923
+      "objects_from_kept": 41909,
+      "objects_loaded": 69024,
+      "objects_lowered": 17058,
+      "routines_lowered": 64639,
+      "tests_run": 26790
     }
   }
 }

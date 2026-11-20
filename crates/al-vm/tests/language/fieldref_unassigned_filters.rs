@@ -1,8 +1,8 @@
-//! Filter members of a FieldRef that holds no field (al-runner issue 7964 item 2; corpus PR 1382, recordref-fieldref/fieldref/
-//! FieldRefUnassignedFilters.al:88-127, flagged through `fieldref-unassigned-filters`). The members measured only on a FieldRef never
+//! Filter members of a FieldRef that holds no field (al-runner issue 7964 item 2; recordref-fieldref/fieldref/
+//! FieldRefUnassignedFilters.al:88, :106, :127). The members measured only on a FieldRef never
 //! assigned keep the refusal: the runtime cannot tell it from a cleared one.
 
-use al_builtins::assumptions::{Assumption, take_hits};
+use al_builtins::assumptions::take_hits;
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
 
@@ -44,7 +44,7 @@ fn call(state: i32, member: i32) -> Result<Value, Signal> {
 }
 
 #[test]
-fn the_measured_members_raise_not_initialized_flagged() {
+fn the_measured_members_raise_not_initialized_clean() {
     for state in [0, 1] {
         for member in [1, 2, 5, 7, 8] {
             let r = call(state, member);
@@ -56,10 +56,7 @@ fn the_measured_members_raise_not_initialized_flagged() {
                 "Microsoft.Dynamics.Nav.Runtime.NavFieldRef variable not initialized."
             );
             assert_eq!(e.code, "NotInitialized");
-            assert!(
-                take_hits().contains(&Assumption::FieldrefUnassignedFilters),
-                "state {state} member {member}"
-            );
+            assert!(take_hits().is_empty(), "state {state} member {member}");
         }
     }
 }
@@ -69,6 +66,5 @@ fn the_members_measured_only_never_assigned_keep_the_refusal() {
     for member in [3, 4, 6, 9, 10] {
         let r = call(0, member);
         assert!(matches!(r, Err(Signal::Unsupported(_))), "member {member}: {r:?}");
-        assert!(!take_hits().contains(&Assumption::FieldrefUnassignedFilters));
     }
 }

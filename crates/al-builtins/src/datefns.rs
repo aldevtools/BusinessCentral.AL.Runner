@@ -444,6 +444,8 @@ fn dwy2date(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
 fn normal_date(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     match &a[0] {
         Value::Date(n, _) if *n > 0 => Ok(Value::Date(*n, false)),
+        // types/date-time/DateFuncs.al:34 and :60-61 (`NormalDate(0D)`, error af34), as ClosingDate(0D) (:30-33).
+        Value::Date(0, _) => raise("The date is not valid.".to_string(), "DateInvalid"),
         other => unsupported(format!("NormalDate of {}", other.describe())),
     }
 }
@@ -1218,8 +1220,32 @@ fn apply(terms: &[Term], from: i32) -> Result<Applied, Signal> {
     Ok(Applied::Day(day))
 }
 
-fn calcdate(ctx: &dyn Ctx, formula: &str, base: Option<&Value>, overload: range::Overload) -> Out {
-    let terms = parse_formula(formula)?;
+fn calcdate(ctx: &dyn Ctx, formula: &str, base: Option<&Value>, overload: range::Overload, text_value: bool) -> Out {
+    // BC raises the time-unit error in the session language (al-runner issue 8200: Danish and German texts measured); only the
+    // English text is pinned, and the line breaks of the others are not, so it refuses under another language.
+    let parsed = parse_formula(formula);
+    let unit_error = matches!(&parsed, Err(Signal::Error(e)) if e.message.contains("should include a time unit"));
+    if matches!(overload, range::Overload::Text)
+        && let Some(answer) = crate::date_formula_language::calcdate_text(
+            formula,
+            ctx.language(),
+            unit_error,
+            text_value && base.is_some(),
+        )
+    {
+        return answer;
+    }
+    if let Err(Signal::Error(e)) = &parsed
+        && ctx.language() != 1033
+        && e.message.contains("should include a time unit")
+    {
+        return unsupported(format!(
+            "CalcDate's error under GlobalLanguage {}: {} (the text of that language is not pinned)",
+            ctx.language(),
+            e.message
+        ));
+    }
+    let terms = parsed?;
     // Without a date the calculation counts from TODAY, not from WorkDate (types/
     // TestDateTimeIntegerCalcDateContracts.al:CalcDateWithoutADate_UsesToday_NotWorkDate).
     let today = base
@@ -1262,14 +1288,14 @@ fn calcdate(ctx: &dyn Ctx, formula: &str, base: Option<&Value>, overload: range:
 
 fn calcdate_text(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     match crate::native::text_of(&a[0]) {
-        Some(f) => calcdate(ctx, &f, a.get(1), range::Overload::Text),
+        Some(f) => calcdate(ctx, &f, a.get(1), range::Overload::Text, matches!(a[0], Value::Text(_))),
         None => unsupported("CalcDate with a formula that is not text"),
     }
 }
 
 fn calcdate_formula(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     match &a[0] {
-        Value::DateFormula(f) => calcdate(ctx, f, a.get(1), range::Overload::Formula),
+        Value::DateFormula(f) => calcdate(ctx, f, a.get(1), range::Overload::Formula, false),
         other => unsupported(format!("CalcDate with {}", other.describe())),
     }
 }

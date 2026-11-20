@@ -198,7 +198,15 @@ impl Session {
         record: Option<Rec>,
         bind: Option<UiKind>,
     ) -> Result<Option<Handler>, Signal> {
-        self.open_page_as(st, mode, record, bind, false)
+        let handed = self.data_caption_handed(st, record.as_ref());
+        let handed_record = record.as_ref().map(|r| r.borrow().clone());
+        let handler = self.open_page_as(st, mode, record, bind, false)?;
+        self.note_open_end(st, handed_record);
+        let trapped = bind.is_none() && st.borrow().caught_by_trap;
+        if handler.is_some() || trapped {
+            self.data_caption_at_handled_open(st, bind, handed)?;
+        }
+        Ok(handler)
     }
 
     /// `page_instance`, for the open of a page in a session whose permissions a test lowered (ADR-062 stage 3): a page opened without
@@ -313,9 +321,7 @@ impl Session {
             s.never_stored = false;
             s.dirty = false;
             s.frozen_visible = Vec::new();
-            s.control_captions = Vec::new();
-            s.literal_field_caption_contexts.clear();
-            s.forget_field_captions();
+            s.forget_captions_at_open();
             s.moving_next = false;
             s.window = Vec::new();
             s.window_from_start = false;
@@ -507,12 +513,7 @@ impl Session {
             }
             // `Editable(false)` on the variable before it runs applies after OnInit: OnInit still
             // reads Yes (corpus pages/PWPageVariableEditable.al:221-240).
-            {
-                let mut s = st.borrow_mut();
-                s.editable_off = s.editable_preset == Some(false);
-                s.editable_off_in_open = false;
-                s.editable_set_later = None;
-            }
+            st.borrow_mut().editable_after_init();
             // The parts' OnInit runs between the host's OnInit and its OnOpenPage (corpus
             // testpage/parts/TestPartTriggerOrderAndRefresh.al:236-247).
             self.init_parts(st)?;
@@ -544,7 +545,7 @@ impl Session {
                 self.refuse_seeded_view_after_init(&inst, object, &xml)?;
                 self.apply_request_parameters(&inst, &exts, object, &xml, crate::pages::ParamsCall::RunRequestPage)?;
             }
-            self.restore_page_values(st);
+            self.restore_page_values(st)?;
             self.check_page_events(st)?;
             // A temporary source: Rec as it stands before OnOpenPage, to tell a row set before the open from one OnOpenPage set.
             let before_open = if has_source { self.temp_rec_position(st)? } else { None };
@@ -594,7 +595,7 @@ impl Session {
             if unattended {
                 return Ok(());
             }
-            let mut new_line = has_source && self.offers_new_line(st)?;
+            let mut new_line = has_source && self.offers_new_line_at_open(st)?;
             // A record handed to the page filtered to one Enum or Option value the blank row does not hold: no blank line shows
             // (pages/run-modal/CePageRun.al RunModal_EnumFilter_RowsAndNewRowDefault, RunModal_OptionFilter_RowsAndNewRowDefault,
             // `[2][5]`; a Boolean filter the blank row matches keeps it, ui-handlers/TestPageModalNewRowLine_Tests.al:180).
@@ -631,7 +632,7 @@ impl Session {
                 let never = self.stored_row(&rec)?.is_none();
                 st.borrow_mut().never_stored = never;
             }
-            self.sync_parts_at_open(st)?;
+            self.sync_parts_at_list_open(st)?;
             self.refresh_parts_then_fn_tail(st, &waiting)
         })();
         if let Err(e) = result {
@@ -1417,7 +1418,7 @@ impl Session {
             && !rec.borrow().temporary
             && st.borrow().modal
             && !st.borrow().lookup
-            && st.borrow().run_static == Some(false)
+            && st.borrow().modal_run == ModalRun::Variable
             && !self.declares(st, "onnextrecord");
         if dialog_run_modal {
             return Ok(true);
@@ -1566,8 +1567,7 @@ fn reset_row_line_flags(s: &mut crate::pages::PageState) {
     s.gone_blank_no_new_line = false;
     s.gone_blank_shows_line = false;
     s.gone_view_list = false;
-    s.list_view_switched = false;
-    s.list_edit_back = false;
+    s.list_view.reset();
 }
 
 /// The flags a new host row, a first part access and New() on a request
@@ -1586,7 +1586,7 @@ fn reset_host_row_flags(s: &mut crate::pages::PageState) {
 }
 
 /// Before page `s` takes the open `now` (opened by the test, mode): on a second open (`!first_run`), clears the flags of the
-/// first open that `forget_earlier_open_flags` names, and marks the assumption when it cleared one.
+/// first open that `forget_earlier_open_flags` names.
 fn forget_flags_at_reopen(s: &mut crate::pages::PageState, first_run: bool, now: (bool, PageMode), engine: &Engine) {
     if first_run {
         return;
@@ -1597,9 +1597,7 @@ fn forget_flags_at_reopen(s: &mut crate::pages::PageState, first_run: bool, now:
         now,
         page_type,
     };
-    if forget_earlier_open_flags(s, &reopen) {
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ReopenForgetsEarlierOpenFlags);
-    }
+    forget_earlier_open_flags(s, &reopen);
 }
 
 /// A second open of a TestPage variable: how the test opened it before and now, and the page's type.
@@ -1609,10 +1607,10 @@ struct Reopen {
     page_type: Option<al_ir::PageType>,
 }
 
-/// Clears `save_failed` (the client's save before a step failed) in the reopen open corpus PR 1367 measured for it
-/// (testpage/lifecycle/ReopenSameVariableState.al:335, group G8: after a save that failed in the table's OnModify on Next,
-/// nothing carries into the second open): a Card the test opened itself both times, with OpenEdit. Whether it was cleared, for
-/// the assumption `reopen-forgets-earlier-open-flags`. Every other reopen keeps the flag, as before.
+/// Clears `save_failed` (the client's save before a step failed) in the reopen testpage/lifecycle/ReopenSameVariableState.al:335
+/// measured (group G8: after a save that failed in the table's OnModify on Next, nothing carries into the second open): a Card
+/// the test opened itself both times, with OpenEdit, whose first open made exactly the calls of :340-353 (`measured_first_open`).
+/// Whether it was cleared. Every other reopen keeps the flag, as before.
 ///
 /// Every other flag keeps carrying, as before; the probe sets none of them where it would show:
 /// - `action_ran` (:303): its one reader, `moved_onto_deleted_shape`, needs a repeater, so a Card logs the same either way;
@@ -1625,12 +1623,30 @@ fn forget_earlier_open_flags(s: &mut crate::pages::PageState, r: &Reopen) -> boo
     r.earlier == edit
         && r.now == edit
         && r.page_type == Some(al_ir::PageType::Card)
+        && measured_first_open(s)
         && std::mem::take(&mut s.save_failed)
+}
+
+/// The test's calls on the first open of `s`, reads of a control left out, are those of ReopenSameVariableState.al:340-353:
+/// GoToKey, one SetValue, the Next whose save failed, Close; then the running OpenEdit of the reopen (:354).
+fn measured_first_open(s: &crate::pages::PageState) -> bool {
+    use crate::pages::pinned_shape::TestCall;
+    use al_builtins::page_op::PageMethod;
+    let mut calls = s.test_calls.iter().filter(|c| **c != TestCall::Read);
+    !s.test_calls_overflow
+        && calls.next() == Some(&TestCall::Page(PageMethod::GoToKey))
+        && matches!(calls.next(), Some(TestCall::Write(_)))
+        && calls.next() == Some(&TestCall::Page(PageMethod::Next))
+        && calls.next() == Some(&TestCall::Page(PageMethod::Close))
+        && calls.next() == Some(&TestCall::Page(PageMethod::OpenEdit))
+        && calls.next().is_none()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pages::pinned_shape::TestCall;
+    use al_builtins::page_op::PageMethod;
 
     /// A page that runs again starts without the draft its earlier OpenNew started (al-runner issue 7752, item 3).
     #[test]
@@ -1655,6 +1671,7 @@ mod tests {
             s.expr_set_no_source = true;
             s.gone_temp_list = true;
             s.save_aborted = true;
+            s.test_calls = MEASURED_CALLS.to_vec();
             let cleared = forget_earlier_open_flags(
                 &mut s,
                 &Reopen {
@@ -1679,5 +1696,51 @@ mod tests {
         assert_eq!(run(edit, (true, PageMode::New), Card), kept);
         assert_eq!(run((false, PageMode::Edit), edit, Card), kept);
         assert_eq!(run(edit, (false, PageMode::Edit), Card), kept);
+    }
+
+    /// The calls on the page when ReopenSameVariableState.al:354 opens it again: those of its first open (GoToKey, SetValue,
+    /// the Next whose save failed, Close; reads between them do not count), then the running OpenEdit.
+    const MEASURED_CALLS: &[TestCall] = &[
+        TestCall::Page(PageMethod::GoToKey),
+        TestCall::Write(1),
+        TestCall::Page(PageMethod::Next),
+        TestCall::Page(PageMethod::Close),
+        TestCall::Page(PageMethod::OpenEdit),
+    ];
+
+    /// A first open whose save failed on another step than Next, or that made other calls, keeps `save_failed` (main's result).
+    #[test]
+    fn earlier_open_flags_clear_only_after_the_measured_calls() {
+        let run = |calls: &[TestCall], overflow: bool| {
+            let mut s = crate::pages::PageState::closed(1);
+            s.save_failed = true;
+            s.test_calls = calls.to_vec();
+            s.test_calls_overflow = overflow;
+            let edit = (true, PageMode::Edit);
+            let r = Reopen {
+                earlier: edit,
+                now: edit,
+                page_type: Some(al_ir::PageType::Card),
+            };
+            (forget_earlier_open_flags(&mut s, &r), s.save_failed)
+        };
+        assert_eq!(run(MEASURED_CALLS, false), (true, false));
+        let mut with_read = MEASURED_CALLS.to_vec();
+        with_read.insert(2, TestCall::Read);
+        assert_eq!(run(&with_read, false), (true, false));
+        let kept = (false, true);
+        assert_eq!(run(MEASURED_CALLS, true), kept);
+        let action = [
+            TestCall::Page(PageMethod::GoToKey),
+            TestCall::Write(1),
+            TestCall::Other(PageMethod::Invoke),
+            TestCall::Page(PageMethod::Close),
+            TestCall::Page(PageMethod::OpenEdit),
+        ];
+        assert_eq!(run(&action, false), kept);
+        assert_eq!(run(&MEASURED_CALLS[1..], false), kept);
+        let mut twice = MEASURED_CALLS.to_vec();
+        twice.insert(3, TestCall::Page(PageMethod::Next));
+        assert_eq!(run(&twice, false), kept);
     }
 }

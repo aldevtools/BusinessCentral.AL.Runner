@@ -1645,7 +1645,7 @@ fn log_message_is_a_telemetry_write_that_changes_nothing() {
 
 // Session.LogSecurityAudit writes to the server's security audit log, which AL cannot observe
 // (ADR-009): it returns. Base Application's Change Log Management calls it
-// (session-system/TestEnvironmentUserTenantContracts.al:315-374).
+// (session-system/TestEnvironmentUserTenantContracts.al:312-371).
 #[test]
 fn log_security_audit_is_an_audit_write_that_changes_nothing() {
     let src = r#"codeunit 50100 C
@@ -1691,7 +1691,7 @@ fn calcdate_reads_a_percent_sign_after_a_plus_as_the_number_that_follows() {
     assert_eq!(r.unwrap(), "2024-01-14|2024-01-16");
 }
 
-// session-system/TestEnvironmentUserTenantContracts.al:195-201 and session-system/TestNavAppExtended.al:116-117:
+// session-system/TestEnvironmentUserTenantContracts.al:192-198 and session-system/TestNavAppExtended.al:116-117:
 // GetModuleInfo of the null app id is true and answers a module whose data version is the installed
 // application's, at least 27. Its name is W1 and its publisher Microsoft (session-system/TestProbeSessionMiscContracts.al:ModuleInfo_NullAppId).
 #[test]
@@ -1732,7 +1732,7 @@ codeunit 50100 C
 }
 
 /// Red first: CanCreateTask was refused as "not pinned". The corpus pins it false in a
-/// test (session-system/TestEnvironmentUserTenantContracts.al:238): there is no scheduler
+/// test (session-system/TestEnvironmentUserTenantContracts.al:235): there is no scheduler
 /// and a test does not wait for a commit.
 #[test]
 fn task_scheduler_can_create_task_is_false() {
@@ -1742,7 +1742,7 @@ fn task_scheduler_can_create_task_is_false() {
 
 /// Red first: `Session.ApplicationIdentifier` was refused as not implemented, which stopped
 /// Base App's `Environment Information Impl.` and so every `Environment Information` call.
-/// Measured on real BC: 'NAV' (session-system/TestEnvironmentUserTenantContracts.al:241).
+/// Measured on real BC: 'NAV' (session-system/TestEnvironmentUserTenantContracts.al:238).
 #[test]
 fn session_application_identifier_is_nav() {
     let src = "codeunit 50100 C { procedure F(): Text begin exit(Session.ApplicationIdentifier()); end; }";
@@ -1750,7 +1750,7 @@ fn session_application_identifier_is_nav() {
 }
 
 /// Red first: `ProductName.Full()`, `Short()` and `Marketing()` were refused as not implemented.
-/// Measured on real BC (session-system/TestEnvironmentUserTenantContracts.al:237-239).
+/// Measured on real BC (session-system/TestEnvironmentUserTenantContracts.al:234-236).
 #[test]
 fn product_name_answers_the_three_forms() {
     for (member, want) in [
@@ -1764,7 +1764,7 @@ fn product_name_answers_the_three_forms() {
 }
 
 /// Red first: `Session.CurrentExecutionMode` was refused as not implemented. A test run is in
-/// Standard mode (session-system/TestEnvironmentUserTenantContracts.al:247); the ordinals are not pinned.
+/// Standard mode (session-system/TestEnvironmentUserTenantContracts.al:244); the ordinals are not pinned.
 #[test]
 fn current_execution_mode_is_standard() {
     let src = "codeunit 50100 C { procedure F(): Text begin exit(Format(Session.CurrentExecutionMode())); end; }";

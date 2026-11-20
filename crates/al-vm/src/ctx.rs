@@ -39,8 +39,15 @@ impl al_builtins::format::FormatCtx for Session {
     }
     fn record_id_table(&self, table: u32) -> Option<(String, Option<String>)> {
         let t = self.engine.tables.get(table as usize)?.clone()?;
-        let caption = self.caption_checked(&t).ok()?;
+        let caption = self.record_id_caption(&t)?;
         Some((caption, self.engine.program.objects[table as usize].namespace.clone()))
+    }
+    fn record_id_namespace(&self, table: u32) -> Option<Option<String>> {
+        let t = self.engine.tables.get(table as usize)?.clone()?;
+        if self.caption_checked(&t).is_err() && !self.record_id_name_measured(table as usize) {
+            return None;
+        }
+        Some(self.engine.program.objects[table as usize].namespace.clone())
     }
     fn record_id_key_types(&self, table: u32) -> Option<Vec<al_builtins::value::RtType>> {
         let t = self.engine.tables.get(table as usize)?.clone()?;
@@ -137,6 +144,14 @@ impl al_builtins::native::Ctx for Session {
     fn gate(&self, gate: al_version::Gate) -> bool {
         self.has(gate)
     }
+    fn error_text_raise(&self) -> Result<(), Signal> {
+        // An Error of a CaptionClass run is measured only where `CaptionDialogs` lets it raise (record/captions/
+        // CaptionClassStateFreeCalls.al:919-936, al-runner issue 7391).
+        match self.caption_dialog_refusal("Error", true) {
+            Some(why) => Err(Signal::unsupported(why)),
+            None => Ok(()),
+        }
+    }
     fn translated_app_read(&self, app: &str, what: &str) -> Result<(), Signal> {
         Session::translated_app_read(self, app, what)
     }
@@ -186,6 +201,9 @@ impl al_builtins::native::Ctx for Session {
     fn auto_format_field_places(&mut self, record: &Value, field_no: usize) -> Result<String, Signal> {
         self.auto_format_field_places_of(record, field_no)
     }
+    fn auto_format_writer_refusal(&self, kind: &str) -> Option<String> {
+        Session::auto_format_writer_refusal(self, kind, false)
+    }
     fn last_error(&self) -> AlError {
         self.last_error.clone()
     }
@@ -212,15 +230,29 @@ impl al_builtins::native::Ctx for Session {
         match rec {
             Some(Value::Record(rc)) => {
                 let rc = rc.clone();
-                if method == al_builtins::record_op::RecordOp::Validate {
-                    // `Record.Validate` in AL code (registry `Record.Validate#1`).
-                    return self.validate_at(crate::records::ValidateSite::AlRecordValidate, &rc, args);
-                }
-                // Taken by the SetFilter of `record_op_inner` (`setfilter_empty_or_side`).
-                self.setfilter_from_al = method == al_builtins::record_op::RecordOp::SetFilter;
-                let r = self.record_op_from_al(method, &rc, args);
-                self.setfilter_from_al = false;
-                r
+                let kind = crate::sequence_start::TableCall::Record {
+                    find_last: method == al_builtins::record_op::RecordOp::FindLast,
+                    set_range: method == al_builtins::record_op::RecordOp::SetRange,
+                    temporary: rc.borrow().temporary,
+                };
+                self.al_table_call(kind, |s| {
+                    if method == al_builtins::record_op::RecordOp::Validate {
+                        // `Record.Validate` in AL code (registry `Record.Validate#1`).
+                        return s.validate_at(crate::records::ValidateSite::AlRecordValidate, &rc, args);
+                    }
+                    // Taken by the SetFilter of `record_op_inner` (`setfilter_empty_or_side`).
+                    s.setfilter_from_al = method == al_builtins::record_op::RecordOp::SetFilter;
+                    // A Record variable's `Insert()` under the test runner's permission sets (`runner_sets_insert.rs`).
+                    if s.runner_permission_sets && method == al_builtins::record_op::RecordOp::Insert && args.is_empty()
+                    {
+                        s.runner_sets_insert(&rc)?;
+                    }
+                    let before = s.begin_al_record_call(method, &rc);
+                    let r = s.record_op_from_al(method, &rc, args);
+                    s.end_al_record_call(before);
+                    s.setfilter_from_al = false;
+                    r
+                })
             }
             other => Err(Signal::unsupported(format!(
                 "record method {method} on {}",
@@ -232,7 +264,12 @@ impl al_builtins::native::Ctx for Session {
         match rec {
             Some(Value::Record(rc)) => {
                 let rc = rc.clone();
-                Session::record_validate_variant(self, &rc, args)
+                let kind = crate::sequence_start::TableCall::Record {
+                    find_last: false,
+                    set_range: false,
+                    temporary: rc.borrow().temporary,
+                };
+                self.al_table_call(kind, |s| Session::record_validate_variant(s, &rc, args))
             }
             other => Err(Signal::unsupported(format!("Record.Validate on {}", other.describe()))),
         }
@@ -247,16 +284,18 @@ impl al_builtins::native::Ctx for Session {
     }
 
     fn query(&mut self, method: &str, recv: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
+        self.note_other_access();
         self.query_op(method, recv, args)
     }
 
     fn ref_op(&mut self, id: &str, receiver: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
-        Session::ref_op(self, id, receiver, args)
+        self.counted_ref_op(id, receiver, args)
     }
     fn set_value_from_variant(&mut self, on: bool) {
         self.set_value_from_variant = on;
     }
     fn session_op(&mut self, id: al_ir::BuiltinId, args: &mut [Value]) -> Result<Value, Signal> {
+        self.note_session_call(id);
         Session::session_op(self, id, args)
     }
     fn media_store(&mut self) -> Option<&mut al_builtins::media::MediaStore> {
@@ -302,6 +341,9 @@ impl al_builtins::native::Ctx for Session {
     }
     fn company_build(&self) -> bool {
         self.company_build
+    }
+    fn held_by_temp_blob_impl(&self, b: &al_builtins::stream::BlobRef) -> bool {
+        self.temp_blob_impl_fields.holds(b)
     }
     fn calling_object(&self) -> Option<(String, String)> {
         let obj = *self.frames.last()?;
@@ -370,21 +412,10 @@ impl al_builtins::native::Ctx for Session {
         self.module_of_app(self.engine.program.objects[self.frames[at]].app as usize)
     }
     fn app_resources(&self) -> Option<al_builtins::native::AppResources> {
-        let obj = *self.frames.last()?;
-        let index = self.engine.program.objects[obj].app as usize;
-        let app = self.engine.program.apps.get(index)?;
-        self.engine
-            .resources_read
-            .store(true, std::sync::atomic::Ordering::Relaxed);
-        let resources = self
-            .engine
-            .resource_overrides
-            .read()
-            .ok()
-            .and_then(|o| o.get(&index).map(|r| r.as_ref().clone()))
-            .unwrap_or_else(|| app.resources.clone());
-        // BC names the app `<name> by <publisher> <version>` (session-system/W5NavAppResources.al:GetResourceAsText_NameMatching).
-        Some((format!("{} by {} {}", app.name, app.publisher, app.version), resources))
+        self.running_app_resources()
+    }
+    fn app_resource(&self, name: &str) -> Option<(String, Option<Vec<u8>>)> {
+        self.running_app_resource(name)
     }
     fn runner_call_stack(&self) -> String {
         self.runner_text_frames()
@@ -792,8 +823,8 @@ impl Session {
 
     /// Drops the mark of a file that holds a placeholder report output, for a delete of the file: a delete looks at no byte
     /// (ADR-040 amendment 2026-11-11). AL `File.Erase` of a saved report file after it was opened, copied and closed:
-    /// reports/layouts-saveas/AMRdlcSaveAs.al:179. The DotNet delete calls it only for the shape of assumption
-    /// dotnet-file-delete-placeholder (`placeholder_files.rs`). Whether the path held one.
+    /// reports/layouts-saveas/AMRdlcSaveAs.al:179. The DotNet delete calls it only for the shape
+    /// HtmlServerFileRoundTrip.al:149 pins (`placeholder_files.rs`). Whether the path held one.
     pub(crate) fn forget_placeholder_file(&mut self, path: &str) -> bool {
         if self.placeholder_file_mark(path).is_none() {
             return false;

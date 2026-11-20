@@ -2,7 +2,7 @@
 //! reads the page as when it opens and the first row of the new view becomes current. `action_invoke_body` (actions.rs)
 //! asks `empty_list_view` before the action's trigger and `update_on_empty_list_view` after it.
 
-use super::pinned_shape::{NextEnd, PinnedEnd, capital_word, open_page_filters_then_find, own_table_code};
+use super::pinned_shape::{NextEnd, PinnedEnd, Reads, capital_word, open_page_filters_then_find, own_table_code};
 use super::*;
 
 impl Session {
@@ -47,9 +47,8 @@ impl Session {
         {
             let s = st.borrow();
             if !(s.open
-                && s.refresh
-                && s.refresh_by_update
-                && (s.refresh_update_false || s.empty_after_action)
+                && s.refresh.asked_by_update()
+                && (s.refresh.update_false() || s.empty_after_action)
                 && !s.dirty
                 && s.cursor == Cursor::None)
             {
@@ -60,7 +59,7 @@ impl Session {
         let mode = st.borrow().mode;
         match mode {
             PageMode::Edit => {
-                if !(n == 1 && st.borrow().refresh_update_false && self.empty_edit_worksheet_kept(st)?) {
+                if !(n == 1 && st.borrow().refresh.update_false() && self.empty_edit_worksheet_kept(st)?) {
                     return Ok(false);
                 }
             }
@@ -80,9 +79,7 @@ impl Session {
         }
         {
             let mut s = st.borrow_mut();
-            s.refresh = false;
-            s.refresh_by_update = false;
-            s.refresh_update_false = false;
+            s.refresh.cancel_update();
             s.empty_after_action = false;
         }
         self.page_first_row(st)?;
@@ -90,7 +87,8 @@ impl Session {
             st.borrow_mut().pinned_end = Some(PinnedEnd {
                 reason: "a call of the test after the refresh of an empty Worksheet opened for edit, other than a read, one \
                          action, First and Close (not pinned)",
-                reads: true,
+                reads: Reads::Any,
+                caption: false,
                 part_reads: false,
                 one_action: true,
                 first_ends: true,
@@ -98,6 +96,9 @@ impl Session {
                 part_moves: false,
                 no_writes: false,
                 next: NextEnd::Refused,
+                close: true,
+                ok: false,
+                walk: false,
             });
         }
         Ok(true)

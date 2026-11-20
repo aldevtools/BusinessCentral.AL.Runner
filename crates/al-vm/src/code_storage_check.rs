@@ -76,7 +76,7 @@ impl Session {
             return Ok(());
         };
         let exists = self
-            .store_for(rec)
+            .store_for(rec)?
             .get(cx, t, old_pk)
             .map_err(|e| Signal::unsupported(format!("{e}")))?
             .is_some();

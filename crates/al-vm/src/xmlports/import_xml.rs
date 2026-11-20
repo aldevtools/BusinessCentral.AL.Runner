@@ -107,7 +107,7 @@ impl Session {
             Err(Signal::Error(e)) if guarded => {
                 self.rollback_transaction();
                 self.error_finals = None;
-                self.last_error = *e;
+                self.hold_error(*e)?;
                 Ok(Value::Boolean(false))
             }
             Err(other) => Err(other),
@@ -1286,7 +1286,7 @@ impl Session {
         if let Some(shape) = self.xp_after_assign_shape(schema, node, &rec, pos)? {
             return self.xp_after_assign_then_validate(inst, schema, node, &rec, pos, shape, blank);
         }
-        if self.xp_temporary_import_not_validated(schema, node, &rec, pos)? {
+        if self.xp_plain_temporary_shape(schema, node, &rec, pos)? {
             return Ok((pos, None));
         }
         self.xp_validate_field(schema, node, &rec, pos, value, blank)?;
@@ -1360,7 +1360,7 @@ impl Session {
             ));
         }
         // A blank field attribute runs no OnAfterAssignField where the port validates by default
-        // (corpus PR 1366, not pinned yet: XpAfterAssignTableRelation.al:1437, :1463); with DefaultFieldsValidation = false it is not
+        // (XpAfterAssignTableRelation.al:1437, :1463); with DefaultFieldsValidation = false it is not
         // measured.
         if xp.no_default_fields_validation
             && n.kind == al_ir::XmlNodeKind::FieldAttr

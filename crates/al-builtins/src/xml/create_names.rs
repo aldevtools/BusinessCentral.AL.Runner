@@ -1,10 +1,9 @@
 //! The name check of XmlElement.Create and XmlAttribute.Create (al-runner issue 7964 item 1). A plain name goes on as before
-//! (`check_name`). A name that is not plain raises BC's error only in the cells the pinned corpus covers ([`pinned`]) and
-//! the cells corpus PR 1382 measured (xml/XmlNameValidity.al:113-241, not pinned yet, assumption `xml-create-invalid-name`),
-//! per entry point; every other name keeps `check_name`'s refusal.
+//! (`check_name`). A name that is not plain raises BC's error only in the cells the pinned corpus covers, per entry point:
+//! [`pinned`] (xml/XmlElement.al, xml/XmlAttributes.al) and [`measured`] (xml/XmlNameValidity.al:113-241); every other name
+//! keeps `check_name`'s refusal.
 
 use super::*;
-use crate::assumptions::{Assumption, assume};
 
 /// The entry point that checks the name, with the namespace argument of the namespace forms.
 #[derive(Clone, Copy)]
@@ -54,7 +53,7 @@ fn pinned(fault: Fault, site: Site<'_>) -> bool {
     }
 }
 
-/// Whether the probe measured `name`'s fault at `site`: the empty name at every entry point (:113, :162, :194, :226);
+/// Whether xml/XmlNameValidity.al covers `name`'s fault at `site`: the empty name at every entry point (:113, :162, :194, :226);
 /// '1.0' at every entry point (:113, :162, :194, :226); '9abc' without a namespace (:130, :209); '.a' and ':a' with
 /// XmlElement.Create(Name) (:145); ':' after letters ('urn:Example-Namespace:TEST', 'p:name', 'a:') and ' ' after letters
 /// ('name with space') at every entry point (:113, :130, :145, :162, :177, :194, :209, :226, :241). The namespace forms used
@@ -70,7 +69,7 @@ fn measured(fault: Fault, site: Site<'_>) -> bool {
     }
 }
 
-/// Checks `name` for `site`: a plain name passes; a pinned or measured fault raises BC's error (an empty name the Argument error, any
+/// Checks `name` for `site`: a plain name passes; a fault of [`pinned`] or [`measured`] raises BC's error (an empty name the Argument error, any
 /// other the XmlException with the character and its position, `verify_ncname`); anything else is refused by `check_name`.
 pub(super) fn check_create_name(name: &str, site: Site<'_>) -> Result<(), Signal> {
     if is_ncname(name) {
@@ -81,10 +80,8 @@ pub(super) fn check_create_name(name: &str, site: Site<'_>) -> Result<(), Signal
     } else {
         fault_of(name)
     };
-    match fault.map(|f| (pinned(f, site), measured(f, site))) {
-        Some((true, _)) => {}
-        Some((false, true)) => assume(Assumption::XmlCreateInvalidName),
-        _ => return check_name(name),
+    if !fault.is_some_and(|f| pinned(f, site) || measured(f, site)) {
+        return check_name(name);
     }
     verify_ncname(name)?;
     unsupported(format!("XML name `{name}` that the name check accepts (not pinned)"))

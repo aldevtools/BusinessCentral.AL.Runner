@@ -57,6 +57,18 @@ pub(crate) enum Op {
         p: u32,
         a: u16,
     },
+    /// `place p := a`, `a` the value of a variable of the `var` section stored into an element of an array of memberless
+    /// Options (`ir::Expr::VarSectionValue`, `Session::store_var_section`).
+    StoreVarSectionValue {
+        p: u32,
+        a: u16,
+    },
+    /// `place := a` where `a` may be a Variant and the place is no local: site `s` of `variant_copies` (`variant_copy.rs`). A
+    /// local takes `Op::StoreLocal`, whose record goes to the site of its place.
+    StoreVariantCopy {
+        s: u32,
+        a: u16,
+    },
     Bin {
         op: ir::BinOp,
         d: u16,
@@ -430,7 +442,8 @@ pub(crate) struct CallSite {
 /// How `Op::SingleWrite` writes its global.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SingleWriteKind {
-    /// A builtin replaces the value without using it (`Get`, `Clear`, `Init`): after a guard, the refill.
+    /// A write replaces the value without using it (`Get`, `Init`, a `Find`, `Clear`, `G := x` where `x` is made without
+    /// `G`): after a guard, the refill.
     Replace,
     /// As `Modify`, only when the global holds a temporary record (`Insert`, `Delete`).
     ModifyTemp,
@@ -455,6 +468,8 @@ pub(crate) struct BuiltinSite {
     /// A registered native whose receiver and arguments are all values (nothing is written back) and that has no
     /// special handling in `run_builtin`: it runs on the short path (`Session::run_plain_builtin`).
     pub plain: bool,
+    /// When the call runs `Session::temp_blob_share_guard` first (`temp_blob_share::site_check`).
+    pub temp_blob: crate::temp_blob_share::SiteCheck,
 }
 
 pub(crate) enum AuxSite {
@@ -475,6 +490,8 @@ pub(crate) enum AuxSite {
     },
     QueryColumn {
         column: usize,
+        /// The query is a global variable of the routine's object: its slot (`query_reopen`).
+        global: Option<usize>,
     },
     /// `--tdd` (ADR-051 decision 4): the initial value of `ty` (`Null` for a statement), noting that the stub ran.
     TddStub {
@@ -589,6 +606,7 @@ pub(crate) struct Chunk {
     pub specials: Vec<SpecialSite>,
     pub faults: Vec<FaultKind>,
     pub ifaces: Vec<IfaceSite>,
+    pub variant_copies: Vec<crate::variant_copy::VariantCopySite>,
     /// Registers `0..nlocals` are the routine's locals.
     pub nlocals: u16,
     /// Temporaries after the locals.
@@ -630,7 +648,7 @@ impl ExecProgram {
     /// The captured form of routine `routine` of object `object` .
     pub(crate) fn captured_chunk(&self, program: &ir::Program, object: usize, routine: usize) -> Option<&Chunk> {
         self.captured[object][routine]
-            .get_or_init(|| compile(&program.objects[object].routines[routine], true).map(Box::new))
+            .get_or_init(|| compile(&program.objects[object], routine, true).map(Box::new))
             .as_deref()
     }
 
@@ -638,7 +656,7 @@ impl ExecProgram {
     pub(crate) fn debug_chunk(&self, program: &ir::Program, object: usize, routine: usize) -> Option<&Chunk> {
         let table = self.debug.get_or_init(|| chunk_table(program));
         table[object][routine]
-            .get_or_init(|| compile::compile_debug(&program.objects[object].routines[routine]).map(Box::new))
+            .get_or_init(|| compile::compile_debug(&program.objects[object], routine).map(Box::new))
             .as_deref()
     }
 
@@ -646,7 +664,7 @@ impl ExecProgram {
     pub(crate) fn chunk(&self, program: &ir::Program, object: usize, routine: usize) -> Option<&Chunk> {
         self.chunks[object][routine]
             .get_or_init(|| {
-                let c = compile(&program.objects[object].routines[routine], false)?;
+                let c = compile(&program.objects[object], routine, false)?;
                 STATS.routines.fetch_add(1, Ordering::Relaxed);
                 Some(Box::new(c))
             })
@@ -687,7 +705,7 @@ pub fn report() -> String {
 
 /// The instructions the bytecode compiler emits for a routine, one `Debug` text each (tests of instruction selection).
 pub fn disassemble(program: &ir::Program, object: usize, routine: usize) -> Option<Vec<String>> {
-    let c = compile(&program.objects[object].routines[routine], false)?;
+    let c = compile(&program.objects[object], routine, false)?;
     Some(c.code.iter().map(|op| format!("{op:?}")).collect())
 }
 

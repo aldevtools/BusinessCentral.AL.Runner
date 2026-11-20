@@ -54,21 +54,18 @@ fn a_with_events_variable_is_refused_where_it_is_used() {
     refused(al_testkit::run_in(&src, "C", "F"), "WithEvents");
 }
 
-// A global WithEvents DotNet variable of a codeunit that declares no trigger for it runs as a plain DotNet variable, marked
-// with assumption with-events-no-trigger (Microsoft's Sales and Inventory Forecast Tests, 139540 TestMissingApiUriOpenSetup).
-// A trigger for the variable, and a page's WithEvents variable, keep the refusal.
+// A global WithEvents DotNet variable of a codeunit that declares no trigger for it runs only when it is a System.Timers.Timer
+// (onprem-dotnet dotnet/ac/N4WithEventsNoRaise.al:320-345, `al-vm/tests/dotnet.rs`): another type, a trigger for the variable,
+// and a page's WithEvents variable without an Elapsed trigger keep the refusal.
 #[test]
-fn a_with_events_variable_no_trigger_handles_is_assumed_and_the_neighbours_stay_refused() {
-    use al_builtins::assumptions::{Assumption, take_hits};
+fn a_with_events_variable_no_trigger_handles_runs_only_as_a_timer() {
     let src = format!(
-        "{DOTNET} codeunit 50100 C {{ var [WithEvents] Tm: DotNet T; [WithEvents] Other: DotNet T; N: Integer; \
+        "{DOTNET} codeunit 50100 C {{ var [WithEvents] Tm: DotNet B; [WithEvents] Other: DotNet T; N: Integer; \
          trigger Other::Disposed(sender: Variant; e: DotNet A) begin N += 1; end; \
          procedure F(): Boolean begin exit(IsNull(Tm)); end; \
          procedure G(): Boolean begin exit(IsNull(Other)); end; }}"
     );
-    take_hits();
-    assert!(matches!(al_testkit::run_in(&src, "C", "F"), Ok(Value::Boolean(true))));
-    assert!(take_hits().contains(&Assumption::WithEventsNoTrigger));
+    refused(al_testkit::run_in(&src, "C", "F"), "WithEvents");
     refused(al_testkit::run_in(&src, "C", "G"), "WithEvents");
     let page = format!(
         "{DOTNET} page 50100 P {{ var [WithEvents] Tm: DotNet T; procedure F(): Boolean begin exit(IsNull(Tm)); end; }}"

@@ -189,6 +189,11 @@ pub struct RunOptions {
     /// `--skip-after-timeout` (al-runner issue 7517, opt-in, tooling): once a test is stopped at the time limit, the later tests
     /// of its codeunit are not run and end as not run, naming that test. Default `false`: a later pass is still reported.
     pub skip_after_timeout: bool,
+    /// `--stop-after-first-failure` and serve's `stopAfterFirstFailure` (al-runner issue 8210, opt-in, tooling): once a
+    /// test fails, the later tests of its codeunit and every later entry (`entries`) are not run and end as not run,
+    /// naming that test (`run::stopped_after_failure`). Each test codeunit stops on its own; every other test
+    /// codeunit of the same entry (or of a request without entries) still runs, also with one thread. Default `false`: every test runs.
+    pub stop_after_first_failure: bool,
     /// `al-runner test --permissions off` (ADR-062 section 5): no access kind is enforced, whatever stages are on by
     /// default. While no stage is on (today) it changes nothing.
     pub permissions_off: bool,
@@ -197,10 +202,10 @@ pub struct RunOptions {
     /// "Unhandled UI". Each such test hits the assumption `dev-endpoint-ui` (a flagged pass), and its answered calls are in
     /// `TestResult::ui_answered`. Default `false`: the TestRunner codeunit mode, as the corpus runs.
     pub dev_endpoint_ui: bool,
-    /// `al-runner test --no-client` (al-runner issue 7564): the test session is a session without a client (`al_vm`
-    /// `clientless.rs`). Every dialog answers as in a page background task worker (GuiAllowed false, Message returns, Confirm,
-    /// StrMenu and a page or request page that would open raise CallbackNotAllowed, no handler is reached); a call the corpus
-    /// probes do not cover is refused. Each pass through such an answer is flagged (`no-client-session`). Default `false`.
+    /// `al-runner test --no-client` (al-runner issues 7564, 8154): the test session is a web-service session, as a user
+    /// measured it on BC 28.4 (`al_vm` `clientless.rs`): on that major the handlers answer the dialogs; a call not measured there,
+    /// and the new answers on the other majors, are refused. Each pass through such an answer is flagged (`no-client-session`).
+    /// Default `false`.
     pub no_client: bool,
     /// `al-runner test --allow-write-in-try-functions` (al-runner issue 7143): the service-tier setting
     /// DisableWriteInsideTryFunctions is off, as on Business Central online (`al_vm::Engine::write_in_try_allowed`). Default
@@ -276,8 +281,12 @@ pub struct EntryRun {
     pub run_only: Option<Arc<std::collections::BTreeSet<(u32, String)>>>,
     /// The callbacks of this entry's tests.
     pub hooks: crate::events::Hooks,
-    /// The resource files this entry gives some apps in place of theirs: (app as the caller numbered it, resources).
+    /// The resource files this entry replaces in some apps: (app as the caller numbered it, the replaced files only).
+    /// The app's other files are read from the program, which every entry shares (al-runner issue 8026).
     pub resources: Vec<(usize, ResourceFiles)>,
+    /// The time limit of this entry's tests (al-runner issue 8125): `None`: `RunOptions::test_time_limit`;
+    /// `Some(None)`: no limit.
+    pub test_time_limit: Option<Option<std::time::Duration>>,
 }
 
 /// One pass of `CorpusRuntime::run_compiled` (an entry, or the whole run), in program order.
@@ -286,6 +295,53 @@ pub(crate) struct Pass {
     pub(crate) run_only: Option<Arc<std::collections::BTreeSet<(u32, String)>>>,
     pub(crate) hooks: crate::events::Hooks,
     pub(crate) resources: al_vm::ResourceOverrides,
+    /// The time limit of the pass's tests (`RunOptions::test_time_limit`, or the entry's own).
+    pub(crate) limit: Option<std::time::Duration>,
+}
+
+impl Pass {
+    /// The passes of a run: one, or one per entry (issue 5635), each over the same compile and install baseline. `only`:
+    /// the run's selection in program order; `in_program_order` puts an entry's selection in program order; `order`:
+    /// per app of the program, its index as the caller gave it.
+    pub(crate) fn of_run<F>(
+        opts: &RunOptions,
+        only: &Option<Vec<(usize, u32)>>,
+        memory: &super::memory::Plan,
+        order: &[usize],
+        in_program_order: F,
+    ) -> Vec<Pass>
+    where
+        F: Fn(&[(usize, u32)]) -> Vec<(usize, u32)>,
+    {
+        if opts.entries.is_empty() {
+            return vec![Pass {
+                only: only.clone(),
+                run_only: opts.run_only.clone(),
+                hooks: memory.hooks(&opts.hooks),
+                resources: Default::default(),
+                limit: opts.test_time_limit,
+            }];
+        }
+        let resources = |e: &EntryRun| {
+            e.resources
+                .iter()
+                .filter_map(|(caller, r)| {
+                    let p = order.iter().position(|o| o == caller)?;
+                    Some((p, Arc::new(r.clone())))
+                })
+                .collect()
+        };
+        opts.entries
+            .iter()
+            .map(|e| Pass {
+                only: e.only.as_deref().map(&in_program_order).or_else(|| only.clone()),
+                run_only: e.run_only.clone(),
+                hooks: memory.hooks(&e.hooks),
+                resources: resources(e),
+                limit: e.test_time_limit.unwrap_or(opts.test_time_limit),
+            })
+            .collect()
+    }
 }
 
 /// What [`RunOptions::debug_ready`] sees of the compile.
@@ -523,11 +579,12 @@ impl Compiled {
         }
         let t_replace = t_replace.elapsed();
         if declared {
-            // A declaration changed: the objects that name the changed ones may have read it, so they are
-            // checked and lowered again with them (ADR-033 step 5).
+            // A declaration changed: the objects that name or call the changed ones may have read it, so they are
+            // checked and lowered again with them (ADR-033 step 5). One with a call or member that did not resolve
+            // before is an error (`incremental::readers`): the caller compiles everything again.
             al_sema::incremental::eligible_for_declarations(ws, &dirty)?;
             let limit = ws.objects.len() / 5 + 20;
-            let readers = al_sema::incremental::readers(ws, &dirty, limit)?;
+            let readers = al_sema::incremental::readers(ws, lowered, &dirty, limit)?;
             dirty.extend(readers);
             dirty.sort_unstable();
         } else {

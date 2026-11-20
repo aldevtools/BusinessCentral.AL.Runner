@@ -23,6 +23,7 @@ mod last_error_frames;
 mod last_error_object;
 mod media;
 mod media_export_unchanged;
+mod media_word_package;
 mod no_client_session;
 mod outstream_char_high_duration_filter;
 mod outstream_write_text_unicode;

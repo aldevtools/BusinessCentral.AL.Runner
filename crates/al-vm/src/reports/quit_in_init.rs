@@ -1,12 +1,12 @@
-//! `CurrReport.Quit` in OnInitReport of the report corpus PR 1382 measured, for the ways to start it that a quit stopped only
-//! by refusing before (al-runner issue 7964 item 3; reports/runtime/ReportQuitInOnInit.al:235-355, not pinned yet, assumption
-//! `report-quit-in-oninit-request-page`): RunRequestPage on a variable and the static one answer '' and open no page, an Xml
-//! SaveAs to a stream answers false and writes nothing, and `UseRequestPage(false)` as the first use of a variable quits so
-//! that its next Run or RunModal runs nothing (a Clear gives the variable a new instance, which does not hold it). A Run, RunModal or Execute that runs OnInitReport itself already stopped there
-//! (`REPORT_RUN_1 | REPORT_RUNMODAL_1`, `REPORT_EXECUTE_1`, the static forms) and is not changed here.
+//! `CurrReport.Quit` in OnInitReport of the report reports/runtime/ReportQuitInOnInit.al:34-102 measures, for the ways to
+//! start it that a quit stopped only by refusing before (al-runner issue 7964 item 3; ReportQuitInOnInit.al:235-355):
+//! RunRequestPage on a variable and the static one answer '' and open no page, an Xml SaveAs to a stream answers false and
+//! writes nothing, and `UseRequestPage(false)` as the first use of a variable quits so that its next Run or RunModal runs
+//! nothing (a Clear gives the variable a new instance, which does not hold it). A Run, RunModal or Execute that runs
+//! OnInitReport itself already stopped there (`REPORT_RUN_1 | REPORT_RUNMODAL_1`, `REPORT_EXECUTE_1`, the static forms)
+//! and is not changed here.
 
 use super::*;
-use al_builtins::assumptions::{Assumption, assume};
 
 /// How a caller of [`Session::report_instance`] takes a quit in the OnInitReport its first use runs.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -21,6 +21,18 @@ pub(super) enum InitQuit {
     Defers,
 }
 
+impl InitQuit {
+    /// How `UseRequestPage` on `receiver` with argument `arg` takes a quit: `UseRequestPage(false)` on a variable as its first
+    /// use keeps it (ReportQuitInOnInit.al:265); every other form refuses it.
+    pub(super) fn of_use_request_page(receiver: &Option<Value>, arg: Option<&Value>) -> Self {
+        if receiver.is_some() && matches!(arg, Some(Value::Boolean(false))) {
+            InitQuit::Defers
+        } else {
+            InitQuit::Refuses
+        }
+    }
+}
+
 /// A quit in OnInitReport before a method that cannot stop the report, or of a report the probe did not measure.
 const QUIT_BEFORE_NON_RUN: &str =
     "CurrReport.Quit in OnInitReport before a method that does not run the report (not pinned)";
@@ -32,6 +44,9 @@ impl Session {
     pub(super) fn report_instance(&mut self, receiver: Option<Value>, how: InitQuit) -> Result<(Inst, bool), Signal> {
         match receiver {
             Some(Value::Codeunit(rc)) => {
+                if let Some(report) = self.engine.program.objects[rc.borrow().object as usize].report.as_ref() {
+                    dependency_items::require_pinned_entry(report, false)?;
+                }
                 if how == InitQuit::StopsTakingDeferred && self.quit_deferred_on(&rc) {
                     return Ok((rc.clone(), self.take_deferred_quit(&rc)));
                 }
@@ -53,7 +68,7 @@ impl Session {
         }
     }
 
-    /// The report the probe measured (ReportQuitInOnInit.al:35-102): ProcessingOnly (:37), a request page (:57-80) without
+    /// The report the probe measured (ReportQuitInOnInit.al:34-102): ProcessingOnly (:36), a request page (:57-80) without
     /// an OnInit trigger, no UseRequestPage property, no report extension.
     pub(super) fn quit_in_init_measured(&self, schema: &Schema) -> bool {
         let r = schema.report();
@@ -107,7 +122,6 @@ impl Session {
         if !self.quit_in_init_measured(&schema) {
             return unsupported(QUIT_BEFORE_NON_RUN);
         }
-        assume(Assumption::ReportQuitInOninitRequestPage);
         self.report.report_quit_deferred.retain(|w| w.strong_count() > 0);
         self.report.report_quit_deferred.push(Rc::downgrade(inst));
         Ok(())
@@ -117,7 +131,6 @@ impl Session {
     pub(super) fn take_deferred_quit(&mut self, inst: &Inst) -> bool {
         let had = self.quit_deferred_on(inst);
         if had {
-            assume(Assumption::ReportQuitInOninitRequestPage);
             self.report
                 .report_quit_deferred
                 .retain(|w| w.upgrade().is_some_and(|i| !Rc::ptr_eq(&i, inst)));
@@ -131,7 +144,6 @@ impl Session {
         if !self.quit_in_init_measured(schema) {
             return unsupported("CurrReport.Quit in OnInitReport of a RunRequestPage (not pinned)");
         }
-        assume(Assumption::ReportQuitInOninitRequestPage);
         Ok(Value::Text("".into()))
     }
 
@@ -146,7 +158,6 @@ impl Session {
         if !(stream && result_used && self.quit_in_init_measured(schema)) {
             return unsupported("CurrReport.Quit in OnInitReport of a SaveAs of a processing-only report (not pinned)");
         }
-        assume(Assumption::ReportQuitInOninitRequestPage);
         Ok(Value::Boolean(false))
     }
 }

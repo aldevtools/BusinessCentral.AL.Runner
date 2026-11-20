@@ -152,7 +152,7 @@ impl Session {
             if let Some(trap) = self.take_trap(target as u32) {
                 trap.borrow_mut().trapping = false;
                 trap.borrow_mut().caught_by_trap = true;
-                trap.borrow_mut().trapped_static_run = false;
+                trap.borrow_mut().trapped_run = None;
                 trap.borrow_mut().instance = None;
                 target_state = trap;
                 trapped = true;
@@ -206,7 +206,7 @@ impl Session {
             None if modal => {
                 // BC refuses a dialog nobody answers, after it opened (NoHandler_Tests.al arms 7 and 8).
                 self.mark_closed(&target_state);
-                let id = obj.id.unwrap_or(0);
+                let id = crate::object_ids::declared_id(obj.id)?;
                 // Code: testpage/TestPageRunObjectContracts.al:228-240.
                 Err(error_code(
                     format!("TestPages that are invoked from a RunObject action must have a handler. Page No. = {id}"),

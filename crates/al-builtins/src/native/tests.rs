@@ -36,7 +36,11 @@ pub(crate) struct TestCtx {
     err: AlError,
     install: bool,
     in_test: bool,
-    result_ignored: bool,
+    pub(crate) result_ignored: bool,
+    /// What `held_by_temp_blob_impl` answers for every buffer.
+    pub(crate) temp_blob_impl: bool,
+    /// What `format_composite` answers for a Record or a RecordRef: `None` as without a table schema.
+    pub(crate) composite: Option<String>,
 }
 impl FormatCtx for TestCtx {
     fn enum_name(&self, _id: u32, o: i32) -> String {
@@ -44,6 +48,12 @@ impl FormatCtx for TestCtx {
     }
 }
 impl Ctx for TestCtx {
+    fn format_composite(&mut self, _v: &Value) -> Option<Result<String, Signal>> {
+        self.composite.clone().map(Ok)
+    }
+    fn held_by_temp_blob_impl(&self, _b: &crate::stream::BlobRef) -> bool {
+        self.temp_blob_impl
+    }
     fn last_error(&self) -> AlError {
         self.err.clone()
     }
@@ -160,6 +170,8 @@ fn every_registered_id_is_in_the_catalog() {
     // Ids lowering picks for a call of a catalog overload that needs another implementation (`Evaluate` into an Option variable).
     let derived = [
         "System.EvaluateVariableOption#1",
+        "System.EvaluateMemberlessVarOption#1",
+        "System.EvaluateMemberlessVarOptionElement#1",
         "System.EvaluateBounded#1",
         "System.EvaluateOptionField#1",
         "System.FormatVariant#1",
@@ -169,6 +181,7 @@ fn every_registered_id_is_in_the_catalog() {
         "Record.ValidateVariant#1",
         "System.FormatDecimalField#1",
         "System.FormatAutoFormatField#1",
+        "System.AutoFormatWriterGuard#1",
         "System.FormatOptionColumn#1",
         "System.ClearWithEventsTimer#1",
         "System.OptionCaptionML#1",
@@ -177,6 +190,7 @@ fn every_registered_id_is_in_the_catalog() {
         "Dialog.ErrorComputed#1",
         "Record.FieldErrorConstant#1",
         "Record.FieldErrorComputed#1",
+        "ErrorInfo.CreateLiteral#1",
         "TextBuilder.AppendFieldValue#1",
         "Media.ToVariant#1",
         "Interface.AssertAssigned#1",

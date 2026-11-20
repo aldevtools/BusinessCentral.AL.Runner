@@ -16,7 +16,7 @@ use al_builtins::value::Value;
 use crate::Session;
 
 /// The minimum active row version of the running test codeunit ([`Session::freeze_min_active_row_version`]).
-#[derive(Default, Clone, Debug)]
+#[derive(Default, Clone, Debug, PartialEq)]
 pub(crate) struct IsoMin {
     /// The value, once taken.
     value: Option<i64>,
@@ -29,6 +29,13 @@ pub(crate) struct IsoMin {
     unpinned: bool,
 }
 
+impl IsoMin {
+    /// Holds what a new session holds (`install_left.rs`): no value taken.
+    pub(crate) fn as_new(&self) -> bool {
+        *self == IsoMin::default()
+    }
+}
+
 impl Session {
     /// The value LastUsedRowVersion() + 1 when nothing uncommitted stands in the way: no write transaction is open, every
     /// row version handed out is committed, and the last row version of the test data is known (a configuration package
@@ -37,7 +44,7 @@ impl Session {
     fn min_row_version_now(&self) -> Option<i64> {
         ((self.engine.test_data.is_none() || self.restored_row_version > 0)
             && self.tx.committed_row_version > 0
-            && self.tx.tx_phase != crate::transactions::TX_WRITE
+            && self.tx.phase != crate::transactions::TxPhase::Write
             && self.tx.committed_row_version == self.next_row_version)
             .then(|| self.tx.committed_row_version.max(1) + 1)
     }
@@ -109,10 +116,7 @@ impl Session {
         // _PrefixedCallEqualsBareCall). Outside the tests of a test codeunit, inside a write transaction or after a Commit
         // that made writes durable, the value is not pinned: refused. platform/lt-platform-members/PlTDatabase.al:250-264
         // pins the bounds 0 <= value <= LastUsedRowVersion() + 1 only.
-        if self.tx.tx_phase == crate::transactions::TX_WRITE
-            || self.tx.last_commit_wrote
-            || self.tx.lock_tx
-            || self.tx.lock_unpinned.is_some()
+        if self.tx.phase == crate::transactions::TxPhase::Write || self.tx.last_commit_wrote || self.tx.open.locks.any()
         {
             return unsupported(
                 "Database.MinimumActiveRowVersion in a write transaction or after a Commit that made writes durable (the exact value is not pinned; probe wanted)",

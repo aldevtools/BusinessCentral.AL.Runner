@@ -53,7 +53,7 @@ pub enum PartStep {
     Sibling,
 }
 
-/// What a page lets through after a rule pinned for one scenario ran (`PageState::pinned_end`): Close of the page, with
+/// What a page lets through after a rule pinned for one scenario ran (`PageState::pinned_end`): with `close` Close of the page, with
 /// `reads` a read of a control's value or an `AssertEquals`, with `part_reads` a value read of a part's control, with
 /// `one_action` one action's Invoke, with `first_ends` a `First`, which ends the limit, with `part_visible` the `Visible` of a
 /// part, with `part_moves` the moves of a part and with `next` one `Next`, as the scenario makes them. With `no_writes` every
@@ -63,7 +63,9 @@ pub enum PartStep {
 pub struct PinnedEnd {
     /// The refusal of any other call.
     pub reason: &'static str,
-    pub reads: bool,
+    pub reads: Reads,
+    /// `P.Caption()` of the page is let through.
+    pub caption: bool,
     /// `P.Part.Control.Value()` is let through.
     pub part_reads: bool,
     /// One `Invoke` of an action is let through; a second one is refused.
@@ -76,6 +78,44 @@ pub struct PinnedEnd {
     pub part_moves: bool,
     pub no_writes: bool,
     pub next: NextEnd,
+    /// `Close` of the page is let through.
+    pub close: bool,
+    /// `OK()` of the page is let through; then only one `Invoke` (of that action) is.
+    pub ok: bool,
+    /// `P.Filter.GetFilter` and the page's `First`, `Next` and `GoToKey` are let through, any number of times (the walks of a
+    /// scenario that reads the rows back).
+    pub walk: bool,
+}
+
+impl PinnedEnd {
+    /// What a page lets through after its `OK()`: one `Invoke`, the OK action's; any other call is refused with `reason`.
+    pub const fn after_ok(reason: &'static str) -> Self {
+        PinnedEnd {
+            reason,
+            reads: Reads::No,
+            caption: false,
+            part_reads: false,
+            one_action: true,
+            first_ends: false,
+            part_visible: false,
+            part_moves: false,
+            no_writes: false,
+            next: NextEnd::Refused,
+            close: false,
+            ok: false,
+            walk: false,
+        }
+    }
+}
+
+/// Which value reads of the page's controls a [`PinnedEnd`] lets through.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reads {
+    No,
+    /// `Value()`, `AssertEquals` and the typed reads (`AsInteger`, ...) of any control.
+    Any,
+    /// `Value()` of a control bound to one of these fields of Rec (positions in the table's field list).
+    Values(&'static [usize]),
 }
 
 /// Whether a [`PinnedEnd`] lets a `Next` of the page through.
@@ -144,8 +184,13 @@ pub(super) struct PinnedCode<'a> {
 
 impl Session {
     /// After a rule pinned for one repro ran on the page tree of `st` (`PageState::pinned_end`), only the calls the repro makes
-    /// after it are let through; `call` is the test's call on `st` (`note_test_call`).
-    pub(super) fn refuse_after_pinned_end(st: &St, call: Option<TestCall>) -> Result<(), Signal> {
+    /// after it are let through; `call` is the test's call on `st` (`note_test_call`), made on `control` when it names one.
+    pub(super) fn refuse_after_pinned_end(
+        &self,
+        st: &St,
+        call: Option<TestCall>,
+        control: Option<&ControlTarget>,
+    ) -> Result<(), Signal> {
         let (root, part) = Self::tree_root(st);
         let Some(end) = root.borrow().pinned_end else {
             return Ok(());
@@ -156,7 +201,11 @@ impl Session {
         let let_through = match call {
             // Not a call of the test client (`note_test_call`).
             None => true,
-            Some(TestCall::Page(PageMethod::Close)) => part.is_none(),
+            Some(TestCall::Page(PageMethod::Close)) => end.close && part.is_none(),
+            Some(TestCall::Page(PageMethod::OK)) if end.ok && part.is_none() => {
+                root.borrow_mut().pinned_end = Some(PinnedEnd::after_ok(end.reason));
+                true
+            }
             Some(TestCall::Page(PageMethod::First)) if end.first_ends && part.is_none() => {
                 root.borrow_mut().pinned_end = None;
                 true
@@ -168,11 +217,18 @@ impl Session {
                 });
                 true
             }
+            Some(TestCall::Page(PageMethod::First | PageMethod::Next | PageMethod::GoToKey | PageMethod::Filter))
+                if end.walk =>
+            {
+                part.is_none()
+            }
+            Some(TestCall::Other(PageMethod::GetFilter)) if end.walk => part.is_none(),
+            Some(TestCall::Page(PageMethod::Caption)) => end.caption && part.is_none(),
             Some(TestCall::Page(PageMethod::Visible)) => end.part_visible && part.is_some(),
             Some(TestCall::Page(PageMethod::First | PageMethod::Last | PageMethod::Next)) if end.part_moves => {
                 part.is_some()
             }
-            Some(TestCall::Read) => end.reads || (end.part_reads && part.is_some()),
+            Some(TestCall::Read) => self.read_let_through(st, end.reads, control) || (end.part_reads && part.is_some()),
             Some(TestCall::Other(PageMethod::Invoke)) if end.one_action && part.is_none() => {
                 root.borrow_mut().pinned_end = Some(PinnedEnd {
                     one_action: false,
@@ -180,10 +236,24 @@ impl Session {
                 });
                 true
             }
-            Some(TestCall::Other(m)) => end.reads && (m == PageMethod::AssertEquals || Self::field_read(m)),
+            Some(TestCall::Other(m)) => {
+                end.reads == Reads::Any && (m == PageMethod::AssertEquals || Self::field_read(m))
+            }
             _ => false,
         };
         if let_through { Ok(()) } else { unsupported(end.reason) }
+    }
+
+    /// Whether `reads` lets the `Value()` read of `control` on `st` through.
+    fn read_let_through(&self, st: &St, reads: Reads, control: Option<&ControlTarget>) -> bool {
+        match (reads, control) {
+            (Reads::Any, _) => true,
+            (Reads::Values(fields), Some(ControlTarget::Control(i))) => {
+                let engine = self.engine();
+                matches!(page_of(&engine, st).controls[*i].binding, ir::Binding::Field(f) if fields.contains(&f))
+            }
+            _ => false,
+        }
     }
 
     /// The test client calls `method` on `st`, on the page itself or on `control`; the call as the pins see it.
@@ -506,14 +576,68 @@ impl Session {
             return Ok(false);
         }
         let table = self.table(&self.page_rec(st))?.object as usize;
+        drop(engine);
+        Ok(self.table_code_is(table, pin.table_triggers))
+    }
+
+    /// Whether page `st` declares property `name` once, as `true`.
+    pub(super) fn page_property_true(&self, st: &St, name: &str) -> bool {
+        let engine = self.engine();
+        let props = &engine.program.objects[st.borrow().object as usize].properties;
+        let mut found = props.iter().filter(|(k, _)| k.eq_ignore_ascii_case(name));
+        matches!((found.next(), found.next()), (Some((_, v)), None) if v.trim().eq_ignore_ascii_case("true"))
+    }
+
+    /// Whether a write to field `field` of table object `table` and the insert or modify of its row run no code: the table has
+    /// no table trigger, the field no trigger, no table extension extends the table, and nothing subscribes to its events. The
+    /// table's procedures and its other fields' triggers run only when code calls them.
+    pub(super) fn table_runs_no_code_for(&self, table: usize, field: usize) -> bool {
+        let engine = self.engine();
         let t = &engine.program.objects[table];
-        let table_code = t.routines.iter().all(|r| r.is_trigger && r.field.is_none()) && {
-            let names: Vec<String> = t.routines.iter().map(|r| r.name.to_ascii_lowercase()).collect();
-            same_names(names.iter().map(String::as_str).collect(), pin.table_triggers)
-        };
-        Ok(table_code
+        t.routines
+            .iter()
+            .all(|r| !r.is_trigger || r.field.is_some_and(|f| f != field))
             && t.table.as_ref().is_some_and(|x| x.extensions.is_empty())
-            && !engine.events.any_subscriber_of(table))
+            && !engine.events.any_subscriber_of(table)
+    }
+
+    /// Whether every control of page `st` is a repeater or a group, a field over Rec without a trigger, or (with `actions`) an
+    /// action whose only trigger is OnAction.
+    pub(super) fn controls_are_rec_fields(&self, st: &St, actions: bool) -> bool {
+        let engine = self.engine();
+        page_of(&engine, st).controls.iter().all(|c| match c.kind {
+            ir::ControlKind::Repeater | ir::ControlKind::Group => {
+                c.binding == ir::Binding::None && c.triggers.is_empty()
+            }
+            ir::ControlKind::Field => matches!(c.binding, ir::Binding::Field(_)) && c.triggers.is_empty(),
+            ir::ControlKind::Action => actions && matches!(c.triggers.as_slice(), [(n, _)] if n == "onaction"),
+            _ => false,
+        })
+    }
+
+    /// Whether the only code table object `table` can run is its own triggers `triggers` (lower case, exactly these): no
+    /// procedure, no field trigger, no table extension and no subscriber to an event of the table.
+    pub(crate) fn table_code_is(&self, table: usize, triggers: &[&str]) -> bool {
+        let engine = self.engine();
+        let t = &engine.program.objects[table];
+        let mut names: Vec<String> = t.routines.iter().map(|r| r.name.to_ascii_lowercase()).collect();
+        let mut want: Vec<String> = triggers.iter().map(|n| n.to_string()).collect();
+        names.sort_unstable();
+        want.sort_unstable();
+        t.routines.iter().all(|r| r.is_trigger && r.field.is_none())
+            && names == want
+            && t.table.as_ref().is_some_and(|x| x.extensions.is_empty())
+            && !engine.events.any_subscriber_of(table)
+    }
+
+    /// Whether table object `table` runs code only when code calls it: no table or field trigger, no table extension and no
+    /// subscriber to an event of the table. Its procedures may exist.
+    pub(crate) fn table_runs_no_trigger(&self, table: usize) -> bool {
+        let engine = self.engine();
+        let t = &engine.program.objects[table];
+        t.routines.iter().all(|r| !r.is_trigger)
+            && t.table.as_ref().is_some_and(|x| x.extensions.is_empty())
+            && !engine.events.any_subscriber_of(table)
     }
 
     /// The stored rows of the table of `rec` that pass `filters` alone (none of `rec`'s own filters or marks): a fact the
@@ -633,7 +757,7 @@ pub(super) fn codeunit_var_call(program: &ir::Program, object: usize, e: &ir::Ex
 /// `e` calls a procedure of a codeunit that a global variable of page `object` holds, with arguments that are text built of
 /// constants and fields of Rec with `+` (`Log.Add('I ' + Rec."Code" + ' ' + Rec.Name)`), and the procedure only appends to a
 /// text of its codeunit (`text_log_routine`): the log call of the probe pages of pages/triggers/RecordTriggerReturnValue.al and
-/// testpage/lifecycle/ReopenSameVariableState.al (open corpus PR 1367).
+/// testpage/lifecycle/ReopenSameVariableState.al.
 pub(super) fn rec_text_log_call(program: &ir::Program, object: usize, e: &ir::Expr) -> bool {
     fn rec_text(rec: usize, e: &ir::Expr) -> bool {
         match e {
@@ -664,7 +788,7 @@ pub(super) fn unconverted(e: &ir::Expr) -> &ir::Expr {
 /// Routine `routine` of `callee` is a procedure of a codeunit that only appends text to one Text global of the codeunit: it has
 /// value parameters only, no local variable and no return value, and each statement is `G += <text>` or
 /// `if G <> <constant> then G += <text>;`, the text built of constants and the parameters with `+`. The log procedures of the
-/// pins: corpus testpage/CcPageLeads.al:32-35 (`Buffer += Entry + ';'`), and of open corpus PR 1367
+/// pins: corpus testpage/CcPageLeads.al:32-35 (`Buffer += Entry + ';'`),
 /// pages/triggers/RecordTriggerReturnValue.al:190-193 (`Lines += Line + '; '`) and
 /// testpage/lifecycle/ReopenSameVariableState.al:227-232 (`if Entries <> '' then Entries += ' '; Entries += Line;`).
 pub(super) fn text_log_routine(program: &ir::Program, callee: usize, routine: usize) -> bool {

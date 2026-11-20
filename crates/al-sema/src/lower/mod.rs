@@ -35,6 +35,9 @@ pub struct Lowered {
     /// Per object, per routine: where the statement is that gave the routine's first reason in `unsupported`, when a
     /// statement gave it (`--explain` points at it; al-runner issue 6061). Empty for an object a compile cache supplied.
     pub refusal_at: Vec<Vec<Option<ir::SrcPos>>>,
+    /// Per object: a call of its code had no callee the checker resolved (`Lowerer::unresolved_call`). The incremental
+    /// compile cannot tell which object such a call reaches after a declaration changes (`incremental::readers`).
+    pub(crate) unresolved_calls: Vec<bool>,
     /// Per object, per routine: the routines it calls directly, as (object, routine).
     pub calls: Calls,
     /// Per object: it belongs to a dependency app, so no test or install code of it runs (ADR-013).
@@ -113,7 +116,11 @@ pub struct ObjectHash {
 /// calls: a test page drives every routine of its page, the page's extensions and its parts.
 #[derive(Clone)]
 pub(crate) struct DrivenCtx {
+    /// Per page, and per report for its request page: the extensions in the order they apply.
     page_extensions: HashMap<usize, Vec<usize>>,
+    /// Per report whose request page `ext_request_page` admits with triggers on its extensions' request pages: the order it
+    /// gave, which the linked page keeps (`join_order`). Every other page: `ext_order::page_extension_key`.
+    request_page_order: HashMap<usize, Vec<usize>>,
     page_parts: Vec<Vec<usize>>,
     page_runs: Vec<Vec<usize>>,
     /// Per object: an xmlport or report, whose triggers Import, Export and Run call.
@@ -229,6 +236,9 @@ pub(crate) type L<T> = Result<T, String>;
 pub(crate) struct Lowerer<'a> {
     /// Global slot of the implicit `Rec` of the current object.
     rec_slot: Option<usize>,
+    /// Global slot of a variable `Rec` that a codeunit with TableNo declares, when procedures read it apart from the
+    /// implicit Rec (`table_no_rec::declared_rec_refusal`).
+    declared_rec_slot: Option<usize>,
     table_of: &'a [Option<usize>],
     ws: &'a Workspace,
     members: &'a MemberTable<'a>,
@@ -258,6 +268,11 @@ pub(crate) struct Lowerer<'a> {
     /// The Label-typed variables declared `TextConst`, by lowercase name (a Label and a TextConst share `Ty::Label`).
     global_textconsts: std::collections::HashSet<String>,
     local_textconsts: std::collections::HashSet<String>,
+    /// The Label and TextConst variables of the forms [`shared::plain_text_constant`] names, by lowercase name.
+    global_plain_text_constants: std::collections::HashSet<String>,
+    local_plain_text_constants: std::collections::HashSet<String>,
+    /// The Variant variables of the routine's `var` section, by lowercase name (no parameter, no named return value).
+    local_variant_vars: std::collections::HashSet<String>,
     /// The TextConst variables whose text depends on the language in force, by lowercase name: their texts by language
     /// code ([`shared::textconst_languages`]).
     global_textconst_languages: HashMap<String, Vec<(String, String)>>,
@@ -268,10 +283,6 @@ pub(crate) struct Lowerer<'a> {
     /// The Label variables declared with `MaxLength`, by lowercase name (a conditional expression pairs them only where pinned).
     global_maxlength_labels: std::collections::HashSet<String>,
     local_maxlength_labels: std::collections::HashSet<String>,
-    /// The Label and TextConst variables declared as just `Label 'text'` or `TextConst ENU = 'text'`, by lowercase name
-    /// ([`shared::plain_text_declaration`]; lower/label_variant.rs).
-    global_plain_text_decls: std::collections::HashSet<String>,
-    local_plain_text_decls: std::collections::HashSet<String>,
     /// Attributes of variables the lowering reads (`shared::var_attribute_names`), by lowercase name.
     global_var_attrs: HashMap<String, Vec<String>>,
     local_var_attrs: HashMap<String, Vec<String>>,
@@ -286,6 +297,8 @@ pub(crate) struct Lowerer<'a> {
     reasons: Vec<String>,
     /// Where the statement is that gave the routine's first reason, when one did (`--explain`, al-runner issue 6061).
     refusal_at: Option<ir::SrcPos>,
+    /// A call of the object had no callee the checker resolved (`Lowered::unresolved_calls`).
+    unresolved_call: bool,
     calls: Vec<(usize, usize)>,
     /// Per object: why the test client cannot drive it yet (pages).
     page_reasons: &'a [Vec<String>],
@@ -328,9 +341,8 @@ pub(crate) struct Lowerer<'a> {
     loops: Vec<bool>,
     /// `by_var` of the parameters of the routine being lowered.
     var_params: Vec<bool>,
-    /// The first local slot of the routine being lowered that its `var` section declares (after its parameters and named
-    /// return value); `usize::MAX` outside a routine.
-    declared_locals_from: usize,
+    /// The slot of the named return value of the routine being lowered.
+    named_ret: Option<usize>,
     /// The routine being lowered reads MaxStrLen of a `var` parameter, or hands one on to a `var` parameter
     /// (`ir::Routine::reads_var_max_len`).
     reads_var_max_len: bool,
@@ -619,10 +631,11 @@ mod copy_array;
 mod coverage_ids;
 mod dotnet;
 mod dotnet_arg;
+mod evaluate_id;
 mod expr;
 mod ext_order;
+mod ext_request_page;
 mod extend;
-mod label_variant;
 
 #[cfg(test)]
 mod abp_refusal_tests;
@@ -635,11 +648,13 @@ mod request_procs;
 mod routine_lists;
 mod shared;
 mod stmt;
+mod table_no_rec;
 mod tables;
 mod test_handlers;
 #[cfg(test)]
 mod tests;
 mod tys;
+mod var_option_arg;
 mod with_events;
 
 /// What the lowering does with a `CreateInStream` call that creates a handed-back InStream on a local of the routine.

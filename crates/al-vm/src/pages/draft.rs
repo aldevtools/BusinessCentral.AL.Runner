@@ -3,6 +3,15 @@ use super::*;
 use al_builtins::page_op::PageMethod;
 use al_builtins::record_op::RecordOp;
 
+/// The page's own Modify of a stored row in `Session::save_row_outcome`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct PageModify {
+    /// OnModifyRecord was declared and answered true (`false` when the page has none).
+    pub answered_true: bool,
+    /// The store's change counter just before the Modify, after OnModifyRecord and OnModifyRecordEvent.
+    pub changes_before: u64,
+}
+
 impl Session {
     /// OpenNew of a List whose page says `Editable = false` and that has a SourceTableView opens on its first row as OpenView
     /// does, with no OnNewRecord (ui-handlers/Y41SelectionAfterClose.al:295 G401_OpenNew_List_SourceTableView,
@@ -77,21 +86,9 @@ impl Session {
             });
         }
         if insert_denied {
-            // The text names the page and its id, the code is DB:ClientInsertDenied (corpus
-            // pages/extensions/ZPageExtProps.al:ZInsertAllowed_1, _4).
-            let o = &engine.program.objects[object];
-            let id = if self.is_request_page(st) { Some(0) } else { o.id };
-            let Some(id) = id else {
-                return unsupported("New() on a page without an id denied by InsertAllowed (the text is not pinned)");
-            };
-            return Err(error_code(
-                format!(
-                    "New method failed because Insert is not allowed. Page = {}, Id = {id}.",
-                    o.name
-                ),
-                "DB:ClientInsertDenied",
-            ));
+            return Err(self.new_denied_error(st)?);
         }
+        self.part_new_on_view_host(st)?;
         let (left, origin) = self.traced(st, |s| s.leave_row(st, PageMethod::New));
         if let (Err(Signal::Error(_)), Some("onmodifyrecord")) = (&left, origin.as_deref()) {
             return unsupported("an error in OnModifyRecord on New() (only Next() is pinned)");
@@ -112,6 +109,24 @@ impl Session {
                 }
             }
         }
+    }
+
+    /// The error of a `New()` the page denies: the text names the page and its id, the code is DB:ClientInsertDenied (corpus
+    /// pages/extensions/ZPageExtProps.al:ZInsertAllowed_1, _4).
+    pub(super) fn new_denied_error(&self, st: &St) -> Result<Signal, Signal> {
+        let engine = self.engine();
+        let o = &engine.program.objects[st.borrow().object as usize];
+        let id = if self.is_request_page(st) { Some(0) } else { o.id };
+        let Some(id) = id else {
+            return unsupported("New() on a page without an id denied by InsertAllowed (the text is not pinned)");
+        };
+        Ok(error_code(
+            format!(
+                "New method failed because Insert is not allowed. Page = {}, Id = {id}.",
+                o.name
+            ),
+            "DB:ClientInsertDenied",
+        ))
     }
 
     /// The error of `TestPage.OpenNew` on an API page: `Sorry, the current permissions prevented the action. (Page <id> <name>
@@ -532,6 +547,7 @@ impl Session {
             s.after_new_by_update = anchor.is_some() && s.saved_by_update;
             s.saved_by_update = false;
             s.after_new = anchor;
+            s.new_line_writes = None;
         }
         let table = rec.borrow().table as usize;
         let fresh = self.initial_fields(table);
@@ -574,6 +590,7 @@ impl Session {
         self.page_trigger(st, "onnewrecord", vec![Value::Boolean(true)])?;
         self.page_event(st, "onnewrecordevent", None, Some(true))?;
         st.borrow_mut().draft_start = Some(rec.borrow().fields.clone());
+        st.borrow_mut().new_line_writes = Some(self.write_mark());
         // A card opened with OpenNew whose OnNewRecord inserts the new row itself still holds it as a new row: the next write to
         // a field outside the key inserts it again (corpus testpage/CfPageLeads.al:241-289
         // Card_OnNewRecordInserts_OpenNewSetClose: `OnInsertRecord:DOC1,Doc.OnInsert:DOC1` at SetValue). Only that shape is
@@ -650,16 +667,21 @@ impl Session {
     }
 
     pub(super) fn save_row(&mut self, st: &St) -> Result<(), Signal> {
+        self.save_row_outcome(st).map(|_| ())
+    }
+
+    /// `save_row`, with what it did to a stored row: `Some` when the page's own Modify of the row ran, after OnModifyRecord.
+    pub(super) fn save_row_outcome(&mut self, st: &St) -> Result<Option<PageModify>, Signal> {
         let (cursor, draft, dirty) = {
             let s = st.borrow();
             (s.cursor, s.draft, s.dirty)
         };
         if cursor == Cursor::None || !dirty || !self.has_source(st) {
-            return Ok(());
+            return Ok(None);
         }
         if draft {
             self.xrec_of_part_line_saved_on_leave(st)?;
-            return self.insert_draft(st);
+            return self.insert_draft(st).map(|()| None);
         }
         let rec = self.page_rec(st);
         // A SetValue of the value already stored: an action saves the row all the same (pages/actions/
@@ -668,7 +690,7 @@ impl Session {
         let set_value_held = std::mem::take(&mut st.borrow_mut().set_value_held) && st.borrow().in_action;
         if Self::same_values(&rec.borrow().fields, &self.page_xrec_fields(st)) && !set_value_held {
             st.borrow_mut().dirty = false;
-            return Ok(());
+            return Ok(None);
         }
         // A page with Editable = false and ModifyAllowed left true saves nothing for a Blob no stream wrote either: Tests-ERM
         // Sales Batch Document Posting (codeunit 134891) ReleaseSelectedQuotes and its siblings invoke Release on Sales Quotes,
@@ -683,7 +705,7 @@ impl Session {
                 al_builtins::assumptions::Assumption::PageUnwrittenBlobNoChangeNotEditable,
             );
             st.borrow_mut().dirty = false;
-            return Ok(());
+            return Ok(None);
         }
         // Only a close with a changed row on a page that does not allow modify is pinned (see `close_denied_modify`).
         if modify_denied {
@@ -697,13 +719,13 @@ impl Session {
                     );
                 }
                 st.borrow_mut().dirty = false;
-                return Ok(());
+                return Ok(None);
             }
             // A row the page code stored itself (Rec.Modify) leaves nothing to save: no error, the page goes on with it
             // (testpage/Y61ModifyDeniedSave.al:164 G617a_Temp_NotEditable_DrillDownModify_ThenFirst, :281
             // G617a_Db_Editable_ActionModify).
             if self.row_stored_as_shown(st, &rec)? {
-                return Ok(());
+                return Ok(None);
             }
             // A row whose Blob an action wrote is not pinned (rp1_read_only_blob): refused as before.
             if rec
@@ -730,8 +752,9 @@ impl Session {
         }
         // corpus testpage/TestPageTriggerEvents.al (ModifyRecordEvent_RunsAfterThePagesOwnOnModifyRecordTrigger)
         let keep = self.with_modify_record_xrec(st, |s| s.page_trigger_answer(st, "onmodifyrecord", vec![]))?;
+        let answered_true = keep == Some(true);
         if keep == Some(false) {
-            return Ok(());
+            return Ok(None);
         }
         // An OnModifyRecordEvent subscriber that vetoes the save: the same edit is not saved again, neither after the action that
         // called SaveRecord nor at the TestPage.Close (testpage/TestPageTriggerEvents.al:181-206: the subscriber ran once, the
@@ -740,19 +763,20 @@ impl Session {
         if let Some(fields) = vetoed {
             if Self::same_values(&rec.borrow().fields, &fields) {
                 st.borrow_mut().dirty = false;
-                return Ok(());
+                return Ok(None);
             }
             return unsupported("a page saves an edit after an OnModifyRecordEvent subscriber vetoed one (not pinned)");
         }
         if !self.page_event(st, "onmodifyrecordevent", Some(true), None)? {
             st.borrow_mut().modify_vetoed = Some(rec.borrow().fields.clone());
-            return Ok(());
+            return Ok(None);
         }
         self.ret_used = false;
         // The page saves the row on fresh table globals: what an action set in them is gone (corpus
         // record/PWTableGlobals.al:408-431: OnModify reads Counter 0 though the action set 7).
         self.reset_table_globals(&rec);
         self.pages.page_xrec = Some(self.page_xrec_fields(st));
+        let changes_before = self.store.change_counter();
         let modified = self.record_op(RecordOp::Modify, &rec, &mut [Value::Boolean(true)]);
         self.pages.page_xrec = None;
         // The page keeps the row it read; when code behind it has changed that row since, whether the client has read it again
@@ -771,7 +795,7 @@ impl Session {
                 None => false,
             };
             if e.code == "DB:RecordNotFound" && !vetoed && self.typed_key_dropped_on_currpage_run(st)? {
-                return Ok(());
+                return Ok(None);
             }
             if e.code == "DB:RecordNotFound" && !vetoed {
                 return unsupported(
@@ -785,7 +809,10 @@ impl Session {
         modified?;
         st.borrow_mut().dirty = false;
         self.set_xrec(st);
-        Ok(())
+        Ok(Some(PageModify {
+            answered_true,
+            changes_before,
+        }))
     }
 
     /// Whether `st` is a top-level Card or Document page: the host type of every new-row part pin (testpage/parts/
@@ -798,9 +825,9 @@ impl Session {
             )
     }
 
-    /// Whether `part` is the single part of the Worksheet `host` and is the measured FactBox (AL Runner issue 7880, corpus pull
-    /// request 1344, assumption `worksheet-draft-close-empty-part`): a ListPart in the FactBoxes area without extension or
-    /// subscriber, linked by one `field(...)` entry.
+    /// Whether `part` is the single part of the Worksheet `host` and is the measured FactBox (pages/lifecycle/
+    /// TestWorksheetDraftClose.al:11-29, fixtures TestWorksheetDraftClose1Fixture*.al): a ListPart in the FactBoxes area without
+    /// extension or subscriber, linked by one `field(...)` entry.
     fn worksheet_draft_factbox(&self, host: &St, part: &St) -> bool {
         let engine = self.engine();
         let host_state = host.borrow();
@@ -894,7 +921,8 @@ impl Session {
         }
         let pinned =
             st.borrow().draft_from_open && self.top_card_or_document(st) && self.key_typed_since_draft_start(st)?;
-        // The measured Worksheet (issue 7880, corpus pull request 1344): opened by the test's own OpenEdit, the test's only
+        // The measured Worksheet (pages/lifecycle/TestWorksheetDraftClose.al:11-29, fixtures TestWorksheetDraftClose1Fixture*.al):
+        // opened by the test's own OpenEdit, the test's only
         // calls on it SetValues that succeeded and then Close (`worksheet_draft_close_calls`), so its line started on the empty
         // page (no OpenNew draft, no saved starting buffer), AutoSplitKey, DelayedInsert and MultipleNewLines, OnNewRecord,
         // no extension or subscriber, no key field shown, and one FactBox part (`worksheet_draft_factbox`).
@@ -937,11 +965,6 @@ impl Session {
                         "closing a new host row while a part that shows no row declares OnNewRecord or OnAfterGetCurrRecord (BC runs neither, the relink does; not implemented)",
                     );
                 }
-                if worksheet {
-                    al_builtins::assumptions::assume(
-                        al_builtins::assumptions::Assumption::WorksheetDraftCloseEmptyPart,
-                    );
-                }
                 c.borrow_mut().quiet_at_close = true;
                 quiet.push(c);
             }
@@ -969,9 +992,21 @@ impl Session {
         Ok(())
     }
 
+    /// For a part whose whole view the client holds (`part_view_held`): whether the line was started below the view's last row.
+    /// `None` when the client does not hold the whole view or holds no row.
+    pub(super) fn part_line_started_at_view_end(&self, st: &St, anchor: &[Value]) -> Result<Option<bool>, Signal> {
+        if !self.part_view_held(st) {
+            return Ok(None);
+        }
+        let table = self.table(&self.page_rec(st))?;
+        let key = table.primary_key(anchor);
+        Ok(st.borrow().window.last().map(|w| Self::same_key(&w.key, &key)))
+    }
+
     /// OnInsertRecord decides whether the typed record is inserted at all (corpus
     /// testpage/TestPageRecordTriggers.al:76 OnInsertRecord_ReturningFalse_SuppressesTheInsert).
     pub(super) fn insert_draft(&mut self, st: &St) -> Result<(), Signal> {
+        self.refuse_delayed_blank_not_blank_key(st)?;
         let rec = self.page_rec(st);
         // A part line whose host is a new, unsaved record with a blank link key: BC saves the host first (its OnInsert numbers it)
         // and links the line to it. Which order the triggers run in, and what the line's key holds, are not pinned: refused.
@@ -1008,18 +1043,16 @@ impl Session {
         // lt-qj-part-propagation/QjPartPropagation.al:3000 QN_PartDelayedOnly_NewTyped_ThenNew `D.INSR(0 a=7 x=3 x.ln=30000)` after
         // New() from row 30000 of two; :3106, :3212, :3318, :3424). From the last row the insert keeps the blank xRec (:925
         // QJ_SubformSaveRecord_NewRow `S.INSR(20000 r=5 x=0 x.ln=0)`).
-        let table = self.table(&rec)?;
-        let part_middle = |s: &Self, a: &Vec<Value>| {
-            s.part_view_held(st)
-                && st
-                    .borrow()
-                    .window
-                    .last()
-                    .is_some_and(|w| !Self::same_key(&w.key, &table.primary_key(a)))
+        let anchor = match anchor {
+            Some(a)
+                if self.is_list(st)
+                    && (st.borrow().host.is_none() || self.part_line_started_at_view_end(st, &a)? == Some(false)) =>
+            {
+                Some(a)
+            }
+            _ => None,
         };
-        if let Some(anchor) =
-            anchor.filter(|a| self.is_list(st) && (st.borrow().host.is_none() || part_middle(self, a)))
-        {
+        if let Some(anchor) = anchor {
             // The insert sees the row the line was started below as xRec (testpage/W2BelowXRec.al:NewInTheMiddle_*).
             self.set_xrec_fields(st, anchor);
         }
@@ -1062,8 +1095,8 @@ impl Session {
         }
         if go == Some(false) && std::mem::take(&mut self.pages.named_false_insert) {
             // The page's own OnInsertRecord vetoed by its named return value, the insert of a SetValue: the SetValue raises
-            // the filtered-view error and nothing is stored (open corpus PR 1367, pages/triggers/RecordTriggerReturnValue.al:350
-            // False_Insert_OpenNewSetValueClose `end|text`, `log` `I N1 ; `; assumption page-record-trigger-named-false-vetoes).
+            // the filtered-view error and nothing is stored (pages/triggers/RecordTriggerReturnValue.al:350
+            // False_Insert_OpenNewSetValueClose `end|text`, `log` `I N1 ; `).
             // What the page holds afterwards is not measured: every later call on it, Close too, is refused.
             {
                 let mut s = st.borrow_mut();
@@ -1145,14 +1178,14 @@ impl Session {
             for c in &parts {
                 c.borrow_mut().field_captions_link_refill = true;
                 if self.chain_part_in_factbox(c) {
-                    c.borrow_mut().chain_refill = 1;
+                    c.borrow_mut().chain_refill = ChainRefill::Skipped;
                 }
             }
             let r = self.sync_parts(st);
             for c in &parts {
                 c.borrow_mut().field_captions_link_refill = false;
-                if c.borrow().chain_refill == 1 {
-                    c.borrow_mut().chain_refill = 2;
+                if c.borrow().chain_refill == ChainRefill::Skipped {
+                    c.borrow_mut().chain_refill = ChainRefill::AwaitingKey;
                 }
             }
             r?;
@@ -1198,14 +1231,14 @@ impl Session {
             _ => false,
         };
         if st.borrow().draft && in_row && prev.is_some() && !delayed && non_key {
-            self.insert_draft(st)?;
+            self.insert_at_second_control(st, setting_value)?;
             self.inserted_outside_view(st, idx)?;
         }
         Ok(())
     }
 }
 
-/// The error of an insert whose row the page cannot find in its view (corpus testpage/AoTests.al:467-487, open corpus PR 1367
+/// The error of an insert whose row the page cannot find in its view (corpus testpage/AoTests.al:467-487,
 /// pages/triggers/RecordTriggerReturnValue.al:365).
 fn view_filtered_error() -> Signal {
     error_code(

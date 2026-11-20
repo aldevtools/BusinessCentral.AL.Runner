@@ -25,7 +25,7 @@ impl Session {
     pub(super) fn field_value_text(&mut self, st: &St, idx: usize, v: &Value) -> Result<String, Signal> {
         match self.rendered_field_value(st, idx, v) {
             Some(shown) => shown,
-            None => self.control_text(st, idx, v),
+            None => self.control_text_for(st, idx, v, super::auto_format_writer_cell::ControlRead::Value),
         }
     }
 

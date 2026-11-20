@@ -1,10 +1,7 @@
-//! XmlElement.Create and XmlAttribute.Create with names that are not plain XML names (al-runner issue 7964 item 1; corpus PR
-//! 1382, xml/XmlNameValidity.al:113-241, not pinned yet, assumption `xml-create-invalid-name`): the empty name raises the
-//! Argument error, the measured invalid names the XmlException with its position (the cells that xml/XmlElement.al:98-141 and
-//! xml/XmlAttributes.al:104-131 pin run unflagged). Valid names keep main's result; a name
+//! XmlElement.Create and XmlAttribute.Create with names that are not plain XML names (al-runner issue 7964 item 1;
+//! xml/XmlNameValidity.al:113-241, xml/XmlElement.al:98-141, xml/XmlAttributes.al:104-131): the empty name raises the
+//! Argument error, the measured invalid names the XmlException with its position. Valid names keep main's result; a name
 //! outside the measured cells stays refused.
-
-use al_builtins::assumptions::{Assumption, take_hits};
 
 const SRC: &str = r#"
 codeunit 69976 C
@@ -152,21 +149,12 @@ fn the_measured_names_raise_the_measured_errors() {
         (4, "name with space", "urn:x", space5),
     ];
     for (kind, name, ns, expected) in cases {
-        take_hits();
         assert_eq!(run(&mut b, kind, name, ns), Ok(expected), "{kind} {name:?} {ns:?}");
-        // The faults xml/XmlElement.al:98-141 and xml/XmlAttributes.al:104-131 pin for the forms without a namespace (the empty
-        // name, a leading '1', ':' or ' ' after letters) run unflagged; the other cells mark.
-        let flagged = matches!((kind, name), (2 | 4, _) | (1 | 3, "9abc") | (1, ".a" | ":a"));
-        assert_eq!(
-            take_hits().contains(&Assumption::XmlCreateInvalidName),
-            flagged,
-            "{kind} {name:?} {ns:?}"
-        );
     }
 }
 
 #[test]
-fn valid_names_keep_mains_result_unflagged() {
+fn valid_names_keep_mains_result() {
     let mut b = al_testkit::Built::from_source(SRC);
     for (kind, name, ns, expected) in [
         (1, "name", "", "ok name=name local=name ns= xml=<name />"),
@@ -185,12 +173,7 @@ fn valid_names_keep_mains_result_unflagged() {
             "ok name=p0:name local=name ns=urn:x xml=p0:name=\"v\"",
         ),
     ] {
-        take_hits();
         assert_eq!(run(&mut b, kind, name, ns).as_deref(), Ok(expected), "{kind} {name:?}");
-        assert!(
-            !take_hits().contains(&Assumption::XmlCreateInvalidName),
-            "{kind} {name:?}"
-        );
     }
 }
 

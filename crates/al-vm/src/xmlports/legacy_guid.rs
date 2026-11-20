@@ -1,8 +1,5 @@
-//! The import of a text into a Guid field by a port without FormatEvaluate (Legacy). No pinned corpus test measures it yet: it
-//! runs under the assumption `xmlport-guid-legacy-import`, whose probe is corpus pull request 1340
-//! (`xmlports/import/XpLegacyGuidImport.al`, values from a local BC run and that pull request's green corpus CI; al-runner
-//! issue 7854). Only the cells that file measures are answered; every other text keeps main's
-//! refusal (`xp_value`).
+//! The import of a text into a Guid field by a port without FormatEvaluate (Legacy), as xmlports/import/XpLegacyGuidImport.al
+//! measures it. Only the cells that file measures are answered; every other text keeps main's refusal (`xp_value`).
 
 use super::shape::{XmlGuid, xml_guid};
 use super::*;
@@ -94,8 +91,7 @@ struct Form {
     spaced: bool,
 }
 
-/// What the import of `raw` (the text before the trim) at `site` gives, as measured by XpLegacyGuidImport.al (corpus pull
-/// request 1340). `Unpinned` for every text the file does not measure.
+/// What the import of `raw` (the text before the trim) at `site` gives, as measured by XpLegacyGuidImport.al. `Unpinned` for every text the file does not measure.
 pub(super) fn legacy_guid(site: LegacyGuidSite, raw: &str) -> XmlGuid {
     use LegacyGuidSite::*;
     // An empty attribute is the null Guid (:211 `empty`); an empty element and an empty VariableText field fail (:243, :266).
@@ -106,8 +102,8 @@ pub(super) fn legacy_guid(site: LegacyGuidSite, raw: &str) -> XmlGuid {
             XmlGuid::Invalid
         };
     }
-    // The one failing text measured at every site is `not-a-guid` (:213, :244, :267). A text with each of its facts fails.
-    if like_the_invalid_sample(raw) {
+    // The one failing text measured at every site is `not-a-guid` (:213, :244, :267).
+    if raw == "not-a-guid" {
         return XmlGuid::Invalid;
     }
     let t = raw.trim_matches(' ');
@@ -160,14 +156,6 @@ pub(super) fn legacy_guid(site: LegacyGuidSite, raw: &str) -> XmlGuid {
         return XmlGuid::Invalid;
     }
     XmlGuid::Unpinned
-}
-
-/// `raw` has the facts of `not-a-guid` (XpLegacyGuidImport.al:213, :244, :267): only ASCII lower-case letters and dashes (so
-/// no white space, bracket, digit or upper-case letter), at least one dash and at least one letter outside a-f.
-fn like_the_invalid_sample(raw: &str) -> bool {
-    raw.chars().all(|c| c.is_ascii_lowercase() || c == '-')
-        && raw.contains('-')
-        && raw.chars().any(|c| ('g'..='z').contains(&c))
 }
 
 /// The form of `t` (`raw` without the spaces around), or `None` for brackets that do not pair, digits in other groups and
@@ -284,7 +272,7 @@ mod tests {
     }
 
     #[test]
-    fn a_text_unlike_the_invalid_sample_is_unpinned() {
+    fn a_text_other_than_the_invalid_sample_is_unpinned() {
         for site in [XmlAttribute, XmlElement, VariableText] {
             for t in [
                 "\t{6F9619FF-8B86-D011-B42D-00C04FC964FF}\t",
@@ -304,6 +292,8 @@ mod tests {
                 "not-a-guid ",
                 "not a guid",
                 "(not-a-guid)",
+                "another-word",
+                "not-a-uuid",
             ] {
                 assert_eq!(kind(legacy_guid(site, t)), "unpinned", "{site:?} {t:?}");
             }

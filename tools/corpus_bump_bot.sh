@@ -3,8 +3,9 @@
 # follows the corpus branch master without a person starting it. Three steps, each usable on its own:
 #
 #   tools/corpus_bump_bot.sh find
-#       Prints `run=ID` and `sha=COMMIT` of the newest green corpus CI run whose commit is on master after the
-#       pin and passes the checks of tools/corpus_bump.sh (--dry-run). Prints nothing when there is none.
+#       Prints `run=ID` and `sha=COMMIT` of the newest green corpus CI push or nightly (schedule) run whose commit
+#       is on master after the pin and passes the checks of tools/corpus_bump.sh (--dry-run). Prints nothing when there
+#       is none.
 #   tools/corpus_bump_bot.sh bump RUN OUT
 #       In the checkout this script belongs to: the corpus outcomes on the old pin, then tools/corpus_bump.sh RUN
 #       without the not-passing lists (pin, oracle, harness counts), then one run on the new pin that writes the two
@@ -41,7 +42,7 @@ pin_of() { # repository
 }
 
 find_run() {
-  local pin ref runs id sha
+  local pin ref push nightly id sha
   pin="$(pin_of "$root")"
   [[ "$pin" =~ ^[0-9a-f]{40}$ ]] || die "no corpus pin"
   if [ "${CORPUS_BUMP_NO_FETCH:-0}" != 1 ]; then
@@ -54,11 +55,15 @@ find_run() {
     echo "the pin ${pin:0:12} is corpus master" >&2
     return 0
   fi
-  # Only push runs on master: a pull request run tests only the changed files (run 41182315237 had 27 cases where
-  # the oracle had 19831), and its commit can still pass the checks of corpus_bump.sh.
-  runs="$("$gh" run list -R "$repo" --workflow "$workflow" --event push --branch master --status success -L 40 \
-    --json databaseId,headSha)"
-  # Newest first, as gh lists them.
+  # Only push and nightly (schedule) runs on master: a pull request run tests only the changed files (run 41182315237
+  # had 27 cases where the oracle had 19831), and its commit can still pass the checks of corpus_bump.sh. The nightly
+  # is listed too (owner, 2026-11-18): when master does not move after a run the checks refuse, it is the only run
+  # left to bump from. corpus_bump.sh checks it as any other run (ADR-077).
+  push="$("$gh" run list -R "$repo" --workflow "$workflow" --event push --branch master --status success -L 40 \
+    --json databaseId,headSha,createdAt)"
+  nightly="$("$gh" run list -R "$repo" --workflow "$workflow" --event schedule --branch master --status success -L 40 \
+    --json databaseId,headSha,createdAt)"
+  # Both lists merged, newest created first.
   while read -r id sha; do
     [ -n "$id" ] || continue
     if [ "$sha" = "$pin" ] || ! git -C "$corpus" cat-file -e "$sha^{commit}" 2>/dev/null \
@@ -75,8 +80,9 @@ find_run() {
     echo "run $id: refused by the bump checks, skipped" >&2
   done < <(python3 -c '
 import json, sys
-for r in json.loads(sys.argv[1]):
-    print(r["databaseId"], r["headSha"])' "$runs")
+runs = json.loads(sys.argv[1]) + json.loads(sys.argv[2])
+for r in sorted(runs, key=lambda r: r["createdAt"], reverse=True):
+    print(r["databaseId"], r["headSha"])' "$push" "$nightly")
   echo "no green corpus run after the pin ${pin:0:12}" >&2
 }
 

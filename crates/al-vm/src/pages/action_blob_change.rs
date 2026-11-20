@@ -31,9 +31,6 @@ impl Session {
         // pages/actions/WfFlowFieldActionRec.al the FlowField is a control, filled when the row is read, so CalcFields leaves
         // Rec as it was and the first check above already answers; the Document repro shows no such control.
         if !was_dirty && !deleted && self.document_view_action_only_changed_flowfields(st, &rec, before)? {
-            al_builtins::assumptions::assume(
-                al_builtins::assumptions::Assumption::DocumentActionCalculatedFieldNotDirty,
-            );
             return Ok(false);
         }
         // A row the action changed and then deleted (a codeunit that modifies and deletes Rec: Make Order, Post) is not
@@ -60,8 +57,8 @@ impl Session {
         Ok(false)
     }
 
-    /// The measured shape of AL Runner issue 7882 (corpus pull request 1346, assumption
-    /// `document-action-calculated-field-not-dirty`): a top-level Document without parts, opened by the test with OpenView
+    /// The measured shape (pages/currpage/TestDocumentFlowFieldSave.al:12-26, action
+    /// TestDocumentFlowFieldSave1Fixture51722.al:16-34, page ...51721.al:7-23): a top-level Document without parts, opened by the test with OpenView
     /// (not switched by the View action, not trapped, not modal), not edited, and no OnModifyRecord in the page or an
     /// extension and no subscriber to it. The action changed only FlowFields of Rec, with CalcFields (not by assignment),
     /// left no uncommitted write, and the stored row differs from the one the page read. The test's calls on the page are
@@ -83,7 +80,7 @@ impl Session {
             || !state.parts.is_empty()
             || state.host.is_some()
             || self.engine.object_facts[state.object as usize].page_type != Some(ir::PageType::Document)
-            || !self.tx.writes.is_empty()
+            || !self.tx.open.writes.is_empty()
         {
             return Ok(false);
         }
