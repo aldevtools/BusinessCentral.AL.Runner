@@ -5,12 +5,14 @@
 //! that row; the next SetValue lands on it. Pinned by pages/currpage/ListNewLineCodeInsertUpdate.al:515-617, :783-810.
 //! `CurrPage.Update(true)` written out, and `CurrPage.SaveRecord()` followed by `CurrPage.Update(false)`, do what `Update()` does
 //! (SaveRecord modifies the row, the Update(false) after it asks the same refresh; al-runner issue 8285): pinned by
-//! pages/currpage/ListNewLineSaveRecordUpdate.al:429-874. The entry condition is `code_inserted_cell`: the facts every pinned cell
-//! shares, then the cells themselves. A validation that ends with an error after the page moved onto the row is refused
+//! pages/currpage/ListNewLineSaveRecordUpdate.al:429-874, for the probe's code only, line for line (`code_inserted_pinned.rs`;
+//! the reporter's repro under an assumption). The entry condition is `code_inserted_cell`: the facts every pinned cell shares,
+//! then the cells themselves. A validation that ends with an error after the page moved onto the row is refused
 //! (`refuse_error_after_landing`), and so is one whose SaveRecord left the line without the `Update(false)` after it
 //! (`code_inserted_step_end`), and the host with two CardPart FactBoxes (ListNewLineCodeInsertUpdate.al:249-299) at its open
 //! (`refuse_code_inserted_parts_host`): BC's part triggers there (:718, :736) are not the runner's.
 
+use super::code_inserted_pinned::PinnedCode;
 use super::pinned_shape::TestCall;
 use super::state::{CodeInsertedRow, CodeInsertedSave, CodedLine, FactboxStep, SavedView};
 use super::*;
@@ -48,6 +50,11 @@ enum Opened {
     /// page without triggers opened so) is refused (`code_inserted_cell`).
     RunModalOneGroup,
 }
+
+/// The refusal of a SaveRecord or Update(true) cell whose code is not the measured code (`code_inserted_pinned.rs`).
+const UNMEASURED_CODE: &str = "CurrPage.SaveRecord or Update(true) on the new line whose table field inserted it, on a page \
+     whose code, or the code of its table, its part or what they call, is not the code ListNewLineSaveRecordUpdate.al or the \
+     repro of al-runner issue 8285 runs (not measured)";
 
 /// The page call that leaves the line, as the control's OnValidate makes it.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -217,6 +224,16 @@ impl Session {
                 "CurrPage.Update on the new line whose table field inserted it, on a List page without triggers opened by \
                  Page.RunModal with a filter on the key's first field (ListNewLineCodeInsertUpdate.al pins OpenEdit only, :783-810)",
             ));
+        }
+        // The SaveRecord and Update(true) cells run only the code that was measured (`code_inserted_pinned.rs`).
+        if shape && cell && matches!(leave, Leave::UpdateTrue | Leave::SaveRecord) {
+            match self.code_inserted_code(st)? {
+                Some(PinnedCode::Probe) => {}
+                Some(PinnedCode::Repro) => {
+                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ListNewLineSaveRecordRepro)
+                }
+                None => return Err(Signal::unsupported(UNMEASURED_CODE)),
+            }
         }
         Ok(shape)
     }

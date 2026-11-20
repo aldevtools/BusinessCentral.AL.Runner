@@ -189,7 +189,8 @@ page 97482 "LT NS Lines No Split"
     end;
 }
 
-// The FactBox host of page 97474, varied one fact at a time by the Rust tests (`Issue8285Neighbors` in outside_fb_repros.rs).
+// The FactBox host of page 97474, line for line, varied one fact at a time by the Rust tests (`Issue8285Neighbors` in
+// outside_fb_repros.rs).
 page 97483 "LT NS Host"
 {
     PageType = List;
@@ -229,7 +230,7 @@ page 97483 "LT NS Host"
 
     trigger OnAfterGetRecord()
     begin
-        Log.Add('P.AGR(' + Rec.Name + ')');
+        Log.Add('P.AGR(' + Rec.Name + '/' + Rec.Value + ')');
     end;
 
     var
