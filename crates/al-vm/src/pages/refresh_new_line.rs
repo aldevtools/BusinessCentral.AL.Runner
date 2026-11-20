@@ -232,7 +232,10 @@ impl Session {
             // The refresh of the cells is the one Update(true) asks for (StaleUpdateNewLine.al:498 and :602 log the same reads).
             s.refresh.ask_by_update(true);
         }
-        if cell && written && self.engine.object_facts[st.borrow().object as usize].page_type == Some(al_ir::PageType::List) {
+        if cell
+            && written
+            && self.engine.object_facts[st.borrow().object as usize].page_type == Some(al_ir::PageType::List)
+        {
             if let Some(start) = st.borrow_mut().filters_before_validate.as_mut() {
                 start.left_new_line = true;
             }
@@ -243,7 +246,11 @@ impl Session {
     /// A TestControl call on page `st` ended with `result`: an AL error after the assumed SaveRecord of
     /// `save_found_row_from_new_line` in that call (the OnValidate failing after it, or the refresh after it) is not measured,
     /// and refused. Takes the mark of that save.
-    pub(super) fn refuse_error_after_found_row_save(&mut self, st: &St, result: Result<Value, Signal>) -> Result<Value, Signal> {
+    pub(super) fn refuse_error_after_found_row_save(
+        &mut self,
+        st: &St,
+        result: Result<Value, Signal>,
+    ) -> Result<Value, Signal> {
         let saved = std::mem::take(&mut st.borrow_mut().found_row_save_assumed);
         match result {
             Err(Signal::Error(_)) if saved => unsupported(
@@ -258,7 +265,11 @@ impl Session {
     pub(super) fn note_currpage_save(st: &St, save_record: bool, save: bool) {
         use crate::pages::state::CurrPageSave;
         if let Some(v) = st.borrow_mut().control_onvalidate.as_mut() {
-            v.saves.push(if save_record { CurrPageSave::SaveRecord } else { CurrPageSave::Update(save) });
+            v.saves.push(if save_record {
+                CurrPageSave::SaveRecord
+            } else {
+                CurrPageSave::Update(save)
+            });
         }
     }
 
@@ -349,7 +360,8 @@ impl Session {
             return Ok(false);
         };
         let key = table.primary_key(&stored);
-        let first = matches!(self.view_rows(&rec, 1)?.as_slice(), [row] if Self::same_key(&table.primary_key(row), &key));
+        let first =
+            matches!(self.view_rows(&rec, 1)?.as_slice(), [row] if Self::same_key(&table.primary_key(row), &key));
         let fields = rec.borrow().fields.clone();
         let changed: Vec<usize> = (0..stored.len().min(fields.len()))
             .filter(|&i| !Self::same_values(&stored[i..=i], &fields[i..=i]))

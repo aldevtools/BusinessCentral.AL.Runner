@@ -256,7 +256,11 @@ impl Session {
     fn inserted_by_table_field(&mut self, st: &St) -> Result<bool, Signal> {
         let (Some(start), Some((line_mark, _)), Some((control_mark, _))) = ({
             let s = st.borrow();
-            (s.draft_start.clone(), s.new_line_writes, s.control_onvalidate.as_ref().map(|v| v.writes))
+            (
+                s.draft_start.clone(),
+                s.new_line_writes,
+                s.control_onvalidate.as_ref().map(|v| v.writes),
+            )
         }) else {
             return Ok(false);
         };
@@ -309,7 +313,10 @@ impl Session {
     /// The page control's own OnValidate trigger `r` of control `idx`, recorded in `PageState::control_onvalidate` while it runs
     /// (`inserted_by_table_field` and `refresh_new_line.rs` `found_row_cell` read it).
     pub(super) fn run_control_onvalidate(&mut self, st: &St, idx: usize, r: usize) -> Result<Value, Signal> {
-        let start = Some(crate::pages::state::ControlOnValidate::new(self.write_mark(), self.store.change_counter()));
+        let start = Some(crate::pages::state::ControlOnValidate::new(
+            self.write_mark(),
+            self.store.change_counter(),
+        ));
         let outer = std::mem::replace(&mut st.borrow_mut().control_onvalidate, start);
         let result = self.control_routine(st, idx, r);
         let mut s = st.borrow_mut();

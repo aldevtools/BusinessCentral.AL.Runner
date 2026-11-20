@@ -354,7 +354,11 @@ impl Session {
                 PageOp::TestPageFirst => self.on_last_row_of_view(&rec)?,
                 _ => false,
             };
-        Ok(if measured { CarriedMove::Measured } else { CarriedMove::Other })
+        Ok(if measured {
+            CarriedMove::Measured
+        } else {
+            CarriedMove::Other
+        })
     }
 
     /// A host move that carried the refresh a Lookup left (`lookup_move_start`) ended with `moved`. In the measured cells, when
@@ -388,7 +392,10 @@ impl Session {
     fn on_last_row_of_view(&mut self, rec: &Rec) -> Result<bool, Signal> {
         let probe = Rc::new(RefCell::new(rec.borrow().clone()));
         self.ret_used = true;
-        if !matches!(self.record_op(RecordOp::FindLast, &probe, &mut [])?, Value::Boolean(true)) {
+        if !matches!(
+            self.record_op(RecordOp::FindLast, &probe, &mut [])?,
+            Value::Boolean(true)
+        ) {
             return Ok(false);
         }
         Ok(Self::same_key(&self.row_key(&probe)?, &self.row_key(rec)?))

@@ -553,7 +553,8 @@ impl Session {
             let kind = match c.kind {
                 ir::ControlKind::Repeater | ir::ControlKind::Group => c.binding == ir::Binding::None,
                 ir::ControlKind::Field => {
-                    matches!(c.binding, ir::Binding::Field(_)) || (pin.var_fields && matches!(c.binding, ir::Binding::Var(_)))
+                    matches!(c.binding, ir::Binding::Field(_))
+                        || (pin.var_fields && matches!(c.binding, ir::Binding::Var(_)))
                 }
                 ir::ControlKind::Action => pin.action_props.is_some() && c.binding == ir::Binding::None,
                 ir::ControlKind::Part => pin.part_props.is_some() && c.binding == ir::Binding::None,
