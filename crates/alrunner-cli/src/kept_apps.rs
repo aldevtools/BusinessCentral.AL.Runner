@@ -6,7 +6,8 @@
 //! keeps each app as `apps::load` read it and reads it again when anything under its folder, or a file outside it that
 //! the load read (`AppInput::outside_reads`), changed, came or went. Anything under the folder counts, also what a run
 //! writes there (an output file, a local cache): the next request then reads the app again, which costs time and
-//! never a result. A kept app is the app a fresh read gives.
+//! never a result. A kept app is the app a fresh read gives. An app is kept only where its stamps carry a change time
+//! (unix today, [`unchanged`]); elsewhere it is read on every request.
 
 use crate::apps::{self, AppInput};
 use std::collections::BTreeSet;
@@ -129,6 +130,13 @@ fn app_stamps(path: &Path, outside: &[PathBuf], now: SystemTime) -> Stamps {
     out
 }
 
+/// Whether an app kept with the stamps `kept` is unchanged, its files now stamped `current`: equal stamps that all carry
+/// a change time. Without one (off unix today) a same-length edit with the old modification time leaves the stamp as
+/// it was, so such an app is read on every request; the dependency stamps ([`stamps`]) are compared without it.
+fn unchanged(kept: &Stamps, current: &Stamps) -> bool {
+    kept == current && kept.iter().all(|(_, s)| s.as_ref().is_none_or(|s| s.unix.is_some()))
+}
+
 /// One app kept: the path and build it was read for, the stamps of what the load read, the app.
 struct Kept {
     path: PathBuf,
@@ -159,7 +167,7 @@ impl KeptApps {
             let known = (self.apps.iter())
                 .position(|k| k.path == *path && k.build.as_deref() == build)
                 .map(|i| self.apps.swap_remove(i));
-            let unchanged = known.filter(|k| app_stamps(path, &k.input.outside_reads, now) == k.stamps);
+            let unchanged = known.filter(|k| unchanged(&k.stamps, &app_stamps(path, &k.input.outside_reads, now)));
             kept.push(match unchanged {
                 Some(k) => k,
                 None => {
@@ -244,6 +252,8 @@ mod tests {
         format!("{:?}", k.load_at(&[app.to_path_buf()], None, later()).unwrap()[0])
     }
 
+    // Kept only with stamps that carry a change time (`unchanged`): unix today.
+    #[cfg(unix)]
     #[test]
     fn an_unchanged_app_is_kept_and_is_what_a_fresh_read_gives() {
         let d = tempfile::tempdir().unwrap();
@@ -321,6 +331,7 @@ mod tests {
 
     // A copy or restore that sets the old modification time back (`cp -p`, `rsync -t`, `tar x`, `touch -r`), or a write
     // in the same clock tick: same length, same modification time, other content.
+    #[cfg(unix)]
     #[test]
     fn a_same_size_edit_with_the_old_modification_time_is_read_again() {
         let d = tempfile::tempdir().unwrap();
@@ -341,8 +352,28 @@ mod tests {
         assert_eq!(k.reads, 2, "the edit is read");
     }
 
+    // Off unix a stamp has only the length and the modification time, which a same-length edit with the old modification
+    // time leaves as they were (`a_same_size_edit_with_the_old_modification_time_is_read_again`): such stamps never keep an
+    // app, which is then read on every request.
+    #[test]
+    fn stamps_without_a_change_time_never_keep_the_app() {
+        let d = tempfile::tempdir().unwrap();
+        let app = workspace(d.path());
+        let stamps = app_stamps(&app, &[], later());
+        if cfg!(unix) {
+            assert!(unchanged(&stamps, &stamps), "stamps with a change time keep the app");
+        }
+        let mut bare = stamps;
+        for s in bare.iter_mut().filter_map(|(_, s)| s.as_mut()) {
+            s.unix = None;
+        }
+        assert!(!unchanged(&bare, &bare), "stamps without a change time do not");
+    }
+
     // Stamps taken right after the files changed are not trusted: the next request reads the app again, and once the
     // files are older than the margin, the app is kept.
+    // Kept only with stamps that carry a change time (`unchanged`): unix today.
+    #[cfg(unix)]
     #[test]
     fn files_stamped_right_after_they_changed_are_read_again_the_next_time() {
         let d = tempfile::tempdir().unwrap();
