@@ -231,6 +231,7 @@ mod qualified_name;
 mod read_backwards;
 mod relation_lookup;
 pub(crate) mod relation_lookup_close;
+mod relation_text_entry;
 mod row_var_outside_call;
 mod split_key_view;
 mod split_part_second_control_xrec;

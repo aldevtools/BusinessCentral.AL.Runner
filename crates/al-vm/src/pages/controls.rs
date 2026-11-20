@@ -12,6 +12,9 @@ impl Session {
         if st.borrow().request_new_blank {
             return unsupported("SetValue on a request page after New() (only Close, OK and Cancel are pinned)");
         }
+        if let Some(v) = args.first() {
+            self.refuse_text_entry_with_relation(st, idx, v)?;
+        }
         if st.borrow().lookup_setting_value {
             st.borrow_mut().lookup_left.value_written();
         }
