@@ -1,10 +1,9 @@
-//! An event subscriber's by-value Record parameter (al-runner issue 8295). Corpus PR 1430 measured one shape
-//! (record/filters/ByValueRecordView.al:286-308, :964-978): a codeunit's IntegrationEvent(false, false) with a by-value
-//! Record parameter, raised by a call of the publisher, to an automatic subscriber codeunit whose parameter is by value, the
-//! caller's record a stored one with a filter in filter group 0 and the plain view. That subscriber's copy has no filters
-//! (`sub f={} n=3`), flagged by assumption `by-value-record-no-filters`. Every neighbor whose publisher parameter is by value,
-//! with a filter or another view, refuses a read of the copy's view; a copy with the view of a fresh record, a read that is
-//! not of the view, and a copy whose publisher parameter is `var` (also Rec of a platform table event) keep main.
+//! An event subscriber's by-value Record parameter (al-runner issue 8295). The corpus pins one cell
+//! (record/filters/ByValueRecordView.al:286-308, :964-978; every fact in al-vm `Session::event_publisher`,
+//! `Session::event_args` and `Session::cell_record`): that subscriber's copy has no filters (`sub f={} n=3`), and only its
+//! GetFilters and Count are read. Every neighbor whose publisher parameter is by value, with a filter or another view,
+//! refuses a read of the copy's view; a copy with the view of a fresh record, a read that is not of the view, and a copy
+//! whose publisher parameter is `var` (also Rec of a platform table event) keep main.
 
 use crate::record_copy_reports::{PASS, VIEW_REFUSED, check, run};
 
@@ -363,7 +362,7 @@ codeunit 50176 "BS Test"
     end;
 
     [Test]
-    procedure Integration_Group0Filter_Flagged()
+    procedure Integration_Group0Filter_AfterOwnInserts_Refused()
     var
         Row: Record "BS Row";
     begin
@@ -644,8 +643,9 @@ codeunit 50176 "BS Test"
 fn issue_8295_subscriber_by_value_record_gets_no_filters_in_the_measured_shape_only() {
     let o = run(SUBSCRIBER, "BS Test");
     let want = [
-        // record/filters/ByValueRecordView.al:964-978 (corpus PR 1430): `sub f={} n=3`, the caller keeps its filter.
-        ("Integration_Group0Filter_Flagged", PASS, true),
+        // The cell's facts but the caller's record inserted the rows itself (record/filters/ByValueRecordView.al:964-972 has a
+        // fresh record): not measured. The cell itself runs in the next test.
+        ("Integration_Group0Filter_AfterOwnInserts_Refused", VIEW_REFUSED, false),
         // The copy holds the view of a fresh record already: nothing to drop, as on main.
         ("Integration_NoFilter_KeepsMain", PASS, false),
         // Filter groups, standing group, key and marks the event cell did not measure.
@@ -678,6 +678,472 @@ fn issue_8295_subscriber_by_value_record_gets_no_filters_in_the_measured_shape_o
         // A temporary record: not measured for a subscriber. Through a `var` publisher parameter it keeps main's view.
         ("Temporary_Group0Filter_Refused", VIEW_REFUSED, false),
         ("TemporaryVarPublisher_KeepsMain", PASS, false),
+    ];
+    check(&o, &want);
+}
+
+/// The pinned cell (record/filters/ByValueRecordView.al:286-308, :964-978) and its neighbors, one fact flipped in each (review
+/// round 2 of the corpus bump to 8fcde9a6). Only the cell runs; every neighbor refuses a read of the copy's view.
+const CELL: &str = r##"
+table 50180 "BC Row"
+{
+    fields
+    {
+        field(1; Id; Integer) { }
+        field(2; Name; Text[20]) { }
+        field(3; Status; Option) { OptionMembers = Open,Posted; }
+        field(4; "Loc Filter"; Code[10]) { FieldClass = FlowFilter; }
+    }
+    keys { key(PK; Id) { Clustered = true; } }
+}
+
+codeunit 50181 "BC Log"
+{
+    SingleInstance = true;
+    var
+        Log: Text;
+        ReadMode: Text;
+
+    procedure Add(Line: Text)
+    begin
+        Log += Line + ';';
+    end;
+
+    procedure Take(): Text
+    var
+        Result: Text;
+    begin
+        Result := Log;
+        Log := '';
+        exit(Result);
+    end;
+
+    procedure SetMode(Value: Text)
+    begin
+        ReadMode := Value;
+    end;
+
+    procedure Mode(): Text
+    begin
+        exit(ReadMode);
+    end;
+}
+
+codeunit 50182 "BC Publisher"
+{
+    var
+        Held: Record "BC Row";
+
+    procedure Raise(var R: Record "BC Row")
+    begin
+        OnThing(R);
+    end;
+
+    procedure RaiseTwo(var R: Record "BC Row")
+    begin
+        OnTwo(R, 7);
+    end;
+
+    procedure RaiseMulti(var R: Record "BC Row")
+    begin
+        OnMulti(R);
+    end;
+
+    procedure RaiseSkip(var R: Record "BC Row")
+    begin
+        OnSkip(R);
+    end;
+
+    procedure RaiseTestSub(var R: Record "BC Row")
+    begin
+        OnTestSub(R);
+    end;
+
+    procedure RaiseRead(var R: Record "BC Row")
+    begin
+        OnRead(R);
+    end;
+
+    procedure RaiseFromGlobal()
+    begin
+        Held.SetRange(Status, Held.Status::Posted);
+        OnArg(Held);
+    end;
+
+    procedure RaiseFromLocal()
+    var
+        Own: Record "BC Row";
+    begin
+        Own.SetRange(Status, Own.Status::Posted);
+        OnArg(Own);
+    end;
+
+    [IntegrationEvent(false, false)]
+    local procedure OnThing(R: Record "BC Row")
+    begin
+    end;
+
+    [IntegrationEvent(false, false)]
+    local procedure OnTwo(R: Record "BC Row"; N: Integer)
+    begin
+    end;
+
+    [IntegrationEvent(false, false)]
+    local procedure OnMulti(R: Record "BC Row")
+    begin
+    end;
+
+    [IntegrationEvent(false, false)]
+    local procedure OnSkip(R: Record "BC Row")
+    begin
+    end;
+
+    [IntegrationEvent(false, false)]
+    local procedure OnTestSub(R: Record "BC Row")
+    begin
+    end;
+
+    [IntegrationEvent(false, false)]
+    local procedure OnRead(R: Record "BC Row")
+    begin
+    end;
+
+    [IntegrationEvent(false, false)]
+    local procedure OnArg(R: Record "BC Row")
+    begin
+    end;
+
+    [IntegrationEvent(false, false)]
+    procedure OnPublic(R: Record "BC Row")
+    begin
+    end;
+}
+
+codeunit 50183 "BC Subscriber"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"BC Publisher", 'OnThing', '', false, false)]
+    local procedure HandleThing(R: Record "BC Row")
+    var
+        Log: Codeunit "BC Log";
+    begin
+        Log.Add('sub f={' + R.GetFilters() + '} n=' + Format(R.Count()));
+    end;
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"BC Publisher", 'OnTwo', '', false, false)]
+    local procedure HandleTwo(R: Record "BC Row"; N: Integer)
+    var
+        Log: Codeunit "BC Log";
+    begin
+        Log.Add('sub f={' + R.GetFilters() + '} n=' + Format(R.Count()));
+    end;
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"BC Publisher", 'OnMulti', '', false, false)]
+    local procedure HandleMultiA(R: Record "BC Row")
+    var
+        Log: Codeunit "BC Log";
+    begin
+        Log.Add('a f={' + R.GetFilters() + '} n=' + Format(R.Count()));
+    end;
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"BC Publisher", 'OnMulti', '', false, false)]
+    local procedure HandleMultiB(R: Record "BC Row")
+    var
+        Log: Codeunit "BC Log";
+    begin
+        Log.Add('b f={' + R.GetFilters() + '} n=' + Format(R.Count()));
+    end;
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"BC Publisher", 'OnSkip', '', true, true)]
+    local procedure HandleSkip(R: Record "BC Row")
+    var
+        Log: Codeunit "BC Log";
+    begin
+        Log.Add('sub f={' + R.GetFilters() + '} n=' + Format(R.Count()));
+    end;
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"BC Publisher", 'OnPublic', '', false, false)]
+    local procedure HandlePublic(R: Record "BC Row")
+    var
+        Log: Codeunit "BC Log";
+    begin
+        Log.Add('sub f={' + R.GetFilters() + '} n=' + Format(R.Count()));
+    end;
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"BC Publisher", 'OnArg', '', false, false)]
+    local procedure HandleArg(R: Record "BC Row")
+    var
+        Log: Codeunit "BC Log";
+    begin
+        Log.Add('sub f={' + R.GetFilters() + '} n=' + Format(R.Count()));
+    end;
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"BC Publisher", 'OnRead', '', false, false)]
+    local procedure HandleRead(R: Record "BC Row")
+    var
+        Other: Record "BC Row";
+        Log: Codeunit "BC Log";
+    begin
+        case Log.Mode() of
+            'view':
+                Log.Add('view=' + R.GetView(false));
+            'find':
+                Log.Add('find=' + Format(R.FindFirst()));
+            'getfilter':
+                Log.Add('status=' + R.GetFilter(Status));
+            'copyfilters':
+                begin
+                    Other.CopyFilters(R);
+                    Log.Add('copied=' + Other.GetFilters());
+                end;
+            'field':
+                Log.Add('id=' + Format(R.Id));
+        end;
+    end;
+}
+
+codeunit 50184 "BC Test"
+{
+    Subtype = Test;
+
+    var
+        Publisher: Codeunit "BC Publisher";
+        Log: Codeunit "BC Log";
+
+    local procedure Seed()
+    var
+        Row: Record "BC Row";
+    begin
+        Row.DeleteAll();
+        Row.Id := 1;
+        Row.Status := Row.Status::Open;
+        Row.Insert();
+        Row.Id := 2;
+        Row.Status := Row.Status::Posted;
+        Row.Insert();
+        Row.Id := 3;
+        Row.Status := Row.Status::Posted;
+        Row.Insert();
+        Log.Take();
+    end;
+
+    local procedure Expect(Want: Text)
+    var
+        Got: Text;
+    begin
+        Got := Log.Take();
+        if Got <> Want then
+            Error('%1', Got);
+    end;
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"BC Publisher", 'OnTestSub', '', false, false)]
+    local procedure HandleInTest(R: Record "BC Row")
+    begin
+        Log.Add('sub f={' + R.GetFilters() + '} n=' + Format(R.Count()));
+    end;
+
+    [Test]
+    procedure Cell()
+    var
+        Row: Record "BC Row";
+    begin
+        Seed();
+        Row.SetRange(Status, Row.Status::Posted);
+        Publisher.Raise(Row);
+        Expect('sub f={} n=3;');
+        if Row.GetFilters() <> 'Status: Posted' then
+            Error('caller %1', Row.GetFilters());
+    end;
+
+    [Test]
+    procedure TwoPublisherParameters()
+    var
+        Row: Record "BC Row";
+    begin
+        Seed();
+        Row.SetRange(Status, Row.Status::Posted);
+        Publisher.RaiseTwo(Row);
+        Expect('');
+    end;
+
+    [Test]
+    procedure PublicPublisherFromTest()
+    var
+        Row: Record "BC Row";
+    begin
+        Seed();
+        Row.SetRange(Status, Row.Status::Posted);
+        Publisher.OnPublic(Row);
+        Expect('');
+    end;
+
+    [Test]
+    procedure TwoSubscribers()
+    var
+        Row: Record "BC Row";
+    begin
+        Seed();
+        Row.SetRange(Status, Row.Status::Posted);
+        Publisher.RaiseMulti(Row);
+        Expect('');
+    end;
+
+    [Test]
+    procedure SubscriberInTestCodeunit()
+    var
+        Row: Record "BC Row";
+    begin
+        Seed();
+        Row.SetRange(Status, Row.Status::Posted);
+        Publisher.RaiseTestSub(Row);
+        Expect('');
+    end;
+
+    [Test]
+    procedure SkipFlagsSet()
+    var
+        Row: Record "BC Row";
+    begin
+        Seed();
+        Row.SetRange(Status, Row.Status::Posted);
+        Publisher.RaiseSkip(Row);
+        Expect('');
+    end;
+
+    [Test]
+    procedure RecordReadARow()
+    var
+        Row: Record "BC Row";
+    begin
+        Seed();
+        Row.SetRange(Status, Row.Status::Posted);
+        Row.FindFirst();
+        Publisher.Raise(Row);
+        Expect('');
+    end;
+
+    [Test]
+    procedure RecordFieldWritten()
+    var
+        Row: Record "BC Row";
+    begin
+        Seed();
+        Row.Name := 'x';
+        Row.SetRange(Status, Row.Status::Posted);
+        Publisher.Raise(Row);
+        Expect('');
+    end;
+
+    [Test]
+    procedure TwoFilters()
+    var
+        Row: Record "BC Row";
+    begin
+        Seed();
+        Row.SetRange(Status, Row.Status::Posted);
+        Row.SetRange(Id, 2, 3);
+        Publisher.Raise(Row);
+        Expect('');
+    end;
+
+    [Test]
+    procedure FlowFilterFilter()
+    var
+        Row: Record "BC Row";
+    begin
+        Seed();
+        Row.SetRange("Loc Filter", 'A');
+        Publisher.Raise(Row);
+        Expect('');
+    end;
+
+    [Test]
+    procedure ArgumentIsPublisherGlobal()
+    begin
+        Seed();
+        Publisher.RaiseFromGlobal();
+        Expect('');
+    end;
+
+    [Test]
+    procedure ArgumentIsPublisherLocal()
+    begin
+        Seed();
+        Publisher.RaiseFromLocal();
+        Expect('');
+    end;
+
+    local procedure RaiseRead(What: Text; Want: Text)
+    var
+        Row: Record "BC Row";
+    begin
+        Seed();
+        Log.SetMode(What);
+        Row.SetRange(Status, Row.Status::Posted);
+        Publisher.RaiseRead(Row);
+        Expect(Want);
+    end;
+
+    [Test]
+    procedure SubscriberFieldRead()
+    begin
+        RaiseRead('field', 'id=0;');
+    end;
+
+    [Test]
+    procedure SubscriberGetView()
+    begin
+        RaiseRead('view', '');
+    end;
+
+    [Test]
+    procedure SubscriberFindFirst()
+    begin
+        RaiseRead('find', '');
+    end;
+
+    [Test]
+    procedure SubscriberGetFilter()
+    begin
+        RaiseRead('getfilter', '');
+    end;
+
+    [Test]
+    procedure SubscriberCopyFilters()
+    begin
+        RaiseRead('copyfilters', '');
+    end;
+}
+"##;
+
+const EVENT_READ_REFUSED: &str = "a by-value event subscriber record read other than by GetFilters and Count";
+
+#[test]
+fn the_subscriber_cell_runs_and_each_neighbor_of_one_flipped_fact_refuses() {
+    let o = run(CELL, "BC Test");
+    let want = [
+        // record/filters/ByValueRecordView.al:964-978: `sub f={} n=3`, the caller keeps its filter.
+        ("Cell", PASS, false),
+        // The publisher with two parameters, public and raised from the test, two subscribers, one in a test codeunit, the
+        // skip flags set.
+        ("TwoPublisherParameters", VIEW_REFUSED, false),
+        ("PublicPublisherFromTest", VIEW_REFUSED, false),
+        ("TwoSubscribers", VIEW_REFUSED, false),
+        ("SubscriberInTestCodeunit", VIEW_REFUSED, false),
+        ("SkipFlagsSet", VIEW_REFUSED, false),
+        // The caller's record read a row or had a field written, two filters, a filter on a FlowFilter field.
+        ("RecordReadARow", VIEW_REFUSED, false),
+        ("RecordFieldWritten", VIEW_REFUSED, false),
+        ("TwoFilters", VIEW_REFUSED, false),
+        ("FlowFilterFilter", VIEW_REFUSED, false),
+        // The argument of the raise is a global or a local of the publisher codeunit, not its caller's `var` parameter.
+        ("ArgumentIsPublisherGlobal", VIEW_REFUSED, false),
+        ("ArgumentIsPublisherLocal", VIEW_REFUSED, false),
+        // In the cell, a field read runs; reads of the view other than GetFilters and Count refuse.
+        ("SubscriberFieldRead", PASS, false),
+        ("SubscriberGetView", EVENT_READ_REFUSED, false),
+        ("SubscriberFindFirst", EVENT_READ_REFUSED, false),
+        ("SubscriberGetFilter", EVENT_READ_REFUSED, false),
+        ("SubscriberCopyFilters", EVENT_READ_REFUSED, false),
     ];
     check(&o, &want);
 }

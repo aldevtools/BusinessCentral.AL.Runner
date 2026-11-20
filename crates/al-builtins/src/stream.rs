@@ -141,8 +141,8 @@ pub const MEDIA_REENCODED: &str = "Media.ExportStream";
 /// 29; al-builtins media.rs `set_export_file`): the file exists, its bytes are not pinned.
 pub const MEDIA_SET_FILE_REENCODED: &str = "MediaSet.ExportFile";
 
-/// The mark a .docx `Media.ImportFile` puts on its media from BC 29, whose Linux tier stores a re-zipped package the corpus
-/// does not pin (`Gate::DocxMediaRezippedFrom29`).
+/// The mark a .docx `Media.ImportFile` puts on its media: BC stores a re-zipped package whose bytes the corpus does not pin
+/// (onprem streams/media/MediaFiles.al:515-527).
 pub const MEDIA_DOCX_REZIPPED: &str = "Media.ImportFile of a .docx";
 
 /// The mark on the Layout media of a Tenant Report Layout row of format RDLC, Word or Excel: BC rewrites the stored bytes
@@ -325,8 +325,8 @@ pub fn render_pending_error(report: &str) -> Signal {
     }
     if report == MEDIA_DOCX_REZIPPED {
         return Signal::Unsupported(
-            "the Tenant Media row and the exported bytes of a .docx Media.ImportFile on this major (a re-zipped package on the Linux \
-             tier, not pinned: MediaFiles.al:505-509)"
+            "the Tenant Media row and the exported bytes of a .docx Media.ImportFile (BC stores a re-zipped package whose bytes are \
+             not pinned: MediaFiles.al:515-527)"
                 .into(),
         );
     }

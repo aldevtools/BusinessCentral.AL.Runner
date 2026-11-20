@@ -1045,9 +1045,6 @@ impl Session {
         call: ParamsCall,
     ) -> Result<(), Signal> {
         let written = super::request_options::written_bare_root(xml, call);
-        if written.is_some() {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ReportParamsWrittenDeclaration);
-        }
         let xml = written.as_deref().unwrap_or(xml);
         let engine = self.engine();
         let o = &engine.program.objects[object];

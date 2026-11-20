@@ -460,7 +460,7 @@ impl Session {
         // A folder AL code created in the company build's temporary folder: Config. XML Exchange.UpdateConfigPackageMediaSet
         // (ConfigXMLExchange.Codeunit.al:1505-1522) lists the Media folder MediaSet.ExportFile wrote into. Windows BC 29.0
         // lists those files, full path with no extension (windows-check-results 2026-10-23 RJ item B; corpus
-        // tests/al-language-onprem/streams/media/MediaFiles.al:772, RJ_MediaSet_ExportFile_ConfigPackageShape, cu 61286); the Linux
+        // tests/al-language-onprem/streams/media/MediaFiles.al:776, RJ_MediaSet_ExportFile_ConfigPackageShape, cu 61286); the Linux
         // image listed none (bc-linux issue 181). Windows BC 29.0 lists in name order without case, never in creation order
         // (windows-check-results 2026-10-23 listing order, cu 61287 LO_ListingOrder), pinned on every major since corpus bump 62
         // (tests/al-language-onprem/streams/media/MediaFiles.al RJ_GetServerDirectoryFilesList_ListingOrder). The join with `/` differs
@@ -868,7 +868,7 @@ impl Session {
             }
             // File Management.DeleteServerFile deletes a file it found (QxDotNetDemoShapes.al:326-328). Deleting a file that
             // is not there is not pinned. A file that holds a placeholder report output: `dotnet_delete_placeholder_file`
-            // (Base Application's e-mail body round trip through a server file; assumption dotnet-file-delete-placeholder).
+            // (the server file round trip of HtmlServerFileRoundTrip.al:149 with :186-187).
             ("system.io.file", "delete", []) => {
                 if !self.dotnet_delete_placeholder_file(path)? {
                     self.refuse_pending_file(path)?;

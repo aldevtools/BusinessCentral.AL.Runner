@@ -2,10 +2,11 @@
 //! Insert(true)`, an AutoIncrement key field) before the control's OnValidate calls `CurrPage.Update()` or `CurrPage.Update(false)`
 //! (al-runner issue 8186). BC treats the line as the stored row from then on: `Update()` modifies it (OnModifyRecord and the
 //! table's OnModify run inside the OnValidate, OnInsertRecord never runs), `Update(false)` saves nothing, and both refresh onto
-//! that row; the next SetValue lands on it. Measured by corpus pull request 1425 (merged, not pinned yet) in
-//! pages/currpage/ListNewLineCodeInsertUpdate.al, and by the reporter's repro; assumption `list-new-line-code-insert-update` until a
-//! bump pins it. The entry condition is `code_inserted_cell`: the facts every measured cell shares, then the cells themselves. A
-//! validation that ends with an error after the page moved onto the row is refused (`refuse_error_after_landing`).
+//! that row; the next SetValue lands on it. Pinned by pages/currpage/ListNewLineCodeInsertUpdate.al:515-617, :783-810. The entry
+//! condition is `code_inserted_cell`: the facts every pinned cell shares, then the cells themselves. A validation that ends with
+//! an error after the page moved onto the row is refused (`refuse_error_after_landing`), and so is the host with two CardPart
+//! FactBoxes (:249-299) at its open (`refuse_code_inserted_parts_host`): BC's part triggers there (:718, :736) are not the
+//! runner's.
 
 use super::pinned_shape::TestCall;
 use super::*;
@@ -18,7 +19,7 @@ enum Triggers {
     /// OnNewRecord, OnInsertRecord, OnModifyRecord, OnAfterGetRecord and OnAfterGetCurrRecord: pages 97032 (:136-162) and 97033
     /// (:199-225).
     Row,
-    /// None: page 97039 (:345-372) and the repro's page.
+    /// None: page 97039 (:345-372).
     Quiet,
 }
 
@@ -30,7 +31,8 @@ enum Opened {
     /// AL code's `Page.RunModal(Id, Rec)` as a statement, in Edit mode, its record without a filter; the test's ModalPageHandler
     /// gets the page (:232-237, :610-617).
     RunModal,
-    /// The same, its record filtered with `SetRange` to one value of the key's first field: the repro of al-runner issue 8186.
+    /// The same, its record filtered with `SetRange` to one value of the key's first field: the repro of al-runner issue 8186, refused
+    /// (`code_inserted_cell`).
     RunModalOneGroup,
 }
 
@@ -43,7 +45,83 @@ const ROW_TRIGGERS: [&str; 5] = [
     "onaftergetcurrrecord",
 ];
 
+/// A page property the pinned pages declare: PageType, SourceTable, AutoSplitKey as true, ApplicationArea and UsageCategory
+/// (:105-109, :169-172, :251-255, :347-351).
+fn pinned_property((name, value): &(String, String)) -> bool {
+    match name.to_ascii_lowercase().as_str() {
+        "autosplitkey" => value.trim().eq_ignore_ascii_case("true"),
+        "pagetype" | "sourcetable" | "applicationarea" | "usagecategory" => true,
+        _ => false,
+    }
+}
+
 impl Session {
+    /// The open of the host of ListNewLineCodeInsertUpdate.al:249-299 (page 97036), every fact by equality: a List page
+    /// (:251) over a stored table, unextended and unsubscribed, that declares only the pinned properties with AutoSplitKey
+    /// (:251-255, `pinned_property`), whose only trigger is OnAfterGetRecord (:292-295), with exactly two part controls
+    /// (:279-288), each a FactBox showing a CardPart over the host's table (:303-304, :331-332) linked by a SubPageLink of two
+    /// `field(..)` entries, each a field of the table's two-field primary key to itself (:282, :287; the key :23-27). BC runs
+    /// the parts' OnAfterGetCurrRecord at the open of an empty view and keeps them on the row before at `New()` (:736
+    /// `open=F.AGCR();`, :718 `newparts=A/`); the runner does not: refused. Every other page keeps main's open.
+    pub(super) fn refuse_code_inserted_parts_host(&self, st: &St) -> Result<(), Signal> {
+        if !(self.is_list_page(st) && self.has_source(st)) {
+            return Ok(());
+        }
+        let engine = self.engine();
+        let object = st.borrow().object as usize;
+        let page = page_of(&engine, st);
+        let host_rec = self.page_rec(st);
+        let table = self.table(&host_rec)?;
+        let key = &table.keys[0];
+        let triggers = matches!(page.triggers.as_slice(), [(n, _)] if n == "onaftergetrecord");
+        let split = engine.program.objects[object]
+            .properties
+            .iter()
+            .any(|(n, v)| n.eq_ignore_ascii_case("AutoSplitKey") && v.trim().eq_ignore_ascii_case("true"));
+        let shape = self.unextended_unsubscribed(st)
+            && engine.program.objects[object].properties.iter().all(pinned_property)
+            && split
+            && triggers
+            && !host_rec.borrow().temporary
+            && key.len() == 2;
+        if !shape {
+            return Ok(());
+        }
+        let part_controls: Vec<&ir::Control> = page
+            .controls
+            .iter()
+            .filter(|c| c.kind == ir::ControlKind::Part)
+            .collect();
+        let parts = st.borrow().parts.clone();
+        let linked = |c: &ir::Control| {
+            c.factbox
+                && c.part_link.as_ref().is_some_and(|l| {
+                    l.provider.is_none()
+                        && l.view.is_none()
+                        && l.entries.len() == 2
+                        && l.entries
+                            .iter()
+                            .zip(key.iter())
+                            .all(|(e, k)| matches!(e, ir::LinkEntry::Field(pf, hf) if *pf == *k && *hf == *k))
+                })
+        };
+        let card_parts = parts.len() == 2
+            && parts.iter().all(|(idx, part)| {
+                engine.object_facts[part.borrow().object as usize].page_type_lower() == "cardpart"
+                    && self.has_source(part)
+                    && self.page_rec(part).borrow().table == host_rec.borrow().table
+                    && linked(&page.controls[*idx])
+            });
+        if part_controls.len() == 2 && card_parts {
+            return Err(Signal::unsupported(
+                "the open of a List page with AutoSplitKey and two CardPart FactBoxes linked to its two-field key: BC runs the \
+                 parts' OnAfterGetCurrRecord at the open of an empty view and keeps them on the row before at New() \
+                 (ListNewLineCodeInsertUpdate.al:718, :736), the runtime does not",
+            ));
+        }
+        Ok(())
+    }
+
     /// Whether `CurrPage.Update()` (`update_false` false) or `CurrPage.Update(false)` on `st` is a measured cell: a measured
     /// page (`code_inserted_page`) opened as measured (`code_inserted_open`), on the line `New()` started (`code_inserted_line`),
     /// whose table field inserted the line (`inserted_by_table_field`), in a measured view (`code_inserted_view`). Every other shape
@@ -65,25 +143,34 @@ impl Session {
                 | (Triggers::Row, false, Opened::OpenEdit, false)
                 // Page 97039: :783-810.
                 | (Triggers::Quiet, true, Opened::OpenEdit, false)
-                // The repro of issue 8186.
-                | (Triggers::Quiet, true, Opened::RunModalOneGroup, false)
         );
-        Ok(cell && self.code_inserted_line(st) && self.inserted_by_table_field(st)? && self.code_inserted_view(st)?)
+        // The repro of issue 8186: page 97039's shape opened by a RunModal filtered to one group. The corpus opens that page
+        // with OpenEdit only (:783-810), and main's way is the result the issue reports as wrong: refused.
+        let repro = matches!(
+            (triggers, split, opened, update_false),
+            (Triggers::Quiet, true, Opened::RunModalOneGroup, false)
+        );
+        if !(cell || repro) {
+            return Ok(false);
+        }
+        let shape = self.code_inserted_line(st) && self.inserted_by_table_field(st)? && self.code_inserted_view(st)?;
+        if shape && repro {
+            return Err(Signal::unsupported(
+                "CurrPage.Update on the new line whose table field inserted it, on a List page without triggers opened by \
+                 Page.RunModal with a filter on the key's first field (ListNewLineCodeInsertUpdate.al pins OpenEdit only, :783-810)",
+            ));
+        }
+        Ok(shape)
     }
 
     /// The page's triggers and whether it declares AutoSplitKey, for a measured page: PageType List (`is_list_page`, :105) over a
     /// database table, with no part, no page extension and no event subscriber, that declares only PageType, SourceTable,
-    /// AutoSplitKey (as true), ApplicationArea and UsageCategory (:105-109, :169-172, :347-351, and the repro's page), and the
+    /// AutoSplitKey (as true), ApplicationArea and UsageCategory (:105-109, :169-172, :347-351), and the
     /// triggers of `Triggers`.
     fn code_inserted_page(&self, st: &St) -> Option<(Triggers, bool)> {
         let engine = self.engine();
         let object = st.borrow().object as usize;
         let page = page_of(&engine, st);
-        let measured_property = |(name, value): &(String, String)| match name.to_ascii_lowercase().as_str() {
-            "autosplitkey" => value.trim().eq_ignore_ascii_case("true"),
-            "pagetype" | "sourcetable" | "applicationarea" | "usagecategory" => true,
-            _ => false,
-        };
         let properties = &engine.program.objects[object].properties;
         let split = properties.iter().any(|(n, _)| n.eq_ignore_ascii_case("AutoSplitKey"));
         let no_parts = page.controls.iter().all(|c| c.kind != ir::ControlKind::Part);
@@ -91,7 +178,7 @@ impl Session {
             && self.has_source(st)
             && self.unextended_unsubscribed(st)
             && no_parts
-            && properties.iter().all(measured_property)
+            && properties.iter().all(pinned_property)
             && !self.page_rec(st).borrow().temporary;
         let names: Vec<&str> = page.triggers.iter().map(|(n, _)| n.as_str()).collect();
         let triggers = match names.len() {
@@ -138,7 +225,7 @@ impl Session {
     }
 
     /// The page stands on the line `New()` started, editable, inside a control's validation, and the test made exactly the
-    /// measured calls on it since the open: `New()`, then the SetValue that runs now (:477-479, :697-698, the repro's handler).
+    /// measured calls on it since the open: `New()`, then the SetValue that runs now (:477-479, :697-698).
     fn code_inserted_line(&self, st: &St) -> bool {
         let line = {
             let s = st.borrow();
@@ -200,7 +287,7 @@ impl Session {
     }
 
     /// Whether the view holds the inserted row last, alone or after one row with the same value in the key's first field: the
-    /// measured views (an empty view, or row 'A' before the line, :386-398, :620-641, and the repro's group). Two rows before it,
+    /// measured views (an empty view, or row 'A' before the line, :386-398, :620-641). Two rows before it,
     /// or a row after it, are not measured.
     fn code_inserted_view(&mut self, st: &St) -> Result<bool, Signal> {
         let rec = self.page_rec(st);
@@ -265,7 +352,6 @@ impl Session {
         if !self.code_inserted_cell(st, !save)? {
             return Ok(());
         }
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ListNewLineCodeInsertUpdate);
         {
             let mut s = st.borrow_mut();
             s.cursor = Cursor::Row;
@@ -320,7 +406,6 @@ impl Session {
         if !only_fields || !Self::same_key(&landed, &key) || self.view_row_count(st)? != 1 {
             return Ok(None);
         }
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ListNewLineCodeInsertUpdate);
         Ok(Some(false))
     }
 }
