@@ -2,7 +2,8 @@
 //! OnAfterGetCurrRecord raises closes the TestPage and drops the refresh, so the reopened page reads once on open
 //! (assumption `lookup-move-error-drops-refresh`, corpus pull request 1467, testpage/LookupLeftMoveStops.al:368
 //! Next_MoveReadFails, :450 First_MoveReadFails).
-//! Previous is not measured and keeps main's result. The host is the one of `lookup_deferred_refresh_part_move.rs`.
+//! Previous, Last and a Next from another row are not measured and refused. The host is the one of
+//! `lookup_deferred_refresh_part_move.rs`.
 
 use super::lookup_deferred_refresh_part_move::SRC;
 use al_testkit::outcomes_in;
@@ -52,6 +53,24 @@ codeunit 50111 "Repro Move Error Tests"
         Check('move', GetLastErrorText(), 'agcr failed on R1');
         S.OpenEdit(); Error('reopen log: %1', Log.Take());
     end;
+    [Test] [HandlerFunctions('PickSecond')]
+    procedure LastMoveError()
+    var S: TestPage "Repro Three Link Schedule";
+    begin
+        Setup(); S.OpenEdit(); S.ResourceNo.Lookup(); Commit(); Log.Take();
+        Log.SetFailOn('R3');
+        asserterror S.Last();
+        S.OpenEdit(); Error('reopen log: %1', Log.Take());
+    end;
+    [Test] [HandlerFunctions('PickSecond')]
+    procedure NextFromMiddleMoveError()
+    var S: TestPage "Repro Three Link Schedule";
+    begin
+        Setup(); S.OpenEdit(); S.Next(); S.ResourceNo.Lookup(); Commit(); Log.Take();
+        Log.SetFailOn('R3');
+        asserterror S.Next();
+        S.OpenEdit(); Error('reopen log: %1', Log.Take());
+    end;
     local procedure Check(What: Text; Actual: Text; Expected: Text)
     begin if Actual <> Expected then Error('%1: [%2], expected [%3]', What, Actual, Expected); end;
     [ModalPageHandler]
@@ -92,9 +111,13 @@ fn a_next_error_that_closes_the_page_drops_the_lookup_refresh() {
     assert_eq!(get("NextMoveError"), "Some(Pass)");
     // From the last row: LookupLeftMoveStops.al:450 First_MoveReadFails.
     assert_eq!(get("FirstMoveError"), "Some(Pass)");
-    // Previous is not measured and keeps main's result  (the refresh the Lookup left still runs as the page opens again).
-    assert_eq!(
-        get("PreviousMoveError"),
-        r#"Some(Fail("reopen log: agcr R1;agcr R1;agcr R1"))"#
-    );
+    // Previous and Last, and Next from the second row, are not measured (main ran the refresh the Lookup left as the page
+    // opened again: `agcr R1;agcr R1;agcr R1`).
+    for refused in ["PreviousMoveError", "LastMoveError", "NextFromMiddleMoveError"] {
+        let got = get(refused);
+        assert!(
+            got.contains("NotRun") && got.contains("outside the measured cells"),
+            "{refused}: {got}"
+        );
+    }
 }

@@ -9,12 +9,14 @@
 
 mod after_go_to_key;
 mod close;
+mod control_onvalidate;
 mod list_view;
 mod lookup_left;
 mod refresh;
 mod stages;
 pub use after_go_to_key::AfterGoToKey;
 pub use close::CloseOutcome;
+pub use control_onvalidate::{ControlOnValidate, CurrPageSave};
 pub use list_view::ListViewSwitch;
 pub use lookup_left::LookupLeft;
 pub use refresh::{RefreshRequest, TakenRefresh};
@@ -875,9 +877,11 @@ pub struct PageState {
     /// The key of the row that refresh landed on and the number of test calls then, until the next move
     /// (`code_inserted_new_line.rs`).
     pub code_inserted_row: Option<(Vec<Value>, usize)>,
-    /// The store's write mark (`Session::write_mark`) when the page control's own OnValidate began, while it runs
-    /// (`code_inserted_new_line.rs` `run_control_onvalidate`).
-    pub control_onvalidate_writes: Option<(i64, u64)>,
+    /// The page control's own OnValidate while it runs (`code_inserted_new_line.rs` `run_control_onvalidate`).
+    pub control_onvalidate: Option<ControlOnValidate>,
+    /// `CurrPage.SaveRecord()` saved the row page code found from the new-row line through assumption
+    /// `new-line-saverecord-found-row` in the running test call; taken when that call ends (`refresh_new_line.rs`).
+    pub found_row_save_assumed: bool,
     /// What a control's OnValidate began with, for the refresh a `CurrPage.Update` in it asks for (`al-vm`
     /// `refresh_after_validate_filter`); taken by that refresh.
     pub filters_before_validate: Option<ValidateStart>,

@@ -20,6 +20,7 @@ const CODE: PinnedCode = PinnedCode {
     action_props: Some(&["applicationarea"]),
     part_props: None,
     table_triggers: &["onmodify"],
+    var_fields: false,
 };
 
 impl Session {

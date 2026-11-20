@@ -278,15 +278,16 @@ impl Session {
                     st.borrow_mut().saved_by_update = false;
                 }
                 let arg_false = matches!(args.first(), Some(Value::Boolean(false)));
+                let carried_before = st.borrow().lookup_left.move_refresh();
                 self.lookup_refresh_deferred_call(method, &st, None)?;
+                let carried = self.lookup_move_start(method, &st, carried_before)?;
                 let moved = self.code_close_client_call(method, &st, |s| {
                     s.marked_only_unshown_call(method, &st, |s| {
                         s.shown_client_call(method, &st, None, arg_false, |s| s.test_page_op_held(method, &st, args))
                     })
                 });
                 self.test_call_ended(&st, &moved);
-                self.lookup_move_stopped(method, &st, &moved);
-                let moved = moved?;
+                let moved = self.lookup_move_stopped(&st, carried, moved)?;
                 self.lookup_move_refresh_after(&st, &moved)?;
                 Ok(moved)
             }
@@ -306,7 +307,7 @@ impl Session {
                 });
                 self.test_call_ended(&page, &result);
                 Self::factbox_line_after_set_value(method, &page, &result);
-                result
+                self.refuse_error_after_found_row_save(&page, result)
             }
             other => unsupported(format!("{method} on {}", other.describe())),
         }
@@ -1328,6 +1329,7 @@ impl Session {
                 self.require_open(st)?;
                 // CurrPage.Update() without an argument saves (the parameter defaults to true).
                 let save = (method == PageOp::PageSaveRecord) || !matches!(args.first(), Some(Value::Boolean(false)));
+                Self::note_currpage_save(st, method == PageOp::PageSaveRecord, save);
                 if !(method == PageOp::PageSaveRecord) {
                     self.ask_update_refresh(st, save, args.first())?;
                 }

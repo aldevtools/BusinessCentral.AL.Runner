@@ -180,6 +180,8 @@ pub(super) struct PinnedCode<'a> {
     pub part_props: Option<&'a [&'a str]>,
     /// The source table's own triggers, lower case: exactly these, and no procedure or field trigger.
     pub table_triggers: &'a [&'a str],
+    /// A field control may be bound to a variable of the page, not only to a field of Rec.
+    pub var_fields: bool,
 }
 
 impl Session {
@@ -521,7 +523,8 @@ impl Session {
     /// Whether the only code the page and its source table can run is what `pin` lists, and the page declares no property
     /// outside `pin.properties`:
     /// - the page's own triggers are exactly `pin.triggers`; no page extension extends it; nothing subscribes to an event of it;
-    /// - every control is the repeater, a group or a field bound to a field of Rec (no variable or expression source; an action
+    /// - every control is the repeater, a group or a field bound to a field of Rec (or, with `pin.var_fields`, to a variable of
+    ///   the page; no expression source; an action
     ///   only with `pin.action_props`, a part only with `pin.part_props`), declared by the page itself, with literal properties
     ///   but the ones those two list; the control triggers are exactly `pin.control_triggers`; no extension adds one;
     /// - the source table's triggers are exactly `pin.table_triggers`; it has no procedure, no field trigger, no table extension
@@ -549,7 +552,9 @@ impl Session {
         let controls = page.controls.iter().all(|c| {
             let kind = match c.kind {
                 ir::ControlKind::Repeater | ir::ControlKind::Group => c.binding == ir::Binding::None,
-                ir::ControlKind::Field => matches!(c.binding, ir::Binding::Field(_)),
+                ir::ControlKind::Field => {
+                    matches!(c.binding, ir::Binding::Field(_)) || (pin.var_fields && matches!(c.binding, ir::Binding::Var(_)))
+                }
                 ir::ControlKind::Action => pin.action_props.is_some() && c.binding == ir::Binding::None,
                 ir::ControlKind::Part => pin.part_props.is_some() && c.binding == ir::Binding::None,
                 _ => false,

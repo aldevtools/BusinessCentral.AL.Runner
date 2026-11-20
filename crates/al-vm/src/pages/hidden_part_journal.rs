@@ -169,6 +169,7 @@ impl Session {
                 action_props: Some(&[]),
                 part_props: Some(&["visible"]),
                 table_triggers: &[],
+                var_fields: false,
             },
         )?;
         let mut parts = kinds(ir::ControlKind::Part);
@@ -325,6 +326,7 @@ impl Session {
                     action_props: None,
                     part_props: None,
                     table_triggers: &[],
+                    var_fields: false,
                 },
             )
             .is_ok_and(|is| is);

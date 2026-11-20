@@ -90,6 +90,7 @@ impl Session {
             action_props: None,
             part_props: Some(&[]),
             table_triggers: &[],
+            var_fields: false,
         };
         let part_code = PinnedCode {
             triggers: &["onaftergetrecord", "onaftergetcurrrecord"],
@@ -98,6 +99,7 @@ impl Session {
             action_props: None,
             part_props: None,
             table_triggers: &[],
+            var_fields: false,
         };
         if !(self.page_code_is(host, &host_code)? && self.page_code_is(part, &part_code)?) {
             return Ok(None);
