@@ -51,7 +51,8 @@ impl Session {
     }
 }
 
-/// ADR-075: only static SaveAs to an XML stream with empty parameters and no RecordRef is pinned.
+/// ADR-075: only static SaveAs to an XML stream with empty parameters and no RecordRef is pinned
+/// (reports/extensions/TestReportDependencyDataItems.al:20, :34).
 pub(crate) fn require_pinned_entry(report: &ir::Report, pinned: bool) -> Result<(), Signal> {
     if !pinned && uses_dependency_items(report) {
         return unsupported(
@@ -127,7 +128,5 @@ impl Session {
 }
 
 fn uses_dependency_items(report: &ir::Report) -> bool {
-    report
-        .assumes
-        .contains(&al_builtins::assumptions::Assumption::DependencyReportDataItems)
+    report.dependency_items
 }

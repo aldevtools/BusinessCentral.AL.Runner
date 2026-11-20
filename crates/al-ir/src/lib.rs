@@ -650,6 +650,10 @@ pub struct Report {
     /// runs or its layout parts are read.
     #[serde(default)]
     pub assumes: Vec<al_builtins::assumptions::Assumption>,
+    /// A reportextension of the run names a data item that another of its extensions adds (ADR-075). Only a static
+    /// `Report.SaveAs` to an XML stream runs such a report (al-vm `reports/dependency_items.rs`).
+    #[serde(default)]
+    pub dependency_items: bool,
     /// Global slot of the hidden flag `Report.UseRequestPage(x)` sets: 0 = not set, 1 = true, 2 = false.
     pub request_flag_slot: usize,
     /// Procedures of the report whose body names `Rec` or `xRec` of a request page that states `SourceTable`: one called

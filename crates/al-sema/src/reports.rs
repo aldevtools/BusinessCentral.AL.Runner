@@ -1484,6 +1484,7 @@ pub fn build(cx: &Context, obj: &ast::Object, mut reasons: Vec<String>) -> ir::R
         on_pre_rendering: object_trigger(&o, obj, "OnPreRendering"),
         extensions: cx.extensions.clone(),
         assumes: cx.extension_assumes.clone(),
+        dependency_items: false,
         request_flag_slot: cx.request_flag_slot,
         request_rec_routines: request_rec_routines(&o, obj),
         request_page_ok_only: cx.request_page_ok_only,
@@ -1640,7 +1641,8 @@ fn has_explicit_reference(raw: &RawItem) -> bool {
         .any(|p| p.name().eq_ignore_ascii_case("DataItemLinkReference"))
 }
 
-// ADR-075, corpus PR #1342: siblings of an owner's nested item under its base-linked item.
+// addbefore and addafter of the owner's item nested in its top item: pinned at
+// reports/extensions/TestReportDependencyDataItems.al:46 (`before|footer|after=2`; al-language-xapp-c/ReportDependencyC.ReportExt.al:24-52).
 fn measured_sibling(cx: &ExtContext, raw: &RawItem, anchor: ir::ItemAnchor) -> bool {
     let ir::ItemAnchor::Foreign(item) = anchor else {
         return true;

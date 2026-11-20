@@ -2608,10 +2608,7 @@ fn lower_report_extensions(
         // The extension's reasons stop the report it changes.
         let name = &ws.objects[ei].name;
         if let Some(r) = report_irs[base].as_mut() {
-            let assumption = al_builtins::assumptions::Assumption::DependencyReportDataItems;
-            if uses_foreign && !r.assumes.contains(&assumption) {
-                r.assumes.push(assumption);
-            }
+            r.dependency_items |= uses_foreign;
             r.unsupported.extend(
                 reasons
                     .into_iter()

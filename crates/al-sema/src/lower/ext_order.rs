@@ -87,7 +87,9 @@ pub(crate) fn report_extension_order(ws: &Workspace, base: usize, exts: &[usize]
     })
 }
 
-/// al-runner issue 7878 and corpus PR #1342: a consumer with a lower ID modifies the owner's item.
+/// A consumer with a lower object ID than the owner whose item it modifies runs after the owner: pinned at
+/// reports/extensions/TestReportDependencyDataItems.al:12 and :46 (consumer 61124 in
+/// al-language-xapp-c/ReportDependencyC.ReportExt.al:7, owner 61144 in al-language-xapp-b/ReportDependencyB.ReportExt.al:7).
 fn modifies_dependency_item(ws: &Workspace, base: usize, consumer: usize, owner: usize) -> bool {
     let consumer_layout = crate::reports::ext_layout(&ws.object_ast(consumer));
     crate::reports::dependency_dataset_items(ws, consumer, base)
