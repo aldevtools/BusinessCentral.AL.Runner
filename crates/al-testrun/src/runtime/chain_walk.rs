@@ -10,7 +10,8 @@
 //! sequential strict run. Every unit is a member, a unit that leaves nothing leaves the state it was given, every member
 //! keeps the single instances of the one before it, and the members after one that stopped the session are flagged.
 
-use super::corpus::{observed_detail, reaches_session_storage, refuse_all};
+use super::carry_after::After;
+use super::corpus::{observed_detail, refuse_all};
 use super::not_run_link::not_run_link;
 use super::*;
 
@@ -181,7 +182,7 @@ impl ChainWalk<'_> {
                         None => self.baseline,
                     };
                     let mut u = units[k].clone();
-                    u.leak = before.map(|(_, _, _, c)| Arc::new(c.tables.clone()));
+                    u.leak = super::carry_after::leak(before.map(|(_, _, _, c)| c));
                     u.singles_past_stop = self.sequential;
                     super::discovery::skip_methods_if_raised(&mut u, &report.discovery_raised);
                     // `--explain` names where a test of the chain failed too (al-runner issue 6924).
@@ -234,16 +235,10 @@ impl ChainWalk<'_> {
                     if let Some(l) = left.as_mut().filter(|l| l.baseline.is_none()) {
                         l.baseline = start.cloned();
                     }
-                    if let (Some((_, _, _, b)), Ok(done)) = (before, &mut r.result) {
-                        let storage = b.everything && reaches_session_storage(engine, lowered, units[k].oi);
-                        let why =
-                            if storage { b.storage_why.as_ref() } else { None }.or(if done.5.leak_hit || storage {
-                                b.unfinished.as_ref()
-                            } else {
-                                None
-                            });
-                        if let Some(why) = why {
-                            refuse_all(&mut done.0, why);
+                    if let Some((_, _, _, b)) = before {
+                        let why = After::new(engine, lowered, b, units[k].oi).refusal(&r).cloned();
+                        if let (Some(why), Ok(done)) = (why, &mut r.result) {
+                            refuse_all(&mut done.0, &why);
                         }
                     }
                     slots(k, r);
@@ -361,7 +356,7 @@ impl ChainWalk<'_> {
         let mut c = super::single_fresh::carried_codeunit(self.lowered, self.units, k, true, reads);
         if self.fresh_check && r.result.is_ok() {
             let mut u = self.units[k].clone();
-            u.leak = before.map(|c| Arc::new(c.tables.clone()));
+            u.leak = super::carry_after::leak(before);
             let fresh = super::single_fresh::rerun_fresh(self.engine, self.lowered, start, &u, self.limit, self.pool);
             c.fresh = Some(super::single_fresh::outcomes_of(&fresh));
         }

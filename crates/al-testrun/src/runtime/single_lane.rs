@@ -25,6 +25,7 @@
 //! Amendment 6: with `--test-suites` (`RunOptions::test_suites`) each listed suite is a BC session of its own, in the
 //! file's order, and a codeunit in no suite is a session of its own ([`streams`]); without it the whole run is one.
 
+use super::carry_after::After;
 use super::chain_walk::Carry as ChainCarry;
 use super::lane_starts::{Ask, Deltas, Held, Reply, Starts, carried_start};
 use super::order_hint::STRICT_FLAG;
@@ -659,7 +660,7 @@ impl Worker<'_> {
         );
         drop(first);
         if let Some((storage, again)) = s.again {
-            if storage || r.result.as_ref().is_ok_and(|done| done.5.leak_hit) {
+            if super::carry_after::read(storage, &r) {
                 let Some(carry) = again else { return Ok(None) };
                 let Some(from) = start(carry)? else { return Ok(None) };
                 super::run::CARRIED.with(|c| c.borrow_mut().take());
@@ -1117,11 +1118,8 @@ impl Lane<'_> {
                         again: None,
                     };
                 };
-                let c = &self.carried[ci].3;
-                let start = match (&c.unfinished, &c.storage_why, &c.baseline) {
-                    (None, None, Some(_)) => Some(ci),
-                    _ => None,
-                };
+                let after = After::new(self.engine, self.lowered, &self.carried[ci].3, self.units[k].oi);
+                let start = after.clean_start().map(|_| ci);
                 if self.is_member(k) {
                     return Step {
                         k,
@@ -1129,12 +1127,10 @@ impl Lane<'_> {
                         again: None,
                     };
                 }
-                let storage =
-                    c.everything && super::corpus::reaches_session_storage(self.engine, self.lowered, self.units[k].oi);
                 Step {
                     k,
                     from: None,
-                    again: Some((storage, start)),
+                    again: Some((after.reaches_storage(), start)),
                 }
             })
             .collect()
@@ -1157,11 +1153,11 @@ impl Lane<'_> {
     fn run_bound(&self, k: usize) -> Option<UnitResult> {
         let mut u = self.units[k].clone();
         u.watch = false;
-        let earlier = self.earlier_carry(k);
-        let base = match earlier {
-            Some((_, _, _, c)) if self.is_member(k) && c.unfinished.is_none() && c.storage_why.is_none() => {
-                c.baseline.as_ref().or(self.baseline)
-            }
+        let after = self
+            .earlier_carry(k)
+            .map(|(_, _, _, c)| After::new(self.engine, self.lowered, c, u.oi));
+        let base = match &after {
+            Some(a) if self.is_member(k) => a.clean_start().or(self.baseline),
             _ => self.baseline,
         };
         let mut r = run_unit(self.engine, self.lowered, base, &u, None, self.limit);
@@ -1170,17 +1166,11 @@ impl Lane<'_> {
         // before"). The lane does the same, or a codeunit in it loses the rows it reads (corpus Y35OnRunStorage.al:453,
         // C302_B2_TestWritesStorage: a default test handler that writes to a SingleInstance log for every test
         // codeunit puts every codeunit in the lane). A case `corpus.rs` refuses keeps its first run.
-        if let (false, Some((_, _, _, c))) = (self.is_member(k), earlier) {
-            let storage = c.everything && super::corpus::reaches_session_storage(self.engine, self.lowered, u.oi);
-            let hit = storage || r.result.as_ref().is_ok_and(|done| done.5.leak_hit);
-            if hit {
-                match (&c.unfinished, &c.storage_why, c.baseline.as_ref()) {
-                    (None, None, Some(from)) => {
-                        super::run::CARRIED.with(|c| c.borrow_mut().take());
-                        r = run_unit(self.engine, self.lowered, Some(from), &u, None, self.limit);
-                    }
-                    _ => return None,
-                }
+        if let (false, Some(a)) = (self.is_member(k), &after) {
+            if a.read(&r) {
+                let from = a.clean_start()?;
+                super::run::CARRIED.with(|c| c.borrow_mut().take());
+                r = run_unit(self.engine, self.lowered, Some(from), &u, None, self.limit);
             }
         }
         Some(r)
