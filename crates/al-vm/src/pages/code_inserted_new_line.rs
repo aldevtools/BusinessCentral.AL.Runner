@@ -225,7 +225,13 @@ impl Session {
         let mark = Some(self.write_mark());
         let outer = std::mem::replace(&mut st.borrow_mut().control_onvalidate_writes, mark);
         let result = self.control_routine(st, idx, r);
-        st.borrow_mut().control_onvalidate_writes = outer;
+        let mut s = st.borrow_mut();
+        s.control_onvalidate_writes = outer;
+        // An OnValidate that failed after its save left the new-row line runs no refresh (`ValidateStart::left_new_line`).
+        if let (Err(_), Some(start)) = (&result, s.filters_before_validate.as_mut()) {
+            start.left_new_line = false;
+        }
+        drop(s);
         result
     }
 

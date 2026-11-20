@@ -263,7 +263,7 @@ impl Session {
             && has_true("DelayedInsert")
             && names.len() == FOUND_ROW_TRIGGERS.len()
             && FOUND_ROW_TRIGGERS.iter().all(|t| names.contains(t))
-            && page.controls.iter().all(|c| c.kind != ir::ControlKind::Part)
+            && page.controls.iter().filter(|c| c.kind == ir::ControlKind::Part).count() == 0
             && self.unextended_unsubscribed(st)
             && self.has_source(st)
             && !self.page_rec(st).borrow().temporary;
