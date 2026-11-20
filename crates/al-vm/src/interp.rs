@@ -61,7 +61,7 @@ impl Session {
         }
         if class == Class::Report {
             self.ret_used = ret_used;
-            return self.report_builtin(id, recv, &values, f.instance.clone());
+            return self.report_call(id, recv, &values, f.instance.clone());
         }
         if class == Class::FilterPageBuilder {
             return self.filter_page_builder_op(id, recv, &values, ret_used);
@@ -830,6 +830,8 @@ impl Session {
         let mut kept = Vec::new();
         if facts.publisher {
             kept = self.var_option_publisher_args(object, routine, args, &values, f)?;
+            self.events.raise_arg_var_param =
+                self.raise_arg_var_param((object, routine), &values, (f.object, f.routine), &f.locals);
             let by_var = &self.engine.program.objects[object].routines[routine].by_var;
             self.events.var_origins = args
                 .iter()
@@ -875,7 +877,7 @@ impl Session {
             self.watch_var_globals(object, routine, &inst, args, &values, f)
         };
         if try_call {
-            self.enter_used_try();
+            self.enter_used_try(object, routine);
         }
         let result = self.call_with_facts(object, routine, inst, values, facts);
         if try_call {
@@ -899,6 +901,7 @@ impl Session {
             // A publisher call refused before `publish` took them leaves them behind; the next event must not alias this
             // caller's globals (al-runner issue 7615).
             self.events.var_origins.clear();
+            self.events.raise_arg_var_param = false;
         }
         for (slot, inst, g) in &f.aliases {
             f.locals[*slot] = inst.borrow().globals[*g].clone();

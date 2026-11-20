@@ -33,7 +33,7 @@ impl Session {
         let error = al_builtins::native::AlError {
             message: format!(
                 "Report {} is a processing-only report. Output cannot be rendered and saved to a file.",
-                self.object_id_of(schema.object as u32)
+                self.object_id_of(schema.object as u32)?
             ),
             code: "ReportProcessingOnly".into(),
             call_stack: String::new(),

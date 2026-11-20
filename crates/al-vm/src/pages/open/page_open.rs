@@ -1418,7 +1418,7 @@ impl Session {
             && !rec.borrow().temporary
             && st.borrow().modal
             && !st.borrow().lookup
-            && st.borrow().run_static == Some(false)
+            && st.borrow().modal_run == ModalRun::Variable
             && !self.declares(st, "onnextrecord");
         if dialog_run_modal {
             return Ok(true);
@@ -1567,8 +1567,7 @@ fn reset_row_line_flags(s: &mut crate::pages::PageState) {
     s.gone_blank_no_new_line = false;
     s.gone_blank_shows_line = false;
     s.gone_view_list = false;
-    s.list_view_switched = false;
-    s.list_edit_back = false;
+    s.list_view.reset();
 }
 
 /// The flags a new host row, a first part access and New() on a request

@@ -56,6 +56,7 @@ pub(super) fn pages_as_new(p: &PageClients) -> bool {
         client_depth,
         code_close_vetoes,
         open_vetoed,
+        onvalidate_pages,
     } = p;
     action_tally.is_none()
         && saved_values.is_empty()
@@ -87,6 +88,7 @@ pub(super) fn pages_as_new(p: &PageClients) -> bool {
         && *client_depth == 0
         && code_close_vetoes.is_empty()
         && open_vetoed.is_empty()
+        && onvalidate_pages.is_empty()
 }
 
 /// Event subscriptions, what the Event Subscription table reports and the install's own event state. Not checked:
@@ -106,6 +108,7 @@ pub(super) fn events_as_new(e: &EventState) -> bool {
         next_aliases,
         next_is_subscriber,
         by_value_publisher,
+        raise_arg_var_param,
         next_event_args,
         blob_publisher,
         next_blob_event,
@@ -155,6 +158,7 @@ pub(super) fn events_as_new(e: &EventState) -> bool {
         && next_aliases.is_empty()
         && !next_is_subscriber
         && by_value_publisher.is_none()
+        && !raise_arg_var_param
         && next_event_args.is_empty()
         && blob_publisher.is_none()
         && !next_blob_event
@@ -223,6 +227,7 @@ pub(super) fn report_as_new(r: &ReportState) -> bool {
         report_executed,
         execute_parameters,
         report_run_modal_done,
+        excel_sheets,
         report_running,
         request_captions,
         print_only_if_detail,
@@ -256,6 +261,7 @@ pub(super) fn report_as_new(r: &ReportState) -> bool {
         && report_executed.is_empty()
         && execute_parameters.is_none()
         && report_run_modal_done.is_empty()
+        && excel_sheets.is_idle()
         && report_running.is_empty()
         && request_captions.is_empty()
         && !print_only_if_detail

@@ -206,7 +206,7 @@ impl Session {
             None if modal => {
                 // BC refuses a dialog nobody answers, after it opened (NoHandler_Tests.al arms 7 and 8).
                 self.mark_closed(&target_state);
-                let id = obj.id.unwrap_or(0);
+                let id = crate::object_ids::declared_id(obj.id)?;
                 // Code: testpage/TestPageRunObjectContracts.al:228-240.
                 Err(error_code(
                     format!("TestPages that are invoked from a RunObject action must have a handler. Page No. = {id}"),

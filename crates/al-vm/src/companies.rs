@@ -273,6 +273,7 @@ impl Session {
         // The filters, the current key and the marks stay (a mark is a primary key), and a
         // temporary record keeps its rows (:25-30).
         let mut r = rec.borrow_mut();
+        r.change_company_called = true;
         if r.company == target {
             return Ok(Value::Boolean(true));
         }
