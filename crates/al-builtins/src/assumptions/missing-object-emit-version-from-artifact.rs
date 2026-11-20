@@ -5,7 +5,7 @@ MissingObjectEmitVersionFromArtifact => {
     probe: "Corpus PR 1483 (aldevtools/BusinessCentral.AL.Language.Tests, open), tests/al-language/errors/last-error/EmitVersion.al: the number cut out of the text, its digits and its value div 1000 on each of the three CI legs, the value 29022 on 29.0.54011.55816, and the same number for a missing codeunit, table, page and report. Measured on a local Business Central 29.0 so far: the text shape and the code; the number cells are still being observed.",
     awaiting: Awaiting {
         issues: &[7617],
-        files: &["tests/al-language/errors/last-error/EmitVersion.al"],
+        files: &["tests/al-language/errors/last-error/EmitVersion.al::MissingCodeunit_InTestMethod"],
         since: "2026-11-20",
     },
 }

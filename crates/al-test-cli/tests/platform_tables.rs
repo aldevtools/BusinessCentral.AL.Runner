@@ -2249,7 +2249,7 @@ codeunit 50000 "T" {{ Subtype = Test;
         passes(&o, "OpenCode");
         for reads_text in ["OpenText", "OpenUncaught"] {
             assert!(
-                not_run(&o, reads_text).contains("emit version of the run's build is not known"),
+                not_run(&o, reads_text).contains("emit version of the run's BC build, which is not known"),
                 "{o:?}"
             );
         }

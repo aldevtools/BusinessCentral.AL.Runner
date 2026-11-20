@@ -19,7 +19,11 @@ pub(super) fn outcomes(src: &str) -> Vec<(String, Outcome)> {
         .iter()
         .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
-    let engine = Engine::new(l.program.clone(), blocked);
+    let mut engine = Engine::new(l.program.clone(), blocked);
+    // A run reads the emit version of its build (al-vm `emit_version`); here a fixed one, for the missing-object text.
+    std::sync::Arc::get_mut(&mut engine)
+        .expect("a fresh engine")
+        .emit_version = al_vm::emit_version::EmitVersion::known(29022);
     let oi = l
         .program
         .objects

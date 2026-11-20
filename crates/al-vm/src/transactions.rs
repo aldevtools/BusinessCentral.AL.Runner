@@ -214,7 +214,9 @@ impl Session {
             Err(why) => {
                 return Signal::Error(Box::new(al_builtins::native::unpinned_text_error(
                     "AL:MetadataNotFound",
-                    &format!("Missing object, the emit version of the run's build is not known: {why}"),
+                    &format!(
+                        "the missing-object text: it ends with the emit version of the run's BC build, which is not known ({why})"
+                    ),
                 )));
             }
         };
