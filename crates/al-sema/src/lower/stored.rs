@@ -106,6 +106,8 @@ pub struct StoredLowered {
     /// Per object lowered here, the refusals; empty for an object the cache supplies.
     pub unsupported: Vec<Vec<Vec<Refusal>>>,
     pub refusal_at: Vec<Vec<Option<ir::SrcPos>>>,
+    /// `Lowered::unresolved_calls`: serve's incremental compile reads it (`incremental::readers`).
+    pub unresolved_calls: Vec<bool>,
     /// Per object lowered here, the calls and the count of direct ones; empty for an object the cache supplies.
     pub calls: Vec<Vec<Vec<(usize, usize)>>>,
     pub ndirect: Vec<Vec<u32>>,
@@ -135,6 +137,7 @@ pub fn store(lowered: &Lowered, apps: Vec<ir::AppInfo>, sources: Vec<ir::SourceF
         program,
         unsupported,
         refusal_at,
+        unresolved_calls,
         calls,
         dependency,
         provided,
@@ -208,6 +211,7 @@ pub fn store(lowered: &Lowered, apps: Vec<ir::AppInfo>, sources: Vec<ir::SourceF
         assumes: assumes.clone(),
         unsupported: unsupported.own().to_vec(),
         refusal_at: refusal_at.clone(),
+        unresolved_calls: unresolved_calls.clone(),
         calls: own_calls.to_vec(),
         ndirect: ndirect.to_vec(),
         dependency: dependency.clone(),
@@ -244,6 +248,7 @@ pub fn restore(
         assumes,
         unsupported,
         refusal_at,
+        unresolved_calls,
         calls,
         ndirect,
         dependency,
@@ -318,6 +323,7 @@ pub fn restore(
         program: Default::default(),
         unsupported: Refusals::new(unsupported, cached.clone()),
         refusal_at,
+        unresolved_calls,
         calls: Calls::new(calls, ndirect, cached),
         dependency,
         provided,
@@ -363,6 +369,7 @@ pub fn canonical_dump(lowered: &Lowered) -> String {
         program,
         unsupported,
         refusal_at,
+        unresolved_calls,
         calls,
         dependency,
         provided,
@@ -415,6 +422,7 @@ pub fn canonical_dump(lowered: &Lowered) -> String {
         );
         let _ = writeln!(out, "  unsupported {:?}", unsupported.get(o));
         let _ = writeln!(out, "  refusal_at {:?}", refusal_at.get(o));
+        let _ = writeln!(out, "  unresolved_calls {:?}", unresolved_calls.get(o));
         let _ = writeln!(out, "  calls {:?}", calls.of(o));
         let routines = objects.get(o).map_or(0, |x| x.routines.len());
         let driven_calls: Vec<Vec<(usize, usize)>> = (0..routines)

@@ -451,7 +451,12 @@ const KEPT: &[(&str, &str, &str)] = &[
     ),
     (
         "al-testrun/src/workspace_cache.rs",
-        r#"keep_demand {keep_demand} test_runners {test_runners:?}""#,
+        r#"keep_demand {keep_demand} test_runners {test_runners:?} \"#,
+        "a text of the workspace layer's key, hashed, never shown",
+    ),
+    (
+        "al-testrun/src/workspace_cache.rs",
+        r#"company_install_events {company_install_events}""#,
         "a text of the workspace layer's key, hashed, never shown",
     ),
     (

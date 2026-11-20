@@ -354,6 +354,7 @@ pub fn app_key(
 pub fn roots_text(r: &al_sema::check::Roots) -> String {
     let al_sema::check::Roots {
         baseline,
+        company_install_events,
         company_data,
         company_methods,
         only_tests,
@@ -379,7 +380,8 @@ pub fn roots_text(r: &al_sema::check::Roots) -> String {
          reach_only {reach_only} lean {lean} no_login_root {no_login_root} eager {eager} provided {provided:?} \
          provided_queries {provided_queries:?} only_objects {only_objects:?} skipped_before {skipped_before:?} tdd {tdd} \
          tdd_id_ranges {tdd_id_ranges:?} object_hashes {object_hashes} app_contexts {app_contexts:?} \
-         keep_demand {keep_demand} test_runners {test_runners:?}"
+         keep_demand {keep_demand} test_runners {test_runners:?} \
+         company_install_events {company_install_events}"
     )
 }
 
@@ -696,6 +698,7 @@ mod tests {
         type Change = fn(&mut Roots);
         let changes: Vec<(&str, Change)> = vec![
             ("baseline", |r| r.baseline = true),
+            ("company_install_events", |r| r.company_install_events = true),
             ("company_data", |r| r.company_data = vec![1]),
             ("company_methods", |r| r.company_methods = vec![(1, "M".into())]),
             ("only_tests", |r| r.only_tests = Some(vec![(0, 1)])),
