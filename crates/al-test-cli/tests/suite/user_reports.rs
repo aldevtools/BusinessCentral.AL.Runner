@@ -4091,37 +4091,31 @@ fn dependency_report_outcomes(owner: &str, consumer: &str, test: &str) -> Vec<(S
 }
 
 fn dependency_report_mode(owner: &str, consumer: &str, test: &str, cached: usize) -> Vec<(String, Outcome)> {
-    let mut apps = Vec::new();
-    for (i, source) in [
-        include_str!("../fixtures/cross-app-report-items-base.al"),
-        owner,
-        consumer,
-        test,
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        let id = format!("e0b74651-fb05-47ab-8d77-57b3b30c{i:04x}");
-        apps.push(AppSource {
-            name: id.clone(),
-            dependencies: apps.iter().map(|app: &AppSource| app.id.clone()).collect(),
-            files: vec![(format!("{id}.al"), source.to_string())],
-            id,
-        });
-    }
-    report_outcomes(
-        apps,
-        vec![
-            AppKind::Dependency,
-            AppKind::Dependency,
-            AppKind::Dependency,
-            AppKind::Workspace,
-        ],
-        cached,
-    )
+    let base = include_str!("../fixtures/cross-app-report-items-base.al");
+    dependency_report_graph(&[(base, &[]), (owner, &[0]), (consumer, &[0, 1]), (test, &[0, 1, 2])], cached)
 }
 
-// Issue #7878, corpus PR #1342: the same XML dataset and linked rows for both extension ID orders.
+/// Each app with the indices of the apps it depends on; the last one is the workspace app with the test codeunit.
+fn dependency_report_graph(graph: &[(&str, &[usize])], cached: usize) -> Vec<(String, Outcome)> {
+    let id = |i: usize| format!("e0b74651-fb05-47ab-8d77-57b3b30c{i:04x}");
+    let apps = graph
+        .iter()
+        .enumerate()
+        .map(|(i, (source, dependencies))| AppSource {
+            name: id(i),
+            dependencies: dependencies.iter().map(|&d| id(d)).collect(),
+            files: vec![(format!("{}.al", id(i)), source.to_string())],
+            id: id(i),
+        })
+        .collect();
+    let kinds = (0..graph.len())
+        .map(|i| if i + 1 < graph.len() { AppKind::Dependency } else { AppKind::Workspace })
+        .collect();
+    report_outcomes(apps, kinds, cached)
+}
+
+// The pinned shape (reports/extensions/TestReportDependencyDataItems.al:12, :26, :46) in both extension ID orders, also
+// with the base and owner apps from the compile cache.
 #[test]
 fn measured_report_extension_targets_dependency_data_items() {
     let owner = include_str!("../fixtures/cross-app-report-items-alpha.al");
@@ -4176,11 +4170,7 @@ fn dependency_report_extension_refuses_unmeasured_targets() {
     let consumer = include_str!("../fixtures/cross-app-report-items-leaf.al");
     let test = include_str!("../fixtures/cross-app-report-items-tests.al");
     for (from, to, refusal) in [
-        (
-            "modify(AddedRow)",
-            "modify(FooterRow)",
-            "reportextensions of different apps",
-        ),
+        ("modify(AddedRow)", "modify(FooterRow)", "modify(FooterRow)"),
         ("add(AddedRow)", "add(FooterRow)", "add("),
         ("addbefore(FooterRow)", "addbefore(AddedRow)", "add"),
         ("addbefore(FooterRow)", "addfirst(AddedRow)", "add"),
@@ -4255,6 +4245,76 @@ fn dependency_report_extension_refuses_unmeasured_owners_and_modifications() {
         // Remove the reference in the trigger and column expressions so the refusal is about the dataset shape.
         let consumer = consumer.replace("AddedRow.Number", "2");
         let outcomes = dependency_report_outcomes(&owner, &consumer, test);
+        assert!(matches!(&outcomes[0].1, Outcome::NotRun(_)), "{outcomes:?}");
+    }
+}
+
+/// Shapes next to the pinned ones (reports/extensions/TestReportDependencyDataItems.al:12, :26) that the corpus does not
+/// measure: a consumer modify without the one OnAfterAfterGetRecord trigger (al-language-xapp-c/ReportDependencyC.ReportExt.al:11-19),
+/// an owner item added with addfirst instead of addlast (al-language-xapp-b/ReportDependencyB.ReportExt.al:11), and a
+/// consumer variable named like an owner item. Each refuses, in both extension ID orders.
+#[test]
+fn dependency_report_extension_refuses_unmeasured_neighbors() {
+    let owner = include_str!("../fixtures/cross-app-report-items-alpha.al");
+    let consumer = include_str!("../fixtures/cross-app-report-items-leaf.al");
+    let test = include_str!("../fixtures/cross-app-report-items-tests.al");
+    let trigger = "            trigger OnAfterAfterGetRecord()
+            var
+                Trace: Codeunit \"Cross Report Trace\";
+            begin
+                Trace.Push('dependent=' + Format(AddedRow.Number));
+            end;
+";
+    assert!(consumer.contains(trigger));
+    let collision = "    dataset\n    {\n        modify(AddedRow)";
+    assert!(consumer.contains(collision));
+    for (shape, owner, consumer, test) in [
+        (
+            "modify without a trigger",
+            owner.to_string(),
+            consumer.replace(trigger, ""),
+            test.replace("dependent=2|", ""),
+        ),
+        (
+            "owner addfirst",
+            owner.replace("addlast(BaseRow)", "addfirst(BaseRow)"),
+            consumer.to_string(),
+            test.to_string(),
+        ),
+        (
+            "consumer variable named like an owner item",
+            owner.to_string(),
+            consumer.replace(collision, &format!("    var\n        FooterRow: Integer;\n{collision}")),
+            test.to_string(),
+        ),
+    ] {
+        for consumer in [consumer.clone(), consumer.replace("50880", "50891")] {
+            let outcomes = dependency_report_outcomes(&owner, &consumer, &test);
+            assert!(matches!(&outcomes[0].1, Outcome::NotRun(_)), "{shape}: {outcomes:?}");
+        }
+    }
+}
+
+/// A consumer whose app reaches the owner's app only through another app keeps main's refusal: the pinned consumer
+/// depends on the owner directly (al-language-xapp-c's app.json).
+#[test]
+fn dependency_report_extension_refuses_an_indirect_owner() {
+    let base = include_str!("../fixtures/cross-app-report-items-base.al");
+    let owner = include_str!("../fixtures/cross-app-report-items-alpha.al");
+    let consumer = include_str!("../fixtures/cross-app-report-items-leaf.al");
+    let test = include_str!("../fixtures/cross-app-report-items-tests.al");
+    let middle = "codeunit 50870 MiddleApp { }";
+    for consumer in [consumer.to_string(), consumer.replace("50880", "50891")] {
+        let outcomes = dependency_report_graph(
+            &[
+                (base, &[]),
+                (owner, &[0]),
+                (middle, &[0, 1]),
+                (&consumer, &[0, 2]),
+                (test, &[0, 1, 2, 3]),
+            ],
+            0,
+        );
         assert!(matches!(&outcomes[0].1, Outcome::NotRun(_)), "{outcomes:?}");
     }
 }

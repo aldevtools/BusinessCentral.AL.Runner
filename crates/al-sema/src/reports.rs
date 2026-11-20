@@ -1547,7 +1547,12 @@ pub(crate) fn direct_report_dependency(ws: &Workspace, consumer: usize, owner: u
             .any(|id| id.eq_ignore_ascii_case(&ws.apps[owner].id))
 }
 
-/// The unique data item names of the measured owner and consumer pair (ADR-075).
+/// The owner extension's data items a consumer extension may name (ADR-075), all or none. Pinned shape
+/// (reports/extensions/TestReportDependencyDataItems.al:12, :26, :46): exactly two extensions change the run and the
+/// consumer's app depends directly on the owner's; the owner adds its items with addlast of a top-level base item
+/// (al-language-xapp-b/ReportDependencyB.ReportExt.al:11-36); no owner item is temporary or shares its name with another
+/// item or a variable the consumer sees; the consumer modifies an owner top item as `measured_dependency_modify` says.
+/// Any other shape gives none, and the consumer's references to the owner's items refuse.
 pub(crate) fn dependency_dataset_items(ws: &Workspace, extension: usize, base: usize) -> Vec<(usize, usize, RawItem)> {
     let mut changing = ws
         .extensions_of(base)
@@ -1575,42 +1580,58 @@ pub(crate) fn dependency_dataset_items(ws: &Workspace, extension: usize, base: u
         .chain(obj.request_page_var_decls())
         .flat_map(|v| v.names())
         .collect();
-    let mut items = Vec::new();
-    let mut names = std::collections::HashMap::new();
-    for (index, item) in ext_layout(&ws.object_ast(owner)).items.into_iter().enumerate() {
-        *names.entry(item.name.to_lowercase()).or_insert(0) += 1;
-        items.push((owner, index, item));
-    }
-    items.retain(|(_, _, item)| {
-        names[&item.name.to_lowercase()] == 1
-            && !uses_temporary(&item.section)
+    let owner_items = ext_layout(&ws.object_ast(owner)).items;
+    let distinct = |item: &RawItem| {
+        owner_items
+            .iter()
+            .filter(|other| other.name.eq_ignore_ascii_case(&item.name))
+            .count()
+            == 1
             && !locals.iter().any(|name| name.eq_ignore_ascii_case(&item.name))
             && !base_layout
                 .items
                 .iter()
                 .chain(&consumer.items)
                 .any(|own| own.name.eq_ignore_ascii_case(&item.name))
-    });
-    let modifies_top = items.iter().any(|(_, _, item)| {
-        item.parent.is_none()
+    };
+    let addlast_of_top_base_item = |item: &RawItem| {
+        item.place == Place::Last
             && item.target.as_ref().is_some_and(|target| {
-                base_layout.items.iter().any(|base| {
-                    base.name.eq_ignore_ascii_case(target)
-                        && (matches!(item.place, Place::First | Place::Last) || base.parent.is_some())
-                })
+                base_layout
+                    .items
+                    .iter()
+                    .any(|base| base.name.eq_ignore_ascii_case(target) && base.parent.is_none())
             })
-            && consumer.modifies.iter().any(|(name, sec)| {
-                name.eq_ignore_ascii_case(&item.name)
-                    && sec.properties().next().is_none()
-                    && sec
-                        .triggers()
-                        .all(|t| t.name().eq_ignore_ascii_case("OnAfterAfterGetRecord"))
-            })
+    };
+    let measured_owner = owner_items.iter().all(|item| {
+        distinct(item) && !uses_temporary(&item.section) && (item.parent.is_some() || addlast_of_top_base_item(item))
     });
-    if !modifies_top {
-        items.clear();
+    let modifies_top = owner_items.iter().any(|item| {
+        item.parent.is_none()
+            && consumer
+                .modifies
+                .iter()
+                .any(|(name, sec)| name.eq_ignore_ascii_case(&item.name) && measured_dependency_modify(sec))
+    });
+    if !(measured_owner && modifies_top) {
+        return Vec::new();
     }
-    items
+    owner_items
+        .into_iter()
+        .enumerate()
+        .map(|(index, item)| (owner, index, item))
+        .collect()
+}
+
+/// A consumer's `modify` of an owner's item as pinned (al-language-xapp-c/ReportDependencyC.ReportExt.al:11-19): no
+/// property and exactly one trigger, OnAfterAfterGetRecord.
+pub(crate) fn measured_dependency_modify(sec: &ast::Section) -> bool {
+    let mut triggers = sec.triggers();
+    sec.properties().next().is_none()
+        && triggers
+            .next()
+            .is_some_and(|t| t.name().eq_ignore_ascii_case("OnAfterAfterGetRecord"))
+        && triggers.next().is_none()
 }
 
 /// Everything `build_ext` needs to know about the reportextension being lowered.
@@ -1718,13 +1739,9 @@ pub fn build_ext(cx: &ExtContext, obj: &ast::Object) -> (ir::ReportExt, Vec<Stri
                     .get(&(cx.oi, usize::from(x.syntax().text_range().start())))
             })
         };
-        match target_index(name).filter(|item| {
-            !matches!(item, ir::ItemAnchor::Foreign(_))
-                || (sec.properties().next().is_none()
-                    && sec
-                        .triggers()
-                        .all(|t| t.name().eq_ignore_ascii_case("OnAfterAfterGetRecord")))
-        }) {
+        match target_index(name)
+            .filter(|item| !matches!(item, ir::ItemAnchor::Foreign(_)) || measured_dependency_modify(sec))
+        {
             Some(item) => modifies.push(ir::ReportExtModify {
                 item,
                 request_filter_fields: sec

@@ -91,20 +91,10 @@ pub(crate) fn report_extension_order(ws: &Workspace, base: usize, exts: &[usize]
 /// reports/extensions/TestReportDependencyDataItems.al:12 and :46 (consumer 61124 in
 /// al-language-xapp-c/ReportDependencyC.ReportExt.al:7, owner 61144 in al-language-xapp-b/ReportDependencyB.ReportExt.al:7).
 fn modifies_dependency_item(ws: &Workspace, base: usize, consumer: usize, owner: usize) -> bool {
-    let consumer_layout = crate::reports::ext_layout(&ws.object_ast(consumer));
+    // `dependency_dataset_items` gives the owner's items only when the consumer modifies one as pinned.
     crate::reports::dependency_dataset_items(ws, consumer, base)
         .iter()
-        .any(|(source, _, item)| {
-            *source == owner
-                && item.parent.is_none()
-                && consumer_layout.modifies.iter().any(|(name, sec)| {
-                    name.eq_ignore_ascii_case(&item.name)
-                        && sec.properties().next().is_none()
-                        && sec
-                            .triggers()
-                            .all(|t| t.name().eq_ignore_ascii_case("OnAfterAfterGetRecord"))
-                })
-        })
+        .any(|(source, _, _)| *source == owner)
 }
 
 /// How app `a` sorts against app `b` when no dependency path orders them: by app id, pinned only where the app name sorts
