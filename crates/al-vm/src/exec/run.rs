@@ -1027,6 +1027,7 @@ impl Session {
             values.push(take(f, r, nl));
         }
         crate::assigned_audit::own_read_end_for_operands(site.id, &values);
+        crate::records::rolled_read_end_for_operands(&values);
         crate::blob_transfer::records_into_builtin(self.blob_sources, site.id, recv.as_ref(), &values);
         text_constant_arguments(site, &mut values)?;
         // No operand is by reference, and `temp_blob_share_guard` checks a Blob field only through one: only the OutStreams
@@ -1219,6 +1220,7 @@ impl Session {
             values.push(take(f, r, nl));
         }
         crate::assigned_audit::own_read_end_for_operands(site.id, &values);
+        crate::records::rolled_read_end_for_operands(&values);
         crate::blob_transfer::records_into_builtin(self.blob_sources, site.id, recv.as_ref(), &values);
         text_constant_arguments(site, &mut values)?;
         let open = match site.temp_blob {
