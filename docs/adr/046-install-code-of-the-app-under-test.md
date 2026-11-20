@@ -55,7 +55,7 @@ Both tests below pass on real BC 27, 28 and 29 (`oracle/27|28|29/junit.xml`, cod
 6. **The test session does not see the SingleInstance state of the install run.** The subscribers also add to a list
    in a SingleInstance codeunit (`PeVFixtures.al:133-135`, `:248-252`). In the test session that list holds only the
    two Company Triggers entries (`PeVTests.al:297`).
-7. **The test company is "CRONUS International Ltd."** (`session-system/TestEnvironmentUserTenantContracts.al:253`).
+7. **The test company is "CRONUS International Ltd."** (`session-system/TestEnvironmentUserTenantContracts.al:250`).
 8. **For install codeunits (already pinned):** the per-company trigger runs in the test company and finds its Company row
    (`install-upgrade/TestInstallEnvVisible_Tests.al:39-58`); the test company holds exactly 2 per-company seed rows and the
    database exactly 1 per-database seed row (`install-upgrade/TestInstallTriggerSeed_Tests.al:58-59`). Two companies do not
