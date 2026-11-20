@@ -131,6 +131,9 @@ pub(crate) fn al_error(message: &str) -> Signal {
     al_error_code(message, "")
 }
 
+/// `TxState::transaction_type` of a test's start: the TransactionType member UpdateNoLocks
+/// (session-system/ProbeSystemEnumMembers.al:60-161).
+pub(crate) const TRANSACTION_TYPE_UPDATE_NO_LOCKS: i32 = 0;
 /// How far the open transaction has started (`TxState::phase`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub(crate) enum TxPhase {
@@ -868,6 +871,8 @@ impl Session {
             }
         }
 
+        // A run ends the moment the Update report term is measured at (`OpenTx::at_test_start`).
+        self.tx.open.at_test_start = false;
         let on_run = obj
             .routines
             .iter()
