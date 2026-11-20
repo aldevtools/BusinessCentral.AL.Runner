@@ -1,10 +1,10 @@
-//! A `var` Option argument whose declared member list differs from the parameter's (al-runner issues 7994 and 8291), through
-//! assumption `var-option-caller-members` (corpus PR 1432, tests/al-language/types/enum-option/OptionVarMemberLists.al and
-//! OptionVarMemberlessEvaluate.al, measured on BC 27.5, 28.5 and 29.0): a parameter declared without members reads the caller's
-//! members, and the caller keeps its own after the call. The shapes the probe does not measure refuse; the neighbors keep
+//! A `var` Option argument whose declared member list differs from the parameter's (al-runner issues 7994 and 8291), pinned
+//! by tests/al-language/types/enum-option/OptionVarMemberLists.al and OptionVarMemberlessEvaluate.al: a parameter declared
+//! without members reads the caller's members, and the caller keeps its own after the call. The shapes the corpus does not
+//! pin refuse; the neighbors keep
 //! main's result.
 
-use al_builtins::assumptions::{self, Assumption};
+use al_builtins::assumptions;
 use al_builtins::native::Signal;
 use al_testkit::text;
 
@@ -750,25 +750,11 @@ codeunit 69822 Subs
 }
 "#;
 
-/// Runs `routine` and answers its text, asserting that it ran through the assumption.
-fn assumed(routine: &str) -> String {
-    assumptions::clear_hits();
-    let out = text(al_testkit::run_in(SRC, "C", routine));
-    assert!(
-        assumptions::take_hits().contains(&Assumption::VarOptionCallerMembers),
-        "{routine}: not flagged"
-    );
-    out
-}
-
-/// Runs `routine` and answers its text, asserting that it did not run through the assumption.
+/// Runs `routine` and answers its text, asserting that it ran through no assumption.
 fn plain(routine: &str) -> String {
     assumptions::clear_hits();
     let out = text(al_testkit::run_in(SRC, "C", routine));
-    assert!(
-        !assumptions::take_hits().contains(&Assumption::VarOptionCallerMembers),
-        "{routine}: flagged"
-    );
+    assert!(assumptions::take_hits().is_empty(), "{routine}: flagged");
     out
 }
 
@@ -784,26 +770,26 @@ fn refused(routine: &str, reason: &str) {
 // MemberlessVar_ArrayElementCaller, MemberlessVar_TwoHops.
 #[test]
 fn a_parameter_without_members_reads_the_caller_s_members_and_the_caller_keeps_them() {
-    assert_eq!(assumed("EmptyBodyLocal"), "Second|1");
-    assert_eq!(assumed("Assign1Local"), "Second");
-    assert_eq!(assumed("InsideLocal"), "Second|1|Second");
-    assert_eq!(assumed("GlobalCaller"), "Second");
-    assert_eq!(assumed("FieldCaller"), "Second|1|Second");
-    assert_eq!(assumed("ArrayElementCaller"), "Second|1|Second");
-    assert_eq!(assumed("TwoHops"), "Second");
+    assert_eq!(plain("EmptyBodyLocal"), "Second|1");
+    assert_eq!(plain("Assign1Local"), "Second");
+    assert_eq!(plain("InsideLocal"), "Second|1|Second");
+    assert_eq!(plain("GlobalCaller"), "Second");
+    assert_eq!(plain("FieldCaller"), "Second|1|Second");
+    assert_eq!(plain("ArrayElementCaller"), "Second|1|Second");
+    assert_eq!(plain("TwoHops"), "Second");
 }
 
 // OptionVarMemberLists.al: OtherMembersVar_EmptyBody, OtherMembersVar_CalleeFormatAndAssign, MemberlessCaller_MembersVar.
 #[test]
 fn a_parameter_with_other_members_reads_its_own_and_the_caller_keeps_its_own() {
-    assert_eq!(assumed("OtherMembers"), "B|Second|Third");
-    assert_eq!(assumed("MemberlessCaller"), "Second|1");
+    assert_eq!(plain("OtherMembers"), "B|Second|Third");
+    assert_eq!(plain("MemberlessCaller"), "Second|1");
 }
 
 // OptionVarMemberLists.al: MemberlessVarArray_Callee.
 #[test]
 fn a_var_array_and_an_event_subscriber_keep_the_caller_s_members() {
-    assert_eq!(assumed("VarArray"), "Second");
+    assert_eq!(plain("VarArray"), "Second");
 }
 
 // An event publisher called directly with another member list that a subscriber hears is measured only for a parameter with
@@ -830,21 +816,21 @@ fn a_publisher_called_directly_refuses() {
 // (Nope), MemberlessVar_EvaluateStatement_Unknown, MemberlessCaller_EvaluateStatement_Name, MemberlessVarArray_EvaluateResult.
 #[test]
 fn evaluate_into_a_parameter_without_members_reads_the_caller_s_members() {
-    assert_eq!(assumed("EvaluateName"), "Second");
-    assert_eq!(assumed("EvaluateOrdinal7"), "7");
-    assert_eq!(assumed("EvaluateUnknownResult"), "No|Third");
+    assert_eq!(plain("EvaluateName"), "Second");
+    assert_eq!(plain("EvaluateOrdinal7"), "7");
+    assert_eq!(plain("EvaluateUnknownResult"), "No|Third");
     assert_eq!(
-        assumed("EvaluateUnknownStatement"),
+        plain("EvaluateUnknownStatement"),
         "'Nope' is not an option. The existing options are: First,Second,Third|InvalidOptionString|Third"
     );
     assert_eq!(
-        assumed("EvaluateMemberlessCaller"),
+        plain("EvaluateMemberlessCaller"),
         "'Second' is not an option. The existing options are: "
     );
-    assert_eq!(assumed("EvaluateArrayElement"), "Yes|Second|Second");
+    assert_eq!(plain("EvaluateArrayElement"), "Yes|Second|Second");
     // OptionVarMemberlessEvaluate.al:170.
     assert_eq!(
-        assumed("EvaluateBlankStatement"),
+        plain("EvaluateBlankStatement"),
         "'' is not an option. The existing options are: First,Second,Third|InvalidOptionString|Third"
     );
 }
@@ -856,33 +842,33 @@ fn a_record_field_with_an_option_caption_refuses() {
     refused("InterfaceCaptionField", "OptionCaption");
 }
 
-// An interface method's `var` parameter is gated as a procedure's (corpus PR 1439, OptionVarMemberlessCallers.al:511, :604).
+// An interface method's `var` parameter is gated as a procedure's (OptionVarMemberlessCallers.al:511, :604).
 #[test]
 fn an_interface_call_reads_the_caller_s_members_from_the_measured_callers_only() {
-    assert_eq!(assumed("InterfaceLocal"), "Second|1|Second");
-    assert_eq!(assumed("InterfaceGlobalRecordField"), "First|0");
+    assert_eq!(plain("InterfaceLocal"), "Second|1|Second");
+    assert_eq!(plain("InterfaceGlobalRecordField"), "First|0");
     refused("InterfaceVarParameter", "a `var` parameter with members");
 }
 
-// A store into the memberless `var` parameter keeps the caller's members, inside the routine and after it (corpus PR 1439,
+// A store into the memberless `var` parameter keeps the caller's members, inside the routine and after it (
 // OptionVarMemberlessWrites.al:112, :130, :250, :269, :472).
 #[test]
 fn a_name_read_after_the_routine_stored_into_the_parameter_reads_the_caller_s_members() {
-    assert_eq!(assumed("AssignThenFormatInside"), "Second");
-    assert_eq!(assumed("AssignThenEvaluate"), "Third");
-    assert_eq!(assumed("AssignThenHop"), "Second|1");
-    assert_eq!(assumed("AssignOtherThenFormat"), "Third");
-    assert_eq!(assumed("ArrayAssignThenFormatInside"), "Second");
-    assert_eq!(assumed("AssignThenOrdinal"), "1|Second");
+    assert_eq!(plain("AssignThenFormatInside"), "Second");
+    assert_eq!(plain("AssignThenEvaluate"), "Third");
+    assert_eq!(plain("AssignThenHop"), "Second|1");
+    assert_eq!(plain("AssignOtherThenFormat"), "Third");
+    assert_eq!(plain("ArrayAssignThenFormatInside"), "Second");
+    assert_eq!(plain("AssignThenOrdinal"), "1|Second");
 }
 
 // Clear keeps the caller's members (OptionVarMemberlessWrites.al:226, :496); an Option with other members stored into an
 // element of the array keeps them too (:472).
 #[test]
 fn clear_and_other_stores_into_a_memberless_var_parameter_keep_the_caller_s_members() {
-    assert_eq!(assumed("ClearInside"), "First");
-    assert_eq!(assumed("ArrayClear"), "First");
-    assert_eq!(assumed("ArrayAssignOther"), "Second");
+    assert_eq!(plain("ClearInside"), "First");
+    assert_eq!(plain("ArrayClear"), "First");
+    assert_eq!(plain("ArrayAssignOther"), "Second");
 }
 
 // A local array CopyArray filled and a by-value array parameter hold the caller's members too (OptionVarMemberlessWrites.al:551,
@@ -890,12 +876,12 @@ fn clear_and_other_stores_into_a_memberless_var_parameter_keep_the_caller_s_memb
 #[test]
 fn a_copied_array_and_a_by_value_array_hold_the_caller_s_members() {
     refused("LocalArrayCopy", "assignment of an array of Options with members");
-    assert_eq!(assumed("LocalCopyArray"), "Second");
-    assert_eq!(assumed("ByValueArrayParameter"), "Second");
+    assert_eq!(plain("LocalCopyArray"), "Second");
+    assert_eq!(plain("ByValueArrayParameter"), "Second");
 }
 
 // A publisher with members whose subscriber is declared without members: measured for a local (OptionVarMemberLists.al:531)
-// and a global (corpus PR 1439, OptionVarMemberlessCallers.al:249); a field whose captions differ from its members refuses
+// and a global (OptionVarMemberlessCallers.al:249); a field whose captions differ from its members refuses
 // when such a subscriber binds (:290).
 #[test]
 fn a_memberless_subscriber_under_a_publisher_called_directly_refuses() {
@@ -909,7 +895,7 @@ fn a_memberless_subscriber_under_a_publisher_called_directly_refuses() {
     }
 }
 
-// Caller kinds corpus PR 1439 measured handed to a procedure (OptionVarMemberlessCallers.al:117-215, :332, :353;
+// Caller kinds the corpus pins handed to a procedure (OptionVarMemberlessCallers.al:117-215, :332, :353;
 // OptionVarMemberlessWrites.al:411, :447).
 #[test]
 fn callers_corpus_pr_1439_measured_run() {
@@ -924,7 +910,7 @@ fn callers_corpus_pr_1439_measured_run() {
         ("VarRecordField", "First|0"),
         ("TableOwnField", "First"),
     ] {
-        assert_eq!(assumed(routine), shown, "{routine}");
+        assert_eq!(plain(routine), shown, "{routine}");
     }
 }
 
@@ -933,9 +919,9 @@ fn callers_the_probe_does_not_measure_refuse() {
     // An array handed directly to a publisher no subscriber hears: no code runs, the array keeps its value (main's result).
     assert_eq!(text(al_testkit::run_in(SRC, "C", "LocalArrayToPublisher")), "First");
     refused("VarParameterWithMembersCaller", "a `var` parameter with members");
-    // A global with members to a procedure's parameter with other members keeps its own (corpus PR 1444,
-    // OptionVarMemberlessUnheard.al:415, :423); a memberless global is not measured.
-    assert_eq!(assumed("GlobalToOtherMembers"), "First");
+    // A global with members to a procedure's parameter with other members keeps its own
+    // (OptionVarMemberlessUnheard.al:415, :423); a memberless global is not measured.
+    assert_eq!(plain("GlobalToOtherMembers"), "First");
     for routine in ["GlobalVarArray", "MemberlessGlobalToMembers", "VarArrayHandedOn"] {
         refused(routine, "another member list");
     }

@@ -3,7 +3,7 @@
 use al_testrun::coverage::CoverageStatement;
 use al_testrun::runtime::TestResult;
 use serde_json::{Value, json};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 /// A source file as the outputs name it: absolute with forward slashes (JSON) and relative to the working directory
 /// when it lies below it (Cobertura).
@@ -31,6 +31,21 @@ pub fn label(app_path: &std::path::Path, file: &str, cwd: &std::path::Path) -> L
         .strip_prefix(&format!("{}/", cwd_text.trim_end_matches('/')))
         .map_or_else(|| absolute.clone(), String::from);
     Label { absolute, relative }
+}
+
+/// `label` asked once per source file, not once per statement: a label reads the file system (issue 8244).
+pub fn once_per_file<'a>(label: impl Fn(usize, &str) -> Label + 'a) -> impl Fn(usize, &str) -> Label + 'a {
+    let known = std::cell::RefCell::new(HashMap::new());
+    move |app, file| {
+        let mut known = known.borrow_mut();
+        let label = known.entry((app, file.to_string())).or_insert_with(|| label(app, file));
+        label.clone()
+    }
+}
+
+/// The text of a `--coverage-json` file: `json`'s document, indented.
+pub fn pretty(doc: &Value) -> String {
+    serde_json::to_string_pretty(doc).expect("a JSON value serializes")
 }
 
 /// What the results ran, per statement: how often.
@@ -151,29 +166,43 @@ fn by_file(
 
 /// `{ "coverage": [...every statement with its runs...], "perTestCoverage": [{test, coverage: [...statements it ran...]}] }`,
 /// the shapes of AL Runner v2's `runTests` summary. File names are absolute with forward slashes. v2 also sent `endColumn`;
-/// v3 does not know it.
+/// v3 does not know it. `hit_only` (serve's `coverage: "hit"`, issue 8244): `coverage` lists only the statements that
+/// ran. A test's own statements are in the order of `statements`, found by position id, so the work of
+/// `perTestCoverage` grows with what the tests ran, not with the size of the program.
 pub fn json(
     statements: &[CoverageStatement],
     results: &[&TestResult],
     labels: &dyn Fn(usize, &str) -> Label,
-) -> String {
+    hit_only: bool,
+) -> Value {
     let total = totals(results);
-    let all: Vec<&CoverageStatement> = statements.iter().collect();
-    let coverage = by_file(&all, &|id| total.get(&id).copied().unwrap_or(0), labels);
+    let listed: Vec<&CoverageStatement> = match hit_only {
+        true => statements
+            .iter()
+            .filter(|s| total.get(&s.pos).is_some_and(|n| *n > 0))
+            .collect(),
+        false => statements.iter().collect(),
+    };
+    let coverage = by_file(&listed, &|id| total.get(&id).copied().unwrap_or(0), labels);
+    let mut index: HashMap<u32, Vec<usize>> = HashMap::new();
+    for (i, s) in statements.iter().enumerate() {
+        index.entry(s.pos).or_default().push(i);
+    }
     let per_test: Vec<Value> = results
         .iter()
         .filter(|r| !r.coverage.is_empty())
         .map(|r| {
             let ran: BTreeMap<u32, u32> = r.coverage.iter().copied().collect();
-            let own: Vec<&CoverageStatement> = statements.iter().filter(|s| ran.contains_key(&s.pos)).collect();
+            let mut own: Vec<usize> = ran.keys().filter_map(|pos| index.get(pos)).flatten().copied().collect();
+            own.sort_unstable();
+            let own: Vec<&CoverageStatement> = own.into_iter().map(|i| &statements[i]).collect();
             json!({
                 "test": format!("Codeunit{}.{}", r.codeunit, r.test),
                 "coverage": by_file(&own, &|id| u64::from(ran.get(&id).copied().unwrap_or(0)), labels),
             })
         })
         .collect();
-    serde_json::to_string_pretty(&json!({ "coverage": coverage, "perTestCoverage": per_test }))
-        .expect("a JSON value serializes")
+    json!({ "coverage": coverage, "perTestCoverage": per_test })
 }
 
 #[cfg(test)]
@@ -216,6 +245,7 @@ mod tests {
             dotnet: false,
             order_hint: None,
             cells: None,
+            skipped_by_option: false,
         }
     }
 
@@ -254,7 +284,7 @@ mod tests {
         let statements = [st(0, 3, "A"), st(1, 4, "B")];
         let a = res("TestA", vec![(0, 2)]);
         let b = res("TestB", vec![(0, 1), (1, 1)]);
-        let v: Value = serde_json::from_str(&json(&statements, &[&a, &b], &lab)).unwrap();
+        let v = json(&statements, &[&a, &b], &lab, false);
         let all = &v["coverage"][0];
         assert_eq!(all["file"], "/w/app/src/T.al");
         assert_eq!(all["statements"][0]["hits"], 3);
@@ -264,6 +294,34 @@ mod tests {
         assert_eq!(t[0]["test"], "Codeunit7.TestA");
         assert_eq!(t[0]["coverage"][0]["statements"].as_array().unwrap().len(), 1);
         assert_eq!(t[1]["coverage"][0]["statements"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn json_lists_only_the_statements_that_ran_when_asked_and_the_tests_own_alike() {
+        // Two files; nothing ran in the second, and nothing ran statement 1 of the first.
+        let mut other = st(3, 2, "C");
+        other.file = "src/U.al".into();
+        let statements = [st(0, 3, "A"), st(1, 4, "B"), st(2, 5, "B"), other];
+        let a = res("TestA", vec![(2, 1), (0, 2)]);
+        let b = res("TestB", vec![(0, 1)]);
+        let full = json(&statements, &[&a, &b], &lab, false);
+        let hit = json(&statements, &[&a, &b], &lab, true);
+        assert_eq!(full["coverage"].as_array().unwrap().len(), 2, "{full}");
+        assert_eq!(
+            hit["coverage"],
+            serde_json::json!([{"file": "/w/app/src/T.al", "statements": [
+                full["coverage"][0]["statements"][0], full["coverage"][0]["statements"][2]]}]),
+            "{hit}"
+        );
+        assert_eq!(hit["coverage"][0]["statements"][0]["hits"], 3);
+        assert_eq!(hit["perTestCoverage"], full["perTestCoverage"]);
+        // A test's own statements are in the order of the program, whatever order it ran them in.
+        let own = &full["perTestCoverage"][0]["coverage"][0]["statements"];
+        assert_eq!(
+            (own[0]["id"].as_u64(), own[1]["id"].as_u64()),
+            (Some(0), Some(2)),
+            "{full}"
+        );
     }
 
     #[test]

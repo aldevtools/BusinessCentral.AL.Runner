@@ -17,6 +17,16 @@ fn skip_after_timeout_is_off_by_default_and_a_flag_of_test_and_serve() {
     }
 }
 
+#[test]
+fn stop_after_first_failure_is_off_by_default_and_a_flag_of_test_and_serve() {
+    assert!(!test_args("test A").stop_after_first_failure);
+    assert!(test_args("test A --stop-after-first-failure").stop_after_first_failure);
+    match p("serve --protocol 2 --stop-after-first-failure").unwrap() {
+        Command::Serve(d) => assert_eq!(d, ["--stop-after-first-failure"]),
+        other => panic!("{other:?}"),
+    }
+}
+
 fn test_args(s: &str) -> TestArgs {
     match p(s).unwrap() {
         Command::Test(a) => *a,

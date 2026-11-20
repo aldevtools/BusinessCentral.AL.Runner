@@ -1,11 +1,10 @@
-//! GetFilters of a filter on a FlowField and a filter on a FlowFilter field (al-runner issue 8296). In the one shape corpus
-//! PR 1430 measured (tests/al-language/record/filters/ByValueRecordView.al:569-616: the FlowFilter, field 6, set first, then
-//! the FlowField, field 5, both declared by the table in number order) BC lists the FlowFilter first; it runs flagged
-//! (assumption get-filters-flowfilter-before-flowfield). Every other shape where the FlowField comes first by declaration
-//! position or by field number refuses: fields declared out of number order, a FlowFilter of a table extension, MarkedOnly,
+//! GetFilters of a filter on a FlowField and a filter on a FlowFilter field (al-runner issue 8296). In the one shape the
+//! corpus pins (tests/al-language/record/filters/ByValueRecordView.al:569-600: the FlowFilter, field 6, set first, then the
+//! FlowField, field 5, both declared by the table in number order) BC lists the FlowFilter first. Every other shape where
+//! the FlowField comes first by declaration position or by field number refuses: fields declared out of number order, a FlowFilter of a table extension, MarkedOnly,
 //! RecordRef.GetFilters and the filter list of a Find error. Without that pair GetFilters keeps declaration order.
 
-use al_builtins::assumptions::{self, Assumption};
+use al_builtins::assumptions;
 use al_builtins::native::Signal;
 use al_testkit::{run_in, text};
 
@@ -248,13 +247,13 @@ codeunit 50342 C
 fn run(routine: &str) -> (String, bool) {
     assumptions::clear_hits();
     let out = text(run_in(SRC, "C", routine));
-    let flagged = assumptions::take_hits().contains(&Assumption::GetFiltersFlowfilterBeforeFlowfield);
+    let flagged = !assumptions::take_hits().is_empty();
     (out, flagged)
 }
 
 #[test]
-fn the_measured_shape_lists_the_flowfilter_first_flagged() {
-    assert_eq!(run("Measured"), ("Day Filter: 1, Total: 0".to_string(), true));
+fn the_pinned_shape_lists_the_flowfilter_first() {
+    assert_eq!(run("Measured"), ("Day Filter: 1, Total: 0".to_string(), false));
 }
 
 #[test]

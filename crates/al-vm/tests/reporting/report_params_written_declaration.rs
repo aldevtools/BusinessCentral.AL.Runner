@@ -1,8 +1,8 @@
 //! A parameters string with the declaration `XmlDocument.WriteTo(Text)` writes (al-runner issue 7908, follow-up to 7590): the
 //! reporter's repro, with the data item on a table of its own (the virtual table Integer needs the System app) and the test
 //! codeunit run as a plain one. The repro itself, unchanged, was run with al-runner against BC 29's apps. Under SaveAs the
-//! string is read as the same string with the plain declaration (assumption report-params-written-declaration); every other
-//! shape keeps main's refusal.
+//! string is read as the same string with the plain declaration (al-language/reports/request-page/ReportParametersStrings.al:226
+//! with :276-277, :234 with :284-285); every other shape keeps main's refusal.
 
 use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
 use al_builtins::native::Signal;
@@ -165,10 +165,10 @@ fn the_reporters_two_strings_set_and_blank_the_options_as_on_bc() {
     // BC 29 (issue 7908): WriteTo gives StartDate 2026-01-15 and NoteText blank; the one-line string keeps NoteText 'init'.
     let (r, hits) = run("WrittenByWriteTo");
     assert_eq!(raised(r), "01/15/26|");
-    assert!(hits.contains(&Assumption::ReportParamsWrittenDeclaration), "{hits:?}");
+    assert!(hits.is_empty(), "{hits:?}");
     let (r, hits) = run("Utf16DeclarationOneLine");
     assert_eq!(raised(r), "01/15/26|init");
-    assert!(hits.contains(&Assumption::ReportParamsWrittenDeclaration), "{hits:?}");
+    assert!(hits.is_empty(), "{hits:?}");
 }
 
 #[test]
@@ -186,10 +186,7 @@ fn the_runtimes_write_to_gives_the_text_the_reporter_measured() {
 fn keeps_mains_refusal(routine: &str) {
     let (r, hits) = run(routine);
     assert!(matches!(&r, Err(Signal::Unsupported(_))), "{routine}: {r:?}");
-    assert!(
-        !hits.contains(&Assumption::ReportParamsWrittenDeclaration),
-        "{routine}: {hits:?}"
-    );
+    assert!(hits.is_empty(), "{routine}: {hits:?}");
 }
 
 #[test]

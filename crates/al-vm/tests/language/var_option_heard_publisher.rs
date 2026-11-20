@@ -1,5 +1,5 @@
 //! An Option variable handed directly to an event publisher's `var` Option parameter with members P,Q,R, which a subscriber
-//! hears (al-runner issue 8384, assumption `var-option-caller-members`): the subscriber reads the publisher's members and
+//! hears (al-runner issue 8384, assumption `var-option-heard-publisher`): the subscriber reads the publisher's members and
 //! the caller's variable takes back the ordinal with its own members. Measured on a local BC of the newest supported major
 //! by the corpus probe tests/al-language/types/enum-option/OptionVarMemberlessHeard.al (OVH). A `var` parameter of the
 //! running routine handed on and a global are measured to show the subscriber another list than the publisher's, and an
@@ -937,7 +937,7 @@ fn run(routine: &str) -> (Result<String, Signal>, bool) {
     let out = al_testkit::run_in(SRC, "C", routine).map(|v| text(Ok(v)));
     (
         out,
-        assumptions::take_hits().contains(&Assumption::VarOptionCallerMembers),
+        assumptions::take_hits().contains(&Assumption::VarOptionHeardPublisher),
     )
 }
 

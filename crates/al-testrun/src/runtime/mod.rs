@@ -383,6 +383,9 @@ pub struct TestResult {
     pub order_hint: Option<OrderHint>,
     /// With `RunOptions::cell_tap`: the `Expect` cells the test matched (`al_vm::observer_tap`); `None` when it did not use the fixture.
     pub cells: Option<al_vm::observer_tap::CellRecord>,
+    /// The test was not run because `RunOptions::stop_after_first_failure` or `RunOptions::skip_after_timeout` left it
+    /// out after an earlier test (al-runner issue 8492): a choice of the run, not a refusal.
+    pub skipped_by_option: bool,
 }
 
 impl TestResult {
@@ -416,6 +419,27 @@ impl TestResult {
             dotnet: false,
             order_hint: None,
             cells: None,
+            skipped_by_option: false,
+        }
+    }
+
+    /// `o` in place of the test's outcome; `skipped_by_option` stays only when `o` is the outcome it was set with.
+    pub(crate) fn take_outcome(&mut self, o: Outcome) {
+        self.skipped_by_option &= self.outcome == o;
+        self.outcome = o;
+    }
+
+    /// Whether the test is a refusal: not run, and not left out by a stop option (`skipped_by_option`). What "Top
+    /// refusals" and `--refusal-detail` rank.
+    pub fn is_refusal(&self) -> bool {
+        matches!(self.outcome, Outcome::NotRun(_)) && !self.skipped_by_option
+    }
+
+    /// The result with `skipped_by_option` set to `skip`.
+    pub(crate) fn skipped(self, skip: bool) -> Self {
+        TestResult {
+            skipped_by_option: skip,
+            ..self
         }
     }
 }
@@ -660,6 +684,8 @@ pub(crate) struct Unit {
     report_unpinned_errors: bool,
     /// See `RunOptions::skip_after_timeout`.
     skip_after_timeout: bool,
+    /// See `RunOptions::stop_after_first_failure`.
+    stop_after_first_failure: bool,
     /// See `RunOptions::perturb`.
     perturb: crate::stability::Perturb,
     /// See `RunOptions::run_seed`.
@@ -710,6 +736,9 @@ pub(crate) struct Scratch {
     cells: Vec<(String, al_vm::observer_tap::CellRecord)>,
     /// The time each test that slept asked `Sleep` for (`TestResult::slept_ms`).
     slept: Vec<(String, u64)>,
+    /// The tests `skip_after_timeout` or `stop_after_first_failure` left out, with the reason they were given
+    /// (`TestResult::skipped_by_option`).
+    skipped: Vec<(String, String)>,
     /// With `trace`: the workspace objects each test entered and whether it ran DotNet (`TestResult::entered`).
     entered: Vec<(String, Vec<String>, bool)>,
     /// See `RunOptions::run_only`.
@@ -743,6 +772,8 @@ pub(crate) struct Scratch {
     report_unpinned_errors: bool,
     /// See `RunOptions::skip_after_timeout`.
     skip_after_timeout: bool,
+    /// See `RunOptions::stop_after_first_failure`.
+    stop_after_first_failure: bool,
     /// See `RunOptions::perturb`.
     perturb: crate::stability::Perturb,
     /// See `RunOptions::run_seed`.
@@ -916,6 +947,7 @@ fn run_unit(
             flags: u.flags,
             report_unpinned_errors: u.report_unpinned_errors,
             skip_after_timeout: u.skip_after_timeout,
+            stop_after_first_failure: u.stop_after_first_failure,
             perturb: u.perturb.clone(),
             run_seed: u.run_seed,
             runner: u.runner,
@@ -1055,6 +1087,7 @@ fn scratch_unit(
         flags: Default::default(),
         report_unpinned_errors: false,
         skip_after_timeout: false,
+        stop_after_first_failure: false,
         perturb: Default::default(),
         run_seed: opts.run_seed,
         runner: None,
