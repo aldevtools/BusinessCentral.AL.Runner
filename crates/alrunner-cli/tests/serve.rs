@@ -2974,6 +2974,10 @@ fn stop_group_values_and_combinations() {
             "the `stopGroup` of an entry is a text or a number",
         ),
         (
+            json!({"stopAfterFirstFailure": true, "entries": [{"test": t, "stopGroup": "m1"}, {"test": t}]}),
+            STOP_GROUP_MIX,
+        ),
+        (
             json!({"stopAfterFirstFailure": false, "entries": [{"test": t, "stopGroup": "m1"}]}),
             STOP_GROUP_NEEDS_THE_STOP,
         ),
@@ -3001,6 +3005,8 @@ fn stop_group_values_and_combinations() {
     assert!(tests[1..].iter().all(|r| is_stopped(r, Some("m1"))), "{lines:?}");
     shut_down(s);
 }
+
+const STOP_GROUP_MIX: &str = "some entries have a `stopGroup` and some do not: give every entry one (an entry that stops alone gets a group of its own), or none (a failure then stops the whole request)";
 
 const STOP_GROUP_NEEDS_THE_STOP: &str = "`stopGroup` needs `stopAfterFirstFailure` (or a server started with `--stop-after-first-failure`): without the stop a group changes nothing";
 
@@ -3188,10 +3194,10 @@ fn the_request_after_a_grouped_stop_answers_as_a_fresh_daemon_does() {
     shut_down(fresh);
 }
 
-/// S6: the echo entry has no `stopGroup` and fails on purpose. Its second test still runs, the grouped entries run,
-/// and a plain request answers after it.
+/// S7: the echo shape. An entry that fails on purpose alone in its own group stops no other group; a plain request
+/// answers after it.
 #[test]
-fn a_mixed_request_runs_every_grouped_entry_after_the_ungrouped_echo_fails() {
+fn an_echo_entry_in_its_own_group_leaves_every_other_group_running() {
     let d = tempfile::tempdir().unwrap();
     let a = group_app(d.path());
     let mut s = one_thread_server(&[]);
@@ -3200,13 +3206,13 @@ fn a_mixed_request_runs_every_grouped_entry_after_the_ungrouped_echo_fails() {
         &mut s,
         &a,
         json!({"stopAfterFirstFailure": true, "entries": [
-            {"id": "echo", "test": "Codeunit50140."},
+            {"id": "echo", "test": "Codeunit50140.", "stopGroup": "echo"},
             {"id": "a", "test": t, "stopGroup": "m1"}, {"id": "b", "test": t, "stopGroup": "m2"}]}),
     );
     let tests = test_lines(&lines);
     assert_eq!(tests.len(), 10, "{lines:?}");
     assert_eq!(tests[0]["status"], "fail", "{lines:?}");
-    assert_eq!(tests[1]["status"], "pass", "the echo's second test runs: {lines:?}");
+    assert_eq!(tests[1]["notRun"], true, "{lines:?}");
     for (k, group) in [(2, "m1"), (6, "m2")] {
         assert_eq!(tests[k]["status"], "fail", "{lines:?}");
         assert!(

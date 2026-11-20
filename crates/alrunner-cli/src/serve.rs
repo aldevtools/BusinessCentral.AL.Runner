@@ -1425,9 +1425,9 @@ mod tests {
         assert_eq!(e[0].stop_group, None);
     }
 
-    /// PERF-18: groups need the stop; a request may mix grouped and ungrouped entries.
+    /// PERF-18: groups are all or none, and need the stop.
     #[test]
-    fn stop_groups_need_the_stop_and_a_mix_is_fine() {
+    fn stop_groups_are_all_or_none_and_need_the_stop() {
         let entry = |g: Option<&str>| run::Entry {
             stop_group: g.map(String::from),
             ..run::Entry::default()
@@ -1436,12 +1436,16 @@ mod tests {
         let all = [entry(Some("m1")), entry(Some("m2"))];
         let mixed = [entry(None), entry(Some("m1"))];
         let needs_the_stop = "`stopGroup` needs `stopAfterFirstFailure` (or a server started with `--stop-after-first-failure`): without the stop a group changes nothing";
+        let mix = "some entries have a `stopGroup` and some do not: give every entry one (an entry that stops alone gets a group of its own), or none (a failure then stops the whole request)";
         for stop in [false, true] {
             assert_eq!(stop_groups_checked(&none, stop), Ok(()), "no groups, stop {stop}");
         }
         assert_eq!(stop_groups_checked(&all, true), Ok(()));
-        assert_eq!(stop_groups_checked(&mixed, true), Ok(()), "a mix is allowed");
+        assert_eq!(
+            stop_groups_checked(&mixed, true),
+            Err(mix.to_string()),
+            "a mix is refused"
+        );
         assert_eq!(stop_groups_checked(&all, false), Err(needs_the_stop.to_string()));
-        assert_eq!(stop_groups_checked(&mixed, false), Err(needs_the_stop.to_string()));
     }
 }

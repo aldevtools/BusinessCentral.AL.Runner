@@ -353,28 +353,40 @@ fn the_rest_of_the_failing_codeunit_names_its_group() {
     assert_eq!(marks[3], [true], "{marks:?}");
 }
 
-/// An entry without a group ignores the stop, also inside its own codeunit: the test after the failing one runs.
+/// Library callers only (serve refuses a mix): entries without a group are one group, with #8484's text.
 #[test]
-fn an_entry_without_a_group_ignores_the_stop() {
+fn library_entries_without_a_group_are_one_group() {
     let rt = run(stop_on(vec![
         grouped(50710, None),
         grouped(50711, Some("m1")),
         grouped(50711, None),
-        grouped(50710, Some("m1")),
     ]));
     let rows = entry_rows(&rt);
-    assert_eq!(rows.len(), 4, "{rows:?}");
-    assert_eq!(rows[0][0], ("A_Passes".to_string(), Outcome::Pass), "{rows:?}");
+    assert_eq!(rows.len(), 3, "{rows:?}");
     assert!(matches!(&rows[0][1].1, Outcome::Fail(_)), "{rows:?}");
-    assert_eq!(
-        rows[0][2],
-        ("C_Passes".to_string(), Outcome::Pass),
-        "C runs after the ungrouped failure: {rows:?}"
-    );
     assert!(all_pass(&rows[1]), "{rows:?}");
-    assert!(all_pass(&rows[2]), "{rows:?}");
-    assert!(matches!(&rows[3][1].1, Outcome::Fail(_)), "{rows:?}");
-    assert!(stopped_in(&rows[3][2].1, "m1"), "{rows:?}");
+    let upstream = Outcome::NotRun("the test Codeunit50710.B_Fails failed before it, and stopAfterFirstFailure (--stop-after-first-failure) runs no test of its codeunit or of a later entry after a failure".into());
+    assert!(
+        !rows[2].is_empty() && rows[2].iter().all(|(_, o)| *o == upstream),
+        "{rows:?}"
+    );
+}
+
+/// The echo shape: an entry that fails on purpose alone in its own group stops no other group.
+#[test]
+fn an_entry_failing_alone_in_its_group_leaves_every_other_group_running() {
+    let rt = run(stop_on(vec![
+        grouped(50710, Some("echo")),
+        grouped(50711, Some("m1")),
+        grouped(50710, Some("m2")),
+    ]));
+    let rows = entry_rows(&rt);
+    assert!(matches!(&rows[0][1].1, Outcome::Fail(_)), "{rows:?}");
+    assert!(stopped_in(&rows[0][2].1, "echo"), "{rows:?}");
+    assert!(all_pass(&rows[1]), "{rows:?}");
+    assert_eq!(rows[2][0], ("A_Passes".to_string(), Outcome::Pass), "{rows:?}");
+    assert!(matches!(&rows[2][1].1, Outcome::Fail(_)), "a runs: {rows:?}");
+    assert!(stopped_in(&rows[2][2].1, "m2"), "{rows:?}");
 }
 
 #[test]
@@ -390,15 +402,13 @@ fn groups_without_the_stop_change_nothing() {
 }
 
 #[test]
-fn a_grouped_failure_leaves_the_ungrouped_entry_and_other_groups_running() {
+fn a_grouped_failure_leaves_the_other_groups_running() {
     let rt = run(stop_on(vec![
         grouped(50710, Some("m1")),
-        grouped(50711, None),
         grouped(50711, Some("m2")),
         grouped(50711, Some("m1")),
     ]));
     let rows = entry_rows(&rt);
     assert!(all_pass(&rows[1]), "{rows:?}");
-    assert!(all_pass(&rows[2]), "{rows:?}");
-    assert!(all_stopped_in(&rows[3], "m1"), "{rows:?}");
+    assert!(all_stopped_in(&rows[2], "m1"), "{rows:?}");
 }
