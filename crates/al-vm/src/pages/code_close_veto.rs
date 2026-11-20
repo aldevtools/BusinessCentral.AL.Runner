@@ -182,7 +182,7 @@ impl Session {
     pub(super) fn note_code_close_veto(&mut self, st: &St, action: &str) -> Result<(), Signal> {
         {
             let s = st.borrow();
-            if !(s.open && s.close_vetoed && !s.close_error) {
+            if !(s.open && s.close.vetoed() && !s.close.error()) {
                 return Ok(());
             }
         }

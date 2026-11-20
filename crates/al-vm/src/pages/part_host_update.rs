@@ -38,9 +38,7 @@ impl Session {
                 || child.cursor != Cursor::Row
                 || child.draft
                 || child.dirty
-                || !child.refresh
-                || !child.refresh_by_update
-                || !child.refresh_update_false
+                || !child.refresh.asked_by_update_false()
                 || self.engine.object_facts[child.object as usize].page_type_lower() != "cardpart"
             {
                 return Ok(());
@@ -126,7 +124,7 @@ impl Session {
             return Ok(());
         };
         if self.clean_document_refresh_row(st) && Self::same_key(&key, &self.row_key(&self.page_rec(st))?) {
-            st.borrow_mut().refresh = true;
+            st.borrow_mut().refresh.ask();
             self.run_refresh(st)?;
         }
         Ok(())

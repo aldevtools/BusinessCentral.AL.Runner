@@ -1154,8 +1154,10 @@ What this shows:
    - after the first codeunit, as soon as the learned cost of one thread shows it cannot fit;
    - during the run, before the resident memory would pass the limit while only one thread is left.
    Each stop exits with code 2 and says how much memory the run needed and how much the limit allowed; the tests not
-   reached are reported as not run with the reason "memory limit (--max-memory X MB)", never as failures. Results
-   already reported stay. Without `--max-memory` the limit is free memory and the cgroup as in amendment 9, and the
+   reached are reported as not run with the reason "memory limit (--max-memory X MB)", never as failures. A test whose
+   result would come from a serial re-run the stop did not reach counts as not reached: a re-run the run chose, and,
+   under `--strict-order`, the re-run of a test codeunit after one the stop cut short that the runner would run again
+   in order with it. Results already reported stay. Without `--max-memory` the limit is free memory and the cgroup as in amendment 9, and the
    same rule applies to an explicit cgroup `memory.max`. Making the carried state of a long chain smaller is a separate
    change, not part of this amendment.
 7. **Outcomes do not change, and a test checks it for every way the threads can go.** Only which thread runs a

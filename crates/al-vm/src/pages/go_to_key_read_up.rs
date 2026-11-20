@@ -27,7 +27,7 @@ impl Session {
         let here = self.row_key(&rec)?;
         let on_last = {
             let s = st.borrow();
-            s.read_up_from_last == Some(false)
+            s.read_up_from_last == ReadUpFromLast::Opened
                 && s.cursor == Cursor::Row
                 && !s.draft
                 && !s.stale
@@ -70,7 +70,7 @@ impl Session {
             let mut s = st.borrow_mut();
             s.window = rows;
             s.window_from_start = true;
-            s.read_up_from_last = Some(true);
+            s.read_up_from_last = ReadUpFromLast::WalkedFromFirst;
         }
         for i in 0..=target {
             let r = self.read_client_row_in(st, i, true);

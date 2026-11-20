@@ -865,7 +865,11 @@ impl<'a> Lowerer<'a> {
         for (i, a) in args.iter().enumerate() {
             let p = sig.params.get(i).ok_or("too many arguments")?;
             if p.by_var {
-                out.push(ir::Arg::Ref(self.place(a)?));
+                let arg = ir::Arg::Ref(self.place(a)?);
+                if let Some(why) = self.var_option_arg_refusal(None, &p.ty, a, &arg) {
+                    return Ok(ir::Expr::Refused(format!("call `{}`: {why}", sig.name)));
+                }
+                out.push(arg);
             } else {
                 let value = self.expr_into(&p.ty, a)?;
                 self.refuse_variant_argument(&p.ty, a, TextConstantSite::Other)?;

@@ -1427,8 +1427,9 @@ pub fn read_text(ty: &crate::value::RtType, text: &str) -> Option<Value> {
 }
 
 /// `Evaluate(Date, Text)` of a closing-date text of [`crate::format::closing_letter_text`] (the letter and mm/dd/yy) under a
-/// language whose letter is measured, `number` the format number when one is given. Measured (assumption
-/// `closing-date-letter-by-language`, corpus PR 1428 GlobalLanguageClosingDate.al:39-42 TryEvaluate, :123-284 at 04e1fa0a):
+/// language whose letter is measured, `number` the format number when one is given. Pinned by
+/// localization/global-language/GlobalLanguageClosingDate.al:40 (`Ok := Evaluate(D, Txt)`) of the texts at :90, asserted at
+/// :166-172 (1030), :275-281 (1053) and the `Evaluate` lines of :177-257 (1031, 1036, 1044):
 /// without a format number, with the result used, C and U in either case and upper-case S: `Some(Ok(Some(date)))` for the
 /// language's letter, `Some(Ok(None))` (false, the variable unchanged) for another language's letter. Format number 9 keeps its
 /// own rule, and so does a date part that does not read (`None`); the statement form, another number and a lower-case s refuse.
@@ -1452,7 +1453,6 @@ fn closing_in_language(c: &dyn Ctx, text: &str, number: Option<i64>) -> Option<R
     if letter == 's' {
         return refused("a lower-case s");
     }
-    crate::assumptions::assume(crate::assumptions::Assumption::ClosingDateLetterByLanguage);
     Some(Ok(own.then_some(Value::Date(d, true))))
 }
 
@@ -1479,26 +1479,26 @@ pub fn evaluate_variable_option(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut 
     evaluate_with(c, a, true)
 }
 
-/// `Evaluate` into a `var` Option parameter declared without members: only a text that reads as an ordinal
+/// `Evaluate` into a `var` Option parameter declared without members: read against the caller's members
 /// (`option_text::memberless_var_parameter`).
 pub fn evaluate_memberless_var_option(
     c: &mut dyn Ctx,
     _: Option<&mut Value>,
     a: &mut [Value],
 ) -> Result<Value, Signal> {
-    option_text::memberless_var_parameter(&a[1])?;
+    option_text::memberless_var_parameter(a)?;
     evaluate_with(c, a, true)
 }
 
-/// `Evaluate` into an element of a `var` array of Options declared without members: only an ordinal text
+/// `Evaluate` into an element of a `var` array of Options declared without members: read against the caller's members
 /// (`option_text::memberless_var_array_element`).
 pub fn evaluate_memberless_var_option_element(
     c: &mut dyn Ctx,
     _: Option<&mut Value>,
     a: &mut [Value],
 ) -> Result<Value, Signal> {
-    option_text::memberless_var_array_element(&a[1])?;
-    evaluate_with(c, a, true)
+    option_text::memberless_var_parameter(a)?;
+    option_text::memberless_var_array_element(evaluate_with(c, a, true))
 }
 
 /// `Evaluate` into an Option field that declares an OptionCaption (the lowering appends the captions as a comma list, or the
@@ -2458,8 +2458,8 @@ fn evaluate_with_max(
                 // format-evaluate/EvalLanguageBoolean.al EL_Errors_NLB_2067, _NLD_1043, _FRA_1036, _DAN_1030 (the quotes of the
                 // French text are « and » with a no-break space inside).
                 (Some(n @ (1030 | 1036 | 1043 | 2067)), "Boolean") => raise_boolean_error(n, &text),
-                // Under 1044 and 1053 only the form with the result used is measured (assumption
-                // `boolean-words-norwegian-swedish`); the error text of the statement form is not.
+                // Under 1044 and 1053 only the form with the result used is pinned (localization/global-language/
+                // GlobalLanguageBoolean.al:217-274); the error text of the statement form is not.
                 (Some(n @ (1044 | 1053)), "Boolean") if number == 0 => unsupported(format!(
                     "the error of Evaluate into a Boolean under GlobalLanguage {n} (not measured)"
                 )),

@@ -37,7 +37,8 @@ not committed. Make them locally in seconds, or take the artifact
 
 The corpus bump bot (`.github/workflows/corpus-bump-bot.yml`,
 `tools/corpus_bump_bot.sh`) follows the corpus: every 20 minutes it looks for
-a green corpus run newer than the pin and opens a pull request on a branch
+a green corpus push or nightly (schedule) run on master newer than the pin
+(the newest created one that passes the checks below) and opens a pull request on a branch
 `corpus-bump/<commit>` with the pin, `oracle/`, the harness counts and the
 not-passing lists (lines for new cases that do not pass, `--list-new-cases
 HEAD`; stale lines deleted). It never adds a line for a case the old oracle had
@@ -58,12 +59,21 @@ unchanged since its source commit, the chain must be at most 20 runs, the newest
 nightly at or before the commit must be green and report no difference for
 every version, and
 no codeunit of the current oracle may go missing unless the corpus diff deleted
-or renamed its file. A run without a manifest passes only when no suite carries
-provenance (a run from before the corpus recorded it). The bump writes `mode`,
+or renamed its file. A run without a manifest passes only when it is not a nightly
+and no suite carries provenance (a run from before the corpus recorded it). The bump writes `mode`,
 `fresh`, `reused`, `oldest_source_run` and `ci_bc_build` into each
 `[[version]]` of `oracle.toml` and warns when `ci_bc_build` differs from
-`bc_build`. The bump bot finds only green push runs, so a bump from the
-nightly exception is run by hand.
+`bc_build`. The bump bot lists green push and nightly runs (owner,
+2026-11-18). A nightly whose comparison job failed is not green, so a bump from
+the nightly exception is still run by hand. A run that reuses results also waits for the
+first nightly after it (the first created among the nightlies on its commit or a
+later one): that nightly must have ended green, with a manifest of its latest
+attempt that reports no difference for every version and names this run as the
+run it compared, and in `compared_attempt` the attempt of it that it downloaded, which must be
+the attempt bumped (owner, 2026-11-18). A manifest without `compared_attempt` refuses. Only the run and attempt a
+nightly compared can be bumped as a combined run. A first nightly that refuses keeps refusing the run
+until that nightly is re-run; the pin then moves through a later push run or a
+green nightly.
 
 A bump need not wait for the corpus master run (about 55 minutes after a corpus
 pull request merges; owner, 2026-11-05): `tools/corpus_bump.sh --from-pr

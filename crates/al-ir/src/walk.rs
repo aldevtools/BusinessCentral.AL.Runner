@@ -599,7 +599,9 @@ fn walk_expr<V: RefVisitor>(e: &mut Expr, v: &mut V) {
             }
             walk_args(args, v);
         }
-        Expr::TddFit { inner, .. } | Expr::FitOrRefuse { inner, .. } => walk_expr(inner, v),
+        Expr::TddFit { inner, .. } | Expr::FitOrRefuse { inner, .. } | Expr::VarSectionValue(inner) => {
+            walk_expr(inner, v)
+        }
         Expr::TddStub { stub: _, args, ty } => {
             if let Some(t) = ty {
                 walk_rt(t, v);
@@ -1145,6 +1147,7 @@ fn walk_report_item<V: RefVisitor>(i: &mut ReportItem, parent: TableOf, v: &mut 
         max_iteration: _,
         print_only_if_detail: _,
         calc_fields,
+        stated_properties: _,
     } = i;
     let own = TableOf::object(*table);
     for f in calc_fields {
@@ -1168,6 +1171,7 @@ fn walk_report_column<V: RefVisitor>(c: &mut ReportColumn, table: TableOf, v: &m
         field,
         item_field,
         include_caption: _,
+        stated_properties: _,
         caption_table,
         caption_field,
         value_unsupported: _,
@@ -1200,6 +1204,7 @@ fn walk_report<V: RefVisitor>(r: &mut Report, v: &mut V) {
         on_pre_rendering: _,
         extensions,
         assumes: _,
+        dependency_items: _,
         request_flag_slot: _,
         request_rec_routines: _,
         request_page_ok_only: _,
@@ -1210,6 +1215,8 @@ fn walk_report<V: RefVisitor>(r: &mut Report, v: &mut V) {
         caption: _,
         caption_attributes: _,
         format_region: _,
+        excel_multiple_data_sheets: _,
+        declares_globals: _,
         about_title: _,
         about_text: _,
         layout: _,
@@ -1238,19 +1245,26 @@ fn walk_report_ext<V: RefVisitor>(e: &mut ReportExt, v: &mut V) {
         base,
         on_pre: _,
         on_post: _,
-        aliases: _,
-        modifies: _,
+        aliases,
+        modifies,
         added,
         adds,
         labels: _,
     } = e;
     let base_report = *base;
+    for (anchor, _) in aliases {
+        walk_report_anchor(anchor, v);
+    }
+    for modify in modifies {
+        walk_report_anchor(&mut modify.item, v);
+    }
     let added_tables: Vec<Option<usize>> = added.iter().map(|a| a.item.table).collect();
     for a in added {
         let AddedItem {
             item,
             base_parent,
-            place: _,
+            foreign_parent,
+            place,
         } = a;
         // An added item is nested under another added item or under a base item.
         let parent = match (item.parent, base_parent) {
@@ -1261,20 +1275,40 @@ fn walk_report_ext<V: RefVisitor>(e: &mut ReportExt, v: &mut V) {
             },
             (None, None) => TableOf::Unknown,
         };
+        let parent = foreign_parent.as_ref().map_or(parent, |p| TableOf::object(p.table));
         walk_report_item(item, parent, v);
+        if let Some(p) = foreign_parent {
+            walk_foreign_report_item(p, v);
+        }
+        if let AddedPlace::Before(a) | AddedPlace::After(a) = place {
+            walk_report_anchor(a, v);
+        }
     }
     for a in adds {
         let ReportExtAdd { item, columns } = a;
+        let table = match *item {
+            ItemAnchor::Base(item) => TableOf::BaseItem {
+                report: base_report,
+                item,
+            },
+            ItemAnchor::Added(item) => TableOf::object(added_tables.get(item).copied().flatten()),
+            ItemAnchor::Foreign(item) => TableOf::object(item.table),
+        };
         for c in columns {
-            walk_report_column(
-                c,
-                TableOf::BaseItem {
-                    report: base_report,
-                    item: *item,
-                },
-                v,
-            );
+            walk_report_column(c, table, v);
         }
+        walk_report_anchor(item, v);
     }
     obj(v, base);
+}
+
+fn walk_report_anchor<V: RefVisitor>(anchor: &mut ItemAnchor, v: &mut V) {
+    if let ItemAnchor::Foreign(item) = anchor {
+        walk_foreign_report_item(item, v);
+    }
+}
+
+fn walk_foreign_report_item<V: RefVisitor>(item: &mut ForeignReportItem, v: &mut V) {
+    obj(v, &mut item.extension);
+    object_opt(v, &mut item.table);
 }

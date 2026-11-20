@@ -1,5 +1,5 @@
 //! `Evaluate` into an Option: a variable (`variable`), a `var` parameter declared without members
-//! (`memberless_var_parameter`) and a field (`field`).
+//! (`memberless_var_parameter`, `memberless_var_array_element`) and a field (`field`).
 
 use super::{Parsed, unsupported};
 use crate::native::{Ctx, Signal};
@@ -67,31 +67,38 @@ fn ordinal(t: &str) -> Option<u64> {
     }
 }
 
-/// `Evaluate` of `source` into a `var` Option parameter declared without members (the lowering's
-/// `memberless_var_option_parameter`, al-runner issue 7994): BC reads the caller's members there, which the runner does not
-/// hand to the parameter. A text that reads as an ordinal (`ordinal`) goes on and is read as by any Option variable, as
-/// before; every other source would need the caller's members (a member name, a blank text, the error that lists them)
-/// and refuses. Not pinned.
-pub(super) fn memberless_var_parameter(source: &Value) -> Result<(), Signal> {
-    ordinal_or(
-        source,
-        "Evaluate of a text that is not an ordinal into a `var` Option parameter declared without members: the caller's members are not handed to the parameter (al-runner issue 7994, not pinned)",
-    )
+/// `Evaluate` into a `var` Option parameter declared without members (the lowering's `memberless_var_option_parameter`), or
+/// into an element of a `var` array parameter of such Options: the parameter holds the caller's members (al-vm
+/// `var_option::var_binding`), and the text is read against them as by any Option variable (`variable`): a name in any case
+/// and without its blanks, an ordinal past the members kept, a rejected text false with the result used and the value kept,
+/// as a statement the error that lists the caller's members, also for the empty text
+/// (tests/al-language/types/enum-option/OptionVarMemberlessEvaluate.al:77-244, :170), also after the routine stored into the
+/// parameter (OptionVarMemberlessWrites.al:130, :162, :212). A blank text is measured from callers whose members all have a name
+/// (First,Second,Third, OptionVarMemberlessEvaluate.al:170-185; " ",First, OptionVarMemberlessEvaluate.al:286-325); from a
+/// caller with an empty member (`,A,B`, or a caller without members) it refuses.
+pub(super) fn memberless_var_parameter(a: &[Value]) -> Result<(), Signal> {
+    let Value::Option(_, members) = &a[0] else {
+        return Ok(());
+    };
+    let blank = crate::native::text_of(&a[1]).is_some_and(|t| trimmed(&t).is_empty());
+    if blank && members.iter().any(String::is_empty) {
+        return unsupported(
+            "Evaluate of a blank text into a `var` Option parameter declared without members, from a caller with an empty member or without members (not pinned)",
+        );
+    }
+    Ok(())
 }
 
-/// The same for an element of a `var` array parameter of such Options: the element has the caller's members for the
-/// Evaluate, but the store back drops them, so the caller would show the number (al-runner issue 8291). Not pinned.
-pub(super) fn memberless_var_array_element(source: &Value) -> Result<(), Signal> {
-    ordinal_or(
-        source,
-        "Evaluate of a text that is not an ordinal into an element of a `var` array of Options declared without members: the caller's members are read for the Evaluate, but the store drops them, so the caller would show the number (al-runner issue 8291, not pinned)",
-    )
-}
-
-fn ordinal_or(source: &Value, refusal: &str) -> Result<(), Signal> {
-    match crate::native::text_of(source) {
-        Some(text) if ordinal(trimmed(&text)).is_some() => Ok(()),
-        _ => unsupported(refusal),
+/// `Evaluate` into an element of a `var` array parameter of Options declared without members: the element holds the caller's
+/// members and keeps them when it is stored (al-vm `var_option::element_store`). Measured for a member name with the result used
+/// (OptionVarMemberlessEvaluate.al:552); a text read as an ordinal or a name is stored the
+/// same way. A rejected text is not measured: `parsed` false or an error refuses.
+pub(super) fn memberless_var_array_element(parsed: Result<Value, Signal>) -> Result<Value, Signal> {
+    match parsed {
+        Ok(Value::Boolean(false)) | Err(Signal::Error(_)) => unsupported(
+            "Evaluate of a text that names no member into an element of a `var` array of Options declared without members (not pinned)",
+        ),
+        other => other,
     }
 }
 

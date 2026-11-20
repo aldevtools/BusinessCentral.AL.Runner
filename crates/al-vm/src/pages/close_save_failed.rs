@@ -46,7 +46,7 @@ impl Session {
         if !pinned {
             return None;
         }
-        st.borrow_mut().close_save_failed = true;
+        st.borrow_mut().close.save_failed_at_close();
         let mut wrapped = (**e).clone();
         wrapped.code = "TestWrapped".into();
         Some(Err(Signal::Error(Box::new(wrapped))))
@@ -55,12 +55,12 @@ impl Session {
     /// A second `Close()` of a page whose save failed at Close: it closes, with no trigger and no save (Y67CloseSaveError.al:239,
     /// :256).
     pub(super) fn close_after_failed_save(&mut self, st: &St) -> Option<Result<Value, Signal>> {
-        if !st.borrow().close_save_failed {
+        if !st.borrow().close.save_failed() {
             return None;
         }
         {
             let mut s = st.borrow_mut();
-            s.close_save_failed = false;
+            s.close.save_failure_cleared();
             s.dirty = false;
         }
         self.mark_closed(st);
@@ -69,7 +69,7 @@ impl Session {
 
     /// Refuses a TestPage call on a page whose save failed at Close (only a second Close is pinned).
     pub(super) fn refuse_after_failed_close_save(&self, st: &St) -> Result<(), Signal> {
-        if st.borrow().close_save_failed {
+        if st.borrow().close.save_failed() {
             return unsupported(
                 "a TestPage call on a page whose save failed at TestPage.Close(), other than Close (not pinned)",
             );
@@ -81,7 +81,7 @@ impl Session {
     /// SetValue of a control that runs no validate trigger are pinned (Y67CloseSaveError.al:239, :256).
     pub(super) fn refuse_unpinned_control_state(&self, c: &ControlRef, method: PageOp) -> Result<(), Signal> {
         self.refuse_after_swallowed_part_insert(&c.page, None)?;
-        if c.page.borrow().close_save_failed {
+        if c.page.borrow().close.save_failed() {
             let ControlTarget::Control(idx) = c.target else {
                 return self.refuse_after_failed_close_save(&c.page);
             };
