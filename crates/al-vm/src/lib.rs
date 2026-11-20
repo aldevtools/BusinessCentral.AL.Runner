@@ -74,6 +74,7 @@ mod dev_endpoint_ui;
 mod dispatch;
 pub mod dotnet;
 mod effects;
+pub mod emit_version;
 mod empty_reads;
 mod enum_caption_ml;
 mod order_trial;
@@ -243,6 +244,8 @@ pub struct Engine {
     /// Whether the license gives some table of the program less than Yes on Read, Insert, Modify or Delete, so that
     /// record accesses check it also in an unrestricted session (license_ceiling.rs). Worked out on first use.
     pub(crate) license_caps: std::sync::OnceLock<bool>,
+    /// The emit version of the run's build, which the missing-object error names (`emit_version.rs`). Default: none known.
+    pub emit_version: emit_version::EmitVersion,
     /// The service-tier setting DisableWriteInsideTryFunctions is off (`al-runner test --allow-write-in-try-functions`, al-runner
     /// issue 7143), as on Business Central online. Default `false`: the setting at its default, as on a BC container and the
     /// corpus CI, where a write inside a TryFunction whose result is used raises TryFunctionWrite.
@@ -529,6 +532,7 @@ impl Engine {
             test_data: None,
             license: None,
             license_caps: Default::default(),
+            emit_version: Default::default(),
             write_in_try_allowed: false,
             dependencies_published_global: false,
             unevaluable_init: Arc::new(unevaluable_init),
@@ -581,6 +585,7 @@ impl Engine {
             test_data: None,
             license: None,
             license_caps: Default::default(),
+            emit_version: Default::default(),
             write_in_try_allowed: false,
             dependencies_published_global: false,
             unevaluable_init: self.unevaluable_init.clone(),
@@ -649,6 +654,7 @@ impl Engine {
             test_data,
             license,
             license_caps,
+            emit_version,
             write_in_try_allowed,
             dependencies_published_global,
             // From the program and the config of `with_config` (and al-testrun's `global_triggers_find_unavailable`,
@@ -699,6 +705,7 @@ impl Engine {
         *test_data = None;
         *license = None;
         *license_caps = Default::default();
+        *emit_version = Default::default();
         *write_in_try_allowed = false;
         *dependencies_published_global = false;
     }
