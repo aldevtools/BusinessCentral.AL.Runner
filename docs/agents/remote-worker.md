@@ -54,9 +54,9 @@ Worktrees share the clone's settings and need nothing else.
    needs: `git -C corpus fetch --unshallow` (skip it if the command says the
    repository is complete).
 3. `cargo build --release`
-4. `./target/release/al-test-cli --root . --all-versions --fetch-deps`
+4. `./target/release/al-test-cli --root . --all-versions --fetch-deps --fetch-render-pieces`
    Once per machine: it downloads Microsoft's apps of the pinned builds into the artifact cache
-   (`~/.cache/al-runtime/artifacts`, about 41 MB per BC version). Corpus runs and the Rust tests that read a
+   (`~/.cache/al-runtime/artifacts`, about 41 MB per BC version, and about 120 MB more for the report render pieces). Corpus runs and the Rust tests that read a
    Microsoft file take them only from there. A test never downloads; it fails with this command when a file is missing.
    Run it again after `bc_build` in `oracle/oracle.toml` moves.
 5. `./target/release/al-test-cli --root .`

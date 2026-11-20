@@ -18,7 +18,7 @@
 //! step of a page that has each fact but calls a codeunit procedure that does more than log: `journal_tree`).
 
 use super::hidden_part_journal_code::{Calls, host_bodies_are, part_procedure_is, visible_variable};
-use super::pinned_shape::{NextEnd, PinnedCode, PinnedEnd, TestCall, code_stmts, codeunit_var_call};
+use super::pinned_shape::{NextEnd, PinnedCode, PinnedEnd, Reads, TestCall, code_stmts, codeunit_var_call};
 use super::*;
 use al_builtins::page_op::PageMethod;
 
@@ -40,7 +40,7 @@ const PART_CONTROL_PROPS: [(&str, Option<&str>); 4] = [
 const TURN_END: PinnedEnd = PinnedEnd {
     reason: "a call of the test after an action turned the hidden part of the journal shape visible, other than the part's \
              Visible, one Next and Close (not pinned)",
-    reads: false,
+    reads: Reads::No,
     caption: false,
     part_reads: false,
     one_action: false,

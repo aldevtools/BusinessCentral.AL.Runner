@@ -156,5 +156,14 @@ fn a_search_of_a_list_of_xml_values_refuses() {
 fn a_search_of_a_list_of_other_values_keeps_its_answer() {
     assert_eq!(text(run_in(SRC, "T", "Texts")), "Yes|2|3|Yes|No|2");
     assert_eq!(text(run_in(SRC, "T", "Integers")), "Yes|2|0|Yes|1");
-    assert_eq!(text(run_in(SRC, "T", "JsonObjects")), "Yes|1");
+}
+
+// al-runner issue 8173: a JsonObject compare is not measured either (a filled object just added was not found), so the
+// search refuses (al-vm tests/language/unmeasured_compare.rs has every JSON type).
+#[test]
+fn a_search_of_a_list_of_json_objects_refuses() {
+    match run_in(SRC, "T", "JsonObjects") {
+        Err(al_builtins::native::Signal::Unsupported(why)) => assert!(why.contains("JsonObject"), "{why}"),
+        other => panic!("{other:?}"),
+    }
 }

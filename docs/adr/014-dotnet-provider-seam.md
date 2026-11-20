@@ -45,8 +45,9 @@ directly.
    source: `Pin::AlRunner("AL Runner v2 <file:line>")` now, `Pin::Probe` once a probe pins it,
    `Pin::Corpus` where a corpus test does. Where a probe and AL Runner differ, the probe wins.
 5. The probe batch (corpus tests under `tests/al-language/session-system/`, measured on BC 27.5 and later) pinned the
-   ALConfigSettings flags and limits, `IsSandbox` true, `IsProduction` false, `IsAzure` true on
-   27 and 28, false from 29 (through `IsSaaSInfrastructure`, `Gate::NotSaaSInfrastructure`), `GetApplicationFamily` `W1`, the empty Power Platform
+   ALConfigSettings flags and limits, `IsSandbox` true, `IsProduction` false, `IsAzure` false on
+   every major (through `IsSaaSInfrastructure`; the true on 27 and 28 measured first was a Linux CI host difference, corrected
+   by the corpus bump to 8fcde9a6), `GetApplicationFamily` `W1`, the empty Power Platform
    environment id, and `IsInTestMode` (through `CanStartSession`). AL Runner's tenant is
    Production on an on-premises topology, so the oracle tenant, a sandbox on Azure topology,
    differs from it in `IsSandbox`, `IsProduction` and `IsAzure`. The shipped values follow the
@@ -370,6 +371,13 @@ before a request is sent. Every refusal names the type or member and the rule.
   frameworks). `--dotnet-allow-roll-forward` now picks the lowest newer major
   only when that major is missing; `DOTNET_ROLL_FORWARD=Major`, used before,
   never left .NET 8 while .NET 8 was installed. No protocol or packaging change.
+  Note (2026-11-17): the BC 27 and 28 builds published on 2026-11-17 run on
+  .NET 10, the earlier builds of the same minors on .NET 8, so the major is a
+  fact of the build. A run with a service tier (a fetched one or an extracted
+  artifact) now takes the major from that tier's
+  `Microsoft.Dynamics.Nav.Server.runtimeconfig.json`, and refuses every DotNet
+  call when it cannot be read (`al-deps/src/service_runtime.rs`). The table by
+  BC major stays for runs without a service tier, such as corpus runs.
 - BCL behaviour that depends on the host OS (`System.Drawing`, file paths,
   certificates) can differ from Windows. Known cases are refused by name.
 - The same sidecar and the same inputs give the same outputs, except where

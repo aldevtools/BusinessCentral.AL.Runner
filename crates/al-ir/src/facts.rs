@@ -95,6 +95,8 @@ pub struct ObjectFacts {
     pub page_type: Option<PageType>,
     /// `EventSubscriberInstance = Manual` (a manual subscriber codeunit).
     pub manual_subscriber: bool,
+    /// `SingleInstance = true` (a codeunit with one instance per session).
+    pub single_instance: bool,
     /// The object states `SourceTableView`.
     pub has_source_table_view: bool,
     /// `ObsoleteState = Moved`: the object moved to another app and is not in the runtime app.
@@ -125,6 +127,9 @@ impl ObjectFacts {
             manual_subscriber: properties.iter().any(|(k, v)| {
                 k.eq_ignore_ascii_case("EventSubscriberInstance") && v.trim().eq_ignore_ascii_case("Manual")
             }),
+            single_instance: properties
+                .iter()
+                .any(|(k, v)| k.eq_ignore_ascii_case("SingleInstance") && v.trim().eq_ignore_ascii_case("true")),
             has_source_table_view: properties
                 .iter()
                 .any(|(k, _)| k.eq_ignore_ascii_case("SourceTableView")),

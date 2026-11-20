@@ -102,6 +102,9 @@ pub struct StreamEffects {
     pub bridges: Vec<(usize, u64)>,
     /// Bytes written into any live bridge since the last reply, by bridge id.
     pub written: Vec<(u64, Vec<u8>)>,
+    /// The bridges a .NET write went over bytes they had handed back, or set below them, since the last reply: the VM marks
+    /// their Blobs (`al_builtins::stream::DOTNET_BRIDGE_OVERWRITTEN`).
+    pub overwritten: Vec<u64>,
     /// The helper bound an AL Text argument to a `System.Guid` parameter (assumption `dotnet-text-argument-as-guid`); the VM marks it.
     pub text_converted_to_guid: bool,
 }

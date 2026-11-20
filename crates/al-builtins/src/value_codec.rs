@@ -210,8 +210,8 @@ fn encode_in(v: &Value, out: &mut Vec<u8>) -> bool {
         // A TextConst only sits in a Variant, never in a stored row.
         // A placeholder's size answers only in the session that wrote the placeholder.
         Value::SqlCount(_)
-        | Value::PlaceholderSize(_)
-        | Value::TextConst(_)
+        | Value::PlaceholderSize(..)
+        | Value::TextConst(..)
         | Value::List(_)
         | Value::Dictionary(_)
         | Value::Array(_)

@@ -64,6 +64,9 @@ impl Tally {
     fn add(&mut self, calc: &ir::CalcFormula, row: &[Value]) -> Result<(), Signal> {
         use ir::CalcMethod as M;
         self.n += 1;
+        if let Some(at) = calc.field {
+            al_builtins::placeholder_output::size_read(&row[at], "a FlowField over a record field holding the value")?;
+        }
         match calc.method {
             M::Count | M::Exist => {}
             M::Sum | M::Average => {
@@ -77,6 +80,13 @@ impl Tally {
             }
             M::Min | M::Max => {
                 let v = &row[calc.field.expect("field")];
+                if let Value::Text(t) | Value::Code(t) = v
+                    && al_builtins::collation::holds_ae(t)
+                {
+                    return unsupported(
+                        "a min or max FlowField over a text with the letter `Æ` or `æ`: its order is not measured (al-runner issue 8195)",
+                    );
+                }
                 self.best = match self.best.take() {
                     None => Some(v.clone()),
                     Some(b) => match (calc.method, ops::compare(v, &b)?) {
@@ -668,6 +678,7 @@ impl Session {
         }
         let filters = self.calc_filters(rec, calc, &mut Vec::new())?;
         let src_t = self.engine.tables[calc.table].clone().expect("table");
+        self.crm_source_refused(&src_t, "a FlowField")?;
         if self.permission_checks() {
             self.permission_gate_flowfield(rec, calc.table, &[])?;
         }
@@ -728,9 +739,12 @@ impl Session {
         let calc = f.calc.as_ref().expect("checked by check_calc_field");
         let filters = self.calc_filters(rec, calc, stack)?;
         let src_t = self.engine.tables[calc.table].clone().expect("table");
+        self.crm_source_refused(&src_t, "a FlowField")?;
         // The source table is read even when the record holding the FlowField is temporary.
         self.note_indirect_read(src_t.object);
         self.unseeded_read(&src_t, rec.borrow().temporary, "a FlowField")?;
+        // A CalcFields of the source table's own record raised a deferred Insert error before this (`record_op_inner`).
+        self.refuse_unmeasured_read_while_deferred(calc.table, "a FlowField read")?;
         // ADR-062: a FlowField reads its source table indirectly (CpPermLeads.al:29-63).
         if self.permission_checks() {
             self.permission_gate_flowfield(rec, calc.table, stack)?;
@@ -1241,6 +1255,7 @@ impl Session {
         let cx = self.cx_for(rec, &t)?;
         let mut add = |row: &[Value]| -> Result<(), Signal> {
             for (s, &p) in sums.iter_mut().zip(positions) {
+                al_builtins::placeholder_output::size_read(&row[p], "CalcSums of a record field holding the value")?;
                 *s += number(&row[p]).ok_or_else(|| non_number(&row[p]))?;
             }
             Ok(())

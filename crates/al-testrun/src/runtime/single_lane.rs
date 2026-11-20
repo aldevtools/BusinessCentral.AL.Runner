@@ -248,6 +248,18 @@ pub(super) fn analyse(outs: &[Option<&SingleOut>]) -> Found {
     found
 }
 
+/// [`analyse`] of the BC session `ks` (in order), from what each codeunit's run in `slots` noted.
+fn session_found(ks: &[usize], slots: &[Option<UnitResult>]) -> Found {
+    let outs: Vec<Option<&SingleOut>> = ks
+        .iter()
+        .map(|&k| match slots[k].as_ref().map(|r| &r.result) {
+            Some(Ok(done)) => done.5.singles_out.as_ref(),
+            _ => None,
+        })
+        .collect();
+    analyse(&outs)
+}
+
 impl Found {
     /// The lane for the dependent codeunits `chosen` (ADR-066 amendment 4): each one, the writers it needs, and the
     /// writers of a writer that is dependent itself (R2), to the end. With every dependent codeunit chosen, this is
@@ -270,6 +282,12 @@ impl Found {
         lane
     }
 
+    /// How many codeunits the chain of the codeunit at position `p` holds as far as the notes show ([`Found::lane_for`]
+    /// of it alone): the length `--max-replay` is checked against (ADR-066 amendment 7, option 2).
+    pub(super) fn chain_len(&self, p: usize) -> usize {
+        self.lane_for(&BTreeSet::from([p])).len()
+    }
+
     /// ADR-066 amendment 7, option 2: splits `chosen` into the codeunits whose own chain ([`Found::lane_for`] of it
     /// alone) holds at most `limit` codeunits, and the others with the length of their chain.
     pub(super) fn within_limit(
@@ -280,7 +298,7 @@ impl Found {
         let mut kept = BTreeSet::new();
         let mut over = BTreeMap::new();
         for &p in chosen {
-            let n = self.lane_for(&BTreeSet::from([p])).len();
+            let n = self.chain_len(p);
             if n > limit {
                 over.insert(p, n);
             } else {
@@ -697,8 +715,10 @@ impl Lane<'_> {
         // here were not reached, so their tests are not run, for the limit (ADR-066 amendment 10, decision 6).
         if self.pool.halted() {
             let halt = self.pool.halt();
-            for k in chains.iter().flat_map(|c| c.chosen.iter()) {
-                if let Some(Ok(done)) = slots[*k].as_mut().map(|r| &mut r.result) {
+            let mut cut: BTreeSet<usize> = chains.iter().flat_map(|c| c.chosen.iter().copied()).collect();
+            cut.extend(self.after_stop(slots));
+            for k in cut {
+                if let Some(Ok(done)) = slots[k].as_mut().map(|r| &mut r.result) {
                     super::corpus::refuse_all(&mut done.0, halt.reason());
                 }
             }
@@ -749,6 +769,87 @@ impl Lane<'_> {
         report.took += started.elapsed();
     }
 
+    /// In a run stopped at its hard memory limit (ADR-066 amendment 10, decision 6): the codeunits that come after one the
+    /// stop cut short in the same BC session and that the lane would run again with it as their writer. What the cut
+    /// codeunit would have left is not known, so whether they depend on it is not known either (al-runner issue 8368: a
+    /// reader of a SingleInstance global failed in parallel while its writer was not reached). The lane's own choice
+    /// decides, with every global the codeunit read first taken as changed (the cut codeunit left no notes): it is no
+    /// chain member that keeps the walk's single instances ([`Lane::walk_keeps`]), [`Lane::reruns`] takes it, and a
+    /// `--max-replay` cap holds both its chain as far as the session's notes show ([`Found::chain_len`]; a longer one is
+    /// skipped in a complete run too, which keeps the failure) and two codeunits (with only itself known, it depends
+    /// only through the cut codeunit, so that chain holds two). Only under BC's order: without it nothing runs again.
+    fn after_stop(&self, slots: &[Option<UnitResult>]) -> Vec<usize> {
+        if !self.bc_order {
+            return Vec::new();
+        }
+        let cut_short = |k: usize| match slots[k].as_ref().map(|r| &r.result) {
+            Some(Ok(done)) => done.0.iter().any(|(_, o)| super::memory::stopped_by_limit(o)),
+            _ => false,
+        };
+        let may_depend = |found: &Found, p: usize, k: usize| {
+            let slot = slots[k].as_ref();
+            let read_first: BTreeSet<GlobalKey> = match slot.map(|r| &r.result) {
+                Some(Ok(done)) => done
+                    .5
+                    .singles_out
+                    .as_ref()
+                    .map(|o| o.observed.keys().copied().collect())
+                    .unwrap_or_default(),
+                _ => BTreeSet::new(),
+            };
+            !read_first.is_empty()
+                && !self.walk_keeps(k)
+                && self.reruns(slot, Some(&read_first))
+                && self.replay_cap().is_none_or(|limit| limit >= found.chain_len(p).max(2))
+        };
+        let has = |k: usize| slots[k].is_some();
+        let mut out = Vec::new();
+        for ks in streams(self.units, self.place, &has, self.suites) {
+            if let Some(first) = ks.iter().position(|&k| cut_short(k)) {
+                let found = session_found(&ks, slots);
+                out.extend(
+                    (first + 1..ks.len())
+                        .filter(|&p| may_depend(&found, p, ks[p]))
+                        .map(|p| ks[p]),
+                );
+            }
+        }
+        out
+    }
+
+    /// The lane's choice for a dependent codeunit, from its parallel run in `slot` and the globals it read first that
+    /// the earlier codeunits left otherwise (`changed`; `None`: not known, each counts): whether its result comes
+    /// from a serial re-run. Under `replay_every_dependent` always (amendment 12, decision 4); else when a test of it
+    /// failed or did not run to its end (amendment 4, decision 2; amendment 5, decision 2) and that test, or one before
+    /// it, read a changed global (amendment 7, option 1). `--max-replay` ([`Lane::replay_cap`]) may still skip it.
+    fn reruns(&self, slot: Option<&UnitResult>, changed: Option<&BTreeSet<GlobalKey>>) -> bool {
+        if self.strict {
+            return true;
+        }
+        if !needs_serial_run(slot) {
+            return false;
+        }
+        let read_in = match slot.map(|r| &r.result) {
+            Some(Ok(done)) => done.5.singles_out.as_ref().map(|o| &o.read_in),
+            _ => None,
+        };
+        match (read_in, changed) {
+            (Some(read_in), Some(changed)) => failure_saw_change(read_in, changed, failure_bound(slot)),
+            _ => true,
+        }
+    }
+
+    /// A chain member whose walk run kept the single instances (amendment 8): never dependent, never run again.
+    fn walk_keeps(&self, k: usize) -> bool {
+        self.kept_chain && self.keeps_singles(k)
+    }
+
+    /// `--max-replay` (amendment 7, option 2): the most codeunits a re-run's chain may hold; `replay_every_dependent`
+    /// wins over it.
+    fn replay_cap(&self) -> Option<usize> {
+        self.max_replay.filter(|_| !self.strict)
+    }
+
     /// Analyses each BC session, flags its dependent codeunits, and returns the serial sessions to run.
     fn chains(&self, slots: &mut [Option<UnitResult>], report: &mut LaneReport) -> Vec<Chain> {
         let has = |k: usize| slots[k].is_some();
@@ -759,16 +860,7 @@ impl Lane<'_> {
         let mut counted: BTreeSet<usize> = BTreeSet::new();
         let mut refill_counted: BTreeSet<usize> = BTreeSet::new();
         for ks in streams {
-            let found = {
-                let outs: Vec<Option<&SingleOut>> = ks
-                    .iter()
-                    .map(|&k| match slots[k].as_ref().map(|r| &r.result) {
-                        Some(Ok(done)) => done.5.singles_out.as_ref(),
-                        _ => None,
-                    })
-                    .collect();
-                analyse(&outs)
-            };
+            let found = session_found(&ks, slots);
             // Amendment 12: the default claims no BC order, so nothing is flagged.
             for &p in found.refill_assumed.keys().filter(|_| self.bc_order) {
                 if !refill_counted.insert(ks[p]) {
@@ -786,7 +878,7 @@ impl Lane<'_> {
                 .dependent
                 .keys()
                 .copied()
-                .filter(|&p| !(self.kept_chain && self.keeps_singles(ks[p])))
+                .filter(|&p| !self.walk_keeps(ks[p]))
                 .filter(|&p| counted.insert(ks[p]))
                 .collect();
             if fresh.is_empty() {
@@ -820,27 +912,15 @@ impl Lane<'_> {
             let mut chosen: BTreeSet<usize> = BTreeSet::new();
             for &p in &fresh {
                 let slot = slots[ks[p]].as_ref();
-                if self.strict {
+                if self.reruns(slot, found.changed.get(&p)) {
                     chosen.insert(p);
                 } else if needs_serial_run(slot) {
-                    let read_in = match slot.map(|r| &r.result) {
-                        Some(Ok(done)) => done.5.singles_out.as_ref().map(|o| &o.read_in),
-                        _ => None,
-                    };
-                    let saw = match (read_in, found.changed.get(&p)) {
-                        (Some(read_in), Some(changed)) => failure_saw_change(read_in, changed, failure_bound(slot)),
-                        _ => true,
-                    };
-                    if saw {
-                        chosen.insert(p);
-                    } else {
-                        report.kept += 1;
-                    }
+                    report.kept += 1;
                 }
             }
             // Amendment 7, option 2, opt-in since the owner's change of 2026-11-08: with `--max-replay N`, a chain over
             // `N` is not replayed (not under `--strict-order`). Without it every chosen re-run is replayed in full.
-            if let Some(limit) = self.max_replay.filter(|_| !self.strict) {
+            if let Some(limit) = self.replay_cap() {
                 let (kept, over) = found.within_limit(&chosen, limit);
                 chosen = kept;
                 for (p, chain) in over {

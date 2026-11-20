@@ -398,7 +398,7 @@ impl Session {
         if self.validating.iter().any(|(h, _)| *h == handle) {
             return self.stamp_from_filters(st, true);
         }
-        self.validating.push((handle, before));
+        self.validating.push((handle, (before, None)));
         self.stamp_validating.push(handle);
         let r = self.stamp_from_filters(st, true);
         self.stamp_validating.retain(|h| *h != handle);

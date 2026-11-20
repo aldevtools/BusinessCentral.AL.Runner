@@ -144,8 +144,7 @@ impl Session {
             self.save_row(st)?;
         }
         // The refresh the action asks for reads the row again.
-        st.borrow_mut().refresh = true;
-        st.borrow_mut().refresh_by_update = false;
+        st.borrow_mut().refresh.ask_after_action();
         Ok(())
     }
 
@@ -275,7 +274,7 @@ impl Session {
         let call = self.note_test_call(st, method, None, args.len());
         self.end_read_at_test_call(st, call);
         Self::end_deferred_host_reread(st, call, method.method());
-        Self::refuse_after_pinned_end(st, call)?;
+        self.refuse_after_pinned_end(st, call, None)?;
         Self::refuse_ws_trigger_order_step(st, call)?;
         if call.is_none() {
             // Page code calls a method of the page (`CurrPage.Update`): no List-host cell does (`empty_part_rec`).
@@ -364,7 +363,7 @@ impl Session {
         let call = self.note_test_call(st, method, Some(&c.target), args.len());
         self.end_read_at_test_call(st, call);
         Self::end_deferred_host_reread(st, call, method.method());
-        Self::refuse_after_pinned_end(st, call)?;
+        self.refuse_after_pinned_end(st, call, Some(&c.target))?;
         let control = match c.target {
             ControlTarget::Control(i) => Some(i),
             _ => None,

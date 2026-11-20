@@ -89,6 +89,12 @@ fn general(op: Arith, family: Family, l: &Value, r: &Value) -> Option<Result<Val
         (Some(v), _) => Some(v),
         (None, o) => Some(o.clone()),
     };
+    // A closing date plus or minus a value read as a number is not measured (`closing_date_days` answers only the Integer 1).
+    if matches!(l, Value::Date(_, true)) {
+        return Some(crate::native::unsupported(
+            "a closing date plus or minus a Char, Byte, Option, Enum or Duration (not measured)",
+        ));
+    }
     let (l2, r2) = (text(nl, l)?, text(nr, r)?);
     Some(crate::ops::arith(op, &l2, &r2))
 }

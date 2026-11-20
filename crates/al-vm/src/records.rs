@@ -26,6 +26,8 @@ mod empty_find_origin;
 mod filter_error;
 mod flowfield_key;
 mod insert_buffer;
+mod measured_setfilter;
+mod option_filter_error;
 mod setfilter_empty_or_side;
 mod setrange_filter;
 mod sql_range;
@@ -33,7 +35,9 @@ mod sql_range_code;
 pub(crate) use insert_buffer::{InsertKind, InsertQueue};
 use sql_range::InsertShape;
 mod nested_validate;
-pub(crate) use nested_validate::ValidateSite;
+pub(crate) use nested_validate::{BeforeImage, ProcXrec, ValidateSite, XREC_OF_RUNNING_CALL};
+mod by_value_view;
+pub(crate) use by_value_view::{ByValueCall, EventArg, by_value_mark, primary_view};
 mod op_inner;
 mod own_rolled_back_modify;
 mod platform_rows;
@@ -49,9 +53,9 @@ mod write_notes;
 
 pub(crate) type Rec = Rc<RefCell<RecordState>>;
 
-/// The `TxState::lock_unpinned` text of a read other than FindFirst under a locking ReadIsolation.
+/// The text of `UnpinnedLock::LockingRead`: a read other than FindFirst under a locking ReadIsolation.
 pub(crate) const UNPINNED_LOCKING_READ: &str = "a FindFirst, FindSet, FindLast or Find('-'/'+'/'>'/'<') under a ReadIsolation RepeatableRead or UpdLock set in an earlier transaction";
-/// The `TxState::lock_unpinned` text of a ReadIsolation RepeatableRead assigned again to a record that already had it, with
+/// The `UnpinnedLock::Other` text of a ReadIsolation RepeatableRead assigned again to a record that already had it, with
 /// no write transaction open.
 pub(crate) const REPEATABLE_READ_ASSIGNED_AGAIN: &str =
     "a ReadIsolation RepeatableRead assigned again to a record that had it";
@@ -119,6 +123,7 @@ pub(crate) fn copy_refused_mark(rec: &Rec) -> Option<&'static str> {
         *w == XP_VIEW_AFTER_EXPORT
             || *w == XP_BUFFER_AFTER_EXPORT
             || *w == al_builtins::stream_cleared::UNCREATED_IMPORT_BUFFER
+            || *w == XREC_OF_RUNNING_CALL
     })
 }
 
@@ -166,7 +171,7 @@ pub(crate) fn media_key_marked(rec: &Rec) -> bool {
 pub(crate) fn buffer_read_refused(rec: &Rec) -> Option<&'static str> {
     rec.borrow()
         .unpinned_buffer
-        .filter(|w| !run_page_link_fields_read(w) && *w != HELD_PART_REC)
+        .filter(|w| !run_page_link_fields_read(w) && *w != HELD_PART_REC && !by_value_mark(w))
 }
 
 /// Whether field reads of a record whose buffer has the reason `why` run.
@@ -291,7 +296,7 @@ impl Session {
     /// subscribers to the Feature Key events loaded.
     fn feature_key_read_only_change(&self, t: &TableDef, rec: &Rec, stored: Option<&[Value]>) -> Result<(), Signal> {
         let Some(old) = stored else { return Ok(()) };
-        let id = self.engine.program.objects[t.object as usize].id.unwrap_or(0);
+        let id = crate::object_ids::declared_id(self.engine.program.objects[t.object as usize].id)?;
         if rec.borrow().temporary
             || al_builtins::platform::virtual_table(id) != Some(al_builtins::platform::Virtual::FeatureKey)
         {
@@ -671,8 +676,8 @@ impl Session {
         let Some(facts) = self.engine.install_facts.get() else {
             return;
         };
-        if let Some((_, a)) = facts.assumed.get(&(object as usize)) {
-            al_builtins::assumptions::assume(*a);
+        for &a in facts.assumed.get(&(object as usize)).into_iter().flatten() {
+            al_builtins::assumptions::assume(a);
         }
     }
 
@@ -1213,10 +1218,8 @@ impl Session {
                         })
                     };
                     let y32 = own_insert && !ext && !self.global_enabled(t, GlobalOp::Delete)?;
-                    let untouched_tx = self.tx.writes.is_empty()
-                        && !self.tx.rolled_back
-                        && !self.tx.lock_tx
-                        && self.tx.lock_unpinned.is_none();
+                    let untouched_tx =
+                        self.tx.open.writes.is_empty() && !self.tx.rolled_back && !self.tx.open.locks.any();
                     // record/crud/Y32StaleDeleteTests.al (al-runner issue 6546).
                     if y32 && verdict == StaleVerdict::Refused && untouched_tx {
                         self.table_event(t, "onbeforedeleteevent", rec, None, run, None)?;
@@ -1808,10 +1811,11 @@ impl Session {
     }
 
     /// Whether `row` passes the record's filters (every group), its FlowField filters and
-    /// MarkedOnly.
+    /// MarkedOnly. A filter answer that rests on the letters `Æ` or `É` is measured only for the rows of the database.
     fn row_passes(&mut self, rec: &Rec, t: &TableDef, row: &[Value]) -> Result<bool, Signal> {
         let (filters, flow_field_filters) = self.split_filters(rec);
-        if !al_builtins::filter::all_match(&filters, row)? {
+        let normal_record = self.store_of(rec).0.holds_normal_records();
+        if !al_builtins::filter::all_match_on(&filters, row, normal_record)? {
             return Ok(false);
         }
         if rec.borrow().marked_only && !Self::is_marked(rec, t, row)? {
@@ -1945,9 +1949,9 @@ impl Session {
         let origin = self.load_origin(version, [via_get, via_sysid, via_find]);
         let own_read = self.own_read_after_load(&t, rec, &row, via_get && !via_sysid && !via_find && passes);
         let temporary = rec.borrow().temporary;
-        if via_get && !temporary && self.tx.locked_tables.contains(&t.object) {
+        if via_get && !temporary && self.tx.open.locked_tables.contains(&t.object) {
             let company = rec.borrow().company.clone();
-            self.tx.rows_touched.push((t.object, company, pk.clone()));
+            self.tx.open.rows_touched.push((t.object, company, pk.clone()));
         }
         {
             let mut r = rec.borrow_mut();
@@ -2780,7 +2784,7 @@ impl Session {
     }
 
     /// A record method AL code calls (a Record or a RecordRef): [`Session::record_op`], with the global filter group checked
-    /// (`global_group_check`). The runtime's own record calls (page refills, probes) are not AL code and pass straight on.
+    /// ([`Session::group1_use`]). The runtime's own record calls (page refills, probes) are not AL code and pass straight on.
     pub(crate) fn record_op_from_al(
         &mut self,
         method: RecordOp,
@@ -2794,74 +2798,20 @@ impl Session {
         if matches!(method, RecordOp::SetFilter | RecordOp::SetRange) && group == 1 {
             return self.set_global_group_filter(rec, table, method, args);
         }
-        if !self.global_group1.is_empty() {
-            self.global_group_check(rec, table, method.name())?;
-        }
+        let group1 = if self.global_group1.has_tables() {
+            self.group1_use(rec, table, crate::group1_sessions::Group1Op::Record(method), args)?
+        } else {
+            crate::group1_sessions::Group1Use::Own
+        };
         // ADR-062: a denial of a method AL code calls raises BC's error where its shape is pinned.
         if self.permission_checks() {
             self.permission_from_al = true;
         }
-        self.record_op_of_al(method, rec, args)
-    }
-
-    /// The filters of `rec` in filter group 1, as text to compare.
-    fn group1_signature(rec: &Rec) -> String {
-        let r = rec.borrow();
-        let mut v: Vec<String> = r
-            .filters
-            .iter()
-            .filter(|f| f.group == 1)
-            .map(|f| format!("{}={:?}", f.field, f.expr))
-            .collect();
-        v.sort();
-        v.join(";")
-    }
-
-    /// SetFilter or SetRange in filter group 1 (the global group) on a database record: BC keeps the filter on every record
-    /// of the table for the rest of the session, through Reset and Clear (types/text-code-char/
-    /// P145PageRunView.al:232-235, SfSeed :236-268, seed_before = 4 at :283). The session notes what group 1 holds now;
-    /// `global_group_check` refuses the records that do not carry it.
-    #[cold]
-    #[inline(never)]
-    fn set_global_group_filter(
-        &mut self,
-        rec: &Rec,
-        table: u32,
-        method: RecordOp,
-        args: &mut [Value],
-    ) -> Result<Value, Signal> {
-        if rec.borrow().temporary {
-            return unsupported(format!(
-                "{} in filter group 1 (the global group) on a temporary record (how BC scopes it is not pinned)",
-                method.name()
-            ));
+        let r = self.with_group1(rec, group1, |s| s.record_op_of_al(method, rec, args));
+        if !self.pages.onvalidate_pages.is_empty() {
+            self.note_page_rec_call(method, rec, args);
         }
-        self.global_group_check(rec, table, method.name())?;
-        let by_record = self.is_al_record_call(method, rec);
-        let r = self.record_op(method, rec, args)?;
-        let sig = Self::group1_signature(rec);
-        self.note_group1(table, sig, by_record);
-        Ok(r)
-    }
-
-    /// A record of a table whose filter group 1 (the global group) holds a filter another record set: BC applies that
-    /// filter to this record too (P145PageRunView.al:232-235), the runtime keeps filters on the record that set them.
-    /// Answered when the record carries the same group 1 filters (the setter, or a copy of it such as the record of
-    /// Page.Run(Page, Rec)); refused otherwise.
-    pub(crate) fn global_group_check(&self, rec: &Rec, table: u32, what: &str) -> Result<(), Signal> {
-        let Some(global) = self.global_group1.signature(table) else {
-            return Ok(());
-        };
-        if what == "FilterGroup" {
-            return Ok(());
-        }
-        if !rec.borrow().temporary && Self::group1_signature(rec) == global {
-            return Ok(());
-        }
-        unsupported(format!(
-            "{what} on a record of a table with a filter in filter group 1 (the global group) that another record set: BC \
-             applies it to every record of the table for the session, the runtime does not"
-        ))
+        r
     }
 
     /// What a filter does in a negative filter group other than -1, the OR group, is not pinned (only reading the group back is:

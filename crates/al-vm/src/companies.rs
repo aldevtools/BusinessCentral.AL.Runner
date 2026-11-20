@@ -41,6 +41,33 @@ impl Session {
         self.engine.tables[oi].clone()
     }
 
+    /// CompanyProperty.DisplayName: non-empty (session-system/TestBCPlatformContracts.al:CompanyProperty_DisplayName_NonEmpty).
+    /// That it is the company's name when no display name is set is an assumption (docs/probes-needed.md); a company whose row
+    /// states a display name is not pinned: refused.
+    pub(crate) fn company_display_name(&self) -> Result<Value, Signal> {
+        if self.company_display_name_set() {
+            return al_builtins::native::unsupported(
+                "CompanyProperty.DisplayName of a company whose Display Name is set (not pinned)",
+            );
+        }
+        Ok(Value::Text(self.cx.company.clone().into()))
+    }
+
+    /// Whether the session company's row of the Company table states a Display Name.
+    fn company_display_name_set(&self) -> bool {
+        let Some(t) = self.company_table() else {
+            return false;
+        };
+        let (Ok(key), Some(at)) = (
+            ops::convert(Value::Text(self.cx.company.to_string().into()), &t.fields[0].ty),
+            t.fields.iter().position(|f| f.name == "Display Name"),
+        ) else {
+            return false;
+        };
+        matches!(al_data::Store::get(&self.store, &self.cx, &t, &[key]), Ok(Some(row))
+            if matches!(&row[at], Value::Text(s) if !s.is_empty()))
+    }
+
     /// Whether `t` is the Company table.
     pub(crate) fn is_company_table(&self, t: &TableDef) -> bool {
         self.engine.program.objects[t.object as usize].id == Some(COMPANY_TABLE)
@@ -246,6 +273,7 @@ impl Session {
         // The filters, the current key and the marks stay (a mark is a primary key), and a
         // temporary record keeps its rows (:25-30).
         let mut r = rec.borrow_mut();
+        r.change_company_called = true;
         if r.company == target {
             return Ok(Value::Boolean(true));
         }

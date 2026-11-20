@@ -17,6 +17,16 @@ fn skip_after_timeout_is_off_by_default_and_a_flag_of_test_and_serve() {
     }
 }
 
+#[test]
+fn stop_after_first_failure_is_off_by_default_and_a_flag_of_test_and_serve() {
+    assert!(!test_args("test A").stop_after_first_failure);
+    assert!(test_args("test A --stop-after-first-failure").stop_after_first_failure);
+    match p("serve --protocol 2 --stop-after-first-failure").unwrap() {
+        Command::Serve(d) => assert_eq!(d, ["--stop-after-first-failure"]),
+        other => panic!("{other:?}"),
+    }
+}
+
 fn test_args(s: &str) -> TestArgs {
     match p(s).unwrap() {
         Command::Test(a) => *a,
@@ -508,6 +518,27 @@ fn the_missing_dependency_hint_names_an_al_runner_option() {
     assert_eq!(a.deps, vec![PathBuf::from("d1")], "{err}");
 }
 
+/// Issue 8059 review: an exact exclusion on the command line is a command-line selection. It replaces the selection of
+/// a stability config, and a server does not take it at start.
+#[test]
+fn an_exact_exclusion_is_a_command_line_selection() {
+    let d = tempfile::tempdir().unwrap();
+    let cfg = d.path().join("stability.cfg");
+    std::fs::write(
+        &cfg,
+        r#"{"format":1,"dimensions":{"order.methods":["reverse"]},"selection":{"codeunits":[50100]}}"#,
+    )
+    .unwrap();
+    let a = test_args(&format!("test A --stability {}", cfg.display()));
+    assert_eq!(a.codeunits, vec![50100]);
+    let a = test_args(&format!("test A --stability {} --exclude-test-exact X", cfg.display()));
+    assert!(
+        a.codeunits.is_empty(),
+        "the command line's selection wins over the config's"
+    );
+    assert!(p("serve --exclude-test-exact X").unwrap_err().contains("do not depend"));
+}
+
 #[test]
 fn the_flags_of_the_v2_tools_parse() {
     use al_testrun::isolation::TestIsolation as I;
@@ -518,6 +549,9 @@ fn the_flags_of_the_v2_tools_parse() {
     assert_eq!(a.isolation, Some(I::Function));
     assert_eq!(a.excludes, vec!["Codeunit1.X", "Y"]);
     assert_eq!(a.exact, vec!["Codeunit1.Z"]);
+    let a2 = test_args("test A --exclude-test-exact Codeunit1.X --exclude-test-exact Y");
+    assert_eq!(a2.excludes_exact, vec!["Codeunit1.X", "Y"]);
+    assert!(a2.excludes.is_empty());
     assert_eq!(a.defines, vec!["FOO", "A", "B"]);
     assert_eq!(a.test_timeout_secs, Some(7));
     assert_eq!(a.filters, vec!["Codeunit1.Z"]);

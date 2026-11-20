@@ -5,7 +5,7 @@
 //! Every other shape keeps the answer of its owner in `refs.rs` (which refuses it).
 
 use crate::Session;
-use al_builtins::native::{AlError, Signal};
+use al_builtins::native::{AlError, Signal, unsupported};
 use al_builtins::recordref_closed::not_open;
 use al_builtins::value::{EmptiedRef, LibraryValue, RecordState, Value};
 
@@ -119,7 +119,9 @@ impl Session {
     /// measured; `None` to go on. Pinned (recordref-fieldref/recordref/GetTableVariantKinds.al): `V` holds nothing, on a RecordRef
     /// never opened (:79-116: never assigned, a copy, cleared, a parameter) and on one open on a table that is not temporary
     /// (:154-172, it stays open), "NavVariant variable not initialized."; `V` holds the Integer 5 or the Text 'ALT Universal' on
-    /// a RecordRef never opened (:119-144), the Conversion error naming NavInteger or NavText; the Text '' or 'abc' on a RecordRef
+    /// a RecordRef never opened (:119-144), the Conversion error naming NavInteger or NavText; the Boolean true, the null Guid, the
+    /// Date 01-02-2020 and the RecordId of table 60000 with key 1 while that row exists (:127-128, :139) on a RecordRef never opened (:133-148),
+    /// the Conversion error naming NavBoolean, NavGuid, NavDate or NavRecordId; the Text '' or 'abc' on a RecordRef
     /// never opened, the Conversion error naming NavText (recordref-fieldref/UhUnopenedRecordRef.al:687
     /// GetTable_VariantEmptyText, :717 GetTable_VariantTextNonEmpty; steps :225-230 `gt_empty`, :242-247 `gt_text`). A RecordRef emptied by `Clear` or
     /// `Open(0)` is not one never opened: no probe measured GetTable there.
@@ -142,8 +144,65 @@ impl Session {
             Value::Integer(5) if never_opened => Some(conversion("NavInteger")),
             Value::Text(t) if never_opened && t.as_str() == "ALT Universal" => Some(conversion("NavText")),
             Value::Text(t) if never_opened && (t.as_str() == "" || t.as_str() == "abc") => Some(conversion("NavText")),
+            Value::Boolean(true) if never_opened => Some(conversion("NavBoolean")),
+            Value::Guid(g) if never_opened && *g == [0; 16] => Some(conversion("NavGuid")),
+            Value::Date(d, false) if never_opened && *d == al_builtins::format::day_from_civil(2020, 2, 1) => {
+                Some(conversion("NavDate"))
+            }
+            Value::Library(_, l) if never_opened && self.probe_record_id(&l.borrow()) => {
+                Some(conversion("NavRecordId"))
+            }
             _ => None,
         }
+    }
+}
+
+impl Session {
+    /// The buffer GetTable copies from a Library value `src` (`name` its type) on the RecordRef `lib`: an open RecordRef's.
+    /// A RecordRef that is not open, through a Variant, is a Conversion error (recordref-fieldref/AsRecRefGetTable.al:110
+    /// FromNotOpen); a RecordId through a Variant is one for the measured value only (GetTableVariantKinds.al:139).
+    pub(crate) fn get_table_ref_source(
+        &self,
+        lib: &LibraryValue,
+        name: &str,
+        src: &LibraryValue,
+        from_variant: bool,
+        arg: Option<&Value>,
+    ) -> Result<crate::records::Rec, Signal> {
+        match src {
+            LibraryValue::RecordRef(r) => Ok(r.clone()),
+            l if not_open(l) && name.eq_ignore_ascii_case("RecordRef") && from_variant => {
+                Err(crate::transactions::al_error_code(
+                    "Unable to convert from Microsoft.Dynamics.Nav.Runtime.NavRecordRef to Microsoft.Dynamics.Nav.Runtime.INavRecordHandle.",
+                    "Conversion",
+                ))
+            }
+            _ => match self.get_table_variant_not_record(lib, arg).filter(|_| from_variant) {
+                Some(e) => Err(e),
+                None => unsupported("RecordRef.GetTable of a RecordRef that is not open"),
+            },
+        }
+    }
+}
+
+impl Session {
+    /// The RecordId GetTableVariantKinds.al:139 hands to GetTable: table 60000 ("ALT Universal") with the key 1, while the
+    /// row it names exists (the probe inserts it, :127-128).
+    fn probe_record_id(&self, l: &LibraryValue) -> bool {
+        let LibraryValue::RecordId {
+            table,
+            table_no: 60000,
+            key,
+            ..
+        } = l
+        else {
+            return false;
+        };
+        let Some(t) = self.engine.tables.get(*table as usize).cloned().flatten() else {
+            return false;
+        };
+        matches!(key.as_slice(), [Value::Integer(1)])
+            && matches!(al_data::Store::get(&self.store, &self.cx, &t, key), Ok(Some(_)))
     }
 
     /// `Some` with "Microsoft.Dynamics.Nav.Runtime.NavKeyRef variable not initialized." (NotInitialized) for the members of a

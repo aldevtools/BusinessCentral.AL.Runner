@@ -30,6 +30,14 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
         "System.EvaluateVariableOption#1",
         crate::evaluate::evaluate_variable_option,
     ),
+    (
+        "System.EvaluateMemberlessVarOption#1",
+        crate::evaluate::evaluate_memberless_var_option,
+    ),
+    (
+        "System.EvaluateMemberlessVarOptionElement#1",
+        crate::evaluate::evaluate_memberless_var_option_element,
+    ),
     ("System.EvaluateBounded#1", crate::evaluate::evaluate_bounded),
     ("System.EvaluateOptionField#1", crate::evaluate::evaluate_option_field),
     ("Blob.LengthSign#1", crate::stream::blob_length_sign),
@@ -50,6 +58,7 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
     ("Dialog.ErrorComputed#1", error_text_computed),
     ("Record.FieldErrorConstant#1", field_error_constant),
     ("Record.FieldErrorComputed#1", field_error_computed),
+    ("ErrorInfo.CreateLiteral#1", crate::errorinfo::create_literal),
     ("Dialog.Error#1", crate::errorinfo::raise),
     ("Session.GetExecutionContext#1", execution_context),
     ("Session.GetCurrentModuleExecutionContext#1", execution_context),
@@ -71,7 +80,7 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
     // pins only that CreateTask returns a task id): a run that reaches the question is refused.
     // The URL of the web client depends on the server's address, which a host has not been asked for: a run that builds
     // one is refused (session-system/TestFinalCoverage.al:105-125 asks only that GetUrl does not throw).
-    // Measured on real BC: session-system/TestEnvironmentUserTenantContracts.al:237-241.
+    // Measured on real BC: session-system/TestEnvironmentUserTenantContracts.al:234-238.
     ("Session.CurrentExecutionMode#1", |_, _, _| {
         let members: std::sync::Arc<[String]> = crate::sysenum::option_members("ExecutionMode")
             .expect("a system option")
@@ -90,7 +99,7 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
     ("ProductName.Marketing#1", |_, _, _| {
         Ok(Value::Text("Microsoft Dynamics 365 Business Central".into()))
     }),
-    // False in a test: measured on real BC by session-system/TestEnvironmentUserTenantContracts.al:238
+    // False in a test: measured on real BC by session-system/TestEnvironmentUserTenantContracts.al:235
     // (Assert.IsFalse(TaskScheduler.CanCreateTask())).
     ("TaskScheduler.CanCreateTask#1", |_, _, _| Ok(Value::Boolean(false))),
     // CreateTask, TaskExists, CancelTask and SetTaskReady keep the session's tasks: `Ctx::session_op` (al-vm tasks.rs).
@@ -252,7 +261,7 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
     ("System.CreateGuid#1", |c, _, _| Ok(Value::Guid(c.new_guid()))),
     // `IsNull(DotNet)`: an unassigned DotNet variable, or a .NET call that returned null, holds
     // `Null` (ADR-014). Microsoft's Azure AD Tenant Impl. and Json Impl. ask it
-    // (session-system/TestEnvironmentUserTenantContracts.al:204-232 reaches them).
+    // (session-system/TestEnvironmentUserTenantContracts.al:201-229 reaches them).
     ("System.IsNull#1", |_, _, a| {
         Ok(Value::Boolean(match a.first() {
             Some(Value::Null) => true,
@@ -420,11 +429,18 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
     // A Variant assigned to an Integer: a BigInteger or a Duration beyond the Integer range raises TypeConversion:Overflow
     // (types/variant/VaTConvert.al:183-184; types/duration/D_Duration.al:226). Everything
     // else converts as any value does.
-    // The text of a Label handed to a Variant by a conditional expression: the Variant holds a TextConstant, answering
-    // IsTextConstant and no IsText (types/Y81LabelVariant.al; needs corpus bump).
-    ("Variant.FromTextConstant#1", |_, _, a| match a.first() {
-        Some(Value::Text(t) | Value::Code(t) | Value::TextConst(t)) => Ok(Value::TextConst(t.clone())),
-        _ => unsupported("a TextConstant from a value that is no text"),
+    // The text of a Label or TextConst going into a Variant where the lowering says (`Lowerer::text_constant_into_variant`,
+    // a Label by a conditional expression: types/Y81LabelVariant.al): the Variant holds a TextConstant, answering
+    // IsTextConstant and no IsText. A second argument `true` says the declaration is a TextConst.
+    ("Variant.FromTextConstant#1", |_, _, a| {
+        let from = match a.get(1) {
+            Some(Value::Boolean(true)) => crate::value::TextConstFrom::TextConst,
+            _ => crate::value::TextConstFrom::Label,
+        };
+        match a.first() {
+            Some(Value::Text(t) | Value::Code(t) | Value::TextConst(t, _)) => Ok(Value::TextConst(t.clone(), from)),
+            _ => unsupported("a TextConstant from a value that is no text"),
+        }
     }),
     ("Variant.IntoInteger#1", |_, _, a| {
         let v = a.first().cloned().unwrap_or(Value::Null);
@@ -474,7 +490,14 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
     // Kinds the value model has no variant for yet are never true.
     ("Variant.IsTextConstant#1", |_, r, _| is(r, "TextConstant")),
     ("Variant.IsAutomation#1", |_, _, _| Ok(Value::Boolean(false))),
-    ("Variant.IsFile#1", |_, _, _| Ok(Value::Boolean(false))),
+    // IsFile is false for a Variant of another kind (types/variant/VariantIsMatrix.al:83); one holding a File is not measured
+    // (VariantIsMatrix.al:5-6): refused.
+    ("Variant.IsFile#1", |_, r, _| match r {
+        Some(v) if v.is("File") => {
+            crate::native::unsupported("Variant.IsFile of a Variant that holds a File (not pinned)")
+        }
+        _ => Ok(Value::Boolean(false)),
+    }),
 ];
 
 pub(super) fn all() -> impl Iterator<Item = &'static (&'static str, NativeFn)> {

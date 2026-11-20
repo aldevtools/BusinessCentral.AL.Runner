@@ -107,9 +107,10 @@ and MD5 hashes, and Base64 conversion.
 
 Tests that reach any other `DotNet` call need the .NET SDK 8 or newer. The binary carries the
 helper sources and builds the helper into the cache on first use. The helper then runs on
-the .NET runtime of the BC version's service tier: .NET 8 for BC 27 and 28, .NET 10 for
-BC 29, whose service-tier DLLs (OpenXml, `System.Drawing.Common`) are built for .NET 10 and
-do not load into .NET 8. Install that runtime too. `--dotnet-allow-roll-forward` runs the
+the .NET runtime of the BC build's service tier, as its runtime configuration names it: .NET 10
+for BC 29 and for the BC 27 and 28 builds published from 2026-11-17, .NET 8 for earlier BC 27
+and 28 builds. Service-tier DLLs built for .NET 10 (OpenXml, `System.Drawing.Common`) do not
+load into .NET 8. Install that runtime too. `--dotnet-allow-roll-forward` runs the
 helper on a newer major only when the one the BC version needs is not installed. Without .NET those
 tests are not run, with the reason, and the exit code is 8. `--require-dotnet` turns
 a missing helper into an error, for CI. Arbitrary .NET that reaches the machine

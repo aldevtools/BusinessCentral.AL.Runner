@@ -108,6 +108,16 @@ impl std::ops::DerefMut for ListVec {
     }
 }
 
+/// The declaration a TextConstant in a Variant came from (`Value::TextConst`): the readers outside the pinned ones treat
+/// the two apart (`conv::text_constant::read`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextConstFrom {
+    /// A variable declared `Label`.
+    Label,
+    /// A variable declared `TextConst`.
+    TextConst,
+}
+
 #[derive(Debug, Clone)]
 pub enum Value {
     /// An unassigned Variant.
@@ -119,9 +129,10 @@ pub enum Value {
     Byte(u8),
     Char(u16),
     Text(crate::text::Txt),
-    /// A Label (or TextConst) held by a Variant: the text, answering IsTextConstant and no IsText (types/
-    /// Y81LabelVariant.al; needs corpus bump). Only a Variant ever holds it; anything that takes it out reads a Text.
-    TextConst(crate::text::Txt),
+    /// A Label or TextConst held by a Variant: the text and the kind of its declaration. It answers IsTextConstant and no
+    /// IsText (types/Y81LabelVariant.al; types/variant/VariantIsMatrix.al:224-243). Only a Variant ever holds it; what
+    /// every other reader gets is `conv::text_constant::read`.
+    TextConst(crate::text::Txt, TextConstFrom),
     Code(crate::text::Txt),
     /// Day number (0 = undefined `0D`), closing-date flag.
     Date(i32, bool),
@@ -163,9 +174,10 @@ pub enum Value {
     /// A value read from `SessionInformation.SqlStatementsExecuted()` or `SqlRowsRead()`, or computed from such reads
     /// (issue 5580): a BigInteger whose number is the runtime's model, so only the uses `sqlcount` lists are answered.
     SqlCount(SqlCount),
-    /// The byte size of a placeholder report output (`Blob.Length`, `File.Len`), with the placeholder's mark: an Integer known only
-    /// to be greater than 0, so only a comparison with 0 is answered (`crate::placeholder_output::size`).
-    PlaceholderSize(std::sync::Arc<str>),
+    /// The byte size of a placeholder report output (`Blob.Length`, `File.Len`), with the placeholder's mark and the number type of
+    /// the slot that holds it: a number known only to be greater than 0, so only a comparison with 0 is answered
+    /// (`crate::placeholder_output::size`).
+    PlaceholderSize(std::sync::Arc<str>, SqlType),
 }
 
 /// A counter value (`Value::SqlCount`, see `crate::sqlcount`).
@@ -179,7 +191,8 @@ pub struct SqlCount {
     pub ty: SqlType,
 }
 
-/// The number type a counter value has (`SqlCount::ty`).
+/// The number type a counter value (`SqlCount::ty`) or a placeholder's size (`Value::PlaceholderSize`) has: the type of the
+/// slot that holds it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub enum SqlType {
     Integer,
@@ -504,6 +517,10 @@ pub struct RecordState {
     /// The company set by `ChangeCompany` or `RecordRef.Open(.., Company)`, as the Company table
     /// names it; `None` is the session company.
     pub company: Option<String>,
+    /// A `ChangeCompany` call succeeded on this variable, also to the session's own company or '' (which leave `company`
+    /// at `None`), or on a record `Copy` took this one from. No method clears it. It only marks state the corpus does not
+    /// measure: al-vm `modify_all_audit_field` refuses on it.
+    pub change_company_called: bool,
     /// The table is `TableType = CRM`: any use needs a registered table connection
     /// (session-system/TestCrmTableNoConnectionContracts.al).
     pub crm: bool,
@@ -589,6 +606,10 @@ pub struct RecordState {
     /// Every use of the record refuses with this reason: what its buffer holds is not pinned (the row a page closed on after
     /// `Page.RunModal(Id, Rec)` called as a statement, see `hand_back_selection`).
     pub unpinned_buffer: Option<&'static str>,
+    /// A by-value copy whose filters were dropped on an assumption (`by-value-table-proc-other-table`,
+    /// al-vm `records/by_value_view.rs`): a read of its view marks it. Clones of the state
+    /// keep it; `Reset`, `SetView` and `Clear` end it.
+    pub view_assumption: Option<crate::assumptions::Assumption>,
     /// The filters an action's `RunPageLink` put on this Rec of the page it opened: a copy of Rec passed by value does not
     /// carry them (testpage/TestActionRunPageLinkFilterGroup.al:292-369, `filters=` in OnOpenPage and OnAfterGetCurrRecord).
     pub run_page_link: Option<Rc<Vec<crate::filter::FieldFilter>>>,
@@ -643,8 +664,9 @@ pub struct OwnReadAt {
     pub store_changes: u64,
 }
 
-/// See [`RecordState::row_origin`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// See [`RecordState::row_origin`]. Two origins are equal when every field but `by_get` is: the stale-buffer rules compare
+/// origins without it.
+#[derive(Debug, Clone, Copy)]
 pub struct RowOrigin {
     /// The variable's own write: its Insert, or its own Modify or Rename after its Insert or Get in the same transaction
     /// (record/crud/SbStaleOwnModify.al). Else a Get.
@@ -665,7 +687,44 @@ pub struct RowOrigin {
     pub own_modified: bool,
     /// A read by a Find, FindFirst, FindLast, FindSet or Next, not by Get, gave the buffer its committed version.
     pub from_find: bool,
+    /// A `Get` gave the buffer its version (not GetBySystemId, not a Find), committed or written in the open transaction. Read
+    /// only by the xRec rule of record/validate/XRecTableProcThroughCodeunit.al (al-vm `records/nested_validate.rs` `measured_buffer`).
+    pub by_get: bool,
 }
+
+impl PartialEq for RowOrigin {
+    fn eq(&self, other: &Self) -> bool {
+        let RowOrigin {
+            own_write,
+            version,
+            commits,
+            read_in_write_tx,
+            lock_only,
+            own_modified,
+            from_find,
+            by_get: _,
+        } = *self;
+        (
+            own_write,
+            version,
+            commits,
+            read_in_write_tx,
+            lock_only,
+            own_modified,
+            from_find,
+        ) == (
+            other.own_write,
+            other.version,
+            other.commits,
+            other.read_in_write_tx,
+            other.lock_only,
+            other.own_modified,
+            other.from_find,
+        )
+    }
+}
+
+impl Eq for RowOrigin {}
 
 impl RowOrigin {
     /// An origin at `version` with the session's `commits`, no Get in a write transaction, no lock rule and no own Modify.
@@ -678,6 +737,7 @@ impl RowOrigin {
             lock_only: false,
             own_modified: false,
             from_find: false,
+            by_get: false,
         }
     }
 }
@@ -1354,6 +1414,18 @@ pub struct ErrorInfoState {
     pub page_no: i32,
     /// The dictionary the test assigned, held by reference.
     pub custom_dimensions: Option<Value>,
+    /// How the ErrorInfo was built, for `GetLastErrorText(true)` after `FieldError(Field, ErrorInfo)`.
+    pub built: ErrorInfoBuilt,
+}
+
+/// How an `ErrorInfo` was built: `Create()` and nothing set after it, `Create('literal')` with one string literal and
+/// nothing set after it, or any other way (a Label, a variable, more arguments, a property set, an action added, or the
+/// `CustomDimensions` dictionary handed out). The setters of `errorinfo.rs` make it `Other`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ErrorInfoBuilt {
+    CreateNoMessage,
+    CreateLiteral,
+    Other,
 }
 
 /// What a `ModuleInfo` reports: an app's manifest (corpus session-system/TestNavAppExtended.al,
@@ -1367,7 +1439,7 @@ pub struct ModuleInfoState {
     pub version: Option<[i32; 4]>,
     pub dependencies: Vec<[u8; 16]>,
     /// The module BC makes up for the null app id: only its data version is pinned
-    /// (session-system/TestEnvironmentUserTenantContracts.al:195-201); the other properties are refused.
+    /// (session-system/TestEnvironmentUserTenantContracts.al:192-198); the other properties are refused.
     pub synthesized: bool,
 }
 
@@ -1399,6 +1471,9 @@ pub struct Instance {
     pub born: Born,
     /// The session watches this single instance's globals (al-vm `single_track.rs`).
     pub single: bool,
+    /// Why what this single instance holds is not the value BC has: every read of one of its globals is refused with this
+    /// reason (al-vm `single_unmeasured.rs`). `None` for every other instance.
+    pub unmeasured: Option<Rc<str>>,
     /// Counts the instance as live while it exists (`instance_cycles::live`).
     pub live: crate::instance_cycles::LiveCount,
 }
@@ -1757,7 +1832,7 @@ impl Value {
             Value::Byte(_) => k == "byte",
             Value::Char(_) => k == "char",
             Value::Text(_) => k == "text",
-            Value::TextConst(_) => k == "textconstant",
+            Value::TextConst(..) => k == "textconstant",
             Value::Code(_) => k == "code",
             Value::Date(..) => k == "date",
             Value::Time(_) => k == "time",
@@ -1783,8 +1858,17 @@ impl Value {
             Value::DotNet(_) => k == "dotnet",
             // Never reached: a read of an unknown column is refused before its value reaches a Variant.
             Value::Unknown(_) => false,
-            // An Integer, as Blob.Length is.
-            Value::PlaceholderSize(_) => k == "integer",
+            // The type of the slot that held it: an Integer as Blob.Length returns it, a BigInteger or Decimal field or variable
+            // its own type. An Integer expression in a BigInteger variable answers BigInteger (types/decimal-integer/
+            // Y66BigIntIntoInt.al:143-144, :163; types/decimal-integer/ScT70063.al:159-162, :196-197); a whole number of another
+            // type in a Decimal variable answers Decimal (Y66BigIntIntoInt.al:139-140, :162).
+            Value::PlaceholderSize(_, ty) => {
+                k == match ty {
+                    SqlType::Integer => "integer",
+                    SqlType::BigInteger => "biginteger",
+                    SqlType::Decimal => "decimal",
+                }
+            }
             // A BigInteger (session-system/session/SqlCounters.al:87-103).
             Value::SqlCount(c) => {
                 k == match c.ty {
