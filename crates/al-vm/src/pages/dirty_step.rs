@@ -339,6 +339,7 @@ impl Session {
         let card_next = name == PageMethod::Next && self.is_card(st) && st.borrow().host.is_none() && st.borrow().dirty;
         if !card_next {
             let r = self.test_page_op(method, st, args);
+            Self::end_test_filter_steps_on_error(st, &r);
             return Self::journal_next_after_turn(st, name, r);
         }
         let depth = self.frames.len();
@@ -371,7 +372,9 @@ impl Session {
         self.refuse_rec_control_after_open(st, control)?;
         Self::refuse_ws_trigger_order_step(st, call)?;
         // An Invoke of an action of a part that shows no row may be a read of its Rec a List-host cell measured.
-        self.reading_empty_list_rec(st, call, |s| s.test_control_op_noted(method, c, args))
+        let r = self.reading_empty_list_rec(st, call, |s| s.test_control_op_noted(method, c, args));
+        Self::end_test_filter_steps_on_error(st, &r);
+        r
     }
 
     /// `test_control_op_held` after the call is noted.
