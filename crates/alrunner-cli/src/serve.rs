@@ -1382,4 +1382,46 @@ mod tests {
         assert_eq!(l["stackFrames"], json!(["a", "b"]));
         assert_eq!(l["durationMs"], 3);
     }
+
+    /// PERF-18: the `stopGroup` of an entry is a text or a number; a number and the text that reads alike are one group.
+    #[test]
+    fn an_entry_may_name_its_stop_group() {
+        let group = |v: Value| {
+            entries_of(&fields(json!({"entries": [{"test": "X", "stopGroup": v}]})))
+                .map(|(e, _)| e[0].stop_group.clone())
+        };
+        assert_eq!(group(json!(7)), Ok(Some("7".to_string())));
+        assert_eq!(group(json!("7")), Ok(Some("7".to_string())));
+        assert_eq!(group(json!("m1")), Ok(Some("m1".to_string())));
+        assert_eq!(group(Value::Null), Ok(None));
+        for bad in [json!(true), json!([]), json!({})] {
+            assert_eq!(
+                group(bad.clone()),
+                Err("the `stopGroup` of an entry is a text or a number".to_string()),
+                "{bad}"
+            );
+        }
+        let (e, _) = entries_of(&fields(json!({"entries": [{"test": "X"}]}))).unwrap();
+        assert_eq!(e[0].stop_group, None);
+    }
+
+    /// PERF-18: groups need the stop; a request may mix grouped and ungrouped entries.
+    #[test]
+    fn stop_groups_need_the_stop_and_a_mix_is_fine() {
+        let entry = |g: Option<&str>| run::Entry {
+            stop_group: g.map(String::from),
+            ..run::Entry::default()
+        };
+        let none = [entry(None), entry(None)];
+        let all = [entry(Some("m1")), entry(Some("m2"))];
+        let mixed = [entry(None), entry(Some("m1"))];
+        let needs_the_stop = "`stopGroup` needs `stopAfterFirstFailure` (or a server started with `--stop-after-first-failure`): without the stop a group changes nothing";
+        for stop in [false, true] {
+            assert_eq!(stop_groups_checked(&none, stop), Ok(()), "no groups, stop {stop}");
+        }
+        assert_eq!(stop_groups_checked(&all, true), Ok(()));
+        assert_eq!(stop_groups_checked(&mixed, true), Ok(()), "a mix is allowed");
+        assert_eq!(stop_groups_checked(&all, false), Err(needs_the_stop.to_string()));
+        assert_eq!(stop_groups_checked(&mixed, false), Err(needs_the_stop.to_string()));
+    }
 }
