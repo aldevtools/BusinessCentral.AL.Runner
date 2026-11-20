@@ -29,6 +29,7 @@ mod bucket_lowering;
 mod bucket_misc;
 mod bucket_service_misc;
 mod bump21_unbuilt;
+mod by_value_auto_calc;
 mod by_value_dispatch;
 mod by_value_subscriber;
 mod by_value_table_proc_other_table;

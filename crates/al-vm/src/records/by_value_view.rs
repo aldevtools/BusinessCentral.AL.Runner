@@ -19,7 +19,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 /// The `RecordState::unpinned_buffer` reason of a by-value copy whose view [`Session::by_value_view`] does not decide.
-pub(crate) const BY_VALUE_VIEW: &str = "a record handed by value whose view the probe did not measure (a filter in filter group 1 or in a group other than -1, 0, 2 and 4, the caller standing in a group other than 0 and 2, a field sorted descending by SetAscending, a SetLoadFields after a read, SetAutoCalcFields or ReadIsolation on the record, a call through an interface, a parameter of an object other than a codeunit or of a table procedure other than Row.Proc(Row) or Buffer.Proc(Entry) of another table from a codeunit or a third table, or an event subscriber's parameter whose publisher parameter is a by-value Record, other than in the one cell record/filters/ByValueRecordView.al:286-308 and :964-978 measures): what the copy's view holds is not pinned";
+pub(crate) const BY_VALUE_VIEW: &str = "a record handed by value whose view the probe did not measure (a filter in filter group 1 or in a group other than -1, 0, 2 and 4, the caller standing in a group other than 0 and 2, a field sorted descending by SetAscending, a SetLoadFields after a read, a SetAutoCalcFields outside the measured shape or ReadIsolation on the record, a call through an interface, a parameter of an object other than a codeunit or of a table procedure other than Row.Proc(Row) or Buffer.Proc(Entry) of another table from a codeunit or a third table, or an event subscriber's parameter whose publisher parameter is a by-value Record, other than in the one cell record/filters/ByValueRecordView.al:286-308 and :964-978 measures): what the copy's view holds is not pinned";
 
 /// The `RecordState::unpinned_buffer` reason of the copy an event subscriber's parameter gets in the cell
 /// record/filters/ByValueRecordView.al:286-308 measures ([`subscriber_view`]): the subscriber reads GetFilters and Count of it
@@ -160,11 +160,12 @@ fn reads_no_view(method: RecordOp) -> bool {
 /// secondary in `ByValue_SecondaryKey_*`, ad hoc in `ByValue_AdHocKey_Group0Filter`), Ascending (`ByValue_Descending_*`)
 /// and the marks with MarkedOnly on or off (`ByValue_Marks_*`) are each measured. A filter in group 1 is seen by every
 /// record of the table in the session (`ByValue_Group1Filter_OtherInstance`), which the runtime does not model.
-fn measured_view(s: &RecordState) -> bool {
+/// `auto_calc_dropped`: the caller's SetAutoCalcFields is one [`Session::measured_auto_calc`] names, and the copy drops it.
+fn measured_view(s: &RecordState, auto_calc_dropped: bool) -> bool {
     s.filters.iter().all(|f| matches!(f.group, -1 | 0 | 2 | 4))
         && matches!(s.filter_group, 0 | 2)
         && s.field_descending == 0
-        && measured_state(s)
+        && (measured_state(s) || auto_calc_dropped)
 }
 
 /// Whether the probe measured what else `s` holds that a copy could keep: no SetLoadFields, or one before any read
@@ -423,14 +424,27 @@ impl Session {
         let no_filter = s.filters.is_empty();
         let pinned_key = s.key == 0 || s.adhoc.as_ref().is_some_and(|(k, _)| *k == s.key);
         let load_dropped = measured.is_some() && s.load.request.is_some() && s.load.buffer.is_none();
+        // The cells call from a codeunit, and `Buffer.Proc(Head)` also from a third table's trigger (the callers
+        // `measured_callee` admits for it); a codeunit procedure called from table code is not measured.
+        let auto_calc_caller = measured == Some(Evidence::Assumed(Assumption::ByValueTableProcOtherTable))
+            || self
+                .frames
+                .last()
+                .is_some_and(|&o| self.engine.program.objects[o].kind == ObjKind::Codeunit);
+        let auto_calc_dropped =
+            measured.is_some() && auto_calc_caller && s.unpinned_buffer.is_none() && self.measured_auto_calc(&s);
         let mut c = copy.borrow_mut();
+        if auto_calc_dropped {
+            c.auto_calc.clear();
+            c.auto_calc_dropped = true;
+        }
         match s.unpinned_buffer {
             None | Some(FLOWFIELD_KEY) if plain_view && no_filter && pinned_key && !load_dropped => {
                 c.key = 0;
                 c.adhoc = None;
                 c.unpinned_buffer = None;
             }
-            None if measured.is_some() && measured_view(&s) => {
+            None if measured.is_some() && measured_view(&s, auto_calc_dropped) => {
                 primary_view(&mut c);
                 if load_dropped {
                     c.load.request = None;
@@ -461,6 +475,37 @@ impl Session {
             && !s.touched
             && !s.inserted
             && !s.change_company_called
+    }
+
+    /// Whether the caller's SetAutoCalcFields of `s` is one record/filters/ByValueAutoCalcFields.al measured, which BC does
+    /// not hand a by-value copy (assumption `by-value-record-no-auto-calc`, corpus PR 1473, open): each cell's copy has the
+    /// caller's field values, its calculated FlowField included, but a FindLast of it leaves the FlowFields 0
+    /// (`lastTotal=0 lastCount=0`), while the caller still calculates them (:265-605: a codeunit procedure :284-377, through a
+    /// Variant to RecordRef.GetTable :378-413, `Buffer.Proc(Head)` :414-451 and :470-494, `Head.Proc(Head)` :452-469 and
+    /// :495-518; a Get of the copy :519, Copy of it :537, its own SetAutoCalcFields :555, a FlowFilter formula :573,
+    /// `Buffer.Proc(Head)` from a third table's OnInsert :593). Every fact the cells share, by equality: one or
+    /// two FlowFields with a CalcFormula set (`Line Total`, `Line Count`, `Filtered Total`), every filter on a Normal field in
+    /// group 0 or 2,
+    /// the caller standing in group 0, the primary or a declared key, any order, marks but MarkedOnly off, no SetLoadFields
+    /// and ReadIsolation at its default.
+    fn measured_auto_calc(&self, s: &RecordState) -> bool {
+        let Some(table) = self.engine.program.objects[s.table as usize].table.as_ref() else {
+            return false;
+        };
+        let field = |i: usize| table.fields.get(i);
+        !s.auto_calc.is_empty()
+            && s.auto_calc
+                .iter()
+                .all(|&i| field(i).is_some_and(|f| !f.stored && !f.flow_filter && f.calc.is_some()))
+            && s.filters
+                .iter()
+                .all(|f| matches!(f.group, 0 | 2) && field(f.field).is_some_and(|d| d.stored))
+            && s.filter_group == 0
+            && s.adhoc.is_none()
+            && s.field_descending == 0
+            && !s.marked_only
+            && s.load.request.is_none()
+            && s.read_isolation == 0
     }
 
     /// Whether the call of publisher `routine` of `object` from routine `caller` of the same object, whose locals are
