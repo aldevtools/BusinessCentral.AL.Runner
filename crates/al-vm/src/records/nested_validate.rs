@@ -295,7 +295,8 @@ impl Session {
     }
 
     /// The xRec of the procedure in frame `f`, of the table or of one of its table extensions, when it runs on `rc` with an xRec
-    /// it shares with a running call: not a trigger, and not the blank xRec of a plain call (`plain_proc_xrec`). A procedure
+    /// it shares with its caller or a running call (`shared_proc_xrec`; not a trigger, nor a procedure the table's own trigger
+    /// calls unqualified, whose instance holds the trigger's xRec). A procedure
     /// it calls on `rc` (`Rec.OtherProc()`) refuses a read of xRec when that xRec holds other values than a blank record
     /// (`running_call_xrec`): BC gives the unqualified call the caller's xRec, as here (both run on one instance), the call on
     /// Rec from such a procedure is not measured.
@@ -309,7 +310,7 @@ impl Session {
         let slot = |s: Option<usize>| s.and_then(|s| fi.globals.get(s));
         match (slot(o.rec_slot), slot(o.xrec_slot)) {
             (Some(Value::Record(r)), Some(Value::Record(x)))
-                if Rc::ptr_eq(r, rc) && !self.plain_proc_xrec.iter().any(|(_, _, p)| Rc::ptr_eq(p, x)) =>
+                if Rc::ptr_eq(r, rc) && self.shared_proc_xrec.iter().any(|p| Rc::ptr_eq(p, x)) =>
             {
                 Some(x.clone())
             }
