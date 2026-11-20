@@ -1355,6 +1355,7 @@ impl Lowerer<'_> {
         if let Some(stmt) = self.memberless_option_array_assign(n, kids) {
             return stmt;
         }
+        self.own_named_caption_target(&kids[0])?;
         // `CurrFieldNo := FieldNo(X)` in table code sets the field number of the implicit Rec. Base Application's
         // `SelltoContactLookup` does it before it validates a field. The corpus pins reading CurrFieldNo
         // (testpage/TestPageCurrFieldNo_Tests.al); the assignment is not pinned (docs/probes-needed.md).

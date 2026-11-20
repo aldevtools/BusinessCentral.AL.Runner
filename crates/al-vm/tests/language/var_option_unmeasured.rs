@@ -1,9 +1,8 @@
-//! The shapes the probes of corpus PRs 1432 and 1439 do not measure for a `var` Option parameter with another member list
-//! than the value (assumption `var-option-caller-members`): they refuse. Their neighbors keep running: the measured ones
-//! flagged, the ones main answers as main does. OVMC = OptionVarMemberlessCallers.al, OVMW = OptionVarMemberlessWrites.al
-//! (corpus PR 1439).
+//! The shapes tests/al-language/types/enum-option/ does not pin for a `var` Option parameter with another member list than
+//! the value: they refuse. Their neighbors keep running: the pinned ones, and the ones main answers as main does, with no
+//! assumption. OVMC = OptionVarMemberlessCallers.al, OVMW = OptionVarMemberlessWrites.al.
 
-use al_builtins::assumptions::{self, Assumption};
+use al_builtins::assumptions;
 use al_builtins::native::Signal;
 use al_testkit::text;
 
@@ -732,17 +731,7 @@ codeunit 69855 C
 fn run(routine: &str) -> (Result<String, Signal>, bool) {
     assumptions::clear_hits();
     let out = al_testkit::run_in(SRC, "C", routine).map(|v| text(Ok(v)));
-    (
-        out,
-        assumptions::take_hits().contains(&Assumption::VarOptionCallerMembers),
-    )
-}
-
-fn assumed(routine: &str) -> String {
-    match run(routine) {
-        (Ok(out), true) => out,
-        other => panic!("{routine}: expected a flagged result, got {other:?}"),
-    }
+    (out, !assumptions::take_hits().is_empty())
 }
 
 fn clean(routine: &str) -> String {
@@ -770,8 +759,8 @@ const UNHEARD: &str = "which no subscriber hears, from a place the probe does no
 // (OptionVarMemberLists.al:531; OVMC:311).
 #[test]
 fn the_measured_hop_to_a_memberless_subscriber_runs() {
-    assert_eq!(assumed("LocalHop"), "Second|1");
-    assert_eq!(assumed("LocalFieldHop"), "Second|1");
+    assert_eq!(clean("LocalHop"), "Second|1");
+    assert_eq!(clean("LocalFieldHop"), "Second|1");
 }
 
 // A caption field through the hop: BC's subscriber shows the caption, Two (OVMC:290), which the value does not carry. Through
@@ -793,21 +782,21 @@ fn unmeasured_callers_of_a_memberless_subscriber_refuse() {
     refused("DirectMemberlessLocalToMembersPublisher", PUBLISHER);
 }
 
-// A publisher called directly with a variable of another member list refuses when a subscriber hears it; no probe calls one
-// directly. One no subscriber hears changes nothing, flagged: the caller's variable keeps its value and members, also an
-// element of a `var` memberless array that holds its caller's members (corpus PR 1444, OptionVarMemberlessUnheard.al:115,
+// A publisher called directly with a variable of another member list refuses when a subscriber hears it
+// (OptionVarMemberlessDirectCallers.al `Direct_*_BothPublishers` pins it; not run yet). One no subscriber hears changes nothing: the caller's variable keeps its value and members, also an
+// element of a `var` memberless array that holds its caller's members (OptionVarMemberlessUnheard.al:115,
 // :281, :327, :347).
 #[test]
 fn a_publisher_called_directly_refuses_only_when_a_subscriber_hears_it() {
     refused("DirectLocalToMemberlessPublisher", PUBLISHER);
     refused("DirectByValueToMemberlessPublisher", PUBLISHER);
-    assert_eq!(assumed("UnheardMemberlessPublisher"), "Second|1@Three");
-    assert_eq!(assumed("UnheardMembersPublisher"), "1@R");
-    assert_eq!(assumed("UnheardFromParameters"), "Second|1@Second|1");
-    assert_eq!(assumed("UnheardFromMemberlessVarParam"), "Second|1@Second|1");
-    assert_eq!(assumed("UnheardFromVarArrayElement"), "Third|2");
-    assert_eq!(assumed("UnheardThroughVarParamSameMembers"), "B|1@B|1");
-    assert_eq!(assumed("UnheardThroughMemberlessVarParamMemberless"), "1|1@1|1");
+    assert_eq!(clean("UnheardMemberlessPublisher"), "Second|1@Three");
+    assert_eq!(clean("UnheardMembersPublisher"), "1@R");
+    assert_eq!(clean("UnheardFromParameters"), "Second|1@Second|1");
+    assert_eq!(clean("UnheardFromMemberlessVarParam"), "Second|1@Second|1");
+    assert_eq!(clean("UnheardFromVarArrayElement"), "Third|2");
+    assert_eq!(clean("UnheardThroughVarParamSameMembers"), "B|1@B|1");
+    assert_eq!(clean("UnheardThroughMemberlessVarParamMemberless"), "1|1@1|1");
 }
 
 // No later read meets a member list an unheard publisher left: a memberless `var` parameter reads the caller's own members
@@ -815,9 +804,9 @@ fn a_publisher_called_directly_refuses_only_when_a_subscriber_hears_it() {
 // variable declared with the held members keeps them with the ordinal (:1020).
 #[test]
 fn no_read_after_an_unheard_publisher_sees_its_member_list() {
-    assert_eq!(assumed("UnheardThenMemberlessVarParam"), "B|1");
-    assert_eq!(assumed("UnheardThenEvaluateInside"), "C|2");
-    assert_eq!(assumed("UnheardThenElementStore"), "C|2");
+    assert_eq!(clean("UnheardThenMemberlessVarParam"), "B|1");
+    assert_eq!(clean("UnheardThenEvaluateInside"), "C|2");
+    assert_eq!(clean("UnheardThenElementStore"), "C|2");
 }
 
 // After an unheard publisher a global, a field of a local record, an element of an array with members, an element of a
@@ -826,15 +815,15 @@ fn no_read_after_an_unheard_publisher_sees_its_member_list() {
 // not measured: refused.
 #[test]
 fn other_places_handed_to_an_unheard_publisher_keep_main_or_refuse() {
-    assert_eq!(assumed("UnheardFieldThenMemberless"), "B|1");
+    assert_eq!(clean("UnheardFieldThenMemberless"), "B|1");
     // A field of a global record or of a record passed by value: no cell; main's write-back, which leaves the value as it was.
     assert_eq!(clean("UnheardGlobalRecordField"), "B|1");
     assert_eq!(clean("UnheardByValueRecordField"), "C|2");
-    assert_eq!(assumed("UnheardElementThenMemberless"), "B|1");
-    assert_eq!(assumed("UnheardArrayOtherMembers"), "B|1");
-    assert_eq!(assumed("UnheardGlobalThenMemberless"), "B|1");
-    assert_eq!(assumed("UnheardFromCopyArrayElement"), "B|1");
-    assert_eq!(assumed("UnheardFromByValueArrayElement"), "C|2>C|2");
+    assert_eq!(clean("UnheardElementThenMemberless"), "B|1");
+    assert_eq!(clean("UnheardArrayOtherMembers"), "B|1");
+    assert_eq!(clean("UnheardGlobalThenMemberless"), "B|1");
+    assert_eq!(clean("UnheardFromCopyArrayElement"), "B|1");
+    assert_eq!(clean("UnheardFromByValueArrayElement"), "C|2>C|2");
     refused("UnheardBaseTableVar", UNHEARD);
 }
 
@@ -855,19 +844,17 @@ fn unmeasured_pairs_of_call_and_caller_refuse() {
 // own (OptionVarMemberlessUnheard.al:415, :423).
 #[test]
 fn measured_and_main_neighbors_keep_running() {
-    assert_eq!(assumed("ProcedureLocalArrayElement"), "Second@Second");
+    assert_eq!(clean("ProcedureLocalArrayElement"), "Second@Second");
     assert_eq!(clean("FieldToOtherMembers"), "B@Second");
-    assert_eq!(assumed("GlobalToOtherMembersProcedure"), "Y|1>B|1");
+    assert_eq!(clean("GlobalToOtherMembersProcedure"), "Y|1>B|1");
     // An element of an array of memberless Options to a publisher a subscriber hears: main's binding and write-back.
     assert_eq!(clean("HeardMemberlessArrayElement"), "2|2>2");
     // One that holds no caller's members, to a publisher no subscriber hears: main's path.
     assert_eq!(clean("UnheardFromPlainMemberlessElement"), "2|2");
 }
 
-// `A[1] := A[2]` and `A[2] := A[2]` in a `var` array parameter of memberless Options keep the held members on a local BC
-// of the newest supported major (corpus PR 1439 extension, local commit da4c8406, OptionVarMemberlessElementStores.al:77,
-// not pushed yet).
-// An element is no variable of the `var` section: refused.
+// `A[1] := A[2]` and `A[2] := A[2]` in a `var` array parameter of memberless Options keep the held members
+// (OptionVarMemberlessElementStores.al:133, :135). An element is no variable of the `var` section: still refused.
 #[test]
 fn an_element_assigned_from_an_element_refuses() {
     refused("VarArrayAssignOtherElement", ELEMENT);
@@ -882,8 +869,8 @@ fn an_element_assigned_from_an_unmeasured_place_refuses() {
     refused("VarArrayAssignOtherArrayElement", ELEMENT);
     refused("VarArrayAssignVarParameter", ELEMENT);
     refused("VarArrayAssignGlobal", ELEMENT);
-    assert_eq!(assumed("VarArrayAssignLocal"), "Third|2");
-    assert_eq!(assumed("LocalArrayAssignVarParameter"), "2|2");
+    assert_eq!(clean("VarArrayAssignLocal"), "Third|2");
+    assert_eq!(clean("LocalArrayAssignVarParameter"), "2|2");
 }
 
 // Into a by-value array parameter or a local array CopyArray filled only an Integer store is measured (OVMW:833, :560); into a

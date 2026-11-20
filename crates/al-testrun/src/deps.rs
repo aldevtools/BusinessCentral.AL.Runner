@@ -3,7 +3,7 @@
 //! the corpus tree's `.alpackages` (ADR-013 amendment of 2026-11-10, [`load_corpus`]): its Microsoft apps come only
 //! from the build `oracle/oracle.toml` pins.
 
-use al_deps::artifact::{ArtifactUse, Fetch, HttpCdn, load_with_artifacts};
+use al_deps::artifact::{ArtifactUse, Fetch, HttpCdn, load_with_artifacts, pick_build};
 use al_deps::build::BuildQuery;
 use al_deps::load::{AppJson, Request, WorkspaceApp, load_dependencies, parse_app_json};
 use al_deps::select::{MissingPolicy, SelectError};
@@ -98,6 +98,30 @@ pub struct Provision {
     pub local_artifacts: Option<PathBuf>,
     /// `--country` (lower case); empty or `w1`: the platform artifact's Microsoft apps (ADR-020 amendment).
     pub country: String,
+}
+
+impl Provision {
+    fn fetch(&self) -> Fetch {
+        Fetch {
+            cache_root: al_deps::cache::cache_root_from_env(self.cache_dir.as_deref()),
+            download: self.download,
+            query: self.query.clone(),
+            local_artifacts: self.local_artifacts.clone(),
+            country: self.country.clone(),
+        }
+    }
+
+    /// The build [`load_project_with`] takes the Microsoft apps from when no search folder holds them
+    /// (`al_deps::artifact::pick_build`), asked before the dependencies are loaded. `None`: offline and nothing
+    /// matches, or the feed cannot answer (the load reports that).
+    pub fn build_before_load(&self) -> Option<al_deps::build::BuildId> {
+        let fetch = self.fetch();
+        let store = al_deps::cache::Store::new(&fetch.cache_root);
+        pick_build(&store, &fetch, &HttpCdn::from_env(), &mut Vec::new())
+            .ok()
+            .flatten()
+            .map(|p| p.selection.build)
+    }
 }
 
 fn app_json(dir: &Path) -> Result<AppJson, String> {
@@ -391,14 +415,7 @@ pub fn load_project_with(
     let (loaded, build) = match provision {
         None => (load_dependencies(&req)?, None),
         Some(p) => {
-            let fetch = Fetch {
-                cache_root: al_deps::cache::cache_root_from_env(p.cache_dir.as_deref()),
-                download: p.download,
-                query: p.query.clone(),
-                local_artifacts: p.local_artifacts.clone(),
-                country: p.country.clone(),
-            };
-            let got = load_with_artifacts(&req, &fetch, &HttpCdn::from_env()).map_err(|e| {
+            let got = load_with_artifacts(&req, &p.fetch(), &HttpCdn::from_env()).map_err(|e| {
                 format!("{e}\n(pass --no-download to run without the dependency apps the artifact feed would supply)")
             })?;
             log.extend(got.log);

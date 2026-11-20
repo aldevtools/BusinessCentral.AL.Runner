@@ -16,9 +16,6 @@ use super::{Providers, blank, ids, pos};
 use al_builtins::value::Value;
 use al_data::TableDef;
 
-const BASE_APPLICATION: &str = "437dbf0e-84ff-417a-965d-ed2bb9650972";
-const SYSTEM_APPLICATION: &str = "63ca2fa4-4f03-4f2b-a480-172fef340d3f";
-
 /// The id of the Application app, unless the program holds an app with it (then it is listed as any other).
 pub(super) fn application_id(p: &Providers) -> Option<[u8; 16]> {
     let application = al_builtins::moduleinfo::APPLICATION_APP_ID;
@@ -49,11 +46,13 @@ pub(super) fn published_application_row(p: &Providers, t: &TableDef, id: [u8; 16
     r[pos(t, 4)] = Value::Text("Application".into());
     r[pos(t, 5)] = Value::Text("Microsoft".into());
     let engine = p.engine();
-    let version = [BASE_APPLICATION, SYSTEM_APPLICATION].iter().find_map(|want| {
-        let app = engine.program.apps.iter().find(|a| a.id.eq_ignore_ascii_case(want))?;
-        let parts: Vec<i32> = app.version.split('.').map(|v| v.parse().ok()).collect::<Option<_>>()?;
-        <[i32; 4]>::try_from(parts).ok()
-    });
+    let version = [al_ir::BASE_APPLICATION_APP_ID, al_ir::SYSTEM_APPLICATION_APP_ID]
+        .iter()
+        .find_map(|want| {
+            let app = engine.program.apps.iter().find(|a| a.id.eq_ignore_ascii_case(want))?;
+            let parts: Vec<i32> = app.version.split('.').map(|v| v.parse().ok()).collect::<Option<_>>()?;
+            <[i32; 4]>::try_from(parts).ok()
+        });
     if let Some(v) = version {
         for (n, part) in v.iter().enumerate() {
             r[pos(t, 6 + n as u32)] = Value::Integer(*part);

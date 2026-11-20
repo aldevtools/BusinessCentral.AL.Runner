@@ -1,5 +1,5 @@
 //! A record handed by value to a procedure of a report (al-runner issue 8386): the copy gets the view of a fresh record,
-//! flagged under `by-value-record-no-filters` (corpus PR 1450, record/filters/ByValueRecordView.al, the
+//! flagged under `by-value-report-procedure` (corpus PR 1450, record/filters/ByValueRecordView.al, the
 //! `ByValue_ReportProcedure_*` and `ByValue_FlowFieldKeyLoadFields_*` tests of codeunit 78731, :1252-1703). Measured callers: the report itself (a data item trigger, a local procedure), a
 //! codeunit and a page. Every other caller, a report extension procedure, and a data item that still holds its
 //! DataItemTableView filters refuse a read of the copy's view.

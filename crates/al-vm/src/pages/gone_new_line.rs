@@ -60,7 +60,7 @@ impl Session {
         if st.borrow().cursor != Cursor::None || !self.on_gone_blank_line(st)? {
             return Ok(false);
         }
-        st.borrow_mut().refresh = false;
+        st.borrow_mut().refresh.cancel();
         st.borrow_mut().window.clear();
         self.land_on_new_line(st)?;
         self.land_on_new_line(st)?;

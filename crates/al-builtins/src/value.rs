@@ -517,6 +517,10 @@ pub struct RecordState {
     /// The company set by `ChangeCompany` or `RecordRef.Open(.., Company)`, as the Company table
     /// names it; `None` is the session company.
     pub company: Option<String>,
+    /// A `ChangeCompany` call succeeded on this variable, also to the session's own company or '' (which leave `company`
+    /// at `None`), or on a record `Copy` took this one from. No method clears it. It only marks state the corpus does not
+    /// measure: al-vm `modify_all_audit_field` refuses on it.
+    pub change_company_called: bool,
     /// The table is `TableType = CRM`: any use needs a registered table connection
     /// (session-system/TestCrmTableNoConnectionContracts.al).
     pub crm: bool,
@@ -602,8 +606,8 @@ pub struct RecordState {
     /// Every use of the record refuses with this reason: what its buffer holds is not pinned (the row a page closed on after
     /// `Page.RunModal(Id, Rec)` called as a statement, see `hand_back_selection`).
     pub unpinned_buffer: Option<&'static str>,
-    /// A by-value copy whose filters were dropped on an assumption (`by-value-record-no-filters` or
-    /// `by-value-table-proc-other-table`, al-vm `records/by_value_view.rs`): a read of its view marks it. Clones of the state
+    /// A by-value copy whose filters were dropped on an assumption (`by-value-table-proc-other-table`,
+    /// al-vm `records/by_value_view.rs`): a read of its view marks it. Clones of the state
     /// keep it; `Reset`, `SetView` and `Clear` end it.
     pub view_assumption: Option<crate::assumptions::Assumption>,
     /// The filters an action's `RunPageLink` put on this Rec of the page it opened: a copy of Rec passed by value does not
@@ -684,7 +688,7 @@ pub struct RowOrigin {
     /// A read by a Find, FindFirst, FindLast, FindSet or Next, not by Get, gave the buffer its committed version.
     pub from_find: bool,
     /// A `Get` gave the buffer its version (not GetBySystemId, not a Find), committed or written in the open transaction. Read
-    /// only by the xRec rule of al-runner issue 8189 (al-vm `records/nested_validate.rs` `measured_buffer`).
+    /// only by the xRec rule of record/validate/XRecTableProcThroughCodeunit.al (al-vm `records/nested_validate.rs` `measured_buffer`).
     pub by_get: bool,
 }
 
@@ -1435,7 +1439,7 @@ pub struct ModuleInfoState {
     pub version: Option<[i32; 4]>,
     pub dependencies: Vec<[u8; 16]>,
     /// The module BC makes up for the null app id: only its data version is pinned
-    /// (session-system/TestEnvironmentUserTenantContracts.al:195-201); the other properties are refused.
+    /// (session-system/TestEnvironmentUserTenantContracts.al:192-198); the other properties are refused.
     pub synthesized: bool,
 }
 
