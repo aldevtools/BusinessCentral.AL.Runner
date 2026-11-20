@@ -1232,6 +1232,9 @@ pub struct Session {
     /// A RecordRef method that forwards to the record method of its name is running: that method, and those nested in it,
     /// are not a Record variable's (`assigned_audit.rs`).
     pub(crate) through_recordref: bool,
+    /// How each RecordRef over the database Field table reached its row and who set its filters on RelationFieldNo
+    /// (`platform/relation_field_no_readers.rs`).
+    pub(crate) relation_field_no_refs: crate::platform::relation_field_no_readers::RecordRefTraces,
     /// Transactions: the depth of transaction-beginning constructs, and where the open transaction stands.
     pub(crate) tx: TxState,
     /// Handler functions and notifications of the running test method.
@@ -1354,6 +1357,7 @@ impl Session {
             find_load: false,
             find_through_recordref: false,
             through_recordref: false,
+            relation_field_no_refs: Default::default(),
             host,
             waited_ms: 0,
             resource_reads: Default::default(),

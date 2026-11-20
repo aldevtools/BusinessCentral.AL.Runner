@@ -553,6 +553,9 @@ pub(crate) struct ReportState {
     /// Report variables whose `RunModal` ran to its end: a second `RunModal` and a `RunRequestPage` on one raise
     /// ObjectHasAlreadyBeenRun (see `reports.rs`, `REPORT_RUN_1 | REPORT_RUNMODAL_1`).
     pub(crate) report_run_modal_done: Vec<std::rc::Weak<RefCell<Instance>>>,
+    /// Report variables whose `UseRequestPage(false)`, as their first use, ran an OnInitReport that quit: their next Run or
+    /// RunModal runs nothing (`reports/quit_in_init.rs`).
+    pub(crate) report_quit_deferred: Vec<std::rc::Weak<RefCell<Instance>>>,
     /// The `ExcelLayoutMultipleDataSheets = true` admission of the running report call (`reports/excel_sheets.rs`: set and
     /// restored around each report call that runs a report or reads its layout).
     pub(crate) excel_sheets: crate::reports::ExcelSheetsAdmission,
