@@ -245,7 +245,7 @@ impl Session {
 
     /// A TestControl call on page `st` ended with `result`: an AL error after the assumed SaveRecord of
     /// `save_found_row_from_new_line` in that call (the OnValidate failing after it, or the refresh after it) is not measured,
-    /// and refused. Takes the mark of that save.
+    /// and refused. Takes `PageState::found_row_save_assumed`.
     pub(super) fn refuse_error_after_found_row_save(
         &mut self,
         st: &St,
