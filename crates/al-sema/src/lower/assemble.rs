@@ -1682,11 +1682,12 @@ fn split_tables(
         }
         table.fields = kept;
         // Keys.
-        let mut base_keys = (Vec::new(), Vec::new(), Vec::new());
+        let mut base_keys = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
         let mut ext_keys: Vec<(usize, KeyDecl)> = Vec::new();
         for (i, k) in table.keys.drain(..).enumerate() {
             let unique = table.unique_keys[i];
             let props = std::mem::take(&mut table.key_props[i]);
+            let declared_in = table.key_declared_in.get(i).copied().flatten();
             match owners.get(i).copied() {
                 Some(o) if o != b => ext_keys.push((
                     o,
@@ -1700,10 +1701,11 @@ fn split_tables(
                     base_keys.0.push(k);
                     base_keys.1.push(unique);
                     base_keys.2.push(props);
+                    base_keys.3.push(declared_in);
                 }
             }
         }
-        (table.keys, table.unique_keys, table.key_props) = base_keys;
+        (table.keys, table.unique_keys, table.key_props, table.key_declared_in) = base_keys;
         // Hand it to the extensions.
         let mut touched: Vec<usize> = by_ext.iter().map(|(e, _)| *e).collect();
         touched.extend(ext_keys.iter().map(|(e, _)| *e));

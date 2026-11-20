@@ -13,7 +13,7 @@ impl Session {
         t: &TableDef,
         pos: usize,
     ) -> Result<Option<FilterExpr>, Signal> {
-        if !(matches!(t.fields[pos].ty, RtType::Boolean) && self.global_language == 1030) {
+        if !(matches!(t.fields[pos].ty, RtType::Boolean) && self.global_language() == 1030) {
             return Ok(None);
         }
         let Some(read) = al_builtins::filter_boolean_words::danish_filter_text(shape.text) else {
