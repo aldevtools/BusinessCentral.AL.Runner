@@ -36,7 +36,8 @@ pub(crate) use insert_buffer::{InsertKind, InsertQueue};
 use sql_range::InsertShape;
 mod nested_validate;
 mod validate_event_xrec;
-pub(crate) use nested_validate::{BeforeImage, ProcXrec, ValidateSite, XREC_OF_RUNNING_CALL};
+pub(crate) use nested_validate::{BeforeImage, ProcXrec, ValidateRun, ValidateSite, XREC_OF_RUNNING_CALL};
+pub(crate) use validate_event_xrec::ValidateEvent;
 mod by_value_view;
 pub(crate) use by_value_view::{ByValueCall, EventArg, by_value_mark, primary_view};
 mod op_inner;
@@ -2453,6 +2454,9 @@ impl Session {
     /// A record method: [`Session::record_op_inner`], with what it does to the snapshot `Record.IsDirty` compares with
     /// (isdirty.rs).
     pub(crate) fn record_op(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
+        if !self.validate_sites.is_empty() {
+            self.note_record_op_under_validate(rec);
+        }
         self.probed_source_before(method, rec, args);
         let inserted = self.own_read_before(method, rec, args);
         let r = if self.coverage.profiler.is_some() {

@@ -982,13 +982,12 @@ pub struct Session {
     /// The records (by handle) whose `validating` entry a part's link stamp pushed (`stamp_from_filters_seen_as`): the
     /// platform validates the link value, so the entry holds whatever code runs at that moment.
     pub(crate) stamp_validating: Vec<usize>,
-    /// The OnBeforeValidateEvent or OnAfterValidateEvent being raised now, innermost last: the record's handle, the xRec the
-    /// Validate hands the event and the `call_stack` index of its subscribers' frames (`records/validate_event_xrec.rs`).
-    pub(crate) validate_events: Vec<(usize, crate::records::Rec, usize)>,
+    /// The OnBeforeValidateEvent or OnAfterValidateEvent being raised now, innermost last (`records/validate_event_xrec.rs`).
+    pub(crate) validate_events: Vec<crate::records::ValidateEvent>,
     /// The call site named for the Validate about to start, with its record's handle (`Session::validate_at`).
     pub(crate) validate_site: Option<(usize, crate::records::ValidateSite)>,
-    /// The Validates running now, innermost last: the record's handle and the call site (`Session::take_validate_site`).
-    pub(crate) validate_sites: Vec<(usize, Option<crate::records::ValidateSite>)>,
+    /// The Validates running now, innermost last (`Session::while_validating`).
+    pub(crate) validate_sites: Vec<crate::records::ValidateRun>,
     /// The table procedures that run on a record by a plain call (no operation of the record called them), innermost
     /// last: the record's handle, the depth of `call_stack` inside the procedure and its blank xRec. A Validate of that
     /// record in the procedure's own body passes this xRec (`RecordOp::Validate`).

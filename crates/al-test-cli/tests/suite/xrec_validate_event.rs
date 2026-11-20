@@ -218,7 +218,13 @@ table 50401 "VE Line"
 
 tableextension 50402 "VE Line Ext" extends "VE Line"
 {
+    fields
+    {
+        field(50400; ExtField; Integer) { trigger OnValidate() begin end; }
+    }
     procedure ExtRead(Tag: Text) var Log: Codeunit "VE Log"; begin Log.Add(Tag + '=' + xRec.Series); end;
+    procedure ExtCallsRecProc() begin Rec.TableRead('R'); end;
+    procedure ExtCallsOwnProc() begin ExtRead('U'); end;
     procedure ExtAssign() begin xRec.Series := 'SET'; end;
     procedure ExtThroughHelper() var Helper: Codeunit "VE Helper"; begin Helper.CallExt(Rec); end;
 }
@@ -258,6 +264,25 @@ codeunit 50404 "VE Subscriber"
                     Other := Rec;
                     Other.ExtRead('O');
                 end;
+            'after-modify':
+                begin
+                    Rec.Modify();
+                    Rec.ExtRead('X');
+                end;
+            'after-get':
+                begin
+                    Rec.Get(Rec."Line No.");
+                    Rec.ExtRead('X');
+                end;
+            'after-write':
+                begin
+                    Rec.Series := 'SUB';
+                    Rec.ExtRead('X');
+                end;
+            'after-rec-proc':
+                Rec.ExtCallsRecProc();
+            'after-own-proc':
+                Rec.ExtCallsOwnProc();
         end;
     end;
 
@@ -311,6 +336,47 @@ codeunit 50404 "VE Subscriber"
         if Log.Mode() <> 'xrec-by-value' then
             exit;
         Rec.ExtRead('X');
+    end;
+}
+
+codeunit 50408 "VE Single Subscriber"
+{
+    SingleInstance = true;
+
+    [EventSubscriber(ObjectType::Table, Database::"VE Line", 'OnAfterValidateEvent', 'Mode', false, false)]
+    local procedure OnAfterValidateMode(var Rec: Record "VE Line")
+    var
+        Log: Codeunit "VE Log";
+    begin
+        if Log.Mode() = 'single' then
+            Rec.ExtRead('X');
+    end;
+
+    [EventSubscriber(ObjectType::Table, Database::"VE Line", 'OnAfterValidateEvent', 'Series', false, false)]
+    local procedure OnAfterValidateSeries(var Rec: Record "VE Line")
+    var
+        Log: Codeunit "VE Log";
+    begin
+        if Log.Mode() = 'no-trigger' then
+            Rec.ExtRead('X');
+    end;
+
+    [EventSubscriber(ObjectType::Table, Database::"VE Line", 'OnAfterValidateEvent', 'ExtField', false, false)]
+    local procedure OnAfterValidateExtField(var Rec: Record "VE Line")
+    var
+        Log: Codeunit "VE Log";
+    begin
+        if Log.Mode() = 'ext-field' then
+            Rec.ExtRead('X');
+    end;
+}
+
+codeunit 50409 "VE Runner"
+{
+    TableNo = "VE Line";
+    trigger OnRun()
+    begin
+        Rec.Validate(Mode, Rec.Mode::Production);
     end;
 }
 
@@ -426,6 +492,19 @@ codeunit 50407 "VE Tests"
     [Test] procedure Refused_ValidateFromOwnOnModify() var L: Record "VE Line"; begin AfterInsert(L); Log.Set('own-modify'); L.Modify(true); end;
     [Test] procedure Refused_ValidateFromOwnOnInsert() var L: Record "VE Line"; begin Log.Set(''); L.DeleteAll(); L."Line No." := 1; L.Series := 'NEW'; Log.Set('own-insert'); L.Insert(true); end;
     [Test] procedure Refused_NestedInTrigger() var L: Record "VE Line"; begin AfterInsert(L); Log.Set('rec-only'); L.Validate(Outer, 1); end;
+    // Shapes no cell measured (review of PR 8307, 2026-11-20): each refuses a read of xRec.
+    [Test] procedure Refused_SingleInstanceSubscriber() var L: Record "VE Line"; begin AfterInsert(L); ValidateMode(L, 'single', ''); end;
+    [Test] procedure Refused_ModifyBeforeCall() var L: Record "VE Line"; begin AfterInsert(L); ValidateMode(L, 'after-modify', ''); end;
+    [Test] procedure Refused_GetBeforeCall() var L: Record "VE Line"; begin AfterInsert(L); ValidateMode(L, 'after-get', ''); end;
+    [Test] procedure Refused_FieldWrittenBeforeCall() var L: Record "VE Line"; begin AfterInsert(L); ValidateMode(L, 'after-write', ''); end;
+    [Test] procedure Refused_FieldWithoutOnValidate() var L: Record "VE Line"; begin AfterInsert(L); Log.Set('no-trigger'); L.Validate(Series, 'NEW'); end;
+    [Test] procedure Refused_TableExtensionField() var L: Record "VE Line"; begin AfterInsert(L); Log.Set('ext-field'); L.Validate(ExtField, 1); end;
+    [Test] procedure Refused_ValidateFromCodeunitRun() var L: Record "VE Line"; begin AfterInsert(L); Log.Set('rec-only'); Codeunit.Run(Codeunit::"VE Runner", L); end;
+    [Test] procedure Refused_ValidateFromTryFunction() var L: Record "VE Line"; begin AfterInsert(L); Log.Set('rec-only'); if TryValidate(L) then; end;
+    [TryFunction] local procedure TryValidate(var L: Record "VE Line") begin L.Validate(Mode, L.Mode::Production); end;
+    // Rec.OtherProc() inside the procedure that shares the Validate's xRec: not measured; the unqualified call shares it.
+    [Test] procedure Refused_RecDotProcInSharedProc() var L: Record "VE Line"; begin AfterInsert(L); ValidateMode(L, 'after-rec-proc', ''); end;
+    [Test] procedure After_UnqualifiedProcInSharedProc() var L: Record "VE Line"; begin AfterInsert(L); ValidateMode(L, 'after-own-proc', 'U=NEW;'); end;
 }
 "##;
 
@@ -437,7 +516,8 @@ fn validate_event_subscribers_share_the_validate_xrec_clean_and_their_neighbors_
         let ok = if name.starts_with("KeepsMain_") {
             outcome == "Pass" && hits.is_empty()
         } else if name.starts_with("Refused_") {
-            outcome.starts_with("NotRun") && outcome.contains("xRec in a table procedure called through other code")
+            // The test's own refusal, not the distrust a refusal earlier in the codeunit puts on a later failure.
+            outcome.starts_with("NotRun(\"xRec in a table procedure called through other code")
         } else {
             outcome == "Pass" && hits.is_empty()
         };
@@ -445,6 +525,6 @@ fn validate_event_subscribers_share_the_validate_xrec_clean_and_their_neighbors_
             wrong.push(format!("{name}: {outcome} {hits:?}"));
         }
     }
-    assert_eq!(o.len(), 23);
+    assert_eq!(o.len(), 33);
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
