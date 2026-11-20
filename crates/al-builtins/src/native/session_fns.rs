@@ -24,7 +24,7 @@ pub(super) fn database_sid(_: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [V
 
 /// `Session.LogMessage`, `Session.LogSecurityAudit` and `Session.LogAuditMessage`: telemetry and the security audit log have
 /// no effect AL code can see in a test, so the call returns (session-system/TestSessionExtended.al:76-89
-/// only needs LogMessage callable; session-system/TestEnvironmentUserTenantContracts.al:315-374 runs
+/// only needs LogMessage callable; session-system/TestEnvironmentUserTenantContracts.al:312-371 runs
 /// Change Log Management, which logs a security audit entry, and reads only the change log).
 pub(super) fn log_message(_: &mut dyn Ctx, _: Option<&mut Value>, _: &mut [Value]) -> Result<Value, Signal> {
     Ok(Value::Null)

@@ -2,7 +2,7 @@
 
 use super::*;
 
-/// Where `Session::note_bulk_write` put its note: the index in `TxState::writes` and the store's change counter then.
+/// Where `Session::note_bulk_write` put its note: the index in `OpenTx::writes` and the store's change counter then.
 #[derive(Clone, Copy)]
 pub(crate) struct BulkMark {
     at: usize,
@@ -28,7 +28,7 @@ impl Session {
         }
         let company = rec.borrow().company.clone();
         self.note_row_versions(t.object, &company, kind);
-        self.tx.writes.push(crate::state::TxWrite {
+        self.tx.open.writes.push(crate::state::TxWrite {
             table: t.object,
             company,
             kind,
@@ -50,7 +50,7 @@ impl Session {
     /// and row versions an Insert or a Modify does not account for.
     pub(super) fn note_row_versions(&mut self, table: u32, company: &Option<String>, kind: crate::state::TxWriteKind) {
         use crate::state::TxWriteKind;
-        let rv = &mut self.tx.row_versions;
+        let rv = &mut self.tx.open.row_versions;
         // An Insert or a Modify hands out one row version; more since the last one accounted for came from another write.
         let new_versions = rv.handed_out != rv.accounted;
         if rv.handed_out > rv.accounted + 1 {
@@ -110,7 +110,7 @@ impl Session {
     /// get their row versions at the Insert here, so a read after a Modify handed out a higher one takes a new one to grow
     /// the value as BC does (UK_InsertThenModifyOtherTable `findfirst` greater). Other reads are not pinned.
     pub(crate) fn note_read_for_row_versions(&mut self, table: u32, company: &Option<String>, sends: bool) {
-        let rv = &mut self.tx.row_versions;
+        let rv = &mut self.tx.open.row_versions;
         if rv.pending_inserts.is_empty() {
             return;
         }
@@ -131,14 +131,14 @@ impl Session {
             rv.sent = v;
         } else {
             self.next_row_version += 1;
-            self.tx.row_versions.sent = self.next_row_version;
+            self.tx.open.row_versions.sent = self.next_row_version;
         }
     }
 
     /// `Database.LastUsedRowVersion`: the committed value, raised by the rows the open transaction sent
     /// (`note_row_versions`). `Err` names why the value is not pinned.
     pub(crate) fn last_used_row_version(&self) -> Result<i64, &'static str> {
-        let rv = &self.tx.row_versions;
+        let rv = &self.tx.open.row_versions;
         // Test data whose last row version is not known (a configuration package, a `.bacpac`): its rows may hold row
         // versions above the session's counter (`Session::with_host`).
         if self.engine.test_data.is_some() && self.restored_row_version == 0 {
@@ -174,7 +174,7 @@ impl Session {
         let now = self.store.change_counter();
         self.note_write(rec, t, kind, &[], now);
         Some(BulkMark {
-            at: self.tx.writes.len() - 1,
+            at: self.tx.open.writes.len() - 1,
             before: now,
         })
     }
@@ -185,8 +185,8 @@ impl Session {
         let Some(BulkMark { at, before }) = mark else {
             return;
         };
-        let (len, counter) = (self.tx.writes.len(), self.store.change_counter());
-        if let Some(w) = self.tx.writes.get_mut(at)
+        let (len, counter) = (self.tx.open.writes.len(), self.store.change_counter());
+        if let Some(w) = self.tx.open.writes.get_mut(at)
             && w.before == before
             && w.bulk.is_none()
         {
@@ -198,16 +198,16 @@ impl Session {
     }
 
     /// Whether every Insert since the last Commit or rollback went through `SqlCounters::pre_insert`: every write to the
-    /// database store since then is a Record write in `tx.writes` (sqlcount.rs).
+    /// database store since then is a Record write in `tx.open.writes` (sqlcount.rs).
     pub(crate) fn sql_pre_known(&self) -> bool {
         self.writes_all_noted()
     }
 
-    /// Whether every write to the database store since the last Commit or rollback was a Record write in `tx.writes`: the
+    /// Whether every write to the database store since the last Commit or rollback was a Record write in `tx.open.writes`: the
     /// counters chain from the Commit's to the store's current one.
     pub(crate) fn writes_all_noted(&self) -> bool {
         let mut at = self.tx.commit_counter;
-        for w in &self.tx.writes {
+        for w in &self.tx.open.writes {
             if w.before != at {
                 return false;
             }
@@ -231,6 +231,35 @@ impl Session {
         })))
     }
 
+    /// An unchanged Modify keeps its row version, but ModifyAll gives it a new one
+    /// (record/PriorityAssumptions.al:143-244; record/crud/ModifyWithoutChange.al:375-448).
+    pub(super) fn modify_row_version(
+        &mut self,
+        t: &TableDef,
+        rec: &Rec,
+        stored: Option<&[Value]>,
+    ) -> Option<(usize, Value)> {
+        // A Time held past the day compares as the midnight it reads (record/filters/TimeRolledPastMidnight.al:251-260).
+        let rolled_read = stored.filter(|r| r.iter().any(crate::sqltime::is_rolled)).map(|r| {
+            let mut r = r.to_vec();
+            crate::sqltime::read_back(&mut r);
+            r
+        });
+        let unchanged = match rolled_read.as_deref().or(stored) {
+            Some(old) if !rec.borrow().temporary && Session::modify_changes_nothing(t, old, rec) => Some(old),
+            _ => None,
+        };
+        match unchanged {
+            Some(old) if !self.bulk_modify => {
+                if let Some(i) = t.fields.iter().position(|f| f.id == 2_000_000_005) {
+                    rec.borrow_mut().fields[i] = old[i].clone();
+                }
+                None
+            }
+            _ => self.bump_row_version(t, rec),
+        }
+    }
+
     pub(super) fn bump_row_version(&mut self, t: &TableDef, rec: &Rec) -> Option<(usize, Value)> {
         let i = t.fields.iter().position(|f| f.id == 2_000_000_005)?;
         if self.temp_never_stamps(t, rec) {
@@ -238,8 +267,8 @@ impl Session {
         }
         self.next_row_version += 1;
         if !rec.borrow().temporary {
-            self.tx.row_versions.handed_out += 1;
-            self.tx.row_versions.last = self.next_row_version;
+            self.tx.open.row_versions.handed_out += 1;
+            self.tx.open.row_versions.last = self.next_row_version;
         }
         let old = std::mem::replace(
             &mut rec.borrow_mut().fields[i],

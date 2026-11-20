@@ -1605,7 +1605,7 @@ fn modal_and_page_handlers_answer_page_opens() {
     }
 }
 
-// session-system/TestSessionApplicationAreaTestBoundary.al:67552 (A_FirstTest_StartsWithEveryAreaEnabled_EvenAfterOnRunSetOne,
+// session-system/TestSessionApplicationAreaTestBoundary.al:115-119, :131-134 (A_FirstTest_StartsWithEveryAreaEnabled_EvenAfterOnRunSetOne,
 // C_NextTest_StartsWithEveryAreaEnabled): every test method starts with every application area enabled.
 #[test]
 fn every_test_starts_with_every_application_area_enabled() {

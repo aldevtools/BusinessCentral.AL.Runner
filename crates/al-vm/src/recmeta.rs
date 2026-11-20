@@ -505,18 +505,25 @@ impl Session {
                     // again is pinned only before a Commit; either on a temporary table is not pinned.
                     match (*i, r.temporary) {
                         (ISOLATION_UPDLOCK | ISOLATION_REPEATABLE_READ, false) if before == *i => {
-                            if *i == ISOLATION_REPEATABLE_READ && !self.tx.lock_tx && self.tx.lock_unpinned.is_none() {
-                                self.tx.lock_unpinned = Some(crate::records::REPEATABLE_READ_ASSIGNED_AGAIN);
+                            if *i == ISOLATION_REPEATABLE_READ
+                                && !self.tx.open.locks.lock_tx
+                                && self.tx.open.locks.lock_unpinned.is_none()
+                            {
+                                self.tx.open.locks.lock_unpinned = Some(crate::state::UnpinnedLock::Other(
+                                    crate::records::REPEATABLE_READ_ASSIGNED_AGAIN,
+                                ));
                             }
                         }
                         (ISOLATION_UPDLOCK | ISOLATION_REPEATABLE_READ, false) => {
-                            self.tx.lock_tx = true;
-                            self.tx.isolation_lock = true;
+                            self.tx.open.locks.lock_tx = true;
+                            self.tx.open.locks.isolation_lock = true;
                             let key = (r.table, r.company.clone());
-                            self.tx.note_isolation_lock(key.0, key.1);
+                            self.tx.open.locks.note_isolation_lock(key.0, key.1);
                         }
                         (ISOLATION_REPEATABLE_READ | ISOLATION_UPDLOCK, true) => {
-                            self.tx.lock_unpinned = Some("a locking ReadIsolation on a temporary table")
+                            self.tx.open.locks.lock_unpinned = Some(crate::state::UnpinnedLock::Other(
+                                "a locking ReadIsolation on a temporary table",
+                            ))
                         }
                         _ => {}
                     }
@@ -560,7 +567,7 @@ impl Session {
                 // (record/TestRowVersionFieldNumberFieldActiveContracts.al:110-119).
                 Ok(Value::Boolean(self.field_enabled(t, pos)))
             }
-            RecordOp::RecordId => Ok(self.record_id(rec, t)),
+            RecordOp::RecordId => self.record_id(rec, t),
             RecordOp::IsTemporary => Ok(Value::Boolean(rec.borrow().temporary)),
             RecordOp::IsDirty => self.record_is_dirty(rec),
             // Without an argument, whether the current row is marked; with one, marks or unmarks it.
@@ -739,9 +746,9 @@ impl Session {
                 // On a database table it starts the write transaction, on a temporary one not
                 // (codeunits/TestCodeunitRunWriteTransaction.al:211-252 RN_LockTable_WriteTransactionState, _Temporary_).
                 if !rec.borrow().temporary {
-                    self.tx.lock_tx = true;
+                    self.tx.open.locks.lock_tx = true;
                     let table = rec.borrow().table;
-                    self.tx.locked_tables.push(table);
+                    self.tx.open.locked_tables.push(table);
                 }
                 Ok(Value::Null)
             }
@@ -915,7 +922,7 @@ impl Session {
                 ))
             }
             RecordOp::HasFilter => Ok(Value::Boolean(Self::has_filter(rec))),
-            RecordOp::GetFilters => self.get_filters(rec, t).map(|s| Value::Text(s.into())),
+            RecordOp::GetFilters => self.get_filters(rec, t, true).map(|s| Value::Text(s.into())),
             RecordOp::GetFilter => self
                 .field_filter_text(rec, arg_pos(args, 0)?)
                 .map(|s| Value::Text(s.into())),
@@ -1064,6 +1071,9 @@ impl Session {
         };
         self.move_blobs(table, &mut d.fields, None, how, holder)?;
         d.filters = s.filters;
+        // The target keeps its company (above); whether it takes a ChangeCompany call of the source along is not measured, so
+        // the mark comes over and the shapes that read it stay refused.
+        d.change_company_called |= s.change_company_called;
         d.filter_group = s.filter_group;
         d.key = s.key;
         d.adhoc = s.adhoc;
@@ -1124,7 +1134,7 @@ impl Session {
                         let pos = arg_pos(plain, 0)?;
                         let collectible = al_builtins::errorinfo::set_origin_of(
                             &copy,
-                            self.engine.program.objects[t.object as usize].id.unwrap_or(0) as i32,
+                            crate::object_ids::declared_id(self.engine.program.objects[t.object as usize].id)? as i32,
                             t.fields[pos].id as i32,
                         );
                         // No Message on the ErrorInfo: the collected one says what the uncollected call raises. The
@@ -1141,7 +1151,7 @@ impl Session {
                             al_builtins::assumptions::assume(
                                 al_builtins::assumptions::Assumption::TestfieldErrorinfoCollectedRecordId,
                             );
-                            al_builtins::errorinfo::set_record_id_of(&copy, self.record_id(rec, t));
+                            al_builtins::errorinfo::set_record_id_of(&copy, self.record_id(rec, t)?);
                             self.collect_error(&copy);
                             return Ok(Value::Null);
                         }
@@ -2033,6 +2043,7 @@ impl Session {
             }
             return Err(error(cannot_change_value_text(&field, &table), "DB:Ok"));
         }
+        self.modify_all_audit_field(rec, t, pos, &rows, &value, args)?;
         // One fresh set of table globals for all rows, not the caller's (ADR-021 decision 6; corpus
         // probe TableGlobals_ModifyAll_WhatTheTriggersAndSubscribersSee).
         let shared = al_builtins::value::TableGlobals::new_shared();
@@ -2056,6 +2067,80 @@ impl Session {
         r
     }
 
+    /// `ModifyAll` of an audit field. The one shape measured (record/system-fields/AssignedAuditFields.al:594-631,
+    /// ModifyAll_CreatedAt) raises the "cannot change" error with code DB:Ok: SystemCreatedAt, SystemCreatedBy or
+    /// SystemModifiedAt; a table that holds one row; the variable as `Reset` leaves it (:604, no filter, marks, other filter
+    /// group, SetLoadFields or ReadIsolation), with no ChangeCompany call (also none to the session's own company or '', nor
+    /// on a record it took a `Copy` from), on the primary key ascending, not temporary; no RunTrigger
+    /// argument; a value that is not blank and differs from the stored one (FixedAt :98, FixedBy :105); called from a codeunit
+    /// (:602); the table as table 61800 declares it (:17-27): no Caption, no trigger of its own or of a field, no table
+    /// extension, data per company, and no Insert, Modify or Rename event subscriber or global trigger. Every other shape of
+    /// the four audit fields is refused. Any other field: `Ok`.
+    fn modify_all_audit_field(
+        &self,
+        rec: &Rec,
+        t: &TableDef,
+        pos: usize,
+        rows: &[Vec<Value>],
+        value: &Value,
+        args: &[Value],
+    ) -> Result<(), Signal> {
+        use crate::hostvalues::{SYSTEM_CREATED_AT, SYSTEM_CREATED_BY, SYSTEM_MODIFIED_AT, SYSTEM_MODIFIED_BY};
+        let id = t.fields[pos].id;
+        if ![
+            SYSTEM_CREATED_AT,
+            SYSTEM_CREATED_BY,
+            SYSTEM_MODIFIED_AT,
+            SYSTEM_MODIFIED_BY,
+        ]
+        .contains(&id)
+        {
+            return Ok(());
+        }
+        let (field, table) = (t.fields[pos].name.clone(), t.name.clone());
+        let r = rec.borrow();
+        let variable = crate::assigned_audit::default_variable(&r)
+            && !r.change_company_called
+            && r.key == 0
+            && r.ascending
+            && !r.temporary;
+        let value_differs = matches!(rows, [row] if crate::assigned_audit::non_blank(value)
+            && matches!(ops::compare(value, &row[pos]), Ok(Ordering::Less | Ordering::Greater)));
+        let measured = [SYSTEM_CREATED_AT, SYSTEM_CREATED_BY, SYSTEM_MODIFIED_AT].contains(&id)
+            && variable
+            && args.len() == 2
+            && value_differs
+            && self.caller_is_codeunit()
+            && self.table_as_61800(t, &table);
+        if measured {
+            return Err(error(cannot_change_value_text(&field, &table), "DB:Ok"));
+        }
+        unsupported(format!(
+            "ModifyAll of {field} outside the measured shape (SystemCreatedAt, SystemCreatedBy or SystemModifiedAt of a table that holds one row, by the variable without filters, marks or other state on the primary key ascending, not temporary, no RunTrigger argument, a value that is not blank and differs from the stored one, called from a codeunit, a table without a Caption, triggers, table extensions or subscribers, data per company)"
+        ))
+    }
+
+    /// The table facts of AssignedAuditFields.al:17-27 (table 61800) that `modify_all_audit_field` requires.
+    fn table_as_61800(&self, t: &TableDef, name: &str) -> bool {
+        use crate::globaltriggers::GlobalOp;
+        let object = &self.engine.program.objects[t.object as usize];
+        t.per_company
+            && self.caption(t) == name
+            && object.routines.iter().all(|r| !r.is_trigger)
+            && object.table.as_ref().is_some_and(|s| s.extensions.is_empty())
+            && [GlobalOp::Insert, GlobalOp::Modify, GlobalOp::Rename]
+                .into_iter()
+                .all(|op| self.audit_write_plain(t, op, false))
+    }
+
+    /// The innermost running object is a codeunit (the test codeunit of AssignedAuditFields.al:602).
+    fn caller_is_codeunit(&self) -> bool {
+        let heads = self.engine.program.objects.heads();
+        self.frames
+            .last()
+            .is_some_and(|&o| heads[o].is_kind(al_ir::ObjKind::Codeunit))
+    }
+
     fn modify_all_rows(
         &mut self,
         rec: &Rec,
@@ -2066,6 +2151,17 @@ impl Session {
         shared: al_builtins::value::TableGlobals,
     ) -> Result<Value, Signal> {
         for mut row in rows {
+            // ModifyAll(Field, 00:00:00) over a row whose Field is held past the day: whether it writes 00:00:00 is not probed.
+            if crate::sqltime::is_rolled(&row[pos]) && matches!(value, Value::Time(1)) {
+                return unsupported("ModifyAll of 00:00:00 into a Time field a row holds as 23:59:59.999 (not probed)");
+            }
+            // The record of each row holds what it reads: a Time held past the day reads 00:00:00 (`sqltime::read_back`), which the
+            // Modify below keeps as stored when the field is not the one set (`sqltime::keep_rolled`, ModifyAll's own read).
+            let rolled_read = row.iter().any(crate::sqltime::is_rolled).then(|| {
+                let t = self.engine.tables[rec.borrow().table as usize].clone().expect("table");
+                (al_builtins::value::RolledReadBy::ModifyAll, t.primary_key(&row))
+            });
+            crate::sqltime::read_back(&mut row);
             row[pos] = value.clone();
             let copy = {
                 let r = rec.borrow();
@@ -2081,6 +2177,7 @@ impl Session {
                     failed_insert: None,
                     row_origin: None,
                     own_read: Default::default(),
+                    rolled_read: al_builtins::value::RolledRead(rolled_read),
                     probed_source: Default::default(),
                     globals: shared.share(),
                     // The scanned row is whole: a partial load of the variable is not the copy's (al-runner issue 6654).
@@ -2101,7 +2198,7 @@ impl Session {
     }
 
     /// The `RecordId` of the row in `rec`'s buffer: the table and its primary key values.
-    pub(crate) fn record_id(&self, rec: &Rec, t: &TableDef) -> Value {
+    pub(crate) fn record_id(&self, rec: &Rec, t: &TableDef) -> Result<Value, Signal> {
         let mut key = t.primary_key(&rec.borrow().fields);
         // An Option key field with an OptionCaption shows its caption in the RecordId's text (format-evaluate/
         // OptionEvaluateCaptions.al:392 RecordId_OptionKeyWithCaption `format`: `LT Option Key Cap: Credit Memo cap,D-1`).
@@ -2110,15 +2207,15 @@ impl Session {
                 *k = Value::Option(*o, captions);
             }
         }
-        Value::Library(
+        Ok(Value::Library(
             "RecordId".into(),
             Rc::new(RefCell::new(al_builtins::value::LibraryValue::RecordId {
                 table: t.object,
-                table_no: self.engine.program.objects[t.object as usize].id.unwrap_or(0),
+                table_no: crate::object_ids::declared_id(self.engine.program.objects[t.object as usize].id)?,
                 name: t.name.clone(),
                 key,
             })),
-        )
+        ))
     }
 
     /// The primary key values read from the text after the colon of `Evaluate` into a RecordId: the values as Format writes them,

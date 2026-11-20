@@ -143,6 +143,9 @@ impl Session {
         c: &ir::RelationCond,
         value: &Value,
     ) -> Result<bool, Signal> {
+        if let Some(a) = c.assumes {
+            al_builtins::assumptions::assume(a);
+        }
         if !c.filter {
             return const_cond_holds(value, &c.value, || format!("{}.{field_name}", t.name));
         }
@@ -194,7 +197,7 @@ impl Session {
         match self.relation_arm(rec, t, pos)? {
             None => Ok(0),
             Some(arm) => match arm.table {
-                Some(table) => Ok(self.engine.program.objects[table].id.unwrap_or(0) as i32),
+                Some(table) => Ok(crate::object_ids::declared_id(self.engine.program.objects[table].id)? as i32),
                 None => unsupported(format!(
                     "relation target `{}` is not declared in the workspace",
                     arm.table_name
@@ -325,6 +328,7 @@ impl Session {
                 },
             });
         }
+        self.crm_source_refused(&related, "the TableRelation check")?;
         let cx = self.cx_for(rec, &related)?;
         let found = if flow_field_filters.is_empty() {
             self.store

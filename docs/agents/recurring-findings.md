@@ -29,3 +29,6 @@ or more pull requests gets an item here and there, in the change that fixes it.
 21. **A mark set on the first read only.** Mark the first reader and every later test. A keeping write is a read.
 22. **Code moved to a session of its own.** One predicate names every `Session` field (no `..`). Probe each.
 23. **A workflow or action change without the Rust tests that read workflow text.** Grep `crates/al-test-cli/tests/suite/ci_*.rs` for the changed step text; run `cargo test -p al-test-cli --test suite ci_`.
+24. **A corpus bump deletes an assumption entry, and its unmeasured shapes keep running.** Every shape the entry listed as assumed beyond or still to measure refuses after the bump, unless the new pin measures it.
+25. **A pin gate compares trigger names, not bodies.** Trigger, procedure and subscriber names say nothing about what runs. Compare the page and table code line for line with the pin (`pinned_body.rs`), callees included.
+26. **A value kind a new lowering builds reaches every reader of the old kind.** Run it through the readers main used (field, Text[n], Code[n], list, filter, FieldRef, Evaluate, StrSubstNo) against a main binary. A new mid-run refusal is a regression.

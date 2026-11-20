@@ -37,14 +37,16 @@ use sql_range::InsertShape;
 mod nested_validate;
 pub(crate) use nested_validate::{BeforeImage, ProcXrec, ValidateSite, XREC_OF_RUNNING_CALL};
 mod by_value_view;
-pub(crate) use by_value_view::{BY_VALUE_VIEW, ByValueCall, EventArg, primary_view};
+pub(crate) use by_value_view::{ByValueCall, EventArg, by_value_mark, primary_view};
 mod op_inner;
 mod own_rolled_back_modify;
 mod platform_rows;
 mod stale;
 mod stale_rule;
 mod tenant_media_rows;
+mod time_rollover;
 pub(crate) use stale_rule::{TrappedRollback, same_key};
+pub(crate) use time_rollover::rolled_read_end_for_operands;
 mod guarded_run_body;
 pub(crate) use guarded_run_body::GuardedBody;
 mod locking_read_cells;
@@ -53,9 +55,9 @@ mod write_notes;
 
 pub(crate) type Rec = Rc<RefCell<RecordState>>;
 
-/// The `TxState::lock_unpinned` text of a read other than FindFirst under a locking ReadIsolation.
+/// The text of `UnpinnedLock::LockingRead`: a read other than FindFirst under a locking ReadIsolation.
 pub(crate) const UNPINNED_LOCKING_READ: &str = "a FindFirst, FindSet, FindLast or Find('-'/'+'/'>'/'<') under a ReadIsolation RepeatableRead or UpdLock set in an earlier transaction";
-/// The `TxState::lock_unpinned` text of a ReadIsolation RepeatableRead assigned again to a record that already had it, with
+/// The `UnpinnedLock::Other` text of a ReadIsolation RepeatableRead assigned again to a record that already had it, with
 /// no write transaction open.
 pub(crate) const REPEATABLE_READ_ASSIGNED_AGAIN: &str =
     "a ReadIsolation RepeatableRead assigned again to a record that had it";
@@ -171,7 +173,7 @@ pub(crate) fn media_key_marked(rec: &Rec) -> bool {
 pub(crate) fn buffer_read_refused(rec: &Rec) -> Option<&'static str> {
     rec.borrow()
         .unpinned_buffer
-        .filter(|w| !run_page_link_fields_read(w) && *w != HELD_PART_REC && *w != BY_VALUE_VIEW)
+        .filter(|w| !run_page_link_fields_read(w) && *w != HELD_PART_REC && !by_value_mark(w))
 }
 
 /// Whether field reads of a record whose buffer has the reason `why` run.
@@ -296,7 +298,7 @@ impl Session {
     /// subscribers to the Feature Key events loaded.
     fn feature_key_read_only_change(&self, t: &TableDef, rec: &Rec, stored: Option<&[Value]>) -> Result<(), Signal> {
         let Some(old) = stored else { return Ok(()) };
-        let id = self.engine.program.objects[t.object as usize].id.unwrap_or(0);
+        let id = crate::object_ids::declared_id(self.engine.program.objects[t.object as usize].id)?;
         if rec.borrow().temporary
             || al_builtins::platform::virtual_table(id) != Some(al_builtins::platform::Virtual::FeatureKey)
         {
@@ -676,8 +678,8 @@ impl Session {
         let Some(facts) = self.engine.install_facts.get() else {
             return;
         };
-        if let Some((_, a)) = facts.assumed.get(&(object as usize)) {
-            al_builtins::assumptions::assume(*a);
+        for &a in facts.assumed.get(&(object as usize)).into_iter().flatten() {
+            al_builtins::assumptions::assume(a);
         }
     }
 
@@ -717,12 +719,11 @@ impl Session {
         }
     }
 
-    /// ADR-046 decision 4a: in the default mode (one company) a read of the Company table that could list a company the
-    /// runtime does not know is refused. The corpus database holds a second company the runtime does not have
-    /// (record/BfInstallTests.al:60-62). A read filtered to one known name (a single-value filter on
-    /// Name: the session company or a company row the run holds) is answered.
+    /// ADR-046 decision 4a: a default run refuses a Company-table read that could list a company it does not know
+    /// (record/BfInstallTests.al:60-62). Declared companies and an explicitly bounded backup selection make enumeration
+    /// safe; a read filtered to one known name is also answered.
     pub(crate) fn company_table_read(&self, rec: &Rec, what: &str) -> Result<(), Signal> {
-        // Under the `--companies` opt-in the declared list is the database's complete company list: answered.
+        // A declared company list or an explicit backup selection makes enumeration complete.
         if !self.companies.is_empty() {
             return Ok(());
         }
@@ -1219,10 +1220,8 @@ impl Session {
                         })
                     };
                     let y32 = own_insert && !ext && !self.global_enabled(t, GlobalOp::Delete)?;
-                    let untouched_tx = self.tx.writes.is_empty()
-                        && !self.tx.rolled_back
-                        && !self.tx.lock_tx
-                        && self.tx.lock_unpinned.is_none();
+                    let untouched_tx =
+                        self.tx.open.writes.is_empty() && !self.tx.rolled_back && !self.tx.open.locks.any();
                     // record/crud/Y32StaleDeleteTests.al (al-runner issue 6546).
                     if y32 && verdict == StaleVerdict::Refused && untouched_tx {
                         self.table_event(t, "onbeforedeleteevent", rec, None, run, None)?;
@@ -1708,7 +1707,7 @@ impl Session {
         }
     }
 
-    pub(crate) fn scan(
+    fn scan_in_order(
         &mut self,
         rec: &Rec,
         t: &TableDef,
@@ -1952,12 +1951,18 @@ impl Session {
         let origin = self.load_origin(version, [via_get, via_sysid, via_find]);
         let own_read = self.own_read_after_load(&t, rec, &row, via_get && !via_sysid && !via_find && passes);
         let temporary = rec.borrow().temporary;
-        if via_get && !temporary && self.tx.locked_tables.contains(&t.object) {
+        if via_get && !temporary && self.tx.open.locked_tables.contains(&t.object) {
             let company = rec.borrow().company.clone();
-            self.tx.rows_touched.push((t.object, company, pk.clone()));
+            self.tx.open.rows_touched.push((t.object, company, pk.clone()));
+        }
+        let rolled_read = self.rolled_read_of_load(&row, &pk, via_get && !via_sysid && !via_find, temporary);
+        // After the filters saw the row as stored: a Time a database column holds past the day reads 00:00:00 (`sqltime`).
+        if !temporary {
+            crate::sqltime::read_back(&mut row);
         }
         {
             let mut r = rec.borrow_mut();
+            r.rolled_read = rolled_read;
             r.position = passes.then_some(pk);
             r.fields = row;
             r.row_origin = origin;
@@ -1988,7 +1993,9 @@ impl Session {
             return Ok(None);
         }
         let caption = self.caption(t);
-        match crate::sqltime::store(t, &|i| self.field_caption(t, i), &caption, row)? {
+        let engine = self.engine.clone();
+        let schema = engine.program.objects[t.object as usize].table.as_ref().expect("table");
+        match crate::sqltime::store(t, schema, &|i| self.field_caption(t, i), &caption, row)? {
             crate::sqltime::Stored::Fits => Ok(None),
             crate::sqltime::Stored::Bad(bad) => Ok(Some(bad)),
         }
@@ -2455,6 +2462,7 @@ impl Session {
     /// (isdirty.rs).
     pub(crate) fn record_op(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
         self.probed_source_before(method, rec, args);
+        Self::rolled_read_before(method, rec);
         let inserted = self.own_read_before(method, rec, args);
         let r = if self.coverage.profiler.is_some() {
             self.record_op_profiled(method, rec, args)
@@ -2810,7 +2818,11 @@ impl Session {
         if self.permission_checks() {
             self.permission_from_al = true;
         }
-        self.with_group1(rec, group1, |s| s.record_op_of_al(method, rec, args))
+        let r = self.with_group1(rec, group1, |s| s.record_op_of_al(method, rec, args));
+        if !self.pages.onvalidate_pages.is_empty() {
+            self.note_page_rec_call(method, rec, args);
+        }
+        r
     }
 
     /// What a filter does in a negative filter group other than -1, the OR group, is not pinned (only reading the group back is:

@@ -66,6 +66,7 @@ mod mcp_natives;
 pub mod media;
 mod media_export;
 pub mod media_orphans;
+mod media_word_package;
 pub mod moduleinfo;
 pub mod native;
 pub mod ops;
