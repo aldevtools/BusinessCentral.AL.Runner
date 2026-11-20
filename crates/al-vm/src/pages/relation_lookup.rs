@@ -40,6 +40,13 @@ impl Session {
         idx: usize,
         field: &ir::Field,
     ) -> Result<Option<ir::RelationArm>, Signal> {
+        // A condition whose member rests on an assumption is not measured for a lookup (corpus PR 1437, merged: table-objects/
+        // extensions/ExtRelationEnumNamespace_Tests.al measures Validate, a rename and the metadata only).
+        if field.relation_condition_assumption().is_some() {
+            return unsupported(
+                "Lookup over a TableRelation whose condition names a member of an enum the file that set it does not name (not pinned)",
+            );
+        }
         // One arm without a condition, as before (testpage/TestPageFieldRelationLookup_Tests.al:104).
         if let [arm] = field.relation_arms.as_slice() {
             if arm.conditions.is_empty() {
