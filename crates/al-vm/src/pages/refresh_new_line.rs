@@ -10,7 +10,7 @@ use al_builtins::record_op::RecordOp;
 pub(super) enum FoundRowSave {
     /// `CurrPage.Update(true)` or `CurrPage.Update()`: pinned.
     UpdateTrue,
-    /// `CurrPage.SaveRecord()`: assumed in the measured cells only (`saverecord_found_row_cell`).
+    /// `CurrPage.SaveRecord()`: assumed in the measured cells only (`found_row_cell`).
     SaveRecord,
 }
 
@@ -176,7 +176,7 @@ impl Session {
     /// OnModify running inside the OnValidate (Y50UpdateFromNewLine.al:610 G520_FromNewLine_ToBatchWithRows_UpdateTrue
     /// `V:start 0;M:B2/10000;L.OnModify:B2/10000;V:done 10000;...`). `CurrPage.SaveRecord()` in the same place saves the row
     /// too, then the page refreshes as after Update(true): assumption `new-line-saverecord-found-row` (corpus pull request 1470,
-    /// pages/failed-update/StaleUpdateNewLine.al:498, :914, :1242, :1318), only in `saverecord_found_row_cell`; another
+    /// pages/failed-update/StaleUpdateNewLine.al:498, :914, :1242, :1318), only in `found_row_cell`; another
     /// SaveRecord in this place is refused. True when it saved.
     pub(super) fn save_found_row_from_new_line(&mut self, st: &St, call: FoundRowSave) -> Result<bool, Signal> {
         let shape = {
@@ -186,8 +186,9 @@ impl Session {
         if !shape || self.stored_row(&self.page_rec(st))?.is_none() {
             return Ok(false);
         }
+        let cell = self.found_row_cell(st);
         if call == FoundRowSave::SaveRecord {
-            if !self.saverecord_found_row_cell(st) {
+            if !cell {
                 return unsupported(
                     "CurrPage.SaveRecord() on the new-row line after page code moved Rec onto a stored row, outside the measured cells (whether the row is modified is not pinned)",
                 );
@@ -204,6 +205,11 @@ impl Session {
         // The row is written even though it holds what is stored (the buffer before it was the blank new line).
         self.save_row(st)?;
         self.set_xrec(st);
+        if cell && self.engine.object_facts[st.borrow().object as usize].page_type == Some(al_ir::PageType::List) {
+            if let Some(start) = st.borrow_mut().filters_before_validate.as_mut() {
+                start.left_new_line = true;
+            }
+        }
         if call == FoundRowSave::SaveRecord {
             // The refresh of the cells is the one Update(true) asks for (StaleUpdateNewLine.al:498 and :602 log the same reads).
             st.borrow_mut().refresh.ask_by_update(true);
@@ -211,19 +217,32 @@ impl Session {
         Ok(true)
     }
 
-    /// The cells of StaleUpdateNewLine.al that measure `CurrPage.SaveRecord()` here: a page the test opened with OpenEdit, of
+    /// The refresh after the save of a List from its new-row line (`ValidateStart::left_new_line`) reads the view from its first
+    /// row, as from that line, not as from a stored row: assumption `new-line-found-row-list-refresh` (corpus pull request 1470,
+    /// StaleUpdateNewLine.al:1242 SaveRecord and :1258 Update(true), `R:B2/10000;R:B2/20000;R:B2/10000;R:B2/10000;C:B2/10000`).
+    pub(super) fn found_row_list_refresh(&self, left_new_line: bool) -> bool {
+        if left_new_line {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::NewLineFoundRowListRefresh);
+        }
+        left_new_line
+    }
+
+    /// The cells of StaleUpdateNewLine.al that measure the save from the new-row line (`CurrPage.SaveRecord()`, and the refresh
+    /// of a List after it or after `CurrPage.Update(true)`): a page the test opened with OpenEdit, of
     /// PageType Worksheet (page 73682, :498, :914, :1318) or List (page 73683, :1242), over a database table, declaring only
     /// PageType, SourceTable, AutoSplitKey and DelayedInsert (both true), ApplicationArea and UsageCategory, exactly the triggers
     /// of `FOUND_ROW_TRIGGERS`, no part, no page extension and no event subscriber; inside the OnValidate of a control bound to a
     /// page variable, and the test's calls since the open are value reads and that SetValue, none of them failed (a failed
     /// earlier step changes the refresh: :514-580, not run here).
-    fn saverecord_found_row_cell(&self, st: &St) -> bool {
+    fn found_row_cell(&self, st: &St) -> bool {
         let engine = self.engine();
         let object = st.borrow().object as usize;
         let page = page_of(&engine, st);
         let properties = &engine.program.objects[object].properties;
         let has_true = |name: &str| {
-            properties.iter().any(|(n, v)| n.eq_ignore_ascii_case(name) && v.trim().eq_ignore_ascii_case("true"))
+            properties
+                .iter()
+                .any(|(n, v)| n.eq_ignore_ascii_case(name) && v.trim().eq_ignore_ascii_case("true"))
         };
         let measured_property = |(name, value): &(String, String)| match name.to_ascii_lowercase().as_str() {
             "autosplitkey" | "delayedinsert" => value.trim().eq_ignore_ascii_case("true"),
@@ -245,7 +264,10 @@ impl Session {
             && !self.page_rec(st).borrow().temporary;
         let state_ok = {
             let s = st.borrow();
-            s.test_open_edit() && s.validating_control && s.parts.is_empty() && s.hidden_parts.is_empty()
+            s.test_open_edit()
+                && s.control_onvalidate_writes.is_some()
+                && s.parts.is_empty()
+                && s.hidden_parts.is_empty()
         };
         let calls: Option<Vec<TestCall>> = Self::test_calls_all_succeeded(st)
             .map(|calls| calls.into_iter().filter(|c| *c != TestCall::Read).collect());

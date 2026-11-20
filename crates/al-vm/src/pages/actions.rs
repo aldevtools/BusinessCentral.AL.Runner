@@ -2078,11 +2078,15 @@ impl Session {
     fn refresh_after_validate_filter(
         &mut self,
         st: &St,
-        filters_before: Option<Vec<al_builtins::filter::FieldFilter>>,
+        filters_before: Option<crate::pages::state::ValidateStart>,
         without_curr: bool,
         without_parts: bool,
     ) -> Result<bool, Signal> {
-        let Some(before) = filters_before else {
+        let Some(crate::pages::state::ValidateStart {
+            filters: before,
+            left_new_line,
+        }) = filters_before
+        else {
             return Ok(false);
         };
         let shape = {
@@ -2091,7 +2095,9 @@ impl Session {
         };
         // A page that offers the new-row line is pinned on a Worksheet (Y17JournalBatchSwitch.al), and on a List from that line
         // (`validate_refresh_start`); from a row a List that offers it keeps the refresh below.
-        let shape = shape && (!st.borrow().new_line || self.is_worksheet(st) || st.borrow().cursor == Cursor::NewLine);
+        // A List the OnValidate's save moved from that line reads as from it (`found_row_list_refresh`).
+        let from_new_line = st.borrow().cursor == Cursor::NewLine || self.found_row_list_refresh(left_new_line);
+        let shape = shape && (!st.borrow().new_line || self.is_worksheet(st) || from_new_line);
         if !shape
             || !self.has_source(st)
             || !self.is_list(st)
