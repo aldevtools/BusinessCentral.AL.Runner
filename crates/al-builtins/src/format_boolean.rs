@@ -26,12 +26,9 @@ pub(crate) fn boolean_text(b: bool, standard: i32, language: i32) -> Result<Stri
                 "Format of false under GlobalLanguage 1034 (only the word for true is pinned)".into(),
             ));
         }
-        // Norwegian and Swedish true in standard format 0 is `Ja` (assumption `boolean-words-norwegian-swedish`, al-runner issue
-        // 8182: `Format(true)`, `Format(true, 6)`); false and standard format 1 are not measured.
-        (0, true) if matches!(language, 1044 | 1053) => {
-            crate::assumptions::assume(crate::assumptions::Assumption::BooleanWordsNorwegianSwedish);
-            "Ja".into()
-        }
+        // Norwegian and Swedish true in standard format 0 is `Ja` (localization/global-language/GlobalLanguageBoolean.al:222-223,
+        // :252-253); false and the other standard formats are pinned there too but not answered here.
+        (0, true) if matches!(language, 1044 | 1053) => "Ja".into(),
         (_, _) if matches!(language, 1044 | 1053) => {
             return Err(FormatFail::Unsupported(format!(
                 "Format of {b} with standard format {standard} under GlobalLanguage {language} (only Format(true) with standard format 0 is measured)"

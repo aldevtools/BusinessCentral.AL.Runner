@@ -420,17 +420,7 @@ impl Session {
         if let Some((method, n)) = isolated {
             return self.isolated_storage_op(method, n, args);
         }
-        let method = match id {
-            ids::NUMBERSEQUENCE_CURRENT_1 => Some("Current"),
-            ids::NUMBERSEQUENCE_DELETE_1 => Some("Delete"),
-            ids::NUMBERSEQUENCE_EXISTS_1 => Some("Exists"),
-            ids::NUMBERSEQUENCE_INSERT_1 => Some("Insert"),
-            ids::NUMBERSEQUENCE_NEXT_1 => Some("Next"),
-            ids::NUMBERSEQUENCE_RANGE_1 | ids::NUMBERSEQUENCE_RANGE_2 => Some("Range"),
-            ids::NUMBERSEQUENCE_RESTART_1 => Some("Restart"),
-            _ => None,
-        };
-        let Some(method) = method else {
+        let Some(method) = number_sequence_method(id) else {
             return unsupported(format!("builtin {id}"));
         };
         // The position of the optional CompanySpecific argument per overload.
@@ -463,14 +453,12 @@ impl Session {
                         "Sql:Sql",
                     );
                 }
-                self.sequences.insert(
-                    key,
-                    Sequence {
-                        increment,
-                        seed,
-                        last: None,
-                    },
-                );
+                let sequence = Sequence {
+                    increment,
+                    seed,
+                    last: None,
+                };
+                self.insert_sequence(key, sequence);
                 Ok(Value::Null)
             }
             "Exists" => Ok(Value::Boolean(self.sequences.contains_key(&key))),
@@ -931,5 +919,19 @@ impl Session {
             }
             _ => return None,
         })
+    }
+}
+
+/// The NumberSequence method of session builtin `id`; `None`: another builtin.
+pub(crate) fn number_sequence_method(id: al_ir::BuiltinId) -> Option<&'static str> {
+    match id {
+        ids::NUMBERSEQUENCE_CURRENT_1 => Some("Current"),
+        ids::NUMBERSEQUENCE_DELETE_1 => Some("Delete"),
+        ids::NUMBERSEQUENCE_EXISTS_1 => Some("Exists"),
+        ids::NUMBERSEQUENCE_INSERT_1 => Some("Insert"),
+        ids::NUMBERSEQUENCE_NEXT_1 => Some("Next"),
+        ids::NUMBERSEQUENCE_RANGE_1 | ids::NUMBERSEQUENCE_RANGE_2 => Some("Range"),
+        ids::NUMBERSEQUENCE_RESTART_1 => Some("Restart"),
+        _ => None,
     }
 }

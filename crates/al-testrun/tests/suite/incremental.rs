@@ -803,3 +803,28 @@ fn a_body_change_keeps_the_errors_of_a_file_of_another_app_with_the_same_path() 
         "a body change in a path another app has too",
     );
 }
+
+/// Both apps' Lib.al (the same relative path) have a compile error at the same offset. After a body change of the main
+/// app's Lib.al the kept diagnostics come out in the order of a complete compile: by app, then path, then offset
+/// (al-runner issue 8495).
+#[test]
+fn errors_at_the_same_offset_of_two_apps_files_with_the_same_path_keep_the_order_of_a_complete_compile() {
+    let broken = LIB.replace("        C.Modify();\n", "        C.Modify();\n        Missing();\n");
+    SECOND.with(|s| *s.borrow_mut() = Some(broken.replace("60100 Lib", "60190 Lob")));
+    let edited = broken.replace("exit(N * 2);", "exit(N + N);");
+    let dir = tempfile::tempdir().unwrap();
+    let (c, _) = complete(&[&broken, TESTS, OTHER, TABLES], dir.path());
+    let apps: Vec<usize> = c
+        .lowered()
+        .al_diagnostics
+        .iter()
+        .filter(|d| d.file == "Lib.al")
+        .map(|d| d.app)
+        .collect();
+    assert_eq!(apps, [1, 2], "{:?}", c.lowered().al_diagnostics);
+    assert_updated(
+        [&broken, TESTS, OTHER, TABLES],
+        [&edited, TESTS, OTHER, TABLES],
+        "a body change in a path another app has too, both with an error at the same offset",
+    );
+}
