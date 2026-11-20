@@ -182,7 +182,8 @@ impl Session {
         self.profile_enter(object, routine, true);
         self.events.publish_frame = true;
         self.events.blob_publisher = blob_publisher;
-        self.events.by_value_publisher = Some((object, routine));
+        let var_param_arg = std::mem::take(&mut self.events.raise_arg_var_param);
+        self.events.by_value_publisher = Some((object, routine, var_param_arg));
         self.events.sender_refused = sender_refused;
         self.events.var_origins = origins;
         self.events.publisher_var_lens = lens;
@@ -279,6 +280,7 @@ impl Session {
         self.events.trial.allowed = false;
         let trials = std::mem::take(&mut self.events.trial.picked);
         let targets = targets?;
+        let subscribers = targets.len();
         for (s, inst) in targets {
             // A manual instance unbound since the raise began. One that unbound itself in an earlier method of this raise
             // is not called again (events/ProbeEventSubscriberOrder.al:253
@@ -353,7 +355,7 @@ impl Session {
                     .collect();
             }
             self.events.next_is_subscriber = true;
-            self.events.next_event_args = self.event_args(by_value_publisher.as_ref(), &s, &map);
+            self.events.next_event_args = self.event_args(by_value_publisher.as_ref(), &s, &map, subscribers);
             self.events.next_blob_event = crate::blob_transfer::measured_subscriber(blob_publisher, s.manual);
             let manual_inst = s.manual.then(|| inst.clone());
             // What the event recursion error would name (see `Session::call`): the publisher and the subscriber routine, for the

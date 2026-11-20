@@ -1221,10 +1221,7 @@ impl Session {
                 self.bg_run_page_task(st, args)
             }
             PageMethod::Run => self.run_page_var(st, false),
-            PageMethod::RunModal => {
-                st.borrow_mut().modal_run = ModalRun::Variable;
-                self.run_page_var(st, true)
-            }
+            PageMethod::RunModal => self.page_var_run_modal(st),
             // `CurrPage.Close()` in a procedure of a Page variable that never ran does nothing and the procedure goes on
             // (pages/currpage/ClosedPageVariableCurrPageClose.al:83-99, Close_NeverRun), and so does
             // `Close()` of a Page variable whose modal page closed: after its handler failed (ClosedPageVariableCurrPageClose.al:55

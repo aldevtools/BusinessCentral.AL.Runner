@@ -2000,7 +2000,7 @@ pub enum PublisherRef {
     /// The one object visible from the subscriber's app that has the kind and name (or id).
     Only(u32),
     /// Several visible objects have the kind and name (`twins`, `object` among them); the subscriber's file names `object`
-    /// (assumption `subscriber-publisher-namespace-scope`).
+    /// (events/subscriber-namespace/SnUsingTests.al, SnOwnNamespaceTests.al, SnOwnOverUsingTests.al).
     Picked { object: u32, twins: Vec<u32> },
     /// Several visible objects have the kind and name, and the file names none of them by a measured rule: raising the event
     /// of any of them is refused.

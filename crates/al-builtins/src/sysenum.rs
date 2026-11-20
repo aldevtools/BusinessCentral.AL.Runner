@@ -137,7 +137,7 @@ pub fn members(name: &str) -> Option<&'static [&'static str]> {
         "executioncontext" => Some(&["Normal", "Install", "", "Upgrade"]),
         // Standard and Debug only (corpus must-not-compile 0010 to 0013 and 0019: Install, Uninstall, Upgrade,
         // Report and Profile do not exist). A test run formats as `Standard`
-        // (session-system/TestEnvironmentUserTenantContracts.al:247); the ordinals are not pinned.
+        // (session-system/TestEnvironmentUserTenantContracts.al:244); the ordinals are not pinned.
         "executionmode" => Some(&["Standard", "Debug"]),
         // Only `LocalScope` is named by the corpus; the ordinals are not pinned.
         "notificationscope" => Some(&["LocalScope", "GlobalScope"]),

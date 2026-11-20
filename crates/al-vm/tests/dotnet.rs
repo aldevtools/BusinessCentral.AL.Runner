@@ -1669,7 +1669,7 @@ fn the_server_class_members_answer_the_values_of_the_probe_and_al_runner_v2() {
         run_text(t, "T.GetEnvironmentApplicationSetting('EnableAgentBuilder')"),
         ""
     );
-    // IsAzure is the one answer that follows the BC major: see `is_azure_follows_the_bc_major`.
+    // IsAzure is false on every major (session-system/TestEnvironmentUserTenantContracts.al:185), 27.5 included.
     assert_eq!(
         text(run_as(
             Some("27.5"),
@@ -1677,12 +1677,12 @@ fn the_server_class_members_answer_the_values_of_the_probe_and_al_runner_v2() {
             "exit(Format(U.IsAzure()));",
             ": Text"
         )),
-        "Yes"
+        "No"
     );
 }
 
 /// Tests-ERM `Azure AD Identity Mgmt.IsUserDelegatedAdmin`: the session user is not delegated (corpus
-/// `session-system/TestEnvironmentUserTenantContracts.al:245`, `IsUserDelegated` false), and a delegated admin is a
+/// `session-system/TestEnvironmentUserTenantContracts.al:242`, `IsUserDelegated` false), and a delegated admin is a
 /// delegated user, so it is not a delegated admin either.
 #[test]
 fn the_session_user_is_not_a_delegated_admin() {
@@ -1732,15 +1732,14 @@ fn the_session_user_is_not_a_delegated_helpdesk() {
     }
 }
 
-/// `Environment Information.IsSaaSInfrastructure` is `NavUserAccountHelper.IsAzure()`: true on the
-/// BC 27.5 and 28.5 oracle runs, false on the 29.0 run (corpus
-/// `session-system/TestEnvironmentUserTenantContracts.al:164-174`, `#if BC29PLUS`). No target is the newest.
+/// `Environment Information.IsSaaSInfrastructure` is `NavUserAccountHelper.IsAzure()`: false on every
+/// major (corpus `session-system/TestEnvironmentUserTenantContracts.al:185`). No target is the newest.
 #[test]
-fn is_azure_follows_the_bc_major() {
+fn is_azure_is_false_on_every_major() {
     let u = "U: DotNet NavUserAccountHelper;";
     for (bc, want) in [
-        (Some("27.5"), "Yes"),
-        (Some("28.5"), "Yes"),
+        (Some("27.5"), "No"),
+        (Some("28.5"), "No"),
         (Some("29.0"), "No"),
         (Some("30.0"), "No"),
         (None, "No"),
@@ -1848,19 +1847,19 @@ fn an_instance_of_a_registered_type_serves_its_members_from_the_registry() {
 #[test]
 fn registry_results_are_operands() {
     let host = no_host();
-    // BC 27.5, where IsAzure is true.
+    // IsAzure is false on every major (session-system/TestEnvironmentUserTenantContracts.al:185).
     let r = run_as(
         Some("27.5"),
         "U: DotNet NavUserAccountHelper; C: DotNet ALConfigSettings; N: Integer;",
         "C := C.Instance(); if C.ApiSubscriptionDelayTime() > 1000 then N := 1; \
-         if U.IsAzure() and C.ApiServicesEnabled() then N += 10; exit(N);",
+         if not U.IsAzure() and C.ApiServicesEnabled() then N += 10; exit(N);",
         ": Integer",
     );
     assert!(matches!(r.result, Ok(Value::Integer(11))), "{:?}", r.result);
     assert_eq!(host.log(), vec![]);
 }
 
-/// session-system/TestEnvironmentUserTenantContracts.al:TenantAndAzureAd_Answers (:209-212) pins the three
+/// session-system/TestEnvironmentUserTenantContracts.al:TenantAndAzureAd_Answers (:206-209) pins the three
 /// settings System Application reads through `TryGetStringTenantSetting(name, var value)`.
 #[test]
 fn try_get_string_tenant_setting_answers_the_pinned_names_and_not_the_others() {
@@ -2126,7 +2125,7 @@ fn graph_get_current_user_returns_null_without_an_error() {
 
 // GetTenantDetail answers a TenantInfo, not null, whose InitialDomain, CountryLetterCode and PreferredLanguage are
 // empty: Microsoft's Azure AD Tenant Impl. raises "Failed to retrieve ..." for a null TenantInfo, and the corpus
-// test expects '' from all three (session-system/TestEnvironmentUserTenantContracts.al:213-232).
+// test expects '' from all three (session-system/TestEnvironmentUserTenantContracts.al:210-229).
 #[test]
 fn graph_get_tenant_detail_answers_an_empty_tenant_info() {
     let host = no_host();
