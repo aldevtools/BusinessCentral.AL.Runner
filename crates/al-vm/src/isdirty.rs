@@ -251,7 +251,7 @@ impl Session {
             is_dirty_base.materialize(fields);
         }
         if triggers {
-            let pre = rec.borrow().fields.clone();
+            let pre = rec.borrow().fields.to_vec();
             self.dirty_frames.push(DirtyFrame {
                 rec: rec.clone(),
                 method,
@@ -315,7 +315,7 @@ impl Session {
             (Ok(_), _) => match saved {
                 DirtyBase::Row { base, dirty_only, .. } => DirtyBase::Row {
                     base,
-                    alt: Some(s.fields.clone()),
+                    alt: Some(s.fields.to_vec()),
                     dirty_only,
                     stale_store: false,
                 },
@@ -384,7 +384,7 @@ impl Session {
             let (base, alt, dirty_only, stale_store) = match &s.is_dirty_base {
                 DirtyBase::Unknown(why) => return refuse(why),
                 DirtyBase::Fresh => (None, None, false, false),
-                DirtyBase::Synced => (Some(s.fields.clone()), None, false, false),
+                DirtyBase::Synced => (Some(s.fields.to_vec()), None, false, false),
                 DirtyBase::Row {
                     base,
                     alt,
@@ -414,7 +414,7 @@ impl Session {
                 if timed {
                     return refuse("on a declared variable of a table with a date or time InitValue (not pinned)");
                 }
-                self.initial_fields(t.object as usize)
+                self.initial_fields(t.object as usize).into_vec()
             }
         };
         // (whether a field other than a system field differs, whether any field differs). Nothing pins whether the

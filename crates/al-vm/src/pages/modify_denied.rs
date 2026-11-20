@@ -58,10 +58,10 @@ impl Session {
         let at = st.borrow().window.iter().position(|w| Self::same_key(&w.key, &key));
         if let Some(at) = at {
             let mut s = st.borrow_mut();
-            s.window[at].stored = fields.clone();
-            s.window[at].shown = fields.clone();
+            s.window[at].stored = fields.to_vec();
+            s.window[at].shown = fields.to_vec();
         }
-        self.set_xrec_fields(st, fields);
+        self.set_xrec_fields(st, fields.into_vec());
         Ok(true)
     }
 

@@ -296,7 +296,7 @@ impl Session {
         let pending = st.borrow_mut().pending.take();
         if let Some(fields) = pending {
             let rec = self.page_rec(st);
-            rec.borrow_mut().fields = fields;
+            rec.borrow_mut().fields = fields.into();
             self.ret_used = false;
             self.tx.immediate_errors = true;
             let inserted = self.record_op(RecordOp::Insert, &rec, &mut [Value::Boolean(true)]);
@@ -495,7 +495,7 @@ impl Session {
             || (statement && via_action && (action == "OK" || action == "Cancel"));
         if hands_back && self.has_source(st) && (on_row || on_new) {
             let fields = self.page_rec(st).borrow().fields.clone();
-            st.borrow_mut().selection = Some(fields);
+            st.borrow_mut().selection = Some(fields.into_vec());
         }
         let by = if test_close {
             ClosedBy::TestClose

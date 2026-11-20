@@ -233,7 +233,7 @@ impl Session {
     ) -> Result<(), Signal> {
         if rec_bound && !st.borrow().draft && st.borrow().cursor == Cursor::Row {
             let typed = self.page_rec(st).borrow().fields.clone();
-            st.borrow_mut().agcr_xrec = Some(typed);
+            st.borrow_mut().agcr_xrec = Some(typed.into_vec());
         }
         match discard {
             Some(row) => self.validate_step_discard(st, row),
@@ -274,7 +274,7 @@ impl Session {
             s.dirty = false;
             s.refresh.cancel_update();
         }
-        rec.borrow_mut().fields = row;
+        rec.borrow_mut().fields = row.into();
         Ok(())
     }
 

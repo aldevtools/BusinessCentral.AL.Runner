@@ -92,7 +92,7 @@ impl Session {
             .any(|c| c.kind == ir::ControlKind::Repeater);
         if var_bound && on_row && (!has_repeater || self.in_repeater(st, idx)) && self.has_source(st) {
             let fields = self.page_rec(st).borrow().fields.clone();
-            st.borrow_mut().rec_before_var_validate = Some(fields);
+            st.borrow_mut().rec_before_var_validate = Some(fields.into_vec());
         }
         Ok(())
     }
