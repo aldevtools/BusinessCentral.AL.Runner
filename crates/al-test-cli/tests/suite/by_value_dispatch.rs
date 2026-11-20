@@ -200,7 +200,7 @@ codeunit 50166 "BD Test"
         Expect(Callee.LoadedAfterFind(Line), '');
     end;
 
-    // The copy does not keep SetAutoCalcFields (corpus PR 1473, record/filters/ByValueAutoCalcFields.al:284-301); the
+    // The copy does not keep SetAutoCalcFields (corpus PR 1473, record/filters/ByValueAutoCalcFields.al:289-306 in corpus PR 1485); the
     // refused neighbors of that rule are in `by_value_auto_calc.rs`.
     [Test]
     procedure SetAutoCalcFields_Flagged()

@@ -12,6 +12,9 @@ table 50180 "BA Head"
         field(1; "No."; Code[20]) { }
         field(2; Kind; Code[10]) { }
         field(3; "Line Total"; Decimal) { FieldClass = FlowField; CalcFormula = sum("BA Detail".Amount where("Head No." = field("No."))); }
+        field(4; "Line Count"; Integer) { FieldClass = FlowField; CalcFormula = count("BA Detail" where("Head No." = field("No."))); }
+        field(5; "Max Amount"; Decimal) { FieldClass = FlowField; CalcFormula = max("BA Detail".Amount where("Head No." = field("No."))); }
+        field(6; "Total Again"; Decimal) { FieldClass = FlowField; CalcFormula = sum("BA Detail".Amount where("Head No." = field("No."))); }
     }
     keys
     {
@@ -114,6 +117,28 @@ table 50186 "BA Holder"
 {
     fields { field(1; "Line No."; Integer) { } field(2; Info; Text[250]) { } }
     keys { key(PK; "Line No.") { Clustered = true; } }
+
+    trigger OnInsert()
+    var
+        Head: Record "BA Head";
+        Buffer: Record "BA Buffer";
+    begin
+        Head.SetRange(Kind, 'A');
+        Head.SetAutoCalcFields("Line Total");
+        Head.FindFirst();
+        Info := CopyStr(Buffer.DescribeHead(Head), 1, MaxStrLen(Info));
+    end;
+
+    procedure ViaBufferFromProcedure(): Text
+    var
+        Head: Record "BA Head";
+        Buffer: Record "BA Buffer";
+    begin
+        Head.SetRange(Kind, 'A');
+        Head.SetAutoCalcFields("Line Total");
+        Head.FindFirst();
+        exit(Buffer.DescribeHead(Head));
+    end;
 
     procedure FromTableCode(WithFilter: Boolean): Text
     var
@@ -344,6 +369,89 @@ codeunit 50185 "BA Test"
         Seed();
         Expect(Holder.FromTableCode(false), 'no= total=0 f={} n=3 last=H3 lastTotal=30');
     end;
+
+    [Test]
+    procedure ThirdTableOnInsert_Flagged()
+    var
+        Holder: Record "BA Holder";
+    begin
+        Seed();
+        Holder."Line No." := 1;
+        Holder.Insert(true);
+        Expect(Holder.Info, 'no=H1 total=10 f={} n=3 last=H3 lastTotal=0');
+    end;
+
+    // A third table's procedure as the caller is not measured (the probe has its OnInsert only).
+    [Test]
+    procedure ThirdTableProcedure_Refused()
+    var
+        Holder: Record "BA Holder";
+    begin
+        Seed();
+        Expect(Holder.ViaBufferFromProcedure(), '');
+    end;
+
+    // Every FlowField method is measured (ByValueAutoCalcFields.al:627-730, corpus PR 1485): a Max as a Sum.
+    [Test]
+    procedure MaxField_Filter_Flagged()
+    var
+        Head: Record "BA Head";
+    begin
+        Seed();
+        Head.SetRange(Kind, 'A');
+        Head.SetAutoCalcFields("Max Amount");
+        Expect(Callee.Describe(Head), 'no= total=0 f={} n=3 last=H3 lastTotal=0');
+    end;
+
+    [Test]
+    procedure MaxField_NoFilter_Flagged()
+    var
+        Head: Record "BA Head";
+    begin
+        Seed();
+        Head.SetAutoCalcFields("Max Amount");
+        Expect(MaxOfLast(Head), '0');
+    end;
+
+    local procedure MaxOfLast(H: Record "BA Head"): Text
+    begin
+        H.FindLast();
+        exit(Format(H."Max Amount", 0, 9));
+    end;
+
+    // One to three fields are measured; four are refused.
+    [Test]
+    procedure ThreeFields_Filter_Flagged()
+    var
+        Head: Record "BA Head";
+    begin
+        Seed();
+        Head.SetRange(Kind, 'A');
+        Head.SetAutoCalcFields("Line Total", "Line Count", "Total Again");
+        Expect(Callee.Describe(Head), 'no= total=0 f={} n=3 last=H3 lastTotal=0');
+    end;
+
+    [Test]
+    procedure FourFields_Filter_Refused()
+    var
+        Head: Record "BA Head";
+    begin
+        Seed();
+        Head.SetRange(Kind, 'A');
+        Head.SetAutoCalcFields("Line Total", "Line Count", "Max Amount", "Total Again");
+        Expect(Callee.Describe(Head), '');
+    end;
+
+    [Test]
+    procedure TwoFields_Filter_Flagged()
+    var
+        Head: Record "BA Head";
+    begin
+        Seed();
+        Head.SetRange(Kind, 'A');
+        Head.SetAutoCalcFields("Line Total", "Line Count");
+        Expect(Callee.Describe(Head), 'no= total=0 f={} n=3 last=H3 lastTotal=0');
+    end;
 }
 "##;
 
@@ -365,6 +473,13 @@ fn a_by_value_copy_drops_the_callers_set_auto_calc_fields_in_the_measured_shapes
         ("ClearedOnCopy_NotFlagged", PASS, false),
         ("CodeunitFromTableCode_Filter_Refused", VIEW_REFUSED, false),
         ("CodeunitFromTableCode_NoFilter_KeepsMain", PASS, false),
+        ("ThirdTableOnInsert_Flagged", PASS, true),
+        ("ThirdTableProcedure_Refused", VIEW_REFUSED, false),
+        ("MaxField_Filter_Flagged", PASS, true),
+        ("MaxField_NoFilter_Flagged", PASS, true),
+        ("ThreeFields_Filter_Flagged", PASS, true),
+        ("FourFields_Filter_Refused", VIEW_REFUSED, false),
+        ("TwoFields_Filter_Flagged", PASS, true),
     ];
     check(&o, &want);
 }

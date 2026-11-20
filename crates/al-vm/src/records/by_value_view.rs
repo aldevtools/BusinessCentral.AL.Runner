@@ -424,13 +424,18 @@ impl Session {
         let no_filter = s.filters.is_empty();
         let pinned_key = s.key == 0 || s.adhoc.as_ref().is_some_and(|(k, _)| *k == s.key);
         let load_dropped = measured.is_some() && s.load.request.is_some() && s.load.buffer.is_none();
-        // The cells call from a codeunit, and `Buffer.Proc(Head)` also from a third table's trigger (the callers
-        // `measured_callee` admits for it); a codeunit procedure called from table code is not measured.
-        let auto_calc_caller = measured == Some(Evidence::Assumed(Assumption::ByValueTableProcOtherTable))
-            || self
-                .frames
-                .last()
-                .is_some_and(|&o| self.engine.program.objects[o].kind == ObjKind::Codeunit);
+        // The cells call from a codeunit, and `Buffer.Proc(Head)` also from a third table's OnInsert trigger
+        // (record/filters/ByValueAutoCalcFields.al:598); a third table's procedure, and a codeunit procedure called from table
+        // code, are not measured.
+        let objects = &self.engine.program.objects;
+        let caller = self.frames.last().zip(self.call_stack.last());
+        let from_codeunit = caller.is_some_and(|(&o, _)| objects[o].kind == ObjKind::Codeunit);
+        let from_third_table_insert = caller.is_some_and(|(&o, f)| {
+            let r = &objects[o].routines[f.routine];
+            objects[o].kind == ObjKind::Table && r.is_trigger && r.name.eq_ignore_ascii_case("OnInsert")
+        });
+        let auto_calc_caller = from_codeunit
+            || (measured == Some(Evidence::Assumed(Assumption::ByValueTableProcOtherTable)) && from_third_table_insert);
         let auto_calc_dropped =
             measured.is_some() && auto_calc_caller && s.unpinned_buffer.is_none() && self.measured_auto_calc(&s);
         let mut c = copy.borrow_mut();
@@ -478,13 +483,14 @@ impl Session {
     }
 
     /// Whether the caller's SetAutoCalcFields of `s` is one record/filters/ByValueAutoCalcFields.al measured, which BC does
-    /// not hand a by-value copy (assumption `by-value-record-no-auto-calc`, corpus PR 1473, merged, not pinned yet): each cell's copy has the
+    /// not hand a by-value copy (assumption `by-value-record-no-auto-calc`, corpus PR 1473, merged, and corpus PR 1485, open; not pinned yet; lines as in PR 1485): each cell's copy has the
     /// caller's field values, its calculated FlowField included, but a FindLast of it leaves the FlowFields 0
-    /// (`lastTotal=0 lastCount=0`), while the caller still calculates them (:265-605: a codeunit procedure :284-377, through a
-    /// Variant to RecordRef.GetTable :378-413, `Buffer.Proc(Head)` :414-451 and :470-494, `Head.Proc(Head)` :452-469 and
-    /// :495-518; a Get of the copy :519, Copy of it :537, its own SetAutoCalcFields :555, a FlowFilter formula :573,
-    /// `Buffer.Proc(Head)` from a third table's OnInsert :593). Every fact the cells share, by equality: one or
-    /// two FlowFields with a CalcFormula set (`Line Total`, `Line Count`, `Filtered Total`), every filter on a Normal field in
+    /// (`lastTotal=0 lastCount=0`), while the caller still calculates them (:270-730: a codeunit procedure :289-382, through a
+    /// Variant to RecordRef.GetTable :383-418, `Buffer.Proc(Head)` :419-456 and :475-499, `Head.Proc(Head)` :457-474 and
+    /// :500-523; a Get of the copy :524, Copy of it :542, its own SetAutoCalcFields :560, a FlowFilter formula :578,
+    /// `Buffer.Proc(Head)` from a third table's OnInsert :598). Every fact the cells share, by equality: one or
+    /// one to three FlowFields with a CalcFormula of any method (Sum and Count, and Min, Max, Average, Exist and Lookup, one
+    /// of them a Min a table extension declares, :627-730), every filter on a Normal field in
     /// group 0 or 2,
     /// the caller standing in group 0, the primary or a declared key, any order, marks but MarkedOnly off, no SetLoadFields
     /// and ReadIsolation at its default.
@@ -493,7 +499,7 @@ impl Session {
             return false;
         };
         let field = |i: usize| table.fields.get(i);
-        !s.auto_calc.is_empty()
+        matches!(s.auto_calc.len(), 1..=3)
             && s.auto_calc
                 .iter()
                 .all(|&i| field(i).is_some_and(|f| !f.stored && !f.flow_filter && f.calc.is_some()))
