@@ -1851,9 +1851,14 @@ pub fn build_ext(cx: &ExtContext, obj: &ast::Object) -> (ir::ReportExt, Vec<Stri
         };
         let item = item_ir(&o, raw, Some(n + j), parent, parent_table, &enclosing, &mut reasons);
         // Pinned (TestReportExtensionParentLink.al:46-61, :72): an item added with addbefore of a base sibling names its
-        // base parent, and an item nested in an added item names that item. Every other anchor refuses.
+        // base parent, and an item nested in an added item names that item. Pinned (TestReportDependencyDataItems.al:46
+        // `after=2`; al-language-xapp-c/ReportDependencyC.ReportExt.al:38-43): an item added with addafter of a nested item
+        // of a dependency's extension names that item's parent. Every other anchor refuses.
         let pinned_anchor = (base_parent.is_some() && matches!(place, ir::AddedPlace::Before(ir::ItemAnchor::Base(_))))
-            || (raw.target.is_none() && parent.is_some());
+            || (raw.target.is_none() && parent.is_some())
+            || (base_parent.is_none()
+                && foreign_parent.is_some()
+                && matches!(place, ir::AddedPlace::After(ir::ItemAnchor::Foreign(_))));
         if has_explicit_reference(raw) && !pinned_anchor {
             reasons.push(format!(
                 "dataitem {}: DataItemLinkReference on an item added by addfirst, addlast or addafter is not pinned",
