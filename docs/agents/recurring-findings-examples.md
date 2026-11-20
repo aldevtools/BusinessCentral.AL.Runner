@@ -355,3 +355,22 @@ Rust tests in `crates/al-test-cli/tests/suite/ci_*.rs` read the text of `.github
 `.github/actions/*/action.yml` (step order, cache keys, conditions). A change to a workflow or an action changes what
 they read. Before hand-back, grep those tests for the step text you changed and run
 `cargo test -p al-test-cli --test suite ci_`.
+
+## 24. A corpus bump deletes an assumption entry, and the shapes it did not measure keep running (al-runner PR 8515)
+
+An assumption entry lists what its evidence measured, what the code assumes beyond it and what is still to measure. When
+a corpus bump pins the probe and the entry is deleted, the gate must narrow to the pinned cell: every fact of the cell by
+equality. The by-value subscriber cell (record/filters/ByValueRecordView.al:964-978) has one publisher parameter, one
+local subscriber with skip flags false, and a caller record with one group-0 filter on a Normal field that read no row.
+The first version of the bump kept `EventArg::Measured` as wide as the old entry ("any publisher, any argument"), so
+two subscribers, a publisher with more parameters and a record that had read a row ran unmarked. Read the deleted entry's
+"assumed beyond" and "wanted next" lists, and give each item a Rust test that shows it refuses.
+
+## 25. A pin gate compares trigger names, not bodies (al-runner PR 7838 round 2, PR 8536 round 3)
+
+A gate that checks which triggers, procedures or subscribers exist lets any body run under the pin. PR 7838 round 2: the
+entry checked names or a subset of the page, so pages the repro does not show ran flagged; `pinned_body.rs` was written for
+it. PR 8536 round 3: the SaveRecord cells' gate named the table's OnInsert and OnModify and the page triggers, so a table
+OnModify that inserted into another table, set a field or raised, and an OnAfterGetCurrRecord that wrote, ran flagged.
+State the pin's lines (`pinned_body::page_lines`, `table_lines`) and require them all with `page_is`, `table_is` and
+`callees_are`. Extend the renderer when the pin holds a statement it does not write yet; never compare less.

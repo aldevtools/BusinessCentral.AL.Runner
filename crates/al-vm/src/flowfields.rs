@@ -678,6 +678,7 @@ impl Session {
         }
         let filters = self.calc_filters(rec, calc, &mut Vec::new())?;
         let src_t = self.engine.tables[calc.table].clone().expect("table");
+        self.crm_source_refused(&src_t, "a FlowField")?;
         if self.permission_checks() {
             self.permission_gate_flowfield(rec, calc.table, &[])?;
         }
@@ -738,6 +739,7 @@ impl Session {
         let calc = f.calc.as_ref().expect("checked by check_calc_field");
         let filters = self.calc_filters(rec, calc, stack)?;
         let src_t = self.engine.tables[calc.table].clone().expect("table");
+        self.crm_source_refused(&src_t, "a FlowField")?;
         // The source table is read even when the record holding the FlowField is temporary.
         self.note_indirect_read(src_t.object);
         self.unseeded_read(&src_t, rec.borrow().temporary, "a FlowField")?;

@@ -179,9 +179,9 @@ impl Session {
     }
 
     fn lock_through_recordref(&mut self, locked_before: bool, what: &'static str) {
-        if !locked_before && self.tx.lock_tx {
-            self.tx.lock_tx = false;
-            self.tx.lock_unpinned = Some(what);
+        if !locked_before && self.tx.open.locks.lock_tx {
+            self.tx.open.locks.lock_tx = false;
+            self.tx.open.locks.lock_unpinned = Some(crate::state::UnpinnedLock::Other(what));
         }
     }
 
@@ -417,7 +417,7 @@ impl Session {
         if o.uncompiled {
             return unsupported("Evaluate into a RecordId of a table of an app that is not compiled");
         }
-        let table_no = o.id.unwrap_or(0);
+        let table_no = crate::object_ids::declared_id(o.id)?;
         let table_name = o.name.clone();
         let key = match key_text {
             None => Vec::new(),
@@ -1072,9 +1072,9 @@ impl Session {
         let rec = Self::open_ref(lib, &format!("RecordRef.{method}"))?;
         let t = self.table(&rec)?;
         match method {
-            "Number" => Ok(Value::Integer(
-                self.engine.program.objects[t.object as usize].id.unwrap_or(0) as i32,
-            )),
+            "Number" => Ok(Value::Integer(crate::object_ids::declared_id(
+                self.engine.program.objects[t.object as usize].id,
+            )? as i32)),
             "Name" => Ok(Value::Text(t.name.clone().into())),
             "Caption" => self.caption_checked(&t).map(|c| Value::Text(c.into())),
             // corpus recordref-fieldref/recordref/TestRecordRefGetSet.al:16-30 pins only that it is not empty.
@@ -1091,7 +1091,7 @@ impl Session {
                 // record/PWFilterGroupOr.al:OrGroup_RecordRef).
                 Self::filter_group(&rec, args)
             }
-            "GetFilters" => self.get_filters(&rec, &t).map(|s| Value::Text(s.into())),
+            "GetFilters" => self.get_filters(&rec, &t, false).map(|s| Value::Text(s.into())),
             "GetView" => {
                 let use_names = match args.first() {
                     Some(v) => ops::truthy(v)?,
@@ -1108,7 +1108,7 @@ impl Session {
             }
             "SetAutoCalcFields" => self.recordref_set_auto_calc_fields(&rec, &t, args),
             // Doc (RecordRef.Duplicate): a new ref with the same table, buffer and filters, independent of the original.
-            "RecordId" => Ok(self.record_id(&rec, &t)),
+            "RecordId" => self.record_id(&rec, &t),
             "LockTable" => {
                 // RecordRef.LockTable(true, true) raises the Wait = FALSE error (recordref-fieldref/recordref/RfTViews.al:314-322).
                 if matches!(args, [Value::Boolean(true), Value::Boolean(true)]) {
@@ -1120,20 +1120,20 @@ impl Session {
                     return unsupported("RecordRef.LockTable after a ReadIsolation was set (not pinned)");
                 }
                 let mut a: Vec<Value> = args.iter().take(1).cloned().collect();
-                let locked = self.tx.lock_tx;
+                let locked = self.tx.open.locks.lock_tx;
                 let r = self.record_meta_op(RecordOp::LockTable, &rec, &t, &mut a);
                 // On an open database table it starts the write transaction, a read keeps it and a Commit ends it; on a
                 // temporary table it starts none (recordref-fieldref/WcRecordRefLockTable.al:28-87). What else follows from it
                 // (the stale-buffer shapes and the rest that read `lock_tx`) is pinned for Record.LockTable only.
-                let started = !locked && self.tx.lock_tx;
+                let started = !locked && self.tx.open.locks.lock_tx;
                 self.lock_through_recordref(locked, "a RecordRef.LockTable");
                 if started {
-                    self.tx.recref_lock_tx = true;
+                    self.tx.open.locks.recref_lock_tx = true;
                 }
                 r
             }
             "ReadIsolation" => {
-                let locked = self.tx.lock_tx;
+                let locked = self.tx.open.locks.lock_tx;
                 let r = self.record_meta_op(RecordOp::ReadIsolation, &rec, &t, args);
                 self.lock_through_recordref(locked, "a locking RecordRef.ReadIsolation");
                 r
@@ -1226,7 +1226,8 @@ impl Session {
                                 "RecordRef.Field({no}) of a removed field without an ObsoleteReason (the text is not pinned)"
                             ));
                         };
-                        let table_id = self.engine.program.objects[t.object as usize].id.unwrap_or(0);
+                        let table_id =
+                            crate::object_ids::declared_id(self.engine.program.objects[t.object as usize].id)?;
                         Err(crate::transactions::al_error_code(
                             &format!(
                                 "Field {} ({no}) of table {} ({table_id}) is obsoleted, reason: {reason}",

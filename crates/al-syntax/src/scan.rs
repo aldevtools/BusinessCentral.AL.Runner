@@ -292,22 +292,6 @@ fn scan_object(src: &str, sig: &[Tok], at: usize, out: &mut FileScan) -> usize {
                 code -= 1;
             }
         }
-        if depth == 1
-            && sig[i].kind == Ident
-            && sig[i].text.eq_ignore_ascii_case("Subtype")
-            && sig.get(i + 1).is_some_and(|t| t.kind == Eq)
-            && sig.get(i + 2).is_some_and(|t| t.is_kw("Install"))
-        {
-            obj.install = true;
-        }
-        if depth == 1
-            && sig[i].kind == Ident
-            && sig[i].text.eq_ignore_ascii_case("EventSubscriberInstance")
-            && sig.get(i + 1).is_some_and(|t| t.kind == Eq)
-            && sig.get(i + 2).is_some_and(|t| t.is_kw("Manual"))
-        {
-            obj.manual_subscribers = true;
-        }
         match sig[i].kind {
             LBrace => depth += 1,
             RBrace => {
@@ -353,6 +337,15 @@ fn scan_object(src: &str, sig: &[Tok], at: usize, out: &mut FileScan) -> usize {
     if obj.kind == "report" {
         obj.layouts = scan_layouts(src, &sig[end..i.min(sig.len())]);
     }
+    // The two flags read the property scan, so they follow its rules: an object-body property, its value as the
+    // property reader gives it (al-runner issue 7625).
+    let declares = |name: &str, value: &str| {
+        obj.properties
+            .iter()
+            .any(|(k, v)| k.eq_ignore_ascii_case(name) && v.eq_ignore_ascii_case(value))
+    };
+    obj.install = declares("Subtype", "Install");
+    obj.manual_subscribers = declares("EventSubscriberInstance", "Manual");
     out.objects.push(obj);
     i.max(at + 1)
 }
@@ -428,7 +421,7 @@ fn scan_layouts(src: &str, body: &[Tok]) -> Vec<ScannedLayout> {
     out
 }
 
-/// `[EventSubscriber(ObjectType::K, K::Name, 'Event', ...)]` at `sig[at]`.
+/// `[EventSubscriber(ObjectType::K, K::Name, 'Event', ...)]` at `sig[at]`; the publisher may also be a bare id (`2000000007`).
 fn subscriber(sig: &[Tok], at: usize) -> Option<ScannedSubscriber> {
     let t = |i: usize| sig.get(at + i);
     if !t(1)?.is_kw("EventSubscriber") || t(2)?.kind != LParen {
@@ -442,12 +435,12 @@ fn subscriber(sig: &[Tok], at: usize) -> Option<ScannedSubscriber> {
     if t(6)?.kind != Comma {
         return None;
     }
-    // Kind :: name-or-id ,
-    t(7)?;
-    if t(8)?.kind != ColonColon {
+    // Kind :: name-or-id , or a bare id , (al-runner issue 8466)
+    let bare_id = t(7)?.kind == Integer && t(8)?.kind == Comma;
+    if !bare_id && t(8)?.kind != ColonColon {
         return None;
     }
-    let mut i = 9;
+    let mut i = if bare_id { 7 } else { 9 };
     let mut publisher = Vec::new();
     while let Some(n) = t(i) {
         match n.kind {
@@ -508,6 +501,29 @@ mod tests {
             ("codeunit", Some(80), "Sales-Post")
         );
         assert!(f.objects[0].offset < f.objects[1].offset);
+    }
+
+    /// A publisher written as a bare id (`EventSubscriber(ObjectType::Codeunit, 2000000007, ...)`) is scanned as one part, as
+    /// `Codeunit::2000000007` is (al-runner issue 8466).
+    #[test]
+    fn a_subscriber_whose_publisher_is_a_bare_id_is_scanned() {
+        let f = s("codeunit 50 S {\n\
+                   [EventSubscriber(ObjectType::Codeunit, 2000000007, 'MakeDateFilter', '', false, false)]\n\
+                   local procedure H(var DateFilterText: Text) begin end;\n\
+                   [EventSubscriber(ObjectType::Table, 18, OnAfterInsertEvent, '', false, false)]\n\
+                   local procedure I() begin end; }");
+        let got: Vec<(&str, Vec<String>, &str)> = f.objects[0]
+            .subscribers
+            .iter()
+            .map(|s| (s.publisher_kind.as_str(), s.publisher.clone(), s.event.as_str()))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("codeunit", vec!["2000000007".to_string()], "MakeDateFilter"),
+                ("table", vec!["18".to_string()], "OnAfterInsertEvent"),
+            ]
+        );
     }
 
     #[test]
@@ -589,6 +605,20 @@ mod tests {
                    codeunit 52 N { procedure P() begin end; }");
         let manual: Vec<bool> = f.objects.iter().map(|o| o.manual_subscribers).collect();
         assert_eq!(manual, [true, false, false]);
+    }
+
+    /// al-runner issue 7625: the two flags follow the property scan. A quoted value is the identifier, as the property
+    /// reader gives it; a `Subtype = Install` comparison inside a routine is code, not the property.
+    #[test]
+    fn install_and_manual_subscribers_follow_the_property_scan() {
+        let f = s(
+            "codeunit 60 Q { Subtype = \"Install\"; EventSubscriberInstance = \"Manual\"; }\
+                   codeunit 61 P { Subtype = Install; EventSubscriberInstance = Manual; }\
+                   codeunit 62 C { procedure P() var Subtype: Integer; Install: Integer; begin if Subtype = Install then; end; }\
+                   codeunit 63 N { Subtype = Normal; }",
+        );
+        let flags: Vec<(bool, bool)> = f.objects.iter().map(|o| (o.install, o.manual_subscribers)).collect();
+        assert_eq!(flags, [(true, true), (true, true), (false, false), (false, false)]);
     }
 
     #[test]

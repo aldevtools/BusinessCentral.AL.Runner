@@ -91,8 +91,7 @@ impl Session {
                 let touched = self.row_touched(t, &company, pk);
                 let contact = touched
                     || self.tx.rolled_back
-                    || self.tx.lock_tx
-                    || self.tx.lock_unpinned.is_some()
+                    || self.tx.open.locks.any()
                     || self.store_for(rec)?.written_since_commit(cx, t);
                 self.stale_lock_only_verdict(t, &company, pk, o.commits, touched, contact)
             }
@@ -128,12 +127,15 @@ impl Session {
     /// Whether the open transaction holds a lock of a locking ReadIsolation read.
     pub(crate) fn locking_read_in_tx(&self) -> bool {
         let tx = &self.tx;
-        tx.isolation_lock || tx.lock_unpinned == Some(UNPINNED_LOCKING_READ) || !tx.isolation_lock_tables.is_empty()
+        tx.open.locks.isolation_lock
+            || tx.open.locks.lock_unpinned == Some(crate::state::UnpinnedLock::LockingRead)
+            || !tx.open.locks.isolation_lock_tables.is_empty()
     }
 
     /// Whether the open transaction modified the row `pk` of `t` through any Record variable or read it by Get under LockTable.
     fn row_touched(&self, t: &TableDef, company: &Option<String>, pk: &[Value]) -> bool {
         self.tx
+            .open
             .rows_touched
             .iter()
             .any(|(o, c, k)| *o == t.object && c == company && same_key(k, pk))
@@ -160,9 +162,13 @@ impl Session {
         // Locks: LockTable (`locked_tables`) and a locking ReadIsolation read are measured; a RecordRef lock and the other locks
         // the runtime marks as not pinned are not.
         let read_lock = self.locking_read_in_tx();
-        let other_lock = tx.recref_lock_tx
-            || tx.lock_unpinned.is_some_and(|w| w != UNPINNED_LOCKING_READ)
-            || (tx.lock_tx && tx.locked_tables.is_empty() && !read_lock);
+        let other_lock = tx.open.locks.recref_lock_tx
+            || tx
+                .open
+                .locks
+                .lock_unpinned
+                .is_some_and(|w| w != crate::state::UnpinnedLock::LockingRead)
+            || (tx.open.locks.lock_tx && tx.open.locked_tables.is_empty() && !read_lock);
         if other_lock {
             return Err("after a lock other than LockTable or a ReadIsolation read in the open transaction");
         }
@@ -170,6 +176,8 @@ impl Session {
             return Self::after_rollback(tx, (t, company, pk), row_touched, read_lock, write);
         }
         let read_lock_on_table = tx
+            .open
+            .locks
             .isolation_lock_tables
             .iter()
             .any(|(ob, c)| *ob == t.object && c == company);
@@ -193,7 +201,7 @@ impl Session {
         }
         // Rule step 4 (StaleRuleMatrix.al TableContact_*, BulkSameTable_*, RowReadUnderLock lf_2c; SbStaleOwnModify.al TE_*,
         // TH_*, Y2_*; Y76StaleBuffers.al Y76_Part2_*; Y89StaleFind.al Y89_Part2_*).
-        if tx.locked_tables.contains(&t.object) || table_written {
+        if tx.open.locked_tables.contains(&t.object) || table_written {
             return Ok(Contact::Table);
         }
         // Rule step 5: writes and LockTable of other tables only, reads, nothing (StaleRuleMatrix.al NoContact_*,
@@ -207,7 +215,9 @@ impl Session {
     /// issue 6287). The lock then comes from ReadIsolation alone (no LockTable), on other tables only (the caller checks that).
     fn read_of_others_only(&self, t: &TableDef, o: RowOrigin) -> bool {
         let tx = &self.tx;
-        o.commits + 4 == self.commits && tx.locked_tables.is_empty() && tx.writes.iter().all(|w| w.table != t.object)
+        o.commits + 4 == self.commits
+            && tx.open.locked_tables.is_empty()
+            && tx.open.writes.iter().all(|w| w.table != t.object)
     }
 
     /// Whether the open transaction wrote another row of `t` by a write the rule knows. `Err` for a write it does not know: one
@@ -218,7 +228,7 @@ impl Session {
         if !self.stale_writes_noted() {
             return Err("after a write of the open transaction the runtime does not track");
         }
-        let writes = &self.tx.writes;
+        let writes = &self.tx.open.writes;
         let of_table = |w: &TxWrite| w.table == t.object && w.company == *company;
         let mut table_written = false;
         for (i, w) in writes.iter().enumerate() {
@@ -254,11 +264,11 @@ impl Session {
         Ok(table_written)
     }
 
-    /// Whether every write to the database store since the last Commit or rollback is in `tx.writes`, a DeleteAll the store did in
+    /// Whether every write to the database store since the last Commit or rollback is in `tx.open.writes`, a DeleteAll the store did in
     /// one step counting as its own note (`TxWrite::bulk`).
     fn stale_writes_noted(&self) -> bool {
         let mut at = self.tx.commit_counter;
-        for w in &self.tx.writes {
+        for w in &self.tx.open.writes {
             if w.before != at {
                 return false;
             }
@@ -293,12 +303,12 @@ impl Session {
         if let Some(why) = tx.rollback_unpinned {
             return Err(why);
         }
-        let no_lock = !tx.lock_tx && tx.locked_tables.is_empty() && !read_lock;
-        let reads = &tx.reads_after_rollback;
+        let no_lock = !tx.open.locks.lock_tx && tx.open.locked_tables.is_empty() && !read_lock;
+        let reads = &tx.open.reads_after_rollback;
         let row_got_only = reads
             .iter()
             .all(|(o, c, k)| *o == t.object && c == company && k.as_deref().is_some_and(|k| same_key(k, pk)));
-        let nothing_written = no_lock && tx.writes.is_empty() && tx.rows_touched.is_empty();
+        let nothing_written = no_lock && tx.open.writes.is_empty() && tx.open.rows_touched.is_empty();
         let plain_modify = write == StaleWrite::Modify { run_trigger: false };
         match tx.rollback_kind {
             Some(TrappedRollback::AssertError) if nothing_written && reads.is_empty() => return Ok(Contact::Nothing),
@@ -308,7 +318,7 @@ impl Session {
                 return Ok(Contact::Nothing);
             }
             Some(TrappedRollback::AssertError) => {
-                let row_modified_only = tx.writes.iter().all(|w| {
+                let row_modified_only = tx.open.writes.iter().all(|w| {
                     w.kind == TxWriteKind::Modify && w.table == t.object && w.company == *company && same_key(&w.pk, pk)
                 });
                 if no_lock && row_touched && row_modified_only && row_got_only {
@@ -324,7 +334,8 @@ impl Session {
     /// is an `asserterror` or a failed `if Codeunit.Run` of an `Error` statement (`trapped_error_rollback`) and the transaction held no lock.
     pub(crate) fn note_rollback_for_stale_rule(&mut self) {
         let tx = &mut self.tx;
-        let held_lock = tx.lock_tx || !tx.locked_tables.is_empty() || tx.lock_unpinned.is_some();
+        let held_lock =
+            tx.open.locks.lock_tx || !tx.open.locked_tables.is_empty() || tx.open.locks.lock_unpinned.is_some();
         let why = if held_lock {
             "after a rollback of a transaction that held a lock"
         } else {
@@ -348,8 +359,10 @@ impl Session {
     ) -> Result<(), Signal> {
         use al_builtins::native::ExceptionKind;
         let before = self.tx.rollback_unpinned;
-        let held_lock = self.tx.lock_tx || !self.tx.locked_tables.is_empty() || self.tx.lock_unpinned.is_some();
-        let undid_write = !self.tx.writes.is_empty() || self.store.change_counter() != self.tx.commit_counter;
+        let held_lock = self.tx.open.locks.lock_tx
+            || !self.tx.open.locked_tables.is_empty()
+            || self.tx.open.locks.lock_unpinned.is_some();
+        let undid_write = !self.tx.open.writes.is_empty() || self.store.change_counter() != self.tx.commit_counter;
         let earlier = self.tx.rollback_kind;
         self.rollback_in_run()?;
         if before.is_some() || held_lock || e.exception != ExceptionKind::Dialog {
@@ -390,7 +403,7 @@ impl Session {
             let r = rec.borrow();
             (r.table, r.company.clone())
         };
-        self.tx.reads_after_rollback.push((table, company, key));
+        self.tx.open.reads_after_rollback.push((table, company, key));
     }
 
     /// Whether the open transaction's only writes are Modifies of the row `pk` of `t`, with no rollback and no lock of any kind
@@ -398,8 +411,8 @@ impl Session {
     pub(super) fn stale_row_modified_only(&self, t: &TableDef, company: &Option<String>, pk: &[Value]) -> bool {
         let tx = &self.tx;
         self.no_lock_no_rollback()
-            && !tx.writes.is_empty()
-            && tx.writes.iter().all(|w| {
+            && !tx.open.writes.is_empty()
+            && tx.open.writes.iter().all(|w| {
                 w.kind == TxWriteKind::Modify && w.table == t.object && w.company == *company && same_key(&w.pk, pk)
             })
     }
@@ -410,8 +423,8 @@ impl Session {
     pub(super) fn stale_after_other_deletes_only(&self, t: &TableDef, company: &Option<String>, pk: &[Value]) -> bool {
         let tx = &self.tx;
         self.no_lock_no_rollback()
-            && !tx.writes.is_empty()
-            && tx.writes.iter().all(|w| {
+            && !tx.open.writes.is_empty()
+            && tx.open.writes.iter().all(|w| {
                 w.kind == TxWriteKind::Delete && w.table == t.object && w.company == *company && !same_key(&w.pk, pk)
             })
     }
@@ -420,10 +433,10 @@ impl Session {
     fn no_lock_no_rollback(&self) -> bool {
         let tx = &self.tx;
         !tx.rolled_back
-            && !tx.lock_tx
-            && tx.lock_unpinned.is_none()
-            && !tx.isolation_lock
-            && tx.locked_tables.is_empty()
+            && !tx.open.locks.lock_tx
+            && tx.open.locks.lock_unpinned.is_none()
+            && !tx.open.locks.isolation_lock
+            && tx.open.locked_tables.is_empty()
             && self.writes_all_noted()
     }
 }

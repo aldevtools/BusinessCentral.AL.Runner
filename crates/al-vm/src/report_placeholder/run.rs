@@ -99,7 +99,12 @@ impl Session {
         RUN_EVENTS.iter().find_map(|e| {
             self.engine
                 .events
-                .unraised_subscriber("reporting triggers", Some(e), test, self.test_object)
+                .unraised_subscriber(
+                    &crate::events::unraised_key(al_ir::REPORTING_CODEUNIT),
+                    Some(e),
+                    test,
+                    self.test_object,
+                )
                 .map(|(_, sub)| format!("a subscriber to {e} ({sub})"))
         })
     }
