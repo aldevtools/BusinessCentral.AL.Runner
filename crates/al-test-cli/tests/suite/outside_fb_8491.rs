@@ -1,4 +1,4 @@
-//! The corpus probe of al-runner issue 8491 (corpus pull request 1459, open: tests/al-language/pages/background-tasks/
+//! The corpus probe of al-runner issue 8491 (corpus pull request 1459, merged, not pinned yet: tests/al-language/pages/background-tasks/
 //! BgTaskInsertQueue.al, measured on BC 29.1, 16 of 16 green) and the reporter's repro, run here until a bump pins the probe: a
 //! page background task's worker does not see the rows the test session's insert queue holds (`al-vm`
 //! records/insert_buffer.rs, `hide_queued_from_worker`). Delete this file and the fixtures when the pin is in the corpus.
