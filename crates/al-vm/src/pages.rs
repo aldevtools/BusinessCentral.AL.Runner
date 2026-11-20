@@ -206,6 +206,7 @@ mod action_enabled_row;
 mod areas;
 mod auto_format_writer_cell;
 mod background;
+mod builtin_mode_action;
 mod end_move_no_read;
 mod flowfield_hidden;
 pub(crate) use background::BgWorker;
