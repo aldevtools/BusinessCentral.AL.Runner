@@ -693,13 +693,13 @@ impl Session {
             if let Some(seen) = step_save_xrec {
                 self.set_xrec_fields(st, seen);
             }
-            self.save_record_now(st)?;
+            self.save_record_now(st, method)?;
             let stored = self.page_rec(st).borrow().fields.clone();
             self.set_xrec_fields(st, xrec);
             self.validate_step_saved(st, &stored);
             st.borrow_mut().xrec_after_validate = Some(stored);
         } else {
-            self.save_record_now(st)?;
+            self.save_record_now(st, method)?;
         }
         // What `CurrPage.Update(true)` saved (al-vm pages/leave_new_line.rs, testpage/NewRowThenMove.al:73).
         st.borrow_mut().saved_by_update = method != PageOp::PageSaveRecord;
@@ -1389,13 +1389,18 @@ impl Session {
     }
 
     /// CurrPage.SaveRecord / Update(true): write the page's row now.
-    fn save_record_now(&mut self, st: &St) -> Result<(), Signal> {
+    fn save_record_now(&mut self, st: &St, method: PageOp) -> Result<(), Signal> {
         {
             // Page code changed Rec: SaveRecord writes it whether or not the client typed anything
             // (corpus testpage/TestPageTriggerEvents.al, ModifyRecordEvent_PageDrivenSave_*).
             // Page code that inserted the new row itself and copied it into Rec hands the page
             // that row (corpus testpage/TestPageOpenNewAfterGetCurrRecord.al:44-63).
-            if self.save_found_row_from_new_line(st)? {
+            let call = if method == PageOp::PageSaveRecord {
+                super::refresh_new_line::FoundRowSave::SaveRecord
+            } else {
+                super::refresh_new_line::FoundRowSave::UpdateTrue
+            };
+            if self.save_found_row_from_new_line(st, call)? {
                 return Ok(());
             }
             if st.borrow().draft && !st.borrow().draft_stored && {

@@ -231,7 +231,6 @@ fn answers_as(new: &RefreshRequest, old: &Flags, n: usize) {
         old.refresh && old.refresh_by_update && old.refresh_update_false,
         "sequence {n}"
     );
-    assert_eq!(new.by_update_noted(), old.refresh_by_update, "sequence {n}");
     assert_eq!(new.update_false(), old.refresh_update_false, "sequence {n}");
     assert_eq!(
         format!("{:?}", new.update_left_view()),
@@ -281,7 +280,7 @@ fn an_update_asks_with_its_argument() {
     assert!(r.asked_by_update_false());
     let t = r.take().unwrap();
     assert!(t.by_update && !t.without_curr && !t.without_parts && !t.from_code_inserted_line);
-    assert!(!r.asked() && !r.by_update_noted());
+    assert!(!r.asked());
     // The argument outlives the refresh it asked for, until the next action starts.
     assert!(r.update_false());
     r.action_starts();

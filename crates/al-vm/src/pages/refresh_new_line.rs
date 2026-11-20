@@ -1,8 +1,28 @@
 //! Where the refresh after a control's OnValidate changed the filters starts (`refresh_after_validate_filter`), including from
 //! the new-row line (gap G5-20).
 
+use super::pinned_shape::TestCall;
 use super::*;
 use al_builtins::record_op::RecordOp;
+
+/// The page call that saves the row page code moved Rec onto from the new-row line (`save_found_row_from_new_line`).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum FoundRowSave {
+    /// `CurrPage.Update(true)` or `CurrPage.Update()`: pinned.
+    UpdateTrue,
+    /// `CurrPage.SaveRecord()`: assumed in the measured cells only (`saverecord_found_row_cell`).
+    SaveRecord,
+}
+
+/// The page triggers every page of the SaveRecord cells declares (StaleUpdateNewLine.al, pages 73682 and 73683).
+const FOUND_ROW_TRIGGERS: [&str; 6] = [
+    "onopenpage",
+    "onaftergetrecord",
+    "onaftergetcurrrecord",
+    "onnewrecord",
+    "onmodifyrecord",
+    "oninsertrecord",
+];
 
 impl Session {
     /// `Some(true)` on a stored row, `Some(false)` on no row (`Cursor::None`), `None` for a start that is not pinned.
@@ -154,19 +174,25 @@ impl Session {
     /// `CurrPage.Update(true)` in a control's OnValidate, on the untouched new-row line, after page code moved Rec onto a stored
     /// row (the batch switch with Find('-')): the page leaves the line and modifies that row, OnModifyRecord and the table's
     /// OnModify running inside the OnValidate (Y50UpdateFromNewLine.al:610 G520_FromNewLine_ToBatchWithRows_UpdateTrue
-    /// `V:start 0;M:B2/10000;L.OnModify:B2/10000;V:done 10000;...`). True when it did.
-    pub(super) fn save_found_row_from_new_line(&mut self, st: &St) -> Result<bool, Signal> {
+    /// `V:start 0;M:B2/10000;L.OnModify:B2/10000;V:done 10000;...`). `CurrPage.SaveRecord()` in the same place saves the row
+    /// too, then the page refreshes as after Update(true): assumption `new-line-saverecord-found-row` (corpus pull request 1470,
+    /// pages/failed-update/StaleUpdateNewLine.al:498, :914, :1242, :1318), only in `saverecord_found_row_cell`; another
+    /// SaveRecord in this place is refused. True when it saved.
+    pub(super) fn save_found_row_from_new_line(&mut self, st: &St, call: FoundRowSave) -> Result<bool, Signal> {
         let shape = {
             let s = st.borrow();
-            s.cursor == Cursor::NewLine
-                && s.placeholder_line
-                && !s.dirty
-                && s.host.is_none()
-                && s.refresh.by_update_noted()
-                && !s.refresh.update_false()
+            s.cursor == Cursor::NewLine && s.placeholder_line && !s.dirty && s.host.is_none()
         };
         if !shape || self.stored_row(&self.page_rec(st))?.is_none() {
             return Ok(false);
+        }
+        if call == FoundRowSave::SaveRecord {
+            if !self.saverecord_found_row_cell(st) {
+                return unsupported(
+                    "CurrPage.SaveRecord() on the new-row line after page code moved Rec onto a stored row, outside the measured cells (whether the row is modified is not pinned)",
+                );
+            }
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::NewLineSaveRecordFoundRow);
         }
         {
             let mut s = st.borrow_mut();
@@ -178,6 +204,53 @@ impl Session {
         // The row is written even though it holds what is stored (the buffer before it was the blank new line).
         self.save_row(st)?;
         self.set_xrec(st);
+        if call == FoundRowSave::SaveRecord {
+            // The refresh of the cells is the one Update(true) asks for (StaleUpdateNewLine.al:498 and :602 log the same reads).
+            st.borrow_mut().refresh.ask_by_update(true);
+        }
         Ok(true)
+    }
+
+    /// The cells of StaleUpdateNewLine.al that measure `CurrPage.SaveRecord()` here: a page the test opened with OpenEdit, of
+    /// PageType Worksheet (page 73682, :498, :914, :1318) or List (page 73683, :1242), over a database table, declaring only
+    /// PageType, SourceTable, AutoSplitKey and DelayedInsert (both true), ApplicationArea and UsageCategory, exactly the triggers
+    /// of `FOUND_ROW_TRIGGERS`, no part, no page extension and no event subscriber; inside the OnValidate of a control bound to a
+    /// page variable, and the test's calls since the open are value reads and that SetValue, none of them failed (a failed
+    /// earlier step changes the refresh: :514-580, not run here).
+    fn saverecord_found_row_cell(&self, st: &St) -> bool {
+        let engine = self.engine();
+        let object = st.borrow().object as usize;
+        let page = page_of(&engine, st);
+        let properties = &engine.program.objects[object].properties;
+        let has_true = |name: &str| {
+            properties.iter().any(|(n, v)| n.eq_ignore_ascii_case(name) && v.trim().eq_ignore_ascii_case("true"))
+        };
+        let measured_property = |(name, value): &(String, String)| match name.to_ascii_lowercase().as_str() {
+            "autosplitkey" | "delayedinsert" => value.trim().eq_ignore_ascii_case("true"),
+            "pagetype" | "sourcetable" | "applicationarea" | "usagecategory" => true,
+            _ => false,
+        };
+        let names: Vec<&str> = page.triggers.iter().map(|(n, _)| n.as_str()).collect();
+        let page_ok = matches!(
+            engine.object_facts[object].page_type,
+            Some(al_ir::PageType::Worksheet | al_ir::PageType::List)
+        ) && properties.iter().all(measured_property)
+            && has_true("AutoSplitKey")
+            && has_true("DelayedInsert")
+            && names.len() == FOUND_ROW_TRIGGERS.len()
+            && FOUND_ROW_TRIGGERS.iter().all(|t| names.contains(t))
+            && page.controls.iter().all(|c| c.kind != ir::ControlKind::Part)
+            && self.unextended_unsubscribed(st)
+            && self.has_source(st)
+            && !self.page_rec(st).borrow().temporary;
+        let state_ok = {
+            let s = st.borrow();
+            s.test_open_edit() && s.validating_control && s.parts.is_empty() && s.hidden_parts.is_empty()
+        };
+        let calls: Option<Vec<TestCall>> = Self::test_calls_all_succeeded(st)
+            .map(|calls| calls.into_iter().filter(|c| *c != TestCall::Read).collect());
+        let calls_ok = matches!(calls.as_deref(), Some([TestCall::Write(i)])
+            if matches!(page.controls[*i].binding, ir::Binding::Var(_)));
+        page_ok && state_ok && calls_ok
     }
 }
