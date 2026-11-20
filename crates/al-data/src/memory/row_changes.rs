@@ -127,7 +127,8 @@ impl MemStore {
 
     /// This store, with no change open, with `changes` put on top of its committed rows: each table of it replaced
     /// whole or changed row by row, the tables it names gone removed, and the tables a DeleteAll emptied as it has them.
-    /// The changed tables get new stamps, as a write gives them. `None` when a table to change row by row is not held.
+    /// The changed tables get new stamps, and the rows put their held columns noted (`note_held`), as a write gives
+    /// them. `None` when a table to change row by row is not held.
     pub fn with_committed_row_changes(mut self, changes: RowChanges) -> Option<MemStore> {
         self.rollback();
         for (company, object) in &changes.gone {
@@ -147,6 +148,7 @@ impl MemStore {
                 table.remove(&Key::in_table(k, &t.pk_storage));
             }
             for (k, r) in t.put {
+                self.note_held_in(t.object, &r);
                 table.insert(Key::in_table(k, &t.pk_storage), r);
             }
             self.counter = super::next_stamp();

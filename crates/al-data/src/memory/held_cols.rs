@@ -306,8 +306,14 @@ impl MemStore {
     /// Writes down the columns of `row` that hold a value no read may compare (see `unknown_cols`, [`unread`]), a text outside ASCII (see
     /// `accent_cols`), and one with `Æ` or `æ` (see `ae_cols`).
     pub(super) fn note_held(&mut self, t: &TableDef, row: &Row) {
+        self.note_held_in(t.object, row);
+    }
+
+    /// [`MemStore::note_held`] for a row of the table with object index `object`: for rows put in without a
+    /// `TableDef` (`MemStore::with_committed_row_changes`).
+    pub(super) fn note_held_in(&mut self, object: u32, row: &Row) {
         let note = |map: &mut std::collections::HashMap<u32, Vec<usize>>, i: usize| {
-            let held = map.entry(t.object).or_default();
+            let held = map.entry(object).or_default();
             if !held.contains(&i) {
                 held.push(i);
             }
