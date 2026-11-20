@@ -287,6 +287,10 @@ pub struct EntryRun {
     /// The time limit of this entry's tests (al-runner issue 8125): `None`: `RunOptions::test_time_limit`;
     /// `Some(None)`: no limit.
     pub test_time_limit: Option<Option<std::time::Duration>>,
+    /// With `RunOptions::stop_after_first_failure` (PERF-18), a failure stops only the later entries with the same
+    /// `stop_group`; `None` is one group, so with no group anywhere a failure stops every later entry (al-runner issue
+    /// 8210). The serve protocol refuses a mix of entries with and without a group.
+    pub stop_group: Option<String>,
 }
 
 /// One pass of `CorpusRuntime::run_compiled` (an entry, or the whole run), in program order.
@@ -297,6 +301,9 @@ pub(crate) struct Pass {
     pub(crate) resources: al_vm::ResourceOverrides,
     /// The time limit of the pass's tests (`RunOptions::test_time_limit`, or the entry's own).
     pub(crate) limit: Option<std::time::Duration>,
+    /// The scope of `RunOptions::stop_after_first_failure` for this pass (`pass_stopped` compares scopes by equality, so
+    /// the entries without a group share one); `None`: the stop is off.
+    pub(crate) stop: Option<super::run::StopAfterFailure>,
 }
 
 impl Pass {
@@ -320,8 +327,16 @@ impl Pass {
                 hooks: memory.hooks(&opts.hooks),
                 resources: Default::default(),
                 limit: opts.test_time_limit,
+                stop: opts
+                    .stop_after_first_failure
+                    .then_some(super::run::StopAfterFailure::Request),
             }];
         }
+        let stop = |e: &EntryRun| match &e.stop_group {
+            _ if !opts.stop_after_first_failure => None,
+            None => Some(super::run::StopAfterFailure::Request),
+            Some(g) => Some(super::run::StopAfterFailure::Group(Arc::from(g.as_str()))),
+        };
         let resources = |e: &EntryRun| {
             e.resources
                 .iter()
@@ -339,6 +354,7 @@ impl Pass {
                 hooks: memory.hooks(&e.hooks),
                 resources: resources(e),
                 limit: e.test_time_limit.unwrap_or(opts.test_time_limit),
+                stop: stop(e),
             })
             .collect()
     }
