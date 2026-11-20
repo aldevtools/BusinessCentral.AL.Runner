@@ -10,13 +10,14 @@ use std::collections::BTreeSet;
 /// Everything the compile depends on but the selection and the text of the workspace files: the key of the workspace
 /// layer of the compile cache without the texts (`al_testrun::workspace_cache::warm_key`, one owner of the field list),
 /// over the dependency apps as `workspace_cache::dependency_digest` takes them. The resource files are not in it: they
-/// are run-time data, which each request hands to the program as they are then (issue 5635).
+/// are run-time data, which each request hands to the program as they are then (issue 5635). The options that change
+/// what the compile holds (`run_inputs.rs`) are part of the key.
 pub(crate) fn warm_key(
+    a: &TestArgs,
     inputs: &[AppInput],
     dependencies: &al_testrun::deps::Dependencies,
     symbols: &BTreeSet<String>,
     target: &al_version::Target,
-    compile_options: &str,
 ) -> String {
     use al_testrun::workspace_cache as wc;
     let json: Vec<String> = inputs.iter().map(app_json_text).collect();
@@ -26,6 +27,7 @@ pub(crate) fn warm_key(
         .map(|(i, j)| (&i.source, &i.manifest, j.as_str()))
         .collect();
     let deps = wc::dependency_digest(&dependencies.apps, &dependencies.lazy, &dependencies.summary);
+    let compile_options = &crate::run_inputs::RunInputs::of(a).compile_text();
     wc::warm_key(&apps, deps, symbols, &format!("{target:?}"), compile_options)
 }
 

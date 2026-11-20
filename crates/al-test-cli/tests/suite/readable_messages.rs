@@ -296,6 +296,11 @@ const KEPT: &[(&str, &str, &str)] = &[
     ),
     (
         "al-sema/src/lower/stored.rs",
+        r#"let _ = writeln!(out, "  unresolved_calls {:?}", unresolved_calls.get(o));"#,
+        "a line of the canonical dump of a compile (the workspace layer's equality oracle), compared, never shown",
+    ),
+    (
+        "al-sema/src/lower/stored.rs",
         r#"let _ = writeln!(out, "  calls {:?}", calls.of(o));"#,
         "a line of the canonical dump of a compile (the workspace layer's equality oracle), compared, never shown",
     ),

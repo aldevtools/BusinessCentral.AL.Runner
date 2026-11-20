@@ -561,20 +561,7 @@ impl CorpusRuntime {
         };
         let suites = &suites_in[..];
         let manifests = &manifests[..];
-        // A dependency app is compiled with the symbols of its own app.json, the project's apps with the
-        // project's (hard rule 6: a project that defines CLEAN25 does not change Base Application).
-        let dep_symbols: Vec<Option<BTreeSet<String>>> = kinds
-            .iter()
-            .enumerate()
-            .map(|(i, k)| {
-                (*k == al_sema::AppKind::Dependency).then(|| {
-                    manifests
-                        .get(i)
-                        .map(|m| m.symbols.iter().cloned().collect())
-                        .unwrap_or_default()
-                })
-            })
-            .collect();
+        let dep_symbols = dependency_symbols(&kinds, manifests);
         let load_ws =
             |apps, kinds, lazy| internals_grant::load_workspace(apps, kinds, symbols, &dep_symbols, lazy, manifests);
         // The apps whose files hold no text yet, in program order.
@@ -1039,15 +1026,10 @@ impl CorpusRuntime {
         if opts.stop_on_compile_errors && !compile_errors.is_empty() {
             // A debugger answers its client's `launch` with the first error; no test runs. A parse error has no AL code.
             if let (Some(ready), Some(e)) = (&opts.debug_ready, compile_errors.first()) {
-                let code = if e.code.is_empty() {
-                    String::new()
-                } else {
-                    format!("{} ", e.code)
-                };
                 (ready.0)(&DebugReady {
                     program: &lowered.program,
                     order,
-                    first_error: Some(format!("error {code}{}:{}:{}: {}", e.file, e.line, e.column, e.message)),
+                    first_error: Some(first_error_line(e)),
                 });
             }
             return CorpusRuntime {
@@ -2592,4 +2574,32 @@ fn in_program_order(order: &[usize], v: &[(usize, u32)]) -> Vec<(usize, u32)> {
         new_of[old] = new;
     }
     v.iter().map(|&(a, id)| (new_of[a], id)).collect()
+}
+
+/// Per app of the program, the symbols it is compiled with: a dependency app's are those of its own app.json, the
+/// project's apps take the project's (`None`; hard rule 6: a project that defines CLEAN25 does not change Base
+/// Application).
+fn dependency_symbols(kinds: &[al_sema::AppKind], manifests: &[Manifest]) -> Vec<Option<BTreeSet<String>>> {
+    kinds
+        .iter()
+        .enumerate()
+        .map(|(i, k)| {
+            (*k == al_sema::AppKind::Dependency).then(|| {
+                manifests
+                    .get(i)
+                    .map(|m| m.symbols.iter().cloned().collect())
+                    .unwrap_or_default()
+            })
+        })
+        .collect()
+}
+
+/// The first compile error as a debugger's client is told it (`DebugReady::first_error`); a parse error has no code.
+fn first_error_line(e: &super::CompileError) -> String {
+    let code = if e.code.is_empty() {
+        String::new()
+    } else {
+        format!("{} ", e.code)
+    };
+    format!("error {code}{}:{}:{}: {}", e.file, e.line, e.column, e.message)
 }

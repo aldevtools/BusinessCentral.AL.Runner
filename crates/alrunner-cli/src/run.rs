@@ -1726,10 +1726,7 @@ fn test_inner(
             }
         }
         Some(w) => {
-            // The options that change what the compile holds (`run_inputs.rs`) are part of the key.
-            let compile_options = crate::run_inputs::RunInputs::of(a).compile_text();
-            let key =
-                crate::workspace_layer::warm_key(&inputs, &dependencies, &symbols, &chosen.target, &compile_options);
+            let key = crate::workspace_layer::warm_key(a, &inputs, &dependencies, &symbols, &chosen.target);
             let files: Vec<al_testrun::runtime::FileChange> = inputs
                 .iter()
                 .enumerate()
