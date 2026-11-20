@@ -199,7 +199,11 @@ fn a_task_whose_creation_was_committed_still_exists() {
 
 #[test]
 fn an_unknown_codeunit_raises_the_missing_object_error() {
-    let m = al_testkit::error_message(al_testkit::run_in(SRC, "TS Probe", "UnknownCodeunit"));
+    // The number of the text is the emit version of the run's build (al-vm `emit_version`), here one the test names.
+    let mut b = al_testkit::Built::with(al_testkit::compile(SRC), |e| {
+        e.emit_version = al_vm::emit_version::EmitVersion::known(29022)
+    });
+    let m = al_testkit::error_message(b.run_in("TS Probe", "UnknownCodeunit"));
     assert!(
         m.starts_with("You tried to invoke the CodeUnit object with the ID 99999999 from the object"),
         "{m}"

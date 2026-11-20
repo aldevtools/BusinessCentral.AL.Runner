@@ -175,6 +175,7 @@ impl Session {
                     self.filter_changed(st, true)?;
                     return Ok(Value::Null);
                 }
+                self.relation_field_no_page_filter(&rec, pos, self.field_page_open(st))?;
                 let expr = self
                     .parse_filter_text(&text, &ty)
                     .map_err(|e| Signal::unsupported(format!("TestFilter.SetFilter: {e}")))?;

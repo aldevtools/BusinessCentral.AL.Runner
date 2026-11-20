@@ -28,8 +28,6 @@ pub struct InstallLeft {
     /// `EventState::caption_context_revision`: moved by a GlobalLanguage change and a binding; compared only with the value a
     /// page noted when it opened, so it is carried as it is.
     caption_context_revision: u64,
-    /// The language the Event Subscription and Report Layout lists follow (`EventStats::language`, 0 for 1033 until set).
-    stats_language: i32,
     /// How many events each subscriber handled (`EventStats::calls`, counted at dispatch.rs:322). Its one reader is the
     /// Event Subscription row's "Number of Calls" and the active-instances column next to it (platform/mod.rs:358
     /// `with_event_stats`); nothing clears it, so a session in which the install code ran reads these counts.
@@ -228,6 +226,8 @@ impl Session {
             host: _,
             // Made from the host's identity, the same in every session of the run.
             companies: _,
+            // Made from the shared test-data provider, the same in every session of the run.
+            backed_companies: _,
             // Carried: the Baseline.
             company_unknown: _,
             full_copies: _,
@@ -260,6 +260,7 @@ impl Session {
             find_load: _,
             find_through_recordref: _,
             through_recordref: _,
+            relation_field_no_refs: _,
             tx: _,
             ui_state: _,
             pages: _,
@@ -272,7 +273,7 @@ impl Session {
         }
         Some(InstallLeft {
             carried: crate::CarriedState {
-                language: self.global_language,
+                language: self.global_language(),
                 work_date: self.work_date,
             },
             clock_ms: self.waited_ms,
@@ -282,7 +283,6 @@ impl Session {
             transaction_type: self.tx.transaction_type,
             sql: self.sql.left_inactive()?,
             caption_context_revision: self.events.caption_context_revision,
-            stats_language: self.events.event_stats.language.get(),
             subscriber_calls: self.events.event_stats.calls.borrow().clone(),
         })
     }
@@ -452,6 +452,7 @@ impl Session {
             failed_sql_rename,
             insert_from_al,
             rename_from_al,
+            get_from_al,
             write_of_al,
             deferred_by,
             deferred_raised,
@@ -476,6 +477,7 @@ impl Session {
             && failed_sql_rename.is_none()
             && !insert_from_al
             && !rename_from_al
+            && !get_from_al
             && write_of_al.is_none()
             && deferred_by.is_none()
             && *deferred_raised == 0
@@ -504,7 +506,6 @@ impl Session {
         self.tx.commit_counter = self.store.change_counter();
         self.sql.restore_left(&left.sql);
         self.events.caption_context_revision = left.caption_context_revision;
-        self.events.event_stats.language.set(left.stats_language);
         self.events
             .event_stats
             .calls

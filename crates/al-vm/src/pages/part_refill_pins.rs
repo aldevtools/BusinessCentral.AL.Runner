@@ -131,8 +131,8 @@ const TRIGGER_PART: &[&str] = &[
     "repeater Lines in - {}",
     "field Period Start in Lines = Period Start {applicationarea=All}",
     "field Allocated Qty. in Lines = Allocated Qty. {applicationarea=All; styleexpr=QtyStyle}",
-    "field QtyText in Lines = var QtyText {applicationarea=All; styleexpr=QtyStyle}",
-    "field Scope in Lines = var ScopeText {applicationarea=All}",
+    "field QtyText in Lines = var QtyText: Text {applicationarea=All; styleexpr=QtyStyle}",
+    "field Scope in Lines = var ScopeText: Text {applicationarea=All}",
     "trigger onopenpage: begin ScopeText := 'open'; end",
     "trigger onaftergetrecord: begin QtyText := ('agr' + Format(Rec.\"Allocated Qty.\", 0, 9)); QtyStyle := 'Standard'; \
      if (Rec.\"Allocated Qty.\" > 20) then begin QtyStyle := 'Unfavorable'; end; end",

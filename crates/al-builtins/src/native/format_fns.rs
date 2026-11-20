@@ -333,6 +333,7 @@ pub(super) fn format_1(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Val
                         "Format of a FieldRef with standard format {std} (only 1, 2 and 9 are pinned)"
                     )));
                 }
+                ctx.format_fieldref_read(&args[0])?;
                 let mut fr = args[0].clone();
                 let value = ctx.ref_op("FieldRef.Value#1", Some(&mut fr), &mut [])?;
                 let mut inner = [value, Value::Integer(len), Value::Integer(std)];
