@@ -1,7 +1,7 @@
 //! `CurrReport.Quit` in OnInitReport of the report reports/runtime/ReportQuitInOnInit.al:34-102 measures, for the ways to
 //! start it that a quit stopped only by refusing before (al-runner issue 7964 item 3; ReportQuitInOnInit.al:235-355):
-//! RunRequestPage on a variable and the static one answer '' and open no page, an Xml SaveAs to a stream answers false and
-//! writes nothing, and `UseRequestPage(false)` as the first use of a variable quits so that its next Run or RunModal runs
+//! RunRequestPage on a variable with no argument and the static one with the id alone or the id and '' answer '' and open
+//! no page, an Xml SaveAs to a stream answers false and writes nothing, and `UseRequestPage(false)` as the first use of a variable quits so that its next Run or RunModal runs
 //! nothing (a Clear gives the variable a new instance, which does not hold it). A Run, RunModal or Execute that runs
 //! OnInitReport itself already stopped there (`REPORT_RUN_1 | REPORT_RUNMODAL_1`, `REPORT_EXECUTE_1`, the static forms)
 //! and is not changed here.
@@ -138,10 +138,15 @@ impl Session {
         had
     }
 
-    /// RunRequestPage after a quit in OnInitReport (:235 variable, :245 static, :255 static with a parameters string): '' and no
-    /// page, for the measured report; any other refuses.
-    pub(super) fn request_page_after_quit(&mut self, schema: &Schema) -> Result<Value, Signal> {
-        if !self.quit_in_init_measured(schema) {
+    /// RunRequestPage after a quit in OnInitReport: '' and no page, for the measured report and the argument shapes the probe
+    /// measured (`request_page_args_measured`); any other refuses.
+    pub(super) fn request_page_after_quit(
+        &mut self,
+        schema: &Schema,
+        static_form: bool,
+        args: &[Value],
+    ) -> Result<Value, Signal> {
+        if !(request_page_args_measured(static_form, args) && self.quit_in_init_measured(schema)) {
             return unsupported("CurrReport.Quit in OnInitReport of a RunRequestPage (not pinned)");
         }
         Ok(Value::Text("".into()))
@@ -159,5 +164,16 @@ impl Session {
             return unsupported("CurrReport.Quit in OnInitReport of a SaveAs of a processing-only report (not pinned)");
         }
         Ok(Value::Boolean(false))
+    }
+}
+
+/// The RunRequestPage arguments the probe measured after a quit in OnInitReport: the variable form with no argument (:154, test
+/// :235), the static form with the report id alone (:156, test :245) and with the report id and the empty Text (:204, test
+/// :255). A parameters string that is not empty is not measured.
+fn request_page_args_measured(static_form: bool, args: &[Value]) -> bool {
+    match (static_form, args) {
+        (false, []) | (true, [_]) => true,
+        (true, [_, Value::Text(parameters)]) => parameters.is_empty(),
+        _ => false,
     }
 }

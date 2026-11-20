@@ -318,6 +318,32 @@ fn any_use_between_the_kept_quit_and_the_run_is_refused() {
     }
 }
 
+/// The probe's runner with RunRequestPage forms the probe does not measure: the variable form with a parameters string (20), the
+/// static form with an XML parameters string (21) and with a parameters string that is not XML (22). The probe measures the
+/// variable form with no argument (:154), the static form with the id alone (:156) and with the id and '' (:204).
+fn with_request_page_parameters() -> String {
+    SRC.replace(
+        "            13:\n",
+        "            20:\n                Result := Rep.RunRequestPage('<?xml version=\"1.0\" standalone=\"yes\"?><ReportParameters name=\"LT RqI Quit Proc\" id=\"71900\"><DataItems /></ReportParameters>');\n            21:\n                Result := Report.RunRequestPage(Report::\"LT RqI Quit Proc\", '<?xml version=\"1.0\" standalone=\"yes\"?><ReportParameters name=\"LT RqI Quit Proc\" id=\"71900\"><DataItems /></ReportParameters>');\n            22:\n                Result := Report.RunRequestPage(Report::\"LT RqI Quit Proc\", 'not xml');\n            13:\n",
+    )
+}
+
+#[test]
+fn request_page_after_the_quit_with_parameters_the_probe_does_not_measure_is_refused() {
+    let src = with_request_page_parameters();
+    assert!(src.contains("Rep.RunRequestPage('<?xml") && src.contains("'not xml')"));
+    let mut b = al_testkit::Built::from_source(&src);
+    let answered: Vec<(i32, String)> = [20, 21, 22]
+        .into_iter()
+        .map(|mode| (mode, form(&mut b, mode)))
+        .filter(|(_, r)| {
+            !(r.contains("Unsupported")
+                && r.contains("CurrReport.Quit in OnInitReport of a RunRequestPage (not pinned)"))
+        })
+        .collect();
+    assert!(answered.is_empty(), "not refused: {answered:?}");
+}
+
 #[test]
 fn clear_drops_the_kept_quit_and_the_next_run_is_a_first_run() {
     // Clear gives the variable a new instance (as for Execute, reports/request-page/ExecuteParamsTwiceAndViews.al:146-183),

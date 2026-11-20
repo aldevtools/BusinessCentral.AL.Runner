@@ -16,16 +16,14 @@ use al_builtins::native::unsupported;
 use al_builtins::ops;
 use al_builtins::record_op::RecordOp;
 use al_builtins::value::{Instance, Value};
+use al_ir as ir;
+use quit_in_init::InitQuit;
+use std::{cell::RefCell, rc::Rc, sync::Arc};
 
 /// The `Integer` table's number.
 const INTEGER_TABLE: u32 = 2_000_000_026;
-use al_ir as ir;
-use std::cell::RefCell;
-use std::rc::Rc;
-use std::sync::Arc;
 
 type Inst = Rc<RefCell<Instance>>;
-use quit_in_init::InitQuit;
 type Rec = Rc<RefCell<al_builtins::value::RecordState>>;
 
 /// What a report trigger asked for with `CurrReport.Skip`, `Break` or `Quit`.
@@ -703,51 +701,7 @@ impl Session {
             ids::REPORT_SAVEASHTML_2 => self.report_save_as_file(id, receiver, args, "Html", true),
             ids::REPORT_WORDXMLPART_1 | ids::REPORT_WORDXMLPART_2 => self.report_word_xml_part(id, receiver, args),
             ids::REPORT_RUNREQUESTPAGE_1 | ids::REPORT_RUNREQUESTPAGE_2 => {
-                let (inst, schema, seed, pinned_call) = if id == ids::REPORT_RUNREQUESTPAGE_1 {
-                    let (inst, quit) = self.report_instance(receiver, InitQuit::Stops)?;
-                    if quit {
-                        return self.request_page_after_quit(&self.report_schema(&inst)?);
-                    }
-                    // After a RunModal of the variable: the error, and no page opens
-                    // (reports/request-page/RptRequestPage.al:990-1009 UseRequestPageFalse_RunModalAndRunRequestPage).
-                    if self.report_run_modal_done_on(&inst) {
-                        return Err(running::already_run());
-                    }
-                    let schema = self.report_schema(&inst)?;
-                    (inst, schema, args.first(), false)
-                } else {
-                    // The static form raises SubstituteReport with RunMode ParametersOnly first, once, with an empty
-                    // RequestPageXml also when old parameters are given (events/platform-triggers/PeVTests.al:465, :660:
-                    // `SubstituteReport(69860,ParametersOnly,in=-1)`; reports/Y14ReportSubstitute.al:276, :447).
-                    // A subscriber that sets another report swaps it: that report's request page opens, its handler runs and
-                    // the parameters are that report's (Y14ReportSubstitute.al:225 platform event, :261 OnAfterSubstituteReport,
-                    // :447 with old parameters; corpus master).
-                    let number = self.substitute_static(args.first(), 1, "")?;
-                    // SetupPrinters follows, once, with an empty Printers (events/platform-triggers/PeVTests.al:450
-                    // RunRequestPage_RaisedEvents `SubstituteReport(69860,ParametersOnly,in=-1);SetupPrinters(in=0);`, :651).
-                    self.raise_setup_printers()?;
-                    let (inst, schema) = self.report_by_number(id, number.as_ref().or(args.first()))?;
-                    // OnInitReport runs first, so the views the data items get next are what the handler sees
-                    // (reports/W3ReportRequestPageRun.al:280, RunRequestPage_OrderOfReportAndRequestPageTriggers: `view=[1..3]`).
-                    if self.report_init(&inst)? {
-                        return self.request_page_after_quit(&schema);
-                    }
-                    (inst, schema, args.get(1), args.len() == 1 && number.is_none())
-                };
-                self.request_ok_only_call(schema.object, pinned_call)?;
-                // Only the empty string and the text this runtime produced are understood; how BC
-                // loads a parameters string into the page is pinned only by its result
-                // (reports/TestReportInstanceRunReqPage.al:SeededWithParameters_StillRunsTheHandler).
-                let seed = match seed {
-                    Some(Value::Text(s)) if !s.is_empty() => Some(s.clone()),
-                    None | Some(Value::Text(_)) => None,
-                    Some(other) => return unsupported(format!("{id} seeded with {}", other.describe())),
-                };
-                // RunRequestPage always shows the page, so it always enters a transaction world
-                // (record/TestTxModelReportExec.al:77-102, Test02 and Test03).
-                let enters = self.report_enter_world(&schema, true)?;
-                self.report_in_world(enters, |s| s.report_request_only(&inst, &schema, seed.as_deref()))
-                    .map(|s| Value::Text(s.into()))
+                self.report_run_request_page(id, receiver, args)
             }
             other => unsupported(format!("builtin {other}")),
         }
@@ -3979,6 +3933,7 @@ mod quit_in_init;
 pub(crate) use excel_sheets::Admission as ExcelSheetsAdmission;
 mod request_caption;
 mod request_flag;
+mod run_request_page;
 use request_flag::{REQUEST_PAGE_OFF, REQUEST_PAGE_OFF_UNPINNED_GETTER, REQUEST_PAGE_ON, REQUEST_PAGE_UNPINNED_GETTER};
 mod request_unshown;
 mod running;

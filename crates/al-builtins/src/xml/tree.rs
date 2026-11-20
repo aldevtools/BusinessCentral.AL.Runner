@@ -79,9 +79,9 @@ pub(super) fn add_first(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value])
 }
 
 /// AddFirst, as a statement, of an attribute to an element raises an Argument error and leaves the element as it was, in the
-/// cell xml/XmlElement.al:372-386 Add_Basic measured (`af296`, `addfirstattr`), each fact by equality:
-/// - the element `a`: made by `XmlElement.Create`, never had a parent, no prefix or namespace, with child nodes (two elements, a
-///   text, a comment) and attributes without a prefix or namespace (`k`);
+/// cell xml/XmlElement.al:372-386 Add_Basic measured (`af296`, `addfirstattr`). The gate checks:
+/// - the element `a`: made by `XmlElement.Create`, never had a parent, no prefix or namespace, has child nodes and has attributes,
+///   all without a prefix or namespace (the pin: two elements, a text and a comment; the attribute `k`);
 /// - one argument, the attribute `k2`: made by `XmlAttribute.Create`, never had a parent, no prefix or namespace, and no
 ///   attribute of the element has its name.
 ///
