@@ -21,7 +21,6 @@ use al_ir::ObjectHead;
 use al_sema::provided::{DepBlock, DepFacts, DepLayer, DepSet, DepSource, LayerSource};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 const MAGIC: &[u8; 8] = b"ALRCDEP\0";
 const HEADER: usize = 8 + 4 + 32 + 8 + 8 + 8 + 32 + 8 + 32;
@@ -109,9 +108,7 @@ fn chunks<T: Serialize + Sync>(items: &[T], n: usize) -> Vec<(usize, Vec<u8>)> {
         .collect()
 }
 
-fn sha(bytes: &[u8]) -> [u8; 32] {
-    Sha256::digest(bytes).into()
-}
+use crate::digest::sha;
 
 fn zstd_err(e: std::io::Error) -> CacheError {
     CacheError::Damaged(format!("zstd: {e}"))
@@ -158,11 +155,14 @@ fn build_parts(base_len: usize, objects: &[u32], set: &DepSet, key: &Key, shared
     } else {
         Vec::new()
     };
+    // The dictionary prepared once (a CDict): with the raw bytes, every compressor loaded the 512 KB dictionary into
+    // its tables again, which took a tenth of the instructions of a cold run that wrote a workspace layer.
+    let prepared = zstd::dict::EncoderDictionary::copy(&dict, LEVEL);
     let compressed: Vec<Vec<u8>> = raw
         .par_iter()
         .map_init(
             || {
-                let mut c = zstd::bulk::Compressor::with_dictionary(LEVEL, &dict).expect("a zstd compressor");
+                let mut c = zstd::bulk::Compressor::with_prepared_dictionary(&prepared).expect("a zstd compressor");
                 c.include_checksum(true).expect("checksum flag");
                 c
             },
@@ -442,6 +442,11 @@ impl Entry {
 }
 
 impl Entry {
+    /// The digest of the key the file was opened for (checked at open).
+    pub fn digest(&self) -> [u8; 32] {
+        self.bytes[12..44].try_into().expect("checked at open")
+    }
+
     /// How many objects the layers below this one hold (0 for the first layer).
     pub fn base_len(&self) -> usize {
         self.index.base_len as usize

@@ -17,6 +17,11 @@ impl Server {
     }
 
     fn start_with(extra: &[&str], env: &[(&str, &str)]) -> Server {
+        Server::start_to(extra, env, Stdio::null())
+    }
+
+    /// [`Server::start_with`] with the server's stderr written to `stderr`.
+    fn start_to(extra: &[&str], env: &[(&str, &str)], stderr: Stdio) -> Server {
         let mut child = Command::new(env!("CARGO_BIN_EXE_al-runner"))
             .arg("serve")
             .args(extra)
@@ -28,7 +33,7 @@ impl Server {
             .env("AL_TEST_THREADS", "2")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(stderr)
             .spawn()
             .expect("start al-runner serve");
         let stdin = child.stdin.take();
@@ -2848,4 +2853,439 @@ fn a_coverage_request_after_one_without_coverage_gives_the_coverage_of_a_first_r
     assert_eq!(got["perTestCoverage"], want["perTestCoverage"], "{got}");
     s.send(json!({"command": "shutdown"}));
     assert_eq!(s.line(), json!({"status": "shutting down"}));
+}
+
+/// Removes what differs between two runs of the same request on purpose: the timings, the wall time, `cached` and the
+/// fresh seed of each daemon.
+fn without_times(lines: &[Value]) -> Vec<Value> {
+    lines
+        .iter()
+        .map(|l| {
+            let mut l = l.clone();
+            if let Some(o) = l.as_object_mut() {
+                for k in ["timings", "wallSeconds", "durationMs", "cached", "elapsedMs", "seed"] {
+                    o.remove(k);
+                }
+            }
+            l
+        })
+        .collect()
+}
+
+/// ADR-022 amendment 2026-11-15 (issue 8143): a restarted daemon over the same workspace (two `sourcePaths`) and the same
+/// cache folder reads the compiled workspace from the workspace layer (`workspaceCache: "read"`) and answers as the first
+/// daemon did.
+#[test]
+fn a_restarted_daemon_reads_the_compiled_workspace_and_answers_the_same() {
+    let d = tempfile::tempdir().unwrap();
+    let lib = d.path().join("lib");
+    write(
+        &lib,
+        "app.json",
+        r#"{"id":"22222222-0000-0000-0000-000000000001","name":"Lib","publisher":"Test","version":"1.0.0.0","dependencies":[]}"#,
+    );
+    write(
+        &lib,
+        "src/Lib.al",
+        "codeunit 50300 Lib { procedure Twice(X: Integer): Integer begin exit(X * 2); end; }\n",
+    );
+    let tests = d.path().join("tests");
+    write(
+        &tests,
+        "app.json",
+        r#"{"id":"22222222-0000-0000-0000-000000000002","name":"LibTests","publisher":"Test","version":"1.0.0.0","dependencies":[{"id":"22222222-0000-0000-0000-000000000001","name":"Lib","publisher":"Test","version":"1.0.0.0"}]}"#,
+    );
+    write(
+        &tests,
+        "src/T.al",
+        &MIXED.replace("Error('boom %1', 5);", "if 0 = 1 then; Error('boom %1', 5);"),
+    );
+    let cache = d.path().join("cache").to_string_lossy().to_string();
+    let request = json!({"command": "runTests", "sourcePaths": [lib, tests]});
+    let mut answers = Vec::new();
+    for daemon in 0..2 {
+        let mut s = Server::start(&["--no-download", "--no-test-data", "--cache-dir", &cache]);
+        assert_eq!(s.line(), json!({"ready": true}));
+        s.send(request.clone());
+        let lines = s.until_summary();
+        let summary = lines.last().unwrap().clone();
+        let want = if daemon == 0 { "built" } else { "read" };
+        assert_eq!(
+            summary["timings"]["workspaceCache"],
+            json!(want),
+            "daemon {daemon}: {summary}"
+        );
+        assert_eq!(summary["cached"], json!(false), "{summary}");
+        s.send(json!({"command": "shutdown"}));
+        s.line();
+        s.child.wait().unwrap();
+        answers.push(without_times(&lines));
+    }
+    assert_eq!(answers[0], answers[1]);
+}
+
+/// The `--timings` line of the workspace layer is said for a request that compiled, as its JSON `workspaceCache` is: a
+/// request on the kept compile says none (it did not compile, so the layer did nothing for it).
+#[test]
+fn a_request_on_the_kept_compile_says_no_workspace_layer_line() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app(d.path(), "kept", MIXED);
+    let cache = d.path().join("cache").to_string_lossy().to_string();
+    let log = d.path().join("stderr.txt");
+    let err = std::fs::File::create(&log).unwrap();
+    let mut s = Server::start_to(
+        &["--no-download", "--no-test-data", "--timings", "--cache-dir", &cache],
+        &[],
+        Stdio::from(err),
+    );
+    assert_eq!(s.line(), json!({"ready": true}));
+    let request = json!({"command": "runTests", "sourcePaths": [a]});
+    let mut said = Vec::new();
+    for _ in 0..2 {
+        s.send(request.clone());
+        let summary = s.until_summary().last().unwrap().clone();
+        let lines = std::fs::read_to_string(&log).unwrap();
+        let count = lines
+            .lines()
+            .filter(|l| l.starts_with("compile cache: workspace layer"))
+            .count();
+        said.push((
+            summary["cached"].clone(),
+            summary["timings"].get("workspaceCache").cloned(),
+            count,
+        ));
+    }
+    s.send(json!({"command": "shutdown"}));
+    s.line();
+    s.child.wait().unwrap();
+    assert_eq!(
+        said,
+        vec![(json!(false), Some(json!("built")), 1), (json!(true), None, 1)],
+        "(cached, workspaceCache, workspace layer lines on stderr so far) per request"
+    );
+}
+
+/// ADR-022 amendment 2026-11-15: a one-shot `al-runner test` and a daemon over the same workspace and cache folder share
+/// the workspace layer. The first one-shot run builds the entry (written before the process ends), the second reads it,
+/// and so does a daemon started after them; `ALRUNNER_NO_WORKSPACE_CACHE=1` turns the layer off.
+#[test]
+fn a_one_shot_run_and_a_daemon_share_the_workspace_layer() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app(d.path(), "mixed", MIXED);
+    let cache = d.path().join("cache").to_string_lossy().to_string();
+    let one_shot = |env: &[(&str, &str)]| {
+        let out = Command::new(env!("CARGO_BIN_EXE_al-runner"))
+            .args([
+                "test",
+                a.to_str().unwrap(),
+                "--no-download",
+                "--no-test-data",
+                "--timings",
+            ])
+            .args(["--cache-dir", &cache])
+            .envs(env.iter().copied())
+            .output()
+            .unwrap();
+        let err = String::from_utf8_lossy(&out.stderr).to_string();
+        let line = err
+            .lines()
+            .find(|l| l.starts_with("compile cache: workspace layer"))
+            .unwrap_or_default()
+            .to_string();
+        (out.status.code(), line)
+    };
+    let (code, first) = one_shot(&[]);
+    assert!(first.contains("workspace layer built"), "{first}");
+    let (code2, second) = one_shot(&[]);
+    assert_eq!(code, code2);
+    assert!(second.contains("workspace layer read"), "{second}");
+    let (_, off) = one_shot(&[("ALRUNNER_NO_WORKSPACE_CACHE", "1")]);
+    assert!(off.contains("workspace layer off"), "{off}");
+    let mut s = Server::start(&["--no-download", "--no-test-data", "--cache-dir", &cache]);
+    assert_eq!(s.line(), json!({"ready": true}));
+    s.send(json!({"command": "runTests", "sourcePaths": [a]}));
+    let summary = s.until_summary().last().unwrap().clone();
+    assert_eq!(summary["timings"]["workspaceCache"], json!("read"), "{summary}");
+    // A request on the kept compile used no cache: no `workspaceCache`.
+    s.send(json!({"command": "runTests", "sourcePaths": [a]}));
+    let summary = s.until_summary().last().unwrap().clone();
+    assert_eq!(summary["cached"], json!(true), "{summary}");
+    assert!(summary["timings"].get("workspaceCache").is_none(), "{summary}");
+}
+
+/// The page of review probe app9 (HIGH 1): a pageextension sets the base page's protected variable. Whether that runs
+/// depends on `AL_UNPINNED_BASE_ACCESS`, which an empty value sets to "pin nothing".
+const BASE_ACCESS: &str = r#"
+page 50500 "P9 Base"
+{
+    PageType = Card;
+    layout { area(Content) { field(SharedCtl; Shared) { } } }
+    protected var
+        Shared: Integer;
+}
+
+pageextension 50501 "P9 Ext" extends "P9 Base"
+{
+    trigger OnOpenPage()
+    begin
+        Shared := 7;
+    end;
+}
+
+codeunit 50510 "P9 Tests"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure ExtensionSetsTheBaseVariable()
+    var
+        P: TestPage "P9 Base";
+    begin
+        P.OpenView();
+        if P.SharedCtl.AsInteger() <> 7 then
+            Error('shared is %1', P.SharedCtl.AsInteger());
+    end;
+}
+"#;
+
+/// One-shot `al-runner test` of `app` over the cache folder `cache` with `env`: (exit code, the `--timings` line of the
+/// workspace layer, stderr).
+fn one_shot_run(app: &Path, cache: &str, env: &[(&str, &str)]) -> (Option<i32>, String, String) {
+    one_shot_run_with(app, cache, env, &[])
+}
+
+/// [`one_shot_run`] with more arguments.
+fn one_shot_run_with(app: &Path, cache: &str, env: &[(&str, &str)], args: &[&str]) -> (Option<i32>, String, String) {
+    let out = Command::new(env!("CARGO_BIN_EXE_al-runner"))
+        .args([
+            "test",
+            app.to_str().unwrap(),
+            "--no-download",
+            "--no-test-data",
+            "--timings",
+        ])
+        .args(["--cache-dir", cache])
+        .args(args)
+        .env_remove("AL_UNPINNED_BASE_ACCESS")
+        .envs(env.iter().copied())
+        .output()
+        .unwrap();
+    let err = String::from_utf8_lossy(&out.stderr).to_string();
+    let line = err
+        .lines()
+        .find(|l| l.starts_with("compile cache: workspace layer"))
+        .unwrap_or_default()
+        .to_string();
+    (out.status.code(), line, err)
+}
+
+/// Review HIGH 1: a run with `AL_UNPINNED_BASE_ACCESS` set but empty and a normal run never read each other's entry
+/// (without dependency layers nothing else in the key tells them apart).
+#[test]
+fn a_switch_set_but_empty_and_unset_do_not_share_a_workspace_entry() {
+    for first_empty in [false, true] {
+        let d = tempfile::tempdir().unwrap();
+        let a = app(d.path(), "p9", BASE_ACCESS);
+        let cache = d.path().join("cache").to_string_lossy().to_string();
+        let empty: &[(&str, &str)] = &[("AL_UNPINNED_BASE_ACCESS", "")];
+        let (first, second) = if first_empty {
+            (empty, &[][..])
+        } else {
+            (&[][..], empty)
+        };
+        let (code1, line1, _) = one_shot_run(&a, &cache, first);
+        let (code2, line2, _) = one_shot_run(&a, &cache, second);
+        let fresh = d.path().join("fresh").to_string_lossy().to_string();
+        let (code2_fresh, _, _) = one_shot_run(&a, &fresh, second);
+        assert!(line1.contains("built"), "{line1}");
+        assert!(
+            line2.contains("built"),
+            "empty first {first_empty}: the second run read the first's entry: {line2}"
+        );
+        assert_eq!(code2, code2_fresh, "empty first {first_empty}: {code1:?}");
+    }
+}
+
+/// ADR-022 amendment decision 10: a damaged entry is removed and the run compiles fresh; the reason goes to stderr with
+/// `--verbose` only (the `--timings` line of the layer names it in its notes either way).
+#[test]
+fn a_damaged_workspace_entry_is_said_on_stderr_with_verbose_only() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app(d.path(), "damaged", MIXED);
+    let cache = d.path().join("cache").to_string_lossy().to_string();
+    let damage = || {
+        let dir = d.path().join("cache").join("compile");
+        let entry = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .find(|p| p.extension().is_some_and(|x| x == "alcw"))
+            .expect("an entry was written");
+        let mut bytes = std::fs::read(&entry).unwrap();
+        let at = bytes.len() / 2;
+        bytes[at] ^= 0x41;
+        std::fs::write(&entry, bytes).unwrap();
+    };
+    let said = |err: &str| {
+        err.lines()
+            .any(|l| l.starts_with("workspace cache: ") && l.contains("ignored and removed"))
+    };
+    let (code, line, _) = one_shot_run(&a, &cache, &[]);
+    assert!(line.contains("built"), "{line}");
+    for verbose in [false, true] {
+        damage();
+        let args: &[&str] = if verbose { &["--verbose"] } else { &[] };
+        let (again, line, err) = one_shot_run_with(&a, &cache, &[], args);
+        assert_eq!(again, code, "verbose {verbose}: {err}");
+        assert!(
+            line.contains("built") && line.contains("ignored and removed"),
+            "verbose {verbose}: {line}"
+        );
+        assert_eq!(said(&err), verbose, "verbose {verbose}: {err}");
+    }
+}
+
+/// Review HIGH 2 (probe app8): a dependency file that does not parse is said on stderr (`parse: ...`) by a run that reads
+/// the workspace layer as by the run that built it, for the compile on the dependency layers and for the compile of
+/// selected tests free of data.
+#[test]
+fn a_read_says_which_dependency_files_did_not_parse() {
+    let d = tempfile::tempdir().unwrap();
+    let dep = d.path().join("dep");
+    write(
+        &dep,
+        "app.json",
+        r#"{"id":"88888888-0000-0000-0000-000000000001","name":"P8Dep","publisher":"T","version":"1.0.0.0","dependencies":[]}"#,
+    );
+    write(
+        &dep,
+        "src/good.al",
+        "codeunit 50900 \"P8 Dep Good\"\n{\n    procedure One(): Integer\n    begin\n        exit(1);\n    end;\n}\n",
+    );
+    write(
+        &dep,
+        "src/bad.al",
+        "codeunit 50901 \"P8 Dep Bad\"\n{\n    procedure Two(): Integer\n    begin\n        exit(2 +);\n    end\n}\n",
+    );
+    let ws = d.path().join("ws");
+    write(
+        &ws,
+        "app.json",
+        r#"{"id":"88888888-0000-0000-0000-000000000002","name":"P8Ws","publisher":"T","version":"1.0.0.0","dependencies":[{"id":"88888888-0000-0000-0000-000000000001","name":"P8Dep","publisher":"T","version":"1.0.0.0"}]}"#,
+    );
+    write(
+        &ws,
+        "src/t.al",
+        "codeunit 50910 \"P8 Tests\"\n{\n    Subtype = Test;\n\n    [Test]\n    procedure GoodWorks()\n    var\n        G: Codeunit \"P8 Dep Good\";\n    begin\n        if G.One() <> 1 then\n            Error('wrong');\n    end;\n\n    [Test]\n    procedure BadIsRefused()\n    var\n        B: Codeunit \"P8 Dep Bad\";\n    begin\n        if B.Two() <> 2 then\n            Error('wrong');\n    end;\n}\n",
+    );
+    for extra in [
+        &[][..],
+        &["--test-runner", "builtin"][..],
+        &["--test-runner", "builtin", "--codeunit", "50910"][..],
+    ] {
+        let cache = d
+            .path()
+            .join(format!("cache{}", extra.len()))
+            .to_string_lossy()
+            .to_string();
+        let run = || {
+            let out = Command::new(env!("CARGO_BIN_EXE_al-runner"))
+                .args(["test", ws.to_str().unwrap(), "--dep", dep.to_str().unwrap()])
+                .args(["--no-download", "--no-test-data", "--timings", "--cache-dir", &cache])
+                .args(extra)
+                .output()
+                .unwrap();
+            let err = String::from_utf8_lossy(&out.stderr).to_string();
+            let parse: Vec<String> = err
+                .lines()
+                .filter(|l| l.starts_with("parse:"))
+                .map(String::from)
+                .collect();
+            let state = err
+                .lines()
+                .find(|l| l.starts_with("compile cache: workspace layer"))
+                .unwrap_or_default()
+                .to_string();
+            (out.status.code(), parse, state)
+        };
+        let (code1, parse1, state1) = run();
+        let (code2, parse2, state2) = run();
+        assert!(
+            state1.contains("built") && state2.contains("read"),
+            "{extra:?}: {state1} / {state2}"
+        );
+        assert!(parse1.iter().any(|l| l.contains("bad.al:5")), "{extra:?}: {parse1:?}");
+        assert_eq!((code1, &parse1), (code2, &parse2), "{extra:?}");
+    }
+}
+
+/// Second review MED A: `ALRUNNER_CHECK_INCREMENTAL=1` checks an incremental compile against a complete compile, which
+/// must be a fresh compile: it neither reads the workspace layer nor writes an entry.
+#[test]
+fn the_check_of_an_incremental_compile_does_not_use_the_workspace_layer() {
+    let d = tempfile::tempdir().unwrap();
+    let dep = d.path().join("dep");
+    write(
+        &dep,
+        "app.json",
+        r#"{"id":"66666666-0000-0000-0000-000000000001","name":"ChkDep","publisher":"T","version":"1.0.0.0","dependencies":[]}"#,
+    );
+    write(
+        &dep,
+        "src/dep.al",
+        "table 50601 \"Chk T\" { fields { field(1; K; Integer) { } } keys { key(PK; K) { } } }\ncodeunit 50600 \"Chk Dep\" { procedure One(): Integer begin exit(1); end; }\n",
+    );
+    let ws = d.path().join("ws");
+    write(
+        &ws,
+        "app.json",
+        r#"{"id":"66666666-0000-0000-0000-000000000002","name":"ChkWs","publisher":"T","version":"1.0.0.0","dependencies":[{"id":"66666666-0000-0000-0000-000000000001","name":"ChkDep","publisher":"T","version":"1.0.0.0"}]}"#,
+    );
+    let lib = "codeunit 50610 \"Chk Lib\" { procedure Twice(X: Integer): Integer var D: Codeunit \"Chk Dep\"; begin exit(X * 2 * D.One()); end; }\n";
+    write(&ws, "src/lib.al", lib);
+    write(
+        &ws,
+        "src/tests.al",
+        "codeunit 50620 \"Chk Tests\" { Subtype = Test; [Test] procedure Twice() var L: Codeunit \"Chk Lib\"; R: Record \"Chk T\"; begin R.DeleteAll(); if L.Twice(2) <> 4 then Error('twice'); end; }\n",
+    );
+    let cache = d.path().join("cache");
+    let dep_arg = dep.to_string_lossy().to_string();
+    let cache_arg = cache.to_string_lossy().to_string();
+    let mut s = Server::start_with(
+        &[
+            "--no-download",
+            "--no-test-data",
+            "--dep",
+            &dep_arg,
+            "--cache-dir",
+            &cache_arg,
+        ],
+        &[("ALRUNNER_CHECK_INCREMENTAL", "1")],
+    );
+    assert_eq!(s.line(), json!({"ready": true}));
+    let request = json!({"command": "runTests", "sourcePaths": [ws]});
+    s.send(request.clone());
+    let first = s.until_summary().last().unwrap().clone();
+    assert_eq!(first["timings"]["workspaceCache"], json!("built"), "{first}");
+    write(
+        &ws,
+        "src/lib.al",
+        &lib.replace("exit(X * 2 * D.One())", "exit(X * 3 * D.One())"),
+    );
+    s.send(request);
+    let edited = s.until_summary().last().unwrap().clone();
+    assert_eq!(edited["incremental"], json!(true), "{edited}");
+    s.send(json!({"command": "shutdown"}));
+    s.line();
+    s.child.wait().unwrap();
+    let entries: Vec<_> = std::fs::read_dir(cache.join("compile"))
+        .unwrap()
+        .flatten()
+        .filter(|e| e.path().extension().is_some_and(|x| x == "alcw"))
+        .map(|e| e.file_name())
+        .collect();
+    assert_eq!(
+        entries.len(),
+        1,
+        "the check's complete compile wrote an entry: {entries:?}"
+    );
 }

@@ -215,6 +215,7 @@ dependencies = [
  "al-vm",
  "libc",
  "rayon",
+ "serde",
  "serde_json",
  "sha2",
  "tempfile",
@@ -245,6 +246,7 @@ version = "3.0.0-alpha.14"
 dependencies = [
  "al-bcdb-std",
  "al-builtins",
+ "al-cache",
  "al-deps",
  "al-host",
  "al-ir",

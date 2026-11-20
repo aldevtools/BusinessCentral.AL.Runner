@@ -41,7 +41,7 @@ pub(crate) enum Grow {
 
 /// Whether `AL_FRESH_PASS_COMPILE` asks every pass to compile from source.
 pub fn fresh_pass_compile() -> bool {
-    std::env::var_os("AL_FRESH_PASS_COMPILE").is_some_and(|v| !v.is_empty() && v != "0")
+    crate::switches::on("AL_FRESH_PASS_COMPILE")
 }
 
 impl KeptCompile {

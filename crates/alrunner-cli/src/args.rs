@@ -641,6 +641,11 @@ COMPILE CACHE
     under a key of the al-runner build, the dependency apps, the app's sources, the BC target, the
     environment, the demo backup and the day, and a run that finds it starts its clock at the
     instant the run that made it began.
+    The compiled workspace apps are kept as well (the workspace layer, <build>-ws-<project>-<key>.alcw
+    files, at most 4 per project): a run with the same sources, apps, options, target and al-runner
+    build reads them instead of compiling the workspace again (a restarted `serve`, a rerun of
+    `al-runner test`). ALRUNNER_NO_WORKSPACE_CACHE=1 turns this layer off; --no-compile-cache turns
+    off both.
     Old entries go by themselves: at the end of `al-runner test`, at most once a day and for at most
     200 ms, the folder is cleaned of entries of other al-runner builds unused for 7 days, entries of
     any build unused for 30 days, and leftover temporary files older than a day. A cache hit
@@ -1288,7 +1293,7 @@ OTHER
 ENVIRONMENT
     ALRUNNER_CACHE       The cache folder when --cache-dir is not given.
     ALRUNNER_SERVER_URL  The address --server-url sets, when it is not given.
-    ALRUNNER_NO_COMPILE_CACHE=1, ALRUNNER_NO_CACHE_PRUNE=1  See COMPILE CACHE.
+    ALRUNNER_NO_COMPILE_CACHE=1, ALRUNNER_NO_WORKSPACE_CACHE=1, ALRUNNER_NO_CACHE_PRUNE=1  See COMPILE CACHE.
     ALRUNNER_BCAPPS_URL  The address --recipe fetches BCApps from.
     ALRUNNER_NO_PATH_NOTE=1  No note about another al-runner on PATH (AL Runner v2's dotnet tool has
                          the same name), and no list of them under --version.

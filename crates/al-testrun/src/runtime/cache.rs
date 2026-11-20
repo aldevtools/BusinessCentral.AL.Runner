@@ -123,10 +123,7 @@ pub(crate) fn compile_with_cache(
     let stack = layers.shared_stack().map_err(|why| format!("compile cache: {why}"))?;
     report.objects = stack.len();
     report.parse_problems = layers.parse_problems();
-    let catalog = match target {
-        Some(t) => al_builtins::catalog::Catalog::for_target(t),
-        None => al_builtins::catalog::Catalog::load(),
-    };
+    let catalog = catalog_for(target);
     let started = std::time::Instant::now();
     // A lazily read app is loaded from its index when there is one: its sources are neither read nor
     // scanned. Otherwise they are read now (once), scanned, and the index is saved.
@@ -232,5 +229,99 @@ pub fn global_triggers_find_unavailable(engine: &mut Arc<Engine>, lowered: &Lowe
         Arc::get_mut(&mut e.events)
             .expect("a new engine's event registry is its own")
             .unavailable_global = unavailable;
+    }
+}
+
+/// The apps a load that failed gives back, with the reason.
+pub(crate) type AppsBack = (Vec<al_sema::workspace::AppSource>, String);
+
+/// The workspace of a compile read from the workspace layer (ADR-022 amendment 2026-11-15, decision 4): the apps loaded
+/// as `compile_with_cache` loads them (a lazily read dependency app from its source index), with the workspace apps'
+/// files given by `stored` and not parsed. Gives the workspace and where the source index came from; an error gives the
+/// apps back with the reason (the caller compiles them fresh).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn load_stored_workspace(
+    cc: &crate::compile_cache::CompileCache,
+    mut apps: Vec<al_sema::workspace::AppSource>,
+    kinds: Vec<al_sema::AppKind>,
+    manifests: &[Manifest],
+    symbols: &BTreeSet<String>,
+    lazy: &[Option<al_sema::LazySource>],
+    identities: &[Option<[u8; 32]>],
+    stored: al_sema::StoredWorkspace,
+) -> Result<(al_sema::Workspace, Option<&'static str>), AppsBack> {
+    let dep_symbols = crate::compile_cache::app_symbols(manifests)
+        .into_iter()
+        .zip(&kinds)
+        .map(|(s, k)| (*k == al_sema::AppKind::Dependency).then(|| s.unwrap_or_default()))
+        .collect::<Vec<_>>();
+    let granted = super::internals_grant::granted_app_ids(&apps, manifests);
+    let (deps, source_index, save) = if lazy.iter().any(Option::is_some) {
+        match lazy_index(cc, &apps, manifests, lazy, identities) {
+            Ok(deps) => (deps, Some("read"), None),
+            Err(key) => {
+                for (a, l) in apps.iter_mut().zip(lazy) {
+                    if let Some(l) = l {
+                        l.fill(a);
+                    }
+                }
+                (Vec::new(), Some("built"), Some(key))
+            }
+        }
+    } else {
+        (Vec::new(), None, None)
+    };
+    match al_sema::Workspace::load_stored(apps, kinds, symbols, &dep_symbols, deps, stored) {
+        Ok(mut ws) => {
+            if let Some(key) = save {
+                save_index(cc, &ws, lazy, &key);
+            }
+            ws.set_internals_granted(granted);
+            Ok((ws, source_index))
+        }
+        Err(back) => Err(back),
+    }
+}
+
+/// The program order of a compile with the compile cache, as caller indexes, and how many apps from the first the
+/// dependency layers hold: the dependency apps first, Microsoft's before the others (the layers follow this order), then
+/// the dependency apps that stand on a workspace app (`on_workspace`), then the workspace's.
+pub(crate) fn cache_order(
+    apps: &[al_sema::workspace::AppSource],
+    kinds: &[al_sema::AppKind],
+    manifests: &[Manifest],
+    on_workspace: &[bool],
+) -> (Vec<usize>, usize) {
+    let n_apps = apps.len();
+    let in_order = |deps: Vec<usize>| -> Vec<usize> {
+        let dep_apps: Vec<&al_sema::workspace::AppSource> = deps.iter().map(|&i| &apps[i]).collect();
+        let dep_manifests: Vec<Manifest> = deps
+            .iter()
+            .map(|&i| manifests.get(i).cloned().unwrap_or_default())
+            .collect();
+        crate::compile_cache::dependency_order(&dep_apps, &dep_manifests)
+            .into_iter()
+            .map(|k| deps[k])
+            .collect()
+    };
+    let cached = in_order(
+        (0..n_apps)
+            .filter(|&i| kinds[i] == al_sema::AppKind::Dependency && !on_workspace[i])
+            .collect(),
+    );
+    let n_cached = cached.len();
+    let order = cached
+        .into_iter()
+        .chain(in_order((0..n_apps).filter(|&i| on_workspace[i]).collect()))
+        .chain((0..n_apps).filter(|&i| kinds[i] != al_sema::AppKind::Dependency))
+        .collect();
+    (order, n_cached)
+}
+
+/// The builtins catalog of a compile for `target` (the runtime's own without one).
+pub(crate) fn catalog_for(target: Option<&al_version::Target>) -> al_builtins::catalog::Catalog {
+    match target {
+        Some(t) => al_builtins::catalog::Catalog::for_target(t),
+        None => al_builtins::catalog::Catalog::load(),
     }
 }
