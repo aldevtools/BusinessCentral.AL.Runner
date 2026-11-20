@@ -3,10 +3,15 @@
 
 use crate::*;
 use al_builtins::filter::FieldFilter;
+use band::Band;
 pub use key::PkStorage;
 use key::{Key, table_storage};
 use std::cmp::Ordering;
 
+mod alt_cache;
+#[cfg(test)]
+mod alt_cache_tests;
+mod band;
 #[cfg(test)]
 mod collation_read_tests;
 mod frozen;
@@ -17,6 +22,9 @@ mod key_value_tests;
 mod order_carry;
 mod replace;
 mod row_changes;
+mod served;
+#[cfg(test)]
+mod served_tests;
 #[cfg(test)]
 mod storage_tests;
 pub use frozen::{FrozenRows, FrozenStore, NotShareable, not_shareable, shareable};
@@ -117,25 +125,6 @@ struct OrderEntry {
     used: bool,
 }
 
-/// What `alt_next` knows about one scan (a table, a key and a set of filters) as of a table version.
-#[derive(Clone)]
-struct AltEntry {
-    version: u64,
-    /// How many scan steps came at this version: the first is answered by a pass over the band, the second builds
-    /// `keys`, the later ones search it.
-    calls: u32,
-    /// No other key narrows this scan: the caller walks.
-    not_applicable: bool,
-    /// The primary keys of the rows that pass the filters, in the order of the scan's key.
-    keys: Option<std::rc::Rc<Vec<Key>>>,
-}
-
-/// Where the band of one key is: the primary key's rows between two keys, or a slice of the cached order.
-enum Band {
-    Pk,
-    Order(std::rc::Rc<Vec<OrderKey>>, std::ops::Range<usize>),
-}
-
 /// A primary key in a cached key order: shared, so a write that carries the order (`order_carry`) copies pointers,
 /// not keys.
 type OrderKey = std::rc::Rc<Key>;
@@ -195,7 +184,7 @@ pub struct MemStore {
     order_cache: std::rc::Rc<std::cell::RefCell<OrderCache>>,
     /// The rows that pass one set of filters, in the order of one key, for scans whose filters bound the leading
     /// fields of another key (see `alt_next`).
-    alt_cache: std::cell::RefCell<std::collections::HashMap<(Slot, usize, String), AltEntry>>,
+    alt_cache: std::cell::RefCell<alt_cache::AltCache>,
     /// The stamp of the store's last write (`next_stamp`); never goes back, so a stamp is never reused.
     counter: u64,
     /// Tables that have no stored rows (ADR-019).
@@ -209,6 +198,10 @@ pub struct MemStore {
     /// Companies whose untouched rows were removed by deleting their Company row.
     dropped_backed_companies: crate::pmap::PMap<std::sync::Arc<str>, ()>,
     committed_dropped_backed_companies: crate::pmap::PMap<std::sync::Arc<str>, ()>,
+    /// Per company, the stamp of the last change of the rows its untouched tables serve (`copies`,
+    /// `dropped_backed_companies`): see `served.rs`. Part of the transaction, like `copies`.
+    served: crate::pmap::PMap<std::sync::Arc<str>, u64>,
+    committed_served: crate::pmap::PMap<std::sync::Arc<str>, u64>,
     /// While set, a change to a row of the backing (a modify, delete or rename) is written down
     /// here and allowed (ADR-020 amendment: install code may change restored rows). Shared by the
     /// clones of the store, so a snapshot or a rollback does not lose it.
@@ -548,6 +541,12 @@ fn passes(row: &Row, filters: &[FieldFilter]) -> bool {
     al_builtins::filter::row_passes_checked(row, filters)
 }
 
+/// Whether two sets of filters are exactly the same filters, in the same order ([`FieldFilter::identical`]): the key of
+/// what a store keeps for a read (`alt_cache`, the collation verdicts).
+fn same_filters(a: &[FieldFilter], b: &[FieldFilter]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.identical(y))
+}
+
 impl MemStore {
     /// A read that filters a Code field with another SQLDataType than Varchar, Integer, BigInteger or Variant at all, or sorts by one
     /// whose first key field it is, is refused: the order and the comparison of such a field are not pinned (see [`CodeStorage`]).
@@ -691,9 +690,13 @@ impl MemStore {
         let source = self.copy_source(source);
         self.copies.insert(copy.into(), source.clone());
         self.committed_copies.insert(copy.into(), source);
+        self.serve_changed(copy);
         let copy = std::sync::Arc::from(copy);
         self.dropped_backed_companies.remove(&copy);
         self.committed_dropped_backed_companies.remove(&copy);
+        if let Some(&stamp) = self.served.get(&copy) {
+            self.committed_served.insert(copy, stamp);
+        }
     }
 
     /// The company whose backing rows `company` holds: its source if it is a copy, else itself.
@@ -1251,6 +1254,7 @@ impl MemStore {
         }
         self.dropped_backed_companies.insert(company.into(), ());
         self.copies.remove(&std::sync::Arc::from(company));
+        self.serve_changed(company);
     }
 
     /// Moves every row of company `old` to company `new`, as renaming the company does
@@ -1281,6 +1285,8 @@ impl MemStore {
         }
         self.dropped_backed_companies.insert(old.into(), ());
         self.dropped_backed_companies.remove(&std::sync::Arc::from(new));
+        self.serve_changed(old);
+        self.serve_changed(new);
     }
 
     /// Copies every row of company `from` to company `to`, as they are (system fields included), as
@@ -1292,6 +1298,7 @@ impl MemStore {
             self.copies.insert(to.into(), source);
         }
         self.dropped_backed_companies.remove(&std::sync::Arc::from(to));
+        self.serve_changed(to);
         let copied: Vec<(Slot, Table)> = self
             .tables
             .iter()
@@ -1327,7 +1334,7 @@ impl MemStore {
         if self.virtual_of(t).is_some() {
             return 0;
         }
-        self.versions.get(&slot(cx, t)).copied().unwrap_or(0)
+        self.stamp_of(&slot(cx, t), &self.versions)
     }
 
     /// A write of the table: a new version, and one more of [`MemStore::writes`].
@@ -1354,7 +1361,7 @@ impl MemStore {
 
     /// The order of key `key` that `order_of` cached for the table as it is now, without sorting; `None` when none fits.
     fn cached_order(&self, slot: &Slot, key: usize, t: &TableDef, table: &Table) -> Option<std::rc::Rc<Vec<OrderKey>>> {
-        let shape = self.shapes.get(slot).copied().unwrap_or(0);
+        let shape = self.stamp_of(slot, &self.shapes);
         let ck = (slot.clone(), key);
         let moved = self.moves.get(&ck).copied().unwrap_or(0);
         let fits =
@@ -1373,7 +1380,7 @@ impl MemStore {
         if let Some(order) = self.cached_order(slot, key, t, table) {
             return order;
         }
-        let shape = self.shapes.get(slot).copied().unwrap_or(0);
+        let shape = self.stamp_of(slot, &self.shapes);
         let ck = (slot.clone(), key);
         let moved = self.moves.get(&ck).copied().unwrap_or(0);
         ORDER_BUILDS.with(|n| n.set(n.get() + 1));
@@ -1400,46 +1407,6 @@ impl MemStore {
         );
         kept.truncate(ORDERS_PER_KEY);
         order
-    }
-
-    /// The band of key `j` that the filters leave, and how many rows it holds; `None` when the filters bound no
-    /// leading field of the key or the order cannot be trusted, or (`sort` false) when no order of the key is cached.
-    fn band_of(
-        &self,
-        slot: &Slot,
-        j: usize,
-        t: &TableDef,
-        table: &Table,
-        filters: &[FieldFilter],
-        sort: bool,
-    ) -> Option<(Band, usize)> {
-        let seek = Seek::of(t, j, filters, table.values().next())?;
-        if j == 0 {
-            let n = pk_band(table, t, filters).count();
-            return Some((Band::Pk, n));
-        }
-        let order = if sort {
-            self.order_of(slot, j, t, table)
-        } else {
-            self.cached_order(slot, j, t, table)?
-        };
-        if order.len() != table.len() || !order.iter().take(1).all(|k| table.get(k).is_some()) {
-            return None;
-        }
-        let trusted = std::cell::Cell::new(true);
-        let probe = |k: &Key, f: &dyn Fn(&[Value]) -> Option<bool>| match table.get(k).map(|r| f(r)) {
-            Some(Some(b)) => b,
-            _ => {
-                trusted.set(false);
-                false
-            }
-        };
-        let start = order.partition_point(|k| probe(k, &|r| seek.before(r)));
-        let end = order.partition_point(|k| !probe(k, &|r| seek.after(r)));
-        (trusted.get() && start <= end).then(|| {
-            let n = end - start;
-            (Band::Order(order, start..end), n)
-        })
     }
 
     /// A scan whose own key is not bounded by the filters, but another key is (an index the filters narrow, as SQL
@@ -1469,8 +1436,7 @@ impl MemStore {
             return None;
         }
         let slot = slot(cx, t);
-        let version = self.versions.get(&slot).copied().unwrap_or(0);
-        let ck = (slot.clone(), scan.key, format!("{:?}", scan.filters));
+        let stamp = self.stamp_of(&slot, &self.versions);
         let fields: Vec<usize> = if scan.key == 0 {
             t.keys[0].clone()
         } else {
@@ -1496,65 +1462,14 @@ impl MemStore {
                 }
             })
         };
-        let calls;
-        {
-            let mut cache = self.alt_cache.borrow_mut();
-            if cache.len() > 256 {
-                cache.clear();
-            }
-            match cache.get_mut(&ck) {
-                Some(e) if e.version == version => {
-                    if e.not_applicable {
-                        return None;
-                    }
-                    if let Some(keys) = e.keys.clone() {
-                        drop(cache);
-                        return Some(self.search_sorted(table, &keys, scan, &cmp_after));
-                    }
-                    e.calls += 1;
-                    calls = e.calls;
-                }
-                Some(e) => {
-                    // The first step after a write: walk.
-                    *e = AltEntry {
-                        version,
-                        calls: 1,
-                        not_applicable: false,
-                        keys: None,
-                    };
-                    return None;
-                }
-                None => {
-                    cache.insert(
-                        ck.clone(),
-                        AltEntry {
-                            version,
-                            calls: 1,
-                            not_applicable: false,
-                            keys: None,
-                        },
-                    );
-                    calls = 1;
-                }
-            }
-        }
-        // The narrowest band of any key, if it is a clear gain over the walk. Against a narrow band of the scan's own key, a
-        // key is sorted only when that band holds at least a quarter of the table: a scan that runs after each write
-        // (an Insert of two rows, then a Find; the Insert test of Tests-SCM codeunit 137380) would sort every such key
-        // each time, which costs more than walking the band.
-        let sort = own.is_none_or(|m| m * 4 >= table.len());
-        let mut best: Option<(Band, usize)> = None;
-        for j in (0..t.keys.len()).filter(|&j| own.is_none() || j != scan.key) {
-            if let Some((b, n)) = self.band_of(&slot, j, t, table, scan.filters, sort) {
-                if best.as_ref().is_none_or(|(_, m)| n < *m) {
-                    best = Some((b, n));
-                }
-            }
-        }
-        let Some((band, _)) = best.filter(|(_, n)| *n * 4 <= own.unwrap_or(table.len())) else {
-            if let Some(e) = self.alt_cache.borrow_mut().get_mut(&ck) {
-                e.not_applicable = true;
-            }
+        let calls = match self.alt_step(&slot, scan.key, scan.filters, stamp) {
+            alt_cache::AltStep::Walk => return None,
+            alt_cache::AltStep::Sorted(keys) => return Some(self.search_sorted(table, &keys, scan, &cmp_after)),
+            alt_cache::AltStep::Band(calls) => calls,
+        };
+        // When `own` is `None` the filters do not bound the scan's key (checked above), so it has no band to leave out.
+        let Some(band) = self.narrowest_band(&slot, t, table, scan.filters, scan.key, own) else {
+            self.alt_keep(&slot, scan.key, scan.filters, None);
             return None;
         };
         let band_keys: Vec<Key> = match &band {
@@ -1590,9 +1505,7 @@ impl MemStore {
             .collect();
         rows.sort_by(|a, b| cmp_rows(t, scan.key, a.1, b.1));
         let keys = std::rc::Rc::new(rows.into_iter().map(|(k, _)| k.clone()).collect::<Vec<_>>());
-        if let Some(e) = self.alt_cache.borrow_mut().get_mut(&ck) {
-            e.keys = Some(keys.clone());
-        }
+        self.alt_keep(&slot, scan.key, scan.filters, Some(keys.clone()));
         Some(self.search_sorted(table, &keys, scan, &cmp_after))
     }
 
@@ -1679,7 +1592,7 @@ impl Store for MemStore {
         }
         let kept = carry.then(|| k.clone());
         table.insert(k, row);
-        let from = self.shapes.get(&slot(cx, t)).copied().unwrap_or(0);
+        let from = self.stamp_of(&slot(cx, t), &self.shapes);
         self.touch_shape(cx, t);
         if let Some(k) = kept {
             self.carry_orders(cx, t, &k, order_carry::Change::Insert, from);
@@ -1736,7 +1649,7 @@ impl Store for MemStore {
         self.note_restored(cx, t, &k, "Modify", Some(&row));
         let carry = self.has_orders(&slot(cx, t), t);
         let watch = self.accent_cols.contains_key(&t.object);
-        let before = self.versions.get(&slot(cx, t)).copied().unwrap_or(0);
+        let before = self.stamp_of(&slot(cx, t), &self.versions);
         let table = self.table_mut(cx, t);
         if !table.contains_key(&k) {
             return Ok(WriteOutcome::NotFound);
@@ -1795,7 +1708,7 @@ impl Store for MemStore {
         let k = Key::of(t, pk.to_vec());
         Ok(match self.table_mut(cx, t).remove(&k) {
             Some(old) => {
-                let from = self.shapes.get(&slot(cx, t)).copied().unwrap_or(0);
+                let from = self.stamp_of(&slot(cx, t), &self.shapes);
                 self.touch_shape(cx, t);
                 self.carry_orders(cx, t, &k, order_carry::Change::Delete { old: &old }, from);
                 WriteOutcome::Done
@@ -1979,19 +1892,7 @@ impl Store for MemStore {
     }
 
     fn count(&self, cx: &AccessContext, t: &TableDef, f: &[FieldFilter]) -> Result<usize, StoreError> {
-        bump();
-        if let Some(v) = self.virtual_of(t) {
-            return v.count(self, cx, t, f);
-        }
-        self.unknown_read(cx, t, f, &[])?;
-        Self::unpinned_match_read(f)?;
-        Self::code_storage_read(t, f, &[])?;
-        self.collation_read(cx, t, f, None)?;
-        let Some(table) = self.table(cx, t) else {
-            return Ok(0);
-        };
-        let f = &*crate::code_storage::number_filters(t, f, &mut table.values())?;
-        Ok(pk_band(&table, t, f).filter(|(_, r)| passes(r, f)).count())
+        self.count_up_to(cx, t, f, usize::MAX)
     }
 
     fn delete_all(&mut self, cx: &AccessContext, t: &TableDef, f: &[FieldFilter]) -> Result<usize, StoreError> {
@@ -2038,6 +1939,7 @@ impl Store for MemStore {
         self.committed_moves = self.moves.clone();
         self.committed_copies = self.copies.clone();
         self.committed_dropped_backed_companies = self.dropped_backed_companies.clone();
+        self.committed_served = self.served.clone();
         self.committed_emptied = self.emptied.clone();
     }
 
@@ -2050,6 +1952,7 @@ impl Store for MemStore {
         self.moves = self.committed_moves.clone();
         self.copies = self.committed_copies.clone();
         self.dropped_backed_companies = self.committed_dropped_backed_companies.clone();
+        self.served = self.committed_served.clone();
         self.emptied = self.committed_emptied.clone();
     }
 }

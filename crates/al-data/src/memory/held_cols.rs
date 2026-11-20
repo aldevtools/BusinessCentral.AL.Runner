@@ -224,7 +224,7 @@ impl MemStore {
 
     /// The version of `slot` now and the Modify run that ended there, to keep an answer computed now ([`KeptAt`]).
     fn kept_at(&self, slot: &Slot) -> KeptAt {
-        let version = self.versions.get(slot).copied().unwrap_or(0);
+        let version = self.stamp_of(slot, &self.versions);
         let run = self.modify_runs.get(slot).filter(|r| r.to == version).map(|r| r.id);
         KeptAt { version, run }
     }
@@ -232,7 +232,7 @@ impl MemStore {
     /// Whether an answer kept at `at` still holds for the rows of `slot` as far as the columns `cols` go: the table is at the same
     /// version, or only Modifies ran since (in the same run, or a run that started there) and none changed one of `cols`.
     fn still_holds(&self, slot: &Slot, at: &KeptAt, cols: &[usize]) -> bool {
-        let now = self.versions.get(slot).copied().unwrap_or(0);
+        let now = self.stamp_of(slot, &self.versions);
         at.version == now
             || self.modify_runs.get(slot).filter(|r| r.to == now).is_some_and(|r| {
                 (at.version == r.from || at.run == Some(r.id))
@@ -278,7 +278,7 @@ impl MemStore {
     /// Writes down a Modify of a table with noted columns (see [`ModifyRun`]): `before` is the table's version before it,
     /// `changed` the columns whose value it changed.
     pub(super) fn note_modify(&mut self, slot: &Slot, before: u64, changed: Vec<usize>) {
-        let to = self.versions.get(slot).copied().unwrap_or(0);
+        let to = self.stamp_of(slot, &self.versions);
         let run = self.modify_runs.entry(slot.clone()).or_default();
         if run.to != before {
             *run = ModifyRun {
@@ -348,11 +348,6 @@ fn order_refusal(t: &TableDef, key: usize, a: &[Value], b: &[Value], normal_reco
             y.as_str()
         )
     })
-}
-
-/// Whether two filter lists are the same filters in the same order ([`FieldFilter::identical`]).
-fn same_filters(a: &[FieldFilter], b: &[FieldFilter]) -> bool {
-    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.identical(y))
 }
 
 /// How many verdicts of [`MemStore::collation_read`] one table keeps, the one used last first.
