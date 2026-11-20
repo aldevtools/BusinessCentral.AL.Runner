@@ -1682,7 +1682,9 @@ fn has_explicit_reference(raw: &RawItem) -> bool {
 }
 
 // addbefore and addafter of the owner's item nested in its top item: pinned at
-// reports/extensions/TestReportDependencyDataItems.al:46 (`before|footer|after=2`; al-language-xapp-c/ReportDependencyC.ReportExt.al:24-52).
+// reports/extensions/TestReportDependencyDataItems.al:46 (`before|footer|after=2`). The pinned addafter item carries
+// DataItemLinkReference (al-language-xapp-c/ReportDependencyC.ReportExt.al:38-52); one without it refuses. An addbefore
+// item with one refuses in `pinned_link_anchor` (the pinned one has none, :24-37).
 fn measured_sibling(cx: &ExtContext, raw: &RawItem, anchor: ir::ItemAnchor) -> bool {
     let ir::ItemAnchor::Foreign(item) = anchor else {
         return true;
@@ -1690,7 +1692,7 @@ fn measured_sibling(cx: &ExtContext, raw: &RawItem, anchor: ir::ItemAnchor) -> b
     let Some(owner) = cx.prior_exts[item.extension].as_ref() else {
         return false;
     };
-    matches!(raw.place, Place::Before | Place::After)
+    (raw.place == Place::Before || (raw.place == Place::After && has_explicit_reference(raw)))
         && owner.added[item.item].item.parent.is_some_and(|p| {
             let parent = &owner.added[p];
             parent.base_parent.is_some() && parent.item.parent.is_none()

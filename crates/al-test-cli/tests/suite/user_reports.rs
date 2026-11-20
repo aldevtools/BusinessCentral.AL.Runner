@@ -4260,7 +4260,8 @@ fn dependency_report_extension_refuses_unmeasured_owners_and_modifications() {
 
 /// Shapes next to the pinned ones (reports/extensions/TestReportDependencyDataItems.al:12, :26) that the corpus does not
 /// measure: a consumer modify without the one OnAfterAfterGetRecord trigger (al-language-xapp-c/ReportDependencyC.ReportExt.al:11-19),
-/// an owner item added with addfirst instead of addlast (al-language-xapp-b/ReportDependencyB.ReportExt.al:11), and a
+/// an owner item added with addfirst instead of addlast (al-language-xapp-b/ReportDependencyB.ReportExt.al:11), an
+/// addafter item without DataItemLinkReference (the pinned one has it, ReportDependencyC.ReportExt.al:42), and a
 /// consumer variable named like an owner item. Each refuses, in both extension ID orders.
 #[test]
 fn dependency_report_extension_refuses_unmeasured_neighbors() {
@@ -4288,6 +4289,20 @@ fn dependency_report_extension_refuses_unmeasured_neighbors() {
             "owner addfirst",
             owner.replace("addlast(BaseRow)", "addfirst(BaseRow)"),
             consumer.to_string(),
+            test.to_string(),
+        ),
+        (
+            "addafter without DataItemLinkReference",
+            owner.to_string(),
+            consumer.replace("                DataItemLinkReference = AddedRow;\n", ""),
+            test.to_string(),
+        ),
+        (
+            "addafter without a link",
+            owner.to_string(),
+            consumer
+                .replace("                DataItemLinkReference = AddedRow;\n", "")
+                .replace("                DataItemLink = Number = field(Number);\n", ""),
             test.to_string(),
         ),
         (
