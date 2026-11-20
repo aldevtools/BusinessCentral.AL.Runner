@@ -467,7 +467,12 @@ impl Session {
     fn page_trigger(&mut self, st: &St, name: &str, args: Vec<Value>) -> Result<Option<Value>, Signal> {
         self.data_caption_before_trigger(st, name)?;
         self.ws_caption_before_trigger(st, name)?;
-        let r = self.in_page_trigger(st, name, |s| s.page_trigger_run(st, name, args))?;
+        let r = self.in_page_trigger(st, name, |s| s.page_trigger_run(st, name, args));
+        if name == "onaftergetcurrrecord" && matches!(r, Err(Signal::Error(_))) {
+            // `lookup_refresh.rs` `lookup_move_stopped` reads it.
+            st.borrow_mut().lookup_left.curr_record_raised();
+        }
+        let r = r?;
         self.data_caption_after_trigger(st, name);
         self.ws_caption_after_trigger(st, name)?;
         self.show_ext_columns_after_first_open_row(st, name)?;
