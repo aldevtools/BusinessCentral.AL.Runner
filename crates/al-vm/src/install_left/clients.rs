@@ -36,6 +36,7 @@ pub(super) fn pages_as_new(p: &PageClients) -> bool {
         bg_worker,
         bg_reads,
         caption_dialogs,
+        caption_write_guard,
         bg_drain_after_call,
         page_xrec,
         modify_record_xrec,
@@ -58,6 +59,7 @@ pub(super) fn pages_as_new(p: &PageClients) -> bool {
         client_depth,
         code_close_vetoes,
         open_vetoed,
+        test_methods_started,
         onvalidate_pages,
     } = p;
     action_tally.is_none()
@@ -70,6 +72,7 @@ pub(super) fn pages_as_new(p: &PageClients) -> bool {
         && bg_worker.is_none()
         && bg_reads.is_empty()
         && *caption_dialogs == crate::pages::CaptionDialogs::default()
+        && caption_write_guard.is_none()
         && bg_drain_after_call.is_none()
         && page_xrec.is_none()
         && modify_record_xrec.is_empty()
@@ -92,6 +95,7 @@ pub(super) fn pages_as_new(p: &PageClients) -> bool {
         && *client_depth == 0
         && code_close_vetoes.is_empty()
         && open_vetoed.is_empty()
+        && *test_methods_started == 0
         && onvalidate_pages.is_empty()
 }
 

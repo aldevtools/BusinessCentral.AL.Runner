@@ -51,7 +51,7 @@ impl Session {
         if !visible {
             return self.caption_class_translate(text);
         }
-        let language = self.global_language;
+        let language = self.global_language();
         if text.is_empty()
             || self
                 .ui_caption_translated

@@ -25,6 +25,7 @@ mod package_data;
 mod partial_gone;
 mod placeholder_files;
 mod run_restore;
+mod session_language;
 pub mod single_track;
 mod single_unmeasured;
 mod state;
@@ -285,7 +286,7 @@ pub struct Engine {
     pub private_test_rows: bool,
     pub(crate) delete_subscribed: std::sync::OnceLock<std::collections::HashSet<String>>,
     /// What a run of a routine on a transient instance can leave behind (`effects.rs`), per (object, routine).
-    pub(crate) lasting_effects: std::sync::Mutex<std::collections::HashMap<(usize, usize), Option<effects::Effect>>>,
+    pub(crate) lasting_effects: std::sync::Mutex<std::collections::HashMap<(usize, usize), effects::Walked>>,
     /// What a run of a page's DataCaptionExpression can raise or leave behind (`effects/open_risk.rs`), per (object, routine).
     pub(crate) caption_open_risks: std::sync::Mutex<std::collections::HashMap<(usize, usize), Option<String>>>,
     /// Per object, per routine: what a call needs to know about the routine, found once (see [`RoutineFacts`]).
@@ -1164,6 +1165,8 @@ pub struct Session {
     /// The companies the run declared, the session company first (ADR-046 decision 2, `--companies`); empty for the
     /// default of one company.
     pub(crate) companies: Vec<String>,
+    /// Companies the selected test-data provider explicitly backs; this does not add companies to the host's declaration.
+    pub(crate) backed_companies: Vec<String>,
     /// (company, table) -> why the rows of a per-company table in a company other than the session company are not known
     /// (ADR-046 decision 6, `Session::mark_company_unknown`).
     pub(crate) company_unknown: std::collections::HashMap<(String, u32), String>,
@@ -1207,8 +1210,8 @@ pub struct Session {
     pub(crate) clock_draws: u64,
     /// The date `WorkDate(Date)` set; today until then.
     pub(crate) work_date: Option<i32>,
-    /// The language `GlobalLanguage(Id)` set.
-    pub(crate) global_language: i32,
+    /// The language `GlobalLanguage(Id)` set (`session_language.rs`).
+    pub(crate) global_language: session_language::SessionLanguage,
     /// What `CaptionClassTranslate` translated in this session: (class text, GlobalLanguage then, caption). Cleared by
     /// `SelectLatestVersion` (types/PSCaptionClass.al:94-115).
     pub(crate) caption_translations: Vec<(String, i32, String)>,
@@ -1307,11 +1310,19 @@ impl Session {
         let mut ident = platform::Ident::of(&host);
         let declared = host.identity.companies();
         let restored = match declared {
-            al_host::Companies::All => engine.test_data.as_ref().map(|td| td.provider.companies()),
+            al_host::Companies::All => engine
+                .test_data
+                .as_ref()
+                .map(|td| td.provider.known_companies().unwrap_or_else(|| td.provider.companies())),
             _ => None,
         };
         ident.resolve_companies(declared, restored);
         let companies = ident.companies.clone();
+        let backed_companies = engine
+            .test_data
+            .as_ref()
+            .and_then(|data| data.provider.known_companies())
+            .unwrap_or_default();
         let event_stats = Rc::new(platform::EventStats::default());
         let media = al_builtins::media::MediaStore::default();
         let mut store = al_data::memory::MemStore::with_virtual_tables(Rc::new(platform::Providers::new(
@@ -1332,10 +1343,9 @@ impl Session {
             .as_ref()
             .and_then(|td| td.provider.last_row_version())
             .map_or(0, |v| i64::try_from(v).unwrap_or(i64::MAX));
-        al_builtins::ops::set_turkic_code(al_builtins::native::is_turkic_language(host.identity.global_language()));
-        al_builtins::filter::set_filter_language(host.identity.global_language());
+        let language = host.identity.global_language();
         let mut session = Session {
-            global_language: host.identity.global_language(),
+            global_language: session_language::SessionLanguage::unset(),
             caption_translations: Vec::new(),
             ui_caption_translated: Vec::new(),
             get_load: false,
@@ -1347,6 +1357,7 @@ impl Session {
             waited_ms: 0,
             resource_reads: Default::default(),
             companies,
+            backed_companies,
             company_unknown: Default::default(),
             full_copies: Default::default(),
             run_trigger_unknown: None,
@@ -1518,6 +1529,7 @@ impl Session {
             coverage: CoverageState::default(),
             report: ReportState::default(),
         };
+        session.set_language(language);
         session.seed_platform_rows(&ident);
         session
     }
@@ -1544,6 +1556,7 @@ impl Session {
         self.tx.transaction_type = 0;
         self.tx.phase = crate::transactions::TxPhase::Fresh;
         self.tx.open.locks = Default::default();
+        self.pages.test_methods_started += 1;
     }
 
     /// Makes every change so far durable (and a Truncate of this transaction final).
@@ -1699,6 +1712,7 @@ impl Session {
                     failed_insert: None,
                     row_origin: None,
                     own_read: Default::default(),
+                    rolled_read: Default::default(),
                     probed_source: Default::default(),
                     globals: Default::default(),
                     unpinned_buffer: None,
@@ -1902,17 +1916,14 @@ impl Session {
     /// (`GlobalLanguage`) and WorkDate (`restore_carried` puts it back).
     pub fn carried_state(&self) -> CarriedState {
         CarriedState {
-            language: self.global_language,
+            language: self.global_language(),
             work_date: self.work_date,
         }
     }
 
     /// Puts back what [`Session::carried_state`] took (al-testrun `stopped_state.rs` decides when).
     pub fn restore_carried(&mut self, state: CarriedState) {
-        self.global_language = state.language;
-        self.events.event_stats.language.set(state.language);
-        al_builtins::ops::set_turkic_code(al_builtins::native::is_turkic_language(state.language));
-        al_builtins::filter::set_filter_language(state.language);
+        self.set_language(state.language);
         self.work_date = state.work_date;
     }
 
@@ -2744,7 +2755,7 @@ impl Session {
     /// German text for Code are not pinned and are refused.
     pub(crate) fn variant_to_text_error(&self, code: bool) -> Signal {
         let kind = if code { "NavCode" } else { "NavText" };
-        match (self.global_language, code) {
+        match (self.global_language(), code) {
             (1033, _) => crate::transactions::al_error_code(
                 &format!(
                     "The expression Microsoft.Dynamics.Nav.Runtime.NavIndirectValue cannot be type-converted to a Microsoft.Dynamics.Nav.Runtime.{kind} value."
