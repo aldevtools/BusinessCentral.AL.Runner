@@ -230,6 +230,10 @@ impl al_builtins::native::Ctx for Session {
         match rec {
             Some(Value::Record(rc)) => {
                 let rc = rc.clone();
+                // A Record write inside a CaptionClass expression whose runs have no pinned number (`pages/caption_runs.rs`).
+                if let Some(why) = self.caption_write_refusal(method) {
+                    return Err(Signal::unsupported(why));
+                }
                 let kind = crate::sequence_start::TableCall::Record {
                     find_last: method == al_builtins::record_op::RecordOp::FindLast,
                     set_range: method == al_builtins::record_op::RecordOp::SetRange,

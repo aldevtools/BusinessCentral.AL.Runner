@@ -1226,6 +1226,17 @@ fn clean(routine: &str) -> String {
     out
 }
 
+/// Runs `routine` and answers its text, asserting that it ran through assumption `var-option-heard-publisher` (corpus PR 1453, merged, not pinned yet).
+fn heard(routine: &str) -> String {
+    assumptions::clear_hits();
+    let out = text(al_testkit::run_in(SRC, "C", routine));
+    assert!(
+        assumptions::take_hits().contains(&assumptions::Assumption::VarOptionHeardPublisher),
+        "{routine}: not flagged"
+    );
+    out
+}
+
 fn refused(routine: &str, reason: &str) {
     match al_testkit::run_in(SRC, "C", routine) {
         Err(Signal::Unsupported(why)) => assert!(why.contains(reason), "{routine}: {why}"),
@@ -1380,16 +1391,15 @@ fn stores_into_an_element_without_a_caller_s_members_keep_the_number() {
     assert_eq!(clean("LocalMemberlessElementStores"), "2|2#1|1");
 }
 
-// Shapes of Base Application that Microsoft's tests reach and no probe measures: a memberless local to an event publisher
-// called directly (the purchase order page), a memberless `var` parameter handed on to a procedure's parameter with members
-// (batch posting), and a field whose OptionCaption names its members ("Item Entry Relation"). They refuse; the probes measure
-// a memberless caller handed to members only directly (OptionVarMemberLists.al:432), and only fields without OptionCaption.
+// Shapes of Base Application that Microsoft's tests reach and no probe measures: a memberless `var` parameter handed on to a
+// procedure's parameter with members (batch posting), and a field whose OptionCaption names its members ("Item Entry
+// Relation"). They refuse; the probes measure a memberless caller handed to members only directly
+// (OptionVarMemberLists.al:432), and only fields without OptionCaption. A memberless local handed directly to an event
+// publisher's parameter with members that a subscriber hears (the purchase order page) is measured since
+// (OptionVarMemberlessHeard.al:158, :161): the subscriber reads the publisher's member, the caller takes back its write.
 #[test]
 fn base_application_shapes_the_probes_do_not_measure_refuse() {
-    refused(
-        "MemberlessLocalToMembersPublisher",
-        "handed directly to an event publisher's",
-    );
+    assert_eq!(heard("MemberlessLocalToMembersPublisher"), "Second|1@2|2");
     refused(
         "NumericCaptionFieldToPublisher",
         "handed directly to an event publisher's",
