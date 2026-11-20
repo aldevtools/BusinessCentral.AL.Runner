@@ -313,14 +313,27 @@ fn import_file(body: &str) -> Result<String, Signal> {
     import_file_on(None, body)
 }
 
-/// A Word package as far as the import looks at it: a zip local file header.
-fn docx() -> Vec<u8> {
-    let mut b = vec![b'P', b'K', 3, 4];
-    b.extend_from_slice(b"word/document.xml");
+/// A Word package as far as the import looks at it: one zip local file header for the entry `first`, no data.
+pub(crate) fn package(first: &str) -> Vec<u8> {
+    let mut b = b"PK\x03\x04".to_vec();
+    b.extend_from_slice(&[20, 0, 0, 0, 8, 0, 0, 0, 0, 0]);
+    b.extend_from_slice(&[0; 12]);
+    b.extend_from_slice(&u16::try_from(first.len()).unwrap().to_le_bytes());
+    b.extend_from_slice(&[0, 0]);
+    b.extend_from_slice(first.as_bytes());
     b
 }
 
+fn docx() -> Vec<u8> {
+    package("[Content_Types].xml")
+}
+
 fn import_file_on(bc: Option<&str>, body: &str) -> Result<String, Signal> {
+    import_with_files(bc, &[], body)
+}
+
+/// Runs `body` as the procedure F of a codeunit with `Rec`, `T` (Tenant Media) and `id`, over the files below plus `extra`.
+pub(crate) fn import_with_files(bc: Option<&str>, extra: &[(&str, Vec<u8>)], body: &str) -> Result<String, Signal> {
     use al_host::FileSystem;
     let src = format!(
         "{TABLE}{TENANT_MEDIA}codeunit 50101 C {{ procedure F(): Text var Rec: Record \"ALT Media\"; T: Record \"Tenant Media\"; id: Guid; {body} }}"
@@ -342,6 +355,9 @@ fn import_file_on(bc: Option<&str>, body: &str) -> Result<String, Signal> {
     files.write("\\TEMP\\E.PNG", &png()).unwrap();
     files.write("\\TEMP\\t.docx", &docx()).unwrap();
     files.write("\\TEMP\\u.docx", &jpeg()).unwrap();
+    for (name, bytes) in extra {
+        files.write(name, bytes).unwrap();
+    }
     let target = bc.map(|bc| al_version::Target::for_bc(al_version::BcVersion::parse(bc).unwrap()));
     let engine = al_vm::Engine::with_target(l.program.clone(), al_testkit::blocked(&l), target);
     let mut s = Session::with_host(engine, al_host::Host::default().with_files(files));
@@ -466,57 +482,42 @@ fn media_set_import_file_third_member_is_refused() {
     );
 }
 
-// onprem streams/media/MediaFiles.al:461-517 RD_Media_ImportFile_Docx: a .docx file imports into a Media with its description, the Word
-// MIME type, width and height 0 and the path as File Name ('<tmp><name>'); on BC 27 and 28 the Tenant Media content and the
-// exported bytes are the file's. BC 29 on Linux stores a re-zipped package (a Linux suspect, :505-509 ignore it): there a look
-// at the row or at the export is refused.
-const DOCX_ROW: &str = "Rec.Code := 'A'; Rec.Insert(); T.Get(id); T.CalcFields(Content); exit(Format(id = Rec.Picture.MediaId()) + '|' + \
-                        Format(Rec.Picture.HasValue()) + '|' + T.Description + '|' + T.\"Mime Type\" + '|' + Format(T.Width) + 'x' + \
-                        Format(T.Height) + '|' + T.\"File Name\" + '|' + Format(T.Content.Length()));";
+// onprem streams/media/MediaFiles.al:470-526 RD_Media_ImportFile_Docx pins the import of a .docx file (HasValue Yes). What BC stores is
+// a re-zipped package on every major (corpus PR 1469, MediaDocxRezip.al:393 Docx_MediaImportFile_Stored, measured on Windows BC 27.5,
+// 28.5 and 29.0; the 27 and 28 lines of MediaFiles.al:521-523 expect the file's bytes, which Windows BC does not store): a look at the
+// row or at the export is refused on every major.
+const DOCX_ROW: &str =
+    "Rec.Code := 'A'; Rec.Insert(); T.Get(id); T.CalcFields(Content); exit(Format(T.Content.Length()));";
 
 #[test]
-fn import_file_of_a_docx_file_keeps_the_file_on_bc_28() {
-    let r = import_file_on(
-        Some("28.5"),
-        &format!("begin id := Rec.Picture.ImportFile('\\TEMP\\t.docx', 'Template'); {DOCX_ROW} end;"),
-    );
-    assert_eq!(
-        r.unwrap(),
-        "Yes|Yes|Template|application/vnd.openxmlformats-officedocument.wordprocessingml.document|0x0|\\TEMP\\t.docx|21"
-    );
-    let r = import_file_on(
-        Some("27.5"),
-        "Out: OutStream; InS: InStream; B: Record \"ALT Media\" temporary; t: Text; begin id := Rec.Picture.ImportFile('\\TEMP\\t.docx', 'x'); \
-         Rec.Code := 'A'; Rec.Insert(); Rec.Get('A'); B.Src.CreateOutStream(Out); Rec.Picture.ExportStream(Out); B.Src.CreateInStream(InS); \
-         InS.ReadText(t); exit(Format(B.Src.Length()) + '|' + CopyStr(t, 5, 4)); end;",
-    );
-    assert_eq!(r.unwrap(), "21|word");
-}
-
-#[test]
-fn import_file_of_a_docx_file_on_bc_29_refuses_a_look_at_its_bytes() {
-    let ok = import_file_on(
-        Some("29.0"),
-        "begin id := Rec.Picture.ImportFile('\\TEMP\\t.docx', 'Template'); Rec.Code := 'A'; Rec.Insert(); \
-         exit(Format(Rec.Picture.HasValue())); end;",
-    );
-    assert_eq!(ok.unwrap(), "Yes");
-    for body in [
-        format!("begin id := Rec.Picture.ImportFile('\\TEMP\\t.docx', 'Template'); {DOCX_ROW} end;"),
-        "Out: OutStream; B: Record \"ALT Media\" temporary; begin Rec.Picture.ImportFile('\\TEMP\\t.docx', 'x'); \
-         B.Src.CreateOutStream(Out); Rec.Picture.ExportStream(Out); exit(Format(B.Src.Length())); end;"
-            .into(),
-        // A .docx name over content that is no zip package.
-        "begin Rec.Picture.ImportFile('\\TEMP\\u.docx', 'x'); exit(''); end;".into(),
-    ] {
-        let r = import_file_on(Some("29.0"), &body);
-        assert!(matches!(&r, Err(Signal::Unsupported(_))), "{body}: {r:?}");
+fn import_file_of_a_docx_file_refuses_a_look_at_its_bytes_on_every_major() {
+    for bc in ["27.5", "28.5", "29.0"] {
+        let ok = import_file_on(
+            Some(bc),
+            "begin id := Rec.Picture.ImportFile('\\TEMP\\t.docx', 'Template'); Rec.Code := 'A'; Rec.Insert(); \
+             exit(Format(Rec.Picture.HasValue())); end;",
+        );
+        assert_eq!(ok.unwrap(), "Yes", "{bc}");
+        for body in [
+            format!("begin id := Rec.Picture.ImportFile('\\TEMP\\t.docx', 'Template'); {DOCX_ROW} end;"),
+            "Out: OutStream; InS: InStream; B: Record \"ALT Media\" temporary; s: Text; begin Rec.Picture.ImportFile('\\TEMP\\t.docx', 'x'); \
+             B.Src.CreateOutStream(Out); Rec.Picture.ExportStream(Out); B.Src.CreateInStream(InS); InS.ReadText(s); exit(s); end;"
+                .into(),
+            // A .docx name over content that is neither a zip package nor plain text.
+            "begin Rec.Picture.ImportFile('\\TEMP\\u.docx', 'x'); exit(''); end;".into(),
+        ] {
+            let r = import_file_on(Some(bc), &body);
+            assert!(
+                matches!(&r, Err(Signal::Unsupported(w)) if !w.contains("no callee")),
+                "{bc} {body}: {r:?}"
+            );
+        }
     }
 }
 
-// onprem streams/media/MediaFiles.al:490-509 RD_Media_ImportFile_Docx on BC 29: ExportStream of the imported .docx runs without an error
-// (the test passes there; only the bytes are ignored), as Config. XML Exchange.ExportMedia needs it in the DemoTool company build
-// (ConfigXMLExchange.Codeunit.al:1486). The stream is marked: a look at what it holds stays refused.
+// onprem streams/media/MediaFiles.al:500-502 RD_Media_ImportFile_Docx: ExportStream of the imported .docx runs without an error, as
+// Config. XML Exchange.ExportMedia needs it in the DemoTool company build (ConfigXMLExchange.Codeunit.al:1486). The stream is marked:
+// a look at what it holds stays refused.
 // Windows BC 29.0 probe (winprobe-wc6 cu 61288 SC_DemoTool_Media_ExportStream, case JD): Media.ExportStream of a JPEG that
 // Media.ImportFile read, with a JFIF header of units 1 and density 300 x 300 (the DemoTool's Person and item pictures), gives the
 // file's bytes. A JFIF header of units 0 is rewritten (case JS), so it stays refused, as on BC 28.
@@ -545,9 +546,9 @@ fn export_stream_of_a_300_dpi_jfif_jpeg_gives_the_file_bytes_on_bc_29() {
 }
 
 #[test]
-fn export_stream_of_a_docx_file_on_bc_29_runs_and_a_look_at_the_bytes_is_refused() {
+fn export_stream_of_a_docx_file_runs_and_a_look_at_the_bytes_is_refused() {
     let ok = import_file_on(
-        Some("29.0"),
+        Some("27.5"),
         "Out: OutStream; B: Record \"ALT Media\" temporary; begin Rec.Picture.ImportFile('\\TEMP\\t.docx', 'x'); \
          B.Code := 'B'; B.Insert(); B.Src.CreateOutStream(Out); Rec.Picture.ExportStream(Out); B.Modify(); exit('ran'); end;",
     );

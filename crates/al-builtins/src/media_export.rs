@@ -18,6 +18,18 @@ pub(crate) fn exports_unchanged(o: &MediaObject) -> bool {
         && !has_picture_signature(&o.bytes)
 }
 
+/// A Word package imported from a stream as `application/zip` without a file name comes back unchanged (corpus PR 1469, merged, not
+/// pinned yet: MediaDocxRezip.al:678 Docx_MediaImportStream_ZipMime, 'stored is the file' and 'export is the stored content' Yes on
+/// Windows BC 27.5, 28.5 and 29.0; assumption `media-zip-mime-export-kept`, which the caller marks). Other content with that MIME
+/// type, a file name or a file column keeps the refusal.
+pub(crate) fn zip_package_exports_unchanged(o: &MediaObject) -> bool {
+    o.mime == "application/zip"
+        && o.pending.is_none()
+        && o.file_column.is_none()
+        && o.file_name.is_empty()
+        && crate::media_word_package::is_package(&o.bytes)
+}
+
 /// PNG, JPEG, GIF, BMP, TIFF, ICO/CUR and WebP signatures.
 fn has_picture_signature(b: &[u8]) -> bool {
     const SIGNATURES: [&[u8]; 9] = [

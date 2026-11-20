@@ -450,11 +450,6 @@ pub enum Gate {
     /// Pages 2000000002 and 2000000004 narrow the same way from BC 28 (metadata/platform-tables/LicensePermissionRows.al:443,
     /// :448).
     LicensePermissionTopRangePageFrom28,
-    /// `Media.ImportFile` of a .docx file keeps the file's bytes as Tenant Media content and gives them back on export on BC 27
-    /// and 28; BC 29 on the Linux CI tier stores a re-zipped package (same parts, 919 bytes against 911), a Linux suspect the
-    /// corpus ignores (al-language-onprem/streams/media/MediaFiles.al:505-513, RD_Media_ImportFile_Docx; corpus bump 57). Consumed by
-    /// `al-builtins` media.rs: from 29 a look at the row or the export is refused.
-    DocxMediaRezippedFrom29,
     /// A page control bound to an Option field of another record variable of the page shows the field's OptionCaption from BC 29
     /// (Windows and the Linux CI legs); BC 27 and 28 show the member names on the Linux CI legs only, a Linux suspect whose Windows
     /// check is queued (pages/controls/SaOtherRecordControl.al:13-15, the BC29PLUS guards). Consumed by `al-vm`
@@ -622,7 +617,6 @@ impl Gate {
         Gate::QueryReadCommittedFrom29,
         Gate::TestRunnerHubRequiredIsolationFrom28,
         Gate::LicensePermissionTopRangePageFrom28,
-        Gate::DocxMediaRezippedFrom29,
         Gate::OtherRecordOptionCaptionFrom29,
         Gate::JpegMediaSetKeptFrom29,
         Gate::ExceptionTraceValueTaskFrameFrom29,
@@ -663,7 +657,6 @@ impl Gate {
             | Gate::CaseTimeZeroLabelFrom29
             | Gate::FlowFieldCountFilterBigIntegerFromIntegerFrom29
             | Gate::HttpBlankHeaderNameIsFormatFrom29
-            | Gate::DocxMediaRezippedFrom29
             | Gate::OtherRecordOptionCaptionFrom29
             | Gate::JpegMediaSetKeptFrom29
             | Gate::ThreeLineLeavesKeyTwiceAgainFrom29
@@ -731,7 +724,6 @@ impl Gate {
             | Gate::JsonSelectTokensListFrom28
             | Gate::EnvironmentPreviewRingsFrom28
             | Gate::FieldClassKeyFieldReferenceFrom28
-            | Gate::DocxMediaRezippedFrom29
             | Gate::MovedOntoDeletedStaysFrom28
             | Gate::MovedOntoDeletedRefreshesAgainFrom29
             | Gate::PlatformMetadataColumnsFrom29
@@ -1285,10 +1277,6 @@ impl Gate {
                     lines: "122,127",
                 },
             ],
-            Gate::DocxMediaRezippedFrom29 => &[Evidence {
-                file: "../al-language-onprem/streams/media/MediaFiles.al",
-                lines: "506,511",
-            }],
             Gate::DotNetRuntime10From29 => &[Evidence {
                 file: "../al-language-onprem-dotnet/dotnet/runonclient/BgRunOnClient.al",
                 lines: "443",

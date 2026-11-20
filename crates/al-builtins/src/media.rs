@@ -46,9 +46,6 @@ pub enum FileColumn {
     Bare(String),
 }
 
-/// The Tenant Media MIME type of an imported .docx file (MediaFiles.al:503).
-const DOCX_MIME: &str = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-
 /// The eight bytes every PNG starts with.
 const PNG_SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
 
@@ -239,7 +236,9 @@ fn pending_of(v: Option<&Value>) -> Option<std::sync::Arc<str>> {
     }
 }
 
-fn import_object(c: &mut dyn Ctx, a: &[Value]) -> Result<Id, Signal> {
+/// The media an ImportStream makes, or `None` when it makes none (`media_word_package::StreamImport::Nothing`, only into an empty
+/// Media: `empty_media`).
+fn import_object(c: &mut dyn Ctx, a: &[Value], empty_media: bool) -> Result<Option<Id>, Signal> {
     // ImportStream(Stream, Description[, MimeType[, FileName]]).
     let pending = pending_of(a.first());
     let bytes = match &pending {
@@ -268,6 +267,16 @@ fn import_object(c: &mut dyn Ctx, a: &[Value]) -> Result<Id, Signal> {
         Some(_) => text_arg(a, 3)?,
     };
     office_header_check(&bytes, &description, &mime, &file_name)?;
+    let file_name_given = !matches!(a.get(3), None | Some(Value::Null));
+    let word = match pending {
+        None => crate::media_word_package::stream_import(&bytes, &mime, file_name_given, empty_media)?,
+        Some(_) => None,
+    };
+    let pending = match word {
+        Some(crate::media_word_package::StreamImport::Nothing) => return Ok(None),
+        Some(crate::media_word_package::StreamImport::Rezipped) => Some(crate::stream::MEDIA_DOCX_REZIPPED.into()),
+        None => pending,
+    };
     let id = c.new_guid();
     // A PNG without a MIME type is `image/png`, and its Tenant Media row has its size (corpus
     // streams/media/PXMediaFileName.al: `Mime Type` is `image/png` also when it is omitted, 1 x 1).
@@ -291,7 +300,7 @@ fn import_object(c: &mut dyn Ctx, a: &[Value]) -> Result<Id, Signal> {
             pending,
         },
     );
-    Ok(id)
+    Ok(Some(id))
 }
 
 fn has_value(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
@@ -316,7 +325,7 @@ fn media_import(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out 
     // A field that already holds a media takes the new one (corpus streams/media/PXMediaFileName.al:
     // ImportStream_DescriptionOnly_AndEmptyDescription imports into the same field twice); what becomes
     // of the old media object is not pinned, it stays.
-    id_of(&r)?;
+    let empty = id_of(&r)? == [0; 16];
     // An empty stream imports no media: the field holds none afterwards (streams/StTMedia.al:MediaImportEmptyStream, `HasValue` No).
     // What the call answers is not pinned; the null Guid is assumed.
     if pending_of(a.first()).is_none()
@@ -328,12 +337,15 @@ fn media_import(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out 
         }
         return Ok(Value::Guid([0; 16]));
     }
-    let id = import_object(c, a)?;
+    let id = import_object(c, a, empty)?.unwrap_or([0; 16]);
     if let Some(slot) = r {
         *slot = Value::Guid(id);
     }
     Ok(Value::Guid(id))
 }
+
+/// `import_object` answers `None` only for an empty Media.
+const IMPORT_INTO_A_SET: &str = "an import into a MediaSet always makes a media";
 
 fn set_import(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let current = id_of(&r)?;
@@ -343,7 +355,7 @@ fn set_import(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
         if !store(c)?.sets.borrow().contains_key(&current) {
             return unsupported("MediaSet.ImportStream into a set the session does not hold (not pinned)");
         }
-        let member = import_object(c, a)?;
+        let member = import_object(c, a, false)?.expect(IMPORT_INTO_A_SET);
         store(c)?
             .sets
             .borrow_mut()
@@ -354,7 +366,7 @@ fn set_import(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     }
     // The set's own id is what the call returns and what MediaId answers; the member has another
     // (streams/media/TestMediaSetPersistence.al:127-155).
-    let member = import_object(c, a)?;
+    let member = import_object(c, a, false)?.expect(IMPORT_INTO_A_SET);
     let set = c.new_guid();
     store(c)?.sets.borrow_mut().insert(set, vec![member]);
     if let Some(slot) = r {
@@ -381,9 +393,9 @@ fn media_export(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out 
         }
         return unsupported("Media.ExportStream of a media the session does not hold");
     };
-    // A .docx imported on BC 29 exports without an error (streams/media/MediaFiles.al:490-509 RD_Media_ImportFile_Docx passes there and
-    // ignores only the bytes; Config. XML Exchange.ExportMedia in the DemoTool company build): the stream is marked with the
-    // import's mark, so a look at what it holds is refused.
+    // A Word package stored re-zipped exports without an error (streams/media/MediaFiles.al:500-502 RD_Media_ImportFile_Docx; Config. XML
+    // Exchange.ExportMedia in the DemoTool company build) and gives the stored bytes (corpus PR 1469, MediaDocxRezip.al:667 'export is the
+    // stored content'): the stream is marked with the import's mark, so a look at what it holds is refused (`media_word_package`).
     let docx_mark = obj.pending.as_deref() == Some(crate::stream::MEDIA_DOCX_REZIPPED);
     // A placeholder report output exports byte for byte with its mark (`placeholder_output`).
     if let Some(mark) = obj
@@ -415,8 +427,11 @@ fn media_export(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out 
             buf.written = true;
             buf.render_pending = Some(crate::stream::MEDIA_DOCX_REZIPPED.into());
         }
-        // The file's bytes come back on BC 27 and 28 (MediaFiles.al:510-512 'export length', 'export is the file').
-        LibraryValue::OutStream(blob, ..) if obj.mime == DOCX_MIME => crate::stream::write_bytes(blob, &obj.bytes),
+        // A Word package imported as application/zip comes back unchanged (media_export.rs).
+        LibraryValue::OutStream(blob, ..) if crate::media_export::zip_package_exports_unchanged(&obj) => {
+            crate::assumptions::assume(crate::assumptions::Assumption::MediaZipMimeExportKept);
+            crate::stream::write_bytes(blob, &obj.bytes)
+        }
         // A 300 dpi JFIF JPEG that Media.ImportFile read comes back unchanged on Windows BC 29.0 (probe cu 61288
         // SC_DemoTool_Media_ExportStream, case JD; the DemoTool's pictures). No corpus test pins it yet: a registered assumption
         // under the Microsoft-test exception (CLAUDE.md rule 3).
@@ -556,25 +571,32 @@ fn import_file_bytes(c: &mut dyn Ctx, a: &[Value]) -> Result<(String, Vec<u8>), 
 /// `Media.ImportFile(FileName, Description)`. A `.jpg` file holding a JPEG: the returned id is the media's, the Tenant Media
 /// row has the description, `image/jpeg`, the picture's size and the path as File Name (onprem streams/media/MediaFiles.al:293-340
 /// QX_MediaAndMediaSet_ImportFile_Jpeg, also for `.JPG`). A `.png` file holding a PNG is answered alike under the
-/// assumption `media-importfile-png`. Any other file is refused (which of content and extension decides is not pinned).
+/// assumption `media-importfile-png`. A Word document follows `media_word_package::media_import_file`. Any other file is refused
+/// (which of content and extension decides is not pinned).
 fn import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
-    id_of(&r)?;
+    let empty = id_of(&r)? == [0; 16];
     let (name, bytes) = import_file_bytes(c, a)?;
     let ext = name
         .rsplit_once('.')
         .map(|(_, e)| e.to_ascii_lowercase())
         .unwrap_or_default();
-    let (mime, (width, height)) = match (ext.as_str(), jpeg_size(&bytes), png_size(&bytes)) {
-        ("jpg", Some(size), _) => ("image/jpeg", size),
+    let word = crate::media_word_package::media_import_file(&name, &bytes, empty);
+    let (mime, (width, height)) = match (word, ext.as_str(), jpeg_size(&bytes), png_size(&bytes)) {
+        (Some(crate::media_word_package::FileImport::Nothing), ..) => {
+            if let Some(slot) = r {
+                *slot = Value::Guid([0; 16]);
+            }
+            return Ok(Value::Guid([0; 16]));
+        }
+        (Some(crate::media_word_package::FileImport::Rezipped(mime)), ..) => (mime, (0, 0)),
+        (None, "jpg", Some(size), _) => ("image/jpeg", size),
         // A .jpg holding a PNG: the name decides the MIME type, the PNG data the size (onprem streams/media/ReMediaJpgHoldingPng.al:108,
         // 'media tenant'). Its stored content is re-encoded, not pinned (`jpg_holding_png`).
-        ("jpg", None, Some(size)) if name.ends_with(".jpg") => ("image/jpeg", size),
-        ("png", _, Some(size)) => {
+        (None, "jpg", None, Some(size)) if name.ends_with(".jpg") => ("image/jpeg", size),
+        (None, "png", _, Some(size)) => {
             crate::assumptions::assume(crate::assumptions::Assumption::MediaImportFilePng);
             ("image/png", size)
         }
-        // A Word package: MediaFiles.al:461-517 RD_Media_ImportFile_Docx (width and height 0).
-        ("docx", _, _) if bytes.starts_with(b"PK\x03\x04") => (DOCX_MIME, (0, 0)),
         _ => {
             return unsupported(format!(
                 "Media.ImportFile of `{name}`: only a .jpg file holding a JPEG is pinned (what BC makes of other content or extensions is not)"
@@ -582,8 +604,7 @@ fn import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
         }
     };
     let description = text_arg(a, 1)?;
-    let pending = (mime == DOCX_MIME && c.gate(al_version::Gate::DocxMediaRezippedFrom29))
-        .then(|| crate::stream::MEDIA_DOCX_REZIPPED.into());
+    let pending = word.map(|_| crate::stream::MEDIA_DOCX_REZIPPED.into());
     let id = c.new_guid();
     store(c)?.objects.borrow_mut().insert(
         id,
@@ -616,7 +637,8 @@ fn bare_file_name(path: &str) -> &str {
 /// set of one member as Item(2), and the call returns the set's id, which MediaId answers and no item has; the id stays
 /// when a member joins (MediaFiles.al:394-447 RD_MediaSet_ImportFile_JpegThenUpperCasePng). A lower-case `.png` is
 /// answered alike under the assumption `media-importfile-png`. The File Name of the member's row is the bare file name
-/// (`FileColumn::Bare`). Any other file, a path with a `/`, and a set of two or more members, is refused.
+/// (`FileColumn::Bare`). A Word package follows `media_word_package::set_import_file`. Any other file, a path with a `/`, and a
+/// set of two or more members, is refused.
 fn set_import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let set = id_of(&r)?;
     let held = if set == [0; 16] {
@@ -634,12 +656,14 @@ fn set_import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> O
         ));
     }
     let ext = name.rsplit_once('.').map(|(_, e)| e).unwrap_or_default();
-    let (mime, (width, height)) = match (ext, jpeg_size(&bytes), png_size(&bytes)) {
-        (e, Some(size), _) if e.eq_ignore_ascii_case("jpg") => ("image/jpeg", size),
+    let word = crate::media_word_package::set_import_file(&name, &bytes, held);
+    let (mime, (width, height)) = match (word, ext, jpeg_size(&bytes), png_size(&bytes)) {
+        (Some(mime), ..) => (mime, (0, 0)),
+        (None, e, Some(size), _) if e.eq_ignore_ascii_case("jpg") => ("image/jpeg", size),
         // ReMediaJpgHoldingPng.al:108 'mediaset item 1 tenant': as for Media.ImportFile.
-        ("jpg", None, Some(size)) => ("image/jpeg", size),
-        ("PNG", _, Some(size)) => ("image/png", size),
-        (e, _, Some(size)) if e.eq_ignore_ascii_case("png") => {
+        (None, "jpg", None, Some(size)) => ("image/jpeg", size),
+        (None, "PNG", _, Some(size)) => ("image/png", size),
+        (None, e, _, Some(size)) if e.eq_ignore_ascii_case("png") => {
             crate::assumptions::assume(crate::assumptions::Assumption::MediaImportFilePng);
             ("image/png", size)
         }
@@ -663,7 +687,7 @@ fn set_import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> O
             file_column: Some(FileColumn::Bare(bare_file_name(&name).to_string())),
             width,
             height,
-            pending: None,
+            pending: word.map(|_| crate::stream::MEDIA_DOCX_REZIPPED.into()),
         },
     );
     media.sets.borrow_mut().entry(set).or_default().push(member);
