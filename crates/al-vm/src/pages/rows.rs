@@ -96,16 +96,16 @@ impl Session {
         let own_stage = st.borrow().field_captions_action_save;
         // `staged`: this fill is one of those, so it marks nothing; `runs`: how many times the host's run.
         let (staged, runs) = match (pinned && st.borrow().field_captions_opened, own_stage, host_stage) {
-            (true, 1, _) => (true, 1),
-            (true, 2, _) => {
-                st.borrow_mut().field_captions_action_save = 3;
+            (true, ActionSaveCaptions::Refreshing, _) => (true, 1),
+            (true, ActionSaveCaptions::Saved, _) => {
+                st.borrow_mut().field_captions_action_save = ActionSaveCaptions::Updated;
                 (true, 2)
             }
-            (true, _, Some(1)) => {
+            (true, _, Some(ActionSaveCaptions::Refreshing)) => {
                 st.borrow_mut().field_captions_fill_first = false;
                 return Ok(());
             }
-            (true, _, Some(3)) => (true, 1),
+            (true, _, Some(ActionSaveCaptions::Updated)) => (true, 1),
             _ => (false, 1),
         };
         let first = std::mem::take(&mut st.borrow_mut().field_captions_fill_first);
@@ -344,7 +344,7 @@ impl Session {
         st.borrow_mut().dirty = false;
         self.apply_data_caption_globals(st);
         self.calc_row_flowfields(st)?;
-        if !st.borrow().read_keeps_xrec {
+        if !st.borrow().refresh.keeps_xrec() {
             self.set_xrec(st);
         }
         self.populate_expressions(st)?;
@@ -451,7 +451,7 @@ impl Session {
         st.borrow_mut().view_read_to_end = false;
         st.borrow_mut().window_top_unread = false;
         st.borrow_mut().moved_rec_open_partial = None;
-        st.borrow_mut().read_up_from_last = None;
+        st.borrow_mut().read_up_from_last = ReadUpFromLast::Off;
         st.borrow_mut().opened_on_moved_rec = false;
         let rec = self.page_rec(st);
         // The rows of a page whose table holds a global filter (filter group 1) another record set: only a record that holds
@@ -735,7 +735,7 @@ impl Session {
         if (end_reached || (opening && self.declares(st, "onaftergetcurrrecord")))
             && !self.reads_as_part(st)
             && !one_row_read_once
-            && !st.borrow().lookup_next_plain
+            && !st.borrow().lookup_left.next_plain()
         {
             self.page_trigger(st, "onaftergetrecord", vec![])?;
         }
@@ -832,7 +832,7 @@ impl Session {
         let mut s = st.borrow_mut();
         s.window = above;
         s.reads_once_more_in = Some(at);
-        s.read_up_from_last = Some(false);
+        s.read_up_from_last = ReadUpFromLast::Opened;
         Ok(())
     }
 
@@ -1207,7 +1207,7 @@ impl Session {
         if self.open_new_list_untouched(st) {
             return self.move_on_open_new_list(how);
         }
-        if st.borrow().read_up_from_last.is_some() {
+        if st.borrow().read_up_from_last != ReadUpFromLast::Off {
             return unsupported(format!(
                 "{how}() on a list that opened on the last row of its descending view in a key other than the primary key (not pinned)"
             ));
@@ -1698,20 +1698,18 @@ impl Session {
     }
 
     /// A move on a plain list whose open read on the row its OnOpenPage left Rec on held more rows than a window
-    /// (`PageState::moved_rec_open_partial`: rows above its top row, rows below its bottom row left unread). Next and Previous
+    /// (`PageState::moved_rec_open_partial`: the edges with rows left unread behind them). Next and Previous
     /// inside the rows it holds read the row twice, then OnAfterGetCurrRecord; First and Last onto a held row the same; First
     /// with rows above left unread reads the top row it holds, steps up reading each row to the first of the view, reads that
     /// one again and runs OnAfterGetCurrRecord, and Last below the bottom row likewise (pages/long-list-open/
     /// Y37LongListTests.al:103-109 `next log` `R:26;R:26;C:26;`, `first log` `R:5;R:4;R:3;R:2;R:1;R:1;C:1;`, :142-149 Next on the
     /// last row `No` with an empty log, :246-249 `last log` `R:24;R:25;...;R:30;R:30;C:30;`). Moves past an edge with a second
     /// block of 20 unread rows, and Next or Previous off the rows held, are not pinned.
-    fn move_after_long_moved_rec_open(
-        &mut self,
-        st: &St,
-        how: PageMethod,
-        edges: (bool, bool),
-    ) -> Result<bool, Signal> {
-        let (top_unread, bottom_unread) = edges;
+    fn move_after_long_moved_rec_open(&mut self, st: &St, how: PageMethod, edges: UnreadEdges) -> Result<bool, Signal> {
+        let UnreadEdges {
+            above: top_unread,
+            below: bottom_unread,
+        } = edges;
         let rec = self.page_rec(st);
         let key = self.row_key(&rec)?;
         let len = st.borrow().window.len();
@@ -1754,11 +1752,11 @@ impl Session {
                 } else {
                     b.window.append(&mut new_rows);
                 }
-                if let Some((t, d)) = b.moved_rec_open_partial.as_mut() {
+                if let Some(e) = b.moved_rec_open_partial.as_mut() {
                     if up {
-                        *t = false;
+                        e.above = false;
                     } else {
-                        *d = false;
+                        e.below = false;
                     }
                 }
             }
@@ -2139,7 +2137,7 @@ impl Session {
                 return Ok(Value::Boolean(true));
             }
         }
-        if st.borrow().read_up_from_last.is_some() {
+        if st.borrow().read_up_from_last != ReadUpFromLast::Off {
             return self.go_to_key_from_the_last_row_read_up(st, &want);
         }
         self.refuse_descending_filtered_find_move(st)?;
@@ -2875,8 +2873,7 @@ impl Session {
     pub(super) fn answer_page(&mut self, st: &St, handler: Handler, modal: bool) -> Result<Value, Signal> {
         let (hobject, hroutine, hinst) = handler;
         let st = st.clone();
-        st.borrow_mut().test_close_vetoed = false;
-        st.borrow_mut().test_closed_in_handler = false;
+        st.borrow_mut().close.handler_started();
         let caught_before = self.caught_errors();
         self.ui_state.page_handler_depth += 1;
         let handled = self.call(hobject, hroutine, hinst, vec![page_value(&st)]);
@@ -2888,13 +2885,13 @@ impl Session {
             self.mark_closed(&st);
             return Err(e);
         }
-        if modal && std::mem::take(&mut st.borrow_mut().test_close_vetoed) {
+        if modal && st.borrow_mut().close.take_test_vetoed_in_handler() {
             // A TestPage.Close() the page's OnQueryClosePage refused in the handler: RunModal raises, no OnClosePage runs
             // (pages/triggers/PageModalQueryCloseVeto.al:167 Modal_HandlerClose_VetoAlways, :236
             // Modal_HandlerOkThenClose_VetoAlways). Only a veto by the page's own trigger is pinned.
             self.refuse_unpinned_modal_veto(&st)?;
             st.borrow_mut().modal = false;
-            let id = self.engine.program.objects[st.borrow().object as usize].id.unwrap_or(0);
+            let id = crate::object_ids::declared_id(self.engine.program.objects[st.borrow().object as usize].id)?;
             return Err(error_code(
                 format!("The RunModal procedure could not close the page {id} as it has already been closed."),
                 "TestCodeUnit",
@@ -2904,14 +2901,14 @@ impl Session {
         // and without a record (ui-handlers/CbHandlerTests.al:181 ModalHandler_CallsClose_RunModalOutcome), and a Page
         // variable's RunModal of a Card given SetRecord, whose Rec is the blank record without filters afterwards
         // (pages/currpage/UnopenedCurrPage.al:273 Update_Then_RunModal_Card_HandlerCloses `rec-after-close`).
-        let closed_in_handler = std::mem::take(&mut st.borrow_mut().test_closed_in_handler);
+        let closed_in_handler = st.borrow_mut().close.take_test_closed_in_handler();
         if modal && closed_in_handler && !self.relation_closed_in_handler(&st) {
             let page_type = self.engine.object_facts[st.borrow().object as usize]
                 .page_type_lower()
                 .to_string();
             let pinned = matches!(
-                (page_type.as_str(), st.borrow().run_static),
-                ("standarddialog", Some(true)) | ("card", Some(false))
+                (page_type.as_str(), st.borrow().modal_run),
+                ("standarddialog", ModalRun::Static) | ("card", ModalRun::Variable)
             );
             if !pinned {
                 return unsupported(
@@ -2930,7 +2927,7 @@ impl Session {
                     }
                 }
             }
-            let id = self.engine.program.objects[st.borrow().object as usize].id.unwrap_or(0);
+            let id = crate::object_ids::declared_id(self.engine.program.objects[st.borrow().object as usize].id)?;
             return Err(error_code(
                 format!("The RunModal procedure could not close the page {id} as it has already been closed."),
                 "TestCodeUnit",
@@ -2950,8 +2947,8 @@ impl Session {
                 // the last error is the veto's, and OnClosePage does not run (pages/triggers/
                 // PageModalQueryCloseVeto.al:275 Modal_HandlerDoesNothing_VetoAlways; after a vetoed OK or Cancel in the
                 // handler the platform asks once more with its own action, :129, :148, :255; the next run is a clean one, :309).
-                let vetoed = st.borrow().close_vetoed;
-                if !(modal && (st.borrow().close_error || vetoed)) {
+                let vetoed = st.borrow().close.vetoed();
+                if !(modal && (st.borrow().close.error() || vetoed)) {
                     return unsupported("a page whose OnQueryClosePage refused the platform's close");
                 }
                 if vetoed {

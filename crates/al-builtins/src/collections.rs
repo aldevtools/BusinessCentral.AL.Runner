@@ -92,9 +92,14 @@ pub const REGISTRY: &[(&str, NativeFn)] = &[
         }
         read_list(r, |l| {
             refuse_unmeasured_search(l, &a[0], "LastIndexOf")?;
-            Ok(Value::Integer(
-                l.iter().rposition(|x| eq(x, &a[0])).map_or(0, |p| p as i32 + 1),
-            ))
+            let mut at = 0;
+            for (i, x) in l.iter().enumerate().rev() {
+                if eq(x, &a[0])? {
+                    at = i as i32 + 1;
+                    break;
+                }
+            }
+            Ok(Value::Integer(at))
         })
     }),
     ("List.Insert#1", |_, r, a| {
@@ -115,7 +120,7 @@ pub const REGISTRY: &[(&str, NativeFn)] = &[
             let at = if dictionary {
                 position_checked(l, &a[0])?
             } else {
-                position(l, &a[0])
+                position(l, &a[0])?
             };
             Ok(Value::Boolean(match at {
                 Some(p) => {
@@ -363,7 +368,7 @@ fn find_key(d: &[(Value, Value)], key: &Value, member: &str) -> Result<Option<us
                 "Dictionary.{member} with a key of {kind}: how BC compares them is not measured"
             )));
         }
-        if eq(k, key) {
+        if eq(k, key)? {
             return Ok(Some(i));
         }
     }
@@ -448,8 +453,16 @@ fn is_xml_handle(v: &Value) -> bool {
     }
 }
 
-fn eq(a: &Value, b: &Value) -> bool {
-    compare(a, b).ok() == Some(Ordering::Equal)
+/// Whether `a` equals `b` for a search of a List or a Dictionary. Every comparison `compare` refuses refuses the search:
+/// a SQL counter value (al-runner issue 7859), a placeholder's size, a value of an unknown column, a marked text, and two
+/// values of a kind `compare` cannot order (two ModuleInfo, ErrorInfo or SecretText values). Answering "not equal" there
+/// would be a guess. A comparison that fails with an AL error counts as not equal, as before.
+fn eq(a: &Value, b: &Value) -> Result<bool, Signal> {
+    match compare(a, b) {
+        Ok(o) => Ok(o == Ordering::Equal),
+        Err(refusal @ Signal::Unsupported(_)) => Err(refusal),
+        Err(_) => Ok(false),
+    }
 }
 
 /// `Contains` and `IndexOf`: a list of interfaces does not support them, and two lists are the same list or cannot be compared
@@ -493,11 +506,16 @@ fn position_checked(l: &[Value], v: &Value) -> Result<Option<usize>, Signal> {
         }
         return Ok(None);
     }
-    Ok(position(l, v))
+    position(l, v)
 }
 
-fn position(l: &[Value], v: &Value) -> Option<usize> {
-    l.iter().position(|x| eq(x, v))
+fn position(l: &[Value], v: &Value) -> Result<Option<usize>, Signal> {
+    for (i, x) in l.iter().enumerate() {
+        if eq(x, v)? {
+            return Ok(Some(i));
+        }
+    }
+    Ok(None)
 }
 
 fn error_code<T>(message: &str, code: &str) -> Result<T, Signal> {

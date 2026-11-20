@@ -360,8 +360,9 @@ mod walk_parts;
 pub(crate) mod ws_trigger_order;
 pub(crate) use shown::ShownNote;
 pub(crate) use state::{
-    ClosedBy, ControlRef, ControlTarget, Cursor, LiteralClassesAtOpen, LookupKind, OpenEditable, PageMode, PageState,
-    ReadBackwards, WindowRow, control_of, into_st, page_value, st_of, test_control,
+    ActionSaveCaptions, ChainRefill, ClosedBy, ControlRef, ControlTarget, Cursor, LiteralClassesAtOpen, LookupKind,
+    ModalRun, OpenEditable, PageMode, PageState, ReadBackwards, ReadUpFromLast, UnreadEdges, WindowRow, control_of,
+    into_st, page_value, st_of, test_control,
 };
 
 impl Session {

@@ -1,10 +1,9 @@
-//! The shapes corpus PR 1439 measured (tests/al-language/types/enum-option/OptionVarMemberlessWrites.al and
-//! OptionVarMemberlessCallers.al, the same on BC 28.5 and 29.0) through assumption `var-option-caller-members`: a `var`
+//! The shapes tests/al-language/types/enum-option/OptionVarMemberlessWrites.al and OptionVarMemberlessCallers.al pin: a `var`
 //! parameter declared without members stands for the caller's variable. It reads the caller's members while the call runs,
 //! keeps them when the routine stores into it or clears it, and the caller has its own members after the call. Each AL
 //! procedure below cites the probe test it stands in for; the expected texts are the probe's, joined with `@`.
 
-use al_builtins::assumptions::{self, Assumption};
+use al_builtins::assumptions;
 use al_builtins::native::Signal;
 use al_testkit::text;
 
@@ -315,6 +314,18 @@ codeunit 69840 C
     begin
         Publisher.OnWithMembers(Value, true, Seen);
         exit(Seen + '#' + F(Value));
+    end;
+
+    // OptionVarMemberlessCallers.al:290 (al-runner issue 8316): BC shows the caption, Two|1.
+    procedure EventCaptionFieldMembersPublisher(): Text
+    var
+        Publisher: Codeunit Publisher;
+        Seen: Text;
+        Row: Record Row;
+    begin
+        Row.OptCap := Row.OptCap::Second;
+        Publisher.RaiseWithMembers(Row.OptCap, false, Seen);
+        exit(Seen);
     end;
 
     // OptionVarMemberlessCallers.al:290 with the publisher called directly.
@@ -1208,23 +1219,10 @@ codeunit 69840 C
 }
 "#;
 
-fn assumed(routine: &str) -> String {
-    assumptions::clear_hits();
-    let out = text(al_testkit::run_in(SRC, "C", routine));
-    assert!(
-        assumptions::take_hits().contains(&Assumption::VarOptionCallerMembers),
-        "{routine}: not flagged"
-    );
-    out
-}
-
 fn clean(routine: &str) -> String {
     assumptions::clear_hits();
     let out = text(al_testkit::run_in(SRC, "C", routine));
-    assert!(
-        !assumptions::take_hits().contains(&Assumption::VarOptionCallerMembers),
-        "{routine}: flagged"
-    );
+    assert!(assumptions::take_hits().is_empty(), "{routine}: flagged");
     out
 }
 
@@ -1239,38 +1237,35 @@ fn refused(routine: &str, reason: &str) {
 #[test]
 fn callers_passed_by_value_and_named_return_values() {
     assert_eq!(
-        assumed("ByValueParamToMemberlessVar"),
+        clean("ByValueParamToMemberlessVar"),
         "Second|Second|1#Second#Second|1#Yes|Third|2#Third@Second|1"
     );
+    assert_eq!(clean("ByValueParamToOtherMembersVar"), "B|B|1#Second#Third|2@Second|1");
     assert_eq!(
-        assumed("ByValueParamToOtherMembersVar"),
-        "B|B|1#Second#Third|2@Second|1"
-    );
-    assert_eq!(
-        assumed("ByValueArrayElement"),
+        clean("ByValueArrayElement"),
         "Second|Second|1#Second#Second|1@Second|1@Second|Second|1#Third|2#Third|2@Second|1"
     );
-    assert_eq!(assumed("NamedReturnValue"), "Second|Second|1#Second#Second|1@Second|1");
-    assert_eq!(assumed("ByValueRecordField"), "Second|Second|1#Second|1@Second|1");
-    assert_eq!(assumed("ByValueMemberlessToMembersVar"), "1#Second|Second|1#1@Second|1");
+    assert_eq!(clean("NamedReturnValue"), "Second|Second|1#Second#Second|1@Second|1");
+    assert_eq!(clean("ByValueRecordField"), "Second|Second|1#Second|1@Second|1");
+    assert_eq!(clean("ByValueMemberlessToMembersVar"), "1#Second|Second|1#1@Second|1");
 }
 
 // OptionVarMemberlessCallers.al:196, :229, :249, :311, :332, :353
 #[test]
 fn event_subscribers_without_members_read_the_caller_s_members() {
     assert_eq!(
-        assumed("ByValueParamToPublishers"),
+        clean("ByValueParamToPublishers"),
         "Second|1#Second#Third|2@Second|1@Second|1#Second#Third|2@Second|1"
     );
-    assert_eq!(assumed("EventGlobalMemberless"), "Second|1@Second|1@Third|2");
-    assert_eq!(assumed("EventGlobalMembers"), "Second|1@Second|1@Third|2");
-    assert_eq!(assumed("EventLocalFieldMembersPublisher"), "Second|1@Second|1@Third|2");
+    assert_eq!(clean("EventGlobalMemberless"), "Second|1@Second|1@Third|2");
+    assert_eq!(clean("EventGlobalMembers"), "Second|1@Second|1@Third|2");
+    assert_eq!(clean("EventLocalFieldMembersPublisher"), "Second|1@Second|1@Third|2");
     assert_eq!(
-        assumed("EventGlobalRecordFieldMemberlessPublisher"),
+        clean("EventGlobalRecordFieldMemberlessPublisher"),
         "Second|1@Second|1@Third|2"
     );
     assert_eq!(
-        assumed("EventLocalArrayElementMemberlessPublisher"),
+        clean("EventLocalArrayElementMemberlessPublisher"),
         "Second|1@Second|1@Third|2"
     );
 }
@@ -1286,53 +1281,53 @@ fn interface_methods_read_the_caller_s_members() {
         "InterfaceGlobalRecordField",
         "InterfaceGlobalArrayElement",
     ] {
-        assert_eq!(assumed(routine), measured, "{routine}");
+        assert_eq!(clean(routine), measured, "{routine}");
     }
 }
 
 // OptionVarMemberlessWrites.al:112, :130, :162, :212, :226, :250, :269, :293, :309
 #[test]
 fn stores_into_the_parameter_keep_the_caller_s_members() {
-    assert_eq!(assumed("AssignThenFormatInside"), "Second|Second|1@Second|1|Second");
-    assert_eq!(assumed("EvalResultThird"), "Yes|Third|2@Third@");
-    assert_eq!(assumed("EvalResultThirdLower"), "Yes|Third|2@Third@");
-    assert_eq!(assumed("EvalResult2"), "Yes|Third|2@Third@");
-    assert_eq!(assumed("EvalResultNope"), "No|Second|1@Second@");
-    assert_eq!(assumed("EvalTryThird"), "Yes@Third|2@@@Third|2");
+    assert_eq!(clean("AssignThenFormatInside"), "Second|Second|1@Second|1|Second");
+    assert_eq!(clean("EvalResultThird"), "Yes|Third|2@Third@");
+    assert_eq!(clean("EvalResultThirdLower"), "Yes|Third|2@Third@");
+    assert_eq!(clean("EvalResult2"), "Yes|Third|2@Third@");
+    assert_eq!(clean("EvalResultNope"), "No|Second|1@Second@");
+    assert_eq!(clean("EvalTryThird"), "Yes@Third|2@@@Third|2");
     assert_eq!(
-        assumed("EvalTryNope"),
+        clean("EvalTryNope"),
         "No@not reached@'Nope' is not an option. The existing options are: First,Second,Third@InvalidOptionString@Second|1"
     );
     assert_eq!(
-        assumed("EvalTryEmpty"),
+        clean("EvalTryEmpty"),
         "No@not reached@'' is not an option. The existing options are: First,Second,Third@InvalidOptionString@Second|1"
     );
-    assert_eq!(assumed("AssignThenEvaluateStatement"), "Third|2@Third|2");
+    assert_eq!(clean("AssignThenEvaluateStatement"), "Third|2@Third|2");
     assert_eq!(
-        assumed("ClearInside"),
+        clean("ClearInside"),
         "First|0@First|0@First|0@First|0@Second|1@Second|1"
     );
-    assert_eq!(assumed("AssignThenHop"), "Second|Second|1@Second@Yes|Third|2@Third");
+    assert_eq!(clean("AssignThenHop"), "Second|Second|1@Second@Yes|Third|2@Third");
     assert_eq!(
-        assumed("StoreOtherOption"),
+        clean("StoreOtherOption"),
         "Third|2@Third|2@Third|2@Third|2@Third|2@Third|2"
     );
     assert_eq!(
-        assumed("GlobalReadDuringCall"),
+        clean("GlobalReadDuringCall"),
         "Second|Second|1@Second|Second|1@Second|1"
     );
-    assert_eq!(assumed("CallerReaders"), "Second|Second|Second");
+    assert_eq!(clean("CallerReaders"), "Second|Second|Second");
 }
 
 // OptionVarMemberlessWrites.al:411, :447 (the fields without OptionCaption)
 #[test]
 fn fields_of_a_var_record_parameter_and_of_rec() {
     assert_eq!(
-        assumed("VarRecordParamField"),
+        clean("VarRecordParamField"),
         "Second|Second|1#Second#Second|Second|1@Second|1"
     );
     assert_eq!(
-        assumed("RecFieldOwnTable"),
+        clean("RecFieldOwnTable"),
         "Second|Second|1#Second|Second|1#Second@Second|1@Second|Second|1#Second|Second|1#Second@Second|1"
     );
 }
@@ -1353,7 +1348,7 @@ fn an_element_a_memberless_store_left_without_members() {
     ] {
         refused(routine, DROPPED);
     }
-    assert_eq!(assumed("DroppedClearedThenSame"), "2|2@Third|2@Third|2");
+    assert_eq!(clean("DroppedClearedThenSame"), "2|2@Third|2@Third|2");
     // An element of a fresh array declared with members holds its list: main's store, not flagged.
     assert_eq!(clean("FreshElementStore"), "Second|Third");
     assert_eq!(clean("FreshArrayClear"), "First|Third");
@@ -1362,24 +1357,21 @@ fn an_element_a_memberless_store_left_without_members() {
 // OptionVarMemberlessWrites.al:472, :496, :513, :530, :551, :568
 #[test]
 fn arrays_of_options_without_members() {
-    assert_eq!(assumed("VarArrayStoreOtherThenMemberless"), "Third|2@Third|2@2|2@2|2");
+    assert_eq!(clean("VarArrayStoreOtherThenMemberless"), "Third|2@Third|2@2|2@2|2");
     // The caller assigns the element its memberless store left without members (OVMW:483): refused, see
     // `an_element_a_memberless_store_left_without_members`.
     refused(
         "VarArrayStoreOtherOption",
         "a store into an element of an array of Options declared with members that holds none",
     );
-    assert_eq!(assumed("VarArrayClearAll"), "First|0#First|0#Second|1@Second|1@First|0");
+    assert_eq!(clean("VarArrayClearAll"), "First|0#First|0#Second|1@Second|1@First|0");
     assert_eq!(
-        assumed("VarArrayClearElement"),
+        clean("VarArrayClearElement"),
         "First|0#Third|2#Second|1@Second|1@Third|2"
     );
-    assert_eq!(
-        assumed("VarArrayCopyArray"),
-        "Second|1#Second|1@Second|1@2|2#1|1@2|2@1|1"
-    );
-    assert_eq!(assumed("LocalCopyToMemberless"), "Second|1@Second|1");
-    assert_eq!(assumed("ByValueMemberlessArray"), "Second|1#Third|2@Second|1");
+    assert_eq!(clean("VarArrayCopyArray"), "Second|1#Second|1@Second|1@2|2#1|1@2|2@1|1");
+    assert_eq!(clean("LocalCopyToMemberless"), "Second|1@Second|1");
+    assert_eq!(clean("ByValueMemberlessArray"), "Second|1#Third|2@Second|1");
 }
 
 // An element of a memberless local array that holds no caller's members takes the number, as on main.
@@ -1431,6 +1423,12 @@ fn caption_fields_and_var_parameters_with_members_refuse() {
     refused(
         "DirectCaptionFieldToMembersPublisher",
         "caller the probe does not measure",
+    );
+    // OptionVarMemberlessCallers.al:290 through RaiseWithMembers (al-runner issue 8316): the subscriber would show the member
+    // name, BC shows the caption.
+    refused(
+        "EventCaptionFieldMembersPublisher",
+        "from a caller the probe does not measure",
     );
     for routine in [
         "EventMembersVarParamMemberlessPublisher",

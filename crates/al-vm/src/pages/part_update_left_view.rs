@@ -5,7 +5,7 @@
 //! refused until the refresh runs.
 //!
 //! The answer is decided once, when the Update is asked (`note_part_update_left_view`, by `ask_update_refresh`), and kept in
-//! `PageState::update_left_view` with the keys of the held rows; rows the test stores after that keep the answer from the held
+//! `RefreshRequest::update_left_view` (`state/refresh.rs`) with the keys of the held rows; rows the test stores after that keep the answer from the held
 //! rows, as before, and so does a step that read the part's rows again (a host action, the test's own `Filter.SetFilter`). It cannot
 //! tell who changed the rows before the Update was asked: rows the test stored then refuse too.
 //!
@@ -20,11 +20,11 @@ use super::*;
 use al_builtins::page_op::PageMethod;
 
 impl Session {
-    /// Sets `update_left_view` of part `st` to the keys of the held rows as its own `CurrPage.Update` is asked: the client holds
+    /// Sets the refresh request's `update_left_view` of part `st` to the keys of the held rows as its own `CurrPage.Update` is asked: the client holds
     /// rows read from the start of the view, the part reads its rows from that view, and the view now starts with other rows (or
     /// with more rows, when the held rows were the whole view).
     pub(super) fn note_part_update_left_view(&mut self, st: &St) -> Result<(), Signal> {
-        st.borrow_mut().update_left_view = None;
+        st.borrow_mut().refresh.set_update_left_view(None);
         let (held, short) = {
             let s = st.borrow();
             if s.host.is_none() || !s.open || !s.window_from_start || s.window.is_empty() {
@@ -48,7 +48,7 @@ impl Session {
                 .zip(&held)
                 .all(|(row, key)| Self::same_key(&table.primary_key(row), key));
         if !same {
-            st.borrow_mut().update_left_view = Some(held);
+            st.borrow_mut().refresh.set_update_left_view(Some(held));
         }
         Ok(())
     }
@@ -65,11 +65,10 @@ impl Session {
     ) -> Result<(), Signal> {
         let waits = {
             let s = st.borrow();
-            s.refresh
-                && s.refresh_by_update
+            s.refresh.asked_by_update()
                 && s.open
                 && s.window_from_start
-                && s.update_left_view.as_ref().is_some_and(|held| {
+                && s.refresh.update_left_view().is_some_and(|held| {
                     held.len() == s.window.len() && held.iter().zip(&s.window).all(|(k, w)| Self::same_key(k, &w.key))
                 })
         };

@@ -145,6 +145,7 @@ impl RunInputs {
             timings: _,
             // Observation of the run: statements counted, values captured. The outcomes are the same.
             coverage: _,
+            coverage_hit_only: _,
             capture: _,
             isolation,
             required_isolation,
@@ -178,6 +179,7 @@ impl RunInputs {
             dotnet_timeout_secs,
             test_timeout_secs,
             skip_after_timeout,
+            stop_after_first_failure,
             // Without a usable .NET the run stops: no outcome is stored.
             require_dotnet: _,
             require_report_renderer,
@@ -288,6 +290,9 @@ impl RunInputs {
         // A test over the limit is not run.
         r.outcome.push(("test_timeout_secs", text(test_timeout_secs)));
         r.outcome.push(("skip_after_timeout", text(skip_after_timeout)));
+        // A test after a failure is not run.
+        r.outcome
+            .push(("stop_after_first_failure", text(stop_after_first_failure)));
         // A save that needs the renderer refuses without it.
         r.outcome
             .push(("require_report_renderer", text(require_report_renderer)));
@@ -433,7 +438,7 @@ mod tests {
     type Change = fn(&mut TestArgs, &Path);
 
     /// One change per outcome input, by the name `RunInputs::of` gives it. The path is a file that exists.
-    const CHANGES: [(&str, Change); 42] = [
+    const CHANGES: [(&str, Change); 43] = [
         ("country", |a, _| a.country = Some("de".into())),
         ("bc_version", |a, _| a.bc_version = Some("27.5".into())),
         ("isolation", |a, _| {
@@ -472,6 +477,7 @@ mod tests {
         ("dotnet_timeout_secs", |a, _| a.dotnet_timeout_secs = Some(5)),
         ("test_timeout_secs", |a, _| a.test_timeout_secs = Some(5)),
         ("skip_after_timeout", |a, _| a.skip_after_timeout = true),
+        ("stop_after_first_failure", |a, _| a.stop_after_first_failure = true),
         ("require_report_renderer", |a, _| a.require_report_renderer = true),
         ("files_dir", |a, f| a.files_dir = Some(f.to_path_buf())),
         ("license", |a, f| a.license = Some(f.to_path_buf())),

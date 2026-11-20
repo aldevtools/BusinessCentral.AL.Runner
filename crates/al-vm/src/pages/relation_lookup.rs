@@ -220,7 +220,7 @@ impl Session {
         let table_def = self.table(&picked)?;
         let pos = pos.unwrap_or(table_def.keys[0][0]);
         let value = picked.borrow().fields[pos].clone();
-        st.borrow_mut().refresh = false;
+        st.borrow_mut().refresh.cancel();
         // The control's OnAfterLookup(Selected: RecordRef) runs with the picked row before the value is written, so Rec still holds
         // the old value (pages/pages-xmlports-upload-members/P112Pages.al:P112_Lookup_BasePageField_OK `base afterLookup sel=B rec=[]`,
         // P112_Lookup_ExtensionField_OK, P112_Lookup_ViewMode).
