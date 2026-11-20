@@ -1574,3 +1574,126 @@ fn the_base_variant_with_the_single_instance_check_matches_a_strict_order_run() 
     assert_ne!(outcomes(&rts[1]), want, "the fresh variant differs");
     assert_eq!(outcomes(&rts[0]), want);
 }
+
+/// Issue 8593 shape: every codeunit a chain member (RequiredTestIsolation = Disabled). `Lane Carry Refused` is refused
+/// while it runs (the order of `æ` is not measured, issue 8195), so what it left is not known; `Lane Carry Counter`
+/// counts the rows after it and reads the flag `Lane Carry Setter` left.
+const CARRY_AFTER_REFUSED: &str = r#"
+table 60810 "Lane Carry Row" { fields { field(1; Name; Text[30]) { } } keys { key(PK; Name) { } } }
+codeunit 60810 "Lane Carry Writer"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    [Test] procedure WritesCarryNames() var R: Record "Lane Carry Row";
+    begin R.Name := 'Alpha'; R.Insert(); R.Name := 'ærø'; R.Insert(); R.Name := 'Bravo'; R.Insert(); end;
+}
+codeunit 60811 "Lane Carry Setter"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    [Test] procedure SetsCarryFlag() var S: Codeunit "Lane State"; begin S.SetFlag('left'); end;
+}
+codeunit 60812 "Lane Carry Refused"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    [Test] procedure RefusedLastName() var S: Codeunit "Lane State"; R: Record "Lane Carry Row";
+    begin
+        if S.GetFlag() = '' then;
+        R.FindLast();
+        Error('last=%1', R.Name);
+    end;
+}
+codeunit 60813 "Lane Carry Counter"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    [Test] procedure CountsCarriedRows() var S: Codeunit "Lane State"; R: Record "Lane Carry Row";
+    begin
+        if S.GetFlag() = '' then;
+        Error('count=%1 flag=%2', R.Count(), S.GetFlag());
+    end;
+}
+"#;
+
+/// Al-runner issue 8593: a chain member after a member that was refused while it ran reads what that member left, which
+/// is not known (`run.rs` `carry_disabled`): it is refused in the lane as in the walk, not run from the install baseline.
+#[test]
+fn a_lane_member_after_a_refused_member_is_refused_as_in_the_walk() {
+    let opts = RunOptions {
+        required_isolation: true,
+        strict_order: true,
+        test_suites: Some(std::sync::Arc::new(
+            al_testrun::test_suites::TestSuites::parse("S: 60810 60811 60812 60813").expect("a valid suites file"),
+        )),
+        ..Default::default()
+    };
+    let rt = runtime_opts(CARRY_AFTER_REFUSED, STATE, &opts);
+    let counter = rt
+        .results()
+        .iter()
+        .find(|r| r.test == "CountsCarriedRows")
+        .map(|r| r.outcome.clone());
+    assert!(
+        matches!(&counter, Some(Outcome::NotRun(why)) if why.contains("Lane Carry Refused") && why.contains("not pinned")),
+        "{counter:?}"
+    );
+    let lane = &rt.phases.chain.single_lane;
+    assert!(lane.rerun >= 1, "{:?}", lane);
+}
+
+/// Issue 8594 shape: a chain member (`Lane Outside Writer`, RequiredTestIsolation = Disabled) and, outside the chain,
+/// a codeunit that sets the flag and two that count the writer's rows and read the flag.
+const OUTSIDE_READERS: &str = r#"
+table 60820 "Lane Outside Row" { fields { field(1; Name; Text[30]) { } } keys { key(PK; Name) { } } }
+codeunit 60820 "Lane Outside Writer"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    [Test] procedure WritesOutsideNames() var R: Record "Lane Outside Row";
+    begin R.Name := 'Alpha'; R.Insert(); R.Name := 'Bravo'; R.Insert(); R.Name := 'Charlie'; R.Insert(); end;
+}
+codeunit 60821 "Lane Outside Setter"
+{
+    Subtype = Test;
+    [Test] procedure SetsOutsideFlag() var S: Codeunit "Lane State"; begin S.SetFlag('left'); end;
+}
+codeunit 60822 "Lane Outside Reader A"
+{
+    Subtype = Test;
+    [Test] procedure CountsOutsideRowsA() var S: Codeunit "Lane State"; R: Record "Lane Outside Row";
+    begin
+        if S.GetFlag() = '' then;
+        Error('count=%1 flag=%2', R.Count(), S.GetFlag());
+    end;
+}
+codeunit 60823 "Lane Outside Reader B"
+{
+    Subtype = Test;
+    [Test] procedure CountsOutsideRowsB() var S: Codeunit "Lane State"; R: Record "Lane Outside Row";
+    begin
+        if S.GetFlag() = '' then;
+        Error('count=%1 flag=%2', R.Count(), S.GetFlag());
+    end;
+}
+"#;
+
+/// Al-runner issue 8594: a codeunit outside the chain that reads a table a member wrote sees the member's rows in the
+/// lane as in the re-run after the parallel part (QuCommitIsolation.al:711-760 QU_D11_NextCodeunitSees), with the flag
+/// the lane hands on.
+#[test]
+fn a_lane_reader_outside_the_chain_sees_the_rows_a_member_left() {
+    let opts = RunOptions {
+        required_isolation: true,
+        strict_order: true,
+        ..Default::default()
+    };
+    let rt = runtime_opts(OUTSIDE_READERS, STATE, &opts);
+    for t in ["CountsOutsideRowsA", "CountsOutsideRowsB"] {
+        let o = rt.results().iter().find(|r| r.test == t).map(|r| r.outcome.clone());
+        assert!(
+            matches!(&o, Some(Outcome::Fail(m)) if m == "count=3 flag=left"),
+            "{t}: {o:?}"
+        );
+    }
+}

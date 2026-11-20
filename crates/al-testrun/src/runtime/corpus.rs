@@ -1629,13 +1629,10 @@ impl CorpusRuntime {
                     .iter()
                     .rev()
                     .find(|(si, id, leg, _)| sees(*si, *id, *leg, &units[k]));
-                let after = before.map(|(_, _, leg, c)| (After::new(&engine, lowered, c, units[k].oi), *leg));
-                if let Some((after, leg)) = after.filter(|(a, _)| a.read(&r)) {
+                let after = before.map(|(_, _, leg, c)| (After::new(&engine, lowered, c, units[k].oi, *leg), c));
+                if let Some((after, c)) = after.filter(|(a, _)| a.read(&r)) {
                     let storage = after.reaches_storage();
-                    let refused = after
-                        .refusal(&r)
-                        .cloned()
-                        .or_else(|| super::carry_after::handlers_unpinned(lowered, units[k].oi, leg));
+                    let refused = after.outside_refusal(&r).cloned();
                     match refused {
                         Some(why) => {
                             if let Ok(done) = &mut r.result {
@@ -1643,14 +1640,13 @@ impl CorpusRuntime {
                             }
                         }
                         None => {
-                            units[k].leak = None;
                             // The run again is the one reported, so `--explain` names its site.
                             let (si, id) = (units[k].si, units[k].id);
                             let mut observe = |name: &str, _: &Outcome, seen: &Observed| {
                                 details.insert((si, id, name.to_lowercase()), observed_detail(lowered, seen));
                             };
                             let trace: Option<&mut Observer> = opts.trace.then_some(&mut observe);
-                            r = run_unit(&engine, lowered, after.start(), &units[k], trace, limit);
+                            r = run_unit(&engine, lowered, c.baseline.as_ref(), &units[k], trace, limit);
                             chain_report.reruns.push(super::ChainEntry {
                                 id,
                                 name: lowered.program.objects[units[k].oi].name.clone(),

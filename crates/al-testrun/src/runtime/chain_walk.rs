@@ -235,8 +235,8 @@ impl ChainWalk<'_> {
                     if let Some(l) = left.as_mut().filter(|l| l.baseline.is_none()) {
                         l.baseline = start.cloned();
                     }
-                    if let Some((_, _, _, b)) = before {
-                        let why = After::new(engine, lowered, b, units[k].oi).refusal(&r).cloned();
+                    if let Some((_, _, leg, b)) = before {
+                        let why = After::new(engine, lowered, b, units[k].oi, *leg).refusal(&r).cloned();
                         if let (Some(why), Ok(done)) = (why, &mut r.result) {
                             refuse_all(&mut done.0, &why);
                         }
