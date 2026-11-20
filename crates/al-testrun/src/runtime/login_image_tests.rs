@@ -98,7 +98,7 @@ fn a_planted_difference_in_the_twin_is_reported() {
     let line = image_line_of(&[MAIN]);
     crate::login_replay::TWIN_PLANT.with(|p| p.set(None));
     assert!(
-        line.contains("round trips 1, 1 differ (session state 1; first: session state 1: "),
+        line.contains("round trips 1, 1 differ (session state 1; first: session state 1); per key: "),
         "{line}"
     );
 }
