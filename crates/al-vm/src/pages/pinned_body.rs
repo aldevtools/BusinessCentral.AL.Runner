@@ -300,6 +300,25 @@ pub(super) fn page_reads_as(
     page_lines(program, object, callees).is_some_and(|have| names.lines_are(&have, want))
 }
 
+/// Whether the globals of report `object` after its data item records read, line for line, as `want`, each written
+/// `var SomeFilter: Text`: the slots between the report's hidden request page flag (`ir::Report::request_flag_slot`) and the
+/// request page's `CurrPage` (`ir::Page::curr_page_slot`), the declared globals and then the request page's own variables
+/// (al-sema `lower/shared.rs` lays them out in that order).
+pub(super) fn report_globals_are(program: &ir::Program, object: usize, want: &[&str], names: &mut Names) -> bool {
+    let o = &program.objects[object];
+    let (Some(r), Some(page)) = (o.report.as_ref(), o.page.as_ref()) else {
+        return false;
+    };
+    let Some(declared) = o.globals.get(r.request_flag_slot + 1..page.curr_page_slot) else {
+        return false;
+    };
+    let have: Option<Vec<String>> = declared
+        .iter()
+        .map(|g| Some(format!("var {}: {}", g.name, type_text(program, &g.ty)?)))
+        .collect();
+    have.is_some_and(|have| names.lines_are(&have, want))
+}
+
 /// Whether table `object` reads, line for line, as `want` (`table_lines`), and nothing subscribes to its events.
 pub(super) fn table_is(
     engine: &crate::Engine,
