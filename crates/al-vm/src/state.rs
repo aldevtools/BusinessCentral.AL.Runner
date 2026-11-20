@@ -338,6 +338,9 @@ pub(crate) struct PageClients {
     pub(crate) named_false_insert: bool,
     /// The open that starts next is a TestPage's own OpenEdit, OpenView or OpenNew (taken by `open_page_as`).
     pub(crate) test_open: bool,
+    /// How many test methods the runner started in this session (`Session::start_test_method`): a page records it at each open
+    /// (`PageState::opened_in_test_method`).
+    pub(crate) test_methods_started: u32,
     /// Set by a FindFirst or FindLast that found a row on Rec in the OnOpenPage of a page an action opened through
     /// RunPageLink (`records.rs`); taken by `open_page_as` into `PageState::run_page_link_open_moved`.
     pub(crate) run_page_link_open_moved: bool,
