@@ -1226,7 +1226,7 @@ fn clean(routine: &str) -> String {
     out
 }
 
-/// Runs `routine` and answers its text, asserting that it ran through assumption `var-option-heard-publisher` (corpus PR 1453).
+/// Runs `routine` and answers its text, asserting that it ran through assumption `var-option-heard-publisher` (corpus PR 1453, merged, not pinned yet).
 fn heard(routine: &str) -> String {
     assumptions::clear_hits();
     let out = text(al_testkit::run_in(SRC, "C", routine));

@@ -1044,7 +1044,7 @@ fn a_heard_publisher_outside_the_measured_contract_refuses() {
     }
 }
 
-// Corpus PR 1453 cells added for the review of PR 8391 (OptionVarMemberlessHeard.al:444, :493, :548): a variable of the
+// Corpus PR 1453 (merged, not pinned yet) cells added for the review of PR 8391 (OptionVarMemberlessHeard.al:444, :493, :548): a variable of the
 // routine's `var` section with another list length, holding a number past the publisher's list or below 0, and
 // subscribers that store 7 or -1, SingleInstance codeunits, both skip flags, two subscribers in both run orders.
 #[test]
