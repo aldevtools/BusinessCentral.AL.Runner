@@ -1159,14 +1159,14 @@ impl Session {
             for c in &parts {
                 c.borrow_mut().field_captions_link_refill = true;
                 if self.chain_part_in_factbox(c) {
-                    c.borrow_mut().chain_refill = 1;
+                    c.borrow_mut().chain_refill = ChainRefill::Skipped;
                 }
             }
             let r = self.sync_parts(st);
             for c in &parts {
                 c.borrow_mut().field_captions_link_refill = false;
-                if c.borrow().chain_refill == 1 {
-                    c.borrow_mut().chain_refill = 2;
+                if c.borrow().chain_refill == ChainRefill::Skipped {
+                    c.borrow_mut().chain_refill = ChainRefill::AwaitingKey;
                 }
             }
             r?;

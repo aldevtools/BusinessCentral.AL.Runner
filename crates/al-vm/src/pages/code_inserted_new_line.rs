@@ -255,7 +255,7 @@ impl Session {
         let (open_edit, run_modal) = {
             let s = st.borrow();
             let run_modal = s.modal
-                && s.run_static == Some(true)
+                && s.modal_run == ModalRun::Static
                 && s.statement_run
                 && s.static_run_record
                 && !s.lookup
@@ -408,7 +408,7 @@ impl Session {
     pub(super) fn refuse_error_after_landing(&mut self, st: &St, e: Signal) -> Signal {
         let landed = {
             let s = st.borrow();
-            s.refresh_from_code_inserted_line
+            s.refresh.starts_from_code_inserted_line()
                 || !matches!(s.code_inserted_save, CodeInsertedSave::Off)
                 || matches!(
                     s.code_inserted_row.as_ref().map(|r| r.factbox),
@@ -653,7 +653,7 @@ impl Session {
     fn ask_code_inserted_refresh(&mut self, st: &St, assumption: Assumption) -> Result<(), Signal> {
         let key = self.row_key(&self.page_rec(st))?;
         let mut s = st.borrow_mut();
-        s.refresh_from_code_inserted_line = true;
+        s.refresh.land_on_code_inserted_line();
         let calls = s.test_calls.len();
         // A SetValue on the row of the page with code keeps the count of its steps (`coded_refresh`).
         let factbox = match s.code_inserted_row.as_ref().map(|r| r.factbox) {

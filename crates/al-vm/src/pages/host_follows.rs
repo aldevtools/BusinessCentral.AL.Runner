@@ -29,14 +29,13 @@ impl Session {
         b: bool,
     ) -> Result<(), Signal> {
         let r = self.refresh_parts_asked_by_host(st, waiting, a, b);
-        st.borrow_mut().host_followed_part = false;
+        st.borrow_mut().lookup_left.host_refreshed_parts();
         r
     }
 
     /// Next on the unlinked ListPart is pinned after a TestField.Lookup: pending, run by a part's move, or cancelled.
     pub(super) fn host_follows_part_pinned(&self, root: &St) -> bool {
-        let r = root.borrow();
-        r.lookup_refresh_deferred || r.lookup_refresh_used || r.lookup_cancelled
+        root.borrow().lookup_left.deferred_used_or_cancelled()
     }
 
     /// The linked ListPart of `host` (the one with a SubPageLink) when `host` has exactly two ListParts and one is linked.
@@ -87,7 +86,7 @@ impl Session {
         if let (Some(globals), Some(i)) = (saved.2, host.borrow().instance.as_ref()) {
             i.borrow_mut().globals = globals;
         }
-        host.borrow_mut().host_followed_part = true;
+        host.borrow_mut().lookup_left.host_followed_part();
         r
     }
 
@@ -99,7 +98,7 @@ impl Session {
 
     /// Close of a host that read the row of its unlinked ListPart: the linked part and the host read the row they stand on.
     pub(super) fn close_after_host_followed_part(&mut self, host: &St) -> Result<(), Signal> {
-        if !std::mem::take(&mut host.borrow_mut().host_followed_part) {
+        if !host.borrow_mut().lookup_left.take_host_followed() {
             return Ok(());
         }
         let Some(linked) = self.linked_part_of(host) else {
