@@ -17,6 +17,9 @@ use al_builtins::ops;
 use al_builtins::value::{QueryRow, QueryRun, QueryState, RtType, Value};
 use al_data::TableDef;
 use al_ir as ir;
+
+/// The refusal of a query over the Field table other than `Query.Open` of one Field data item and no trigger.
+const FIELD_TABLE_QUERY_REFUSAL: &str = "a query over the Field table other than Query.Open of one Field data item and no trigger (not measured; docs/probes-needed.md, relation-field-no-readers)";
 use rust_decimal::Decimal;
 use std::cell::RefCell;
 use std::cmp::Ordering;
@@ -245,6 +248,7 @@ impl Session {
                     "DB:Ok",
                 ))
             }
+            "Open" if self.field_table_query(def) => unsupported(FIELD_TABLE_QUERY_REFUSAL),
             "Open" => {
                 // Opening an open query is not an error (queries/TestQueryRuntimeContracts.al:
                 // Query_StateMisuse_DoesNotThrow); once rows were read what it does is not pinned.
@@ -1054,10 +1058,15 @@ impl Session {
         self.engine.program.objects[table].id == Some(crate::platform::relation_field_no_readers::FIELD_TABLE)
     }
 
+    /// Whether a data item of query `def` is the Field table.
+    fn field_table_query(&self, def: &ir::Query) -> bool {
+        def.items.iter().any(|i| self.field_table_object(i.table))
+    }
+
     /// `Query.Open` of query object `object` raises 'A query cannot be based on a virtual table. ...' (code DB:Ok) when its one
     /// data item is the Field table and it has no trigger: plain columns, a run-time filter on RelationFieldNo, a
     /// DataItemTableFilter and a ColumnFilter on it alike (corpus PR 1477, FieldRelationFieldNoReaders.al:27-73, :327-353; assumption
-    /// relation-field-no-readers). Every other query over the Field table is refused in `query_rows`.
+    /// relation-field-no-readers). Every other query over the Field table is refused at Open and in `query_rows`.
     fn field_table_query_open(&self, def: &ir::Query, object: usize) -> bool {
         let one_field_item = matches!(def.items.as_slice(), [item] if self.field_table_object(item.table));
         let triggers = self.engine.program.objects[object]
@@ -1085,10 +1094,8 @@ impl Session {
             gate?;
         }
         // A query over the Field table that Open did not refuse (`field_table_query_open`): not measured.
-        if def.items.iter().any(|i| self.field_table_object(i.table)) {
-            return unsupported(
-                "a query over the Field table other than Query.Open of one Field data item and no trigger (not measured; docs/probes-needed.md, relation-field-no-readers)",
-            );
+        if self.field_table_query(def) {
+            return unsupported(FIELD_TABLE_QUERY_REFUSAL);
         }
         let stamps = self.query_stamps(def);
         for (table, _) in &stamps {

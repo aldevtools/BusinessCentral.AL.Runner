@@ -80,6 +80,7 @@ mod explain_site;
 mod failure_after_left_binding;
 mod field_extension_package_ids;
 mod field_relation_field_no;
+mod field_relation_field_no_reader_neighbors;
 mod field_relation_field_no_readers;
 mod filtergroup_or;
 mod find_list_descending;

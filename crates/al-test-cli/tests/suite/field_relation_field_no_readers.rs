@@ -1,6 +1,7 @@
 //! al-runner issue 8249: the readers of Field.RelationFieldNo other than a Record variable for a TableRelation without a field.
 //! The ones corpus PR 1477 measured (FieldRelationFieldNoReaders.al) run under the assumption relation-field-no-readers, every
-//! other one refuses, and a temporary Field record, another column and a named field keep main's result.
+//! other one refuses. A temporary Field record keeps what AL wrote into it, another column and a named field keep main's result,
+//! and a Record variable's reads are not touched by the assumption (pinned by FieldRelationFieldNo.al:161-260).
 //!
 //! Needs `System.app` of the pinned build in the artifact cache (`al_testfiles`).
 
@@ -399,8 +400,8 @@ fn assert_flagged_pass(o: &[(String, Outcome, Vec<Assumption>)], names: &[&str])
     }
 }
 
-/// The measured readers pass flagged; the unmeasured ones refuse; another column, a named field, a temporary Field record and
-/// a Record read keep main's clean result.
+/// The measured readers pass flagged; the unmeasured ones refuse; another column, a named field and a temporary Field record
+/// keep main's clean result, and a Record read passes clean under the pin (FieldRelationFieldNo.al:161-260).
 #[test]
 fn issue_8249_relation_field_no_readers() {
     let o = run(&[(APP_ID, AppKind::Workspace, SRC)]);

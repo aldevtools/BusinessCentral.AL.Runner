@@ -64,10 +64,9 @@ impl Session {
                 | RecordOp::FindSet
                 | RecordOp::Next
                 | RecordOp::Count
-                | RecordOp::CountApprox
                 | RecordOp::IsEmpty
         ) {
-            self.relation_field_no_recordref_scan(rec)?;
+            self.relation_field_no_recordref_scan(rec, op)?;
         }
         let outer = std::mem::replace(&mut self.through_recordref, true);
         let r = self.record_op_of_al(op, rec, args);

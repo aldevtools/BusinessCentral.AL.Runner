@@ -158,6 +158,25 @@ impl Session {
         Some(self.format_record_fields(&rec, only))
     }
 
+    /// `Format(FieldRef, Length, 1 | 2 | 9)` reads the field as `FieldRef.Value` does: the no-field RelationFieldNo 0 of the
+    /// Field table is refused there as `Format` (`relation_field_no_readers`).
+    pub(crate) fn format_fieldref_value_read(&self, fr: &Value) -> Result<(), Signal> {
+        let Value::Library(_, l) = fr else {
+            return Ok(());
+        };
+        let (rec, pos) = match &*l.borrow() {
+            al_builtins::value::LibraryValue::FieldRef(r, p) | al_builtins::value::LibraryValue::KeyFieldRef(r, p) => {
+                (r.clone(), *p)
+            }
+            _ => return Ok(()),
+        };
+        self.relation_field_no_row_read(
+            &rec,
+            Some(pos),
+            crate::platform::relation_field_no_readers::Reader::Format,
+        )
+    }
+
     fn format_record_fields(&self, rec: &Rc<RefCell<RecordState>>, only: Option<usize>) -> Result<String, Signal> {
         const SYSTEM_FIELD_BASE: u32 = 2_000_000_000;
         let t = self.table(rec)?;
