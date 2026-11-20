@@ -1011,14 +1011,7 @@ impl Session {
             let r = rec.borrow();
             (r.table as usize, r.temporary)
         };
-        let id = self
-            .engine
-            .program
-            .objects
-            .heads()
-            .get(object)
-            .and_then(|o| o.id)
-            .unwrap_or(0);
+        let id = self.object_id_of(object as u32)?;
         let ops: &[Op] = if write {
             &[Op::Insert, Op::Modify, Op::Delete]
         } else {
@@ -1339,7 +1332,7 @@ impl Session {
         if self.permission_autocalc {
             return Ok(());
         }
-        let id = self.engine.program.objects.heads()[table].id.unwrap_or(0);
+        let id = crate::object_ids::declared_id(self.engine.program.objects.heads()[table].id)?;
         let access = Access {
             kind: 0,
             id,
@@ -1405,7 +1398,7 @@ impl Session {
             if let Some(t) = table {
                 accesses.push(Access {
                     kind: 1,
-                    id: self.engine.program.objects.heads()[t].id.unwrap_or(0),
+                    id: crate::object_ids::declared_id(self.engine.program.objects.heads()[t].id)?,
                     op: Op::Execute,
                 });
             }
@@ -1430,7 +1423,7 @@ impl Session {
     #[cold]
     #[inline(never)]
     pub(crate) fn permission_flowfield_off_page(&mut self, table: usize) -> Result<bool, Signal> {
-        let id = self.engine.program.objects.heads()[table].id.unwrap_or(0);
+        let id = crate::object_ids::declared_id(self.engine.program.objects.heads()[table].id)?;
         let access = Access {
             kind: 0,
             id,
@@ -1476,7 +1469,7 @@ impl Session {
 
     fn object_read_inner(&mut self, tables: &[usize]) -> Result<(), Signal> {
         for &table in tables {
-            let id = self.engine.program.objects.heads()[table].id.unwrap_or(0);
+            let id = crate::object_ids::declared_id(self.engine.program.objects.heads()[table].id)?;
             let access = Access {
                 kind: 0,
                 id,
@@ -1533,14 +1526,7 @@ impl Session {
         if temporary {
             return Ok(());
         }
-        let id = self
-            .engine
-            .program
-            .objects
-            .heads()
-            .get(object)
-            .and_then(|o| o.id)
-            .unwrap_or(0);
+        let id = self.object_id_of(object as u32)?;
         if op == Op::Read && ALWAYS_READABLE.contains(&id) {
             return Ok(());
         }
@@ -1887,6 +1873,10 @@ impl Session {
 
     /// `CountApprox` answers as `Count`. The gate ran for CountApprox, so `Count` passes it again with the same answer.
     pub(crate) fn count_approx(&mut self, rec: &crate::records::Rec) -> Result<al_builtins::value::Value, Signal> {
+        // The Count below would raise a deferred Insert error as Count does; for CountApprox that is not measured.
+        if !rec.borrow().temporary {
+            self.refuse_unmeasured_read_while_deferred(rec.borrow().table as usize, "CountApprox")?;
+        }
         self.permission_from_al = self.permission_checks();
         self.record_op(al_builtins::record_op::RecordOp::Count, rec, &mut [])
     }

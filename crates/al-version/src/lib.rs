@@ -89,14 +89,20 @@ impl BcVersion {
 
     /// The run's version once the Microsoft apps were found: `build` is that build (`29.1.57326.58275`). The minor follows
     /// it, so a major-only `--bc-version 29` on a 29.1 build is the target `29.1` names (al-runner issue 8209). A build of
-    /// another major leaves the minor as it was.
-    pub fn resolved_to(&mut self, build: &str) {
-        if let Ok(b) = BcVersion::parse(build)
-            && b.major == self.major
-        {
+    /// another major is an error: the run would answer from the lists of a major the apps do not come from (al-runner
+    /// issue 8243).
+    pub fn resolved_to(&mut self, build: &str) -> Result<(), String> {
+        if let Ok(b) = BcVersion::parse(build) {
+            if b.major != self.major {
+                return Err(format!(
+                    "the Microsoft apps come from build {build} (BC {}), but the run targets BC {}; name the build to run on with --bc-version",
+                    b.major, self.major
+                ));
+            }
             self.minor = b.minor;
         }
         self.build = Some(build.to_string());
+        Ok(())
     }
 
     /// True when `prefix` (`27`, `27.5`) is a whole-segment prefix of this
@@ -282,7 +288,7 @@ mod tests {
         let build = "29.1.57326.58275";
         for asked in ["29", "29.1", build] {
             let mut t = Target::for_bc(bc(asked));
-            t.bc.resolved_to(build);
+            t.bc.resolved_to(build).unwrap();
             assert_eq!(
                 (t.bc.major, t.bc.minor, t.bc.to_string()),
                 (29, 1, build.to_string()),
@@ -292,12 +298,21 @@ mod tests {
         }
         // Neighbor: a 29.0 build keeps main's 29.0 rows.
         let mut t = Target::for_bc(bc("29"));
-        t.bc.resolved_to("29.0.54011.56262");
+        t.bc.resolved_to("29.0.54011.56262").unwrap();
         assert_eq!(feature_key_rows(Some(&t)), Some(FeatureKeyRows::Bc29));
-        // A build of another major leaves the minor as main did; the build string is still recorded.
-        let mut t = Target::for_bc(bc("29"));
-        t.bc.resolved_to("28.5.54151.58194");
-        assert_eq!((t.bc.major, t.bc.minor), (29, 0));
+    }
+
+    // al-runner issue 8243: Microsoft apps of another major than the target's stop the run with both versions named, so
+    // no reader of the minor answers from the list of a major the apps do not come from.
+    #[test]
+    fn a_build_of_another_major_is_an_error_that_names_both() {
+        let mut t = Target::for_bc(bc("28"));
+        let e = t.bc.resolved_to("27.5.46862.58057").unwrap_err();
+        assert!(e.contains("27.5.46862.58057") && e.contains("BC 28"), "{e}");
+        // Neighbor: a build of the same major still sets the minor.
+        let mut t = Target::for_bc(bc("28"));
+        t.bc.resolved_to("28.5.54151.58194").unwrap();
+        assert_eq!((t.bc.major, t.bc.minor), (28, 5));
     }
 
     #[test]

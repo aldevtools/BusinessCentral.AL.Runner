@@ -56,10 +56,10 @@ impl Session {
     pub(super) fn read_chain_parts_skipped_at_refill(&mut self, st: &St) -> Result<(), Signal> {
         let pending: Vec<(usize, St)> = Self::open_parts_with_hidden(st)
             .into_iter()
-            .filter(|(_, c)| c.borrow().chain_refill == 2)
+            .filter(|(_, c)| c.borrow().chain_refill == ChainRefill::AwaitingKey)
             .collect();
         for (i, c) in pending {
-            c.borrow_mut().chain_refill = 0;
+            c.borrow_mut().chain_refill = ChainRefill::Off;
             let linked = {
                 let engine = self.engine();
                 page_of(&engine, st).controls[i]
@@ -361,12 +361,12 @@ impl Session {
             s.open
                 && s.cursor == Cursor::Row
                 && !s.draft
-                && !s.refresh
+                && !s.refresh.asked()
                 && !s.save_record_called
                 && Self::same_values(&self.page_rec(st).borrow().fields, rec_before)
                 && Self::open_parts_with_hidden(st)
                     .iter()
-                    .all(|(_, c)| !c.borrow().refresh && !c.borrow().save_record_called)
+                    .all(|(_, c)| !c.borrow().refresh.asked() && !c.borrow().save_record_called)
         };
         let linked_by_fields = before.journal.is_some() || {
             let engine = self.engine();

@@ -599,7 +599,9 @@ fn walk_expr<V: RefVisitor>(e: &mut Expr, v: &mut V) {
             }
             walk_args(args, v);
         }
-        Expr::TddFit { inner, .. } | Expr::FitOrRefuse { inner, .. } => walk_expr(inner, v),
+        Expr::TddFit { inner, .. } | Expr::FitOrRefuse { inner, .. } | Expr::VarSectionValue(inner) => {
+            walk_expr(inner, v)
+        }
         Expr::TddStub { stub: _, args, ty } => {
             if let Some(t) = ty {
                 walk_rt(t, v);
@@ -1146,6 +1148,7 @@ fn walk_report_item<V: RefVisitor>(i: &mut ReportItem, parent: TableOf, v: &mut 
         max_iteration: _,
         print_only_if_detail: _,
         calc_fields,
+        stated_properties: _,
     } = i;
     let own = TableOf::object(*table);
     for f in calc_fields {
@@ -1169,6 +1172,7 @@ fn walk_report_column<V: RefVisitor>(c: &mut ReportColumn, table: TableOf, v: &m
         field,
         item_field,
         include_caption: _,
+        stated_properties: _,
         caption_table,
         caption_field,
         value_unsupported: _,
@@ -1211,6 +1215,8 @@ fn walk_report<V: RefVisitor>(r: &mut Report, v: &mut V) {
         caption: _,
         caption_attributes: _,
         format_region: _,
+        excel_multiple_data_sheets: _,
+        declares_globals: _,
         about_title: _,
         about_text: _,
         layout: _,

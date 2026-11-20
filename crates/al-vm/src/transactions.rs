@@ -36,6 +36,10 @@ pub(crate) struct UsedTry {
     world: usize,
     /// `Codeunit.Run` calls begun inside the call that have not ended.
     runs: usize,
+    /// The number of frames when the call began: the TryFunction's own frame is at this index.
+    frame: usize,
+    /// The TryFunction called (object, routine).
+    routine: (usize, usize),
 }
 
 /// The `[CommitBehavior(...)]` in force for the dynamic extent of a procedure.
@@ -127,12 +131,17 @@ pub(crate) fn al_error(message: &str) -> Signal {
     al_error_code(message, "")
 }
 
-/// `Session::tx_phase`: nothing of the transaction has run yet.
-pub(crate) const TX_FRESH: u8 = 0;
-/// `Session::tx_phase`: a read call has started the transaction.
-pub(crate) const TX_READ: u8 = 1;
-/// `Session::tx_phase`: a write call has started the transaction.
-pub(crate) const TX_WRITE: u8 = 2;
+/// How far the open transaction has started (`TxState::phase`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub(crate) enum TxPhase {
+    /// Nothing of the transaction has run yet.
+    #[default]
+    Fresh,
+    /// A read call has started the transaction.
+    Read,
+    /// A write call has started the transaction.
+    Write,
+}
 
 pub(crate) fn al_error_code(message: &str, code: &str) -> Signal {
     Signal::Error(Box::new(AlError {
@@ -240,22 +249,26 @@ impl Session {
     /// a change, whatever the caller has pending (testpage/TestPageBgTaskTx_Tests.al:
     /// RunPageBackgroundTask_WorkerIsOutsideCallersWriteTransaction).
     ///
-    /// A lock starts it too (`TxState::lock_tx`, codeunits/TestCodeunitRunWriteTransaction.al:211-278); after a lock whose
-    /// effect is not pinned (`TxState::lock_unpinned`) the answer is refused unless a write or a pinned lock opened it.
+    /// A lock starts it too (`TxLocks::lock_tx`, codeunits/TestCodeunitRunWriteTransaction.al:211-278); after a lock whose
+    /// effect is not pinned (`TxLocks::lock_unpinned`) the answer is refused unless a write or a pinned lock opened it.
     pub(crate) fn in_write_transaction(&self) -> Result<bool, Signal> {
         // A write call starts the transaction even when it changes nothing (record/TestProbeRecordRefContracts.al:
         // WriteTransaction_State: a DeleteAll or ModifyAll of no row).
         if self.pages.bg_worker.is_some() {
             return Ok(false);
         }
-        if self.store.has_uncommitted() || self.tx.tx_phase == TX_WRITE || self.tx.lock_tx || self.tx.recref_lock_tx {
+        if self.store.has_uncommitted()
+            || self.tx.phase == TxPhase::Write
+            || self.tx.open.locks.lock_tx
+            || self.tx.open.locks.recref_lock_tx
+        {
             return Ok(true);
         }
         // Only reads under a locking isolation set in an earlier transaction whose effect is pinned: no write transaction
         // (format-evaluate/Np4Misc.al Y9_*_SetBeforeCommit_FirstRead, corpus PR 896).
-        let unpinned = match self.tx.lock_unpinned {
-            Some(crate::records::UNPINNED_LOCKING_READ) if !self.tx.locking_read_tx_unpinned => None,
-            other => other,
+        let unpinned = match self.tx.open.locks.lock_unpinned {
+            Some(crate::state::UnpinnedLock::LockingRead) if !self.tx.open.locks.locking_read_tx_unpinned => None,
+            other => other.map(crate::state::UnpinnedLock::text),
         };
         match unpinned {
             Some(what) => Err(Signal::unsupported(format!(
@@ -296,20 +309,20 @@ impl Session {
         // A table `Consistent(false)` marked fails the Commit (errors/CuCommitTests.al:405-419
         // Consistent_False_ThenCommit); `Consistent(true)` lifts the mark (:422-433).
         self.refuse_commit_after_other_variable()?;
-        if let Some(m) = self.tx.inconsistent.first() {
+        if let Some(m) = self.tx.open.inconsistent.first() {
             return Err(self.inconsistent_error(m.table as usize));
         }
         // A deferred duplicate-key Insert comes out here (corpus record/TestRecordRuntimeTextsAndViews.al:
         // Record_Insert_DuplicateKey_WithoutBlobField_IsDeferred_...: "raised by Commit").
-        if let Some((_, e)) = self.tx.deferred_insert.take() {
+        if let Some((_, e)) = self.tx.open.deferred_insert.take() {
             return Err(Signal::Error(Box::new(e)));
         }
         self.commit_transaction();
         // A Commit puts LockTimeout back on (session-system/PnBRecordMisc.al:LastUsedRowVersion_AndLockTimeout
         // `lockTimeoutAfterCommit`). The timeout duration is not pinned.
         self.tx.lock_timeout = true;
-        // The next transaction has not started and its type is Update (see `tx_phase`).
-        self.tx.tx_phase = TX_FRESH;
+        // The next transaction has not started and its type is Update (see `TxState::phase`).
+        self.tx.phase = TxPhase::Fresh;
         self.tx.transaction_type = 1;
         Ok(())
     }
@@ -347,6 +360,7 @@ impl Session {
     /// raises it (record/TestRecordRuntimeTextsAndViews.al:180-209). `None` when there is none.
     pub fn deferred_insert_table(&self) -> Option<String> {
         self.tx
+            .open
             .deferred_insert
             .as_ref()
             .map(|(t, _)| self.engine.program.objects[*t].name.clone())
@@ -354,11 +368,12 @@ impl Session {
 
     /// Takes the error of a duplicate-key `Insert` that is still deferred, for the test runner at the end of a test.
     pub fn take_deferred_insert_error(&mut self) -> Option<AlError> {
-        self.tx.deferred_insert.take().map(|(_, e)| e)
+        self.tx.open.deferred_insert.take().map(|(_, e)| e)
     }
 
     pub fn inconsistent_table(&self) -> Option<String> {
         self.tx
+            .open
             .inconsistent
             .first()
             .map(|m| self.engine.program.objects[m.table as usize].name.clone())
@@ -367,7 +382,7 @@ impl Session {
     /// A transaction that ends other than by `Commit()` while `Consistent(false)` marks a table: what BC does is not
     /// pinned (only `Commit()` is, errors/CuCommitTests.al:405-419), so it is refused.
     pub(crate) fn refuse_inconsistent_end(&self, how: &str) -> Result<(), Signal> {
-        match self.tx.inconsistent.first() {
+        match self.tx.open.inconsistent.first() {
             Some(m) => Err(Signal::unsupported(format!(
                 "{how} ends a transaction while Consistent(false) marks table {} (only Commit() is pinned)",
                 self.engine.program.objects[m.table as usize].name
@@ -382,7 +397,7 @@ impl Session {
     /// runner's root scope when the test method uses it itself (:236-238 and corpus commit ff42e3d3: 'RunTests' under the
     /// classic runner on BC 27.5, 'RootMethodScope' under the TestRunnerHub runner on 28.5/29.0). Any other caller is not pinned:
     /// the error is raised with an unpinned text.
-    pub(crate) fn enter_used_try(&mut self) {
+    pub(crate) fn enter_used_try(&mut self, object: usize, routine: usize) {
         let base = self.test_frame_base();
         let scope = match self.call_stack.len() - base {
             // The runner's name per major (al_version::test_runner_root_scope, corpus commit ff42e3d3).
@@ -408,7 +423,18 @@ impl Session {
             scope,
             world: self.tx.tx_world,
             runs: 0,
+            frame: self.frames.len(),
+            routine: (object, routine),
         });
+    }
+
+    /// The routine running now is a TryFunction whose result its caller uses: the current frame is the frame the innermost such
+    /// call made, of the routine it called (not a trigger the call ran before it, `first_use`), and no `asserterror` body is
+    /// running.
+    pub(crate) fn in_own_used_try(&self) -> bool {
+        let top = (self.frames.last().copied()).zip(self.call_stack.last().map(|c| c.routine));
+        self.tx.assert_depth == 0
+            && (self.tx.used_tries.last()).is_some_and(|t| t.frame + 1 == self.frames.len() && top == Some(t.routine))
     }
 
     /// Whether routine `r` of object `o` is a `[Test]` method of a test codeunit.
@@ -725,7 +751,7 @@ impl Session {
             .iter()
             .any(|(k, v)| k.eq_ignore_ascii_case("Subtype") && v.trim().eq_ignore_ascii_case("Test"));
         if is_test && self.in_test_codeunit {
-            return Err(nested_test_codeunit(obj.id.unwrap_or(0), &obj.name));
+            return Err(nested_test_codeunit(crate::object_ids::declared_id(obj.id)?, &obj.name));
         }
         // ADR-066 decision 1: from a test runner codeunit's OnRun, the run of a test codeunit is the test runner's
         // (al-testrun), when one is installed.
@@ -744,7 +770,7 @@ impl Session {
             return Err(al_error_code(
                 &format!(
                     "Upgrade codeunit '{}' cannot be invoked outside the schema synchronization process.",
-                    obj.id.unwrap_or(0)
+                    crate::object_ids::declared_id(obj.id)?
                 ),
                 "UpgradeCodeunitOnRunCall",
             ));
@@ -807,12 +833,12 @@ impl Session {
             if let (Some(Value::Record(rc)), Value::Record(own)) = (record_arg, &inst.borrow().globals[slot]) {
                 let (given, wanted) = (rc.borrow().table as usize, own.borrow().table as usize);
                 if given != wanted {
-                    let id = |o: usize| engine.program.objects[o].id.unwrap_or(0);
+                    let id = |o: usize| crate::object_ids::declared_id(engine.program.objects[o].id);
                     return Err(al_error_code(
                         &format!(
                             "Record({}) is not compatible with Codeunit.Run(Record({})).",
-                            id(given),
-                            id(wanted)
+                            id(given)?,
+                            id(wanted)?
                         ),
                         "InvalidType",
                     ));
@@ -914,7 +940,7 @@ impl Session {
                 // (testpage/TestPageBgTaskTx_Tests.al:RunPageBackgroundTask_WorkerCommitLeavesCallersRowsUncommitted).
                 // A duplicate-key Insert that was deferred comes out of that commit: the run fails with its error
                 // (xmlports/import/XpTImportBasic.al:Import_DuplicateKeyExisting, through a guarded run).
-                if let Some((_, e)) = self.tx.deferred_insert.take() {
+                if let Some((_, e)) = self.tx.open.deferred_insert.take() {
                     let mut e = Box::new(e);
                     self.add_top_frame(&mut e);
                     if self.pages.bg_worker.is_none() {

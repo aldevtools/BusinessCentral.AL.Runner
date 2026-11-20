@@ -328,7 +328,8 @@ pub(super) fn reads_numbers(engine: &Arc<al_vm::Engine>, lowered: &Lowered, oi: 
     })
 }
 
-/// Whether the joined reach of the tests of test codeunit `oi`, and of its OnRun trigger when `onrun`, has `fact`.
+/// Whether the joined reach of the tests of test codeunit `oi` and their handler functions, and of its OnRun trigger when
+/// `onrun`, has `fact`.
 fn tests_reach_has(
     engine: &Arc<al_vm::Engine>,
     lowered: &Lowered,
@@ -338,17 +339,9 @@ fn tests_reach_has(
 ) -> bool {
     use super::written::{ReachIndex, union_reach_has};
     let index = engine.derived(|| ReachIndex::new(&engine.events, lowered));
-    let o = &lowered.program.objects[oi];
     // One walk of the tests' joined reach: a walk per test went over their shared reach once per test (11 % of the
     // full corpus run with Microsoft's apps).
-    let roots: Vec<(usize, usize)> = (0..o.routines.len())
-        .filter(|&r| {
-            let routine = &o.routines[r];
-            routine.attributes.iter().any(|a| a.name.eq_ignore_ascii_case("Test"))
-                || (onrun && routine.is_trigger && routine.name.eq_ignore_ascii_case("OnRun"))
-        })
-        .map(|r| (oi, r))
-        .collect();
+    let roots = super::handlers::unit_roots(lowered, oi, onrun);
     union_reach_has(&engine.events, lowered, &index, &roots, fact)
 }
 

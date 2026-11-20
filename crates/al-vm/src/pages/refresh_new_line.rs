@@ -97,7 +97,7 @@ impl Session {
             self.land_on_new_line(st)
         })();
         self.torn_down_on_error(st, r)?;
-        st.borrow_mut().refresh = false;
+        st.borrow_mut().refresh.cancel();
         if !without_parts {
             self.sync_parts(st)?;
         }
@@ -120,7 +120,7 @@ impl Session {
             self.page_event(st, "onaftergetcurrrecordevent", None, None)
         })();
         self.torn_down_on_error(st, r)?;
-        st.borrow_mut().refresh = false;
+        st.borrow_mut().refresh.cancel();
         if !without_parts {
             self.sync_parts(st)?;
         }
@@ -147,7 +147,7 @@ impl Session {
         self.finish_validate_refresh(st, without_curr, without_parts)?;
         // The client holds the rows the refresh read (`read_list_again_from_row_as`).
         st.borrow_mut().window_top_unread = false;
-        st.borrow_mut().read_up_from_last = None;
+        st.borrow_mut().read_up_from_last = ReadUpFromLast::Off;
         Ok(())
     }
 
@@ -162,8 +162,8 @@ impl Session {
                 && s.placeholder_line
                 && !s.dirty
                 && s.host.is_none()
-                && s.refresh_by_update
-                && !s.refresh_update_false
+                && s.refresh.by_update_noted()
+                && !s.refresh.update_false()
         };
         if !shape || self.stored_row(&self.page_rec(st))?.is_none() {
             return Ok(false);

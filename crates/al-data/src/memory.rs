@@ -151,6 +151,13 @@ fn next_stamp() -> u64 {
     STAMPS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1
 }
 
+/// The counts behind [`MemStore::accesses`] and [`MemStore::writes`].
+#[derive(Debug, Default)]
+struct AccessCounts {
+    accesses: std::cell::Cell<u64>,
+    writes: std::cell::Cell<u64>,
+}
+
 #[derive(Clone, Default)]
 pub struct MemStore {
     tables: Tables,
@@ -197,8 +204,8 @@ pub struct MemStore {
     /// here and allowed (ADR-020 amendment: install code may change restored rows). Shared by the
     /// clones of the store, so a snapshot or a rollback does not lose it.
     restored_log: Option<std::rc::Rc<std::cell::RefCell<Vec<RestoredChange>>>>,
-    /// Per table (object index), the columns in which a stored row held a value a platform row left unknown
-    /// (`Value::Unknown`, a record copied from one). Never cleared: a filter or an order on such a column checks the
+    /// Per table (object index), the columns in which a stored row held a value no filter or order may compare (`held_cols::unread`:
+    /// a value a platform row left unknown, or a placeholder's size). Never cleared: a filter or an order on such a column checks the
     /// rows (`unknown_read`).
     unknown_cols: std::collections::HashMap<u32, Vec<usize>>,
     /// Per table, the columns in which a stored row held a text outside ASCII. Never cleared (`collation_read`).
@@ -220,6 +227,9 @@ pub struct MemStore {
     /// While set, the tables whose access is watched and the first one that was read or written ([`MemStore::watch`]).
     /// Shared by the clones of the store, so a snapshot, a restore or a rollback does not lose it.
     watch: Option<std::rc::Rc<std::cell::RefCell<Watch>>>,
+    /// How many reads and writes of a table the store took ([`MemStore::accesses`], [`MemStore::writes`]). Shared by the
+    /// clones of the store, so a snapshot put back does not lower them.
+    counts: std::rc::Rc<AccessCounts>,
     /// The store stands for the database ([`MemStore::as_database`]): a Decimal it keeps carries no trailing zeros.
     database: bool,
 }
@@ -577,8 +587,9 @@ impl MemStore {
         self
     }
 
-    /// `row` as this store keeps it ([`MemStore::as_database`]).
-    fn kept(&self, mut row: Row) -> Row {
+    /// `row` as this store keeps it ([`MemStore::as_database`]), with its held columns written down (`note_held`). Every
+    /// write of a row into `t` passes here, so no write path keeps a value a read must refuse without the note.
+    fn kept(&mut self, t: &TableDef, mut row: Row) -> Row {
         if self.database {
             for v in row.iter_mut() {
                 if let Value::Decimal(d) = v {
@@ -586,6 +597,7 @@ impl MemStore {
                 }
             }
         }
+        self.note_held(t, &row);
         row
     }
 
@@ -936,8 +948,20 @@ impl MemStore {
         hit
     }
 
-    /// Notes an access to table `object` for the watch.
+    /// How many reads and writes of a table this store and its clones took so far (al-testrun `isolation/failed_test.rs`:
+    /// what a failed test reached of the tables).
+    pub fn accesses(&self) -> u64 {
+        self.counts.accesses.get()
+    }
+
+    /// How many of [`MemStore::accesses`] were writes.
+    pub fn writes(&self) -> u64 {
+        self.counts.writes.get()
+    }
+
+    /// Notes an access to table `object` for the watch and the count of [`MemStore::accesses`].
     fn seen(&self, object: u32) {
+        self.counts.accesses.set(self.counts.accesses.get() + 1);
         if let Some(w) = &self.watch {
             let mut w = w.borrow_mut();
             if w.tables.contains(&object) {
@@ -954,6 +978,7 @@ impl MemStore {
 
     /// Notes an access to every watched table (a read of the whole store).
     fn seen_all(&self) {
+        self.counts.accesses.set(self.counts.accesses.get() + 1);
         if let Some(w) = &self.watch {
             let mut w = w.borrow_mut();
             if w.hit.is_none() {
@@ -1260,7 +1285,9 @@ impl MemStore {
         self.versions.get(&slot(cx, t)).copied().unwrap_or(0)
     }
 
+    /// A write of the table: a new version, and one more of [`MemStore::writes`].
     fn touch(&mut self, cx: &AccessContext, t: &TableDef) {
+        self.counts.writes.set(self.counts.writes.get() + 1);
         self.counter = next_stamp();
         self.versions.insert(slot(cx, t), self.counter);
     }
@@ -1589,7 +1616,7 @@ pub fn store_ops() -> u64 {
 impl Store for MemStore {
     fn insert(&mut self, cx: &AccessContext, t: &TableDef, row: Row) -> Result<InsertOutcome, StoreError> {
         bump();
-        let row = self.kept(row);
+        let row = self.kept(t, row);
         t.check_key_values(&row)?;
         if let Some(v) = self.virtual_of(t) {
             if !v.takes_inserts(t) {
@@ -1599,7 +1626,6 @@ impl Store for MemStore {
                 return Ok(InsertOutcome::AlreadyExists);
             }
         }
-        self.note_held(t, &row);
         let k = Key::of(t, t.primary_key(&row));
         let carry = self.has_orders(&slot(cx, t), t);
         let table = self.table_mut(cx, t);
@@ -1627,7 +1653,7 @@ impl Store for MemStore {
 
     fn modify(&mut self, cx: &AccessContext, t: &TableDef, row: Row) -> Result<WriteOutcome, StoreError> {
         bump();
-        let row = self.kept(row);
+        let row = self.kept(t, row);
         t.check_key_values(&row)?;
         if let Some(v) = self.virtual_of(t) {
             let k = Key::of(t, t.primary_key(&row));
@@ -1661,7 +1687,6 @@ impl Store for MemStore {
             }
             return Err(self.read_only(t, "Modify"));
         }
-        self.note_held(t, &row);
         let k = Key::of(t, t.primary_key(&row));
         self.note_restored(cx, t, &k, "Modify", Some(&row));
         let carry = self.has_orders(&slot(cx, t), t);
@@ -1742,13 +1767,12 @@ impl Store for MemStore {
         row: Row,
     ) -> Result<RenameOutcome, StoreError> {
         bump();
-        let row = self.kept(row);
+        let row = self.kept(t, row);
         t.check_primary_key(old)?;
         t.check_key_values(&row)?;
         if self.virtual_of(t).is_some() {
             return Err(self.read_only(t, "Rename"));
         }
-        self.note_held(t, &row);
         let new_k = Key::of(t, t.primary_key(&row));
         self.note_restored(cx, t, &Key::of(t, old.to_vec()), "Rename", None);
         let table = self.table_mut(cx, t);

@@ -63,7 +63,7 @@ pub enum PartStep {
 pub struct PinnedEnd {
     /// The refusal of any other call.
     pub reason: &'static str,
-    pub reads: bool,
+    pub reads: Reads,
     /// `P.Caption()` of the page is let through.
     pub caption: bool,
     /// `P.Part.Control.Value()` is let through.
@@ -92,7 +92,7 @@ impl PinnedEnd {
     pub const fn after_ok(reason: &'static str) -> Self {
         PinnedEnd {
             reason,
-            reads: false,
+            reads: Reads::No,
             caption: false,
             part_reads: false,
             one_action: true,
@@ -106,6 +106,16 @@ impl PinnedEnd {
             walk: false,
         }
     }
+}
+
+/// Which value reads of the page's controls a [`PinnedEnd`] lets through.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reads {
+    No,
+    /// `Value()`, `AssertEquals` and the typed reads (`AsInteger`, ...) of any control.
+    Any,
+    /// `Value()` of a control bound to one of these fields of Rec (positions in the table's field list).
+    Values(&'static [usize]),
 }
 
 /// Whether a [`PinnedEnd`] lets a `Next` of the page through.
@@ -174,8 +184,13 @@ pub(super) struct PinnedCode<'a> {
 
 impl Session {
     /// After a rule pinned for one repro ran on the page tree of `st` (`PageState::pinned_end`), only the calls the repro makes
-    /// after it are let through; `call` is the test's call on `st` (`note_test_call`).
-    pub(super) fn refuse_after_pinned_end(st: &St, call: Option<TestCall>) -> Result<(), Signal> {
+    /// after it are let through; `call` is the test's call on `st` (`note_test_call`), made on `control` when it names one.
+    pub(super) fn refuse_after_pinned_end(
+        &self,
+        st: &St,
+        call: Option<TestCall>,
+        control: Option<&ControlTarget>,
+    ) -> Result<(), Signal> {
         let (root, part) = Self::tree_root(st);
         let Some(end) = root.borrow().pinned_end else {
             return Ok(());
@@ -183,47 +198,62 @@ impl Session {
         if end.no_writes && call.is_some() && root.borrow().tree_calls_unknown {
             return unsupported(end.reason);
         }
-        let let_through =
-            match call {
-                // Not a call of the test client (`note_test_call`).
-                None => true,
-                Some(TestCall::Page(PageMethod::Close)) => end.close && part.is_none(),
-                Some(TestCall::Page(PageMethod::OK)) if end.ok && part.is_none() => {
-                    root.borrow_mut().pinned_end = Some(PinnedEnd::after_ok(end.reason));
-                    true
-                }
-                Some(TestCall::Page(PageMethod::First)) if end.first_ends && part.is_none() => {
-                    root.borrow_mut().pinned_end = None;
-                    true
-                }
-                Some(TestCall::Page(PageMethod::Next)) if end.next == NextEnd::Once && part.is_none() => {
-                    root.borrow_mut().pinned_end = Some(PinnedEnd {
-                        next: NextEnd::Taken,
-                        ..end
-                    });
-                    true
-                }
-                Some(TestCall::Page(
-                    PageMethod::First | PageMethod::Next | PageMethod::GoToKey | PageMethod::Filter,
-                )) if end.walk => part.is_none(),
-                Some(TestCall::Other(PageMethod::GetFilter)) if end.walk => part.is_none(),
-                Some(TestCall::Page(PageMethod::Caption)) => end.caption && part.is_none(),
-                Some(TestCall::Page(PageMethod::Visible)) => end.part_visible && part.is_some(),
-                Some(TestCall::Page(PageMethod::First | PageMethod::Last | PageMethod::Next)) if end.part_moves => {
-                    part.is_some()
-                }
-                Some(TestCall::Read) => end.reads || (end.part_reads && part.is_some()),
-                Some(TestCall::Other(PageMethod::Invoke)) if end.one_action && part.is_none() => {
-                    root.borrow_mut().pinned_end = Some(PinnedEnd {
-                        one_action: false,
-                        ..end
-                    });
-                    true
-                }
-                Some(TestCall::Other(m)) => end.reads && (m == PageMethod::AssertEquals || Self::field_read(m)),
-                _ => false,
-            };
+        let let_through = match call {
+            // Not a call of the test client (`note_test_call`).
+            None => true,
+            Some(TestCall::Page(PageMethod::Close)) => end.close && part.is_none(),
+            Some(TestCall::Page(PageMethod::OK)) if end.ok && part.is_none() => {
+                root.borrow_mut().pinned_end = Some(PinnedEnd::after_ok(end.reason));
+                true
+            }
+            Some(TestCall::Page(PageMethod::First)) if end.first_ends && part.is_none() => {
+                root.borrow_mut().pinned_end = None;
+                true
+            }
+            Some(TestCall::Page(PageMethod::Next)) if end.next == NextEnd::Once && part.is_none() => {
+                root.borrow_mut().pinned_end = Some(PinnedEnd {
+                    next: NextEnd::Taken,
+                    ..end
+                });
+                true
+            }
+            Some(TestCall::Page(PageMethod::First | PageMethod::Next | PageMethod::GoToKey | PageMethod::Filter))
+                if end.walk =>
+            {
+                part.is_none()
+            }
+            Some(TestCall::Other(PageMethod::GetFilter)) if end.walk => part.is_none(),
+            Some(TestCall::Page(PageMethod::Caption)) => end.caption && part.is_none(),
+            Some(TestCall::Page(PageMethod::Visible)) => end.part_visible && part.is_some(),
+            Some(TestCall::Page(PageMethod::First | PageMethod::Last | PageMethod::Next)) if end.part_moves => {
+                part.is_some()
+            }
+            Some(TestCall::Read) => self.read_let_through(st, end.reads, control) || (end.part_reads && part.is_some()),
+            Some(TestCall::Other(PageMethod::Invoke)) if end.one_action && part.is_none() => {
+                root.borrow_mut().pinned_end = Some(PinnedEnd {
+                    one_action: false,
+                    ..end
+                });
+                true
+            }
+            Some(TestCall::Other(m)) => {
+                end.reads == Reads::Any && (m == PageMethod::AssertEquals || Self::field_read(m))
+            }
+            _ => false,
+        };
         if let_through { Ok(()) } else { unsupported(end.reason) }
+    }
+
+    /// Whether `reads` lets the `Value()` read of `control` on `st` through.
+    fn read_let_through(&self, st: &St, reads: Reads, control: Option<&ControlTarget>) -> bool {
+        match (reads, control) {
+            (Reads::Any, _) => true,
+            (Reads::Values(fields), Some(ControlTarget::Control(i))) => {
+                let engine = self.engine();
+                matches!(page_of(&engine, st).controls[*i].binding, ir::Binding::Field(f) if fields.contains(&f))
+            }
+            _ => false,
+        }
     }
 
     /// The test client calls `method` on `st`, on the page itself or on `control`; the call as the pins see it.

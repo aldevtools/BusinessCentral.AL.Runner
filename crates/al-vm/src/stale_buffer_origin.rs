@@ -51,6 +51,7 @@ impl Session {
     ) -> Result<StaleVerdict, Signal> {
         let writes_row = self
             .tx
+            .open
             .writes
             .iter()
             .any(|w| w.table == t.object && w.company == *company && same_key(&w.pk, pk));
@@ -63,7 +64,7 @@ impl Session {
         if writes_row {
             return Ok(StaleVerdict::Refused);
         }
-        if touched && self.tx.writes.is_empty() {
+        if touched && self.tx.open.writes.is_empty() {
             return Ok(StaleVerdict::Written);
         }
         if !contact {

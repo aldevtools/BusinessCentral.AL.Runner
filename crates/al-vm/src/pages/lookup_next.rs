@@ -11,15 +11,13 @@ use super::*;
 impl Session {
     /// A Next on `root` may run the pending refresh within the move: the shapes the Y26 tests pin (one ListPart, function controls).
     pub(super) fn lookup_next_refresh_shape(&mut self, root: &St) -> bool {
-        root.borrow().lookup_refresh_deferred
-            && root.borrow().parts.len() == 1
-            && !self.fn_log_controls(root).is_empty()
+        root.borrow().lookup_left.deferred() && root.borrow().parts.len() == 1 && !self.fn_log_controls(root).is_empty()
     }
 
     /// After the host's move, when the move carries the refresh a Lookup left (`lookup_next_refresh`): the window and the rows above
     /// the row the host moved to.
     pub(super) fn lookup_next_refresh(&mut self, st: &St) -> Result<(), Signal> {
-        if !std::mem::take(&mut st.borrow_mut().lookup_next_refresh) {
+        if !st.borrow_mut().lookup_left.take_next_refresh() {
             return Ok(());
         }
         let plain = !self.declares(st, "onaftergetcurrrecord");
@@ -31,7 +29,7 @@ impl Session {
             let mut s = st.borrow_mut();
             s.window.clear();
             s.fn_open_skipped = plain;
-            s.lookup_next_plain = plain;
+            s.lookup_left.next_refresh_runs(plain);
             s.open_read = true;
             s.landing_first = true;
             s.open_reads_above = true;

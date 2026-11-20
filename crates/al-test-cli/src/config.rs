@@ -609,4 +609,17 @@ extra_apps = [
             assert!(got.contains(&(major, Some(want))), "{got:?}");
         }
     }
+
+    /// ADR-077 decision 7: the bump writes `mode`, `fresh`, `reused`, `oldest_source_run` and `ci_bc_build` into a
+    /// [[version]] table (tools/corpus_bump_edit.py). The CLI reads the table as it did without them.
+    #[test]
+    fn the_provenance_fields_of_a_version_change_nothing_the_cli_reads() {
+        let with = TOML.replace(
+            "artifact_id = 2\n",
+            "artifact_id = 2\nmode = \"subset\"\nfresh = 3\nreused = 4\noldest_source_run = 1\nci_bc_build = \"29.0.54011.55817\"\n",
+        );
+        assert_ne!(with, TOML);
+        let (a, b) = (file(), OracleFile::parse(&with).unwrap());
+        assert_eq!(format!("{:?}", a.versions), format!("{:?}", b.versions));
+    }
 }

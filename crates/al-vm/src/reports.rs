@@ -104,7 +104,7 @@ impl Schema {
 }
 
 impl Session {
-    pub(crate) fn report_builtin(
+    fn report_builtin(
         &mut self,
         id: al_ir::BuiltinId,
         receiver: Option<Value>,
@@ -223,7 +223,7 @@ impl Session {
             // OnInitReport is not pinned: a report that declares one is refused.
             ids::REPORT_DEFAULTLAYOUT_1 => {
                 let object = self.report_variable_object(&receiver, "DefaultLayout")?;
-                let id = self.object_id_of(object as u32);
+                let id = self.object_id_of(object as u32)?;
                 self.report_builtin(ids::REPORT_DEFAULTLAYOUT_2, None, &[Value::Integer(id as i32)], running)
             }
             ids::REPORT_RDLCLAYOUT_1 | ids::REPORT_WORDLAYOUT_1 | ids::REPORT_EXCELLAYOUT_1 => {
@@ -424,7 +424,7 @@ impl Session {
                     Some(other) => return unsupported(format!("Report.ObjectId with {}", other.describe())),
                 };
                 if !names {
-                    return Ok(Value::Text(format!("Report {}", o.id.unwrap_or(0)).into()));
+                    return crate::object_ids::object_id_text("Report", o.id);
                 }
                 let caption = match o.properties.iter().find(|(k, _)| k.eq_ignore_ascii_case("Caption")) {
                     Some((_, v)) => match crate::recmeta::string_literal(v) {
@@ -953,7 +953,7 @@ impl Session {
             object,
         };
         match &schema.engine.program.objects[object].report {
-            Some(r) => match r.run_refusal() {
+            Some(r) => match r.run_refusal().cloned().or_else(|| self.excel_sheets_refusal(inst, r)) {
                 None => {
                     for a in &r.assumes {
                         al_builtins::assumptions::assume(*a);
@@ -966,27 +966,15 @@ impl Session {
         }
     }
 
+    /// The report that runs after SubstituteReport, for a static call: its instance claims the call's admission.
     fn report_by_number(&mut self, id: al_ir::BuiltinId, arg: Option<&Value>) -> Result<(Inst, Schema), Signal> {
         let Some(Value::Integer(n)) = arg else {
             return unsupported(format!("{id} with an id that is not an integer"));
         };
-        let Some(object) = self
-            .engine
-            .program
-            .objects
-            .heads()
-            .iter()
-            .position(|o| o.is_kind(al_ir::ObjKind::Report) && o.id == u32::try_from(*n).ok())
-        else {
+        let Some(object) = report_numbered(&self.engine.program.objects, *n) else {
             // A report of a dependency app that nothing reached is not compiled (ADR-013); BC has it.
-            if self
-                .engine
-                .program
-                .objects
-                .heads()
-                .iter()
-                .any(|o| o.is_shell_of(al_ir::ObjKind::Report) && o.id == u32::try_from(*n).ok())
-            {
+            let heads = self.engine.program.objects.heads();
+            if (heads.iter()).any(|o| o.is_shell_of(al_ir::ObjKind::Report) && o.id == u32::try_from(*n).ok()) {
                 return unsupported(format!(
                     "{id} of report {n}, which belongs to a dependency app and was not compiled (no code the workspace reaches uses it)"
                 ));
@@ -1006,6 +994,7 @@ impl Session {
         let inst = self.instance(object);
         // `instance` hands out a made instance: OnInitReport has not run on it yet.
         inst.borrow_mut().initialized = false;
+        self.claim_excel_sheets(object, &inst);
         let schema = self.report_schema(&inst)?;
         Ok((inst, schema))
     }
@@ -1292,9 +1281,10 @@ impl Session {
     /// "The <report> report does not have a DataItem that uses the table ..." (record/P136Report.al:
     /// P136_Report_ViewOverTableWithoutDataItem).
     fn report_no_data_item(&self, schema: &Schema, table: u32) -> Signal {
-        let (id, name) = {
-            let o = &self.engine.program.objects[table as usize];
-            (o.id.unwrap_or(0), o.name.clone())
+        let o = &self.engine.program.objects[table as usize];
+        let (id, name) = match crate::object_ids::declared_id(o.id) {
+            Ok(id) => (id, o.name.clone()),
+            Err(refusal) => return refusal,
         };
         Signal::Error(Box::new(al_builtins::native::AlError {
             message: format!(
@@ -1816,7 +1806,7 @@ impl Session {
         Ok(Some(al_builtins::native::AlError {
             message: format!(
                 "Report {} does not have a valid layout. Valid layout types are: Word, RDLC, Excel, and Custom.",
-                self.object_id_of(schema.object as u32)
+                self.object_id_of(schema.object as u32)?
             ),
             // The code is ReportNoLayout (pages/parts/P117NoLayout.al:57, streams/PnH6SaveAs.al:254, :389).
             code: "ReportNoLayout".into(),
@@ -2697,15 +2687,7 @@ impl Session {
         if schema.report().processing_only {
             return self.save_of_processing_only(&inst, &schema, &format, at, quit, result_used);
         }
-        if let Some(why) = schema.report().dataset_unsupported.first() {
-            return unsupported(format!("Report.SaveAs of \"{}\": {why}", schema.name()));
-        }
-        if schema.report().transaction_type.is_some() {
-            return unsupported(format!(
-                "Report.SaveAs of \"{}\", which declares a TransactionType (what SaveAs does with it is not pinned)",
-                schema.name()
-            ));
-        }
+        property_gates::save_as_declaration_refusals(&schema)?;
         // The language and region of the run: the session's, or what the variable set (reports/W3ReportObjectIdPreviewLanguage.al:
         // 854-930, writer RB). Pinned: en-US; GlobalLanguage 1031 (:870); Language := 1031 on the variable (:893); FormatRegion :=
         // 'de-DE' on the variable (:912). The language changes the dataset's language and Format, not the column values; the
@@ -2946,7 +2928,7 @@ impl Session {
     /// NewReportId -1 on entry, and a NewReportId a subscriber sets runs that report. Not pinned, and passed as BC most
     /// likely does (docs/probes-needed.md): RequestPageXml empty and RecordRef unopened.
     fn raise_substitute_report(&mut self, schema: &Schema, request_page_xml: Value) -> Result<Option<i32>, Signal> {
-        let report_id = self.object_id_of(schema.object as u32) as i32;
+        let report_id = self.object_id_of(schema.object as u32)? as i32;
         match self.raise_substitute(report_id, 4, request_page_xml)? {
             n if n == -1 || n == report_id => Ok(None),
             n => Ok(Some(n)),
@@ -3057,7 +3039,7 @@ impl Session {
         let source = LibraryValue::InStream(InState::live(document, Encoding::Utf8));
         let target = LibraryValue::OutStream(output.clone(), Encoding::Utf8, None);
         let mut args = vec![
-            Value::Integer(self.object_id_of(schema.object as u32) as i32),
+            Value::Integer(self.object_id_of(schema.object as u32)? as i32),
             al_builtins::json::unpinned_object("the ObjectPayload of OnDocumentReady is not pinned"),
             stream("InStream", source),
             stream("OutStream", target),
@@ -3242,7 +3224,7 @@ impl Session {
         Ok(Ok(format!(
             "[{{\"name\":{},\"tableid\":{},\"view\":{}}}]",
             lit(&item.name),
-            self.object_id_of(table),
+            self.object_id_of(table)?,
             lit(&view)
         )))
     }
@@ -3325,7 +3307,7 @@ impl Session {
              \"layoutmimetype\":{},\"layoutapplicationid\":{},\"reportrunid\":{}}}",
             filter_views,
             lit(&caption),
-            self.object_id_of(schema.object as u32),
+            self.object_id_of(schema.object as u32)?,
             lit(document_type),
             lit(&invoked_by),
             lit(&when),
@@ -3398,7 +3380,7 @@ impl Session {
         .collect();
         let payload = self.custom_layout_payload(schema, format, &layout, filter_views)?;
         let mut args = vec![
-            Value::Integer(self.object_id_of(schema.object as u32) as i32),
+            Value::Integer(self.object_id_of(schema.object as u32)? as i32),
             Value::Option(action, members),
             payload,
             stream(
@@ -3462,7 +3444,7 @@ impl Session {
             Some(Value::TestPage(st)) if st_of(&st).borrow().open && o.report.is_some() => into_st(st),
             _ => return unsupported(format!("{id} outside the code of an open request page (not pinned)")),
         };
-        let report_id = self.object_id_of(object as u32);
+        let report_id = self.object_id_of(object as u32)?;
         const EDITABLE_OFF: &str = "a request page whose code set RequestPage.Editable(false) (not pinned)";
         const LOOKUP_ON: &str = "a request page whose code set RequestPage.LookupMode(true) (not pinned)";
         let mark = |st: &Rc<RefCell<crate::pages::PageState>>, on: bool, why: &str| {
@@ -3764,7 +3746,7 @@ impl Session {
     /// The table id and the lower case GUID of the row `rec` stands on.
     fn dataset_identity(&self, rec: &Rec) -> Result<(u32, String), Signal> {
         let object = rec.borrow().table as usize;
-        let id = self.object_id_of(object as u32);
+        let id = self.object_id_of(object as u32)?;
         if id == INTEGER_TABLE {
             return Ok((id, String::new())); // no systemId (dataset.rs `begin`)
         }
@@ -4003,6 +3985,12 @@ impl Session {
     }
 }
 
+/// The object index of the compiled report numbered `n`.
+fn report_numbered(objects: &al_ir::Objects, n: i32) -> Option<usize> {
+    let n = u32::try_from(n).ok();
+    (objects.heads().iter()).position(|o| o.is_kind(al_ir::ObjKind::Report) && o.id == n)
+}
+
 #[cfg(test)]
 mod ignored_output_tests;
 
@@ -4010,10 +3998,13 @@ mod blob_column;
 mod dataset_header;
 mod execute_args;
 use execute_args::RefCall;
+mod excel_sheets;
 pub(crate) mod format_region;
 #[cfg(test)]
 mod header_tests;
 mod html_record;
+mod property_gates;
+pub(crate) use excel_sheets::Admission as ExcelSheetsAdmission;
 mod request_caption;
 mod request_flag;
 use request_flag::{REQUEST_PAGE_OFF, REQUEST_PAGE_OFF_UNPINNED_GETTER, REQUEST_PAGE_ON, REQUEST_PAGE_UNPINNED_GETTER};

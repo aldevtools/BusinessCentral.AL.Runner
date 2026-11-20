@@ -35,6 +35,9 @@ pub struct Lowered {
     /// Per object, per routine: where the statement is that gave the routine's first reason in `unsupported`, when a
     /// statement gave it (`--explain` points at it; al-runner issue 6061). Empty for an object a compile cache supplied.
     pub refusal_at: Vec<Vec<Option<ir::SrcPos>>>,
+    /// Per object: a call of its code had no callee the checker resolved (`Lowerer::unresolved_call`). The incremental
+    /// compile cannot tell which object such a call reaches after a declaration changes (`incremental::readers`).
+    pub(crate) unresolved_calls: Vec<bool>,
     /// Per object, per routine: the routines it calls directly, as (object, routine).
     pub calls: Calls,
     /// Per object: it belongs to a dependency app, so no test or install code of it runs (ADR-013).
@@ -294,6 +297,8 @@ pub(crate) struct Lowerer<'a> {
     reasons: Vec<String>,
     /// Where the statement is that gave the routine's first reason, when one did (`--explain`, al-runner issue 6061).
     refusal_at: Option<ir::SrcPos>,
+    /// A call of the object had no callee the checker resolved (`Lowered::unresolved_calls`).
+    unresolved_call: bool,
     calls: Vec<(usize, usize)>,
     /// Per object: why the test client cannot drive it yet (pages).
     page_reasons: &'a [Vec<String>],
@@ -336,6 +341,8 @@ pub(crate) struct Lowerer<'a> {
     loops: Vec<bool>,
     /// `by_var` of the parameters of the routine being lowered.
     var_params: Vec<bool>,
+    /// The slot of the named return value of the routine being lowered.
+    named_ret: Option<usize>,
     /// The routine being lowered reads MaxStrLen of a `var` parameter, or hands one on to a `var` parameter
     /// (`ir::Routine::reads_var_max_len`).
     reads_var_max_len: bool,
@@ -647,6 +654,7 @@ mod test_handlers;
 #[cfg(test)]
 mod tests;
 mod tys;
+mod var_option_arg;
 mod with_events;
 
 /// What the lowering does with a `CreateInStream` call that creates a handed-back InStream on a local of the routine.

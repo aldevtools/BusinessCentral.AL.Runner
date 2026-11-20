@@ -275,6 +275,7 @@ mod empty_view_update;
 mod ext_column_visible;
 mod fn_controls;
 mod format;
+mod format_procedure;
 mod format_type11;
 mod gone_after_action;
 mod gone_new_line;
@@ -334,6 +335,7 @@ mod part_filter_unsaved_host;
 mod part_host_update;
 mod part_insert_swallowed;
 mod part_refresh_find_forward;
+mod part_update_left_view;
 mod part_visible_gate;
 mod pinned_body;
 mod post_left_new_line;
@@ -358,8 +360,9 @@ mod walk_parts;
 pub(crate) mod ws_trigger_order;
 pub(crate) use shown::ShownNote;
 pub(crate) use state::{
-    ClosedBy, ControlRef, ControlTarget, Cursor, LiteralClassesAtOpen, LookupKind, OpenEditable, PageMode, PageState,
-    ReadBackwards, WindowRow, control_of, into_st, page_value, st_of, test_control,
+    ActionSaveCaptions, ChainRefill, ClosedBy, ControlRef, ControlTarget, Cursor, LiteralClassesAtOpen, LookupKind,
+    ModalRun, OpenEditable, PageMode, PageState, ReadBackwards, ReadUpFromLast, UnreadEdges, WindowRow, control_of,
+    into_st, page_value, st_of, test_control,
 };
 
 impl Session {
