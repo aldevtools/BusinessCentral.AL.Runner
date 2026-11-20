@@ -34,6 +34,16 @@ pub struct MediaObject {
     /// ADR-044: the stream this media was imported from held a picture that was never produced (a
     /// `System.Drawing.Bitmap` saved into it): the object has a value but no bytes. Any look at its content is refused.
     pub pending: Option<std::sync::Arc<str>>,
+    /// The `ImportStream` call that made this media; `None` for a media an ImportFile made.
+    pub stream_call: Option<StreamCall>,
+}
+
+/// An `ImportStream` call: the arguments it was given and whether it went into a Media field that held no media (`false` for an
+/// import into a MediaSet).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StreamCall {
+    pub args: usize,
+    pub into_empty_media: bool,
 }
 
 /// The Tenant Media `File Name` of a media an ImportFile read.
@@ -184,36 +194,6 @@ fn text_arg(a: &[Value], i: usize) -> Result<String, Signal> {
     }
 }
 
-/// A four-argument import (blank description and MIME type) named `.xlsx` or `.docx` reads the content as an Office document:
-/// text content raises MediaUnsupportedFormat and no media is made (streams/media/Y48TenantMediaRows.al:600-631
-/// TM_RowOfFourArgImport_MoreNames `attach D`, `attach H`, writer Y57). Other content under those names imports as before.
-fn office_header_check(bytes: &[u8], description: &str, mime: &str, file_name: &str) -> Result<(), Signal> {
-    if file_name.is_empty() || !description.is_empty() || !mime.is_empty() {
-        return Ok(());
-    }
-    let office = match file_name
-        .rsplit_once('.')
-        .map(|(_, e)| e.to_ascii_lowercase())
-        .as_deref()
-    {
-        Some("xlsx") => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        Some("docx") => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        _ => return Ok(()),
-    };
-    // Other content imports as before this check.
-    if bytes.is_empty()
-        || !bytes
-            .iter()
-            .all(|b| b.is_ascii_graphic() || b.is_ascii_whitespace() || *b == b' ')
-    {
-        return Ok(());
-    }
-    crate::native::raise(
-        format!("Microsoft Office document cannot be imported. File header is corrupt (MIME type: {office}."),
-        "MediaUnsupportedFormat",
-    )
-}
-
 /// Reads the rest of an `InStream` (the bytes it has not handed out yet).
 fn drain(v: &Value) -> Result<Vec<u8>, Signal> {
     let Value::Library(_, h) = v else {
@@ -266,8 +246,12 @@ fn import_object(c: &mut dyn Ctx, a: &[Value], empty_media: bool) -> Result<Opti
         None | Some(Value::Null) => String::new(),
         Some(_) => text_arg(a, 3)?,
     };
-    office_header_check(&bytes, &description, &mime, &file_name)?;
+    crate::media_word_package::office_header_check(&bytes, &description, &mime, &file_name)?;
     let file_name_given = !matches!(a.get(3), None | Some(Value::Null));
+    let stream_call = StreamCall {
+        args: a.iter().take_while(|v| !matches!(v, Value::Null)).count(),
+        into_empty_media: empty_media,
+    };
     let word = match pending {
         None => crate::media_word_package::stream_import(&bytes, &mime, file_name_given, empty_media)?,
         Some(_) => None,
@@ -298,6 +282,7 @@ fn import_object(c: &mut dyn Ctx, a: &[Value], empty_media: bool) -> Result<Opti
             width,
             height,
             pending,
+            stream_call: Some(stream_call),
         },
     );
     Ok(Some(id))
@@ -617,6 +602,7 @@ fn import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
             width,
             height,
             pending,
+            stream_call: None,
         },
     );
     if let Some(slot) = r {
@@ -656,7 +642,7 @@ fn set_import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> O
         ));
     }
     let ext = name.rsplit_once('.').map(|(_, e)| e).unwrap_or_default();
-    let word = crate::media_word_package::set_import_file(&name, &bytes, held);
+    let word = crate::media_word_package::set_import_file(&name, &bytes, set == [0; 16]);
     let (mime, (width, height)) = match (word, ext, jpeg_size(&bytes), png_size(&bytes)) {
         (Some(mime), ..) => (mime, (0, 0)),
         (None, e, Some(size), _) if e.eq_ignore_ascii_case("jpg") => ("image/jpeg", size),
@@ -688,6 +674,7 @@ fn set_import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> O
             width,
             height,
             pending: word.map(|_| crate::stream::MEDIA_DOCX_REZIPPED.into()),
+            stream_call: None,
         },
     );
     media.sets.borrow_mut().entry(set).or_default().push(member);

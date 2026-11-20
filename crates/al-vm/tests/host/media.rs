@@ -313,8 +313,16 @@ fn import_file(body: &str) -> Result<String, Signal> {
     import_file_on(None, body)
 }
 
-/// A Word package as far as the import looks at it: one zip local file header for the entry `first`, no data.
-pub(crate) fn package(first: &str) -> Vec<u8> {
+/// The 911-byte Word package every cell of corpus PR 1469 imports (onprem streams/media/MediaDocxRezip.al:46-57 DocxBase64, the
+/// RdDocxBase64 of MediaFiles.al): `[Content_Types].xml`, `_rels/.rels` and `word/document.xml`, deflated.
+pub(crate) fn word_package() -> Vec<u8> {
+    al_host::inproc::from_base64(WORD_PACKAGE_BASE64).unwrap()
+}
+
+const WORD_PACKAGE_BASE64: &str = "UEsDBBQAAAAIAAAAIVx5bjPX6AAAAK0BAAATAAAAW0NvbnRlbnRfVHlwZXNdLnhtbH1QyU7DMBD9FWuuKHHggBCK0wPLETiUDxjZk8SqN3nc0v49Tlt6QIXjzFv1+tXeO7GjzDYGBbdtB4KCjsaGScHn+rV5AMEFg0EXAyk4EMNq6NeHRCyqNrCCuZT0KCXrmTxyGxOFiowxeyz1zJNMqDc4kbzrunupYygUSlMWDxj6Zxpx64p42df3qUcmxyCeTsQlSwGm5KzGUnG5C+ZXSnNOaKvyyOHZJr6pBJBXExbk74Cz7r0Ok60h8YG5vKGvLPkVs5Em6q2vyvZ/mys94zhaTRf94pZy1MRcF/euvSAebfjpL49zD99QSwMEFAAAAAgAAAAhXJv9N+qtAAAAKQEAAAsAAABfcmVscy8ucmVsc43POw7CMAwG4KtE3mlaBoRQ0y4IqSsqB7ASN61oHkrCo7cnAwNFDIy2f3+W6/ZpZnanECdnBVRFCYysdGqyWsClP232wGJCq3B2lgQsFKFt6jPNmPJKHCcfWTZsFDCm5A+cRzmSwVg4TzZPBhcMplwGzT3KK2ri27Lc8fBpwNpknRIQOlUB6xdP/9huGCZJRydvhmz6ceIrkWUMmpKAhwuKq3e7yCzwpuarF5sXUEsDBBQAAAAIAAAAIVzXDGLpogAAANcAAAARAAAAd29yZC9kb2N1bWVudC54bWxFjkEOwiAQRa9C2FuqC2Oa0m6MK1emHgBhbJvADAG09vZCXbh5PzOT/zJt/3GWvSHEmVDyfVVzBqjJzDhKfh8uuxNnMSk0yhKC5CtE3nft0hjSLweYWBZgbBbJp5R8I0TUEzgVK/KA+fak4FTKYxjFQsH4QBpizH5nxaGuj8KpGXlRPsisJX1BKEjddWC3M0vgvFUJWlF2hWGj3/jrif9P3RdQSwECFAMUAAAACAAAACFceW4z1+gAAACtAQAAEwAAAAAAAAAAAAAAgAEAAAAAW0NvbnRlbnRfVHlwZXNdLnhtbFBLAQIUAxQAAAAIAAAAIVyb/TfqrQAAACkBAAALAAAAAAAAAAAAAACAARkBAABfcmVscy8ucmVsc1BLAQIUAxQAAAAIAAAAIVzXDGLpogAAANcAAAARAAAAAAAAAAAAAACAAe8BAAB3b3JkL2RvY3VtZW50LnhtbFBLBQYAAAAAAwADALkAAADAAgAAAAA=";
+
+/// One zip local file header for the entry `first`, with no data and no central directory: a cut package.
+pub(crate) fn local_header(first: &str) -> Vec<u8> {
     let mut b = b"PK\x03\x04".to_vec();
     b.extend_from_slice(&[20, 0, 0, 0, 8, 0, 0, 0, 0, 0]);
     b.extend_from_slice(&[0; 12]);
@@ -325,7 +333,7 @@ pub(crate) fn package(first: &str) -> Vec<u8> {
 }
 
 fn docx() -> Vec<u8> {
-    package("[Content_Types].xml")
+    word_package()
 }
 
 fn import_file_on(bc: Option<&str>, body: &str) -> Result<String, Signal> {
@@ -483,7 +491,7 @@ fn media_set_import_file_third_member_is_refused() {
 }
 
 // onprem streams/media/MediaFiles.al:470-526 RD_Media_ImportFile_Docx pins the import of a .docx file (HasValue Yes). What BC stores is
-// a re-zipped package on every major (corpus PR 1469, MediaDocxRezip.al:393 Docx_MediaImportFile_Stored, measured on Windows BC 27.5,
+// a re-zipped package on every major (corpus PR 1469, MediaDocxRezip.al:392 Docx_MediaImportFile_Stored, measured on Windows BC 27.5,
 // 28.5 and 29.0; the 27 and 28 lines of MediaFiles.al:521-523 expect the file's bytes, which Windows BC does not store): a look at the
 // row or at the export is refused on every major.
 const DOCX_ROW: &str =
