@@ -118,8 +118,8 @@ pub(crate) fn bare_root_options(xml: &str, call: ParamsCall) -> Option<Result<&s
 /// `encoding="utf-16"`, on BC as in this runtime).
 const WRITTEN_DECLARATION: &str = "<?xml version=\"1.0\" encoding=\"utf-16\" standalone=\"yes\"?>";
 
-/// A parameters string in a form an outside reporter measured on BC (al-runner issue 7908, assumption
-/// report-params-written-declaration; corpus probe pull request 1368, ReportParametersStrings.al), as the string in the pinned
+/// A parameters string in a form al-language/reports/request-page/ReportParametersStrings.al pins under `Report.SaveAs` (the
+/// utf-16 one line, :226 with :276-277; the `WriteTo` layout, :234 with :284-285), as the string in the pinned
 /// form ([`PARAMETERS_DECLARATION`], no whitespace between the elements) that BC treats alike: under `Report.SaveAs` only, the
 /// declaration `XmlDocument.WriteTo(Text)` writes, then a root without name and id holding one `<Options>` element of `Field`
 /// elements and no `<DataItems>`, in exactly one of the two measured layouts: one line with nothing between the elements, or

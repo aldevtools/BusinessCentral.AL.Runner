@@ -119,7 +119,7 @@ fn closing_date_letter_follows_the_measured_languages() {
         ("Norwegian", &b44),
         ("Swedish", &b53),
     ]);
-    let flag = Some(Assumption::ClosingDateLetterByLanguage);
+    let flag = None;
     reports(&o, "English", "C12/31/23", None);
     reports(&o, "Danish", "U12/31/23", flag);
     reports(&o, "German", "U12/31/23", flag);
@@ -198,7 +198,7 @@ fn boolean_words_under_norwegian_and_swedish() {
         ("EvaluateNej1044", &e7),
         ("EvaluateZero1053", &e8),
     ]);
-    let flag = Some(Assumption::BooleanWordsNorwegianSwedish);
+    let flag = None;
     reports(&o, "FormatTrue1044", "Ja", flag);
     reports(&o, "FormatTrue1053", "Ja    ", flag);
     refused(&o, "FormatFalse1044");
@@ -249,7 +249,7 @@ codeunit 58340 T
 "#);
     let (out, hits) = get(&o, "SubtractFromClosingDateRaises");
     assert_eq!(out, "Pass");
-    assert_eq!(hits, [Assumption::ClosingDateMinusDateRaises]);
+    assert!(hits.is_empty(), "{hits:?}");
     refused(&o, "DateMinusClosing");
     reports(&o, "PlainDates", "1", None);
 }
@@ -286,7 +286,7 @@ fn month_and_weekday_names_measured_by_the_reporter() {
     ]);
     let o = tests(&bodies);
     for (n, _, v) in &cells {
-        reports(&o, n, v, Some(Assumption::MonthWeekdayNamesByLanguage));
+        reports(&o, n, v, None);
     }
     refused(&o, "OtherMonth");
     refused(&o, "OtherWidth");
@@ -309,7 +309,6 @@ fn date_formula_letters_measured_by_the_reporter() {
     let cells = [
         ("E30K", ev(1030, "1K"), "true|1Q|1K"),
         ("E30W", ev(1030, "1W"), "false|1Y|1Å"),
-        ("E30NU", ev(1030, "NU"), "false|1Y|1Å"),
         ("E31T", ev(1031, "1T"), "true|1D|1T"),
         ("E31J", ev(1031, "1J"), "true|1Y|1J"),
         ("E31Q", ev(1031, "1Q"), "true|1Q|1Q"),
@@ -323,6 +322,9 @@ fn date_formula_letters_measured_by_the_reporter() {
     ];
     let mut bodies: Vec<(&str, &str)> = cells.iter().map(|(n, b, _)| (*n, b.as_str())).collect();
     let (n1, n2) = (ev(1031, "LM+1T"), ev(1030, "2K+1D"));
+    // The reporter measured `NU` under 1030 too, but the corpus pin does not hold it
+    // (localization/global-language/GlobalLanguageDateFormula.al:95-96 lists the texts): it refuses.
+    let n4 = ev(1030, "NU");
     // A single local letter in brackets is measured since (global_language_probe.rs); two terms are not.
     let n3 =
         "var D: Date; begin GlobalLanguage(1030); D := CalcDate('<1U+1K>', DMY2Date(15, 3, 2024)); end;".to_string();
@@ -330,14 +332,16 @@ fn date_formula_letters_measured_by_the_reporter() {
         ("OtherGermanText", n1.as_str()),
         ("OtherDanishText", n2.as_str()),
         ("DanishCalcDateTwoTerms", n3.as_str()),
+        ("DanishNu", n4.as_str()),
     ]);
     let o = tests(&bodies);
     for (n, _, v) in &cells {
-        reports(&o, n, v, Some(Assumption::DateFormulaLettersDanishGerman));
+        reports(&o, n, v, None);
     }
     refused(&o, "OtherGermanText");
     refused(&o, "OtherDanishText");
     refused(&o, "DanishCalcDateTwoTerms");
+    refused(&o, "DanishNu");
 }
 
 // al-runner issue 8197: the reporter's repro, its objects unchanged; the Danish date filter text and the Enum shape stay refused.
@@ -452,25 +456,22 @@ codeunit 58321 T
 }
 "#
     ));
-    for (t, a) in [
-        ("OptionNotAMember", Assumption::OptionFilterNonMemberError),
-        ("DanishBooleanWords", Assumption::BooleanFilterWordsDanish),
-    ] {
+    for t in ["OptionNotAMember", "DanishBooleanWords"] {
         let (out, hits) = get(&o, t);
         assert_eq!(out, "Pass", "{t}");
-        assert!(hits.contains(&a), "{t}: {hits:?}");
+        assert!(hits.is_empty(), "{t}: {hits:?}");
     }
     reports(
         &o,
         "OptionFullText",
         "The filter \"Delta\" is not valid for the Kind field on the Ref Row table. 'Delta' is not an option. The existing options are: Alpha,Beta,Gamma",
-        Some(Assumption::OptionFilterNonMemberError),
+        None,
     );
     reports(
         &o,
         "DanishYesText",
         "Filteret \"Yes\" er ikke gyldigt for feltet Active i tabellen Ref Row. V\u{e6}rdien \"Yes\" kan ikke evalueres til typen Boolean.",
-        Some(Assumption::BooleanFilterWordsDanish),
+        None,
     );
     refused(&o, "DanishDateTextUnderEnUsRegion");
     refused(&o, "DanishTrueWord");

@@ -38,9 +38,7 @@ impl Session {
             let s = st.borrow();
             if !s.open
                 || !s.dirty
-                || !s.refresh
-                || !s.refresh_by_update
-                || !s.refresh_update_false
+                || !s.refresh.asked_by_update_false()
                 || s.draft
                 || !s.test_open_edit()
                 || s.cursor != Cursor::Row
@@ -79,7 +77,7 @@ impl Session {
                 let mut s = st.borrow_mut();
                 s.dirty = false;
                 s.set_value_held = false;
-                s.refresh = false;
+                s.refresh.cancel();
             }
             self.set_xrec_fields(st, stored);
             self.sync_parts(st)?;
@@ -120,7 +118,7 @@ impl Session {
     /// this page's refresh. A card with only OnNextRecord staying on its row is pinned (UpdateOnFindRecord.al:357); the trigger
     /// order of its refresh is not, so it is marked the same way.
     pub(super) fn assume_card_refresh(&self, st: &St) {
-        if !st.borrow().refresh_pinned {
+        if !st.borrow().refresh.pinned() {
             assume(Assumption::UpdateRefreshOnFindRecord);
         }
     }
