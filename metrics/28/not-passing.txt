@@ -858,6 +858,7 @@
 73401 Remove_Root_Lone
 73401 ReplaceWith_Root_Unparented
 73402 Attribute_Create_Namespace_Prefixes
+73403 Node_AddAfterBeforeRemove
 73403 Node_Navigation
 73403 Node_Uninitialized
 73404 NameTable_Basics
