@@ -2,7 +2,7 @@
 //! declares, while the extension's file cannot name that enum (its namespace has no `using` of the enum's): Base Application's
 //! "Mfg. Item Journal Line" on Item Journal Line."Order Type" (al-runner issue 8297). The condition names a member of the enum
 //! the table's file names, under assumption `relation-condition-enum-of-declaring-file` until corpus PR 1437
-//! (table-objects/extensions/ExtRelationEnumNamespace_Tests.al) is pinned. The corpus probe pins the values; these tests pin
+//! (merged: table-objects/extensions/ExtRelationEnumNamespace_Tests.al:49-260, :369, :400, :424) is pinned. The corpus probe pins the values; these tests pin
 //! what it cannot see: where the assumption is marked, and the neighbors that keep main's answer or stay refused.
 
 use al_builtins::assumptions::{self, Assumption};

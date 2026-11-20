@@ -492,8 +492,8 @@ impl Lowerer<'_> {
     /// * the file names the field's enum: pinned (record/table-relation/TableRelationArms.al and the rest of that folder);
     /// * a table extension's file that cannot name it (no `using` of its namespace: Base Application's "Mfg. Item Journal
     ///   Line" on Item Journal Line."Order Type", al-runner issue 8297), or whose own namespace declares another enum of that
-    ///   name, on a field the table declares: the member is still the field's enum's (corpus PR 1437,
-    ///   table-objects/extensions/ExtRelationEnumNamespace_Tests.al), under assumption relation-condition-enum-of-declaring-file;
+    ///   name, on a field the table declares: the member is still the field's enum's (corpus PR 1437, merged,
+    ///   not pinned yet: table-objects/extensions/ExtRelationEnumNamespace_Tests.al:49-260, :369, :400, :424), under assumption relation-condition-enum-of-declaring-file;
     /// * a file that names another enum of that name any other way keeps main's answer, that enum's member; a name the file
     ///   finds twice is not understood.
     fn relation_condition_const(

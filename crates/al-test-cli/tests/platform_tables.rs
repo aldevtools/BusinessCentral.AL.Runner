@@ -1381,8 +1381,7 @@ codeunit 50000 "T" { Subtype = Test;
 
 /// al-runner #8297: a `const(Member)` condition that a table extension sets, on an Enum field of the table whose enum the
 /// extension's file cannot name (no `using` of its namespace), rests on assumption `relation-condition-enum-of-declaring-file`
-/// (corpus PR 1437, ExtRelationEnumNamespace_Tests.al TableRelationsMetadata_ModifyRelation_OrderNo_Rows and
-/// FieldTable_ModifyRelation_RelationTableNo): the Table Relations Metadata row lists the member's ordinal and the Field row
+/// (corpus PR 1437, merged, not pinned yet: table-objects/extensions/ExtRelationEnumNamespace_Tests.al:297 and :353): the Table Relations Metadata row lists the member's ordinal and the Field row
 /// RelationTableNo 0, and a read of either marks the assumption.
 #[test]
 fn the_metadata_rows_of_an_extension_condition_on_an_unnamed_enum_are_flagged() {

@@ -259,7 +259,7 @@ fn table_entries(
         let row_packages = extension.as_deref().unwrap_or(&packages[..]);
         match field_row(c, o, f, t, blank, row_packages, &mut r) {
             // RelationTableNo and RelationFieldNo of a relation whose condition rests on an assumption carry its flag
-            // (corpus PR 1437, ExtRelationEnumNamespace_Tests.al FieldTable_ModifyRelation_RelationTableNo).
+            // (corpus PR 1437, merged, not pinned yet: table-objects/extensions/ExtRelationEnumNamespace_Tests.al:353).
             Ok(()) => out.push(match f.relation_condition_assumption() {
                 Some(a) => Entry::ok(r).assuming_in(a, vec![pos(t, 21), pos(t, 22)]),
                 None => Entry::ok(r),
