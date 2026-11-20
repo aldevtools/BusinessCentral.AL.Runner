@@ -16,10 +16,9 @@ const DOTX_MIME: &str = "application/vnd.openxmlformats-officedocument.wordproce
 const DOCM_MIME: &str = "application/vnd.ms-word.document.macroEnabled.12";
 /// The Excel workbook MIME type of the four-argument import of a `.xlsx` (Y48TenantMediaRows.al:618 'attach D').
 const XLSX_MIME: &str = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-/// The parts of the package every cell of MediaDocxRezip.al imports, in their order (MediaDocxRezip.al:383 'parts').
-const PARTS: [&[u8]; 3] = [b"[Content_Types].xml", b"_rels/.rels", b"word/document.xml"];
-/// The compression method of every part: deflate (MediaDocxRezip.al:4-5 'three deflated parts', :384 'first entry' method=8).
-const DEFLATE: u16 = 8;
+/// The package every cell of MediaDocxRezip.al imports: the 911-byte .docx of MediaFiles.al (MediaDocxRezip.al:46-57 DocxBase64; its
+/// parts :383). Only these bytes are measured: a zip Data Compression builds of the same parts is stored as it is (facts header :18).
+const MEASURED: &[u8] = include_bytes!("media_word_package.docx");
 
 /// What an `ImportFile` of a Word document gives.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,55 +38,9 @@ pub(crate) enum StreamImport {
     Nothing,
 }
 
-/// The measured Word package: a zip whose central directory parses and lists exactly `PARTS`, in that order, each deflated
-/// (MediaDocxRezip.al:369 Docx_Source_Package, :383-384). Anything else is a shape no probe measured.
+/// The measured package, byte for byte (`MEASURED`).
 pub(crate) fn is_measured_package(b: &[u8]) -> bool {
-    deflated_entry_names(b).is_some_and(|names| names == PARTS)
-}
-
-/// The entry names of a zip that ends with its end of central directory record (one disk, no comment), whose central directory
-/// fills the space up to that record, and whose every entry is deflated in its central header and in the local header it points
-/// to, under the same name; `None` for anything else.
-fn deflated_entry_names(b: &[u8]) -> Option<Vec<&[u8]>> {
-    let u16_at = |i: usize| b.get(i..i + 2).map(|s| u16::from_le_bytes([s[0], s[1]]));
-    let u32_at = |i: usize| {
-        b.get(i..i + 4)
-            .and_then(|s| usize::try_from(u32::from_le_bytes([s[0], s[1], s[2], s[3]])).ok())
-    };
-    let end = b.len().checked_sub(22)?;
-    let count = u16_at(end + 10)?;
-    if !b[end..].starts_with(b"PK\x05\x06")
-        || u32_at(end + 4)? != 0
-        || u16_at(end + 8)? != count
-        || u16_at(end + 20)? != 0
-    {
-        return None;
-    }
-    let start = u32_at(end + 16)?;
-    if start.checked_add(u32_at(end + 12)?)? != end {
-        return None;
-    }
-    let mut at = start;
-    let mut names = Vec::new();
-    for _ in 0..count {
-        if b.get(at..at + 4)? != b"PK\x01\x02" || u16_at(at + 10)? != DEFLATE {
-            return None;
-        }
-        let name_len = usize::from(u16_at(at + 28)?);
-        let name = b.get(at + 46..at + 46 + name_len)?;
-        let local = u32_at(at + 42)?;
-        let local_end = local + 30 + usize::from(u16_at(local + 26)?);
-        if local_end > start
-            || b.get(local..local + 4)? != b"PK\x03\x04"
-            || u16_at(local + 8)? != DEFLATE
-            || b.get(local + 30..local_end)? != name
-        {
-            return None;
-        }
-        names.push(name);
-        at += 46 + name_len + usize::from(u16_at(at + 30)?) + usize::from(u16_at(at + 32)?);
-    }
-    (at == end).then_some(names)
+    b == MEASURED
 }
 
 /// A four-argument import (blank description and MIME type) named `.xlsx` or `.docx` reads the content as an Office document:
@@ -195,4 +148,20 @@ pub(crate) fn stream_import(
          MIME type, no file name, into an empty Media is measured (it gives no media); what BC makes of other content is not"
             .into(),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MEASURED as SOURCE, is_measured_package};
+
+    #[test]
+    fn only_the_measured_bytes_are_the_measured_package() {
+        assert!(is_measured_package(SOURCE));
+        // Same parts, names, sizes and CRC-32, other compressed bytes: a zip Data Compression builds of these parts is stored as it is
+        // (MediaDocxRezip.al:18, :386 'rebuilt is the file' No), so it is not the measured package.
+        let mut other = SOURCE.to_vec();
+        other[60] ^= 1;
+        assert!(!is_measured_package(&other));
+        assert!(!is_measured_package(&SOURCE[..910]));
+    }
 }
