@@ -1985,6 +1985,7 @@ impl Session {
                         new[field] = ops::convert(v.clone(), &ty)?;
                     }
                 }
+                self.refuse_selected_company_rename(rec.borrow().temporary, &t, &old, &new)?;
                 let auto_increment_refusal = self.check_rename_values(rec, &t, &old, &mut new)?;
                 if self.is_profile_row(&t, rec.borrow().temporary) {
                     self.profile_before_rename(&t, &old, &new)?;
