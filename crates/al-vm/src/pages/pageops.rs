@@ -676,6 +676,7 @@ impl Session {
     fn save_from_update(&mut self, method: PageOp, st: &St) -> Result<Value, Signal> {
         if method == PageOp::PageSaveRecord {
             st.borrow_mut().save_record_called = true;
+            self.save_record_on_code_inserted_line(st)?;
         }
         // CurrPage.SaveRecord() in the OnValidate of a part's control changes neither Rec nor xRec of the stored row; a new
         // row gets its inserted key in Rec while xRec stays the blank new row
@@ -705,6 +706,7 @@ impl Session {
         }
         // What `CurrPage.Update(true)` saved (al-vm pages/leave_new_line.rs, testpage/NewRowThenMove.al:73).
         st.borrow_mut().saved_by_update = method != PageOp::PageSaveRecord;
+        self.code_inserted_saved(st);
         Ok(Value::Null)
     }
 

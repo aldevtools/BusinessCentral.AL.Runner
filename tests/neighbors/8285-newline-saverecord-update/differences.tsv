@@ -1,0 +1,11 @@
+# key	entry
+# Host page 97483 is page 97474 of the probe, line for line; these cells are the probe's.
+LT NS Host Neighbor Tests::Host_RowBefore_Close	PINNED tests/al-language/pages/currpage/ListNewLineSaveRecordUpdate.al:784 (FactBox host, row before, Close after the Value SetValue)
+LT NS Host Neighbor Tests::Host_EmptyView_PreviousThenNext	PINNED tests/al-language/pages/currpage/ListNewLineSaveRecordUpdate.al:677 (FactBox host, empty view: Previous answers false, then Next)
+# A copy of page 97473 under another name: the code is the probe's line for line (code_inserted_pinned.rs).
+LT NS Other Code Tests::SameCode_Quiet	PINNED tests/al-language/pages/currpage/ListNewLineSaveRecordUpdate.al:561 (page without triggers, empty view, SaveRecord then Update(false); the Close saves the Value as at :739)
+# Call sequences the probe does not measure, on page 97480 whose OnValidate is not the probe's code. Main ran them without the
+# modify BC runs at the SaveRecord (tests/al-language/pages/currpage/ListNewLineSaveRecordUpdate.al:445); the head refuses them at the SaveRecord (review of #8305, round 3).
+LT NS Neighbor Tests::SaveRecordWithoutUpdate	REFUSED CurrPage.SaveRecord or Update(true) on the new line whose table field inserted it, on a page whose code
+LT NS Neighbor Tests::SaveRecordThenClose	REFUSED CurrPage.SaveRecord or Update(true) on the new line whose table field inserted it, on a page whose code
+LT NS Neighbor Tests::ErrorAfterSaveRecord	REFUSED CurrPage.SaveRecord or Update(true) on the new line whose table field inserted it, on a page whose code
