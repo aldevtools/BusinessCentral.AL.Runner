@@ -355,6 +355,19 @@ fn by_id_as_name(
     (kind == ObjKind::Codeunit && event == p.by_id_event && of_app_under_test && !is_manual(o)).then_some(p)
 }
 
+/// The publisher kind an `EventSubscriber` writes as its first argument (`ObjectType::Codeunit`).
+fn subscriber_kind(arg: &str) -> Option<ObjKind> {
+    match unquote(arg.rsplit("::").next().unwrap_or("")).to_lowercase().as_str() {
+        "codeunit" => Some(ObjKind::Codeunit),
+        "table" => Some(ObjKind::Table),
+        "page" => Some(ObjKind::Page),
+        "report" => Some(ObjKind::Report),
+        "query" => Some(ObjKind::Query),
+        "xmlport" => Some(ObjKind::XmlPort),
+        _ => None,
+    }
+}
+
 impl Registry {
     /// A codeunit subscriber whose publisher is written as an id (`written`), before the publisher is resolved: the id of
     /// [`FILTER_HELPER`], [`UI_HELPER`] or [`REPORTING`] by equality, or 44 resolved to Base Application's ReportManagement
@@ -650,17 +663,8 @@ impl Registry {
                             );
                         }
                         "eventsubscriber" if args.len() >= 3 => {
-                            let kind = match unquote(args[0].rsplit("::").next().unwrap_or(""))
-                                .to_lowercase()
-                                .as_str()
-                            {
-                                "codeunit" => ObjKind::Codeunit,
-                                "table" => ObjKind::Table,
-                                "page" => ObjKind::Page,
-                                "report" => ObjKind::Report,
-                                "query" => ObjKind::Query,
-                                "xmlport" => ObjKind::XmlPort,
-                                _ => continue,
+                            let Some(kind) = subscriber_kind(&args[0]) else {
+                                continue;
                             };
                             // The platform codeunits below are found by the name as written, namespace left out.
                             let (mut target, _) = publisher_name(args[1].rsplit("::").next().unwrap_or(""));
