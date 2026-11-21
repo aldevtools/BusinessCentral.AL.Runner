@@ -277,7 +277,13 @@ fn reads_microsofts_login(
             name(*t)
         ));
     }
-    let g = (own.globals_read.iter()).find(|g| ms.globals_written.contains(g) && single_instance(lowered, g.0))?;
+    // A memo of System Application's that the subscribers fill alone gives them what it gives inside the login
+    // (`login-own-memo-alone`, marked at its reads: `partner_login::own_step`).
+    let g = (own.globals_read.iter()).find(|g| {
+        ms.globals_written.contains(g)
+            && single_instance(lowered, g.0)
+            && !crate::partner_login::microsoft_login_memo(lowered, g.0)
+    })?;
     Some(format!(
         "they read a global of SingleInstance codeunit {} that the dependency apps' login code sets",
         objects.get(g.0).map_or("?", |o| o.name.as_str())

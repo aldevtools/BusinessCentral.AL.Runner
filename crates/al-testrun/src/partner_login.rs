@@ -280,7 +280,8 @@ fn refuse_reads(lowered: &Lowered, session: &mut Session, memo: usize, what: &st
 /// After a login step of the apps under test's own subscribers (`install::own_login`) that changed `singles` (codeunit ->
 /// globals): notes the changes in `left`, for the partner subscribers after it ([`kept`] refuses), and refuses the reads
 /// of each codeunit a partner subscriber changed before it. No probe has an own subscriber next to a partner one that
-/// changes the same codeunit (corpus PR 1490 has none).
+/// changes the same codeunit (corpus PR 1490 has none). A [`microsoft_login_memo`] they changed alone, without
+/// Microsoft's login code before them, marks `login-own-memo-alone` at every read of its globals.
 pub(crate) fn own_step(lowered: &Lowered, session: &mut Session, singles: Singles, left: &mut PartnerLogin) {
     for (o, globals) in singles {
         let earlier = left.changed_by.entry(o).or_default();
@@ -289,6 +290,8 @@ pub(crate) fn own_step(lowered: &Lowered, session: &mut Session, singles: Single
         if partner_before {
             let what = "a subscriber of an app under test changed it after a partner subscriber did";
             refuse_reads(lowered, session, o, what);
+        } else if microsoft_login_memo(lowered, o) {
+            session.mark_single_assumed(o, Assumption::LoginOwnMemoAlone);
         }
     }
 }
@@ -376,9 +379,10 @@ fn kept(
     }
     let microsoft = (lowered.program.apps.get(memo_app as usize)).is_some_and(|a| a.publisher.trim() == "Microsoft");
     if microsoft {
-        return match objs[memo].id {
-            Some(3702 | 3703) => Kept::Assumed,
-            _ => Kept::Refused("it is a codeunit of an app published by Microsoft other than 3702 and 3703".into()),
+        return if microsoft_login_memo(lowered, memo) {
+            Kept::Assumed
+        } else {
+            Kept::Refused("it is a codeunit of an app published by Microsoft other than 3702 and 3703".into())
         };
     }
     let measured_type =
@@ -390,6 +394,19 @@ fn kept(
             other.name
         )),
     }
+}
+
+/// Whether codeunit `o` is one of System Application's memos that a login subscriber fills through
+/// `EnvironmentInformation.IsSaaS()`, `IsSandbox()` and `ServerSetting.GetEnableMembershipEntitlement()`: codeunit 3702
+/// ("Environment Information Impl.") or 3703 ("Server Setting Impl.") of a dependency app published by Microsoft (corpus
+/// PR 1490, P2LoginMemoTests.al P2A_06 and P2A_11, the XApp A subscriber at P2XaLoginMemos.al). What a partner
+/// subscriber left there is kept ([`kept`]); an app under test's subscriber that reads them does not need the login
+/// raised through Microsoft's code (`login::reads_microsofts_login`, [`own_step`]).
+pub(crate) fn microsoft_login_memo(lowered: &Lowered, o: usize) -> bool {
+    let objs = &lowered.program.objects;
+    lowered.dependency.get(o).copied().unwrap_or(false)
+        && (lowered.program.apps.get(objs[o].app as usize)).is_some_and(|a| a.publisher.trim() == "Microsoft")
+        && matches!(objs[o].id, Some(3702 | 3703))
 }
 
 /// One kind of session state other than rows that the partner subscribers changed ([`seen_by_test`]).
