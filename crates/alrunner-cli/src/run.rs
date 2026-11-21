@@ -580,6 +580,23 @@ pub struct RequestTimings {
     pub passes: Vec<al_testrun::runtime::PassTime>,
 }
 
+impl RequestTimings {
+    /// A request's timings: its setup parts, the run's phases and the time the coverage document took.
+    fn of(setup: SetupParts, p: &al_testrun::runtime::Phases, coverage: Duration) -> RequestTimings {
+        RequestTimings {
+            setup,
+            compile: p.warm_compile.unwrap_or(p.compile),
+            engine: p.engine,
+            engine_kept: p.engine_kept,
+            baseline: p.baseline,
+            baseline_source: p.baseline_source,
+            tests: p.tests,
+            coverage,
+            passes: p.passes.clone(),
+        }
+    }
+}
+
 /// One entry of a server request (`WarmCtx::entries`).
 #[derive(Debug, Clone, Default)]
 pub struct Entry {
@@ -1664,6 +1681,7 @@ fn test_inner(
         test_suites,                   // `--test-suites FILE` (ADR-066 amendment 6)
         memory: crate::memory_budget::budget(a.max_memory, warm.is_none() && debug.is_none()), // `--max-memory`
         private_baseline: std::env::var_os("AL_PRIVATE_BASELINE").is_some(), // ADR-069 decision 11
+        login_replay_check: std::env::var_os("ALRUNNER_LOGIN_REPLAY_CHECK").is_some(), // issue 8211, internal
         // ADR-070 step 2 (internal); ADR-074: the discovery pass under strict order needs each BC session in one walk.
         strict_sequential: std::env::var_os("AL_STRICT_SEQUENTIAL").is_some() || driver.one_session(),
         test_driver: driver,
@@ -1788,6 +1806,7 @@ fn test_inner(
         }
     };
     let p = &rt.phases;
+    p.login_replay.iter().for_each(|l| eprintln!("{l}")); // ALRUNNER_LOGIN_REPLAY_CHECK (issue 8211)
     let d = sidecar_host.stats();
     sidecar_host.shutdown();
 
@@ -2321,17 +2340,7 @@ fn test_inner(
         })
     );
     if let Some(w) = warm {
-        w.timings = Some(RequestTimings {
-            setup,
-            compile: p.warm_compile.unwrap_or(p.compile),
-            engine: p.engine,
-            engine_kept: p.engine_kept,
-            baseline: p.baseline,
-            baseline_source: p.baseline_source,
-            tests: p.tests,
-            coverage: coverage_time,
-            passes: p.passes.clone(),
-        });
+        w.timings = Some(RequestTimings::of(setup, p, coverage_time));
         w.report = Some(Report {
             doc: serde_json::from_str(&crate::unpinned::json(
                 crate::seed::json(
