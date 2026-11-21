@@ -130,6 +130,7 @@ mod lookup_relation_find_record;
 mod lookup_three_field_link_row_triggers;
 mod lookup_two_field_link;
 mod lookup_two_field_link_row_triggers;
+mod machine_cleanup_script;
 mod main_regressions;
 mod metadata_wildcard_row;
 mod min_active_row_version;
