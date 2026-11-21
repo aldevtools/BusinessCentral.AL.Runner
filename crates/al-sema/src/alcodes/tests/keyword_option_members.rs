@@ -128,6 +128,118 @@ fn a_keyword_member_of_the_option_members_property_is_al0105_at_the_word() {
     }
 }
 
+/// Begin and Var before a comma, which this parser takes: (shape, word, code, message, offset of the diagnostic from the
+/// word), one row per cell the AL compilers of every supported major measured; the return type reports at the comma.
+const BEGIN_VAR_CELLS: [(&str, &str, &str, &str, usize); 11] = [
+    (
+        "codeunit 50101 \"U\" { procedure P() var O: Option W,Zero; begin end; }",
+        "Begin",
+        "AL0104",
+        "Syntax error, ';' expected",
+        0,
+    ),
+    (
+        "codeunit 50101 \"U\" { procedure P() var O: Option Zero,W,One; begin end; }",
+        "Begin",
+        "AL0104",
+        "Syntax error, ';' expected",
+        0,
+    ),
+    (
+        "codeunit 50101 \"U\" { var O: Option Zero,W,One; procedure P() begin end; }",
+        "Begin",
+        "AL0104",
+        "Syntax error, ';' expected",
+        0,
+    ),
+    (
+        "codeunit 50101 \"U\" { procedure P(O: Option W,Zero) begin end; }",
+        "Begin",
+        "AL0104",
+        "Syntax error, ')' expected",
+        0,
+    ),
+    (
+        "codeunit 50101 \"U\" { procedure P(O: Option Zero,W,One) begin end; }",
+        "Begin",
+        "AL0104",
+        "Syntax error, ')' expected",
+        0,
+    ),
+    (
+        "codeunit 50101 \"U\" { procedure P(): Option W,Zero begin end; }",
+        "Begin",
+        "AL0104",
+        "Syntax error, 'end' expected",
+        5,
+    ),
+    (
+        "codeunit 50101 \"U\" { procedure P() var O: Option W,Zero; begin end; }",
+        "Var",
+        "AL0104",
+        "Syntax error, ';' expected",
+        0,
+    ),
+    (
+        "codeunit 50101 \"U\" { var O: Option Zero,W,One; procedure P() begin end; }",
+        "Var",
+        "AL0104",
+        "Syntax error, ';' expected",
+        0,
+    ),
+    (
+        "codeunit 50101 \"U\" { procedure P(O: Option Zero,W,One) begin end; }",
+        "Var",
+        "AL0104",
+        "Syntax error, ';' expected",
+        0,
+    ),
+    (
+        "codeunit 50101 \"U\" { procedure P(): Option W,Zero begin end; }",
+        "Var",
+        "AL0519",
+        "',' is not valid value in this context.",
+        3,
+    ),
+    (
+        "codeunit 50101 \"U\" { procedure P(): Option Zero,W,One begin end; }",
+        "Var",
+        "AL0519",
+        "',' is not valid value in this context.",
+        3,
+    ),
+];
+
+#[test]
+fn begin_and_var_before_a_comma_give_the_first_diagnostic_alc_gives() {
+    for (shape, word, code, message, after) in BEGIN_VAR_CELLS {
+        let at = shape.find('W').expect("W");
+        let src = format!("{}{word}{}\n", &shape[..at], &shape[at + 1..]);
+        let ws = load(&[&src]);
+        let got: Vec<_> = check_workspace(&ws)
+            .into_iter()
+            .map(|d| (d.code.to_string(), d.message, d.offset))
+            .collect();
+        assert_eq!(
+            got,
+            [(code.to_string(), message.to_string(), at + after)],
+            "{word} in {shape}"
+        );
+    }
+}
+
+/// `Var` as the first member of a parameter's option type is an internal error of the AL compiler (AL0999 at 1,1); it is
+/// not judged.
+#[test]
+fn var_first_in_a_parameter_is_not_judged() {
+    let ws = load(&["codeunit 50101 \"U\" { procedure P(O: Option Var,Zero) begin end; }\n"]);
+    assert!(
+        check_workspace(&ws)
+            .iter()
+            .all(|d| d.code != "AL0104" && d.code != "AL0105")
+    );
+}
+
 #[test]
 fn quoted_members_and_other_words_compile() {
     for (what, shape) in TYPE_SHAPES {

@@ -4,8 +4,8 @@
 //! compiles, and so do the other words.
 //!
 //! - An option type (`O: Option Zero,Key;`, in a variable, a global, a parameter or a return type, as any member): the
-//!   words of [`PARAM_NAME_KEYWORDS`]. AL0105 (`'key' is a keyword`) for 21 of them; `end` is AL0104 (`';' expected`),
-//!   or AL0519 in a return type. `begin` and `var` stop this parser already, so they are not judged here.
+//!   words of [`PARAM_NAME_KEYWORDS`]. AL0105 (`'key' is a keyword`) for 21 of them; `begin`, `var` and `end` give a
+//!   diagnostic of their own per place (`type_diagnostic`).
 //! - The OptionMembers property of a table or table extension field (`OptionMembers = Zero,If;`): the seven words of
 //!   [`OPTION_MEMBERS_KEYWORDS`], AL0105. `Key` and the rest of the 24 compile there.
 
@@ -38,22 +38,15 @@ pub(super) fn check(ws: &Workspace, oi: usize, obj: &ast::Object, types: &[Synta
         if !(first.kind() == SyntaxKind::Ident && first.text().eq_ignore_ascii_case("option")) {
             continue;
         }
-        let in_return = ty.parent().is_some_and(|p| p.kind() == SyntaxKind::ReturnSpec);
-        for (word, _rests_on) in keyword_members(members, PARAM_NAME_KEYWORDS) {
-            let lower = word.text().to_ascii_lowercase();
-            let (code, message) = match lower.as_str() {
-                "begin" | "var" => continue,
-                "end" if in_return => (
-                    "AL0519",
-                    format!("'{}' is not valid value in this context.", word.text()),
-                ),
-                "end" => ("AL0104", "Syntax error, ';' expected".to_string()),
-                _ => (
-                    "AL0105",
-                    format!("Syntax error, identifier expected; '{lower}' is a keyword"),
-                ),
-            };
-            push(out, ws, file, word.text_range().start().into(), code, message);
+        let place = match ty.parent().map(|p| p.kind()) {
+            Some(SyntaxKind::ReturnSpec) => Place::Return,
+            Some(SyntaxKind::Param) => Place::Parameter,
+            _ => Place::Variable,
+        };
+        for member in keyword_members(members, PARAM_NAME_KEYWORDS) {
+            if let Some((at, code, message)) = type_diagnostic(&member, place) {
+                push(out, ws, file, at, code, message);
+            }
         }
     }
     if !matches!(ws.objects[oi].kind, ObjKind::Table | ObjKind::TableExtension) {
@@ -81,13 +74,13 @@ pub(super) fn check(ws: &Workspace, oi: usize, obj: &ast::Object, types: &[Synta
         else {
             continue;
         };
-        for (word, _rests_on) in keyword_members(&significant(&value), &OPTION_MEMBERS_KEYWORDS) {
-            let lower = word.text().to_ascii_lowercase();
+        for member in keyword_members(&significant(&value), &OPTION_MEMBERS_KEYWORDS) {
+            let lower = member.word.text().to_ascii_lowercase();
             push(
                 out,
                 ws,
                 file,
-                word.text_range().start().into(),
+                member.word.text_range().start().into(),
                 "AL0105",
                 format!("Syntax error, identifier expected; '{lower}' is a keyword"),
             );
@@ -102,16 +95,77 @@ fn significant(n: &SyntaxNode) -> Vec<SyntaxToken> {
         .collect()
 }
 
-/// The members of a comma-separated list that are one unquoted word of `words`, with the registry entry the rule rests on
-/// (a compile refusal ends before any test runs, so it carries no flagged-pass mark; the gate names the entry so that
-/// deleting it at the pin names this check).
-fn keyword_members(list: &[SyntaxToken], words: &[&str]) -> Vec<(SyntaxToken, Assumption)> {
-    list.split(|t| t.kind() == SyntaxKind::Comma)
-        .filter_map(|member| match member {
-            [one] if one.kind() == SyntaxKind::Ident && words.contains(&one.text().to_ascii_lowercase().as_str()) => {
-                Some((one.clone(), Assumption::KeywordOptionMembers))
-            }
-            _ => None,
-        })
-        .collect()
+/// Where an option type is written; the AL compilers' first diagnostic for `begin`, `var` and `end` depends on it.
+#[derive(Clone, Copy)]
+enum Place {
+    Variable,
+    Parameter,
+    Return,
+}
+
+/// One unquoted keyword member of a comma-separated list: whether it is the first member, the token after it, and the
+/// registry entry the rule rests on (a compile refusal ends before any test runs, so it carries no flagged-pass mark; the
+/// gate names the entry so that deleting it at the pin names this check).
+struct Member {
+    word: SyntaxToken,
+    first: bool,
+    next: Option<SyntaxToken>,
+    _rests_on: Assumption,
+}
+
+/// The first diagnostic the AL compilers give for `member` of an option type written at `place`, as (offset, code,
+/// message), or `None` where this check does not judge it. `begin` and `var` are measured only before a comma (as the last
+/// member they stop this parser already); `var` as the first member of a parameter's type is an internal error of the AL
+/// compiler (AL0999 at the start of the file) and is not judged.
+fn type_diagnostic(member: &Member, place: Place) -> Option<(usize, &'static str, String)> {
+    let word = &member.word;
+    let lower = word.text().to_ascii_lowercase();
+    let at_word = word.text_range().start().into();
+    let comma = member.next.as_ref().filter(|t| t.kind() == SyntaxKind::Comma);
+    let at_comma = comma.map(|t| t.text_range().start().into());
+    let expected = |what: &str| ("AL0104", format!("Syntax error, '{what}' expected"));
+    let (at, (code, message)) = match (lower.as_str(), place) {
+        ("begin" | "var", _) if comma.is_none() => return None,
+        ("begin", Place::Parameter) => (at_word, expected(")")),
+        ("begin", Place::Return) => (at_comma?, expected("end")),
+        ("var", Place::Parameter) if member.first => return None,
+        ("var", Place::Return) => (
+            at_comma?,
+            ("AL0519", "',' is not valid value in this context.".to_string()),
+        ),
+        ("end", Place::Return) => (
+            at_word,
+            (
+                "AL0519",
+                format!("'{}' is not valid value in this context.", word.text()),
+            ),
+        ),
+        ("begin" | "var" | "end", _) => (at_word, expected(";")),
+        _ => (
+            at_word,
+            (
+                "AL0105",
+                format!("Syntax error, identifier expected; '{lower}' is a keyword"),
+            ),
+        ),
+    };
+    Some((at, code, message))
+}
+
+/// The members of a comma-separated list that are one unquoted word of `words`.
+fn keyword_members(list: &[SyntaxToken], words: &[&str]) -> Vec<Member> {
+    let comma = |t: &SyntaxToken| t.kind() == SyntaxKind::Comma;
+    let mut out = Vec::new();
+    for (i, one) in list.iter().enumerate() {
+        let alone = (i == 0 || comma(&list[i - 1])) && list.get(i + 1).is_none_or(comma);
+        if alone && one.kind() == SyntaxKind::Ident && words.contains(&one.text().to_ascii_lowercase().as_str()) {
+            out.push(Member {
+                word: one.clone(),
+                first: i == 0,
+                next: list.get(i + 1).cloned(),
+                _rests_on: Assumption::KeywordOptionMembers,
+            });
+        }
+    }
+    out
 }
