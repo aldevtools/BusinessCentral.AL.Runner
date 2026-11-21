@@ -67,8 +67,8 @@ const SRV: &str = "Config.IsSaaS()";
 /// The app under test: the OnAfterLogin subscriber calls the three measured procedures from its own codeunit, as the
 /// probe's "LT P2 XA Env Seen".Record does (corpus PR 1490, P2XaLoginMemos.al). The test codeunit holds `{tests}`.
 const MAIN: &str = r#"
-codeunit 61002 "M Seen" { procedure Record() var E: Codeunit "Environment Information"; S: Codeunit "Server Setting";
-    begin if E.IsSaaS() then; if E.IsSandbox() then; if S.GetEnableMembershipEntitlement() then; end; }
+codeunit 61002 "M Seen" { procedure Record() var Id: Integer; E: Codeunit "Environment Information"; S: Codeunit "Server Setting";
+    begin if E.IsSaaS() then; if E.IsSandbox() then; if S.GetEnableMembershipEntitlement() then; {extra} end; }
 codeunit 61001 "M Login" {
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"System Initialization", 'OnAfterLogin', '', false, false)]
     local procedure L() var S: Codeunit "M Seen"; begin S.Record(); end; }
@@ -79,15 +79,26 @@ codeunit 61010 T { Subtype = Test; {tests} }
 /// A test that reads nothing, and one that writes and reads a table of its own.
 const NO_MEMO: &str = "[Test] procedure ReadsNothing() begin end;
     [Test] procedure OwnRow() var R: Record \"M Row\"; begin R.K := 1; R.Insert(); R.FindFirst(); end;";
+/// A test that reads WorkDate and isolated storage.
+const READS_STATE: &str = "[Test] procedure ReadsState() var V: Text; begin if WorkDate() = 0D then; if IsolatedStorage.Get('k', V) then; end;";
 /// A test that reads the memo through the facade.
 const READS_MEMO: &str =
     "[Test] procedure ReadsMemo() var E: Codeunit \"Environment Information\"; begin if E.IsSaaS() then; end;";
 
 fn run(env: &str, srv: &str, tests: &str, isolation: TestIsolation) -> OutcomesAndHits {
+    run_with(env, srv, "", tests, isolation)
+}
+
+/// [`run`] with `extra`, more statements of the subscriber's procedure `M Seen.Record`.
+fn run_with(env: &str, srv: &str, extra: &str, tests: &str, isolation: TestIsolation) -> OutcomesAndHits {
     outcomes_and_hits_with(
         &[
             ("dep", &[], &DEP.replace("{env}", env).replace("{srv}", srv)),
-            ("main", &["dep"], &MAIN.replace("{tests}", tests)),
+            (
+                "main",
+                &["dep"],
+                &MAIN.replace("{tests}", tests).replace("{extra}", extra),
+            ),
         ],
         &[("dep", "Microsoft")],
         "T",
@@ -142,4 +153,28 @@ fn other_members_of_the_server_classes_keep_the_refusal_under_disabled() {
             &format!("{env} {srv}"),
         );
     }
+}
+
+// The review of PR 8653: the memos' DotNet calls are ignored only when the subscribers' reach is fully known and changes
+// no other session state (`login::watched_state`). A subscriber that also runs a codeunit by an id known only at run
+// time, or writes WorkDate or isolated storage a test reads, keeps main's refusal, for a test that reads nothing of the
+// memos. Main refused these (the memo calls were `OTHER`).
+#[test]
+fn a_subscriber_with_unknown_reach_or_other_session_state_keeps_the_refusal() {
+    for extra in [
+        "Codeunit.Run(Id);",
+        "WorkDate(DMY2Date(1, 1, 2030));",
+        "IsolatedStorage.Set('k', 'v');",
+    ] {
+        kept_not_run(&run_with(ENV, SRV, extra, READS_STATE, TestIsolation::Disabled), extra);
+    }
+}
+
+// Clean allowed case: the subscriber's reach is known and holds nothing but the memos' calls and a table write
+// (the first test above), for a test that reads WorkDate and isolated storage.
+#[test]
+fn a_known_subscriber_that_only_fills_the_memos_runs_for_a_test_that_reads_session_state() {
+    let (o, hits) = run(ENV, SRV, READS_STATE, TestIsolation::Disabled);
+    assert!(o.iter().all(|(_, r)| *r == Outcome::Pass), "{o:?}");
+    assert!(hits.iter().all(|(_, h)| h.is_empty()), "{hits:?}");
 }

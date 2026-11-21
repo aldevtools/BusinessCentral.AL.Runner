@@ -78,6 +78,7 @@ macro_rules! config_flag {
     };
 }
 
+// Listed in ANSWERS_ONLY: must stay read-only; a write here must remove it from the list.
 fn al_config_instance(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     no_args(args, "ALConfigSettings.Instance")?;
     Ok(Value::DotNet(Rc::new(DotNetObject::new(DotNetKind::Internal {
@@ -142,6 +143,7 @@ config_flag!(
     "ALConfigSettings.UsePermissionsFromExtensions",
     Value::Boolean(true)
 );
+// Listed in ANSWERS_ONLY: must stay read-only; a write here must remove it from the list.
 config_flag!(membership_entitlement, "ALConfigSettings.IsSaaS", Value::Boolean(false));
 
 /// Whether the tenant is a sandbox. The SaaS environment is the oracle tier (probe: `IsSandbox`
@@ -155,6 +157,7 @@ fn tenant_is_sandbox(s: &Session) -> bool {
     s.host.identity.environment() == al_host::Environment::Saas
 }
 
+// Listed in ANSWERS_ONLY: must stay read-only; a write here must remove it from the list.
 fn is_sandbox(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     no_args(args, "NavTenantSettingsHelper.IsSandbox")?;
     Ok(Value::Boolean(tenant_is_sandbox(s)))
