@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Stops a heavy step before it fills the disk. Prints the free space of the disk that holds the cache (and the
 # repository, when that is another disk) and exits 1 when one has less than the floor, when the floor is not a
-# number, or when the free space cannot be read.
+# number, or when the free space cannot be read. It exits 2 when tools/cache_root.sh refuses the cache root.
 #
 #   tools/disk_floor.sh [GB]     the floor in GB (default 40: a cold release build plus a debug test build of the
 #                                biggest crates, about 15 GB, for two agents at once, plus room for run output)
 #
-# Run it before `cargo build` in a new worktree and before a full Microsoft run. Exit 1: do not start; free space
+# Run it before `cargo build` in a new worktree and before a full Microsoft run. Exit 1 or 2: do not start; free space
 # with tools/machine_cleanup.sh (dry run first) or ask the person who runs the machine.
 set -uo pipefail
 floor="${1:-40}"

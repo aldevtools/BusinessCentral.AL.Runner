@@ -240,9 +240,36 @@ fn the_target_of_an_open_pull_request_stays() {
     assert!(out.contains("pull request OPEN"), "{out}");
 }
 
+#[test]
+fn without_a_read_pull_request_state_no_worktree_target_goes() {
+    // No pull request state read (an empty list, as when `gh` fails): an aged target of an open pull request stays.
+    let m = machine();
+    std::fs::write(&m.prs, "").unwrap();
+    let o = m.output(&["--apply", "--keep-hours", "0", "--no-gh"], &[], &[]);
+    let out = String::from_utf8_lossy(&o.stdout).to_string();
+    assert!(m.wt("open").join("target/CACHEDIR.TAG").exists(), "{out}");
+    assert!(m.wt("merged").join("target/CACHEDIR.TAG").exists(), "{out}");
+    assert!(out.contains("its pull request is not known to be finished"), "{out}");
+    // Cache targets are not worktree targets: they still go.
+    assert!(!m.cache.join("target-idle").exists(), "{out}");
+}
+
+#[test]
+fn the_target_of_a_locked_worktree_stays() {
+    let m = machine();
+    git(&m.repo, &["worktree", "lock", m.wt("merged").to_str().unwrap()]);
+    let out = m.run(&["--apply", "--keep-hours", "0"]);
+    assert!(m.wt("merged").join("target/CACHEDIR.TAG").exists(), "{out}");
+}
+
 /// Adds a worktree `sub` whose `corpus` submodule has a local commit on a branch nobody pushed, and is checked out
 /// again at the pinned commit (parent and submodule status are clean).
 fn add_submodule_worktree(m: &Machine, stash: bool) {
+    add_submodule_worktree_at(m, stash, false)
+}
+
+/// With `deep`, the unpushed commit is in a submodule of the submodule (`corpus/deep`) instead of in `corpus`.
+fn add_submodule_worktree_at(m: &Machine, stash: bool, deep: bool) {
     let tmp = m._tmp.path();
     let sub = tmp.join("sub.git");
     std::fs::create_dir_all(&sub).unwrap();
@@ -253,6 +280,21 @@ fn add_submodule_worktree(m: &Machine, stash: bool) {
     git(&tmp.join("subwork"), &["commit", "-q", "-m", "a"]);
     git(&tmp.join("subwork"), &["push", "-q", "origin", "HEAD:main"]);
     let allow = ["-c", "protocol.file.allow=always"];
+    if deep {
+        let inner = tmp.join("inner.git");
+        std::fs::create_dir_all(&inner).unwrap();
+        git(&inner, &["init", "-q", "--bare", "-b", "main"]);
+        git(tmp, &["clone", "-q", inner.to_str().unwrap(), "innerwork"]);
+        write(&tmp.join("innerwork/i.txt"), "i\n");
+        git(&tmp.join("innerwork"), &["add", "i.txt"]);
+        git(&tmp.join("innerwork"), &["commit", "-q", "-m", "i"]);
+        git(&tmp.join("innerwork"), &["push", "-q", "origin", "HEAD:main"]);
+        let mut add = allow.to_vec();
+        add.extend(["submodule", "add", "-q", inner.to_str().unwrap(), "deep"]);
+        git(&tmp.join("subwork"), &add);
+        git(&tmp.join("subwork"), &["commit", "-q", "-m", "deep"]);
+        git(&tmp.join("subwork"), &["push", "-q", "origin", "HEAD:main"]);
+    }
     let mut add = allow.to_vec();
     add.extend(["submodule", "add", "-q", sub.to_str().unwrap(), "corpus"]);
     git(&m.repo, &add);
@@ -265,9 +307,13 @@ fn add_submodule_worktree(m: &Machine, stash: bool) {
     );
     let wt = m.wt("sub");
     let mut upd = allow.to_vec();
-    upd.extend(["submodule", "update", "--init", "-q"]);
+    upd.extend(["submodule", "update", "--init", "--recursive", "-q"]);
     git(&wt, &upd);
-    let c = wt.join("corpus");
+    let c = if deep {
+        wt.join("corpus/deep")
+    } else {
+        wt.join("corpus")
+    };
     if stash {
         write(&c.join("a.txt"), "changed\n");
         git(&c, &["stash", "push", "-q"]);
@@ -296,6 +342,36 @@ fn unpushed_commits_in_a_submodule_keep_the_worktree() {
         out.contains("worktree sub: uncommitted or unpushed work in a submodule"),
         "{out}"
     );
+}
+
+#[test]
+fn unpushed_commits_in_a_nested_submodule_keep_the_worktree() {
+    let m = machine();
+    add_submodule_worktree_at(&m, false, true);
+    let out = m.run(&["--apply"]);
+    assert!(m.wt("sub").exists(), "{out}");
+    assert!(
+        out.contains("worktree sub: uncommitted or unpushed work in a submodule"),
+        "{out}"
+    );
+}
+
+#[test]
+fn a_submodule_check_that_fails_keeps_the_worktree() {
+    // The submodule's git folder is unreadable: the check cannot say the submodule is clean, so the worktree stays.
+    let m = machine();
+    add_submodule_worktree_at(&m, true, false);
+    git(&m.wt("sub").join("corpus"), &["stash", "drop", "-q"]);
+    let gitdir = std::fs::read_to_string(m.wt("sub").join("corpus/.git")).unwrap();
+    let gitdir = m
+        .wt("sub")
+        .join("corpus")
+        .join(gitdir.trim().trim_start_matches("gitdir: "));
+    std::fs::write(gitdir.join("HEAD"), "garbage\n").unwrap();
+    let o = m.output(&["--apply"], &[], &[]);
+    let out = String::from_utf8_lossy(&o.stdout).to_string();
+    assert!(m.wt("sub").exists(), "{out}");
+    assert!(out.contains("worktree sub: submodules could not be checked"), "{out}");
 }
 
 #[test]
