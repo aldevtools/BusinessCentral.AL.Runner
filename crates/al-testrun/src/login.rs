@@ -609,7 +609,9 @@ pub(crate) fn ask_test_reach<T>(
 /// can see, in a watched session (review of al-runner issue 7717, round three, probe p7): a manual subscriber they bind
 /// (any event can reach it), a `Random` sequence they reseed (it goes on past the run seed's restart of each test,
 /// ADR-061), code the analysis does not follow (`state::OTHER`), or a global of a SingleInstance codeunit they write that
-/// the test codeunit reads (also through a helper codeunit).
+/// the test codeunit reads (also through a helper codeunit). A `DotNet` member that only answers (`state::SERVER_ANSWER`,
+/// the service tier calls of System Application's login memos) leaves nothing and is not one: what the memos keep is a
+/// SingleInstance global, asked by the last clause.
 fn watched_state(lowered: &Lowered, left: &ReachFacts, mine: &JoinedReach) -> Option<&'static str> {
     if left.state_writes & state::BINDING != 0 {
         Some("bind a manual event subscriber")
