@@ -57,6 +57,11 @@ fn compile_form(o: &ir::Object, routine: usize, captured: bool, debug: bool) -> 
         debug,
         params: r.params,
         by_var: &r.by_var,
+        watched: (0..r.locals.len())
+            .map(|i| crate::lazy_record::watched_local(r, i))
+            .collect(),
+        built: vec![false; r.locals.len()],
+        depth: 0,
     };
     c.block(&r.body).ok()?;
     c.chunk.temps = c.max - nlocals;
@@ -95,6 +100,12 @@ struct Compiler<'a> {
     params: usize,
     /// Which parameters are `var`.
     by_var: &'a [bool],
+    /// The record locals `Op::BuildLocal` is emitted for (`lazy_record::watched_local`), and those a statement of the
+    /// routine's own block already built: that statement ran before every later one (AL has no goto).
+    watched: Vec<bool>,
+    built: Vec<bool>,
+    /// How many blocks the statement being compiled is in (1: the routine's own block).
+    depth: u32,
 }
 
 type R<T> = Result<T, ()>;
@@ -902,15 +913,33 @@ impl<'a> Compiler<'a> {
     // ---- statements ----
 
     fn block(&mut self, stmts: &'a [ir::Stmt]) -> R<()> {
-        if self.captured {
-            return self.block_captured(stmts);
+        self.depth += 1;
+        let r = if self.captured {
+            self.block_captured(stmts)
+        } else {
+            stmts.iter().try_for_each(|s| {
+                let mark = self.next;
+                self.stmt(s)?;
+                self.next = mark;
+                Ok(())
+            })
+        };
+        self.depth -= 1;
+        r
+    }
+
+    /// `Op::BuildLocal` for each watched record local statement `s` names when it starts (`lazy_record.rs`), but not one a
+    /// statement of the routine's own block built before.
+    fn build_locals(&mut self, s: &ir::Stmt) {
+        if !self.watched.contains(&true) {
+            return;
         }
-        for s in stmts {
-            let mark = self.next;
-            self.stmt(s)?;
-            self.next = mark;
+        for i in crate::lazy_record::statement_locals(s, &self.watched) {
+            if !self.built[usize::from(i)] {
+                self.emit(Op::BuildLocal { i });
+                self.built[usize::from(i)] = self.depth == 1;
+            }
         }
-        Ok(())
     }
 
     /// A block as the capture sees it: a marker and the statement after it are one statement (`exec_block_captured`).
@@ -1044,6 +1073,7 @@ impl<'a> Compiler<'a> {
 
     fn stmt(&mut self, s: &'a ir::Stmt) -> R<()> {
         use ir::Stmt as S;
+        self.build_locals(s);
         match s {
             S::Pos(p) => {
                 self.emit(Op::Pos { p: *p });

@@ -38,6 +38,9 @@ pub trait RefVisitor {
     fn lazy_body(&mut self, _body: &mut Body) -> bool {
         false
     }
+    /// A local variable or parameter of the running routine named by a place (`Place::Local`). The default ignores it; the
+    /// VM's compiler lists the locals a statement names (al-vm `lazy_record.rs`).
+    fn local(&mut self, _slot: usize) {}
 }
 
 /// The marker lowering writes in place of the set a site stands for: an object or routine position that no
@@ -429,7 +432,8 @@ fn walk_set_elem<V: RefVisitor>(e: &mut SetElem, v: &mut V) {
 
 fn walk_place<V: RefVisitor>(p: &mut Place, v: &mut V) {
     match p {
-        Place::Local(_) | Place::Global(_) | Place::BaseGlobal(_) => {}
+        Place::Local(i) => v.local(*i),
+        Place::Global(_) | Place::BaseGlobal(_) => {}
         // The extension's object index is an object reference like a call's (cross-app since al-runner issue 6983).
         Place::ExtGlobal(e, _) => obj(v, e),
         Place::RecGlobal(base, o, _) => {

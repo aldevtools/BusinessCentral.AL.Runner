@@ -178,6 +178,10 @@ pub enum Value {
     /// the slot that holds it: a number known only to be greater than 0, so only a comparison with 0 is answered
     /// (`crate::placeholder_output::size`).
     PlaceholderSize(std::sync::Arc<str>, SqlType),
+    /// A Record variable of a stored table not built yet (PERF-28, al-vm `lazy_record.rs`): it only ever sits in the slot of
+    /// its variable and becomes the record the slot's declaration gives at the first statement that names the variable. The
+    /// number is the session's commit count when the variable was declared (a Blob source's stamp, al-vm `blob_transfer`).
+    UnbuiltRecord(u64),
 }
 
 /// A counter value (`Value::SqlCount`, see `crate::sqlcount`).
@@ -1882,8 +1886,9 @@ impl Value {
             Value::TestPage(_) | Value::TestControl(_) | Value::Query(_) => false,
             Value::Blob(_) => false,
             Value::DotNet(_) => k == "dotnet",
-            // Never reached: a read of an unknown column is refused before its value reaches a Variant.
-            Value::Unknown(_) => false,
+            // Never reached: a read of an unknown column is refused before its value reaches a Variant, and an unbuilt
+            // record never leaves its slot.
+            Value::Unknown(_) | Value::UnbuiltRecord(_) => false,
             // The type of the slot that held it: an Integer as Blob.Length returns it, a BigInteger or Decimal field or variable
             // its own type. An Integer expression in a BigInteger variable answers BigInteger (types/decimal-integer/
             // Y66BigIntIntoInt.al:143-144, :163; types/decimal-integer/ScT70063.al:159-162, :196-197); a whole number of another

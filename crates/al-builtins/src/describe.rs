@@ -34,6 +34,7 @@ impl Describe for Value {
             Value::Unknown(why) => format!("an unknown value ({why})"),
             Value::SqlCount(_) => "a SQL counter value".into(),
             Value::PlaceholderSize(m, _) => format!("the byte size of {m}"),
+            Value::UnbuiltRecord(_) => "a record variable not built yet".into(),
             Value::Boolean(b) => format!("Boolean {b}"),
             Value::Integer(i) => format!("Integer {i}"),
             Value::BigInteger(i) => format!("BigInteger {i}"),

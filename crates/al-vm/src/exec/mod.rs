@@ -27,6 +27,11 @@ pub(crate) enum Op {
         d: u16,
         k: u32,
     },
+    /// Local `i`, a record variable, is named by the statement that starts: build it if it is not built yet
+    /// (`lazy_record.rs`).
+    BuildLocal {
+        i: u16,
+    },
     /// `d := Global i`.
     LoadGlobal {
         d: u16,
