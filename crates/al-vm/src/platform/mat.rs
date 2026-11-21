@@ -729,7 +729,7 @@ impl Mat {
                     FilterExpr::Like(..) => true,
                     // An alternative of names does not see it (types/AjMisc.al:712-717; metadata/platform-tables/
                     // FieldTimestampRowTableTypes.al:103 with :164 on every probed kind of table). An alternative with a
-                    // wildcard or a case-insensitive part is not pinned and refuses.
+                    // wildcard or a case-insensitive part refuses unless no part can match the row's name (next arm).
                     FilterExpr::Or(alts) if alts.iter().all(|a| matches!(a, FilterExpr::Eq(_))) => true,
                     // An alternative none of whose parts can match the row's name keeps it out whether or not the
                     // lookup sees it (al-runner issue 8462; [`misses_the_name`]).
