@@ -50,6 +50,7 @@ table 95886 "N S Removed"
 table 95887 "N T Live" { fields { field(1; "No."; Code[20]) { } field(2; F2; Integer) { } field(5; F5; Integer) { } } keys { key(PK; "No.") { } } }
 table 95888 "N S RemovedDec" { fields { field(1; "No."; Code[20]) { } field(6; F6; Decimal) { #R } } keys { key(PK; "No.") { } } }
 table 95889 "N T LiveDec" { fields { field(1; "No."; Code[20]) { } field(6; F6; Decimal) { } } keys { key(PK; "No.") { } } }
+table 95897 "N T BoolToCode10" { fields { field(1; "No."; Code[20]) { } field(2; F2; Code[10]) { #R } } keys { key(PK; "No.") { } } }
 table 95890 "N S RemovedBool" { fields { field(1; "No."; Code[20]) { } field(7; F7; Boolean) { #R } } keys { key(PK; "No.") { } } }
 table 95896 "N S RemovedInt" { fields { field(1; "No."; Code[20]) { } field(5; F5; Integer) { #R } } keys { key(PK; "No.") { } } }
 table 95891 "N T LiveDate" { fields { field(1; "No."; Code[20]) { } field(7; F7; Date) { } } keys { key(PK; "No.") { } } }
@@ -71,6 +72,18 @@ codeunit 95895 T
     var Src: Record "N Src"; Tgt: Record "N T IntFromText";
     begin
         Source(Src); Tgt."No." := 'T'; Tgt.TransferFields(Src, true, Skip); exit(Tgt."No.");
+    end;
+
+    procedure IntFromTextNoPk(Skip: Boolean): Text
+    var Src: Record "N Src"; Tgt: Record "N T IntFromText";
+    begin
+        Source(Src); Tgt."No." := 'T'; Tgt.TransferFields(Src, false, Skip); exit(Tgt."No.");
+    end;
+
+    procedure BoolToCode10(): Text
+    var Src: Record "N Src"; Tgt: Record "N T BoolToCode10";
+    begin
+        Source(Src); Tgt.TransferFields(Src); exit(Tgt."No.");
     end;
 
     procedure LongCode(): Text
@@ -160,8 +173,12 @@ fn run(b: &mut al_testkit::Built, routine: &str, args: Vec<Value>) -> (String, b
 }
 
 fn refused(b: &mut al_testkit::Built, routine: &str) -> String {
+    refused_with(b, routine, vec![])
+}
+
+fn refused_with(b: &mut al_testkit::Built, routine: &str, args: Vec<Value>) -> String {
     let (oi, ri) = b.routine_in("T", routine);
-    match b.call(oi, ri, vec![]) {
+    match b.call(oi, ri, args) {
         Err(Signal::Unsupported(why)) => why.to_string(),
         other => panic!("{routine}: expected a refusal, got {other:?}"),
     }
@@ -220,4 +237,21 @@ fn unmeasured_shapes_that_main_copied_or_failed_are_refused() {
         let why = refused(&mut b, routine);
         assert!(why.contains("ObsoleteState = Removed"), "{routine}: {why}");
     }
+}
+
+/// InitPrimaryKeyFields is part of the measured cell: Text into a removed Integer was measured with it true only
+/// (TransferFieldsRemovedField.al:548, :568). With it false, main's answer stays: DB:TypeMisMatch is refused, the skip is
+/// kept unflagged. Boolean into a removed Code[10] is no measured length (:428 is Code[5]): main's error is refused.
+#[test]
+fn an_unmeasured_init_primary_key_or_length_is_not_answered_by_the_assumption() {
+    let mut b = built();
+    assert_eq!(
+        refused_with(&mut b, "IntFromTextNoPk", vec![Value::Boolean(false)]).contains("ObsoleteState = Removed"),
+        true
+    );
+    assert_eq!(
+        run(&mut b, "IntFromTextNoPk", vec![Value::Boolean(true)]),
+        ("T".into(), false)
+    );
+    assert!(refused(&mut b, "BoolToCode10").contains("ObsoleteState = Removed"));
 }

@@ -1564,6 +1564,7 @@ impl Session {
             args,
             holder,
             skip_mismatch,
+            init_pk,
             cross_app,
         };
         let mut updates = Vec::new();
@@ -1675,7 +1676,14 @@ impl Session {
         let objects = &self.engine.program.objects;
         let same_app = objects[t.object as usize].app == objects[from.object as usize].app
             && self.field_app(t, dp) == self.field_app(from, sp);
-        if same_app && removed_pair_measured(removed, &from.fields[sp].ty, &t.fields[dp].ty, cx.skip_mismatch) {
+        if same_app
+            && removed_pair_measured(
+                removed,
+                &from.fields[sp].ty,
+                &t.fields[dp].ty,
+                (cx.skip_mismatch, cx.init_pk),
+            )
+        {
             al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::TransferFieldsRemovedField);
             return Ok(None);
         }
@@ -2716,36 +2724,45 @@ struct TransferCall<'a> {
     args: &'a [Value],
     holder: crate::blob_transfer::Holder,
     skip_mismatch: bool,
+    /// InitPrimaryKeyFields.
+    init_pk: bool,
     /// The two tables belong to different apps.
     cross_app: bool,
 }
 
 /// The cells corpus PR 1486 measured with a field declared ObsoleteState = Removed (`(source removed, target removed)`),
 /// source and target fields of one app, identical on BC 27.5, 28.5 and 29.0 (record/TransferFieldsRemovedField.al on corpus
-/// master d66ff75b): nothing raises and the field keeps its value. InitPrimaryKeyFields decides nothing here: a removed field
-/// is no primary key field.
+/// master d66ff75b): nothing raises and the field keeps its value. A cell is the type pair with its Code lengths,
+/// SkipFieldsNotMatchingType and InitPrimaryKeyFields, each as measured; any other cell is not answered here.
 fn removed_pair_measured(
     (source_removed, target_removed): (bool, bool),
     from: &RtType,
     to: &RtType,
-    skip: bool,
+    (skip, init_pk): (bool, bool),
 ) -> bool {
     use RtType as T;
     match (source_removed, target_removed) {
-        // A removed target field: Boolean into Code[5] (:428-488, two table extension fields :870-891), Integer into Integer
-        // with SkipFieldsNotMatchingType false (:508-528), Text into Integer (:548-568), Code[20] into Code[5], a value that
-        // fits and one too long (:588-629); two removed target fields (:650).
+        // A removed target field: Boolean into Code[5], any Skip, InitPk true (:428, :468) and false (:448, :488), two table
+        // extension fields :870-891; Integer into Integer, Skip false, InitPk true (:508) and false (:528); Text into Integer,
+        // InitPk true, Skip false and true (:548, :568); Code[20] into Code[5], InitPk true, a value that fits and one too
+        // long (:588, :608, :629).
         (false, true) => matches!(
-            (from, to, skip),
-            (T::Boolean, T::Code(_), _)
-                | (T::Integer, T::Integer, false)
-                | (T::Text(_), T::Integer, _)
-                | (T::Code(_), T::Code(_), _)
+            (from, to, skip, init_pk),
+            (T::Boolean, T::Code(Some(5)), _, _)
+                | (T::Integer, T::Integer, false, _)
+                | (T::Text(_), T::Integer, _, true)
+                | (T::Code(Some(20)), T::Code(Some(5)), _, true)
         ),
-        // Both removed: Boolean into Code[5] (:670-690).
-        (true, true) => matches!((from, to), (T::Boolean, T::Code(_))),
-        // A removed source field: Boolean into a live Integer (:710-756) and Integer into a live Integer (:779-802).
-        (true, false) => matches!((from, to), (T::Boolean, T::Integer) | (T::Integer, T::Integer)),
+        // Both removed: Boolean into Code[5], InitPk true (:650, :670, :690).
+        (true, true) => matches!((from, to, init_pk), (T::Boolean, T::Code(Some(5)), true)),
+        // A removed source field: Boolean into a live Integer, InitPk true, or false with Skip true (:710, :733, :756);
+        // Integer into a live Integer, InitPk true (:779, :802).
+        (true, false) => matches!(
+            (from, to, skip, init_pk),
+            (T::Boolean, T::Integer, _, true)
+                | (T::Boolean, T::Integer, true, false)
+                | (T::Integer, T::Integer, _, true)
+        ),
         (false, false) => false,
     }
 }
