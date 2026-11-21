@@ -2464,11 +2464,15 @@ impl Session {
         self.probed_source_before(method, rec, args);
         Self::rolled_read_before(method, rec);
         let inserted = self.own_read_before(method, rec, args);
+        let question = self.bg_read_question(method, rec, args);
         let r = if self.coverage.profiler.is_some() {
             self.record_op_profiled(method, rec, args)
         } else {
             self.record_op_unprofiled(method, rec, args)
         };
+        if let Some(question) = question {
+            self.bg_read_done(question, method, rec, &r)?;
+        }
         if let Some(tally) = self.pages.action_tally.as_mut() {
             tally.note_record_op(method, rec.borrow().table as usize, args.is_empty());
         }
