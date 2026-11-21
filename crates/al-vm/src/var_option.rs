@@ -5,6 +5,7 @@
 //! publisher no subscriber hears) and OptionVarMemberlessDirectCallers.al. The callers the corpus does not pin are refused
 //! where the call is lowered (al-sema `lower/var_option_arg.rs`).
 
+use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::builtin_id::{BuiltinId, ids};
 use al_builtins::native::Signal;
 use al_builtins::option_members::memberless;
@@ -105,6 +106,46 @@ fn unheard_publisher_caller(p: &al_ir::Place, param: &RtType, running: &al_ir::R
     }
 }
 
+/// The refusal of an error that ends a call `Session::heard_publisher_caller` lets run: on BC the caller's variable keeps
+/// what the subscriber wrote before it raised the error (OptionVarMemberlessHeard.al:368, :371), and the run keeps only what
+/// the subscribers before it wrote back (`Session::publish`).
+pub(crate) fn heard_publisher_error() -> Signal {
+    Signal::unsupported(
+        "an error raised while an event publisher runs that was handed directly an Option variable of another member list: BC keeps the write the subscriber made before it (assumption var-option-heard-publisher)",
+    )
+}
+
+/// An argument of a heard publisher call that `Session::heard_publisher_caller` lets run.
+pub(crate) struct HeardArg {
+    /// The argument's position.
+    i: usize,
+    /// The ordinal the caller handed in.
+    handed: i32,
+    /// The number of the publisher parameter's members.
+    members: usize,
+    /// The place takes back any number: a variable of the running routine's `var` section, measured with a subscriber
+    /// that stores 7 or -1 (OptionVarMemberlessHeard.al:493).
+    any_number: bool,
+}
+
+/// The refusal of a heard publisher call whose subscribers left, in argument `HeardArg::i`, a number outside the publisher's
+/// member list that the caller did not hand in, from a place no cell measures with such a number (OptionVarMemberlessHeard.al:493
+/// measures it for a variable of the routine's `var` section only).
+pub(crate) fn heard_finals(heard: &[HeardArg], finals: &[Value]) -> Result<(), Signal> {
+    for a in heard {
+        if let Some(Value::Option(o, _)) = finals.get(a.i)
+            && !a.any_number
+            && *o != a.handed
+            && usize::try_from(*o).map_or(true, |o| o >= a.members)
+        {
+            return Err(Signal::unsupported(
+                "an event subscriber left a number outside the publisher's member list in an Option handed directly to the publisher's `var` parameter, from a place the probe does not measure with such a number (assumption var-option-heard-publisher)",
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// The member list of an Option type, or of the elements of an array of Options.
 fn option_members(t: &RtType) -> Option<Arc<[String]>> {
     match t {
@@ -150,10 +191,12 @@ pub(crate) enum ArrayOf {
 
 /// Clear of a whole array declared of Options with members (`declared`) gives an element that a memberless store or CopyArray
 /// left without members its declared members back: the stores that follow read them (OVMU:984-1003, :1020-1024).
-/// Every other value: `v` as it is.
-pub(crate) fn cleared_array(v: Value, declared: &RtType, id: BuiltinId) -> Value {
+/// Every other value: `v` as it is. `declared` gives the declared type; it is asked only for a Clear of an array (every
+/// builtin's write-back passes here).
+pub(crate) fn cleared_array(v: Value, declared: impl FnOnce() -> RtType, id: BuiltinId) -> Value {
     if id == ids::SYSTEM_CLEAR_1
-        && let (Value::Array(a), RtType::Array(_, el)) = (&v, declared)
+        && let Value::Array(a) = &v
+        && let RtType::Array(_, el) = declared()
         && let RtType::Option(d) = el.as_ref()
         && !memberless(d)
         && matches!(a.borrow().first(), Some(Value::Option(..)))
@@ -337,8 +380,8 @@ impl crate::Session {
 
     /// The refusal of a call of event publisher `routine` of `object` that hands `args` (from frame `f`) to its `var` Option
     /// parameters, or an array of them:
-    /// - an argument whose declared member list differs from the parameter's, when a subscriber hears the event: the probes
-    ///   raise every event through a procedure (OptionVarMemberLists.al:510, :531; OVMC:196-353), never directly. A call no
+    /// - an argument whose declared member list differs from the parameter's, when a subscriber hears the event: runs for the
+    ///   callers `heard_publisher_caller` names (the result's flag: an error the call ends in refuses). A call no
     ///   subscriber hears runs for the callers `unheard_publisher_caller` names; the result lists the arguments it keeps,
     ///   whose write-back the call skips (`Session::write_backs`).
     /// - a parameter with members that a subscriber declares without members: the subscriber reads the publisher's members
@@ -352,9 +395,10 @@ impl crate::Session {
         routine: usize,
         args: &[al_ir::Arg],
         values: &[Value],
-        f: &crate::Frame,
-    ) -> Result<Vec<usize>, Signal> {
+        f: &mut crate::Frame,
+    ) -> Result<(Vec<usize>, Vec<HeardArg>), Signal> {
         let mut kept = Vec::new();
+        let mut heard = Vec::new();
         let engine = self.engine.clone();
         let r = &engine.program.objects[object].routines[routine];
         let running = &engine.program.objects[f.object].routines[f.routine];
@@ -375,9 +419,7 @@ impl crate::Session {
                 if other || element {
                     if self.publisher_heard(object, routine) {
                         if other {
-                            return Err(Signal::unsupported(
-                                "an Option variable handed directly to an event publisher's `var` Option parameter with another member list, which a subscriber hears (not pinned)",
-                            ));
+                            heard.push(self.heard_publisher_caller(object, routine, i, p, values.get(i), f)?);
                         }
                     } else if unheard_publisher_caller(p, &slot.ty, running)? {
                         kept.push(i);
@@ -401,20 +443,177 @@ impl crate::Session {
                 ));
             }
         }
-        Ok(kept)
+        Ok((kept, heard))
     }
 
     /// Whether field `pos` of the record at `base` has neither OptionCaption nor OptionCaptionML.
-    fn field_without_captions(&mut self, base: &al_ir::Place, pos: usize, f: &mut crate::Frame) -> bool {
-        let Ok(Value::Record(rec)) = self.read(base, f) else {
+    fn field_without_captions(&self, base: &al_ir::Place, pos: usize, f: &crate::Frame) -> bool {
+        let RtType::Record(id, _) = self.place_type(base, f) else {
             return false;
         };
-        let Ok(t) = self.table(&rec) else {
+        let Some(Some(t)) = self.engine.tables.get(id as usize) else {
             return false;
         };
         matches!(t.fields.get(pos).map(|d| &d.ty), Some(RtType::Option(_)))
-            && self.field_property(&t, pos, "OptionCaption").is_none()
-            && self.field_property(&t, pos, "OptionCaptionML").is_none()
+            && self.field_property(t, pos, "OptionCaption").is_none()
+            && self.field_property(t, pos, "OptionCaptionML").is_none()
+    }
+
+    /// Whether place `p`, holding `value` and handed directly to `var` parameter `param` of event publisher `object` with
+    /// another member list, is a caller the probe measures when a subscriber hears the event: BC binds the parameter as a
+    /// procedure's with members, so the subscriber reads the publisher's members and the caller's variable takes back the
+    /// ordinal with its own members (main's binding, `ops::convert` in `Session::publish`, and write-back, `written_back`;
+    /// corpus probe tests/al-language/types/enum-option/OptionVarMemberlessHeard.al (OVH), on a local BC of the newest
+    /// supported major; Base Application's codeunit 5407 hands its memberless NewStatusOption to
+    /// OnAfterToProdOrderLineModify). Every cell has a codeunit publisher whose parameter has members and a caller in a
+    /// codeunit, holding the members of its declared type: a variable of the running routine's `var` section, with members
+    /// or without, of any list length, holding any number and taking back any number a subscriber leaves (OVH:155-173,
+    /// :198-214, :444-546; with members, no number below 0 is handed in), and, with the publisher's list length or without
+    /// members and an ordinal inside the publisher's list, a parameter passed by value (:262, :265), a named return value
+    /// with members (:276), a field of a record of the `var` section, also one with captions (:298-310), of a global record
+    /// or of a `var` record parameter, without captions (:313, :315), and an element of an array of the `var` section, with
+    /// members or without, or of a global array with members (:338-350). The subscribers' shape does not matter within the
+    /// contract `heard_contract` gates: SingleInstance codeunits, both skip flags and two subscribers in either run order
+    /// give the same (:548). A number outside the publisher's list that a subscriber leaves in another place refuses after
+    /// the call (`heard_finals`).
+    /// Refused: a `var` parameter of the running routine handed on, measured to show the subscriber the members of the value
+    /// its own caller handed (:268-274), and a global, which its subscribers alias (`Session::publish`), so they would read
+    /// its own list where BC shows the publisher's (:232-244); every place, publisher and parameter the cells do not have.
+    /// An error raised while the call runs refuses too (`heard_publisher_error`).
+    fn heard_publisher_caller(
+        &mut self,
+        object: usize,
+        routine: usize,
+        i: usize,
+        p: &al_ir::Place,
+        value: Option<&Value>,
+        f: &mut crate::Frame,
+    ) -> Result<HeardArg, Signal> {
+        let place = self.heard_place(object, routine, i, p, value, f);
+        let (Some(any_number), true, Some(Value::Option(handed, _)), RtType::Option(d)) = (
+            place,
+            self.heard_contract(object, routine, i, f),
+            value,
+            &self.engine.program.objects[object].routines[routine].locals[i].ty,
+        ) else {
+            return Err(Signal::unsupported(
+                "an Option variable handed directly to an event publisher's `var` Option parameter with another member list, which a subscriber hears, from a place the probe does not measure (assumption var-option-heard-publisher)",
+            ));
+        };
+        assume(Assumption::VarOptionHeardPublisher);
+        Ok(HeardArg {
+            i,
+            handed: *handed,
+            members: d.len(),
+            any_number,
+        })
+    }
+
+    /// Whether the event and the routine that raises it are those of every cell of OptionVarMemberlessHeard.al: an
+    /// `IntegrationEvent(false, false)` of a codeunit that declares one `var` Option parameter, not isolated, raised from a
+    /// procedure of a codeunit (no trigger, no attribute other than `Test`), whose subscribers are codeunits' static ones
+    /// that take parameter `i` by `var` with the publisher's member list or do not take it.
+    fn heard_contract(&self, object: usize, routine: usize, i: usize, f: &crate::Frame) -> bool {
+        let program = &self.engine.program;
+        let events = &self.engine.events;
+        let codeunit = |o: usize| program.objects[o].kind == al_ir::ObjKind::Codeunit;
+        let r = &program.objects[object].routines[routine];
+        let running = &program.objects[f.object].routines[f.routine];
+        let Some(publisher) = events.publishers.get(&(object, routine)) else {
+            return false;
+        };
+        let Some(slot) = r.locals.get(i) else {
+            return false;
+        };
+        let options = (0..r.params)
+            .filter(|&j| r.by_var.get(j) == Some(&true) && option_members(&r.locals[j].ty).is_some())
+            .count();
+        let subscribers_measured = events
+            .subscribers
+            .get(&(publisher.object, publisher.event.clone()))
+            .is_some_and(|subs| {
+                !subs.is_empty()
+                    && subs.iter().all(|s| {
+                        let sr = &program.objects[s.object].routines[s.routine];
+                        !s.manual
+                            && s.element.is_empty()
+                            && codeunit(s.object)
+                            && sr.locals[..sr.params.min(sr.locals.len())]
+                                .iter()
+                                .enumerate()
+                                .all(|(k, l)| {
+                                    !l.name.eq_ignore_ascii_case(&slot.name)
+                                        || (sr.by_var.get(k) == Some(&true) && l.ty == slot.ty)
+                                })
+                    })
+            });
+        codeunit(object)
+            && codeunit(f.object)
+            && publisher.kind == crate::events::EventKind::Integration
+            && !publisher.include_sender
+            && !publisher.global_var_access
+            && !publisher.isolated
+            && options == 1
+            && !running.is_trigger
+            && running.attributes.iter().all(|a| a.name.eq_ignore_ascii_case("Test"))
+            && subscribers_measured
+    }
+
+    /// Whether place `p`, holding `value`, is a caller `heard_publisher_caller` names for parameter `i` of publisher
+    /// `routine` of `object`: `None` when it is not, else whether it takes back any number.
+    fn heard_place(
+        &mut self,
+        object: usize,
+        routine: usize,
+        i: usize,
+        p: &al_ir::Place,
+        value: Option<&Value>,
+        f: &mut crate::Frame,
+    ) -> Option<bool> {
+        use al_ir::Place::{Field, Global, Index, Local};
+        let engine = self.engine.clone();
+        let r = &engine.program.objects[f.object].routines[f.routine];
+        let declared = |s: usize| s >= r.params && Some(s) != r.ret_local;
+        let by_var = |s: usize| s < r.params && r.by_var.get(s) == Some(&true);
+        let param = &engine.program.objects[object].routines[routine].locals[i].ty;
+        let (RtType::Option(d), Some(Value::Option(o, held)), Some(has)) =
+            (param, value, option_members(&self.place_type(p, f)))
+        else {
+            return None;
+        };
+        if memberless(d) || *held != has {
+            return None;
+        }
+        // OVH:493: a variable of the `var` section holding a number outside the publisher's list, -1 only without members.
+        if let Local(s) = p
+            && declared(*s)
+        {
+            return (*o >= 0 || memberless(&has)).then_some(true);
+        }
+        let past = usize::try_from(*o).map_or(true, |o| o >= d.len());
+        if past || !(memberless(&has) || has.len() == d.len()) {
+            return None;
+        }
+        let measured = match p {
+            Local(s) if r.ret_local == Some(*s) => !memberless(&has),
+            Local(s) => !by_var(*s),
+            Field(base, pos) => {
+                let measured = match base.as_ref() {
+                    Local(s) if declared(*s) => true,
+                    Local(s) if by_var(*s) => self.field_without_captions(base, *pos, f),
+                    Global(_) => self.field_without_captions(base, *pos, f),
+                    _ => false,
+                };
+                measured && matches!(self.read(base, f), Ok(Value::Record(rec)) if !rec.borrow().temporary)
+            }
+            Index(base, _) => match base.as_ref() {
+                Local(s) => declared(*s),
+                Global(_) => !memberless(&has),
+                _ => false,
+            },
+            _ => false,
+        };
+        measured.then_some(false)
     }
 
     /// Whether event publisher `routine` of `object` has a subscriber, bound or not, or one the run cannot raise

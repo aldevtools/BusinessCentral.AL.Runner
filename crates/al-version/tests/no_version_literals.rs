@@ -1,6 +1,7 @@
 //! All version logic is data or a gate (ADR-015 3.4 point 6). Outside `al-version`, library
 //! code must not spell a BC version: no `BC27`-style symbol, no `27.5`, and no comparison of a
-//! `major` with a number. Comments and `#[cfg(test)]` modules (at the end of a file) are skipped.
+//! `major` with a number. Comments, `#[cfg(test)]` modules (at the end of a file) and test module files
+//! (`tests.rs`, `*_tests.rs`, and files under a `tests/` folder of `src`) are skipped.
 
 use std::path::{Path, PathBuf};
 
@@ -48,6 +49,18 @@ fn offence(line: &str) -> Option<&'static str> {
     None
 }
 
+/// Whether `f` under the crate folder `src` holds a test module: `tests.rs`, `*_tests.rs`, or a file under a `tests/`
+/// folder of `src`.
+fn is_test_module_file(src: &Path, f: &Path) -> bool {
+    let stem = f.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
+    let in_tests_folder = f
+        .strip_prefix(src)
+        .ok()
+        .and_then(Path::parent)
+        .is_some_and(|p| p.components().any(|c| c.as_os_str() == "tests"));
+    stem == "tests" || stem.ends_with("_tests") || in_tests_folder
+}
+
 #[test]
 fn no_crate_outside_al_version_spells_a_bc_version() {
     let crates = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
@@ -59,7 +72,7 @@ fn no_crate_outside_al_version_spells_a_bc_version() {
         }
         let mut files = Vec::new();
         rust_files(&c.join("src"), &mut files);
-        for f in files {
+        for f in files.into_iter().filter(|f| !is_test_module_file(&c.join("src"), f)) {
             let text = std::fs::read_to_string(&f).unwrap();
             let live = text.split("#[cfg(test)]").next().unwrap();
             for (n, line) in live.lines().enumerate() {

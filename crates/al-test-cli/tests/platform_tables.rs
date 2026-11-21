@@ -154,6 +154,21 @@ fn engine_with_layouts(
     layouts: Vec<(String, Vec<u8>)>,
     description: Option<&str>,
 ) -> (std::sync::Arc<Engine>, al_sema::lower::Lowered) {
+    engine_on_platform(app_id, main, dep, roots, bc, layouts, description, "1.0.0.0")
+}
+
+/// [`engine_with_layouts`] with `platform` as the version of the System app (a run's System.app has the platform build).
+#[allow(clippy::too_many_arguments)]
+fn engine_on_platform(
+    app_id: &str,
+    main: &str,
+    dep: Option<&str>,
+    roots: al_sema::check::Roots,
+    bc: &str,
+    layouts: Vec<(String, Vec<u8>)>,
+    description: Option<&str>,
+    platform: &str,
+) -> (std::sync::Arc<Engine>, al_sema::lower::Lowered) {
     use al_sema::workspace::{AppKind, AppSource};
     let app = |id: &str, name: &str, deps: &[&str], files: Vec<(String, String)>| AppSource {
         id: id.into(),
@@ -180,7 +195,12 @@ fn engine_with_layouts(
     // The two sources above carry no manifest, so no version; the app tables list an app only with one.
     let mut program = (*l.program).clone();
     for a in program.apps.iter_mut().filter(|a| a.version.is_empty()) {
-        a.version = "1.0.0.0".into();
+        a.version = if a.id == al_sema::workspace::PLATFORM_APP_ID {
+            platform
+        } else {
+            "1.0.0.0"
+        }
+        .into();
     }
     // An app id that starts with `ms-` stands for a Microsoft app (the System Application).
     for a in program
@@ -1370,13 +1390,50 @@ codeunit 50000 "T" { Subtype = Test;
     R.SetRange("Field No.", 5); if not R.IsEmpty() then Error('soft');
     R.SetRange("Field No.", 6); if R.Count() <> 2 then Error('cond'); R.FindSet(); if R."Relation No." <> 1 then Error('first'); if R."Condition Field No." <> 2 then Error('cond field'); R.Next(); if R."Related Table ID" <> 50002 then Error('else');
     R.SetRange("Field No.", 7); if R.Count() <> 2 then Error('two conditions %1', R.Count()); R.FindFirst(); if R."Condition Field No." <> 2 then Error('first condition'); R.Next(); if R."Condition Field No." <> 3 then Error('second condition'); end;
-  [Test] procedure FieldRelation() var F: Record "Field"; begin F.Get(50003, 7); if F.RelationTableNo <> 50001 then Error('filtered relation %1', F.RelationTableNo); if F.RelationFieldNo <> 1 then Error('related field'); end;
+  [Test] procedure FieldRelation() var F: Record "Field"; begin F.Get(50003, 7); if F.RelationTableNo <> 50001 then Error('filtered relation %1', F.RelationTableNo); end;
+  [Test] procedure FieldRelationFieldNo() var F: Record "Field"; begin F.Get(50003, 7); if F.RelationFieldNo = 0 then; end;
   [Test] procedure ConditionalRelation() var F: Record "Field"; begin F.Get(50003, 6); if (F.RelationTableNo <> 0) or (F.RelationFieldNo <> 0) then Error('conditional relation reads 0/0'); end; }"#,
     );
     passes(&o, "FieldRelation");
+    // A relation without a field that the runtime keeps only as Table Relations Metadata: metadata/platform-tables/
+    // FieldRelationFieldNo.al does not measure its RelationFieldNo, so a read refuses.
+    assert!(
+        not_run(&o, "FieldRelationFieldNo").contains("RelationFieldNo"),
+        "{:?}",
+        not_run(&o, "FieldRelationFieldNo")
+    );
     // record/TestPlatformMetadataDeclarationContracts.al:262-264.
     passes(&o, "ConditionalRelation");
     passes(&o, "Rows");
+}
+
+/// al-runner #8297: a `const(Member)` condition that a table extension sets, on an Enum field of the table whose enum the
+/// extension's file cannot name (no `using` of its namespace), rests on assumption `relation-condition-enum-of-declaring-file`
+/// (corpus PR 1437, merged, not pinned yet: table-objects/extensions/ExtRelationEnumNamespace_Tests.al:297 and :353): the Table Relations Metadata row lists the member's ordinal and the Field row
+/// RelationTableNo 0, and a read of either marks the assumption.
+#[test]
+fn the_metadata_rows_of_an_extension_condition_on_an_unnamed_enum_are_flagged() {
+    let dep = r#"namespace T.Journal;
+enum 50003 "Kinds" { value(0; " ") { } value(1; Production) { } }
+table 50002 "Line" { fields { field(1; Id; Integer) { } field(2; Kind; Enum "Kinds") { } field(3; "Order No."; Code[20]) { } }
+  keys { key(PK; Id) { Clustered = true; } } }"#;
+    let src = r#"namespace T.Mfg;
+table 50001 "Order" { fields { field(1; "No."; Code[20]) { } } keys { key(PK; "No.") { Clustered = true; } } }
+tableextension 50001 "Line Ext" extends T.Journal."Line" { fields { modify("Order No.") { TableRelation = if (Kind = const(Production)) "Order"."No."; } } }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Value() var M: Record "Table Relations Metadata"; begin M.SetRange("Table ID", 50002); M.SetRange("Field No.", 3);
+    M.FindFirst(); if M."Condition Value" <> '1' then Error('value %1', M."Condition Value"); end;
+  [Test] procedure FieldRow() var F: Record Field; begin F.Get(50002, 3);
+    if F.RelationTableNo <> 0 then Error('table %1', F.RelationTableNo); end; }"#;
+    let out = ext_event_hits(src, Some(dep));
+    for name in ["Value", "FieldRow"] {
+        let (_, o, ids) = out.iter().find(|(n, _, _)| n == name).expect(name);
+        assert_eq!(*o, Outcome::Pass, "{name}: {o:?}");
+        assert!(
+            ids.contains(&"relation-condition-enum-of-declaring-file"),
+            "{name}: {ids:?}"
+        );
+    }
 }
 
 /// A tableextension `modify(..) { TableRelation }` on a field whose base relation is unconditional: the Field row keeps
@@ -1395,12 +1452,20 @@ table 50003 "Base" { fields { field(1; Id; Integer) { } field(2; Kind; Option) {
 tableextension 50004 "Ext" extends "Base" { fields { modify(Uncond) { TableRelation = B; }
     modify(Else) { TableRelation = if (Kind = const(Y)) B else B; } modify(NoElse) { TableRelation = if (Kind = const(Y)) B; } modify(CondBase) { TableRelation = B; } } }
 codeunit 50000 "T" { Subtype = Test;
-  [Test] procedure Uncond() var F: Record "Field"; begin F.Get(50003, 3); if (F.RelationTableNo <> 50001) or (F.RelationFieldNo <> 1) then Error('uncond %1', F.RelationTableNo); end;
+  [Test] procedure Uncond() var F: Record "Field"; begin F.Get(50003, 3); if F.RelationTableNo <> 50001 then Error('uncond %1', F.RelationTableNo); end;
+  [Test] procedure UncondFieldNo() var F: Record "Field"; begin F.Get(50003, 3); if F.RelationFieldNo = 0 then; end;
   [Test] procedure ElseArm() var F: Record "Field"; begin F.Get(50003, 4); if F.RelationTableNo <> 50001 then Error('else %1', F.RelationTableNo); end;
   [Test] procedure NoElse() var F: Record "Field"; begin F.Get(50003, 5); if F.RelationTableNo <> 50001 then Error('noelse %1', F.RelationTableNo); end;
   [Test] procedure CondBase() var F: Record "Field"; begin F.Get(50003, 6); if (F.RelationTableNo <> 0) or (F.RelationFieldNo <> 0) then Error('condbase %1', F.RelationTableNo); end; }"#,
     );
     passes(&o, "Uncond");
+    // The RelationFieldNo of a modify-extended relation without a field is not measured (metadata/platform-tables/
+    // FieldRelationFieldNo.al): a read refuses.
+    assert!(
+        not_run(&o, "UncondFieldNo").contains("RelationFieldNo"),
+        "{:?}",
+        not_run(&o, "UncondFieldNo")
+    );
     passes(&o, "ElseArm");
     assert!(
         not_run(&o, "NoElse").contains("TableRelation"),
@@ -2149,8 +2214,9 @@ fn the_session_rows_name_the_cronus_database() {
 
 /// A table the app declares with `ObsoleteState = Moved` is not in the runtime app: AllObj has no row for it and
 /// `RecordRef.Open` fails with AL:MetadataNotFound (metadata/platform-tables/AwTests.al:413-442). Issued by the test
-/// method itself, the text names the test runner (AwTests.al:434-438, corpus bump 34); issued from a helper it is not
-/// pinned and a read of it is refused. A record operation on the table is not pinned and is refused.
+/// method itself, the text names the test runner (AwTests.al:434-438, corpus bump 34;
+/// `the_missing_object_text_carries_the_emit_version_of_the_build`); issued from a helper it is not pinned and a read of
+/// it is refused. A record operation on the table is not pinned and is refused.
 #[test]
 fn a_moved_table_has_no_all_obj_row_and_does_not_open() {
     let o = outcomes(
@@ -2158,16 +2224,58 @@ fn a_moved_table_has_no_all_obj_row_and_does_not_open() {
 codeunit 50000 "T" { Subtype = Test;
   [Test] procedure NoAllObjRow() var A: Record AllObj; begin A.SetRange("Object Type", A."Object Type"::Table); A.SetRange("Object ID", 50001); if A.Count() <> 0 then Error('rows %1', A.Count()); end;
   [Test] procedure OpenFails() var RR: RecordRef; begin asserterror RR.Open(50001); if GetLastErrorCode() <> 'AL:MetadataNotFound' then Error('code %1', GetLastErrorCode()); end;
-  [Test] procedure OpenText() var RR: RecordRef; begin asserterror RR.Open(50001); if GetLastErrorText() <> 'You tried to invoke the Table object with the ID 50001 from the object Test Runner - Mgt. An object with that ID does not exist in the current application compiled with emit version 27024.' then Error('%1', GetLastErrorText()); end;
   [Test] procedure OpenTextViaHelper() var H: Codeunit "H"; begin asserterror H.Open(50001); if GetLastErrorText() = '' then; end;
   [Test] procedure RecordUse() var M: Record "Moved"; begin if M.IsEmpty() then; end; }
 codeunit 50002 "H" { procedure Open(No: Integer) var RR: RecordRef; begin RR.Open(No); end; }"#,
     );
     passes(&o, "NoAllObjRow");
     passes(&o, "OpenFails");
-    passes(&o, "OpenText");
     assert!(not_run(&o, "OpenTextViaHelper").contains("not pinned"));
     assert!(not_run(&o, "RecordUse").contains("ObsoleteState = Moved"));
+}
+
+/// The number in the missing-object text is the emit version of the run's build (al-vm `emit_version`; assumption
+/// `missing-object-emit-version-from-artifact`), here on the moved-table shape of
+/// `a_moved_table_has_no_all_obj_row_and_does_not_open`. Without the number the error is still raised on every build: a test
+/// that reads its code passes, one that reads its text is refused.
+#[test]
+fn the_missing_object_text_carries_the_emit_version_of_the_build() {
+    let src = |n: &str| {
+        format!(
+            r#"table 50001 "Moved" {{ ObsoleteState = Moved; ObsoleteReason = 'x'; ObsoleteTag = '1.0'; MovedTo = '11111111-2222-3333-4444-555555555555'; fields {{ field(1; Id; Integer) {{ }} }} keys {{ key(PK; Id) {{ }} }} }}
+codeunit 50000 "T" {{ Subtype = Test;
+  [Test] procedure OpenCode() var RR: RecordRef; begin asserterror RR.Open(50001); if GetLastErrorCode() <> 'AL:MetadataNotFound' then Error('%1', GetLastErrorCode()); end;
+  [Test] procedure OpenText() var RR: RecordRef; begin asserterror RR.Open(50001); if GetLastErrorText() <> 'You tried to invoke the Table object with the ID 50001 from the object Test Runner - Mgt. An object with that ID does not exist in the current application compiled with emit version {n}.' then Error('%1', GetLastErrorText()); end;
+  [Test] procedure OpenTextWithStack() var RR: RecordRef; begin asserterror RR.Open(50001); if GetLastErrorText(true) = '' then; end;
+  [Test] procedure OpenUncaught() var RR: RecordRef; begin RR.Open(50001); end; }}"#
+        )
+    };
+    let run = |bc: &str, n: Option<u32>| {
+        let (mut engine, l) = engine_over("main", &src(&n.unwrap_or(0).to_string()), None, Default::default(), bc);
+        if let Some(n) = n {
+            std::sync::Arc::get_mut(&mut engine)
+                .expect("a fresh engine")
+                .emit_version = al_vm::emit_version::EmitVersion::known(n);
+        }
+        run_all(&engine, &l)
+    };
+    for (bc, n) in [("27.5.0.0", 27024), ("28.4.0.0", 28015), ("29.1.0.0", 29022)] {
+        let o = run(bc, Some(n));
+        passes(&o, "OpenCode");
+        passes(&o, "OpenText");
+    }
+    for bc in ["28.4.0.0", "29.1.0.0"] {
+        let o = run(bc, None);
+        passes(&o, "OpenCode");
+        for reads_text in ["OpenText", "OpenUncaught"] {
+            assert!(
+                not_run(&o, reads_text).contains("emit version of the run's BC build, which is not known"),
+                "{o:?}"
+            );
+        }
+        // Refused with or without the number: the flag's form of the text is not pinned for this error.
+        not_run(&o, "OpenTextWithStack");
+    }
 }
 
 /// BC 29 adds four FlowFields to every table, listed in the Field table after SystemModifiedBy: 2000000005
@@ -2780,7 +2888,7 @@ codeunit 50000 "T" { Subtype = Test;
 
 // al-runner issue 5790: Feature Key rows per minor (record/PFFeatureKeyColumns.al:41-94). 28.1 to 28.5 have one list,
 // 28.0 another (SemanticMetadataSearch All Users); 27.0 differs from 27.3 and 27.5 in the same row; a minor the corpus
-// did not measure (27.1) is refused, also for a Get.
+// did not measure (27.1, 29.2) is refused, also for a Get.
 #[test]
 fn feature_key_rows_follow_the_measured_minors() {
     let main = r#"codeunit 50000 "T" { Subtype = Test;
@@ -2801,13 +2909,137 @@ fn feature_key_rows_follow_the_measured_minors() {
         ("28.0.0.0", "SemanticAllUsers"),
         ("27.0.0.0", "SemanticNone"),
         ("27.3.0.0", "SemanticAllUsers"),
+        ("29.0.0.0", "SemanticAllUsers"),
     ] {
         let o = outcomes_bc("main", main, roots(), bc);
         assert_eq!(outcome(&o, "Concurrent"), Some(Outcome::Pass), "{bc}: {o:?}");
         assert_eq!(outcome(&o, semantic), Some(Outcome::Pass), "{bc}: {o:?}");
     }
-    let o = outcomes_bc("main", main, roots(), "27.1.0.0");
-    assert!(not_run(&o, "Concurrent").contains("Feature Key"), "{o:?}");
+    for bc in ["27.1.0.0", "29.2.0.0"] {
+        let o = outcomes_bc("main", main, roots(), bc);
+        assert!(not_run(&o, "Concurrent").contains("Feature Key"), "{bc}: {o:?}");
+    }
+}
+
+// al-runner issue 8192: the Feature Key list follows the platform build (the System app's version), not the application
+// minor. Application 29.1 on platform 29.0.57943 or 29.0.58337 serves the
+// 29.0 rows and NewNotificationBar on the assumption feature-key-rows-container-measured (corpus PR 1484,
+// record/FeatureKeyRowsReads291.al): every read of the table marks it, also one that finds no row, and the Description
+// columns of FEATURE_KEY_TEXTS are served, and the Description of all 14 keys (FeatureKeyRowsReads291.al:81). Application 29.0 on any other platform keeps main's 13 rows unflagged
+// (record/PFFeatureKeyColumns.al RowsE, measured on platform 29.0.55782); application 29.1 on any other platform build
+// is refused with a text naming the measured builds; 29.2 keeps main's refusal.
+#[test]
+fn feature_key_rows_follow_the_platform_build() {
+    let src = r#"codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Bar() var K: Record "Feature Key"; begin
+    if not K.Get('NewNotificationBar') then Error('no row');
+    if Format(K.Enabled) <> 'All Users' then Error('enabled %1', K.Enabled);
+    if K."Mandatory By Version" <> '30.0' then Error('version %1', K."Mandatory By Version");
+    if K."Mandatory By" <> '2027 Wave 1 (from April to September 2027)' then Error(K."Mandatory By");
+    if not K."Can Try" or K."Is One Way" or K."Data Update Required" then Error('flags'); end;
+  [Test] procedure BarTexts() var K: Record "Feature Key"; begin
+    K.Get('NewNotificationBar');
+    if K.Description <> 'Feature: New notification bar' then Error(K.Description);
+    if K."Description In English" <> 'Feature: New notification bar' then Error(K."Description In English");
+    if K."Learn More Link" <> 'https://go.microsoft.com/fwlink/?LinkId=2384311' then Error(K."Learn More Link"); end;
+  [Test] procedure Concurrent() var K: Record "Feature Key"; begin
+    if not K.Get('ConcurrentInventoryPosting') then Error('no row');
+    if K."Mandatory By Version" <> '31.0' then Error('version %1', K."Mandatory By Version"); end;
+  [Test] procedure RowCount() var K: Record "Feature Key"; begin
+    if K.Count() <> 14 then Error('count %1', K.Count()); end;
+  [Test] procedure Order() var K: Record "Feature Key"; begin
+    K.SetFilter(ID, '%1|%2|%3', 'FullTextSearch', 'NewNotificationBar', 'SalesPrices');
+    K.FindSet(); if K.ID <> 'FullTextSearch' then Error(K.ID);
+    K.Next(); if K.ID <> 'NewNotificationBar' then Error(K.ID);
+    K.Next(); if K.ID <> 'SalesPrices' then Error(K.ID); end;
+  [Test] procedure MissingKey() var K: Record "Feature Key"; begin
+    if K.Get('AutomaticAccountCodes') then Error('row'); end;
+  [Test] procedure NoneCounted() var K: Record "Feature Key"; begin
+    K.SetRange("Mandatory By Version", '32.0');
+    if K.Count() <> 0 then Error('count %1', K.Count()); end;
+  [Test] procedure Texts() var K: Record "Feature Key"; begin
+    K.Get('SalesPrices');
+    if K.Description <> 'Feature Update: New sales pricing experience' then Error(K.Description); end;
+  [Test] procedure AllDescriptions() var K: Record "Feature Key"; begin
+    K.Get('AdvancedTellMe');
+    if K.Description <> 'Feature: Advanced Tell Me' then Error(K.Description);
+    K.Get('SemanticMetadataSearch');
+    if K.Description <> 'Feature: Preview semantic similarity search on application metadata.' then Error(K.Description);
+    K.Get('ConcurrentInventoryPosting');
+    if K.Description <> 'Feature Update: Enable multiple users to post item ledger entries and value entries at the same time' then Error(K.Description); end; }"#;
+    let a = al_builtins::assumptions::Assumption::FeatureKeyRowsContainerMeasured;
+    let run = |bc: &str, platform: &str| {
+        let roots = al_sema::check::Roots::default();
+        let (engine, l) = engine_on_platform("main", src, None, roots, bc, Vec::new(), None, platform);
+        let oi = l.program.objects.iter().position(|o| o.name == "T").expect("T");
+        let mut hits = Vec::new();
+        let out = al_testrun::runtime::run_codeunit_full(
+            &engine,
+            &l,
+            oi,
+            None,
+            al_testrun::isolation::TestIsolation::Disabled,
+            None,
+            &mut Vec::new(),
+            &mut Vec::new(),
+            &mut hits,
+            None,
+        );
+        (out, hits)
+    };
+    let mut wrong = Vec::new();
+    // The 14 rows, every read flagged.
+    for (bc, platform) in [("29.1.0.0", "29.0.57943.0"), ("29.1.0.0", "29.0.58337.0")] {
+        let (out, hits) = run(bc, platform);
+        assert_eq!(out.len(), 9, "{bc} on {platform}: {out:?}");
+        for (n, o) in &out {
+            let flagged = hits.iter().any(|(h, m)| h == n && m.contains(&a));
+            if *o != Outcome::Pass || !flagged {
+                wrong.push(format!("{bc} on {platform} {n}: {o:?}, flagged {flagged}"));
+            }
+        }
+    }
+    // Main's 13 rows, nothing flagged: no NewNotificationBar.
+    for platform in [
+        "29.0.55782.0",
+        "29.0.56212.0",
+        "29.0.56480.0",
+        "29.0.57943.0",
+        "29.0.61000.0",
+        "1.0.0.0",
+    ] {
+        let (out, hits) = run("29.0.0.0", platform);
+        for (n, o) in &out {
+            let ok = match n.as_str() {
+                "Bar" | "BarTexts" | "RowCount" | "Order" => matches!(o, Outcome::Fail(_)),
+                // The Description of a key BaFeatureKeyTexts.al does not pin stays refused on the 13-row list.
+                "AllDescriptions" => matches!(o, Outcome::NotRun(_) | Outcome::Fail(_)),
+                _ => *o == Outcome::Pass,
+            };
+            if !ok || hits.iter().any(|(_, m)| m.contains(&a)) {
+                wrong.push(format!("29.0 on {platform} {n}: {o:?}"));
+            }
+        }
+    }
+    // Refused: 29.1 names the measured platform builds, 29.2 keeps main's text.
+    for (bc, platform, names) in [
+        ("29.1.0.0", "29.0.56212.0", "29.0.57943, 29.0.58337"),
+        ("29.1.0.0", "29.0.55782.0", "29.0.57943, 29.0.58337"),
+        ("29.1.0.0", "29.0.56480.0", "29.0.57943, 29.0.58337"),
+        ("29.1.0.0", "29.0.61000.0", "29.0.57943, 29.0.58337"),
+        ("29.1.0.0", "1.0.0.0", "29.0.57943, 29.0.58337"),
+        ("29.2.0.0", "29.0.58337.0", "measured on only"),
+    ] {
+        let (out, hits) = run(bc, platform);
+        for (n, o) in &out {
+            if !matches!(o, Outcome::NotRun(why) if why.contains("Feature Key") && why.contains(names))
+                || hits.iter().any(|(_, m)| m.contains(&a))
+            {
+                wrong.push(format!("{bc} on {platform} {n}: {o:?}"));
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
 }
 
 // al-runner issue 5786: a control with `Editable = Rec."Allow Edit"`: its row and its Visible column are served, and the

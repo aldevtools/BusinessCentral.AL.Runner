@@ -12,6 +12,7 @@ mod close;
 mod control_onvalidate;
 mod list_view;
 mod lookup_left;
+mod mode_actions;
 mod refresh;
 mod stages;
 pub use after_go_to_key::AfterGoToKey;
@@ -19,6 +20,7 @@ pub use close::CloseOutcome;
 pub use control_onvalidate::{ControlOnValidate, CurrPageSave, RecCall};
 pub use list_view::ListViewSwitch;
 pub use lookup_left::LookupLeft;
+pub use mode_actions::{EarlierOpen, ModeActions};
 pub use refresh::{RefreshRequest, TakenRefresh};
 pub use stages::{ActionSaveCaptions, ChainRefill, ModalRun, ReadUpFromLast, UnreadEdges};
 
@@ -251,6 +253,10 @@ pub struct PageState {
     /// The open ran the empty-record CaptionClass runs without a pinned number, or in a cell of `Session::caption_state_free_pin`:
     /// a dialog or an Error with a text raised by a later row run of the page refuses (`Session::fill_field_captions_with_row`).
     pub caption_dialogs_refused: bool,
+    /// The open ran the empty-record CaptionClass runs without a pinned number (`Session::run_caption_empty_unpinned`): a Record
+    /// write the walk of `effects.rs` let through refuses when a later row run's expression runs it
+    /// (`Session::fill_field_captions_with_row`).
+    pub caption_writes_checked: bool,
     /// The open has filled its first rows (`field_captions` no longer changes at the fills of the open itself).
     pub field_captions_settled: bool,
     /// The row (its field values) the CaptionClass expressions last ran with for the controls' captions.
@@ -639,6 +645,11 @@ pub struct PageState {
     pub gone_blank_no_new_line: bool,
     /// What the built-in View and Edit left on a list without a card (`list_view.rs`).
     pub list_view: ListViewSwitch,
+    /// The built-in View and Edit actions the test took from the variable, and the open each is bound to (`mode_actions.rs`).
+    /// It survives Close and reopen; `Clear(P)` frees both.
+    pub mode_actions: ModeActions,
+    /// The test method the page last opened in (`PageClients::test_methods_started` at the open).
+    pub opened_in_test_method: u32,
     /// A list with the new-row line lost its only row to an action and stands on that line: its fields show the blank Rec's
     /// values, an Integer key 0 (testpage/RmWorksheetGoneRow.al:436 `shown after action = 0|`).
     pub gone_blank_shows_line: bool,
@@ -1075,6 +1086,7 @@ impl PageState {
         self.field_captions = Vec::new();
         self.field_captions_opened = false;
         self.caption_dialogs_refused = false;
+        self.caption_writes_checked = false;
         self.field_captions_settled = false;
         self.field_captions_row = None;
         self.field_captions_quiet = false;

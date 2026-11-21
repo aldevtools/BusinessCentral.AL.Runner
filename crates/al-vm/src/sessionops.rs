@@ -339,6 +339,8 @@ impl Session {
                     Some(Value::Option(t, _)) => *t,
                     Some(other) => return unsupported(format!("CurrentTransactionType set to {}", other.describe())),
                 };
+                // A set ends the moment the Update report term is measured at (`OpenTx::at_test_start`).
+                self.tx.open.at_test_start = false;
                 let (update, snapshot, report) = (1, 2, 4);
                 // After a lock (codeunits/TestCodeunitRunWriteTransaction.al:211-278) the set is not pinned.
                 if self.tx.phase != TxPhase::Write && self.tx.open.locks.any() {

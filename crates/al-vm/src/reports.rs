@@ -16,13 +16,12 @@ use al_builtins::native::unsupported;
 use al_builtins::ops;
 use al_builtins::record_op::RecordOp;
 use al_builtins::value::{Instance, Value};
+use al_ir as ir;
+use quit_in_init::InitQuit;
+use std::{cell::RefCell, rc::Rc, sync::Arc};
 
 /// The `Integer` table's number.
 const INTEGER_TABLE: u32 = 2_000_000_026;
-use al_ir as ir;
-use std::cell::RefCell;
-use std::rc::Rc;
-use std::sync::Arc;
 
 type Inst = Rc<RefCell<Instance>>;
 type Rec = Rc<RefCell<al_builtins::value::RecordState>>;
@@ -122,6 +121,7 @@ impl Session {
                 .and_then(|b| b.upgrade())
                 .unwrap_or_else(|| running.clone())
         };
+        self.refuse_method_after_kept_quit(id, &receiver)?;
         match id {
             // `IsReadOnly()` of the running report is No, in a procedure of a variable never run and in OnPreReport
             // (Y36BareReportMember.al:191-247 `readonly=No/No`, a processing-only report). A report variable is not pinned.
@@ -143,7 +143,7 @@ impl Session {
                 // Without a receiver (`SetTableView(R)` bare in a procedure of the report) it is the report whose code runs: the
                 // next run reads only the filtered rows (Y36BareReportMember.al:328-342 Y36_BareSetTableView_ThenRun).
                 let receiver = receiver.or_else(|| Some(Value::Codeunit(report_of_running())));
-                let inst = self.report_instance(receiver, false)?.0;
+                let inst = self.report_instance(receiver, InitQuit::Refuses)?.0;
                 let schema = self.report_schema(&inst)?;
                 self.report_set_view(&inst, &schema, args.first())?;
                 Ok(Value::Null)
@@ -161,9 +161,10 @@ impl Session {
                 let inst = self.variable_outside_run(&receiver).expect("checked");
                 let i = self.variable_culture(&inst)?;
                 match args.first() {
-                    None => Ok(Value::Integer(
-                        self.report.variable_culture[i].language.unwrap_or(self.global_language),
-                    )),
+                    None => {
+                        let set = self.report.variable_culture[i].language;
+                        Ok(Value::Integer(set.unwrap_or(self.global_language())))
+                    }
                     Some(Value::Integer(0)) => Err(crate::transactions::al_error_code(
                         "Invalid language ID supplied: 0.",
                         "Argument",
@@ -209,7 +210,7 @@ impl Session {
                     self.report
                         .curr_report_language
                         .or(self.report.run_language)
-                        .unwrap_or(self.global_language),
+                        .unwrap_or(self.global_language()),
                 )),
                 Some(other) => unsupported(format!("CurrReport.Language with {}", other.describe())),
             },
@@ -415,7 +416,7 @@ impl Session {
                 // `CurrReport.ObjectId` has no receiver value: it is the running report
                 // (recordref-fieldref/PWRefusedBuiltins.al:ReportObjectId_CurrReportInCaptionedReport).
                 let receiver = receiver.or_else(|| Some(Value::Codeunit(report_of_running())));
-                let inst = self.report_instance(receiver, false)?.0;
+                let inst = self.report_instance(receiver, InitQuit::Refuses)?.0;
                 let schema = self.report_schema(&inst)?;
                 let o = &schema.engine.program.objects[schema.object];
                 let names = match args.first() {
@@ -466,8 +467,9 @@ impl Session {
                 // reports/TestReportRuntimeContracts.al:416-440 for a variable).
                 // The report's own code, not a reportextension's, read without a receiver (`use_request_page_getter`).
                 let own_code = receiver.is_none() && running.borrow().base.is_none();
+                let how = InitQuit::of_use_request_page(&receiver, args.first());
                 let receiver = receiver.or_else(|| Some(Value::Codeunit(report_of_running())));
-                let inst = self.report_instance(receiver, false)?.0;
+                let inst = self.report_instance(receiver, how)?.0;
                 let schema = self.report_schema(&inst)?;
                 let slot = schema.report().request_flag_slot;
                 // The getter answers what the next Run does; the setter overrides the report's own
@@ -479,7 +481,7 @@ impl Session {
                 Ok(Value::Null)
             }
             ids::REPORT_RUN_1 | ids::REPORT_RUNMODAL_1 => {
-                let (inst, quit) = self.report_instance(receiver, true)?;
+                let (inst, quit) = self.report_instance(receiver, InitQuit::StopsTakingDeferred)?;
                 self.run_of_running_instance(id, &inst)?;
                 // An instance that already ran (one a variable gave up after its Run) cannot run again, and the attempt resets it
                 // (reports/runtime/P141ThisStored.al:P141_StoredAfterRun_RunAgain: the error, then a blank marker).
@@ -611,7 +613,7 @@ impl Session {
                     .map(|()| Value::Null)
             }
             ids::REPORT_EXECUTE_1 => {
-                let (inst, quit) = self.report_instance(receiver, true)?;
+                let (inst, quit) = self.report_instance(receiver, InitQuit::Stops)?;
                 let schema = self.report_schema(&inst)?;
                 let parameters = self.report_execute_args(id, args.first(), args.get(1))?;
                 let is = |list: &Vec<std::rc::Weak<RefCell<Instance>>>| {
@@ -675,7 +677,7 @@ impl Session {
             }
             ids::REPORT_PRINT_1 | ids::REPORT_PRINT_2 => {
                 let schema = if id == ids::REPORT_PRINT_1 {
-                    let inst = self.report_instance(receiver, false)?.0;
+                    let inst = self.report_instance(receiver, InitQuit::Refuses)?.0;
                     self.report_schema(&inst)?
                 } else {
                     self.report_by_number(id, args.first())?.1
@@ -699,48 +701,7 @@ impl Session {
             ids::REPORT_SAVEASHTML_2 => self.report_save_as_file(id, receiver, args, "Html", true),
             ids::REPORT_WORDXMLPART_1 | ids::REPORT_WORDXMLPART_2 => self.report_word_xml_part(id, receiver, args),
             ids::REPORT_RUNREQUESTPAGE_1 | ids::REPORT_RUNREQUESTPAGE_2 => {
-                let (inst, schema, seed, pinned_call) = if id == ids::REPORT_RUNREQUESTPAGE_1 {
-                    let inst = self.report_instance(receiver, false)?.0;
-                    // After a RunModal of the variable: the error, and no page opens
-                    // (reports/request-page/RptRequestPage.al:990-1009 UseRequestPageFalse_RunModalAndRunRequestPage).
-                    if self.report_run_modal_done_on(&inst) {
-                        return Err(running::already_run());
-                    }
-                    let schema = self.report_schema(&inst)?;
-                    (inst, schema, args.first(), false)
-                } else {
-                    // The static form raises SubstituteReport with RunMode ParametersOnly first, once, with an empty
-                    // RequestPageXml also when old parameters are given (events/platform-triggers/PeVTests.al:465, :660:
-                    // `SubstituteReport(69860,ParametersOnly,in=-1)`; reports/Y14ReportSubstitute.al:276, :447).
-                    // A subscriber that sets another report swaps it: that report's request page opens, its handler runs and
-                    // the parameters are that report's (Y14ReportSubstitute.al:225 platform event, :261 OnAfterSubstituteReport,
-                    // :447 with old parameters; corpus master).
-                    let number = self.substitute_static(args.first(), 1, "")?;
-                    // SetupPrinters follows, once, with an empty Printers (events/platform-triggers/PeVTests.al:450
-                    // RunRequestPage_RaisedEvents `SubstituteReport(69860,ParametersOnly,in=-1);SetupPrinters(in=0);`, :651).
-                    self.raise_setup_printers()?;
-                    let (inst, schema) = self.report_by_number(id, number.as_ref().or(args.first()))?;
-                    // OnInitReport runs first, so the views the data items get next are what the handler sees
-                    // (reports/W3ReportRequestPageRun.al:280, RunRequestPage_OrderOfReportAndRequestPageTriggers: `view=[1..3]`).
-                    if self.report_init(&inst)? {
-                        return unsupported("CurrReport.Quit in OnInitReport of a RunRequestPage (not pinned)");
-                    }
-                    (inst, schema, args.get(1), args.len() == 1 && number.is_none())
-                };
-                self.request_ok_only_call(schema.object, pinned_call)?;
-                // Only the empty string and the text this runtime produced are understood; how BC
-                // loads a parameters string into the page is pinned only by its result
-                // (reports/TestReportInstanceRunReqPage.al:SeededWithParameters_StillRunsTheHandler).
-                let seed = match seed {
-                    Some(Value::Text(s)) if !s.is_empty() => Some(s.clone()),
-                    None | Some(Value::Text(_)) => None,
-                    Some(other) => return unsupported(format!("{id} seeded with {}", other.describe())),
-                };
-                // RunRequestPage always shows the page, so it always enters a transaction world
-                // (record/TestTxModelReportExec.al:77-102, Test02 and Test03).
-                let enters = self.report_enter_world(&schema, true)?;
-                self.report_in_world(enters, |s| s.report_request_only(&inst, &schema, seed.as_deref()))
-                    .map(|s| Value::Text(s.into()))
+                self.report_run_request_page(id, receiver, args)
             }
             other => unsupported(format!("builtin {other}")),
         }
@@ -790,33 +751,6 @@ impl Session {
                 let c = &self.report.variable_culture[i];
                 (i, c.language, c.region.clone())
             })
-    }
-
-    /// The report instance behind a receiver, initialised: the first use of a report variable
-    /// runs `OnInitReport` (reports/TestReportOnInitReportTiming.al:50-60).
-    /// Returns whether that trigger quit the report; a caller that cannot stop refuses it.
-    fn report_instance(&mut self, receiver: Option<Value>, can_stop: bool) -> Result<(Inst, bool), Signal> {
-        match receiver {
-            Some(Value::Codeunit(rc)) => {
-                if let Some(report) = self.engine.program.objects[rc.borrow().object as usize].report.as_ref() {
-                    dependency_items::require_pinned_entry(report, false)?;
-                }
-                // Used again after a Run, it is a new instance: OnInitReport runs.
-                // A second Run on one variable runs OnInitReport again (reports/request-page/RptTriggerOrder.al:353
-                // VariableRun_Twice_InitReportEachTime; reports/PnH5aExt.al:396).
-                if std::mem::take(&mut rc.borrow_mut().rerun) {
-                    rc.borrow_mut().initialized = false;
-                }
-                let quit = !rc.borrow().initialized && self.report_init(&rc)?;
-                if quit && !can_stop {
-                    return unsupported(
-                        "CurrReport.Quit in OnInitReport before a method that does not run the report (not pinned)",
-                    );
-                }
-                Ok((rc, quit))
-            }
-            other => unsupported(format!("a Report method on {}", other.describe())),
-        }
     }
 
     /// The report object of a report variable for a method that reads the report's metadata. Whether the call runs
@@ -940,7 +874,7 @@ impl Session {
     /// and `Execute`; a `Run` and a `Clear` drop it (reports/extensions/W3RpExtProcedures.al:ExtensionProcedure_*).
     /// The first use of the variable runs `OnInitReport`, as a call of any of its procedures does.
     pub(crate) fn report_extension_instance(&mut self, base: &Inst, ext: usize) -> Result<Inst, Signal> {
-        let (base, _) = self.report_instance(Some(Value::Codeunit(base.clone())), false)?;
+        let (base, _) = self.report_instance(Some(Value::Codeunit(base.clone())), InitQuit::Refuses)?;
         Ok(self.report_extension_state(&base, ext))
     }
 
@@ -1006,6 +940,7 @@ impl Session {
 
     /// First use of an instance: its globals are made and, for a report, `OnInitReport` runs once.
     pub(crate) fn first_use(&mut self, inst: &Inst) -> Result<(), Signal> {
+        self.refuse_after_kept_quit(inst)?;
         // A report variable a `Run` just reset starts again with its next call of anything but `Run`: `OnInitReport`
         // runs again, so a procedure called after a Run sees what OnInitReport set (corpus
         // pages/triggers/P84ReportSender.al:Triggers_Run_SenderInEachTrigger: `GetMarker()` after `Run()` is
@@ -1417,61 +1352,6 @@ impl Session {
             t.marked_only = v.marked_only;
         }
         Ok(())
-    }
-
-    // ------------------------------------------------------------------ transactions
-
-    /// The platform's decision, made before the request page is shown: a run enters a transaction
-    /// world when it shows the request page or its TransactionType differs from the session's
-    /// (`UpdateNoLocks` excepted), and a test under `TransactionModel::AutoRollback` is exempt
-    /// (record/TestTxModelReportRun.al:1-35, record/TestTxModelReportExec.al:1-30). Entering one
-    /// is refused while the caller holds an uncommitted write (:117-148 Test04/05/08;
-    /// TestTxModelReportExec.al:77-102, 138-150, 214-239). Returns whether a world is entered.
-    fn report_enter_world(&mut self, schema: &Schema, shows_page: bool) -> Result<bool, Signal> {
-        let differs = match schema.report().transaction_type.as_deref() {
-            None => false,
-            Some("update") => true,
-            // Snapshot runs when no write is pending (reports/TestReportRuntimeContracts.al:
-            // 468-482); with a pending write what BC does is not pinned.
-            Some("snapshot") => {
-                if self.in_write_transaction()? {
-                    return unsupported(format!(
-                        "TransactionType = snapshot on report \"{}\" with a pending write (not pinned)",
-                        schema.name()
-                    ));
-                }
-                true
-            }
-            Some(other) => {
-                return unsupported(format!(
-                    "TransactionType = {other} on report \"{}\" (only Update and Snapshot are pinned)",
-                    schema.name()
-                ));
-            }
-        };
-        if !(shows_page || differs) {
-            return Ok(false);
-        }
-        if self.tx_model == TxModel::AutoRollback {
-            // A report declaring a TransactionType needs a type change, which BC refuses once a
-            // transaction has started; AutoRollback exempts the world, not that rule
-            // (record/TestTxModelReportExec.al:243-257, Test12).
-            if differs && self.in_write_transaction()? {
-                return unsupported(
-                    "a TransactionType = Update report under AutoRollback with a pending write (not pinned)",
-                );
-            }
-            return Ok(false);
-        }
-        // A run with the request page after an uncommitted insert raises before the page opens (reports/bare-report-member/
-        // Y36BareReportMember.al:236-249, Report.Run(Id, true) in a test; the handler is not called).
-        if self.in_write_transaction()? {
-            return Err(crate::transactions::transaction_stopped());
-        }
-        // Inside a TryFunction, with nothing to commit, the run goes on as outside one (misc/lt-y14-triage/
-        // Y14ReportSubstitute.al:276 RunRequestPage, :371 Run and RunModal, after a Commit, corpus master). A run that
-        // writes there is refused when its world would commit ([`Self::report_in_world`]).
-        Ok(true)
     }
 
     // ------------------------------------------------------------------ the run
@@ -2579,7 +2459,7 @@ impl Session {
         // The SaveAs raised SubstituteReport, so OnDocumentReady follows the dataset.
         let mut document_ready = false;
         let (inst, schema, quit) = if at == 0 {
-            let (inst, quit) = self.report_instance(receiver, true)?;
+            let (inst, quit) = self.report_instance(receiver, InitQuit::Stops)?;
             let schema = self.report_schema(&inst)?;
             // A SaveAs on a variable that already ran (an earlier SaveAs that wrote its dataset or stopped at the missing
             // layout) answers false with this text (text/PnBReportSaveAs.al:387-391 OtherFormats_NoLayout;
@@ -2687,7 +2567,9 @@ impl Session {
             }
         }
         if schema.report().processing_only {
-            return self.save_of_processing_only(&inst, &schema, &format, at, quit, result_used);
+            let stream = matches!(target, SaveTarget::Stream(_)) && record_ref.is_none() && parameters.is_empty();
+            let xml = (format == "Xml").then_some(stream);
+            return self.save_of_processing_only(&inst, &schema, xml, at, quit, result_used);
         }
         property_gates::save_as_declaration_refusals(&schema)?;
         // The language and region of the run: the session's, or what the variable set (reports/W3ReportObjectIdPreviewLanguage.al:
@@ -2703,16 +2585,16 @@ impl Session {
             }
             None => (None, None),
         };
-        let language = variable_language.unwrap_or(self.global_language);
+        let language = variable_language.unwrap_or(self.global_language());
         let pinned = matches!(
-            (self.global_language, variable_language, variable_region.as_deref()),
+            (self.global_language(), variable_language, variable_region.as_deref()),
             (1033, None | Some(1033), None | Some("de-DE")) | (1031, None, None) | (1033, Some(1031), None)
         );
         if !pinned {
             return unsupported(format!(
                 "Report.SaveAs with the session language {}, the report variable's Language {} and FormatRegion {} (only en-US, \
                  GlobalLanguage 1031, Language := 1031 and FormatRegion := 'de-DE' on the variable are pinned)",
-                self.global_language,
+                self.global_language(),
                 variable_language.map_or("not set".to_string(), |l| l.to_string()),
                 variable_region.as_deref().unwrap_or("not set")
             ));
@@ -3822,7 +3704,7 @@ impl Session {
         let report_language = self.report.curr_report_language.or(self.report.run_language);
         if let Some(l) = self.report.dataset.as_ref().and_then(|d| d.language.clone()) {
             if matches!(value, Value::Option(..) | Value::Enum(..))
-                && report_language.is_some_and(|r| r != self.global_language)
+                && report_language.is_some_and(|r| r != self.global_language())
             {
                 return unsupported(format!(
                     "report column {} holds {} in a dataset in {l} (not pinned)",
@@ -3992,13 +3874,16 @@ pub(crate) mod format_region;
 mod header_tests;
 mod html_record;
 mod property_gates;
+mod quit_in_init;
 pub(crate) use excel_sheets::Admission as ExcelSheetsAdmission;
 mod request_caption;
 mod request_flag;
+mod run_request_page;
 use request_flag::{REQUEST_PAGE_OFF, REQUEST_PAGE_OFF_UNPINNED_GETTER, REQUEST_PAGE_ON, REQUEST_PAGE_UNPINNED_GETTER};
 mod request_unshown;
 mod running;
 mod save_processing_only;
+mod transaction_world;
 pub(crate) mod word_xml_part;
 
 mod explicit_parent_link;
