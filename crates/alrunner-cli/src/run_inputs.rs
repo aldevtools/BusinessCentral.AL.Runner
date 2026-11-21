@@ -196,6 +196,7 @@ impl RunInputs {
             no_test_data,
             test_data_path,
             test_data_company,
+            additional_test_data_companies,
             company_package,
             package_path,
             company_demotool,
@@ -321,6 +322,8 @@ impl RunInputs {
             must_exist: true,
         });
         r.outcome.push(("test_data_company", text(test_data_company)));
+        r.outcome
+            .push(("additional_test_data_companies", text(additional_test_data_companies)));
         r.outcome.push(("company_package", text(company_package)));
         r.outcome.push(("package_path", text(&file_name(package_path))));
         r.content.push(Content {
@@ -438,7 +441,7 @@ mod tests {
     type Change = fn(&mut TestArgs, &Path);
 
     /// One change per outcome input, by the name `RunInputs::of` gives it. The path is a file that exists.
-    const CHANGES: [(&str, Change); 43] = [
+    const CHANGES: [(&str, Change); 44] = [
         ("country", |a, _| a.country = Some("de".into())),
         ("bc_version", |a, _| a.bc_version = Some("27.5".into())),
         ("isolation", |a, _| {
@@ -490,6 +493,9 @@ mod tests {
         ("no_test_data", |a, _| a.no_test_data = true),
         ("test_data_path", |a, f| a.test_data_path = Some(f.to_path_buf())),
         ("test_data_company", |a, _| a.test_data_company = Some("CRONUS".into())),
+        ("additional_test_data_companies", |a, _| {
+            a.additional_test_data_companies = vec!["Other".into()]
+        }),
         ("company_package", |a, _| a.company_package = true),
         ("package_path", |a, f| a.package_path = Some(f.to_path_buf())),
         ("company_demotool", |a, _| a.company_demotool = true),

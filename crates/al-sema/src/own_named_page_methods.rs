@@ -1,8 +1,7 @@
 //! A page method named like one of the page's own procedures: which of the two a site names (the checker) and which
 //! of those sites the lowering runs. The one owner of that rule (al-runner issue 8452) for `SaveRecord` (pinned) and
-//! `Caption` (assumption `currpage-caption-own-procedure`).
+//! `Caption` (pages/lifecycle/CurrPageCaptionOwn*.al, cells at [`measured`]).
 
-use al_builtins::assumptions::Assumption;
 use al_syntax::ast;
 use al_syntax::{SyntaxKind, SyntaxNode};
 
@@ -164,8 +163,8 @@ pub(crate) enum CaptionGate {
     /// a page variable without arguments (`Caption()`, `Caption`, `P.Caption()`, `P.Caption`), the forms BC calls it
     /// in (CurrPageCaptionOwnPublic.al:385, CurrPageCaptionOwnAccess.al:390, CurrPageCaptionOwnExtension.al:176,222).
     Keep,
-    /// A form BC 29.0 measured: runs through the assumption.
-    Assume(Assumption),
+    /// A pinned form of the platform method beside the own procedure ([`measured`]): the checker's resolution runs.
+    Platform,
     Refuse(String),
 }
 
@@ -201,7 +200,7 @@ pub(crate) fn caption_gate(
         };
     }
     if measured(ws, code_obj, page, receiver, node, &own) {
-        CaptionGate::Assume(Assumption::CurrpageCaptionOwnProcedure)
+        CaptionGate::Platform
     } else {
         CaptionGate::Refuse(refusal(node))
     }
@@ -231,9 +230,8 @@ fn names_parameterless_own_without_argument(
 
 fn refusal(node: &SyntaxNode) -> String {
     format!(
-        "`{}` beside a page procedure named Caption, in a form BC was not measured on (assumption \
-         currpage-caption-own-procedure covers Card and List pages, one procedure of a measured signature, the triggers \
-         the probe used)",
+        "`{}` beside a page procedure named Caption, in a form BC was not measured on (the pinned forms are on Card \
+         and List pages, one procedure of a measured signature, the triggers the probe used)",
         node.text().to_string().trim()
     )
 }
@@ -358,7 +356,7 @@ fn page_type(ws: &Workspace, page: usize) -> String {
         .unwrap_or_default()
 }
 
-/// The cells BC 29.0 measured (corpus PR 1456). Card pages, code in the page and the procedure in the page: the
+/// The pinned cells (pages/lifecycle/CurrPageCaptionOwn*.al, the same on every supported major). Card pages, code in the page and the procedure in the page: the
 /// reads in OnOpenPage (both forms) and OnAction (without parentheses), `:=` in OnOpenPage, `CurrPage.Caption('X')` and
 /// the bare `Caption('X')` in OnAction, for every measured signature (CurrPageCaptionOwnPublic.al:307,346,
 /// CurrPageCaptionOwnAccess.al:273,312,351, CurrPageCaptionOwnSignature.al:272,311,350). A public `Caption(): Text`

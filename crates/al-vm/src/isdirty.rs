@@ -508,7 +508,9 @@ impl Session {
                 .store_for(rec)?
                 .get(&cx, &t, &pk)
                 .map_err(|e| Signal::unsupported(format!("{e}")))?;
-            if let Some(row) = stored {
+            if let Some(mut row) = stored {
+                // Compared with what the record reads (`sqltime::read_back`).
+                crate::sqltime::read_back(&mut row);
                 // An unloaded field the record did not assign is not compared.
                 let have = if partial {
                     rec.borrow()
