@@ -30,15 +30,17 @@ A later pull request may delete old folders.
 ## differences.tsv
 
 One line per test that differs, `classname::name`, a tab, and the entry. Lines starting with `#` are comments.
-The key is the one the table prints in its first column. A key ending in ` @27` (any BC major) applies only on that
-major; a key without it applies on every major the run covers.
+The key is the one the table prints in its first column. An optional third column, after a second tab, names the BC
+version the row applies to: a major (`27`) or a major.minor (`29.1`), matched against the build of the run. A row
+without it applies on every run. Use the column when a change differs on some versions only (a version guard):
+the row then counts, and is judged stale, only on runs of that version.
 
 ```
 # key	entry
 LT PR Tests::PartRefill_ListHost_Last	ASSUMED part-left-view-test-filter (corpus PR 1450)
 LT PR Tests::PartRefill_Worksheet_First	PINNED tests/al-language/pages/PartRefill.al:120
 LT PR Tests::PartRefill_SecondFilter	REFUSED First() on a part whose view no longer started with the rows it holds
-LT PR Tests::PartRefill_Guarded @27	REFUSED First() on a part
+LT PR Tests::PartRefill_Guarded	REFUSED First() on a part	29.1
 ```
 
 An entry is one of. The check reads every fact it states; an entry that does not hold counts as missing.
@@ -50,7 +52,8 @@ An entry is one of. The check reads every fact it states; an entry that does not
 - `REFUSED text`: the head refuses this shape on purpose, with a message that starts with `text`. The pull request
   body lists every shape that main answered and head now refuses, with the reason.
 
-An entry whose test shows no difference on the run's major is stale and fails the check. Delete it.
+An entry that applies to a run but whose test shows no difference there is stale and fails the check. Delete it,
+or give it the version column.
 
 A difference is another status (pass, fail, not run, missing), another set of assumption ids (a clean pass that
 became flagged), or another failure message. Another refusal text is not a difference.

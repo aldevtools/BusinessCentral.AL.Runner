@@ -2,7 +2,7 @@
 """Compares the test outcomes of two JUnit files written by `al-test-cli --junit` or `al-runner --junit`.
 
 Usage: compare_junit.py DEMAND.xml EAGER.xml [--allow FILE] [--reasons]
-       compare_junit.py --entries FILE [--title TEXT] [--major N] [--root DIR] MAIN.xml HEAD.xml
+       compare_junit.py --entries FILE [--title TEXT] [--build B] [--root DIR] MAIN.xml HEAD.xml
 
 Prints every test whose outcome (pass, fail, not run) differs, with both reasons, and exits 1 if
 there is any. `--allow` names a file of `classname::name` lines (comments start with `#`) whose
@@ -14,9 +14,9 @@ compiles from source (ADR-063, `--reasons`).
 `--entries` is the table `tools/neighbor-diff.sh` prints: one markdown row per test whose outcome differs
 between a main binary and the head binary. A difference is another status, another set of assumption ids
 (a clean pass that became flagged), or another failure message; a refusal's text is not compared. FILE
-holds `classname::name<TAB>entry` lines (tests/neighbors/README.md); a key ending in ` @N` applies only with
-`--major N`. An entry counts only when it states the head result and its evidence exists under `--root`
-(default: this repository), see `states_head`. Exit 1 while a difference has no such entry, while an entry
+holds `classname::name<TAB>entry[<TAB>version]` lines (tests/neighbors/README.md); a row with a version applies
+only when `--build B` (the run's BC build) is of that major or major.minor. An entry counts only when it states
+the head result and its evidence exists under `--root` (default: this repository), see `states_head`. Exit 1 while a difference has no such entry, while an entry
 has no difference (stale), when neither file has a test, when a side has a test stopped by a resource limit,
 or when no test ran on either side.
 """
@@ -99,25 +99,23 @@ def not_comparable(main, head):
     return None
 
 
-def read_entries(path, major):
-    """The entries of FILE that apply on BC major `major`: key -> entry."""
+def read_entries(path, build):
+    """The entries of FILE that apply on a run of BC build `build`: key -> (shown key, entry). A row with a third
+    column applies only when that column is the build's major (`27`) or major.minor (`29.1`)."""
     with open(path) as f:
-        rows = [l.rstrip("\n").split("\t", 1) for l in f if l.strip() and not l.startswith("#")]
+        rows = [l.rstrip("\n").split("\t") for l in f if l.strip() and not l.startswith("#")]
     entries = {}
     for r in rows:
-        if len(r) != 2:
-            continue
-        key = r[0].strip()
-        m = re.fullmatch(r"(.*) @(\d+)", key)
-        if m and m.group(2) != major:
-            continue
-        entries[m.group(1) if m else key] = (key, r[1].strip())
+        if len(r) == 2:
+            entries[r[0].strip()] = (r[0].strip(), r[1].strip())
+        elif len(r) == 3 and (build == r[2].strip() or build.startswith(r[2].strip() + ".")):
+            entries[r[0].strip()] = (f"{r[0].strip()} ({r[2].strip()})", r[1].strip())
     return entries
 
 
-def entries_table(path, title, main, head, root, major):
+def entries_table(path, title, main, head, root, build):
     """The neighbor table (see the module text); returns the exit code."""
-    entries = read_entries(path, major)
+    entries = read_entries(path, build)
     if title:
         print(f"### {title}\n")
     if not main and not head:
@@ -167,10 +165,10 @@ def main(argv):
         i = args.index("--root")
         root = args[i + 1]
         del args[i : i + 2]
-    major = ""
-    if "--major" in args:
-        i = args.index("--major")
-        major = args[i + 1]
+    build = ""
+    if "--build" in args:
+        i = args.index("--build")
+        build = args[i + 1]
         del args[i : i + 2]
     entries = None
     if "--entries" in args:
@@ -187,7 +185,7 @@ def main(argv):
         return 2
     demand, eager = outcomes(args[0]), outcomes(args[1])
     if entries is not None:
-        return entries_table(entries, title, demand, eager, root, major)
+        return entries_table(entries, title, demand, eager, root, build)
     bad = 0
     for key in sorted(set(demand) | set(eager)):
         d = demand.get(key, ("missing", "", ""))

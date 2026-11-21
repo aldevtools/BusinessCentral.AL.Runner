@@ -190,7 +190,7 @@ for app in "${apps[@]}"; do
         > "$out/$name-$v.$side.log" 2>&1
       [ -s "$out/$name-$v.$side.xml" ] || { echo "neighbor-diff: no JUnit file, see $out/$name-$v.$side.log" >&2; exit 2; }
     done
-    python3 "$here/compare_junit.py" --entries "$entries" --major "$v" --title "$name, BC ${build:-$v}" \
+    python3 "$here/compare_junit.py" --entries "$entries" --build "${build:-$v}" --title "$name, BC ${build:-$v}" \
       "$out/$name-$v.main.xml" "$out/$name-$v.head.xml" | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
     [ "${PIPESTATUS[0]}" -eq 0 ] || status=1
   done

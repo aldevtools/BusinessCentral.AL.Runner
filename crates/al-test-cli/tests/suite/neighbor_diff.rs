@@ -265,26 +265,41 @@ fn an_entry_whose_test_shows_no_difference_is_stale_and_fails() {
     assert!(out.contains("stale entry, no difference: P::Gone"), "{out}");
 }
 
+/// A third column names the BC version a row applies to: a major (`27`) or a major.minor (`29.1`), matched against the
+/// build of the run. A row for another version neither counts nor is stale.
 #[test]
-fn an_entry_for_one_bc_major_counts_only_on_that_major() {
+fn an_entry_with_a_version_counts_only_on_runs_of_that_version() {
     let d = tempfile::tempdir().unwrap();
     let main = junit(d.path(), "m.xml", &[("A", REFUSED), ("B", "")]);
     let head = junit(d.path(), "h.xml", &[("A", ""), ("B", "")]);
-    let entries = "P::A @27\tPINNED tests/al-language/pages/PartRefill.al:1\n";
-    let (code, out) = compare_on(d.path(), &main, &head, entries, &["--major", "27"]);
-    assert_eq!(code, 0, "{out}");
-    // On 29 the entry neither applies nor is stale: the difference has no entry.
-    let (code, out) = compare_on(d.path(), &main, &head, entries, &["--major", "29"]);
-    assert_eq!(code, 1, "{out}");
-    assert!(
-        out.contains("| P::A | not run: First() on a part whose view is not pinned | pass | MISSING |"),
-        "{out}"
-    );
-    assert!(!out.contains("stale"), "{out}");
     let same = junit(d.path(), "s.xml", &[("A", REFUSED), ("B", "")]);
-    let (code, out) = compare_on(d.path(), &main, &same, entries, &["--major", "27"]);
-    assert_eq!(code, 1, "{out}");
-    assert!(out.contains("stale entry, no difference: P::A @27"), "{out}");
+    let pinned = "PINNED tests/al-language/pages/PartRefill.al:1";
+    for (version, applies, other) in [
+        ("27", "27.5.1234.0", "29.0.54011.56262"),
+        ("29.1", "29.1.100.0", "29.0.54011.56262"),
+        ("29.1", "29.1.100.0", "29.10.1.0"),
+    ] {
+        let entries = format!("P::A\t{pinned}\t{version}\n");
+        let (code, out) = compare_on(d.path(), &main, &head, &entries, &["--build", applies]);
+        assert_eq!(code, 0, "{version} on {applies}: {out}");
+        // On another version the row neither applies nor is stale: the difference has no entry.
+        let (code, out) = compare_on(d.path(), &main, &head, &entries, &["--build", other]);
+        assert_eq!(code, 1, "{out}");
+        assert!(
+            out.contains("| P::A | not run: First() on a part whose view is not pinned | pass | MISSING |"),
+            "{out}"
+        );
+        assert!(!out.contains("stale"), "{out}");
+        // Where nothing differs on another version, its row is not stale either.
+        let (code, out) = compare_on(d.path(), &main, &same, &entries, &["--build", other]);
+        assert_eq!(code, 0, "{out}");
+        let (code, out) = compare_on(d.path(), &main, &same, &entries, &["--build", applies]);
+        assert_eq!(code, 1, "{out}");
+        assert!(
+            out.contains(&format!("stale entry, no difference: P::A ({version})")),
+            "{out}"
+        );
+    }
 }
 
 #[test]
