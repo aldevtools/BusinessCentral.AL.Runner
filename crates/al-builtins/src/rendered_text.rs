@@ -633,18 +633,27 @@ pub fn guard(name: &str, recv: Option<&Value>, args: &[Value], ret_used: bool) -
                 && condition(row.when, recv, args, ret_used, i)
         })
     };
-    // The row is looked up first: a List or Dictionary a row allows is not walked on every call.
+    // The guard runs on every builtin call of every session once one session read rendered content, so the cheaper check
+    // goes first: for a single value the mark (a cached flag of the text), for a List, Dictionary or Array the row (a walk
+    // of the collection costs more than the lookup).
+    let marked = |v: &Value, at_recv: bool, i: usize| match v {
+        Value::List(_) | Value::Dictionary(_) | Value::Array(_) => {
+            if allowed(at_recv, i) {
+                None
+            } else {
+                value_text(v)
+            }
+        }
+        _ => value_text(v).filter(|_| !allowed(at_recv, i)),
+    };
     if let Some(r) = recv
         && !asks_type(name)
-        && !allowed(true, 0)
-        && let Some(s) = value_text(r)
+        && let Some(s) = marked(r, true, 0)
     {
         return Err(refusal(&s, &format!("{name} on the value")));
     }
     for (i, a) in args.iter().enumerate() {
-        if !allowed(false, i)
-            && let Some(s) = value_text(a)
-        {
+        if let Some(s) = marked(a, false, i) {
             return Err(refusal(&s, &format!("{name} given the value")));
         }
     }
@@ -874,11 +883,14 @@ pub fn read_whole(
     Ok(text)
 }
 
+/// What [`html_mark`] puts between the mark and its render number.
+const RENDER_SUFFIX: &str = ", render ";
+
 /// The placeholder mark of the Html a save of `report` wrote, with its render number (`None`: the run produced no dataset row).
 pub fn html_mark(report: &str, render: Option<u32>) -> std::sync::Arc<str> {
     let base = crate::placeholder_output::mark("Html", report);
     match render {
-        Some(n) => format!("{base}, render {n}").into(),
+        Some(n) => format!("{base}{RENDER_SUFFIX}{n}").into(),
         None => base,
     }
 }
@@ -886,7 +898,16 @@ pub fn html_mark(report: &str, render: Option<u32>) -> std::sync::Arc<str> {
 /// The render number of an Html placeholder mark, `None` for any other mark or one without a number.
 pub fn html_render(mark: &str) -> Option<Option<u32>> {
     let rest = mark.strip_prefix("a placeholder Html of report ")?;
-    Some(rest.rsplit_once(", render ").and_then(|(_, n)| n.parse().ok()))
+    Some(rest.rsplit_once(RENDER_SUFFIX).and_then(|(_, n)| n.parse().ok()))
+}
+
+/// `mark` as a refusal names it: an Html placeholder's without its render number. The number is process-wide (A1), so it
+/// depends on the tests that ran before in the same process; a reason that held it would differ between runs of one test.
+pub fn shown(mark: &str) -> &str {
+    match html_render(mark) {
+        Some(Some(_)) => mark.rsplit_once(RENDER_SUFFIX).map_or(mark, |(base, _)| base),
+        _ => mark,
+    }
 }
 
 /// The placeholder kind of a buffer a marked text was written to (A4): the placeholder rules hold for it (presence and a size
