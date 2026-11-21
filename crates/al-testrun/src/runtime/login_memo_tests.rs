@@ -48,6 +48,8 @@ codeunit 3703 "Server Setting Impl."
     var Known: Boolean; Ent: Boolean;
     procedure GetEnableMembershipEntitlement(): Boolean begin if not Known then begin Ent := false; Known := true; end; exit(Ent); end;
 }
+codeunit 1990 "Guided Experience" { procedure Ask(): Boolean var I: Codeunit "Environment Information Impl."; begin exit(I.IsSaaS()); end; }
+codeunit 1992 Checklist { procedure Ask(): Boolean var I: Codeunit "Server Setting Impl."; begin exit(I.GetEnableMembershipEntitlement()); end; }
 codeunit 160 "Sys Helper" { procedure AskSaaS(): Boolean var E: Codeunit "Environment Information"; begin exit(E.IsSaaS()); end; }
 "#;
 
@@ -114,5 +116,19 @@ fn unmeasured_reads_of_the_memos_keep_the_login_raised() {
         let (o, _) = run(publisher, login);
         let raised = |r: &Outcome| matches!(r, Outcome::NotRun(m) if m.contains("MS LOGIN"));
         assert!(o.iter().all(|(_, r)| raised(r)), "{publisher} {login}: {o:?}");
+    }
+}
+
+// Clause (c): a call of "Guided Experience" or "Checklist" (the keyed facades) whose reach reads a memo global keeps
+// Microsoft's login, even when the subscriber also makes the measured calls.
+#[test]
+fn memo_reads_reached_through_guided_experience_or_checklist_keep_the_login_raised() {
+    let guided =
+        "var S: Codeunit \"M Seen\"; G: Codeunit \"Guided Experience\"; begin S.Record(); if G.Ask() then; end;";
+    let checklist = "var S: Codeunit \"M Seen\"; C: Codeunit Checklist; begin S.Record(); if C.Ask() then; end;";
+    for login in [guided, checklist] {
+        let (o, _) = run("Microsoft", login);
+        let raised = |r: &Outcome| matches!(r, Outcome::NotRun(m) if m.contains("MS LOGIN"));
+        assert!(o.iter().all(|(_, r)| raised(r)), "{login}: {o:?}");
     }
 }
