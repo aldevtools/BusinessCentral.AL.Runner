@@ -9,10 +9,12 @@
 //! - a group: `FindFirst`, `FindLast`, `Count` and `IsEmpty` of AL code (a Record or a RecordRef; not a page's own read,
 //!   :2137), keyed by the read, the sort direction and every filter (`group_key`): the group alone (:641, :658, :675, :692),
 //!   a field outside the key and two fields (:870, :891), and in PR 1495 FindLast, IsEmpty and FindFirst after `SetFilter`
-//!   (:1276, :1293, :1312) and all four reads of every shape of :1718-:1832 (up to four filters, filter groups 0, 2, 4 and 6,
-//!   a descending sort, ranges, `SetFilter` of values, wildcards and the comparison operators). One value set by `SetRange`,
+//!   (:1276, :1293, :1312) and all four reads of every shape of :1718-:1832 and :2711-:2775 (no filter or up to eight, filter
+//!   groups 0 and 2-7 and the OR group, a descending sort, ranges, `SetFilter` of values, wildcards, the comparison operators,
+//!   `@` alone, an empty `FILTER()`, an `&` inside an `|`). One value set by `SetRange`,
 //!   by `SetFilter`, by a range from the value to itself or by `FieldRef.SetRange` is one filter (:917, :1840, :1856).
-//!   `Find('+')`, `Find('-')`, `FindSet` and a find after `SetLoadFields` read the rows as they are (:2037-:2121).
+//!   `Find('+')`, `Find('-')`, `FindSet`, and any of the four after `SetLoadFields`, read the rows as they are (:2037-:2121,
+//!   :2760).
 //!
 //! A row entry holds until a commit writes that row (:430, :804 against :741, :762, :784; also when no commit held the row
 //! before or after, an insert and a delete each committed: PR 1495 :1207; a commit of a ModifyAll or DeleteAll of the table
@@ -20,10 +22,9 @@
 //! otherwise than the table is refused); a group entry until a commit writes the table (:823, :845, :870, :891 against :451;
 //! :1945, :1962, :2018). A rollback changes neither (:983, :1016, :1029), and a found row, a missing row and a count are all
 //! kept (:604, :624, :692). The test session's own read fills the cache while that session has not written the table since
-//! its last commit (:500, :541, :938; a test page's read of a line too, :2300, :2322, :2355; a group read in the shapes of
-//! `test_fills`, :1239, :1904, :1924, :2375-:2405; not after it wrote the table, :959, :1982, :2101), and a worker's first read
-//! then answers what the test read; a worker's group read after the test session read the group in another shape and then
-//! wrote the table is refused. The test session's own read answers from an entry a worker filled
+//! its last commit (:500, :541, :938; a test page's read of a line too, :2300, :2322, :2355; a group read in every shape,
+//! :1239, :1904, :1924, :2375-:2405, :2789, :2808; not after it wrote the table, :959, :1982, :2101), and a worker's first read
+//! then answers what the test read. The test session's own read answers from an entry a worker filled
 //! (:983), which is refused here. The cache starts empty in every test codeunit (:1044, :1067). Every other read keeps
 //! reading the rows as they are, as on main.
 
@@ -158,11 +159,11 @@ impl Form {
     }
 }
 
-/// The filter groups the cells set a group read's filters in: 0, 2 (:1736), 4 (:1742) and 6 (:1804). Filter groups 3 and 5 and
-/// the OR group -1 are not measured; filter group 1 is the global one.
-const CACHED_FILTER_GROUPS: [i32; 4] = [0, 2, 4, 6];
-/// The most filters a cell's group read had (:1798).
-const MAX_CACHED_FILTERS: usize = 4;
+/// The filter groups the cells set a group read's filters in: 0, 2 (:1736), 3 and 5 (:2723), 4 (:1742), 6 (:1804), 7 (:2730)
+/// and the cross-column OR group (:2736). Filter group 1 is the global one, and groups past 7 are not measured.
+const CACHED_FILTER_GROUPS: [i32; 8] = [al_builtins::filter::OR_GROUP, 0, 2, 3, 4, 5, 6, 7];
+/// The most filters a cell's group read had (:2717); no filter at all is measured too (:2775).
+const MAX_CACHED_FILTERS: usize = 8;
 
 /// What the cache holds for one codeunit run (`Session::reset_query_cache` empties it).
 #[derive(Default)]
@@ -173,9 +174,6 @@ pub(crate) struct QueryCache {
     groups: Entries<(Option<u64>, GroupAnswer)>,
     /// The rows the test session read while it had not written their table.
     test_rows: Entries<Committed>,
-    /// The groups the test session read while it had not written their table, in a shape whose fill no cell measures: the
-    /// table's commit stamp then (Session::test_fills).
-    test_groups: Entries<Option<u64>>,
     /// The read running is AL code's (`mark_al_record_read`): only it reads a group through the cache.
     pub(crate) al_record_read: bool,
     /// The next load into a partial record loads a row the cache answered with another row than the table holds.
@@ -212,9 +210,11 @@ fn same_group(a: &GroupAnswer, b: &GroupAnswer) -> bool {
 
 /// A filter's expression as key values (`Session::group_key`), tag first; `None` for a kind no cell measures. The kinds the
 /// cells set (PR 1495): one value (:1718, also by `SetFilter`, a placeholder and a range to itself, :1766, :917), a range and an
-/// open one (:1748, :1818), `<>`, `<`, `<=`, `>`, `>=` and a pattern not matched (:1818), a pattern with and without `@`
-/// (:1779), and one level of `|` (:1773) and `&` (:1818).
-fn encode_filter(expr: &FilterExpr, inner: bool, out: &mut Vec<Value>) -> Option<()> {
+/// open one (:1748, :1818), `<>`, `<`, `<=`, `>`, `>=` and a pattern not matched, with and without `@` (:1818, :2751), a
+/// pattern with and without `@` (:1779), `@` alone and an empty `FILTER()` of a view (:2751), `|` and `&` of those (:1773,
+/// :1818), and an `&` inside an `|` (:2743). A wildcard written as a value (`=a*`) is an error on BC, not a read; `<>@` alone
+/// and other nestings are not measured.
+fn encode_filter(expr: &FilterExpr, level: Nesting, out: &mut Vec<Value>) -> Option<()> {
     use FilterExpr as F;
     let tag = |t: &str| Value::Text(t.into());
     match expr {
@@ -236,18 +236,32 @@ fn encode_filter(expr: &FilterExpr, inner: bool, out: &mut Vec<Value>) -> Option
         F::Ge(v) => out.extend([tag(">="), v.clone()]),
         F::Like(p, ci) => out.extend([tag("like"), Value::Text(p.as_str().into()), Value::Boolean(*ci)]),
         F::NotLike(p, ci) => out.extend([tag("not like"), Value::Text(p.as_str().into()), Value::Boolean(*ci)]),
-        F::Or(items) | F::And(items) if !inner => {
-            out.extend([
-                tag(if matches!(expr, F::Or(_)) { "|" } else { "&" }),
-                Value::Integer(items.len() as i32),
-            ]);
+        F::AtSignAlone(false) => out.push(tag("@")),
+        F::EmptyViewValue => out.push(tag("empty view value")),
+        F::Or(items) | F::And(items) => {
+            let or = matches!(expr, F::Or(_));
+            let items_level = match (level, or) {
+                (Nesting::Top, true) => Nesting::InOr,
+                (Nesting::Top, false) | (Nesting::InOr, false) => Nesting::Simple,
+                _ => return None,
+            };
+            out.extend([tag(if or { "|" } else { "&" }), Value::Integer(items.len() as i32)]);
             for item in items {
-                encode_filter(item, true, out)?;
+                encode_filter(item, items_level, out)?;
             }
         }
         _ => return None,
     }
     Some(())
+}
+
+/// Where a filter expression sits in the expression `encode_filter` keys: the whole filter, an item of a top-level `|`, or an
+/// item no compound may be.
+#[derive(Clone, Copy, PartialEq)]
+enum Nesting {
+    Top,
+    InOr,
+    Simple,
 }
 
 const TEST_READ_REFUSAL: &str = "a read of the test session that a page background task's earlier read answers from the query \
@@ -371,7 +385,7 @@ impl Session {
     }
 
     /// The key of the group read `form` of `rec`: a read of AL code, its sort direction and every filter (filter group, field,
-    /// expression) in group and field order, when the cells measure each: one to four filters (:1798), on stored fields (a
+    /// expression) in group and field order, when the cells measure each: no filter or up to eight (:2775, :2717), on stored fields (a
     /// FlowField or FlowFilter is no column of the query), in the filter groups of `CACHED_FILTER_GROUPS`, of the kinds
     /// `encode_filter` takes. `None`: another read, which reads the rows as they are.
     fn group_key(&self, rec: &Rec, t: &TableDef, form: Form) -> Option<Vec<Value>> {
@@ -379,7 +393,7 @@ impl Session {
             return None;
         }
         let r = rec.borrow();
-        if r.filters.is_empty() || r.filters.len() > MAX_CACHED_FILTERS {
+        if r.filters.len() > MAX_CACHED_FILTERS {
             return None;
         }
         let mut filters: Vec<_> = r.filters.iter().collect();
@@ -390,7 +404,7 @@ impl Session {
                 return None;
             }
             values.extend([Value::Integer(f.group), Value::Integer(f.field as i32)]);
-            encode_filter(&f.expr, false, &mut values)?;
+            encode_filter(&f.expr, Nesting::Top, &mut values)?;
         }
         Some(values)
     }
@@ -583,24 +597,10 @@ impl Session {
         Ok(fresh)
     }
 
-    /// Whether the test session's group read of `rec` fills the cache, in the shapes the cells measure: one filter, on the first
-    /// primary-key field, in filter group 0 or 2, to one value or a range, either sort direction, by a Record or a RecordRef
-    /// (:1239, :1904, :1924, :2375-:2405). Every other test session's group read is noted (`test_groups`), and a worker's read
-    /// it would answer after the session wrote the table is refused.
-    fn test_fills(rec: &Rec, t: &TableDef) -> bool {
-        let r = rec.borrow();
-        let [f] = r.filters.as_slice() else {
-            return false;
-        };
-        f.field == t.keys[0][0]
-            && matches!(f.group, 0 | 2)
-            && matches!(&f.expr, FilterExpr::Eq(_) | FilterExpr::Range(Some(_), Some(_)))
-    }
-
     /// A group read of `rec` for `values` that the table answers with `fresh`: what the read answers. An entry holds while no
     /// commit wrote the table (:823, :845, :1945, :2018). The test session's read fills it while that session has not written
-    /// the table since its last commit, in the shapes of `test_fills`, and after it wrote the table reads the table (:1982,
-    /// :2101).
+    /// the table since its last commit, in every shape `group_key` takes (:1239, :1904, :1924, :2375-:2405, :2789, :2808), and
+    /// after it wrote the table reads the table (:1982, :2101).
     fn cached_group(
         &mut self,
         rec: &Rec,
@@ -611,37 +611,24 @@ impl Session {
     ) -> Result<GroupAnswer, Signal> {
         let at = Self::at(rec, t, values);
         let stamp = self.store_for(rec)?.committed_stamp(cx, t);
-        let written = self.store_for(rec)?.written_since_commit(cx, t);
-        let cache = &self.pages.query_cache;
-        let entry = cache
+        let entry = self
+            .pages
+            .query_cache
             .groups
             .get(&at)
             .filter(|(then, _)| *then == stamp)
             .map(|(_, a)| a.clone());
         if !self.in_worker() {
-            if written {
+            if self.store_for(rec)?.written_since_commit(cx, t) {
                 return Ok(fresh);
             }
             if entry.as_ref().is_some_and(|a| !same_group(a, &fresh)) {
                 return unsupported(TEST_READ_REFUSAL);
             }
-            if Self::test_fills(rec, t) {
-                self.pages.query_cache.groups.insert(&at, (stamp, fresh.clone()));
-            } else {
-                self.pages.query_cache.test_groups.insert(&at, stamp);
-            }
+            self.pages.query_cache.groups.insert(&at, (stamp, fresh.clone()));
             return Ok(fresh);
         }
-        let answer = match entry {
-            Some(a) => a,
-            None if written && cache.test_groups.get(&at) == Some(&stamp) => {
-                return unsupported(
-                    "a group read of a page background task after the test session read the group and then wrote the table (the \
-                     query cache's answer is measured for one filter on the first key field only, BgTaskQueryCache.al:2375-2405)",
-                );
-            }
-            None => fresh.clone(),
-        };
+        let answer = entry.unwrap_or_else(|| fresh.clone());
         self.pages.query_cache.groups.insert(&at, (stamp, answer.clone()));
         // A FindFirst or FindLast is flagged by `answered`.
         if !matches!(answer, GroupAnswer::Row(_)) && !same_group(&answer, &fresh) {

@@ -537,10 +537,8 @@ fn issue_8637_repro() {
     }
 }
 
-/// Neighbors of al-runner issue 8637 past what the cells measure (the fixture's header). Five filters, filter groups 3 and 5
-/// and the OR group: BC answers them from the cache, the runner keeps main's answer, the rows as they are, with no flag. The
-/// test session's reads first of two filters, or of a filter outside the key, then its write: BC answers the worker's first
-/// reads with the test's, which no cell measures, and the runner refuses them.
+/// Neighbors of al-runner issue 8637 past what the cells measure (the fixture's header): nine filters and filter group 8. BC
+/// answers them from the cache; the runner keeps main's answer, the rows as they are, with no flag.
 #[test]
 fn issue_8637_neighbors() {
     let src = format!(
@@ -548,7 +546,7 @@ fn issue_8637_neighbors() {
         include_str!("../fixtures/outside-fb/Issue8637Neighbors.al")
     );
     let o = outcomes(&src, "BQ Gate Tests");
-    assert_eq!(o.len(), 4);
+    assert_eq!(o.len(), 2);
     for (name, r, marks) in &o {
         assert!(
             matches!(r, Outcome::Fail(m) if m.contains("Actual:<a|a|1|No>")),
@@ -556,17 +554,24 @@ fn issue_8637_neighbors() {
         );
         assert!(!marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
     }
-    for codeunit in ["BQ Gate Test First 1", "BQ Gate Test First 2"] {
-        let o = outcomes(&src, codeunit);
-        assert_eq!(o.len(), 1, "{codeunit}");
-        let (name, r, _) = &o[0];
-        assert!(
-            matches!(r, Outcome::NotRun(w) if w.starts_with("a group read of a page background task after the test session read the group and then wrote the table")),
-            "{codeunit}::{name}: {r:?}"
+}
+
+/// The cells of BQ Tests 6 (corpus PR 1495, BgTaskQueryCache.al:2625-2848): five and eight filters, filter groups 3, 5 and
+/// 7, the OR group, compound filters, @ alone, an empty FILTER() of a view, a pattern not matched with @ and no filter answer from the cache, as do the
+/// test session's reads first in every shape, flagged; Count and IsEmpty after SetLoadFields read the table, clean.
+#[test]
+fn issue_8637_more_cells() {
+    let o = outcomes(PROBE, "BQ Tests 6");
+    assert_eq!(o.len(), 11);
+    for (name, r, marks) in &o {
+        assert_eq!(*r, Outcome::Pass, "{name}");
+        assert_eq!(
+            marks.contains(&BackgroundTaskQueryCache),
+            !name.contains("LoadFields"),
+            "{name}: {marks:?}"
         );
     }
 }
-
 /// The cells of BQ Tests 5 (corpus PR 1495, BgTaskQueryCache.al:2229-2409). A test page's read of a line fills the row cache,
 /// as the test session's Get does, through filters on every key field (:2300, :2322) and through a filter on the group alone
 /// (:2355; the page reads its line by the full key). The test session's four reads first answer the worker's first four reads
