@@ -537,8 +537,10 @@ fn issue_8637_repro() {
     }
 }
 
-/// Neighbors of al-runner issue 8637 past what the cells measure (five filters, filter groups 3 and 5, the OR group -1; the
-/// fixture's header): BC answers them from the cache, the runner keeps main's answer, the rows as they are, with no flag.
+/// Neighbors of al-runner issue 8637 past what the cells measure (the fixture's header). Five filters, filter groups 3 and 5
+/// and the OR group: BC answers them from the cache, the runner keeps main's answer, the rows as they are, with no flag. The
+/// test session's reads first of two filters, or of a filter outside the key, then its write: BC answers the worker's first
+/// reads with the test's, which no cell measures, and the runner refuses them.
 #[test]
 fn issue_8637_neighbors() {
     let src = format!(
@@ -553,5 +555,28 @@ fn issue_8637_neighbors() {
             "{name}: {r:?}"
         );
         assert!(!marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
+    }
+    for codeunit in ["BQ Gate Test First 1", "BQ Gate Test First 2"] {
+        let o = outcomes(&src, codeunit);
+        assert_eq!(o.len(), 1, "{codeunit}");
+        let (name, r, _) = &o[0];
+        assert!(
+            matches!(r, Outcome::NotRun(w) if w.starts_with("a group read of a page background task after the test session read the group and then wrote the table")),
+            "{codeunit}::{name}: {r:?}"
+        );
+    }
+}
+
+/// The cells of BQ Tests 5 (corpus PR 1495, BgTaskQueryCache.al:2229-2409). A test page's read of a line fills the row cache,
+/// as the test session's Get does, through filters on every key field (:2300, :2322) and through a filter on the group alone
+/// (:2355; the page reads its line by the full key). The test session's four reads first answer the worker's first four reads
+/// for every shape of :2375-:2405. All flagged.
+#[test]
+fn issue_8637_review_cells() {
+    let o = outcomes(PROBE, "BQ Tests 5");
+    assert_eq!(o.len(), 9);
+    for (name, r, marks) in &o {
+        assert_eq!(*r, Outcome::Pass, "{name}");
+        assert!(marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
     }
 }

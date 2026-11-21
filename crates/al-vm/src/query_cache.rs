@@ -20,8 +20,10 @@
 //! otherwise than the table is refused); a group entry until a commit writes the table (:823, :845, :870, :891 against :451;
 //! :1945, :1962, :2018). A rollback changes neither (:983, :1016, :1029), and a found row, a missing row and a count are all
 //! kept (:604, :624, :692). The test session's own read fills the cache while that session has not written the table since
-//! its last commit (:500, :541, :938; a group :1239, :1904, :1924; not after it wrote the table, :959, :1982, :2101), and a
-//! worker's first read then answers what the test read; the test session's own read answers from an entry a worker filled
+//! its last commit (:500, :541, :938; a test page's read of a line too, :2300, :2322, :2355; a group read in the shapes of
+//! `test_fills`, :1239, :1904, :1924, :2375-:2405; not after it wrote the table, :959, :1982, :2101), and a worker's first read
+//! then answers what the test read; a worker's group read after the test session read the group in another shape and then
+//! wrote the table is refused. The test session's own read answers from an entry a worker filled
 //! (:983), which is refused here. The cache starts empty in every test codeunit (:1044, :1067). Every other read keeps
 //! reading the rows as they are, as on main.
 
@@ -171,6 +173,9 @@ pub(crate) struct QueryCache {
     groups: Entries<(Option<u64>, GroupAnswer)>,
     /// The rows the test session read while it had not written their table.
     test_rows: Entries<Committed>,
+    /// The groups the test session read while it had not written their table, in a shape whose fill no cell measures: the
+    /// table's commit stamp then (Session::test_fills).
+    test_groups: Entries<Option<u64>>,
     /// The read running is AL code's (`mark_al_record_read`): only it reads a group through the cache.
     pub(crate) al_record_read: bool,
     /// The next load into a partial record loads a row the cache answered with another row than the table holds.
@@ -578,9 +583,24 @@ impl Session {
         Ok(fresh)
     }
 
+    /// Whether the test session's group read of `rec` fills the cache, in the shapes the cells measure: one filter, on the first
+    /// primary-key field, in filter group 0 or 2, to one value or a range, either sort direction, by a Record or a RecordRef
+    /// (:1239, :1904, :1924, :2375-:2405). Every other test session's group read is noted (`test_groups`), and a worker's read
+    /// it would answer after the session wrote the table is refused.
+    fn test_fills(rec: &Rec, t: &TableDef) -> bool {
+        let r = rec.borrow();
+        let [f] = r.filters.as_slice() else {
+            return false;
+        };
+        f.field == t.keys[0][0]
+            && matches!(f.group, 0 | 2)
+            && matches!(&f.expr, FilterExpr::Eq(_) | FilterExpr::Range(Some(_), Some(_)))
+    }
+
     /// A group read of `rec` for `values` that the table answers with `fresh`: what the read answers. An entry holds while no
     /// commit wrote the table (:823, :845, :1945, :2018). The test session's read fills it while that session has not written
-    /// the table since its last commit (:1239, :1904, :1924), and after it wrote the table reads the table (:1982, :2101).
+    /// the table since its last commit, in the shapes of `test_fills`, and after it wrote the table reads the table (:1982,
+    /// :2101).
     fn cached_group(
         &mut self,
         rec: &Rec,
@@ -591,24 +611,37 @@ impl Session {
     ) -> Result<GroupAnswer, Signal> {
         let at = Self::at(rec, t, values);
         let stamp = self.store_for(rec)?.committed_stamp(cx, t);
-        let entry = self
-            .pages
-            .query_cache
+        let written = self.store_for(rec)?.written_since_commit(cx, t);
+        let cache = &self.pages.query_cache;
+        let entry = cache
             .groups
             .get(&at)
             .filter(|(then, _)| *then == stamp)
             .map(|(_, a)| a.clone());
         if !self.in_worker() {
-            if self.store_for(rec)?.written_since_commit(cx, t) {
+            if written {
                 return Ok(fresh);
             }
             if entry.as_ref().is_some_and(|a| !same_group(a, &fresh)) {
                 return unsupported(TEST_READ_REFUSAL);
             }
-            self.pages.query_cache.groups.insert(&at, (stamp, fresh.clone()));
+            if Self::test_fills(rec, t) {
+                self.pages.query_cache.groups.insert(&at, (stamp, fresh.clone()));
+            } else {
+                self.pages.query_cache.test_groups.insert(&at, stamp);
+            }
             return Ok(fresh);
         }
-        let answer = entry.unwrap_or_else(|| fresh.clone());
+        let answer = match entry {
+            Some(a) => a,
+            None if written && cache.test_groups.get(&at) == Some(&stamp) => {
+                return unsupported(
+                    "a group read of a page background task after the test session read the group and then wrote the table (the \
+                     query cache's answer is measured for one filter on the first key field only, BgTaskQueryCache.al:2375-2405)",
+                );
+            }
+            None => fresh.clone(),
+        };
         self.pages.query_cache.groups.insert(&at, (stamp, answer.clone()));
         // A FindFirst or FindLast is flagged by `answered`.
         if !matches!(answer, GroupAnswer::Row(_)) && !same_group(&answer, &fresh) {
