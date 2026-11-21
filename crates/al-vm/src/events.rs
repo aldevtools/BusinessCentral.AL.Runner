@@ -380,11 +380,12 @@ impl Registry {
         program: &ir::Program,
         (oi, o, r): (usize, &ir::ObjectHead, &ir::EventRoutine),
         a: &ir::Attribute,
-        written: &str,
+        (written, bare): (&str, Option<&str>),
         event: &str,
     ) -> ById {
         let heads = program.objects.heads();
-        if let Some(p) = by_id_as_name(&program.apps, o, (ObjKind::Codeunit, written), event) {
+        // Only the bare id is measured; `Codeunit::<id>` does not compile in BC (must-not-compile 3216): it refuses as on main.
+        if let Some(p) = bare.and_then(|id| by_id_as_name(&program.apps, o, (ObjKind::Codeunit, id), event)) {
             return ById::AsName(p.codeunit.1);
         }
         if let Some(p) = RAISED_PLATFORM
@@ -670,8 +671,11 @@ impl Registry {
                             let (mut target, _) = publisher_name(args[1].rsplit("::").next().unwrap_or(""));
                             let event = unquote(&args[2]).to_lowercase();
                             // The runtime raises (or refuses where BC raises) this event without the publisher object.
+                            let by_id = bare_id(&args[1]);
                             let by_id_platform = match kind {
-                                ObjKind::Codeunit => reg.add_by_id_subscriber(program, (oi, o, r), a, &target, &event),
+                                ObjKind::Codeunit => {
+                                    reg.add_by_id_subscriber(program, (oi, o, r), a, (&target, by_id), &event)
+                                }
                                 _ => ById::Other,
                             };
                             let mut native = matches!(by_id_platform, ById::Refused);
@@ -681,7 +685,6 @@ impl Registry {
                             let Some(found) = reg.publisher_of(heads, (oi, kind), r, a, &event, args.get(3)) else {
                                 continue;
                             };
-                            let by_id = bare_id(&args[1]);
                             let measured = by_id
                                 .is_some_and(|id| by_id_measured((heads, &program.apps), o, kind, id, &event, found));
                             if reg.list_dependency_platform_by_id(&program.apps, (o, &r.name), (kind, by_id), &event) {

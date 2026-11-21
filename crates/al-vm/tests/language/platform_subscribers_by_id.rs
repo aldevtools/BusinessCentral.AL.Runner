@@ -201,6 +201,14 @@ fn a_make_date_filter_subscriber_written_with_the_codeunit_id_runs_flagged() {
     assert!(take_hits().is_empty());
 }
 
+/// `Codeunit::2000000007` does not compile in BC (must-not-compile 3216), so it keeps main's refusal, not a flagged pass.
+#[test]
+fn a_make_date_filter_subscriber_written_codeunit_colon_colon_id_refuses_the_raise() {
+    let sub = BY_ID_DATE_SUB.replace("2000000007", "Codeunit::2000000007");
+    let m = refused(run_in(&format!("{DATE_FILTER}{sub}"), "DC", "Word"));
+    assert!(m.contains("by its id 2000000007"), "{m}");
+}
+
 /// The same subscriber in a dependency app: a dependency app's by-id subscriber is not measured, so the raise refuses.
 #[test]
 fn a_dependency_make_date_filter_subscriber_written_with_the_codeunit_id_refuses_the_raise() {
