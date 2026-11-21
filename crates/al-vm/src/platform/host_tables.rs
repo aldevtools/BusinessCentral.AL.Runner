@@ -165,12 +165,8 @@ pub(super) fn feature_key_rows(t: &TableDef, engine: &crate::Engine) -> Vec<Entr
         Some(FeatureKeyRows::Bc29) => (ROWS_THIRD, &[]),
         Some(FeatureKeyRows::Bc29NotificationBar) => (ROWS_THIRD, NEW_NOTIFICATION_BAR),
         None => {
-            return vec![Entry::poisoned_prefix(
-                blank(t),
-                0,
-                "Feature Key: its rows are served for the minors they were measured on only (docs/probes-needed.md)"
-                    .into(),
-            )];
+            let why = al_version::feature_key_refusal(engine.target.as_ref(), platform_version(engine));
+            return vec![Entry::poisoned_prefix(blank(t), 0, why)];
         }
     };
     // 27.0 and 28.0 differ from the newest minor of their major in one row: SemanticMetadataSearch is None on 27.0 (RowsA)
@@ -216,13 +212,17 @@ pub(super) fn feature_key_rows(t: &TableDef, engine: &crate::Engine) -> Vec<Entr
 /// Which Feature Key list `engine` serves: its target and the version of the System app its program holds, which is
 /// the platform build (`al_version::feature_key_rows`).
 fn feature_key_list(engine: &crate::Engine) -> Option<al_version::FeatureKeyRows> {
-    let platform = engine
+    al_version::feature_key_rows(engine.target.as_ref(), platform_version(engine))
+}
+
+/// The version of the System app `engine`'s program holds, the platform build; `None` when it holds none.
+fn platform_version(engine: &crate::Engine) -> Option<&str> {
+    engine
         .program
         .apps
         .iter()
         .find(|a| a.id.eq_ignore_ascii_case(super::objects::al_sema_platform_app_id()))
-        .map(|a| a.version.as_str());
-    al_version::feature_key_rows(engine.target.as_ref(), platform)
+        .map(|a| a.version.as_str())
 }
 
 /// The assumption every read of the Feature Key table of `engine` rests on, if any: the list with NewNotificationBar

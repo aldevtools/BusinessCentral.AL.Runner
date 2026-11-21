@@ -2922,11 +2922,12 @@ fn feature_key_rows_follow_the_measured_minors() {
 }
 
 // al-runner issue 8192: the Feature Key list follows the platform build (the System app's version), not the application
-// minor. Application 29.0 or 29.1 on platform 29.0.56480 and later serves the 29.0 rows and NewNotificationBar on the
-// assumption feature-key-rows-container-measured (corpus PR 1484, record/FeatureKeyRowsReads291.al): every read of the
-// table marks it, also one that finds no row, and the Description columns of FEATURE_KEY_TEXTS are served. Application
-// 29.0 on a platform below keeps main's 13 rows unflagged (record/PFFeatureKeyColumns.al RowsE, measured on platform
-// 29.0.55782); application 29.1 below that platform, with no platform build, and 29.2 keep main's refusal.
+// minor. Application 29.1 on platform 29.0.57943 or 29.0.58337 and application 29.0 on platform 29.0.56480 serve the
+// 29.0 rows and NewNotificationBar on the assumption feature-key-rows-container-measured (corpus PR 1484,
+// record/FeatureKeyRowsReads291.al): every read of the table marks it, also one that finds no row, and the Description
+// columns of FEATURE_KEY_TEXTS are served. Application 29.0 on any other platform keeps main's 13 rows unflagged
+// (record/PFFeatureKeyColumns.al RowsE, measured on platform 29.0.55782); application 29.1 on any other platform build
+// is refused with a text naming the measured builds; 29.2 keeps main's refusal.
 #[test]
 fn feature_key_rows_follow_the_platform_build() {
     let src = r#"codeunit 50000 "T" { Subtype = Test;
@@ -2996,7 +2997,13 @@ fn feature_key_rows_follow_the_platform_build() {
         }
     }
     // Main's 13 rows, nothing flagged: no NewNotificationBar.
-    for platform in ["29.0.55782.0", "29.0.56212.0", "1.0.0.0"] {
+    for platform in [
+        "29.0.55782.0",
+        "29.0.56212.0",
+        "29.0.57943.0",
+        "29.0.61000.0",
+        "1.0.0.0",
+    ] {
         let (out, hits) = run("29.0.0.0", platform);
         for (n, o) in &out {
             let ok = match n.as_str() {
@@ -3008,16 +3015,18 @@ fn feature_key_rows_follow_the_platform_build() {
             }
         }
     }
-    // Main's refusal.
-    for (bc, platform) in [
-        ("29.1.0.0", "29.0.56212.0"),
-        ("29.1.0.0", "29.0.55782.0"),
-        ("29.1.0.0", "1.0.0.0"),
-        ("29.2.0.0", "29.0.58337.0"),
+    // Refused: 29.1 names the measured platform builds, 29.2 keeps main's text.
+    for (bc, platform, names) in [
+        ("29.1.0.0", "29.0.56212.0", "29.0.57943, 29.0.58337"),
+        ("29.1.0.0", "29.0.55782.0", "29.0.57943, 29.0.58337"),
+        ("29.1.0.0", "29.0.56480.0", "29.0.57943, 29.0.58337"),
+        ("29.1.0.0", "29.0.61000.0", "29.0.57943, 29.0.58337"),
+        ("29.1.0.0", "1.0.0.0", "29.0.57943, 29.0.58337"),
+        ("29.2.0.0", "29.0.58337.0", "measured on only"),
     ] {
         let (out, hits) = run(bc, platform);
         for (n, o) in &out {
-            if !matches!(o, Outcome::NotRun(why) if why.contains("Feature Key"))
+            if !matches!(o, Outcome::NotRun(why) if why.contains("Feature Key") && why.contains(names))
                 || hits.iter().any(|(_, m)| m.contains(&a))
             {
                 wrong.push(format!("{bc} on {platform} {n}: {o:?}"));
