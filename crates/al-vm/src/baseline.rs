@@ -77,7 +77,7 @@ fn new_origin() -> u64 {
 }
 
 /// The first bytes of a snapshot: what it is and which layout it has. A change of the layout changes the last digit.
-const MAGIC: &[u8; 8] = b"ALBASE\0\x08";
+const MAGIC: &[u8; 8] = b"ALBASE\0\x09";
 
 /// The order of a table's keys (`al_data::memory::PkStorage`): the count of its key fields (0 for text order), then one
 /// byte per field.
@@ -538,6 +538,9 @@ impl Session {
         self.store.tables_changed_since(counter).is_empty().then_some(origin)
     }
 }
+
+#[cfg(test)]
+mod blob_tests;
 
 #[cfg(test)]
 mod tests {
