@@ -10,6 +10,7 @@ pub mod assembly_refs;
 pub mod build;
 pub mod cache;
 pub mod demo;
+pub mod emit_version;
 pub mod empty;
 pub mod lazy;
 pub mod license;

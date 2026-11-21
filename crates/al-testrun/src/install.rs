@@ -1496,7 +1496,10 @@ fn own_login(
             "{} raised to the login subscribers of the apps under test",
             lowered.program.objects[po].routines[pr].name
         );
+        let at = session.left_stamp();
         call_before_first_test(lowered, session, &what, |s| s.raise_to(po, pr, &step.subscribers))?;
+        let singles = at.changed(&session.left_stamp()).singles;
+        crate::partner_login::own_step(lowered, session, singles, &mut partner);
         // On BC the registration events are raised inside Base Application's "Checklist Events" subscriber of the
         // isolated OnAfterLogin, whose own transaction commits before the app's OnAfterLogin subscribers run; an isolated
         // event isolates a subscriber only when nothing is pending (codeunits/TestIsolatedEventSubscriberError.al:5-11,

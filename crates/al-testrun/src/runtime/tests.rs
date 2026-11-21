@@ -3,7 +3,8 @@
 use super::*;
 use al_sema::workspace::AppSource;
 
-pub(super) fn outcomes(src: &str) -> Vec<(String, Outcome)> {
+/// Compiles `src` into an engine on the emit version a run reads from its build (al-vm `emit_version`; here a fixed one, for the missing-object text).
+fn engine_for(src: &str) -> (al_sema::lower::Lowered, std::sync::Arc<Engine>) {
     let (ws, l) = al_sema::lower::compile(
         vec![AppSource {
             id: "a".into(),
@@ -19,17 +20,21 @@ pub(super) fn outcomes(src: &str) -> Vec<(String, Outcome)> {
         .iter()
         .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
-    let engine = Engine::new(l.program.clone(), blocked);
-    let oi = l
-        .program
-        .objects
-        .iter()
-        .position(|o| {
-            o.properties
-                .iter()
-                .any(|(k, v)| k.eq_ignore_ascii_case("Subtype") && v.eq_ignore_ascii_case("Test"))
-        })
-        .unwrap();
+    let mut engine = Engine::new(l.program.clone(), blocked);
+    std::sync::Arc::get_mut(&mut engine)
+        .expect("a fresh engine")
+        .emit_version = al_vm::emit_version::EmitVersion::known(29022);
+    (l, engine)
+}
+
+pub(super) fn outcomes(src: &str) -> Vec<(String, Outcome)> {
+    let (l, engine) = engine_for(src);
+    let is_test = |o: &&al_ir::Object| {
+        o.properties
+            .iter()
+            .any(|(k, v)| k.eq_ignore_ascii_case("Subtype") && v.eq_ignore_ascii_case("Test"))
+    };
+    let oi = l.program.objects.iter().position(|o| is_test(&o)).unwrap();
     run_codeunit(&engine, &l, oi)
 }
 
@@ -105,22 +110,7 @@ fn unreachable_code_does_not_block_but_reachable_unsupported_code_does() {
 }
 
 pub(super) fn outcomes_of(src: &str, codeunit: &str) -> Vec<(String, Outcome)> {
-    let (ws, l) = al_sema::lower::compile(
-        vec![AppSource {
-            id: "a".into(),
-            name: "a".into(),
-            dependencies: vec![],
-            files: vec![("f.al".into(), src.into())],
-        }],
-        &Default::default(),
-    );
-    assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
-    let blocked = l
-        .unsupported
-        .iter()
-        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
-        .collect();
-    let engine = Engine::new(l.program.clone(), blocked);
+    let (l, engine) = engine_for(src);
     let oi = l.program.objects.iter().position(|o| o.name == codeunit).unwrap();
     run_codeunit(&engine, &l, oi)
 }
