@@ -1,0 +1,1 @@
+The shapes need OnAfterLogin subscribers in partner dependency apps, and a neighbor app can take dependencies only as packages in .alpackages, which the legal guard rejects (binary files). The same neighbor shapes run as Rust tests in crates/al-testrun/src/runtime/partner_login_tests.rs; the PR body has the table of a local neighbor run with the packages.
