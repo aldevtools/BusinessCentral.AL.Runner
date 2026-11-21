@@ -601,6 +601,43 @@ codeunit 50000 "T" { Subtype = Test;
     }
 }
 
+// al-runner issue 8462: an alternative of names and wildcards none of which matches `timestamp`, with or without regard
+// to case, cannot keep the rowversion row whether or not its lookup sees it, so the other rows are answered as on main
+// before the row existed. A part that matches `timestamp` in any case, and a part of other letters, still refuse.
+#[test]
+fn an_alternative_that_cannot_match_timestamp_answers_without_the_rowversion_row() {
+    let o = outcomes(
+        r#"table 50110 "FW Entry" { fields { field(1; "Entry No."; Integer) { } field(2; Description; Text[100]) { }
+  field(10; KeyField1; Code[50]) { } field(11; KeyField2; Code[50]) { } } keys { key(PK; "Entry No.") { Clustered = true; } } }
+codeunit 50000 "T" { Subtype = Test;
+  local procedure Rows(F: Text): Text var Fld: Record Field; R: Text; begin
+    Fld.SetRange(TableNo, Database::"FW Entry"); Fld.SetFilter(FieldName, F); Fld.SetLoadFields("No.", FieldName);
+    if Fld.FindSet() then repeat R += Fld.FieldName + ';'; until Fld.Next() = 0;
+    exit(R); end;
+  [Test] procedure ReporterShape() var Fld: Record Field; R: Text; begin
+    Fld.SetRange(TableNo, Database::"FW Entry"); Fld.SetFilter(FieldName, '%1|%2', 'Description', 'KeyField*');
+    if Fld.FindSet() then repeat R += Fld.FieldName + ';'; until Fld.Next() = 0;
+    if R <> 'Description;KeyField1;KeyField2;' then Error('got %1', R);
+    if Fld.Count() <> 3 then Error('count %1', Fld.Count()); end;
+  [Test] procedure CaseInsensitivePart() begin if Rows('Description|@keyfield*') <> 'Description;KeyField1;KeyField2;' then Error('got %1', Rows('Description|@keyfield*')); end;
+  [Test] procedure WildcardMatchesTimestamp() begin Rows('Description|*stamp'); end;
+  [Test] procedure WildcardMatchesTimestampWithoutCase() begin Rows('Description|TIME*'); end;
+  [Test] procedure NameIsTimestampWithoutCase() begin Rows('TIMESTAMP|Key*'); end;
+  [Test] procedure PartOfOtherLetters() begin Rows('Beschreibung|Schlüssel*'); end; }"#,
+    );
+    passes(&o, "ReporterShape");
+    passes(&o, "CaseInsensitivePart");
+    for t in [
+        "WildcardMatchesTimestamp",
+        "WildcardMatchesTimestampWithoutCase",
+        "NameIsTimestampWithoutCase",
+        "PartOfOtherLetters",
+    ] {
+        let why = not_run(&o, t);
+        assert!(why.contains("alternative"), "{t}: {why}");
+    }
+}
+
 // The rowversion row is pinned for TableType Normal, Temporary and CRM and for the platform tables User, Field, Integer and Date
 // (metadata/platform-tables/FieldTimestampRowTableTypes.al:153-369); another TableType and another platform table refuse.
 #[test]
