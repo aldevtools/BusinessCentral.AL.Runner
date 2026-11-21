@@ -1,7 +1,9 @@
 # key	entry
-# Not here, same status on main and head (not run; only the refusal text changed): ReadsMicrosoft3704WithDecimal,
-# ReadsPartnerMemoWithDecimal, ReadsMemoOfTwoOtherApps, ReadsMemoOfTwoSubscribersOfOneApp. ReadsNothing passes on both.
-PX Login Tests::InsertReadsBooleanMemoOfPlatform	ASSUMED partner-login-memo-kept (corpus PR 1490)
-PX Login Tests::ReadsBooleanMemoOfPlatform	ASSUMED partner-login-memo-kept (corpus PR 1490)
-PX Login Tests::ReadsMemoOfOwnAppAndDependentApp	ASSUMED partner-login-memo-kept (corpus PR 1490)
+# Not here, same status on main and head (not run; only the refusal text changed): ReadsBooleanMemoOfPlatform (Microsoft
+# memo other than 3702 and 3703), ReadsMemoOfOwnAppAndDependentApp (two subscribers change the same global),
+# ReadsMicrosoft3704WithDecimal, ReadsPartnerMemoWithDecimal, ReadsMemoOfTwoOtherApps, ReadsMemoOfTwoSubscribersOfOneApp.
+# ReadsNothing passes on both.
+PX Login Tests::InsertReadsBooleanMemoOfPartner	ASSUMED partner-login-memo-kept (corpus PR 1490)
+PX Login Tests::ReadsBooleanMemoOfPartner	ASSUMED partner-login-memo-kept (corpus PR 1490)
+PX Login Tests::ReadsMemoChangedInOtherGlobalsByTwoApps	ASSUMED partner-login-memo-kept (corpus PR 1490)
 PX Login Tests::ReadsMicrosoft3703WithDecimal	ASSUMED partner-login-memo-kept (corpus PR 1490)

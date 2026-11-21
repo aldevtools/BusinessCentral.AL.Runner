@@ -1,5 +1,5 @@
 // Partner app B (depends on A): one memo of its own, changed by both of its OnAfterLogin subscribers; the first one also
-// changes "PXA Count" (of app A) and "Sys Count" (of the platform).
+// changes "PXA Count" and "PXA Pair" (of app A) and "Sys Count" (of the platform).
 codeunit 60922 "PXB Twice"
 {
     SingleInstance = true;
@@ -26,8 +26,10 @@ codeunit 60921 "PXB Login"
         Count: Codeunit "PXA Count";
         Sys: Codeunit "Sys Count";
         Twice: Codeunit "PXB Twice";
+        Pair: Codeunit "PXA Pair";
     begin
         Count.Bump();
+        Pair.SetB();
         Sys.Bump();
         Twice.Bump();
     end;

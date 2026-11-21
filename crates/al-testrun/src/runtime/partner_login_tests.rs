@@ -14,15 +14,14 @@ fn sys(isolated: bool) -> String {
             [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Company Triggers\", 'OnCompanyOpenCompleted', '', false, false)]
             local procedure InitCompany() var S: Codeunit \"System Initialization\"; begin S.Raise(); end; }}
         codeunit 152 \"Sys Cache\" {{ SingleInstance = true; var N: Integer; procedure Set() begin N := 1; end;
-            procedure Bump() begin N += 1; end; procedure Get(): Integer begin exit(N); end; }}
-        codeunit 153 \"Env Memo\" {{ SingleInstance = true; var Known: Boolean; SaaS: Boolean;
-            procedure IsSaaS(): Boolean begin if not Known then begin SaaS := false; Known := true; end; exit(SaaS); end; }}"
+            procedure Bump() begin N += 1; end; procedure Get(): Integer begin exit(N); end; }}"
     )
 }
 
 /// A partner dependency app (`dep2`): table `Other`, a SingleInstance `Cache` of the measured shape (two Integers, a list of
 /// Text and a Text, PlXaLoginSingles.al:12-27), SingleInstance codeunits of other shapes: `Counter` (one Integer), `Wider`
-/// (the measured globals and one Text more) and `Flags` (a Boolean and a record global),
+/// (the measured globals and one Text more), `Flags` (a Boolean and a record global) and `Env Memo` (two Booleans, filled
+/// on first use as Environment Information Impl. keeps IsSaaS),
 /// a manual subscriber `Hook`, and the OnAfterLogin subscriber with body `login`.
 fn partner(login: &str) -> String {
     format!(
@@ -30,6 +29,7 @@ fn partner(login: &str) -> String {
         codeunit 60904 Cache {{ SingleInstance = true; var Cnt: Integer; Log: List of [Text]; Txt: Text; Calls: Integer;
             procedure Set(N: Integer) begin Cnt := N; end; procedure Bump() begin Cnt += 1; end;
             procedure GetCount(): Integer begin exit(Cnt); end; procedure AddTxt(T: Text) begin Txt += T; end;
+            procedure SetTxt(T: Text) begin Txt := T; end; procedure GetTxt(): Text begin exit(Txt); end;
             procedure AddLog(T: Text) begin Log.Add(T); end; procedure LogCount(): Integer begin exit(Log.Count()); end; }}
         codeunit 60909 Counter {{ SingleInstance = true; var N: Integer; procedure Put() begin N := 1; end;
             procedure Get(): Integer begin exit(N); end; }}
@@ -38,6 +38,8 @@ fn partner(login: &str) -> String {
         codeunit 60908 Flags {{ SingleInstance = true; var On: Boolean; Row: Record Other;
             procedure Put() begin On := true; end; procedure Sort() begin Row.SetCurrentKey(Blocked); end;
             procedure IsOn(): Boolean begin exit(On); end; }}
+        codeunit 60905 \"Env Memo\" {{ SingleInstance = true; var Known: Boolean; SaaS: Boolean;
+            procedure IsSaaS(): Boolean begin if not Known then begin SaaS := false; Known := true; end; exit(SaaS); end; }}
         codeunit 60906 Pub {{ procedure Ask(): Integer var N: Integer; begin N := 1; OnAsk(N); exit(N); end;
             [IntegrationEvent(false, false)] local procedure OnAsk(var N: Integer) begin end; }}
         codeunit 60907 Hook {{ SingleInstance = true; EventSubscriberInstance = Manual;
@@ -228,12 +230,32 @@ fn a_partner_subscriber_that_sets_a_single_instance_of_measured_types_keeps_it_f
     }
 }
 
-// A SingleInstance codeunit of an app the subscriber's app depends on (here Microsoft's stand-in, P2A_03 measures a
-// partner app's): the reader sees what the login left, flagged.
+// A SingleInstance codeunit of a partner app the subscriber's app depends on (`Counter` of `dep2`, changed by the
+// subscriber of `dep3`; P2A_03, P2A_04): the reader sees what the login left, flagged.
 #[test]
 fn a_partner_subscriber_that_sets_a_single_instance_of_another_app_keeps_it_flagged() {
+    let login3 = "var C: Codeunit Counter; begin C.Put(); end;";
+    let (o, hits) = run_two_partner_apps("begin end;", login3, "", &single_reader("Counter", "Get() = 1"));
+    assert!(o.iter().all(|(_, x)| *x == Outcome::Pass), "{o:?}");
+    assert_eq!(marks(&hits, "Reads"), [MEMO_KEPT], "{hits:?}");
+    assert!(marks(&hits, "ReadsNothing").is_empty(), "{hits:?}");
+}
+
+// A neighbor that refuses the read: a memo of measured types (one Integer) of an app published by Microsoft at an id other
+// than 3702 and 3703 (`Sys Cache`, 152). The probe measured Microsoft memos only at 3702 and 3703 (P2A_06, P2A_11).
+#[test]
+fn a_memo_of_a_microsoft_app_other_than_3702_and_3703_refuses_its_reads() {
     let login = "var S: Codeunit \"Sys Cache\"; begin S.Set(); end;";
-    assert_the_reader_runs_flagged(login, "\"Sys Cache\"", "Get() = 1");
+    let tests = single_reader("\"Sys Cache\"", "Get() = 1");
+    let (o, _) = run_codeunit("Probe", login, &tests, false, TestIsolation::Codeunit, "T");
+    assert!(
+        not_run_for(
+            &o[0].1,
+            "it is a codeunit of an app published by Microsoft other than 3702 and 3703"
+        ),
+        "{o:?}"
+    );
+    assert_eq!(o[1].1, Outcome::Pass, "{o:?}");
 }
 
 /// The app under test of al-runner issue 8239's invented repro: a table whose OnInsert reads `Env Memo`, a test that
@@ -248,8 +270,8 @@ const MEMO_TESTS: &str = "codeunit 60911 Inst { Subtype = Install; trigger OnIns
         [Test] procedure IsSaaSAfterLogin() var M: Codeunit \"Env Memo\"; begin if M.IsSaaS() then Error('saas'); end;
         [Test] procedure ReadsNothing() begin end; }";
 
-// Al-runner issue 8239, the invented repro: the partner login calls a memo of a Microsoft app (`Env Memo`, as Environment
-// Information Impl. keeps IsSaaS); OnInsert of Insert(true) and the test read what the login left (P2A_03, P2A_08), the
+// Al-runner issue 8239, the invented repro: the partner login calls a memo of its own app (`Env Memo`, as Environment
+// Information Impl. keeps IsSaaS); OnInsert of Insert(true) and the test read what the login left (P2A_02, P2A_07), the
 // test that reads nothing runs clean (P2A_01). On main both readers were not run.
 #[test]
 fn the_issue_8239_repro_reads_what_the_login_left_flagged() {
@@ -307,19 +329,18 @@ fn microsofts_codeunit_3703_keeps_what_the_login_left_flagged() {
     }
 }
 
-// Neighbors that refuse the read: the same memo (a Decimal global, a type no probe measured) at another id of the
-// Microsoft app, and at id 3703 of the partner app.
+// Neighbors that refuse the read: the same memo at another id of the Microsoft app (only 3702 and 3703 are measured), and
+// at id 3703 of the partner app (a Decimal global, a type no probe measured).
 #[test]
 fn a_memo_with_a_decimal_global_refuses_its_reads() {
-    for (publisher, id) in [("Microsoft", 154), ("Probe", 3703)] {
+    let microsoft = "it is a codeunit of an app published by Microsoft other than 3702 and 3703";
+    let decimal = "its global Rate is of a type other than";
+    for (publisher, id, what) in [("Microsoft", 154, microsoft), ("Probe", 3703, decimal)] {
         let (o, _) = run_dec_memo(publisher, id);
-        assert!(
-            not_run_for(
-                &o[0].1,
-                "Dec Memo: OnAfterLogin raised to the login subscribers of the partner dependency apps changed it before the first test, and its global Rate is of a type other than"
-            ),
-            "{publisher} {id}: {o:?}"
+        let why = format!(
+            "Dec Memo: OnAfterLogin raised to the login subscribers of the partner dependency apps changed it before the first test, and {what}"
         );
+        assert!(not_run_for(&o[0].1, &why), "{publisher} {id}: {o:?}");
         assert_eq!(o[1].1, Outcome::Pass, "{publisher} {id}: {o:?}");
     }
 }
@@ -349,18 +370,48 @@ fn run_two_partner_apps(login: &str, login3: &str, extra: &str, tests: &str) -> 
 /// Adds one to `Cache`: every run is a change.
 const CACHE_BUMP: &str = "var C: Codeunit Cache; begin C.Bump(); end;";
 
-// Two subscribers of different apps change the same memo (P2A_05): both changes are there, flagged. The memo has the
-// pinned globals (`Cache`), but the pin has one subscriber.
+/// A reader of `Cache`'s count and text after the subscribers of `dep2` (`login`) and `dep3` (`login3`) ran.
+fn run_cache_of_two_apps(login: &str, login3: &str, count: i32, txt: &str) -> OutcomesAndHits {
+    let tests = format!(
+        "codeunit 60911 Inst {{ Subtype = Install; trigger OnInstallAppPerCompany() begin end; }}
+        codeunit 60912 T {{ Subtype = Test;
+            [Test] procedure Reads() var C: Codeunit Cache; begin
+                if C.GetCount() <> {count} then Error('count %1', C.GetCount());
+                if C.GetTxt() <> '{txt}' then Error('txt %1', C.GetTxt()); end;
+            [Test] procedure ReadsNothing() begin end; }}"
+    );
+    run_two_partner_apps(login, login3, "", &tests)
+}
+
+// Two subscribers of different apps change other globals of the same memo, one of them of the memo's own app (P2A_05: XApp
+// A sets FromA, XApp B sets FromB): both changes are there, flagged. The memo has the pinned globals (`Cache`), but the pin
+// has one subscriber.
 #[test]
-fn two_subscribers_of_different_apps_that_change_one_memo_keep_both_changes_flagged() {
-    let tests = "codeunit 60911 Inst { Subtype = Install; trigger OnInstallAppPerCompany() begin end; }
-        codeunit 60912 T { Subtype = Test;
-            [Test] procedure Reads() var C: Codeunit Cache; begin if C.GetCount() <> 2 then Error('count %1', C.GetCount()); end;
-            [Test] procedure ReadsNothing() begin end; }";
-    let (o, hits) = run_two_partner_apps(CACHE_BUMP, CACHE_BUMP, "", tests);
+fn two_subscribers_of_different_apps_that_change_other_globals_of_one_memo_keep_both_changes_flagged() {
+    let set = "var C: Codeunit Cache; begin C.Set(1); end;";
+    let add = "var C: Codeunit Cache; begin C.AddTxt('B'); end;";
+    let (o, hits) = run_cache_of_two_apps(set, add, 1, "B");
     assert!(o.iter().all(|(_, x)| *x == Outcome::Pass), "{o:?}");
     assert_eq!(marks(&hits, "Reads"), [MEMO_KEPT], "{hits:?}");
     assert!(marks(&hits, "ReadsNothing").is_empty(), "{hits:?}");
+}
+
+// Two subscribers of different apps that both change the same global of a memo: what is left can depend on their order,
+// which no probe measured for OnAfterLogin, so its reads refuse. That holds for P2A_05's own counter cell too (both add one
+// to `Cnt`), and for two assignments that do not commute (`Txt` set to 'A', then to 'B').
+#[test]
+fn two_subscribers_that_change_the_same_global_of_one_memo_refuse_its_reads() {
+    let set_a = "var C: Codeunit Cache; begin C.SetTxt('A'); end;";
+    let set_b = "var C: Codeunit Cache; begin C.SetTxt('B'); end;";
+    for (login, login3, count, txt, global) in [(CACHE_BUMP, CACHE_BUMP, 2, "", "Cnt"), (set_a, set_b, 0, "B", "Txt")] {
+        let (o, hits) = run_cache_of_two_apps(login, login3, count, txt);
+        let why = format!(
+            "two subscribers changed its global {global}: the order of two subscribers whose changes do not commute is not measured"
+        );
+        assert!(not_run_for(&o[0].1, &why), "{login3}: {o:?}");
+        assert_eq!(o[1].1, Outcome::Pass, "{login3}: {o:?}");
+        assert!(marks(&hits, "ReadsNothing").is_empty(), "{hits:?}");
+    }
 }
 
 // Two subscribers of the same app change the same memo: not measured, its reads refuse.
@@ -603,6 +654,81 @@ fn a_partner_login_subscriber_next_to_an_own_one() {
     assert!(not_run_for(&o[0].1, "filter group 1"), "{o:?}");
     assert_eq!(o[1].1, Outcome::Pass, "{o:?}");
     assert_eq!(o[2].1, Outcome::Pass, "{o:?}");
+}
+
+/// A partner app `dep3` (on `dep2`) whose automatic subscriber to `Pub.OnAsk` sets `Cache`'s count to 5: an own subscriber
+/// that calls `Pub.Ask()` changes `Cache` through it, which the walk of the own subscriber's reach does not follow (it
+/// follows the subscribers in apps under test only, `written::login_subscriber_reach_facts`), so the login stays Own.
+/// `sys_src` is the Microsoft stand-in, `login` the body of `dep2`'s OnAfterLogin subscriber, `own` the own subscriber
+/// codeunit of the app under test; test `T` reads `Cache` and `Counter`.
+fn run_own_and_partner(sys_src: &str, login: &str, own: &str) -> OutcomesAndHits {
+    let third = "codeunit 60983 AskSub {
+            [EventSubscriber(ObjectType::Codeunit, Codeunit::Pub, 'OnAsk', '', false, false)]
+            local procedure H(var N: Integer) var C: Codeunit Cache; begin C.Set(5); end; }";
+    let tests = format!(
+        "codeunit 60911 Inst {{ Subtype = Install; trigger OnInstallAppPerCompany() begin end; }}
+        {own}
+        codeunit 60912 T {{ Subtype = Test;
+            [Test] procedure ReadsCache() var C: Codeunit Cache; begin if C.GetCount() = -1 then; end;
+            [Test] procedure ReadsCounter() var C: Codeunit Counter; begin if C.Get() = -1 then; end;
+            [Test] procedure ReadsNothing() begin end; }}"
+    );
+    outcomes_and_hits_with(
+        &[
+            ("dep", &[], sys_src),
+            ("dep2", &["dep"], &partner(login)),
+            ("dep3", &["dep2"], third),
+            ("main", &["dep3"], &tests),
+        ],
+        &[("dep", "Microsoft"), ("dep2", "Probe"), ("dep3", "Probe3")],
+        "T",
+        TestIsolation::Codeunit,
+    )
+}
+
+// A memo a partner subscriber changed and an own OnAfterLogin subscriber of the app under test changed after it: no probe
+// has an own subscriber, so its reads refuse. A memo only the partner subscriber changed keeps its flag.
+#[test]
+fn an_own_login_subscriber_that_changes_a_memo_after_a_partner_one_refuses_its_reads() {
+    let login = "var C: Codeunit Cache; Ctr: Codeunit Counter; begin C.Set(1); Ctr.Put(); end;";
+    let own = "codeunit 60913 OwnLogin {
+            [EventSubscriber(ObjectType::Codeunit, Codeunit::\"System Initialization\", 'OnAfterLogin', '', false, false)]
+            local procedure L() var P: Codeunit Pub; begin if P.Ask() = 0 then; end; }";
+    let (o, hits) = run_own_and_partner(&sys(false), login, own);
+    assert!(
+        not_run_for(
+            &o[0].1,
+            "a subscriber of an app under test changed it after a partner subscriber did"
+        ),
+        "{o:?}"
+    );
+    assert_eq!(o[1].1, Outcome::Pass, "{o:?}");
+    assert_eq!(marks(&hits, "ReadsCounter"), [MEMO_KEPT], "{hits:?}");
+    assert_eq!(o[2].1, Outcome::Pass, "{o:?}");
+}
+
+// A memo an own login subscriber of the app under test changed before a partner subscriber changed it (the own subscriber
+// of "Guided Experience".OnRegisterAssistedSetup runs before OnAfterLogin): not measured, its reads refuse.
+#[test]
+fn a_partner_subscriber_that_changes_a_memo_after_an_own_one_refuses_its_reads() {
+    let guided = format!(
+        "{}
+        codeunit 1990 \"Guided Experience\" {{ procedure Register() begin OnRegisterAssistedSetup(); end;
+            [IntegrationEvent(false, false)] local procedure OnRegisterAssistedSetup() begin end; }}
+        codeunit 1997 \"Checklist Events\" {{
+            [EventSubscriber(ObjectType::Codeunit, Codeunit::\"System Initialization\", 'OnAfterLogin', '', false, false)]
+            local procedure L() var G: Codeunit \"Guided Experience\"; begin G.Register(); end; }}",
+        sys(false)
+    );
+    let own = "codeunit 60913 OwnSetup {
+            [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Guided Experience\", 'OnRegisterAssistedSetup', '', false, false)]
+            local procedure R() var P: Codeunit Pub; begin if P.Ask() = 0 then; end; }";
+    let (o, _) = run_own_and_partner(&guided, "var C: Codeunit Cache; begin C.AddTxt('L'); end;", own);
+    assert!(
+        not_run_for(&o[0].1, "a subscriber of an app under test changed it too"),
+        "{o:?}"
+    );
+    assert_eq!(o[1].1, Outcome::Pass, "{o:?}");
 }
 
 /// Two test codeunits: `T` reads the SingleInstance `Cache` and the number sequence `S`, `U` reads neither. `early` is the

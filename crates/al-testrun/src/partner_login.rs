@@ -32,8 +32,20 @@ pub(crate) struct PartnerLogin {
     /// The first of `tables` and `group1` that code after them in the session open read or wrote, while the window
     /// ([`PartnerLogin::watch_after`]) was open on fewer tables than now.
     window_hit: Option<u32>,
-    /// SingleInstance codeunit -> the apps of the partner subscribers that changed it so far ([`kept`]).
-    changed_by: BTreeMap<usize, Vec<u32>>,
+    /// SingleInstance codeunit -> the login subscribers that changed it so far, in the order they ran ([`kept`]).
+    changed_by: BTreeMap<usize, Vec<Change>>,
+}
+
+/// SingleInstance codeunit -> the globals (index) of it that a run of code changed (al-vm `LeftChange::singles`).
+type Singles = BTreeMap<usize, BTreeSet<usize>>;
+
+/// One login subscriber's change of a SingleInstance codeunit ([`PartnerLogin::changed_by`]).
+#[derive(Debug)]
+struct Change {
+    /// The partner subscriber's app; `None` for a subscriber of an app under test.
+    app: Option<u32>,
+    /// The globals (index) it changed.
+    globals: BTreeSet<usize>,
 }
 
 impl PartnerLogin {
@@ -202,8 +214,8 @@ pub(crate) fn raise(
     let before = session.left_stamp();
     let since = session.store_mut().change_counter();
     let (po, pr) = step.publisher;
-    // The SingleInstance codeunits each subscriber changed, in the order they ran.
-    let mut singles_by: Vec<((usize, usize), BTreeSet<usize>)> = Vec::new();
+    // The SingleInstance codeunits each subscriber changed, with the globals it changed, in the order they ran.
+    let mut singles_by: Vec<((usize, usize), Singles)> = Vec::new();
     crate::install::call_before_first_test(lowered, session, who, |s| {
         for sub in s.subscriber_order(po, step.event, &step.subscribers)? {
             let at = s.left_stamp();
@@ -234,27 +246,51 @@ pub(crate) fn raise(
         )
         .into());
     }
-    for (sub, singles) in &singles_by {
-        for &o in singles {
-            let earlier = left.changed_by.entry(o).or_default();
-            let verdict = kept(lowered, session, step, *sub, o, singles.len(), earlier);
-            earlier.push(lowered.program.objects[sub.0].app);
+    for (sub, singles) in singles_by {
+        let app = lowered.program.objects[sub.0].app;
+        for (o, globals) in singles.iter() {
+            let earlier = left.changed_by.entry(*o).or_default();
+            let verdict = kept(lowered, session, step, *o, (app, globals), singles.len(), earlier);
+            earlier.push(Change {
+                app: Some(app),
+                globals: globals.clone(),
+            });
             match verdict {
                 Kept::Pinned => {}
-                Kept::Assumed => session.mark_single_assumed(o, Assumption::PartnerLoginMemoKept),
-                Kept::Refused(what) => {
-                    let why = format!(
-                        "a read of a global of SingleInstance codeunit {}: {who} changed it before the first test, and {what}: what BC leaves there is not pinned",
-                        lowered.program.objects[o].name
-                    );
-                    session.mark_single_unmeasured(o, why.into());
-                }
+                Kept::Assumed => session.mark_single_assumed(*o, Assumption::PartnerLoginMemoKept),
+                Kept::Refused(what) => refuse_reads(lowered, session, *o, &what),
             }
         }
     }
     left.group1.extend(before.group1_changed(&after));
     left.watch_after(session);
     Ok(())
+}
+
+/// Marks SingleInstance codeunit `memo`, which a partner login subscriber changed, so that every read of one of its
+/// globals refuses, for `what`, the fact no probe measured.
+fn refuse_reads(lowered: &Lowered, session: &mut Session, memo: usize, what: &str) {
+    let why = format!(
+        "a read of a global of SingleInstance codeunit {}: OnAfterLogin raised to the login subscribers of the partner dependency apps changed it before the first test, and {what}: what BC leaves there is not pinned",
+        lowered.program.objects[memo].name
+    );
+    session.mark_single_unmeasured(memo, why.into());
+}
+
+/// After a login step of the apps under test's own subscribers (`install::own_login`) that changed `singles` (codeunit ->
+/// globals): notes the changes in `left`, for the partner subscribers after it ([`kept`] refuses), and refuses the reads
+/// of each codeunit a partner subscriber changed before it. No probe has an own subscriber next to a partner one that
+/// changes the same codeunit (corpus PR 1490 has none).
+pub(crate) fn own_step(lowered: &Lowered, session: &mut Session, singles: Singles, left: &mut PartnerLogin) {
+    for (o, globals) in singles {
+        let earlier = left.changed_by.entry(o).or_default();
+        let partner_before = earlier.iter().any(|c| c.app.is_some());
+        earlier.push(Change { app: None, globals });
+        if partner_before {
+            let what = "a subscriber of an app under test changed it after a partner subscriber did";
+            refuse_reads(lowered, session, o, what);
+        }
+    }
 }
 
 /// What a read of a SingleInstance codeunit a partner login subscriber changed gets ([`kept`]).
@@ -268,31 +304,32 @@ enum Kept {
     Refused(String),
 }
 
-/// What the test session gives a read of a global of SingleInstance codeunit `memo` after partner subscriber `sub` of
-/// step `step` changed it, together with `changed` codeunits in all; `earlier` are the apps of the partner subscribers
-/// that changed it before. The facts, by equality:
+/// What the test session gives a read of a global of SingleInstance codeunit `memo` after a partner subscriber of step
+/// `step`, of app `by.0`, changed its globals `by.1` and `changed` codeunits in all; `earlier` are the changes of the
+/// login subscribers that ran before it, partner and own ([`own_step`]). The facts, by equality:
 /// - Pinned (PlXaLoginSingles.al:12-27, the subscriber at :56-62; read at PlLoginSingleTests.al:54-98): the step has one
-///   subscriber, it changes one SingleInstance codeunit, of its own app, no subscriber changed it before, and that codeunit's globals are two Integers,
-///   one List of [Text] and one Text.
+///   subscriber, it changes one SingleInstance codeunit, of its own app, no subscriber changed it before, and that
+///   codeunit's globals are two Integers, one List of [Text] and one Text.
 /// - Assumed (`partner-login-memo-kept`, corpus PR 1490, P2LoginMemoTests.al P2A_02 to P2A_14 and P2B_01): the codeunit
 ///   is of a dependency app (P2XaLoginMemos.al: XApp A), the subscriber's own app (P2A_02) or an app the subscriber's
 ///   app depends on (P2A_03, P2A_04: XApp B's subscriber, P2XbLoginMemos.al); no subscriber changed it before, or one
-///   subscriber of another app did and one of the two is of the codeunit's own app (P2A_05: XApp A and XApp B); and its globals are all Boolean, Integer, Text or List of [Text]
-///   (P2XaLoginMemos.al codeunits 98490 to 98494), or it is codeunit 3702 or 3703 of an app published by Microsoft
+///   partner subscriber of another app did, one of the two is of the codeunit's own app, and they changed other globals
+///   (P2A_05: XApp A sets FromA, XApp B sets FromB); and it is codeunit 3702 or 3703 of an app published by Microsoft
 ///   (Environment Information Impl. and Server Setting Impl., filled by the XApp A subscriber's IsSaaS() call, P2A_06,
-///   P2A_11).
+///   P2A_11), or of an app of another publisher with globals that are all Boolean, Integer, Text or List of [Text]
+///   (P2XaLoginMemos.al codeunits 98490 to 98494).
 fn kept(
     lowered: &Lowered,
     session: &Session,
     step: &Step,
-    sub: (usize, usize),
     memo: usize,
+    by: (u32, &BTreeSet<usize>),
     changed: usize,
-    earlier: &[u32],
+    earlier: &[Change],
 ) -> Kept {
     use al_builtins::value::RtType;
     let objs = &lowered.program.objects;
-    let (sub_app, memo_app) = (objs[sub.0].app, objs[memo].app);
+    let (sub_app, memo_app) = (by.0, objs[memo].app);
     let globals = &objs[memo].globals;
     let count = |ty: &RtType| globals.iter().filter(|g| g.ty == *ty).count();
     let list_of_text = RtType::List(Box::new(RtType::Text(None)));
@@ -317,27 +354,42 @@ fn kept(
             "its app is neither the subscriber's app nor an app the subscriber's app depends on".into(),
         );
     }
-    // P2A_05: XApp A's subscriber and XApp B's change XApp A's memo.
+    if earlier.iter().any(|c| c.app.is_none()) {
+        return Kept::Refused("a subscriber of an app under test changed it too".into());
+    }
+    // P2A_05: XApp A's subscriber and XApp B's change other globals of XApp A's memo.
     match earlier {
         [] => {}
-        [e] if *e == sub_app => return Kept::Refused("two subscribers of the same app changed it".into()),
-        [e] if *e == memo_app || sub_app == memo_app => {}
+        [Change { app: Some(a), .. }] if *a == sub_app => {
+            return Kept::Refused("two subscribers of the same app changed it".into());
+        }
+        [e @ Change { app: Some(a), .. }] if *a == memo_app || sub_app == memo_app => {
+            if let Some(&g) = e.globals.intersection(by.1).next() {
+                let name = globals.get(g).map_or("?", |g| g.name.as_str());
+                return Kept::Refused(format!(
+                    "two subscribers changed its global {name}: the order of two subscribers whose changes do not commute is not measured"
+                ));
+            }
+        }
         [_] => return Kept::Refused("two subscribers changed it, neither of them of its own app".into()),
         _ => return Kept::Refused("more than two subscribers changed it".into()),
     }
+    let microsoft = (lowered.program.apps.get(memo_app as usize)).is_some_and(|a| a.publisher.trim() == "Microsoft");
+    if microsoft {
+        return match objs[memo].id {
+            Some(3702 | 3703) => Kept::Assumed,
+            _ => Kept::Refused("it is a codeunit of an app published by Microsoft other than 3702 and 3703".into()),
+        };
+    }
     let measured_type =
         |ty: &RtType| matches!(ty, RtType::Boolean | RtType::Integer | RtType::Text(None)) || *ty == list_of_text;
-    let microsoft = (lowered.program.apps.get(memo_app as usize)).is_some_and(|a| a.publisher.trim() == "Microsoft");
-    if (microsoft && matches!(objs[memo].id, Some(3702 | 3703))) || globals.iter().all(|g| measured_type(&g.ty)) {
-        return Kept::Assumed;
+    match globals.iter().find(|g| !measured_type(&g.ty)) {
+        None => Kept::Assumed,
+        Some(other) => Kept::Refused(format!(
+            "its global {} is of a type other than Boolean, Integer, Text and List of [Text]",
+            other.name
+        )),
     }
-    let other = globals
-        .iter()
-        .find(|g| !measured_type(&g.ty))
-        .map_or("?", |g| g.name.as_str());
-    Kept::Refused(format!(
-        "its global {other} is of a type other than Boolean, Integer, Text and List of [Text]"
-    ))
 }
 
 /// One kind of session state other than rows that the partner subscribers changed ([`seen_by_test`]).

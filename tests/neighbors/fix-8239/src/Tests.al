@@ -13,7 +13,7 @@ table 60910 "PX Row"
 
     trigger OnInsert()
     var
-        M: Codeunit "Env Memo";
+        M: Codeunit "PXA Env Memo";
     begin
         SaaS := M.IsSaaS();
     end;
@@ -33,7 +33,7 @@ codeunit 60912 "PX Login Tests"
     Subtype = Test;
 
     [Test]
-    procedure InsertReadsBooleanMemoOfPlatform()
+    procedure InsertReadsBooleanMemoOfPartner()
     var
         Row: Record "PX Row";
     begin
@@ -42,6 +42,24 @@ codeunit 60912 "PX Login Tests"
         Row.Get('PX1');
         if Row.SaaS then
             Error('saas');
+    end;
+
+    [Test]
+    procedure ReadsBooleanMemoOfPartner()
+    var
+        M: Codeunit "PXA Env Memo";
+    begin
+        if M.IsSaaS() then
+            Error('saas');
+    end;
+
+    [Test]
+    procedure ReadsMemoChangedInOtherGlobalsByTwoApps()
+    var
+        M: Codeunit "PXA Pair";
+    begin
+        if not M.Both() then
+            Error('not both');
     end;
 
     [Test]
