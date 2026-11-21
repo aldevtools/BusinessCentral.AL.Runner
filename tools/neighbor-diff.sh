@@ -8,6 +8,7 @@
 #   tools/neighbor-diff.sh [OPTIONS] --changed the folders under tests/neighbors/ that differ from BASE, and the rule
 #                                              that a change of a binary input adds one
 #   tools/neighbor-diff.sh [OPTIONS] --plan    only the rule and the list of apps (no build, no run)
+#   tools/neighbor-diff.sh [OPTIONS] --stale-mode APP...  "note" or "strict" per app: how its stale entries count
 #   tools/neighbor-diff.sh [OPTIONS] --same-inputs  the main commits, newest first from BASE, whose binary is BASE's
 #
 #   --bc-version N   a BC major to run on, repeatable (default 29); the build is the one oracle/oracle.toml pins
@@ -20,7 +21,7 @@
 # the runs are not compared (a resource limit, no test ran, or nothing passed). 2: the tool could not finish.
 set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
-root="$(git rev-parse --show-toplevel)" || exit 2
+root="$(cd "$(git rev-parse --show-toplevel)" && pwd -P)" || exit 2
 cache="${ALRUNNER_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/al-runtime}"
 repo="${NEIGHBOR_DIFF_REPO:-aldevtools/BusinessCentral.AL.Runner}"
 jobs="${CARGO_BUILD_JOBS:-4}"
@@ -35,9 +36,10 @@ while [ $# -gt 0 ]; do
     --changed) mode=changed; shift ;;
     --plan) mode=plan; shift ;;
     --same-inputs) mode=same; shift ;;
+    --stale-mode) mode=stale; shift ;;
     -h | --help) sed -n '2,20p' "$0"; exit 0 ;;
     -*) echo "neighbor-diff: unknown option $1" >&2; exit 2 ;;
-    *) apps+=("$(cd "$1" && pwd)") || exit 2; shift ;;
+    *) apps+=("$(cd "$1" && pwd -P)") || exit 2; shift ;;
   esac
 done
 [ ${#versions[@]} -gt 0 ] || versions=(29)
@@ -165,7 +167,22 @@ pinned_build() {
     maj == m && /^bc_build = / { gsub(/"/, "", $3); print $3; exit }' "$root/oracle/oracle.toml"
 }
 
+# A folder the pull request does not change already has its change on main: its stale entries are a note. Anything else
+# is strict: the app is outside the repository (physical path), or a git command fails or prints a change.
+stale_mode() {
+  local rel changed
+  case "$1" in "$root"/*) rel="${1#"$root"/}" ;; *) echo strict; return ;; esac
+  changed="$(git diff --name-only "$base" -- "$rel")" || { echo strict; return; }
+  [ -z "$changed" ] || { echo strict; return; }
+  changed="$(git ls-files --others --exclude-standard -- "$rel")" || { echo strict; return; }
+  [ -z "$changed" ] && echo note || echo strict
+}
+
 [ "$mode" = same ] && { same_inputs; exit 0; }
+if [ "$mode" = stale ]; then
+  for app in "${apps[@]}"; do stale_mode "$app"; done
+  exit 0
+fi
 status=0
 if [ "$mode" != apps ]; then
   plan || status=1
@@ -189,7 +206,7 @@ for app in "${apps[@]}"; do
     dep_args=(--dep "$out/$name.packages")
     # The runner compiles the app folder recursively: stage the app without deps/, or the dependency sources are
     # compiled into the app as well (AL0264 duplicate objects).
-    run_app="$out/$name.app"
+    run_app="$out/$name.src"
     rm -rf "$run_app" && mkdir -p "$run_app" &&
       tar -C "$app" --exclude=./deps --exclude=./differences.tsv -cf - . | tar -C "$run_app" -xf - || exit 2
   fi
@@ -203,11 +220,8 @@ for app in "${apps[@]}"; do
         > "$out/$name-$v.$side.log" 2>&1
       [ -s "$out/$name-$v.$side.xml" ] || { echo "neighbor-diff: no JUnit file, see $out/$name-$v.$side.log" >&2; exit 2; }
     done
-    # A folder the pull request does not change already has its change on main: its stale entries are a note.
     note=()
-    if [ -z "$(git diff --name-only "$base" -- "${app#"$root"/}"; git ls-files --others --exclude-standard -- "${app#"$root"/}")" ]; then
-      note=(--stale-note)
-    fi
+    [ "$(stale_mode "$app")" = note ] && note=(--stale-note)
     python3 "$here/compare_junit.py" "${note[@]}" --entries "$entries" --build "${build:-$v}" --title "$name, BC ${build:-$v}" \
       "$out/$name-$v.main.xml" "$out/$name-$v.head.xml" | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
     [ "${PIPESTATUS[0]}" -eq 0 ] || status=1

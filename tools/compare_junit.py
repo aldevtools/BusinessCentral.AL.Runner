@@ -178,7 +178,7 @@ def entries_table(path, title, main, head, root, build, stale_note=False):
     print(f"\n{differ} of {len(keys)} tests differ, {missing} without an entry\n")
     stale = sorted(written for key, (written, _) in entries.items() if key not in used)
     for written in stale:
-        print(f"stale entry, no difference: {written}")
+        print(f"{'note: ' if stale_note else ''}stale entry, no difference: {written}")
     if stale:
         print()
     return 1 if missing or (stale and not stale_note) else 0

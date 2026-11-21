@@ -15,7 +15,7 @@ the branch name or the issue. The folder holds exactly one of:
 - **`none.txt`**: one line that says why no neighbor app applies, for example "comments only".
   The reviewer checks the reason. A change of comments only, or a tooling change no AL code sees, takes this form.
 
-CI fails when the rule fails, and when a test differs and has no entry. A stale entry (an entry whose test no longer differs) fails only for a folder the pull request adds or changes; for any other folder that runs it is printed as a note. The weekly sweep deletes the PINNED rows and the `none.txt` of merged folders. Only folders the pull request changes run.
+CI fails when the rule fails, and when a test differs and has no entry. A stale entry (an entry whose test no longer differs) fails for a folder the pull request adds or changes. For a folder given as an argument in a local run that the pull request does not change, it is printed as a note. In CI (`--changed`) every folder that runs is a changed one, so a stale entry always fails there.
 A later pull request may delete old folders.
 
 ## The app
