@@ -1,0 +1,15 @@
+// A stand-in for the Assert codeunit of the test library, for the copies of the corpus probes.
+codeunit 97190 Assert
+{
+    procedure AreEqual(Expected: Variant; Actual: Variant; Msg: Text)
+    begin
+        if Format(Expected) <> Format(Actual) then
+            Error('Assert.AreEqual failed. Expected:<%1>. Actual:<%2>. %3.', Expected, Actual, Msg);
+    end;
+
+    procedure IsTrue(Condition: Boolean; Msg: Text)
+    begin
+        if not Condition then
+            Error('Assert.IsTrue failed. %1', Msg);
+    end;
+}

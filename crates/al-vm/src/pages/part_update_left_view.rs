@@ -21,11 +21,12 @@
 //! A step that read the rows again keeps main's answer only when the rows it read differ from the held ones. The test's own
 //! `Filter.SetFilter` can read rows with the keys of the held rows (al-runner issue 8537: the host's OnAfterGetCurrRecord makes a
 //! ListPart on a temporary table delete and insert its rows, each step ending with the part's `CurrPage.Update(false)`, and the
-//! test filters the part to one day before and after). In the cells the probe measured (`part_refill_pins.rs`), the calls a cell
+//! test filters the part to one day before and after). On the pages the rule of `part_refill_rule.rs` admits, the calls a cell
 //! made after that filter answer from the rows it read, as main does, under assumption `part-left-view-test-filter`
 //! (pages/parts/PartRefillTestFilter.al, corpus PR 1474, merged, not pinned yet; its two-field key cell
-//! PartRefill_TypedKeyTriggerPartActionThenFilterFirst_FindsRefilledRow is in corpus PR 1475, open): `TestFilterReread` admits
-//! each in turn (`measured_step_after_test_filter`), until a test call on another page. Every other call keeps the refusal.
+//! PartRefill_TypedKeyTriggerPartActionThenFilterFirst_FindsRefilledRow is in corpus PR 1475, open; pages/parts/
+//! PartRefillShapes.al, corpus PR 1487, open): `TestFilterReread` admits each in turn (`measured_step_after_test_filter`), until
+//! a test call on another page. Every other call keeps the refusal.
 
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};
@@ -157,24 +158,28 @@ impl Session {
         }
     }
 
-    /// The shape every cell of the probe shared (pages/parts/PartRefillTestFilter.al, merged in corpus PR 1474, the two-field key
-    /// part in corpus PR 1475), and the reporter's repro of al-runner issue 8537:
-    /// - the host, the part, their tables and every procedure their code calls read as one measured cell (`refill_cell`,
-    ///   `part_refill_pins.rs`); the host is a top-level page;
+    /// The shape every cell shared (pages/parts/PartRefillTestFilter.al, merged in corpus PR 1474, the two-field key part in corpus
+    /// PR 1475; pages/parts/PartRefillShapes.al, corpus PR 1487), and the reporter's repro of al-runner issue 8537:
+    /// - the host, the part and the part's table have the facts of `refill_rule` (`part_refill_rule.rs`), and the part control
+    ///   shows the part (its Visible and its groups' read true now): every cell's did, its Visible a literal or a page variable
+    ///   OnOpenPage set true (PartRefillShapes.al `LT PS Visible Host`), and the partner's;
     /// - the part's Rec in the primary key, ascending, not MarkedOnly, with one filter in group 0: the test's (`test_typed_filter`),
-    ///   a single value (`Eq`) on the field `refill_cell` names (the part's own `Rec.Reset()` took any other);
+    ///   a single value (`Eq`) on the key field `refill_rule` names (the part's own `Rec.Reset()` took any other);
     /// - exactly one row in that view: every cell had one there.
     fn measured_reread(&mut self, st: &St) -> Result<bool, Signal> {
-        let host = st.borrow().host.as_ref().and_then(|(h, _)| h.upgrade());
-        let Some(host) = host else {
+        let host = st.borrow().host.as_ref().and_then(|(h, i)| Some((h.upgrade()?, *i)));
+        let Some((host, idx)) = host else {
             return Ok(false);
         };
-        if host.borrow().host.is_some() {
+        let Some(field) = self.refill_rule(&host, st) else {
+            return Ok(false);
+        };
+        let used = self.ret_used;
+        let shown = self.control_visible(&host, idx);
+        self.ret_used = used;
+        if !shown? {
             return Ok(false);
         }
-        let Some(field) = self.refill_cell(&host, st) else {
-            return Ok(false);
-        };
         let rec = self.page_rec(st);
         let filtered = {
             let s = st.borrow();

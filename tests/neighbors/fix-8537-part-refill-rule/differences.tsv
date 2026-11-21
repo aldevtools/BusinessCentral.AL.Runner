@@ -1,0 +1,19 @@
+# key	entry
+# The shapes cells of corpus PR 1487 (open): the base (#8542) refuses them, the head runs them through the assumption under the rule.
+# The Fact_* tests change one fact the rule requires and stay refused on both sides, so they have no row.
+LT PS Tests::PartRefillShape_OtherPartsHost_FindsRefilledRow	ASSUMED part-left-view-test-filter (corpus PR 1487, pages/parts/PartRefillShapes.al:1900)
+LT PS Tests::PartRefillShape_VisibleVariable_FindsRefilledRow	ASSUMED part-left-view-test-filter (corpus PR 1487, pages/parts/PartRefillShapes.al:1924)
+LT PS Tests::PartRefillShape_MoreHostCode_FindsRefilledRow	ASSUMED part-left-view-test-filter (corpus PR 1487, pages/parts/PartRefillShapes.al:1948)
+LT PS Tests::PartRefillShape_BackgroundErrorTrigger_FindsRefilledRow	ASSUMED part-left-view-test-filter (corpus PR 1487, pages/parts/PartRefillShapes.al:1972)
+LT PS Tests::PartRefillShape_ViewFiltersInRefresh_FindsRefilledRow	ASSUMED part-left-view-test-filter (corpus PR 1487, pages/parts/PartRefillShapes.al:1998)
+LT PS Tests::PartRefillShape_LoadBufferPart_FindsRefilledRow	ASSUMED part-left-view-test-filter (corpus PR 1487, pages/parts/PartRefillShapes.al:2022)
+LT PS Tests::PartRefillShape_GroupAboveRepeater_FindsRefilledRow	ASSUMED part-left-view-test-filter (corpus PR 1487, pages/parts/PartRefillShapes.al:2046)
+LT PS Tests::PartRefillShape_DrillDownAndStyle_FindsRefilledRow	ASSUMED part-left-view-test-filter (corpus PR 1487, pages/parts/PartRefillShapes.al:2070)
+LT PS Tests::PartRefillShape_EnumParameters_FindsRefilledRow	ASSUMED part-left-view-test-filter (corpus PR 1487, pages/parts/PartRefillShapes.al:2094)
+LT PS Tests::PartRefillShape_RecHandedToCodeunit_FindsRefilledRow	ASSUMED part-left-view-test-filter (corpus PR 1487, pages/parts/PartRefillShapes.al:2118)
+LT PS Tests::PartRefillShape_HostRowTriggers_FindsRefilledRow	ASSUMED part-left-view-test-filter (corpus PR 1487, pages/parts/PartRefillShapes.al:2142)
+LT PS Tests::PartRefillShape_OtherPartsWithCode_FindsRefilledRow	ASSUMED part-left-view-test-filter (corpus PR 1487, pages/parts/PartRefillShapes.al:2166)
+LT PS Tests::PartRefillShape_EditablePagePart_FindsRefilledRow	ASSUMED part-left-view-test-filter (corpus PR 1487, pages/parts/PartRefillShapes.al:2192)
+LT PS Tests::PartRefillShape_AllTogether_FindsRefilledRow	ASSUMED part-left-view-test-filter (corpus PR 1487, pages/parts/PartRefillShapes.al:2216)
+LT PS Tests::PartRefillShape_AllTogether_FirstNextPrevious	ASSUMED part-left-view-test-filter (corpus PR 1487, pages/parts/PartRefillShapes.al:2242)
+LT PS Tests::PartRefillShape_AllTogether_Last	ASSUMED part-left-view-test-filter (corpus PR 1487, pages/parts/PartRefillShapes.al:2272)
