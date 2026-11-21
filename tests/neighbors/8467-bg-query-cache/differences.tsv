@@ -29,4 +29,11 @@ Repro Bg Read Tests::SecondRead_AfterAWrite_GetsTheFirstAnswer	ASSUMED backgroun
 BQ Neighbor Tests::CopyOfReplayed_LoadsOmittedField	REFUSED a field SetLoadFields left out, loaded into a record a page background task's read answered from the query cache
 BQ Neighbor Tests::FetchAfterReplay_LoadsOmittedField	ASSUMED background-task-query-cache (corpus PR 1457, merged, not pinned yet: BgTaskQueryCache.al)
 BQ Neighbor Tests::GroupRead_AfterTestReadAndWrite	REFUSED a group read of a page background task after the test session read the group and then wrote the table
-BQ Neighbor Tests::RowGoneAgain_AfterCommits	REFUSED a page background task's read of a row whose query cache entry a later commit of the table may have ended
+# The cells of corpus PR 1495 (BgTaskQueryCache.al:1207-1326). Main failed all five; the head refuses the first two. The other three
+# fail on the head as on main (BC answers FindLast, IsEmpty and FindFirst after a SetFilter from the cache, :1276, :1293, :1312; not
+# modelled), and show as not run because the runner refused GroupCount earlier in the codeunit. The Get at :1207 passes on both.
+BQ Tests 3::BgQueryCache_Run_GroupCount_TestCountThenInsert_FirstRead	REFUSED a group read of a page background task after the test session read the group and then wrote the table
+BQ Tests 3::BgQueryCache_Run_PartialGet_Copy_FirstAnswer	REFUSED a field SetLoadFields left out, loaded into a record a page background task's read answered from the query cache
+BQ Tests 3::BgQueryCache_Run_FindLast_ChangedRow_FirstAnswer	REFUSED an earlier test of this codeunit was refused while it ran
+BQ Tests 3::BgQueryCache_Run_IsEmpty_Insert_FirstAnswer	REFUSED an earlier test of this codeunit was refused while it ran
+BQ Tests 3::BgQueryCache_Run_SetFilterFindFirst_ChangedRow_FirstAnswer	REFUSED an earlier test of this codeunit was refused while it ran
