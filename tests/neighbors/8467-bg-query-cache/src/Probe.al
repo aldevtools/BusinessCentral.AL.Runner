@@ -6,7 +6,7 @@
 // local object: the reads of a page background task's worker and of the test session, and what the test writes, commits and
 //   rolls back between them, are what is under test
 // Fixtures used: shared Assert (60021); own tables 97500 and 97501, mode codeunit 97502, worker codeunits 97503, 97504 and 97509,
-//   page 97505, test codeunits 97506, 97507 and 97508 (the neighbors after 97507: see the comment there)
+//   pages 97505 and 97519, test codeunits 97506, 97507 and 97508 (the neighbors after 97507: see the comment there)
 // Probe (al-runner issue 8467): a read the worker of a page background task repeats gets the answer of the first read, also after
 //   the test session changed the rows without committing. The tests read lines of table 97500 (key Group, Line No.) in the worker,
 //   either from the page's OnAfterGetCurrRecord (CurrPage.EnqueueBackgroundTask, the page shows the answer) or with
@@ -1150,7 +1150,7 @@ codeunit 97508 "BQ Tests 3"
 
     var
         Assert: Codeunit Assert;
-        BqMode: Codeunit "BQ Mode";
+        // No BQ Mode (a SingleInstance of BQ Tests): page 97519 starts no task of its own.
 
     local procedure NewGroup(): Code[20]
     begin
@@ -1181,14 +1181,14 @@ codeunit 97508 "BQ Tests 3"
         Row.Modify();
     end;
 
-    local procedure OpenOn(var Rows: TestPage "BQ Rows"; Group: Code[20])
+    local procedure OpenOn(var Rows: TestPage "BQ Plain Rows"; Group: Code[20])
     begin
         Rows.OpenView();
         Rows.Filter.SetFilter("Group", Group);
         Rows.First();
     end;
 
-    local procedure Run(var Rows: TestPage "BQ Rows"; Worker: Integer; Mode: Text; Group: Code[20]; LineNo: Integer): Text
+    local procedure Run(var Rows: TestPage "BQ Plain Rows"; Worker: Integer; Mode: Text; Group: Code[20]; LineNo: Integer): Text
     var
         Parameters: Dictionary of [Text, Text];
         Results: Dictionary of [Text, Text];
@@ -1207,7 +1207,7 @@ codeunit 97508 "BQ Tests 3"
     [Test]
     procedure BgQueryCache_Run_Get_RolledBack_InsertDeleteCommitted_SeesTheTable()
     var
-        Rows: TestPage "BQ Rows";
+        Rows: TestPage "BQ Plain Rows";
         Row: Record "BQ Row";
         G: Code[20];
         H: Code[20];
@@ -1215,7 +1215,7 @@ codeunit 97508 "BQ Tests 3"
     begin
         G := NewGroup();
         H := NewGroup();
-        BqMode.Set('');
+        // Page 97519 starts no task.
         AddRow(H, 1, 'h', '');
         Commit();
         OpenOn(Rows, H);
@@ -1239,12 +1239,12 @@ codeunit 97508 "BQ Tests 3"
     [Test]
     procedure BgQueryCache_Run_GroupCount_TestCountThenInsert_FirstRead()
     var
-        Rows: TestPage "BQ Rows";
+        Rows: TestPage "BQ Plain Rows";
         Row: Record "BQ Row";
         G: Code[20];
     begin
         G := NewGroup();
-        BqMode.Set('');
+        // Page 97519 starts no task.
         AddRow(G, 1, 'a', '');
         Commit();
         OpenOn(Rows, G);
@@ -1259,11 +1259,11 @@ codeunit 97508 "BQ Tests 3"
     [Test]
     procedure BgQueryCache_Run_PartialGet_Copy_FirstAnswer()
     var
-        Rows: TestPage "BQ Rows";
+        Rows: TestPage "BQ Plain Rows";
         G: Code[20];
     begin
         G := NewGroup();
-        BqMode.Set('');
+        // Page 97519 starts no task.
         AddRow(G, 1, 'first', 'n1');
         OpenOn(Rows, G);
         Assert.AreEqual('first', Run(Rows, Codeunit::"BQ Reader", 'get', G, 1), 'Get');
@@ -1276,11 +1276,11 @@ codeunit 97508 "BQ Tests 3"
     [Test]
     procedure BgQueryCache_Run_FindLast_ChangedRow_FirstAnswer()
     var
-        Rows: TestPage "BQ Rows";
+        Rows: TestPage "BQ Plain Rows";
         G: Code[20];
     begin
         G := NewGroup();
-        BqMode.Set('');
+        // Page 97519 starts no task.
         AddRow(G, 1, 'a', '');
         OpenOn(Rows, G);
         Assert.AreEqual('a', Run(Rows, Codeunit::"BQ Reader 3", 'last', G, 0), 'FindLast');
@@ -1293,13 +1293,13 @@ codeunit 97508 "BQ Tests 3"
     [Test]
     procedure BgQueryCache_Run_IsEmpty_Insert_FirstAnswer()
     var
-        Rows: TestPage "BQ Rows";
+        Rows: TestPage "BQ Plain Rows";
         G: Code[20];
         E: Code[20];
     begin
         G := NewGroup();
         E := NewGroup();
-        BqMode.Set('');
+        // Page 97519 starts no task.
         AddRow(G, 1, 'a', '');
         OpenOn(Rows, G);
         Assert.AreEqual('Yes', Run(Rows, Codeunit::"BQ Reader 3", 'empty', E, 0), 'IsEmpty');
@@ -1312,11 +1312,11 @@ codeunit 97508 "BQ Tests 3"
     [Test]
     procedure BgQueryCache_Run_SetFilterFindFirst_ChangedRow_FirstAnswer()
     var
-        Rows: TestPage "BQ Rows";
+        Rows: TestPage "BQ Plain Rows";
         G: Code[20];
     begin
         G := NewGroup();
-        BqMode.Set('');
+        // Page 97519 starts no task.
         AddRow(G, 1, 'a', '');
         OpenOn(Rows, G);
         Assert.AreEqual('a', Run(Rows, Codeunit::"BQ Reader 3", 'setfilter', G, 0), 'FindFirst');
@@ -1324,4 +1324,26 @@ codeunit 97508 "BQ Tests 3"
         Assert.AreEqual('a', Run(Rows, Codeunit::"BQ Reader 3", 'setfilter', G, 0), 'FindFirst again');
         Rows.Close();
     end;
+}
+
+// The page of BQ Tests 3: page 97505 without its OnAfterGetCurrRecord task, so the tests need no BQ Mode.
+page 97519 "BQ Plain Rows"
+{
+    PageType = List;
+    SourceTable = "BQ Row";
+    ApplicationArea = All;
+    UsageCategory = Lists;
+
+    layout
+    {
+        area(Content)
+        {
+            repeater(Lines)
+            {
+                field("Group"; Rec."Group") { }
+                field("Line No."; Rec."Line No.") { }
+                field(Description; Rec.Description) { }
+            }
+        }
+    }
 }
