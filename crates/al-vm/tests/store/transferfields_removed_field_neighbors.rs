@@ -240,12 +240,16 @@ fn unmeasured_shapes_that_main_copied_or_failed_are_refused() {
 }
 
 /// InitPrimaryKeyFields is part of the measured cell: Text into a removed Integer was measured with it true only
-/// (TransferFieldsRemovedField.al:548, :568). With it false, main's answer stays: DB:TypeMisMatch is refused, the skip is
+/// (TransferFieldsRemovedField.al:548, :568). With it false, main's answer stays: main's refusal of the type mismatch stays, the skip is
 /// kept unflagged. Boolean into a removed Code[10] is no measured length (:428 is Code[5]): main's error is refused.
 #[test]
 fn an_unmeasured_init_primary_key_or_length_is_not_answered_by_the_assumption() {
     let mut b = built();
-    assert!(refused_with(&mut b, "IntFromTextNoPk", vec![Value::Boolean(false)]).contains("ObsoleteState = Removed"));
+    let why = refused_with(&mut b, "IntFromTextNoPk", vec![Value::Boolean(false)]);
+    assert!(
+        why.starts_with("TransferFields across fields of different types"),
+        "{why}"
+    );
     assert_eq!(
         run(&mut b, "IntFromTextNoPk", vec![Value::Boolean(true)]),
         ("T".into(), false)
