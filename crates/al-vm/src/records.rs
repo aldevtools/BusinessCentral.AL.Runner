@@ -2464,11 +2464,13 @@ impl Session {
         self.probed_source_before(method, rec, args);
         Self::rolled_read_before(method, rec);
         let inserted = self.own_read_before(method, rec, args);
+        let hidden = self.hide_queued_from_worker(method, rec)?;
         let r = if self.coverage.profiler.is_some() {
             self.record_op_profiled(method, rec, args)
         } else {
             self.record_op_unprofiled(method, rec, args)
         };
+        self.show_queued_to_test_session(hidden);
         if let Some(tally) = self.pages.action_tally.as_mut() {
             tally.note_record_op(method, rec.borrow().table as usize, args.is_empty());
         }
@@ -2511,17 +2513,21 @@ impl Session {
             _ => InsertKind::Other,
         };
         self.note_read_after_rollback(method, rec, args);
-        if self.sql.active {
-            let r = self.record_op_counted(method, rec, args);
-            self.note_locking_read(method, rec, args, &r);
-            self.guarded_body_record_op(method, rec, args, &r);
-            return self.note_insert_buffer(method, rec, insert, r);
-        }
-        let r = self.record_op_tracked(method, rec, args);
+        // The queued Insert of this record puts its row into the queue at its store write (`queue_stored_row`).
+        let queued = (insert == InsertKind::Queued).then_some(Rc::as_ptr(rec) as usize);
+        let outer = std::mem::replace(&mut self.tx.queue_pending, queued);
+        let counted = self.sql.active;
+        let r = if counted {
+            self.record_op_counted(method, rec, args)
+        } else {
+            self.record_op_tracked(method, rec, args)
+        };
+        self.tx.queue_pending = outer;
         self.note_locking_read(method, rec, args, &r);
         self.guarded_body_record_op(method, rec, args, &r);
         let r = self.note_insert_buffer(method, rec, insert, r);
-        if matches!(r, Ok(Value::Boolean(false)))
+        if !counted
+            && matches!(r, Ok(Value::Boolean(false)))
             && matches!(method, RecordOp::FindSet | RecordOp::FindFirst | RecordOp::FindLast)
         {
             self.sql_found_nothing(method, rec);

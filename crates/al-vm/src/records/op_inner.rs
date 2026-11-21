@@ -126,9 +126,11 @@ impl Session {
         }
         // The next access of the table raises a deferred duplicate-key Insert, an Insert of another row not (the buffered inserts
         // stay buffered: record/P146TableExtProtected.al:P146_Triggers_BaseThenExtension, where
-        // `R2.Insert(true)` succeeds and the next Modify raises it).
+        // `R2.Insert(true)` succeeds and the next Modify raises it). A Get of a page background task's worker raises nothing
+        // (pages/background-tasks/BgTaskInsertQueue.al:800); its other reads are refused before (`hide_queued_from_worker`).
         if insert_buffer::sends_queue(method)
             && !rec.borrow().temporary
+            && !(method == RecordOp::Get && self.pages.bg_worker.is_some() && self.queue_holds_rows(t.object))
             && self
                 .tx
                 .open
@@ -602,6 +604,7 @@ impl Session {
                             self.sql.pre_inserted(al_data::memory::store_ops());
                         }
                         self.note_insert(rec, &t, before);
+                        self.queue_stored_row(rec, &t);
                         Self::note_empty_blob_insert(rec, &t, empty_blob);
                         Self::clear_blob_written(rec);
                         rec.borrow_mut().inserted = true;

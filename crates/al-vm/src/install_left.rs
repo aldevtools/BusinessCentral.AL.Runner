@@ -453,6 +453,8 @@ impl Session {
             get_from_al,
             write_of_al,
             deferred_by,
+            queue_pending,
+            queue_counted,
             deferred_raised,
             immediate_errors,
             try_depth,
@@ -478,6 +480,8 @@ impl Session {
             && !get_from_al
             && write_of_al.is_none()
             && deferred_by.is_none()
+            && queue_pending.is_none()
+            && queue_counted.is_empty()
             && *deferred_raised == 0
             && !immediate_errors
             && *try_depth == 0
