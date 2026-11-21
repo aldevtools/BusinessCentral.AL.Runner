@@ -36,11 +36,11 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ),
     (
         "AL0104",
-        "a parameter named begin, procedure or trigger without `var` (the first diagnostic, at the name); alc's full list for a file of two codeunits whose procedures take `<keyword>: Integer` and `var <keyword>: Integer` (cases 2016-2039), and for a variable \"If\" used unquoted (case 2040)",
+        "a parameter named begin, procedure or trigger without `var` (the first diagnostic, at the name); alc's full list for a file of two codeunits whose procedures take `<keyword>: Integer` and `var <keyword>: Integer` (cases 2016-2039), and for a variable \"If\" used unquoted (case 2040); `end` as an option member, `O: Option Zero,End;` (alcodes/keyword_option_members.rs; the first diagnostic, `';' expected`, at the word; issue 8657)",
     ),
     (
         "AL0105",
-        "a parameter named by one of 20 other keywords without `var` (the first diagnostic, at the name); alc's full list for the two-codeunit keyword-parameter file (cases 2016-2039)",
+        "a parameter named by one of 20 other keywords without `var` (the first diagnostic, at the name); alc's full list for the two-codeunit keyword-parameter file (cases 2016-2039); an option member named by one of 21 of the 24 parameter-name keywords, `O: Option Zero,Key;`, or by one of seven words in a field's OptionMembers (alcodes/keyword_option_members.rs; the first diagnostic, at the word; issue 8657)",
     ),
     (
         "AL0107",
@@ -146,6 +146,10 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
 /// the features `catalog/alc-features.txt` measured (`features.rs`);
 /// a case that finds its code matches.
 pub const NOT_CHECKED: &[(&str, &str)] = &[
+    (
+        "AL0519",
+        "reported only for `end` as a member of an option return type (alcodes/keyword_option_members.rs, the first diagnostic at the word; issue 8657); an `end` or other word where alc expects a value elsewhere (case 0331) is not judged.",
+    ),
     (
         "AL0156",
         "reported only for a table field of type Char or Byte (alcodes/field_types.rs; case 3112); other invalid field types, and a page field bound to an Enum object name (case 1403), are not judged.",
@@ -539,7 +543,7 @@ pub fn check_workspace_parts(ws: &Workspace, first: usize) -> (Vec<Diagnostic>, 
     duplicate_ids(ws, &mut out);
     long_object_names(ws, &mut out);
     event_subscriptions(ws, &mut out);
-    // The files the parser did not accept (`parameter_names` skips them).
+    // The files the parser did not accept (`parameter_names` and `keyword_option_members` skip them).
     let unparsed: std::collections::HashSet<(usize, &str)> = ws
         .diagnostics
         .iter()
@@ -570,8 +574,12 @@ pub fn check_workspace_parts(ws: &Workspace, first: usize) -> (Vec<Diagnostic>, 
         permissions_property::check(ws, oi, &obj, &mut out);
         object_triggers(ws, oi, &obj, &mut out);
         label_trailing_commas(ws, o.file, &types, &mut out);
-        if !unparsed.contains(&(ws.files[o.file].app, ws.files[o.file].path.as_str())) && !whole.contains(&o.file) {
+        let parsed = !unparsed.contains(&(ws.files[o.file].app, ws.files[o.file].path.as_str()));
+        if parsed && !whole.contains(&o.file) {
             parameter_names(ws, o.file, obj.syntax(), &mut out);
+        }
+        if parsed {
+            keyword_option_members::check(ws, oi, &obj, &types, &mut out);
         }
         match o.kind {
             ObjKind::XmlPort => xmlport_elements(ws, o.file, obj.sections(), &mut out),
@@ -2544,6 +2552,7 @@ mod control_visible;
 mod count_flowfield;
 mod enum_variables;
 mod field_types;
+mod keyword_option_members;
 mod permissions_property;
 mod subscriber_var_param;
 #[cfg(test)]
