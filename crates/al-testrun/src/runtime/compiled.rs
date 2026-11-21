@@ -266,6 +266,10 @@ pub struct RunOptions {
     /// shared baseline, instead of sharing one frozen baseline. The reference side of the differential check
     /// (`AL_PRIVATE_BASELINE=1`, read by the front ends); not documented for users. Only time and memory depend on it.
     pub private_baseline: bool,
+    /// Compares what each test session holds after the raised login with the first session of the same inputs, and
+    /// reports it in `Phases::login_replay` (`login_replay.rs`, al-runner issue 8211; `ALRUNNER_LOGIN_REPLAY_CHECK=1`,
+    /// read by the front ends). Outcomes do not depend on it.
+    pub login_replay_check: bool,
 }
 
 impl RunOptions {
