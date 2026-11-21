@@ -1550,29 +1550,21 @@ impl Session {
         let from = self.engine.tables[src_table]
             .clone()
             .ok_or_else(|| Signal::Unsupported("TransferFields from a table without a schema".into()))?;
-        let same_kind = |a: &al_builtins::value::RtType, b: &al_builtins::value::RtType| {
-            std::mem::discriminant(a) == std::mem::discriminant(b)
-        };
         let cross_app = {
             let objects = &self.engine.program.objects;
             objects[t.object as usize].app != objects[from.object as usize].app
         };
-        // The kinds the probes of a skipped field across apps cover (Y38TransferXApp.al, RcBTransfer.al:553); others stay refused.
-        let skipped_across_apps = |a: &RtType, b: &RtType| {
-            let probed = |ty: &RtType| {
-                matches!(
-                    ty,
-                    RtType::Boolean
-                        | RtType::Integer
-                        | RtType::Decimal
-                        | RtType::Option(_)
-                        | RtType::Date
-                        | RtType::DateTime
-                        | RtType::Text(_)
-                        | RtType::Code(_)
-                )
-            };
-            probed(a) && probed(b)
+        let cx = TransferCall {
+            rec,
+            src,
+            t,
+            from: &from,
+            src_fields: &src_fields,
+            src_table,
+            args,
+            holder,
+            skip_mismatch,
+            cross_app,
         };
         let mut updates = Vec::new();
         let engine = self.engine.clone();
@@ -1593,155 +1585,9 @@ impl Session {
             let Some(sp) = from.fields.iter().position(|f| f.id == df.id && f.stored) else {
                 continue;
             };
-            // A field declared ObsoleteState = Removed is no field of its table at run time (to RecordRef:
-            // recordref-fieldref/PnD12_RemovedFieldRecordRef.al). TransferFields skips a removed field of the target, also
-            // when the source's field of that number has another type (al-runner issue 8494: the reporter's repro on
-            // Business Central 29.0, an assumption until a probe pins it). Into a field of the very same type the copy
-            // could not fail and no reader sees the field, so only a skip past a field of another type marks the
-            // assumption.
-            if self.field_removed(t, dp) {
-                if from.fields[sp].ty != df.ty {
-                    al_builtins::assumptions::assume(
-                        al_builtins::assumptions::Assumption::TransferFieldsSkipsRemovedTargetField,
-                    );
-                }
-                continue;
+            if let Some(v) = self.transfer_field(&cx, (dp, sp), &updates)? {
+                updates.push((dp, v));
             }
-            // From a removed field of the source into a live field of the target nothing is measured: whether the target
-            // keeps its value or takes the removed field's is not known.
-            if self.field_removed(&from, sp) {
-                return unsupported(format!(
-                    "TransferFields from field {} of {}, declared ObsoleteState = Removed, into field {} of {} (not measured)",
-                    from.fields[sp].name, from.name, df.name, t.name
-                ));
-            }
-            // Fields of one number declared by different apps count as fields of different apps, also on two tables of one app:
-            // a table extension's field against another app's extension field or against the table's own field
-            // (record/transferfields-cross-app/TransferFieldsFieldApps.al:131-163 on corpus master
-            // 3eb812ed, al-runner issue 6982).
-            let cross_app = cross_app || self.field_app(t, dp) != self.field_app(&from, sp);
-            // An Enum field and an Option field with the same field number are the same kind of field to
-            // TransferFields: Base Application's "Sales Order Entity Buffer" holds `Shipping Advice` as an
-            // Option and `Sales Header` as an Enum, and its TransferFields from the header works in BC
-            // (corpus record/TransferEnumOption.al). The ordinal moves.
-            let enum_option = |a: &al_builtins::value::RtType, b: &al_builtins::value::RtType| {
-                use al_builtins::value::RtType as T;
-                matches!((a, b), (T::Enum(_), T::Option(_)) | (T::Option(_), T::Enum(_)))
-            };
-            if enum_option(&from.fields[sp].ty, &df.ty) {
-                let ordinal = match &src_fields[sp] {
-                    Value::Enum(_, o) | Value::Option(o, _) => *o,
-                    other => {
-                        return unsupported(format!(
-                            "TransferFields of {} between an Enum and an Option",
-                            other.describe()
-                        ));
-                    }
-                };
-                let moved = match &df.ty {
-                    al_builtins::value::RtType::Option(m) => Value::Option(ordinal, m.clone()),
-                    // An ordinal the Enum lacks moves too, with no error (corpus record/lt-record-conversion-assumptions/
-                    // TransferEnumOption.al: P98_OptionToEnum_MissingOrdinal, P98_EnumToOption_MissingOrdinal).
-                    al_builtins::value::RtType::Enum(id) => Value::Enum(*id, ordinal),
-                    _ => unreachable!("enum_option"),
-                };
-                updates.push((dp, moved));
-                continue;
-            }
-            // A Code field moves into a Text field and a Text field into a Code field, within one app and across apps, with
-            // and without SkipFieldsWithoutCheck (record/transferfields-cross-app/Y38TransferXApp.al:449-512 `Cod`, `Txt`; :549 p41,
-            // :565 p43, :589-591; RcBTransfer.al:553 `search`).
-            let textual = |ty: &RtType| matches!(ty, RtType::Text(_) | RtType::Code(_));
-            let text_pair = textual(&from.fields[sp].ty) && textual(&df.ty);
-            if let (RtType::Text(_), RtType::Code(Some(to_len)), Value::Text(s)) =
-                (&from.fields[sp].ty, &df.ty, &src_fields[sp])
-                && Value::text_len(s) > *to_len as usize
-            {
-                // Across apps it is skipped, with and without SkipFieldsWithoutCheck (TransferFieldsFieldApps.al:147-148,
-                // `mode 1 long text`, `mode 3 long text`).
-                if cross_app {
-                    continue;
-                }
-                return unsupported(format!(
-                    "TransferFields of a Text too long for the Code field {} of {} (not pinned)",
-                    df.name, t.name
-                ));
-            }
-            if !same_kind(&from.fields[sp].ty, &df.ty) && !text_pair {
-                // Across apps BC skips a field of another kind, whatever SkipFieldsWithoutCheck says: the target keeps its value
-                // (Y38TransferXApp.al:449-499 X1-X5: Boolean, Integer into Decimal, Option into Integer, Date into DateTime,
-                // Decimal into Boolean; RcBTransfer.al:553 Transfer_From_Another_Apps_Table_Type_Mismatch_BQ: Text into Integer).
-                if cross_app && skipped_across_apps(&from.fields[sp].ty, &df.ty) {
-                    continue;
-                }
-                if skip_mismatch {
-                    continue;
-                }
-                if let Some(e) = self.transfer_type_mismatch(rec, t, &from, (dp, sp), &updates) {
-                    return Err(e);
-                }
-                return unsupported(format!(
-                    "TransferFields across fields of different types (error text not pinned): field {} of {} and field {} of {}",
-                    from.fields[sp].name, from.name, df.name, t.name
-                ));
-            }
-            // A column a platform row leaves unknown moves as it is into a field of the very same type: the copy reads
-            // nothing (Tests-ERM `AddFieldToBuffer`: `TempField.TransferFields(Field, true)`), and a later read of the
-            // copy is refused. Into another type the conversion could fail or not, which is not known: `convert` refuses.
-            if src_fields[sp].unknown().is_some() && from.fields[sp].ty == df.ty {
-                updates.push((dp, src_fields[sp].clone()));
-                continue;
-            }
-            // A Code value too long for the Text field: across apps (both flags) and with SkipFieldsWithoutCheck the field is
-            // skipped and keeps its value; within one app without it the size error below (Y38TransferXApp.al:504-512
-            // XA_TF_LongCode, :569 and :594 p41_long). A Text one across apps with SkipFieldsWithoutCheck is skipped too
-            // (RcBTransfer.al:553 `longAddressSkip`); across apps without it is not pinned.
-            if let (
-                RtType::Text(Some(_)) | RtType::Code(Some(_)),
-                RtType::Text(Some(to_len)),
-                Value::Text(s) | Value::Code(s),
-            ) = (&from.fields[sp].ty, &df.ty, &src_fields[sp])
-                && Value::text_len(s) > *to_len as usize
-            {
-                let from_code = matches!(from.fields[sp].ty, RtType::Code(_));
-                if (from_code && (cross_app || skip_mismatch)) || (cross_app && skip_mismatch) {
-                    continue;
-                }
-                if cross_app {
-                    return unsupported(format!(
-                        "TransferFields across apps of a text too long for field {} of {} (not pinned)",
-                        df.name, t.name
-                    ));
-                }
-                // A --tdd stub field of unknown length refuses first.
-                tdd_fits(&schema.fields[dp], &src_fields[sp])?;
-                let from_schema = engine.program.objects[from.object as usize]
-                    .table
-                    .as_ref()
-                    .expect("table");
-                if let Some(why) = &from_schema.fields[sp].tdd_length_unknown {
-                    return Err(Signal::unsupported(why.clone()));
-                }
-                return Err(self.transfer_too_small(rec, t, &from, (dp, sp), updates));
-            }
-            tdd_fits(&schema.fields[dp], &src_fields[sp])?;
-            // A Blob moves as `blob_transfer::moved` says.
-            if let Value::Blob(_) = &src_fields[sp] {
-                let cur = rec.borrow().fields[dp].clone();
-                let how = BlobMove::TransferFields(crate::blob_transfer::TransferCall::of(
-                    args,
-                    src.borrow().temporary,
-                    rec.borrow().temporary,
-                ));
-                let kind = || {
-                    self.blob_field_kind(src_table, sp)
-                        .with(self.blob_field_kind(t.object as usize, dp))
-                };
-                let v = crate::blob_transfer::moved(Some(&cur), src_fields[sp].clone(), how, holder, kind)?;
-                updates.push((dp, ops::convert(v, &df.ty)?));
-                continue;
-            }
-            updates.push((dp, ops::convert(src_fields[sp].clone(), &df.ty)?));
         }
         // From a row of the same table with the primary key (the default), the buffer takes the source's row version: a Modify of a
         // stale buffer then succeeds; without the key it does not (record/crud/CnTransferFieldsModify.al:133-150,
@@ -1805,6 +1651,211 @@ impl Session {
             }
         }
         Ok(Value::Null)
+    }
+
+    /// The value TransferFields moves into field `dp` of the target from field `sp` of the source, or `None` when the field
+    /// keeps its value. A field declared ObsoleteState = Removed on either side is no field of its table at run time (to
+    /// RecordRef: recordref-fieldref/PnD12_RemovedFieldRecordRef.al:80-99,
+    /// Counts_AndExistence). For the cells `removed_pair_measured` names,
+    /// source and target fields of one app, the field keeps its value on the assumption
+    /// transferfields-removed-field (corpus PR 1486). Any other shape with a removed field keeps main's answer where that
+    /// answer cannot depend on the removed field (a skip, or a copy into a removed target field, which no reader sees) and
+    /// is refused where main would copy a removed source field or raise an error.
+    fn transfer_field(
+        &mut self,
+        cx: &TransferCall<'_>,
+        (dp, sp): (usize, usize),
+        updates: &[(usize, Value)],
+    ) -> Result<Option<Value>, Signal> {
+        let (t, from) = (cx.t, cx.from);
+        let removed = (self.field_removed(from, sp), self.field_removed(t, dp));
+        if removed == (false, false) {
+            return self.move_field(cx, (dp, sp), updates);
+        }
+        let objects = &self.engine.program.objects;
+        let same_app = objects[t.object as usize].app == objects[from.object as usize].app
+            && self.field_app(t, dp) == self.field_app(from, sp);
+        if same_app && removed_pair_measured(removed, &from.fields[sp].ty, &t.fields[dp].ty, cx.skip_mismatch) {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::TransferFieldsRemovedField);
+            return Ok(None);
+        }
+        let (_, target_removed) = removed;
+        match self.move_field(cx, (dp, sp), updates) {
+            Ok(None) => Ok(None),
+            Ok(Some(v)) if target_removed => Ok(Some(v)),
+            Err(Signal::Unsupported(why)) => Err(Signal::Unsupported(why)),
+            _ => unsupported(format!(
+                "TransferFields from field {} of {} into field {} of {}, one of them declared ObsoleteState = Removed, for these types or apps (not measured)",
+                from.fields[sp].name, from.name, t.fields[dp].name, t.name
+            )),
+        }
+    }
+
+    /// The value TransferFields moves from field `sp` of the source into field `dp` of the target, both live, or `None` when
+    /// the field keeps its value.
+    fn move_field(
+        &mut self,
+        cx: &TransferCall<'_>,
+        (dp, sp): (usize, usize),
+        updates: &[(usize, Value)],
+    ) -> Result<Option<Value>, Signal> {
+        let TransferCall {
+            rec,
+            src,
+            t,
+            from,
+            src_fields,
+            src_table,
+            args,
+            holder,
+            skip_mismatch,
+            ..
+        } = *cx;
+        let df = &t.fields[dp];
+        let engine = self.engine.clone();
+        let schema = engine.program.objects[t.object as usize].table.as_ref().expect("table");
+        let same_kind = |a: &RtType, b: &RtType| std::mem::discriminant(a) == std::mem::discriminant(b);
+        // The kinds the probes of a skipped field across apps cover (Y38TransferXApp.al, RcBTransfer.al:553); others stay refused.
+        let skipped_across_apps = |a: &RtType, b: &RtType| {
+            let probed = |ty: &RtType| {
+                matches!(
+                    ty,
+                    RtType::Boolean
+                        | RtType::Integer
+                        | RtType::Decimal
+                        | RtType::Option(_)
+                        | RtType::Date
+                        | RtType::DateTime
+                        | RtType::Text(_)
+                        | RtType::Code(_)
+                )
+            };
+            probed(a) && probed(b)
+        };
+        // Fields of one number declared by different apps count as fields of different apps, also on two tables of one app:
+        // a table extension's field against another app's extension field or against the table's own field
+        // (record/transferfields-cross-app/TransferFieldsFieldApps.al:131-163 on corpus master
+        // 3eb812ed, al-runner issue 6982).
+        let cross_app = cx.cross_app || self.field_app(t, dp) != self.field_app(from, sp);
+        // An Enum field and an Option field with the same field number are the same kind of field to
+        // TransferFields: Base Application's "Sales Order Entity Buffer" holds `Shipping Advice` as an
+        // Option and `Sales Header` as an Enum, and its TransferFields from the header works in BC
+        // (corpus record/TransferEnumOption.al). The ordinal moves.
+        let enum_option = |a: &al_builtins::value::RtType, b: &al_builtins::value::RtType| {
+            use al_builtins::value::RtType as T;
+            matches!((a, b), (T::Enum(_), T::Option(_)) | (T::Option(_), T::Enum(_)))
+        };
+        if enum_option(&from.fields[sp].ty, &df.ty) {
+            let ordinal = match &src_fields[sp] {
+                Value::Enum(_, o) | Value::Option(o, _) => *o,
+                other => {
+                    return unsupported(format!(
+                        "TransferFields of {} between an Enum and an Option",
+                        other.describe()
+                    ));
+                }
+            };
+            let moved = match &df.ty {
+                al_builtins::value::RtType::Option(m) => Value::Option(ordinal, m.clone()),
+                // An ordinal the Enum lacks moves too, with no error (corpus record/lt-record-conversion-assumptions/
+                // TransferEnumOption.al: P98_OptionToEnum_MissingOrdinal, P98_EnumToOption_MissingOrdinal).
+                al_builtins::value::RtType::Enum(id) => Value::Enum(*id, ordinal),
+                _ => unreachable!("enum_option"),
+            };
+            return Ok(Some(moved));
+        }
+        // A Code field moves into a Text field and a Text field into a Code field, within one app and across apps, with
+        // and without SkipFieldsWithoutCheck (record/transferfields-cross-app/Y38TransferXApp.al:449-512 `Cod`, `Txt`; :549 p41,
+        // :565 p43, :589-591; RcBTransfer.al:553 `search`).
+        let textual = |ty: &RtType| matches!(ty, RtType::Text(_) | RtType::Code(_));
+        let text_pair = textual(&from.fields[sp].ty) && textual(&df.ty);
+        if let (RtType::Text(_), RtType::Code(Some(to_len)), Value::Text(s)) =
+            (&from.fields[sp].ty, &df.ty, &src_fields[sp])
+            && Value::text_len(s) > *to_len as usize
+        {
+            // Across apps it is skipped, with and without SkipFieldsWithoutCheck (TransferFieldsFieldApps.al:147-148,
+            // `mode 1 long text`, `mode 3 long text`).
+            if cross_app {
+                return Ok(None);
+            }
+            return unsupported(format!(
+                "TransferFields of a Text too long for the Code field {} of {} (not pinned)",
+                df.name, t.name
+            ));
+        }
+        if !same_kind(&from.fields[sp].ty, &df.ty) && !text_pair {
+            // Across apps BC skips a field of another kind, whatever SkipFieldsWithoutCheck says: the target keeps its value
+            // (Y38TransferXApp.al:449-499 X1-X5: Boolean, Integer into Decimal, Option into Integer, Date into DateTime,
+            // Decimal into Boolean; RcBTransfer.al:553 Transfer_From_Another_Apps_Table_Type_Mismatch_BQ: Text into Integer).
+            if cross_app && skipped_across_apps(&from.fields[sp].ty, &df.ty) {
+                return Ok(None);
+            }
+            if skip_mismatch {
+                return Ok(None);
+            }
+            if let Some(e) = self.transfer_type_mismatch(rec, t, from, (dp, sp), updates) {
+                return Err(e);
+            }
+            return unsupported(format!(
+                "TransferFields across fields of different types (error text not pinned): field {} of {} and field {} of {}",
+                from.fields[sp].name, from.name, df.name, t.name
+            ));
+        }
+        // A column a platform row leaves unknown moves as it is into a field of the very same type: the copy reads
+        // nothing (Tests-ERM `AddFieldToBuffer`: `TempField.TransferFields(Field, true)`), and a later read of the
+        // copy is refused. Into another type the conversion could fail or not, which is not known: `convert` refuses.
+        if src_fields[sp].unknown().is_some() && from.fields[sp].ty == df.ty {
+            return Ok(Some(src_fields[sp].clone()));
+        }
+        // A Code value too long for the Text field: across apps (both flags) and with SkipFieldsWithoutCheck the field is
+        // skipped and keeps its value; within one app without it the size error below (Y38TransferXApp.al:504-512
+        // XA_TF_LongCode, :569 and :594 p41_long). A Text one across apps with SkipFieldsWithoutCheck is skipped too
+        // (RcBTransfer.al:553 `longAddressSkip`); across apps without it is not pinned.
+        if let (
+            RtType::Text(Some(_)) | RtType::Code(Some(_)),
+            RtType::Text(Some(to_len)),
+            Value::Text(s) | Value::Code(s),
+        ) = (&from.fields[sp].ty, &df.ty, &src_fields[sp])
+            && Value::text_len(s) > *to_len as usize
+        {
+            let from_code = matches!(from.fields[sp].ty, RtType::Code(_));
+            if (from_code && (cross_app || skip_mismatch)) || (cross_app && skip_mismatch) {
+                return Ok(None);
+            }
+            if cross_app {
+                return unsupported(format!(
+                    "TransferFields across apps of a text too long for field {} of {} (not pinned)",
+                    df.name, t.name
+                ));
+            }
+            // A --tdd stub field of unknown length refuses first.
+            tdd_fits(&schema.fields[dp], &src_fields[sp])?;
+            let from_schema = engine.program.objects[from.object as usize]
+                .table
+                .as_ref()
+                .expect("table");
+            if let Some(why) = &from_schema.fields[sp].tdd_length_unknown {
+                return Err(Signal::unsupported(why.clone()));
+            }
+            return Err(self.transfer_too_small(rec, t, from, (dp, sp), updates.to_vec()));
+        }
+        tdd_fits(&schema.fields[dp], &src_fields[sp])?;
+        // A Blob moves as `blob_transfer::moved` says.
+        if let Value::Blob(_) = &src_fields[sp] {
+            let cur = rec.borrow().fields[dp].clone();
+            let how = BlobMove::TransferFields(crate::blob_transfer::TransferCall::of(
+                args,
+                src.borrow().temporary,
+                rec.borrow().temporary,
+            ));
+            let kind = || {
+                self.blob_field_kind(src_table, sp)
+                    .with(self.blob_field_kind(t.object as usize, dp))
+            };
+            let v = crate::blob_transfer::moved(Some(&cur), src_fields[sp].clone(), how, holder, kind)?;
+            return Ok(Some(ops::convert(v, &df.ty)?));
+        }
+        Ok(Some(ops::convert(src_fields[sp].clone(), &df.ty)?))
     }
 
     /// Two fields of one number and different types, between two tables of the same app: DB:TypeMisMatch naming the fields, the
@@ -2650,5 +2701,51 @@ pub(crate) fn tdd_fits(f: &al_ir::Field, v: &Value) -> Result<(), Signal> {
     match v {
         Value::Text(s) | Value::Code(s) if Value::text_len(s) > max as usize => Err(Signal::unsupported(why.clone())),
         _ => Ok(()),
+    }
+}
+
+/// One `TransferFields` call, as the move of each field reads it.
+#[derive(Clone, Copy)]
+struct TransferCall<'a> {
+    rec: &'a Rec,
+    src: &'a Rec,
+    t: &'a TableDef,
+    from: &'a TableDef,
+    src_fields: &'a [Value],
+    src_table: usize,
+    args: &'a [Value],
+    holder: crate::blob_transfer::Holder,
+    skip_mismatch: bool,
+    /// The two tables belong to different apps.
+    cross_app: bool,
+}
+
+/// The cells corpus PR 1486 measured with a field declared ObsoleteState = Removed (`(source removed, target removed)`),
+/// source and target fields of one app, identical on BC 27.5, 28.5 and 29.0 (record/TransferFieldsRemovedField.al on corpus
+/// master d66ff75b): nothing raises and the field keeps its value. InitPrimaryKeyFields decides nothing here: a removed field
+/// is no primary key field.
+fn removed_pair_measured(
+    (source_removed, target_removed): (bool, bool),
+    from: &RtType,
+    to: &RtType,
+    skip: bool,
+) -> bool {
+    use RtType as T;
+    match (source_removed, target_removed) {
+        // A removed target field: Boolean into Code[5] (:428-488, two table extension fields :870-891), Integer into Integer
+        // with SkipFieldsNotMatchingType false (:508-528), Text into Integer (:548-568), Code[20] into Code[5], a value that
+        // fits and one too long (:588-629); two removed target fields (:650).
+        (false, true) => matches!(
+            (from, to, skip),
+            (T::Boolean, T::Code(_), _)
+                | (T::Integer, T::Integer, false)
+                | (T::Text(_), T::Integer, _)
+                | (T::Code(_), T::Code(_), _)
+        ),
+        // Both removed: Boolean into Code[5] (:670-690).
+        (true, true) => matches!((from, to), (T::Boolean, T::Code(_))),
+        // A removed source field: Boolean into a live Integer (:710-756) and Integer into a live Integer (:779-802).
+        (true, false) => matches!((from, to), (T::Boolean, T::Integer) | (T::Integer, T::Integer)),
+        (false, false) => false,
     }
 }

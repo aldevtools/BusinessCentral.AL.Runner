@@ -173,6 +173,7 @@ mod transactions;
 mod transferfields_cross_app;
 mod transferfields_field_apps;
 mod transferfields_removed_field;
+mod transferfields_removed_field_neighbors;
 mod transferfields_size;
 mod truncate_database_delete;
 mod unpinned_record_paths;

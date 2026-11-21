@@ -1,8 +1,8 @@
 //! TransferFields and a field declared ObsoleteState = Removed (al-runner issue 8494). The reporter's repro passes on
-//! Business Central 29.0 (W1 OnPrem): a removed field of the target is skipped, also when the source's field of that
-//! number has another type, on two tables of one app and on two table extensions of one app; the same field not removed
-//! raises the type mismatch. The skip runs on the assumption transferfields-skips-removed-target-field. A removed field
-//! of the source against a live field of the target is not measured: refused.
+//! Business Central 29.0 (W1 OnPrem): a removed Code[5] field of the target against a Boolean field of the source raises
+//! nothing, on two tables of one app and on two table extensions of one app; the same field not removed raises the type
+//! mismatch. Corpus PR 1486 measured the same (record/TransferFieldsRemovedField.al:428-488, :870-891); the skip runs on
+//! the assumption transferfields-removed-field. The shapes next to it: `transferfields_removed_field_neighbors.rs`.
 
 use al_builtins::assumptions::{Assumption, take_hits};
 use al_builtins::value::Value;
@@ -130,7 +130,7 @@ fn call(b: &mut al_testkit::Built, routine: &str, args: Vec<Value>) -> String {
 #[test]
 fn a_removed_target_field_is_skipped_on_an_assumption() {
     let mut b = built();
-    let a = Assumption::TransferFieldsSkipsRemovedTargetField;
+    let a = Assumption::TransferFieldsRemovedField;
     for (mode, pk) in [(1, "A"), (2, "T"), (3, "A")] {
         take_hits();
         assert_eq!(
@@ -156,10 +156,11 @@ fn a_live_field_of_another_type_still_raises_the_type_mismatch() {
         r.starts_with("error: The following fields must have the same type:") && r.ends_with("| DB:TypeMisMatch"),
         "{r}"
     );
-    assert!(!take_hits().contains(&Assumption::TransferFieldsSkipsRemovedTargetField));
+    assert!(!take_hits().contains(&Assumption::TransferFieldsRemovedField));
 }
 
-/// A removed field of the source against a live field of the target: whether the target keeps its value is not measured.
+/// A removed Boolean source field into a live Boolean field: a pair corpus PR 1486 did not measure, where main copied the
+/// removed field's value. Refused.
 #[test]
 fn a_removed_source_field_into_a_live_field_is_refused() {
     let mut b = built();

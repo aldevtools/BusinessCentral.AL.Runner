@@ -1,0 +1,11 @@
+# key	entry
+NB TransferFields Removed::RemovedSource_BoolToInt_Skip	ASSUMED transferfields-removed-field (corpus PR 1486, TransferFieldsRemovedField.al:733, :802)
+NB TransferFields Removed::RemovedSource_IntToInt_Default	ASSUMED transferfields-removed-field (corpus PR 1486, TransferFieldsRemovedField.al:710, :779)
+NB TransferFields Removed::RemovedTarget_BoolToCode_Default	ASSUMED transferfields-removed-field (corpus PR 1486, TransferFieldsRemovedField.al:428)
+NB TransferFields Removed::RemovedTarget_BoolToCode_InitPkFalse	ASSUMED transferfields-removed-field (corpus PR 1486, TransferFieldsRemovedField.al:448)
+NB TransferFields Removed::RemovedTarget_ExtensionField_Default	ASSUMED transferfields-removed-field (corpus PR 1486, TransferFieldsRemovedField.al:870)
+NB TransferFields Removed::RemovedTarget_IntFromText_Skip	ASSUMED transferfields-removed-field (corpus PR 1486, TransferFieldsRemovedField.al:568)
+NB TransferFields Removed::RemovedTarget_IntSame_Default	ASSUMED transferfields-removed-field (corpus PR 1486, TransferFieldsRemovedField.al:508)
+NB TransferFields Removed::RemovedTarget_LongCode_Default	ASSUMED transferfields-removed-field (corpus PR 1486, TransferFieldsRemovedField.al:608)
+NB TransferFields Removed::RemovedSource_DecToDec_Unmeasured	REFUSED TransferFields from a removed field, a type pair corpus PR 1486 did not measure (main copied the removed field's 0)
+NB TransferFields Removed::RemovedTarget_DecFromInt_Unmeasured	REFUSED TransferFields into a removed field, a type pair corpus PR 1486 did not measure (main raised DB:TypeMisMatch)
