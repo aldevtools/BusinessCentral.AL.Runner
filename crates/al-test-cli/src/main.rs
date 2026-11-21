@@ -906,6 +906,21 @@ fn build_facts(
     Ok((license, emit_version))
 }
 
+/// The ten slowest tests of a run that took any time, slowest first (`report::Timings::slowest_tests`).
+fn slowest_tests(results: &[al_testrun::runtime::TestResult]) -> Vec<report::SlowTest> {
+    let mut all: Vec<&al_testrun::runtime::TestResult> = results.iter().collect();
+    all.sort_by_key(|r| std::cmp::Reverse(r.time));
+    all.into_iter()
+        .take(10)
+        .filter(|r| !r.time.is_zero())
+        .map(|r| report::SlowTest {
+            codeunit: r.codeunit,
+            name: r.test.clone(),
+            seconds: r.time.as_secs_f64(),
+        })
+        .collect()
+}
+
 #[allow(clippy::too_many_arguments)]
 fn run_version_inner(
     args: &Args,
@@ -1371,19 +1386,7 @@ fn run_version_inner(
                 tests_s: d.as_secs_f64(),
             })
             .collect(),
-        slowest_tests: {
-            let mut all: Vec<&al_testrun::runtime::TestResult> = rt.results().iter().collect();
-            all.sort_by_key(|r| std::cmp::Reverse(r.time));
-            all.into_iter()
-                .take(10)
-                .filter(|r| !r.time.is_zero())
-                .map(|r| report::SlowTest {
-                    codeunit: r.codeunit,
-                    name: r.test.clone(),
-                    seconds: r.time.as_secs_f64(),
-                })
-                .collect()
-        },
+        slowest_tests: slowest_tests(rt.results()),
     };
     if args.timings {
         eprintln!(

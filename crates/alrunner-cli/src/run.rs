@@ -580,6 +580,23 @@ pub struct RequestTimings {
     pub passes: Vec<al_testrun::runtime::PassTime>,
 }
 
+impl RequestTimings {
+    /// A request's timings: its setup parts, the run's phases and the time the coverage document took.
+    fn of(setup: SetupParts, p: &al_testrun::runtime::Phases, coverage: Duration) -> RequestTimings {
+        RequestTimings {
+            setup,
+            compile: p.warm_compile.unwrap_or(p.compile),
+            engine: p.engine,
+            engine_kept: p.engine_kept,
+            baseline: p.baseline,
+            baseline_source: p.baseline_source,
+            tests: p.tests,
+            coverage,
+            passes: p.passes.clone(),
+        }
+    }
+}
+
 /// One entry of a server request (`WarmCtx::entries`).
 #[derive(Debug, Clone, Default)]
 pub struct Entry {
@@ -2321,17 +2338,7 @@ fn test_inner(
         })
     );
     if let Some(w) = warm {
-        w.timings = Some(RequestTimings {
-            setup,
-            compile: p.warm_compile.unwrap_or(p.compile),
-            engine: p.engine,
-            engine_kept: p.engine_kept,
-            baseline: p.baseline,
-            baseline_source: p.baseline_source,
-            tests: p.tests,
-            coverage: coverage_time,
-            passes: p.passes.clone(),
-        });
+        w.timings = Some(RequestTimings::of(setup, p, coverage_time));
         w.report = Some(Report {
             doc: serde_json::from_str(&crate::unpinned::json(
                 crate::seed::json(
