@@ -16,13 +16,12 @@ use al_builtins::native::unsupported;
 use al_builtins::ops;
 use al_builtins::record_op::RecordOp;
 use al_builtins::value::{Instance, Value};
+use al_ir as ir;
+use quit_in_init::InitQuit;
+use std::{cell::RefCell, rc::Rc, sync::Arc};
 
 /// The `Integer` table's number.
 const INTEGER_TABLE: u32 = 2_000_000_026;
-use al_ir as ir;
-use std::cell::RefCell;
-use std::rc::Rc;
-use std::sync::Arc;
 
 type Inst = Rc<RefCell<Instance>>;
 type Rec = Rc<RefCell<al_builtins::value::RecordState>>;
@@ -122,6 +121,7 @@ impl Session {
                 .and_then(|b| b.upgrade())
                 .unwrap_or_else(|| running.clone())
         };
+        self.refuse_method_after_kept_quit(id, &receiver)?;
         match id {
             // `IsReadOnly()` of the running report is No, in a procedure of a variable never run and in OnPreReport
             // (Y36BareReportMember.al:191-247 `readonly=No/No`, a processing-only report). A report variable is not pinned.
@@ -143,7 +143,7 @@ impl Session {
                 // Without a receiver (`SetTableView(R)` bare in a procedure of the report) it is the report whose code runs: the
                 // next run reads only the filtered rows (Y36BareReportMember.al:328-342 Y36_BareSetTableView_ThenRun).
                 let receiver = receiver.or_else(|| Some(Value::Codeunit(report_of_running())));
-                let inst = self.report_instance(receiver, false)?.0;
+                let inst = self.report_instance(receiver, InitQuit::Refuses)?.0;
                 let schema = self.report_schema(&inst)?;
                 self.report_set_view(&inst, &schema, args.first())?;
                 Ok(Value::Null)
@@ -161,9 +161,10 @@ impl Session {
                 let inst = self.variable_outside_run(&receiver).expect("checked");
                 let i = self.variable_culture(&inst)?;
                 match args.first() {
-                    None => Ok(Value::Integer(
-                        self.report.variable_culture[i].language.unwrap_or(self.global_language),
-                    )),
+                    None => {
+                        let set = self.report.variable_culture[i].language;
+                        Ok(Value::Integer(set.unwrap_or(self.global_language())))
+                    }
                     Some(Value::Integer(0)) => Err(crate::transactions::al_error_code(
                         "Invalid language ID supplied: 0.",
                         "Argument",
@@ -209,7 +210,7 @@ impl Session {
                     self.report
                         .curr_report_language
                         .or(self.report.run_language)
-                        .unwrap_or(self.global_language),
+                        .unwrap_or(self.global_language()),
                 )),
                 Some(other) => unsupported(format!("CurrReport.Language with {}", other.describe())),
             },
@@ -415,7 +416,7 @@ impl Session {
                 // `CurrReport.ObjectId` has no receiver value: it is the running report
                 // (recordref-fieldref/PWRefusedBuiltins.al:ReportObjectId_CurrReportInCaptionedReport).
                 let receiver = receiver.or_else(|| Some(Value::Codeunit(report_of_running())));
-                let inst = self.report_instance(receiver, false)?.0;
+                let inst = self.report_instance(receiver, InitQuit::Refuses)?.0;
                 let schema = self.report_schema(&inst)?;
                 let o = &schema.engine.program.objects[schema.object];
                 let names = match args.first() {
@@ -466,8 +467,9 @@ impl Session {
                 // reports/TestReportRuntimeContracts.al:416-440 for a variable).
                 // The report's own code, not a reportextension's, read without a receiver (`use_request_page_getter`).
                 let own_code = receiver.is_none() && running.borrow().base.is_none();
+                let how = InitQuit::of_use_request_page(&receiver, args.first());
                 let receiver = receiver.or_else(|| Some(Value::Codeunit(report_of_running())));
-                let inst = self.report_instance(receiver, false)?.0;
+                let inst = self.report_instance(receiver, how)?.0;
                 let schema = self.report_schema(&inst)?;
                 let slot = schema.report().request_flag_slot;
                 // The getter answers what the next Run does; the setter overrides the report's own
@@ -479,7 +481,7 @@ impl Session {
                 Ok(Value::Null)
             }
             ids::REPORT_RUN_1 | ids::REPORT_RUNMODAL_1 => {
-                let (inst, quit) = self.report_instance(receiver, true)?;
+                let (inst, quit) = self.report_instance(receiver, InitQuit::StopsTakingDeferred)?;
                 self.run_of_running_instance(id, &inst)?;
                 // An instance that already ran (one a variable gave up after its Run) cannot run again, and the attempt resets it
                 // (reports/runtime/P141ThisStored.al:P141_StoredAfterRun_RunAgain: the error, then a blank marker).
@@ -517,8 +519,9 @@ impl Session {
                     match self.report_enter_world(&schema, window) {
                         Ok(enters) => {
                             let outer = std::mem::replace(&mut self.report.run_modal, id == ids::REPORT_RUNMODAL_1);
+                            let outer_bare = std::mem::replace(&mut self.report.run_bare, false);
                             let ran = self.report_run_entered(&inst, &schema, Entry::Run, window, enters, None);
-                            self.report.run_modal = outer;
+                            (self.report.run_modal, self.report.run_bare) = (outer, outer_bare);
                             ran
                         }
                         // A RunModal whose request page the platform refuses to open (a pending write) leaves the
@@ -605,11 +608,12 @@ impl Session {
                     return Ok(Value::Null);
                 }
                 let run = |s: &mut Self| s.report_run(&inst, &schema, Entry::Run, window, None);
-                self.run_started_as(id == ids::REPORT_RUNMODAL_3, args.get(2), run)
+                let bare = args.len() == 1 && number.is_none();
+                self.run_started_as(id == ids::REPORT_RUNMODAL_3, args.get(2), bare, run)
                     .map(|()| Value::Null)
             }
             ids::REPORT_EXECUTE_1 => {
-                let (inst, quit) = self.report_instance(receiver, true)?;
+                let (inst, quit) = self.report_instance(receiver, InitQuit::Stops)?;
                 let schema = self.report_schema(&inst)?;
                 let parameters = self.report_execute_args(id, args.first(), args.get(1))?;
                 let is = |list: &Vec<std::rc::Weak<RefCell<Instance>>>| {
@@ -673,7 +677,7 @@ impl Session {
             }
             ids::REPORT_PRINT_1 | ids::REPORT_PRINT_2 => {
                 let schema = if id == ids::REPORT_PRINT_1 {
-                    let inst = self.report_instance(receiver, false)?.0;
+                    let inst = self.report_instance(receiver, InitQuit::Refuses)?.0;
                     self.report_schema(&inst)?
                 } else {
                     self.report_by_number(id, args.first())?.1
@@ -697,48 +701,7 @@ impl Session {
             ids::REPORT_SAVEASHTML_2 => self.report_save_as_file(id, receiver, args, "Html", true),
             ids::REPORT_WORDXMLPART_1 | ids::REPORT_WORDXMLPART_2 => self.report_word_xml_part(id, receiver, args),
             ids::REPORT_RUNREQUESTPAGE_1 | ids::REPORT_RUNREQUESTPAGE_2 => {
-                let (inst, schema, seed, pinned_call) = if id == ids::REPORT_RUNREQUESTPAGE_1 {
-                    let inst = self.report_instance(receiver, false)?.0;
-                    // After a RunModal of the variable: the error, and no page opens
-                    // (reports/request-page/RptRequestPage.al:990-1009 UseRequestPageFalse_RunModalAndRunRequestPage).
-                    if self.report_run_modal_done_on(&inst) {
-                        return Err(running::already_run());
-                    }
-                    let schema = self.report_schema(&inst)?;
-                    (inst, schema, args.first(), false)
-                } else {
-                    // The static form raises SubstituteReport with RunMode ParametersOnly first, once, with an empty
-                    // RequestPageXml also when old parameters are given (events/platform-triggers/PeVTests.al:465, :660:
-                    // `SubstituteReport(69860,ParametersOnly,in=-1)`; reports/Y14ReportSubstitute.al:276, :447).
-                    // A subscriber that sets another report swaps it: that report's request page opens, its handler runs and
-                    // the parameters are that report's (Y14ReportSubstitute.al:225 platform event, :261 OnAfterSubstituteReport,
-                    // :447 with old parameters; corpus master).
-                    let number = self.substitute_static(args.first(), 1, "")?;
-                    // SetupPrinters follows, once, with an empty Printers (events/platform-triggers/PeVTests.al:450
-                    // RunRequestPage_RaisedEvents `SubstituteReport(69860,ParametersOnly,in=-1);SetupPrinters(in=0);`, :651).
-                    self.raise_setup_printers()?;
-                    let (inst, schema) = self.report_by_number(id, number.as_ref().or(args.first()))?;
-                    // OnInitReport runs first, so the views the data items get next are what the handler sees
-                    // (reports/W3ReportRequestPageRun.al:280, RunRequestPage_OrderOfReportAndRequestPageTriggers: `view=[1..3]`).
-                    if self.report_init(&inst)? {
-                        return unsupported("CurrReport.Quit in OnInitReport of a RunRequestPage (not pinned)");
-                    }
-                    (inst, schema, args.get(1), args.len() == 1 && number.is_none())
-                };
-                self.request_ok_only_call(schema.object, pinned_call)?;
-                // Only the empty string and the text this runtime produced are understood; how BC
-                // loads a parameters string into the page is pinned only by its result
-                // (reports/TestReportInstanceRunReqPage.al:SeededWithParameters_StillRunsTheHandler).
-                let seed = match seed {
-                    Some(Value::Text(s)) if !s.is_empty() => Some(s.clone()),
-                    None | Some(Value::Text(_)) => None,
-                    Some(other) => return unsupported(format!("{id} seeded with {}", other.describe())),
-                };
-                // RunRequestPage always shows the page, so it always enters a transaction world
-                // (record/TestTxModelReportExec.al:77-102, Test02 and Test03).
-                let enters = self.report_enter_world(&schema, true)?;
-                self.report_in_world(enters, |s| s.report_request_only(&inst, &schema, seed.as_deref()))
-                    .map(|s| Value::Text(s.into()))
+                self.report_run_request_page(id, receiver, args)
             }
             other => unsupported(format!("builtin {other}")),
         }
@@ -788,30 +751,6 @@ impl Session {
                 let c = &self.report.variable_culture[i];
                 (i, c.language, c.region.clone())
             })
-    }
-
-    /// The report instance behind a receiver, initialised: the first use of a report variable
-    /// runs `OnInitReport` (reports/TestReportOnInitReportTiming.al:50-60).
-    /// Returns whether that trigger quit the report; a caller that cannot stop refuses it.
-    fn report_instance(&mut self, receiver: Option<Value>, can_stop: bool) -> Result<(Inst, bool), Signal> {
-        match receiver {
-            Some(Value::Codeunit(rc)) => {
-                // Used again after a Run, it is a new instance: OnInitReport runs.
-                // A second Run on one variable runs OnInitReport again (reports/request-page/RptTriggerOrder.al:353
-                // VariableRun_Twice_InitReportEachTime; reports/PnH5aExt.al:396).
-                if std::mem::take(&mut rc.borrow_mut().rerun) {
-                    rc.borrow_mut().initialized = false;
-                }
-                let quit = !rc.borrow().initialized && self.report_init(&rc)?;
-                if quit && !can_stop {
-                    return unsupported(
-                        "CurrReport.Quit in OnInitReport before a method that does not run the report (not pinned)",
-                    );
-                }
-                Ok((rc, quit))
-            }
-            other => unsupported(format!("a Report method on {}", other.describe())),
-        }
     }
 
     /// The report object of a report variable for a method that reads the report's metadata. Whether the call runs
@@ -935,13 +874,8 @@ impl Session {
     /// and `Execute`; a `Run` and a `Clear` drop it (reports/extensions/W3RpExtProcedures.al:ExtensionProcedure_*).
     /// The first use of the variable runs `OnInitReport`, as a call of any of its procedures does.
     pub(crate) fn report_extension_instance(&mut self, base: &Inst, ext: usize) -> Result<Inst, Signal> {
-        let (base, _) = self.report_instance(Some(Value::Codeunit(base.clone())), false)?;
-        if let Some((_, i)) = base.borrow().exts.iter().find(|(e, _)| *e as usize == ext) {
-            return Ok(i.clone());
-        }
-        let i = self.extension_instance(ext, &base);
-        base.borrow_mut().exts.push((ext as u32, i.clone()));
-        Ok(i)
+        let (base, _) = self.report_instance(Some(Value::Codeunit(base.clone())), InitQuit::Refuses)?;
+        Ok(self.report_extension_state(&base, ext))
     }
 
     /// The schema of `inst`'s object; refuses a report the runtime cannot run.
@@ -996,6 +930,9 @@ impl Session {
         inst.borrow_mut().initialized = false;
         self.claim_excel_sheets(object, &inst);
         let schema = self.report_schema(&inst)?;
+        if id != ids::REPORT_SAVEAS_2 {
+            dependency_items::require_pinned_entry(schema.report(), false)?;
+        }
         Ok((inst, schema))
     }
 
@@ -1003,6 +940,7 @@ impl Session {
 
     /// First use of an instance: its globals are made and, for a report, `OnInitReport` runs once.
     pub(crate) fn first_use(&mut self, inst: &Inst) -> Result<(), Signal> {
+        self.refuse_after_kept_quit(inst)?;
         // A report variable a `Run` just reset starts again with its next call of anything but `Run`: `OnInitReport`
         // runs again, so a procedure called after a Run sees what OnInitReport set (corpus
         // pages/triggers/P84ReportSender.al:Triggers_Run_SenderInEachTrigger: `GetMarker()` after `Run()` is
@@ -1416,61 +1354,6 @@ impl Session {
         Ok(())
     }
 
-    // ------------------------------------------------------------------ transactions
-
-    /// The platform's decision, made before the request page is shown: a run enters a transaction
-    /// world when it shows the request page or its TransactionType differs from the session's
-    /// (`UpdateNoLocks` excepted), and a test under `TransactionModel::AutoRollback` is exempt
-    /// (record/TestTxModelReportRun.al:1-35, record/TestTxModelReportExec.al:1-30). Entering one
-    /// is refused while the caller holds an uncommitted write (:117-148 Test04/05/08;
-    /// TestTxModelReportExec.al:77-102, 138-150, 214-239). Returns whether a world is entered.
-    fn report_enter_world(&mut self, schema: &Schema, shows_page: bool) -> Result<bool, Signal> {
-        let differs = match schema.report().transaction_type.as_deref() {
-            None => false,
-            Some("update") => true,
-            // Snapshot runs when no write is pending (reports/TestReportRuntimeContracts.al:
-            // 468-482); with a pending write what BC does is not pinned.
-            Some("snapshot") => {
-                if self.in_write_transaction()? {
-                    return unsupported(format!(
-                        "TransactionType = snapshot on report \"{}\" with a pending write (not pinned)",
-                        schema.name()
-                    ));
-                }
-                true
-            }
-            Some(other) => {
-                return unsupported(format!(
-                    "TransactionType = {other} on report \"{}\" (only Update and Snapshot are pinned)",
-                    schema.name()
-                ));
-            }
-        };
-        if !(shows_page || differs) {
-            return Ok(false);
-        }
-        if self.tx_model == TxModel::AutoRollback {
-            // A report declaring a TransactionType needs a type change, which BC refuses once a
-            // transaction has started; AutoRollback exempts the world, not that rule
-            // (record/TestTxModelReportExec.al:243-257, Test12).
-            if differs && self.in_write_transaction()? {
-                return unsupported(
-                    "a TransactionType = Update report under AutoRollback with a pending write (not pinned)",
-                );
-            }
-            return Ok(false);
-        }
-        // A run with the request page after an uncommitted insert raises before the page opens (reports/bare-report-member/
-        // Y36BareReportMember.al:236-249, Report.Run(Id, true) in a test; the handler is not called).
-        if self.in_write_transaction()? {
-            return Err(crate::transactions::transaction_stopped());
-        }
-        // Inside a TryFunction, with nothing to commit, the run goes on as outside one (misc/lt-y14-triage/
-        // Y14ReportSubstitute.al:276 RunRequestPage, :371 Run and RunModal, after a Commit, corpus master). A run that
-        // writes there is refused when its world would commit ([`Self::report_in_world`]).
-        Ok(true)
-    }
-
     // ------------------------------------------------------------------ the run
 
     /// `record_ref`: the RecordRef of an Execute with parameters, whose view the run applies after them (`report_body`).
@@ -1571,18 +1454,22 @@ impl Session {
             Ok(v) => {
                 if (enters || began_world) && self.tx_model != TxModel::AutoRollback {
                     if self.tx.try_depth > 0 && self.in_write_transaction()? {
+                        self.settle_saved_row(false)?;
                         return unsupported(
                             "a report run inside a TryFunction that wrote in its transaction world (whether it commits is not pinned)",
                         );
                     }
+                    self.settle_saved_row(true)?;
                     // A world that is entered commits its own writes when the run returns
                     // (record/TestTxModelReportRun.al:177-196, Test07). That `RunRequestPage` does
                     // the same is docs/probes-needed.md.
                     self.commit_transaction();
                 }
+                self.settle_saved_row(false)?;
                 Ok(v)
             }
             Err(e) => {
+                self.settle_saved_row(false)?;
                 // A run that raises inside its world does not commit what it wrote
                 // (record/TestTxModelReportRun.al:252-269, Test12).
                 if enters && matches!(e, Signal::Error(_)) {
@@ -1679,18 +1566,14 @@ impl Session {
         let report = schema.report();
         // A reportextension that changes the run gets an instance of its own for this run, whose
         // names for the base items point at the report's own records.
-        let mut exts = Vec::new();
+        let mut exts: Vec<(Inst, usize)> = Vec::new();
         for &e in &report.extensions {
-            let ext_inst = self.report_extension_instance(inst, e)?;
+            let ext_inst = self.dataset_extension_instance(inst, e, report)?;
             let eir = self.engine.program.objects[e]
                 .report_ext
                 .as_ref()
                 .expect("a report names only extensions that were lowered");
-            for &(base_item, slot) in &eir.aliases {
-                let base_slot = report.items[base_item].slot.expect("an alias has a record");
-                let record = inst.borrow().globals[base_slot].clone();
-                ext_inst.borrow_mut().globals[slot] = record;
-            }
+            self.bind_report_item_aliases(report, inst, &ext_inst, eir, &exts)?;
             exts.push((ext_inst, e));
         }
         let run = Run {
@@ -2105,16 +1988,17 @@ impl Session {
             }
         }
         // The `modify` blocks of the extensions that name this item, in object id order.
-        let modifies: Vec<(usize, &ir::ReportExtModify)> = match r {
-            ItemRef::Base(i) => (0..run.exts.len())
-                .filter_map(|k| {
-                    run.ext_ir(k)
-                        .and_then(|x| x.modifies.iter().find(|m| m.item == i))
-                        .map(|m| (k, m))
-                })
-                .collect(),
-            ItemRef::Added(..) => Vec::new(),
-        };
+        let modifies: Vec<(usize, &ir::ReportExtModify)> = (0..run.exts.len())
+            .filter_map(|k| {
+                run.ext_ir(k)
+                    .and_then(|x| {
+                        x.modifies
+                            .iter()
+                            .find(|m| item_anchor(run.report(), k, m.item) == Some(r))
+                    })
+                    .map(|m| (k, m))
+            })
+            .collect();
         // `OnPreDataItem` of the base, with the extensions' OnBefore/OnAfterPreDataItem around it,
         // each in object id order (corpus reports/extensions/TestReportExtensionBaseMembersContracts.al:
         // "for every trigger the base runs first, then the extensions").
@@ -2244,7 +2128,7 @@ impl Session {
 }
 
 /// A data item of the running report: one of its own, or one its reportextension adds.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum ItemRef {
     Base(usize),
     /// Item `.1` of `ReportExt::added` of extension `.0` of the run (`Run::exts`).
@@ -2301,6 +2185,17 @@ impl Run {
         out
     }
 
+    fn item_additions(&self, r: ItemRef) -> impl Iterator<Item = (usize, &ir::ReportExtAdd)> {
+        (0..self.exts.len())
+            .filter_map(|k| self.ext_ir(k).map(|ext| (k, ext)))
+            .flat_map(move |(k, ext)| {
+                ext.adds
+                    .iter()
+                    .filter(move |a| item_anchor(self.report(), k, a.item) == Some(r))
+                    .map(move |a| (k, a))
+            })
+    }
+
     /// The items nested directly under `r`, in the order they run (`ItemTree::children`).
     fn children(&self, r: ItemRef) -> Vec<ItemRef> {
         self.tree().children(r)
@@ -2351,20 +2246,22 @@ impl<'a> ItemTree<'a> {
         for k in 0..self.exts.len() {
             let Some(x) = self.ext(k) else { continue };
             let mine: Vec<usize> = (0..x.added.len())
-                .filter(|&c| match r {
-                    ItemRef::Base(i) => x.added[c].base_parent == Some(i),
-                    ItemRef::Added(kk, j) => kk == k && x.added[c].item.parent == Some(j),
+                .filter(|&c| {
+                    let added = &x.added[c];
+                    let parent = added
+                        .foreign_parent
+                        .map(ir::ItemAnchor::Foreign)
+                        .or_else(|| added.item.parent.map(ir::ItemAnchor::Added))
+                        .or_else(|| added.base_parent.map(ir::ItemAnchor::Base));
+                    parent.and_then(|a| item_anchor(self.report, k, a)) == Some(r)
                 })
                 .collect();
             // Position order (reports/extensions/TestReportExtensionDataItemPlacementContracts.al):
             // the items added first, those before a sibling, the sibling, those after it, the items
             // added last. Items next to an item the extension added are placed once that is.
             let at = |out: &[ItemRef], a: ir::ItemAnchor| {
-                out.iter().position(|c| match (c, a) {
-                    (ItemRef::Base(x), ir::ItemAnchor::Base(y)) => *x == y,
-                    (ItemRef::Added(kk, x), ir::ItemAnchor::Added(y)) => *kk == k && *x == y,
-                    _ => false,
-                })
+                let anchor = item_anchor(self.report, k, a)?;
+                out.iter().position(|&item| item == anchor)
             };
             let mut pending: Vec<usize> = mine
                 .iter()
@@ -2562,32 +2459,15 @@ impl Session {
         // The SaveAs raised SubstituteReport, so OnDocumentReady follows the dataset.
         let mut document_ready = false;
         let (inst, schema, quit) = if at == 0 {
-            let (inst, quit) = self.report_instance(receiver, true)?;
+            let (inst, quit) = self.report_instance(receiver, InitQuit::Stops)?;
             let schema = self.report_schema(&inst)?;
             // A SaveAs on a variable that already ran (an earlier SaveAs that wrote its dataset or stopped at the missing
             // layout) answers false with this text (text/PnBReportSaveAs.al:387-391 OtherFormats_NoLayout;
             // :436 SecondSaveAs_OnOneVariable). With the answer dropped, and after an earlier SaveAs that ended any other
             // way, it is not pinned.
-            let ran = |list: &Vec<std::rc::Weak<std::cell::RefCell<Instance>>>| {
-                list.iter().any(|w| w.upgrade().is_some_and(|i| Rc::ptr_eq(&i, &inst)))
-            };
-            let tried = ran(&self.report.report_save_tried);
-            if ran(&self.report.report_executed) {
-                if !tried {
-                    return unsupported("a SaveAs on a report variable that an Execute ran (not pinned)");
-                }
-                if !result_used {
-                    return unsupported("a second SaveAs on one report variable, with the answer dropped (not pinned)");
-                }
-                // The text is pinned (PnBReportSaveAs.al:387), and the code (:749-750, :755-756 PW_SecondSaveAs_LastErrorCode).
-                self.last_error = running::already_run_error();
-                return Ok(Value::Boolean(false));
+            if let Some(result) = self.save_variable_start(&inst, result_used)? {
+                return Ok(result);
             }
-            if tried {
-                return unsupported("a second SaveAs on one report variable after the first ended early (not pinned)");
-            }
-            self.report.report_save_tried.retain(|w| w.strong_count() > 0);
-            self.report.report_save_tried.push(Rc::downgrade(&inst));
             // An Xml SaveAs on a variable raises OnDocumentReady after the dataset and no SubstituteReport
             // (events/platform-triggers/PeVTests.al:688 PW_RaisedEvents_SaveAsForms `saveas var xml`
             // `OnDocumentReady(69860,in=No);`).
@@ -2597,6 +2477,7 @@ impl Session {
             (inst, schema, quit)
         } else {
             let (mut inst, mut schema) = self.report_by_number(id, args.first())?;
+            let pinned = dependency_items::check_static_save(&schema, &format, &parameters, record_ref, &target)?;
             // An Xml SaveAs to a stream of a processing-only report raises SubstituteReport (RunMode SaveAs, the
             // parameters as RequestPageXml), and a report a subscriber sets is the one that runs and fails as processing-only
             // (reports/Y14ReportSubstitute.al:389 Execute_SaveAs_Swap `saveas xmlA`: `Sub(91650,SaveAs,xmlLen=155,
@@ -2634,6 +2515,7 @@ impl Session {
                 let xml = Value::Text(parameters.to_string().into());
                 if let Some(new_id) = self.raise_substitute_report(&schema, xml)? {
                     let (i, s) = self.report_by_number(id, Some(&Value::Integer(new_id)))?;
+                    dependency_items::require_pinned_entry(s.report(), pinned)?;
                     if !self.save_as_raises_events(&s, &format, &parameters, record_ref, &target, true) {
                         return unsupported(format!(
                             "SubstituteReport set report {new_id} \"{}\" for an Xml SaveAs: only a report with an RDLC layout \
@@ -2685,7 +2567,9 @@ impl Session {
             }
         }
         if schema.report().processing_only {
-            return self.save_of_processing_only(&inst, &schema, &format, at, quit, result_used);
+            let stream = matches!(target, SaveTarget::Stream(_)) && record_ref.is_none() && parameters.is_empty();
+            let xml = (format == "Xml").then_some(stream);
+            return self.save_of_processing_only(&inst, &schema, xml, at, quit, result_used);
         }
         property_gates::save_as_declaration_refusals(&schema)?;
         // The language and region of the run: the session's, or what the variable set (reports/W3ReportObjectIdPreviewLanguage.al:
@@ -2701,16 +2585,16 @@ impl Session {
             }
             None => (None, None),
         };
-        let language = variable_language.unwrap_or(self.global_language);
+        let language = variable_language.unwrap_or(self.global_language());
         let pinned = matches!(
-            (self.global_language, variable_language, variable_region.as_deref()),
+            (self.global_language(), variable_language, variable_region.as_deref()),
             (1033, None | Some(1033), None | Some("de-DE")) | (1031, None, None) | (1033, Some(1031), None)
         );
         if !pinned {
             return unsupported(format!(
                 "Report.SaveAs with the session language {}, the report variable's Language {} and FormatRegion {} (only en-US, \
                  GlobalLanguage 1031, Language := 1031 and FormatRegion := 'de-DE' on the variable are pinned)",
-                self.global_language,
+                self.global_language(),
                 variable_language.map_or("not set".to_string(), |l| l.to_string()),
                 variable_region.as_deref().unwrap_or("not set")
             ));
@@ -3532,13 +3416,7 @@ impl Session {
         };
         let mut calc: Vec<usize> = Vec::new();
         let mut columns: Vec<&ir::ReportColumn> = run.item(r).columns.iter().collect();
-        if let ItemRef::Base(i) = r {
-            for k in 0..run.exts.len() {
-                if let Some(x) = run.ext_ir(k) {
-                    columns.extend(x.adds.iter().filter(|a| a.item == i).flat_map(|a| a.columns.iter()));
-                }
-            }
-        }
+        columns.extend(run.item_additions(r).flat_map(|(_, add)| &add.columns));
         for c in columns {
             if let Some(p) = c.field {
                 let f = &def.fields[p];
@@ -3587,16 +3465,11 @@ impl Session {
             };
             let mut columns = Vec::new();
             for c in &item.columns {
-                columns.push(ty(run.object, c)?);
+                columns.push(ty(run.owner(r).1, c)?);
             }
-            if let ItemRef::Base(i) = r {
-                for k in 0..run.exts.len() {
-                    let Some(x) = run.ext_ir(k) else { continue };
-                    for add in x.adds.iter().filter(|a| a.item == i) {
-                        for c in &add.columns {
-                            columns.push(ty(run.exts[k].1, c)?);
-                        }
-                    }
+            for (k, add) in run.item_additions(r) {
+                for c in &add.columns {
+                    columns.push(ty(run.exts[k].1, c)?);
                 }
             }
             out.push(dataset::DeclaredItem {
@@ -3629,15 +3502,10 @@ impl Session {
         for c in &item.columns {
             columns.push(self.dataset_column(c, &owner, object, table, rec)?);
         }
-        if let ItemRef::Base(i) = r {
-            for k in 0..run.exts.len() {
-                let (ext_inst, e) = &run.exts[k];
-                let Some(x) = run.ext_ir(k) else { continue };
-                for add in x.adds.iter().filter(|a| a.item == i) {
-                    for c in &add.columns {
-                        columns.push(self.dataset_column(c, ext_inst, *e, table, rec)?);
-                    }
-                }
+        for (k, add) in run.item_additions(r) {
+            let (ext_inst, e) = &run.exts[k];
+            for c in &add.columns {
+                columns.push(self.dataset_column(c, ext_inst, *e, table, rec)?);
             }
         }
         // From BC 28 each DataItem names its table and a GUID that differs per element
@@ -3836,7 +3704,7 @@ impl Session {
         let report_language = self.report.curr_report_language.or(self.report.run_language);
         if let Some(l) = self.report.dataset.as_ref().and_then(|d| d.language.clone()) {
             if matches!(value, Value::Option(..) | Value::Enum(..))
-                && report_language.is_some_and(|r| r != self.global_language)
+                && report_language.is_some_and(|r| r != self.global_language())
             {
                 return unsupported(format!(
                     "report column {} holds {} in a dataset in {l} (not pinned)",
@@ -3996,6 +3864,8 @@ mod ignored_output_tests;
 
 mod blob_column;
 mod dataset_header;
+pub(crate) mod dependency_items;
+use dependency_items::item_anchor;
 mod execute_args;
 use execute_args::RefCall;
 mod excel_sheets;
@@ -4004,13 +3874,16 @@ pub(crate) mod format_region;
 mod header_tests;
 mod html_record;
 mod property_gates;
+mod quit_in_init;
 pub(crate) use excel_sheets::Admission as ExcelSheetsAdmission;
 mod request_caption;
 mod request_flag;
+mod run_request_page;
 use request_flag::{REQUEST_PAGE_OFF, REQUEST_PAGE_OFF_UNPINNED_GETTER, REQUEST_PAGE_ON, REQUEST_PAGE_UNPINNED_GETTER};
 mod request_unshown;
 mod running;
 mod save_processing_only;
+mod transaction_world;
 pub(crate) mod word_xml_part;
 
 mod explicit_parent_link;

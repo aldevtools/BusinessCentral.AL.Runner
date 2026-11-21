@@ -998,12 +998,7 @@ impl Session {
         // :297, :317, :336 and the Nav_ tests, `action_log` `R:R1003;R:R1003;A:act=R1003`). So the mark stays until a move clears
         // it (`pageops.rs`). A RunObject action reads nothing (:278 `runobject_log` `T:open;H:target`). After a call that is not
         // pinned (a property read) between them the action is refused.
-        let (read_after_goto, doubt) = st.borrow_mut().after_goto.action_starts();
-        if read_after_goto && doubt {
-            return unsupported(
-                "an action after a GoToKey moved a list without OnAfterGetCurrRecord, with a field call between them (not pinned)",
-            );
-        }
+        let read_after_goto = Self::read_after_goto_at_action(st)?;
         if reads_rows {
             let rec = self.page_rec(st);
             if self.stored_row(&rec)?.is_some() {
@@ -1357,10 +1352,10 @@ impl Session {
                 st.borrow_mut().refresh.pinned_run_done();
                 r?;
             } else if !find_page {
-                // The reads the page does when it opens come first, then the refresh's own: a card
-                // reads its row twice, a list the rows of its window as it opens plus one (corpus
-                // pages/extensions/PCCurrRecordReads.al:Card_ReadsAfterEachAction, List_ReadsAfterEachAction,
-                // pinned for a card and a list of 3 rows with the cursor on the first).
+                self.refuse_first_row_left_view_after_action(st)?;
+                // The reads the page does when it opens come first, then the refresh's own: a card reads its row twice, a list
+                // the rows of its window as it opens plus one (corpus pages/extensions/PCCurrRecordReads.al:
+                // Card_ReadsAfterEachAction, List_ReadsAfterEachAction, pinned for a card and a list of 3 rows on the first).
                 // An action that called CurrPage.SaveRecord (and no Update) is followed by one read of the row, not two
                 // (pages/run-modal/P82CurrPage.al:SaveRecord_StoresPendingEdit and SaveRecord_InViewMode:
                 // `...;saved;OnAfterGetRecord(A)`). With an Update in the same action it is not pinned and stays as it was.
@@ -1717,6 +1712,7 @@ impl Session {
             // registered assumption `empty-worksheet-filled-by-action`; a view longer than a window is refused.
             let worksheet =
                 self.engine.object_facts[st.borrow().object as usize].page_type == Some(al_ir::PageType::Worksheet);
+            self.refuse_rows_stored_with_rec_on_one(st, &rec, shape == EmptyShape::EditList)?;
             if shape != EmptyShape::EditList || !worksheet || self.stored_row(&rec)?.is_some() {
                 return Ok(false);
             }
@@ -1998,11 +1994,16 @@ impl Session {
         Ok(())
     }
 
-    /// Whether the view of `rec` holds a row before the row it stands on (asked of the table; Rec is put back).
-    fn has_row_before(&mut self, rec: &Rec) -> Result<bool, Signal> {
-        let probe = Rc::new(RefCell::new(rec.borrow().clone()));
-        self.ret_used = true;
-        Ok(matches!(self.record_op(RecordOp::Next, &probe, &mut [Value::Integer(-1)])?, Value::Integer(n) if n != 0))
+    /// Whether a GoToKey moved the list before this action (the mark `action_invoke_body` reads), refused after a field call
+    /// between them; the marks of the step before are cleared.
+    fn read_after_goto_at_action(st: &St) -> Result<bool, Signal> {
+        let (read_after_goto, doubt) = st.borrow_mut().after_goto.action_starts();
+        if read_after_goto && doubt {
+            return unsupported(
+                "an action after a GoToKey moved a list without OnAfterGetCurrRecord, with a field call between them (not pinned)",
+            );
+        }
+        Ok(read_after_goto)
     }
 
     /// The reads of an action that did not call `CurrPage.Update`, before the refresh's own (see
@@ -2043,16 +2044,7 @@ impl Session {
         if self.declares(st, "onaftergetcurrrecord") && self.declares(st, "onaftergetrecord") {
             return self.read_list_again_from_row(st, &rec, &key);
         }
-        // The row the list stood on was the first of the old view; an action that changed the view can put rows before it, and
-        // then the list reads as on a later row (al-runner issue 6470: testpage/Y15ActionWidensView.al:199
-        // `after action` `A20/6 28:A20-A01`).
-        let first = {
-            let s = st.borrow();
-            s.window_from_start
-                && s.window.len() < Self::WINDOW
-                && s.window.first().is_some_and(|w| Self::same_key(&w.key, &key))
-        } && { !(self.view_changed_by_action(st) && self.has_row_before(&rec)?) };
-        if !first {
+        if !self.stands_on_first_of_view(st, &rec, &key)? {
             return self.read_list_again_from_row(st, &rec, &key);
         }
         st.borrow_mut().landing_first = true;
@@ -2078,20 +2070,18 @@ impl Session {
     fn refresh_after_validate_filter(
         &mut self,
         st: &St,
-        filters_before: Option<Vec<al_builtins::filter::FieldFilter>>,
+        filters_before: Option<crate::pages::state::ValidateStart>,
         without_curr: bool,
         without_parts: bool,
     ) -> Result<bool, Signal> {
-        let Some(before) = filters_before else {
+        let Some(start) = filters_before else {
             return Ok(false);
         };
         let shape = {
             let s = st.borrow();
             s.open && !s.dirty && (!s.draft || s.cursor == Cursor::NewLine) && s.host.is_none()
         };
-        // A page that offers the new-row line is pinned on a Worksheet (Y17JournalBatchSwitch.al), and on a List from that line
-        // (`validate_refresh_start`); from a row a List that offers it keeps the refresh below.
-        let shape = shape && (!st.borrow().new_line || self.is_worksheet(st) || st.borrow().cursor == Cursor::NewLine);
+        let shape = shape && self.validate_refresh_offers_line(st, &start);
         if !shape
             || !self.has_source(st)
             || !self.is_list(st)
@@ -2102,8 +2092,8 @@ impl Session {
         }
         let rec = self.page_rec(st);
         let now = rec.borrow().filters.clone();
-        let same = before.len() == now.len()
-            && before.iter().zip(&now).all(|(a, b)| {
+        let same = start.filters.len() == now.len()
+            && start.filters.iter().zip(&now).all(|(a, b)| {
                 a.field == b.field
                     && a.group == b.group
                     && matches!((self.filter_text(&a.expr), self.filter_text(&b.expr)), (Ok(x), Ok(y)) if x == y)
@@ -2454,7 +2444,7 @@ impl Session {
     /// changed the view so that the stored row the cursor stands on is outside it: the call itself reads the row (pages/lt-f3-pages/
     /// F3ListTests.al:72 Nav_ActionChangesViewThenUpdate `after_update` begins `AGR(R1003) | AGR(R1003) | OnlyBig done`, both reads
     /// before the action: the one after the GoToKey and the one before every action). Remembers it for the refresh.
-    fn is_worksheet(&self, st: &St) -> bool {
+    pub(super) fn is_worksheet(&self, st: &St) -> bool {
         self.engine.object_facts[st.borrow().object as usize].page_type == Some(al_ir::PageType::Worksheet)
     }
 

@@ -599,6 +599,8 @@ pub struct RecordState {
     pub row_origin: Option<RowOrigin>,
     /// The variable's own Insert and its own Get of that row after it (see [`OwnRead`]).
     pub own_read: OwnRead,
+    /// The read of a row holding a Time stored past the day that the variable's buffer holds (see [`RolledRead`]).
+    pub rolled_read: RolledRead,
     /// The record is a source the Blob copy probes measured (see [`ProbedSource`]).
     pub probed_source: ProbedSource,
     /// The table's and its extensions' global variables of this record variable (ADR-021).
@@ -645,6 +647,30 @@ impl Clone for OwnRead {
     fn clone(&self) -> Self {
         OwnRead(None)
     }
+}
+
+/// The primary key of a database row holding a Time stored as 23:59:59.999 (al-vm `sqltime::is_rolled`) and which read put
+/// it into the buffer: the variable's own `Get` from AL code, or ModifyAll's read of each row. A Modify keeps the stored value
+/// of such a field only after that read (al-vm `records/time_rollover.rs`). Every other load, every record method but Modify,
+/// `:=` into the variable and a builtin given the variable end it; a Modify uses it up.
+///
+/// `Clone` gives `None`: a copy of a record state (a record passed by value, xRec) is not the variable that read the row.
+#[derive(Debug, Default)]
+pub struct RolledRead(pub Option<(RolledReadBy, Vec<Value>)>);
+
+impl Clone for RolledRead {
+    fn clone(&self) -> Self {
+        RolledRead(None)
+    }
+}
+
+/// Which read made a [`RolledRead`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RolledReadBy {
+    /// `Get` that AL code called on a Record variable.
+    Get,
+    /// ModifyAll, for the row it modifies.
+    ModifyAll,
 }
 
 /// See [`OwnRead`].
@@ -1471,11 +1497,20 @@ pub struct Instance {
     pub born: Born,
     /// The session watches this single instance's globals (al-vm `single_track.rs`).
     pub single: bool,
-    /// Why what this single instance holds is not the value BC has: every read of one of its globals is refused with this
-    /// reason (al-vm `single_unmeasured.rs`). `None` for every other instance.
-    pub unmeasured: Option<Rc<str>>,
+    /// What a read of one of this single instance's globals does, when the run found its state somewhere no pin covers
+    /// (al-vm `single_unmeasured.rs`). `None` for every other instance.
+    pub unmeasured: Option<SingleMark>,
     /// Counts the instance as live while it exists (`instance_cycles::live`).
     pub live: crate::instance_cycles::LiveCount,
+}
+
+/// The mark of a single instance whose state the run found somewhere no pin covers ([`Instance::unmeasured`]).
+#[derive(Debug, Clone)]
+pub enum SingleMark {
+    /// What it holds is not BC's value: every read of one of its globals is refused with this reason.
+    Refused(Rc<str>),
+    /// What it holds is BC's value by this assumption entry: every read of one of its globals marks it.
+    Assumed(crate::assumptions::Assumption),
 }
 
 thread_local! {

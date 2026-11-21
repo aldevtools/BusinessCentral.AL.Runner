@@ -52,21 +52,101 @@ pub(crate) fn rounded(v: &Value) -> Value {
     }
 }
 
-fn round_expr(e: &FilterExpr) -> FilterExpr {
+/// What the column of a [`keeps_past_midnight`] field holds for 23:59:59.999: midnight of the next day, after every time of the
+/// day (record/filters/TimeRolledPastMidnight.al:143-158). No AL Time reaches it (Time arithmetic wraps at midnight), so a value
+/// of it in a row is always this rollover.
+const ROLLED: i64 = MS_PER_DAY + 1;
+
+/// Whether field `i` of database table `t` has the shape record/filters/TimeRolledPastMidnight.al measures (table 75011, :11-25):
+/// a Normal Time field the table itself declares (:17), outside the primary key (:22), with a secondary key of its own that the
+/// table itself declares with no properties (:23).
+/// Its column keeps 23:59:59.999 past the day (`ROLLED`). Every other field rounds as [`rounded`] does; a Time primary key
+/// field among them (:305-346, `eq0` and `rows` still differ from BC).
+pub(crate) fn keeps_past_midnight(t: &TableDef, schema: &al_ir::Table, i: usize) -> bool {
+    let f = &t.fields[i];
+    f.ty == RtType::Time
+        && f.stored
+        && f.id < 2_000_000_000
+        && schema.fields.get(i).is_some_and(|s| s.declared_in == Some(t.object))
+        && !t.keys[0].contains(&i)
+        && schema.keys.iter().enumerate().skip(1).any(|(k, key)| {
+            key.as_slice() == [i]
+                && schema.key_declared_in.get(k) == Some(&Some(t.object))
+                && schema.key_props.get(k).is_some_and(Vec::is_empty)
+        })
+}
+
+/// Whether `t` (a Time, not 0) rounds to a whole day in the column.
+fn rolls(t: i64) -> bool {
+    t != 0 && round_ms(t - 1) == MS_PER_DAY
+}
+
+/// A filter value of a [`keeps_past_midnight`] field rounded as the column rounds it: 23:59:59.999 compares after every time
+/// of the day, as the stored value does (`ROLLED`; TimeRolledPastMidnight.al:113-158, `lt999`, `eq999`, `gt997`; FieldRef
+/// SetRange :369-376).
+fn rounded_filter(v: &Value) -> Value {
+    match v {
+        Value::Time(t) if rolls(*t) => Value::Time(ROLLED),
+        other => rounded(other),
+    }
+}
+
+/// Whether `v` is a Time a database column holds past the day (`ROLLED`).
+pub(crate) fn is_rolled(v: &Value) -> bool {
+    matches!(v, Value::Time(ROLLED))
+}
+
+/// The values of a database row as AL reads them: a Time held past the day reads 00:00:00 (TimeRolledPastMidnight.al:143
+/// `read`, :257 `set_read`, :371-375 FlowField max, min and lookup, FieldRef).
+pub(crate) fn read_back(row: &mut [Value]) {
+    for v in row {
+        if is_rolled(v) {
+            *v = Value::Time(1);
+        }
+    }
+}
+
+/// [`read_back`] of one value.
+pub(crate) fn read_back_value(mut v: Value) -> Value {
+    read_back(std::slice::from_mut(&mut v));
+    v
+}
+
+/// A Modify writes only what changed: after the record read the row (`read`: the variable's own Get or ModifyAll's read,
+/// `records/time_rollover.rs`), a field that still holds the 00:00:00 it read from a Time held past the day keeps it
+/// (TimeRolledPastMidnight.al:252 `note_eq999`, :254 `midnight_eq999` after `Tm := 000000T`, :260 `modifyallnote_eq999`).
+/// A record that did not read the row writing 00:00:00 there is not measured and refused. `old` is the stored row, `new` the row
+/// about to be written.
+pub(crate) fn keep_rolled(old: &[Value], new: &mut [Value], read: bool) -> Result<(), Signal> {
+    for (o, n) in old.iter().zip(new) {
+        if is_rolled(o) && matches!(n, Value::Time(1)) {
+            if !read {
+                return Err(Signal::unsupported(
+                    "a Modify of a row that holds a Time stored as 23:59:59.999 by a record that did not read it (not measured)",
+                ));
+            }
+            *n = o.clone();
+        }
+    }
+    Ok(())
+}
+
+fn round_expr(e: &FilterExpr, rolls_over: bool) -> FilterExpr {
     use FilterExpr as F;
-    let r = |o: &Option<Value>| o.as_ref().map(rounded);
+    let one = |v: &Value| if rolls_over { rounded_filter(v) } else { rounded(v) };
+    let r = |o: &Option<Value>| o.as_ref().map(one);
     match e {
         F::Range(a, b) => F::Range(r(a), r(b)),
-        F::Eq(v) => F::Eq(rounded(v)),
-        F::RangeSame(v) => F::RangeSame(rounded(v)),
-        F::Ne(v) => F::Ne(rounded(v)),
-        F::Lt(v) => F::Lt(rounded(v)),
-        F::Le(v) => F::Le(rounded(v)),
-        F::Gt(v) => F::Gt(rounded(v)),
-        F::Ge(v) => F::Ge(rounded(v)),
-        F::Or(es) => F::Or(es.iter().map(round_expr).collect()),
-        F::And(es) => F::And(es.iter().map(round_expr).collect()),
-        F::UnpinnedText(inner) => F::UnpinnedText(Box::new(round_expr(inner))),
+        F::Eq(v) => F::Eq(one(v)),
+        F::RangeSame(v) => F::RangeSame(one(v)),
+        F::Ne(v) => F::Ne(one(v)),
+        F::Lt(v) => F::Lt(one(v)),
+        F::Le(v) => F::Le(one(v)),
+        F::Gt(v) => F::Gt(one(v)),
+        F::Ge(v) => F::Ge(one(v)),
+        F::Or(es) => F::Or(es.iter().map(|e| round_expr(e, rolls_over)).collect()),
+        F::And(es) => F::And(es.iter().map(|e| round_expr(e, rolls_over)).collect()),
+        F::UnpinnedText(inner) => F::UnpinnedText(Box::new(round_expr(inner, rolls_over))),
         F::Like(..) | F::NotLike(..) | F::AtSignAlone(_) | F::EmptyViewValue | F::NumCode(_) | F::UnpinnedMatch(..) => {
             e.clone()
         }
@@ -88,11 +168,12 @@ pub(crate) fn key_rounds(pk: &[Value]) -> bool {
 }
 
 /// The filters of a database table read with their Time and DateTime values rounded as the column rounds them; the record keeps
-/// its own (GetFilters shows `11:59:59.999 PM`): P130DateFilters.al:206-227.
-pub(crate) fn round_filters(t: &TableDef, filters: &mut [FieldFilter]) {
+/// its own (GetFilters shows `11:59:59.999 PM`): P130DateFilters.al:206-227. A [`keeps_past_midnight`] field compares
+/// 23:59:59.999 after the day ([`rounded_filter`]).
+pub(crate) fn round_filters(t: &TableDef, schema: &al_ir::Table, filters: &mut [FieldFilter]) {
     for f in filters {
         if t.fields[f.field].id < 2_000_000_000 && matches!(t.fields[f.field].ty, RtType::Time | RtType::DateTime) {
-            f.expr = round_expr(&f.expr);
+            f.expr = round_expr(&f.expr, keeps_past_midnight(t, schema, f.field));
         }
     }
 }
@@ -339,6 +420,7 @@ pub(crate) fn bad_field(
 /// is not measured).
 pub(crate) fn store(
     t: &TableDef,
+    schema: &al_ir::Table,
     field_caption: &dyn Fn(usize) -> String,
     table_caption: &str,
     row: &mut [Value],
@@ -364,7 +446,12 @@ pub(crate) fn store(
         // rounded key while the record keeps its own value (P130DateFilters.al:527-735, al-runner issue 5689). The system
         // fields keep the value the runtime stamps: whether the buffer then holds the rounded value is not pinned.
         if f.stored && f.id < 2_000_000_000 && matches!(f.ty, RtType::Time | RtType::DateTime) {
-            row[i] = rounded(&row[i]);
+            // The pinned field shape keeps the rollover after the day (TimeRolledPastMidnight.al:143-158).
+            if matches!(&row[i], Value::Time(v) if rolls(*v)) && keeps_past_midnight(t, schema, i) {
+                row[i] = Value::Time(ROLLED);
+            } else {
+                row[i] = rounded(&row[i]);
+            }
         }
     }
     Ok(Stored::Fits)

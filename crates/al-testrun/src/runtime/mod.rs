@@ -170,6 +170,15 @@ impl Manifest {
 
 /// The manifest fields `NavApp.GetCurrentModuleInfo` reports, from `dir/app.json`.
 pub fn load_manifest(dir: &std::path::Path) -> Result<Manifest, String> {
+    load_manifest_reading(dir).map(|(m, _)| m)
+}
+
+/// [`load_manifest`], with the files and folders outside `dir` it read or looked for: resource folders and the logo (a
+/// layout file outside `dir` is never read, `layout_file_at`); a warm server keeps the app while they are unchanged
+/// (alrunner-cli `kept_apps.rs`).
+pub fn load_manifest_reading(dir: &std::path::Path) -> Result<(Manifest, Vec<std::path::PathBuf>), String> {
+    let mut outside = Vec::new();
+    let is_outside = |p: &std::path::Path| !lexical(p).starts_with(&lexical(dir));
     let manifest: serde_json::Value = serde_json::from_str(&al_deps::load::read_text(&dir.join("app.json"))?)
         .map_err(|e| format!("{}/app.json: {e}", dir.display()))?;
     let s = |k: &str| manifest[k].as_str().unwrap_or_default().to_string();
@@ -181,6 +190,9 @@ pub fn load_manifest(dir: &std::path::Path) -> Result<Manifest, String> {
         .filter_map(|f| f.as_str())
     {
         let root = dir.join(folder);
+        if is_outside(&root) {
+            outside.push(root.clone());
+        }
         let mut stack = vec![root.clone()];
         while let Some(d) = stack.pop() {
             let Ok(entries) = std::fs::read_dir(&d) else { continue };
@@ -196,7 +208,10 @@ pub fn load_manifest(dir: &std::path::Path) -> Result<Manifest, String> {
         }
     }
     resources.sort();
-    Ok(Manifest {
+    if let Some(logo) = manifest["logo"].as_str().map(|l| dir.join(l)).filter(|l| is_outside(l)) {
+        outside.push(logo);
+    }
+    let manifest = Manifest {
         publisher: s("publisher"),
         version: s("version"),
         resources,
@@ -234,7 +249,8 @@ pub fn load_manifest(dir: &std::path::Path) -> Result<Manifest, String> {
             .unwrap_or_default(),
         // An app folder is never the platform package here: its `internalsVisibleTo` is not read.
         platform_internals_visible_to: Vec::new(),
-    })
+    };
+    Ok((manifest, outside))
 }
 
 /// Every corpus test's outcome on this runtime, keyed by (codeunit id, procedure).

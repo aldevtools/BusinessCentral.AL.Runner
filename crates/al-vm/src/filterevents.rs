@@ -110,7 +110,7 @@ impl Session {
             }
             return Ok(None);
         }
-        if self.global_language == 1033 {
+        if self.global_language() == 1033 {
             return self.repair_date_filter_text(text, reads);
         }
         Ok(None)

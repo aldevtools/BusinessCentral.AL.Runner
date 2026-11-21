@@ -158,6 +158,9 @@ refusal on a shape main ran is a regression, often in Base App code that partner
   on the wrong item after a splice.
 - PR body claims that the code does not do ("outside shapes keep the old path", "stays refused"), a refused
   cells list that misses cells, file names that changed, "green on 27.5 and 28.5" when that CI failed.
+- An ADR or PR body says an issue is closed because a step now runs. Check the outcome of the corpus case the
+  text cites as the pin, on the binary. A cited case that is on a not-passing list is not closed (ADR-076 draft,
+  al-runner #8160).
 - Before hand-back, read the PR body and the area table against the final diff and the actual CI result.
 - Run the tests of every crate whose tests call the changed path, not only the crates whose source changed:
   `grep -rn` the changed member or refusal text under `crates/*/tests` first.
@@ -365,3 +368,20 @@ local subscriber with skip flags false, and a caller record with one group-0 fil
 The first version of the bump kept `EventArg::Measured` as wide as the old entry ("any publisher, any argument"), so
 two subscribers, a publisher with more parameters and a record that had read a row ran unmarked. Read the deleted entry's
 "assumed beyond" and "wanted next" lists, and give each item a Rust test that shows it refuses.
+
+## 25. A gate compares names, not bodies (al-runner PR 7838 round 2, PR 8536 round 3)
+
+A gate that checks which triggers, procedures or subscribers exist lets any body run under the pin. PR 7838 round 2: the
+entry checked names or a subset of the page, so pages the repro does not show ran flagged; `pinned_body.rs` was written for
+it. PR 8536 round 3: the SaveRecord cells' gate named the table's OnInsert and OnModify and the page triggers, so a table
+OnModify that inserted into another table, set a field or raised, and an OnAfterGetCurrRecord that wrote, ran flagged.
+State the pin's lines (`pinned_body::page_lines`, `table_lines`) and require them all with `page_is`, `table_is` and
+`callees_are`. Extend the renderer when the pin holds a statement it does not write yet; never compare less.
+
+## 26. A value kind a new lowering builds reaches every reader of the old kind (al-runner PR 8003, and the TextConstant readers of main 233c9ea)
+
+- A Label assigned to a local Variant became a TextConstant (`Value::TextConst`) where main built a Text. A record field
+  assignment, `Validate`, `SetFilter`, `FieldRef.Value`, `List.Add`, `Evaluate` and `StrSubstNo` did not know the new kind
+  and refused mid-run, where main answered.
+- Fix: one owner of what a reader gets (`conv/text_constant.rs`), called from every place a Variant's value is read. Rust
+  tests that each old reader keeps main's value.

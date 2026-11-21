@@ -647,10 +647,10 @@ fn install_app_under_test(
             // A4 item 2: SingleInstance state starts again in each company and in the per-database part.
             session.reset_single_instances();
             session.set_company(&in_company);
-            // A4 item 4: Company Triggers in each company, before the routines. Under `--companies` the dependency
-            // apps stay in the session company (decision 5): in another company only the subscribers of the apps
-            // under test run (decided without owner review, 2026-10-29, ADR-046 amendment 2).
-            let with_dependencies = in_company == company;
+            // A4 item 4: Company Triggers in each company, before the routines. Dependency apps stay in the session
+            // company without backup data (decision 5); selected backup companies also run their subscribers
+            // (ADR-046 amendment 9).
+            let with_dependencies = in_company == company || engine.test_data.is_some();
             if let Some(why) = &unknown {
                 let subscribers = if part == Part::Company {
                     company_open_subscribers(lowered, &engine.events, |o| {
@@ -1079,7 +1079,7 @@ pub(crate) fn apps_under_test(lowered: &Lowered) -> BTreeSet<u32> {
 /// The subscribers of `Company Triggers` OnCompanyOpen, then OnCompanyOpenCompleted, that are not manual and whose object
 /// `keep` selects, each event in the order BC raises an event to its subscribers (ascending codeunit id: `al-vm`
 /// `dispatch.rs` `event_targets`).
-fn company_open_subscribers(
+pub(crate) fn company_open_subscribers(
     lowered: &Lowered,
     events: &al_vm::events::Registry,
     keep: impl Fn(usize) -> bool,
@@ -1108,10 +1108,10 @@ fn company_open_subscribers(
 /// probe Q3: the tables that relies on mark the tests that touch them (`facts`, `InstallFacts::assumed`). A subscriber of
 /// any app that cannot run here stops the app's per-company install routines, and what it and they touch is refused.
 ///
-/// `with_dependencies` false (a company other than the session company under `--companies`): the dependency apps' subscribers
-/// do not run there, since the dependency apps stay in the session company (ADR-046 decision 5, amendment 2). They run with
-/// the tables of `skipped` watched ([`watching_skipped`]).
-fn company_open(
+/// `with_dependencies` false (a company other than the session company under `--companies`): the dependency apps'
+/// subscribers do not run there without backup data (ADR-046 decision 5, amendment 2). Selected backup companies also
+/// run their subscribers (ADR-046 amendment 9). They run with the tables of `skipped` watched ([`watching_skipped`]).
+pub(crate) fn company_open(
     lowered: &Lowered,
     session: &mut Session,
     skipped: &[al_vm::SkippedInstall],
@@ -1142,7 +1142,7 @@ fn company_open(
         });
     }
     let all = company_open_subscribers(lowered, &engine.events, |o| {
-        (lowered.dependency[o] || !not_installed.contains(&objs[o].app))
+        !not_installed.contains(&objs[o].app)
             && (with_dependencies || !lowered.dependency[o])
             && !unknown.contains(&objs[o].app)
     });
@@ -1496,7 +1496,10 @@ fn own_login(
             "{} raised to the login subscribers of the apps under test",
             lowered.program.objects[po].routines[pr].name
         );
+        let at = session.left_stamp();
         call_before_first_test(lowered, session, &what, |s| s.raise_to(po, pr, &step.subscribers))?;
+        let singles = at.changed(&session.left_stamp()).singles;
+        crate::partner_login::own_step(lowered, session, singles, &mut partner);
         // On BC the registration events are raised inside Base Application's "Checklist Events" subscriber of the
         // isolated OnAfterLogin, whose own transaction commits before the app's OnAfterLogin subscribers run; an isolated
         // event isolates a subscriber only when nothing is pending (codeunits/TestIsolatedEventSubscriberError.al:5-11,
@@ -1874,8 +1877,8 @@ fn replayable(
 }
 
 /// Install code that did not run to its end: why, and what `stopped_state::roll_back_stopped_install` needs.
-struct Stopped {
-    why: String,
+pub(crate) struct Stopped {
+    pub(crate) why: String,
     root: (usize, usize),
     /// The session language and WorkDate right before `root` ran.
     before: al_vm::CarriedState,
@@ -1896,7 +1899,7 @@ impl Stopped {
     /// end and kept them: those tables join `skipped` too, besides the ones the callers' [`refuse`] names from the static
     /// reach of the install code `refused`, which misses a table written through a RecordRef (review of al-runner PR
     /// 8119, probes n19, n19b and n19c). A table [`refuse`] names keeps that refusal's reason, as on main.
-    fn roll_back(
+    pub(crate) fn roll_back(
         &self,
         lowered: &Lowered,
         session: &mut Session,

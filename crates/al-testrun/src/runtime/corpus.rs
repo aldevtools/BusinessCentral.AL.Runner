@@ -609,6 +609,12 @@ impl CorpusRuntime {
         // with the compile cache keeps a baseline.
         let uncovered = use_cache.then(|| super::baseline_key::uncovered_apps(manifests, &identities, n_cached));
         let any_lazy = lazy.iter().any(Option::is_some);
+        let company_install_events = opts.test_data.is_some()
+            && match crate::host::companies() {
+                al_host::Companies::One => false,
+                al_host::Companies::List(companies) => companies.len() > 1,
+                al_host::Companies::All => true,
+            };
         let fill_all = |apps: &mut Vec<al_sema::workspace::AppSource>| {
             for (a, l) in apps.iter_mut().zip(&lazy) {
                 if let Some(l) = l {
@@ -618,6 +624,7 @@ impl CorpusRuntime {
         };
         let roots = al_sema::check::Roots {
             baseline: baseline_wanted,
+            company_install_events,
             company_data: opts
                 .company_data
                 .iter()
@@ -1077,11 +1084,7 @@ impl CorpusRuntime {
             );
             global_triggers_find_unavailable(&mut engine, lowered);
             if let Some(e) = Arc::get_mut(&mut engine) {
-                (e.test_data, e.private_test_rows) = (opts.test_data.clone(), opts.private_baseline);
-                e.license = opts.license.clone();
-                e.write_in_try_allowed = opts.allow_write_in_try_functions;
-                e.dependencies_published_global = opts.dependencies_published_global;
-                e.skipped_apps = opts.skipped_dependencies.clone();
+                set_run_options(e, opts);
             }
             engine
         };
@@ -1942,16 +1945,23 @@ impl CorpusRuntime {
     }
 }
 
+/// What a run sets on an engine on top of what `Engine::with_config` makes: the one list for a new engine, a sibling and a
+/// kept engine.
+fn set_run_options(e: &mut Engine, opts: &RunOptions) {
+    (e.test_data, e.private_test_rows) = (opts.test_data.clone(), opts.private_baseline);
+    e.license = opts.license.clone();
+    e.emit_version = opts.emit_version.clone();
+    e.write_in_try_allowed = opts.allow_write_in_try_functions;
+    e.dependencies_published_global = opts.dependencies_published_global;
+    e.skipped_apps = opts.skipped_dependencies.clone();
+}
+
 /// The tests' engine (with several test threads): it shares what `make_engine` worked out from the program with the
 /// install baseline's engine (`Engine::sibling`); what `make_engine` sets on top is set again.
 fn sibling_of(engine: &Arc<Engine>, opts: &RunOptions) -> Arc<Engine> {
     let mut sibling = engine.sibling();
     if let Some(e) = Arc::get_mut(&mut sibling) {
-        (e.test_data, e.private_test_rows) = (opts.test_data.clone(), opts.private_baseline);
-        e.license = opts.license.clone();
-        e.write_in_try_allowed = opts.allow_write_in_try_functions;
-        e.dependencies_published_global = opts.dependencies_published_global;
-        e.skipped_apps = opts.skipped_dependencies.clone();
+        set_run_options(e, opts);
     }
     sibling
 }
@@ -2228,11 +2238,7 @@ fn take_kept_engines(
         // Every field a run sets, back to what `Engine::with_config` makes; then what `make_engine` sets.
         e.reset_run_state();
         e.dotnet = dotnet.clone();
-        (e.test_data, e.private_test_rows) = (opts.test_data.clone(), opts.private_baseline);
-        e.license = opts.license.clone();
-        e.write_in_try_allowed = opts.allow_write_in_try_functions;
-        e.dependencies_published_global = opts.dependencies_published_global;
-        e.skipped_apps = opts.skipped_dependencies.clone();
+        set_run_options(e, opts);
         Some(engine)
     };
     let install = reset(k.install);
