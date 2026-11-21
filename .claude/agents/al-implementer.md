@@ -58,7 +58,9 @@ In your report, add one line: "Self-check: items 1-10 in the PR body", and list 
 ## Flow before DONE (owner, 2026-11-21)
 
 Do everything before asking for review: neighbor apps under `tests/neighbors/`, `tools/neighbor-diff.sh`, tests of
-the touched and dependent crates and `al-test-cli`, local `--baseline-diff` on BC 29. Push only when these pass
+the touched and dependent crates and `al-test-cli`, local `--baseline-diff` on BC 27, 28 and 29 (self-check 10).
+CI runs the neighbor apps on BC 29 only. A change that a BC version decides (a version guard, a major-gated table)
+runs them locally with `--bc-version 27 --bc-version 28 --bc-version 29` and pastes the three tables. Push only when these pass
 locally: every push costs a CI run and CI runners are a bottleneck. Aim for one push, at most a few. Then watch the
 draft CI (`test` and the "neighbor check", about 8 minutes). CI red: you fix and push again. Hand back DONE ("sound,
 ready for review") only when draft CI is green and every self-check item is done. Full CI (corpus) runs on ready and

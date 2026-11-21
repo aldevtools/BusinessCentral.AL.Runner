@@ -1,8 +1,8 @@
-//! `tools/neighbor-diff.sh` (tests/neighbors/README.md). Its rule (`--plan`): a change of runtime code comes with a
-//! folder under tests/neighbors/. Its table: `tools/compare_junit.py --entries FILE MAIN.xml HEAD.xml` is the comparison `tools/neighbor-diff.sh` prints: a
-//! markdown table of every test whose outcome differs between a main binary and the head binary, with the entry the
-//! author wrote for it (PINNED file:line, ASSUMED id, or REFUSED text). It exits 1 while a difference has no valid
-//! entry, so an implementer cannot hand back a neighbor that changed without saying why.
+//! The table of `tools/neighbor-diff.sh` (tests/neighbors/README.md): `tools/compare_junit.py --entries FILE MAIN.xml
+//! HEAD.xml` prints every test whose outcome differs between a main binary and the head binary, with the entry the
+//! author wrote for it (PINNED file:line, ASSUMED id, or REFUSED text). An entry counts only when it states the head
+//! result and its evidence exists. It exits 1 while a difference has no such entry, or an entry has no difference, so
+//! an implementer cannot hand back a neighbor that changed without saying why. The rule: `neighbor_rule.rs`.
 
 use std::path::{Path, PathBuf};
 use std::process::Output;
@@ -28,11 +28,31 @@ fn junit(dir: &Path, file: &str, cases: &[(&str, &str)]) -> PathBuf {
     p
 }
 
+/// A repository root with one corpus file of 200 lines and one assumption entry, the evidence the entries cite.
+fn evidence(dir: &Path) -> PathBuf {
+    let root = dir.join("root");
+    let corpus = root.join("corpus/tests/al-language/pages");
+    std::fs::create_dir_all(&corpus).unwrap();
+    std::fs::write(corpus.join("PartRefill.al"), "x\n".repeat(200)).unwrap();
+    let registry = root.join("crates/al-builtins/src/assumptions");
+    std::fs::create_dir_all(&registry).unwrap();
+    std::fs::write(registry.join("left-view-filter.rs"), "").unwrap();
+    std::fs::write(registry.join("other-id.rs"), "").unwrap();
+    root
+}
+
 fn compare(dir: &Path, main: &Path, head: &Path, entries: &str) -> (i32, String) {
+    compare_on(dir, main, head, entries, &[])
+}
+
+fn compare_on(dir: &Path, main: &Path, head: &Path, entries: &str, extra: &[&str]) -> (i32, String) {
     let e = dir.join("entries.tsv");
     std::fs::write(&e, entries).unwrap();
     let o: Output = std::process::Command::new("python3")
         .arg(root().join("tools/compare_junit.py"))
+        .arg("--root")
+        .arg(evidence(dir))
+        .args(extra)
         .arg("--entries")
         .arg(&e)
         .arg(main)
@@ -48,7 +68,7 @@ fn compare(dir: &Path, main: &Path, head: &Path, entries: &str) -> (i32, String)
 }
 
 const REFUSED: &str = "<skipped message=\"First() on a part whose view is not pinned\" />";
-const FLAGGED: &str = "<properties><property name=\"assumptions\" value=\"A17\" /></properties>";
+const FLAGGED: &str = "<properties><property name=\"assumptions\" value=\"left-view-filter\" /></properties>";
 
 #[test]
 fn a_difference_without_an_entry_fails_and_shows_an_empty_entry() {
@@ -73,7 +93,7 @@ fn each_kind_of_entry_lets_its_difference_through() {
     let head = junit(d.path(), "h.xml", &[("A", ""), ("B", FLAGGED), ("C", REFUSED)]);
     let entries = "# a comment\n\
         P::A\tPINNED tests/al-language/pages/PartRefill.al:120\n\
-        P::B\tASSUMED A17 (corpus PR 1450)\n\
+        P::B\tASSUMED left-view-filter (corpus PR 1450)\n\
         P::C\tREFUSED First() on a part whose view is not pinned\n";
     let (code, out) = compare(d.path(), &main, &head, entries);
     assert_eq!(code, 0, "{out}");
@@ -82,7 +102,7 @@ fn each_kind_of_entry_lets_its_difference_through() {
         "{out}"
     );
     assert!(
-        out.contains("| pass, flagged (A17) | ASSUMED A17 (corpus PR 1450) |"),
+        out.contains("| pass, flagged (left-view-filter) | ASSUMED left-view-filter (corpus PR 1450) |"),
         "{out}"
     );
     assert!(out.contains("3 of 3 tests differ, 0 without an entry"), "{out}");
@@ -107,7 +127,10 @@ fn a_clean_pass_that_becomes_flagged_is_a_difference() {
     let head = junit(d.path(), "h.xml", &[("A", FLAGGED)]);
     let (code, out) = compare(d.path(), &main, &head, "");
     assert_eq!(code, 1, "{out}");
-    assert!(out.contains("| P::A | pass | pass, flagged (A17) | MISSING |"), "{out}");
+    assert!(
+        out.contains("| P::A | pass | pass, flagged (left-view-filter) | MISSING |"),
+        "{out}"
+    );
 }
 
 #[test]
@@ -149,113 +172,6 @@ fn a_bar_in_a_reason_does_not_break_the_table() {
     assert!(out.contains("| not run: a \\| b |"), "{out}");
 }
 
-fn git(dir: &Path, args: &[&str]) -> String {
-    let o = std::process::Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(args)
-        .output()
-        .expect("git runs");
-    assert!(
-        o.status.success(),
-        "git {args:?}: {}",
-        String::from_utf8_lossy(&o.stderr)
-    );
-    String::from_utf8_lossy(&o.stdout).trim().to_string()
-}
-
-fn write(dir: &Path, rel: &str, text: &str) {
-    let p = dir.join(rel);
-    std::fs::create_dir_all(p.parent().unwrap()).unwrap();
-    std::fs::write(p, text).unwrap();
-}
-
-/// A repository whose first commit holds one runtime file and one test file; returns it and that commit.
-fn repo() -> (tempfile::TempDir, String) {
-    let d = tempfile::tempdir().unwrap();
-    git(d.path(), &["init", "-q"]);
-    git(d.path(), &["config", "user.email", "t@example.com"]);
-    git(d.path(), &["config", "user.name", "t"]);
-    write(d.path(), "crates/x/src/a.rs", "fn a() {}\n");
-    write(d.path(), "crates/x/tests/t.rs", "fn t() {}\n");
-    git(d.path(), &["add", "."]);
-    git(d.path(), &["-c", "commit.gpgsign=false", "commit", "-q", "-m", "base"]);
-    let base = git(d.path(), &["rev-parse", "HEAD"]);
-    (d, base)
-}
-
-/// `neighbor-diff.sh --plan --base BASE` run in `dir`.
-fn plan(dir: &Path, base: &str) -> (i32, String) {
-    let o = std::process::Command::new("bash")
-        .arg(root().join("tools/neighbor-diff.sh"))
-        .args(["--plan", "--base", base])
-        .current_dir(dir)
-        .env_remove("GITHUB_OUTPUT")
-        .output()
-        .expect("bash runs");
-    let text = format!(
-        "{}{}",
-        String::from_utf8_lossy(&o.stdout),
-        String::from_utf8_lossy(&o.stderr)
-    );
-    (o.status.code().unwrap_or(-1), text)
-}
-
-#[test]
-fn a_runtime_change_without_a_neighbor_folder_fails_the_rule() {
-    let (d, base) = repo();
-    write(d.path(), "crates/x/src/a.rs", "fn a() { let _ = 1; }\n");
-    let (code, out) = plan(d.path(), &base);
-    assert_eq!(code, 1, "{out}");
-    assert!(out.contains("Runtime code changed (crates/x/src/a.rs"), "{out}");
-}
-
-#[test]
-fn a_none_file_with_its_reason_satisfies_the_rule_and_an_empty_one_does_not() {
-    let (d, base) = repo();
-    write(d.path(), "crates/x/src/a.rs", "fn a() { let _ = 1; }\n");
-    write(d.path(), "tests/neighbors/topic/none.txt", "");
-    let (code, out) = plan(d.path(), &base);
-    assert_eq!(code, 1, "{out}");
-    assert!(out.contains("tests/neighbors/topic: none.txt is empty"), "{out}");
-    write(d.path(), "tests/neighbors/topic/none.txt", "only a log line changed\n");
-    let (code, out) = plan(d.path(), &base);
-    assert_eq!(code, 0, "{out}");
-    assert!(
-        out.contains("tests/neighbors/topic: no neighbor app. Reason: only a log line changed"),
-        "{out}"
-    );
-    assert!(out.contains("neighbor apps: 0"), "{out}");
-}
-
-#[test]
-fn a_neighbor_app_is_listed_and_a_folder_without_app_or_reason_fails() {
-    let (d, base) = repo();
-    write(d.path(), "crates/x/src/a.rs", "fn a() { let _ = 1; }\n");
-    write(d.path(), "tests/neighbors/topic/app.json", "{}");
-    write(d.path(), "tests/neighbors/topic/src/P.al", "");
-    let (code, out) = plan(d.path(), &base);
-    assert_eq!(code, 0, "{out}");
-    assert!(out.contains("neighbor apps: 1"), "{out}");
-    write(d.path(), "tests/neighbors/other/differences.tsv", "");
-    let (code, out) = plan(d.path(), &base);
-    assert_eq!(code, 1, "{out}");
-    assert!(
-        out.contains("tests/neighbors/other: holds neither app.json nor none.txt"),
-        "{out}"
-    );
-}
-
-#[test]
-fn a_pure_rename_or_a_test_change_needs_no_neighbor_folder() {
-    let (d, base) = repo();
-    git(d.path(), &["mv", "crates/x/src/a.rs", "crates/x/src/b.rs"]);
-    write(d.path(), "crates/x/tests/t.rs", "fn t() { let _ = 2; }\n");
-    let (code, out) = plan(d.path(), &base);
-    assert_eq!(code, 0, "{out}");
-    assert!(out.contains("neighbor apps: 0"), "{out}");
-}
-
 #[test]
 fn files_without_a_test_fail_instead_of_showing_no_difference() {
     let d = tempfile::tempdir().unwrap();
@@ -264,4 +180,109 @@ fn files_without_a_test_fail_instead_of_showing_no_difference() {
     let (code, out) = compare(d.path(), &main, &head, "");
     assert_eq!(code, 1, "{out}");
     assert!(out.contains("neither file has a test"), "{out}");
+}
+
+#[test]
+fn a_refused_entry_needs_a_head_refusal_that_starts_with_its_text() {
+    let d = tempfile::tempdir().unwrap();
+    let main = junit(d.path(), "m.xml", &[("A", REFUSED), ("B", ""), ("C", "")]);
+    let head = junit(d.path(), "h.xml", &[("A", ""), ("B", REFUSED), ("C", REFUSED)]);
+    let entries = "P::A\tREFUSED First() on a part\n\
+        P::B\tREFUSED another refusal\n\
+        P::C\tREFUSED First() on a part\n";
+    let (code, out) = compare(d.path(), &main, &head, entries);
+    assert_eq!(code, 1, "{out}");
+    assert!(
+        out.contains("| P::A | not run: First() on a part whose view is not pinned | pass | MISSING |"),
+        "{out}"
+    );
+    assert!(out.contains("3 of 3 tests differ, 2 without an entry"), "{out}");
+}
+
+#[test]
+fn an_assumed_entry_needs_its_id_in_the_head_flags_and_in_the_registry() {
+    let d = tempfile::tempdir().unwrap();
+    let flagged = |id: &str| format!("<properties><property name=\"assumptions\" value=\"{id}\" /></properties>");
+    let (nowhere, two) = (flagged("nowhere-id"), flagged("other-id,left-view-filter"));
+    let main = junit(
+        d.path(),
+        "m.xml",
+        &[("A", REFUSED), ("B", REFUSED), ("C", REFUSED), ("D", REFUSED)],
+    );
+    let head = junit(
+        d.path(),
+        "h.xml",
+        &[("A", ""), ("B", FLAGGED), ("C", &nowhere), ("D", &two)],
+    );
+    let entries = "P::A\tASSUMED left-view-filter\n\
+        P::B\tASSUMED other-id\n\
+        P::C\tASSUMED nowhere-id\n\
+        P::D\tASSUMED left-view-filter\n";
+    let (code, out) = compare(d.path(), &main, &head, entries);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("| P::D |"), "{out}");
+    assert!(out.contains("4 of 4 tests differ, 3 without an entry"), "{out}");
+}
+
+#[test]
+fn a_pinned_entry_needs_a_clean_head_result_and_an_existing_corpus_line() {
+    let d = tempfile::tempdir().unwrap();
+    let main = junit(
+        d.path(),
+        "m.xml",
+        &[
+            ("A", REFUSED),
+            ("B", REFUSED),
+            ("C", REFUSED),
+            ("D", ""),
+            ("E", REFUSED),
+        ],
+    );
+    let head = junit(
+        d.path(),
+        "h.xml",
+        &[("A", FLAGGED), ("B", ""), ("C", ""), ("D", REFUSED), ("E", "")],
+    );
+    let entries = "P::A\tPINNED tests/al-language/pages/PartRefill.al:1\n\
+        P::B\tPINNED nowhere.al:1\n\
+        P::C\tPINNED tests/al-language/pages/PartRefill.al:201\n\
+        P::D\tPINNED tests/al-language/pages/PartRefill.al:1\n\
+        P::E\tPINNED tests/al-language/pages/PartRefill.al:200\n";
+    let (code, out) = compare(d.path(), &main, &head, entries);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("| P::E | not run"), "{out}");
+    assert!(out.contains("5 of 5 tests differ, 4 without an entry"), "{out}");
+}
+
+#[test]
+fn an_entry_whose_test_shows_no_difference_is_stale_and_fails() {
+    let d = tempfile::tempdir().unwrap();
+    let main = junit(d.path(), "m.xml", &[("A", "")]);
+    let head = junit(d.path(), "h.xml", &[("A", "")]);
+    let (code, out) = compare(d.path(), &main, &head, "P::A\tREFUSED x\nP::Gone\tREFUSED y\n");
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("stale entry, no difference: P::A"), "{out}");
+    assert!(out.contains("stale entry, no difference: P::Gone"), "{out}");
+}
+
+#[test]
+fn an_entry_for_one_bc_major_counts_only_on_that_major() {
+    let d = tempfile::tempdir().unwrap();
+    let main = junit(d.path(), "m.xml", &[("A", REFUSED)]);
+    let head = junit(d.path(), "h.xml", &[("A", "")]);
+    let entries = "P::A @27\tPINNED tests/al-language/pages/PartRefill.al:1\n";
+    let (code, out) = compare_on(d.path(), &main, &head, entries, &["--major", "27"]);
+    assert_eq!(code, 0, "{out}");
+    // On 29 the entry neither applies nor is stale: the difference has no entry.
+    let (code, out) = compare_on(d.path(), &main, &head, entries, &["--major", "29"]);
+    assert_eq!(code, 1, "{out}");
+    assert!(
+        out.contains("| P::A | not run: First() on a part whose view is not pinned | pass | MISSING |"),
+        "{out}"
+    );
+    assert!(!out.contains("stale"), "{out}");
+    let same = junit(d.path(), "s.xml", &[("A", REFUSED)]);
+    let (code, out) = compare_on(d.path(), &main, &same, entries, &["--major", "27"]);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("stale entry, no difference: P::A @27"), "{out}");
 }

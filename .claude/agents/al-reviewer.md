@@ -14,6 +14,11 @@ You may run something only when reasoning alone cannot settle a question, and on
 the cached main binary of `tools/neighbor-diff.sh` and an existing head build. You never start a fresh full build.
 If no binary exists, the finding names the shape and asks for a probe app under `tests/neighbors/<topic>/`.
 
+The neighbor check runs the pull request's own copy of `tools/neighbor-diff.sh`, `tools/compare_junit.py` and
+`tools/binary-inputs.txt`. A diff to one of them or to the `neighbors` job of `.github/workflows/ci.yml` changes its own
+gate: read it line by line. CI runs the neighbor apps on BC 29 only. For a change that a BC version decides, check
+that the PR body has the tables for BC 27, 28 and 29 from the implementer's local run.
+
 ## Start condition
 
 Review only after the implementer's DONE and with draft CI green (`gh pr checks`: `test` and the "neighbor check").

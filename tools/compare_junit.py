@@ -2,7 +2,7 @@
 """Compares the test outcomes of two JUnit files written by `al-test-cli --junit` or `al-runner --junit`.
 
 Usage: compare_junit.py DEMAND.xml EAGER.xml [--allow FILE] [--reasons]
-       compare_junit.py --entries FILE [--title TEXT] MAIN.xml HEAD.xml
+       compare_junit.py --entries FILE [--title TEXT] [--major N] [--root DIR] MAIN.xml HEAD.xml
 
 Prints every test whose outcome (pass, fail, not run) differs, with both reasons, and exits 1 if
 there is any. `--allow` names a file of `classname::name` lines (comments start with `#`) whose
@@ -14,9 +14,12 @@ compiles from source (ADR-063, `--reasons`).
 `--entries` is the table `tools/neighbor-diff.sh` prints: one markdown row per test whose outcome differs
 between a main binary and the head binary. A difference is another status, another set of assumption ids
 (a clean pass that became flagged), or another failure message; a refusal's text is not compared. FILE
-holds `classname::name<TAB>entry` lines; an entry is `PINNED file:line`, `ASSUMED id ...` or
-`REFUSED text`. Exit 1 while a difference has no such entry, or when neither file has a test.
+holds `classname::name<TAB>entry` lines (tests/neighbors/README.md); a key ending in ` @N` applies only with
+`--major N`. An entry counts only when it states the head result and its evidence exists under `--root`
+(default: this repository), see `states_head`. Exit 1 while a difference has no such entry, while an entry
+has no difference (stale), or when neither file has a test.
 """
+import os
 import re
 import sys
 import xml.etree.ElementTree as ET
@@ -37,7 +40,36 @@ def outcomes(path):
     return out
 
 
-ENTRY = re.compile(r"^(PINNED \S+:\d+|ASSUMED \S+|REFUSED \S)")
+ID = re.compile(r"[a-z0-9]+(-[a-z0-9]+)*")
+
+
+def states_head(entry, head, root):
+    """Whether `entry` states the head result `head` (status, message, ids) and cites evidence that exists.
+
+    REFUSED text: the head does not run the test, with a message that starts with text.
+    ASSUMED id: the head ran through id, and id is an assumption registry entry (al-builtins build.rs: the file
+    name is the id).
+    PINNED file:line: the head passes or fails clean, and corpus/<file> has that line.
+    """
+    status, why, ids = head
+    kind, _, rest = entry.partition(" ")
+    if kind == "REFUSED":
+        return status == "not run" and rest.strip() != "" and why.startswith(rest)
+    if kind == "ASSUMED":
+        aid = rest.split(" ", 1)[0]
+        flags = [i.strip() for i in ids.split(",")]
+        registry = os.path.join(root, "crates", "al-builtins", "src", "assumptions", aid + ".rs")
+        return ID.fullmatch(aid) is not None and aid in flags and os.path.isfile(registry)
+    if kind == "PINNED":
+        m = re.fullmatch(r"([\w./-]+):([1-9]\d*)(\s.*)?", rest)
+        if not m or ids or status not in ("pass", "fail") or ".." in m.group(1).split("/"):
+            return False
+        path = os.path.join(root, "corpus", m.group(1))
+        if not os.path.isfile(path):
+            return False
+        with open(path, "rb") as f:
+            return sum(1 for _ in f) >= int(m.group(2))
+    return False
 
 
 def cell(o):
@@ -46,11 +78,25 @@ def cell(o):
     return text.replace("|", "\\|").replace("\n", " ")
 
 
-def entries_table(path, title, main, head):
-    """The neighbor table (see the module text); returns the exit code."""
+def read_entries(path, major):
+    """The entries of FILE that apply on BC major `major`: key -> entry."""
     with open(path) as f:
         rows = [l.rstrip("\n").split("\t", 1) for l in f if l.strip() and not l.startswith("#")]
-    entries = {r[0].strip(): r[1].strip() for r in rows if len(r) == 2}
+    entries = {}
+    for r in rows:
+        if len(r) != 2:
+            continue
+        key = r[0].strip()
+        m = re.fullmatch(r"(.*) @(\d+)", key)
+        if m and m.group(2) != major:
+            continue
+        entries[m.group(1) if m else key] = (key, r[1].strip())
+    return entries
+
+
+def entries_table(path, title, main, head, root, major):
+    """The neighbor table (see the module text); returns the exit code."""
+    entries = read_entries(path, major)
     if title:
         print(f"### {title}\n")
     if not main and not head:
@@ -59,18 +105,25 @@ def entries_table(path, title, main, head):
     print("| test | main | head | entry |\n|---|---|---|---|")
     keys = sorted(set(main) | set(head))
     differ = missing = 0
+    used = set()
     for key in keys:
         m, h = main.get(key, ("missing", "", "")), head.get(key, ("missing", "", ""))
         if m[0] == h[0] and m[2] == h[2] and (m[0] != "fail" or m[1] == h[1]):
             continue
         differ += 1
-        entry = entries.get(key, "")
-        if not ENTRY.match(entry):
+        used.add(key)
+        entry = entries.get(key, ("", ""))[1]
+        if not states_head(entry, h, root):
             missing += 1
             entry = "MISSING"
         print(f"| {key} | {cell(m)} | {cell(h)} | {entry.replace('|', chr(92) + '|')} |")
     print(f"\n{differ} of {len(keys)} tests differ, {missing} without an entry\n")
-    return 1 if missing else 0
+    stale = sorted(written for key, (written, _) in entries.items() if key not in used)
+    for written in stale:
+        print(f"stale entry, no difference: {written}")
+    if stale:
+        print()
+    return 1 if missing or stale else 0
 
 
 def main(argv):
@@ -83,6 +136,16 @@ def main(argv):
     if "--title" in args:
         i = args.index("--title")
         title = args[i + 1]
+        del args[i : i + 2]
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if "--root" in args:
+        i = args.index("--root")
+        root = args[i + 1]
+        del args[i : i + 2]
+    major = ""
+    if "--major" in args:
+        i = args.index("--major")
+        major = args[i + 1]
         del args[i : i + 2]
     entries = None
     if "--entries" in args:
@@ -99,7 +162,7 @@ def main(argv):
         return 2
     demand, eager = outcomes(args[0]), outcomes(args[1])
     if entries is not None:
-        return entries_table(entries, title, demand, eager)
+        return entries_table(entries, title, demand, eager, root, major)
     bad = 0
     for key in sorted(set(demand) | set(eager)):
         d = demand.get(key, ("missing", "", ""))

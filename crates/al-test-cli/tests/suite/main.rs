@@ -145,6 +145,7 @@ mod modal_parts_veto;
 mod ms_top_refusals_3;
 mod native_not_reached;
 mod neighbor_diff;
+mod neighbor_rule;
 mod new_document_and_empty_worksheet;
 mod new_line_found_row_save;
 mod no_microsoft_source_in_repo;

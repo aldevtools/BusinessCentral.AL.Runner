@@ -22,6 +22,25 @@ fn the_neighbor_job_runs_on_drafts_with_a_read_only_token_and_checks_the_rule_fi
     );
 }
 
+/// The corpus is checked out only when the rule step lists apps, and each run attempt names its own artifact.
+#[test]
+fn the_neighbor_job_checks_out_the_corpus_only_for_apps() {
+    let neighbors = job(&read(".github/workflows/ci.yml"), "neighbors");
+    assert!(!neighbors.contains("submodules: true"), "{neighbors}");
+    before(
+        &neighbors,
+        "run: tools/neighbor-diff.sh --base HEAD^1 --plan",
+        "git submodule update --init --depth 1 corpus",
+    );
+    let fetch = &neighbors[..neighbors.find("git submodule update --init --depth 1 corpus").unwrap()];
+    let condition = fetch.lines().rev().find(|l| l.trim_start().starts_with("if:")).unwrap();
+    assert!(condition.contains("steps.plan.outputs.apps == 'true'"), "{condition}");
+    assert!(
+        neighbors.contains("name: neighbors-${{ github.run_id }}-${{ github.run_attempt }}"),
+        "{neighbors}"
+    );
+}
+
 #[test]
 fn a_push_to_main_uploads_the_main_binary_the_neighbor_job_fetches() {
     let corpus = job(&read(".github/workflows/ci.yml"), "corpus");

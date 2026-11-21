@@ -6,15 +6,16 @@
 #
 #   tools/neighbor-diff.sh [OPTIONS] APP...    the given app folders (each may hold a differences.tsv)
 #   tools/neighbor-diff.sh [OPTIONS] --changed the folders under tests/neighbors/ that differ from BASE, and the rule
-#                                              that a change of runtime code adds one
+#                                              that a change of a binary input adds one
 #   tools/neighbor-diff.sh [OPTIONS] --plan    only the rule and the list of apps (no build, no run)
+#   tools/neighbor-diff.sh [OPTIONS] --same-inputs  the main commits, newest first from BASE, whose binary is BASE's
 #
 #   --bc-version N   a BC major to run on, repeatable (default 29); the build is the one oracle/oracle.toml pins
 #   --base REF       the main commit to compare with (default: the merge base of HEAD and origin/main)
 #
 # The head binary is built from the working tree. The main binary of BASE comes from the cache
 # (<cache>/main-bin/<commit>), else from the CI artifact `al-runner-main-<commit>` of BASE or of an older main commit
-# with the same runtime sources, else it is built (one build at a time, under a lock).
+# with the same binary inputs (tools/binary-inputs.txt), else it is built (one build at a time, under a lock).
 # Exit 0: every difference has an entry. 1: a difference has none, or the rule fails. 2: the tool could not finish.
 set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -22,8 +23,9 @@ root="$(git rev-parse --show-toplevel)" || exit 2
 cache="${ALRUNNER_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/al-runtime}"
 repo="${NEIGHBOR_DIFF_REPO:-aldevtools/BusinessCentral.AL.Runner}"
 jobs="${CARGO_BUILD_JOBS:-4}"
-# What the al-runner binary is built from: an older main commit with the same files gives the same binary.
-sources=(crates Cargo.toml Cargo.lock rust-toolchain.toml .cargo docs/language-catalog.json)
+# What the al-runner binary is built from (one list, read by the rule and by the lookback).
+mapfile -t inputs < <(awk '!/^#/ && NF { print $1 }' "$here/binary-inputs.txt")
+[ ${#inputs[@]} -gt 0 ] || exit 2
 versions=() base="" mode=apps apps=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -31,7 +33,8 @@ while [ $# -gt 0 ]; do
     --base) base="${2:?--base REF}"; shift 2 ;;
     --changed) mode=changed; shift ;;
     --plan) mode=plan; shift ;;
-    -h | --help) sed -n '2,19p' "$0"; exit 0 ;;
+    --same-inputs) mode=same; shift ;;
+    -h | --help) sed -n '2,20p' "$0"; exit 0 ;;
     -*) echo "neighbor-diff: unknown option $1" >&2; exit 2 ;;
     *) apps+=("$(cd "$1" && pwd)") || exit 2; shift ;;
   esac
@@ -56,17 +59,20 @@ cap() {
   fi
 }
 
-# The rule (tests/neighbors/README.md): a change of a .rs file under crates/*/src, other than a pure rename, comes with
-# a changed folder tests/neighbors/<topic>/ that holds an app (app.json) or a none.txt with the reason. Sets `apps`.
+# The rule (tests/neighbors/README.md): a change of a binary input, other than a pure rename, comes with a changed
+# folder tests/neighbors/<topic>/ that holds an app (app.json) or a none.txt with the reason. Sets `apps`.
 plan() {
   local runtime folders f status=0
-  runtime="$(git diff --name-status -M100% "$base" -- ':(glob)crates/*/src/**/*.rs' | awk '$1 != "R100"' | head -1)"
+  runtime="$(git diff --name-status -M100% "$base" -- "${inputs[@]}" | awk '$1 != "R100"' | head -1)"
   folders="$({
     git diff --name-only --diff-filter=d "$base" -- tests/neighbors
     git ls-files --others --exclude-standard -- tests/neighbors
   } | awk -F/ 'NF >= 4 { print $1 "/" $2 "/" $3 }' | sort -u)"
   for f in $folders; do
-    if [ -f "$root/$f/none.txt" ]; then
+    if [ -f "$root/$f/none.txt" ] && [ -f "$root/$f/app.json" ]; then
+      echo "$f: holds both app.json and none.txt; keep one." >&2
+      status=1
+    elif [ -f "$root/$f/none.txt" ]; then
       if [ -s "$root/$f/none.txt" ]; then
         echo "$f: no neighbor app. Reason: $(tr '\n' ' ' < "$root/$f/none.txt")"
       else
@@ -81,7 +87,7 @@ plan() {
     fi
   done
   if [ -n "$runtime" ] && [ -z "$folders" ]; then
-    echo "Runtime code changed (${runtime##*[[:space:]]} and maybe more), but no folder under tests/neighbors/ did." >&2
+    echo "A binary input changed (${runtime##*[[:space:]]} and maybe more), but no folder under tests/neighbors/ did." >&2
     echo "Add a neighbor app with its differences.tsv, or a none.txt with the reason (tests/neighbors/README.md)." >&2
     status=1
   fi
@@ -125,16 +131,24 @@ build_main() {
   mkdir -p "$2.tmp" && cp "$target/release/al-runner" "$2.tmp/" && mv "$2.tmp" "$2"
 }
 
+# Prints the main commits, newest first from BASE (at most 30), whose binary inputs equal BASE's.
+same_inputs() {
+  local c
+  for c in $(git rev-list --first-parent -n 30 "$base"); do
+    git diff --quiet "$c" "$base" -- "${inputs[@]}" || break
+    echo "$c"
+  done
+}
+
 # Prints the path of a main binary for BASE: cached, from an artifact, or built.
 main_binary() {
   local dir="$cache/main-bin" c
   mkdir -p "$dir"
   exec 9> "$dir/lock"
   flock 9
-  for c in $(git rev-list --first-parent -n 30 "$base"); do
-    git diff --quiet "$c" "$base" -- "${sources[@]}" || break
+  for c in $(same_inputs); do
     if [ -x "$dir/$c/al-runner" ] || fetch_artifact "$c" "$dir/$c"; then
-      echo "main binary: ${c:0:9} (same runtime sources as ${base:0:9})" >&2
+      echo "main binary: ${c:0:9} (same binary inputs as ${base:0:9})" >&2
       echo "$dir/$c/al-runner"
       return 0
     fi
@@ -150,6 +164,7 @@ pinned_build() {
     maj == m && /^bc_build = / { gsub(/"/, "", $3); print $3; exit }' "$root/oracle/oracle.toml"
 }
 
+[ "$mode" = same ] && { same_inputs; exit 0; }
 status=0
 if [ "$mode" != apps ]; then
   plan || status=1
@@ -175,7 +190,7 @@ for app in "${apps[@]}"; do
         > "$out/$name-$v.$side.log" 2>&1
       [ -s "$out/$name-$v.$side.xml" ] || { echo "neighbor-diff: no JUnit file, see $out/$name-$v.$side.log" >&2; exit 2; }
     done
-    python3 "$here/compare_junit.py" --entries "$entries" --title "$name, BC ${build:-$v}" \
+    python3 "$here/compare_junit.py" --entries "$entries" --major "$v" --title "$name, BC ${build:-$v}" \
       "$out/$name-$v.main.xml" "$out/$name-$v.head.xml" | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
     [ "${PIPESTATUS[0]}" -eq 0 ] || status=1
   done

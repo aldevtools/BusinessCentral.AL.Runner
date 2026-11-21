@@ -109,8 +109,8 @@ Before you push, run `./check.sh` (format, clippy with warnings as errors, all t
 corpus ratchet). It needs bash; on Windows, use Git Bash or WSL. CI runs the same checks, so if
 you cannot run it locally, say so in the pull request.
 
-If your change touches runtime code (`crates/*/src/`), add a neighbor app: a small test app under
-`tests/neighbors/<topic>/` with one test per shape next to the one you fixed (another caller, type, trigger,
+If your change touches a file the binary is built from (`tools/binary-inputs.txt`), add a neighbor app: a small
+test app under `tests/neighbors/<topic>/` with one test per shape next to the one you fixed (another caller, type, trigger,
 extension, subscriber, record state or call order), and a `differences.tsv` that says, for each test whose
 outcome changed against `main`, which corpus test pins it, which assumption entry it runs through, or that
 it is refused on purpose. `tools/neighbor-diff.sh --changed` runs it on your build and on a build of

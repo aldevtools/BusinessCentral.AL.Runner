@@ -56,10 +56,10 @@ name: CI
 #
 # Owner decision, 2026-11-21: the job `neighbors` runs on every pull request, drafts and fork pull requests included,
 # and a review starts only after it passes. It runs `tools/neighbor-diff.sh` (tests/neighbors/README.md): a change of
-# runtime code adds a neighbor app (or a none.txt with the reason), and every test of it whose outcome differs between
+# a binary input (tools/binary-inputs.txt) adds a neighbor app (or a none.txt with the reason), and every test of it whose outcome differs between
 # the main binary and the head binary has an entry. The rule is checked first, in seconds; only a pull request that
 # adds an app builds. The main binary is the artifact `al-runner-main-<commit>` that the `corpus` job uploads on a push
-# to main; the job builds main only when no main commit with the same runtime sources has one.
+# to main; the job builds main only when no main commit with the same binary inputs has one.
 #
 # Nothing is dropped by the split. The two test files that run the `al-test-cli` binary over the
 # whole pinned corpus (`corpus_harness`, `dev_tooling`) are gated behind the `cli-e2e` feature of
@@ -310,15 +310,17 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       NEIGHBOR_DIFF_REPO: ${{ github.repository }}
     steps:
-      # Depth 50: the script looks back along main for a commit with the same runtime sources that has an artifact.
-      # The corpus submodule: the setup action reads its history.
+      # Depth 50: the script looks back along main for a commit with the same binary inputs that has an artifact.
       - uses: actions/checkout@v4
         with:
           fetch-depth: 50
-          submodules: true
       - name: The neighbor rule
         id: plan
         run: tools/neighbor-diff.sh --base HEAD^1 --plan
+      # The corpus only when apps run: the setup action reads its history, and a PINNED entry cites a file of it.
+      - name: Check out the corpus
+        if: steps.plan.outputs.apps == 'true'
+        run: git submodule update --init --depth 1 corpus
       - uses: ./.github/actions/setup
         if: steps.plan.outputs.apps == 'true'
       - name: Neighbor apps on the main binary and the head binary
@@ -331,7 +333,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always() && steps.plan.outputs.apps == 'true'
         with:
-          name: neighbors-${{ github.run_id }}
+          name: neighbors-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/neighbors/*.log
           retention-days: 14
 
