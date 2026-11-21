@@ -1,0 +1,15 @@
+{
+  "id": "b1c6f7a2-5d3e-4f80-9a1b-843400000001",
+  "name": "Neighbors 8434 List page with code and FactBoxes on a code-inserted new line",
+  "publisher": "al-runner neighbors",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "16.0",
+  "target": "OnPrem",
+  "idRanges": [
+    { "from": 457, "to": 457 },
+    { "from": 97480, "to": 97509 },
+    { "from": 130000, "to": 130000 }
+  ],
+  "dependencies": []
+}
