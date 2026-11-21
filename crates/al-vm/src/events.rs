@@ -283,7 +283,8 @@ impl Registry {
 }
 
 /// A platform codeunit whose events the runtime raises without the codeunit object, under a key of its own. Its subscribers are
-/// found by the name as written (`Registry::build`); one written with the id refuses ([`Registry::add_by_id_subscriber`]).
+/// found by the name as written (`Registry::build`); one written with the id is handled as the name form only in the shape
+/// [`by_id_as_name`] names, and refuses otherwise ([`Registry::add_by_id_subscriber`]).
 struct RaisedPlatformCodeunit {
     /// Its id and name (`al_ir::FILTER_HELPER_CODEUNIT` and the others).
     codeunit: (u32, &'static str),
@@ -291,32 +292,76 @@ struct RaisedPlatformCodeunit {
     key: usize,
     /// Every event of the codeunit is listed in `Registry::unraised`.
     unraised: bool,
+    /// The one event (lower case) of the codeunit that corpus PR 1466 measured a bare-id subscriber to
+    /// (tests/al-language/events/subscriber-by-id/SbiSubscriberByIdTests.al, at the line each constant cites).
+    by_id_event: &'static str,
 }
 
+/// `MakeDateFilter` by id: SbiSubscriberByIdTests.al:245 (SbiFixtures.al:618-640, `M1_DateFilterId` by id runs before
+/// `M2_DateFilterName` and its repaired text reaches it).
 const FILTER_HELPER: RaisedPlatformCodeunit = RaisedPlatformCodeunit {
     codeunit: al_ir::FILTER_HELPER_CODEUNIT,
     key: FILTER_HELPER_TRIGGERS,
     unraised: false,
+    by_id_event: "makedatefilter",
 };
 
+/// `CaptionClassTranslate` by id: SbiSubscriberByIdTests.al:171 (SbiFixtures.al:509-529, `U1_TranslateId` by id runs before
+/// `U2_TranslateName` and its translation reaches it).
 const UI_HELPER: RaisedPlatformCodeunit = RaisedPlatformCodeunit {
     codeunit: al_ir::UI_HELPER_CODEUNIT,
     key: UI_HELPER_TRIGGERS,
     unraised: true,
+    by_id_event: "captionclasstranslate",
 };
 
+/// `SubstituteReport` by id: SbiSubscriberByIdTests.al:231 (SbiFixtures.al:597-616, `R1_SubstituteId` by id runs before
+/// `R2_SubstituteName`).
 const REPORTING: RaisedPlatformCodeunit = RaisedPlatformCodeunit {
     codeunit: al_ir::REPORTING_CODEUNIT,
     key: REPORTING_TRIGGERS,
     unraised: true,
+    by_id_event: "substitutereport",
 };
+
+/// The platform codeunits the runtime raises events of under a key of its own.
+const RAISED_PLATFORM: [&RaisedPlatformCodeunit; 3] = [&FILTER_HELPER, &UI_HELPER, &REPORTING];
+
+/// How [`Registry::add_by_id_subscriber`] took a codeunit subscriber whose publisher is written as an id.
+enum ById {
+    /// Not one it handles: the publisher is resolved as for any subscriber.
+    Other,
+    /// The runtime stands in for the publisher and the subscriber refuses the raise of its event.
+    Refused,
+    /// The shape [`by_id_as_name`] names: registered as a subscriber that writes this platform codeunit's name.
+    AsName(&'static str),
+}
+
+/// The platform codeunit of [`RAISED_PLATFORM`] whose id subscriber `o` writes as `id` (kind `kind`), when the subscriber is in
+/// the shape corpus PR 1466 measured for it, each fact by equality (SbiSubscriberByIdTests.al:171, :231, :245): a codeunit
+/// subscriber, to the codeunit's [`RaisedPlatformCodeunit::by_id_event`], of the app under test (the fixture's subscribers
+/// are all in the app under test), in a codeunit that is not `EventSubscriberInstance = Manual` (SbiFixtures.al:458, the
+/// default instance). BC then calls it as the subscriber that writes the name, in the same order. Every other bare-id
+/// subscriber to these codeunits refuses the raise (`MissingWhy::PlatformPublisherById`).
+fn by_id_as_name(
+    apps: &[ir::AppInfo],
+    o: &ir::ObjectHead,
+    (kind, id): (ObjKind, &str),
+    event: &str,
+) -> Option<&'static RaisedPlatformCodeunit> {
+    let p = RAISED_PLATFORM.into_iter().find(|p| p.codeunit.0.to_string() == id)?;
+    // AppInfo::dependency has two states: a dependency app or the app under test.
+    let of_app_under_test = apps.get(o.app as usize).is_some_and(|a| !a.dependency);
+    (kind == ObjKind::Codeunit && event == p.by_id_event && of_app_under_test && !is_manual(o)).then_some(p)
+}
 
 impl Registry {
     /// A codeunit subscriber whose publisher is written as an id (`written`), before the publisher is resolved: the id of
     /// [`FILTER_HELPER`], [`UI_HELPER`] or [`REPORTING`] by equality, or 44 resolved to Base Application's ReportManagement
-    /// (`al_ir::is_report_management`). Raising the event it names under the platform codeunit's key refuses
+    /// (`al_ir::is_report_management`). In the shape [`by_id_as_name`] names it is registered as the name form is
+    /// (`ById::AsName`). Otherwise raising the event it names under the platform codeunit's key refuses
     /// (`MissingWhy::PlatformPublisherById`; a manual subscriber only while an instance is bound), and it is listed in
-    /// `unraised` where a subscriber written with the name is. Whether the runtime stands in for the publisher.
+    /// `unraised` where a subscriber written with the name is.
     fn add_by_id_subscriber(
         &mut self,
         program: &ir::Program,
@@ -324,9 +369,12 @@ impl Registry {
         a: &ir::Attribute,
         written: &str,
         event: &str,
-    ) -> bool {
+    ) -> ById {
         let heads = program.objects.heads();
-        if let Some(p) = [&FILTER_HELPER, &UI_HELPER, &REPORTING]
+        if let Some(p) = by_id_as_name(&program.apps, o, (ObjKind::Codeunit, written), event) {
+            return ById::AsName(p.codeunit.1);
+        }
+        if let Some(p) = RAISED_PLATFORM
             .into_iter()
             .find(|p| p.codeunit.0.to_string() == written)
         {
@@ -349,7 +397,7 @@ impl Registry {
                     .or_default()
                     .push(Unraised::of(heads, oi, o, r));
             }
-            return true;
+            return ById::Refused;
         }
         let report_management = match a.publisher {
             ir::PublisherRef::Only(t) => heads.get(t as usize).is_some_and(|h| {
@@ -366,9 +414,9 @@ impl Registry {
                 .entry((al_ir::REPORT_MANAGEMENT.1.to_ascii_lowercase(), event.to_string()))
                 .or_default()
                 .push(Unraised::of(heads, oi, o, r));
-            return true;
+            return ById::Refused;
         }
-        false
+        ById::Other
     }
 }
 
@@ -492,6 +540,9 @@ fn by_id_measured(
     if platform_by_id_events(kind, id).contains(&event) {
         return of_app_under_test;
     }
+    if by_id_as_name(apps, o, (kind, id), event).is_some() {
+        return true;
+    }
     let found = found.and_then(|t| heads.get(t)).filter(|_| of_app_under_test);
     let system_application = |p: &ir::ObjectHead| {
         (apps.get(p.app as usize)).is_some_and(|a| al_ir::is_system_application_codeunit("Auto Format", &p.name, &a.id))
@@ -612,11 +663,17 @@ impl Registry {
                                 _ => continue,
                             };
                             // The platform codeunits below are found by the name as written, namespace left out.
-                            let (target, _) = publisher_name(args[1].rsplit("::").next().unwrap_or(""));
+                            let (mut target, _) = publisher_name(args[1].rsplit("::").next().unwrap_or(""));
                             let event = unquote(&args[2]).to_lowercase();
                             // The runtime raises (or refuses where BC raises) this event without the publisher object.
-                            let mut native = kind == ObjKind::Codeunit
-                                && reg.add_by_id_subscriber(program, (oi, o, r), a, &target, &event);
+                            let by_id_platform = match kind {
+                                ObjKind::Codeunit => reg.add_by_id_subscriber(program, (oi, o, r), a, &target, &event),
+                                _ => ById::Other,
+                            };
+                            let mut native = matches!(by_id_platform, ById::Refused);
+                            if let ById::AsName(name) = by_id_platform {
+                                target = name.to_string();
+                            }
                             let Some(found) = reg.publisher_of(heads, (oi, kind), r, a, &event, args.get(3)) else {
                                 continue;
                             };
@@ -961,7 +1018,10 @@ impl Registry {
                 self.by_id_install.insert((object, routine));
                 None
             }
-            _ => None,
+            _ => RAISED_PLATFORM
+                .into_iter()
+                .find(|p| p.codeunit.0.to_string() == id)
+                .map(|p| p.key),
         };
         for key in found.into_iter().chain(platform) {
             self.by_id_assumed.insert((key, event.to_string()));
