@@ -1382,7 +1382,10 @@ pub fn has(target: Option<&Target>, gate: Gate) -> bool {
 
 /// Which list of Feature Key rows a target has (record/PFFeatureKeyColumns.al:41-94 keys them on the version of the
 /// application): 27.0 (`RowsA`), 27.3 and 27.5 (`RowsB`), 28.0 (`RowsC`), 28.1 to 28.5 (`RowsD`, al-runner issue 5790) and
-/// 29.0 (`RowsE`). The minors the corpus did not measure (27.1, 27.2, 27.4, 28.6 and on, 29.1 and on) are not served.
+/// 29.0 (`RowsE`). 29.1 (`Bc29_1`, al-runner issue 8192) is not in the corpus: its rows come from a contributor's
+/// measurement on one BC 29.1 W1 container with the probe of that file, and run, for every 29.1 build and country, on the
+/// assumption `feature-key-rows-container-measured`. The minors not measured (27.1, 27.2, 27.4, 28.6 and on, 29.2 and
+/// on) are not served.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FeatureKeyRows {
     Bc27_0,
@@ -1390,6 +1393,15 @@ pub enum FeatureKeyRows {
     Bc28_0,
     Bc28,
     Bc29,
+    Bc29_1,
+}
+
+impl FeatureKeyRows {
+    /// Whether the corpus measured this list: every list but 29.1's (al-runner issue 8192), which comes from a
+    /// contributor's measurement.
+    pub fn measured_by_corpus(self) -> bool {
+        self != FeatureKeyRows::Bc29_1
+    }
 }
 
 pub fn feature_key_rows(target: Option<&Target>) -> Option<FeatureKeyRows> {
@@ -1399,6 +1411,7 @@ pub fn feature_key_rows(target: Option<&Target>) -> Option<FeatureKeyRows> {
         (28, 0) => Some(FeatureKeyRows::Bc28_0),
         (28, 1..=5) => Some(FeatureKeyRows::Bc28),
         (29, 0) => Some(FeatureKeyRows::Bc29),
+        (29, 1) => Some(FeatureKeyRows::Bc29_1),
         _ => None,
     }
 }

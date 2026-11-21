@@ -2868,7 +2868,7 @@ codeunit 50000 "T" { Subtype = Test;
 
 // al-runner issue 5790: Feature Key rows per minor (record/PFFeatureKeyColumns.al:41-94). 28.1 to 28.5 have one list,
 // 28.0 another (SemanticMetadataSearch All Users); 27.0 differs from 27.3 and 27.5 in the same row; a minor the corpus
-// did not measure (27.1) is refused, also for a Get.
+// did not measure (27.1, and 29.2 next to the 29.1 list of al-runner issue 8192) is refused, also for a Get.
 #[test]
 fn feature_key_rows_follow_the_measured_minors() {
     let main = r#"codeunit 50000 "T" { Subtype = Test;
@@ -2889,13 +2889,89 @@ fn feature_key_rows_follow_the_measured_minors() {
         ("28.0.0.0", "SemanticAllUsers"),
         ("27.0.0.0", "SemanticNone"),
         ("27.3.0.0", "SemanticAllUsers"),
+        ("29.0.0.0", "SemanticAllUsers"),
     ] {
         let o = outcomes_bc("main", main, roots(), bc);
         assert_eq!(outcome(&o, "Concurrent"), Some(Outcome::Pass), "{bc}: {o:?}");
         assert_eq!(outcome(&o, semantic), Some(Outcome::Pass), "{bc}: {o:?}");
     }
-    let o = outcomes_bc("main", main, roots(), "27.1.0.0");
-    assert!(not_run(&o, "Concurrent").contains("Feature Key"), "{o:?}");
+    for bc in ["27.1.0.0", "29.2.0.0"] {
+        let o = outcomes_bc("main", main, roots(), bc);
+        assert!(not_run(&o, "Concurrent").contains("Feature Key"), "{bc}: {o:?}");
+    }
+}
+
+// al-runner issue 8192: the Feature Key rows of BC 29.1 (the 29.0 rows and NewNotificationBar, one contributor
+// measurement with the probe of record/PFFeatureKeyColumns.al) are served on the assumption
+// feature-key-rows-container-measured. Every read of the table on 29.1 marks it, also one that finds no row (a Get of a
+// key the list does not have, a filter no row meets), since that answer rests on the list too. The Description columns,
+// which the measurement did not read, are refused on 29.1. 29.0 (pinned) has no NewNotificationBar, keeps its texts
+// and flags nothing.
+#[test]
+fn feature_key_rows_of_29_1_are_served_on_an_assumption() {
+    let src = r#"codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Bar() var K: Record "Feature Key"; begin
+    if not K.Get('NewNotificationBar') then Error('no row');
+    if Format(K.Enabled) <> 'All Users' then Error('enabled %1', K.Enabled);
+    if K."Mandatory By Version" <> '30.0' then Error('version %1', K."Mandatory By Version");
+    if not K."Can Try" then Error('can try'); end;
+  [Test] procedure Concurrent() var K: Record "Feature Key"; begin
+    if not K.Get('ConcurrentInventoryPosting') then Error('no row');
+    if K."Mandatory By Version" <> '31.0' then Error('version %1', K."Mandatory By Version"); end;
+  [Test] procedure RowCount() var K: Record "Feature Key"; begin
+    if K.Count() <> 14 then Error('count %1', K.Count()); end;
+  [Test] procedure MissingKey() var K: Record "Feature Key"; begin
+    if K.Get('AutomaticAccountCodes') then Error('row'); end;
+  [Test] procedure NoneFound() var K: Record "Feature Key"; begin
+    K.SetRange("Mandatory By Version", '32.0');
+    if K.FindFirst() then Error('row'); end;
+  [Test] procedure NoneCounted() var K: Record "Feature Key"; begin
+    K.SetRange("Mandatory By Version", '32.0');
+    if K.Count() <> 0 then Error('count %1', K.Count()); end;
+  [Test] procedure Texts() var K: Record "Feature Key"; begin
+    K.Get('SalesPrices');
+    if K.Description <> 'Feature Update: New sales pricing experience' then Error(K.Description); end; }"#;
+    let a = al_builtins::assumptions::Assumption::FeatureKeyRowsContainerMeasured;
+    let run = |bc: &str| {
+        let (engine, l) = engine_over("main", src, None, al_sema::check::Roots::default(), bc);
+        let oi = l.program.objects.iter().position(|o| o.name == "T").expect("T");
+        let mut hits = Vec::new();
+        let out = al_testrun::runtime::run_codeunit_full(
+            &engine,
+            &l,
+            oi,
+            None,
+            al_testrun::isolation::TestIsolation::Disabled,
+            None,
+            &mut Vec::new(),
+            &mut Vec::new(),
+            &mut hits,
+            None,
+        );
+        (out, hits)
+    };
+    let (out, hits) = run("29.1.0.0");
+    assert_eq!(out.len(), 7, "29.1: {out:?}");
+    let mut wrong = Vec::new();
+    for (n, o) in &out {
+        let flagged = hits.iter().any(|(h, m)| h == n && m.contains(&a));
+        let ok = match n.as_str() {
+            "Texts" => matches!(o, Outcome::NotRun(why) if why.contains("Description")),
+            _ => *o == Outcome::Pass && flagged,
+        };
+        if !ok {
+            wrong.push(format!("{n}: {o:?}, flagged {flagged}"));
+        }
+    }
+    assert!(wrong.is_empty(), "29.1: {wrong:#?}");
+    let (out, hits) = run("29.0.0.0");
+    let outcome = |test: &str| out.iter().find(|(n, _)| n == test).map(|(_, o)| o.clone());
+    assert!(matches!(outcome("Bar"), Some(Outcome::Fail(_))), "29.0: {out:?}");
+    assert!(matches!(outcome("RowCount"), Some(Outcome::Fail(_))), "29.0: {out:?}");
+    for n in ["Concurrent", "MissingKey", "NoneFound", "NoneCounted", "Texts"] {
+        assert_eq!(outcome(n), Some(Outcome::Pass), "29.0 {n}: {out:?}");
+    }
+    assert!(!hits.iter().any(|(_, m)| m.contains(&a)), "29.0 flagged: {hits:?}");
 }
 
 // al-runner issue 5786: a control with `Editable = Rec."Allow Edit"`: its row and its Visible column are served, and the

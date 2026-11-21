@@ -59,7 +59,10 @@ const FEATURE_KEY_TEXTS: &[(&str, &str, &str)] = &[
 /// `Mandatory By Version`, `Can Try`, `Is One Way` and `Data Update Required`, per major from record/PFFeatureKeyColumns.al
 /// (FeatureKey_RowsPerId_PerMeasuredVersion; the state is per tenant); `Enabled` and `Data Update Required` of the first major
 /// also record/TestFieldLenAndFeatureKeyContracts.al:83-125. The three lists are the newest minor of each major; 27.0 and
-/// 28.0 differ in one row, minors the corpus did not measure are refused. The Description columns are not pinned.
+/// 28.0 differ in one row. 29.1 (al-runner issue 8192) has a list the corpus did not measure: it is served on the
+/// assumption `feature-key-rows-container-measured`, which every read of the table marks ([`feature_key_assumption`]),
+/// and its Description columns are refused. Other minors the corpus did not measure are refused. The Description
+/// columns are not pinned.
 pub(super) fn feature_key_rows(t: &TableDef, target: Option<&al_version::Target>) -> Vec<Entry> {
     // (ID, Enabled is All Users, Mandatory By Version major, Can Try, Is One Way, Data Update Required)
     type Row = (&'static str, bool, u32, bool, bool, bool);
@@ -147,27 +150,33 @@ pub(super) fn feature_key_rows(t: &TableDef, target: Option<&al_version::Target>
         ("SaveValueToDatabasePromptly", true, 30, true, false, false),
         ("SemanticMetadataSearch", true, 30, false, false, false),
     ];
+    // 29.1 (al-runner issue 8192): the 29.0 list plus these rows, measured by a contributor on one BC 29.1 W1 sandbox
+    // container (build 29.1.57326.58379, fresh tenant, 2026-11-18) with the RowText of record/PFFeatureKeyColumns.al.
+    // The corpus has not measured 29.1: a read of the table there marks the assumption
+    // feature-key-rows-container-measured.
+    const ADDED_THIRD_1: &[Row] = &[("NewNotificationBar", true, 30, true, false, false)];
     use al_version::FeatureKeyRows;
-    let rows = match al_version::feature_key_rows(target) {
-        Some(FeatureKeyRows::Bc27 | FeatureKeyRows::Bc27_0) => ROWS_FIRST,
-        Some(FeatureKeyRows::Bc28 | FeatureKeyRows::Bc28_0) => ROWS_SECOND,
-        Some(FeatureKeyRows::Bc29) => ROWS_THIRD,
-        None => {
-            return vec![Entry::poisoned_prefix(
-                blank(t),
-                0,
-                "Feature Key: its rows are served for the minors they were measured on only (docs/probes-needed.md)"
-                    .into(),
-            )];
-        }
+    let Some(which) = al_version::feature_key_rows(target) else {
+        return vec![Entry::poisoned_prefix(
+            blank(t),
+            0,
+            "Feature Key: its rows are served for the minors they were measured on only (docs/probes-needed.md)".into(),
+        )];
+    };
+    let (rows, added): (&[Row], &[Row]) = match which {
+        FeatureKeyRows::Bc27 | FeatureKeyRows::Bc27_0 => (ROWS_FIRST, &[]),
+        FeatureKeyRows::Bc28 | FeatureKeyRows::Bc28_0 => (ROWS_SECOND, &[]),
+        FeatureKeyRows::Bc29 => (ROWS_THIRD, &[]),
+        FeatureKeyRows::Bc29_1 => (ROWS_THIRD, ADDED_THIRD_1),
     };
     // 27.0 and 28.0 differ from the newest minor of their major in one row: SemanticMetadataSearch is None on 27.0 (RowsA)
     // and All Users on 28.0 (RowsC), record/PFFeatureKeyColumns.al:96-160.
-    let flipped = matches!(
-        al_version::feature_key_rows(target),
-        Some(FeatureKeyRows::Bc27_0 | FeatureKeyRows::Bc28_0)
-    );
+    let flipped = matches!(which, FeatureKeyRows::Bc27_0 | FeatureKeyRows::Bc28_0);
+    // The texts of metadata/platform-tables/BaFeatureKeyTexts.al were measured on 27.5, 28.5 and 29.0; the measurement
+    // of the 29.1 list did not read them.
+    let texts_measured = which.measured_by_corpus();
     rows.iter()
+        .chain(added)
         .map(|&(id, all_users, version, can_try, one_way, data_update)| {
             let all_users = all_users != (flipped && id == "SemanticMetadataSearch");
             let mut r = blank(t);
@@ -186,8 +195,9 @@ pub(super) fn feature_key_rows(t: &TableDef, target: Option<&al_version::Target>
             r[pos(t, 8)] = Value::Boolean(data_update);
             r[pos(t, 9)] = Value::Text(format!("{version}.0").into());
             // Description (3), "Learn More Link" (4) and "Description In English" (10) of the keys
-            // metadata/platform-tables/BaFeatureKeyTexts.al pins (the same on 27.5, 28.5 and 29.0); unknown for any other key.
-            let texts = FEATURE_KEY_TEXTS.iter().find(|(k, _, _)| *k == id);
+            // metadata/platform-tables/BaFeatureKeyTexts.al pins (the same on 27.5, 28.5 and 29.0); unknown for any
+            // other key, and for every key on 29.1.
+            let texts = FEATURE_KEY_TEXTS.iter().find(|(k, _, _)| texts_measured && *k == id);
             for col in [3, 4, 10] {
                 if t.fields.iter().any(|f| f.id == col) {
                     r[pos(t, col)] = match texts {
@@ -200,6 +210,17 @@ pub(super) fn feature_key_rows(t: &TableDef, target: Option<&al_version::Target>
             Entry::ok(r)
         })
         .collect()
+}
+
+/// The assumption every read of the Feature Key table of `target` rests on, if any: the 29.1 list (al-runner issue 8192)
+/// comes from one contributor measurement, not from the corpus, and so does the answer of a read that finds no row (that
+/// the list has no other key). `None` where the corpus pins the list.
+pub(super) fn feature_key_assumption(
+    target: Option<&al_version::Target>,
+) -> Option<al_builtins::assumptions::Assumption> {
+    al_version::feature_key_rows(target)
+        .is_some_and(|which| !which.measured_by_corpus())
+        .then_some(al_builtins::assumptions::Assumption::FeatureKeyRowsContainerMeasured)
 }
 
 // ---- Windows Language -----------------------------------------------------------------------------
