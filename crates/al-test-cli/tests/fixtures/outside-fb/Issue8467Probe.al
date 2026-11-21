@@ -4,8 +4,8 @@
 // Scope: in-scope
 // local object: the reads of a page background task's worker and of the test session, and what the test writes, commits and
 //   rolls back between them, are what is under test
-// Fixtures used: shared Assert (60021); own tables 97500 and 97501, mode codeunit 97502, worker codeunits 97503, 97504 and 97509,
-//   pages 97505 and 97519, test codeunits 97506, 97507 and 97508 (the neighbors after 97507: see the comment there)
+// Fixtures used: shared Assert (60021); own tables 97500, 97501 and 97514, mode codeunit 97502, worker codeunits 97503, 97504,
+//   97509 and 97515, pages 97505 and 97519, test codeunits 97506, 97507, 97508 and 97544 (the neighbors after 97507: see comments)
 // Probe (al-runner issue 8467): a read the worker of a page background task repeats gets the answer of the first read, also after
 //   the test session changed the rows without committing. The tests read lines of table 97500 (key Group, Line No.) in the worker,
 //   either from the page's OnAfterGetCurrRecord (CurrPage.EnqueueBackgroundTask, the page shows the answer) or with
@@ -1345,4 +1345,807 @@ page 97519 "BQ Plain Rows"
             }
         }
     }
+}
+
+// Neighbors of the FindLast, IsEmpty and SetFilter cells of BQ Tests 3 (al-runner issue 8637; measured on a local BC 29.1
+// OnPrem w1 container): which read shapes the query cache answers. The InsertAfterFirstRead cells read FindFirst, FindLast,
+// Count and IsEmpty of an empty set in one worker run, insert a line the filters keep, and read the same four again: the cache
+// answers all four with the first answers for every filter shape here (two, three and four filters, a filter outside the key
+// alone, filter groups 2, 4 and 6, a range, a descending sort, a RecordRef, SetFilter of one value, of a placeholder, of two
+// values, of a wildcard with and without @, the other comparison operators, several of these at once, a table whose key has
+// one field). A FindFirst by SetRange and one by SetFilter of the same value share their answer, as do a Get and a FindFirst
+// by SetFilter on every key field. The test session's own FindLast and IsEmpty before its change answer the worker's first
+// read, as :500 measures for Get; one after its change does not, as :959 measures for Get. A commit of the table ends a
+// FindLast's answer. Find('+'), Find('-'), FindSet and FindFirst or FindLast after SetLoadFields read the rows as they are, as
+// does the worker's first read after the test page read the group through its filter.
+
+table 97514 "BQ Single"
+{
+    DataClassification = SystemMetadata;
+    ReplicateData = false;
+
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(2; Description; Text[50]) { }
+    }
+
+    keys
+    {
+        key(PK; "No.") { Clustered = true; }
+    }
+}
+
+// The worker of BQ Tests 4: FindFirst, FindLast, Count and IsEmpty of the filters a Mode names, or the one read a Mode names.
+codeunit 97515 "BQ Reader 4"
+{
+    trigger OnRun()
+    var
+        Row: Record "BQ Row";
+        Single: Record "BQ Single";
+        RowRef: RecordRef;
+        Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
+        Group: Text;
+        Mode: Text;
+        Seen: Text;
+    begin
+        Parameters := Page.GetBackgroundParameters();
+        Parameters.Get('Group', Group);
+        Parameters.Get('Mode', Mode);
+        Seen := '-';
+        case Mode of
+            'ref':
+                begin
+                    RowRef.Open(Database::"BQ Row");
+                    RowRef.Field(Row.FieldNo("Group")).SetRange(Group);
+                    Seen := RefForms(RowRef);
+                end;
+            'single':
+                begin
+                    Single.SetRange("No.", Group);
+                    Seen := SingleForms(Single);
+                end;
+            'singlefilter':
+                begin
+                    Single.SetFilter("No.", Group);
+                    Seen := SingleForms(Single);
+                end;
+            'singleget':
+                if Single.Get(Group) then
+                    Seen := Single.Description;
+            'singlefilterfirst':
+                begin
+                    Single.SetFilter("No.", Group);
+                    if Single.FindFirst() then
+                        Seen := Single.Description;
+                end;
+            'get':
+                if Row.Get(Group, 1) then
+                    Seen := Row.Description;
+            'keyfilterfirst':
+                begin
+                    Row.SetFilter("Group", Group);
+                    Row.SetFilter("Line No.", '1');
+                    if Row.FindFirst() then
+                        Seen := Row.Description;
+                end;
+            'rangefirst':
+                begin
+                    Row.SetRange("Group", Group);
+                    if Row.FindFirst() then
+                        Seen := Row.Description;
+                end;
+            'setfilterfirst':
+                begin
+                    Row.SetFilter("Group", Group);
+                    if Row.FindFirst() then
+                        Seen := Row.Description;
+                end;
+            'last':
+                begin
+                    Row.SetRange("Group", Group);
+                    if Row.FindLast() then
+                        Seen := Row.Description;
+                end;
+            'empty':
+                begin
+                    Row.SetRange("Group", Group);
+                    Seen := Format(Row.IsEmpty());
+                end;
+            'findplus':
+                begin
+                    Row.SetRange("Group", Group);
+                    if Row.Find('+') then
+                        Seen := Row.Description;
+                end;
+            'findminus':
+                begin
+                    Row.SetRange("Group", Group);
+                    if Row.Find('-') then
+                        Seen := Row.Description;
+                end;
+            'findset':
+                begin
+                    Row.SetRange("Group", Group);
+                    if Row.FindSet() then
+                        Seen := Row.Description;
+                end;
+            'firstload':
+                begin
+                    Row.SetLoadFields(Description);
+                    Row.SetRange("Group", Group);
+                    if Row.FindFirst() then
+                        Seen := Row.Description;
+                end;
+            'lastload':
+                begin
+                    Row.SetLoadFields(Description);
+                    Row.SetRange("Group", Group);
+                    if Row.FindLast() then
+                        Seen := Row.Description;
+                end;
+            else begin
+                SetShape(Row, Mode, Group);
+                Seen := Forms(Row);
+            end;
+        end;
+        Results.Add('Seen', Seen);
+        Page.SetBackgroundTaskResult(Results);
+    end;
+
+    // The filters of a Mode; any other Mode is a filter on Description next to the group's.
+    local procedure SetShape(var Row: Record "BQ Row"; Mode: Text; Group: Text)
+    begin
+        case Mode of
+            'group':
+                Row.SetRange("Group", Group);
+            'second':
+                begin
+                    Row.SetRange("Group", Group);
+                    Row.SetRange(Note, '');
+                end;
+            'nonkey':
+                Row.SetRange(Note, Group);
+            'group2':
+                begin
+                    Row.FilterGroup(2);
+                    Row.SetRange("Group", Group);
+                    Row.FilterGroup(0);
+                end;
+            'group4':
+                begin
+                    Row.FilterGroup(4);
+                    Row.SetRange("Group", Group);
+                    Row.FilterGroup(0);
+                end;
+            'range':
+                Row.SetRange("Group", Group, Group + 'Z');
+            'desc':
+                begin
+                    Row.Ascending(false);
+                    Row.SetRange("Group", Group);
+                end;
+            'setfilter':
+                Row.SetFilter("Group", Group);
+            'holder':
+                Row.SetFilter("Group", '%1', Group);
+            'or':
+                Row.SetFilter("Group", '%1|%2', Group, 'NOGROUP');
+            'like':
+                Row.SetFilter("Group", Group + '*');
+            'likeci':
+                Row.SetFilter("Group", '@' + LowerCase(Group) + '*');
+            'setfiltersecond':
+                begin
+                    Row.SetFilter("Group", Group);
+                    Row.SetRange(Note, '');
+                end;
+            'three':
+                begin
+                    Row.SetRange("Group", Group);
+                    Row.SetRange(Note, '');
+                    Row.FilterGroup(2);
+                    Row.SetFilter(Description, '<>%1', 'zz');
+                    Row.FilterGroup(0);
+                end;
+            'four':
+                begin
+                    Row.SetRange("Group", Group);
+                    Row.SetRange(Note, '');
+                    Row.SetFilter(Description, '<>%1', 'zz');
+                    Row.SetRange("Line No.", 1, 9);
+                end;
+            'group6':
+                begin
+                    Row.FilterGroup(6);
+                    Row.SetRange("Group", Group);
+                    Row.FilterGroup(0);
+                end;
+            'combined':
+                begin
+                    Row.Ascending(false);
+                    Row.FilterGroup(2);
+                    Row.SetFilter("Group", '%1|%2', Group, 'NOGROUP');
+                    Row.FilterGroup(0);
+                    Row.SetFilter(Description, '>%1', '0');
+                end;
+            else begin
+                Row.SetRange("Group", Group);
+                Row.SetFilter(Description, Mode);
+            end;
+        end;
+    end;
+
+    local procedure Forms(var Row: Record "BQ Row"): Text
+    var
+        First: Text;
+        Last: Text;
+    begin
+        First := '-';
+        Last := '-';
+        if Row.FindFirst() then
+            First := Row.Description;
+        if Row.FindLast() then
+            Last := Row.Description;
+        exit(First + '|' + Last + '|' + Format(Row.Count()) + '|' + Format(Row.IsEmpty()));
+    end;
+
+    local procedure RefForms(var RowRef: RecordRef): Text
+    var
+        First: Text;
+        Last: Text;
+    begin
+        First := '-';
+        Last := '-';
+        if RowRef.FindFirst() then
+            First := Format(RowRef.Field(3).Value());
+        if RowRef.FindLast() then
+            Last := Format(RowRef.Field(3).Value());
+        exit(First + '|' + Last + '|' + Format(RowRef.Count()) + '|' + Format(RowRef.IsEmpty()));
+    end;
+
+    local procedure SingleForms(var Single: Record "BQ Single"): Text
+    var
+        First: Text;
+        Last: Text;
+    begin
+        First := '-';
+        Last := '-';
+        if Single.FindFirst() then
+            First := Single.Description;
+        if Single.FindLast() then
+            Last := Single.Description;
+        exit(First + '|' + Last + '|' + Format(Single.Count()) + '|' + Format(Single.IsEmpty()));
+    end;
+}
+
+codeunit 97544 "BQ Tests 4"
+{
+    Subtype = Test;
+
+    var
+        Assert: Codeunit Assert;
+
+    // Shorter than the other codeunits' groups, so a range to the group plus a letter fits the field.
+    local procedure NewGroup(): Code[20]
+    begin
+        exit(CopyStr(DelChr(Format(CreateGuid()), '=', '{}-'), 1, 18));
+    end;
+
+    // Inserts a line, then reads the group (as AddRow of BQ Tests).
+    local procedure AddRow(Group: Code[20]; LineNo: Integer; Description: Text[50]; Note: Text[50])
+    var
+        Row: Record "BQ Row";
+    begin
+        Row."Group" := Group;
+        Row."Line No." := LineNo;
+        Row.Description := Description;
+        Row.Note := Note;
+        Row.Insert();
+        Row.SetRange("Group", Group);
+        if Row.FindFirst() then;
+    end;
+
+    // Inserts a row of BQ Single, then reads it.
+    local procedure AddSingle(No: Code[20]; Description: Text[50])
+    var
+        Single: Record "BQ Single";
+    begin
+        Single."No." := No;
+        Single.Description := Description;
+        Single.Insert();
+        Single.SetRange("No.", No);
+        if Single.FindFirst() then;
+    end;
+
+    local procedure SetRow(Group: Code[20]; LineNo: Integer; Description: Text[50])
+    var
+        Row: Record "BQ Row";
+    begin
+        Row.Get(Group, LineNo);
+        Row.Description := Description;
+        Row.Modify();
+    end;
+
+    local procedure SetSingle(No: Code[20]; Description: Text[50])
+    var
+        Single: Record "BQ Single";
+    begin
+        Single.Get(No);
+        Single.Description := Description;
+        Single.Modify();
+    end;
+
+    local procedure Run(var Rows: TestPage "BQ Plain Rows"; Mode: Text; Group: Code[20]): Text
+    var
+        Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
+        Seen: Text;
+    begin
+        Parameters.Add('Group', Group);
+        Parameters.Add('Mode', Mode);
+        Results := Rows.RunPageBackgroundTask(Codeunit::"BQ Reader 4", Parameters, false);
+        Results.Get('Seen', Seen);
+        exit(Seen);
+    end;
+
+    // The four reads of a Mode on an empty set; the test inserts a line the filters keep (Target: 'row', 'note' with the group
+    // as its Note, or 'single'); the four reads again.
+    local procedure InsertAfterFirstRead(Mode: Text; Target: Text): Text
+    var
+        Rows: TestPage "BQ Plain Rows";
+        G: Code[20];
+        Seen: Text;
+    begin
+        G := NewGroup();
+        Rows.OpenView();
+        Assert.AreEqual('-|-|0|Yes', Run(Rows, Mode, G), Mode + ': the first reads');
+        case Target of
+            'row':
+                AddRow(G, 1, 'a', '');
+            'note':
+                AddRow(G, 1, 'a', G);
+            'single':
+                AddSingle(G, 'a');
+        end;
+        Seen := Run(Rows, Mode, G);
+        Rows.Close();
+        exit(Seen);
+    end;
+
+    [Test]
+    procedure BgQueryCache_Run_AllForms_Group_FirstAnswer()
+    begin
+        Assert.AreEqual('-|-|0|Yes', InsertAfterFirstRead('group', 'row'), 'after the insert');
+    end;
+
+    [Test]
+    procedure BgQueryCache_Run_AllForms_SecondFilter_FirstAnswer()
+    begin
+        Assert.AreEqual('-|-|0|Yes', InsertAfterFirstRead('second', 'row'), 'after the insert');
+    end;
+
+    [Test]
+    procedure BgQueryCache_Run_AllForms_NonKeyFilter_FirstAnswer()
+    begin
+        Assert.AreEqual('-|-|0|Yes', InsertAfterFirstRead('nonkey', 'note'), 'after the insert');
+    end;
+
+    [Test]
+    procedure BgQueryCache_Run_AllForms_FilterGroup2_FirstAnswer()
+    begin
+        Assert.AreEqual('-|-|0|Yes', InsertAfterFirstRead('group2', 'row'), 'after the insert');
+    end;
+
+    [Test]
+    procedure BgQueryCache_Run_AllForms_FilterGroup4_FirstAnswer()
+    begin
+        Assert.AreEqual('-|-|0|Yes', InsertAfterFirstRead('group4', 'row'), 'after the insert');
+    end;
+
+    [Test]
+    procedure BgQueryCache_Run_AllForms_Range_FirstAnswer()
+    begin
+        Assert.AreEqual('-|-|0|Yes', InsertAfterFirstRead('range', 'row'), 'after the insert');
+    end;
+
+    [Test]
+    procedure BgQueryCache_Run_AllForms_Descending_FirstAnswer()
+    begin
+        Assert.AreEqual('-|-|0|Yes', InsertAfterFirstRead('desc', 'row'), 'after the insert');
+    end;
+
+    [Test]
+    procedure BgQueryCache_Run_AllForms_RecordRef_FirstAnswer()
+    begin
+        Assert.AreEqual('-|-|0|Yes', InsertAfterFirstRead('ref', 'row'), 'after the insert');
+    end;
+
+    [Test]
+    procedure BgQueryCache_Run_AllForms_SetFilterValue_FirstAnswer()
+    begin
+        Assert.AreEqual('-|-|0|Yes', InsertAfterFirstRead('setfilter', 'row'), 'after the insert');
+        Assert.AreEqual('-|-|0|Yes', InsertAfterFirstRead('holder', 'row'), 'placeholder, after the insert');
+    end;
+
+    [Test]
+    procedure BgQueryCache_Run_AllForms_SetFilterTwoValues_FirstAnswer()
+    begin
+        Assert.AreEqual('-|-|0|Yes', InsertAfterFirstRead('or', 'row'), 'after the insert');
+    end;
+
+    [Test]
+    procedure BgQueryCache_Run_AllForms_SetFilterWildcard_FirstAnswer()
+    begin
+        Assert.AreEqual('-|-|0|Yes', InsertAfterFirstRead('like', 'row'), 'after the insert');
+        Assert.AreEqual('-|-|0|Yes', InsertAfterFirstRead('likeci', 'row'), '@, after the insert');
+    end;
+
+    [Test]
+    procedure BgQueryCache_Run_AllForms_SetFilterSecondFilter_FirstAnswer()
+    begin
+        Assert.AreEqual('-|-|0|Yes', InsertAfterFirstRead('setfiltersecond', 'row'), 'after the insert');
+    end;
+
+    [Test]
+    procedure BgQueryCache_Run_AllForms_ThreeFilters_FirstAnswer()
+    begin
+        Assert.AreEqual('-|-|0|Yes', InsertAfterFirstRead('three', 'row'), 'after the insert');
+    end;
+
+    [Test]
+    procedure BgQueryCache_Run_AllForms_FourFilters_FirstAnswer()
+    begin
+        Assert.AreEqual('-|-|0|Yes', InsertAfterFirstRead('four', 'row'), 'after the insert');
+    end;
+
+    [Test]
+    procedure BgQueryCache_Run_AllForms_FilterGroup6_FirstAnswer()
+    begin
+        Assert.AreEqual('-|-|0|Yes', InsertAfterFirstRead('group6', 'row'), 'after the insert');
+    end;
+
+    // Filter group 2, a SetFilter of two values, a second filter with an operator and a descending sort at once.
+    [Test]
+    procedure BgQueryCache_Run_AllForms_Combined_FirstAnswer()
+    begin
+        Assert.AreEqual('-|-|0|Yes', InsertAfterFirstRead('combined', 'row'), 'after the insert');
+    end;
+
+    // The group's filter and one on Description with each other operator.
+    [Test]
+    procedure BgQueryCache_Run_AllForms_Operators_FirstAnswer()
+    begin
+        Assert.AreEqual('-|-|0|Yes', InsertAfterFirstRead('<>zz', 'row'), '<>');
+        Assert.AreEqual('-|-|0|Yes', InsertAfterFirstRead('>0', 'row'), '>');
+        Assert.AreEqual('-|-|0|Yes', InsertAfterFirstRead('>=a', 'row'), '>=');
+        Assert.AreEqual('-|-|0|Yes', InsertAfterFirstRead('<z', 'row'), '<');
+        Assert.AreEqual('-|-|0|Yes', InsertAfterFirstRead('<=a', 'row'), '<=');
+        Assert.AreEqual('-|-|0|Yes', InsertAfterFirstRead('a..', 'row'), 'a..');
+        Assert.AreEqual('-|-|0|Yes', InsertAfterFirstRead('..z', 'row'), '..z');
+        Assert.AreEqual('-|-|0|Yes', InsertAfterFirstRead('>0&<z', 'row'), '&');
+        Assert.AreEqual('-|-|0|Yes', InsertAfterFirstRead('<>z*', 'row'), '<>z*');
+    end;
+
+    [Test]
+    procedure BgQueryCache_Run_AllForms_OneFieldKey_FirstAnswer()
+    begin
+        Assert.AreEqual('-|-|0|Yes', InsertAfterFirstRead('single', 'single'), 'SetRange, after the insert');
+        Assert.AreEqual('-|-|0|Yes', InsertAfterFirstRead('singlefilter', 'single'), 'SetFilter, after the insert');
+    end;
+
+    // A FindFirst by SetRange of the group; the test changes the line: a FindFirst by SetFilter of the group to the same value.
+    [Test]
+    procedure BgQueryCache_Run_SetRangeThenSetFilter_FirstAnswer()
+    var
+        Rows: TestPage "BQ Plain Rows";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        AddRow(G, 1, 'a', '');
+        Rows.OpenView();
+        Assert.AreEqual('a', Run(Rows, 'rangefirst', G), 'SetRange FindFirst');
+        SetRow(G, 1, 'b');
+        Assert.AreEqual('a', Run(Rows, 'setfilterfirst', G), 'SetFilter FindFirst');
+        Rows.Close();
+    end;
+
+    // The same the other way round.
+    [Test]
+    procedure BgQueryCache_Run_SetFilterThenSetRange_FirstAnswer()
+    var
+        Rows: TestPage "BQ Plain Rows";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        AddRow(G, 1, 'a', '');
+        Rows.OpenView();
+        Assert.AreEqual('a', Run(Rows, 'setfilterfirst', G), 'SetFilter FindFirst');
+        SetRow(G, 1, 'b');
+        Assert.AreEqual('a', Run(Rows, 'rangefirst', G), 'SetRange FindFirst');
+        Rows.Close();
+    end;
+
+    // A Get of line 1; the test changes it: a FindFirst by SetFilter on both key fields.
+    [Test]
+    procedure BgQueryCache_Run_GetThenKeySetFilter_FirstAnswer()
+    var
+        Rows: TestPage "BQ Plain Rows";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        AddRow(G, 1, 'a', '');
+        Rows.OpenView();
+        Assert.AreEqual('a', Run(Rows, 'get', G), 'Get');
+        SetRow(G, 1, 'b');
+        Assert.AreEqual('a', Run(Rows, 'keyfilterfirst', G), 'SetFilter FindFirst');
+        Rows.Close();
+    end;
+
+    // A Get of a row of a table whose key has one field; the test changes it: a FindFirst by SetFilter on the key.
+    [Test]
+    procedure BgQueryCache_Run_OneFieldKey_GetThenSetFilter_FirstAnswer()
+    var
+        Rows: TestPage "BQ Plain Rows";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        AddSingle(G, 'a');
+        Rows.OpenView();
+        Assert.AreEqual('a', Run(Rows, 'singleget', G), 'Get');
+        SetSingle(G, 'b');
+        Assert.AreEqual('a', Run(Rows, 'singlefilterfirst', G), 'SetFilter FindFirst');
+        Rows.Close();
+    end;
+
+    // The test session's FindLast of the group after a commit; it changes the line: the worker's first FindLast.
+    [Test]
+    procedure BgQueryCache_Run_TestFindLastFirst_FirstReadAnswersIt()
+    var
+        Rows: TestPage "BQ Plain Rows";
+        Row: Record "BQ Row";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        AddRow(G, 1, 'a', '');
+        Commit();
+        Row.SetRange("Group", G);
+        Row.FindLast();
+        Assert.AreEqual('a', Row.Description, 'the test''s FindLast');
+        SetRow(G, 1, 'b');
+        Rows.OpenView();
+        Assert.AreEqual('a', Run(Rows, 'last', G), 'the worker''s FindLast');
+        Rows.Close();
+    end;
+
+    // The test session's IsEmpty of an empty group after a commit; it inserts a line of it: the worker's first IsEmpty.
+    [Test]
+    procedure BgQueryCache_Run_TestIsEmptyFirst_FirstReadAnswersIt()
+    var
+        Rows: TestPage "BQ Plain Rows";
+        Row: Record "BQ Row";
+        G: Code[20];
+        E: Code[20];
+    begin
+        G := NewGroup();
+        E := NewGroup();
+        AddRow(G, 1, 'a', '');
+        Commit();
+        Row.SetRange("Group", E);
+        Assert.IsTrue(Row.IsEmpty(), 'the test''s IsEmpty');
+        AddRow(E, 1, 'c', '');
+        Rows.OpenView();
+        Assert.AreEqual('Yes', Run(Rows, 'empty', E), 'the worker''s IsEmpty');
+        Rows.Close();
+    end;
+
+    // The worker's FindLast; the test changes the line and commits: the worker's FindLast again.
+    [Test]
+    procedure BgQueryCache_Run_FindLast_ChangeCommitted_SeesTheChange()
+    var
+        Rows: TestPage "BQ Plain Rows";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        AddRow(G, 1, 'a', '');
+        Rows.OpenView();
+        Assert.AreEqual('a', Run(Rows, 'last', G), 'FindLast');
+        SetRow(G, 1, 'b');
+        Commit();
+        Assert.AreEqual('b', Run(Rows, 'last', G), 'FindLast after the commit');
+        Rows.Close();
+    end;
+
+    // The worker's FindLast; the test changes the line and commits: the test session's own FindLast.
+    [Test]
+    procedure BgQueryCache_Run_FindLast_ChangeCommitted_TestReadSeesIt()
+    var
+        Rows: TestPage "BQ Plain Rows";
+        Row: Record "BQ Row";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        AddRow(G, 1, 'a', '');
+        Rows.OpenView();
+        Assert.AreEqual('a', Run(Rows, 'last', G), 'FindLast');
+        SetRow(G, 1, 'b');
+        Commit();
+        Row.SetRange("Group", G);
+        Row.FindLast();
+        Assert.AreEqual('b', Row.Description, 'the test''s FindLast');
+        Rows.Close();
+    end;
+
+    // The worker's FindLast; the test changes the line, not committed: the test session's own FindLast.
+    [Test]
+    procedure BgQueryCache_Run_FindLast_TestWrote_TestReadSeesIt()
+    var
+        Rows: TestPage "BQ Plain Rows";
+        Row: Record "BQ Row";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        AddRow(G, 1, 'a', '');
+        Rows.OpenView();
+        Assert.AreEqual('a', Run(Rows, 'last', G), 'FindLast');
+        SetRow(G, 1, 'b');
+        Row.SetRange("Group", G);
+        Row.FindLast();
+        Assert.AreEqual('b', Row.Description, 'the test''s FindLast');
+        Rows.Close();
+    end;
+
+    // Two lines in the group; the test changes the last one: the worker's FindLast again.
+    [Test]
+    procedure BgQueryCache_Run_FindLast_TwoRows_FirstAnswer()
+    var
+        Rows: TestPage "BQ Plain Rows";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        AddRow(G, 1, 'a', '');
+        AddRow(G, 2, 'x', '');
+        Rows.OpenView();
+        Assert.AreEqual('x', Run(Rows, 'last', G), 'FindLast');
+        SetRow(G, 2, 'y');
+        Assert.AreEqual('x', Run(Rows, 'last', G), 'FindLast again');
+        Rows.Close();
+    end;
+
+    // The worker's FindLast; a commit of a line of another group; FindLast again, then the test changes the line: FindLast.
+    [Test]
+    procedure BgQueryCache_Run_FindLast_OtherGroupCommitted_ThenFirstAnswer()
+    var
+        Rows: TestPage "BQ Plain Rows";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        AddRow(G, 1, 'a', '');
+        Rows.OpenView();
+        Assert.AreEqual('a', Run(Rows, 'last', G), 'FindLast');
+        AddRow(NewGroup(), 1, 'h', '');
+        Commit();
+        Assert.AreEqual('a', Run(Rows, 'last', G), 'FindLast after the commit');
+        SetRow(G, 1, 'b');
+        Assert.AreEqual('a', Run(Rows, 'last', G), 'FindLast after the change');
+        Rows.Close();
+    end;
+
+    // Find('+') of the group; the test changes the line: Find('+') again.
+    [Test]
+    procedure BgQueryCache_Run_FindPlus_ChangedRow_SeesTheChange()
+    var
+        Rows: TestPage "BQ Plain Rows";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        AddRow(G, 1, 'a', '');
+        Rows.OpenView();
+        Assert.AreEqual('a', Run(Rows, 'findplus', G), 'Find(+)');
+        SetRow(G, 1, 'b');
+        Assert.AreEqual('b', Run(Rows, 'findplus', G), 'Find(+) again');
+        Rows.Close();
+    end;
+
+    // Find('-') of the group; the test changes the line: Find('-') again.
+    [Test]
+    procedure BgQueryCache_Run_FindMinus_ChangedRow_SeesTheChange()
+    var
+        Rows: TestPage "BQ Plain Rows";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        AddRow(G, 1, 'a', '');
+        Rows.OpenView();
+        Assert.AreEqual('a', Run(Rows, 'findminus', G), 'Find(-)');
+        SetRow(G, 1, 'b');
+        Assert.AreEqual('b', Run(Rows, 'findminus', G), 'Find(-) again');
+        Rows.Close();
+    end;
+
+    // FindSet of the group; the test changes the line: FindSet again.
+    [Test]
+    procedure BgQueryCache_Run_FindSet_ChangedRow_SeesTheChange()
+    var
+        Rows: TestPage "BQ Plain Rows";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        AddRow(G, 1, 'a', '');
+        Rows.OpenView();
+        Assert.AreEqual('a', Run(Rows, 'findset', G), 'FindSet');
+        SetRow(G, 1, 'b');
+        Assert.AreEqual('b', Run(Rows, 'findset', G), 'FindSet again');
+        Rows.Close();
+    end;
+
+    // FindFirst after SetLoadFields(Description); the test changes the line: the same read again.
+    [Test]
+    procedure BgQueryCache_Run_FindFirstLoadFields_ChangedRow_SeesTheChange()
+    var
+        Rows: TestPage "BQ Plain Rows";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        AddRow(G, 1, 'a', '');
+        Rows.OpenView();
+        Assert.AreEqual('a', Run(Rows, 'firstload', G), 'FindFirst');
+        SetRow(G, 1, 'b');
+        Assert.AreEqual('b', Run(Rows, 'firstload', G), 'FindFirst again');
+        Rows.Close();
+    end;
+
+    // The test changes the line after a commit and reads the group by FindLast itself: the worker's first FindLast.
+    [Test]
+    procedure BgQueryCache_Run_TestWroteThenFindLast_FirstReadSeesTheChange()
+    var
+        Rows: TestPage "BQ Plain Rows";
+        Row: Record "BQ Row";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        AddRow(G, 1, 'a', '');
+        Commit();
+        SetRow(G, 1, 'b');
+        Row.SetRange("Group", G);
+        Row.FindLast();
+        Assert.AreEqual('b', Row.Description, 'the test''s FindLast');
+        Rows.OpenView();
+        Assert.AreEqual('b', Run(Rows, 'last', G), 'the worker''s FindLast');
+        Rows.Close();
+    end;
+
+    // FindLast after SetLoadFields(Description); the test changes the line: the same read again.
+    [Test]
+    procedure BgQueryCache_Run_FindLastLoadFields_ChangedRow_SeesTheChange()
+    var
+        Rows: TestPage "BQ Plain Rows";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        AddRow(G, 1, 'a', '');
+        Rows.OpenView();
+        Assert.AreEqual('a', Run(Rows, 'lastload', G), 'FindLast');
+        SetRow(G, 1, 'b');
+        Assert.AreEqual('b', Run(Rows, 'lastload', G), 'FindLast again');
+        Rows.Close();
+    end;
+
+    // The test page shows the group through its filter; the test changes the line: the worker's first FindFirst by SetFilter.
+    [Test]
+    procedure BgQueryCache_Run_PageFilter_ChangedRow_FirstReadSeesTheChange()
+    var
+        Rows: TestPage "BQ Plain Rows";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        AddRow(G, 1, 'a', '');
+        Rows.OpenView();
+        Rows.Filter.SetFilter("Group", G);
+        Rows.First();
+        SetRow(G, 1, 'b');
+        Assert.AreEqual('b', Run(Rows, 'setfilterfirst', G), 'SetFilter FindFirst');
+        Rows.Close();
+    end;
 }
