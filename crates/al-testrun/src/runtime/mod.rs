@@ -1256,6 +1256,8 @@ mod lane_starts;
 #[cfg(test)]
 mod login_explain_tests;
 #[cfg(test)]
+mod login_memo_tests;
+#[cfg(test)]
 mod login_tests;
 pub mod memory;
 #[cfg(test)]
