@@ -121,6 +121,7 @@ mod permissions;
 mod platform;
 mod profile;
 mod queries;
+mod query_cache;
 mod query_date_filter;
 mod query_reopen;
 mod query_save_as;
@@ -1573,6 +1574,7 @@ impl Session {
 
     /// Makes every change so far durable (and a Truncate of this transaction final).
     pub fn commit_transaction(&mut self) {
+        self.note_commit_for_query_cache();
         self.guarded_body_commit();
         al_data::Store::commit(&mut self.store);
         self.crm_committed();
@@ -2005,6 +2007,7 @@ impl Session {
 
     pub fn mark_install_end(&mut self) {
         self.install_row_version = self.next_row_version;
+        self.reset_query_cache();
     }
 
     /// The `SessionId()` this session answers: an install session's own id, else the host's.

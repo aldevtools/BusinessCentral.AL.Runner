@@ -13,6 +13,9 @@ use al_builtins::value::Value as V;
 pub(crate) struct BgWorker {
     params: V,
     result: Option<V>,
+    /// The worker runs for a part of the page with code (`code_inserted_coded.rs`): a read that repeats an earlier worker's
+    /// read with another answer is refused (`bg_read_done`).
+    watch: bool,
 }
 
 /// The test session's state a worker's child session does not have, kept aside while it runs.
@@ -108,7 +111,7 @@ impl Session {
     /// outside the caller's write transaction (testpage/TestPageBgTaskTx_Tests.al): see
     /// `in_write_transaction` and `codeunit_run`. A direct `Commit` and an unguarded `Codeunit.Run`
     /// are not pinned and end the run as unsupported.
-    fn bg_run_worker(&mut self, codeunit: i32, params: V) -> Result<Result<V, AlError>, Signal> {
+    fn bg_run_worker(&mut self, codeunit: i32, params: V, watch: bool) -> Result<Result<V, AlError>, Signal> {
         let engine = self.engine();
         let Some(object) = engine
             .program
@@ -143,7 +146,11 @@ impl Session {
         if self.pages.bg_worker.is_some() {
             return unsupported("a background task started from a background task");
         }
-        self.pages.bg_worker = Some(BgWorker { params, result: None });
+        self.pages.bg_worker = Some(BgWorker {
+            params,
+            result: None,
+            watch,
+        });
         self.sync_no_client_test_session();
         let parked = self.bg_enter_child_session();
         let inst = self.instance(object);
@@ -198,7 +205,7 @@ impl Session {
             _ => V::Dictionary(Default::default()),
         };
         let completion = matches!(args.get(2), Some(V::Boolean(true)));
-        let results = match self.bg_run_worker(codeunit, params)? {
+        let results = match self.bg_run_worker(codeunit, params, false)? {
             Ok(r) => r,
             // With the completion triggers, a failing worker runs OnPageBackgroundTaskError, and when that marks the error as
             // handled the call returns without an error (pages/background-tasks/W2BackgroundTasks.al:508-537
@@ -283,10 +290,22 @@ impl Session {
             if !st.borrow().open {
                 return unsupported("a background task queued on a page that closed before it ran (not pinned)");
             }
-            match self.bg_run_worker(codeunit, params)? {
+            let watch = {
+                let (root, _) = Self::tree_root(st);
+                let r = root.borrow();
+                r.coded_line != super::state::CodedLine::Off
+            };
+            match self.bg_run_worker(codeunit, params, watch)? {
                 Ok(results) => {
                     let r = self.bg_completed(st, id, &results);
                     self.torn_down_on_error(st, r)?;
+                }
+                // The probe of the page with code measures only workers that complete (ListNewLineFactboxesCode.al:399-496).
+                Err(_) if watch => {
+                    return unsupported(
+                        "a failing worker of a background task on a List page with code and FactBoxes, on its new line or the \
+                         row it became (not measured)",
+                    );
                 }
                 // A failing worker under ErrorLevel Ignore: the error trigger runs, and the page stays open even though the
                 // trigger did not mark the error as handled (pages/background-tasks/W2BackgroundTasks.al:455 ErrorLevel_Ignore, `open|ok` = Yes,
@@ -425,5 +444,75 @@ impl Session {
             ));
         }
         Ok(())
+    }
+
+    /// What a read of a page background task's worker asks (`record_op` calls it before the read): its table and company, the
+    /// method and its arguments, the filters, key, order and marks of the record, and the record's key where the read starts
+    /// from it (Next, Find, CalcFields, Get without a key). `None` outside a worker, for a temporary record and for a method that
+    /// reads no row.
+    pub(crate) fn bg_read_question(
+        &self,
+        method: al_builtins::record_op::RecordOp,
+        rec: &Rec,
+        args: &[Value],
+    ) -> Option<String> {
+        use al_builtins::record_op::RecordOp as R;
+        self.pages.bg_worker.as_ref()?;
+        let from_position = match method {
+            R::Next | R::Find | R::CalcFields => true,
+            R::Get | R::GetBySystemId => args.is_empty(),
+            R::CalcSums | R::Count | R::CountApprox | R::FindFirst | R::FindLast | R::FindSet | R::IsEmpty => false,
+            _ => return None,
+        };
+        let r = rec.borrow();
+        if r.temporary {
+            return None;
+        }
+        let key = from_position.then(|| self.table(rec).ok().map(|t| t.primary_key(&r.fields)));
+        let marks = r.marked_only.then_some(&r.marks);
+        Some(format!(
+            "{}|{:?}|{method:?}|{args:?}|{:?}|{}|{}|{:?}|{}|{}|{marks:?}|{key:?}",
+            r.table, r.company, r.filters, r.filter_group, r.key, r.adhoc, r.ascending, r.field_descending
+        ))
+    }
+
+    /// The answer of a worker's read: the value it returned, and the record's fields where the method loads a row (`bg_read_done`).
+    fn bg_read_answer(method: al_builtins::record_op::RecordOp, rec: &Rec, value: &Value) -> String {
+        use al_builtins::record_op::RecordOp as R;
+        match method {
+            R::Count | R::CountApprox | R::IsEmpty => format!("{value:?}"),
+            _ => format!("{value:?}|{:?}", rec.borrow().fields),
+        }
+    }
+
+    /// A worker's read asked `question` and answered `result`. A worker of the page with code (`BgWorker::watch`) whose read
+    /// repeats the question of an earlier worker's read of this run, with another answer, is refused: BC answers such a read
+    /// from a query cache its background sessions share, the earlier answer, also after the test session changed the rows
+    /// (measured for al-runner issue 8434 on Business Central 29.1; the corpus pins only reads no worker made before, with keys of
+    /// their own per test: testpage/TestPageBgTaskTx_Tests.al:82). Every first answer is kept for the run.
+    pub(crate) fn bg_read_done(
+        &mut self,
+        question: String,
+        method: al_builtins::record_op::RecordOp,
+        rec: &Rec,
+        result: &Result<Value, Signal>,
+    ) -> Result<(), Signal> {
+        let Ok(value) = result else {
+            return Ok(());
+        };
+        let answer = Self::bg_read_answer(method, rec, value);
+        let watch = self.pages.bg_worker.as_ref().is_some_and(|w| w.watch);
+        match self.pages.bg_reads.get(&question) {
+            Some(first) if watch && *first != answer => unsupported(
+                "a page background task of a List page with code and FactBoxes read again what a background task of this run read \
+                 before, and the rows changed since: BC answers it from the query cache its background sessions share (not \
+                 pinned)",
+            ),
+            Some(_) => Ok(()),
+            None => {
+                self.pages.bg_reads.insert(question, answer);
+                Ok(())
+            }
+        }
     }
 }

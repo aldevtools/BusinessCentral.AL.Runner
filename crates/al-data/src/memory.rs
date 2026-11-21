@@ -886,6 +886,11 @@ impl MemStore {
         }
     }
 
+    /// The stamp the last commit left for table `t`: it changes when a commit writes the table, never at a rollback.
+    pub fn committed_stamp(&self, cx: &AccessContext, t: &TableDef) -> Option<u64> {
+        self.committed_versions.get(&slot(cx, t)).copied()
+    }
+
     /// Whether a write since the last commit changed table `t` (and no rollback undid it).
     pub fn written_since_commit(&self, cx: &AccessContext, t: &TableDef) -> bool {
         let slot = slot(cx, t);
@@ -1304,12 +1309,6 @@ impl MemStore {
             self.versions.insert(target.clone(), self.counter);
             self.shapes.insert(target, self.counter);
         }
-    }
-
-    /// Whether table `t` changed in the open transaction, in the company of `cx`.
-    pub fn table_changed(&self, cx: &AccessContext, t: &TableDef) -> bool {
-        let slot = slot(cx, t);
-        self.versions.get(&slot) != self.committed_versions.get(&slot)
     }
 
     /// Whether a table of `company` changed in the open transaction.

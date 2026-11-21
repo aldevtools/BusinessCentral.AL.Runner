@@ -34,6 +34,10 @@ pub(super) fn pages_as_new(p: &PageClients) -> bool {
         traps,
         scope_unpinned,
         bg_worker,
+        bg_reads,
+        // Emptied when the session enters a test codeunit (`Session::reset_query_cache`), so what install code read is not
+        // carried.
+        query_cache: _,
         caption_dialogs,
         caption_write_guard,
         bg_drain_after_call,
@@ -69,6 +73,7 @@ pub(super) fn pages_as_new(p: &PageClients) -> bool {
         && traps.is_empty()
         && scope_unpinned.is_empty()
         && bg_worker.is_none()
+        && bg_reads.is_empty()
         && *caption_dialogs == crate::pages::CaptionDialogs::default()
         && caption_write_guard.is_none()
         && bg_drain_after_call.is_none()
