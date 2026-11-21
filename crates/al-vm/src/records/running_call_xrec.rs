@@ -253,7 +253,7 @@ impl Session {
     }
 
     /// Whether the frames below frame `caller` (the outermost Validate's trigger) are the callers record/validate/
-    /// XRecTableProcCallers.al measured (corpus PR 1482, open; assumption `xrec-table-proc-callers-subscribers`): from the test
+    /// XRecTableProcCallers.al measured (corpus PR 1482, merged at 5ad2970e, not pinned yet; assumption `xrec-table-proc-callers-subscribers`): from the test
     /// procedure (`[Test]`, also naming handlers, `TwoSubscribers_MaintainLineFromReport_TestWithHandler`) through procedures of
     /// its test codeunit and procedures of other codeunits (`Sub_FromCodeunitProcedure`, `Codeunit_FromCodeunitProcedure`),
     /// every codeunit not SingleInstance, called directly (not through an event or an interface). For the subscriber chain
@@ -409,7 +409,7 @@ impl Session {
     /// record/validate/XRecTableProcThroughSubscriber.al, `Some(false)`), or two, each of a codeunit neither bound manually nor
     /// SingleInstance, each declaring the publisher's first parameters, all `var` (the reading one all of them, checked by
     /// `through_subscriber`; the other all, `TwoSubscribers_*`, or only the record, `Wide_*`; record/validate/
-    /// XRecTableProcCallers.al, corpus PR 1482, open: assumed, `Some(true)`).
+    /// XRecTableProcCallers.al, corpus PR 1482, merged at 5ad2970e, not pinned yet: assumed, `Some(true)`).
     fn subscribers_measured(&self, publisher_o: usize, publisher: &Routine) -> Option<bool> {
         let subscribers = self
             .engine
