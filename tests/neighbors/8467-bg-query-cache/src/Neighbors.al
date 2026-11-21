@@ -1,10 +1,12 @@
 // Neighbors of al-runner issue 8467 the probe does not measure, on the probe's table and page. Refused: a group read of a
 // worker after the test session read that group and then wrote the table; a field load into a copy of a record the cache
-// answered; a row read again after its entry's committed absence came back through commits. A row read again after a commit
-// of a ModifyAll of another row follows the BC version (the probe's cell for it differs between versions; refused where none
-// is measured). Reading the rows as they are (no flag): FindLast, IsEmpty, a SetFilter to one value, a ReadIsolation read;
-// two filter values with the same first characters keep their own entries; a field load after a fetch of another row is not
-// refused.
+// answered. A row read again after commits that wrote it while no commit held it before or after reads the table (corpus PR
+// 1495, BgTaskQueryCache.al:1207). A row read again after a commit of a ModifyAll of another row follows the BC version (the
+// probe's cell for it differs between versions; refused where none is measured). Read as on main, from the rows as they are
+// (no flag): FindLast, IsEmpty, a SetFilter to one value, a ReadIsolation read. BC differs there: it answers FindLast, IsEmpty
+// and FindFirst after a SetFilter from the cache (corpus PR 1495, :1276, :1293, :1312), and a ReadIsolation read waits on the
+// test session's write (a local BC 29.1 container); neither is modelled. Two filter values with the same first characters keep
+// their own entries; a field load after a fetch of another row is not refused.
 
 codeunit 97510 "BQ Other Reader"
 {

@@ -10,15 +10,17 @@
 //!   (:870, :891), the filter set by `SetRange` to the value twice, by `SetFilter` of a range from the value to itself or by
 //!   `FieldRef.SetRange` alike (:917).
 //!
-//! A row entry holds until a commit writes that row (:430, :804 against :741, :762, :784; a commit of a ModifyAll or DeleteAll of the table ends it
-//! or keeps it by the target's minor, `al_version::bulk_commit_ends_cached_row`, and elsewhere a read it would answer otherwise
-//! than the table is refused); a group entry until a commit
+//! A row entry holds until a commit writes that row (:430, :804 against :741, :762, :784; also when no commit held the row
+//! before or after, an insert and a delete each committed: open corpus pull request 1495, the same file :1207; a commit of a
+//! ModifyAll or DeleteAll of the table ends it or keeps it by the target's minor, `al_version::bulk_commit_ends_cached_row`,
+//! and elsewhere a read it would answer otherwise than the table is refused); a group entry until a commit
 //! writes the table (:823, :845, :870, :891 against :451). A rollback changes neither (:983, :1016, :1029), and a found row, a
 //! missing row and a count are all kept (:604, :624, :692). The test session's own read of a form fills the cache while that
 //! session has not written the table since its last commit (:500, :541, :938; not after it wrote the table, :959), and a
 //! worker's first read then answers what the test read; the test session's own read answers from an entry a worker filled
 //! (:983), which is refused here. The cache starts empty in every test codeunit (:1044, :1067). Every other read keeps reading
-//! the rows as they are.
+//! the rows as they are, as on main; BC answers a repeated FindLast, IsEmpty and FindFirst after a SetFilter from the cache too
+//! (open corpus pull request 1495, :1276, :1293, :1312), which is not modelled yet.
 
 use crate::records::Rec;
 use crate::{Session, Signal};
@@ -83,12 +85,14 @@ impl<T> Entries<T> {
 }
 
 /// What a commit had left of a row when the cache took it: the row's SystemRowVersion (`None`: no committed row), the
-/// table's commit stamp, and how many commits carried a ModifyAll, DeleteAll or Truncate of the table.
+/// table's commit stamp, how many commits carried a ModifyAll, DeleteAll or Truncate of the table, and how many commits wrote
+/// the row itself by Insert, Modify or Delete.
 #[derive(Clone, Copy, PartialEq)]
 struct Committed {
     version: Option<i64>,
     stamp: Option<u64>,
     bulk: u64,
+    writes: u64,
 }
 
 /// Whether an entry taken at `then` still holds `now`.
@@ -102,9 +106,10 @@ enum Holds {
 }
 
 /// Whether an entry taken at `then` still holds `now`; `bulk_ends`: whether a commit of a ModifyAll of another row of the table
-/// ends it on the target (`al_version::bulk_commit_ends_cached_row`).
+/// ends it on the target (`al_version::bulk_commit_ends_cached_row`). A commit that wrote the row ends it, also when no commit
+/// held the row before or after (an insert and a delete, each committed: corpus PR 1495, BgTaskQueryCache.al:1207).
 fn holds(then: Committed, now: Committed, bulk_ends: Option<bool>) -> Holds {
-    if then.version != now.version {
+    if then.version != now.version || then.writes != now.writes {
         Holds::No
     } else if then.bulk != now.bulk && bulk_ends != Some(false) {
         if bulk_ends == Some(true) {
@@ -140,6 +145,8 @@ pub(crate) struct QueryCache {
     replay_load: bool,
     /// The commits that carried a ModifyAll, DeleteAll or Truncate, by table (`Session::note_commit_for_query_cache`).
     bulk_commits: HashMap<u32, u64>,
+    /// The commits that wrote a row by Insert, Modify or Delete, by row (`Session::note_commit_for_query_cache`).
+    row_commits: Entries<u64>,
     /// The rows of such loads (`Buffer::fetched`, shared by copies of the record, replaced by its next fetch): a load of a field
     /// `SetLoadFields` left out is refused (BC loads it from the cached row, :714; the runner would load it from the table).
     replayed: Vec<Weak<Vec<Value>>>,
@@ -176,7 +183,8 @@ impl Session {
         self.pages.bg_reads.clear();
     }
 
-    /// The open transaction commits: the tables it wrote by ModifyAll, DeleteAll or Truncate count one more such commit.
+    /// The open transaction commits: the tables it wrote by ModifyAll, DeleteAll or Truncate count one more such commit, and so
+    /// does each row it wrote by Insert, Modify or Delete.
     pub(crate) fn note_commit_for_query_cache(&mut self) {
         use crate::state::TxWriteKind as K;
         let cache = &mut self.pages.query_cache;
@@ -192,6 +200,25 @@ impl Session {
         tables.dedup();
         for t in tables {
             *cache.bulk_commits.entry(t).or_default() += 1;
+        }
+        let mut rows: Vec<At> = Vec::new();
+        for w in &self.tx.open.writes {
+            let at = At {
+                table: w.table,
+                company: w.company.clone(),
+                values: w.pk.clone(),
+            };
+            if matches!(w.kind, K::Insert | K::Modify | K::Delete)
+                && !rows
+                    .iter()
+                    .any(|r| r.table == at.table && r.company == at.company && same_rows(&r.values, &at.values))
+            {
+                rows.push(at);
+            }
+        }
+        for at in rows {
+            let n = cache.row_commits.get(&at).copied().unwrap_or(0);
+            cache.row_commits.insert(&at, n + 1);
         }
     }
 
@@ -295,10 +322,16 @@ impl Session {
             .committed_get(cx, t, pk)
             .and_then(|row| crate::stale_rename::row_version(t, &row));
         let stamp = store.committed_stamp(cx, t);
+        let cache = &self.pages.query_cache;
         Ok(Committed {
             version,
             stamp,
-            bulk: self.pages.query_cache.bulk_commits.get(&t.object).copied().unwrap_or(0),
+            bulk: cache.bulk_commits.get(&t.object).copied().unwrap_or(0),
+            writes: cache
+                .row_commits
+                .get(&Self::at(rec, t, pk.to_vec()))
+                .copied()
+                .unwrap_or(0),
         })
     }
 

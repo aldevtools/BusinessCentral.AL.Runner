@@ -1,5 +1,6 @@
 //! The corpus probe of al-runner issue 8467 (corpus pull request 1457, merged, not pinned yet: tests/al-language/pages/background-tasks/
-//! BgTaskQueryCache.al, measured on BC 29.1, 34 of 34 green) and the reporter's repro, run here until a bump pins the probe: the
+//! BgTaskQueryCache.al, measured on BC 29.1, 34 of 34 green; and the six cells of open corpus pull request 1495 after it, 40 of 40)
+//! and the reporter's repro, run here until a bump pins the probe: the
 //! query cache page background tasks and the test session read through (`al-vm` query_cache.rs). Delete this file and the
 //! fixtures when the pin is in the corpus.
 
@@ -86,6 +87,33 @@ fn issue_8467_probe_cells() {
     }
 }
 
+/// The cells of corpus pull request 1495 (BgTaskQueryCache.al:1207-1326): a Get after commits that inserted and deleted the row
+/// reads the table, clean; the worker's first Count after the test counted the group and then inserted, and a copy of a record
+/// a partial Get answered from the cache, stay refused. FindLast, IsEmpty and FindFirst after a SetFilter, repeated after a
+/// change, still read the rows as they are: BC answers them from the cache (:1276, :1293, :1312), which is not modelled here.
+#[test]
+fn issue_8467_neighbor_cells() {
+    let o = outcomes(PROBE, "BQ Tests 3");
+    let get = |n: &str| {
+        o.iter()
+            .find(|(name, _, _)| name == &format!("BgQueryCache_Run_{n}"))
+            .expect("the test")
+    };
+    let (_, r, marks) = get("Get_RolledBack_InsertDeleteCommitted_SeesTheTable");
+    assert_eq!(*r, Outcome::Pass);
+    assert!(!marks.contains(&BackgroundTaskQueryCache), "{marks:?}");
+    let (_, r, _) = get("GroupCount_TestCountThenInsert_FirstRead");
+    assert!(
+        matches!(r, Outcome::NotRun(w) if w.contains("after the test session read the group")),
+        "{r:?}"
+    );
+    let (_, r, _) = get("PartialGet_Copy_FirstAnswer");
+    assert!(
+        matches!(r, Outcome::NotRun(w) if w.contains("a field SetLoadFields left out")),
+        "{r:?}"
+    );
+}
+
 /// The reporter's repro: the second background read of row A answers the first; the control sees the change.
 #[test]
 fn issue_8467_repro() {
@@ -105,9 +133,11 @@ fn issue_8467_repro() {
 
 /// Neighbors the probe does not measure, on the probe's table and page. Refused: a group read of a worker after the test
 /// session read that group and then wrote the table; a field load into a copy of a record the cache answered; a row read
-/// again after its entry's committed absence came back through commits, or after a commit of a ModifyAll of another row (the
-/// probe's cell for it differs between BC versions). Reading the rows as they are (no flag): FindLast,
-/// IsEmpty, a SetFilter to one value, a ReadIsolation read; two filter values with the same first characters keep their own
+/// again after a commit of a ModifyAll of another row (the probe's cell for it differs between BC versions). A row read again
+/// after commits that wrote the row while no commit held it before or after reads the table (corpus PR 1495,
+/// BgTaskQueryCache.al:1207). Reading the rows as they are (no flag), as on main: FindLast,
+/// IsEmpty, a SetFilter to one value, a ReadIsolation read (BC answers the first three from the cache, corpus PR 1495
+/// :1276-1312, not modelled); two filter values with the same first characters keep their own
 /// entries; a field load after a fetch of another row is not refused.
 const NEIGHBORS: &str = r#"
 codeunit 97510 "BQ Other Reader"
@@ -453,6 +483,7 @@ fn issue_8467_unmeasured_neighbors() {
     }
     let (_, r, _) = get("OtherRowModifyAllCommitted_ThenChanged");
     assert!(matches!(r, Outcome::NotRun(w) if w.contains("may have ended")), "{r:?}");
-    let (_, r, _) = get("RowGoneAgain_AfterCommits");
-    assert!(matches!(r, Outcome::NotRun(w) if w.contains("may have ended")), "{r:?}");
+    let (_, r, marks) = get("RowGoneAgain_AfterCommits");
+    assert_eq!(*r, Outcome::Pass);
+    assert!(!marks.contains(&BackgroundTaskQueryCache), "{marks:?}");
 }
