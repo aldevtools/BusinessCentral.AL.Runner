@@ -89,8 +89,8 @@ fn issue_8467_probe_cells() {
 
 /// The cells of corpus pull request 1495 (BgTaskQueryCache.al:1207-1326): a Get after commits that inserted and deleted the row
 /// reads the table, clean; the worker's first Count after the test counted the group and then inserted, and a copy of a record
-/// a partial Get answered from the cache, stay refused. FindLast, IsEmpty and FindFirst after a SetFilter, repeated after a
-/// change, still read the rows as they are: BC answers them from the cache (:1276, :1293, :1312), which is not modelled here.
+/// a partial Get answered from the cache, stay refused. FindLast and IsEmpty after a SetRange of the group, and FindFirst after
+/// a SetFilter of it to one value, repeated after a change, answer their first answer (:1276, :1293, :1312), flagged.
 #[test]
 fn issue_8467_neighbor_cells() {
     let o = outcomes(PROBE, "BQ Tests 3");
@@ -112,6 +112,15 @@ fn issue_8467_neighbor_cells() {
         matches!(r, Outcome::NotRun(w) if w.contains("a field SetLoadFields left out")),
         "{r:?}"
     );
+    for name in [
+        "FindLast_ChangedRow_FirstAnswer",
+        "IsEmpty_Insert_FirstAnswer",
+        "SetFilterFindFirst_ChangedRow_FirstAnswer",
+    ] {
+        let (_, r, marks) = get(name);
+        assert_eq!(*r, Outcome::Pass, "{name}");
+        assert!(marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
+    }
 }
 
 /// The reporter's repro: the second background read of row A answers the first; the control sees the change.
@@ -135,10 +144,9 @@ fn issue_8467_repro() {
 /// session read that group and then wrote the table; a field load into a copy of a record the cache answered; a row read
 /// again after a commit of a ModifyAll of another row (the probe's cell for it differs between BC versions). A row read again
 /// after commits that wrote the row while no commit held it before or after reads the table (corpus PR 1495,
-/// BgTaskQueryCache.al:1207). Reading the rows as they are (no flag), as on main: FindLast,
-/// IsEmpty, a SetFilter to one value, a ReadIsolation read (BC answers the first three from the cache, corpus PR 1495
-/// :1276-1312, not modelled); two filter values with the same first characters keep their own
-/// entries; a field load after a fetch of another row is not refused.
+/// BgTaskQueryCache.al:1207). FindLast, IsEmpty and a SetFilter to one value answer their first answer, flagged (corpus PR
+/// 1495 :1276-1312). Reading the rows as they are (no flag), as on main: a ReadIsolation read; two filter values with the same
+/// first characters keep their own entries; a field load after a fetch of another row is not refused.
 const NEIGHBORS: &str = r#"
 codeunit 97510 "BQ Other Reader"
 {
@@ -430,7 +438,7 @@ codeunit 97511 "BQ Neighbor Tests"
     end;
 
     [Test]
-    procedure OtherForms_ReadTheRows()
+    procedure OtherForms_FirstAnswer()
     var
         Rows: TestPage "BQ Rows";
         Row: Record "BQ Row";
@@ -447,9 +455,9 @@ codeunit 97511 "BQ Neighbor Tests"
         Row.Description := 'b';
         Row.Modify();
         AddRow('NB3', 1, 'c');
-        Assert.AreEqual('b', Run(Rows, Other, 'last', 'NB2'), 'FindLast again');
-        Assert.AreEqual('No', Run(Rows, Other, 'empty', 'NB3'), 'IsEmpty again');
-        Assert.AreEqual('b', Run(Rows, Other, 'setfilter', 'NB2'), 'SetFilter FindFirst again');
+        Assert.AreEqual('a', Run(Rows, Other, 'last', 'NB2'), 'FindLast again');
+        Assert.AreEqual('Yes', Run(Rows, Other, 'empty', 'NB3'), 'IsEmpty again');
+        Assert.AreEqual('a', Run(Rows, Other, 'setfilter', 'NB2'), 'SetFilter FindFirst again');
         Rows.Close();
     end;
 }
@@ -465,9 +473,9 @@ fn issue_8467_unmeasured_neighbors() {
         matches!(r, Outcome::NotRun(w) if w.contains("after the test session read the group")),
         "{r:?}"
     );
-    let (_, r, marks) = get("OtherForms_ReadTheRows");
+    let (_, r, marks) = get("OtherForms_FirstAnswer");
     assert_eq!(*r, Outcome::Pass);
-    assert!(!marks.contains(&BackgroundTaskQueryCache), "{marks:?}");
+    assert!(marks.contains(&BackgroundTaskQueryCache), "{marks:?}");
     let (_, r, _) = get("CopyOfReplayed_LoadsOmittedField");
     assert!(
         matches!(r, Outcome::NotRun(w) if w.contains("a field SetLoadFields left out")),
@@ -486,4 +494,61 @@ fn issue_8467_unmeasured_neighbors() {
     let (_, r, marks) = get("RowGoneAgain_AfterCommits");
     assert_eq!(*r, Outcome::Pass);
     assert!(!marks.contains(&BackgroundTaskQueryCache), "{marks:?}");
+}
+
+/// The reporter's repro of al-runner issue 8637: FindLast, IsEmpty and FindFirst after a SetFilter, repeated after a change,
+/// answer their first answer (corpus PR 1495 :1276, :1293, :1312), flagged.
+#[test]
+fn issue_8637_repro() {
+    let o = outcomes(
+        include_str!("../fixtures/outside-fb/Issue8637.al"),
+        "Repro Cache Read Tests",
+    );
+    assert_eq!(o.len(), 3);
+    for (name, r, marks) in &o {
+        assert_eq!(*r, Outcome::Pass, "{name}");
+        assert!(marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
+    }
+}
+
+/// Neighbors of the three forms of al-runner issue 8637 (the fixture's header lists them): the shapes the cells do not measure
+/// read the rows as on main, clean; the measured forms in other states answer from the cache, flagged; the shapes where the
+/// cache's answer and the table's could both be claimed are refused, each for its own reason.
+#[test]
+fn issue_8637_neighbors() {
+    let src = format!(
+        "{PROBE}\n{}",
+        include_str!("../fixtures/outside-fb/Issue8637Neighbors.al")
+    );
+    let main = outcomes(&src, "BQ Filter Tests");
+    assert_eq!(main.len(), 17);
+    for (name, r, marks) in &main {
+        assert_eq!(*r, Outcome::Pass, "{name}");
+        assert!(!marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
+    }
+    let cached = outcomes(&src, "BQ Filter Cache Tests");
+    assert_eq!(cached.len(), 4);
+    for (name, r, marks) in &cached {
+        assert_eq!(*r, Outcome::Pass, "{name}");
+        assert!(marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
+    }
+    let twin = "a FindFirst by SetFilter and a FindFirst by SetRange of the same group";
+    let test_first = "a page background task's first read of a FindLast, IsEmpty or SetFilter FindFirst";
+    let committed = "a page background task's read of a FindLast, IsEmpty or SetFilter FindFirst after a commit";
+    for (codeunit, why) in [
+        ("BQ Filter Refused 1", twin),
+        ("BQ Filter Refused 2", twin),
+        ("BQ Filter Refused 3", test_first),
+        ("BQ Filter Refused 4", test_first),
+        ("BQ Filter Refused 5", committed),
+        ("BQ Filter Refused 6", "a read of the test session"),
+    ] {
+        let o = outcomes(&src, codeunit);
+        assert_eq!(o.len(), 1, "{codeunit}");
+        let (name, r, _) = &o[0];
+        assert!(
+            matches!(r, Outcome::NotRun(w) if w.starts_with(why)),
+            "{codeunit}::{name}: {r:?}"
+        );
+    }
 }

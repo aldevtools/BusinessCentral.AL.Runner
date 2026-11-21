@@ -2,13 +2,16 @@
 //! pull request 1457, merged, not pinned yet: tests/al-language/pages/background-tasks/BgTaskQueryCache.al, measured on Business Central 29.1).
 //!
 //! A worker's read that repeats an earlier read answers what the earlier read answered, also after the test session changed
-//! the rows without committing. Two kinds of read are measured, and only they are kept here:
+//! the rows without committing. Three kinds of read are measured, and only they are kept here:
 //! - a row: `Get` with every primary-key field, and `FindFirst` with exactly one `SetRange` to one value on every primary-key
 //!   field (filter group 0, the primary key, ascending): the two answer alike (:367, :389, :566, :586);
 //! - a group's first row and count: `FindFirst` and `Count` whose every filter is a `SetRange` to one value on a stored field
 //!   (filter group 0): on the first primary-key field (:641, :658, :675, :692), on a field outside the key and on two fields
 //!   (:870, :891), the filter set by `SetRange` to the value twice, by `SetFilter` of a range from the value to itself or by
-//!   `FieldRef.SetRange` alike (:917).
+//!   `FieldRef.SetRange` alike (:917);
+//! - the `Filtered` forms of open corpus pull request 1495 (the same file), a read of AL code on a Record whose one filter is
+//!   on the first field of a primary key of more than one field (filter group 0): `FindLast` (:1276) and `IsEmpty` (:1293)
+//!   after `SetRange` to one value, and `FindFirst` after `SetFilter` of one value (:1312). Each keys entries of its own.
 //!
 //! A row entry holds until a commit writes that row (:430, :804 against :741, :762, :784; also when no commit held the row
 //! before or after, an insert and a delete each committed: open corpus pull request 1495, the same file :1207; a commit of a
@@ -18,9 +21,11 @@
 //! missing row and a count are all kept (:604, :624, :692). The test session's own read of a form fills the cache while that
 //! session has not written the table since its last commit (:500, :541, :938; not after it wrote the table, :959), and a
 //! worker's first read then answers what the test read; the test session's own read answers from an entry a worker filled
-//! (:983), which is refused here. The cache starts empty in every test codeunit (:1044, :1067). Every other read keeps reading
-//! the rows as they are, as on main; BC answers a repeated FindLast, IsEmpty and FindFirst after a SetFilter from the cache too
-//! (open corpus pull request 1495, :1276, :1293, :1312), which is not modelled yet.
+//! (:983), which is refused here. The cache starts empty in every test codeunit (:1044, :1067). For the `Filtered` forms only
+//! the repeated read is measured: the test session's reads fill nothing, and a worker's first read whose answer changed since
+//! the test session made it is refused; a commit of the table between two reads refuses the read whose answer it changed; and
+//! a SetFilter and a SetRange `FindFirst` of one group are refused where the other's entry answers otherwise than the table.
+//! Every other read keeps reading the rows as they are, as on main.
 
 use crate::records::Rec;
 use crate::{Session, Signal};
@@ -126,8 +131,37 @@ fn holds(then: Committed, now: Committed, bulk_ends: Option<bool>) -> Holds {
 
 #[derive(Clone)]
 enum GroupAnswer {
-    First(Option<Vec<Value>>),
+    /// The row a FindFirst or FindLast found.
+    Row(Option<Vec<Value>>),
     Count(usize),
+    /// Whether IsEmpty found the group empty.
+    Empty(bool),
+}
+
+/// The read forms of open corpus pull request 1495 that BC answers from the query cache, each keying entries of its own: one
+/// filter, in filter group 0, on the first field of a primary key of more than one field (a group, not a row).
+#[derive(Clone, Copy, PartialEq)]
+enum Filtered {
+    /// `FindLast` after `SetRange` of the field to one value (:1276).
+    Last,
+    /// `IsEmpty` after it (:1293).
+    Empty,
+    /// `FindFirst` after `SetFilter` of the field to one value, no wildcard (:1312).
+    SetFilterFirst,
+}
+
+/// The kind a `FindFirst` group read keys its entries by (`group_filter_key`), and the kind of its `SetFilter` twin.
+const FIRST: &str = "first";
+const SETFILTER_FIRST: &str = "setfilter first";
+
+impl Filtered {
+    fn kind(self) -> &'static str {
+        match self {
+            Filtered::Last => "last",
+            Filtered::Empty => "empty",
+            Filtered::SetFilterFirst => SETFILTER_FIRST,
+        }
+    }
 }
 
 /// What the cache holds for one codeunit run (`Session::reset_query_cache` empties it).
@@ -141,6 +175,10 @@ pub(crate) struct QueryCache {
     test_rows: Entries<Committed>,
     /// The groups the test session read while it had not written their table: the table's commit stamp then.
     test_groups: Entries<Option<u64>>,
+    /// What the test session's reads of a `Filtered` form answered. They fill no entry: whether BC's do is not measured.
+    test_filtered: Entries<GroupAnswer>,
+    /// The read running is AL code's on a Record variable (`mark_al_record_read`): only it reads a `Filtered` form.
+    pub(crate) al_record_read: bool,
     /// The next load into a partial record loads a row the cache answered with another row than the table holds.
     replay_load: bool,
     /// The commits that carried a ModifyAll, DeleteAll or Truncate, by table (`Session::note_commit_for_query_cache`).
@@ -166,8 +204,9 @@ fn same_row(a: &Option<Vec<Value>>, b: &Option<Vec<Value>>) -> bool {
 
 fn same_group(a: &GroupAnswer, b: &GroupAnswer) -> bool {
     match (a, b) {
-        (GroupAnswer::First(x), GroupAnswer::First(y)) => same_row(x, y),
+        (GroupAnswer::Row(x), GroupAnswer::Row(y)) => same_row(x, y),
         (GroupAnswer::Count(x), GroupAnswer::Count(y)) => x == y,
+        (GroupAnswer::Empty(x), GroupAnswer::Empty(y)) => x == y,
         _ => false,
     }
 }
@@ -220,6 +259,14 @@ impl Session {
             let n = cache.row_commits.get(&at).copied().unwrap_or(0);
             cache.row_commits.insert(&at, n + 1);
         }
+    }
+
+    /// AL code calls `method` on a Record or a RecordRef: marks a FindFirst, FindLast or IsEmpty on a Record as AL code's read
+    /// (`filtered_key`); returns the mark to set back when the call returns.
+    pub(crate) fn mark_al_record_read(&mut self, method: RecordOp) -> bool {
+        let read =
+            !self.through_recordref && matches!(method, RecordOp::FindFirst | RecordOp::FindLast | RecordOp::IsEmpty);
+        std::mem::replace(&mut self.pages.query_cache.al_record_read, read)
     }
 
     fn bulk_ends(&self) -> Option<bool> {
@@ -308,6 +355,76 @@ impl Session {
         Some(values)
     }
 
+    /// The key of a read of `rec` in the `Filtered` form `form`: a read of AL code on a Record variable (the cells' reads; a
+    /// page's own reads and a RecordRef's are not measured) whose one filter, in filter group 0, is on the first field of a
+    /// primary key of more than one field, to one value by `SetRange` (`Last`, `Empty`) or by `SetFilter` (`SetFilterFirst`),
+    /// after the form's kind. `None`: another read, which reads the rows as they are.
+    fn filtered_key(&self, rec: &Rec, t: &TableDef, form: Filtered) -> Option<Vec<Value>> {
+        if !self.pages.query_cache.al_record_read {
+            return None;
+        }
+        let r = rec.borrow();
+        let [f] = r.filters.as_slice() else {
+            return None;
+        };
+        let pk = &t.keys[0];
+        if pk.len() < 2 || f.field != pk[0] {
+            return None;
+        }
+        let value = match (form, &f.expr) {
+            (Filtered::SetFilterFirst, FilterExpr::Eq(v)) if f.group == 0 => v,
+            (Filtered::Last | Filtered::Empty, _) => Self::one_value(f)?,
+            _ => return None,
+        };
+        Some(vec![
+            Value::Text(form.kind().into()),
+            Value::Integer(f.field as i32),
+            value.clone(),
+        ])
+    }
+
+    /// The entry a `FindFirst` of the same group by the other filter method keys: SetRange's (`group_filter_key`) for a
+    /// SetFilter read and the other way round.
+    fn twin(values: &[Value]) -> Option<Vec<Value>> {
+        let [Value::Text(kind), field, value] = values else {
+            return None;
+        };
+        let other = match kind.as_str() {
+            FIRST => SETFILTER_FIRST,
+            SETFILTER_FIRST => FIRST,
+            _ => return None,
+        };
+        Some(vec![Value::Text(other.into()), field.clone(), value.clone()])
+    }
+
+    /// Refused when the twin of a `FindFirst` group read at `at` has an entry from this commit stamp of the table that answers
+    /// otherwise than `fresh`: whether a SetFilter and a SetRange read of one group share an entry is not measured. A twin's
+    /// entry from before a commit of the table answers nothing either way: a commit ends a group entry (:823).
+    fn refuse_differing_twin(&self, at: &At, stamp: Option<u64>, fresh: &GroupAnswer) -> Result<(), Signal> {
+        let Some(values) = Self::twin(&at.values) else {
+            return Ok(());
+        };
+        let twin = At {
+            table: at.table,
+            company: at.company.clone(),
+            values,
+        };
+        if self
+            .pages
+            .query_cache
+            .groups
+            .get(&twin)
+            .is_some_and(|(then, a)| *then == stamp && !same_group(a, fresh))
+        {
+            return unsupported(
+                "a FindFirst by SetFilter and a FindFirst by SetRange of the same group, the earlier one answered otherwise \
+                 than the table (whether they share a query cache entry is not measured, corpus PR 1495 \
+                 BgTaskQueryCache.al:1312 measures SetFilter alone)",
+            );
+        }
+        Ok(())
+    }
+
     fn at(rec: &Rec, t: &TableDef, values: Vec<Value>) -> At {
         At {
             table: t.object,
@@ -356,7 +473,8 @@ impl Session {
         Ok(fresh)
     }
 
-    /// What `Count` of `rec` that counted `fresh` answers (`plain`: no FlowField filter).
+    /// What `Count` or `IsEmpty` of `rec` that counted `fresh` answers (`plain`: no FlowField filter); an `IsEmpty` the cache
+    /// answers empty counts 0 rows, one it answers not empty 1.
     pub(crate) fn cached_count(
         &mut self,
         rec: &Rec,
@@ -366,20 +484,34 @@ impl Session {
         plain: bool,
         fresh: usize,
     ) -> Result<usize, Signal> {
-        if method != RecordOp::Count || !plain || !self.cached_form(rec, t, false)? {
-            return Ok(fresh);
-        }
-        let Some(values) = Self::group_filter_key(rec, t, "count") else {
+        let key = match method {
+            RecordOp::Count => Self::group_filter_key(rec, t, "count"),
+            RecordOp::IsEmpty => self.filtered_key(rec, t, Filtered::Empty),
+            _ => None,
+        };
+        let Some(values) = key.filter(|_| plain) else {
             return Ok(fresh);
         };
+        if !self.cached_form(rec, t, false)? {
+            return Ok(fresh);
+        }
+        if method == RecordOp::IsEmpty {
+            return Ok(
+                match self.cached_filtered(rec, cx, t, values, GroupAnswer::Empty(fresh == 0))? {
+                    GroupAnswer::Empty(empty) if empty != (fresh == 0) => usize::from(!empty),
+                    _ => fresh,
+                },
+            );
+        }
         match self.cached_group(rec, cx, t, values, GroupAnswer::Count(fresh))? {
             GroupAnswer::Count(n) => Ok(n),
-            GroupAnswer::First(_) => Ok(fresh),
+            _ => Ok(fresh),
         }
     }
 
-    /// What a `FindFirst` of `rec` that found `fresh` answers: through the cache as a row or a group read, when it is one.
-    pub(crate) fn cached_find_first(
+    /// What a `FindFirst` or `FindLast` of `rec` that found `fresh` answers: through the cache as a row or a group read, when
+    /// it is one.
+    pub(crate) fn cached_find(
         &mut self,
         rec: &Rec,
         cx: &AccessContext,
@@ -387,21 +519,40 @@ impl Session {
         method: RecordOp,
         fresh: Option<Vec<Value>>,
     ) -> Result<Option<Vec<Value>>, Signal> {
-        if method != RecordOp::FindFirst || !self.cached_form(rec, t, true)? {
+        let filtered = |form| self.filtered_key(rec, t, form).map(|v| (v, true));
+        let (row, group) = match method {
+            RecordOp::FindFirst => match Self::row_filter_key(rec, t) {
+                Some(pk) => (Some(pk), None),
+                None => (
+                    None,
+                    Self::group_filter_key(rec, t, FIRST)
+                        .map(|v| (v, false))
+                        .or_else(|| filtered(Filtered::SetFilterFirst)),
+                ),
+            },
+            RecordOp::FindLast => (None, filtered(Filtered::Last)),
+            _ => (None, None),
+        };
+        if (row.is_none() && group.is_none()) || !self.cached_form(rec, t, true)? {
             return Ok(fresh);
         }
-        if let Some(pk) = Self::row_filter_key(rec, t) {
+        if let Some(pk) = row {
             return self.cached_row(rec, cx, t, &pk, fresh);
         }
-        let Some(values) = Self::group_filter_key(rec, t, "first") else {
+        let Some((values, filtered)) = group else {
             return Ok(fresh);
         };
-        match self.cached_group(rec, cx, t, values, GroupAnswer::First(fresh.clone()))? {
-            GroupAnswer::First(row) => {
+        let answer = if filtered {
+            self.cached_filtered(rec, cx, t, values, GroupAnswer::Row(fresh.clone()))?
+        } else {
+            self.cached_group(rec, cx, t, values, GroupAnswer::Row(fresh.clone()))?
+        };
+        match answer {
+            GroupAnswer::Row(row) => {
                 self.answered(&row, &fresh);
                 Ok(row)
             }
-            GroupAnswer::Count(_) => Ok(fresh),
+            _ => Ok(fresh),
         }
     }
 
@@ -500,6 +651,7 @@ impl Session {
             if entry.as_ref().is_some_and(|a| !same_group(a, &fresh)) {
                 return unsupported(TEST_READ_REFUSAL);
             }
+            self.refuse_differing_twin(&at, stamp, &fresh)?;
             self.pages.query_cache.test_groups.insert(&at, stamp);
             return Ok(fresh);
         }
@@ -512,11 +664,74 @@ impl Session {
                      query cache's answer is not measured, BgTaskQueryCache.al:938 measures a row)",
                 );
             }
-            None => fresh.clone(),
+            None => {
+                self.refuse_differing_twin(&at, stamp, &fresh)?;
+                fresh.clone()
+            }
         };
         self.pages.query_cache.groups.insert(&at, (stamp, answer.clone()));
         // A FindFirst is flagged by `answered`.
         if matches!(answer, GroupAnswer::Count(_)) && !same_group(&answer, &fresh) {
+            assume(Assumption::BackgroundTaskQueryCache);
+        }
+        Ok(answer)
+    }
+
+    /// A read of a `Filtered` form of `rec` at `values` that the table answers with `fresh`: what the read answers (corpus PR
+    /// 1495, BgTaskQueryCache.al:1276, :1293, :1312). A worker's entry holds until a commit writes the table, and a rollback
+    /// keeps it, as for a group read (`cached_group`); a commit of the table between two reads is measured for FindFirst and
+    /// Count of a group only (:823, :845), so a read it changed the answer of is refused, and one it did not answers it. The
+    /// test session's reads fill no entry; a worker's first read whose answer changed since the test session made it is refused.
+    fn cached_filtered(
+        &mut self,
+        rec: &Rec,
+        cx: &AccessContext,
+        t: &TableDef,
+        values: Vec<Value>,
+        fresh: GroupAnswer,
+    ) -> Result<GroupAnswer, Signal> {
+        let at = Self::at(rec, t, values);
+        let stamp = self.store_for(rec)?.committed_stamp(cx, t);
+        let own = self.pages.query_cache.groups.get(&at).cloned();
+        if !self.in_worker() {
+            // After the session wrote the table, its reads see the table, as its group reads do (`cached_group`, :983).
+            if !self.store_for(rec)?.written_since_commit(cx, t) && own.is_some_and(|(_, a)| !same_group(&a, &fresh)) {
+                return unsupported(TEST_READ_REFUSAL);
+            }
+            self.pages.query_cache.test_filtered.insert(&at, fresh.clone());
+            return Ok(fresh);
+        }
+        let answer = match own {
+            Some((then, a)) if then == stamp => a,
+            Some((_, a)) if !same_group(&a, &fresh) => {
+                return unsupported(
+                    "a page background task's read of a FindLast, IsEmpty or SetFilter FindFirst after a commit of the table \
+                     changed its answer (whether the commit ended its query cache entry is measured for FindFirst and Count \
+                     of a group only, BgTaskQueryCache.al:823, :845)",
+                );
+            }
+            Some(_) => fresh.clone(),
+            None => {
+                if self
+                    .pages
+                    .query_cache
+                    .test_filtered
+                    .get(&at)
+                    .is_some_and(|a| !same_group(a, &fresh))
+                {
+                    return unsupported(
+                        "a page background task's first read of a FindLast, IsEmpty or SetFilter FindFirst whose answer \
+                         changed since the test session made the same read (whether that read fills the query cache is \
+                         measured for Get, FindFirst and Count only, BgTaskQueryCache.al:500)",
+                    );
+                }
+                self.refuse_differing_twin(&at, stamp, &fresh)?;
+                fresh.clone()
+            }
+        };
+        self.pages.query_cache.groups.insert(&at, (stamp, answer.clone()));
+        // A FindFirst or FindLast is flagged by `answered`.
+        if matches!(answer, GroupAnswer::Empty(_)) && !same_group(&answer, &fresh) {
             assume(Assumption::BackgroundTaskQueryCache);
         }
         Ok(answer)
