@@ -16,8 +16,8 @@
 //! replace the ones this login made (`Session::adopt_single_instances`; PlLoginSingleTests.al:109-128).
 
 use crate::login::OwnEvent;
-use al_sema::lower::Lowered;
 use al_builtins::assumptions::Assumption;
+use al_sema::lower::Lowered;
 use al_vm::Session;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
@@ -276,8 +276,8 @@ enum Kept {
 ///   one List of [Text] and one Text.
 /// - Assumed (`partner-login-memo-kept`, corpus PR 1490, P2LoginMemoTests.al P2A_02 to P2A_14 and P2B_01): the codeunit
 ///   is of a dependency app (P2XaLoginMemos.al: XApp A), the subscriber's own app (P2A_02) or an app the subscriber's
-///   app depends on (P2A_03, P2A_04: XApp B's subscriber, P2XbLoginMemos.al); no earlier subscriber of the same app
-///   changed it (P2A_05: XApp A and XApp B); and its globals are all Boolean, Integer, Text or List of [Text]
+///   app depends on (P2A_03, P2A_04: XApp B's subscriber, P2XbLoginMemos.al); no subscriber changed it before, or one
+///   subscriber of another app did and one of the two is of the codeunit's own app (P2A_05: XApp A and XApp B); and its globals are all Boolean, Integer, Text or List of [Text]
 ///   (P2XaLoginMemos.al codeunits 98490 to 98494), or it is codeunit 3702 or 3703 of an app published by Microsoft
 ///   (Environment Information Impl. and Server Setting Impl., filled by the XApp A subscriber's IsSaaS() call, P2A_06,
 ///   P2A_11).
@@ -296,8 +296,14 @@ fn kept(
     let globals = &objs[memo].globals;
     let count = |ty: &RtType| globals.iter().filter(|g| g.ty == *ty).count();
     let list_of_text = RtType::List(Box::new(RtType::Text(None)));
-    let shape = (globals.len(), count(&RtType::Integer), count(&list_of_text), count(&RtType::Text(None)));
-    if step.subscribers.len() == 1 && changed == 1 && earlier.is_empty() && memo_app == sub_app && shape == (4, 2, 1, 1) {
+    let shape = (
+        globals.len(),
+        count(&RtType::Integer),
+        count(&list_of_text),
+        count(&RtType::Text(None)),
+    );
+    if step.subscribers.len() == 1 && changed == 1 && earlier.is_empty() && memo_app == sub_app && shape == (4, 2, 1, 1)
+    {
         return Kept::Pinned;
     }
     if !lowered.dependency[memo] {
@@ -307,17 +313,28 @@ fn kept(
         (session.engine.events.depends.get(a as usize)).is_some_and(|row| row.get(b as usize) == Some(&true))
     };
     if !(memo_app == sub_app || depends(sub_app, memo_app)) {
-        return Kept::Refused("its app is neither the subscriber's app nor an app the subscriber's app depends on".into());
+        return Kept::Refused(
+            "its app is neither the subscriber's app nor an app the subscriber's app depends on".into(),
+        );
     }
-    if earlier.contains(&sub_app) {
-        return Kept::Refused("two subscribers of the same app changed it".into());
+    // P2A_05: XApp A's subscriber and XApp B's change XApp A's memo.
+    match earlier {
+        [] => {}
+        [e] if *e == sub_app => return Kept::Refused("two subscribers of the same app changed it".into()),
+        [e] if *e == memo_app || sub_app == memo_app => {}
+        [_] => return Kept::Refused("two subscribers changed it, neither of them of its own app".into()),
+        _ => return Kept::Refused("more than two subscribers changed it".into()),
     }
-    let measured_type = |ty: &RtType| matches!(ty, RtType::Boolean | RtType::Integer | RtType::Text(None)) || *ty == list_of_text;
+    let measured_type =
+        |ty: &RtType| matches!(ty, RtType::Boolean | RtType::Integer | RtType::Text(None)) || *ty == list_of_text;
     let microsoft = (lowered.program.apps.get(memo_app as usize)).is_some_and(|a| a.publisher.trim() == "Microsoft");
     if (microsoft && matches!(objs[memo].id, Some(3702 | 3703))) || globals.iter().all(|g| measured_type(&g.ty)) {
         return Kept::Assumed;
     }
-    let other = globals.iter().find(|g| !measured_type(&g.ty)).map_or("?", |g| g.name.as_str());
+    let other = globals
+        .iter()
+        .find(|g| !measured_type(&g.ty))
+        .map_or("?", |g| g.name.as_str());
     Kept::Refused(format!(
         "its global {other} is of a type other than Boolean, Integer, Text and List of [Text]"
     ))
