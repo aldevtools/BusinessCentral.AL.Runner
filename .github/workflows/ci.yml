@@ -13,6 +13,7 @@ name: CI
 #   release-tests  the rest of what needs an optimised build: the perf budgets, `corpus_harness` (runs the
 #                  finished `al-test-cli` over the whole corpus), `must_not_compile`, the network tests and the
 #                  affected selection differential
+#   neighbors      the neighbor rule and the neighbor apps a pull request adds (owner decision 2026-11-21, below)
 #
 # Owner amendment, 2026-10-31: the four comparisons that cost runner time and have not failed on a pull request
 # since they were added run on a push to main, on the nightly schedule and on manual dispatch, not on a pull request.
@@ -52,6 +53,13 @@ name: CI
 #     success, so the required check `release-tests` still passes; no stub job with the same name is added, because two
 #     check runs with one name would let a skipped one stand in for a failed one. Nightly, manual dispatch and
 #     release-tag.yml always run it.
+#
+# Owner decision, 2026-11-21: the job `neighbors` runs on every pull request, drafts and fork pull requests included,
+# and a review starts only after it passes. It runs `tools/neighbor-diff.sh` (tests/neighbors/README.md): a change of
+# runtime code adds a neighbor app (or a none.txt with the reason), and every test of it whose outcome differs between
+# the main binary and the head binary has an entry. The rule is checked first, in seconds; only a pull request that
+# adds an app builds. The main binary is the artifact `al-runner-main-<commit>` that the `corpus` job uploads on a push
+# to main; the job builds main only when no main commit with the same runtime sources has one.
 #
 # Nothing is dropped by the split. The two test files that run the `al-test-cli` binary over the
 # whole pinned corpus (`corpus_harness`, `dev_tooling`) are gated behind the `cli-e2e` feature of
@@ -288,6 +296,45 @@ jobs:
           echo "release-tests skipped: none of the $count changed files is a path it checks." | tee -a "$GITHUB_STEP_SUMMARY"
           echo "run=false" >> "$GITHUB_OUTPUT"
 
+  # Owner decision 2026-11-21 (header). No draft condition, and nothing the read-only token of a fork pull request lacks.
+  # HEAD is the merge commit, so HEAD^1 is the main commit the pull request is compared with.
+  neighbors:
+    name: neighbor check
+    needs: docs-check
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.docs-check.outputs.docs_only != 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      NEIGHBOR_DIFF_REPO: ${{ github.repository }}
+    steps:
+      # Depth 50: the script looks back along main for a commit with the same runtime sources that has an artifact.
+      # The corpus submodule: the setup action reads its history.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 50
+          submodules: true
+      - name: The neighbor rule
+        id: plan
+        run: tools/neighbor-diff.sh --base HEAD^1 --plan
+      - uses: ./.github/actions/setup
+        if: steps.plan.outputs.apps == 'true'
+      - name: Neighbor apps on the main binary and the head binary
+        if: steps.plan.outputs.apps == 'true'
+        env:
+          NEIGHBOR_DIFF_OUT: ${{ runner.temp }}/neighbors
+          # A main build, when one is needed, reuses the dependencies of the head build.
+          NEIGHBOR_MAIN_TARGET: ${{ github.workspace }}/target
+        run: tools/neighbor-diff.sh --base HEAD^1 --changed
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.plan.outputs.apps == 'true'
+        with:
+          name: neighbors-${{ github.run_id }}
+          path: ${{ runner.temp }}/neighbors/*.log
+          retention-days: 14
+
   test:
     needs: [merge-check, docs-check]
     # No draft condition (owner, 2026-11-10): `test` runs on a draft pull request too.
@@ -407,6 +454,16 @@ jobs:
       # One release build serves the corpus runs below. rust-cache keeps dependencies only.
       - name: Build release binary
         run: cargo build --release -p al-test-cli
+      # The main binary the job `neighbors` of a pull request compares with (owner decision 2026-11-21, header).
+      - name: Build al-runner for the neighbor check
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: cargo build --release -p alrunner-cli
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          name: al-runner-main-${{ github.sha }}
+          path: target/release/al-runner
+          retention-days: 7
 
       # ADR-013 Layer A: every Microsoft app the corpus runs on comes from the pinned builds in the artifact cache
       # (.github/actions/bc-artifacts fills it; the corpus tree holds none).
