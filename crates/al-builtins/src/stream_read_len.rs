@@ -9,7 +9,8 @@ pub(crate) struct LenRead {
     pub count: usize,
 }
 
-fn invalid_data() -> Signal {
+/// "Invalid data encountered in stream, unable to read text." (InvalidStreamData), the stream data error of every read.
+pub(crate) fn invalid_data() -> Signal {
     Signal::Error(Box::new(crate::native::AlError {
         message: "Invalid data encountered in stream, unable to read text.".into(),
         code: "InvalidStreamData".into(),

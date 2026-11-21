@@ -1,9 +1,10 @@
 #![deny(clippy::wildcard_enum_match_arm)]
-//! Where the built-in View and Edit left a list without a card that was opened for edit (al-runner issue 6977): View switched
-//! it to view (testpage/R6977ListViewNext.al:138, R6977ListAfterView.al:125), and Edit after that switched it back
-//! (R6977ListAfterView.al:187). The rules that read it are in `pages/list_view_switch.rs`.
+//! Where the built-in View and Edit left a list without a card (al-runner issues 6977, 8501): on a list opened for edit View
+//! switched it to view (testpage/R6977ListViewNext.al:138, R6977ListAfterView.al:125), and Edit after that switched it back
+//! (R6977ListAfterView.al:187); on a list opened for view Edit switched it to edit (assumption `list-mode-switch-reads-row`,
+//! corpus PR 1467, open). The rules that read it are in `pages/list_view_switch.rs`.
 
-/// What View and Edit left. Four states: View, Edit and View again leave the list in view with the switch back noted.
+/// What View and Edit left. View, Edit and View again leave the list in view with the switch back noted.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ListViewSwitch {
     /// Neither switch ran since the page opened.
@@ -18,6 +19,9 @@ pub enum ListViewSwitch {
     /// `refuse_after_list_edit_back_control` (`list_view_switch.rs`) refuses View and Edit while the switch back stands,
     /// because that shape is not pinned.
     EditBackThenView,
+    /// The built-in Edit switched a list opened for view to edit. Only Editable, the Edit and View Enabled reads and Close are
+    /// measured in this state.
+    EditFromView,
 }
 
 impl ListViewSwitch {
@@ -26,7 +30,14 @@ impl ListViewSwitch {
         *self = match *self {
             Self::None | Self::InView => Self::InView,
             Self::EditBack | Self::EditBackThenView => Self::EditBackThenView,
+            // Not reached: `refuse_after_list_edit_back_control` refuses View in this state.
+            Self::EditFromView => Self::EditFromView,
         };
+    }
+
+    /// The built-in Edit switched the list opened for view to edit.
+    pub fn edited_from_view(&mut self) {
+        *self = Self::EditFromView;
     }
 
     /// The built-in Edit was invoked: after a View it switches the list back and answers true; otherwise nothing changes.
@@ -36,21 +47,13 @@ impl ListViewSwitch {
                 *self = Self::EditBack;
                 true
             }
-            Self::None | Self::EditBack => false,
+            Self::None | Self::EditBack | Self::EditFromView => false,
         }
     }
 
     /// The page opens again: nothing of an earlier switch counts.
     pub fn reset(&mut self) {
         *self = Self::None;
-    }
-
-    /// Edit switched the list back to edit after View.
-    pub fn edit_back(&self) -> bool {
-        match self {
-            Self::EditBack | Self::EditBackThenView => true,
-            Self::None | Self::InView => false,
-        }
     }
 }
 
@@ -86,6 +89,14 @@ mod model {
 mod tests {
     use super::{ListViewSwitch, model::Flags};
 
+    /// Edit switched the list back to edit after View (the states `refuse_after_list_edit_back` reads as one).
+    fn edit_back(l: ListViewSwitch) -> bool {
+        match l {
+            ListViewSwitch::EditBack | ListViewSwitch::EditBackThenView => true,
+            ListViewSwitch::None | ListViewSwitch::InView | ListViewSwitch::EditFromView => false,
+        }
+    }
+
     #[test]
     fn every_sequence_of_four_steps_answers_as_the_old_flags() {
         for n in 0..3usize.pow(4) {
@@ -104,7 +115,7 @@ mod tests {
                     }
                 }
                 rest /= 3;
-                assert_eq!(new.edit_back(), old.edit_back, "sequence {n}");
+                assert_eq!(edit_back(new), old.edit_back, "sequence {n}");
                 let mut probe = new;
                 assert_eq!(probe.edit_invoked(), old.clone().edit_invoked(), "sequence {n}");
             }
@@ -115,18 +126,18 @@ mod tests {
     fn edit_without_a_view_changes_nothing() {
         let mut l = ListViewSwitch::default();
         assert!(!l.edit_invoked());
-        assert!(!l.edit_back());
+        assert!(!edit_back(l));
     }
 
     #[test]
     fn view_then_edit_switches_back_once() {
         let mut l = ListViewSwitch::default();
         l.switched_to_view();
-        assert!(!l.edit_back());
+        assert!(!edit_back(l));
         assert!(l.edit_invoked());
-        assert!(l.edit_back());
+        assert!(edit_back(l));
         assert!(!l.edit_invoked());
-        assert!(l.edit_back());
+        assert!(edit_back(l));
     }
 
     #[test]
@@ -135,9 +146,9 @@ mod tests {
         l.switched_to_view();
         l.edit_invoked();
         l.switched_to_view();
-        assert!(l.edit_back());
+        assert!(edit_back(l));
         assert!(l.edit_invoked());
-        assert!(l.edit_back());
+        assert!(edit_back(l));
     }
 
     #[test]
@@ -147,7 +158,7 @@ mod tests {
         l.edit_invoked();
         l.switched_to_view();
         l.reset();
-        assert!(!l.edit_back());
+        assert!(!edit_back(l));
         assert!(!l.edit_invoked());
     }
 }

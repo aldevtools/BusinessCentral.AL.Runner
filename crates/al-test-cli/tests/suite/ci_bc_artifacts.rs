@@ -11,14 +11,14 @@ fn root() -> PathBuf {
         .unwrap()
 }
 
-fn read(rel: &str) -> String {
+pub(crate) fn read(rel: &str) -> String {
     std::fs::read_to_string(root().join(rel)).unwrap_or_else(|e| panic!("{rel}: {e}"))
 }
 
 const USES: &str = "uses: ./.github/actions/bc-artifacts";
 
 /// The text of job `name` of ci.yml: from its header to the next job's.
-fn job(ci: &str, name: &str) -> String {
+pub(crate) fn job(ci: &str, name: &str) -> String {
     let start = ci
         .find(&format!("\n  {name}:\n"))
         .unwrap_or_else(|| panic!("ci.yml has no job `{name}`"));
@@ -38,7 +38,7 @@ fn job(ci: &str, name: &str) -> String {
     rest[..end].to_string()
 }
 
-fn before(text: &str, first: &str, then: &str) {
+pub(crate) fn before(text: &str, first: &str, then: &str) {
     let a = text.find(first).unwrap_or_else(|| panic!("missing `{first}`"));
     let b = text.find(then).unwrap_or_else(|| panic!("missing `{then}`"));
     assert!(a < b, "`{first}` must come before `{then}`");

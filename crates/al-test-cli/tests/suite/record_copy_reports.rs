@@ -2109,7 +2109,7 @@ codeunit 50155 "BW Test"
         Expect(Line.ExtFilters(Line), '');
     end;
 
-    // Measured by corpus PR 1451 (record/filters/ByValueTableProcedureView.al:294-314): the copy has no filters.
+    // Measured by corpus PR 1451 (record/filters/ByValueTableProcedureView.al:301-321): the copy has no filters.
     [Test]
     procedure TableProcedure_OtherTable_Flagged()
     var

@@ -197,11 +197,11 @@ impl Session {
         // (localization/global-language/GlobalLanguageClosingDate.al:155, :264). GetFilter of it is pinned
         // (record/filters/FilterGlobalLanguageDateBool.al:271, :325) but not answered here; GetFilters and GetView are not measured.
         if let Value::Date(_, true) = v
-            && self.global_language != 1033
+            && self.global_language() != 1033
         {
             return unsupported(format!(
                 "the filter text of a closing date under GlobalLanguage {} (not implemented)",
-                self.global_language
+                self.global_language()
             ));
         }
         let text = self.message_value(v)?;
