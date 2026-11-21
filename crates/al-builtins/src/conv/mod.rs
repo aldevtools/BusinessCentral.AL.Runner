@@ -74,9 +74,50 @@ pub enum Verdict {
     Error(&'static str, &'static str),
 }
 
-/// The number of [`Kind`]s and of [`Family`]s, for the dense table of [`verdict`].
+/// The number of [`Kind`]s and of [`Family`]s, for the dense table of [`verdict`]. They are the last variant's number plus
+/// one. The matches below name every variant, so a variant added to either enum does not compile until it is listed there;
+/// the assertion then fails unless the last variant is still the one these counts use.
 const KINDS: usize = Kind::Variant as usize + 1;
 const FAMILIES: usize = Family::AddAssign as usize + 1;
+
+const fn is_last_kind(k: Kind) -> bool {
+    match k {
+        Kind::Variant => true,
+        Kind::Integer
+        | Kind::BigInteger
+        | Kind::Decimal
+        | Kind::Char
+        | Kind::Byte
+        | Kind::Option
+        | Kind::Enum
+        | Kind::Text
+        | Kind::Code
+        | Kind::Label
+        | Kind::Guid
+        | Kind::Duration
+        | Kind::Boolean
+        | Kind::Date
+        | Kind::Time
+        | Kind::DateTime => false,
+    }
+}
+
+const fn is_last_family(f: Family) -> bool {
+    match f {
+        Family::AddAssign => true,
+        Family::Cv
+        | Family::CvVariant
+        | Family::Cd
+        | Family::CmpEq
+        | Family::CmpLt
+        | Family::CmpIn
+        | Family::CmpCase
+        | Family::Add
+        | Family::Sub => false,
+    }
+}
+
+const _: () = assert!(is_last_kind(Kind::Variant) && is_last_family(Family::AddAssign));
 
 /// The verdict of a cell, `None` when the matrix does not cover it. Every comparison and assignment of a number, a Char or a
 /// Byte asks it, so the table is indexed, not hashed. A cell listed twice keeps its last row.
