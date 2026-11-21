@@ -17,7 +17,7 @@
 //!   code that cannot run here refuses the codeunit. Used for a test codeunit that can see what an app under test's login
 //!   subscriber leaves; when those subscribers read what the dependency apps' login code writes ([`reads_microsofts_login`]:
 //!   the checklist setup, `SystemInitialization.IsInProgress()`, a Guided Experience row other than through a call keyed
-//!   on the app's own object); when an app under test subscribes to `OnRegisterManualSetup` or
+//!   on the app's own object, a memo of System Application's other than through `login_memo::filled_alone`); when an app under test subscribes to `OnRegisterManualSetup` or
 //!   `OnRegisterGuidedExperienceItem`, whose raise at login no corpus test pins ([`RAISE_ONLY`]); and when the checklist is
 //!   already set up, where Microsoft's code does not raise `OnRegisterAssistedSetup` (the pin's header, :10, does not
 //!   measure that case).
@@ -225,7 +225,9 @@ pub(crate) fn after_login_publisher(lowered: &Lowered, events: &Registry) -> Opt
 /// constant naming an object of an app under test: that call reads only the rows of that object (System Application's
 /// Guided Experience reads filter on the object's type and id or on the code built from it), and the dependency apps'
 /// login code registers none of the apps' objects. That those calls read alone what they read inside the login is the
-/// registered assumption `login-own-registration-reads-alone`.
+/// registered assumption `login-own-registration-reads-alone`. A global of System Application's login memos (3702, 3703)
+/// does not count when the subscribers read them only the way corpus PR 1490 measured (`login_memo::filled_alone`,
+/// assumption `login-own-memo-alone`).
 fn reads_microsofts_login(
     events: &Registry,
     lowered: &Lowered,
@@ -265,11 +267,13 @@ fn reads_microsofts_login(
         })
         .collect();
     let (mut own, visited) = login_subscribers_reach_without(events, lowered, index, subs, &facades);
+    let mut keyed_reads = BTreeSet::new();
     for (o, r) in facade_calls(lowered, &visited, &facades) {
         let f = login_subscriber_reach_facts(events, lowered, index, o, r);
         own.touched.extend(f.touched);
-        own.globals_read.extend(f.globals_read);
+        keyed_reads.extend(f.globals_read);
     }
+    own.globals_read.extend(keyed_reads.iter().copied());
     let name = |t: u32| objects.get(t as usize).map_or("?", |o| o.name.as_str()).to_string();
     if let Some(t) = own.touched.iter().find(|t| ms.writes.contains(t)) {
         return Some(format!(
@@ -277,12 +281,13 @@ fn reads_microsofts_login(
             name(*t)
         ));
     }
-    // A memo of System Application's that the subscribers fill alone gives them what it gives inside the login
-    // (`login-own-memo-alone`, marked at its reads: `partner_login::own_step`).
+    // System Application's login memos, read only the way corpus PR 1490 measured, give the subscribers alone what they
+    // give inside the login (`login-own-memo-alone`, marked at their reads: `partner_login::own_step`).
+    let memo_alone = || crate::login_memo::filled_alone(events, lowered, index, subs, &facades, &visited, &keyed_reads);
     let g = (own.globals_read.iter()).find(|g| {
         ms.globals_written.contains(g)
             && single_instance(lowered, g.0)
-            && !crate::partner_login::microsoft_login_memo(lowered, g.0)
+            && !(crate::login_memo::microsoft_login_memo(lowered, g.0) && memo_alone())
     })?;
     Some(format!(
         "they read a global of SingleInstance codeunit {} that the dependency apps' login code sets",
