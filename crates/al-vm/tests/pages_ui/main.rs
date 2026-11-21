@@ -18,6 +18,7 @@ mod bg_task_id;
 mod bg_task_test_page_calls;
 mod caption_class_counts;
 mod caption_class_empty;
+mod caption_class_runtime_writes;
 mod caption_class_self_read;
 mod caption_expression_plain;
 mod clear_all_page_extension;
@@ -69,6 +70,7 @@ mod host_save_record_parts;
 mod list_caption_expression;
 mod list_caption_filter;
 mod list_caption_relation_where;
+mod list_mode_reopen;
 mod secondary_key_marked_refill;
 mod selection_new_line;
 

@@ -15,7 +15,7 @@ impl al_builtins::format::FormatCtx for Session {
         self.report
             .curr_report_language
             .or(self.report.run_language)
-            .unwrap_or(self.global_language)
+            .unwrap_or(self.global_language())
     }
     fn region(&self) -> Option<String> {
         self.report.format_region.clone()
@@ -81,7 +81,7 @@ impl al_builtins::format::FormatCtx for Session {
         }
         match self.report.curr_report_language {
             Some(n)
-                if n != self.global_language
+                if n != self.global_language()
                     && !(n == 2067
                         && matches!(
                             self.report.report_preview_pinned.last(),
@@ -102,7 +102,7 @@ impl al_builtins::format::FormatCtx for Session {
     fn region_language_pinned(&self) -> bool {
         match self.report.curr_report_language {
             Some(n) => self.region_language_pinned_for(n),
-            None => self.report.run_language.unwrap_or(self.global_language) == 1033,
+            None => self.report.run_language.unwrap_or(self.global_language()) == 1033,
         }
     }
     /// A read through Format or Evaluate takes the caption a translation file gives (ADR-053 step 2): refused only where
@@ -192,6 +192,9 @@ impl al_builtins::native::Ctx for Session {
     fn format_composite(&mut self, v: &Value) -> Option<Result<String, Signal>> {
         self.format_composite_value(v)
     }
+    fn format_fieldref_read(&mut self, fr: &Value) -> Result<(), Signal> {
+        self.format_fieldref_value_read(fr)
+    }
     fn copy_stream_dotnet(&mut self, out: &Value, src: &Value, count: Option<i64>) -> Option<Result<(), Signal>> {
         Some(self.copy_stream_with_dotnet(out, src, count))
     }
@@ -230,6 +233,10 @@ impl al_builtins::native::Ctx for Session {
         match rec {
             Some(Value::Record(rc)) => {
                 let rc = rc.clone();
+                // A Record write inside a CaptionClass expression whose runs have no pinned number (`pages/caption_runs.rs`).
+                if let Some(why) = self.caption_write_refusal(method) {
+                    return Err(Signal::unsupported(why));
+                }
                 let kind = crate::sequence_start::TableCall::Record {
                     find_last: method == al_builtins::record_op::RecordOp::FindLast,
                     set_range: method == al_builtins::record_op::RecordOp::SetRange,
@@ -402,7 +409,7 @@ impl al_builtins::native::Ctx for Session {
     }
     fn session_locale(&self) -> Option<(i32, i32, String)> {
         Some((
-            self.global_language,
+            self.global_language(),
             self.host.identity.locale_id(),
             self.host.identity.time_zone(),
         ))

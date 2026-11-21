@@ -47,6 +47,9 @@ pub(crate) struct TxState {
     /// Set by a Rename that AL code calls on a Record or a RecordRef, taken by the Rename arm of `record_op_inner`: only such
     /// a Rename is in a measured cell of `rename_blank_key.rs`. The page client's rename at close clears it.
     pub(crate) rename_from_al: bool,
+    /// Set by a Get that AL code calls on a Record variable (not a RecordRef), taken by the load it starts
+    /// (`Session::rolled_read_of_load`) and cleared when the call returns.
+    pub(crate) get_from_al: bool,
     /// Which write statement of AL code on a Record variable (not a RecordRef) is starting: set by `record_op_of_al`, and by
     /// ModifyAll(.., true) of such a statement for each row it modifies; taken by the arm it starts (`Session::take_write_of_al`)
     /// and cleared when the call returns. Only such a write is in the measured cells of `records/sql_range.rs`. A page's save
@@ -111,6 +114,12 @@ pub(crate) struct OpenTx {
     /// The locks the open transaction holds and the locking reads it ran; a test method also starts without them
     /// (`Session::start_test_method`).
     pub(crate) locks: TxLocks,
+    /// The open transaction is the test method's first and nothing but writes has run in it: set by
+    /// `Session::start_test_method`; a read call (`records/op_inner.rs`), a CurrentTransactionType set (`sessionops.rs`), a
+    /// Codeunit.Run (`transactions.rs`) and a report run (`reports/transaction_world.rs`) clear it, and so does the end of the
+    /// transaction. The
+    /// TransactionType term of an Update report is measured only then.
+    pub(crate) at_test_start: bool,
 }
 
 /// The locks of the open transaction (`OpenTx::locks`).
@@ -245,6 +254,7 @@ impl TxState {
             failed_sql_rename: None,
             insert_from_al: false,
             rename_from_al: false,
+            get_from_al: false,
             write_of_al: None,
             deferred_by: None,
             deferred_raised: 0,
@@ -288,6 +298,13 @@ pub(crate) struct PageClients {
     pub(crate) saved_values: std::collections::HashMap<u32, Vec<(Option<usize>, usize, Value)>>,
     /// `saved_values` at the last commit: a rollback goes back to it (`Session::rollback_transaction`).
     pub(crate) saved_values_committed: std::collections::HashMap<u32, Vec<(Option<usize>, usize, Value)>>,
+    /// For each report whose request page stored values while the program has the Object Options table: whether those
+    /// values stand in a row this runtime wrote (`pages/open/saved_row.rs`). A rollback keeps it: a row is written only just
+    /// before its run commits.
+    pub(crate) saved_rows: std::collections::HashMap<u32, crate::pages::SavedRow>,
+    /// The rows OKs of request pages ask for, until their runs return, innermost last: (report object, the transaction
+    /// world of the run, the store's change counter at the save).
+    pub(crate) saved_row_pending: Vec<(u32, usize, u64)>,
     pub(crate) traps: Vec<Rc<RefCell<crate::pages::PageState>>>,
     /// Open TestPages in a state whose end of scope is not pinned (what BC saves when the variable goes away): a routine
     /// whose local holds the last reference to one is refused when it returns.
@@ -296,6 +313,9 @@ pub(crate) struct PageClients {
     pub(crate) bg_worker: Option<pages::BgWorker>,
     /// Which dialogs and errors the CaptionClass runs in progress may raise (`Session::caption_dialog_refusal`).
     pub(crate) caption_dialogs: crate::pages::CaptionDialogs,
+    /// The CaptionClass expression whose own call runs now, on a page whose open ran its empty-record runs without a pinned
+    /// number (`Session::caption_write_refusal`).
+    pub(crate) caption_write_guard: Option<crate::pages::CaptionWriteGuard>,
     /// The page whose enqueued background tasks run once the `EnqueueBackgroundTask` call that queued them has
     /// written its by-reference task id back (see `Session::bg_enqueue`).
     pub(crate) bg_drain_after_call: Option<Rc<RefCell<crate::pages::PageState>>>,
@@ -328,6 +348,9 @@ pub(crate) struct PageClients {
     pub(crate) named_false_insert: bool,
     /// The open that starts next is a TestPage's own OpenEdit, OpenView or OpenNew (taken by `open_page_as`).
     pub(crate) test_open: bool,
+    /// How many test methods the runner started in this session (`Session::start_test_method`): a page records it at each open
+    /// (`PageState::opened_in_test_method`).
+    pub(crate) test_methods_started: u32,
     /// Set by a FindFirst or FindLast that found a row on Rec in the OnOpenPage of a page an action opened through
     /// RunPageLink (`records.rs`); taken by `open_page_as` into `PageState::run_page_link_open_moved`.
     pub(crate) run_page_link_open_moved: bool,
@@ -360,6 +383,9 @@ pub(crate) struct PageClients {
     pub(crate) code_close_vetoes: Vec<crate::pages::CodeCloseVeto>,
     /// Pages whose close, requested by OnAfterGetCurrRecord at OpenView, OnQueryClosePage refused twice (`pages/code_close_veto.rs`).
     pub(crate) open_vetoed: Vec<std::rc::Weak<RefCell<crate::pages::PageState>>>,
+    /// The pages whose control OnValidate runs now, innermost last (`Session::run_control_onvalidate`): page code's record calls
+    /// on their Rec are recorded in that OnValidate (`Session::note_page_rec_call`).
+    pub(crate) onvalidate_pages: Vec<Rc<RefCell<crate::pages::PageState>>>,
 }
 
 /// Event subscriptions and what the Event Subscription table reports.
@@ -528,6 +554,9 @@ pub(crate) struct ReportState {
     /// Report variables whose `RunModal` ran to its end: a second `RunModal` and a `RunRequestPage` on one raise
     /// ObjectHasAlreadyBeenRun (see `reports.rs`, `REPORT_RUN_1 | REPORT_RUNMODAL_1`).
     pub(crate) report_run_modal_done: Vec<std::rc::Weak<RefCell<Instance>>>,
+    /// Report variables whose `UseRequestPage(false)`, as their first use, ran an OnInitReport that quit: their next Run or
+    /// RunModal runs nothing (`reports/quit_in_init.rs`).
+    pub(crate) report_quit_deferred: Vec<std::rc::Weak<RefCell<Instance>>>,
     /// The `ExcelLayoutMultipleDataSheets = true` admission of the running report call (`reports/excel_sheets.rs`: set and
     /// restored around each report call that runs a report or reads its layout).
     pub(crate) excel_sheets: crate::reports::ExcelSheetsAdmission,
@@ -557,6 +586,9 @@ pub(crate) struct ReportState {
     pub(crate) report_preview_pinned: Vec<ReportStart>,
     /// The report running now was started by `RunModal` (its request page's Preview and Print are not pinned).
     pub(crate) run_modal: bool,
+    /// The report running now was started by the static `Report.Run` or `Report.RunModal` with the report id as its only
+    /// argument and not swapped by SubstituteReport (`run_started_as`): not on a report variable, not another overload.
+    pub(crate) run_bare: bool,
     /// The report running now was started with SystemPrinter `true` (`Report.Run(Id, .., true)`): a run that renders would
     /// print (`report_placeholder::run`).
     pub(crate) system_printer: bool,
@@ -645,6 +677,7 @@ impl OpenTx {
                     db_reads,
                     locking_read_tx_unpinned,
                 },
+            at_test_start,
         } = self;
         rows_touched.is_empty()
             && tables_inserted.is_empty()
@@ -667,6 +700,7 @@ impl OpenTx {
             && isolation_lock_tables.is_empty()
             && locking_reads.is_empty()
             && *db_reads == 0
+            && !at_test_start
             && !locking_read_tx_unpinned
     }
 }

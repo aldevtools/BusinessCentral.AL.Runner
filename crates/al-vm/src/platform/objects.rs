@@ -543,7 +543,7 @@ fn runtime_package_id<O: ObjectInfo + ?Sized>(c: &Catalog, o: &O) -> [u8; 16] {
 }
 
 /// The codeunits of Microsoft's Test Runner app that BC's test environment has (BaTpEnv.al:28).
-const TEST_RUNNER_CODEUNITS: std::ops::RangeInclusive<u32> = 130_450..=130_455;
+const TEST_RUNNER_APP_CODEUNITS: std::ops::RangeInclusive<u32> = 130_450..=130_455;
 
 /// A table declared `ObsoleteState = Moved`.
 fn moved(o: &ObjectHead) -> bool {
@@ -580,7 +580,7 @@ pub(super) fn all_obj_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     // lt-ba-testpermissions/BaTpEnv.al:26-28). Every run loads that app from source (ADR-013, "The test environment's
     // apps"), and its objects are rows like any other app's. A run that found no package for it (offline, no feed) has
     // no such codeunit: a read that may land on one of them is refused.
-    for id in TEST_RUNNER_CODEUNITS {
+    for id in TEST_RUNNER_APP_CODEUNITS {
         let present = c
             .objects
             .iter()

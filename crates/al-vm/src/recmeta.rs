@@ -150,7 +150,31 @@ impl Session {
             },
             _ => return None,
         };
+        if let Err(e) =
+            self.relation_field_no_row_read(&rec, only, crate::platform::relation_field_no_readers::Reader::Format)
+        {
+            return Some(Err(e));
+        }
         Some(self.format_record_fields(&rec, only))
+    }
+
+    /// `Format(FieldRef, Length, 1 | 2 | 9)` reads the field as `FieldRef.Value` does: the no-field RelationFieldNo 0 of the
+    /// Field table is refused there as `Format` (`relation_field_no_readers`).
+    pub(crate) fn format_fieldref_value_read(&self, fr: &Value) -> Result<(), Signal> {
+        let Value::Library(_, l) = fr else {
+            return Ok(());
+        };
+        let (rec, pos) = match &*l.borrow() {
+            al_builtins::value::LibraryValue::FieldRef(r, p) | al_builtins::value::LibraryValue::KeyFieldRef(r, p) => {
+                (r.clone(), *p)
+            }
+            _ => return Ok(()),
+        };
+        self.relation_field_no_row_read(
+            &rec,
+            Some(pos),
+            crate::platform::relation_field_no_readers::Reader::Format,
+        )
     }
 
     fn format_record_fields(&self, rec: &Rc<RefCell<RecordState>>, only: Option<usize>) -> Result<String, Signal> {
@@ -1022,8 +1046,7 @@ impl Session {
             }
             RecordOp::CopyFilters => Self::copy_filters(rec, args),
             RecordOp::Copy => self.record_copy(rec, args),
-            RecordOp::TestField => self.test_field(rec, t, args),
-            RecordOp::FieldError => self.field_error(rec, t, args),
+            RecordOp::TestField | RecordOp::FieldError => self.test_field_or_field_error(method, rec, t, args),
             other => unsupported(format!("Record.{other}")),
         }
     }
@@ -1116,6 +1139,24 @@ impl Session {
                 .find(|(o, _, _)| *o == ordinal)
                 .map_or_else(|| ordinal.to_string(), |(_, _, caption)| caption.clone())),
             None => self.message_value(v),
+        }
+    }
+
+    /// `TestField` or `FieldError` (`method`): both read the field's value, which on the no-field RelationFieldNo 0 of the
+    /// Field table is not measured (`relation_field_no_readers`).
+    fn test_field_or_field_error(
+        &mut self,
+        method: RecordOp,
+        rec: &Rec,
+        t: &TableDef,
+        args: &[Value],
+    ) -> Result<Value, Signal> {
+        use crate::platform::relation_field_no_readers::Reader;
+        self.relation_field_no_row_read(rec, Some(arg_pos(args, 0)?), Reader::TestFieldOrFieldError)?;
+        if method == RecordOp::TestField {
+            self.test_field(rec, t, args)
+        } else {
+            self.field_error(rec, t, args)
         }
     }
 
@@ -2151,6 +2192,17 @@ impl Session {
         shared: al_builtins::value::TableGlobals,
     ) -> Result<Value, Signal> {
         for mut row in rows {
+            // ModifyAll(Field, 00:00:00) over a row whose Field is held past the day: whether it writes 00:00:00 is not probed.
+            if crate::sqltime::is_rolled(&row[pos]) && matches!(value, Value::Time(1)) {
+                return unsupported("ModifyAll of 00:00:00 into a Time field a row holds as 23:59:59.999 (not probed)");
+            }
+            // The record of each row holds what it reads: a Time held past the day reads 00:00:00 (`sqltime::read_back`), which the
+            // Modify below keeps as stored when the field is not the one set (`sqltime::keep_rolled`, ModifyAll's own read).
+            let rolled_read = row.iter().any(crate::sqltime::is_rolled).then(|| {
+                let t = self.engine.tables[rec.borrow().table as usize].clone().expect("table");
+                (al_builtins::value::RolledReadBy::ModifyAll, t.primary_key(&row))
+            });
+            crate::sqltime::read_back(&mut row);
             row[pos] = value.clone();
             let copy = {
                 let r = rec.borrow();
@@ -2166,6 +2218,7 @@ impl Session {
                     failed_insert: None,
                     row_origin: None,
                     own_read: Default::default(),
+                    rolled_read: al_builtins::value::RolledRead(rolled_read),
                     probed_source: Default::default(),
                     globals: shared.share(),
                     // The scanned row is whole: a partial load of the variable is not the copy's (al-runner issue 6654).
