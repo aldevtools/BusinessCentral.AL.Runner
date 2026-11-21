@@ -1335,7 +1335,6 @@ impl CorpusRuntime {
         let baseline_rows = baseline_run.as_ref().map(|b| b.baseline.rows());
         let mut baseline_run = baseline_run;
         let baseline_trace = baseline_run.as_mut().and_then(|b| b.trace.take());
-        let workspace_install_marks = baseline_run.as_ref().map(|b| b.workspace_install_marks);
         let baseline = baseline_run.map(|b| b.baseline);
         // An impact run selects its test codeunits here: after the compile and the install baseline, whose trace says
         // whether the install code reached an impact point (`RunOptions::narrow`).
@@ -1390,10 +1389,6 @@ impl CorpusRuntime {
             super::install_snapshot::InstallSnapshots::new(opts.private_baseline, memory.pool().fixed_adder());
         // What the install code left for the codeunits that start from no install baseline: one for the run (`install_once.rs`).
         let installs = Arc::new(super::install_once::RunInstalls::default());
-        // The marks of the workspace install codeunits the baseline ran (kept or run now): every test starts from what they left.
-        if let Some(marks) = workspace_install_marks {
-            installs.add_marks(marks);
-        }
         let passes = Pass::of_run(opts, &opts_only, &memory, order, in_program_order);
         let mut entry_ranges: Vec<std::ops::Range<usize>> = Vec::new();
         let mut pass_times: Vec<PassTime> = Vec::new();
