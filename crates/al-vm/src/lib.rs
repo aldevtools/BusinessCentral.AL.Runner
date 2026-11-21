@@ -25,6 +25,7 @@ mod package_data;
 mod partial_gone;
 mod placeholder_files;
 mod run_restore;
+mod session_language;
 pub mod single_track;
 mod single_unmeasured;
 mod state;
@@ -73,6 +74,7 @@ mod dev_endpoint_ui;
 mod dispatch;
 pub mod dotnet;
 mod effects;
+pub mod emit_version;
 mod empty_reads;
 mod enum_caption_ml;
 mod order_trial;
@@ -242,6 +244,8 @@ pub struct Engine {
     /// Whether the license gives some table of the program less than Yes on Read, Insert, Modify or Delete, so that
     /// record accesses check it also in an unrestricted session (license_ceiling.rs). Worked out on first use.
     pub(crate) license_caps: std::sync::OnceLock<bool>,
+    /// The emit version of the run's build, which the missing-object error names (`emit_version.rs`). Default: none known.
+    pub emit_version: emit_version::EmitVersion,
     /// The service-tier setting DisableWriteInsideTryFunctions is off (`al-runner test --allow-write-in-try-functions`, al-runner
     /// issue 7143), as on Business Central online. Default `false`: the setting at its default, as on a BC container and the
     /// corpus CI, where a write inside a TryFunction whose result is used raises TryFunctionWrite.
@@ -285,7 +289,7 @@ pub struct Engine {
     pub private_test_rows: bool,
     pub(crate) delete_subscribed: std::sync::OnceLock<std::collections::HashSet<String>>,
     /// What a run of a routine on a transient instance can leave behind (`effects.rs`), per (object, routine).
-    pub(crate) lasting_effects: std::sync::Mutex<std::collections::HashMap<(usize, usize), Option<effects::Effect>>>,
+    pub(crate) lasting_effects: std::sync::Mutex<std::collections::HashMap<(usize, usize), effects::Walked>>,
     /// What a run of a page's DataCaptionExpression can raise or leave behind (`effects/open_risk.rs`), per (object, routine).
     pub(crate) caption_open_risks: std::sync::Mutex<std::collections::HashMap<(usize, usize), Option<String>>>,
     /// Per object, per routine: what a call needs to know about the routine, found once (see [`RoutineFacts`]).
@@ -528,6 +532,7 @@ impl Engine {
             test_data: None,
             license: None,
             license_caps: Default::default(),
+            emit_version: Default::default(),
             write_in_try_allowed: false,
             dependencies_published_global: false,
             unevaluable_init: Arc::new(unevaluable_init),
@@ -580,6 +585,7 @@ impl Engine {
             test_data: None,
             license: None,
             license_caps: Default::default(),
+            emit_version: Default::default(),
             write_in_try_allowed: false,
             dependencies_published_global: false,
             unevaluable_init: self.unevaluable_init.clone(),
@@ -648,6 +654,7 @@ impl Engine {
             test_data,
             license,
             license_caps,
+            emit_version,
             write_in_try_allowed,
             dependencies_published_global,
             // From the program and the config of `with_config` (and al-testrun's `global_triggers_find_unavailable`,
@@ -698,6 +705,7 @@ impl Engine {
         *test_data = None;
         *license = None;
         *license_caps = Default::default();
+        *emit_version = Default::default();
         *write_in_try_allowed = false;
         *dependencies_published_global = false;
     }
@@ -1164,6 +1172,8 @@ pub struct Session {
     /// The companies the run declared, the session company first (ADR-046 decision 2, `--companies`); empty for the
     /// default of one company.
     pub(crate) companies: Vec<String>,
+    /// Companies the selected test-data provider explicitly backs; this does not add companies to the host's declaration.
+    pub(crate) backed_companies: Vec<String>,
     /// (company, table) -> why the rows of a per-company table in a company other than the session company are not known
     /// (ADR-046 decision 6, `Session::mark_company_unknown`).
     pub(crate) company_unknown: std::collections::HashMap<(String, u32), String>,
@@ -1207,8 +1217,8 @@ pub struct Session {
     pub(crate) clock_draws: u64,
     /// The date `WorkDate(Date)` set; today until then.
     pub(crate) work_date: Option<i32>,
-    /// The language `GlobalLanguage(Id)` set.
-    pub(crate) global_language: i32,
+    /// The language `GlobalLanguage(Id)` set (`session_language.rs`).
+    pub(crate) global_language: session_language::SessionLanguage,
     /// What `CaptionClassTranslate` translated in this session: (class text, GlobalLanguage then, caption). Cleared by
     /// `SelectLatestVersion` (types/PSCaptionClass.al:94-115).
     pub(crate) caption_translations: Vec<(String, i32, String)>,
@@ -1228,6 +1238,9 @@ pub struct Session {
     /// A RecordRef method that forwards to the record method of its name is running: that method, and those nested in it,
     /// are not a Record variable's (`assigned_audit.rs`).
     pub(crate) through_recordref: bool,
+    /// How each RecordRef over the database Field table reached its row and who set its filters on RelationFieldNo
+    /// (`platform/relation_field_no_readers.rs`).
+    pub(crate) relation_field_no_refs: crate::platform::relation_field_no_readers::RecordRefTraces,
     /// Transactions: the depth of transaction-beginning constructs, and where the open transaction stands.
     pub(crate) tx: TxState,
     /// Handler functions and notifications of the running test method.
@@ -1307,11 +1320,19 @@ impl Session {
         let mut ident = platform::Ident::of(&host);
         let declared = host.identity.companies();
         let restored = match declared {
-            al_host::Companies::All => engine.test_data.as_ref().map(|td| td.provider.companies()),
+            al_host::Companies::All => engine
+                .test_data
+                .as_ref()
+                .map(|td| td.provider.known_companies().unwrap_or_else(|| td.provider.companies())),
             _ => None,
         };
         ident.resolve_companies(declared, restored);
         let companies = ident.companies.clone();
+        let backed_companies = engine
+            .test_data
+            .as_ref()
+            .and_then(|data| data.provider.known_companies())
+            .unwrap_or_default();
         let event_stats = Rc::new(platform::EventStats::default());
         let media = al_builtins::media::MediaStore::default();
         let mut store = al_data::memory::MemStore::with_virtual_tables(Rc::new(platform::Providers::new(
@@ -1332,10 +1353,9 @@ impl Session {
             .as_ref()
             .and_then(|td| td.provider.last_row_version())
             .map_or(0, |v| i64::try_from(v).unwrap_or(i64::MAX));
-        al_builtins::ops::set_turkic_code(al_builtins::native::is_turkic_language(host.identity.global_language()));
-        al_builtins::filter::set_filter_language(host.identity.global_language());
+        let language = host.identity.global_language();
         let mut session = Session {
-            global_language: host.identity.global_language(),
+            global_language: session_language::SessionLanguage::unset(),
             caption_translations: Vec::new(),
             ui_caption_translated: Vec::new(),
             get_load: false,
@@ -1343,10 +1363,12 @@ impl Session {
             find_load: false,
             find_through_recordref: false,
             through_recordref: false,
+            relation_field_no_refs: Default::default(),
             host,
             waited_ms: 0,
             resource_reads: Default::default(),
             companies,
+            backed_companies,
             company_unknown: Default::default(),
             full_copies: Default::default(),
             run_trigger_unknown: None,
@@ -1518,6 +1540,7 @@ impl Session {
             coverage: CoverageState::default(),
             report: ReportState::default(),
         };
+        session.set_language(language);
         session.seed_platform_rows(&ident);
         session
     }
@@ -1541,9 +1564,11 @@ impl Session {
         self.isolated_set_in_test.clear();
         self.demo_written.clear();
         self.gl_setup_written = false;
-        self.tx.transaction_type = 0;
+        self.tx.transaction_type = crate::transactions::TRANSACTION_TYPE_UPDATE_NO_LOCKS;
         self.tx.phase = crate::transactions::TxPhase::Fresh;
         self.tx.open.locks = Default::default();
+        self.tx.open.at_test_start = true;
+        self.pages.test_methods_started += 1;
     }
 
     /// Makes every change so far durable (and a Truncate of this transaction final).
@@ -1699,6 +1724,7 @@ impl Session {
                     failed_insert: None,
                     row_origin: None,
                     own_read: Default::default(),
+                    rolled_read: Default::default(),
                     probed_source: Default::default(),
                     globals: Default::default(),
                     unpinned_buffer: None,
@@ -1903,17 +1929,14 @@ impl Session {
     /// (`GlobalLanguage`) and WorkDate (`restore_carried` puts it back).
     pub fn carried_state(&self) -> CarriedState {
         CarriedState {
-            language: self.global_language,
+            language: self.global_language(),
             work_date: self.work_date,
         }
     }
 
     /// Puts back what [`Session::carried_state`] took (al-testrun `stopped_state.rs` decides when).
     pub fn restore_carried(&mut self, state: CarriedState) {
-        self.global_language = state.language;
-        self.events.event_stats.language.set(state.language);
-        al_builtins::ops::set_turkic_code(al_builtins::native::is_turkic_language(state.language));
-        al_builtins::filter::set_filter_language(state.language);
+        self.set_language(state.language);
         self.work_date = state.work_date;
     }
 
@@ -2745,7 +2768,7 @@ impl Session {
     /// German text for Code are not pinned and are refused.
     pub(crate) fn variant_to_text_error(&self, code: bool) -> Signal {
         let kind = if code { "NavCode" } else { "NavText" };
-        match (self.global_language, code) {
+        match (self.global_language(), code) {
             (1033, _) => crate::transactions::al_error_code(
                 &format!(
                     "The expression Microsoft.Dynamics.Nav.Runtime.NavIndirectValue cannot be type-converted to a Microsoft.Dynamics.Nav.Runtime.{kind} value."

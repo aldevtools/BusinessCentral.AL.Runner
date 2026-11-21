@@ -56,6 +56,8 @@ pub(crate) enum Op {
     StorePlace {
         p: u32,
         a: u16,
+        /// The source is a direct FieldRef.Value read and the destination is a record field.
+        fr: bool,
     },
     /// `place p := a`, `a` the value of a variable of the `var` section stored into an element of an array of memberless
     /// Options (`ir::Expr::VarSectionValue`, `Session::store_var_section`).

@@ -51,7 +51,7 @@ impl Session {
         if !matches!(t.fields[pos].ty, RtType::Date) {
             return Ok(None);
         }
-        let Some((own, letter, rest)) = al_builtins::format::closing_letter_text(shape.text, self.global_language)
+        let Some((own, letter, rest)) = al_builtins::format::closing_letter_text(shape.text, self.global_language())
         else {
             return Ok(None);
         };

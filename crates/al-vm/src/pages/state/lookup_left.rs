@@ -22,6 +22,8 @@ pub struct LookupLeft {
     next_refresh: bool,
     /// The host's move is the first call after the Lookup: the refresh runs after the move (`Session::lookup_move_refresh_after`).
     move_refresh: bool,
+    /// The host's OnAfterGetCurrRecord raised an error while its move carried the refresh (`Session::lookup_move_stopped`).
+    curr_record_raised: bool,
     /// The refresh the host's Next ran was on a host without OnAfterGetCurrRecord: its reads differ.
     next_plain: bool,
     /// The TestField.Lookup running on this page wrote a value (its OnLookup returned true); false after a cancelled Lookup.
@@ -85,6 +87,18 @@ impl LookupLeft {
     /// Whether the host's move carries the refresh; reading it clears it.
     pub fn take_move_refresh(&mut self) -> bool {
         std::mem::take(&mut self.move_refresh)
+    }
+
+    /// The host's OnAfterGetCurrRecord raised an error; noted only while its move carries the refresh.
+    pub fn curr_record_raised(&mut self) {
+        if self.move_refresh {
+            self.curr_record_raised = true;
+        }
+    }
+
+    /// Whether the host's OnAfterGetCurrRecord raised since this was last read; reading it clears it.
+    pub fn take_curr_record_raised(&mut self) -> bool {
+        std::mem::take(&mut self.curr_record_raised)
     }
 
     /// The host's Next runs the refresh; `plain` when the host has no OnAfterGetCurrRecord.
@@ -233,6 +247,17 @@ mod tests {
         assert!(l.move_refresh());
         assert!(l.take_move_refresh());
         assert!(!l.move_refresh() && !l.take_move_refresh());
+    }
+
+    #[test]
+    fn a_curr_record_error_is_noted_only_while_the_move_carries_the_refresh() {
+        let mut l = LookupLeft::default();
+        l.curr_record_raised();
+        assert!(!l.take_curr_record_raised());
+        l.refresh_after_host_move();
+        l.curr_record_raised();
+        assert!(l.take_curr_record_raised());
+        assert!(!l.take_curr_record_raised());
     }
 
     #[test]

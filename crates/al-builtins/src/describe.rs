@@ -321,6 +321,7 @@ pub(crate) mod tests {
             failed_insert: None,
             row_origin: None,
             own_read: Default::default(),
+            rolled_read: Default::default(),
             probed_source: Default::default(),
             globals: Default::default(),
             unpinned_buffer: None,

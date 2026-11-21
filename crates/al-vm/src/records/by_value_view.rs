@@ -351,11 +351,13 @@ impl Session {
     ///   `Row.CountSameStatus(Row)` from the test codeunit in `ByValue_TableProcedure_OwnRecByValue`).
     /// - `by-value-table-proc-other-table` (corpus PR 1451, record/filters/ByValueTableProcedureView.al, open): a table's
     ///   procedure whose parameter is a record of another table, called on a record of that table from a codeunit
-    ///   (`Buffer.DescribeEntry(Entry)` from the test codeunit, :279-655, and from `BVT Caller`, a codeunit that is not a test
-    ///   codeunit, :335-354) or from the procedure or trigger of a third table (`BVT Holder`.CollectFromTable and OnInsert,
-    ///   :665-689), on a record of a TableType = Temporary table (`BVT Buffer`), of a normal table (`BVT Holder`, :625) and on
-    ///   a temporary record of it (:645), with a filter on a FlowField too (:692). Every cell: `f={} n=4 key=Entry No. asc=Yes
-    ///   grp=0`. Base
+    ///   (`Buffer.DescribeEntry(Entry)` from the test codeunit, :286-662, and from `BVT Caller`, a codeunit that is not a test
+    ///   codeunit, :342-361) or from the procedure or trigger of a third table (`BVT Holder`.CollectFromTable and OnInsert,
+    ///   :672-696; OnValidate, OnModify and OnDelete of `BVT Trigger Holder`, :785-833), on a record of a TableType =
+    ///   Temporary table (`BVT Buffer`), of a normal table (`BVT Holder`, :632) and on a temporary record of it (:652), with a
+    ///   filter on a FlowField too (:699); the source a global record of a codeunit (:718), a var parameter (:730), Rec of a
+    ///   codeunit with TableNo (:748) and an event subscriber's var parameter, the subscriber the caller (:766). Every cell:
+    ///   `f={} n=4 key=Entry No. asc=Yes grp=0`. Base
     ///   Application's codeunit 5530 "Calc. Item Availability" calls table 5530 "Inventory Event Buffer".TransferInventoryQty
     ///   this way (al-runner issue 8385). A call from the code of the callee's or the parameter's table, and a table
     ///   extension's procedure (an object of its own kind), are not measured.
