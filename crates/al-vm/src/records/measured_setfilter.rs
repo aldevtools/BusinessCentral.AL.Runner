@@ -3,10 +3,10 @@
 
 use super::*;
 
-/// The caller and shape every filter cell of corpus PR 1428 measured (FilterGlobalLanguageDateBool.al:40-46 TrySetFilter,
-/// FilterNonMemberOptionEnum.al at 04e1fa0a): `Record.SetFilter` called in AL code with the field and the filter text only (no
-/// placeholder argument), on a record that is not temporary, in filter group 0. An entry that names this shape takes it as an
-/// argument, so no other caller or shape reaches it.
+/// The caller and shape of every GlobalLanguage filter cell (record/filters/FilterGlobalLanguageDateBool.al:40-46 TrySetFilter,
+/// record/filters/FilterNonMemberOptionEnum.al:47-57): `Record.SetFilter` called in AL code with the field and the filter text
+/// only (no placeholder argument), on a record that is not temporary, in filter group 0. A rule pinned in this shape takes it as
+/// an argument, so no other caller or shape reaches it.
 pub(crate) struct MeasuredSetFilter<'a> {
     /// The filter text as written.
     pub(crate) text: &'a str,
@@ -38,10 +38,10 @@ impl Session {
     }
 
     /// A Date filter whose whole text is a closing-date text of `format::closing_letter_text` (the letter and mm/dd/yy) under
-    /// 1030, 1031, 1036, 1044 or 1053 (assumption `closing-date-letter-by-language`, corpus PR 1428
-    /// FilterGlobalLanguageDateBool.al:229-372 at 04e1fa0a, upper-case letters measured): the letter of the language filters to
-    /// the closing date, another language's letter raises the language's date error. A lower-case letter and a date part that
-    /// does not read keep the parser's reading.
+    /// 1030, 1031, 1036, 1044 or 1053 (record/filters/FilterGlobalLanguageDateBool.al:239, :255, :271, :287, :303 for
+    /// `C12/31/23`, :325-326, :336-337, :347-348, :358-359, :369-370 for `U12/31/23` and `S12/31/23`, upper-case letters
+    /// measured): the letter of the language filters to the closing date, another language's letter raises the language's date
+    /// error. A lower-case letter and a date part that does not read keep the parser's reading.
     fn closing_letter_date_filter(
         &self,
         shape: &MeasuredSetFilter,
@@ -51,7 +51,7 @@ impl Session {
         if !matches!(t.fields[pos].ty, RtType::Date) {
             return Ok(None);
         }
-        let Some((own, letter, rest)) = al_builtins::format::closing_letter_text(shape.text, self.global_language)
+        let Some((own, letter, rest)) = al_builtins::format::closing_letter_text(shape.text, self.global_language())
         else {
             return Ok(None);
         };
@@ -61,7 +61,6 @@ impl Session {
         if !letter.is_ascii_uppercase() || d <= 0 {
             return Ok(None);
         }
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ClosingDateLetterByLanguage);
         if own {
             return Ok(Some(FilterExpr::Eq(Value::Date(d, true))));
         }

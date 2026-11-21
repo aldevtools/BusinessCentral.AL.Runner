@@ -828,8 +828,11 @@ impl Session {
         // (events/binding-senders/EventVarThroughSender.al): they alias it, see `Frame::aliases`.
         let facts = self.engine.routine_facts(object, routine);
         let mut kept = Vec::new();
+        let mut heard = Vec::new();
         if facts.publisher {
-            kept = self.var_option_publisher_args(object, routine, args, &values, f)?;
+            (kept, heard) = self.var_option_publisher_args(object, routine, args, &values, f)?;
+            self.events.raise_arg_var_param =
+                self.raise_arg_var_param((object, routine), &values, (f.object, f.routine), &f.locals);
             let by_var = &self.engine.program.objects[object].routines[routine].by_var;
             self.events.var_origins = args
                 .iter()
@@ -899,6 +902,7 @@ impl Session {
             // A publisher call refused before `publish` took them leaves them behind; the next event must not alias this
             // caller's globals (al-runner issue 7615).
             self.events.var_origins.clear();
+            self.events.raise_arg_var_param = false;
         }
         for (slot, inst, g) in &f.aliases {
             f.locals[*slot] = inst.borrow().globals[*g].clone();
@@ -907,6 +911,10 @@ impl Session {
             self.set_alias_live(f, true);
         }
         if let Err(Signal::Error(_)) = &result {
+            if !heard.is_empty() {
+                self.error_finals = None;
+                return Err(crate::var_option::heard_publisher_error());
+            }
             if let Some(finals) = self.error_finals.take() {
                 self.write_backs(args, finals.into_iter(), &kept, f)?;
             }
@@ -925,6 +933,7 @@ impl Session {
             (r, _) => r?,
         };
         let mut finals = finals;
+        crate::var_option::heard_finals(&heard, &finals)?;
         self.write_backs(args, finals.drain(..), &kept, f)?;
         self.return_vec(finals);
         Ok(ret)
@@ -1717,6 +1726,7 @@ impl Session {
                         d.fields = fields;
                         d.row_origin = row_origin;
                         d.own_read = Default::default();
+                        d.rolled_read = Default::default();
                         d.probed_source = crate::blob_transfer::assigned(&d, &src.borrow(), self.commits);
                         d.is_dirty_base = dirty_base;
                         // The copy holds what the source's buffer held, if that is known.

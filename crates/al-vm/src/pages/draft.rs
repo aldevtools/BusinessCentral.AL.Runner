@@ -3,6 +3,15 @@ use super::*;
 use al_builtins::page_op::PageMethod;
 use al_builtins::record_op::RecordOp;
 
+/// The page's own Modify of a stored row in `Session::save_row_outcome`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct PageModify {
+    /// OnModifyRecord was declared and answered true (`false` when the page has none).
+    pub answered_true: bool,
+    /// The store's change counter just before the Modify, after OnModifyRecord and OnModifyRecordEvent.
+    pub changes_before: u64,
+}
+
 impl Session {
     /// OpenNew of a List whose page says `Editable = false` and that has a SourceTableView opens on its first row as OpenView
     /// does, with no OnNewRecord (ui-handlers/Y41SelectionAfterClose.al:295 G401_OpenNew_List_SourceTableView,
@@ -658,16 +667,21 @@ impl Session {
     }
 
     pub(super) fn save_row(&mut self, st: &St) -> Result<(), Signal> {
+        self.save_row_outcome(st).map(|_| ())
+    }
+
+    /// `save_row`, with what it did to a stored row: `Some` when the page's own Modify of the row ran, after OnModifyRecord.
+    pub(super) fn save_row_outcome(&mut self, st: &St) -> Result<Option<PageModify>, Signal> {
         let (cursor, draft, dirty) = {
             let s = st.borrow();
             (s.cursor, s.draft, s.dirty)
         };
         if cursor == Cursor::None || !dirty || !self.has_source(st) {
-            return Ok(());
+            return Ok(None);
         }
         if draft {
             self.xrec_of_part_line_saved_on_leave(st)?;
-            return self.insert_draft(st);
+            return self.insert_draft(st).map(|()| None);
         }
         let rec = self.page_rec(st);
         // A SetValue of the value already stored: an action saves the row all the same (pages/actions/
@@ -676,7 +690,7 @@ impl Session {
         let set_value_held = std::mem::take(&mut st.borrow_mut().set_value_held) && st.borrow().in_action;
         if Self::same_values(&rec.borrow().fields, &self.page_xrec_fields(st)) && !set_value_held {
             st.borrow_mut().dirty = false;
-            return Ok(());
+            return Ok(None);
         }
         // A page with Editable = false and ModifyAllowed left true saves nothing for a Blob no stream wrote either: Tests-ERM
         // Sales Batch Document Posting (codeunit 134891) ReleaseSelectedQuotes and its siblings invoke Release on Sales Quotes,
@@ -691,7 +705,7 @@ impl Session {
                 al_builtins::assumptions::Assumption::PageUnwrittenBlobNoChangeNotEditable,
             );
             st.borrow_mut().dirty = false;
-            return Ok(());
+            return Ok(None);
         }
         // Only a close with a changed row on a page that does not allow modify is pinned (see `close_denied_modify`).
         if modify_denied {
@@ -705,13 +719,13 @@ impl Session {
                     );
                 }
                 st.borrow_mut().dirty = false;
-                return Ok(());
+                return Ok(None);
             }
             // A row the page code stored itself (Rec.Modify) leaves nothing to save: no error, the page goes on with it
             // (testpage/Y61ModifyDeniedSave.al:164 G617a_Temp_NotEditable_DrillDownModify_ThenFirst, :281
             // G617a_Db_Editable_ActionModify).
             if self.row_stored_as_shown(st, &rec)? {
-                return Ok(());
+                return Ok(None);
             }
             // A row whose Blob an action wrote is not pinned (rp1_read_only_blob): refused as before.
             if rec
@@ -738,8 +752,9 @@ impl Session {
         }
         // corpus testpage/TestPageTriggerEvents.al (ModifyRecordEvent_RunsAfterThePagesOwnOnModifyRecordTrigger)
         let keep = self.with_modify_record_xrec(st, |s| s.page_trigger_answer(st, "onmodifyrecord", vec![]))?;
+        let answered_true = keep == Some(true);
         if keep == Some(false) {
-            return Ok(());
+            return Ok(None);
         }
         // An OnModifyRecordEvent subscriber that vetoes the save: the same edit is not saved again, neither after the action that
         // called SaveRecord nor at the TestPage.Close (testpage/TestPageTriggerEvents.al:181-206: the subscriber ran once, the
@@ -748,19 +763,20 @@ impl Session {
         if let Some(fields) = vetoed {
             if Self::same_values(&rec.borrow().fields, &fields) {
                 st.borrow_mut().dirty = false;
-                return Ok(());
+                return Ok(None);
             }
             return unsupported("a page saves an edit after an OnModifyRecordEvent subscriber vetoed one (not pinned)");
         }
         if !self.page_event(st, "onmodifyrecordevent", Some(true), None)? {
             st.borrow_mut().modify_vetoed = Some(rec.borrow().fields.clone());
-            return Ok(());
+            return Ok(None);
         }
         self.ret_used = false;
         // The page saves the row on fresh table globals: what an action set in them is gone (corpus
         // record/PWTableGlobals.al:408-431: OnModify reads Counter 0 though the action set 7).
         self.reset_table_globals(&rec);
         self.pages.page_xrec = Some(self.page_xrec_fields(st));
+        let changes_before = self.store.change_counter();
         let modified = self.record_op(RecordOp::Modify, &rec, &mut [Value::Boolean(true)]);
         self.pages.page_xrec = None;
         // The page keeps the row it read; when code behind it has changed that row since, whether the client has read it again
@@ -779,7 +795,7 @@ impl Session {
                 None => false,
             };
             if e.code == "DB:RecordNotFound" && !vetoed && self.typed_key_dropped_on_currpage_run(st)? {
-                return Ok(());
+                return Ok(None);
             }
             if e.code == "DB:RecordNotFound" && !vetoed {
                 return unsupported(
@@ -793,7 +809,10 @@ impl Session {
         modified?;
         st.borrow_mut().dirty = false;
         self.set_xrec(st);
-        Ok(())
+        Ok(Some(PageModify {
+            answered_true,
+            changes_before,
+        }))
     }
 
     /// Whether `st` is a top-level Card or Document page: the host type of every new-row part pin (testpage/parts/
@@ -1159,14 +1178,14 @@ impl Session {
             for c in &parts {
                 c.borrow_mut().field_captions_link_refill = true;
                 if self.chain_part_in_factbox(c) {
-                    c.borrow_mut().chain_refill = 1;
+                    c.borrow_mut().chain_refill = ChainRefill::Skipped;
                 }
             }
             let r = self.sync_parts(st);
             for c in &parts {
                 c.borrow_mut().field_captions_link_refill = false;
-                if c.borrow().chain_refill == 1 {
-                    c.borrow_mut().chain_refill = 2;
+                if c.borrow().chain_refill == ChainRefill::Skipped {
+                    c.borrow_mut().chain_refill = ChainRefill::AwaitingKey;
                 }
             }
             r?;

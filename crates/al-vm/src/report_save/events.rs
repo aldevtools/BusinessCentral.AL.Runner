@@ -68,9 +68,13 @@ impl Session {
                 .iter()
                 .any(|e| e.eq_ignore_ascii_case(key));
             let but = report_management.filter(|_| raised);
-            if let Some((_, sub)) =
-                events.unraised_subscriber_but("reporting triggers", Some(key), test, self.test_object, but)
-            {
+            if let Some((_, sub)) = events.unraised_subscriber_but(
+                &crate::events::unraised_key(al_ir::REPORTING_CODEUNIT),
+                Some(key),
+                test,
+                self.test_object,
+                but,
+            ) {
                 return Some(format!("a subscriber to {name} ({sub})"));
             }
             let key = (crate::events::REPORTING_TRIGGERS, key.to_string());
