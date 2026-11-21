@@ -7,5 +7,5 @@ NB TransferFields Removed::RemovedTarget_ExtensionField_Default	ASSUMED transfer
 NB TransferFields Removed::RemovedTarget_IntFromText_Skip	ASSUMED transferfields-removed-field (corpus PR 1486, TransferFieldsRemovedField.al:568)
 NB TransferFields Removed::RemovedTarget_IntSame_Default	ASSUMED transferfields-removed-field (corpus PR 1486, TransferFieldsRemovedField.al:508)
 NB TransferFields Removed::RemovedTarget_LongCode_Default	ASSUMED transferfields-removed-field (corpus PR 1486, TransferFieldsRemovedField.al:608)
-NB TransferFields Removed::RemovedSource_DecToDec_Unmeasured	REFUSED TransferFields from a removed field, a type pair corpus PR 1486 did not measure (main copied the removed field's 0)
-NB TransferFields Removed::RemovedTarget_DecFromInt_Unmeasured	REFUSED TransferFields into a removed field, a type pair corpus PR 1486 did not measure (main raised DB:TypeMisMatch)
+NB TransferFields Removed::RemovedSource_DecToDec_Unmeasured	REFUSED TransferFields from field F6 of NB S Removed into field F6 of NB T LiveDec, one of them declared ObsoleteState = Removed, for these types or apps (not measured)
+NB TransferFields Removed::RemovedTarget_DecFromInt_Unmeasured	REFUSED TransferFields from field F5 of NB Src into field F5 of NB T DecFromInt, one of them declared ObsoleteState = Removed, for these types or apps (not measured)
