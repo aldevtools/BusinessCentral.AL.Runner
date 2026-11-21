@@ -1545,8 +1545,9 @@ impl Session {
         session
     }
 
-    /// What the AL test runner does before each test method: every application area on, and the
-    /// transaction type back at UpdateNoLocks. What an earlier test wrote to a demo table does not count for this one: the corpus
+    /// What the AL test runner does before each test method: every application area on. The transaction type stays the one
+    /// the test method before left (session-system/TestClearAllTransactionTypeContracts.al:257-286: Update, set at the end of
+    /// one test, is the type after a Commit at the start of the next). What an earlier test wrote to a demo table does not count for this one: the corpus
     /// tests that write setup rows put the demo values back afterwards (record/QkSetupRows.al), which leaves the
     /// runtime with the install-code row (record/captions/QdCaptionClassAreas.al:798 QF_GLSetup_CorpusRow).
     pub fn start_test_method(&mut self) {
@@ -1564,10 +1565,12 @@ impl Session {
         self.isolated_set_in_test.clear();
         self.demo_written.clear();
         self.gl_setup_written = false;
-        self.tx.transaction_type = crate::transactions::TRANSACTION_TYPE_UPDATE_NO_LOCKS;
+        self.carry_transaction_type();
         self.tx.phase = crate::transactions::TxPhase::Fresh;
         self.tx.open.locks = Default::default();
-        self.tx.open.at_test_start = true;
+        self.tx.open.moment = Some(crate::reports::transaction_world::Moment::at(
+            crate::reports::transaction_world::MomentStart::TestStart,
+        ));
         self.pages.test_methods_started += 1;
     }
 

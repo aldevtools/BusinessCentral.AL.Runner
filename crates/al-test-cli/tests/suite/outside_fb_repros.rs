@@ -144,39 +144,9 @@ codeunit 50130 "Refill Probe Part Reads"
 /// corpus's Assert, and the reporter's repro: each test's outcome and the assumptions it ran through.
 fn issue_8186_outcomes(src: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<al_builtins::assumptions::Assumption>)> {
     let src = format!("{src}\n{}", include_str!("../fixtures/outside-sc/Assert.al"));
-    let l = al_testkit::compile_apps(vec![al_testkit::app(&src)]);
-    let engine = al_vm::Engine::new(l.program.clone(), al_testkit::blocked(&l));
-    let oi = l
-        .program
-        .objects
-        .iter()
-        .position(|o| o.name == codeunit)
-        .expect("the codeunit");
-    let mut hits = Vec::new();
-    let outcomes = al_testrun::runtime::run_codeunit_full(
-        &engine,
-        &l,
-        oi,
-        None,
-        al_testrun::isolation::TestIsolation::Codeunit,
-        None,
-        &mut Vec::new(),
-        &mut Vec::new(),
-        &mut hits,
-        None,
-    );
+    let outcomes = al_testkit::outcomes_and_marks_in(&src, codeunit);
     assert!(!outcomes.is_empty());
     outcomes
-        .into_iter()
-        .map(|(n, o)| {
-            let marks = hits
-                .iter()
-                .find(|(h, _)| *h == n)
-                .map(|(_, m)| m.clone())
-                .unwrap_or_default();
-            (n, o, marks)
-        })
-        .collect()
 }
 
 const ISSUE_8186_PROBE: &str = include_str!("../fixtures/outside-fb/Issue8186Probe.al");

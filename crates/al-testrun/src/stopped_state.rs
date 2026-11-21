@@ -24,9 +24,11 @@ fn roll_back_and_restore(session: &mut Session, state: CarriedState) {
 }
 
 /// Ends a test refused while it ran: what it wrote and the language and WorkDate it set go back to `carried`, the state at
-/// its start (BdRegionTests.al:1327-1339: the refusal came before the test's own `GlobalLanguage(Original)`).
+/// its start (BdRegionTests.al:1327-1339: the refusal came before the test's own `GlobalLanguage(Original)`). The transaction
+/// type it would have left, which the next test method starts with on BC, is not known (`Session::transaction_type_unknown`).
 pub(crate) fn roll_back_refused_test(session: &mut Session, carried: CarriedState) {
     roll_back_and_restore(session, carried);
+    session.transaction_type_unknown();
 }
 
 /// Ends install code `root` (object, routine) that the runner stopped: its rows are rolled back. Per part of the state
