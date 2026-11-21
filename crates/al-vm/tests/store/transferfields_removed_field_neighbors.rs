@@ -245,10 +245,7 @@ fn unmeasured_shapes_that_main_copied_or_failed_are_refused() {
 #[test]
 fn an_unmeasured_init_primary_key_or_length_is_not_answered_by_the_assumption() {
     let mut b = built();
-    assert_eq!(
-        refused_with(&mut b, "IntFromTextNoPk", vec![Value::Boolean(false)]).contains("ObsoleteState = Removed"),
-        true
-    );
+    assert!(refused_with(&mut b, "IntFromTextNoPk", vec![Value::Boolean(false)]).contains("ObsoleteState = Removed"));
     assert_eq!(
         run(&mut b, "IntFromTextNoPk", vec![Value::Boolean(true)]),
         ("T".into(), false)
