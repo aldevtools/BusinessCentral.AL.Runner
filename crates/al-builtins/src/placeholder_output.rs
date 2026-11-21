@@ -59,6 +59,7 @@ pub fn refusal(mark: &str) -> Signal {
     } else {
         ""
     };
+    let mark = crate::rendered_text::shown(mark);
     Signal::unsupported(format!(
         "a read of the content of {mark} (the runtime writes a placeholder, not BC's rendering: only that the output \
          exists and is not empty{pinned} matches BC; a test that reads the content tests the layout renderer)"
@@ -224,6 +225,7 @@ pub fn size_refusal(mark: &str, what: &str) -> Signal {
 
 /// The text of [`size_refusal`].
 pub fn size_refusal_text(mark: &str, what: &str) -> String {
+    let mark = crate::rendered_text::shown(mark);
     format!(
         "{what} of the byte size of {mark} (BC's rendering is only known not to be empty: only a comparison of the size with 0 \
          answers)"

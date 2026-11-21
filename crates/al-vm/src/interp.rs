@@ -174,6 +174,10 @@ impl Session {
     /// InStreamRead_Text_ReturnValueIsLength reads `toolongvalueforcode` into a Code[10] and gets
     /// `TOOLONGVAL`). A Text that is too short for the characters is not pinned.
     pub(crate) fn fit_stream_read(&mut self, p: &ir::Place, v: Value, f: &mut Frame) -> Result<Value, Signal> {
+        // Only a text is fitted; the type of the variable is not looked up for the other reads (a Byte read loop).
+        if !matches!(v, Value::Code(_) | Value::Text(_)) {
+            return Ok(v);
+        }
         match (&v, self.place_type(p, f)) {
             (Value::Code(t), RtType::Code(max)) => {
                 let up = t.to_uppercase();
@@ -1564,7 +1568,7 @@ impl Session {
     /// The write-back of a builtin's by-reference receiver or argument (`run_native`): a Blob it hands back is stored as the
     /// buffer it is, never copied (a stream `CreateOutStream` created on it writes there; `blob_transfer::moved`).
     fn write_native_back(&mut self, p: &ir::Place, v: Value, f: &mut Frame, id: BuiltinId) -> Result<(), Signal> {
-        let v = crate::var_option::cleared_array(v, &self.place_type(p, f), id);
+        let v = crate::var_option::cleared_array(v, || self.place_type(p, f), id);
         self.write_as(p, v, f, Store::Builtin(id))
     }
 
