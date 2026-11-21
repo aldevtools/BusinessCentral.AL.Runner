@@ -789,7 +789,24 @@ impl Session {
                     // call's), else none.
                     let proc_xrec = self.table_proc_xrec(object, &rc, f);
                     let caller_xrec = match &proc_xrec {
-                        crate::records::ProcXrec::Shared(x) => Some(x.clone()),
+                        crate::records::ProcXrec::Shared(x) | crate::records::ProcXrec::SharedReadOnly(x) => {
+                            Some(x.clone())
+                        }
+                        _ => None,
+                    };
+                    // Under a nested Validate the procedure may read the shared xRec, not change it: other values, another view
+                    // (`XrecView`: filters, marks, key, sort), or a first assignment (the `assigned` mark set where it was clear,
+                    // which `AreFieldsLoaded` reads) refuse on every way out.
+                    let read_only = match &proc_xrec {
+                        crate::records::ProcXrec::SharedReadOnly(x) => {
+                            let xs = x.borrow();
+                            Some((
+                                x.clone(),
+                                xs.fields.clone(),
+                                crate::records::XrecView::of(&xs),
+                                xs.assigned,
+                            ))
+                        }
                         _ => None,
                     };
                     let handle = Rc::as_ptr(&rc) as usize;
@@ -811,11 +828,26 @@ impl Session {
                     } else {
                         false
                     };
+                    if let Some(x) = &caller_xrec {
+                        self.shared_proc_xrec.push(x.clone());
+                    }
                     let r = self.finish_call(object, routine, inst.clone(), args, values, try_call, f);
                     if pushed {
                         self.plain_proc_xrec.pop();
                     }
+                    if caller_xrec.is_some() {
+                        self.shared_proc_xrec.pop();
+                    }
                     Self::leave_record(&inst, saved);
+                    if let Some((x, fields, view, assigned)) = read_only {
+                        let xs = x.borrow();
+                        if (xs.assigned && !assigned)
+                            || !crate::records::XrecView::of(&xs).same(&view)
+                            || !Self::same_values(&xs.fields, &fields)
+                        {
+                            return Err(Signal::unsupported(crate::records::XREC_CHANGED_UNDER_NESTED_VALIDATE));
+                        }
+                    }
                     return r;
                 }
                 // A query procedure runs with the query it was called on as its own state.
