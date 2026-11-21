@@ -19,7 +19,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 /// The `RecordState::unpinned_buffer` reason of a by-value copy whose view [`Session::by_value_view`] does not decide.
-pub(crate) const BY_VALUE_VIEW: &str = "a record handed by value whose view the probe did not measure (a filter in filter group 1 or in a group other than -1, 0, 2 and 4, the caller standing in a group other than 0 and 2, a field sorted descending by SetAscending, a SetLoadFields after a read, SetAutoCalcFields or ReadIsolation on the record, a call through an interface, a parameter of an object other than a codeunit or of a table procedure other than Row.Proc(Row) or Buffer.Proc(Entry) of another table from a codeunit or a third table, or an event subscriber's parameter whose publisher parameter is a by-value Record, other than in the one cell record/filters/ByValueRecordView.al:286-308 and :964-978 measures): what the copy's view holds is not pinned";
+pub(crate) const BY_VALUE_VIEW: &str = "a record handed by value whose view the probe did not measure (a filter in filter group 1 or in a group other than -1, 0, 2 and 4, the caller standing in a group other than 0 and 2, a field sorted descending by SetAscending, a SetLoadFields after a read, SetAutoCalcFields or ReadIsolation on the record, a call through an interface, a parameter of an object other than a codeunit, of a report procedure called from other than the report, a codeunit or a page, a key on a FlowField with a SetLoadFields before a read handed to a table procedure, or of a table procedure other than Row.Proc(Row) or Buffer.Proc(Entry) of another table from a codeunit or a third table, or an event subscriber's parameter whose publisher parameter is a by-value Record, other than in the one cell record/filters/ByValueRecordView.al:286-308 and :964-978 measures): what the copy's view holds is not pinned";
 
 /// The `RecordState::unpinned_buffer` reason of the copy an event subscriber's parameter gets in the cell
 /// record/filters/ByValueRecordView.al:286-308 measures ([`subscriber_view`]): the subscriber reads GetFilters and Count of it
@@ -360,6 +360,15 @@ impl Session {
     ///   Application's codeunit 5530 "Calc. Item Availability" calls table 5530 "Inventory Event Buffer".TransferInventoryQty
     ///   this way (al-runner issue 8385). A call from the code of the callee's or the parameter's table, and a table
     ///   extension's procedure (an object of its own kind), are not measured.
+    /// - `by-value-report-procedure` (corpus PR 1450, record/filters/ByValueRecordView.al codeunit 78731, merged, not pinned yet): a report's
+    ///   procedure called from the report itself, from a codeunit or from a page. A data item trigger hands its data item to a
+    ///   local procedure in `ByValue_ReportProcedure_DataItemAfterReset` (:1327) and `_ChildDataItemLink` (:1357),
+    ///   OnPreReport hands a local record in `_FromOnPreReport` (:1556), the request page's OnOpenPage in `_FromRequestPage`
+    ///   (:1654), the data item goes to another instance of the report in `_DataItemToOtherInstance` (:1571), a local
+    ///   procedure hands its copy to itself in `_DataItemNested` (:1342), the test codeunit calls a global procedure in
+    ///   `_FromCodeunit_*` (:1378, :1411-1539), a page action hands a local record in `_FromPageAction` (:1396) and the page's
+    ///   own Rec in `_FromPageRec_SourceTableView` (:1620) and `_FromPageRec_UserFilter` (:1636). Base Application's report
+    ///   99001026 "Replan Production Order" calls DeleteProdOrders this way (al-runner issue 8386).
     fn measured_callee(&self, call: &ByValueCall, param: &RtType, source: &Rec) -> Option<Evidence> {
         let objects = &self.engine.program.objects;
         let callee = &objects[call.callee];
@@ -370,6 +379,9 @@ impl Session {
         let from_codeunit = matches!(caller, Some((_, ObjKind::Codeunit)));
         match (call.dispatch, callee.kind) {
             (Dispatch::Direct, ObjKind::Codeunit) => Some(Evidence::Pinned),
+            (Dispatch::Direct, ObjKind::Report) => matches!(caller, Some((o, kind))
+                if o == call.callee || matches!(kind, ObjKind::Codeunit | ObjKind::Page))
+            .then_some(Evidence::Assumed(Assumption::ByValueReportProcedure)),
             (Dispatch::Direct, ObjKind::Table) if *param_table as usize != call.callee => {
                 // A table caller in the cells is a third table: neither the callee's nor the parameter's.
                 let from_other_table = matches!(caller, Some((o, ObjKind::Table))
@@ -392,16 +404,23 @@ impl Session {
     /// - An event subscriber's copy: [`subscriber_view`], told what [`Session::event_args`] says of parameter `index`.
     ///   The cases below are for a call by name or through an interface.
     /// - Caller in filter group 0, ascending, no marks, MarkedOnly off, no filter, on the primary key or an ad hoc key
-    ///   (`RecordState::adhoc`), any callee: the copy has the primary key, also after an ad hoc key on a normal field, on a
+    ///   (`RecordState::adhoc`), with no SetLoadFields before a read when the key is on a FlowField or the callee is a
+    ///   report's procedure no cell measured, any callee: the copy has the primary key, also after an ad hoc key on a normal field, on a
     ///   FlowField whose value depends on the row (whose `FLOWFIELD_KEY` mark it does not take) or on a FlowField and then
-    ///   the primary key field (record/keys-sorting/PwFlowFieldKeyRule.al:249-252 `byValue=Id order=1 2 3`).
+    ///   the primary key field (record/keys-sorting/PwFlowFieldKeyRule.al:249-252 `byValue=Id order=1 2 3`). With a
+    ///   SetLoadFields of a caller that read no row, for a codeunit's or a report's procedure [`Session::measured_callee`]
+    ///   names, in the state [`measured_state`] names, the request is dropped and the copy marked `by-value-report-procedure`
+    ///   (corpus PR 1450, record/filters/ByValueRecordView.al:1586 `ByValue_FlowFieldKeyLoadFields_CodeunitProcedure` and
+    ///   :1603 `_ReportProcedure`: `key=Id first=1 amount loaded=Yes name loaded=Yes`); for any other callee or state the
+    ///   copy is marked [`BY_VALUE_VIEW`], as is a SetLoadFields before a read handed to a report procedure no cell measured.
     /// - A callee [`Session::measured_callee`] names, no mark on `source`, a view [`measured_view`] names: the view of
     ///   [`primary_view`], and a SetLoadFields of a caller that read no row is dropped (`ByValue_SetLoadFields`
     ///   `amount loaded=Yes`). Under [`Evidence::Assumed`] the copy is marked (`RecordState::view_assumption`)
     ///   so that a read of its view marks the assumption (`by_value_view_read`, `by_value_view_handed`).
-    /// - Another callee, or the callee of `by-value-table-proc-other-table` with a view [`measured_view`] does not name, no
-    ///   filter and no mark on `source`, the caller in filter group 0, ascending, with no marks: main's view (a declared
-    ///   secondary key stays).
+    /// - Another callee that is not a report's procedure, or the callee of `by-value-table-proc-other-table` with a view
+    ///   [`measured_view`] does not name, no filter and no mark on `source`, the caller in filter group 0, ascending, with no
+    ///   marks: main's view (a declared secondary key stays). A report procedure's copy is marked [`BY_VALUE_VIEW`] there,
+    ///   from a measured caller or not.
     /// - Else, with no mark on `source`, the copy keeps main's view and is marked [`BY_VALUE_VIEW`]: a read of its view
     ///   refuses (`by_value_view_runs`, `by_value_view_handed`). A copy of a marked `source` keeps main's view and the mark.
     pub(crate) fn by_value_view(&self, source: &Rec, copy: &Rec, param: &RtType, call: &ByValueCall, index: usize) {
@@ -424,13 +443,31 @@ impl Session {
             s.filter_group == 0 && s.ascending && s.field_descending == 0 && s.marks.is_empty() && !s.marked_only;
         let no_filter = s.filters.is_empty();
         let pinned_key = s.key == 0 || s.adhoc.as_ref().is_some_and(|(k, _)| *k == s.key);
-        let load_dropped = measured.is_some() && s.load.request.is_some() && s.load.buffer.is_none();
+        let load_pending = s.load.request.is_some() && s.load.buffer.is_none();
+        let load_dropped = measured.is_some() && load_pending;
+        let callee_kind = self.engine.program.objects[call.callee].kind;
+        // A report procedure from a caller no cell measured: its copy keeps main's view only where that is a fresh record's.
+        let unmeasured_report = callee_kind == ObjKind::Report && measured.is_none();
+        let load_key_measured =
+            measured.is_some() && measured_state(&s) && matches!(callee_kind, ObjKind::Codeunit | ObjKind::Report);
         let mut c = copy.borrow_mut();
         match s.unpinned_buffer {
-            None | Some(FLOWFIELD_KEY) if plain_view && no_filter && pinned_key && !load_dropped => {
+            None if plain_view && no_filter && pinned_key && !load_dropped && !(unmeasured_report && load_pending) => {
                 c.key = 0;
                 c.adhoc = None;
                 c.unpinned_buffer = None;
+            }
+            Some(FLOWFIELD_KEY) if plain_view && no_filter && pinned_key && !load_pending => {
+                c.key = 0;
+                c.adhoc = None;
+                c.unpinned_buffer = None;
+            }
+            Some(FLOWFIELD_KEY) if plain_view && no_filter && pinned_key && load_key_measured => {
+                c.key = 0;
+                c.adhoc = None;
+                c.unpinned_buffer = None;
+                c.load.request = None;
+                c.view_assumption = Some(Assumption::ByValueReportProcedure);
             }
             None if measured.is_some() && measured_view(&s) => {
                 primary_view(&mut c);
@@ -439,9 +476,13 @@ impl Session {
                 }
                 c.view_assumption = measured.and_then(Evidence::assumption);
             }
-            // Another callee, or one of `by-value-table-proc-other-table` whose view the probe did not measure: main's view.
-            None if measured != Some(Evidence::Pinned) && plain_view && no_filter => {}
+            // Another callee, or one of `by-value-table-proc-other-table` whose view the probe did not measure: main's view. A
+            // report procedure's copy refuses there, whoever calls it: its cells show BC drops a secondary key main kept
+            // (record/filters/ByValueRecordView.al:1378 `ByValue_ReportProcedure_FromCodeunit_SecondaryKeyNoFilter`).
+            None if measured != Some(Evidence::Pinned) && callee_kind != ObjKind::Report && plain_view && no_filter => {
+            }
             None => c.unpinned_buffer = Some(BY_VALUE_VIEW),
+            Some(FLOWFIELD_KEY) if plain_view && no_filter && pinned_key => c.unpinned_buffer = Some(BY_VALUE_VIEW),
             Some(_) => {}
         }
     }

@@ -30,6 +30,7 @@ mod bucket_misc;
 mod bucket_service_misc;
 mod bump21_unbuilt;
 mod by_value_dispatch;
+mod by_value_report_procedure;
 mod by_value_subscriber;
 mod by_value_table_proc_other_table;
 mod caller_modules_test_runner;
