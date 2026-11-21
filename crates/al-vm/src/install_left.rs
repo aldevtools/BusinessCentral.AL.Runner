@@ -21,8 +21,11 @@ pub struct InstallLeft {
     isolated_written: std::collections::HashSet<(String, String)>,
     /// Its last Commit made writes durable (`TxState::last_commit_wrote`, min_row_version.rs).
     last_commit_wrote: bool,
-    /// `Database.CurrentTransactionType` after its last Commit (`TxState::transaction_type`; an AL `Commit` sets it).
+    /// `Database.CurrentTransactionType` after its last Commit (`TxState::transaction_type`; an AL `Commit` keeps it), and
+    /// why it is not pinned when it is not (`TxState::type_unpinned`): code that reads it before the first test method starts
+    /// sees both.
     transaction_type: i32,
+    type_unpinned: Option<crate::transactions::TypeOrigin>,
     /// What the SQL counters it never read noted (`SqlCounters::left_inactive`).
     sql: crate::sqlcount::SqlLeft,
     /// `EventState::caption_context_revision`: moved by a GlobalLanguage change and a binding; compared only with the value a
@@ -279,6 +282,7 @@ impl Session {
             isolated_written: self.isolated_written_in_codeunit.clone(),
             last_commit_wrote: self.tx.last_commit_wrote,
             transaction_type: self.tx.transaction_type,
+            type_unpinned: self.tx.type_unpinned,
             sql: self.sql.left_inactive()?,
             caption_context_revision: self.events.caption_context_revision,
             subscriber_calls: self.events.event_stats.calls.borrow().clone(),
@@ -430,7 +434,7 @@ impl Session {
 
     /// The transaction state after the install's last Commit, field by field: what a new session holds, except what the
     /// Commit sets (`committed_row_version`, carried in the Baseline; `commit_counter`, the store's change counter, which
-    /// [`Session::restore_install_left`] sets again; `last_commit_wrote` and `transaction_type`, carried).
+    /// [`Session::restore_install_left`] sets again; `last_commit_wrote`, `transaction_type` and `type_unpinned`, carried).
     fn tx_left_as_after_commit(&self) -> bool {
         let crate::state::TxState {
             tx_world,
@@ -438,6 +442,8 @@ impl Session {
             phase,
             // Carried in InstallLeft.
             transaction_type: _,
+            // Carried in InstallLeft.
+            type_unpinned: _,
             lock_timeout,
             lock_timeout_duration,
             committed_row_version: _,
@@ -501,6 +507,7 @@ impl Session {
         self.isolated_written_in_codeunit = left.isolated_written.clone();
         self.tx.last_commit_wrote = left.last_commit_wrote;
         self.tx.transaction_type = left.transaction_type;
+        self.tx.type_unpinned = left.type_unpinned;
         self.tx.commit_counter = self.store.change_counter();
         self.sql.restore_left(&left.sql);
         self.events.caption_context_revision = left.caption_context_revision;

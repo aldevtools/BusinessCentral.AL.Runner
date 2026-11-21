@@ -13,9 +13,13 @@ pub(crate) struct TxState {
     /// write call (also a DeleteAll that finds no row). `CurrentTransactionType` depends on it (`sessionops.rs`). A Commit or a
     /// rollback ends a write phase (`Session::end_open_transaction`); a read phase stays.
     pub(crate) phase: transactions::TxPhase,
-    /// `Database.CurrentTransactionType`: a member index of the TransactionType option; a test
-    /// method starts at 0, UpdateNoLocks (`start_test_method`).
+    /// `Database.CurrentTransactionType`: a member index of the TransactionType option. A session starts at 0, UpdateNoLocks;
+    /// a test method starts with the type the one before it left (`start_test_method`), and a Commit keeps it.
     pub(crate) transaction_type: i32,
+    /// Why `transaction_type` is not pinned, when it is not (`Session::transaction_type_seen`): a Commit kept a type other
+    /// than Update (al-runner issue 8605), the test method before left a type other than UpdateNoLocks and Update (8606), or
+    /// the runner refused that test method while it ran (the type is not known). A set that takes effect clears it.
+    pub(crate) type_unpinned: Option<crate::transactions::TypeOrigin>,
     /// `Database.LockTimeout`: whether a lock wait ends in a timeout error.
     pub(crate) lock_timeout: bool,
     /// `Database.LockTimeoutDuration` in milliseconds.
@@ -114,12 +118,12 @@ pub(crate) struct OpenTx {
     /// The locks the open transaction holds and the locking reads it ran; a test method also starts without them
     /// (`Session::start_test_method`).
     pub(crate) locks: TxLocks,
-    /// The open transaction is the test method's first and nothing but writes has run in it: set by
-    /// `Session::start_test_method`; a read call (`records/op_inner.rs`), a CurrentTransactionType set (`sessionops.rs`), a
-    /// Codeunit.Run (`transactions.rs`) and a report run (`reports/transaction_world.rs`) clear it, and so does the end of the
-    /// transaction. The
-    /// TransactionType term of an Update report is measured only then.
-    pub(crate) at_test_start: bool,
+    /// Where the open transaction began (the test method's start, an AL Commit) and which measured steps ran in it since: the
+    /// moments the TransactionType term of an Update report is measured at (`reports/transaction_world.rs`). Set by
+    /// `Session::start_test_method` and the AL Commit; a read call (`records/op_inner.rs`) and a CurrentTransactionType set
+    /// (`sessionops.rs`) are noted in it or end it, a Codeunit.Run (`transactions.rs`) and a report run end it, and so does the
+    /// end of the transaction.
+    pub(crate) moment: Option<crate::reports::transaction_world::Moment>,
 }
 
 /// The locks of the open transaction (`OpenTx::locks`).
@@ -242,6 +246,7 @@ impl TxState {
             commit_behavior: Default::default(),
             phase: crate::transactions::TxPhase::Fresh,
             transaction_type: 0,
+            type_unpinned: None,
             lock_timeout: true,
             lock_timeout_duration: 10,
             committed_row_version: 0,
@@ -677,7 +682,8 @@ impl OpenTx {
                     db_reads,
                     locking_read_tx_unpinned,
                 },
-            at_test_start,
+            // `Session::start_test_method` sets it before any test code runs.
+            moment: _,
         } = self;
         rows_touched.is_empty()
             && tables_inserted.is_empty()
@@ -700,7 +706,6 @@ impl OpenTx {
             && isolation_lock_tables.is_empty()
             && locking_reads.is_empty()
             && *db_reads == 0
-            && !at_test_start
             && !locking_read_tx_unpinned
     }
 }

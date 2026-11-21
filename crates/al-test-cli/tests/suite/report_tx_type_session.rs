@@ -1,13 +1,17 @@
-//! A TransactionType = Update report run with no request page anywhere but at the start of the test method. The corpus
-//! measures the platform's transaction-world decision for such a report only there: nothing before the run but, in some
-//! tests, one Insert (record/TestTxModelReportRun.al:177-211 Test07/Test08; record/TestTxModelReportExec.al:
-//! 137-171, :213-257 Test06/07/10/11/12). After a Commit, a rollback, a read call, a CurrentTransactionType set, a
-//! Codeunit.Run or another report run, and under TransactionModel None, whether the report enters a world is not
-//! pinned, so the run is refused (al-runner issue 8324, the reporter's repro is `UpdateReportAfterTypeSetToUpdate`; the
-//! other shapes are the review probes of pull request 8376).
+//! A TransactionType = Update report run with no request page, by the moment it runs at. The corpus measures the platform's
+//! transaction-world decision at the start of the test method (record/TestTxModelReportRun.al:177-211 Test07/Test08;
+//! record/TestTxModelReportExec.al:137-171, :213-257 Test06/07/10/11/12), and the open probe of al-runner issue 8324
+//! (corpus pull request 1488, record/TxTypeUpdateReport.al, copied to fixtures/outside-fb/Issue8324Probe.al) measures it
+//! after a Commit and after a CurrentTransactionType set: no world while the session's type is Update, a world for every
+//! other type. Every other moment (a rollback, a Codeunit.Run, a read and a write, a TryFunction, a lock, TransactionModel
+//! None) stays refused. The reporter's repro is `UpdateReportAfterTypeSetToUpdate`; the review probes of pull request 8376
+//! and the neighbors of the probe's cells are the other shapes.
 
+use al_sema::workspace::AppKind;
 use al_testkit::outcomes_in;
 use al_testrun::Outcome;
+
+const PROBE_APP_ID: &str = "3c1f2b7e-8324-4a8f-9b2e-5d6c7a8b9c01";
 
 const SRC: &str = r#"
 table 50300 "Repro Row"
@@ -51,6 +55,15 @@ codeunit 50303 "Repro Writer"
     end;
 }
 
+codeunit 50304 "Repro Committer"
+{
+    trigger OnRun()
+    begin
+        Commit();
+        CurrentTransactionType(TransactionType::Update);
+    end;
+}
+
 codeunit 50302 "Repro Report Tx Tests"
 {
     Subtype = Test;
@@ -77,7 +90,7 @@ codeunit 50302 "Repro Report Tx Tests"
             Error('The report did not touch the row');
     end;
 
-    // After a Commit with no write pending: the session's type is Update as well.
+    // After a Commit with no write pending, at the Update the test before left.
     [Test]
     procedure AfterCommitWithoutWrite()
     var
@@ -245,6 +258,218 @@ codeunit 50302 "Repro Report Tx Tests"
         ReproUpdateReport.Run();
     end;
 
+    // ----- Neighbors of the probe's cells (corpus pull request 1488) that no cell measures -----
+
+    // The set at the test's start, then a read and a write: the probe reads or writes there, not both.
+    [Test]
+    procedure SetUpdateAtStartReadThenWrite()
+    var
+        ReproRow: Record "Repro Row";
+        ReproUpdateReport: Report "Repro Update Report";
+    begin
+        CurrentTransactionType(TransactionType::Update);
+        if ReproRow.FindFirst() then;
+        ReproRow."Entry No." := 11;
+        ReproRow.Insert();
+        ReproUpdateReport.Run();
+    end;
+
+    // After the Commit and the set, a read and a write, then a run, then another run: the probe runs twice only with
+    // nothing before the first run.
+    [Test]
+    procedure CommitSetUpdateReadWriteTwoRuns()
+    var
+        ReproRow: Record "Repro Row";
+        First: Report "Repro Update Report";
+        Second: Report "Repro Update Report";
+    begin
+        Commit();
+        CurrentTransactionType(TransactionType::Update);
+        ReproRow."Entry No." := 13;
+        ReproRow.Insert();
+        First.Run();
+        Second.Run();
+    end;
+
+    // A Commit that keeps the type Update, with no set after it: the probe commits without a set only at UpdateNoLocks.
+    [Test]
+    procedure CommitKeepsUpdateNoSet()
+    var
+        ReproRow: Record "Repro Row";
+        ReproUpdateReport: Report "Repro Update Report";
+    begin
+        CurrentTransactionType(TransactionType::Update);
+        ReproRow."Entry No." := 12;
+        ReproRow.Insert();
+        Commit();
+        ReproUpdateReport.Run();
+    end;
+
+    // A Codeunit.Run between the set and the report.
+    [Test]
+    procedure CommitSetUpdateCodeunitRunBetween()
+    var
+        ReproUpdateReport: Report "Repro Update Report";
+    begin
+        Commit();
+        CurrentTransactionType(TransactionType::Update);
+        Codeunit.Run(Codeunit::"Repro Writer");
+        ReproUpdateReport.Run();
+    end;
+
+    // Two sets after the Commit.
+    [Test]
+    procedure CommitSetUpdateTwice()
+    var
+        ReproUpdateReport: Report "Repro Update Report";
+    begin
+        Commit();
+        CurrentTransactionType(TransactionType::UpdateNoLocks);
+        CurrentTransactionType(TransactionType::Update);
+        ReproUpdateReport.Run();
+    end;
+
+    // A LockTable between the set and the report.
+    [Test]
+    procedure CommitSetUpdateLockTable()
+    var
+        ReproRow: Record "Repro Row";
+        ReproUpdateReport: Report "Repro Update Report";
+    begin
+        Commit();
+        CurrentTransactionType(TransactionType::Update);
+        ReproRow.LockTable();
+        ReproUpdateReport.Run();
+    end;
+
+    // The run inside a TryFunction.
+    [Test]
+    procedure CommitSetUpdateRunInTry()
+    begin
+        Commit();
+        CurrentTransactionType(TransactionType::Update);
+        if TryRun() then;
+        if GetLastErrorText() <> '' then
+            Error(GetLastErrorText());
+    end;
+
+    [TryFunction]
+    local procedure TryRun()
+    var
+        ReproUpdateReport: Report "Repro Update Report";
+    begin
+        ReproUpdateReport.Run();
+    end;
+
+    // The run inside an asserterror: the probe runs a report that enters no world only outside one.
+    [Test]
+    procedure CommitSetUpdateRunInAssertError()
+    var
+        ReproUpdateReport: Report "Repro Update Report";
+    begin
+        Commit();
+        CurrentTransactionType(TransactionType::Update);
+        asserterror begin
+            ReproUpdateReport.Run();
+            Error('after the run');
+        end;
+    end;
+
+    // A third run after the set: the probe runs two.
+    [Test]
+    procedure CommitSetUpdateThreeRuns()
+    var
+        First: Report "Repro Update Report";
+        Second: Report "Repro Update Report";
+        Third: Report "Repro Update Report";
+    begin
+        Commit();
+        CurrentTransactionType(TransactionType::Update);
+        First.Run();
+        Second.Run();
+        Third.Run();
+    end;
+
+    // Snapshot after the Commit with a pending write: the probe sets Snapshot only with no write.
+    [Test]
+    procedure CommitSetSnapshotThenRead()
+    var
+        ReproRow: Record "Repro Row";
+        ReproUpdateReport: Report "Repro Update Report";
+    begin
+        Commit();
+        CurrentTransactionType(TransactionType::Snapshot);
+        if ReproRow.FindFirst() then;
+        ReproUpdateReport.Run();
+    end;
+
+    // The set at the test's start, then a DeleteAll: the probe writes there with one Insert.
+    [Test]
+    procedure SetUpdateAtStartDeleteAll()
+    var
+        ReproRow: Record "Repro Row";
+        ReproUpdateReport: Report "Repro Update Report";
+    begin
+        CurrentTransactionType(TransactionType::Update);
+        ReproRow.DeleteAll();
+        ReproUpdateReport.Run();
+    end;
+
+    // After the Commit and the set, a FindLast: the probe reads with Get, FindFirst, FindSet, Next, Count and IsEmpty.
+    [Test]
+    procedure CommitSetUpdateFindLast()
+    var
+        ReproRow: Record "Repro Row";
+        ReproUpdateReport: Report "Repro Update Report";
+    begin
+        Commit();
+        CurrentTransactionType(TransactionType::Update);
+        if ReproRow.FindLast() then;
+        ReproUpdateReport.Run();
+    end;
+
+    // An Insert between two runs: the probe runs twice with nothing between.
+    [Test]
+    procedure CommitSetUpdateRunInsertRun()
+    var
+        ReproRow: Record "Repro Row";
+        First: Report "Repro Update Report";
+        Second: Report "Repro Update Report";
+    begin
+        Commit();
+        CurrentTransactionType(TransactionType::Update);
+        First.Run();
+        ReproRow."Entry No." := 14;
+        ReproRow.Insert();
+        Second.Run();
+    end;
+
+    // A Codeunit.Run whose OnRun commits and sets Update, then the report in the caller.
+    [Test]
+    procedure CodeunitRunCommitsAndSetsUpdate()
+    var
+        ReproUpdateReport: Report "Repro Update Report";
+    begin
+        Codeunit.Run(Codeunit::"Repro Committer");
+        ReproUpdateReport.Run();
+    end;
+
+    // The Commit and the set in a procedure, the report in the test: the probe runs it where it committed and set.
+    [Test]
+    procedure CommitAndSetInAProcedure()
+    var
+        ReproUpdateReport: Report "Repro Update Report";
+    begin
+        CommitAndSetUpdate();
+        ReproUpdateReport.Run();
+    end;
+
+    local procedure CommitAndSetUpdate()
+    begin
+        Commit();
+        CurrentTransactionType(TransactionType::Update);
+    end;
+
     [RequestPageHandler]
     procedure RP(var Page: TestRequestPage "Repro Update Report")
     begin
@@ -253,20 +478,53 @@ codeunit 50302 "Repro Report Tx Tests"
 }
 "#;
 
+/// Text of the refusal for an Update report without its request page at a moment no cell measures.
+const UNMEASURED: &str = "run without its request page at a moment no corpus cell measures";
+
+/// The test procedure `name` of SRC with its attributes, the text from its `[Test]` line through its `end;`.
+fn procedure_of(name: &str) -> &'static str {
+    let at = SRC
+        .find(&format!("procedure {name}()"))
+        .unwrap_or_else(|| panic!("no test {name}"));
+    let start = SRC[..at].rfind("    [Test]").expect("its [Test] line");
+    let end = at + SRC[at..].find("\n    end;\n").expect("its end") + "\n    end;\n".len();
+    &SRC[start..end]
+}
+
+/// Each of `names`, in this order, in one test codeunit of its own with SRC's objects, helpers and handler; the outcome
+/// of the last one. A codeunit runs in a session of its own, so the type an earlier shape leaves reaches no other shape.
+fn run_alone(names: &[&str]) -> Outcome {
+    let objects = &SRC[..SRC.find("codeunit 50302").expect("the test codeunit")];
+    let helpers: String = [
+        "local procedure TryRun()",
+        "local procedure CommitAndSetUpdate()",
+        "procedure RP(",
+    ]
+    .iter()
+    .map(|h| {
+        let at = SRC.find(h).expect("the helper");
+        let start = SRC[..at].rfind("\n\n").expect("its start") + 2;
+        let end = at + SRC[at..].find("\n    end;\n").expect("its end") + "\n    end;\n".len();
+        &SRC[start..end]
+    })
+    .collect::<Vec<_>>()
+    .join("\n");
+    let tests: String = names.iter().map(|n| procedure_of(n)).collect::<Vec<_>>().join("\n");
+    let src = format!(
+        "{objects}codeunit 50302 \"Repro Report Tx Tests\"\n{{\n    Subtype = Test;\n\n{tests}\n{helpers}\n}}\n"
+    );
+    let o = outcomes_in(&src, "Repro Report Tx Tests");
+    let last = names.last().expect("a test");
+    o.into_iter()
+        .find(|(n, _)| n == last)
+        .map(|(_, o)| o)
+        .unwrap_or_else(|| panic!("{last}: no outcome"))
+}
+
 #[test]
-fn an_update_report_after_the_session_type_became_update_is_refused_and_its_neighbors_keep_their_result() {
-    let o = outcomes_in(SRC, "Repro Report Tx Tests");
-    let get = |t: &str| {
-        o.iter()
-            .find(|(n, _)| n == t)
-            .map(|(_, o)| o.clone())
-            .unwrap_or_else(|| panic!("{t}: {o:?}"))
-    };
+fn an_update_report_without_its_page_runs_at_the_measured_moments_and_is_refused_at_the_others() {
     let mut wrong = Vec::new();
     for t in [
-        "UpdateReportAfterTypeSetToUpdate",
-        "AfterCommitWithoutWrite",
-        "CommitThenSetUpdateNoLocks",
         "SecondRunAfterWorldCommit",
         "ReadBeforeRun",
         "AfterTrappedRollback",
@@ -275,21 +533,141 @@ fn an_update_report_after_the_session_type_became_update_is_refused_and_its_neig
         "AutoRollbackSetUpdateAtStart",
         "ModelNoneAtTestStart",
         "ModelNoneAfterCommit",
+        "SetUpdateAtStartReadThenWrite",
+        "CommitSetUpdateReadWriteTwoRuns",
+        "CommitKeepsUpdateNoSet",
+        "CommitSetUpdateCodeunitRunBetween",
+        "CommitSetUpdateTwice",
+        "CommitSetUpdateLockTable",
+        "CommitSetUpdateRunInTry",
+        "CommitSetUpdateRunInAssertError",
+        "CommitSetUpdateThreeRuns",
+        "CommitSetSnapshotThenRead",
+        "SetUpdateAtStartDeleteAll",
+        "CommitSetUpdateFindLast",
+        "CommitSetUpdateRunInsertRun",
+        "CodeunitRunCommitsAndSetsUpdate",
+        "CommitAndSetInAProcedure",
     ] {
-        match get(t) {
-            Outcome::NotRun(r) if r.contains("run without its request page after the start of the test method") => {}
-            other => wrong.push(format!("{t}: expected a refusal, got {other:?}")),
+        match run_alone(&[t]) {
+            Outcome::NotRun(r) if r.starts_with("TransactionType = Update report") && r.contains(UNMEASURED) => {}
+            other => wrong.push(format!("{t}: expected its own refusal, got {other:?}")),
         }
     }
+    // The reporter's repro and review probes of pull request 8376 the probe now measures (TxU06, TxU07, TxU11), and the
+    // pinned shapes at the test's start.
     for t in [
+        "UpdateReportAfterTypeSetToUpdate",
+        "AfterCommitWithoutWrite",
+        "CommitThenSetUpdateNoLocks",
         "AtTestStartWithPendingWrite",
         "AtTestStartWithoutWrite",
         "AfterCommitWithRequestPage",
         "AutoRollbackAtTestStart",
     ] {
-        if get(t) != Outcome::Pass {
-            wrong.push(format!("{t}: expected a pass, got {:?}", get(t)));
+        let o = run_alone(&[t]);
+        if o != Outcome::Pass {
+            wrong.push(format!("{t}: expected a pass, got {o:?}"));
         }
     }
+    // After the Commit, a test before that left Update: no cell commits at Update without a set.
+    match run_alone(&["UpdateReportAfterTypeSetToUpdate", "AfterCommitWithoutWrite"]) {
+        Outcome::NotRun(r) if r.starts_with("TransactionType = Update report") && r.contains(UNMEASURED) => {}
+        other => wrong.push(format!(
+            "AfterCommitWithoutWrite after Update: expected its own refusal, got {other:?}"
+        )),
+    }
+    // A test refused while it ran leaves a type that is not known: the next test's pinned shape refuses.
+    match run_alone(&["SetSnapshotAtTestStart", "AtTestStartWithoutWrite"]) {
+        Outcome::NotRun(r) if r.starts_with("TransactionType = Update report") && r.contains(UNMEASURED) => {}
+        other => wrong.push(format!(
+            "AtTestStartWithoutWrite after a refused test: expected a refusal, got {other:?}"
+        )),
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+/// The probe of corpus pull request 1488 (record/TxTypeUpdateReport.al): every test passes. The cells after a Commit or a set
+/// carry the mark of the open probe, and a read of a type a Commit kept (other than Update) the mark of al-runner issue 8605.
+#[test]
+fn the_probe_of_issue_8324_passes_with_its_marks() {
+    // Over the System app, for the Integer data items; `run` takes the test codeunit named T.
+    let src = format!(
+        "{}\n{}",
+        include_str!("../fixtures/outside-fb/Issue8324Probe.al")
+            .replace("codeunit 97184 \"TxU Update Report Tx\"", "codeunit 97184 T"),
+        include_str!("../fixtures/outside-sc/Assert.al")
+    );
+    let o = crate::field_extension_package_ids::run(&[(PROBE_APP_ID, AppKind::Workspace, &src)]);
+    let report = al_builtins::assumptions::by_id("update-report-by-session-type");
+    let commit = al_builtins::assumptions::by_id("commit-keeps-transaction-type");
+    let mut wrong = Vec::new();
+    for (name, outcome, marks) in &o {
+        if *outcome != Outcome::Pass {
+            wrong.push(format!("{name}: {outcome:?}"));
+            continue;
+        }
+        // Every cell but the request page shown (TxU16, TxU17, main's path) and the type reads around a Commit.
+        let cell = [
+            "TxU01", "TxU02", "TxU03", "TxU04", "TxU05", "TxU06", "TxU07", "TxU08", "TxU09", "TxU10", "TxU11", "TxU12",
+            "TxU13", "TxU14", "TxU15", "TxU18", "TxU19", "TxU20", "TxU27", "TxU28", "TxU29", "TxU30", "TxU31", "TxU32",
+            "TxU33",
+        ]
+        .iter()
+        .any(|p| name.starts_with(p));
+        let kept = [
+            "TxU01", "TxU02", "TxU07", "TxU08", "TxU19", "TxU20", "TxU21", "TxU23", "TxU24", "TxU25", "TxU34", "TxU35",
+            "TxU36", "TxU37", "TxU38",
+        ]
+        .iter()
+        .any(|p| name.starts_with(p));
+        let mut want = Vec::new();
+        if cell {
+            want.extend(report);
+        }
+        if kept {
+            want.extend(commit);
+        }
+        let mut got = marks.clone();
+        got.sort();
+        want.sort();
+        if got != want {
+            wrong.push(format!("{name}: marks {got:?}, expected {want:?}"));
+        }
+    }
+    assert_eq!(o.len(), 40, "{o:#?}");
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+/// The probe of al-runner issue 8606 in corpus pull request 1488 (session-system/TxTypeNextTestMethod.al): a test method starts
+/// with the type the one before it left. Reading a carried Browse, Snapshot or Report carries the mark of the open probe; an
+/// Update report at the start of the test after one that left Update enters no world (the mark of al-runner issue 8324).
+#[test]
+fn the_probe_of_issue_8606_carries_the_type_into_the_next_test_method() {
+    // Over the System app for the probe's report, whose objects come from the 8324 probe; `run` takes the codeunit named T.
+    let src = format!(
+        "{}\n{}\n{}",
+        include_str!("../fixtures/outside-fb/Issue8606Probe.al")
+            .replace("codeunit 97185 \"TxU Type Next Test\"", "codeunit 97185 T"),
+        include_str!("../fixtures/outside-fb/Issue8324Probe.al"),
+        include_str!("../fixtures/outside-sc/Assert.al")
+    );
+    let o = crate::field_extension_package_ids::run(&[(PROBE_APP_ID, AppKind::Workspace, &src)]);
+    let carries = al_builtins::assumptions::by_id("transaction-type-carries-to-next-test").expect("the entry");
+    let report = al_builtins::assumptions::by_id("update-report-by-session-type").expect("the entry");
+    let want = |n: &str| match n {
+        "TxN02_StartsWithThePreviousTestsType"
+        | "TxN04_StartsWithSnapshot"
+        | "TxN06_StartsWithReport"
+        | "TxN08_StartsWithBrowseAfterARead"
+        | "TxN10_StartsWithTheSnapshotACommitKept" => vec![carries],
+        "TxN12_StartsWithUpdateAndAnUpdateReportJoinsTheTransaction" => vec![report],
+        _ => vec![],
+    };
+    let wrong: Vec<_> = o
+        .iter()
+        .filter(|(n, r, m)| *r != Outcome::Pass || *m != want(n))
+        .collect();
+    assert_eq!(o.len(), 12, "{o:#?}");
     assert!(wrong.is_empty(), "{wrong:#?}");
 }

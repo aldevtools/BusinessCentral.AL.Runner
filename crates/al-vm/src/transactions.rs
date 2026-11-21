@@ -8,6 +8,7 @@
 //! listed in docs/probes-needed.md.
 
 use crate::{AlError, Session, Signal};
+use al_builtins::assumptions::Assumption;
 use al_builtins::builtin_id::ids;
 use al_builtins::native::unsupported;
 use al_builtins::record_op::RecordOp;
@@ -131,9 +132,18 @@ pub(crate) fn al_error(message: &str) -> Signal {
     al_error_code(message, "")
 }
 
-/// `TxState::transaction_type` of a test's start: the TransactionType member UpdateNoLocks
+/// `TxState::transaction_type` of a session's start: the TransactionType member UpdateNoLocks
 /// (session-system/ProbeSystemEnumMembers.al:60-161).
 pub(crate) const TRANSACTION_TYPE_UPDATE_NO_LOCKS: i32 = 0;
+
+/// Why the session's transaction type is not pinned (`TxState::type_unpinned`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TypeOrigin {
+    /// Only the open probe the assumption names measures it.
+    Assumed(Assumption),
+    /// A test method the runner refused while it ran left it.
+    Unknown,
+}
 /// How far the open transaction has started (`TxState::phase`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub(crate) enum TxPhase {
@@ -326,10 +336,105 @@ impl Session {
         // A Commit puts LockTimeout back on (session-system/PnBRecordMisc.al:LastUsedRowVersion_AndLockTimeout
         // `lockTimeoutAfterCommit`). The timeout duration is not pinned.
         self.tx.lock_timeout = true;
-        // The next transaction has not started and its type is Update (see `TxState::phase`).
+        // The next transaction has not started (see `TxState::phase`), and it keeps the type of the one before: Update after a
+        // Commit at Update (session-system/ProbeSystemEnumMembers.al:94-110); any other type is the open probe's
+        // (`TxState::type_unpinned`).
         self.tx.phase = TxPhase::Fresh;
-        self.tx.transaction_type = 1;
+        if self.tx.transaction_type != 1 && self.tx.type_unpinned != Some(TypeOrigin::Unknown) {
+            self.tx.type_unpinned = Some(TypeOrigin::Assumed(Assumption::CommitKeepsTransactionType));
+        }
+        self.moment_after_commit();
         Ok(())
+    }
+
+    /// `Database.CurrentTransactionType`, read with no argument and set with one (session-system/ProbeSystemEnumMembers.al:
+    /// 60-161; TestClearAllTransactionTypeContracts.al:224-253):
+    /// - a test starts as UpdateNoLocks, and a set before any database call takes effect;
+    /// - a Commit keeps the type ([`Self::transaction_type_seen`]), and a set takes effect again;
+    /// - once a write call has run (also a DeleteAll that finds no row) the type stays as it was: a set to Report or
+    ///   Snapshot, or to the type it has, goes through without effect, and a set to Update raises
+    ///   DB:CannotChangeTransactionType;
+    /// - once a read call has run, a set of Report reads back as Update.
+    ///
+    /// Every other set after the transaction has started is not pinned and refused.
+    pub(crate) fn current_transaction_type(&mut self, args: &[Value]) -> Result<Value, Signal> {
+        use al_builtins::describe::Describe;
+        let members: std::sync::Arc<[String]> = al_builtins::sysenum::option_members("TransactionType")
+            .expect("a system option")
+            .into();
+        let new = match args.first() {
+            None | Some(Value::Null) => return Ok(Value::Option(self.transaction_type_seen()?, members)),
+            Some(Value::Option(t, _)) => *t,
+            Some(other) => return unsupported(format!("CurrentTransactionType set to {}", other.describe())),
+        };
+        let (update, snapshot, report) = (1, 2, 4);
+        // After a lock (codeunits/TestCodeunitRunWriteTransaction.al:211-278) the set is not pinned.
+        if self.tx.phase != TxPhase::Write && self.tx.open.locks.any() {
+            return unsupported(
+                "Database.CurrentTransactionType set after a LockTable or a locking ReadIsolation (not pinned)",
+            );
+        }
+        // The set is a step of the moment an Update report is measured at (`OpenTx::moment`).
+        self.moment_type_set(new, self.tx.phase == TxPhase::Fresh);
+        match self.tx.phase {
+            TxPhase::Fresh => (self.tx.transaction_type, self.tx.type_unpinned) = (new, None),
+            TxPhase::Write if new == self.transaction_type_seen()? => {}
+            TxPhase::Write if new == snapshot || new == report => {}
+            TxPhase::Write if new == update => {
+                let name = |t: i32| members.get(t as usize).cloned().unwrap_or_default();
+                return Err(al_error_code(
+                    &format!(
+                        "The transaction type cannot be changed after a transaction has started.\\\\A transaction starts when the first database operation, such as FIND, NEXT, INSERT, DELETE, MODIFY, SUM, or COUNT, is run.\\\\The error occurred because the transaction type was changed from {} to {}.",
+                        name(self.tx.transaction_type),
+                        name(new)
+                    ),
+                    "DB:CannotChangeTransactionType",
+                ));
+            }
+            TxPhase::Read if new == report => (self.tx.transaction_type, self.tx.type_unpinned) = (update, None),
+            _ => {
+                return unsupported(format!(
+                    "Database.CurrentTransactionType set to {} after a database call (not pinned)",
+                    members.get(new as usize).cloned().unwrap_or_default()
+                ));
+            }
+        }
+        Ok(Value::Null)
+    }
+
+    /// `TxState::transaction_type` as AL code sees it. A type other than Update that a Commit kept, and a type other than
+    /// UpdateNoLocks and Update that the test method before left, are what the open probe of corpus pull request 1488
+    /// measures (record/TxTypeUpdateReport.al:568-629 TxU21 to TxU26, `commit-keeps-transaction-type`;
+    /// session-system/TxTypeNextTestMethod.al TxN01 and TxN02, `transaction-type-carries-to-next-test`).
+    pub(crate) fn transaction_type_seen(&self) -> Result<i32, Signal> {
+        match self.tx.type_unpinned {
+            Some(TypeOrigin::Assumed(a)) => al_builtins::assumptions::assume(a),
+            Some(TypeOrigin::Unknown) => {
+                return unsupported(
+                    "Database.CurrentTransactionType after a test method of the codeunit that the runner refused while it ran \
+                     (the type it left is not known)",
+                );
+            }
+            None => {}
+        }
+        Ok(self.tx.transaction_type)
+    }
+
+    /// A test method was refused while it ran (al-testrun `stopped_state.rs`): the type it would have left on BC, which the
+    /// next test method starts with, is not known until a set that takes effect.
+    pub fn transaction_type_unknown(&mut self) {
+        self.tx.type_unpinned = Some(TypeOrigin::Unknown);
+    }
+
+    /// A test method starts with the transaction type the test method before left. UpdateNoLocks there is what the corpus reads
+    /// at a test's start after every kind of test before it, and Update is pinned by
+    /// session-system/TestClearAllTransactionTypeContracts.al:257-286; any other type is the open probe's.
+    pub(crate) fn carry_transaction_type(&mut self) {
+        if self.tx.type_unpinned == Some(TypeOrigin::Unknown) {
+            return;
+        }
+        self.tx.type_unpinned = (!matches!(self.tx.transaction_type, TRANSACTION_TYPE_UPDATE_NO_LOCKS | 1))
+            .then_some(TypeOrigin::Assumed(Assumption::TransactionTypeCarriesToNextTest));
     }
 
     /// The error of a Commit while `Consistent(false)` marks `table` (errors/CuCommitTests.al:405-419). The
@@ -871,8 +976,8 @@ impl Session {
             }
         }
 
-        // A run ends the moment the Update report term is measured at (`OpenTx::at_test_start`).
-        self.tx.open.at_test_start = false;
+        // A run ends the moment an Update report without its request page is measured at (`OpenTx::moment`).
+        self.tx.open.moment = None;
         let on_run = obj
             .routines
             .iter()
