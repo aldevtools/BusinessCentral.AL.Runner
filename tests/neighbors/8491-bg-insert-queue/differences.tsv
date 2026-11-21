@@ -17,8 +17,10 @@ IQ Tests::BgTaskInsertQueue_SubscriberTable_Insert_TaskDoesNotFindIt	ASSUMED bg-
 IQ Tests::BgTaskInsertQueue_ThreeInserts_TestFlowField_TwoInserts_TaskFindsTheFirstThree	ASSUMED bg-task-insert-queue (corpus PR 1459, merged, not pinned yet, and open PR 1489: BgTaskInsertQueue.al)
 IQ Tests::BgTaskInsertQueue_TriggerTable_InsertTrue_TaskDoesNotFindIt	ASSUMED bg-task-insert-queue (corpus PR 1459, merged, not pinned yet, and open PR 1489: BgTaskInsertQueue.al)
 IQ Tests::BgTaskInsertQueue_TwoInserts_TaskReadsDoNotLetThemThrough	ASSUMED bg-task-insert-queue (corpus PR 1459, merged, not pinned yet, and open PR 1489: BgTaskInsertQueue.al)
+IQ Tests::BgTaskInsertQueue_DuplicateInsertDeferred_TaskDoesNotFindTheOther_CommitRaises	ASSUMED bg-task-insert-queue (corpus PR 1459, merged, not pinned yet, and open PR 1489: BgTaskInsertQueue.al)
 # The reporter's repro of al-runner issue 8491.
 Repro Buf Tests::InsertThenTask_TaskDoesNotFindTheRow	ASSUMED bg-task-insert-queue (corpus PR 1459, merged, not pinned yet, and open PR 1489: BgTaskInsertQueue.al)
-# Neighbors, refused. Main failed the first (its duplicate-key Insert raised at once) and answered the second with the queued rows.
-IQ Neighbor Tests::DeferredDuplicate_TaskRead	REFUSED a read of a page background task's worker of IQ Row while the error of an Insert into it is deferred
+# Neighbors. The first fails as on main and on BC (the duplicate comes out at the end of the test), now flagged: the worker's Get ran on
+# the view without the queued rows (:800). The second is refused; main answered it with the queued row, BC does not find it.
+IQ Neighbor Tests::DeferredDuplicate_TaskRead	ASSUMED bg-task-insert-queue (corpus PR 1459, merged, not pinned yet, and open PR 1489: BgTaskInsertQueue.al)
 IQ Neighbor Tests::Queued_TaskTableRelation	REFUSED the TableRelation check of IQ Row by a page background task's worker while the test session's insert queue holds rows of it

@@ -793,6 +793,34 @@ codeunit 97526 "IQ Tests"
         Link.Validate("Row No.", K + 'A');
         Assert.AreEqual('a', Run(Host, 'get', K + 'A'), 'r');
     end;
+
+    // The test inserts row A and reads it, then inserts row B and A again (a duplicate key: its error is deferred), and the
+    // worker reads B; a Commit ends the asserterror. Readings: what the worker's Get of B answers, whether the statement after
+    // it is reached, and the error the asserterror caught.
+    [Test]
+    procedure BgTaskInsertQueue_DuplicateInsertDeferred_TaskDoesNotFindTheOther_CommitRaises()
+    var
+        Host: TestPage "IQ Host";
+        Row: Record "IQ Row";
+        K: Code[20];
+        Seen: Text;
+        Reached: Text;
+    begin
+        K := NewKey();
+        Host.OpenView();
+        asserterror begin
+            AddRow(K + 'A', 'a');
+            Row.Get(K + 'A');
+            AddRow(K + 'B', 'b');
+            AddRow(K + 'A', 'a2');
+            Seen := Run(Host, 'get', K + 'B');
+            Reached := 'yes';
+            Commit();
+        end;
+        Assert.AreEqual('-', Seen, 'the worker''s Get of B');
+        Assert.AreEqual('yes', Reached, 'the statement after the worker');
+        Assert.IsTrue(StrPos(GetLastErrorText(), 'already exists') > 0, GetLastErrorText());
+    end;
 }
 
 // The objects of the cells from :548 on (al-runner pull request 8498, review round 1).

@@ -46,11 +46,12 @@ fn outcomes(src: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<Assumption>)
         .collect()
 }
 
-/// Every probe test passes; those whose worker runs while the queue holds rows are flagged.
+/// Every probe test passes; those whose worker runs while the queue holds rows are flagged, also while the error of a
+/// duplicate Insert is deferred (BgTaskInsertQueue.al:800).
 #[test]
 fn issue_8491_probe_cells() {
     let o = outcomes(PROBE, "IQ Tests");
-    assert_eq!(o.len(), 30);
+    assert_eq!(o.len(), 31);
     // The tests whose worker runs after the queue was sent: nothing is hidden.
     let clean = [
         "Insert_TestGet_TaskFindsIt",
@@ -92,8 +93,9 @@ fn issue_8491_repro() {
     }
 }
 
-/// Not measured, refused: a worker's read of a table whose duplicate-key Insert is deferred in the test session, and a worker's
-/// TableRelation check of a table whose queue holds rows. (Rows queued under another company value: al-testrun
+/// A worker's Get while the error of a duplicate Insert is deferred runs as BC does (BgTaskInsertQueue.al:800): it does not find
+/// the queued row, and the error comes out later. Not measured, refused: a worker's TableRelation check of a table whose queue
+/// holds rows (BC does not find the queued row there, measured on a local BC 29.1 container). (Rows queued under another company value: al-testrun
 /// `companies_opt_in.rs`, which runs with two companies.)
 const NEIGHBORS: &str = r#"
 codeunit 97590 "IQ Neighbor Tests"
@@ -106,6 +108,8 @@ codeunit 97590 "IQ Neighbor Tests"
         Host: TestPage "IQ Host";
         Row: Record "IQ Row";
         Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
+        Seen: Text;
     begin
         Row."No." := 'IQNB1';
         Row.Insert();
@@ -117,7 +121,11 @@ codeunit 97590 "IQ Neighbor Tests"
         Row.Insert();
         Parameters.Add('No', 'IQNB2');
         Parameters.Add('Mode', 'get');
-        Host.RunPageBackgroundTask(Codeunit::"IQ Reader", Parameters, false);
+        Results := Host.RunPageBackgroundTask(Codeunit::"IQ Reader", Parameters, false);
+        Results.Get('Seen', Seen);
+        // BC: no error at the duplicate Insert, and the worker does not find the queued row (a local BC 29.1 container).
+        if Seen <> '-' then
+            Error('The worker saw %1.', Seen);
     end;
 
     [Test]
@@ -126,12 +134,16 @@ codeunit 97590 "IQ Neighbor Tests"
         Host: TestPage "IQ Host";
         Row: Record "IQ Row";
         Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
     begin
         Host.OpenView();
         Row."No." := 'IQNB3';
         Row.Insert();
         Parameters.Add('No', 'IQNB3');
-        Host.RunPageBackgroundTask(Codeunit::"IQ Relation Reader", Parameters, false);
+        // BC: the worker's TableRelation check does not find the queued row (a local BC 29.1 container).
+        asserterror Results := Host.RunPageBackgroundTask(Codeunit::"IQ Relation Reader", Parameters, false);
+        if StrPos(GetLastErrorText(), 'cannot be found in the related table') = 0 then
+            Error('Another error: %1', GetLastErrorText());
     end;
 }
 
@@ -154,17 +166,14 @@ codeunit 97591 "IQ Relation Reader"
 #[test]
 fn issue_8491_unmeasured_neighbors() {
     let o = outcomes(&format!("{PROBE}\n{NEIGHBORS}"), "IQ Neighbor Tests");
-    for (name, why) in [
-        (
-            "DeferredDuplicate_TaskRead",
-            "a read of a page background task's worker of IQ Row while the error of an Insert into it is deferred",
-        ),
-        (
-            "Queued_TaskTableRelation",
-            "the TableRelation check of IQ Row by a page background task's worker",
-        ),
-    ] {
-        let (_, r, _) = o.iter().find(|(n, _, _)| n == name).expect("the test");
-        assert!(matches!(r, Outcome::NotRun(w) if w.contains(why)), "{name}: {r:?}");
-    }
+    let get = |name: &str| o.iter().find(|(n, _, _)| n == name).expect("the test");
+    // The worker's Get does not find the queued row and raises nothing; the duplicate comes out at the end of the test, as on
+    // BC (a local BC 29.1 container; BgTaskInsertQueue.al:800 measures it at a Commit).
+    let (_, r, _) = get("DeferredDuplicate_TaskRead");
+    assert!(matches!(r, Outcome::Fail(w) if w.contains("already exists")), "{r:?}");
+    let (_, r, _) = get("Queued_TaskTableRelation");
+    assert!(
+        matches!(r, Outcome::NotRun(w) if w.contains("the TableRelation check of IQ Row by a page background task's worker")),
+        "{r:?}"
+    );
 }

@@ -188,6 +188,15 @@ impl Session {
         Ok(())
     }
 
+    /// Whether the test session's insert queue of `table` (object id) holds rows.
+    pub(super) fn queue_holds_rows(&self, table: u32) -> bool {
+        self.tx
+            .open
+            .insert_buffer
+            .iter()
+            .any(|q| q.table == table && !q.keys.is_empty())
+    }
+
     pub(crate) fn refuse_read_while_deferred(&self, table: usize, read: &str) -> Result<(), Signal> {
         match &self.tx.open.deferred_insert {
             Some((t, _)) if *t == table => unsupported(format!(
@@ -343,7 +352,8 @@ impl Session {
     /// holds rows: the worker does not see them (pages/background-tasks/BgTaskInsertQueue.al:234, :262, :277, :312, :361, :412,
     /// :427, :443, and a worker that page code starts, :548; they show once the queue is sent, :247, :294, :331, :393, :566). A
     /// method that reads the store (`worker_hides`) runs on a view of it without those rows (`show_queued_to_test_session`
-    /// puts the store back).
+    /// puts the store back). A Get does so also while the error of a duplicate Insert into the table is deferred: it raises
+    /// nothing, and the error comes out later (:800).
     pub(crate) fn hide_queued_from_worker(&mut self, method: RecordOp, rec: &Rec) -> Result<Option<MemStore>, Signal> {
         if self.pages.bg_worker.is_none()
             || self.tx.open.insert_buffer.is_empty()
@@ -355,7 +365,12 @@ impl Session {
         let t = self.table(rec)?;
         let cx = self.cx_for(rec, &t)?;
         let company = rec.borrow().company.clone();
-        self.hide_queued_in_view(&[(&t, company, cx)], "a read of a page background task's worker")
+        let deferred_measured = method == RecordOp::Get;
+        self.hide_queued_in_view_of(
+            &[(&t, company, cx)],
+            "a read of a page background task's worker",
+            deferred_measured,
+        )
     }
 
     /// A Query of a page background task's worker reads its tables on a view without the rows the test session's insert queue
@@ -378,11 +393,22 @@ impl Session {
     /// A read of `tables` (each with the company of its rows and the context they are read in) by a page background task's
     /// worker: when the test session's insert queue of one of them holds rows, the store is replaced by a view of it without
     /// them, and the store comes back (`show_queued_to_test_session`). Refused, as not measured: a read of a table whose Insert
-    /// error is deferred, or whose queue holds rows under another company value.
+    /// error is deferred (other than a Get, `hide_queued_from_worker`), or whose queue holds rows under another company value.
     pub(crate) fn hide_queued_in_view(
         &mut self,
         tables: &[(&TableDef, Option<String>, al_data::AccessContext)],
         read: &str,
+    ) -> Result<Option<MemStore>, Signal> {
+        self.hide_queued_in_view_of(tables, read, false)
+    }
+
+    /// [`Session::hide_queued_in_view`]; `deferred_measured`: the read runs also while an Insert error into the table is
+    /// deferred.
+    fn hide_queued_in_view_of(
+        &mut self,
+        tables: &[(&TableDef, Option<String>, al_data::AccessContext)],
+        read: &str,
+        deferred_measured: bool,
     ) -> Result<Option<MemStore>, Signal> {
         if self.pages.bg_worker.is_none() || self.tx.open.insert_buffer.is_empty() {
             return Ok(None);
@@ -406,7 +432,9 @@ impl Session {
                     ));
                 }
             };
-            self.refuse_read_while_deferred(t.object as usize, read)?;
+            if !deferred_measured {
+                self.refuse_read_while_deferred(t.object as usize, read)?;
+            }
             let base = view.as_ref().unwrap_or(&self.store);
             view = Some(
                 base.without_rows(cx, t, &keys)
