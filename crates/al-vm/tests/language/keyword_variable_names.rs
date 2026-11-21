@@ -7,3 +7,13 @@ fn a_variable_named_by_a_keyword_is_used_quoted() {
     let src = "codeunit 50100 C { procedure F(): Integer var If: Integer; While: Integer; begin \"If\" := 5; \"While\" := 2; exit(\"If\" * \"While\"); end; }";
     assert_eq!(al_testkit::int(al_testkit::run_in(src, "C", "F")), 10);
 }
+
+/// al-runner issue 8629: a variable or parameter named Local is used unquoted, in code (the AL compiler of every
+/// supported major compiles it, and a BC container runs it).
+#[test]
+fn a_variable_named_local_is_used_unquoted() {
+    let src = "codeunit 50100 C {
+        procedure F(): Integer var Other, Local: Integer; begin Other := 1; Local := 20; Local += 1; exit(Other + Local); end;
+        procedure G(Local: Integer): Integer begin Local := Local * 2; exit(Local); end; }";
+    assert_eq!(al_testkit::int(al_testkit::run_in(src, "C", "F")), 22);
+}
