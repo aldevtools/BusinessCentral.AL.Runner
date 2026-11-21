@@ -1,6 +1,7 @@
 // al-runner issue 8580 with a dependency app: the reporter's path. The workspace app depends on an app whose install code
 // runs in the install baseline, and the tests read what the baseline holds (a dependency table row and the dataset
-// rows its own install code imported through JsonObject.ReadFromYaml). Every test carries the assumption mark.
+// rows its own install code imported through JsonObject.ReadFromYaml). The app covers the dependency and baseline path; only the
+// <baseline> row carries the assumption mark. The two tests that read the dataset tables are in issue 8636 (table-scoped marks).
 table 60940 "YD Suite"
 {
     fields
@@ -81,32 +82,5 @@ codeunit 60941 "YD Install Tests"
         Row: Record "YD Dep Row";
     begin
         Row.Get('DEP');
-    end;
-
-    [Test]
-    procedure SuiteRowFromInstall()
-    var
-        Suite: Record "YD Suite";
-    begin
-        Suite.Get('DEMO');
-    end;
-
-    [Test]
-    procedure DatasetRowsFromInstall()
-    var
-        Line: Record "YD Dataset Line";
-        Lf: Text[1];
-    begin
-        Lf[1] := 10;
-        if Line.Count() <> 2 then
-            Error('Expected 2 dataset lines, got %1', Line.Count());
-        Line.Get('First case');
-        if Line.Question <> 'Line one' + Lf + 'Line two' + Lf then
-            Error('Unexpected question <%1>', Line.Question);
-        if Line.Amount <> '10' then
-            Error('Unexpected amount <%1>', Line.Amount);
-        Line.Get('Second case');
-        if Line.Question <> 'Only line' then
-            Error('Unexpected question <%1>', Line.Question);
     end;
 }
