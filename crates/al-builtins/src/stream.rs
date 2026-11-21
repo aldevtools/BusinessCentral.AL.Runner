@@ -1555,13 +1555,15 @@ fn with_in_core<T>(
     let mut g = in_state(r)?;
     match &mut *g {
         LibraryValue::InStream(s) => {
-            if let Some(report) = s.render_pending() {
-                return Err(render_pending_error(&report));
+            // One borrow of the buffer for the pending render and the use count: every Read of a byte passes here.
+            if let Some(b) = s.live_blob() {
+                let mut buf = b.borrow_mut();
+                if let Some(report) = &buf.render_pending {
+                    return Err(render_pending_error(report));
+                }
+                buf.line_breaks.in_uses += 1;
             }
             s.uses += 1;
-            if let Some(b) = s.live_blob() {
-                b.borrow_mut().line_breaks.in_uses += 1;
-            }
             if s.handed_to_content && !handed_ok {
                 return unsupported("use of an InStream after HttpContent.WriteFrom took it (only EOS is pinned)");
             }
@@ -2134,12 +2136,19 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
         a[0] = Value::Char(ch);
         return Ok(Value::Integer(count as i32));
     }
-    let bytes = with_in(r, |s| {
+    // Every width above is at most 16 bytes: the read copies into a fixed buffer, with no allocation per call.
+    let read = with_in(r, |s| {
         let pos = s.pos;
         // Fewer bytes than the type needs, also none at all: the stream data error (streams/TestProbeStreamContracts.al:
         // Read_IntoTypes, a BigInteger or a Decimal read from 4 bytes; types/PRFileUpload.al:ReadFromUnfilledStream, a Byte).
         let got = s
-            .with_data(|d| d.get(pos..pos + width).map(<[u8]>::to_vec))
+            .with_data(|d| {
+                d.get(pos..pos + width).map(|b| {
+                    let mut buf = [0u8; 16];
+                    buf[..width].copy_from_slice(b);
+                    buf
+                })
+            })
             .ok_or_else(|| {
                 Signal::Error(Box::new(crate::native::AlError {
                     message: "Invalid data encountered in stream, unable to read text.".into(),
@@ -2151,6 +2160,7 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
         s.pos += width;
         Ok(got)
     })?;
+    let bytes = &read[..width];
     a[0] = match a[0] {
         Value::Byte(_) => Value::Byte(bytes[0]),
         Value::Char(_) => Value::Char(u16::from(bytes[0])),
@@ -2183,7 +2193,7 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
                 Value::Date(day, closing)
             }
         }
-        Value::Decimal(_) => Value::Decimal(decimal_from_bytes(&bytes)?),
+        Value::Decimal(_) => Value::Decimal(decimal_from_bytes(bytes)?),
         Value::Option(_, ref names) => {
             let n = i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
             if usize::try_from(n).map_or(true, |i| i >= names.len()) {

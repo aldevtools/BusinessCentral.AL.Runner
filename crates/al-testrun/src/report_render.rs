@@ -5,6 +5,11 @@
 //! drawing pair and Skia native) are made present by the run's [`PrepareFn`] then; the first `render_probe` answer is
 //! kept for the run. A process that dies is started again for the next call: [`MAX_STARTS`] starts a run (2 restarts).
 //!
+//! Its start-up is charged to the codeunit that waited for it, as a session sidecar's is (`dotnet::charge_start`): the
+//! start, the first call of each operation in a process (the .NET helper loads and compiles BC's merger or converter then:
+//! about 0.3 s for the first merge and 1.7 s for the first Html conversion, against 3 to 40 ms for the calls after it),
+//! and a wait of another thread for the lock during which one of those ended (that wait is charged whole).
+//!
 //! Requests and replies use the frames of the session sidecar (`crate::dotnet`); bytes travel as Base64.
 
 use crate::dotnet::{
@@ -15,9 +20,10 @@ use al_host::render::{RenderFailure, RenderNeed, RenderUnavailable, ReportRender
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::RecvTimeoutError;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// How often a run starts the render process at most (the first start and the restarts after a crash).
 pub const MAX_STARTS: usize = 3;
@@ -69,6 +75,8 @@ struct State {
     probe: Option<Result<ProbeAnswer, String>>,
     /// The converter's assembly version read from the pieces ([`ReportRenderer::converter_version`]), once read.
     converter: Option<Option<[u16; 4]>>,
+    /// The operations the running process answered once (their first call is start-up, see the module text).
+    warm_ops: Vec<String>,
 }
 
 /// The render host of a run.
@@ -76,6 +84,9 @@ pub struct RenderHost {
     start: Box<StartFn>,
     prepare: Box<PrepareFn>,
     state: Mutex<State>,
+    /// How many start-ups (a start, a first call of an operation) ended: a thread that sees it change while it waited for
+    /// the lock waited for one.
+    startups: AtomicU64,
 }
 
 impl RenderHost {
@@ -96,12 +107,26 @@ impl RenderHost {
                 pieces: None,
                 probe: None,
                 converter: None,
+                warm_ops: Vec::new(),
             }),
+            startups: AtomicU64::new(0),
         }
     }
 
+    /// The state; the wait is charged as start-up when a start-up ended during it.
     fn lock(&self) -> std::sync::MutexGuard<'_, State> {
-        self.state.lock().unwrap_or_else(|e| e.into_inner())
+        let (seen, began) = (self.startups.load(Ordering::SeqCst), Instant::now());
+        let g = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if self.startups.load(Ordering::SeqCst) != seen {
+            crate::dotnet::charge_start(began.elapsed());
+        }
+        g
+    }
+
+    /// Charges the start-up that began at `began` to this thread and counts it for the threads waiting for the lock.
+    fn started_up(&self, began: Instant) {
+        crate::dotnet::charge_start(began.elapsed());
+        self.startups.fetch_add(1, Ordering::SeqCst);
     }
 
     /// A running, configured process; starts one (and sends it the pieces) when none runs.
@@ -111,18 +136,27 @@ impl RenderHost {
                 return Err(why);
             }
             st.starts += 1;
-            let mut t = (self.start)()?;
-            let pieces = self.pieces(st);
-            let answer = t.request(probe_request(pieces)).map_err(|f| match f {
-                CallError::Failed(f) => f.to_string(),
-                CallError::Gone(why) => format!("{why} (render_probe)"),
-            })?;
-            if st.probe.is_none() {
-                st.probe = Some(parse_probe(&answer));
-            }
-            st.proc = Some(t);
+            st.warm_ops.clear();
+            let began = Instant::now();
+            let started = self.start_and_probe(st);
+            self.started_up(began);
+            st.proc = Some(started?);
         }
         Ok(st.proc.as_mut().expect("just set"))
+    }
+
+    /// A new process, asked the `render_probe` (its first answer is kept for the run).
+    fn start_and_probe(&self, st: &mut State) -> Result<Box<dyn Transport>, String> {
+        let mut t = (self.start)()?;
+        let pieces = self.pieces(st);
+        let answer = t.request(probe_request(pieces)).map_err(|f| match f {
+            CallError::Failed(f) => f.to_string(),
+            CallError::Gone(why) => format!("{why} (render_probe)"),
+        })?;
+        if st.probe.is_none() {
+            st.probe = Some(parse_probe(&answer));
+        }
+        Ok(t)
     }
 
     /// The pieces of the run, made present on the first ask.
@@ -151,8 +185,17 @@ impl RenderHost {
         self.availability(need)
             .map_err(|u| RenderFailure::Refused(u.to_string()))?;
         let mut st = self.lock();
-        let t = self.running(&mut st).map_err(RenderFailure::Refused)?;
-        match t.request(req) {
+        self.running(&mut st).map_err(RenderFailure::Refused)?;
+        let op = req["op"].as_str().unwrap_or_default().to_string();
+        let first = !st.warm_ops.contains(&op);
+        let t = st.proc.as_mut().expect("started above");
+        let began = Instant::now();
+        let reply = t.request(req);
+        if first {
+            self.started_up(began);
+            st.warm_ops.push(op);
+        }
+        match reply {
             Ok(v) => match v["bytes"].as_str() {
                 Some(b) if !b.is_empty() => Ok(unbase64(b)),
                 _ => Err(RenderFailure::Refused("the render process answered no bytes".into())),
@@ -648,5 +691,69 @@ mod tests {
                 "MergeWordDocument overload not found".into()
             )))
         );
+    }
+
+    /// Answers every call after `delay`, the render process's first-call cost (module text).
+    struct Slow(Duration);
+
+    impl Transport for Slow {
+        fn request(&mut self, req: Value) -> Result<Value, CallError> {
+            std::thread::sleep(self.0);
+            match req["op"].as_str().unwrap() {
+                "render_probe" => Ok(
+                    json!({"merge": {"ok": true}, "merge_pictures": {"ok": true}, "pdf": {"ok": true},
+                    "html": {"ok": true}}),
+                ),
+                _ => Ok(json!({"bytes": req["layout"]})),
+            }
+        }
+    }
+
+    /// The start and the first call of each operation are charged as start-up to the thread that waited; a second call of
+    /// the same operation is not, and a new process makes every operation's first call start-up again.
+    #[test]
+    fn the_start_and_the_first_call_of_an_operation_count_as_start_up_time() {
+        let delay = Duration::from_millis(40);
+        let h = RenderHost::with_transport(
+            Box::new(move || Ok(Box::new(Slow(delay)) as Box<dyn Transport>)),
+            Box::new(RenderPieces::default),
+        );
+        let merge = WordMerge {
+            layout: b"PK".to_vec(),
+            ..WordMerge::default()
+        };
+        crate::dotnet::take_start_time();
+        h.merge_word(&merge).unwrap();
+        // The probe and the first merge.
+        assert!(crate::dotnet::take_start_time() >= 2 * delay);
+        h.merge_word(&merge).unwrap();
+        assert!(crate::dotnet::take_start_time() < delay);
+        h.lock().proc = None;
+        h.merge_word(&merge).unwrap();
+        assert!(crate::dotnet::take_start_time() >= 2 * delay);
+    }
+
+    /// A thread that waits for the lock while another thread's start-up runs is charged its wait.
+    #[test]
+    fn a_wait_for_another_threads_start_up_counts_as_start_up_time() {
+        let delay = Duration::from_millis(200);
+        let h = Arc::new(RenderHost::with_transport(
+            Box::new(move || Ok(Box::new(Slow(delay)) as Box<dyn Transport>)),
+            Box::new(RenderPieces::default),
+        ));
+        let merge = WordMerge {
+            layout: b"PK".to_vec(),
+            ..WordMerge::default()
+        };
+        let first = {
+            let (h, m) = (h.clone(), merge.clone());
+            std::thread::spawn(move || h.merge_word(&m).unwrap())
+        };
+        std::thread::sleep(Duration::from_millis(50));
+        crate::dotnet::take_start_time();
+        h.merge_word(&merge).unwrap();
+        first.join().unwrap();
+        // It waited for the probe and the first merge, then made a warm call.
+        assert!(crate::dotnet::take_start_time() >= delay);
     }
 }

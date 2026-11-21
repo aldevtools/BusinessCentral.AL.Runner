@@ -20,6 +20,7 @@ pub use variant::{AS_CONDITION, AT_ASSIGNMENT, REGISTRY, kind_code, variant_into
 pub use variant_records::record_slot_code;
 
 /// A type of the matrix. Text[N] and Text are one kind, as are the Code lengths and an Enum with or without an interface.
+/// `Variant` stays the last kind: it sizes the table of [`verdict`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Kind {
     Integer,
@@ -41,7 +42,7 @@ pub enum Kind {
     Variant,
 }
 
-/// What a family of the matrix measures.
+/// What a family of the matrix measures. `AddAssign` stays the last family: it sizes the table of [`verdict`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Family {
     /// `:=`, a by-value argument and `exit`, from a variable, a field or a literal of the source kind.
@@ -73,14 +74,22 @@ pub enum Verdict {
     Error(&'static str, &'static str),
 }
 
-/// The verdict of a cell, `None` when the matrix does not cover it.
+/// The number of [`Kind`]s and of [`Family`]s, for the dense table of [`verdict`].
+const KINDS: usize = Kind::Variant as usize + 1;
+const FAMILIES: usize = Family::AddAssign as usize + 1;
+
+/// The verdict of a cell, `None` when the matrix does not cover it. Every comparison and assignment of a number, a Char or a
+/// Byte asks it, so the table is indexed, not hashed. A cell listed twice keeps its last row.
 pub fn verdict(family: Family, src: Kind, dst: Kind) -> Option<Verdict> {
-    type Cells = std::collections::HashMap<(Family, Kind, Kind), Verdict>;
-    static CELLS: std::sync::OnceLock<Cells> = std::sync::OnceLock::new();
-    CELLS
-        .get_or_init(|| rows::CELLS.iter().map(|(f, s, d, v)| ((*f, *s, *d), *v)).collect())
-        .get(&(family, src, dst))
-        .copied()
+    static CELLS: std::sync::OnceLock<Vec<Option<Verdict>>> = std::sync::OnceLock::new();
+    let at = |f: Family, s: Kind, d: Kind| (f as usize * KINDS + s as usize) * KINDS + d as usize;
+    CELLS.get_or_init(|| {
+        let mut t = vec![None; FAMILIES * KINDS * KINDS];
+        for (f, s, d, v) in rows::CELLS {
+            t[at(*f, *s, *d)] = Some(*v);
+        }
+        t
+    })[at(family, src, dst)]
 }
 
 /// The values BC showed for single source values of a cell a code page maps (`rows::POINTS`): (the source as AL, the
