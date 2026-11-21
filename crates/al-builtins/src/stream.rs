@@ -381,6 +381,11 @@ impl BlobBuf {
             None => Ok(()),
         }
     }
+
+    /// The bytes a stream on the buffer sees when no render is pending: none while the content was not loaded.
+    fn visible(&self) -> &[u8] {
+        if self.loaded { &self.bytes } else { &[] }
+    }
 }
 
 /// A buffer that follows the borrowing rules of a `RefCell` (any number of readers or one writer,
@@ -993,7 +998,7 @@ impl InState {
                     note_pending_observation(report);
                     return f(&[]);
                 }
-                f(if buf.loaded { &buf.bytes } else { &[] })
+                f(buf.visible())
             }
         }
     }
@@ -1555,8 +1560,8 @@ fn with_in_core<T>(
     let mut g = in_state(r)?;
     match &mut *g {
         LibraryValue::InStream(s) => {
-            // One borrow of the buffer for the pending render and the use count: every Read of a byte passes here.
-            if let Some(b) = s.live_blob() {
+            // One borrow of the buffer for the pending render and the use count.
+            if let Source::Live(b) = &s.source {
                 let mut buf = b.borrow_mut();
                 if let Some(report) = &buf.render_pending {
                     return Err(render_pending_error(report));
@@ -1564,21 +1569,86 @@ fn with_in_core<T>(
                 buf.line_breaks.in_uses += 1;
             }
             s.uses += 1;
-            if s.handed_to_content && !handed_ok {
-                return unsupported("use of an InStream after HttpContent.WriteFrom took it (only EOS is pinned)");
-            }
-            if s.not_initialized {
-                return unsupported("use of an InStream a Report layout call left uncreated (only EOS is pinned)");
-            }
-            if !unknown_ok && s.after_line_break_call {
-                return unsupported(
-                    "use of an InStream after Base64Convert.ToBase64(InStream, true ...) (where it stands is not measured)",
-                );
-            }
+            refuse_use(s, handed_ok, unknown_ok)?;
             f(s)
         }
         _ => unsupported("use of an InStream that was never created"),
     }
+}
+
+/// The refusals of a use of the stream, after its use counts went up (`with_in_core`, [`read_fixed`]).
+fn refuse_use(s: &InState, handed_ok: bool, unknown_ok: bool) -> Result<(), Signal> {
+    if s.handed_to_content && !handed_ok {
+        return unsupported("use of an InStream after HttpContent.WriteFrom took it (only EOS is pinned)");
+    }
+    if s.not_initialized {
+        return unsupported("use of an InStream a Report layout call left uncreated (only EOS is pinned)");
+    }
+    if !unknown_ok && s.after_line_break_call {
+        return unsupported(
+            "use of an InStream after Base64Convert.ToBase64(InStream, true ...) (where it stands is not measured)",
+        );
+    }
+    Ok(())
+}
+
+/// `Read` into a type `width` bytes wide (not a Char) with the buffer borrowed once (every Read of a byte passes here). It
+/// does what the end check and the read of `in_read`'s general path do, each a use of the stream through `with_in`: the use
+/// counts go up once for a first read at the end, which answers `None`, and twice for a read, which answers the bytes.
+/// `None` outside: a value that is no created InStream, or a buffer with a pending render or a placeholder, which
+/// the general path answers.
+fn read_fixed(r: Option<&mut Value>, width: usize) -> Option<Result<Option<[u8; 16]>, Signal>> {
+    let Some(Value::Library(_, h)) = r else {
+        return None;
+    };
+    let mut g = h.borrow_mut();
+    let LibraryValue::InStream(s) = &mut *g else {
+        return None;
+    };
+    let mut live = match &s.source {
+        Source::Live(b) => Some(b.borrow_mut()).filter(|buf| buf.render_pending.is_none())?.into(),
+        Source::Snapshot(_) => None,
+    };
+    let count_use = |live: &mut Option<std::sync::RwLockWriteGuard<'_, BlobBuf>>, uses: &mut u32| {
+        if let Some(buf) = live {
+            buf.line_breaks.in_uses += 1;
+        }
+        *uses += 1;
+    };
+    // The end check.
+    count_use(&mut live, &mut s.uses);
+    if let Err(e) = refuse_use(s, false, false) {
+        return Some(Err(e));
+    }
+    let len = match (&live, &s.source) {
+        (Some(buf), _) => buf.visible().len(),
+        (None, Source::Snapshot(d)) => d.len(),
+        (None, Source::Live(_)) => unreachable!("a live source is borrowed"),
+    };
+    // An empty stream is at its end like any other; the first read there answers 0, one after it raises (see `in_read`).
+    let at = s.pos >= len;
+    let first = at && !s.hit_end;
+    if at {
+        s.hit_end = true;
+    }
+    if first {
+        return Some(Ok(None));
+    }
+    // The read.
+    count_use(&mut live, &mut s.uses);
+    let data = match (&live, &s.source) {
+        (Some(buf), _) => buf.visible(),
+        (None, Source::Snapshot(d)) => d.as_slice(),
+        (None, Source::Live(_)) => unreachable!("a live source is borrowed"),
+    };
+    let pos = s.pos;
+    let Some(got) = data.get(pos..pos + width) else {
+        return Some(Err(crate::stream_read_len::invalid_data()));
+    };
+    let mut buf = [0u8; 16];
+    buf[..width].copy_from_slice(got);
+    s.pos += width;
+    Some(Ok(Some(buf)))
 }
 
 /// `BigText.Read(InStream)`: the rest of the stream as text, in the stream's encoding, and the stream
@@ -1604,14 +1674,7 @@ pub(crate) fn read_all_text(stream: &mut Value) -> Result<String, Signal> {
         match enc {
             // Bytes that are no UTF-8 raise the stream data error, as ReadText does (corpus pages/pages-xmlports-upload-members/
             // P112XpXml.al:P112_Export_TriggerOrder, af379: the UTF-16 bytes of an export read through a UTF-8 stream).
-            Encoding::Utf8 if std::str::from_utf8(body).is_err() => {
-                Err(Signal::Error(Box::new(crate::native::AlError {
-                    message: "Invalid data encountered in stream, unable to read text.".into(),
-                    code: "InvalidStreamData".into(),
-                    call_stack: String::new(),
-                    ..Default::default()
-                })))
-            }
+            Encoding::Utf8 if std::str::from_utf8(body).is_err() => Err(crate::stream_read_len::invalid_data()),
             Encoding::Utf16 if body.len() % 2 != 0 => {
                 unsupported("BigText.Read of a UTF-16 stream with an odd number of bytes (not pinned)")
             }
@@ -1855,12 +1918,7 @@ fn in_read_text(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NR
             );
         }
         if invalid_utf8 {
-            return Err(Signal::Error(Box::new(crate::native::AlError {
-                message: "Invalid data encountered in stream, unable to read text.".into(),
-                code: "InvalidStreamData".into(),
-                call_stack: String::new(),
-                ..Default::default()
-            })));
+            return Err(crate::stream_read_len::invalid_data());
         }
         s.pos = pos + consumed;
         if max_chars != usize::MAX {
@@ -1902,6 +1960,23 @@ fn is_unit(u: &[u8], c: u8) -> bool {
 /// InOutStream_Write_Integer_ReadInteger) or a Byte (one byte: the HexOf helper of
 /// streams/TestStreamsRuntimeContracts.al reads a stream byte by byte). Other types are not pinned.
 fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    // A type of fixed width other than a Char, on a plain stream: the end check and the read below under one borrow.
+    if let [v] = &mut *a
+        && !matches!(v, Value::Char(_))
+        && let Ok(width) = crate::stream_read_typed::width_of(v)
+        && let Some(read) = read_fixed(r.as_deref_mut(), width)
+    {
+        return match read? {
+            None => {
+                *v = crate::stream_read_typed::default_after_end(v);
+                Ok(Value::Integer(0))
+            }
+            Some(bytes) => {
+                *v = crate::stream_read_typed::decode(v, &bytes[..width])?;
+                Ok(Value::Integer(width as i32))
+            }
+        };
+    }
     // A Byte or Char of the PDF placeholder answers inside its pinned prefix (`placeholder_output::pdf_read`).
     if a.len() == 1
         && let Some(answer) =
@@ -2059,21 +2134,7 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
         };
         return Ok(Value::Integer(count as i32));
     }
-    let width = match a[0] {
-        // An Option is its ordinal in 4 bytes (streams/instream-outstream/StreamLengthOthers.al:Option_WriteReadLength_1 `nb_rd`).
-        Value::Integer(_) | Value::Boolean(_) | Value::Date(..) | Value::Option(..) => 4,
-        Value::Byte(_) | Value::Char(_) => 1,
-        Value::BigInteger(_) => 8,
-        Value::Guid(_) => 16,
-        // streams/TestStreamsBinaryDateDecimalContracts.al:117-123.
-        Value::Decimal(_) => 12,
-        _ => {
-            return unsupported(format!(
-                "InStream.Read into {} (only Integer, Byte and Decimal are pinned)",
-                a[0].describe()
-            ));
-        }
-    };
+    let width = crate::stream_read_typed::width_of(&a[0])?;
     // At the end of a stream that holds data nothing is read: the result is 0 and the variable takes its default value
     // (streams/media/P102ReadTyped.al: every `pastend_*`). A stream without any data keeps the error below.
     let at_end = with_in(r.as_deref_mut(), |s| {
@@ -2088,18 +2149,7 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
         Ok(first)
     })?;
     if at_end {
-        a[0] = Value::default_for(&match &a[0] {
-            Value::Integer(_) => crate::value::RtType::Integer,
-            Value::Boolean(_) => crate::value::RtType::Boolean,
-            Value::Date(..) => crate::value::RtType::Date,
-            Value::Byte(_) => crate::value::RtType::Byte,
-            Value::Char(_) => crate::value::RtType::Char,
-            Value::BigInteger(_) => crate::value::RtType::BigInteger,
-            Value::Guid(_) => crate::value::RtType::Guid,
-            // The first member (StreamLengthOthers.al:Option_WriteReadLength_1 `nb_rd2` is A).
-            Value::Option(_, names) => crate::value::RtType::Option(names.clone()),
-            _ => crate::value::RtType::Decimal,
-        });
+        a[0] = crate::stream_read_typed::default_after_end(&a[0]);
         return Ok(Value::Integer(0));
     }
     // A Char: the default and MS-DOS encodings read one byte through the Byte to Char table, Windows reads it as it is, and UTF-8 and
@@ -2116,12 +2166,7 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
             let got = got.unwrap_or_default();
             // Nothing left after an earlier read hit the end: the stream data error of every other type (StTStreams.al:235 ReadPastEnd).
             if got.is_empty() {
-                return Err(Signal::Error(Box::new(crate::native::AlError {
-                    message: "Invalid data encountered in stream, unable to read text.".into(),
-                    code: "InvalidStreamData".into(),
-                    call_stack: String::new(),
-                    ..Default::default()
-                })));
+                return Err(crate::stream_read_len::invalid_data());
             }
             s.pos += got.len();
             let ch = match (s.enc, got.as_slice()) {
@@ -2149,60 +2194,11 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
                     buf
                 })
             })
-            .ok_or_else(|| {
-                Signal::Error(Box::new(crate::native::AlError {
-                    message: "Invalid data encountered in stream, unable to read text.".into(),
-                    code: "InvalidStreamData".into(),
-                    call_stack: String::new(),
-                    ..Default::default()
-                }))
-            })?;
+            .ok_or_else(crate::stream_read_len::invalid_data)?;
         s.pos += width;
         Ok(got)
     })?;
-    let bytes = &read[..width];
-    a[0] = match a[0] {
-        Value::Byte(_) => Value::Byte(bytes[0]),
-        Value::Char(_) => Value::Char(u16::from(bytes[0])),
-        Value::Boolean(_) => Value::Boolean(bytes.iter().any(|b| *b != 0)),
-        Value::BigInteger(_) => Value::BigInteger(i64::from_le_bytes(bytes[..8].try_into().expect("8 bytes"))),
-        Value::Guid(_) => {
-            let mut g: [u8; 16] = bytes[..16].try_into().expect("16 bytes");
-            g[0..4].reverse();
-            g[4..6].reverse();
-            g[6..8].reverse();
-            Value::Guid(g)
-        }
-        Value::Date(..) => {
-            // The inverse of `date_bytes`: twice the day number plus 731, plus 1 for a closing date.
-            let n = i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
-            if n == 0 {
-                Value::Date(0, false)
-            } else {
-                let closing = (n - 731) % 2 != 0;
-                let day = (n - 731 - i32::from(closing)) / 2;
-                // Bytes that are no date raise (streams/PnAStreamReadMisc.al:Read_Types_A `op5`).
-                if !(1..=3_652_059).contains(&day) {
-                    return Err(Signal::Error(Box::new(crate::native::AlError {
-                        message: "The date is not valid.".into(),
-                        code: "DateInvalid".into(),
-                        call_stack: String::new(),
-                        ..Default::default()
-                    })));
-                }
-                Value::Date(day, closing)
-            }
-        }
-        Value::Decimal(_) => Value::Decimal(decimal_from_bytes(bytes)?),
-        Value::Option(_, ref names) => {
-            let n = i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
-            if usize::try_from(n).map_or(true, |i| i >= names.len()) {
-                return unsupported("InStream.Read into an Option of an ordinal that is no member (not pinned)");
-            }
-            Value::Option(n, names.clone())
-        }
-        _ => Value::Integer(i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])),
-    };
+    a[0] = crate::stream_read_typed::decode(&a[0], &read[..width])?;
     Ok(Value::Integer(width as i32))
 }
 
@@ -2442,33 +2438,6 @@ fn decimal_bytes(d: &rust_decimal::Decimal) -> Result<Vec<u8>, Signal> {
         out[at] |= if i % 2 == 0 { v << 4 } else { v };
     }
     Ok(out)
-}
-
-/// The inverse of [`decimal_bytes`].
-fn decimal_from_bytes(b: &[u8]) -> Result<rust_decimal::Decimal, Signal> {
-    if b.iter().all(|&x| x == 0) {
-        return Ok(rust_decimal::Decimal::ZERO);
-    }
-    let exponent = i32::from(b[0] & 0x7F) - 0x40;
-    let mut mantissa: i128 = 0;
-    for i in 0..18 {
-        let byte = b[9 - i / 2];
-        let v = if i % 2 == 0 { byte >> 4 } else { byte & 0xF };
-        mantissa = mantissa * 10 + i128::from(v);
-    }
-    let scale = 17 - exponent;
-    let bad = || Signal::Unsupported("InStream.Read of a Decimal out of range (not pinned)".into());
-    let mut d = if scale >= 0 {
-        rust_decimal::Decimal::try_from_i128_with_scale(mantissa, scale as u32).map_err(|_| bad())?
-    } else {
-        let m = mantissa.checked_mul(10i128.pow((-scale) as u32)).ok_or_else(bad)?;
-        rust_decimal::Decimal::try_from_i128_with_scale(m, 0).map_err(|_| bad())?
-    };
-    d.normalize_assign();
-    if b[0] & 0x80 != 0 {
-        d.set_sign_negative(true);
-    }
-    Ok(d)
 }
 
 /// `Write(Value)`: Integer and Boolean take 4 bytes, BigInteger 8, a Time 4 (its value, which is the
@@ -2876,6 +2845,17 @@ pub fn native_for(sig: &Signature) -> Option<NativeFn> {
     };
     Some(f)
 }
+
+/// Builtin `id` runs `in_read` or `out_write` (the `InStream.Read` and `OutStream.Write` arms of [`native_for`]): a native
+/// that changes the stream behind its receiver and never puts another value in the receiver itself.
+pub fn keeps_receiver(id: crate::builtin_id::BuiltinId) -> bool {
+    let receiver = id.name().split_once('.').map_or("", |(r, _)| r);
+    matches!((receiver, id.method()), ("InStream", "Read") | ("OutStream", "Write"))
+}
+
+#[cfg(test)]
+#[path = "stream_read_fixed_tests.rs"]
+mod read_fixed_tests;
 
 #[cfg(test)]
 mod blob_cell_tests {
