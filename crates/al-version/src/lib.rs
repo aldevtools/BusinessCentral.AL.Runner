@@ -9,8 +9,8 @@ mod gates;
 pub use awaited::{journal_temp_part_reads_after_refresh, web_service_session_measured};
 pub use choose::{AppVersions, Chosen, TargetError, choose_target};
 pub use gates::{
-    Evidence, FeatureKeyRows, Gate, dev_endpoint_answers_unhandled_ui, feature_key_rows, has as gate_on,
-    other_record_option_member_names_confirmed, platform_table_scopes_known, test_runner_root_scope,
+    Evidence, FeatureKeyRows, Gate, dev_endpoint_answers_unhandled_ui, feature_key_refusal, feature_key_rows,
+    has as gate_on, other_record_option_member_names_confirmed, platform_table_scopes_known, test_runner_root_scope,
 };
 
 use std::collections::BTreeSet;
@@ -282,7 +282,8 @@ mod tests {
     }
 
     // al-runner issue 8209: `--bc-version 29`, `29.1` and the full build pick the same 29.1 build, so the target is that
-    // build however it was named, and the Feature Key rows measured on 29.0 only are refused on it in all three.
+    // build however it was named. With no platform build known the Feature Key rows measured on 29.0 are refused in all
+    // three (the 29.1 list follows the platform build, `feature_key_rows`).
     #[test]
     fn the_target_follows_the_build_the_microsoft_apps_come_from() {
         let build = "29.1.57326.58275";
@@ -294,12 +295,12 @@ mod tests {
                 (29, 1, build.to_string()),
                 "{asked}"
             );
-            assert_eq!(feature_key_rows(Some(&t)), None, "{asked}");
+            assert_eq!(feature_key_rows(Some(&t), None), None, "{asked}");
         }
         // Neighbor: a 29.0 build keeps main's 29.0 rows.
         let mut t = Target::for_bc(bc("29"));
         t.bc.resolved_to("29.0.54011.56262").unwrap();
-        assert_eq!(feature_key_rows(Some(&t)), Some(FeatureKeyRows::Bc29));
+        assert_eq!(feature_key_rows(Some(&t), None), Some(FeatureKeyRows::Bc29));
     }
 
     // al-runner issue 8243: Microsoft apps of another major than the target's stop the run with both versions named, so

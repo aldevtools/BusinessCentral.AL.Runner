@@ -191,10 +191,12 @@ pub(crate) enum ArrayOf {
 
 /// Clear of a whole array declared of Options with members (`declared`) gives an element that a memberless store or CopyArray
 /// left without members its declared members back: the stores that follow read them (OVMU:984-1003, :1020-1024).
-/// Every other value: `v` as it is.
-pub(crate) fn cleared_array(v: Value, declared: &RtType, id: BuiltinId) -> Value {
+/// Every other value: `v` as it is. `declared` gives the declared type; it is asked only for a Clear of an array (every
+/// builtin's write-back passes here).
+pub(crate) fn cleared_array(v: Value, declared: impl FnOnce() -> RtType, id: BuiltinId) -> Value {
     if id == ids::SYSTEM_CLEAR_1
-        && let (Value::Array(a), RtType::Array(_, el)) = (&v, declared)
+        && let Value::Array(a) = &v
+        && let RtType::Array(_, el) = declared()
         && let RtType::Option(d) = el.as_ref()
         && !memberless(d)
         && matches!(a.borrow().first(), Some(Value::Option(..)))

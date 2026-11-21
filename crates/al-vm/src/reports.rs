@@ -1354,61 +1354,6 @@ impl Session {
         Ok(())
     }
 
-    // ------------------------------------------------------------------ transactions
-
-    /// The platform's decision, made before the request page is shown: a run enters a transaction
-    /// world when it shows the request page or its TransactionType differs from the session's
-    /// (`UpdateNoLocks` excepted), and a test under `TransactionModel::AutoRollback` is exempt
-    /// (record/TestTxModelReportRun.al:1-35, record/TestTxModelReportExec.al:1-30). Entering one
-    /// is refused while the caller holds an uncommitted write (:117-148 Test04/05/08;
-    /// TestTxModelReportExec.al:77-102, 138-150, 214-239). Returns whether a world is entered.
-    fn report_enter_world(&mut self, schema: &Schema, shows_page: bool) -> Result<bool, Signal> {
-        let differs = match schema.report().transaction_type.as_deref() {
-            None => false,
-            Some("update") => true,
-            // Snapshot runs when no write is pending (reports/TestReportRuntimeContracts.al:
-            // 468-482); with a pending write what BC does is not pinned.
-            Some("snapshot") => {
-                if self.in_write_transaction()? {
-                    return unsupported(format!(
-                        "TransactionType = snapshot on report \"{}\" with a pending write (not pinned)",
-                        schema.name()
-                    ));
-                }
-                true
-            }
-            Some(other) => {
-                return unsupported(format!(
-                    "TransactionType = {other} on report \"{}\" (only Update and Snapshot are pinned)",
-                    schema.name()
-                ));
-            }
-        };
-        if !(shows_page || differs) {
-            return Ok(false);
-        }
-        if self.tx_model == TxModel::AutoRollback {
-            // A report declaring a TransactionType needs a type change, which BC refuses once a
-            // transaction has started; AutoRollback exempts the world, not that rule
-            // (record/TestTxModelReportExec.al:243-257, Test12).
-            if differs && self.in_write_transaction()? {
-                return unsupported(
-                    "a TransactionType = Update report under AutoRollback with a pending write (not pinned)",
-                );
-            }
-            return Ok(false);
-        }
-        // A run with the request page after an uncommitted insert raises before the page opens (reports/bare-report-member/
-        // Y36BareReportMember.al:236-249, Report.Run(Id, true) in a test; the handler is not called).
-        if self.in_write_transaction()? {
-            return Err(crate::transactions::transaction_stopped());
-        }
-        // Inside a TryFunction, with nothing to commit, the run goes on as outside one (misc/lt-y14-triage/
-        // Y14ReportSubstitute.al:276 RunRequestPage, :371 Run and RunModal, after a Commit, corpus master). A run that
-        // writes there is refused when its world would commit ([`Self::report_in_world`]).
-        Ok(true)
-    }
-
     // ------------------------------------------------------------------ the run
 
     /// `record_ref`: the RecordRef of an Execute with parameters, whose view the run applies after them (`report_body`).
@@ -3938,6 +3883,7 @@ use request_flag::{REQUEST_PAGE_OFF, REQUEST_PAGE_OFF_UNPINNED_GETTER, REQUEST_P
 mod request_unshown;
 mod running;
 mod save_processing_only;
+mod transaction_world;
 pub(crate) mod word_xml_part;
 
 mod explicit_parent_link;

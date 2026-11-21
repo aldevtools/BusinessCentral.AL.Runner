@@ -114,6 +114,12 @@ pub(crate) struct OpenTx {
     /// The locks the open transaction holds and the locking reads it ran; a test method also starts without them
     /// (`Session::start_test_method`).
     pub(crate) locks: TxLocks,
+    /// The open transaction is the test method's first and nothing but writes has run in it: set by
+    /// `Session::start_test_method`; a read call (`records/op_inner.rs`), a CurrentTransactionType set (`sessionops.rs`), a
+    /// Codeunit.Run (`transactions.rs`) and a report run (`reports/transaction_world.rs`) clear it, and so does the end of the
+    /// transaction. The
+    /// TransactionType term of an Update report is measured only then.
+    pub(crate) at_test_start: bool,
 }
 
 /// The locks of the open transaction (`OpenTx::locks`).
@@ -674,6 +680,7 @@ impl OpenTx {
                     db_reads,
                     locking_read_tx_unpinned,
                 },
+            at_test_start,
         } = self;
         rows_touched.is_empty()
             && tables_inserted.is_empty()
@@ -696,6 +703,7 @@ impl OpenTx {
             && isolation_lock_tables.is_empty()
             && locking_reads.is_empty()
             && *db_reads == 0
+            && !at_test_start
             && !locking_read_tx_unpinned
     }
 }
