@@ -1,0 +1,24 @@
+# key	entry
+# The probe's cells: main let the worker find the queued rows; the head leaves them out, as BC did.
+IQ Tests::BgTaskInsertQueue_FourInserts_TaskFindsNone	ASSUMED bg-task-insert-queue (corpus PR 1459, merged, not pinned yet, and open PR 1489: BgTaskInsertQueue.al)
+IQ Tests::BgTaskInsertQueue_Insert_PageEnqueuedTaskDoesNotFindIt	ASSUMED bg-task-insert-queue (corpus PR 1459, merged, not pinned yet, and open PR 1489: BgTaskInsertQueue.al)
+IQ Tests::BgTaskInsertQueue_Insert_TaskCalcSumsSumFlowFieldLeaveItOut	ASSUMED bg-task-insert-queue (corpus PR 1459, merged, not pinned yet, and open PR 1489: BgTaskInsertQueue.al)
+IQ Tests::BgTaskInsertQueue_Insert_TaskCountLeavesItOut	ASSUMED bg-task-insert-queue (corpus PR 1459, merged, not pinned yet, and open PR 1489: BgTaskInsertQueue.al)
+IQ Tests::BgTaskInsertQueue_Insert_TaskDoesNotFindIt	ASSUMED bg-task-insert-queue (corpus PR 1459, merged, not pinned yet, and open PR 1489: BgTaskInsertQueue.al)
+IQ Tests::BgTaskInsertQueue_Insert_TaskFlowFieldLeavesItOut	ASSUMED bg-task-insert-queue (corpus PR 1459, merged, not pinned yet, and open PR 1489: BgTaskInsertQueue.al)
+IQ Tests::BgTaskInsertQueue_Insert_TaskGetBySystemIdDoesNotFindIt	ASSUMED bg-task-insert-queue (corpus PR 1459, merged, not pinned yet, and open PR 1489: BgTaskInsertQueue.al)
+IQ Tests::BgTaskInsertQueue_Insert_TaskQueryLeavesItOut	ASSUMED bg-task-insert-queue (corpus PR 1459, merged, not pinned yet, and open PR 1489: BgTaskInsertQueue.al)
+IQ Tests::BgTaskInsertQueue_Insert_TaskRecordRefLoadFieldsCountApproxLeaveItOut	ASSUMED bg-task-insert-queue (corpus PR 1459, merged, not pinned yet, and open PR 1489: BgTaskInsertQueue.al)
+IQ Tests::BgTaskInsertQueue_Insert_TestReadsOtherTable_TaskDoesNotFindIt	ASSUMED bg-task-insert-queue (corpus PR 1459, merged, not pinned yet, and open PR 1489: BgTaskInsertQueue.al)
+IQ Tests::BgTaskInsertQueue_Inserts_TaskFindLastFindNextLeaveThemOut	ASSUMED bg-task-insert-queue (corpus PR 1459, merged, not pinned yet, and open PR 1489: BgTaskInsertQueue.al)
+IQ Tests::BgTaskInsertQueue_Inserts_TaskIsEmptyFindFirstFindSetLeaveThemOut	ASSUMED bg-task-insert-queue (corpus PR 1459, merged, not pinned yet, and open PR 1489: BgTaskInsertQueue.al)
+IQ Tests::BgTaskInsertQueue_SixInserts_TaskFindsTheFirstFive	ASSUMED bg-task-insert-queue (corpus PR 1459, merged, not pinned yet, and open PR 1489: BgTaskInsertQueue.al)
+IQ Tests::BgTaskInsertQueue_SubscriberTable_Insert_TaskDoesNotFindIt	ASSUMED bg-task-insert-queue (corpus PR 1459, merged, not pinned yet, and open PR 1489: BgTaskInsertQueue.al)
+IQ Tests::BgTaskInsertQueue_ThreeInserts_TestFlowField_TwoInserts_TaskFindsTheFirstThree	ASSUMED bg-task-insert-queue (corpus PR 1459, merged, not pinned yet, and open PR 1489: BgTaskInsertQueue.al)
+IQ Tests::BgTaskInsertQueue_TriggerTable_InsertTrue_TaskDoesNotFindIt	ASSUMED bg-task-insert-queue (corpus PR 1459, merged, not pinned yet, and open PR 1489: BgTaskInsertQueue.al)
+IQ Tests::BgTaskInsertQueue_TwoInserts_TaskReadsDoNotLetThemThrough	ASSUMED bg-task-insert-queue (corpus PR 1459, merged, not pinned yet, and open PR 1489: BgTaskInsertQueue.al)
+# The reporter's repro of al-runner issue 8491.
+Repro Buf Tests::InsertThenTask_TaskDoesNotFindTheRow	ASSUMED bg-task-insert-queue (corpus PR 1459, merged, not pinned yet, and open PR 1489: BgTaskInsertQueue.al)
+# Neighbors, refused. Main failed the first (its duplicate-key Insert raised at once) and answered the second with the queued rows.
+IQ Neighbor Tests::DeferredDuplicate_TaskRead	REFUSED a read of a page background task's worker of IQ Row while the error of an Insert into it is deferred
+IQ Neighbor Tests::Queued_TaskTableRelation	REFUSED the TableRelation check of IQ Row by a page background task's worker while the test session's insert queue holds rows of it
