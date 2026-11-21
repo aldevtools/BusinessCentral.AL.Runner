@@ -76,3 +76,24 @@ codeunit 69861 FD
     let v = al_testkit::run_in(src, "FD", "F");
     assert!(matches!(&v, Ok(al_builtins::value::Value::Integer(3))), "{v:?}");
 }
+
+// A one-character literal bounds a Char loop variable as that Char.
+#[test]
+fn a_one_character_literal_is_a_char_for_loop_bound() {
+    let src = r#"
+codeunit 69862 FC
+{
+    procedure F(): Text
+    var c: Char; s: Text;
+    begin
+        for c := '0' to '4' do s += Format(c);
+        exit(s);
+    end;
+}
+"#;
+    let v = al_testkit::run_in(src, "FC", "F");
+    assert!(
+        matches!(&v, Ok(al_builtins::value::Value::Text(t)) if &**t == "01234"),
+        "{v:?}"
+    );
+}
