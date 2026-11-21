@@ -23,28 +23,44 @@ BQ Tests::BgQueryCache_Run_NonKeyFilterCount_Insert_FirstAnswerUntilCommit	ASSUM
 BQ Tests::BgQueryCache_Run_NonKeyFilterFindFirst_FirstAnswerUntilCommit	ASSUMED background-task-query-cache (corpus PR 1457, merged, not pinned yet: BgTaskQueryCache.al)
 BQ Tests::BgQueryCache_Run_OtherFilterForms_Insert_FirstAnswer	ASSUMED background-task-query-cache (corpus PR 1457, merged, not pinned yet: BgTaskQueryCache.al)
 BQ Tests::BgQueryCache_Run_PartialFirst_FullLater_FirstAnswer	REFUSED a field SetLoadFields left out, loaded into a record a page background task's read answered from the query cache
-# The cells of corpus PR 1495 (BgTaskQueryCache.al:1207-1326). Main failed all five. The head refuses the first two; FindLast,
-# IsEmpty and FindFirst after a SetFilter, repeated after a change, answer their first answer, flagged (al-runner issue 8637).
-# The Get at :1207 passes on both.
-BQ Tests 3::BgQueryCache_Run_GroupCount_TestCountThenInsert_FirstRead	REFUSED a group read of a page background task after the test session read the group and then wrote the table
-BQ Tests 3::BgQueryCache_Run_PartialGet_Copy_FirstAnswer	REFUSED a field SetLoadFields left out, loaded into a record a page background task's read answered from the query cache
+# The cells of BQ Tests 3 (corpus PR 1495): main failed all five; the head refuses the copy of a partial Get and answers the
+# others from the cache, flagged. The Get at :1207 passes on both.
 BQ Tests 3::BgQueryCache_Run_FindLast_ChangedRow_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:1276)
+BQ Tests 3::BgQueryCache_Run_GroupCount_TestCountThenInsert_FirstRead	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:1239)
 BQ Tests 3::BgQueryCache_Run_IsEmpty_Insert_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:1293)
+BQ Tests 3::BgQueryCache_Run_PartialGet_Copy_FirstAnswer	REFUSED a field SetLoadFields left out, loaded into a record a page background task's read answered from the query cache
 BQ Tests 3::BgQueryCache_Run_SetFilterFindFirst_ChangedRow_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:1312)
+# The cells of BQ Tests 4 (corpus PR 1495, al-runner issue 8637) whose answer the cache changes: main read the table. The six
+# that see the table pass on both.
+BQ Tests 4::BgQueryCache_Run_AllForms_Combined_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:1811)
+BQ Tests 4::BgQueryCache_Run_AllForms_Descending_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:1754)
+BQ Tests 4::BgQueryCache_Run_AllForms_FilterGroup2_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:1736)
+BQ Tests 4::BgQueryCache_Run_AllForms_FilterGroup4_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:1742)
+BQ Tests 4::BgQueryCache_Run_AllForms_FilterGroup6_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:1804)
+BQ Tests 4::BgQueryCache_Run_AllForms_FourFilters_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:1798)
+BQ Tests 4::BgQueryCache_Run_AllForms_Group_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:1718)
+BQ Tests 4::BgQueryCache_Run_AllForms_NonKeyFilter_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:1730)
+BQ Tests 4::BgQueryCache_Run_AllForms_OneFieldKey_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:1832)
+BQ Tests 4::BgQueryCache_Run_AllForms_Operators_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:1818)
+BQ Tests 4::BgQueryCache_Run_AllForms_Range_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:1748)
+BQ Tests 4::BgQueryCache_Run_AllForms_RecordRef_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:1760)
+BQ Tests 4::BgQueryCache_Run_AllForms_SecondFilter_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:1724)
+BQ Tests 4::BgQueryCache_Run_AllForms_SetFilterSecondFilter_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:1786)
+BQ Tests 4::BgQueryCache_Run_AllForms_SetFilterTwoValues_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:1773)
+BQ Tests 4::BgQueryCache_Run_AllForms_SetFilterValue_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:1766)
+BQ Tests 4::BgQueryCache_Run_AllForms_SetFilterWildcard_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:1779)
+BQ Tests 4::BgQueryCache_Run_AllForms_ThreeFilters_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:1792)
+BQ Tests 4::BgQueryCache_Run_FindLast_OtherGroupCommitted_ThenFirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:2018)
+BQ Tests 4::BgQueryCache_Run_FindLast_TwoRows_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:2001)
+BQ Tests 4::BgQueryCache_Run_GetThenKeySetFilter_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:1872)
+BQ Tests 4::BgQueryCache_Run_OneFieldKey_GetThenSetFilter_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:1888)
+BQ Tests 4::BgQueryCache_Run_SetFilterThenSetRange_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:1856)
+BQ Tests 4::BgQueryCache_Run_SetRangeThenSetFilter_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:1840)
+BQ Tests 4::BgQueryCache_Run_TestFindLastFirst_FirstReadAnswersIt	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:1904)
+BQ Tests 4::BgQueryCache_Run_TestIsEmptyFirst_FirstReadAnswersIt	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:1924)
 # The reporter's repro of al-runner issue 8637.
 Repro Cache Read Tests::FindLast_ChangedRow_AnswersTheFirstRead	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:1276; the reporter's repro)
 Repro Cache Read Tests::IsEmpty_InsertedRow_AnswersTheFirstRead	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:1293; the reporter's repro)
 Repro Cache Read Tests::SetFilterFindFirst_ChangedRow_AnswersTheFirstRead	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:1312; the reporter's repro)
-# Neighbors: the measured forms in states the cells do not have answer from the cache, flagged; main read the table.
-BQ Filter Cache Tests::FindLast_TwoRows_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:1276, one row in the group there)
-BQ Filter Cache Tests::SetFilter_Placeholder_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:1312, a filter text there)
-BQ Filter Cache Tests::TestFindLastFirst_SameAnswer_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:1276, the worker's own entry)
-BQ Filter Cache Tests::FindLast_CommitSameAnswer_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:1276, after a commit that kept the answer)
-# Neighbors refused: whether the two FindFirst forms share an entry, whether the test session's read fills one, and whether a commit
-# ends one, are not measured for these forms; main read the table.
-BQ Filter Refused 1::SetRangeThenSetFilter_ChangedRow	REFUSED a FindFirst by SetFilter and a FindFirst by SetRange of the same group
-BQ Filter Refused 2::SetFilterThenSetRange_ChangedRow	REFUSED a FindFirst by SetFilter and a FindFirst by SetRange of the same group
-BQ Filter Refused 3::TestFindLastFirst_ChangedRow	REFUSED a page background task's first read of a FindLast, IsEmpty or SetFilter FindFirst whose answer changed since the test session made the same read
-BQ Filter Refused 4::TestIsEmptyFirst_Inserted	REFUSED a page background task's first read of a FindLast, IsEmpty or SetFilter FindFirst whose answer changed since the test session made the same read
-BQ Filter Refused 5::FindLast_ChangeCommitted	REFUSED a page background task's read of a FindLast, IsEmpty or SetFilter FindFirst after a commit of the table changed its answer
-BQ Filter Refused 6::TestFindLast_AfterChangeCommitted	REFUSED a read of the test session that a page background task's earlier read answers from the query cache otherwise than the table
+# Neighbors (BQ Gate Tests): BC answers them from the cache; past what the cells measure, the head keeps main's answer, so they
+# fail on both alike.

@@ -25,15 +25,15 @@ BQ Tests::BgQueryCache_Run_OtherFilterForms_Insert_FirstAnswer	ASSUMED backgroun
 BQ Tests::BgQueryCache_Run_PartialFirst_FullLater_FirstAnswer	REFUSED a field SetLoadFields left out, loaded into a record a page background task's read answered from the query cache
 # The reporter's repro of al-runner issue 8467.
 Repro Bg Read Tests::SecondRead_AfterAWrite_GetsTheFirstAnswer	ASSUMED background-task-query-cache (corpus PR 1457, merged, not pinned yet: BgTaskQueryCache.al; the reporter's repro)
-# Neighbors: refused where the cache's answer is not measured; a fetch after a replay and the forms of corpus PR 1495 :1276-1312 answer from the cache.
+# Neighbors: refused where the cache's answer is not measured; a fetch after a replay, the test's group read first (:1239) and the forms of corpus PR 1495 :1276-1312 answer from the cache.
 BQ Neighbor Tests::CopyOfReplayed_LoadsOmittedField	REFUSED a field SetLoadFields left out, loaded into a record a page background task's read answered from the query cache
 BQ Neighbor Tests::FetchAfterReplay_LoadsOmittedField	ASSUMED background-task-query-cache (corpus PR 1457, merged, not pinned yet: BgTaskQueryCache.al)
 BQ Neighbor Tests::OtherForms_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:1276, :1293, :1312; al-runner issue 8637)
-BQ Neighbor Tests::GroupRead_AfterTestReadAndWrite	REFUSED a group read of a page background task after the test session read the group and then wrote the table
-# The cells of corpus PR 1495 (BgTaskQueryCache.al:1207-1326). Main failed all five. The head refuses the first two; FindLast,
-# IsEmpty and FindFirst after a SetFilter, repeated after a change, answer their first answer, flagged (al-runner issue 8637).
+BQ Neighbor Tests::GroupRead_AfterTestReadAndWrite	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:1239; al-runner issue 8637)
+# The cells of corpus PR 1495 (BgTaskQueryCache.al:1207-1326). Main failed all five. The head refuses the copy of a partial Get;
+# the test's Count first, FindLast, IsEmpty and FindFirst after a SetFilter answer from the cache, flagged (al-runner issue 8637).
 # The Get at :1207 passes on both.
-BQ Tests 3::BgQueryCache_Run_GroupCount_TestCountThenInsert_FirstRead	REFUSED a group read of a page background task after the test session read the group and then wrote the table
+BQ Tests 3::BgQueryCache_Run_GroupCount_TestCountThenInsert_FirstRead	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:1239)
 BQ Tests 3::BgQueryCache_Run_PartialGet_Copy_FirstAnswer	REFUSED a field SetLoadFields left out, loaded into a record a page background task's read answered from the query cache
 BQ Tests 3::BgQueryCache_Run_FindLast_ChangedRow_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:1276)
 BQ Tests 3::BgQueryCache_Run_IsEmpty_Insert_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:1293)

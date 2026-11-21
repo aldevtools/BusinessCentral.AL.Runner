@@ -1,6 +1,7 @@
-// Neighbors of al-runner issue 8467 the probe does not measure, on the probe's table and page. Refused: a group read of a
-// worker after the test session read that group and then wrote the table; a field load into a copy of a record the cache
-// answered. A row read again after commits that wrote it while no commit held it before or after reads the table (corpus PR
+// Neighbors of al-runner issue 8467 the probe does not measure, on the probe's table and page. Refused: a field load into a
+// copy of a record the cache answered. A group read of a worker after the test session read that group and then wrote the
+// table answers the test's read (corpus PR 1495, BgTaskQueryCache.al:1239; al-runner issue 8637). A row read again after
+// commits that wrote it while no commit held it before or after reads the table (corpus PR
 // 1495, BgTaskQueryCache.al:1207). A row read again after a commit of a ModifyAll of another row follows the BC version (the
 // probe's cell for it differs between versions; refused where none is measured). FindLast, IsEmpty and a SetFilter to one
 // value answer their first answer, flagged (corpus PR 1495, :1276, :1293, :1312; al-runner issue 8637). Read as on main, from
@@ -271,7 +272,7 @@ codeunit 97511 "BQ Neighbor Tests"
         Assert.AreEqual(1, Row.Count(), 'the test''s Count');
         AddRow('NB1', 2, 'b');
         OpenOn(Rows, 'NB1');
-        Assert.AreEqual('2', Run(Rows, Codeunit::"BQ Reader", 'count', 'NB1'), 'Count');
+        Assert.AreEqual('1', Run(Rows, Codeunit::"BQ Reader", 'count', 'NB1'), 'Count');
         Rows.Close();
     end;
 
