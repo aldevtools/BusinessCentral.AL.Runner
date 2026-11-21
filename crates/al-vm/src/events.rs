@@ -69,11 +69,6 @@ pub struct Registry {
     /// no code for (`Program::uncompiled_subscribers`, and subscribers whose publisher cannot be
     /// told apart from another object of the same name). Raising such an event is refused.
     pub missing: HashMap<(usize, String), Vec<Missing>>,
-    /// (publisher object, lower-case event name) of the events whose subscribers depend on a publisher name several objects have,
-    /// which the subscriber's file picks (`ir::PublisherRef::Picked`): every one of those objects, for each event a picked
-    /// subscriber names. Asking for the subscribers of such an event marks the assumption `subscriber-publisher-namespace-scope`
-    /// ([`Registry::subscribers_at`], [`Registry::is_subscribed`]).
-    scope_assumed: std::collections::HashSet<(usize, String)>,
     /// (publisher object, lower-case event name) of the events a subscriber written with a bare publisher id is bound to
     /// ([`by_id_measured`]): asking for their subscribers marks the assumption `subscriber-publisher-by-id`.
     by_id_assumed: std::collections::HashSet<(usize, String)>,
@@ -241,7 +236,6 @@ impl Default for Registry {
             has_global_triggers: false,
             unavailable_global: Default::default(),
             missing: HashMap::new(),
-            scope_assumed: Default::default(),
             by_id_assumed: Default::default(),
             by_id_install: Default::default(),
             dependency_platform_by_id: Vec::new(),
@@ -918,7 +912,7 @@ impl Registry {
     }
 
     pub fn is_subscribed(&self, object: usize, event: &str) -> bool {
-        self.note_scope(object, event);
+        self.note_by_id_event(object, event);
         self.subscribers
             .get(&(object, event.to_string()))
             .is_some_and(|v| !v.is_empty())
@@ -927,17 +921,13 @@ impl Registry {
 
     /// The subscribers of `event` (lower case) of `object`, in the order they receive it.
     pub fn subscribers_at(&self, object: usize, event: &str) -> Option<&Vec<Subscriber>> {
-        self.note_scope(object, event);
+        self.note_by_id_event(object, event);
         self.subscribers.get(&(object, event.to_string()))
     }
 
-    /// Marks the assumption `subscriber-publisher-namespace-scope` when the subscribers of `event` of `object` depend on a
-    /// publisher name the subscriber's file picked among several objects (`scope_assumed`), and `subscriber-publisher-by-id`
-    /// when one of them is written with a bare publisher id (`by_id_assumed`).
-    fn note_scope(&self, object: usize, event: &str) {
-        if !self.scope_assumed.is_empty() && self.scope_assumed.contains(&(object, event.to_string())) {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::SubscriberPublisherNamespaceScope);
-        }
+    /// Marks the assumption `subscriber-publisher-by-id` when one of the subscribers of `event` of `object` is written with a bare
+    /// publisher id (`by_id_assumed`).
+    fn note_by_id_event(&self, object: usize, event: &str) {
         if !self.by_id_assumed.is_empty() && self.by_id_assumed.contains(&(object, event.to_string())) {
             al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::SubscriberPublisherById);
         }
@@ -961,7 +951,7 @@ impl Registry {
     }
 
     /// Subscriber `(object, routine)`, written with the bare publisher id `id` in a shape [`by_id_measured`] covers and bound to
-    /// `found`: every key it receives `event` under marks the assumption (`note_scope`, [`Registry::is_by_id_install`]).
+    /// `found`: every key it receives `event` under marks the assumption (`note_by_id_event`, [`Registry::is_by_id_install`]).
     fn note_by_id(&mut self, (object, routine): (usize, usize), id: &str, found: Option<usize>, event: &str) {
         let platform = match id {
             "2000000002" => Some(self.global_key),
@@ -1036,12 +1026,8 @@ impl Registry {
         let (targets, why): (Vec<usize>, MissingWhy) = match &a.publisher {
             ir::PublisherRef::NotSubscriber | ir::PublisherRef::NotVisible => return Some(None),
             ir::PublisherRef::Only(t) => return Some(compiled(*t)),
-            ir::PublisherRef::Picked { object, twins } => {
-                for &t in twins {
-                    self.scope_assumed.insert((t as usize, event.to_string()));
-                }
-                return Some(compiled(*object));
-            }
+            // events/subscriber-namespace/SnUsingTests.al:28-56, SnOwnNamespaceTests.al:25-53, SnOwnOverUsingTests.al:26-54.
+            ir::PublisherRef::Picked { object, .. } => return Some(compiled(*object)),
             ir::PublisherRef::Unpicked(twins) => {
                 let w = written();
                 let name = w

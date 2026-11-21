@@ -91,6 +91,7 @@ impl Session {
     pub(crate) fn record_op_of_al(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
         self.tx.insert_from_al = method == RecordOp::Insert;
         self.tx.rename_from_al = method == RecordOp::Rename;
+        self.tx.get_from_al = method == RecordOp::Get && !self.through_recordref;
         self.tx.write_of_al = match method {
             _ if self.through_recordref => None,
             RecordOp::Insert => Some(WriteOfAl::Insert),
@@ -100,6 +101,7 @@ impl Session {
         };
         let r = self.record_op(method, rec, args);
         self.tx.write_of_al = None;
+        self.tx.get_from_al = false;
         r
     }
 

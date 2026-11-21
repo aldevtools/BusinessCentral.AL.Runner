@@ -430,19 +430,25 @@ pub(crate) struct TestBacking {
     /// `Engine::uid` of the engine whose program and tables these are.
     engine_uid: u64,
     data: TestData,
-    /// By table object: this thread's handle on the table built from the restored rows.
-    cache: RefCell<HashMap<u32, Option<Rows>>>,
+    selected_companies: Vec<String>,
+    /// By company and table object: this thread's handle on the table built from the restored rows.
+    cache: RefCell<HashMap<(usize, u32), Option<Rows>>>,
     /// The engine's rows, built once for all threads (ADR-069 decision 4); `None`: `Engine::private_test_rows`.
     shared: Option<Arc<crate::test_rows::TestRows>>,
 }
 
 impl TestBacking {
     pub(crate) fn new(engine: &Engine, data: TestData) -> TestBacking {
+        let selected_companies = data
+            .provider
+            .known_companies()
+            .unwrap_or_else(|| vec![data.provider.company().to_string()]);
         TestBacking {
             program: engine.program.clone(),
             tables: engine.tables.clone(),
             engine_uid: engine.uid,
             data,
+            selected_companies,
             cache: RefCell::default(),
             shared: (!engine.private_test_rows).then(|| engine.test_rows.clone()),
         }
@@ -672,7 +678,7 @@ impl TestBacking {
     /// cannot be read; each refusal is counted.
     pub(crate) fn company_rows(&self, object: u32, t: &TableDef) -> (Vec<usize>, Vec<Row>) {
         let obj = &self.program.objects[object as usize];
-        let record = |o: Outcome| self.data.stats.record(object, &obj.name, o);
+        let record = |o: Outcome| self.data.stats.record_for_company("", object, &obj.name, o);
         let mut request = TableRequest {
             name: obj.name.clone(),
             app_id: None,
@@ -746,12 +752,13 @@ impl TestBacking {
             .collect()
     }
 
-    fn load(&self, object: u32, t: &TableDef) -> Option<Rows> {
+    fn load(&self, company: &str, object: u32, t: &TableDef) -> Option<Rows> {
         let program = &self.program;
         let obj = &program.objects[object as usize];
         let stats = &self.data.stats;
+        let stats_company = if t.per_company { company } else { "" };
         let record = |o: Outcome| {
-            stats.record(object, &obj.name, o);
+            stats.record_for_company(stats_company, object, &obj.name, o);
         };
         // A temporary table has no rows in a database.
         if al_ir::ObjectFacts::of(obj).temporary() {
@@ -771,7 +778,7 @@ impl TestBacking {
             request.table_id = obj.id;
             request.fields = self.request_fields(obj);
         }
-        let rows = match self.data.read(&request) {
+        let rows = match self.data.read_for_company(company, &request) {
             Ok(r) => r,
             Err(TableError::Absent) => {
                 record(Outcome::Empty);
@@ -814,20 +821,35 @@ impl Backing for TestBacking {
         self.data.provider.company()
     }
 
+    fn companies(&self) -> Vec<String> {
+        self.selected_companies.clone()
+    }
+
     fn rows(&self, company: &str, object: u32) -> Option<Rows> {
         let t = self.tables.get(object as usize)?.as_ref()?;
-        let wanted = if t.per_company { self.company() } else { "" };
+        let wanted = if t.per_company { company } else { "" };
         if !eq_ci(company, wanted) {
             return None;
         }
-        if let Some(hit) = self.cache.borrow().get(&object) {
+        let (source_company, company_key) = if !t.per_company {
+            (self.company(), usize::MAX)
+        } else if eq_ci(company, self.company()) {
+            (self.company(), 0)
+        } else {
+            let company_index = self.selected_companies.iter().position(|known| eq_ci(known, company))?;
+            (self.selected_companies[company_index].as_str(), company_index)
+        };
+        let cache_key = (company_key, object);
+        if let Some(hit) = self.cache.borrow().get(&cache_key) {
             return hit.clone();
         }
         let built = match &self.shared {
-            Some(shared) => shared.get(self.data.id, object, || self.load(object, t)),
-            None => self.load(object, t),
+            Some(shared) => shared.get(self.data.id, source_company, object, || {
+                self.load(source_company, object, t)
+            }),
+            None => self.load(source_company, object, t),
         };
-        self.cache.borrow_mut().insert(object, built.clone());
+        self.cache.borrow_mut().insert(cache_key, built.clone());
         built
     }
 

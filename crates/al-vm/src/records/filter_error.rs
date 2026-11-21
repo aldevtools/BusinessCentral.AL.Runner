@@ -36,15 +36,15 @@ impl Session {
 
     /// The date-format error of a Date filter whose whole text `value` no Date filter reads under the session language, for the
     /// closing-date text of another language's letter (`closing_letter_date_filter`, its caller and shape). 1031: the pinned German
-    /// text. 1030, 1036, 1044, 1053: the language's text as measured (assumption `date-filter-error-by-language`, corpus PR 1428
-    /// FilterGlobalLanguageDateBool.al:229-372 at 04e1fa0a), which quotes the filter as written. Every other language refuses.
+    /// text. 1030, 1036, 1044, 1053: the language's text (record/filters/FilterGlobalLanguageDateBool.al:326 for 1030, :347-348
+    /// for 1036, :359 for 1044, :369 for 1053), which quotes the filter as written. Every other language refuses.
     pub(crate) fn date_filter_error_in_language(&self, t: &TableDef, pos: usize, value: &str) -> Signal {
-        if self.global_language == 1031 {
+        if self.global_language() == 1031 {
             return self.german_date_filter_error(t, pos, value, value);
         }
         let (shown, bad) = (value, value); // the filter as written is the one value
         let (field, table) = (self.field_caption(t, pos), self.caption(t));
-        let message = match self.global_language {
+        let message = match self.global_language() {
             1030 => format!(
                 "Filteret \"{shown}\" er ikke gyldigt for feltet {field} i tabellen {table}. Formatet for Date '{bad}' stemmer ikke overens med enhedens datoindstillinger.\\\\Kontroller, at dagen, måneden og året er i den rigtige rækkefølge, og brug den korrekte separator (f.eks. - eller /). Du kan også altid bruge formatet 'åååå-mm-dd'."
             ),
@@ -63,7 +63,6 @@ impl Session {
                 ));
             }
         };
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DateFilterErrorByLanguage);
         Signal::Error(Box::new(AlError {
             message,
             code: "Filter:CSide".into(),
@@ -82,7 +81,7 @@ impl Session {
         ty: &RtType,
     ) -> Result<(), Signal> {
         match al_builtins::filter::set_filter_text_error(text, ty) {
-            Some(reason) if self.global_language == 1033 => Err(self.filter_error(t, pos, text, reason)),
+            Some(reason) if self.global_language() == 1033 => Err(self.filter_error(t, pos, text, reason)),
             _ => Ok(()),
         }
     }

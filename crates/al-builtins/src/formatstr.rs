@@ -329,18 +329,7 @@ fn format_codes(
         _ => None,
     };
     if let Some(defined) = defined {
-        // The stand-in value is no date of the test: a name the pass takes from an assumption (`date_name`) is no answer, and its
-        // marks are dropped; the pass then counts as failed, as on a path without that name.
-        let before = crate::assumptions::take_hit_bits();
         let pass = format_with_field_places(&defined, 0, template, (min_decimals, negative_zero), ctx);
-        let pass_hits = crate::assumptions::take_hit_bits();
-        crate::assumptions::add_hit_bits(before);
-        let pass = if pass_hits.has(crate::assumptions::Assumption::MonthWeekdayNamesByLanguage) {
-            Err("a name of the stand-in date that only an assumption gives".to_string())
-        } else {
-            crate::assumptions::add_hit_bits(pass_hits);
-            pass
-        };
         return match pass {
             Ok(_) => Ok(crate::format::pad(String::new(), length)),
             Err(e) if matches!(v, Value::DateTime(0)) && e.contains("InvalidStandardFormat") => {
@@ -1501,8 +1490,8 @@ fn iso_week(day: i32) -> i32 {
     (thursday - crate::format::day_from_civil(y, 1, 1)) / 7 + 1
 }
 
-/// The month and weekday names the reporter of al-runner issue 8183 measured (assumption `month-weekday-names-by-language`):
-/// March and August under 1030, 1036, 1044 and 1053, Friday and Tuesday under those and 1031. `weekday` counts from Monday = 0.
+/// The month and weekday names pinned in localization/global-language/GlobalLanguageMonthWeekday.al:107-363: March and August
+/// under 1030, 1036, 1044 and 1053, Friday and Tuesday under those and 1031. `weekday` counts from Monday = 0.
 fn reported_name(base: &str, month: u32, weekday: i32, language: i32) -> Option<&'static str> {
     Some(match (base, language, month, weekday) {
         ("Month Text", 1030, 3, _) => "marts",
@@ -1522,8 +1511,8 @@ fn reported_name(base: &str, month: u32, weekday: i32, language: i32) -> Option<
 }
 
 /// The name `<Month Text>` or `<Weekday Text>` (`width` `None`) or `<Month Text,N>` / `<Weekday Text,N>` (`Some(N)`, before the cut)
-/// shows of `v`. The reporter of al-runner issue 8183 measured the names of [`reported_name`] on a plain Date, with no width and
-/// with the widths 3 (a month) and 2 (a weekday) (assumption `month-weekday-names-by-language`); another width of these names
+/// shows of `v`. The names of [`reported_name`] are pinned on a plain Date, with no width and
+/// with the widths 3 (a month) and 2 (a weekday) (GlobalLanguageMonthWeekday.al:61, :87); another width of these names
 /// refuses, and a DateTime or a closing date takes the pinned names of [`code_name`] only.
 fn date_name(
     v: &Value,
@@ -1548,7 +1537,6 @@ fn date_name(
             ctx.language()
         ));
     }
-    crate::assumptions::assume(crate::assumptions::Assumption::MonthWeekdayNamesByLanguage);
     Ok(name.to_string())
 }
 
@@ -2244,8 +2232,7 @@ mod tests {
         );
         assert!(code_name("Weekday Text", Some((2027, 3, 16)), Some(tue), 1031, false).is_err());
     }
-    // Assumption month-weekday-names-by-language (al-runner issue 8183): the German Tuesday and Friday of a plain Date; Wednesday
-    // stays refused.
+    // GlobalLanguageMonthWeekday.al: the German Tuesday and Friday of a plain Date; Wednesday stays refused.
     #[test]
     fn german_weekday_names_the_reporter_measured() {
         use super::reported_name;

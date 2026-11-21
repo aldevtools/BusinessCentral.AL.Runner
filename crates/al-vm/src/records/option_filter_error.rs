@@ -4,8 +4,9 @@ use super::*;
 
 impl Session {
     /// `SetFilter` on field `pos`, whose parse gave `e` (`filter::OPTION_NOT_MEMBER` and the word); `shape`: the call is the
-    /// measured Record.SetFilter shape. Only the shape the reporter measured raises BC's error (assumption
-    /// `option-filter-non-member-error`); every other text, caller, field and language keeps main's refusal.
+    /// measured Record.SetFilter shape. Only the pinned shape raises BC's error (record/filters/FilterNonMemberOptionEnum.al:51,
+    /// :137); every other text, caller, field and language keeps main's refusal (the list, range, `<>` and Danish cells at
+    /// :138-140, :154-157 are pinned but not answered here).
     pub(crate) fn option_non_member_error(
         &self,
         shape: Option<&super::measured_setfilter::MeasuredSetFilter>,
@@ -18,9 +19,10 @@ impl Session {
         let RtType::Option(members) = &t.fields[pos].ty else {
             return refused();
         };
-        // The measured shape (`MeasuredSetFilter`), the filter text as written is the word alone (letters only), an Option field
-        // whose members are all non-blank and that has no OptionCaption or OptionCaptionML, GlobalLanguage 1033. The measured words
-        // are no prefix of a member; whether BC reads a prefix as the member is not measured.
+        // The pinned shape (`MeasuredSetFilter`), the filter text as written is the word alone (letters only), an Option field
+        // whose members are all non-blank and that has no OptionCaption or OptionCaptionML, GlobalLanguage 1033
+        // (FilterNonMemberOptionEnum.al:30, :137). The pinned word is no prefix of a member; whether BC reads a prefix as the member
+        // is not pinned.
         let Some(text) = shape.map(|s| s.text).filter(|text| *text == word) else {
             return refused();
         };
@@ -31,11 +33,10 @@ impl Session {
                 .any(|m| m.to_lowercase().starts_with(&word.to_lowercase()))
             && self.field_property(t, pos, "OptionCaption").is_none()
             && self.field_property(t, pos, "OptionCaptionML").is_none()
-            && self.global_language == 1033;
+            && self.global_language() == 1033;
         if !measured {
             return refused();
         }
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::OptionFilterNonMemberError);
         let reason = format!(
             "'{word}' is not an option. The existing options are: {}",
             members.join(",")
@@ -44,10 +45,10 @@ impl Session {
     }
 
     /// `SetFilter` on field `pos`, whose parse gave `e` (`filter::OPTION_NEGATIVE` and the value); `shape`: the call is the
-    /// measured Record.SetFilter shape. Only the measured cell raises BC's error (assumption `option-filter-negative-one-error`,
-    /// corpus PR 1428 FilterNonMemberOptionEnum.al:143 at 04e1fa0a): the measured shape, the filter text as written `-1`, an
+    /// measured Record.SetFilter shape. Only the pinned cell raises BC's error (record/filters/FilterNonMemberOptionEnum.al:51,
+    /// :143): the pinned shape, the filter text as written `-1`, an
     /// Option field whose members are all non-blank and that has no OptionCaption or OptionCaptionML, GlobalLanguage 1033. Every
-    /// other number, text, caller, field and language refuses (the Danish text of 1030, :160, is measured and not answered).
+    /// other number, text, caller, field and language refuses (the Danish text of 1030, :160, is pinned and not answered).
     pub(crate) fn option_negative_error(
         &self,
         shape: Option<&super::measured_setfilter::MeasuredSetFilter>,
@@ -69,11 +70,10 @@ impl Session {
             && members.iter().all(|m| !m.trim().is_empty())
             && self.field_property(t, pos, "OptionCaption").is_none()
             && self.field_property(t, pos, "OptionCaptionML").is_none()
-            && self.global_language == 1033;
+            && self.global_language() == 1033;
         if !measured {
             return refused();
         }
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::OptionFilterNegativeOneError);
         let reason = format!("'-1' is not an option. The existing options are: {}", members.join(","));
         self.filter_error(t, pos, value, &reason)
     }

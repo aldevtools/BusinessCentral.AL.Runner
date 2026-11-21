@@ -22,6 +22,8 @@ mod date;
 mod ext_event_row;
 mod feature_key;
 mod field_key_lookup;
+mod field_relation;
+pub(crate) mod relation_field_no_readers;
 pub(crate) use field_key_lookup::{unmeasured_find, unmeasured_key_read};
 mod fields;
 pub(crate) use fields::user_name_system_field;
@@ -82,7 +84,7 @@ pub(crate) struct EventStats {
     pub calls: RefCell<HashMap<(usize, usize), i64>>,
     /// Subscriber object to the number of bound instances.
     pub active: RefCell<HashMap<usize, i64>>,
-    /// The session's `GlobalLanguage` when it is not 1033 (0: 1033). The Report Layout List's Description follows it.
+    /// The session's `GlobalLanguage` (0: 1033), written only by `Session::set_language`. The Report Layout List's Description follows it.
     pub language: std::cell::Cell<i32>,
     /// What the install of an app lets the "NAV App Installed App" list show ([`InstallView`]).
     pub install_view: RefCell<InstallView>,

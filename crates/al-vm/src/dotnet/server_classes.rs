@@ -187,7 +187,7 @@ fn environment_name(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -
 /// `TryGetStringTenantSetting(name, out value)`: the three settings System Application reads, with
 /// the values the oracle tenant answers through the wrappers `Tenant Information.GetTenantId` and
 /// `GetTenantDisplayName` and `Azure AD Tenant.GetAadTenantId`
-/// (session-system/TestEnvironmentUserTenantContracts.al:TenantAndAzureAd_Answers, :209-212). The
+/// (session-system/TestEnvironmentUserTenantContracts.al:TenantAndAzureAd_Answers, :206-209). The
 /// wrappers return the out value as it is; `GetAadTenantId` returns it when it is not a Guid, so
 /// the setting itself is `common`. The names are matched without regard to case. Any other name (`DatabaseServer`,
 /// `DatabaseName`, `DefaultCompany`, the other Mount-NAVTenant settings, the empty name, an unknown one) is not found: false,
@@ -293,16 +293,11 @@ fn environment_application_setting(_: &mut Session, _: Option<&Rc<DotNetObject>>
 }
 
 /// `!NavEnvironment.Topology.IsServiceRunningInLocalEnvironment`, which is
-/// `Environment Information.IsSaaSInfrastructure`. The oracle answers true on BC 27.5 and 28.5 and
-/// false on 29.0 (`Gate::NotSaaSInfrastructure`; corpus
-/// `session-system/TestEnvironmentUserTenantContracts.al:164-174`). AL Runner's `StandardServiceTopology`
-/// answers false throughout; the probe wins where it says true.
-fn is_azure(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
+/// `Environment Information.IsSaaSInfrastructure`: false on every supported major (corpus
+/// `session-system/TestEnvironmentUserTenantContracts.al:185`).
+fn is_azure(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     no_args(args, "NavUserAccountHelper.IsAzure")?;
-    Ok(Value::Boolean(!al_version::gate_on(
-        s.engine.target.as_ref(),
-        al_version::Gate::NotSaaSInfrastructure,
-    )))
+    Ok(Value::Boolean(false))
 }
 
 /// `NavUserAccountHelper.IsUserDelegatedAdmin()`: false in a test session on every supported major (corpus
@@ -713,7 +708,7 @@ fn graph_tenant_detail(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args
 
 /// Microsoft's Azure AD Tenant Impl. raises "Failed to retrieve ..." for a null TenantInfo, and the corpus test
 /// expects '' from `GetAadTenantDomainName`, `GetCountryLetterCode` and `GetPreferredLanguage`.
-const TENANT_INFO_PIN: &str = "session-system/TestEnvironmentUserTenantContracts.al:213-232 (GetAadTenantDomainName, GetCountryLetterCode and GetPreferredLanguage answer '' without an error)";
+const TENANT_INFO_PIN: &str = "session-system/TestEnvironmentUserTenantContracts.al:210-229 (GetAadTenantDomainName, GetCountryLetterCode and GetPreferredLanguage answer '' without an error)";
 
 fn tenant_info_empty_text(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     no_args(args, "TenantInfo member")?;
@@ -1056,7 +1051,7 @@ fn user_account_helper() -> RegistryType {
         members: vec![
             member(
                 "IsAzure",
-                probe("164-174 (IsSaaSInfrastructure true on 27 and 28, false from 29)"),
+                probe("185 (IsSaaSInfrastructure false on every major)"),
                 is_azure,
             ),
             member(

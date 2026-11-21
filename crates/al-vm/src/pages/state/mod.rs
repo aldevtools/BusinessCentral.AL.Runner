@@ -9,14 +9,18 @@
 
 mod after_go_to_key;
 mod close;
+mod control_onvalidate;
 mod list_view;
 mod lookup_left;
+mod mode_actions;
 mod refresh;
 mod stages;
 pub use after_go_to_key::AfterGoToKey;
 pub use close::CloseOutcome;
+pub use control_onvalidate::{ControlOnValidate, CurrPageSave, RecCall};
 pub use list_view::ListViewSwitch;
 pub use lookup_left::LookupLeft;
+pub use mode_actions::{EarlierOpen, ModeActions};
 pub use refresh::{RefreshRequest, TakenRefresh};
 pub use stages::{ActionSaveCaptions, ChainRefill, ModalRun, ReadUpFromLast, UnreadEdges};
 
@@ -170,6 +174,26 @@ pub enum ClosedBy {
     Other,
 }
 
+/// The start of a control's OnValidate, as the refresh it asks for reads it (`PageState::filters_before_validate`).
+#[derive(Debug, Clone)]
+pub struct ValidateStart {
+    /// The filters of the page's record when the OnValidate began.
+    pub filters: Vec<al_builtins::filter::FieldFilter>,
+    /// A save in the OnValidate moved a List from its new-row line onto the row page code found, in the cells of
+    /// `refresh_new_line.rs` `found_row_cell`: the refresh reads the view as from that line (`validate_refresh_offers_line`).
+    pub left_new_line: bool,
+}
+
+impl ValidateStart {
+    /// The start of an OnValidate with the record's `filters`.
+    pub fn new(filters: Vec<al_builtins::filter::FieldFilter>) -> Self {
+        Self {
+            filters,
+            left_new_line: false,
+        }
+    }
+}
+
 /// The test client's state for one page (ADR-012). Fields grow with the
 /// behaviours the corpus pins. A new field starts at its type's default (`PageState::closed`).
 #[derive(Default)]
@@ -229,6 +253,10 @@ pub struct PageState {
     /// The open ran the empty-record CaptionClass runs without a pinned number, or in a cell of `Session::caption_state_free_pin`:
     /// a dialog or an Error with a text raised by a later row run of the page refuses (`Session::fill_field_captions_with_row`).
     pub caption_dialogs_refused: bool,
+    /// The open ran the empty-record CaptionClass runs without a pinned number (`Session::run_caption_empty_unpinned`): a Record
+    /// write the walk of `effects.rs` let through refuses when a later row run's expression runs it
+    /// (`Session::fill_field_captions_with_row`).
+    pub caption_writes_checked: bool,
     /// The open has filled its first rows (`field_captions` no longer changes at the fills of the open itself).
     pub field_captions_settled: bool,
     /// The row (its field values) the CaptionClass expressions last ran with for the controls' captions.
@@ -356,10 +384,11 @@ pub struct PageState {
     /// The DataCaptionExpression of this page ran at the open as `data_caption_open.rs` measured: a TestPage's Caption() shows
     /// what that run left (`data_caption_value`) and does not evaluate the expression again. Cleared at the next open.
     pub data_caption_at_open: bool,
-    /// This Worksheet's DataCaptionExpression did not run at the open, where BC runs it, under the assumption
-    /// `data-caption-two-microsoft-opens-skipped` (`data_caption_kept_open.rs`): a TestPage's Caption() refuses. Cleared at the
-    /// next open.
+    /// This Worksheet's DataCaptionExpression did not run at the open, where BC runs it, in a shape
+    /// DataCaptionKeptOpen.al pins (`data_caption_kept_open.rs`): a TestPage's Caption() refuses. Cleared at the next open.
     pub data_caption_open_kept: bool,
+    /// What this page variable's `SetTableView` and `RunModal` calls were, for the modal shape of `data_caption_kept_open.rs`.
+    pub data_caption_kept_modal: crate::pages::data_caption_kept_open::KeptModalCalls,
     /// The measured cell of WorksheetTriggersOpen.al this page opened in (`ws_trigger_order.rs`). Cleared at the next open.
     pub ws_trigger_order: Option<crate::pages::ws_trigger_order::WsTriggerOrder>,
     /// A lookup page handed the related row a field holds opens on it as a list opens on a row its OnOpenPage left Rec on
@@ -616,6 +645,11 @@ pub struct PageState {
     pub gone_blank_no_new_line: bool,
     /// What the built-in View and Edit left on a list without a card (`list_view.rs`).
     pub list_view: ListViewSwitch,
+    /// The built-in View and Edit actions the test took from the variable, and the open each is bound to (`mode_actions.rs`).
+    /// It survives Close and reopen; `Clear(P)` frees both.
+    pub mode_actions: ModeActions,
+    /// The test method the page last opened in (`PageClients::test_methods_started` at the open).
+    pub opened_in_test_method: u32,
     /// A list with the new-row line lost its only row to an action and stands on that line: its fields show the blank Rec's
     /// values, an Integer key 0 (testpage/RmWorksheetGoneRow.al:436 `shown after action = 0|`).
     pub gone_blank_shows_line: bool,
@@ -855,12 +889,14 @@ pub struct PageState {
     /// The key of the row that refresh landed on and the number of test calls then, until the next move
     /// (`code_inserted_new_line.rs`).
     pub code_inserted_row: Option<(Vec<Value>, usize)>,
-    /// The store's write mark (`Session::write_mark`) when the page control's own OnValidate began, while it runs
-    /// (`code_inserted_new_line.rs` `run_control_onvalidate`).
-    pub control_onvalidate_writes: Option<(i64, u64)>,
-    /// The filters of the page's record when a control's OnValidate began, for the refresh a `CurrPage.Update` in it asks for
-    /// (`al-vm` `refresh_after_validate_filter`).
-    pub filters_before_validate: Option<Vec<al_builtins::filter::FieldFilter>>,
+    /// The page control's own OnValidate while it runs (`code_inserted_new_line.rs` `run_control_onvalidate`).
+    pub control_onvalidate: Option<ControlOnValidate>,
+    /// `CurrPage.SaveRecord()` saved the row page code found from the new-row line through assumption
+    /// `new-line-saverecord-found-row` in the running test call; taken when that call ends (`refresh_new_line.rs`).
+    pub found_row_save_assumed: bool,
+    /// What a control's OnValidate began with, for the refresh a `CurrPage.Update` in it asks for (`al-vm`
+    /// `refresh_after_validate_filter`); taken by that refresh.
+    pub filters_before_validate: Option<ValidateStart>,
     /// Page background tasks the page enqueued and the client has not run yet: (task id, codeunit id,
     /// parameters, the position of the `PageBackgroundTaskErrorLevel` member passed, if any), and the next task id.
     pub bg_tasks: std::collections::VecDeque<(i32, i32, Value, Option<i32>)>,
@@ -1050,6 +1086,7 @@ impl PageState {
         self.field_captions = Vec::new();
         self.field_captions_opened = false;
         self.caption_dialogs_refused = false;
+        self.caption_writes_checked = false;
         self.field_captions_settled = false;
         self.field_captions_row = None;
         self.field_captions_quiet = false;

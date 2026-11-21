@@ -143,6 +143,9 @@ impl Session {
         c: &ir::RelationCond,
         value: &Value,
     ) -> Result<bool, Signal> {
+        if let Some(a) = c.assumes {
+            al_builtins::assumptions::assume(a);
+        }
         if !c.filter {
             return const_cond_holds(value, &c.value, || format!("{}.{field_name}", t.name));
         }

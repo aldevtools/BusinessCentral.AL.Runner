@@ -1,9 +1,9 @@
 //! A page method named like one of the page's own procedures: `Caption` (al-runner issues 8193 and 8444), as BC 29.0
-//! measured it (assumption `currpage-caption-own-procedure`, corpus PR 1456, pages/lifecycle/CurrPageCaptionOwn*.al).
+//! pinned it (pages/lifecycle/CurrPageCaptionOwn*.al). The pinned forms run unmarked.
 use super::*;
 
 const ROW: &str = "table 50100 T { fields { field(1; No; Code[20]) { } } }";
-const ASSUMED: &str = "Assume(CurrpageCaptionOwnProcedure)";
+const MARK: &str = "Assume(";
 
 fn at(ws: &Workspace, name: &str) -> usize {
     ws.objects.iter().position(|o| o.name.as_str() == name).unwrap()
@@ -54,7 +54,7 @@ page 50100 P {{
     let b = body(&ws, &l, "P", "OnOpenPage");
     assert_eq!(b.matches("Page.Caption").count(), 2, "{b}");
     assert!(!b.contains("Call {"), "{b}");
-    assert!(b.contains(ASSUMED), "{b}");
+    assert!(!b.contains(MARK), "{b}");
 }
 
 /// al-runner issue 8193: the List page of Base Application's page 5911 assigns `CurrPage.Caption := Caption() + S` in
@@ -79,16 +79,9 @@ page 50101 Q {{
     no_refusals(&l);
     let p = body(&ws, &l, "P", "OnAfterGetCurrRecord");
     let q = body(&ws, &l, "Q", "OnAfterGetCurrRecord");
-    assert!(p.contains("Page.Caption") && p.contains(ASSUMED), "{p}");
-    assert!(!q.contains(ASSUMED), "{q}");
-    let setter_part = |s: &str| {
-        s.replace(ASSUMED, "")
-            .replace("[, ", "[")
-            .split("Call {")
-            .next()
-            .unwrap()
-            .to_string()
-    };
+    assert!(p.contains("Page.Caption") && !p.contains(MARK), "{p}");
+    assert!(!q.contains(MARK), "{q}");
+    let setter_part = |s: &str| s.split("Call {").next().unwrap().to_string();
     assert_eq!(setter_part(&p), setter_part(&q));
 }
 
@@ -108,12 +101,12 @@ fn setter_forms_beside_an_own_caption_with_a_parameter_are_the_platform_setter()
     for (r, n) in [("OnOpenPage", 1), ("OnAction", 2)] {
         let b = body(&ws, &l, "P", r);
         assert_eq!(b.matches("Page.Caption").count(), n, "{b}");
-        assert!(!b.contains("Call {") && b.contains(ASSUMED), "{b}");
+        assert!(!b.contains("Call {") && !b.contains(MARK), "{b}");
     }
 }
 
 /// A Page variable in a test method: `P.Caption('Out')` is the platform setter beside a public `Caption(): Text`
-/// (CurrPageCaptionOwnPublic.al:396), `P.Caption()` calls the procedure as before (:394), without the assumption.
+/// (CurrPageCaptionOwnPublic.al:396), `P.Caption()` calls the procedure as before (:394), unmarked.
 #[test]
 fn page_variable_setter_is_the_platform_setter_and_the_getter_calls_the_procedure() {
     let page = card("P", "", "procedure Caption(): Text begin exit('Own'); end;");
@@ -128,10 +121,10 @@ codeunit 50101 C {{
     let (ws, l) = lower_src(&src);
     no_refusals(&l);
     let set = body(&ws, &l, "C", "SetIt");
-    assert!(set.contains("Page.Caption") && set.contains(ASSUMED), "{set}");
+    assert!(set.contains("Page.Caption") && !set.contains(MARK), "{set}");
     let get = body(&ws, &l, "C", "GetIt");
     assert_eq!(get.matches("Call {").count(), 2, "{get}");
-    assert!(!get.contains(ASSUMED), "{get}");
+    assert!(!get.contains(MARK), "{get}");
 }
 
 /// The base page's bare `Caption()` beside a procedure only its page extension declares reads the platform caption
@@ -146,7 +139,7 @@ fn bare_caption_in_the_base_page_beside_an_extension_procedure_reads_the_platfor
     no_refusals(&l);
     let b = body(&ws, &l, "P", "OnOpenPage");
     assert!(
-        b.contains("Page.Caption") && !b.contains("Call {") && b.contains(ASSUMED),
+        b.contains("Page.Caption") && !b.contains("Call {") && !b.contains(MARK),
         "{b}"
     );
 }
@@ -218,9 +211,9 @@ page 50102 E {{ SourceTable = T; trigger OnOpenPage() begin CurrPage.Editable :=
     );
     let (ws, l) = lower_src(&src);
     let n = body(&ws, &l, "N", "OnOpenPage");
-    assert!(n.contains("Page.Caption") && !n.contains(ASSUMED), "{n}");
+    assert!(n.contains("Page.Caption") && !n.contains(MARK), "{n}");
     let p = body(&ws, &l, "P", "OnOpenPage");
-    assert!(p.contains("Call {") && !p.contains(ASSUMED), "{p}");
+    assert!(p.contains("Call {") && !p.contains(MARK), "{p}");
     assert!(refused(&ws, &l, "N").is_empty() && refused(&ws, &l, "P").is_empty());
     let e = refused(&ws, &l, "E");
     assert!(e.iter().any(|r| r.contains("too many arguments")), "{e:?}");
