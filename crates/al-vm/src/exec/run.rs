@@ -42,6 +42,11 @@ fn plain(v: &Value) -> bool {
 /// `*slot = v` without the call to the drop glue when the old value owns nothing.
 #[inline(always)]
 fn set(slot: &mut Value, v: Value) {
+    // An unbuilt record never leaves its local's slot: every statement that names the local builds it first (`lazy_record.rs`).
+    debug_assert!(
+        !matches!(v, Value::UnbuiltRecord(_)),
+        "an unbuilt record reached a register"
+    );
     if plain(slot) {
         std::mem::forget(std::mem::replace(slot, v));
     } else {
@@ -240,7 +245,7 @@ impl Session {
                     set(&mut f.locals[d as usize], v);
                 }
                 Op::SingleWrite { i, kind } => self.single_write_op(i as usize, kind, f),
-                Op::BuildLocal { i } => self.build_local(i, f)?,
+                Op::BuildLocal { i } => self.build_local(i, f),
                 Op::ReadPlace { d, p, value } => {
                     let v = self.read_place(&chunk.places[p as usize], value, f)?;
                     set(&mut f.locals[d as usize], v);

@@ -61,7 +61,6 @@ fn compile_form(o: &ir::Object, routine: usize, captured: bool, debug: bool) -> 
             .map(|i| crate::lazy_record::watched_local(r, i))
             .collect(),
         built: vec![false; r.locals.len()],
-        depth: 0,
     };
     c.block(&r.body).ok()?;
     c.chunk.temps = c.max - nlocals;
@@ -100,12 +99,11 @@ struct Compiler<'a> {
     params: usize,
     /// Which parameters are `var`.
     by_var: &'a [bool],
-    /// The record locals `Op::BuildLocal` is emitted for (`lazy_record::watched_local`), and those a statement of the
-    /// routine's own block already built: that statement ran before every later one (AL has no goto).
+    /// The record locals `Op::BuildLocal` is emitted for (`lazy_record::watched_local`), and those an earlier statement of
+    /// the block being compiled, or of a block around it, already built: in a block the statements start in order, and
+    /// nothing jumps into the middle of one (AL has no goto; a loop starts its body again from the top).
     watched: Vec<bool>,
     built: Vec<bool>,
-    /// How many blocks the statement being compiled is in (1: the routine's own block).
-    depth: u32,
 }
 
 type R<T> = Result<T, ()>;
@@ -913,7 +911,8 @@ impl<'a> Compiler<'a> {
     // ---- statements ----
 
     fn block(&mut self, stmts: &'a [ir::Stmt]) -> R<()> {
-        self.depth += 1;
+        // What the block's statements build is not built after it: the block may not run, or may end early.
+        let built = self.built.clone();
         let r = if self.captured {
             self.block_captured(stmts)
         } else {
@@ -924,12 +923,12 @@ impl<'a> Compiler<'a> {
                 Ok(())
             })
         };
-        self.depth -= 1;
+        self.built = built;
         r
     }
 
-    /// `Op::BuildLocal` for each watched record local statement `s` names when it starts (`lazy_record.rs`), but not one a
-    /// statement of the routine's own block built before.
+    /// `Op::BuildLocal` for each watched record local statement `s` names when it starts (`lazy_record.rs`), but not one an
+    /// earlier statement of the block built (see `built`).
     fn build_locals(&mut self, s: &ir::Stmt) {
         if !self.watched.contains(&true) {
             return;
@@ -937,7 +936,7 @@ impl<'a> Compiler<'a> {
         for i in crate::lazy_record::statement_locals(s, &self.watched) {
             if !self.built[usize::from(i)] {
                 self.emit(Op::BuildLocal { i });
-                self.built[usize::from(i)] = self.depth == 1;
+                self.built[usize::from(i)] = true;
             }
         }
     }

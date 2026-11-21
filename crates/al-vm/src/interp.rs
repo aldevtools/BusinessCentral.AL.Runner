@@ -1046,6 +1046,11 @@ impl Session {
     /// whose value is not known (`single_unmeasured.rs`), then the single-instance notes.
     #[inline]
     pub(crate) fn global_value(&mut self, i: usize, f: &Frame) -> Result<Value, Signal> {
+        // Only a local is ever unbuilt (`lazy_record.rs`).
+        debug_assert!(
+            !matches!(f.instance.borrow().globals[i], Value::UnbuiltRecord(_)),
+            "an unbuilt global"
+        );
         self.alias_access(i, f)?;
         if let Some(why) = &f.instance.borrow().unmeasured {
             return Err(crate::single_unmeasured::read_refused(why));
@@ -1439,7 +1444,13 @@ impl Session {
     /// record whose field is written) reads with `value` false.
     pub(crate) fn read_place(&mut self, p: &ir::Place, value: bool, f: &mut Frame) -> Result<Value, Signal> {
         match p {
-            ir::Place::Local(i) => Ok(f.locals[*i].clone()),
+            ir::Place::Local(i) => {
+                debug_assert!(
+                    !matches!(f.locals[*i], Value::UnbuiltRecord(_)),
+                    "an unbuilt local read by place"
+                );
+                Ok(f.locals[*i].clone())
+            }
             ir::Place::Global(i) => self.global_value(*i, f),
             ir::Place::BaseGlobal(i) => {
                 let base = self.base_instance(f)?;
