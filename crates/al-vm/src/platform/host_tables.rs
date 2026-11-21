@@ -150,56 +150,33 @@ pub(super) fn feature_key_rows(t: &TableDef, target: Option<&al_version::Target>
         ("SaveValueToDatabasePromptly", true, 30, true, false, false),
         ("SemanticMetadataSearch", true, 30, false, false, false),
     ];
-    // 29.1 (al-runner issue 8192): the 29.0 list plus NewNotificationBar, measured by a contributor on one BC 29.1 W1
-    // sandbox container (build 29.1.57326.58379, fresh tenant, 2026-11-18) with the RowText of
-    // record/PFFeatureKeyColumns.al. The corpus has not measured 29.1: a read of this list marks the assumption
+    // 29.1 (al-runner issue 8192): the 29.0 list plus these rows, measured by a contributor on one BC 29.1 W1 sandbox
+    // container (build 29.1.57326.58379, fresh tenant, 2026-11-18) with the RowText of record/PFFeatureKeyColumns.al.
+    // The corpus has not measured 29.1: a read of the table there marks the assumption
     // feature-key-rows-container-measured.
-    const ROWS_THIRD_1: &[Row] = &[
-        ("AcceleratedDepreciation", false, 31, false, true, true),
-        ("AdvancedTellMe", true, 30, false, false, false),
-        ("ConcurrentInventoryPosting", true, 31, false, false, false),
-        ("ConcurrentJobPosting", true, 31, false, false, false),
-        ("ConcurrentResourcePosting", true, 31, false, false, false),
-        (
-            "DisableSoapWebServicesOnMicrosoftUIPages",
-            true,
-            29,
-            false,
-            false,
-            false,
-        ),
-        ("DocumentReportExperience", true, 31, false, false, false),
-        ("EXRPerformantTrialBalance", true, 31, true, false, false),
-        ("FinancialReportDefaults", true, 29, true, false, false),
-        ("FullTextSearch", false, 30, true, false, false),
-        ("NewNotificationBar", true, 30, true, false, false),
-        ("SalesPrices", false, 31, false, true, true),
-        ("SaveValueToDatabasePromptly", true, 30, true, false, false),
-        ("SemanticMetadataSearch", true, 30, false, false, false),
-    ];
+    const ADDED_THIRD_1: &[Row] = &[("NewNotificationBar", true, 30, true, false, false)];
     use al_version::FeatureKeyRows;
-    let which = al_version::feature_key_rows(target);
-    let rows = match which {
-        Some(FeatureKeyRows::Bc27 | FeatureKeyRows::Bc27_0) => ROWS_FIRST,
-        Some(FeatureKeyRows::Bc28 | FeatureKeyRows::Bc28_0) => ROWS_SECOND,
-        Some(FeatureKeyRows::Bc29) => ROWS_THIRD,
-        Some(FeatureKeyRows::Bc29_1) => ROWS_THIRD_1,
-        None => {
-            return vec![Entry::poisoned_prefix(
-                blank(t),
-                0,
-                "Feature Key: its rows are served for the minors they were measured on only (docs/probes-needed.md)"
-                    .into(),
-            )];
-        }
+    let Some(which) = al_version::feature_key_rows(target) else {
+        return vec![Entry::poisoned_prefix(
+            blank(t),
+            0,
+            "Feature Key: its rows are served for the minors they were measured on only (docs/probes-needed.md)".into(),
+        )];
+    };
+    let (rows, added): (&[Row], &[Row]) = match which {
+        FeatureKeyRows::Bc27 | FeatureKeyRows::Bc27_0 => (ROWS_FIRST, &[]),
+        FeatureKeyRows::Bc28 | FeatureKeyRows::Bc28_0 => (ROWS_SECOND, &[]),
+        FeatureKeyRows::Bc29 => (ROWS_THIRD, &[]),
+        FeatureKeyRows::Bc29_1 => (ROWS_THIRD, ADDED_THIRD_1),
     };
     // 27.0 and 28.0 differ from the newest minor of their major in one row: SemanticMetadataSearch is None on 27.0 (RowsA)
     // and All Users on 28.0 (RowsC), record/PFFeatureKeyColumns.al:96-160.
-    let flipped = matches!(which, Some(FeatureKeyRows::Bc27_0 | FeatureKeyRows::Bc28_0));
+    let flipped = matches!(which, FeatureKeyRows::Bc27_0 | FeatureKeyRows::Bc28_0);
     // The texts of metadata/platform-tables/BaFeatureKeyTexts.al were measured on 27.5, 28.5 and 29.0; the measurement
     // of the 29.1 list did not read them.
-    let texts_measured = which != Some(FeatureKeyRows::Bc29_1);
+    let texts_measured = which.measured_by_corpus();
     rows.iter()
+        .chain(added)
         .map(|&(id, all_users, version, can_try, one_way, data_update)| {
             let all_users = all_users != (flipped && id == "SemanticMetadataSearch");
             let mut r = blank(t);
@@ -235,13 +212,14 @@ pub(super) fn feature_key_rows(t: &TableDef, target: Option<&al_version::Target>
         .collect()
 }
 
-/// The assumption every read of the Feature Key table of `target` rests on, if any: the 29.1 list (`ROWS_THIRD_1`,
-/// al-runner issue 8192) comes from one contributor measurement, not from the corpus, and so does the answer of a read
-/// that finds no row (that the list has no other key). `None` where the corpus pins the list.
+/// The assumption every read of the Feature Key table of `target` rests on, if any: the 29.1 list (al-runner issue 8192)
+/// comes from one contributor measurement, not from the corpus, and so does the answer of a read that finds no row (that
+/// the list has no other key). `None` where the corpus pins the list.
 pub(super) fn feature_key_assumption(
     target: Option<&al_version::Target>,
 ) -> Option<al_builtins::assumptions::Assumption> {
-    (al_version::feature_key_rows(target) == Some(al_version::FeatureKeyRows::Bc29_1))
+    al_version::feature_key_rows(target)
+        .is_some_and(|which| !which.measured_by_corpus())
         .then_some(al_builtins::assumptions::Assumption::FeatureKeyRowsContainerMeasured)
 }
 
