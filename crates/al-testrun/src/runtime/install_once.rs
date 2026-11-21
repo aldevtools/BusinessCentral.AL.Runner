@@ -2,6 +2,18 @@
 //! or no selected test can observe the baseline, `observe.rs`). Publishing the app runs it once, in a session of its own
 //! (`blocked.rs` `run_install_codeunits`).
 use super::*;
+use al_builtins::assumptions::{HitBits, add_hit_bits, take_hit_bits};
+
+/// What the install code of the apps under test left a codeunit's session: the routines that could not run, and the marks
+/// of the assumptions the install code of the run ran through ([`RunInstalls`]). Every test of the session runs on what it
+/// left, so every test carries the marks (`run.rs` `mark_test_start_assumptions`, as for the company open step). They
+/// follow every copy of that state: a session that starts from a baseline a codeunit carried (`numbers_taken.rs`,
+/// `discovery.rs`, `run.rs` carry_disabled) gets them too. The install baseline reports its own (`baseline.rs`, the
+/// `<baseline>` row); a run whose install code ran only there has none here.
+pub(super) struct InstallsRan {
+    pub(super) skipped: Vec<al_vm::SkippedInstall>,
+    pub(super) marks: HitBits,
+}
 
 /// Runs the install code of the apps under test in `session`, as the codeunit's session does when no install baseline ran
 /// it: the tables of the routines that could not run, and why. `installs` counts the run.
@@ -17,7 +29,13 @@ pub(super) fn run_installs_in(
     }
     installs.runs.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     session.set_install_scope(true);
+    let earlier = take_hit_bits();
     let skipped = run_install_codeunits(lowered, session);
+    let marks = take_hit_bits();
+    add_hit_bits(earlier | marks);
+    if let Ok(mut m) = installs.marks.lock() {
+        *m = *m | marks;
+    }
     session.set_install_scope(false);
     skipped
 }
@@ -34,15 +52,17 @@ pub(super) fn installs_for(
     execute: bool,
     observed: bool,
     as_made_here: bool,
-) -> Vec<al_vm::SkippedInstall> {
-    if let Some(skipped) = baseline.and_then(|b| b.workspace_installs.clone()) {
-        return skipped;
-    }
-    baseline
-        .is_none()
-        .then(|| start_installed(lowered, session, scratch, execute, observed, as_made_here))
-        .flatten()
-        .unwrap_or_else(|| run_installs_in(lowered, session, &scratch.installs))
+) -> InstallsRan {
+    let skipped = match baseline.and_then(|b| b.workspace_installs.clone()) {
+        Some(skipped) => skipped,
+        None => baseline
+            .is_none()
+            .then(|| start_installed(lowered, session, scratch, execute, observed, as_made_here))
+            .flatten()
+            .unwrap_or_else(|| run_installs_in(lowered, session, &scratch.installs)),
+    };
+    let marks = scratch.installs.marks.lock().map(|m| *m).unwrap_or(HitBits::EMPTY);
+    InstallsRan { skipped, marks }
 }
 
 /// What the install code left for the codeunits of one run, shared by every test thread of the run ([`start_installed`]).
@@ -54,6 +74,8 @@ pub(crate) struct RunInstalls {
     kept: std::sync::Mutex<Option<Installed>>,
     /// How many times the install code ran for the run's codeunits (`Phases::install_runs`).
     runs: std::sync::atomic::AtomicUsize,
+    /// The marks of the assumptions the install code ran through, in any of its runs for the run ([`InstallsRan`]).
+    marks: std::sync::Mutex<HitBits>,
 }
 
 /// What the install code left the last time it ran for a run ([`start_installed`]).

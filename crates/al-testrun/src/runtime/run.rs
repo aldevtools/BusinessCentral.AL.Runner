@@ -499,7 +499,7 @@ fn run_codeunit_inner(
     };
     // What publishing the app does first: run its install codeunits, then commit. No single instance of an earlier
     // codeunit moved in: the session is as `install_once` makes one.
-    let skipped_installs = super::install_once::installs_for(
+    let installs_ran = super::install_once::installs_for(
         lowered,
         &mut session,
         baseline,
@@ -508,6 +508,7 @@ fn run_codeunit_inner(
         observe.is_some(),
         moved.is_none(),
     );
+    let (skipped_installs, install_marks) = (installs_ran.skipped, installs_ran.marks);
     // What install code wrote is known only in part (ADR-046): the tests read it through the facts of this engine.
     crate::install::ensure_facts(engine, lowered);
     enter_test_codeunit(&mut session, scratch, object, isolation);
@@ -826,7 +827,7 @@ fn run_codeunit_inner(
                         session.store_mut().watch(watched);
                         session.last_error = Default::default();
                         al_builtins::assumptions::clear_hits();
-                        mark_test_start_assumptions(lowered, on_run_shape_assumed, company_open_marks);
+                        mark_test_start_assumptions(lowered, on_run_shape_assumed, company_open_marks | install_marks);
                         assume_kept_bindings(&unfinished, &bound_before);
                         // The runner's steps before the method (runner_reset.rs); what they rely on counts for the test.
                         // Its `LibraryRandom.SetSeed(1)` reseeds the sequence, so draws after it are not inherited.
@@ -2058,9 +2059,10 @@ fn start_min_row_version(session: &mut Session, isolation: TestIsolation, hub: b
 }
 
 /// The marks every test of the codeunit starts with: the program's own (`ir::Program::assumes`: it compiled only through
-/// them), when the codeunit's OnRun shape is assumed `TestCodeunitOnRunRows`, and `company_open`, the marks of the login
-/// and Company Triggers step that opened the company for this session before its first test (orchestrator decision
-/// 2026-11-15, al-runner issue 8060: every test of the session runs on what that step left).
+/// them), when the codeunit's OnRun shape is assumed `TestCodeunitOnRunRows`, and `company_open`, the marks of the install
+/// code of the apps under test (`install_once::InstallsRan`) and of the login and Company Triggers step that opened the
+/// company for this session before its first test (orchestrator decision 2026-11-15, al-runner issue 8060: every test of
+/// the session runs on what that step left).
 fn mark_test_start_assumptions(
     lowered: &Lowered,
     on_run_shape_assumed: bool,

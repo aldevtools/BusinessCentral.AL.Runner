@@ -1,0 +1,490 @@
+//! The YAML shapes corpus PR 1493 measured on BC 27.5, 28.5 and 29.0 (`tests/al-language/json/JsonYamlBlankLines.al`,
+//! codeunit 75620, open; al-runner issue 8580), read only for a text the pinned reader (`read::document`) refuses. The
+//! caller marks the assumption `read-from-yaml-blank-lines-and-blocks` on every read this module answers. Every shape no
+//! cell measures refuses. A cell is named `Test/cell` after the probe's test and its `Observe` name.
+//!
+//! Measured: blank lines and lines of spaces only between list items, between keys and after the last line; CRLF line
+//! ends throughout; block lists under a key at its own indent (top keys only) or indented by two; list items that are
+//! words, flow forms or mappings whose first pair follows the `- `; nested mappings indented by two; the block scalars
+//! `|`, `|-`, `>` and `>-`; comment lines at indent 0 between top keys and a tail comment after a plain value; quoted
+//! keys and values; flow lists and flow mappings of one line; plain scalars as text, `Null` and `null` as null, an empty
+//! top value as null.
+
+use super::read::{Yaml, keyword};
+use crate::native::{Signal, unsupported};
+
+/// One line of the text after CRLF became LF.
+#[derive(Clone, Copy, PartialEq)]
+enum Row<'a> {
+    /// The empty line.
+    Empty,
+    /// A line of spaces only.
+    Spaces,
+    /// A line whose first character after its indent is `#`.
+    Comment { indent: usize, text: &'a str },
+    /// Any other line: its indent in spaces and the rest.
+    Text { indent: usize, text: &'a str },
+}
+
+fn row(line: &str) -> Row<'_> {
+    let text = line.trim_start_matches(' ');
+    let indent = line.len() - text.len();
+    match text {
+        "" if indent == 0 => Row::Empty,
+        "" => Row::Spaces,
+        _ if text.starts_with('#') => Row::Comment { indent, text },
+        _ => Row::Text { indent, text },
+    }
+}
+
+/// `ReadFromYaml` of `text` in a measured shape, or a refusal.
+pub(super) fn document(text: &str) -> Result<Yaml, Signal> {
+    // Printable ASCII, LF and CR only (every cell); a tab, a byte order mark and every other character refuse.
+    if !text.chars().all(|c| matches!(c, '\n' | '\r' | ' '..='~')) {
+        return unsupported("ReadFromYaml of a character other than printable ASCII in a block form (not measured)");
+    }
+    // Either no CR, or every line end CRLF (the `-crlf` cells).
+    let crlf = text.contains('\r');
+    if crlf && text.split("\r\n").any(|part| part.contains(['\r', '\n'])) {
+        return unsupported("ReadFromYaml of a text that mixes CRLF with LF or holds a lone CR (not measured)");
+    }
+    let lf = text.replace("\r\n", "\n");
+    let rows: Vec<Row> = lf.split('\n').map(row).collect();
+    check_comments(&rows)?;
+    let mut p = Parser { rows: &rows, at: 0 };
+    let tree = match p.peek() {
+        // The text starts with its first line at indent 0 (every cell), or a comment line (CommentsAndQuotes/comment).
+        Some(Row::Text { indent: 0, text }) if matches!(rows[0], Row::Text { .. } | Row::Comment { .. }) => {
+            if text.starts_with("- ") {
+                p.top_list()?
+            } else {
+                p.mapping(0, Vec::new())?
+            }
+        }
+        _ => return unsupported("ReadFromYaml of a text that starts with a blank or indented line (not measured)"),
+    };
+    // After the last line only blank lines and lines of spaces follow (TrailingLines, SpacesOnlyLineMore/trailing).
+    if p.rows[p.at..].iter().any(|r| !matches!(r, Row::Empty | Row::Spaces)) {
+        return unsupported("ReadFromYaml of a line after the end of the block it belongs to (not measured)");
+    }
+    Ok(tree)
+}
+
+/// A comment line is measured at indent 0, holding `# ` and words, first or after a top `key: value` line, and followed
+/// by a top line (CommentsAndQuotes/comment `# head`, `# between`; DatasetDocument).
+fn check_comments(rows: &[Row]) -> Result<(), Signal> {
+    for (i, r) in rows.iter().enumerate() {
+        let Row::Comment { indent, text } = *r else { continue };
+        let words = text
+            .strip_prefix("# ")
+            .is_some_and(|t| t.chars().all(|c| c.is_ascii_alphanumeric() || c == ' '));
+        let text_row = |r: &&Row| matches!(r, Row::Text { .. });
+        let before = rows[..i].iter().rev().find(text_row);
+        let after = rows[i + 1..].iter().find(text_row);
+        let before_ok = match before {
+            None => true,
+            Some(Row::Text { indent, text }) => *indent == 0 && text.contains(": ") && !text.starts_with("- "),
+            Some(_) => false,
+        };
+        let after_ok = matches!(after, Some(Row::Text { indent: 0, text }) if !text.starts_with("- "));
+        if indent != 0 || !words || !before_ok || !after_ok {
+            return unsupported("ReadFromYaml of a comment line at this place (not measured)");
+        }
+    }
+    Ok(())
+}
+
+struct Parser<'r, 'a> {
+    rows: &'r [Row<'a>],
+    at: usize,
+}
+
+impl<'a> Parser<'_, 'a> {
+    /// The next `Text` row, skipping blank, space and comment rows (blank lines are ignored between lines).
+    fn peek(&self) -> Option<Row<'a>> {
+        self.rows[self.at..]
+            .iter()
+            .copied()
+            .find(|r| matches!(r, Row::Text { .. }))
+    }
+
+    /// Moves past the next `Text` row.
+    fn take(&mut self) {
+        while !matches!(self.rows.get(self.at), Some(Row::Text { .. }) | None) {
+            self.at += 1;
+        }
+        self.at += 1;
+    }
+
+    fn next_indent(&self) -> Option<usize> {
+        match self.peek() {
+            Some(Row::Text { indent, .. }) => Some(indent),
+            _ => None,
+        }
+    }
+
+    /// The row right after the one just taken, blank lines not skipped.
+    fn adjacent(&self) -> Option<Row<'a>> {
+        self.rows.get(self.at).copied()
+    }
+
+    /// A top list: words only, read as a list (BlankLineTopList/toplist, CrLfNoBlank/toplist).
+    fn top_list(&mut self) -> Result<Yaml, Signal> {
+        let list = self.sequence(0)?;
+        match &list {
+            Yaml::Seq(items) if items.iter().all(|i| matches!(i, Yaml::Text(_))) => Ok(list),
+            _ => unsupported("ReadFromYaml of a top list of other items than words (not measured)"),
+        }
+    }
+
+    /// The `key: value` and `key:` lines at `indent`, added to `members` (the first pair of a list item mapping).
+    fn mapping(&mut self, indent: usize, mut members: Vec<(String, Yaml)>) -> Result<Yaml, Signal> {
+        while let Some(Row::Text { indent: at, text }) = self.peek() {
+            if at < indent {
+                break;
+            }
+            if at > indent || text.starts_with("- ") {
+                return unsupported("ReadFromYaml of a line indented other than by two spaces (not measured)");
+            }
+            self.take();
+            let (key, rest) = key_and_rest(text)?;
+            let value = self.value(indent, rest)?;
+            if members.iter().any(|(k, _)| *k == key) {
+                return unsupported("ReadFromYaml of a duplicate key (not measured)");
+            }
+            members.push((key, value));
+        }
+        Ok(Yaml::Map(members))
+    }
+
+    /// What follows the `:` of a key at column `col`.
+    fn value(&mut self, col: usize, rest: &str) -> Result<Yaml, Signal> {
+        match rest {
+            "" => self.block_under(col),
+            // An empty top value is null (ScalarForms/words `c: `), followed by a top line.
+            " " if col == 0 && matches!(self.next_indent(), Some(0)) => Ok(Yaml::Null),
+            _ => {
+                let v = rest.strip_prefix(' ').filter(|v| !v.is_empty() && !v.starts_with(' '));
+                match v {
+                    Some(ind @ ("|" | "|-" | ">" | ">-")) => self.block_scalar(col, ind),
+                    Some(v) if v.starts_with(['[', '{']) => flow(v),
+                    Some(v) if v.starts_with(['"', '\'']) => quoted(v),
+                    Some(v) => plain_value(v),
+                    None => unsupported("ReadFromYaml of an empty value below the top mapping (not measured)"),
+                }
+            }
+        }
+    }
+
+    /// The block under `key:` at column `col`, starting on the very next line.
+    fn block_under(&mut self, col: usize) -> Result<Yaml, Signal> {
+        let Some(Row::Text { indent, text }) = self.adjacent() else {
+            return unsupported("ReadFromYaml of `key:` followed by a blank line or nothing (not measured)");
+        };
+        let item = text.starts_with("- ");
+        match (indent, item) {
+            // A list indented by two (BlankLineNestedList, DatasetDocument `tests:` and `lines:`).
+            (i, true) if i == col + 2 => self.sequence(i),
+            // A list at the key's own indent, top keys only (BlankLineTopList/keylist0); it ends the text.
+            (0, true) if col == 0 => {
+                let list = self.sequence(0)?;
+                if self.peek().is_some() {
+                    return unsupported("ReadFromYaml of a line after a list at its key's indent (not measured)");
+                }
+                Ok(list)
+            }
+            // A mapping indented by two (BlankLineNestedKeys, SpacesOnlyLineMore/deep, DatasetDocument).
+            (i, false) if i == col + 2 => self.mapping(i, Vec::new()),
+            // A top key followed by a top `key: value` line is null (P88ObjectPathYaml.al:224,239).
+            (0, false) if col == 0 && text.contains(": ") => Ok(Yaml::Null),
+            _ => unsupported("ReadFromYaml of `key:` with this line below it (not measured)"),
+        }
+    }
+
+    /// `- ` lines at `indent`.
+    fn sequence(&mut self, indent: usize) -> Result<Yaml, Signal> {
+        let mut items = Vec::new();
+        while let Some(Row::Text { indent: at, text }) = self.peek() {
+            if at < indent || (at == indent && !text.starts_with("- ")) {
+                break;
+            }
+            let Some(rest) = text.strip_prefix("- ").filter(|_| at == indent) else {
+                return unsupported("ReadFromYaml of a line indented other than by two spaces (not measured)");
+            };
+            self.take();
+            items.push(self.item(indent, rest)?);
+        }
+        Ok(Yaml::Seq(items))
+    }
+
+    /// A list item: a flow form (FlowInBlockList/flow), a mapping whose first pair follows the `- ` and whose other keys
+    /// are indented by two more (BlankLineListItemMapping, BlockScalarInListItem, DatasetDocument), or a word.
+    fn item(&mut self, indent: usize, rest: &str) -> Result<Yaml, Signal> {
+        if rest.starts_with(['[', '{']) {
+            return flow(rest);
+        }
+        if let Ok((key, after)) = key_and_rest(rest) {
+            if after.is_empty() || after == " " {
+                return unsupported(
+                    "ReadFromYaml of a list item mapping that opens a block on its dash line (not measured)",
+                );
+            }
+            let first = self.value(indent + 2, after)?;
+            return self.mapping(indent + 2, vec![(key, first)]);
+        }
+        match scalar(rest, false)? {
+            text @ Yaml::Text(_) if !rest.starts_with(['"', '\'']) => Ok(text),
+            _ => unsupported("ReadFromYaml of a list item that is not a word, a flow form or a mapping (not measured)"),
+        }
+    }
+
+    /// A block scalar under the key at column `col`: its lines indented by two more, from the very next line
+    /// (LiteralBlockScalar, FoldedBlockScalar, BlockScalarEnd, BlockScalarInListItem).
+    fn block_scalar(&mut self, col: usize, ind: &str) -> Result<Yaml, Signal> {
+        let content = col + 2;
+        let mut lines: Vec<&str> = Vec::new();
+        loop {
+            match self.adjacent() {
+                Some(Row::Text { indent, text }) if indent == content => {
+                    if !text.chars().all(|c| c.is_ascii_alphanumeric() || c == ' ') || text.ends_with(' ') {
+                        return unsupported(
+                            "ReadFromYaml of a block scalar line with other characters than letters, digits and spaces (not measured)",
+                        );
+                    }
+                    lines.push(text);
+                    self.at += 1;
+                }
+                // One empty line between two lines of a `|` or `>` scalar (`literal-blank`, `folded-blank`).
+                Some(Row::Empty)
+                    if matches!(ind, "|" | ">")
+                        && lines.last().is_some_and(|l| !l.is_empty())
+                        && matches!(self.rows.get(self.at + 1), Some(Row::Text { indent, .. }) if *indent == content) =>
+                {
+                    lines.push("");
+                    self.at += 1;
+                }
+                _ => break,
+            }
+        }
+        if lines.is_empty() {
+            return unsupported("ReadFromYaml of a block scalar without a line right below it (not measured)");
+        }
+        // How the scalar ends: a less indented line (every indicator), the end of the text (`|`, BlockScalarEnd/
+        // literal-last; `>-`, BlockScalarInListItem), or one line feed and the end (`|`, BlockScalarEnd/literal-last-lf).
+        let rest = &self.rows[self.at..];
+        let final_lf = match (rest, ind) {
+            ([Row::Text { indent, .. }, ..], _) if *indent < content => true,
+            ([], "|" | ">-") => false,
+            ([Row::Empty], "|") => true,
+            _ => return unsupported("ReadFromYaml of a block scalar that ends in this way (not measured)"),
+        };
+        let mut text = if ind.starts_with('|') {
+            lines.join("\n")
+        } else {
+            // Folded: lines joined by a space, an empty line becomes the line feed (`folded-blank`).
+            let mut out = String::new();
+            for (i, l) in lines.iter().enumerate() {
+                if l.is_empty() {
+                    out.push('\n');
+                } else {
+                    if i > 0 && !lines[i - 1].is_empty() {
+                        out.push(' ');
+                    }
+                    out.push_str(l);
+                }
+            }
+            out
+        };
+        if final_lf && !ind.ends_with('-') {
+            text.push('\n');
+        }
+        Ok(Yaml::Text(text))
+    }
+}
+
+/// A key and what follows its `:` (`""` or a space and more). A plain key holds letters, digits and `_`; a quoted key
+/// (CommentsAndQuotes/quoted-key, DatasetDocument `"Expected Amount"`, `"Item No."`) letters, digits, spaces and, in
+/// double quotes, `.`.
+fn key_and_rest(text: &str) -> Result<(String, &str), Signal> {
+    let (key, after) = match text.chars().next() {
+        Some(q @ ('"' | '\'')) => {
+            let Some((inner, after)) = text[1..].split_once(q) else {
+                return unsupported("ReadFromYaml of an unclosed quoted key (not measured)");
+            };
+            let ok = |c: char| c.is_ascii_alphanumeric() || c == ' ' || (q == '"' && c == '.');
+            if inner.is_empty() || !inner.chars().all(ok) {
+                return unsupported("ReadFromYaml of a quoted key with these characters (not measured)");
+            }
+            (inner, after)
+        }
+        _ => {
+            let end = text
+                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                .unwrap_or(text.len());
+            (&text[..end], &text[end..])
+        }
+    };
+    match after.strip_prefix(':') {
+        Some(rest) if !key.is_empty() && (rest.is_empty() || rest.starts_with(' ')) => Ok((key.to_string(), rest)),
+        _ => unsupported("ReadFromYaml of a line that is not `key: value` or `key:` (not measured)"),
+    }
+}
+
+/// A plain value with an optional tail comment ` # ` and words (CommentsAndQuotes/comment `1 # tail`, DatasetDocument).
+fn plain_value(v: &str) -> Result<Yaml, Signal> {
+    let (value, comment) = match v.split_once(" #") {
+        Some((value, c)) => (value, Some(c)),
+        None => (v, None),
+    };
+    let comment_ok = comment.is_none_or(|c| {
+        c.strip_prefix(' ')
+            .is_some_and(|t| t.chars().all(|c| c.is_ascii_alphanumeric() || c == ' '))
+    });
+    if !comment_ok {
+        return unsupported("ReadFromYaml of a tail comment with these characters (not measured)");
+    }
+    scalar(value, false)
+}
+
+/// A plain scalar (ScalarForms, FlowInBlockList, DatasetDocument): `Null` and `null` are null; `yes` and the numbers
+/// `1`, `-3`, `0010`, `1.5`, `1e3` are text; else letters, digits, single inner spaces, `-`, `.`, `/` and, outside a
+/// flow form, `:` not before a space, starting with a letter. Other words YAML may read otherwise refuse.
+fn scalar(v: &str, in_flow: bool) -> Result<Yaml, Signal> {
+    if v.starts_with(['"', '\'']) {
+        return quoted(v);
+    }
+    if v == "Null" || v == "null" {
+        return Ok(Yaml::Null);
+    }
+    if v == "yes" {
+        return Ok(Yaml::Text(v.to_string()));
+    }
+    let digits = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_digit());
+    let number = digits(v.strip_prefix('-').unwrap_or(v))
+        || v.split_once('.').is_some_and(|(a, b)| digits(a) && digits(b))
+        || v.split_once('e').is_some_and(|(a, b)| digits(a) && digits(b));
+    let chars_ok = v
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, ' ' | '-' | '.' | '/' | ':'));
+    let word = v.starts_with(|c: char| c.is_ascii_alphabetic())
+        && chars_ok
+        && !(in_flow && v.contains(':'))
+        && !v.contains(": ")
+        && !v.contains("  ")
+        && !v.ends_with([' ', ':'])
+        && !keyword(v)
+        && v != "NULL";
+    if number || word {
+        return Ok(Yaml::Text(v.to_string()));
+    }
+    unsupported("ReadFromYaml of a plain value of this form (not measured)")
+}
+
+/// A whole quoted value: `"..."` of letters, digits, spaces and `$-<>+,.`, with the escapes `\"` and `\n`
+/// (CommentsAndQuotes/quoted-escapes, ScalarForms/special, FlowInListItemMapping/flow-quoted); `'...'` of letters,
+/// digits, spaces and `''` (quoted-escapes `'it''s'`, DatasetDocument `'2000'`). Nothing may follow the closing quote.
+fn quoted(v: &str) -> Result<Yaml, Signal> {
+    let refuse = || unsupported("ReadFromYaml of a quoted value of this form (not measured)");
+    let mut chars = v.chars();
+    let q = chars.next();
+    let mut out = String::new();
+    let mut closed = false;
+    while let Some(c) = chars.next() {
+        match (q, c) {
+            (Some('"'), '\\') => match chars.next() {
+                Some('"') => out.push('"'),
+                Some('n') => out.push('\n'),
+                _ => return refuse(),
+            },
+            (Some('\''), '\'') if chars.clone().next() == Some('\'') => {
+                chars.next();
+                out.push('\'');
+            }
+            (Some(q), c) if c == q => {
+                closed = true;
+                break;
+            }
+            (Some('"'), c) if c.is_ascii_alphanumeric() || " $-<>+,.".contains(c) => out.push(c),
+            (Some('\''), c) if c.is_ascii_alphanumeric() || c == ' ' => out.push(c),
+            _ => return refuse(),
+        }
+    }
+    if !closed || out.is_empty() || chars.next().is_some() {
+        return refuse();
+    }
+    Ok(Yaml::Text(out))
+}
+
+/// A one-line flow form: `[]`, `[a, b]` of words and quoted texts split by `, ` (FlowInBlockList, FlowInListItemMapping),
+/// `{x: 1, y: two words}` of plain keys and words (FlowInBlockList/flow-values, DatasetDocument `options`).
+fn flow(v: &str) -> Result<Yaml, Signal> {
+    if v == "[]" {
+        return Ok(Yaml::Seq(Vec::new()));
+    }
+    if let Some(inner) = v.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
+        let items = split_flow(inner)?
+            .into_iter()
+            .map(|e| scalar(e, true))
+            .collect::<Result<Vec<_>, _>>()?;
+        if items.iter().all(|i| matches!(i, Yaml::Text(_))) {
+            return Ok(Yaml::Seq(items));
+        }
+    } else if let Some(inner) = v.strip_prefix('{').and_then(|s| s.strip_suffix('}')) {
+        let mut members: Vec<(String, Yaml)> = Vec::new();
+        for entry in split_flow(inner)? {
+            let (key, rest) = key_and_rest(entry)?;
+            let value = rest.strip_prefix(' ').map(|v| scalar(v, true)).transpose()?;
+            match value {
+                Some(text @ Yaml::Text(_))
+                    if !entry.starts_with(['"', '\'']) && !rest[1..].starts_with(['"', '\'']) =>
+                {
+                    if members.iter().any(|(k, _)| *k == key) {
+                        return unsupported("ReadFromYaml of a duplicate key (not measured)");
+                    }
+                    members.push((key, text));
+                }
+                _ => return unsupported("ReadFromYaml of a flow mapping entry of this form (not measured)"),
+            }
+        }
+        return Ok(Yaml::Map(members));
+    }
+    unsupported("ReadFromYaml of a flow form of this shape (not measured)")
+}
+
+/// The entries of a flow form split by `, ` outside quotes; an empty entry, a nested flow form or text around an entry
+/// refuses.
+fn split_flow(inner: &str) -> Result<Vec<&str>, Signal> {
+    let mut entries = Vec::new();
+    let mut start = 0;
+    let mut quote: Option<char> = None;
+    let bytes = inner.as_bytes();
+    for (i, c) in inner.char_indices() {
+        match (quote, c) {
+            (None, '"' | '\'') => quote = Some(c),
+            (Some(q), c) if c == q => quote = None,
+            (None, '[' | ']' | '{' | '}' | '#') => {
+                return unsupported("ReadFromYaml of a nested flow form or a comment in one (not measured)");
+            }
+            (None, ',') => {
+                if bytes.get(i + 1) != Some(&b' ') {
+                    return unsupported("ReadFromYaml of flow entries split other than by `, ` (not measured)");
+                }
+                entries.push(&inner[start..i]);
+                start = i + 2;
+            }
+            _ => {}
+        }
+    }
+    entries.push(&inner[start..]);
+    if quote.is_some()
+        || entries
+            .iter()
+            .any(|e| e.is_empty() || e.starts_with(' ') || e.ends_with(' '))
+    {
+        return unsupported("ReadFromYaml of a flow form of this shape (not measured)");
+    }
+    Ok(entries)
+}
+
+#[cfg(test)]
+mod tests;
