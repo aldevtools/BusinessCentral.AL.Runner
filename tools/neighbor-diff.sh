@@ -16,7 +16,8 @@
 # The head binary is built from the working tree. The main binary of BASE comes from the cache
 # (<cache>/main-bin/<commit>), else from the CI artifact `al-runner-main-<commit>` of BASE or of an older main commit
 # with the same binary inputs (tools/binary-inputs.txt), else it is built (one build at a time, under a lock).
-# Exit 0: every difference has an entry. 1: a difference has none, or the rule fails. 2: the tool could not finish.
+# Exit 0: every difference has an entry. 1: a difference has none, an entry is stale or malformed, the rule fails, or
+# the runs are not compared (a resource limit, no test ran, or nothing passed). 2: the tool could not finish.
 set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$(git rev-parse --show-toplevel)" || exit 2

@@ -67,6 +67,17 @@ fn compare_on(dir: &Path, main: &Path, head: &Path, entries: &str, extra: &[&str
     (o.status.code().unwrap_or(-1), text)
 }
 
+/// Like [`junit`], with the suite-level `baseline_assumptions` property of the Runner dialect.
+fn junit_baseline(dir: &Path, file: &str, ids: &str, cases: &[(&str, &str)]) -> PathBuf {
+    let p = junit(dir, file, cases);
+    let s = std::fs::read_to_string(&p).unwrap().replace(
+        "<testsuites>",
+        &format!("<testsuites>\n  <properties><property name=\"baseline_assumptions\" value=\"{ids}\" /></properties>"),
+    );
+    std::fs::write(&p, s).unwrap();
+    p
+}
+
 const REFUSED: &str = "<skipped message=\"First() on a part whose view is not pinned\" />";
 const FLAGGED: &str = "<properties><property name=\"assumptions\" value=\"left-view-filter\" /></properties>";
 
@@ -220,8 +231,9 @@ fn an_assumed_entry_needs_its_id_in_the_head_flags_and_in_the_registry() {
         P::D\tASSUMED left-view-filter\n";
     let (code, out) = compare(d.path(), &main, &head, entries);
     assert_eq!(code, 1, "{out}");
+    // D carries a second id the entry does not name.
     assert!(out.contains("| P::D |"), "{out}");
-    assert!(out.contains("4 of 4 tests differ, 3 without an entry"), "{out}");
+    assert!(out.contains("4 of 4 tests differ, 4 without an entry"), "{out}");
 }
 
 #[test]
@@ -350,4 +362,132 @@ fn the_resource_reasons_match_the_runtime_texts() {
     for r in ["\"memory limit (\"", "\"the test used more than the time limit of \""] {
         assert!(script.contains(r), "{r}");
     }
+}
+
+#[test]
+fn a_pinned_path_must_stay_under_the_corpus() {
+    let d = tempfile::tempdir().unwrap();
+    let abs = d.path().join("elsewhere.al");
+    std::fs::write(&abs, "x\n").unwrap();
+    let main = junit(
+        d.path(),
+        "m.xml",
+        &[("A", REFUSED), ("B", REFUSED), ("C", REFUSED), ("Z", "")],
+    );
+    let head = junit(d.path(), "h.xml", &[("A", ""), ("B", ""), ("C", ""), ("Z", "")]);
+    let entries = format!(
+        "P::A\tPINNED {}:1\nP::B\tPINNED /etc/hostname:1\nP::C\tPINNED tests//al-language/pages/PartRefill.al:1\n",
+        abs.display()
+    );
+    let (code, out) = compare(d.path(), &main, &head, &entries);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("3 of 4 tests differ, 3 without an entry"), "{out}");
+}
+
+#[test]
+fn a_pinned_symlink_out_of_the_corpus_is_missing() {
+    let d = tempfile::tempdir().unwrap();
+    let outside = d.path().join("outside.al");
+    std::fs::write(&outside, "x\n").unwrap();
+    let main = junit(d.path(), "m.xml", &[("A", REFUSED), ("Z", "")]);
+    let head = junit(d.path(), "h.xml", &[("A", ""), ("Z", "")]);
+    // evidence() is built by compare(); build the link after it in a second root run.
+    let root = evidence(d.path());
+    std::os::unix::fs::symlink(&outside, root.join("corpus/link.al")).unwrap();
+    let (code, out) = compare(d.path(), &main, &head, "P::A\tPINNED link.al:1\n");
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("1 of 2 tests differ, 1 without an entry"), "{out}");
+}
+
+#[test]
+fn a_baseline_that_newly_runs_through_an_assumption_is_a_difference() {
+    let d = tempfile::tempdir().unwrap();
+    let main = junit(d.path(), "m.xml", &[("A", "")]);
+    let head = junit_baseline(d.path(), "h.xml", "left-view-filter", &[("A", "")]);
+    let (code, out) = compare(d.path(), &main, &head, "");
+    assert_eq!(code, 1, "{out}");
+    assert!(
+        out.contains("| <baseline> | missing | pass, flagged (left-view-filter) | MISSING |"),
+        "{out}"
+    );
+    let (code, out) = compare(
+        d.path(),
+        &main,
+        &head,
+        "<baseline>\tASSUMED left-view-filter (corpus PR 1)\n",
+    );
+    assert_eq!(code, 0, "{out}");
+    let same = junit_baseline(d.path(), "s.xml", "left-view-filter", &[("A", "")]);
+    let (code, out) = compare(d.path(), &head, &same, "");
+    assert_eq!(code, 0, "{out}");
+}
+
+#[test]
+fn a_malformed_entry_row_is_an_error() {
+    let d = tempfile::tempdir().unwrap();
+    let main = junit(d.path(), "m.xml", &[("A", REFUSED)]);
+    let head = junit(d.path(), "h.xml", &[("A", "")]);
+    for rows in [
+        "P::A\tREFUSED x\t29\textra\n",
+        "P::A\tREFUSED x\t92x\n",
+        "P::A\tREFUSED x\t30\n",
+        "P::A\n",
+    ] {
+        let (code, out) = compare(d.path(), &main, &head, rows);
+        assert_eq!(code, 1, "{rows}: {out}");
+        assert!(out.contains("error in the entries file"), "{rows}: {out}");
+    }
+}
+
+#[test]
+fn a_duplicate_entry_key_is_an_error() {
+    let d = tempfile::tempdir().unwrap();
+    let main = junit(d.path(), "m.xml", &[("A", REFUSED)]);
+    let head = junit(d.path(), "h.xml", &[("A", "")]);
+    let pinned = "PINNED tests/al-language/pages/PartRefill.al:1";
+    let rows = format!("P::A\t{pinned}\t29\nP::A\t{pinned}\n");
+    let (code, out) = compare_on(d.path(), &main, &head, &rows, &["--build", "29.0.1.0"]);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("error in the entries file: duplicate key P::A"), "{out}");
+    // Rows for different versions are not duplicates.
+    let rows = format!("P::A\t{pinned}\t29\nP::A\t{pinned}\t28\n");
+    let (code, out) = compare_on(d.path(), &main, &head, &rows, &["--build", "29.0.1.0"]);
+    assert_eq!(code, 0, "{out}");
+}
+
+#[test]
+fn an_assumed_entry_names_every_new_id_of_the_head() {
+    let d = tempfile::tempdir().unwrap();
+    let two = "<properties><property name=\"assumptions\" value=\"left-view-filter,other-id\" /></properties>";
+    let main = junit(d.path(), "m.xml", &[("A", REFUSED), ("B", FLAGGED), ("Z", "")]);
+    let head = junit(d.path(), "h.xml", &[("A", two), ("B", two), ("Z", "")]);
+    let (code, out) = compare(
+        d.path(),
+        &main,
+        &head,
+        "P::A\tASSUMED left-view-filter\nP::B\tASSUMED other-id\n",
+    );
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("2 of 3 tests differ, 1 without an entry"), "{out}");
+    let (code, out) = compare(
+        d.path(),
+        &main,
+        &head,
+        "P::A\tASSUMED left-view-filter,other-id\nP::B\tASSUMED other-id\n",
+    );
+    assert_eq!(code, 0, "{out}");
+}
+
+#[test]
+fn a_run_where_nothing_passed_on_either_side_fails() {
+    let d = tempfile::tempdir().unwrap();
+    let f = "<failure message=\"the app does not install\" />";
+    let main = junit(d.path(), "m.xml", &[("A", f), ("B", f)]);
+    let head = junit(d.path(), "h.xml", &[("A", f), ("B", f)]);
+    let (code, out) = compare(d.path(), &main, &head, "");
+    assert_eq!(code, 1, "{out}");
+    assert!(
+        out.contains("nothing passed on either side, first P::A: the app does not install"),
+        "{out}"
+    );
 }

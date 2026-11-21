@@ -46,11 +46,19 @@ LT PR Tests::PartRefill_Guarded	REFUSED First() on a part	29.1
 An entry is one of. The check reads every fact it states; an entry that does not hold counts as missing.
 
 - `PINNED file:line`: the corpus case that pins the head result. `file` is relative to the corpus root
-  (`corpus/`), and that file has the line. The head result is a clean pass or fail (no assumption id).
-- `ASSUMED id`: the assumption registry entry the head result runs through (the file name of
-  `crates/al-builtins/src/assumptions/<id>.rs`), then its open probe pull request. The head result carries that id.
+  (`corpus/`): letters, digits, `_`, `.`, `-` and `/`, no leading `/`, no `..`, and it stays under `corpus/` after
+  symlinks. That file has the line. The head result is a clean pass or fail (no assumption id).
+- `ASSUMED id[,id]`: the assumption registry entries the head result runs through (the file name of
+  `crates/al-builtins/src/assumptions/<id>.rs`), comma separated, no spaces. The head result carries those ids, and
+  every id it carries that main's result did not carry is named. Text after the ids (the open probe pull request) is
+  for the reader; the check does not read it.
 - `REFUSED text`: the head refuses this shape on purpose, with a message that starts with `text`. The pull request
   body lists every shape that main answered and head now refuses, with the reason.
+
+Suite-level baseline: a head whose install baseline newly runs through an assumption (JUnit property
+`baseline_assumptions`) shows as the row `<baseline>`; it needs an `ASSUMED` entry like a test.
+
+A malformed row (not 2 or 3 columns, a version that is not `27`-`29` or `29.1`) and a duplicate key are errors.
 
 An entry that applies to a run but whose test shows no difference there is stale and fails the check. Delete it,
 or give it the version column.
@@ -69,7 +77,8 @@ Default BC version: 29, and CI runs BC 29 only. A change that a BC version decid
 table) runs the app locally on 27, 28 and 29 (`--bc-version 27 --bc-version 28 --bc-version 29`), and the pull request
 body has all three tables. Each run prints one table per app and version. Paste the tables into the pull request body.
 Logs and JUnit files: the folder the last line names. Exit 0: every difference has an entry. Exit 1: one has none,
-an entry is stale, or the rule fails. Exit 2: a build or a run failed.
+an entry is stale, the entries file is malformed, the rule fails, or the runs are not compared: a test stopped by a
+memory or time limit on either side, no test ran on either side, or nothing passed on either side and nothing differs. Exit 2: a build or a run failed.
 
 The main binary is the merge base of your branch and `origin/main`. Merge `origin/main` first. It comes from the
 local cache, from the CI artifact of `main` (needs `gh`), or a local build, in that order.
