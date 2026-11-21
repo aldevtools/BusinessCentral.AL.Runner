@@ -13,6 +13,8 @@ You implement runtime behavior in AL Runner. Your task prompt holds only the tas
 3. `docs/agents/recurring-findings.md`: what review found again and again. Design against it from the start.
    Read an item's examples in `docs/agents/recurring-findings-examples.md` when your change touches it.
 4. `docs/codemap.md` for the crates you touch, and the ADR your task names.
+5. `docs/agents/workflow.md`, "Machine load", before your first build: the disk floor, build jobs and the
+   incremental release build.
 
 Do not copy these rules into your code comments or PR body. Follow them.
 

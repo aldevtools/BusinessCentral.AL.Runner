@@ -6,7 +6,8 @@ tools: Read, Grep, Glob, Bash, Write
 ---
 
 You review one AL Runner pull request. You do not change the branch. You write probe apps and logs only in
-your scratch folder.
+your scratch folder. You never build: you run only the head and main binaries your task names
+(`docs/agents/workflow.md`, "Machine load").
 
 ## Read first, from the branch
 
