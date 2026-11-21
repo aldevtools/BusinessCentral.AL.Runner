@@ -268,8 +268,8 @@ fn an_entry_whose_test_shows_no_difference_is_stale_and_fails() {
 #[test]
 fn an_entry_for_one_bc_major_counts_only_on_that_major() {
     let d = tempfile::tempdir().unwrap();
-    let main = junit(d.path(), "m.xml", &[("A", REFUSED)]);
-    let head = junit(d.path(), "h.xml", &[("A", "")]);
+    let main = junit(d.path(), "m.xml", &[("A", REFUSED), ("B", "")]);
+    let head = junit(d.path(), "h.xml", &[("A", ""), ("B", "")]);
     let entries = "P::A @27\tPINNED tests/al-language/pages/PartRefill.al:1\n";
     let (code, out) = compare_on(d.path(), &main, &head, entries, &["--major", "27"]);
     assert_eq!(code, 0, "{out}");
@@ -281,8 +281,58 @@ fn an_entry_for_one_bc_major_counts_only_on_that_major() {
         "{out}"
     );
     assert!(!out.contains("stale"), "{out}");
-    let same = junit(d.path(), "s.xml", &[("A", REFUSED)]);
+    let same = junit(d.path(), "s.xml", &[("A", REFUSED), ("B", "")]);
     let (code, out) = compare_on(d.path(), &main, &same, entries, &["--major", "27"]);
     assert_eq!(code, 1, "{out}");
     assert!(out.contains("stale entry, no difference: P::A @27"), "{out}");
+}
+
+#[test]
+fn a_side_whose_tests_hit_a_resource_limit_fails_with_the_reason() {
+    for reason in [
+        "memory limit (--max-memory 3072 MB)",
+        "the test used more than the time limit of 60 s",
+    ] {
+        let d = tempfile::tempdir().unwrap();
+        let limit = format!("<skipped message=\"{reason}\" />");
+        let main = junit(d.path(), "m.xml", &[("A", ""), ("B", "")]);
+        let head = junit(d.path(), "h.xml", &[("A", ""), ("B", &limit)]);
+        let entries = "P::B\tREFUSED memory limit\n";
+        let (code, out) = compare(d.path(), &main, &head, entries);
+        assert_eq!(code, 1, "{out}");
+        assert!(
+            out.contains(&format!(
+                "head: 1 test not run for a resource limit, first P::B: {reason}"
+            )),
+            "{out}"
+        );
+    }
+}
+
+#[test]
+fn a_run_where_no_test_ran_on_either_side_fails() {
+    let d = tempfile::tempdir().unwrap();
+    let other = "<skipped message=\"codeunit 50100 does not compile\" />";
+    let main = junit(d.path(), "m.xml", &[("A", other), ("B", other)]);
+    let head = junit(d.path(), "h.xml", &[("A", other), ("B", other)]);
+    let (code, out) = compare(d.path(), &main, &head, "");
+    assert_eq!(code, 1, "{out}");
+    assert!(
+        out.contains("no test ran on either side, first P::A: codeunit 50100 does not compile"),
+        "{out}"
+    );
+}
+
+/// The resource reasons `compare_junit.py` knows are the ones the runtime writes; a changed text fails here.
+#[test]
+fn the_resource_reasons_match_the_runtime_texts() {
+    let text = |p: &str| std::fs::read_to_string(root().join(p)).unwrap();
+    let memory = text("crates/al-testrun/src/runtime/memory.rs");
+    let run = text("crates/al-testrun/src/runtime/run.rs");
+    let script = text("tools/compare_junit.py");
+    assert!(memory.contains("pub const REASON: &str = \"memory limit (\";"));
+    assert!(run.contains("const TIME_LIMIT_REASON: &str = \"the test used more than the time limit of \";"));
+    for r in ["\"memory limit (\"", "\"the test used more than the time limit of \""] {
+        assert!(script.contains(r), "{r}");
+    }
 }

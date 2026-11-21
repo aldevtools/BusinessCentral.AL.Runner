@@ -17,7 +17,8 @@ between a main binary and the head binary. A difference is another status, anoth
 holds `classname::name<TAB>entry` lines (tests/neighbors/README.md); a key ending in ` @N` applies only with
 `--major N`. An entry counts only when it states the head result and its evidence exists under `--root`
 (default: this repository), see `states_head`. Exit 1 while a difference has no such entry, while an entry
-has no difference (stale), or when neither file has a test.
+has no difference (stale), when neither file has a test, when a side has a test stopped by a resource limit,
+or when no test ran on either side.
 """
 import os
 import re
@@ -78,6 +79,26 @@ def cell(o):
     return text.replace("|", "\\|").replace("\n", " ")
 
 
+# How the reason of a test starts that al-runner did not run because the run hit a resource limit, not because of the
+# test: crates/al-testrun/src/runtime/memory.rs (REASON) and runtime/run.rs (TIME_LIMIT_REASON). The neighbor_diff
+# tests of al-test-cli check that both texts are still the runtime's.
+RESOURCE_LIMITS = ("memory limit (", "the test used more than the time limit of ")
+
+
+def not_comparable(main, head):
+    """Why the two runs cannot be compared, or None: a side has a test stopped by a resource limit, or no test ran."""
+    for side, out in (("main", main), ("head", head)):
+        hit = [k for k in sorted(out) if out[k][0] == "not run" and out[k][1].startswith(RESOURCE_LIMITS)]
+        if hit:
+            n = len(hit)
+            return f"{side}: {n} test{'s' if n > 1 else ''} not run for a resource limit, first {hit[0]}: {out[hit[0]][1]}"
+    both = {**main, **head}
+    if all(o[0] == "not run" for o in both.values()):
+        first = sorted(both)[0]
+        return f"no test ran on either side, first {first}: {both[first][1]}"
+    return None
+
+
 def read_entries(path, major):
     """The entries of FILE that apply on BC major `major`: key -> entry."""
     with open(path) as f:
@@ -101,6 +122,10 @@ def entries_table(path, title, main, head, root, major):
         print(f"### {title}\n")
     if not main and not head:
         print("neither file has a test: the app did not compile or ran nothing (see the logs)\n")
+        return 1
+    why = not_comparable(main, head)
+    if why:
+        print(f"not compared, {why} (see the logs)\n")
         return 1
     print("| test | main | head | entry |\n|---|---|---|---|")
     keys = sorted(set(main) | set(head))
