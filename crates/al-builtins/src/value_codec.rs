@@ -209,8 +209,10 @@ fn encode_in(v: &Value, out: &mut Vec<u8>) -> bool {
         // A counter value is tied to the session whose reads it compares with (`sqlcount`).
         // A TextConst only sits in a Variant, never in a stored row.
         // A placeholder's size answers only in the session that wrote the placeholder.
+        // An unbuilt record never leaves its variable's slot.
         Value::SqlCount(_)
         | Value::PlaceholderSize(..)
+        | Value::UnbuiltRecord(_)
         | Value::TextConst(..)
         | Value::List(_)
         | Value::Dictionary(_)

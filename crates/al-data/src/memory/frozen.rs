@@ -92,6 +92,7 @@ pub fn not_shareable(v: &Value) -> Option<&'static str> {
         Value::TextConst(..) => Some("TextConst"),
         Value::SqlCount(_) => Some("SqlCount"),
         Value::PlaceholderSize(..) => Some("PlaceholderSize"),
+        Value::UnbuiltRecord(_) => Some("UnbuiltRecord"),
         // Handles: `Rc`, bound to their thread.
         Value::List(_) => Some("List"),
         Value::Dictionary(_) => Some("Dictionary"),

@@ -42,6 +42,11 @@ fn plain(v: &Value) -> bool {
 /// `*slot = v` without the call to the drop glue when the old value owns nothing.
 #[inline(always)]
 fn set(slot: &mut Value, v: Value) {
+    // An unbuilt record never leaves its local's slot: every statement that names the local builds it first (`lazy_record.rs`).
+    debug_assert!(
+        !matches!(v, Value::UnbuiltRecord(_)),
+        "an unbuilt record reached a register"
+    );
     if plain(slot) {
         std::mem::forget(std::mem::replace(slot, v));
     } else {
@@ -144,6 +149,13 @@ impl Session {
     }
 
     /// Runs `chunk` on frame `f`. The frame's locals already hold the temporaries.
+    /// `Op::CapEnd`: captured statement `s` ends; what it wrote is recorded.
+    fn cap_end_op(&mut self, chunk: &Chunk, s: u32, f: &mut Frame) {
+        self.cap_pop_stmt();
+        let site = &chunk.cap_sites[s as usize];
+        self.cap_after_writes(site.pos, &site.writes, f);
+    }
+
     pub(crate) fn run_chunk(&mut self, chunk: &Chunk, f: &mut Frame) -> Result<(), Signal> {
         self.run_range::<false>(chunk, f, 0, chunk.code.len()).map(|_| ())
     }
@@ -233,6 +245,7 @@ impl Session {
                     set(&mut f.locals[d as usize], v);
                 }
                 Op::SingleWrite { i, kind } => self.single_write_op(i as usize, kind, f),
+                Op::BuildLocal { i } => self.build_local(i, f),
                 Op::ReadPlace { d, p, value } => {
                     let v = self.read_place(&chunk.places[p as usize], value, f)?;
                     set(&mut f.locals[d as usize], v);
@@ -356,11 +369,7 @@ impl Session {
                 Op::DbgHit { p } => self.debug_hit(p, &f.locals[..nl as usize]),
                 Op::CapHit { p } => self.cap_stmt_hit(p),
                 Op::CapBegin { p } => self.cap_push_stmt(p),
-                Op::CapEnd { s } => {
-                    self.cap_pop_stmt();
-                    let site = &chunk.cap_sites[s as usize];
-                    self.cap_after_writes(site.pos, &site.writes, f);
-                }
+                Op::CapEnd { s } => self.cap_end_op(chunk, s, f),
                 Op::CapPop => self.cap_pop_stmt(),
                 Op::CapLoopEnter { d } => {
                     f.locals[d as usize] = match self.cap_loop_enter() {

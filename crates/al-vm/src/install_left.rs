@@ -154,6 +154,8 @@ impl Session {
             exited_with_value: _,
             field_error_form: _,
             error_finals: _,
+            // Counts only.
+            lazy_records: _,
             var_alias_watch: _,
             tx_model: _,
             in_test_codeunit: _,

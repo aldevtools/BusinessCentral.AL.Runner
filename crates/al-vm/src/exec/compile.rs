@@ -57,6 +57,10 @@ fn compile_form(o: &ir::Object, routine: usize, captured: bool, debug: bool) -> 
         debug,
         params: r.params,
         by_var: &r.by_var,
+        watched: (0..r.locals.len())
+            .map(|i| crate::lazy_record::watched_local(r, i))
+            .collect(),
+        built: vec![false; r.locals.len()],
     };
     c.block(&r.body).ok()?;
     c.chunk.temps = c.max - nlocals;
@@ -95,6 +99,11 @@ struct Compiler<'a> {
     params: usize,
     /// Which parameters are `var`.
     by_var: &'a [bool],
+    /// The record locals `Op::BuildLocal` is emitted for (`lazy_record::watched_local`), and those an earlier statement of
+    /// the block being compiled, or of a block around it, already built: in a block the statements start in order, and
+    /// nothing jumps into the middle of one (AL has no goto; a loop starts its body again from the top).
+    watched: Vec<bool>,
+    built: Vec<bool>,
 }
 
 type R<T> = Result<T, ()>;
@@ -902,15 +911,34 @@ impl<'a> Compiler<'a> {
     // ---- statements ----
 
     fn block(&mut self, stmts: &'a [ir::Stmt]) -> R<()> {
-        if self.captured {
-            return self.block_captured(stmts);
+        // What the block's statements build is not built after it: the block may not run, or may end early.
+        let built = self.built.clone();
+        let r = if self.captured {
+            self.block_captured(stmts)
+        } else {
+            stmts.iter().try_for_each(|s| {
+                let mark = self.next;
+                self.stmt(s)?;
+                self.next = mark;
+                Ok(())
+            })
+        };
+        self.built = built;
+        r
+    }
+
+    /// `Op::BuildLocal` for each watched record local statement `s` names when it starts (`lazy_record.rs`), but not one an
+    /// earlier statement of the block built (see `built`).
+    fn build_locals(&mut self, s: &ir::Stmt) {
+        if !self.watched.contains(&true) {
+            return;
         }
-        for s in stmts {
-            let mark = self.next;
-            self.stmt(s)?;
-            self.next = mark;
+        for i in crate::lazy_record::statement_locals(s, &self.watched) {
+            if !self.built[usize::from(i)] {
+                self.emit(Op::BuildLocal { i });
+                self.built[usize::from(i)] = true;
+            }
         }
-        Ok(())
     }
 
     /// A block as the capture sees it: a marker and the statement after it are one statement (`exec_block_captured`).
@@ -1044,6 +1072,7 @@ impl<'a> Compiler<'a> {
 
     fn stmt(&mut self, s: &'a ir::Stmt) -> R<()> {
         use ir::Stmt as S;
+        self.build_locals(s);
         match s {
             S::Pos(p) => {
                 self.emit(Op::Pos { p: *p });
