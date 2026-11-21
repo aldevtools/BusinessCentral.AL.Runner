@@ -262,3 +262,163 @@ fn quoted_names_and_other_words_after_the_scope_operator_compile() {
         }
     }
 }
+
+/// al-runner issue 8650: the same words after `.` or `::` in the expressions the AL compilers parse from properties and section
+/// arguments. `#` is the expression under test (`Rec.@` or `Rec.Opt::@`); the table declares `@` quoted.
+const PROPERTY_TABLE: &str = "table 50100 \"R\" { fields { field(1; \"No.\"; Code[20]) { } field(2; \"@\"; Integer) { } field(3; Opt; Option) { OptionMembers = Zero,\"@\"; } } keys { key(PK; \"No.\") { Clustered = true; } } }\npage 50105 \"Part\" { PageType = ListPart; SourceTable = \"R\"; layout { area(Content) { repeater(L) { field(\"No.\"; Rec.\"No.\") { } } } } }\n";
+const PROPERTY_SHAPES: [(&str, &str); 20] = [
+    (
+        "control Visible",
+        "page 50101 \"P\" { PageType = Card; SourceTable = \"R\"; layout { area(Content) { field(\"No.\"; Rec.\"No.\") { Visible = # > 0; } } } }",
+    ),
+    (
+        "control Editable",
+        "page 50101 \"P\" { PageType = Card; SourceTable = \"R\"; layout { area(Content) { field(\"No.\"; Rec.\"No.\") { Editable = # > 0; } } } }",
+    ),
+    (
+        "control Enabled",
+        "page 50101 \"P\" { PageType = Card; SourceTable = \"R\"; layout { area(Content) { field(\"No.\"; Rec.\"No.\") { Enabled = # > 0; } } } }",
+    ),
+    (
+        "control CaptionClass",
+        "page 50101 \"P\" { PageType = Card; SourceTable = \"R\"; layout { area(Content) { field(\"No.\"; Rec.\"No.\") { CaptionClass = Format(#); } } } }",
+    ),
+    (
+        "control HideValue",
+        "page 50101 \"P\" { PageType = Card; SourceTable = \"R\"; layout { area(Content) { field(\"No.\"; Rec.\"No.\") { HideValue = # > 0; } } } }",
+    ),
+    (
+        "control ShowMandatory",
+        "page 50101 \"P\" { PageType = Card; SourceTable = \"R\"; layout { area(Content) { field(\"No.\"; Rec.\"No.\") { ShowMandatory = # > 0; } } } }",
+    ),
+    (
+        "control QuickEntry",
+        "page 50101 \"P\" { PageType = Card; SourceTable = \"R\"; layout { area(Content) { field(\"No.\"; Rec.\"No.\") { QuickEntry = # > 0; } } } }",
+    ),
+    (
+        "control source",
+        "page 50101 \"P\" { PageType = Card; SourceTable = \"R\"; layout { area(Content) { field(Shown; #) { } } } }",
+    ),
+    (
+        "action Visible",
+        "page 50101 \"P\" { PageType = Card; SourceTable = \"R\"; actions { area(Processing) { action(Act) { Visible = # > 0; trigger OnAction() begin end; } } } }",
+    ),
+    (
+        "action Enabled",
+        "page 50101 \"P\" { PageType = Card; SourceTable = \"R\"; actions { area(Processing) { action(Act) { Enabled = # > 0; trigger OnAction() begin end; } } } }",
+    ),
+    (
+        "group Visible",
+        "page 50101 \"P\" { PageType = Card; SourceTable = \"R\"; layout { area(Content) { group(G) { Visible = # > 0; field(\"No.\"; Rec.\"No.\") { } } } } }",
+    ),
+    (
+        "part Visible",
+        "page 50101 \"P\" { PageType = Card; SourceTable = \"R\"; layout { area(Content) { part(Lines; \"Part\") { Visible = # > 0; } } } }",
+    ),
+    (
+        "page DataCaptionExpression",
+        "page 50101 \"P\" { PageType = Card; SourceTable = \"R\"; DataCaptionExpression = Format(#); layout { area(Content) { field(\"No.\"; Rec.\"No.\") { } } } }",
+    ),
+    (
+        "page extension control Visible",
+        "pageextension 50103 \"PX\" extends \"P\" { layout { modify(\"No.\") { Visible = # > 0; } } }",
+    ),
+    (
+        "page extension control source",
+        "pageextension 50103 \"PX\" extends \"P\" { layout { addlast(Content) { field(Shown; #) { } } } }",
+    ),
+    (
+        "page extension action Visible",
+        "pageextension 50103 \"PX\" extends \"P\" { actions { addlast(Processing) { action(Act2) { Visible = # > 0; trigger OnAction() begin end; } } } }",
+    ),
+    (
+        "report column source",
+        "report 50102 \"Rp\" { ProcessingOnly = true; dataset { dataitem(Row; \"R\") { column(C; #) { } } } }",
+    ),
+    (
+        "report extension column source",
+        "reportextension 50103 \"RX\" extends \"Rp\" { dataset { add(Row) { column(C; #) { } } } }",
+    ),
+    (
+        "action Visible, second expression",
+        "page 50101 \"P\" { PageType = Card; SourceTable = \"R\"; actions { area(Processing) { action(Act) { Visible = (1 > 0) and (# > 0); trigger OnAction() begin end; } } } }",
+    ),
+    (
+        "control Visible in a repeater",
+        "page 50101 \"P\" { PageType = List; SourceTable = \"R\"; layout { area(Content) { repeater(L) { field(\"No.\"; Rec.\"No.\") { Visible = # > 0; } } } } }",
+    ),
+];
+/// The objects a shape extends, when it does not declare them: a card page and a report.
+const BASES: &str = "page 50101 \"P\" { PageType = Card; SourceTable = \"R\"; layout { area(Content) { field(\"No.\"; Rec.\"No.\") { } } } actions { area(Processing) { action(Act) { trigger OnAction() begin end; } } } }\nreport 50102 \"Rp\" { ProcessingOnly = true; dataset { dataitem(Row; \"R\") { column(No; \"No.\") { } } } }\n";
+
+/// The AL0107 diagnostics of property shape `shape` with the expression `expr` in place of `#` (`@` in it is `name`), each as
+/// `true` when it is at the name.
+fn property_al0107(shape: &str, expr: &str, name: &str) -> Vec<bool> {
+    let decl = name.trim_matches('"');
+    let at = shape.find('#').expect("#");
+    let expr = expr.replace('@', name);
+    let body = format!("{}{expr}{}", &shape[..at], &shape[at + 1..]);
+    let bases = if shape.starts_with("pageextension") || shape.starts_with("reportextension") {
+        BASES
+    } else {
+        ""
+    };
+    let src = format!("{body}\n{}{bases}", PROPERTY_TABLE.replace('@', decl));
+    let at = at + expr.rfind(name).expect("name");
+    let ws = load(&[&src]);
+    check_workspace(&ws)
+        .into_iter()
+        .filter(|d| d.code == "AL0107")
+        .map(|d| {
+            assert_eq!(d.message, IDENTIFIER_EXPECTED);
+            d.offset == at
+        })
+        .collect()
+}
+
+#[test]
+fn a_keyword_unquoted_in_a_property_or_source_expression_is_al0107_at_the_word() {
+    for (what, shape) in PROPERTY_SHAPES {
+        for expr in ["Rec.@", "Rec.Opt::@"] {
+            let expr = if what.starts_with("report") {
+                expr.replace("Rec.", "Row.")
+            } else {
+                expr.to_string()
+            };
+            for w in WORDS {
+                assert_eq!(property_al0107(shape, &expr, w), [true], "{what}: {expr} {w}");
+            }
+        }
+    }
+}
+
+#[test]
+fn quoted_names_and_other_words_in_a_property_or_source_expression_compile() {
+    for (what, shape) in PROPERTY_SHAPES {
+        for expr in ["Rec.@", "Rec.Opt::@"] {
+            let expr = if what.starts_with("report") {
+                expr.replace("Rec.", "Row.")
+            } else {
+                expr.to_string()
+            };
+            for name in ["\"If\"", "Local", "Key", "Foo"] {
+                assert!(property_al0107(shape, &expr, name).is_empty(), "{what}: {expr} {name}");
+            }
+        }
+    }
+}
+
+/// Properties no cell measured keep compiling, and so do the properties that name a field after `.` with a grammar of their
+/// own (TableRelation and CalcFormula reject only some of the words).
+#[test]
+fn unmeasured_properties_are_not_judged() {
+    let table = PROPERTY_TABLE.replace('@', "Exit");
+    for src in [
+        "page 50101 \"P\" { PageType = Card; SourceTable = \"R\"; layout { area(Content) { field(\"No.\"; Rec.\"No.\") { StyleExpr = Rec.Exit; } } } }".to_string(),
+        "table 50103 \"S\" { fields { field(1; Ref; Integer) { TableRelation = \"R\".Exit; } } keys { key(PK; Ref) { Clustered = true; } } }".to_string(),
+        "report 50102 \"Rp\" { ProcessingOnly = true; dataset { dataitem(Row; \"R\") { } } requestpage { layout { area(Content) { field(Opt; Row.Exit) { } } } } }".to_string(),
+    ] {
+        let ws = load(&[&format!("{src}\n{table}")]);
+        assert!(check_workspace(&ws).iter().all(|d| d.code != "AL0107"), "{src}");
+    }
+}
