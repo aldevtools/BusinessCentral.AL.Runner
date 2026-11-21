@@ -1416,9 +1416,9 @@ pub fn feature_key_rows(target: Option<&Target>, platform: Option<&str>) -> Opti
 /// The 14-row list follows the platform build, not the application minor (corpus PR 1484, assumption
 /// feature-key-rows-container-measured). Served only on the (application minor, platform build) pairs PR 1484 measured:
 /// application 29.1 on platforms 29.0.57943 and 29.0.58337, W1 and DE (FeatureKeyRowsReads291.al:45-79), and
-/// application 29.0 on platform 29.0.56480 (an observation on a Windows container). Application 29.0 on platform
-/// 29.0.55782 (FeatureKeyRowsReads290.al:41) has the 13 rows.
-const NOTIFICATION_BAR_PLATFORMS: &[(u16, u32)] = &[(1, 57943), (1, 58337), (0, 56480)];
+/// Application 29.0 on every platform build keeps the 13 rows (FeatureKeyRowsReads290.al:41, platform 29.0.55782; the
+/// other builds are not measured, al-runner issue 8618).
+const NOTIFICATION_BAR_PLATFORMS: &[(u16, u32)] = &[(1, 57943), (1, 58337)];
 
 fn has_new_notification_bar(t: &Target, platform: Option<&str>) -> bool {
     let Some(build) = platform_build_29_0(platform) else {
@@ -1810,7 +1810,7 @@ mod tests {
     }
 
     /// The Feature Key list of a 29 target follows the platform build (the version of the System app the run loaded):
-    /// app 29.1 on platform 29.0.57943 or 29.0.58337 and app 29.0 on platform 29.0.56480 have NewNotificationBar
+    /// app 29.1 on platform 29.0.57943 or 29.0.58337 have NewNotificationBar
     /// (assumption feature-key-rows-container-measured, corpus PR 1484). Every other shape keeps main's answer: 29.0
     /// the 13 rows (record/PFFeatureKeyColumns.al RowsE, measured on platform 29.0.55782), 29.1 and 29.2 none.
     #[test]
@@ -1818,7 +1818,6 @@ mod tests {
         let rows = |bc: &str, platform: Option<&str>| feature_key_rows(Some(&target(bc)), platform);
         let bar = Some(FeatureKeyRows::Bc29NotificationBar);
         for (bc, platform) in [
-            ("29.0", "29.0.56480.0"),
             ("29.1", "29.0.57943.0"),
             ("29.1", "29.0.58337.0"),
             ("29.1.57326.58379", "29.0.58337.0"),
@@ -1831,6 +1830,7 @@ mod tests {
             Some("29.0.56212.0"),
             Some("29.0.56479.0"),
             Some("29.0.50000.0"),
+            Some("29.0.56480.0"),
             Some("29.0.56481.0"),
             Some("29.0.57943.0"),
             Some("29.0.61000.0"),

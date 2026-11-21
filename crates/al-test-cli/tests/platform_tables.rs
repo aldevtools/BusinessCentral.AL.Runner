@@ -2922,10 +2922,10 @@ fn feature_key_rows_follow_the_measured_minors() {
 }
 
 // al-runner issue 8192: the Feature Key list follows the platform build (the System app's version), not the application
-// minor. Application 29.1 on platform 29.0.57943 or 29.0.58337 and application 29.0 on platform 29.0.56480 serve the
+// minor. Application 29.1 on platform 29.0.57943 or 29.0.58337 serves the
 // 29.0 rows and NewNotificationBar on the assumption feature-key-rows-container-measured (corpus PR 1484,
 // record/FeatureKeyRowsReads291.al): every read of the table marks it, also one that finds no row, and the Description
-// columns of FEATURE_KEY_TEXTS are served. Application 29.0 on any other platform keeps main's 13 rows unflagged
+// columns of FEATURE_KEY_TEXTS are served, and the Description of all 14 keys (FeatureKeyRowsReads291.al:81). Application 29.0 on any other platform keeps main's 13 rows unflagged
 // (record/PFFeatureKeyColumns.al RowsE, measured on platform 29.0.55782); application 29.1 on any other platform build
 // is refused with a text naming the measured builds; 29.2 keeps main's refusal.
 #[test]
@@ -2959,7 +2959,14 @@ fn feature_key_rows_follow_the_platform_build() {
     if K.Count() <> 0 then Error('count %1', K.Count()); end;
   [Test] procedure Texts() var K: Record "Feature Key"; begin
     K.Get('SalesPrices');
-    if K.Description <> 'Feature Update: New sales pricing experience' then Error(K.Description); end; }"#;
+    if K.Description <> 'Feature Update: New sales pricing experience' then Error(K.Description); end;
+  [Test] procedure AllDescriptions() var K: Record "Feature Key"; begin
+    K.Get('AdvancedTellMe');
+    if K.Description <> 'Feature: Advanced Tell Me' then Error(K.Description);
+    K.Get('SemanticMetadataSearch');
+    if K.Description <> 'Feature: Preview semantic similarity search on application metadata.' then Error(K.Description);
+    K.Get('ConcurrentInventoryPosting');
+    if K.Description <> 'Feature Update: Enable multiple users to post item ledger entries and value entries at the same time' then Error(K.Description); end; }"#;
     let a = al_builtins::assumptions::Assumption::FeatureKeyRowsContainerMeasured;
     let run = |bc: &str, platform: &str| {
         let roots = al_sema::check::Roots::default();
@@ -2982,13 +2989,9 @@ fn feature_key_rows_follow_the_platform_build() {
     };
     let mut wrong = Vec::new();
     // The 14 rows, every read flagged.
-    for (bc, platform) in [
-        ("29.1.0.0", "29.0.57943.0"),
-        ("29.1.0.0", "29.0.58337.0"),
-        ("29.0.0.0", "29.0.56480.0"),
-    ] {
+    for (bc, platform) in [("29.1.0.0", "29.0.57943.0"), ("29.1.0.0", "29.0.58337.0")] {
         let (out, hits) = run(bc, platform);
-        assert_eq!(out.len(), 8, "{bc} on {platform}: {out:?}");
+        assert_eq!(out.len(), 9, "{bc} on {platform}: {out:?}");
         for (n, o) in &out {
             let flagged = hits.iter().any(|(h, m)| h == n && m.contains(&a));
             if *o != Outcome::Pass || !flagged {
@@ -3000,6 +3003,7 @@ fn feature_key_rows_follow_the_platform_build() {
     for platform in [
         "29.0.55782.0",
         "29.0.56212.0",
+        "29.0.56480.0",
         "29.0.57943.0",
         "29.0.61000.0",
         "1.0.0.0",
@@ -3008,6 +3012,8 @@ fn feature_key_rows_follow_the_platform_build() {
         for (n, o) in &out {
             let ok = match n.as_str() {
                 "Bar" | "BarTexts" | "RowCount" | "Order" => matches!(o, Outcome::Fail(_)),
+                // The Description of a key BaFeatureKeyTexts.al does not pin stays refused on the 13-row list.
+                "AllDescriptions" => matches!(o, Outcome::NotRun(_) | Outcome::Fail(_)),
                 _ => *o == Outcome::Pass,
             };
             if !ok || hits.iter().any(|(_, m)| m.contains(&a)) {

@@ -61,6 +61,35 @@ const FEATURE_KEY_TEXTS: &[(&str, &str, &str)] = &[
     ),
 ];
 
+/// The Description of the keys of the 14-row list that `FEATURE_KEY_TEXTS` does not name: record/FeatureKeyRowsReads291.al:81-104
+/// (corpus PR 1484) measured the Description of all 14 keys on 29.1. Their "Description In English" and "Learn More Link"
+/// are not measured. Served only with `FeatureKeyRows::Bc29NotificationBar`.
+const FEATURE_KEY_DESCRIPTIONS_291: &[(&str, &str)] = &[
+    ("AcceleratedDepreciation", "Feature Update: Accelerated Depreciation"),
+    ("AdvancedTellMe", "Feature: Advanced Tell Me"),
+    (
+        "ConcurrentInventoryPosting",
+        "Feature Update: Enable multiple users to post item ledger entries and value entries at the same time",
+    ),
+    (
+        "ConcurrentResourcePosting",
+        "Feature Update: Enable multiple users to post resource ledger entries at the same time",
+    ),
+    ("DocumentReportExperience", "Feature: New Document Report Experience"),
+    (
+        "EXRPerformantTrialBalance",
+        "Feature Update: Improved performance in Trial Balance-related Excel reports",
+    ),
+    (
+        "SaveValueToDatabasePromptly",
+        "Feature Update: Auto-save with every field change",
+    ),
+    (
+        "SemanticMetadataSearch",
+        "Feature: Preview semantic similarity search on application metadata.",
+    ),
+];
+
 /// The Feature Key table: ID, `Enabled` (None or All Users per row), `Mandatory By` (the wave the mandatory-by version falls in),
 /// `Mandatory By Version`, `Can Try`, `Is One Way` and `Data Update Required`, per major from record/PFFeatureKeyColumns.al
 /// (FeatureKey_RowsPerId_PerMeasuredVersion; the state is per tenant); `Enabled` and `Data Update Required` of the first major
@@ -193,14 +222,19 @@ pub(super) fn feature_key_rows(t: &TableDef, engine: &crate::Engine) -> Vec<Entr
             r[pos(t, 9)] = Value::Text(format!("{version}.0").into());
             // Description (3), "Learn More Link" (4) and "Description In English" (10) of the keys
             // FEATURE_KEY_TEXTS names (metadata/platform-tables/BaFeatureKeyTexts.al pins them on 27.5, 28.5 and 29.0, and
-            // record/FeatureKeyRowsReads291.al:81-104 measured the same texts with the fourth list); unknown for any other key.
+            // record/FeatureKeyRowsReads291.al:81-104 measured the same texts with the fourth list); the Description of the other keys of
+            // the fourth list from FEATURE_KEY_DESCRIPTIONS_291; unknown for any other column and key.
             let texts = FEATURE_KEY_TEXTS.iter().find(|(k, _, _)| *k == id);
             for col in [3, 4, 10] {
                 if t.fields.iter().any(|f| f.id == col) {
-                    r[pos(t, col)] = match texts {
-                        Some((_, desc, _)) if col != 4 => Value::Text((*desc).into()),
-                        Some((_, _, link)) => Value::Text((*link).into()),
-                        None => super::unknown(t, col, &format!("feature key '{id}'")),
+                    let only_desc = (which == Some(FeatureKeyRows::Bc29NotificationBar) && col == 3)
+                        .then(|| FEATURE_KEY_DESCRIPTIONS_291.iter().find(|(k, _)| *k == id))
+                        .flatten();
+                    r[pos(t, col)] = match (texts, only_desc) {
+                        (Some((_, desc, _)), _) if col != 4 => Value::Text((*desc).into()),
+                        (Some((_, _, link)), _) => Value::Text((*link).into()),
+                        (None, Some((_, desc))) => Value::Text((*desc).into()),
+                        (None, None) => super::unknown(t, col, &format!("feature key '{id}'")),
                     };
                 }
             }
