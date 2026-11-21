@@ -216,6 +216,8 @@ impl Session {
             host_new_running: _,
             part_open_running: _,
             host_move_running: _,
+            // Set only by a test page call (`pages/part_update_left_view.rs`), which install code never makes.
+            test_filter_steps: _,
             part_sync_keeps_same_link: _,
             dotnet: _,
             application_areas: _,
