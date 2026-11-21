@@ -1,0 +1,24 @@
+# key	entry
+# The probe's measured cells: main refused them (or failed them on the open, which runs the parts' OnAfterGetCurrRecord on BC).
+LT NF Tests::ListNewLine_FactboxesCode_SecondaryKey_EmptyView_ReadsTheRowTwice	ASSUMED list-new-line-coded-factboxes (corpus PR 1454, merged, not pinned yet: ListNewLineFactboxesCode.al)
+LT NF Tests::ListNewLine_FactboxesCode_SecondaryKey_WithoutPartReads_ReadsTheRowTwice	ASSUMED list-new-line-coded-factboxes (corpus PR 1454, merged, not pinned yet: ListNewLineFactboxesCode.al)
+LT NF Tests::ListNewLine_FactboxesCode_PrimaryKey_EmptyView_ReadsTheRowOnce	ASSUMED list-new-line-coded-factboxes (corpus PR 1454, merged, not pinned yet: ListNewLineFactboxesCode.al)
+LT NF Tests::ListNewLine_FactboxesCode_PrimaryKey_WithoutPartReads_ReadsTheRowOnce	ASSUMED list-new-line-coded-factboxes (corpus PR 1454, merged, not pinned yet: ListNewLineFactboxesCode.al)
+LT NF Tests::ListNewLine_FactboxesCode_BlockedName_PageRelationNotChecked	ASSUMED list-new-line-coded-factboxes (corpus PR 1454, merged, not pinned yet: ListNewLineFactboxesCode.al)
+LT NF Tests::ListNewLine_FactboxesCode_SameValue_SaveModifiesNothing	ASSUMED list-new-line-coded-factboxes (corpus PR 1454, merged, not pinned yet: ListNewLineFactboxesCode.al)
+LT NF Tests::ListNewLine_FactboxesCode_SecondValue_SameStepsAgain	ASSUMED list-new-line-coded-factboxes (corpus PR 1454, merged, not pinned yet: ListNewLineFactboxesCode.al)
+# Probe cells the head still refuses; main refused them too, after an earlier test of the codeunit was refused.
+LT NF Tests::ListNewLine_FactboxesCode_UnknownName_ErrorUndoesTheInsert	REFUSED the validation of the first SetValue on a List page with code and FactBoxes, whose parts read its new line, did not leave the line
+LT NF Tests::ListNewLine_FactboxesCode_SubscriberBound_RunsAfterEachModify	REFUSED the validation of the first SetValue on a List page with code and FactBoxes, whose parts read its new line, did not leave the line
+LT NF Tests::ListNewLine_FactboxesCode_ValueFirst_SaveRecordInsertsTheLine	REFUSED AutoSplitKey on a part that is not read in primary key order
+# Neighbors: calls and code the probe does not measure. Main refused each at the landing; the head refuses each at that call.
+LT NF Neighbor Tests::ThirdValueSetValue	REFUSED a call on a List page with a CardPart FactBox, on the row its new line became
+LT NF Neighbor Tests::NextAfterTheLanding	REFUSED a call on a List page with a CardPart FactBox, on the row its new line became
+LT NF Neighbor Tests::ActionAfterTheLanding	REFUSED a call on a List page with a CardPart FactBox, on the row its new line became
+LT NF Neighbor Tests::SetValueOfAnotherControl	REFUSED a call on a List page with a CardPart FactBox, on the row its new line became
+LT NF Neighbor Tests::SecondNameSetValue	REFUSED a call on a List page with a CardPart FactBox, on the row its new line became
+LT NF Neighbor Tests::OverlongFirstSetValue	REFUSED a SetValue on a List page with code and FactBoxes, on its new line or on the row it became, ended without the landing
+LT NF Neighbor Tests::WritesAnotherRow	REFUSED the page's record, its view or the table changed between CurrPage.SaveRecord
+LT NF Neighbor Tests::WritesTheRowThroughAnotherRecord	REFUSED the page's record, its view or the table changed between CurrPage.SaveRecord
+LT NF Neighbor Tests::PartWritesRec	REFUSED a trigger of a List page with code and FactBoxes, or of its parts, wrote or changed Rec when the refresh read
+LT NF Neighbor Tests::FailingWorker	REFUSED a failing worker of a background task on a List page with code and FactBoxes
