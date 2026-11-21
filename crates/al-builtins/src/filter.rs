@@ -1567,6 +1567,19 @@ impl Parser<'_> {
                 Ok(Some(FilterExpr::AtSignAlone(true)))
             }
             _ if ci => Err("`<>@` before a value without a wildcard (not pinned)".into()),
+            // A placeholder wildcard text with a blank at one end, or longer than a Code field, BC reads otherwise (trimmed, as a
+            // literal text, or the length error; corpus PR 1503, open: record/filters/PlaceholderWildcardSuffix.al). al-vm
+            // `placeholder_wildcard_edge` answers the measured caller and values before the parser; every other one refuses here.
+            Some(Tok::Arg(s))
+                if wild(s)
+                    && (s.starts_with(char::is_whitespace)
+                        || s.ends_with(char::is_whitespace)
+                        || matches!(self.ty, T::Code(Some(n)) if crate::value::Value::text_len(s) > *n as usize)) =>
+            {
+                Err(format!(
+                    "`<>%n` with the wildcard text `{s}` with a blank at one end or longer than the field (not pinned)"
+                ))
+            }
             // A substituted text with a filter operator arrives quoted (`tokenize`), so a plain `Arg` holds none.
             // A quoted pattern with blank space in it (`<>'A *'`) is pinned by no case: refused below, as before.
             Some(Tok::Arg(s) | Tok::Quoted(s))

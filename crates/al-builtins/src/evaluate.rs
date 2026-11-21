@@ -11,6 +11,7 @@ mod enum_text;
 use duration::duration;
 mod option_text;
 mod platform_options;
+mod short_us_date;
 use crate::describe::Describe;
 use crate::format::day_from_civil;
 use crate::native::{Ctx, Signal, unsupported};
@@ -1474,6 +1475,11 @@ pub fn evaluate(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Resu
     evaluate_with(c, a, false)
 }
 
+/// `Evaluate` into a Date or DateTime local variable or parameter: the shapes of `short_us_date`, else [`evaluate`].
+pub fn evaluate_date_variable(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
+    evaluate_with_max(c, a, false, None, false, true)
+}
+
 /// `Evaluate` into an Option variable, which has no OptionCaption to name a member by.
 pub fn evaluate_variable_option(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
     evaluate_with(c, a, true)
@@ -1597,11 +1603,11 @@ pub fn evaluate_bounded(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value])
         return unsupported("Evaluate into a bounded text without its length");
     };
     let max = u32::try_from(max).ok();
-    evaluate_with_max(c, &mut a[..3], false, max, false)
+    evaluate_with_max(c, &mut a[..3], false, max, false, false)
 }
 
 fn evaluate_with(c: &mut dyn Ctx, a: &mut [Value], variable_option: bool) -> Result<Value, Signal> {
-    evaluate_with_max(c, a, variable_option, None, false)
+    evaluate_with_max(c, a, variable_option, None, false, false)
 }
 
 /// `Evaluate` into a Text or a Code (corpus recordref-fieldref/P128EvalBasic.al:P128_Evaluate_IntoText,
@@ -1674,7 +1680,7 @@ pub fn evaluate_typed(
         Value::Integer(number as i32),
     ];
     // The caller says the result is used: a rejected text is `false`, not an error.
-    Ok(match evaluate_with_max(c, &mut tmp, false, max, false)? {
+    Ok(match evaluate_with_max(c, &mut tmp, false, max, false, false)? {
         Value::Boolean(true) => Some(tmp.swap_remove(0)),
         _ => None,
     })
@@ -2186,7 +2192,7 @@ fn into_field_ref(c: &mut dyn Ctx, a: &mut [Value], number: i64) -> Result<Value
     }
     let mut tmp = vec![current, a[1].clone(), Value::Integer(number as i32)];
     // A Date field names any text in the date error, letters too (N582EvalFieldRefUnused.al:92, `abc`).
-    let ok = evaluate_with_max(c, &mut tmp, !target.option_caption, max, true)?;
+    let ok = evaluate_with_max(c, &mut tmp, !target.option_caption, max, true, false)?;
     if matches!(ok, Value::Boolean(true)) {
         let v = crate::ops::convert(tmp.swap_remove(0), &target.ty)?;
         target.rec.borrow_mut().fields[target.pos] = v;
@@ -2214,7 +2220,7 @@ pub fn evaluate_key_part(c: &mut dyn Ctx, ty: &crate::value::RtType, text: &str,
         Value::Text(text.to_string().into()),
         Value::Integer(number as i32),
     ];
-    match evaluate_with_max(c, &mut tmp, false, max, true)? {
+    match evaluate_with_max(c, &mut tmp, false, max, true, false)? {
         Value::Boolean(true) => Ok(tmp.swap_remove(0)),
         _ => unsupported(format!(
             "Evaluate of the key part `{text}` into {} (not pinned)",
@@ -2255,6 +2261,7 @@ fn evaluate_with_max(
     variable_option: bool,
     max: Option<u32>,
     any_date_text: bool,
+    date_variable: bool,
 ) -> Result<Value, Signal> {
     // A Guid source reads as its text `{XXXXXXXX-...}`: into a Text, a Code and a Guid (types/duration/
     // E_Guid.al:224-311). Other sources that are not text are not pinned.
@@ -2303,6 +2310,13 @@ fn evaluate_with_max(
         });
     }
     let parsed = match &a[0] {
+        Value::Date(..) | Value::DateTime(_)
+            if date_variable
+                && matches!(a.get(2), None | Some(Value::Integer(0)))
+                && short_us_date::measured(c, matches!(a[0], Value::DateTime(_)), &text) =>
+        {
+            short_us_date::read(c, matches!(a[0], Value::DateTime(_)), &text)?
+        }
         Value::Text(_) | Value::Code(_) => text_or_code(c, &a[0], &text, number, max)?,
         Value::Integer(_) => integer(&text, number)?,
         Value::BigInteger(_) => big_integer(&text, number)?,

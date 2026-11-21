@@ -71,8 +71,13 @@ fn tail_of(rest: &str) -> Option<Tail> {
         return Some(Tail::Clock24 { hour });
     }
     let b = s.as_bytes();
-    (b.len() == 8 && b[2] == b':' && b[5] == b':' && digits(&s[..2], 2..=2) && digits(&s[3..5], 2..=2) && digits(&s[6..], 2..=2))
-        .then_some(Tail::ClockSeconds)
+    (b.len() == 8
+        && b[2] == b':'
+        && b[5] == b':'
+        && digits(&s[..2], 2..=2)
+        && digits(&s[3..5], 2..=2)
+        && digits(&s[6..], 2..=2))
+    .then_some(Tail::ClockSeconds)
 }
 
 fn shape(text: &str) -> Option<Shape<'_>> {
@@ -86,7 +91,11 @@ fn shape(text: &str) -> Option<Shape<'_>> {
         return None;
     }
     let two_digit = m.len() == 2 && d.len() == 2 && y.len() == 2;
-    Some(Shape { date, two_digit, tail: tail_of(rest)? })
+    Some(Shape {
+        date,
+        two_digit,
+        tail: tail_of(rest)?,
+    })
 }
 
 /// Whether `mm/dd/yy` names no day in the measured way: month 0 or past 12 (`00/01/25`, `13/01/25`), or a day from 1 to 31 past
@@ -109,7 +118,11 @@ enum Cell {
     DateOnly,
     /// Rejected; with the result used it leaves a last error of this code whose text is not measured (last-error entry). The
     /// statement form raises the type's own error (measured), unless `statement_measured` is false: then it refuses.
-    LastError { code: &'static str, statement_measured: bool, time_dropped: bool },
+    LastError {
+        code: &'static str,
+        statement_measured: bool,
+        time_dropped: bool,
+    },
 }
 
 fn cell(datetime: bool, ret_used: bool, s: &Shape) -> Option<Cell> {
@@ -117,42 +130,53 @@ fn cell(datetime: bool, ret_used: bool, s: &Shape) -> Option<Cell> {
     match (datetime, s.tail) {
         // EvalShortUsDate.al Date_ShortDate_*_Return `13/01/25`, `02/30/25`, `00/01/25` (lasterr=Evaluate) and DateTime_ShortDate_*;
         // the statement form is pinned already (Date_Statement_*, DateTime_Statement_* answer as main does).
-        (_, Tail::None) if bad && ret_used => {
-            Some(Cell::LastError { code: "Evaluate", statement_measured: true, time_dropped: false })
-        }
+        (_, Tail::None) if bad && ret_used => Some(Cell::LastError {
+            code: "Evaluate",
+            statement_measured: true,
+            time_dropped: false,
+        }),
         (_, Tail::None) => None,
         // Date_WithTime_*_Return `13/04/25 12:00 PM` (lasterr=Evaluate), Date_Statement_* (the Date error with the whole text);
         // DateTime_WithTime_* and DateTime_Statement_* (the DateTime error).
-        (_, Tail::Clock12 { hour: 1..=12 }) if bad => {
-            Some(Cell::LastError { code: "Evaluate", statement_measured: true, time_dropped: !datetime })
-        }
+        (_, Tail::Clock12 { hour: 1..=12 }) if bad => Some(Cell::LastError {
+            code: "Evaluate",
+            statement_measured: true,
+            time_dropped: !datetime,
+        }),
         // A day that does not exist with another tail is not measured.
-        _ if !s.two_digit || not_a_day(s.date) || bad => None,
+        _ if bad => None,
         // DateTime_WithTime_*_Return `01/04/25 13:00 PM`: lasterr=DateInvalid; the statement form is not measured.
-        (true, Tail::Clock12 { hour: 13..=23 }) => {
-            Some(Cell::LastError { code: "DateInvalid", statement_measured: false, time_dropped: false })
-        }
+        (true, Tail::Clock12 { hour: 13..=23 }) => Some(Cell::LastError {
+            code: "DateInvalid",
+            statement_measured: false,
+            time_dropped: false,
+        }),
         // DateTime_WithTime_*_Return `01/04/25 25:00` (lasterr=Evaluate), DateTime_Statement_* (the DateTime error).
-        (true, Tail::Clock24 { hour: 24..=99 }) => {
-            Some(Cell::LastError { code: "Evaluate", statement_measured: true, time_dropped: false })
-        }
+        (true, Tail::Clock24 { hour: 24..=99 }) => Some(Cell::LastError {
+            code: "Evaluate",
+            statement_measured: true,
+            time_dropped: false,
+        }),
         // DateTime_WithTime_* `01/04/25T12:00`: midnight.
         (true, Tail::TClock) => Some(Cell::DateOnly),
         (true, _) => None,
         // Date_WithTime_* and Date_Statement_*: `12:00 PM`, `12:00 AM`, `13:00 PM`, two blanks, `23:59:59`, `noon`, `T12:00`.
         // `hh:mm` after a blank is pinned (date_forms `dropped_suffix`, FMEvalDate.al:338).
-        (false, Tail::Clock24 { .. } | Tail::None) => None,
-        (false, Tail::Clock12 { .. } | Tail::Clock12TwoBlanks | Tail::ClockSeconds | Tail::Noon | Tail::TClock) => {
-            Some(Cell::DateOnly)
-        }
+        (false, Tail::Clock24 { .. }) => None,
+        (
+            false,
+            Tail::Clock12 { hour: 1..=13 } | Tail::Clock12TwoBlanks | Tail::ClockSeconds | Tail::Noon | Tail::TClock,
+        ) => Some(Cell::DateOnly),
+        // An hour of 0 or past 13 before `AM` or `PM` is not measured.
+        (false, Tail::Clock12 { .. }) => None,
     }
 }
 
-/// The date parts of the measured `1/4/25` and `01/04/2025` forms are measured with `12:00 PM` and `1:20 AM` only; with another
-/// tail the text keeps the readers of `evaluate.rs`.
+/// The date parts `1/4/25` and `01/04/2025` are measured with a 12-hour clock only (`1:20 AM`, `12:00 PM`); with another tail
+/// the text keeps the readers of `evaluate.rs`.
 fn measured_cell(datetime: bool, ret_used: bool, text: &str) -> Option<(Shape<'_>, Cell)> {
     let s = shape(text)?;
-    if !s.two_digit && !matches!(s.tail, Tail::Clock12 { .. }) {
+    if !s.two_digit && !matches!(s.tail, Tail::Clock12 { hour: 1..=12 }) {
         return None;
     }
     let c = cell(datetime, ret_used, &s)?;
@@ -181,16 +205,23 @@ pub(super) fn read(c: &mut dyn Ctx, datetime: bool, text: &str) -> Result<Parsed
                 _ => unsupported(format!("Evaluate of `{text}`: a date part not measured")),
             }
         }
-        Cell::LastError { code, statement_measured, time_dropped } => {
+        Cell::LastError {
+            code,
+            statement_measured,
+            time_dropped,
+        } => {
             if time_dropped {
                 assume(Assumption::EvaluateDateVariableTimeDropped);
             }
             assume(Assumption::EvaluateShortDateRejectedLastError);
             if ret_used {
-                let e: AlError = unpinned_text_error(code, "the last error text of a rejected Evaluate (corpus PR 1503)");
+                let e: AlError =
+                    unpinned_text_error(code, "the last error text of a rejected Evaluate (corpus PR 1503)");
                 c.set_last_error(e);
             } else if !statement_measured {
-                return unsupported(format!("the error of the statement Evaluate of `{text}` into a DateTime (not measured)"));
+                return unsupported(format!(
+                    "the error of the statement Evaluate of `{text}` into a DateTime (not measured)"
+                ));
             }
             Ok(Parsed::Rejected)
         }

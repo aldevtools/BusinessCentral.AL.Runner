@@ -263,6 +263,10 @@ impl Session {
             // `@''` reads back as written (corpus master record/crud/RcAFilters.al:1011, :1026 `at two apos`).
             FilterExpr::Like(p, true) if p.is_empty() => "@''".to_string(),
             FilterExpr::Like(p, ci) => format!("{}{p}", if *ci { "@" } else { "" }),
+            // A pattern with a blank at one end comes only from `placeholder_wildcard_edge` on a Text field (the parser refuses
+            // it elsewhere): it reads back in quotes, `<>'XYZ-* '` (corpus PR 1503, open: record/filters/
+            // PlaceholderWildcardSuffix.al Text_NotEqualPlaceholder_StarSuffixValues; assumption `filter-placeholder-wildcard-edges`).
+            FilterExpr::NotLike(p, false) if p.starts_with(' ') || p.ends_with(' ') => format!("<>'{p}'"),
             // record/filters/WildcardGetFilter.al:125-171: `<>*`, `<>A*`, `<>@a*` read back as written.
             FilterExpr::NotLike(p, ci) => format!("<>{}{p}", if *ci { "@" } else { "" }),
             // record/filters/WcInvalidFilterExpr.al:84-111: `@` and `<>@` read back as written.
