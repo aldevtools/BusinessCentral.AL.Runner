@@ -280,9 +280,16 @@ fn refuse_reads(lowered: &Lowered, session: &mut Session, memo: usize, what: &st
 /// After a login step of the apps under test's own subscribers (`install::own_login`) that changed `singles` (codeunit ->
 /// globals): notes the changes in `left`, for the partner subscribers after it ([`kept`] refuses), and refuses the reads
 /// of each codeunit a partner subscriber changed before it. No probe has an own subscriber next to a partner one that
-/// changes the same codeunit (corpus PR 1490 has none). A login memo of System Application (`login_memo::microsoft_login_memo`) they changed alone, without
-/// Microsoft's login code before them, marks `login-own-memo-alone` at every read of its globals.
-pub(crate) fn own_step(lowered: &Lowered, session: &mut Session, singles: Singles, left: &mut PartnerLogin) {
+/// changes the same codeunit (corpus PR 1490 has none). With `memo_alone` (`login::Login::Own`, used because
+/// Microsoft's login code refused), a login memo of System Application (`login_memo::microsoft_login_memo`) they
+/// changed marks `login-own-memo-alone` at every read of its globals.
+pub(crate) fn own_step(
+    lowered: &Lowered,
+    session: &mut Session,
+    singles: Singles,
+    left: &mut PartnerLogin,
+    memo_alone: bool,
+) {
     for (o, globals) in singles {
         let earlier = left.changed_by.entry(o).or_default();
         let partner_before = earlier.iter().any(|c| c.app.is_some());
@@ -290,7 +297,7 @@ pub(crate) fn own_step(lowered: &Lowered, session: &mut Session, singles: Single
         if partner_before {
             let what = "a subscriber of an app under test changed it after a partner subscriber did";
             refuse_reads(lowered, session, o, what);
-        } else if crate::login_memo::microsoft_login_memo(lowered, o) {
+        } else if memo_alone && crate::login_memo::microsoft_login_memo(lowered, o) {
             session.mark_single_assumed(o, Assumption::LoginOwnMemoAlone);
         }
     }

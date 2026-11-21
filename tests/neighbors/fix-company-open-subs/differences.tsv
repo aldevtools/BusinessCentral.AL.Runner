@@ -1,6 +1,3 @@
 # key	entry
-# ReadsNothing passes clean on both. On main the stand-in login is raised through its own code (no error here), so every test passed clean.
-FC Login Memo Tests::InsertReadsIsSaaS	ASSUMED login-own-memo-alone (corpus PR 1490)
-FC Login Memo Tests::ReadsEntitlement	ASSUMED login-own-memo-alone (corpus PR 1490)
-FC Login Memo Tests::ReadsIsOnPrem	ASSUMED login-own-memo-alone (corpus PR 1490)
-FC Login Memo Tests::ReadsIsSaaS	ASSUMED login-own-memo-alone (corpus PR 1490)
+# No test differs: the stand-in login code runs to its end, so the login is raised through it on main and on head
+# (every test passes clean). The fallback to the own login after a refusal is tests/neighbors/login-memo-raise-refuses.

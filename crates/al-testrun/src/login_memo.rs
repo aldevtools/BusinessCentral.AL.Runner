@@ -5,11 +5,17 @@
 //! Measured (corpus PR 1490, open, P2LoginMemoTests.al P2A_06 and P2A_11, with the XApp A subscriber of
 //! P2XaLoginMemos.al, on BC 27.5, 28.5 and 29.0): an `OnAfterLogin` subscriber of an app the run compiles as an app under
 //! test calls those three procedures from its own codeunit; the test, and a table trigger the test runs, get the same
-//! three values the subscriber saw. What a partner subscriber left there is kept (`partner_login::kept`). That an app
-//! under test's subscriber, raised alone (`login::Login::Own`), gets there what it gets inside the login is the assumption
-//! `login-own-memo-alone` ([`filled_alone`], marked at the reads by `partner_login::own_step`).
+//! three values the subscriber saw. What a partner subscriber left there is kept (`partner_login::kept`).
+//!
+//! The login is raised through Microsoft's code first, as for any read of what that code writes. Only when that code
+//! refuses (`install::NotOpened::retry_own_login`), and only for subscribers that read the memos as the probe's did
+//! ([`filled_alone`]) and a test codeunit that reads them as the probe's test did ([`test_reads_measured`]), does the
+//! codeunit run again with the subscribers raised alone (`login::Login::Own` with `memo_alone`). That they get there what
+//! they get inside the login is the assumption `login-own-memo-alone`, marked at the reads (`partner_login::own_step`).
+//! The facades and memos are matched by id, name and publisher: Microsoft's apps are compiled from their real source
+//! (ADR-013), whose bodies on BC 27.5, 28.5 and 29.0 the probe ran.
 
-use crate::runtime::written::{ReachIndex, login_subscribers_reach_without};
+use crate::runtime::written::{JoinedReach, ReachIndex, login_subscriber_reach_facts, login_subscribers_reach_without};
 use al_sema::lower::Lowered;
 use al_vm::events::Registry;
 use std::collections::BTreeSet;
@@ -21,13 +27,35 @@ const MEASURED: &[(u32, &str, &[&str])] = &[
     (6723, "Server Setting", &["GetEnableMembershipEntitlement"]),
 ];
 
+/// Whether test codeunit reach `mine` reads of the login memos only globals that the [`MEASURED`] procedures read: the
+/// probe's test and table trigger read only the values of those three procedures (P2A_06, P2A_11). Otherwise the login
+/// is raised through Microsoft's code, as before.
+pub(crate) fn test_reads_measured(
+    events: &Registry,
+    lowered: &Lowered,
+    index: &ReachIndex,
+    mine: &JoinedReach,
+) -> bool {
+    let objs = &lowered.program.objects;
+    let mut measured_reads = BTreeSet::new();
+    for o in facades(lowered) {
+        for r in (0..objs[o].routines.len()).filter(|&r| measured(lowered, o, r)) {
+            measured_reads.extend(login_subscriber_reach_facts(events, lowered, index, o, r).globals_read);
+        }
+    }
+    (0..objs.len())
+        .filter(|&m| microsoft_login_memo(lowered, m))
+        .all(|m| (0..objs[m].globals.len()).all(|g| !mine.reads_global((m, g)) || measured_reads.contains(&(m, g))))
+}
+
 /// Whether codeunit `o` is one of System Application's login memos: codeunit 3702 or 3703 of a dependency app published
 /// by Microsoft.
 pub(crate) fn microsoft_login_memo(lowered: &Lowered, o: usize) -> bool {
     microsoft_dependency(lowered, o) && matches!(lowered.program.objects[o].id, Some(3702 | 3703))
 }
 
-fn microsoft_dependency(lowered: &Lowered, o: usize) -> bool {
+/// Whether object `o` is in a dependency app published by Microsoft.
+pub(crate) fn microsoft_dependency(lowered: &Lowered, o: usize) -> bool {
     let objs = &lowered.program.objects;
     lowered.dependency.get(o).copied().unwrap_or(false)
         && (lowered.program.apps.get(objs[o].app as usize)).is_some_and(|a| a.publisher.trim() == "Microsoft")

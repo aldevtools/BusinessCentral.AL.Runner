@@ -96,3 +96,32 @@ codeunit 61010 "FC Login Memo Tests"
     begin
     end;
 }
+
+// A test codeunit that reads the row Microsoft's login code inserts (review of al-runner PR 8639, HIGH 1).
+codeunit 61011 "FC MS Row Tests"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure ReadsMicrosoftsLoginRow()
+    var
+        MsRow: Record "FC MS Login Row";
+    begin
+        MsRow.Get(1);
+    end;
+}
+
+// A test codeunit that reads a memo global the measured procedures do not read (review of al-runner PR 8639, MED 1).
+codeunit 61012 "FC Family Tests"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure ReadsFamily()
+    var
+        EnvInfo: Codeunit "Environment Information";
+    begin
+        if EnvInfo.GetFamily() <> 'FC' then
+            Error('Family is %1', EnvInfo.GetFamily());
+    end;
+}
