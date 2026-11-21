@@ -1,7 +1,7 @@
 //! `Field::Member` on an Enum field names a member of the field's own enum, whatever enum of that name the file finds
 //! (al-runner issue 8317), and `Rec.Field` itself is of the field's enum type there. Measured shapes, under assumption
 //! `enum-member-of-field-type` until corpus PR 1442 (merged: types/enum-option/EnumMemberFieldType_Tests.al:29, :59, :77)
-//! and corpus PR 1480 (open: types/enum-option/EnumMemberFieldTypeShapes_Tests.al, must-not-compile 3290 to 3293) are
+//! and corpus PR 1480 (merged: types/enum-option/EnumMemberFieldTypeShapes_Tests.al, must-not-compile 3290 to 3293) are
 //! pinned. The corpus probes pin the values; these tests pin where the assumption is marked, main's wrong value in the twin
 //! shapes, the refusal of the shapes no probe measured, and the messages of the type errors.
 

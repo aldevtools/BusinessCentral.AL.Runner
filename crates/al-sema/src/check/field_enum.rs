@@ -1,6 +1,6 @@
 //! `Field::Member` on an Enum field reads the field's own enum, whatever enum of that name the file finds (al-runner issue
-//! 8317; corpus PR 1442, merged, not pinned yet: types/enum-option/EnumMemberFieldType_Tests.al; corpus PR 1480, open:
-//! types/enum-option/EnumMemberFieldTypeShapes_Tests.al). `Rec.Field` itself then has the field's enum type (corpus PR 1480,
+//! 8317; corpus PR 1442, merged, not pinned yet: types/enum-option/EnumMemberFieldType_Tests.al; corpus PR 1480, merged, not
+//! pinned yet: types/enum-option/EnumMemberFieldTypeShapes_Tests.al). `Rec.Field` itself then has the field's enum type (corpus PR 1480,
 //! must-not-compile 3290 to 3293).
 use super::*;
 
