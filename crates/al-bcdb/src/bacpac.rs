@@ -195,19 +195,11 @@ impl BacpacSource {
         })
     }
 
-    pub fn database_name(&self) -> &str {
-        &self.database_name
-    }
-
     fn model(&self) -> Result<&Model> {
         self.model
             .get_or_init(|| self.load_model())
             .as_ref()
             .map_err(|e| e.clone())
-    }
-
-    pub fn bacpac_tables(&self) -> Result<&[BacpacTable]> {
-        Ok(&self.model()?.tables)
     }
 
     /// Streams model.xml once (113 MB in a real export, so never as a DOM), keeping only

@@ -12,6 +12,7 @@ impl Session {
     /// for a temporary record and with no mark at all (ui-handlers/Y41PageVarMarkedOnly.al:140 _Shown, :186
     /// _FilterGroups, :222 _NoMarks, :258 _TempRec).
     pub(super) fn page_var_set_table_view(&mut self, st: &St, r: &Rec) -> Result<Value, Signal> {
+        self.note_kept_view(st, r);
         let copy = Rc::new(RefCell::new(r.borrow().clone()));
         // The view is its filters and sorting only: the rows of a temporary record stay with it (Item Tracking Summary is handed
         // `SetTableView(TempGlobalEntrySummary)` and then fills its own temporary Rec; the page must keep that Rec).
@@ -35,6 +36,13 @@ impl Session {
         drop(s);
         self.seed_unopened_rec(st);
         Ok(Value::Null)
+    }
+
+    /// `P.RunModal()` on page variable `st`.
+    pub(super) fn page_var_run_modal(&mut self, st: &St) -> Result<Value, Signal> {
+        st.borrow_mut().modal_run = ModalRun::Variable;
+        self.note_kept_run_modal(st);
+        self.run_page_var(st, true)
     }
 
     /// `P.SetRecord(Rec)` with a record whose MarkedOnly is on hands the page neither the marks nor MarkedOnly: the page shows all

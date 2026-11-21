@@ -72,7 +72,7 @@ impl Session {
         self.coverage_cleared(t, temporary, &filters);
         // The platform asks for the table's Global Triggers setup, as the first write to the table, before it looks
         // for rows: a row the setup subscriber inserts is deleted (events/W4GlobalTriggers.al:327, :341), and a table
-        // with no row asks too (session-system/TestEnvironmentUserTenantContracts.al:289-290, `GtTable.DeleteAll()` on an
+        // with no row asks too (session-system/TestEnvironmentUserTenantContracts.al:286-287, `GtTable.DeleteAll()` on an
         // empty table). A temporary record is not pinned and stays as it was.
         if !temporary {
             self.global_setup_asked(t)?;
@@ -167,6 +167,8 @@ impl Session {
                     // record/crud/DeleteAllSkipsDeleted.al:DeleteAllTrue_FirstDeletesAnEarlierSibling_NoneEarlier.
                     continue;
                 }
+                let mut row = row;
+                crate::sqltime::read_back(&mut row);
                 let mut st = state_with_fields(rec, row);
                 st.filters.clear();
                 st.globals = shared.share();

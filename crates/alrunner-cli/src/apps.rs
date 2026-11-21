@@ -9,6 +9,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 /// One app whose tests run.
+#[derive(Debug, Clone)]
 pub struct AppInput {
     pub path: PathBuf,
     pub source: AppSource,
@@ -17,6 +18,24 @@ pub struct AppInput {
     pub versions: AppVersions,
     /// `preprocessorSymbols` of the app's app.json (an app folder only).
     pub symbols: Vec<String>,
+    /// The files and folders outside an app folder that its load read or looked for (resource folders, the logo, layout
+    /// files; `al_testrun::runtime::load_manifest_reading`): a warm server reads the app again when one changes
+    /// (`kept_apps.rs`).
+    pub outside_reads: Vec<PathBuf>,
+    /// [`AppInput::test_codeunits`], found once per read.
+    test_codeunits: std::sync::OnceLock<Vec<(u32, Vec<String>)>>,
+}
+
+impl AppInput {
+    /// The test codeunits of the app's sources and their test methods (`al_testrun::discover::test_codeunits`), found once
+    /// per read of the app: a warm server keeps them with the app (`kept_apps.rs`; al-runner issue 8205).
+    pub fn test_codeunits(&self) -> &[(u32, Vec<String>)] {
+        self.test_codeunits.get_or_init(|| {
+            (self.source.files.iter())
+                .flat_map(|(_, text)| al_testrun::discover::test_codeunits(text))
+                .collect()
+        })
+    }
 }
 
 /// Reads `path`. `build` is an exact build that fills Microsoft's build variables in a source
@@ -77,9 +96,10 @@ pub fn load(path: &Path, build: Option<&str>) -> Result<AppInput, String> {
     )
     .map_err(|e| format!("{}: {e}", path.display()))?;
     let mut symbols = Vec::new();
+    let mut outside_reads = Vec::new();
     if path.is_dir() {
         // The folder's own app.json: it can say more than the package manifest does.
-        manifest = al_testrun::runtime::load_manifest(path)?;
+        (manifest, outside_reads) = al_testrun::runtime::load_manifest_reading(path)?;
         versions = al_testrun::target::read_app_versions(path)?;
         let text = al_deps::load::read_text(&path.join("app.json"))?;
         let json: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("app.json: {e}"))?;
@@ -112,6 +132,8 @@ pub fn load(path: &Path, build: Option<&str>) -> Result<AppInput, String> {
         manifest,
         versions,
         symbols,
+        outside_reads,
+        test_codeunits: Default::default(),
     })
 }
 

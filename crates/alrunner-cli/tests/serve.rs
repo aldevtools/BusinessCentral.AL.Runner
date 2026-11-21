@@ -2759,3 +2759,93 @@ codeunit 50733 Reader { Subtype = Test;
     s.send(json!({"command": "shutdown"}));
     assert_eq!(s.line(), json!({"status": "shutting down"}));
 }
+
+/// Al-runner issue 8492: `stopAfterFirstFailure` over an app with a dependency whose install code writes a row. A later
+/// request keeps the install baseline and the engines; every request starts from the install row and none of the writes
+/// of an earlier one, with or without the stop.
+#[test]
+fn stop_after_first_failure_over_a_dependency_keeps_the_baseline_and_carries_no_writes() {
+    let d = tempfile::tempdir().unwrap();
+    let (main, dep) = installing_apps(d.path());
+    write(
+        &main,
+        "src/T.al",
+        "codeunit 50712 \"Seeded Stop\" { Subtype = Test;
+    [Test] procedure A_Fails() begin Error('fails first'); end;
+    [Test] procedure B_SeesTheInstallRowOnly() var S: Record Seeded; begin
+        if S.Count() <> 1 then Error('Seeded holds %1 rows', S.Count());
+        S.K := 'B'; S.Insert(); Commit(); end; }\n",
+    );
+    let dep = dep.to_string_lossy().to_string();
+    let cache = d.path().join("cache").to_string_lossy().to_string();
+    let mut s = Server::start(&["--no-download", "--no-test-data", "--dep", &dep, "--cache-dir", &cache]);
+    s.line();
+    let mut run = |stop: bool| {
+        s.send(json!({"command": "runTests", "sourcePaths": [main], "stopAfterFirstFailure": stop}));
+        let lines = s.until_summary();
+        let of = |name: &str| {
+            lines
+                .iter()
+                .find(|l| l["type"] == "test" && l["name"].as_str().is_some_and(|n| n.ends_with(name)))
+                .unwrap_or_else(|| panic!("{name}: {lines:?}"))
+                .clone()
+        };
+        let summary = lines.last().unwrap().clone();
+        (of("A_Fails"), of("B_SeesTheInstallRowOnly"), summary)
+    };
+    let stopped = |b: &Value| {
+        b["notRun"] == true
+            && b["message"]
+                .as_str()
+                .is_some_and(|m| m.contains("A_Fails") && m.contains("stopAfterFirstFailure"))
+    };
+    for (stop, source) in [(true, "ran"), (true, "kept"), (false, "kept"), (true, "kept")] {
+        let (a, b, summary) = run(stop);
+        assert_eq!(a["status"], "fail", "{stop}: {a}");
+        if stop {
+            assert!(stopped(&b), "{stop}: {b}");
+        } else {
+            assert_eq!(b["status"], "pass", "{b}");
+        }
+        assert_eq!(summary["timings"]["baselineSource"], source, "{stop}: {summary}");
+    }
+    s.send(json!({"command": "shutdown"}));
+    assert_eq!(s.line(), json!({"status": "shutting down"}));
+}
+
+/// Al-runner issue 8492: a coverage request after one without coverage gives the coverage a server's first request gives.
+#[test]
+fn a_coverage_request_after_one_without_coverage_gives_the_coverage_of_a_first_request() {
+    let d = tempfile::tempdir().unwrap();
+    let (main, dep) = installing_apps(d.path());
+    let dep = dep.to_string_lossy().to_string();
+    let cache = d.path().join("cache").to_string_lossy().to_string();
+    let start = || {
+        let mut s = Server::start(&["--no-download", "--no-test-data", "--dep", &dep, "--cache-dir", &cache]);
+        s.line();
+        s
+    };
+    let run = |s: &mut Server, coverage: Option<bool>| {
+        let mut req = json!({"command": "runTests", "sourcePaths": [main], "test": "Codeunit50710."});
+        if let Some(c) = coverage {
+            req["coverage"] = json!(c);
+            req["perTestCoverage"] = json!(c);
+        }
+        s.send(req);
+        let lines = s.until_summary();
+        let summary = lines.last().unwrap().clone();
+        assert_eq!(summary["passed"], 1, "{lines:?}");
+        summary
+    };
+    let mut first = start();
+    let want = run(&mut first, Some(true));
+    first.send(json!({"command": "shutdown"}));
+    let mut s = start();
+    let without = run(&mut s, None);
+    assert!(without.get("coverage").is_none(), "{without}");
+    let got = run(&mut s, Some(true));
+    assert_eq!(got["coverage"], want["coverage"], "{got}");
+    assert_eq!(got["perTestCoverage"], want["perTestCoverage"], "{got}");
+    s.send(json!({"command": "shutdown"}));
+    assert_eq!(s.line(), json!({"status": "shutting down"}));
+}
