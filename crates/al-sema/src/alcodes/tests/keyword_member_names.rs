@@ -196,3 +196,69 @@ fn an_authored_procedure_named_like_a_synthetic_routine_is_judged() {
     assert!(!ws.synthetic(0).is_empty(), "the page has a synthetic routine");
     assert!(check_workspace(&ws).iter().all(|d| d.code != "AL0107"));
 }
+
+/// al-runner issue 8649: the same 32 words after `::` (corpus must-not-compile 3158-3160 pin `in`). `@` is the value or
+/// object name, declared quoted; `#` is the use under test.
+const SCOPE_SHAPES: [(&str, &str); 6] = [
+    (
+        "enum variable",
+        "enum 50100 \"E\" { value(0; Zero) { } value(1; \"@\") { } }\ncodeunit 50101 \"U\" { procedure P() var K: Enum \"E\"; begin K := K::#; end; }",
+    ),
+    (
+        "enum type",
+        "enum 50100 \"E\" { value(0; Zero) { } value(1; \"@\") { } }\ncodeunit 50101 \"U\" { procedure P(): Integer begin exit(\"E\"::#.AsInteger()); end; }",
+    ),
+    (
+        "option field",
+        "table 50102 \"T\" { fields { field(1; \"No.\"; Code[20]) { } field(2; Opt; Option) { OptionMembers = Zero,\"@\"; } } keys { key(PK; \"No.\") { Clustered = true; } } }\ncodeunit 50101 \"U\" { procedure P() var Row: Record \"T\"; begin Row.Opt := Row.Opt::#; end; }",
+    ),
+    (
+        "option variable",
+        "codeunit 50101 \"U\" { procedure P() var O: Option Zero,\"@\"; begin O := O::#; end; }",
+    ),
+    (
+        "case label",
+        "enum 50100 \"E\" { value(0; Zero) { } value(1; \"@\") { } }\ncodeunit 50101 \"U\" { procedure P(K: Enum \"E\"): Integer begin case K of K::#: exit(1); end; exit(0); end; }",
+    ),
+    (
+        "object id",
+        "table 50102 \"@\" { fields { field(1; \"No.\"; Code[20]) { } } keys { key(PK; \"No.\") { Clustered = true; } } }\ncodeunit 50101 \"U\" { procedure P(): Integer begin exit(Database::#); end; }",
+    ),
+];
+
+/// The AL0107 diagnostics of scope shape `shape` with `name` after `::`, each as `true` when it is at the name.
+fn scope_al0107(shape: &str, name: &str) -> Vec<bool> {
+    let decl = name.trim_matches('"');
+    let fill = |s: &str| s.replace('@', decl);
+    let at = shape.find('#').expect("#");
+    let src = format!("{}{name}{}\n", fill(&shape[..at]), fill(&shape[at + 1..]));
+    let at = fill(&shape[..at]).len();
+    let ws = load(&[&src]);
+    check_workspace(&ws)
+        .into_iter()
+        .filter(|d| d.code == "AL0107")
+        .map(|d| {
+            assert_eq!(d.message, IDENTIFIER_EXPECTED);
+            d.offset == at
+        })
+        .collect()
+}
+
+#[test]
+fn a_keyword_unquoted_after_the_scope_operator_is_al0107_at_the_word() {
+    for (what, shape) in SCOPE_SHAPES {
+        for w in WORDS {
+            assert_eq!(scope_al0107(shape, w), [true], "{what}: ::{w}");
+        }
+        assert_eq!(scope_al0107(shape, "eXIT"), [true], "{what}: ::eXIT");
+    }
+}
+
+#[test]
+fn quoted_names_and_other_words_after_the_scope_operator_compile() {
+    for (what, shape) in SCOPE_SHAPES {
+        for name in ["\"Exit\"", "\"In\"", "Local", "Foo"] {
+            assert!(scope_al0107(shape, name).is_empty(), "{what}: ::{name}");
+        }
+    }
+}

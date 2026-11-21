@@ -1,13 +1,14 @@
-//! AL0107 for a member named, unquoted, by a word of [`MEMBER_KEYWORDS`] after `.` in the code of a procedure or trigger:
-//! `Row.If := 1;`, `V := Callee.Exit();` (al-runner issue 8635). The AL compilers of the BC artifacts of every supported major
-//! and a BC container give AL0107 (identifier expected) at the word first, for each word, in procedures and triggers of
-//! codeunits, tables, table fields, pages, page actions and reports, through a record, Rec, xRec, a codeunit, an interface, a
-//! query and a TestPage, and for a namespace segment in code (`Database::Ns.If."T"`); alc's recovery after it is not
-//! reproduced. A quoted member compiles, and so do the other words (`Local`, `Key`, `Area`, `Value`). A namespace segment
-//! that is such a word compiles in `namespace`, `using` and a variable's type, which are not code. An expression property or
-//! a control's source expression (`Visible = Rec.If > 0;`) is rejected the same way by the AL compilers but is not judged
-//! here: this checker sees it only as a synthetic routine. `::` before such a word is `check/infer.rs`
-//! (`al_unquoted_in_after_scope`, the word `in`).
+//! AL0107 for a member named, unquoted, by a word of [`MEMBER_KEYWORDS`] after `.` or `::` in the code of a procedure or
+//! trigger: `Row.If := 1;`, `V := Callee.Exit();` (al-runner issue 8635), `K := K::Exit;`, `Database::Exit` (issue 8649). The
+//! AL compilers of the BC artifacts of every supported major and a BC container give AL0107 (identifier expected) at the word
+//! first, for each word. After `.`: in procedures and triggers of codeunits, tables, table fields, pages, page actions and
+//! reports, through a record, Rec, xRec, a codeunit, an interface, a query and a TestPage, and for a namespace segment in code
+//! (`Database::Ns.If."T"`). After `::`: an enum variable, an enum type, an option field, an option variable, a case label and
+//! an object id; `in` there is pinned by corpus must-not-compile 3158-3160 (issue 7803). alc's recovery after it is not
+//! reproduced. A quoted name compiles, and so do the other words (`Local`, `Key`, `Area`, `Value`). A namespace segment that
+//! is such a word compiles in `namespace`, `using` and a variable's type, which are not code. An expression property or a
+//! control's source expression (`Visible = Rec.If > 0;`) is rejected the same way by the AL compilers but is not judged
+//! here: this checker sees it only as a synthetic routine.
 
 use super::{IDENTIFIER_EXPECTED, push};
 use crate::workspace::{Diagnostic, Workspace};
@@ -15,8 +16,8 @@ use al_builtins::assumptions::Assumption;
 use al_syntax::{SyntaxKind, SyntaxNode, SyntaxToken, ast};
 
 /// The words the AL compilers reject as an unquoted member name. Of 99 words measured as a record field written and read
-/// through a record variable, these 32 give AL0107 at the word; the other 67 compile (`local`, `key`, `area`, `value`,
-/// `page`, ...).
+/// through a record variable, and as an enum value after `::` on an enum variable, the same 32 give AL0107 at the word; the
+/// other 67 compile (`local`, `key`, `area`, `value`, `page`, ...).
 const MEMBER_KEYWORDS: [&str; 32] = [
     "and",
     "asserterror",
@@ -52,8 +53,8 @@ const MEMBER_KEYWORDS: [&str; 32] = [
     "xor",
 ];
 
-/// AL0107 for each member of object `oi` named by such a word in the body of a procedure or trigger the author wrote, in
-/// source order.
+/// AL0107 for each member of object `oi` named by such a word after `.` or `::` in the body of a procedure or trigger the
+/// author wrote, in source order.
 pub(super) fn check(ws: &Workspace, oi: usize, obj: &ast::Object, out: &mut Vec<Diagnostic>) {
     let file = ws.objects[oi].file;
     // The routines the workspace spliced in for expression properties, by where their text was added: a procedure of the
@@ -70,7 +71,10 @@ pub(super) fn check(ws: &Workspace, oi: usize, obj: &ast::Object, out: &mut Vec<
         .filter(authored)
         .filter_map(|r| r.body());
     for body in bodies {
-        for member in body.descendants().filter(|n| n.kind() == SyntaxKind::MemberExpr) {
+        let members = body
+            .descendants()
+            .filter(|n| matches!(n.kind(), SyntaxKind::MemberExpr | SyntaxKind::ScopeExpr));
+        for member in members {
             if let Some((name, _rests_on)) = keyword_member(&member) {
                 push(
                     out,
@@ -85,10 +89,10 @@ pub(super) fn check(ws: &Workspace, oi: usize, obj: &ast::Object, out: &mut Vec<
     }
 }
 
-/// The member name token of `member` (`Base.Name`) when it is one unquoted word of [`MEMBER_KEYWORDS`], with the registry
-/// entry the rule rests on (a compile refusal ends before any test runs, so it carries no flagged-pass mark; the gate names
-/// the entry so that deleting it at the pin names this check).
-fn keyword_member(member: &SyntaxNode) -> Option<(SyntaxToken, Assumption)> {
+/// The member name token of `member` (`Base.Name` or `Base::Name`) when it is one unquoted word of [`MEMBER_KEYWORDS`], with
+/// the registry entry the rule rests on, or `None` for `::in`, which the corpus pins. A compile refusal ends before any test
+/// runs, so it carries no flagged-pass mark; the gate names the entry so that deleting it at the pin names this check.
+fn keyword_member(member: &SyntaxNode) -> Option<(SyntaxToken, Option<Assumption>)> {
     let name = member.children().nth(1)?;
     let mut toks = name
         .descendants_with_tokens()
@@ -97,7 +101,14 @@ fn keyword_member(member: &SyntaxNode) -> Option<(SyntaxToken, Assumption)> {
     let (Some(word), None) = (toks.next(), toks.next()) else {
         return None;
     };
-    let keyword =
-        word.kind() == SyntaxKind::Ident && MEMBER_KEYWORDS.contains(&word.text().to_ascii_lowercase().as_str());
-    keyword.then_some((word, Assumption::KeywordMemberNames))
+    let lower = word.text().to_ascii_lowercase();
+    if word.kind() != SyntaxKind::Ident || !MEMBER_KEYWORDS.contains(&lower.as_str()) {
+        return None;
+    }
+    let rests_on = match member.kind() {
+        SyntaxKind::ScopeExpr if lower == "in" => None,
+        SyntaxKind::ScopeExpr => Some(Assumption::KeywordScopeNames),
+        _ => Some(Assumption::KeywordMemberNames),
+    };
+    Some((word, rests_on))
 }
