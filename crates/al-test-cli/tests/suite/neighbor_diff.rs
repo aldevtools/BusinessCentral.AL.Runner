@@ -277,6 +277,23 @@ fn an_entry_whose_test_shows_no_difference_is_stale_and_fails() {
     assert!(out.contains("stale entry, no difference: P::Gone"), "{out}");
 }
 
+/// A folder the pull request does not change (`--stale-note`, set by `tools/neighbor-diff.sh`) already has its
+/// change on main: its stale entries print as a note and exit 0; an unexplained difference still fails.
+#[test]
+fn a_stale_entry_of_an_unchanged_folder_is_a_note_and_a_changed_folder_fails() {
+    let d = tempfile::tempdir().unwrap();
+    let main = junit(d.path(), "m.xml", &[("A", "")]);
+    let head = junit(d.path(), "h.xml", &[("A", "")]);
+    let (code, out) = compare_on(d.path(), &main, &head, "P::A\tREFUSED x\n", &["--stale-note"]);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("stale entry, no difference: P::A"), "{out}");
+    let (code, out) = compare(d.path(), &main, &head, "P::A\tREFUSED x\n");
+    assert_eq!(code, 1, "{out}");
+    let head = junit(d.path(), "h2.xml", &[("A", "<failure message=\"boom\"/>")]);
+    let (code, out) = compare_on(d.path(), &main, &head, "", &["--stale-note"]);
+    assert_eq!(code, 1, "{out}");
+}
+
 /// A third column names the BC version a row applies to: a major (`27`) or a major.minor (`29.1`), matched against the
 /// build of the run. A row for another version neither counts nor is stale.
 #[test]
