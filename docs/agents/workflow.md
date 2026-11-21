@@ -29,7 +29,11 @@ Several agents share one machine. Measured 2026-11-21 on 12 cores (load about 15
    numbers: an incremental binary is slower.
 4. Never build a second copy of something that exists: use the main binary your task names to compare with main.
 5. After your pull request is merged or closed, the worktree and its target folder go:
-   `tools/machine_cleanup.sh` lists what it would delete, `--apply` deletes it (the orchestrator runs it).
+   `tools/machine_cleanup.sh` lists what it would delete, `--apply` deletes it (the orchestrator runs it). While
+   your pull request is open, the target folder of your worktree stays (a reviewer may run the head binary there).
+   Idle cargo target folders under the cache (any `CACHEDIR.TAG` folder up to four levels down) and the target
+   folder of a worktree with no open pull request go after 6 hours without a write, unless a process runs in them;
+   keep a build you still need busy or recent.
 
 ## Fast loop
 
@@ -166,7 +170,8 @@ checkout (`/.worktrees/` is git-ignored): from the main checkout run
 worktree next to the repository (`../wt-<area>`). Merge `main` into the branch
 before handing it back. A conflict in a not-passing list: take both sides'
 deletions, then run `--prune-not-passing`. A worktree whose pull request is merged or closed is removed with
-`tools/machine_cleanup.sh` (dry run by default; it keeps uncommitted and unpushed work).
+`tools/machine_cleanup.sh` (dry run by default; it keeps uncommitted and unpushed work, also in the corpus submodule,
+locked worktrees, and the target folder of a worktree with an open pull request).
 
 ## Logs and shell hygiene
 
