@@ -20,12 +20,14 @@ so tests through it are reported as flagged passes. -->
 <!-- Corpus tests (file:line) that pin each behavior, and the assumption id you added, if any. -->
 
 ## Shapes that keep today's behavior
-<!-- Neighbor shapes the evidence does not cover (other types, triggers, extensions, event subscribers, other call
-forms) must keep main's result or refuse. List the ones you checked and the tests that show it. -->
+<!-- Neighbor shapes the evidence does not cover (other callers, types, trigger and procedure bodies, extensions,
+event subscribers, record states, call order) must keep main's result or refuse. Put one test per shape in a
+neighbor app under tests/neighbors/<topic>/ (tests/neighbors/README.md) and paste the table that
+`tools/neighbor-diff.sh --changed` prints. CI runs the same check. -->
 
 ## Checks
 - [ ] A test that failed before this change and passes now
-- [ ] Tests that neighbor shapes keep main's result
+- [ ] A neighbor app with its differences.tsv, or a none.txt with the reason (`tools/neighbor-diff.sh --changed` exits 0)
 - [ ] `al-test-cli --root . --baseline-diff`: no regression; stale lines deleted (`--prune-not-passing`) (or: not run, and why)
 - [ ] `./check.sh` (or: not run, and why)
 - [ ] I signed the contributor agreement (see CONTRIBUTING.md)
