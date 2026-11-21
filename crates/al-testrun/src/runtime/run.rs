@@ -499,7 +499,7 @@ fn run_codeunit_inner(
     };
     // What publishing the app does first: run its install codeunits, then commit. No single instance of an earlier
     // codeunit moved in: the session is as `install_once` makes one.
-    let installs_ran = super::install_once::installs_for(
+    let installs = super::install_once::installs_for(
         lowered,
         &mut session,
         baseline,
@@ -508,7 +508,6 @@ fn run_codeunit_inner(
         observe.is_some(),
         moved.is_none(),
     );
-    let (skipped_installs, install_marks) = (installs_ran.skipped, installs_ran.marks);
     // What install code wrote is known only in part (ADR-046): the tests read it through the facts of this engine.
     crate::install::ensure_facts(engine, lowered);
     enter_test_codeunit(&mut session, scratch, object, isolation);
@@ -517,9 +516,9 @@ fn run_codeunit_inner(
     // (`mark_test_start_assumptions`).
     // `None`: a scratch run (`execute`), not a test session; else whether the isolation is Disabled.
     let mode = (!execute).then_some(isolation == TestIsolation::Disabled);
-    let opened = open_company(engine, lowered, &mut session, mode, &skipped_installs, &perturb);
+    let opened = open_company(engine, lowered, &mut session, mode, &installs.skipped, &perturb);
     let (company_open, company_open_marks) = match opened {
-        Ok(opened) => opened,
+        Ok((open, marks)) => (open, marks | installs.marks),
         Err(not) => return observed_not_run(observe.as_deref_mut(), &session, &not, all),
     };
     // SingleInstance state an earlier test codeunit left (ADR-066 amendment 2): notes from here on, and in the lane the
@@ -531,7 +530,7 @@ fn run_codeunit_inner(
             lowered,
             object,
             &company_open,
-            &skipped_installs,
+            &installs.skipped,
             scratch,
             limit,
         );
@@ -602,7 +601,7 @@ fn run_codeunit_inner(
             }
             // What the partner dependency apps' login subscribers left is watched too (`partner_login.rs`).
             let partner = &company_open.partner_login;
-            let watched = with_skipped(leak.iter().chain(partner.watched()), &skipped_installs);
+            let watched = with_skipped(leak.iter().chain(partner.watched()), &installs.skipped);
             session.store_mut().watch(watched);
             // Al-runner issue 5698: the time limit (CPU time, the wall backstop and the Sleep budget) applies to OnRun too,
             // with a budget of its own: its time counts toward no test method. A limit is tooling (ADR-009), not something
@@ -624,7 +623,7 @@ fn run_codeunit_inner(
             let hits = session.store_mut().watch_hits();
             scratch.leak_hit |= !leak.is_disjoint(&hits);
             session.store_mut().watch(Default::default());
-            if let Some((_, why)) = skipped_install_hit(&skipped_installs, &hits, Refused) {
+            if let Some((_, why)) = skipped_install_hit(&installs.skipped, &hits, Refused) {
                 return Err(on_run_refused(format!("OnRun: {why}")));
             }
             (partner.after_on_run(&hits, lowered)).map_err(|why| on_run_refused(format!("OnRun: {why}")))?;
@@ -642,7 +641,7 @@ fn run_codeunit_inner(
                     // committed and open, whatever the tests do (RqIsolationModes.al:357-369 #else).
                     if let Some(start) = &onrun_from {
                         let left =
-                            super::numbers_taken::onrun_left(session, start, baseline, &skipped_installs, changes_from);
+                            super::numbers_taken::onrun_left(session, start, baseline, &installs.skipped, changes_from);
                         onrun_left = Some(match scratch.driver.run_onrun_carries() {
                             true => left,
                             false => super::discovery::run_onrun_left(left, start, &obj.name),
@@ -661,7 +660,7 @@ fn run_codeunit_inner(
                         ))));
                     }
                     // The error may come from install data this run does not have: it is not trusted.
-                    if let Some(why) = skipped_install_touching(&skipped_installs, lowered, object, on_run, Refused) {
+                    if let Some(why) = skipped_install_touching(&installs.skipped, lowered, object, on_run, Refused) {
                         return Err(on_run_refused(format!(
                             "OnRun failed after install code that did not run: {why}"
                         )));
@@ -807,7 +806,7 @@ fn run_codeunit_inner(
             } else if let Some(b) = blocked_site(lowered, object, r) {
                 refused_in = Some((b.object, b.routine));
                 Outcome::NotRun(b.text)
-            } else if let Some(reason) = skipped_install_touching(&skipped_installs, lowered, object, r, Marked) {
+            } else if let Some(reason) = skipped_install_touching(&installs.skipped, lowered, object, r, Marked) {
                 Outcome::NotRun(reason.clone())
             } else if let Some(reason) = company_open_refuses(r) {
                 Outcome::NotRun(reason)
@@ -823,11 +822,11 @@ fn run_codeunit_inner(
                     Err(reason) => Outcome::NotRun(reason),
                     Ok(()) => {
                         began = true;
-                        let watched = with_skipped(company_open.watched().union(&leak), &skipped_installs);
+                        let watched = with_skipped(company_open.watched().union(&leak), &installs.skipped);
                         session.store_mut().watch(watched);
                         session.last_error = Default::default();
                         al_builtins::assumptions::clear_hits();
-                        mark_test_start_assumptions(lowered, on_run_shape_assumed, company_open_marks | install_marks);
+                        mark_test_start_assumptions(lowered, on_run_shape_assumed, company_open_marks);
                         assume_kept_bindings(&unfinished, &bound_before);
                         // The runner's steps before the method (runner_reset.rs); what they rely on counts for the test.
                         // Its `LibraryRandom.SetSeed(1)` reseeds the sequence, so draws after it are not inherited.
@@ -1123,7 +1122,7 @@ fn run_codeunit_inner(
             // variables do not show (a RecordRef): not run, as the static check does for a record variable (al-runner
             // issue 8115, scenario s03b).
             let skipped_hit = began
-                .then(|| skipped_install_hit(&skipped_installs, &touched, Marked))
+                .then(|| skipped_install_hit(&installs.skipped, &touched, Marked))
                 .flatten();
             let outcome = match (hit.and_then(|t| company_open.touched(t, lowered)))
                 .or_else(|| skipped_hit.map(|(_, why)| why.clone()))
@@ -1395,10 +1394,10 @@ fn run_codeunit_inner(
             object,
             tests.iter().chain(&data_driven).copied(),
             changes_from,
-            &skipped_installs,
+            &installs.skipped,
         );
     }
-    super::numbers_taken::carry_left(&session, obj, onrun_left, onrun_from, &skipped_installs);
+    super::numbers_taken::carry_left(&session, obj, onrun_left, onrun_from, &installs.skipped);
     out
 }
 
