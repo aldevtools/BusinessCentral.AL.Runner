@@ -685,12 +685,7 @@ fn run_codeunit_inner(
             }
             on_run_shape_assumed = on_run_rows == OnRunRows::TestRunner;
         }
-        // Function isolation returns the database to its state after OnRun when each test ends
-        // (corpus isolation probe T5 and T6; oracle/28/xunit-isolation-function.xml).
-        let checkpoint = (isolation == TestIsolation::Function).then(|| Checkpoint::take(session));
-        // Under Codeunit isolation what a failed test leaves of the number sequences since here (isolation::after_test).
-        let mut sequences = (isolation == TestIsolation::Codeunit)
-            .then(|| crate::isolation::CodeunitSequences::begin(session, measured_runner));
+        let (checkpoint, mut sequences) = start_isolation(session, isolation, (measured_runner, execute), changes_from);
         // MinimumActiveRowVersion across the tests (al-vm `min_row_version.rs`). When OnRun wrote rows, whether they belong to
         // the isolation transaction is not pinned, and no value is taken.
         if !execute && runner.none_handed_out(session, row_versions_from) {
@@ -2044,6 +2039,25 @@ fn on_run_time_limit<T>(
         ))),
         r => r,
     }
+}
+
+/// What the codeunit's isolation starts after OnRun, before its first test: Function isolation's checkpoint, which returns
+/// the database to its state after OnRun when each test ends (corpus isolation probe T5 and T6;
+/// oracle/28/xunit-isolation-function.xml); under Codeunit isolation the number sequences, for what a failed test leaves of
+/// them (isolation::after_test); and the rows the tests write, for a page background task's locking read (al-vm
+/// bg_readisolation_lock.rs; `onrun_from`: the store's change counter before OnRun). `(measured_runner, execute)`:
+/// [`crate::isolation::failed_test_runner_measured`], a scratch run.
+fn start_isolation(
+    session: &mut Session,
+    isolation: TestIsolation,
+    (measured_runner, execute): (bool, bool),
+    onrun_from: u64,
+) -> (Option<Checkpoint>, Option<crate::isolation::CodeunitSequences>) {
+    let checkpoint = (isolation == TestIsolation::Function).then(|| Checkpoint::take(session));
+    let sequences = (isolation == TestIsolation::Codeunit)
+        .then(|| crate::isolation::CodeunitSequences::begin(session, measured_runner));
+    session.begin_codeunit_row_locks(isolation == TestIsolation::Codeunit && !execute, onrun_from);
+    (checkpoint, sequences)
 }
 
 /// MinimumActiveRowVersion takes its value when the codeunit's tests begin, under TestIsolation = Codeunit and under
