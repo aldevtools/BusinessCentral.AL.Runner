@@ -1,0 +1,4 @@
+# key	entry
+YD Install Tests::DatasetRowsFromInstall	ASSUMED read-from-yaml-blank-lines-and-blocks (corpus PR 1493)
+YD Install Tests::SuiteRowFromInstall	ASSUMED read-from-yaml-blank-lines-and-blocks (corpus PR 1493)
+YD Install Tests::DependencyRowFromInstall	ASSUMED read-from-yaml-blank-lines-and-blocks (corpus PR 1493)

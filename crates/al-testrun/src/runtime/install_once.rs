@@ -78,6 +78,16 @@ pub(crate) struct RunInstalls {
     marks: std::sync::Mutex<HitBits>,
 }
 
+impl RunInstalls {
+    /// Adds the marks of the install codeunits of the install baseline run (`BaselineRun::workspace_install_marks`): the
+    /// tests that start from that baseline ran on what those codeunits left.
+    pub(crate) fn add_marks(&self, marks: HitBits) {
+        if let Ok(mut m) = self.marks.lock() {
+            *m = *m | marks;
+        }
+    }
+}
+
 /// What the install code left the last time it ran for a run ([`start_installed`]).
 struct Installed {
     /// The engine it ran on (`Engine::uid`) and how the codeunit's session was set up.

@@ -361,6 +361,36 @@ fn unmeasured_neighbors_refuse() {
     }
 }
 
+/// Shapes the pinned reader refuses on purpose and no cell measures (review of PR 8631): a quoted keyword, a key that
+/// is a keyword or does not start with a letter, `null` below the top or in an item mapping, `key:` null after another
+/// top line, an item mapping or flow item in a list at a top key's own indent.
+#[test]
+fn pinned_refusals_are_kept() {
+    for src in [
+        "a: 'null'~~b:~  c: 1",
+        "a: \"true\"~~b:~  c: 1",
+        "a: 'null'",
+        "null: a~~b:~  c: 1",
+        "true: a~~b:~  c: 1",
+        "yes: a~~b:~  c: 1",
+        "1: a~~b:~  c: 1",
+        "_a: 1~~b:~  c: 1",
+        "a:~  2024: x~~  b: 1",
+        "\"null\": a~~b:~  c: 1",
+        "a:~  b: null~~  c: 1",
+        "a:~  b: Null~~  c: 1",
+        "k:~  - x: Null~~  - x: 1",
+        "x: 1~a:~b: 2~~c: 3",
+        "k:~- x: 1~~- x: 2",
+        "k:~- [a]~~- b",
+    ] {
+        for crlf in [false, true] {
+            let text = doc(src, crlf);
+            assert!(refused(&text), "{text:?} was not refused: {:?}", read(&text, true).0);
+        }
+    }
+}
+
 /// Shapes the pinned reader reads keep main's result and are not marked.
 #[test]
 fn pinned_shapes_keep_mains_result() {

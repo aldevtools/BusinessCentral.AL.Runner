@@ -191,6 +191,72 @@ codeunit 60920 "YN Yaml Tests"
 
     // No cell measures these: each refuses.
     [Test]
+    procedure Refused_QuotedNullValue()
+    begin
+        ReadStmt('a: ''null''~~b:~  c: 1'.Replace('~', Lf()));
+    end;
+
+    [Test]
+    procedure Refused_QuotedTrueValue()
+    begin
+        ReadStmt('a: "true"~~b:~  c: 1'.Replace('~', Lf()));
+    end;
+
+    [Test]
+    procedure Refused_KeyNull()
+    begin
+        ReadStmt('null: a~~b:~  c: 1'.Replace('~', Lf()));
+    end;
+
+    [Test]
+    procedure Refused_KeyTrue()
+    begin
+        ReadStmt('true: a~~b:~  c: 1'.Replace('~', Lf()));
+    end;
+
+    [Test]
+    procedure Refused_KeyDigit()
+    begin
+        ReadStmt('1: a~~b:~  c: 1'.Replace('~', Lf()));
+    end;
+
+    [Test]
+    procedure Refused_KeyUnderscore()
+    begin
+        ReadStmt('_a: 1~~b:~  c: 1'.Replace('~', Lf()));
+    end;
+
+    [Test]
+    procedure Refused_NestedNull()
+    begin
+        ReadStmt('a:~  b: null~~  c: 1'.Replace('~', Lf()));
+    end;
+
+    [Test]
+    procedure Refused_ItemMappingNull()
+    begin
+        ReadStmt('k:~  - x: Null~~  - x: 1'.Replace('~', Lf()));
+    end;
+
+    [Test]
+    procedure Refused_KeyNullAfterTopLine()
+    begin
+        ReadStmt('x: 1~a:~b: 2~~c: 3'.Replace('~', Lf()));
+    end;
+
+    [Test]
+    procedure Refused_ItemMappingInListAtKeyIndent()
+    begin
+        ReadStmt('k:~- x: 1~~- x: 2'.Replace('~', Lf()));
+    end;
+
+    [Test]
+    procedure Refused_FlowItemInListAtKeyIndent()
+    begin
+        ReadStmt('k:~- [a]~~- b'.Replace('~', Lf()));
+    end;
+
+    [Test]
     procedure Refused_Tab()
     begin
         ReadStmt(('k:~' + Tab() + '- a~~- b').Replace('~', Lf()));

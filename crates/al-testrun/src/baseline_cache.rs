@@ -16,7 +16,7 @@ use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
 /// The first bytes of a file: what it is and which layout it has.
-const MAGIC: &[u8; 8] = b"ALBRUN\0\x07";
+const MAGIC: &[u8; 8] = b"ALBRUN\0\x08";
 
 /// The extension of the entry files (the layers have `alcc`, the source index `alci`).
 pub const EXTENSION: &str = "albr";
@@ -116,6 +116,9 @@ pub fn encode(run: &BaselineRun, started_at: i64) -> Option<Vec<u8>> {
         }
     }
     put_u8(&mut out, u8::from(run.read_resources));
+    for w in run.workspace_install_marks.0 {
+        put_u64(&mut out, w);
+    }
     put_u8(&mut out, 1);
     let baseline = run.baseline.to_bytes()?;
     out.extend_from_slice(&baseline);
@@ -179,6 +182,10 @@ pub fn decode(bytes: &[u8]) -> Option<(BaselineRun, i64)> {
         });
     }
     let read_resources = r.u8()? != 0;
+    let mut workspace_install_marks = al_builtins::assumptions::HitBits::EMPTY;
+    for w in &mut workspace_install_marks.0 {
+        *w = r.u64()?;
+    }
     if r.u8()? != 1 {
         return None;
     }
@@ -195,6 +202,7 @@ pub fn decode(bytes: &[u8]) -> Option<(BaselineRun, i64)> {
             trace: None,
             login,
             read_resources,
+            workspace_install_marks,
         },
         started_at,
     ))
@@ -394,6 +402,7 @@ mod tests {
                 hits: al_builtins::assumptions::HitBits([5, 1 << 36, 0, 1 << 3]),
             }],
             read_resources: true,
+            workspace_install_marks: al_builtins::assumptions::HitBits([0, 1 << 2, 0, 0]),
         }
     }
 
@@ -406,6 +415,7 @@ mod tests {
             a.total,
             &a.login,
             a.read_resources,
+            a.workspace_install_marks,
             a.baseline.to_bytes(),
         ) == (
             &b.unseeded,
@@ -415,6 +425,7 @@ mod tests {
             b.total,
             &b.login,
             b.read_resources,
+            b.workspace_install_marks,
             b.baseline.to_bytes(),
         )
     }

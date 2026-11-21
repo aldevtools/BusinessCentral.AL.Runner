@@ -45,6 +45,10 @@ pub struct BaselineRun {
     /// The install code read a resource file (`Engine::resources_read`, set while it ran): an entry with resource files of
     /// its own is then not run, whether this baseline ran for the request or was kept (al-runner issues 5635, 8206).
     pub read_resources: bool,
+    /// The marks of the assumptions the workspace app's own install codeunits ran through in the baseline run (not those of
+    /// the dependency apps' install code, which stay a run note). Every test of the run carries them, as for the install
+    /// code of a run without a baseline (`runtime/install_once.rs` `InstallsRan::marks`, `RunInstalls::add_marks`).
+    pub workspace_install_marks: al_builtins::assumptions::HitBits,
 }
 
 /// One recorded run of the login code that sets WorkDate when a test session opens the company
@@ -473,7 +477,10 @@ pub fn run_traced_halting(
     }
     // The workspace app's own install codeunits run here, once, so that the data they write is part of what every
     // test codeunit starts from (publishing the app runs them once; they are not re-run for each codeunit).
+    let earlier = al_builtins::assumptions::take_hit_bits();
     let mut workspace_installs = crate::runtime::run_install_codeunits(lowered, &mut session);
+    let workspace_install_marks = al_builtins::assumptions::take_hit_bits();
+    al_builtins::assumptions::add_hit_bits(earlier | workspace_install_marks);
     // Tables whose rows depend on the install order of two partner dependency apps (ADR-046 amendment 7): a test that
     // touches one is not run, as for an app under test's install routine that could not run.
     workspace_installs.extend(order_refused);
@@ -504,6 +511,7 @@ pub fn run_traced_halting(
         trace,
         login: Vec::new(),
         read_resources: session.engine.resources_read.load(std::sync::atomic::Ordering::Relaxed),
+        workspace_install_marks,
     })
 }
 

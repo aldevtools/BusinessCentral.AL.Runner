@@ -4,11 +4,12 @@
 //! cell measures refuses. A cell is named `Test/cell` after the probe's test and its `Observe` name.
 //!
 //! Measured: blank lines and lines of spaces only between list items, between keys and after the last line; CRLF line
-//! ends throughout; block lists under a key at its own indent (top keys only) or indented by two; list items that are
-//! words, flow forms or mappings whose first pair follows the `- `; nested mappings indented by two; the block scalars
-//! `|`, `|-`, `>` and `>-`; comment lines at indent 0 between top keys and a tail comment after a plain value; quoted
-//! keys and values; flow lists and flow mappings of one line; plain scalars as text, `Null` and `null` as null, an empty
-//! top value as null.
+//! ends throughout; block lists of words under a key at its own indent (top keys only), block lists indented by two whose
+//! items are words, flow forms or mappings whose first pair follows the `- `; nested mappings indented by two; the block
+//! scalars `|`, `|-`, `>` and `>-`; comment lines at indent 0 between top keys and a tail comment after a plain value;
+//! quoted keys and values; flow lists and flow mappings of one line; plain scalars as text; `Null` and `null` as a top
+//! value null, and the empty top value and the first top line `key:` as null. Plain keys start with a letter. A word YAML
+//! reads as null or a Boolean is neither a key nor a quoted value (the pinned reader refuses them on purpose).
 
 use super::read::{Yaml, keyword};
 use crate::native::{Signal, unsupported};
@@ -51,7 +52,11 @@ pub(super) fn document(text: &str) -> Result<Yaml, Signal> {
     let lf = text.replace("\r\n", "\n");
     let rows: Vec<Row> = lf.split('\n').map(row).collect();
     check_comments(&rows)?;
-    let mut p = Parser { rows: &rows, at: 0 };
+    let mut p = Parser {
+        rows: &rows,
+        at: 0,
+        taken: 0,
+    };
     let tree = match p.peek() {
         // The text starts with its first line at indent 0 (every cell), or a comment line (CommentsAndQuotes/comment).
         Some(Row::Text { indent: 0, text }) if matches!(rows[0], Row::Text { .. } | Row::Comment { .. }) => {
@@ -97,6 +102,8 @@ fn check_comments(rows: &[Row]) -> Result<(), Signal> {
 struct Parser<'r, 'a> {
     rows: &'r [Row<'a>],
     at: usize,
+    /// How many `Text` rows `take` moved past.
+    taken: usize,
 }
 
 impl<'a> Parser<'_, 'a> {
@@ -114,6 +121,7 @@ impl<'a> Parser<'_, 'a> {
             self.at += 1;
         }
         self.at += 1;
+        self.taken += 1;
     }
 
     fn next_indent(&self) -> Option<usize> {
@@ -131,10 +139,7 @@ impl<'a> Parser<'_, 'a> {
     /// A top list: words only, read as a list (BlankLineTopList/toplist, CrLfNoBlank/toplist).
     fn top_list(&mut self) -> Result<Yaml, Signal> {
         let list = self.sequence(0)?;
-        match &list {
-            Yaml::Seq(items) if items.iter().all(|i| matches!(i, Yaml::Text(_))) => Ok(list),
-            _ => unsupported("ReadFromYaml of a top list of other items than words (not measured)"),
-        }
+        words_only(list)
     }
 
     /// The `key: value` and `key:` lines at `indent`, added to `members` (the first pair of a list item mapping).
@@ -169,7 +174,7 @@ impl<'a> Parser<'_, 'a> {
                     Some(ind @ ("|" | "|-" | ">" | ">-")) => self.block_scalar(col, ind),
                     Some(v) if v.starts_with(['[', '{']) => flow(v),
                     Some(v) if v.starts_with(['"', '\'']) => quoted(v),
-                    Some(v) => plain_value(v),
+                    Some(v) => plain_value(v, col),
                     None => unsupported("ReadFromYaml of an empty value below the top mapping (not measured)"),
                 }
             }
@@ -187,7 +192,7 @@ impl<'a> Parser<'_, 'a> {
             (i, true) if i == col + 2 => self.sequence(i),
             // A list at the key's own indent, top keys only (BlankLineTopList/keylist0); it ends the text.
             (0, true) if col == 0 => {
-                let list = self.sequence(0)?;
+                let list = words_only(self.sequence(0)?)?;
                 if self.peek().is_some() {
                     return unsupported("ReadFromYaml of a line after a list at its key's indent (not measured)");
                 }
@@ -195,8 +200,9 @@ impl<'a> Parser<'_, 'a> {
             }
             // A mapping indented by two (BlankLineNestedKeys, SpacesOnlyLineMore/deep, DatasetDocument).
             (i, false) if i == col + 2 => self.mapping(i, Vec::new()),
-            // A top key followed by a top `key: value` line is null (P88ObjectPathYaml.al:224,239).
-            (0, false) if col == 0 && text.contains(": ") => Ok(Yaml::Null),
+            // The first top line `key:` followed by a top `key: value` line is null (P88ObjectPathYaml.al:224,239); after
+            // another top line the pinned reader refuses it and no cell measures it.
+            (0, false) if col == 0 && self.taken == 1 && text.contains(": ") => Ok(Yaml::Null),
             _ => unsupported("ReadFromYaml of `key:` with this line below it (not measured)"),
         }
     }
@@ -312,7 +318,7 @@ fn key_and_rest(text: &str) -> Result<(String, &str), Signal> {
                 return unsupported("ReadFromYaml of an unclosed quoted key (not measured)");
             };
             let ok = |c: char| c.is_ascii_alphanumeric() || c == ' ' || (q == '"' && c == '.');
-            if inner.is_empty() || !inner.chars().all(ok) {
+            if inner.is_empty() || !inner.chars().all(ok) || keyword(inner) {
                 return unsupported("ReadFromYaml of a quoted key with these characters (not measured)");
             }
             (inner, after)
@@ -321,7 +327,12 @@ fn key_and_rest(text: &str) -> Result<(String, &str), Signal> {
             let end = text
                 .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
                 .unwrap_or(text.len());
-            (&text[..end], &text[end..])
+            let key = &text[..end];
+            // Every plain key of a cell starts with a letter and is no word YAML reads as null or a Boolean.
+            if !key.starts_with(|c: char| c.is_ascii_alphabetic()) || keyword(key) {
+                return unsupported("ReadFromYaml of a plain key of this form (not measured)");
+            }
+            (key, &text[end..])
         }
     };
     match after.strip_prefix(':') {
@@ -331,7 +342,7 @@ fn key_and_rest(text: &str) -> Result<(String, &str), Signal> {
 }
 
 /// A plain value with an optional tail comment ` # ` and words (CommentsAndQuotes/comment `1 # tail`, DatasetDocument).
-fn plain_value(v: &str) -> Result<Yaml, Signal> {
+fn plain_value(v: &str, col: usize) -> Result<Yaml, Signal> {
     let (value, comment) = match v.split_once(" #") {
         Some((value, c)) => (value, Some(c)),
         None => (v, None),
@@ -343,7 +354,21 @@ fn plain_value(v: &str) -> Result<Yaml, Signal> {
     if !comment_ok {
         return unsupported("ReadFromYaml of a tail comment with these characters (not measured)");
     }
+    // `Null` and `null` are null as a top value only (ScalarForms/words `d: Null`); below the top the pinned reader refuses
+    // them and no cell measures them.
+    if col == 0 && matches!(value, "Null" | "null") {
+        return Ok(Yaml::Null);
+    }
     scalar(value, false)
+}
+
+/// A list of words, as every cell of a list at a key's own indent holds (BlankLineTopList/toplist, keylist0): an item
+/// mapping or a flow item refuses.
+fn words_only(list: Yaml) -> Result<Yaml, Signal> {
+    match &list {
+        Yaml::Seq(items) if items.iter().all(|i| matches!(i, Yaml::Text(_))) => Ok(list),
+        _ => unsupported("ReadFromYaml of a list at its key's indent of other items than words (not measured)"),
+    }
 }
 
 /// A plain scalar (ScalarForms, FlowInBlockList, DatasetDocument): `Null` and `null` are null; `yes` and the numbers
@@ -352,9 +377,6 @@ fn plain_value(v: &str) -> Result<Yaml, Signal> {
 fn scalar(v: &str, in_flow: bool) -> Result<Yaml, Signal> {
     if v.starts_with(['"', '\'']) {
         return quoted(v);
-    }
-    if v == "Null" || v == "null" {
-        return Ok(Yaml::Null);
     }
     if v == "yes" {
         return Ok(Yaml::Text(v.to_string()));
@@ -409,7 +431,8 @@ fn quoted(v: &str) -> Result<Yaml, Signal> {
             _ => return refuse(),
         }
     }
-    if !closed || out.is_empty() || chars.next().is_some() {
+    // A quoted word YAML reads as null or a Boolean is refused by the pinned reader and measured by no cell.
+    if !closed || out.is_empty() || chars.next().is_some() || keyword(&out) {
         return refuse();
     }
     Ok(Yaml::Text(out))
