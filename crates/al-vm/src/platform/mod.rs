@@ -1140,23 +1140,19 @@ impl Providers {
     /// Media (2000000181) read by one ID. No row has the null ID: Guided Experience Impl looks up the Logo of an app whose
     /// app.json declares none by its null MediaId and finds nothing (onprem session-system/PZPublishedApplicationColumns.al
     /// Logo_GuidedExperienceSequence_OfThisAppAndMicrosoftApps, `media row=none`). The id of an app's PNG logo finds its row
-    /// ([`apps::logo_media_rows`], onprem session-system/UsAppLogo.al). The other rows (media AL imports, other ids) are not
+    /// ([`apps::logo_media_row`], onprem session-system/UsAppLogo.al). The other rows (media AL imports, other ids) are not
     /// pinned: any other read is refused.
     fn media_of_id(&self, t: &TableDef, id: Option<&Value>) -> Result<mat::Mat, StoreError> {
         match id {
             Some(Value::Guid(g)) if *g == [0; 16] => Ok(mat::Mat::new(t, Vec::new())),
             Some(Value::Guid(g)) => {
-                let rows: Vec<_> = apps::logo_media_rows(self, t)
-                    .into_iter()
-                    .filter(|e| matches!(&e.row[pos_of(t, 1)], Value::Guid(r) if r == g))
-                    .collect();
-                if rows.is_empty() {
+                let Some(row) = apps::logo_media_row(self, t, *g) else {
                     return Err(refused(format!(
                         "{}: a read of an ID that is no app's logo (the rows of other media are not pinned)",
                         t.name
                     )));
-                }
-                Ok(mat::Mat::new(t, rows))
+                };
+                Ok(mat::Mat::new(t, vec![row]))
             }
             _ => Err(refused(format!(
                 "{}: only a read of one ID is pinned (the null ID finds nothing, an app's logo its row); the rows of other media are not",
