@@ -1,0 +1,11 @@
+{
+  "id": "4b0e2a52-8504-4f6e-9a3c-2f1d8c504001",
+  "name": "Neighbors takeover-8504 Feature Key",
+  "publisher": "al-runner neighbors",
+  "version": "1.0.0.0",
+  "platform": "29.0.0.0",
+  "runtime": "18.0",
+  "target": "Cloud",
+  "idRanges": [{ "from": 50000, "to": 50009 }],
+  "dependencies": []
+}
