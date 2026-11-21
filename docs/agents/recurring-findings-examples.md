@@ -369,7 +369,7 @@ The first version of the bump kept `EventArg::Measured` as wide as the old entry
 two subscribers, a publisher with more parameters and a record that had read a row ran unmarked. Read the deleted entry's
 "assumed beyond" and "wanted next" lists, and give each item a Rust test that shows it refuses.
 
-## 25. A pin gate compares trigger names, not bodies (al-runner PR 7838 round 2, PR 8536 round 3)
+## 25. A gate compares names, not bodies (al-runner PR 7838 round 2, PR 8536 round 3)
 
 A gate that checks which triggers, procedures or subscribers exist lets any body run under the pin. PR 7838 round 2: the
 entry checked names or a subset of the page, so pages the repro does not show ran flagged; `pinned_body.rs` was written for

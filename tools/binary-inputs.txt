@@ -1,0 +1,15 @@
+# The files the al-runner binary is built from, as git pathspecs, one per line (the first word; the rest is the reason).
+# tools/neighbor-diff.sh is the only reader: a change of one of them needs a folder under tests/neighbors/ (the rule),
+# and an older main commit with the same files has the same binary (the artifact lookback).
+# crates/al-test-cli/tests/suite/neighbor_rule.rs fails when a crate includes a file this list does not cover.
+:(glob)crates/*/src/**          the source of every crate, and the files it includes from its own src/
+:(glob)crates/*/build.rs        build scripts (al-builtins collects the assumption and refusal registries)
+:(glob)crates/*/Cargo.toml      crate manifests: features and dependencies
+:(glob)crates/*/catalog/**      include_str! in crates/al-builtins/src/catalog.rs and features.rs
+Cargo.toml                      workspace manifest and profiles
+Cargo.lock                      dependency versions
+rust-toolchain.toml             the compiler, when the file exists
+.cargo                          cargo configuration, when the folder exists
+docs/language-catalog.json      include_str! in crates/al-sema/src/property_values.rs
+tools/dotnet-sidecar            include_str! in crates/al-testrun/src/dotnet.rs
+crates/al-bcdb/tests/fixtures/typeprobe.bacpac  include_bytes! in a test module of crates/al-bcdb/src/model.rs
