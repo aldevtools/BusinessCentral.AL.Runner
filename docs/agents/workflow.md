@@ -9,6 +9,35 @@ Build once in release and use the binary: `cargo build --release`, then
 `./target/release/al-test-cli --root .` (add `--junit FILE` for per-test
 outcomes and refusal reasons).
 
+## Machine load
+
+Several agents share one machine. Measured 2026-11-21 on 12 cores (load about 15 from other agents):
+
+| Step | Peak RAM | CPU | Disk |
+| --- | --- | --- | --- |
+| cold `cargo build --release` | 3.7 GB | 20 CPU-min | 0.5-0.7 GB |
+| release rebuild after an edit in `al-vm` | 3.1-3.4 GB | 9.5 CPU-min | |
+| the same with `CARGO_PROFILE_RELEASE_INCREMENTAL=true` | 3.1 GB | 2.3 CPU-min | 2.4 GB |
+| debug test build (`cargo test -p`) of a big crate | | | 7-18 GB, half of it `debug/incremental` |
+
+1. Before the first build in a new worktree: `tools/disk_floor.sh`. Exit 1 (too little space, or unreadable) or 2 (the
+   cache root is refused): do not build; say so in your report.
+2. Every cargo command runs with `CARGO_BUILD_JOBS=4`, and every heavy step (build, test, corpus run) under the
+   memory cap your task names.
+3. A worktree for runtime work may build release incrementally: `export CARGO_PROFILE_RELEASE_INCREMENTAL=true` before
+   the first `cargo build --release`, and keep it for every later build in that worktree (switching rebuilds every
+   workspace crate). A rebuild after an edit then takes about a quarter of the CPU. Never for perf work or perf
+   numbers: an incremental binary is slower.
+4. Never build a second copy of something that exists: use the main binary your task names to compare with main.
+5. After your pull request is merged or closed, the worktree and its target folder go:
+   `tools/machine_cleanup.sh` lists what it would delete, `--apply` deletes it (the orchestrator runs it). While
+   your pull request is open, the target folder of your worktree stays (a reviewer may run the head binary there).
+   Idle cargo target folders under the cache (any `CACHEDIR.TAG` folder up to four levels down) go after 6 hours
+   without a write, unless a process runs in them. The target folder of a worktree goes only when the script read
+   that worktree's pull request state and it is merged, closed or absent (not with `--no-gh`, a failed `gh`, or a
+   locked worktree). Keep a build you still need busy or recent. A submodule commit made on a detached HEAD and
+   then left behind is in the reflog only: the script does not see it, so push or branch such a commit.
+
 ## Fast loop
 
 **Fast loop** (a full run takes about 20 s with Microsoft's apps and `check.sh` minutes; do not
@@ -143,7 +172,9 @@ checkout (`/.worktrees/` is git-ignored): from the main checkout run
 `git worktree add .worktrees/<area> -b <area> origin/main`. Never create a
 worktree next to the repository (`../wt-<area>`). Merge `main` into the branch
 before handing it back. A conflict in a not-passing list: take both sides'
-deletions, then run `--prune-not-passing`.
+deletions, then run `--prune-not-passing`. A worktree whose pull request is merged or closed is removed with
+`tools/machine_cleanup.sh` (dry run by default; it keeps uncommitted and unpushed work, also in the corpus submodule,
+locked worktrees, and the target folder of a worktree with an open pull request).
 
 ## Logs and shell hygiene
 
