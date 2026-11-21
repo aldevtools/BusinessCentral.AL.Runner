@@ -1592,7 +1592,23 @@ impl Session {
     }
 
     /// [`Self::write`]; `how` names the store: a builtin's write-back is no assignment.
+    ///
+    /// A value [`stored_as_is`] allows goes into a local as [`Self::write_as_general`] would put it there, without its
+    /// checks: none of them applies to it (a builtin's write-back of a Byte read or of the stream it read from).
+    #[inline]
     pub(crate) fn write_as(&mut self, p: &ir::Place, v: Value, f: &mut Frame, how: Store) -> Result<(), Signal> {
+        if let ir::Place::Local(i) = p
+            && stored_as_is(&v)
+        {
+            f.locals[*i] = self.option_param_store(*i, v, f);
+            return Ok(());
+        }
+        self.write_as_general(p, v, f, how)
+    }
+
+    /// [`Self::write_as`] of any value into any place.
+    #[inline(never)]
+    fn write_as_general(&mut self, p: &ir::Place, v: Value, f: &mut Frame, how: Store) -> Result<(), Signal> {
         let assign = how.assigns();
         // A column a platform row leaves unknown never reaches a variable: every read of one is refused where it happens; this
         // catches a reader that missed it.
@@ -2329,4 +2345,32 @@ pub(crate) fn date_key(v: &Value) -> i64 {
 /// The Date a [`date_key`] stands for.
 pub(crate) fn date_of_key(k: i64) -> Value {
     Value::Date((k.div_euclid(2)) as i32, k.rem_euclid(2) == 1)
+}
+
+/// A value whose store into a local [`Session::write_as_general`] makes as it is, through `option_param_store` only: a
+/// scalar that owns nothing, and an InStream or OutStream handle. Every check of that function is on another kind of value
+/// (Unknown, SqlCount, a FilterPageBuilder, KeyRef or RecordRef handle, a Record, a Blob) or on another place (a field, a
+/// global, an array element).
+#[inline(always)]
+fn stored_as_is(v: &Value) -> bool {
+    matches!(
+        v,
+        Value::Null
+            | Value::Boolean(_)
+            | Value::Integer(_)
+            | Value::BigInteger(_)
+            | Value::Decimal(_)
+            | Value::Byte(_)
+            | Value::Char(_)
+            | Value::Date(..)
+            | Value::Time(_)
+            | Value::DateTime(_)
+            | Value::Duration(_)
+            | Value::Guid(_)
+            | Value::Enum(..)
+            | Value::Library(
+                al_builtins::library_kind::LibraryKind::InStream | al_builtins::library_kind::LibraryKind::OutStream,
+                _
+            )
+    )
 }

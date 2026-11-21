@@ -124,6 +124,10 @@ pub fn pdf_read(v: &Value, read: PdfRead) -> Option<Result<PdfAnswer, Signal>> {
     let crate::value::LibraryValue::InStream(s) = &mut *g else {
         return None;
     };
+    // Most streams hold no mark: they are answered before the buffer handle is cloned (every Read of a byte passes here).
+    if !of(&s.live_blob()?.borrow()).is_some_and(|m| is_pdf(m)) {
+        return None;
+    }
     let blob = s.live_blob()?.clone();
     let buf = blob.borrow();
     let mark = of(&buf).filter(|m| is_pdf(m))?.clone();
