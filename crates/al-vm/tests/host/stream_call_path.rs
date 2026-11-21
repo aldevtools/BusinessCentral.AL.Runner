@@ -60,7 +60,7 @@ fn run(local: bool) -> String {
 fn a_local_stream_reads_and_writes_as_a_global_one() {
     let global = run(false);
     assert_eq!(run(true), global);
-    // What main's path gives (a global receiver).
+    // The result main gives; the literal was taken from a run of main.
     assert_eq!(
         global,
         "1;1:A;1:B;1:C;1:D;1:E;12:1.5;0:\0;InvalidStreamData;Yes;1:A;1:B;"

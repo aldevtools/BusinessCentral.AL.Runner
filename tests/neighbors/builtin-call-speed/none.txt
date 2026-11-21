@@ -1,4 +1,12 @@
-No neighbor shapes to probe: the change is speed only and adds no semantics. InStream.Read and OutStream.Write on a local
-stream variable run their native on the local in place instead of on a clone that is written back; the local ends with the
-same stream either way. Every other site (a global, field or Variant receiver, another stream method, more than two
-arguments) keeps run_builtin (al-vm exec/stream_local_tests.rs, tests/host/stream_call_path.rs).
+No neighbor shapes to probe: the change is speed only and adds no semantics. Four paths changed; each gives main's result:
+1. VM: InStream.Read and OutStream.Write on a local stream variable run their native on the local in place instead of on a
+   clone that is written back (Session::run_stream_builtin); the local ends with the same stream either way. Every other
+   site (a global, field or Variant receiver, another stream method, more than two arguments) keeps run_builtin
+   (al-vm exec/stream_local_tests.rs, tests/host/stream_call_path.rs).
+2. Builtin: read_fixed at the top of in_read, for every receiver (global, Variant, var parameter, array element). It answers
+   only a one-argument read of a non-Char type on a created InStream without render_pending; else the general path runs
+   (al-builtins stream_read_fixed_tests.rs, against the general read over 9 kinds of stream).
+3. Interpreter: the write_as short path for a scalar or stream handle stored into a local (every such store). No check of
+   write_as_general applies to a local and a value kept as it is (al-vm interp tests).
+4. Operators and placeholder output: the Byte-to-Byte arm of compare (tested against compare_general over all byte pairs)
+   and the early return of the same None in placeholder_output::pdf_read.

@@ -112,21 +112,44 @@ impl Session {
             self.keyref_receiver_local = false;
         }
         let ret = ret?;
-        // ADR-068 item 3: a builtin that read a text with half of a surrogate pair without an audit refuses.
+        let back = match (receiver, recv) {
+            (Some(ir::Arg::Ref(p)), Some(v)) => Some((p, v)),
+            _ => None,
+        };
+        self.builtin_write_back(id, class, back, args, &mut values, drain_pending, f)?;
+        self.return_vec(values);
+        Ok(ret)
+    }
+
+    /// What every builtin call does after its native returned: the surrogate audit (ADR-068 item 3: a builtin that read a
+    /// text with half of a surrogate pair without an audit refuses), the write-back of the receiver (`recv`, when it is by
+    /// reference) and of the by-reference operands, then the background task the call enqueued (`drain_pending` says one
+    /// further out was already waiting). Shared by `run_native` and `run_stream_builtin`.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn builtin_write_back(
+        &mut self,
+        id: BuiltinId,
+        class: al_builtins::builtin_id::Class,
+        recv: Option<(&ir::Place, Value)>,
+        args: &[ir::Arg],
+        values: &mut [Value],
+        drain_pending: bool,
+        f: &mut Frame,
+    ) -> Result<(), Signal> {
         al_builtins::text::check_unaudited()?;
-        if let (Some(ir::Arg::Ref(p)), Some(v)) = (receiver, recv) {
+        if let Some((p, v)) = recv {
             self.write_native_back(p, v, f, id)?;
         }
-        for (a, v) in args.iter().zip(values.drain(..)) {
+        for (a, slot) in args.iter().zip(values.iter_mut()) {
             if let ir::Arg::Ref(p) = a {
+                let v = std::mem::replace(slot, Value::Null);
                 self.native_arg_back(p, v, id, class, f)?;
             }
         }
-        self.return_vec(values);
         if !drain_pending && self.pages.bg_drain_after_call.is_some() {
             self.bg_drain_after_call()?;
         }
-        Ok(ret)
+        Ok(())
     }
 
     /// The write-back of by-reference argument `p` of builtin `id` once its native left `v` there.

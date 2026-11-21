@@ -1061,27 +1061,8 @@ impl Session {
         for &r in &site.arg_regs {
             values.push(take(f, r, nl));
         }
-        crate::assigned_audit::own_read_end_for_operands(site.id, &values);
-        crate::records::rolled_read_end_for_operands(&values);
-        crate::blob_transfer::records_into_builtin(self.blob_sources, site.id, recv.as_ref(), &values);
-        text_constant_arguments(site, &mut values)?;
-        // No operand is by reference, and `temp_blob_share_guard` checks a Blob field only through one: only the OutStreams
-        // the call takes are checked.
-        if site.temp_blob != SiteCheck::Never && crate::temp_blob_share::streams_kept() {
-            self.check_temp_out_streams(site.id, recv.as_ref(), &values)?;
-        }
-        if self.sql.active {
-            crate::sqlcount::guard(site.id, recv.as_ref(), &values)?;
-        }
-        if al_builtins::placeholder_output::sizes_made() {
-            al_builtins::placeholder_output::size_guard(site.id.name(), recv.as_ref(), &values)?;
-        }
-        if al_builtins::rendered_text::active() {
-            al_builtins::rendered_text::guard(site.id.name(), recv.as_ref(), &values, site.ret_used)?;
-        }
-        if self.without_client()
-            && let Some(answer) = self.clientless_guard(site.id, &values)?
-        {
+        self.builtin_prologue(site, recv.as_ref(), &mut values)?;
+        if let Some(answer) = self.value_builtin_guards(site, recv.as_ref(), &values)? {
             return Ok(answer);
         }
         self.ret_used = site.ret_used;
@@ -1092,13 +1073,11 @@ impl Session {
         result.map_err(|e| Self::name_builtin_refusal(site, e))
     }
 
-    /// A call on [`BuiltinSite::stream_local`] while local `i` holds a stream: what `run_builtin` and `run_native` do for it,
-    /// with the native run on the local in place and the arguments on the stack. Their write-back of the receiver puts the
-    /// same stream back into the local (`write_as` of a stream handle into a local stores it as it is), and `in_read` and
-    /// `out_write` never put another value in their receiver (`al_builtins::stream::keeps_receiver`), so the local ends as
-    /// it does there. Left out are the steps of `run_builtin` that only other builtins take (a VM class, a DotNet stream
-    /// argument, Media import, Clear, CopyArray, Blob streams of Temp Blob Impl., a Media Resources import) and those of
-    /// `run_native` that only a Query or KeyRef receiver takes.
+    /// A call on [`BuiltinSite::stream_local`] while local `i` holds a stream: the call sequence of `run_builtin` and
+    /// `run_native` (the shared `builtin_prologue`, `value_builtin_guards` and `builtin_write_back`), with the native run on
+    /// the local in place and the arguments on the stack. The write-back of the receiver is left out: it would put the same
+    /// stream back into the local (`write_as` of a stream handle into a local stores it as it is), and `in_read` and
+    /// `out_write` never put another value in their receiver (`al_builtins::stream::keeps_receiver`).
     #[inline(never)]
     fn run_stream_builtin(
         &mut self,
@@ -1113,46 +1092,67 @@ impl Session {
             set(slot, take(f, r, nl));
         }
         let values = &mut args[..site.arg_regs.len()];
-        crate::assigned_audit::own_read_end_for_operands(site.id, values);
-        crate::records::rolled_read_end_for_operands(values);
-        crate::blob_transfer::records_into_builtin(self.blob_sources, site.id, Some(&f.locals[i]), values);
-        text_constant_arguments(site, values)?;
-        // `temp_blob_share_guard` of a builtin other than `Blob.CreateOutStream`, `Blob.Import` and `Clear`.
-        if site.temp_blob != SiteCheck::Never && crate::temp_blob_share::streams_kept() {
-            self.check_temp_out_streams(site.id, Some(&f.locals[i]), values)?;
-        }
-        if self.sql.active {
-            crate::sqlcount::guard(site.id, Some(&f.locals[i]), values)?;
-        }
-        if al_builtins::placeholder_output::sizes_made() {
-            al_builtins::placeholder_output::size_guard(site.id.name(), Some(&f.locals[i]), values)?;
-        }
-        if al_builtins::rendered_text::active() {
-            al_builtins::rendered_text::guard(site.id.name(), Some(&f.locals[i]), values, site.ret_used)?;
-        }
-        if self.without_client()
-            && let Some(answer) = self.clientless_guard(site.id, values)?
-        {
+        self.builtin_prologue(site, Some(&f.locals[i]), values)?;
+        if let Some(answer) = self.value_builtin_guards(site, Some(&f.locals[i]), values)? {
             return Ok(answer);
         }
         self.ret_used = site.ret_used;
         let drain_pending = self.pages.bg_drain_after_call.is_some();
         let ret = native(self, Some(&mut f.locals[i]), values).map_err(|e| Self::name_builtin_refusal(site, e))?;
         debug_assert!(holds_stream(&f.locals[i]));
-        al_builtins::text::check_unaudited().map_err(|e| Self::name_builtin_refusal(site, e))?;
-        for (a, slot) in site.args.iter().zip(values.iter_mut()) {
-            if let ir::Arg::Ref(p) = a {
-                let v = std::mem::replace(slot, Value::Null);
-                self.native_arg_back(p, v, site.id, site.class, f)
-                    .map_err(|e| Self::name_builtin_refusal(site, e))?;
-            }
-        }
-        drop(args);
-        if !drain_pending && self.pages.bg_drain_after_call.is_some() {
-            self.bg_drain_after_call()
-                .map_err(|e| Self::name_builtin_refusal(site, e))?;
-        }
+        self.builtin_write_back(site.id, site.class, None, &site.args, values, drain_pending, f)
+            .map_err(|e| Self::name_builtin_refusal(site, e))?;
         Ok(ret)
+    }
+
+    /// The steps every builtin call takes on its evaluated operands before the guards: the audits, the record and Blob
+    /// bookkeeping and the TextConstant arguments. Shared by `run_builtin`, `run_plain_builtin` and `run_stream_builtin`.
+    #[inline]
+    fn builtin_prologue(&self, site: &BuiltinSite, recv: Option<&Value>, values: &mut [Value]) -> Result<(), Signal> {
+        crate::assigned_audit::own_read_end_for_operands(site.id, values);
+        crate::records::rolled_read_end_for_operands(values);
+        crate::blob_transfer::records_into_builtin(self.blob_sources, site.id, recv, values);
+        text_constant_arguments(site, values)
+    }
+
+    /// The guards every builtin call takes after the temp Blob step: SQL count, placeholder sizes, rendered text and the
+    /// client-less answer (`Some`). Shared by `run_builtin` and [`Self::value_builtin_guards`].
+    #[inline]
+    fn builtin_guards(
+        &mut self,
+        site: &BuiltinSite,
+        recv: Option<&Value>,
+        values: &[Value],
+    ) -> Result<Option<Value>, Signal> {
+        if self.sql.active {
+            crate::sqlcount::guard(site.id, recv, values)?;
+        }
+        if al_builtins::placeholder_output::sizes_made() {
+            al_builtins::placeholder_output::size_guard(site.id.name(), recv, values)?;
+        }
+        if al_builtins::rendered_text::active() {
+            al_builtins::rendered_text::guard(site.id.name(), recv, values, site.ret_used)?;
+        }
+        if self.without_client() {
+            return self.clientless_guard(site.id, values);
+        }
+        Ok(None)
+    }
+
+    /// The guards of a builtin none of whose operands is by reference (`run_plain_builtin`, `run_stream_builtin`):
+    /// `temp_blob_share_guard` checks a Blob field only through a by-reference operand, so only the OutStreams the call
+    /// takes are checked, then [`Self::builtin_guards`].
+    #[inline]
+    fn value_builtin_guards(
+        &mut self,
+        site: &BuiltinSite,
+        recv: Option<&Value>,
+        values: &[Value],
+    ) -> Result<Option<Value>, Signal> {
+        if site.temp_blob != SiteCheck::Never && crate::temp_blob_share::streams_kept() {
+            self.check_temp_out_streams(site.id, recv, values)?;
+        }
+        self.builtin_guards(site, recv, values)
     }
 
     /// `FieldRef.Value` into a Text, Code or Blob. A number is its Format text and an Enum its caption, checked against the
@@ -1320,27 +1320,13 @@ impl Session {
         for &r in &site.arg_regs {
             values.push(take(f, r, nl));
         }
-        crate::assigned_audit::own_read_end_for_operands(site.id, &values);
-        crate::records::rolled_read_end_for_operands(&values);
-        crate::blob_transfer::records_into_builtin(self.blob_sources, site.id, recv.as_ref(), &values);
-        text_constant_arguments(site, &mut values)?;
+        self.builtin_prologue(site, recv.as_ref(), &mut values)?;
         let open = match site.temp_blob {
             SiteCheck::Never => None,
             SiteCheck::StreamsKept if !crate::temp_blob_share::streams_kept() => None,
             _ => self.temp_blob_share_guard(site, nl, &mut recv, &values, f)?,
         };
-        if self.sql.active {
-            crate::sqlcount::guard(site.id, recv.as_ref(), &values)?;
-        }
-        if al_builtins::placeholder_output::sizes_made() {
-            al_builtins::placeholder_output::size_guard(site.id.name(), recv.as_ref(), &values)?;
-        }
-        if al_builtins::rendered_text::active() {
-            al_builtins::rendered_text::guard(site.id.name(), recv.as_ref(), &values, site.ret_used)?;
-        }
-        if self.without_client()
-            && let Some(answer) = self.clientless_guard(site.id, &values)?
-        {
+        if let Some(answer) = self.builtin_guards(site, recv.as_ref(), &values)? {
             return Ok(answer);
         }
         if site.vm_class {
