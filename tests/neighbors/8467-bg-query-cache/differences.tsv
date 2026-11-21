@@ -1,0 +1,32 @@
+# key	entry
+# The probe's cells whose answer the cache changes: main read the table; the head answers from the cache, or refuses the two it does not model.
+BQ Tests::BgQueryCache_AssertError_Rollback_FirstAnswer	REFUSED a read of the test session that a page background task's earlier read answers from the query cache otherwise than the table
+BQ Tests::BgQueryCache_AutoRollback_2_SameKey_FirstAnswer	ASSUMED background-task-query-cache (corpus PR 1457, merged, not pinned yet: BgTaskQueryCache.al)
+BQ Tests::BgQueryCache_Page_FullKeyFindFirst_ChangedRow_FirstAnswer	ASSUMED background-task-query-cache (corpus PR 1457, merged, not pinned yet: BgTaskQueryCache.al)
+BQ Tests::BgQueryCache_Page_Get_ChangedRow_FirstAnswer	ASSUMED background-task-query-cache (corpus PR 1457, merged, not pinned yet: BgTaskQueryCache.al)
+BQ Tests::BgQueryCache_Page_Get_NewPage_FirstAnswer	ASSUMED background-task-query-cache (corpus PR 1457, merged, not pinned yet: BgTaskQueryCache.al)
+BQ Tests::BgQueryCache_Page_Get_OtherTableCommitted_FirstAnswer	ASSUMED background-task-query-cache (corpus PR 1457, merged, not pinned yet: BgTaskQueryCache.al)
+BQ Tests::BgQueryCache_Page_OtherTableWritten_TestReadFirst_FirstReadAnswersIt	ASSUMED background-task-query-cache (corpus PR 1457, merged, not pinned yet: BgTaskQueryCache.al)
+BQ Tests::BgQueryCache_Page_TestReadFirst_FirstReadAnswersIt	ASSUMED background-task-query-cache (corpus PR 1457, merged, not pinned yet: BgTaskQueryCache.al)
+BQ Tests::BgQueryCache_Run_EmptyGroup_Insert_FirstAnswer	ASSUMED background-task-query-cache (corpus PR 1457, merged, not pinned yet: BgTaskQueryCache.al)
+BQ Tests::BgQueryCache_Run_FullKeyFindFirst_ChangedRow_GetFirstAnswer	ASSUMED background-task-query-cache (corpus PR 1457, merged, not pinned yet: BgTaskQueryCache.al)
+BQ Tests::BgQueryCache_Run_FullKeyFindFirst_OtherRowCommitted_FirstAnswer	ASSUMED background-task-query-cache (corpus PR 1457, merged, not pinned yet: BgTaskQueryCache.al)
+BQ Tests::BgQueryCache_Run_GetMissing_InsertedRow_FirstAnswer	ASSUMED background-task-query-cache (corpus PR 1457, merged, not pinned yet: BgTaskQueryCache.al)
+BQ Tests::BgQueryCache_Run_Get_ChangedRow_EveryFormFirstAnswer	ASSUMED background-task-query-cache (corpus PR 1457, merged, not pinned yet: BgTaskQueryCache.al)
+BQ Tests::BgQueryCache_Run_Get_DeletedRow_FirstAnswer	ASSUMED background-task-query-cache (corpus PR 1457, merged, not pinned yet: BgTaskQueryCache.al)
+BQ Tests::BgQueryCache_Run_Get_InsertCommitted_FirstAnswer	ASSUMED background-task-query-cache (corpus PR 1457, merged, not pinned yet: BgTaskQueryCache.al)
+BQ Tests::BgQueryCache_Run_Get_OtherRowModifyCommitted_FirstAnswer	ASSUMED background-task-query-cache (corpus PR 1457, merged, not pinned yet: BgTaskQueryCache.al)
+BQ Tests::BgQueryCache_Run_GroupCount_Insert_FirstAnswer	ASSUMED background-task-query-cache (corpus PR 1457, merged, not pinned yet: BgTaskQueryCache.al)
+BQ Tests::BgQueryCache_Run_GroupFindFirst_ChangedRow_FirstAnswer	ASSUMED background-task-query-cache (corpus PR 1457, merged, not pinned yet: BgTaskQueryCache.al)
+BQ Tests::BgQueryCache_Run_GroupFindFirst_InsertBefore_FirstAnswer	ASSUMED background-task-query-cache (corpus PR 1457, merged, not pinned yet: BgTaskQueryCache.al)
+BQ Tests::BgQueryCache_Run_NonKeyFilterCount_Insert_FirstAnswerUntilCommit	ASSUMED background-task-query-cache (corpus PR 1457, merged, not pinned yet: BgTaskQueryCache.al)
+BQ Tests::BgQueryCache_Run_NonKeyFilterFindFirst_FirstAnswerUntilCommit	ASSUMED background-task-query-cache (corpus PR 1457, merged, not pinned yet: BgTaskQueryCache.al)
+BQ Tests::BgQueryCache_Run_OtherFilterForms_Insert_FirstAnswer	ASSUMED background-task-query-cache (corpus PR 1457, merged, not pinned yet: BgTaskQueryCache.al)
+BQ Tests::BgQueryCache_Run_PartialFirst_FullLater_FirstAnswer	REFUSED a field SetLoadFields left out, loaded into a record a page background task's read answered from the query cache
+# The reporter's repro of al-runner issue 8467.
+Repro Bg Read Tests::SecondRead_AfterAWrite_GetsTheFirstAnswer	ASSUMED background-task-query-cache (corpus PR 1457, merged, not pinned yet: BgTaskQueryCache.al; the reporter's repro)
+# Neighbors: refused where the cache's answer is not measured; a fetch after a replay answers from the cache.
+BQ Neighbor Tests::CopyOfReplayed_LoadsOmittedField	REFUSED a field SetLoadFields left out, loaded into a record a page background task's read answered from the query cache
+BQ Neighbor Tests::FetchAfterReplay_LoadsOmittedField	ASSUMED background-task-query-cache (corpus PR 1457, merged, not pinned yet: BgTaskQueryCache.al)
+BQ Neighbor Tests::GroupRead_AfterTestReadAndWrite	REFUSED a group read of a page background task after the test session read the group and then wrote the table
+BQ Neighbor Tests::RowGoneAgain_AfterCommits	REFUSED a page background task's read of a row whose query cache entry a later commit of the table may have ended
