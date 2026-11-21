@@ -1,5 +1,6 @@
-//! The corpus probe of al-runner issue 8491 (corpus pull request 1459, merged, not pinned yet: tests/al-language/pages/background-tasks/
-//! BgTaskInsertQueue.al, measured on BC 29.1, 16 of 16 green) and the reporter's repro, run here until a bump pins the probe: a
+//! The corpus probe of al-runner issue 8491 (corpus pull request 1459, merged, not pinned yet, and the cells from :548 on in
+//! corpus pull request 1489, open: tests/al-language/pages/background-tasks/BgTaskInsertQueue.al, measured on BC 29.1, 30 of
+//! 30 green) and the reporter's repro, run here until a bump pins the probe: a
 //! page background task's worker does not see the rows the test session's insert queue holds (`al-vm`
 //! records/insert_buffer.rs, `hide_queued_from_worker`). Delete this file and the fixtures when the pin is in the corpus.
 
@@ -49,7 +50,8 @@ fn outcomes(src: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<Assumption>)
 #[test]
 fn issue_8491_probe_cells() {
     let o = outcomes(PROBE, "IQ Tests");
-    assert_eq!(o.len(), 16);
+    assert_eq!(o.len(), 30);
+    // The tests whose worker runs after the queue was sent: nothing is hidden.
     let clean = [
         "Insert_TestGet_TaskFindsIt",
         "FiveInserts_TaskFindsAll",
@@ -58,6 +60,12 @@ fn issue_8491_probe_cells() {
         "BlobTable_Insert_TaskFindsIt",
         "Insert_TestModifiesOtherRow_TaskFindsIt",
         "Insert_TestFlowField_TaskFindsIt",
+        "Insert_TestGet_PageEnqueuedTaskFindsIt",
+        "SubscriberTable_SubscriberReadsRow_TaskFindsIt",
+        "Insert_TestCountApprox_TaskFindsIt",
+        "Insert_TestQuery_TaskFindsIt",
+        "Insert_TestGetBySystemId_TaskFindsIt",
+        "Insert_TestTableRelation_TaskFindsIt",
     ];
     for (name, r, marks) in &o {
         let short = name.trim_start_matches("BgTaskInsertQueue_");
@@ -85,9 +93,10 @@ fn issue_8491_repro() {
 }
 
 /// Not measured, refused: a worker's read of a table whose duplicate-key Insert is deferred in the test session, and a worker's
-/// CountApprox (a read outside the record methods) while the queue holds rows of the table.
+/// TableRelation check of a table whose queue holds rows. (Rows queued under another company value: al-testrun
+/// `companies_opt_in.rs`, which runs with two companies.)
 const NEIGHBORS: &str = r#"
-codeunit 97530 "IQ Neighbor Tests"
+codeunit 97590 "IQ Neighbor Tests"
 {
     Subtype = Test;
 
@@ -112,7 +121,7 @@ codeunit 97530 "IQ Neighbor Tests"
     end;
 
     [Test]
-    procedure Queued_TaskCountApprox()
+    procedure Queued_TaskTableRelation()
     var
         Host: TestPage "IQ Host";
         Row: Record "IQ Row";
@@ -122,19 +131,21 @@ codeunit 97530 "IQ Neighbor Tests"
         Row."No." := 'IQNB3';
         Row.Insert();
         Parameters.Add('No', 'IQNB3');
-        Parameters.Add('Mode', 'approx');
-        Host.RunPageBackgroundTask(Codeunit::"IQ Approx Reader", Parameters, false);
+        Host.RunPageBackgroundTask(Codeunit::"IQ Relation Reader", Parameters, false);
     end;
 }
 
-codeunit 97531 "IQ Approx Reader"
+codeunit 97591 "IQ Relation Reader"
 {
     trigger OnRun()
     var
-        Row: Record "IQ Row";
+        Link: Record "IQ Link";
         Results: Dictionary of [Text, Text];
+        No: Text;
     begin
-        Results.Add('Seen', Format(Row.CountApprox()));
+        Page.GetBackgroundParameters().Get('No', No);
+        Link.Validate("Row No.", No);
+        Results.Add('Seen', Link."Row No.");
         Page.SetBackgroundTaskResult(Results);
     end;
 }
@@ -146,11 +157,11 @@ fn issue_8491_unmeasured_neighbors() {
     for (name, why) in [
         (
             "DeferredDuplicate_TaskRead",
-            "a read of a page background task's worker",
+            "a read of a page background task's worker of IQ Row while the error of an Insert into it is deferred",
         ),
         (
-            "Queued_TaskCountApprox",
-            "CountApprox of IQ Row by a page background task's worker",
+            "Queued_TaskTableRelation",
+            "the TableRelation check of IQ Row by a page background task's worker",
         ),
     ] {
         let (_, r, _) = o.iter().find(|(n, _, _)| n == name).expect("the test");

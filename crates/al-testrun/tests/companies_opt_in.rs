@@ -673,3 +673,27 @@ fn a_shared_table_a_stopped_routine_wrote_through_a_recordref_in_the_other_compa
     );
     assert_eq!(o[1].1, Outcome::Pass, "{o:?}");
 }
+
+/// The test session inserts a row into the other company's table (ChangeCompany, a statement-form Insert, held back by the insert
+/// queue), then a page background task's worker reads the table of its own company: not measured (pages/background-tasks/
+/// BgTaskInsertQueue.al inserts into the session company only), refused (al-vm `records/insert_buffer.rs`, al-runner issue 8491).
+#[test]
+fn a_worker_read_while_the_insert_queue_holds_rows_of_the_other_company_is_refused() {
+    let main = format!(
+        "{COMPANY_TABLE}
+        table 60910 Row {{ fields {{ field(1; No; Code[20]) {{ }} }} keys {{ key(PK; No) {{ Clustered = true; }} }} }}
+        table 60911 Host {{ fields {{ field(1; No; Code[20]) {{ }} }} keys {{ key(PK; No) {{ Clustered = true; }} }} }}
+        page 60912 HostCard {{ PageType = Card; SourceTable = Host; layout {{ area(Content) {{ field(No; Rec.No) {{ }} }} }} }}
+        codeunit 60913 Reader {{ trigger OnRun() var R: Record Row; Res: Dictionary of [Text, Text];
+            begin Res.Add('Seen', Format(R.Get('A'))); Page.SetBackgroundTaskResult(Res); end; }}
+        codeunit 60914 T {{ Subtype = Test;
+            [Test] procedure OtherCompanyRow() var H: TestPage HostCard; R: Record Row; P: Dictionary of [Text, Text];
+            begin H.OpenView(); R.ChangeCompany('{OTHER}'); R.No := 'A'; R.Insert();
+                H.RunPageBackgroundTask(Codeunit::Reader, P, false); end; }}"
+    );
+    let o = outcomes_of_apps(&[("main", &[], &main)]);
+    assert!(
+        matches!(&o[0].1, Outcome::NotRun(r) if r.contains("under another company value")),
+        "{o:?}"
+    );
+}

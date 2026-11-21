@@ -760,7 +760,7 @@ impl Session {
             .partition(|c| src_fields[c.field].stored || src_fields[c.field].flow_filter);
         // A page background task's worker does not see the rows the test session's insert queue holds (records/insert_buffer.rs).
         let company = rec.borrow().company.clone();
-        let hidden = self.hide_queued_in_view(&src_t, &company, &cx, "a FlowField read")?;
+        let hidden = self.hide_queued_in_view(&[(&src_t, company, cx.clone())], "a FlowField read")?;
         let tally = if flow.is_empty() {
             self.tally_stored(&cx, &src_t, &filters, calc)
         } else {

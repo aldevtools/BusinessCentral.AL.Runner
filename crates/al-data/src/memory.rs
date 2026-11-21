@@ -978,6 +978,23 @@ impl MemStore {
         self.counts.writes.get()
     }
 
+    /// A copy of the store without the rows of table `t` under `keys`, for a reader that must not see them (al-vm
+    /// `records/insert_buffer.rs`). Taking it is no read or write: no access, write or store operation is counted, the watch
+    /// sees nothing and no restored change is written down.
+    pub fn without_rows(&self, cx: &AccessContext, t: &TableDef, keys: &[Vec<Value>]) -> Result<MemStore, StoreError> {
+        let (ops, accesses, writes) = (store_ops(), self.accesses(), self.writes());
+        let mut view = self.clone();
+        let (watch, log) = (view.watch.take(), view.restored_log.take());
+        let r = keys
+            .iter()
+            .try_for_each(|k| Store::delete(&mut view, cx, t, k).map(|_| ()));
+        (view.watch, view.restored_log) = (watch, log);
+        STORE_OPS.with(|c| c.set(ops));
+        self.counts.accesses.set(accesses);
+        self.counts.writes.set(writes);
+        r.map(|()| view)
+    }
+
     /// Notes an access to table `object` for the watch and the count of [`MemStore::accesses`].
     fn seen(&self, object: u32) {
         self.counts.accesses.set(self.counts.accesses.get() + 1);
