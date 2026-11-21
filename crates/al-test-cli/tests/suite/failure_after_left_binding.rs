@@ -1,7 +1,9 @@
 //! A failed test that did not reach its `UnbindSubscription` of a global leaves the binding for the next test of the codeunit
-//! (codeunits/TestEventManualBinding.al:161-200, Contract 9). On BC that test may pass and unbind, so a later failure while
-//! that binding is still live is not trusted: the test is reported as not run (al-runner issue 6924, the second test's
-//! "already been bound").
+//! (codeunits/TestEventManualBinding.al:161-200, Contract 9). The next test's `BindSubscription` of that global fails with
+//! "already been bound", and a later failure while the binding is still live is trusted (corpus PR 1465,
+//! tests/al-language-isolation-probe/src/SqBindFailed.al P5a :36, SqReader.al:257; assumption binding-after-failed-test,
+//! al-runner issues 6924 and 8337). Under TestIsolation = Function the later failure is still not trusted
+//! (al-testrun failed_test_isolation.rs).
 
 use al_testkit::outcomes_in;
 use al_testrun::Outcome;
@@ -91,22 +93,21 @@ fn outcome<'a>(all: &'a [(String, Outcome)], name: &str) -> &'a Outcome {
 }
 
 #[test]
-fn a_failure_while_an_earlier_failed_test_left_a_binding_is_not_run() {
+fn a_failure_while_an_earlier_failed_test_left_a_binding_of_a_global_is_trusted() {
     let all = outcomes_in(SRC, "LB Tests");
     assert!(
         matches!(outcome(&all, "A_FailsBeforeUnbind"), Outcome::Fail(m) if m.contains("a fails")),
         "{all:?}"
     );
-    match outcome(&all, "B_BindsAgain") {
-        Outcome::NotRun(why) => {
-            assert!(why.contains("left a manual event subscription bound"), "{why}");
-            assert!(why.contains("already been bound"), "{why}");
-        }
-        other => panic!("B_BindsAgain: {other:?}"),
-    }
-    // B's failure was not trusted; it ended at its first statement, so A's binding is still live for C.
-    assert!(
-        matches!(outcome(&all, "C_FailsWithoutBinding"), Outcome::NotRun(w) if w.contains("left a manual event subscription bound")),
+    assert_eq!(
+        outcome(&all, "B_BindsAgain"),
+        &Outcome::Fail("The binding of codeunit 50501 was unsuccessful. The codeunit has already been bound.".into()),
+        "{all:?}"
+    );
+    // B ended at its first statement, so A's binding is still live for C.
+    assert_eq!(
+        outcome(&all, "C_FailsWithoutBinding"),
+        &Outcome::Fail("c fails".into()),
         "{all:?}"
     );
 }

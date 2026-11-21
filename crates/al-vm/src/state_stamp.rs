@@ -39,7 +39,7 @@ impl Session {
     /// The session language, WorkDate, number sequences and isolated storage now.
     pub fn state_stamp(&self) -> StateStamp {
         StateStamp {
-            language: self.global_language,
+            language: self.global_language(),
             work_date: self.work_date_day(),
             sequences: self.sequences.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
             isolated_storage: self

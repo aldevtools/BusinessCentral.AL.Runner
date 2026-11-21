@@ -278,14 +278,16 @@ impl Session {
                     st.borrow_mut().saved_by_update = false;
                 }
                 let arg_false = matches!(args.first(), Some(Value::Boolean(false)));
+                let carried_before = st.borrow().lookup_left.move_refresh();
                 self.lookup_refresh_deferred_call(method, &st, None)?;
+                let carried = self.lookup_move_start(method, &st, carried_before)?;
                 let moved = self.code_close_client_call(method, &st, |s| {
                     s.marked_only_unshown_call(method, &st, |s| {
                         s.shown_client_call(method, &st, None, arg_false, |s| s.test_page_op_held(method, &st, args))
                     })
                 });
                 self.test_call_ended(&st, &moved);
-                let moved = moved?;
+                let moved = self.lookup_move_stopped(&st, carried, moved)?;
                 self.lookup_move_refresh_after(&st, &moved)?;
                 Ok(moved)
             }
@@ -305,7 +307,7 @@ impl Session {
                 });
                 self.test_call_ended(&page, &result);
                 Self::factbox_line_after_set_value(method, &page, &result);
-                result
+                self.refuse_error_after_found_row_save(&page, result)
             }
             other => unsupported(format!("{method} on {}", other.describe())),
         }
@@ -665,12 +667,7 @@ impl Session {
     /// pages/currpage/TestPageUpdate.al: ValidateBegin;ValidateEnd;HostAGCR).
     fn ask_update_refresh(&mut self, st: &St, save: bool, arg: Option<&Value>) -> Result<(), Signal> {
         self.refuse_update_in_action(st)?;
-        {
-            let mut s = st.borrow_mut();
-            s.refresh = true;
-            s.refresh_by_update = true;
-            s.refresh_update_false = !save;
-        }
+        st.borrow_mut().refresh.ask_by_update(save);
         self.note_view_left(st)?;
         self.note_part_update_left_view(st)?;
         self.land_on_code_inserted_line(st, arg)
@@ -698,13 +695,13 @@ impl Session {
             if let Some(seen) = step_save_xrec {
                 self.set_xrec_fields(st, seen);
             }
-            self.save_record_now(st)?;
+            self.save_record_now(st, method)?;
             let stored = self.page_rec(st).borrow().fields.clone();
             self.set_xrec_fields(st, xrec);
             self.validate_step_saved(st, &stored);
             st.borrow_mut().xrec_after_validate = Some(stored);
         } else {
-            self.save_record_now(st)?;
+            self.save_record_now(st, method)?;
         }
         // What `CurrPage.Update(true)` saved (al-vm pages/leave_new_line.rs, testpage/NewRowThenMove.al:73).
         st.borrow_mut().saved_by_update = method != PageOp::PageSaveRecord;
@@ -841,10 +838,7 @@ impl Session {
                 }
                 Ok(test_control(st.clone(), ControlTarget::BuiltIn(m.to_string())))
             }
-            m @ (PageMethod::Edit | PageMethod::View) => {
-                self.require_open(st)?;
-                Ok(test_control(st.clone(), ControlTarget::BuiltIn(m.to_string())))
-            }
+            m @ (PageMethod::Edit | PageMethod::View) => self.take_mode_action(st, m),
             // `ObjectId(UseNames)`: `Page <id>`, or with names (the default) `Page <Caption>`, the object name when
             // the page has no Caption. Taken from the probed report form (recordref-fieldref/PWRefusedBuiltins.al:78-107,
             // BC 27.5; the page form is pinned by pages/PRPageObjectId.al). It reads the object, so
@@ -1229,10 +1223,7 @@ impl Session {
                 self.bg_run_page_task(st, args)
             }
             PageMethod::Run => self.run_page_var(st, false),
-            PageMethod::RunModal => {
-                st.borrow_mut().modal_run = ModalRun::Variable;
-                self.run_page_var(st, true)
-            }
+            PageMethod::RunModal => self.page_var_run_modal(st),
             // `CurrPage.Close()` in a procedure of a Page variable that never ran does nothing and the procedure goes on
             // (pages/currpage/ClosedPageVariableCurrPageClose.al:83-99, Close_NeverRun), and so does
             // `Close()` of a Page variable whose modal page closed: after its handler failed (ClosedPageVariableCurrPageClose.al:55
@@ -1332,6 +1323,7 @@ impl Session {
                 self.require_open(st)?;
                 // CurrPage.Update() without an argument saves (the parameter defaults to true).
                 let save = (method == PageOp::PageSaveRecord) || !matches!(args.first(), Some(Value::Boolean(false)));
+                Self::note_currpage_save(st, method == PageOp::PageSaveRecord, save);
                 if !(method == PageOp::PageSaveRecord) {
                     self.ask_update_refresh(st, save, args.first())?;
                 }
@@ -1394,13 +1386,18 @@ impl Session {
     }
 
     /// CurrPage.SaveRecord / Update(true): write the page's row now.
-    fn save_record_now(&mut self, st: &St) -> Result<(), Signal> {
+    fn save_record_now(&mut self, st: &St, method: PageOp) -> Result<(), Signal> {
         {
             // Page code changed Rec: SaveRecord writes it whether or not the client typed anything
             // (corpus testpage/TestPageTriggerEvents.al, ModifyRecordEvent_PageDrivenSave_*).
             // Page code that inserted the new row itself and copied it into Rec hands the page
             // that row (corpus testpage/TestPageOpenNewAfterGetCurrRecord.al:44-63).
-            if self.save_found_row_from_new_line(st)? {
+            let call = if method == PageOp::PageSaveRecord {
+                super::refresh_new_line::FoundRowSave::SaveRecord
+            } else {
+                super::refresh_new_line::FoundRowSave::UpdateTrue
+            };
+            if self.save_found_row_from_new_line(st, call)? {
                 return Ok(());
             }
             if st.borrow().draft && !st.borrow().draft_stored && {
