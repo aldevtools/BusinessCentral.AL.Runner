@@ -27,6 +27,30 @@ use std::rc::Rc;
 
 type Args<'a> = &'a [Value];
 
+/// The members, (CLR type, member), whose implementation here only answers: from the session's host identity or a
+/// constant, or with a new object of its own type that holds nothing ([`is_sandbox`], [`al_config_instance`], the
+/// `ALConfigSettings.IsSaaS` flag). A call of one leaves nothing in the session, the store or another object, so the
+/// static reach analysis (al-testrun `written.rs`) counts it apart from code it does not follow. These are the members
+/// System Application's login memos call (Environment Information Impl.`IsSandbox`, Server Setting
+/// Impl.`GetEnableMembershipEntitlement`); a member is added only with the same reading of its implementation.
+pub const ANSWERS_ONLY: &[(&str, &str)] = &[
+    (TENANT_SETTINGS_HELPER, "IsSandbox"),
+    (AL_CONFIG_SETTINGS, "Instance"),
+    (AL_CONFIG_SETTINGS, "IsSaaS"),
+];
+
+/// Whether `member` of the declared CLR type `clr_type` is one of [`ANSWERS_ONLY`] (both without regard to case, as the
+/// registry matches them).
+pub fn answers_only(clr_type: &str, member: &str) -> bool {
+    (ANSWERS_ONLY.iter()).any(|(t, m)| t.eq_ignore_ascii_case(clr_type) && m.eq_ignore_ascii_case(member))
+}
+
+/// Whether a variable of the declared CLR type `clr_type` can only hold an object of a class served here whose members
+/// include one of [`ANSWERS_ONLY`]: the variable itself changes nothing; each member called on it counts on its own.
+pub fn holds_answering_class(clr_type: &str) -> bool {
+    (ANSWERS_ONLY.iter()).any(|(t, _)| t.eq_ignore_ascii_case(clr_type))
+}
+
 fn no_args(args: Args, what: &str) -> Result<(), Signal> {
     if args.is_empty() {
         Ok(())
@@ -54,6 +78,7 @@ macro_rules! config_flag {
     };
 }
 
+// Listed in ANSWERS_ONLY: must stay read-only; a write here must remove it from the list.
 fn al_config_instance(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     no_args(args, "ALConfigSettings.Instance")?;
     Ok(Value::DotNet(Rc::new(DotNetObject::new(DotNetKind::Internal {
@@ -118,6 +143,7 @@ config_flag!(
     "ALConfigSettings.UsePermissionsFromExtensions",
     Value::Boolean(true)
 );
+// Listed in ANSWERS_ONLY: must stay read-only; a write here must remove it from the list.
 config_flag!(membership_entitlement, "ALConfigSettings.IsSaaS", Value::Boolean(false));
 
 /// Whether the tenant is a sandbox. The SaaS environment is the oracle tier (probe: `IsSandbox`
@@ -131,6 +157,7 @@ fn tenant_is_sandbox(s: &Session) -> bool {
     s.host.identity.environment() == al_host::Environment::Saas
 }
 
+// Listed in ANSWERS_ONLY: must stay read-only; a write here must remove it from the list.
 fn is_sandbox(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     no_args(args, "NavTenantSettingsHelper.IsSandbox")?;
     Ok(Value::Boolean(tenant_is_sandbox(s)))
