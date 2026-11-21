@@ -87,7 +87,7 @@ codeunit 50111 "NX Field Enum Tests"
     end;
 
     [Test]
-    procedure TwinOwnNamespace_GlobalRecord_Refused()
+    procedure TwinOwnNamespace_GlobalRecord()
     var
         Reader: Codeunit NX.Twin."NX Twin Reader";
     begin
@@ -95,7 +95,7 @@ codeunit 50111 "NX Field Enum Tests"
     end;
 
     [Test]
-    procedure TwinOwnNamespace_GlobalRecordWithoutMember_Refused()
+    procedure TwinOwnNamespace_GlobalRecordWithoutMember()
     var
         Reader: Codeunit NX.Twin."NX Twin Reader";
     begin

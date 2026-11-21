@@ -1,7 +1,7 @@
 //! `Field::Member` on an Enum field names a member of the field's own enum, whatever enum of that name the file finds
 //! (al-runner issue 8317), and `Rec.Field` itself is of the field's enum type there. Measured shapes, under assumption
 //! `enum-member-of-field-type` until corpus PR 1442 (merged: types/enum-option/EnumMemberFieldType_Tests.al:29, :59, :77)
-//! and corpus PR 1480 (merged: types/enum-option/EnumMemberFieldTypeShapes_Tests.al, must-not-compile 3290 to 3293) are
+//! corpus PR 1492 (open: the global record of a codeunit) and corpus PR 1480 (merged: types/enum-option/EnumMemberFieldTypeShapes_Tests.al, must-not-compile 3290 to 3293) are
 //! pinned. The corpus probes pin the values; these tests pin where the assumption is marked, main's wrong value in the twin
 //! shapes, the refusal of the shapes no probe measured, and the messages of the type errors.
 
@@ -145,8 +145,8 @@ fn a_bare_field_in_a_table_extension_reads_the_fields_enum() {
 }
 
 #[test]
-fn a_global_record_variable_is_not_measured_and_refuses() {
-    // No probe reads the member through a global variable: refused where main read the twin's Production (5).
+fn a_global_record_variable_of_a_codeunit_reads_the_fields_enum() {
+    // EnumMemberFieldTypeShapes_Tests.al:143 (corpus PR 1492): main read the twin's Production (5).
     let src = "namespace T.Twin;\nusing T.Data;\n\
                codeunit 70112 C\n\
                {\n\
@@ -154,7 +154,9 @@ fn a_global_record_variable_is_not_measured_and_refuses() {
                    procedure ProductionOrdinal(): Integer\n\
                    begin Line.Kind := Line.Kind::Production; exit(Line.Kind.AsInteger()); end;\n\
                }\n";
-    refused(run(vec![twin(Some("T.Twin")), src.to_string()]).0);
+    let (r, hits) = run(vec![twin(Some("T.Twin")), src.to_string()]);
+    assert_eq!(al_testkit::int(r), 1);
+    assert!(hits.contains(&MARK), "{hits:?}");
 }
 
 /// Asserts that `r` is a refusal that names the assumption.
@@ -166,15 +168,35 @@ fn refused(r: Result<Value, Signal>) {
 }
 
 #[test]
-fn a_global_record_variables_field_without_a_member_refuses_too() {
-    // Not measured: every use of the field depends on its enum (`Line.Kind.Ordinals()`, a twin-typed variable), so the
-    // routine refuses also where no `::` names a member.
+fn a_global_record_variables_field_without_a_member_has_the_fields_enum() {
+    // EnumMemberFieldTypeShapes_Tests.al:154 (corpus PR 1492): `Format(GlobalLine.Kind)` is the field's member name.
     let src = "namespace T.Twin;\nusing T.Data;\n\
                codeunit 70112 C\n\
                {\n\
                    var Line: Record \"TF Line\";\n\
                    procedure ProductionOrdinal(): Integer\n\
-                   begin exit(Line.Kind.AsInteger()); end;\n\
+                   begin Line.Kind := Line.Kind::Transfer; if Format(Line.Kind) <> 'Transfer' then exit(-1); exit(Line.Kind.AsInteger()); end;\n\
+               }\n";
+    let (r, hits) = run(vec![twin(Some("T.Twin")), src.to_string()]);
+    assert_eq!(al_testkit::int(r), 2);
+    assert!(hits.contains(&MARK), "{hits:?}");
+}
+
+#[test]
+fn a_global_record_variable_of_a_page_is_not_measured_and_refuses() {
+    // Only a codeunit's global record is measured (EnumMemberFieldTypeShapes_Tests.al:143): a page's refuses.
+    let src = "namespace T.Twin;\nusing T.Data;\n\
+               page 70114 P\n\
+               {\n\
+                   var Line: Record \"TF Line\";\n\
+                   procedure Ordinal(): Integer\n\
+                   begin Line.Kind := Line.Kind::Production; exit(Line.Kind.AsInteger()); end;\n\
+               }\n\
+               codeunit 70112 C\n\
+               {\n\
+                   procedure ProductionOrdinal(): Integer\n\
+                   var Pg: Page P;\n\
+                   begin exit(Pg.Ordinal()); end;\n\
                }\n";
     refused(run(vec![twin(Some("T.Twin")), src.to_string()]).0);
 }

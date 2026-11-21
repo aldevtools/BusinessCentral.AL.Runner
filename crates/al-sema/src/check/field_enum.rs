@@ -16,9 +16,11 @@ pub(crate) enum FieldEnumReading {
 enum Receiver {
     /// A local variable or a parameter: `Line.Kind`.
     Variable,
+    /// A global variable of the object, not `Rec` or `xRec`: `GlobalLine.Kind`.
+    GlobalVariable,
     /// The current record: `Rec.Kind`, or the bare field name `Kind`.
     CurrentRecord,
-    /// Anything else: a global variable, `xRec`, `this`, an array element, a call's result, a `with` statement's record.
+    /// Anything else: `xRec`, `this`, an array element, a call's result, a `with` statement's record.
     Other,
 }
 
@@ -28,8 +30,9 @@ impl<'a> Checker<'a> {
     /// field's enum in every shape measured (EnumMemberFieldType_Tests.al:29, :59, :77; EnumMemberFieldTypeShapes_Tests.al:
     /// a temporary record, a member of an enum extension, a field of a table extension, a field enum of the global
     /// namespace, Rec and the bare field in a table extension and in a page, usings that find the field's enum and a twin
-    /// or two twins, a twin of the global namespace). Measured: the record a local variable or parameter in a codeunit,
-    /// table extension or page, or Rec or the bare field name in a table extension or page; every other shape is
+    /// or two twins, a twin of the global namespace, a global record of a codeunit). Measured: the record a local variable
+    /// or parameter in a codeunit, table extension or page, a global variable of a codeunit, or Rec or the bare field name
+    /// in a table extension or page; every other shape is
     /// [`FieldEnumReading::Unmeasured`]. `None` where the file finds the field's enum itself, or no enum of that name.
     pub(crate) fn field_enum_reading(&self, sc: &Scope, left: &SyntaxNode) -> Option<FieldEnumReading> {
         let (own, written, receiver) = self.field_enum(sc, left)?;
@@ -48,6 +51,8 @@ impl<'a> Checker<'a> {
         let measured = nameable
             && match receiver {
                 Receiver::Variable => matches!(kind, ObjKind::Codeunit | ObjKind::TableExtension | ObjKind::Page),
+                // EnumMemberFieldTypeShapes_Tests.al:143, :154 (corpus PR 1492): a global record of a codeunit.
+                Receiver::GlobalVariable => kind == ObjKind::Codeunit,
                 Receiver::CurrentRecord => matches!(kind, ObjKind::TableExtension | ObjKind::Page),
                 Receiver::Other => false,
             };
@@ -56,9 +61,9 @@ impl<'a> Checker<'a> {
         } else {
             FieldEnumReading::Unmeasured(format!(
                 "`{}`: this file finds another enum than the field's by the name {}; that the field's enum is read is \
-                 measured only for a local variable or parameter in a codeunit, table extension or page, and for Rec or \
-                 the bare field name in a table extension or page, with the field's enum in a namespace (assumption \
-                 enum-member-of-field-type, corpus PR 1480)",
+                 measured only for a local variable or parameter in a codeunit, table extension or page, a global \
+                 variable of a codeunit, and Rec or the bare field name in a table extension or page, with the field's \
+                 enum in a namespace (assumption enum-member-of-field-type, corpus PR 1480, PR 1492)",
                 left.text_string().trim(),
                 crate::types::display_name(&written)
             ))
@@ -121,6 +126,7 @@ impl<'a> Checker<'a> {
                 let receiver = match (base.kind(), self.resolutions.get(&key(&base))) {
                     (SyntaxKind::NameRef, Some(Res::Local(_))) => Receiver::Variable,
                     (SyntaxKind::NameRef, Some(Res::Global(g))) if g == "rec" => Receiver::CurrentRecord,
+                    (SyntaxKind::NameRef, Some(Res::Global(g))) if g != "xrec" => Receiver::GlobalVariable,
                     _ => Receiver::Other,
                 };
                 let res = self
