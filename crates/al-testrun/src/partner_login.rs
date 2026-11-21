@@ -9,14 +9,17 @@
 //! code (`login::Login::Raise`) that code runs them. Otherwise ([`subscribers`]) they run here, at the place
 //! "System Initialization Impl." raises the login, together with the apps under test's own (`install::own_login`, in the
 //! order the event reaches them, [`steps`]), and what they leave is watched ([`raise`]): the measured filter and globals
-//! stay; rows refuse their readers; a SingleInstance codeunit of another shape or of another app refuses every read of
-//! its globals; other session state refuses the codeunit or its readers. In the default order each test codeunit starts with fresh SingleInstance
+//! stay, and so do the SingleInstance codeunits of the measured shapes (some through an assumption entry, [`kept`]); a
+//! SingleInstance codeunit of another shape refuses every read of its globals; rows refuse their readers; other session
+//! state refuses the codeunit or its readers. In the default order each test codeunit starts with fresh SingleInstance
 //! state and its own login (ADR-066 amendment 12); in BC's order the single instances moved in from the codeunit before
 //! replace the ones this login made (`Session::adopt_single_instances`; PlLoginSingleTests.al:109-128).
 
 use crate::login::OwnEvent;
 use al_sema::lower::Lowered;
+use al_builtins::assumptions::Assumption;
 use al_vm::Session;
+use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
 /// What the partner dependency apps' login subscribers left in the test session ([`raise`]).
@@ -29,6 +32,8 @@ pub(crate) struct PartnerLogin {
     /// The first of `tables` and `group1` that code after them in the session open read or wrote, while the window
     /// ([`PartnerLogin::watch_after`]) was open on fewer tables than now.
     window_hit: Option<u32>,
+    /// SingleInstance codeunit -> the apps of the partner subscribers that changed it so far ([`kept`]).
+    changed_by: BTreeMap<usize, Vec<u32>>,
 }
 
 impl PartnerLogin {
@@ -172,11 +177,12 @@ pub(crate) fn steps(
     out
 }
 
-/// Raises step `step` of the partner subscribers and notes what they left in `left`: the tables they wrote, the tables whose
-/// group 1 filters they changed; a changed SingleInstance codeunit other than the measured one is marked so that every
-/// read of it is refused ([`unmeasured_singles`]). `Err`: why the codeunit is not run (a subscriber that cannot run, an
-/// error, a change of the session state besides rows that the probe does not measure and the watch cannot follow: of the
-/// session language, WorkDate or the bindings, or of other state the test codeunit can see, [`seen_by_test`]).
+/// Raises step `step` of the partner subscribers, one subscriber at a time in the order the event runs them, and notes
+/// what they left in `left`: the tables they wrote, the tables whose group 1 filters they changed; each changed
+/// SingleInstance codeunit keeps its state or is marked ([`kept`]). `Err`: why the codeunit is not run (a subscriber that
+/// cannot run, an error, a change of the session state besides rows that the probe does not measure and the watch cannot
+/// follow: of the session language, WorkDate or the bindings, or of other state the test codeunit can see,
+/// [`seen_by_test`]).
 pub(crate) fn raise(
     lowered: &Lowered,
     session: &mut Session,
@@ -196,7 +202,16 @@ pub(crate) fn raise(
     let before = session.left_stamp();
     let since = session.store_mut().change_counter();
     let (po, pr) = step.publisher;
-    crate::install::call_before_first_test(lowered, session, who, |s| s.raise_to(po, pr, &step.subscribers))?;
+    // The SingleInstance codeunits each subscriber changed, in the order they ran.
+    let mut singles_by: Vec<((usize, usize), BTreeSet<usize>)> = Vec::new();
+    crate::install::call_before_first_test(lowered, session, who, |s| {
+        for sub in s.subscriber_order(po, step.event, &step.subscribers)? {
+            let at = s.left_stamp();
+            s.raise_to(po, pr, &[sub])?;
+            singles_by.push((sub, at.changed(&s.left_stamp()).singles));
+        }
+        Ok(())
+    })?;
     let store = session.store_mut();
     if store.virtual_write_pending() {
         return Err(format!(
@@ -219,38 +234,93 @@ pub(crate) fn raise(
         )
         .into());
     }
-    for o in unmeasured_singles(lowered, step, &change.singles) {
-        let why = format!(
-            "a read of a global of SingleInstance codeunit {}: {who} changed it before the first test, and it is not the one codeunit of the one subscriber's app with the measured globals (two Integer, a List of [Text], a Text): what BC leaves there is not pinned",
-            lowered.program.objects[o].name
-        );
-        session.mark_single_unmeasured(o, why.into());
+    for (sub, singles) in &singles_by {
+        for &o in singles {
+            let earlier = left.changed_by.entry(o).or_default();
+            let verdict = kept(lowered, session, step, *sub, o, singles.len(), earlier);
+            earlier.push(lowered.program.objects[sub.0].app);
+            match verdict {
+                Kept::Pinned => {}
+                Kept::Assumed => session.mark_single_assumed(o, Assumption::PartnerLoginMemoKept),
+                Kept::Refused(what) => {
+                    let why = format!(
+                        "a read of a global of SingleInstance codeunit {}: {who} changed it before the first test, and {what}: what BC leaves there is not pinned",
+                        lowered.program.objects[o].name
+                    );
+                    session.mark_single_unmeasured(o, why.into());
+                }
+            }
+        }
     }
     left.group1.extend(before.group1_changed(&after));
     left.watch_after(session);
     Ok(())
 }
 
-/// Of the SingleInstance codeunits whose state the step changed (`singles`), the ones outside the measured shape: every
-/// read of one of their globals is refused (al-vm `single_unmeasured.rs`; al-runner issue 8239), a test or other code that reads
-/// none of them runs. The pin (PlXaLoginSingles.al:12-27, the subscriber at :56-62): the step has one subscriber, it changes
-/// one SingleInstance codeunit of its own app, and that codeunit's globals are two Integers, one List of [Text] and one Text.
-fn unmeasured_singles(lowered: &Lowered, step: &Step, singles: &BTreeSet<usize>) -> Vec<usize> {
+/// What a read of a SingleInstance codeunit a partner login subscriber changed gets ([`kept`]).
+#[derive(Debug, PartialEq)]
+enum Kept {
+    /// What the subscriber left, pinned.
+    Pinned,
+    /// What the subscribers left, through assumption `partner-login-memo-kept` (corpus PR 1490).
+    Assumed,
+    /// Refused: the fact no probe measured, for the reason text.
+    Refused(String),
+}
+
+/// What the test session gives a read of a global of SingleInstance codeunit `memo` after partner subscriber `sub` of
+/// step `step` changed it, together with `changed` codeunits in all; `earlier` are the apps of the partner subscribers
+/// that changed it before. The facts, by equality:
+/// - Pinned (PlXaLoginSingles.al:12-27, the subscriber at :56-62; read at PlLoginSingleTests.al:54-98): the step has one
+///   subscriber, it changes one SingleInstance codeunit, of its own app, no subscriber changed it before, and that codeunit's globals are two Integers,
+///   one List of [Text] and one Text.
+/// - Assumed (`partner-login-memo-kept`, corpus PR 1490, P2LoginMemoTests.al P2A_02 to P2A_14 and P2B_01): the codeunit
+///   is of a dependency app (P2XaLoginMemos.al: XApp A), the subscriber's own app (P2A_02) or an app the subscriber's
+///   app depends on (P2A_03, P2A_04: XApp B's subscriber, P2XbLoginMemos.al); no earlier subscriber of the same app
+///   changed it (P2A_05: XApp A and XApp B); and its globals are all Boolean, Integer, Text or List of [Text]
+///   (P2XaLoginMemos.al codeunits 98490 to 98494), or it is codeunit 3702 or 3703 of an app published by Microsoft
+///   (Environment Information Impl. and Server Setting Impl., filled by the XApp A subscriber's IsSaaS() call, P2A_06,
+///   P2A_11).
+fn kept(
+    lowered: &Lowered,
+    session: &Session,
+    step: &Step,
+    sub: (usize, usize),
+    memo: usize,
+    changed: usize,
+    earlier: &[u32],
+) -> Kept {
     use al_builtins::value::RtType;
     let objs = &lowered.program.objects;
-    let measured = |o: usize| {
-        let globals = |ty: &RtType| objs[o].globals.iter().filter(|g| g.ty == *ty).count();
-        let shape = (
-            objs[o].globals.len(),
-            globals(&RtType::Integer),
-            globals(&RtType::List(Box::new(RtType::Text(None)))),
-            globals(&RtType::Text(None)),
-        );
-        matches!(step.subscribers.as_slice(), [(s, _)] if objs[*s].app == objs[o].app)
-            && singles.len() == 1
-            && shape == (4, 2, 1, 1)
+    let (sub_app, memo_app) = (objs[sub.0].app, objs[memo].app);
+    let globals = &objs[memo].globals;
+    let count = |ty: &RtType| globals.iter().filter(|g| g.ty == *ty).count();
+    let list_of_text = RtType::List(Box::new(RtType::Text(None)));
+    let shape = (globals.len(), count(&RtType::Integer), count(&list_of_text), count(&RtType::Text(None)));
+    if step.subscribers.len() == 1 && changed == 1 && earlier.is_empty() && memo_app == sub_app && shape == (4, 2, 1, 1) {
+        return Kept::Pinned;
+    }
+    if !lowered.dependency[memo] {
+        return Kept::Refused("it is a codeunit of an app under test".into());
+    }
+    let depends = |a: u32, b: u32| {
+        (session.engine.events.depends.get(a as usize)).is_some_and(|row| row.get(b as usize) == Some(&true))
     };
-    singles.iter().copied().filter(|&o| !measured(o)).collect()
+    if !(memo_app == sub_app || depends(sub_app, memo_app)) {
+        return Kept::Refused("its app is neither the subscriber's app nor an app the subscriber's app depends on".into());
+    }
+    if earlier.contains(&sub_app) {
+        return Kept::Refused("two subscribers of the same app changed it".into());
+    }
+    let measured_type = |ty: &RtType| matches!(ty, RtType::Boolean | RtType::Integer | RtType::Text(None)) || *ty == list_of_text;
+    let microsoft = (lowered.program.apps.get(memo_app as usize)).is_some_and(|a| a.publisher.trim() == "Microsoft");
+    if (microsoft && matches!(objs[memo].id, Some(3702 | 3703))) || globals.iter().all(|g| measured_type(&g.ty)) {
+        return Kept::Assumed;
+    }
+    let other = globals.iter().find(|g| !measured_type(&g.ty)).map_or("?", |g| g.name.as_str());
+    Kept::Refused(format!(
+        "its global {other} is of a type other than Boolean, Integer, Text and List of [Text]"
+    ))
 }
 
 /// One kind of session state other than rows that the partner subscribers changed ([`seen_by_test`]).
@@ -290,7 +360,7 @@ impl Left {
     }
 }
 
-/// What of `change` other than SingleInstance globals ([`unmeasured_single`]) the static reach of the session's test
+/// What of `change` other than SingleInstance globals ([`kept`]) the static reach of the session's test
 /// codeunit can see, for a reason text ([`Left::seen_by`]). When part of the reach is not known, or the session has
 /// no test codeunit, every change counts. Changed state no test of the codeunit can see stays as the subscribers left it.
 fn seen_by_test(lowered: &Lowered, session: &Session, change: &al_vm::LeftChange) -> Option<String> {

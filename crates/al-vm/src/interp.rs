@@ -1042,13 +1042,13 @@ impl Session {
         any
     }
 
-    /// The value of global `i` of the frame's instance, read by its name: the alias watch, the refusal of a single instance
-    /// whose value is not known (`single_unmeasured.rs`), then the single-instance notes.
+    /// The value of global `i` of the frame's instance, read by its name: the alias watch, the mark of a single instance
+    /// whose state no pin covers (`single_unmeasured.rs`: refused or assumed), then the single-instance notes.
     #[inline]
     pub(crate) fn global_value(&mut self, i: usize, f: &Frame) -> Result<Value, Signal> {
         self.alias_access(i, f)?;
-        if let Some(why) = &f.instance.borrow().unmeasured {
-            return Err(crate::single_unmeasured::read_refused(why));
+        if let Some(mark) = &f.instance.borrow().unmeasured {
+            crate::single_unmeasured::read(mark)?;
         }
         self.single_read(&f.instance, i);
         Ok(f.instance.borrow().globals[i].clone())

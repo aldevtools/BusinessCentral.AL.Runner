@@ -199,43 +199,191 @@ fn a_partner_subscriber_that_sets_an_unmeasured_single_instance_refuses_its_read
     }
 }
 
-// Globals of the measured types but not the measured set (one Integer only; the measured set and one Text more): its
-// reads refuse.
+const MEMO_KEPT: &str = "partner-login-memo-kept";
+
+/// The tests of `single_reader` after `login` run, and only the reader passes through the assumption entry
+/// `partner-login-memo-kept` (corpus PR 1490).
+fn assert_the_reader_runs_flagged(login: &str, single: &str, read: &str) {
+    let tests = single_reader(single, read);
+    let (o, hits) = run_codeunit("Probe", login, &tests, false, TestIsolation::Codeunit, "T");
+    assert!(o.iter().all(|(_, x)| *x == Outcome::Pass), "{login}: {o:?}");
+    assert_eq!(hits[0].1, vec![MEMO_KEPT], "{login}: {hits:?}");
+    assert!(hits[1].1.is_empty(), "{login}: {hits:?}");
+}
+
+// Globals of the measured types (Boolean, Integer, Text, List of [Text]; P2XaLoginMemos.al codeunits 98490-98494) but not
+// the pinned set (one Integer only; the pinned set and one Text more): the reader sees what the login left, flagged.
 #[test]
-fn a_partner_subscriber_that_sets_a_single_instance_of_other_globals_refuses_its_reads() {
+fn a_partner_subscriber_that_sets_a_single_instance_of_measured_types_keeps_it_flagged() {
     for (login, name) in [
         ("var C: Codeunit Counter; begin C.Put(); end;", "Counter"),
         ("var W: Codeunit Wider; begin W.Put(); end;", "Wider"),
     ] {
-        assert_only_the_reader_is_refused(login, name, "Get() = 0", name);
+        assert_the_reader_runs_flagged(login, name, "Get() = 1");
     }
 }
 
-// A SingleInstance codeunit of another app than the subscriber's (here Microsoft's, as Environment Information Impl. in
-// al-runner issue 8239): its reads refuse.
+// A SingleInstance codeunit of an app the subscriber's app depends on (here Microsoft's stand-in, P2A_03 measures a
+// partner app's): the reader sees what the login left, flagged.
 #[test]
-fn a_partner_subscriber_that_sets_a_single_instance_of_another_app_refuses_its_reads() {
+fn a_partner_subscriber_that_sets_a_single_instance_of_another_app_keeps_it_flagged() {
     let login = "var S: Codeunit \"Sys Cache\"; begin S.Set(); end;";
-    assert_only_the_reader_is_refused(login, "\"Sys Cache\"", "Get() = 0", "Sys Cache");
+    assert_the_reader_runs_flagged(login, "\"Sys Cache\"", "Get() = 1");
 }
 
-// A stand-in for the shape of al-runner issue 8239 (not the reporter's setup, which has Base Application): the partner
-// login calls a SingleInstance codeunit that keeps what it found (`Env Memo`, as Environment Information Impl. keeps
-// IsSaaS). The test that asks it again is not run at that read; the test that reads nothing runs.
+/// The app under test of al-runner issue 8239's invented repro: a table whose OnInsert reads `Env Memo`, a test that
+/// inserts a row with Insert(true), one that asks the memo itself, one that reads nothing.
+const MEMO_TESTS: &str = "codeunit 60911 Inst { Subtype = Install; trigger OnInstallAppPerCompany() begin end; }
+    table 60975 \"PX Row\" { fields { field(1; No; Code[20]) { } field(2; SaaS; Boolean) { } field(3; Ran; Boolean) { } }
+        keys { key(PK; No) { } }
+        trigger OnInsert() var M: Codeunit \"Env Memo\"; begin SaaS := M.IsSaaS(); Ran := true; end; }
+    codeunit 60970 \"PX Env Test\" { Subtype = Test;
+        [Test] procedure InsertReadsTheMemo() var R: Record \"PX Row\"; begin R.No := 'PX1'; R.Insert(true); R.Get('PX1');
+            if R.SaaS or not R.Ran then Error('saas %1 ran %2', R.SaaS, R.Ran); end;
+        [Test] procedure IsSaaSAfterLogin() var M: Codeunit \"Env Memo\"; begin if M.IsSaaS() then Error('saas'); end;
+        [Test] procedure ReadsNothing() begin end; }";
+
+// Al-runner issue 8239, the invented repro: the partner login calls a memo of a Microsoft app (`Env Memo`, as Environment
+// Information Impl. keeps IsSaaS); OnInsert of Insert(true) and the test read what the login left (P2A_03, P2A_08), the
+// test that reads nothing runs clean (P2A_01). On main both readers were not run.
 #[test]
-fn a_login_that_fills_a_memo_codeunit_refuses_only_the_test_that_reads_it() {
+fn the_issue_8239_repro_reads_what_the_login_left_flagged() {
     let login = "var M: Codeunit \"Env Memo\"; begin if M.IsSaaS() then; end;";
+    let (o, hits) = run_codeunit("Probe", login, MEMO_TESTS, false, TestIsolation::Codeunit, "PX Env Test");
+    assert!(o.iter().all(|(_, x)| *x == Outcome::Pass), "{o:?}");
+    assert_eq!(hits[0].1, vec![MEMO_KEPT], "{hits:?}");
+    assert_eq!(hits[1].1, vec![MEMO_KEPT], "{hits:?}");
+    assert!(hits[2].1.is_empty(), "{hits:?}");
+}
+
+/// A Microsoft stand-in (`dep`, codeunits `id`) with a memo of a Boolean and a Decimal, `Dec Memo`; the partner login fills
+/// it, test `T` reads it.
+fn run_dec_memo(publisher: &str, id: u32) -> OutcomesAndHits {
+    let memo = format!(
+        "codeunit {id} \"Dec Memo\" {{ SingleInstance = true; var Known: Boolean; Rate: Decimal;
+            procedure Get(): Decimal begin if not Known then begin Rate := 1.5; Known := true; end; exit(Rate); end; }}"
+    );
     let tests = "codeunit 60911 Inst { Subtype = Install; trigger OnInstallAppPerCompany() begin end; }
-        codeunit 60970 \"PX Env Test\" { Subtype = Test;
-            [Test] procedure IsSaaSAfterLogin() var M: Codeunit \"Env Memo\"; begin if M.IsSaaS() then Error('saas'); end;
+        codeunit 60912 T { Subtype = Test;
+            [Test] procedure Reads() var M: Codeunit \"Dec Memo\"; begin if M.Get() <> 1.5 then Error('rate'); end;
             [Test] procedure ReadsNothing() begin end; }";
-    let (o, hits) = run_codeunit("Probe", login, tests, false, TestIsolation::Codeunit, "PX Env Test");
+    let login = "var M: Codeunit \"Dec Memo\"; begin if M.Get() = 0 then; end;";
+    let (sys_src, partner_src) = match publisher {
+        "Microsoft" => (format!("{}\n{memo}", sys(false)), partner(login)),
+        _ => (sys(false), format!("{}\n{memo}", partner(login))),
+    };
+    outcomes_and_hits_with(
+        &[("dep", &[], &sys_src), ("dep2", &["dep"], &partner_src), ("main", &["dep2"], tests)],
+        &[("dep", "Microsoft"), ("dep2", "Probe")],
+        "T",
+        TestIsolation::Codeunit,
+    )
+}
+
+// Codeunits 3702 and 3703 of an app published by Microsoft (Environment Information Impl. and Server Setting Impl.,
+// P2A_06, P2A_11: filled by IsSaaS() in the login) keep what the login left whatever their globals, flagged.
+#[test]
+fn microsofts_codeunit_3703_keeps_what_the_login_left_flagged() {
+    for id in [3702, 3703] {
+        let (o, hits) = run_dec_memo("Microsoft", id);
+        assert!(o.iter().all(|(_, x)| *x == Outcome::Pass), "{id}: {o:?}");
+        assert_eq!(hits[0].1, vec![MEMO_KEPT], "{id}: {hits:?}");
+    }
+}
+
+// Neighbors that refuse the read: the same memo (a Decimal global, a type no probe measured) at another id of the
+// Microsoft app, and at id 3703 of the partner app.
+#[test]
+fn a_memo_with_a_decimal_global_refuses_its_reads() {
+    for (publisher, id) in [("Microsoft", 154), ("Probe", 3703)] {
+        let (o, _) = run_dec_memo(publisher, id);
+        assert!(
+            not_run_for(&o[0].1, "Dec Memo: OnAfterLogin raised to the login subscribers of the partner dependency apps changed it before the first test, and its global Rate is of a type other than"),
+            "{publisher} {id}: {o:?}"
+        );
+        assert_eq!(o[1].1, Outcome::Pass, "{publisher} {id}: {o:?}");
+    }
+}
+
+/// A partner app `dep3` that depends on `dep2` with an OnAfterLogin subscriber of body `login3`, and `extra` objects;
+/// the app under test depends on both.
+fn run_two_partner_apps(login: &str, login3: &str, extra: &str, tests: &str) -> OutcomesAndHits {
+    let third = format!(
+        "codeunit 60980 DepLogin3 {{
+            [EventSubscriber(ObjectType::Codeunit, Codeunit::\"System Initialization\", 'OnAfterLogin', '', false, false)]
+            local procedure L() {login3} }}
+        {extra}"
+    );
+    outcomes_and_hits_with(
+        &[
+            ("dep", &[], &sys(false)),
+            ("dep2", &["dep"], &partner(login)),
+            ("dep3", &["dep2"], &third),
+            ("main", &["dep3"], tests),
+        ],
+        &[("dep", "Microsoft"), ("dep2", "Probe"), ("dep3", "Probe3")],
+        "T",
+        TestIsolation::Codeunit,
+    )
+}
+
+const BUMP: &str = "var C: Codeunit Counter; begin C.Put(); end;";
+
+// Two subscribers of different apps change the same memo (P2A_05): both changes are there, flagged. The memo has the
+// pinned globals (`Cache`), but the pin has one subscriber.
+#[test]
+fn two_subscribers_of_different_apps_that_change_one_memo_keep_both_changes_flagged() {
+    let bump = "var C: Codeunit Cache; begin C.Bump(); end;";
+    let tests = "codeunit 60911 Inst { Subtype = Install; trigger OnInstallAppPerCompany() begin end; }
+        codeunit 60912 T { Subtype = Test;
+            [Test] procedure Reads() var C: Codeunit Cache; begin if C.GetCount() <> 2 then Error('count %1', C.GetCount()); end;
+            [Test] procedure ReadsNothing() begin end; }";
+    let (o, hits) = run_two_partner_apps(bump, bump, "", tests);
+    assert!(o.iter().all(|(_, x)| *x == Outcome::Pass), "{o:?}");
+    assert_eq!(hits[0].1, vec![MEMO_KEPT], "{hits:?}");
+    assert!(hits[1].1.is_empty(), "{hits:?}");
+}
+
+// Two subscribers of the same app change the same memo: not measured, its reads refuse.
+#[test]
+fn two_subscribers_of_the_same_app_that_change_one_memo_refuse_its_reads() {
+    let second = format!(
+        "codeunit 60981 DepLogin3b {{
+            [EventSubscriber(ObjectType::Codeunit, Codeunit::\"System Initialization\", 'OnAfterLogin', '', false, false)]
+            local procedure L() {BUMP} }}"
+    );
+    let tests = single_reader("Counter", "Get() = 1");
+    let (o, _) = run_two_partner_apps("begin end;", BUMP, &second, &tests);
+    assert!(not_run_for(&o[0].1, "two subscribers of the same app changed it"), "{o:?}");
+    assert_eq!(o[1].1, Outcome::Pass, "{o:?}");
+}
+
+// A memo the login changes through an event whose subscriber is in an app the subscriber's app does not depend on (`dep3`
+// subscribes to `dep2`'s Pub.OnAsk): not measured, its reads refuse; so does a memo of the app under test changed the
+// same way.
+#[test]
+fn a_memo_of_an_app_the_subscribers_app_does_not_depend_on_refuses_its_reads() {
+    let ask = "var P: Codeunit Pub; begin if P.Ask() = 0 then; end;";
+    let memo = |id: u32| {
+        format!(
+            "codeunit {id} \"Far Memo\" {{ SingleInstance = true; var N: Integer; procedure Put() begin N := 1; end;
+                procedure Get(): Integer begin exit(N); end; }}
+            codeunit {} FarSub {{
+                [EventSubscriber(ObjectType::Codeunit, Codeunit::Pub, 'OnAsk', '', false, false)]
+                local procedure H(var N: Integer) var M: Codeunit \"Far Memo\"; begin M.Put(); end; }}",
+            id + 1
+        )
+    };
+    let tests = single_reader("\"Far Memo\"", "Get() = 1");
+    let (o, _) = run_two_partner_apps(ask, "begin end;", &memo(60982), &tests);
     assert!(
-        not_run_for(&o[0].1, "a global of SingleInstance codeunit Env Memo"),
+        not_run_for(&o[0].1, "its app is neither the subscriber's app nor an app the subscriber's app depends on"),
         "{o:?}"
     );
+    let tests = format!("{tests}\n{}", memo(60990));
+    let (o, _) = run_two_partner_apps(ask, "begin end;", "", &tests);
+    assert!(not_run_for(&o[0].1, "it is a codeunit of an app under test"), "{o:?}");
     assert_eq!(o[1].1, Outcome::Pass, "{o:?}");
-    assert!(clean(&hits), "{hits:?}");
 }
 
 /// Test codeunit `C` after a login that sets `Flags` (outside the measured shape): `objects` copy it into `Mine`, a
