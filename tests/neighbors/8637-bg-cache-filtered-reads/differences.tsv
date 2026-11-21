@@ -62,5 +62,19 @@ BQ Tests 4::BgQueryCache_Run_TestIsEmptyFirst_FirstReadAnswersIt	ASSUMED backgro
 Repro Cache Read Tests::FindLast_ChangedRow_AnswersTheFirstRead	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:1276; the reporter's repro)
 Repro Cache Read Tests::IsEmpty_InsertedRow_AnswersTheFirstRead	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:1293; the reporter's repro)
 Repro Cache Read Tests::SetFilterFindFirst_ChangedRow_AnswersTheFirstRead	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:1312; the reporter's repro)
+# The cells of BQ Tests 5 (corpus PR 1495, review of the runner change): a test page's read of a line and the test
+# session's reads first answer the worker's first reads; main read the table.
+BQ Tests 5::BgQueryCache_Run_OneFieldKey_PageKeyFilter_WriteOnly_GetAnswersThePageRead	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:2322)
+BQ Tests 5::BgQueryCache_Run_PageGroupFilter_WriteOnly_GetAnswersThePageRead	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:2355)
+BQ Tests 5::BgQueryCache_Run_PageKeyFilter_WriteOnly_GetAnswersThePageRead	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:2300)
+BQ Tests 5::BgQueryCache_Run_TestReadsFirst_Descending_FirstReadsAnswerThem	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:2399)
+BQ Tests 5::BgQueryCache_Run_TestReadsFirst_FilterGroup2_FirstReadsAnswerThem	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:2393)
+BQ Tests 5::BgQueryCache_Run_TestReadsFirst_Group_FirstReadsAnswerThem	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:2375)
+BQ Tests 5::BgQueryCache_Run_TestReadsFirst_Range_FirstReadsAnswerThem	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:2387)
+BQ Tests 5::BgQueryCache_Run_TestReadsFirst_RecordRef_FirstReadsAnswerThem	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:2405)
+BQ Tests 5::BgQueryCache_Run_TestReadsFirst_SetFilter_FirstReadsAnswerThem	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:2381)
 # Neighbors (BQ Gate Tests): BC answers them from the cache; past what the cells measure, the head keeps main's answer, so they
-# fail on both alike.
+# fail on both alike. BQ Gate Test First 1 and 2: BC answers the worker with the test session's reads first in shapes no cell
+# measures; main read the table and failed, the head refuses.
+BQ Gate Test First 1::TestReadsFirst_TwoFilters	REFUSED a group read of a page background task after the test session read the group and then wrote the table
+BQ Gate Test First 2::TestReadsFirst_NonKeyFilter	REFUSED a group read of a page background task after the test session read the group and then wrote the table
