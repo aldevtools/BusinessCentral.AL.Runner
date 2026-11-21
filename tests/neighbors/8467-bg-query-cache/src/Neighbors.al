@@ -2,10 +2,10 @@
 // worker after the test session read that group and then wrote the table; a field load into a copy of a record the cache
 // answered. A row read again after commits that wrote it while no commit held it before or after reads the table (corpus PR
 // 1495, BgTaskQueryCache.al:1207). A row read again after a commit of a ModifyAll of another row follows the BC version (the
-// probe's cell for it differs between versions; refused where none is measured). Read as on main, from the rows as they are
-// (no flag): FindLast, IsEmpty, a SetFilter to one value, a ReadIsolation read. BC differs there: it answers FindLast, IsEmpty
-// and FindFirst after a SetFilter from the cache (corpus PR 1495, :1276, :1293, :1312), and a ReadIsolation read waits on the
-// test session's write (a local BC 29.1 container); neither is modelled. Two filter values with the same first characters keep
+// probe's cell for it differs between versions; refused where none is measured). FindLast, IsEmpty and a SetFilter to one
+// value answer their first answer, flagged (corpus PR 1495, :1276, :1293, :1312; al-runner issue 8637). Read as on main, from
+// the rows as they are (no flag): a ReadIsolation read. BC differs there: it waits on the test session's write (a local BC
+// 29.1 container); that is not modelled. Two filter values with the same first characters keep
 // their own entries; a field load after a fetch of another row is not refused.
 
 codeunit 97510 "BQ Other Reader"
@@ -276,7 +276,7 @@ codeunit 97511 "BQ Neighbor Tests"
     end;
 
     [Test]
-    procedure OtherForms_ReadTheRows()
+    procedure OtherForms_FirstAnswer()
     var
         Rows: TestPage "BQ Rows";
         Row: Record "BQ Row";
@@ -293,9 +293,9 @@ codeunit 97511 "BQ Neighbor Tests"
         Row.Description := 'b';
         Row.Modify();
         AddRow('NB3', 1, 'c');
-        Assert.AreEqual('b', Run(Rows, Other, 'last', 'NB2'), 'FindLast again');
-        Assert.AreEqual('No', Run(Rows, Other, 'empty', 'NB3'), 'IsEmpty again');
-        Assert.AreEqual('b', Run(Rows, Other, 'setfilter', 'NB2'), 'SetFilter FindFirst again');
+        Assert.AreEqual('a', Run(Rows, Other, 'last', 'NB2'), 'FindLast again');
+        Assert.AreEqual('Yes', Run(Rows, Other, 'empty', 'NB3'), 'IsEmpty again');
+        Assert.AreEqual('a', Run(Rows, Other, 'setfilter', 'NB2'), 'SetFilter FindFirst again');
         Rows.Close();
     end;
 }
