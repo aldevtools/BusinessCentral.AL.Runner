@@ -50,6 +50,26 @@ const KEPT: &[(&str, &str, &str)] = &[
         "the .NET host's identity in the key of the cached install state, hashed, never shown",
     ),
     (
+        "al-vm/src/state_render.rs",
+        r#"format!("{x:?}")"#,
+        "the content of a session's state for the login replay check (ALRUNNER_LOGIN_REPLAY_CHECK), compared across sessions, never shown: the report names only the place of a differing line",
+    ),
+    (
+        "al-testrun/src/login_replay.rs",
+        r#".map(|(app, files)| format!("{app} {files:?}"))"#,
+        "the resource texts in the login replay check's key, hashed, never shown",
+    ),
+    (
+        "al-testrun/src/login_replay.rs",
+        r#"open: format!("{wrote:?}"),"#,
+        "what the company open noted for the tests, compared across sessions by the login replay check (ALRUNNER_LOGIN_REPLAY_CHECK), never shown",
+    ),
+    (
+        "al-testrun/src/login_replay/difference.rs",
+        r#"v => Cell::Value(format!("{v:?}")),"#,
+        "a field of a committed row, compared across sessions by the login replay check (ALRUNNER_LOGIN_REPLAY_CHECK), never shown: the report names only where rows differ",
+    ),
+    (
         "al-testrun/src/runtime/baseline_key.rs",
         r#"format!("{platform_internals_visible_to:?}").as_bytes(),"#,
         "a cache key text, not a message",

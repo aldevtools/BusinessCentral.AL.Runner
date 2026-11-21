@@ -1,6 +1,7 @@
 //! The AL standard library: builtin signatures (generated from the docs, see
 //! ADR-008) and, later, the value model and native implementations.
 
+mod blob_form;
 mod closing_date_days;
 mod conv_undefined;
 mod date_difference;
@@ -78,6 +79,7 @@ pub mod pagefmt;
 pub mod permission_shadow;
 pub mod pinned_columns;
 pub mod placeholder_output;
+pub mod plain;
 pub mod platform;
 pub mod platform_native;
 pub mod query_reopen_step;

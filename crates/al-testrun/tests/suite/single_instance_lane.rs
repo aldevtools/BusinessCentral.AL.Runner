@@ -1574,3 +1574,72 @@ fn the_base_variant_with_the_single_instance_check_matches_a_strict_order_run() 
     assert_ne!(outcomes(&rts[1]), want, "the fresh variant differs");
     assert_eq!(outcomes(&rts[0]), want);
 }
+
+/// A carry chain whose member `Lane Held Reader` reads, in key order, rows an earlier member left with `æ` in a Text
+/// key, and reads first the flag `Lane Held Setter` left: it is refused where it runs (the order of `æ` is not measured,
+/// al-runner issue 8195), and the lane runs it again. `Lane Held Other` makes a second serial session, so the lane's
+/// sessions run on worker threads.
+const HELD_CHAIN: &str = r#"
+table 60800 "Lane Held Row" { fields { field(1; Name; Text[30]) { } } keys { key(PK; Name) { } } }
+codeunit 60800 "Lane Held Writer"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    [Test] procedure WritesNames() var R: Record "Lane Held Row";
+    begin R.Name := 'Alpha'; R.Insert(); R.Name := 'ærø'; R.Insert(); R.Name := 'Bravo'; R.Insert(); end;
+}
+codeunit 60801 "Lane Held Setter"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    [Test] procedure SetsHeldFlag() var S: Codeunit "Lane State"; begin S.SetFlag('left'); end;
+}
+codeunit 60802 "Lane Held Reader"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    [Test] procedure ReadsLastName() var S: Codeunit "Lane State"; R: Record "Lane Held Row";
+    begin
+        if S.GetFlag() = '' then;
+        R.FindLast();
+        Error('last=%1', R.Name);
+    end;
+}
+codeunit 60803 "Lane Held Other"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    [Test] procedure FailsOnTheFlag() var S: Codeunit "Lane State"; begin Error('flag is %1', S.GetFlag()); end;
+}
+"#;
+
+/// A lane session on a worker thread starts from the rows of a carried start put on top of its own baseline
+/// (`lane_starts.rs`, `MemStore::with_committed_row_changes`). Those rows are noted as written rows are, so the reader
+/// is refused there as on the main thread, not answered with the runtime's own order of `æ`.
+#[test]
+fn a_lane_start_made_from_a_row_delta_refuses_what_the_carried_baseline_refuses() {
+    let opts = RunOptions {
+        required_isolation: true,
+        strict_order: true,
+        test_suites: Some(std::sync::Arc::new(
+            al_testrun::test_suites::TestSuites::parse("S: 60800 60801 60802 60803").expect("a valid suites file"),
+        )),
+        ..Default::default()
+    };
+    let rt = runtime_opts(HELD_CHAIN, STATE, &opts);
+    let reader = rt
+        .results()
+        .iter()
+        .find(|r| r.test == "ReadsLastName")
+        .map(|r| r.outcome.clone());
+    assert!(
+        matches!(&reader, Some(Outcome::NotRun(why)) if why.contains("'Bravo' and 'ærø'")),
+        "{reader:?}"
+    );
+    let lane = &rt.phases.chain.single_lane;
+    assert_eq!(lane.rerun, 2, "{:?}", lane);
+    if lane.threads > 1 {
+        // The reader's session started on a worker from a row delta, not from whole bytes.
+        assert!(lane.starts_written > lane.starts_whole, "{:?}", lane);
+    }
+}

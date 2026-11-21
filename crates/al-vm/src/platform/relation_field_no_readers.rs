@@ -230,6 +230,11 @@ struct Trace {
 }
 
 impl RecordRefTraces {
+    /// No buffer the run traced is alive any more: what a new session holds, as far as code can see.
+    pub(crate) fn as_new(&self) -> bool {
+        self.0.iter().all(|t| t.buffer.strong_count() == 0)
+    }
+
     fn get(&self, rec: &Rec) -> Option<&Trace> {
         self.0.iter().find(|t| std::ptr::eq(t.buffer.as_ptr(), Rc::as_ptr(rec)))
     }

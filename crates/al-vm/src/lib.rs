@@ -55,7 +55,7 @@ pub use profile::{
     DbStat, PosStat, ProfFrame, ProfNode, ProfileMode, ProfileTree, reaches_database,
     routine_label as profile_routine_label,
 };
-pub use state_stamp::{LeftChange, LeftStamp, StateStamp};
+pub use state_stamp::{LeftChange, LeftStamp, StateLines, StateStamp};
 pub use test_runner_host::TestCodeunitHost;
 mod auto_format_writer;
 mod callstack;
@@ -101,6 +101,8 @@ mod hostvalues;
 mod http;
 pub mod impact;
 mod install_left;
+mod login_image;
+pub use login_image::{ImageSize, LoginImage, NotImaged};
 mod interfaces;
 mod isdirty;
 mod license_ceiling;
@@ -157,6 +159,8 @@ mod sqltime;
 mod stale_buffer_origin;
 mod stale_own_modify;
 mod stale_rename;
+mod state_facts;
+mod state_render;
 mod state_stamp;
 mod table_facts;
 mod tasks;
@@ -1014,7 +1018,8 @@ pub struct Session {
     /// (`Ctx::field_error_with_form`); `None` outside such a call.
     pub(crate) field_error_form: Option<al_builtins::native::ErrorTextForm>,
     /// The parameters of the routine that just failed with an error, as it left them:
-    /// the caller writes its `var` arguments back before it handles the error.
+    /// the caller writes its `var` arguments back before it handles the error. Where the error ends without such a caller
+    /// (caught or held), `caught_errors.rs` clears it.
     pub(crate) error_finals: Option<Vec<Value>>,
     /// The scalar globals passed by `var` to a procedure call that is still running. BC passes the argument by reference,
     /// the runtime copies it in and back; the two differ only when code reaches the global by its own name while the call

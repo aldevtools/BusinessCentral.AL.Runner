@@ -154,22 +154,10 @@ fn encode_in(v: &Value, out: &mut Vec<u8>) -> bool {
             put_u32(out, *id);
             out.extend_from_slice(&ord.to_le_bytes());
         }
+        // Every field of the buffer (`blob_form`): the round trip is exact.
         Value::Blob(b) => {
             put_u8(out, 17);
-            let b = b.borrow();
-            put_bytes(out, &b.bytes);
-            put_u64(out, b.write_pos as u64);
-            put_u8(
-                out,
-                (b.loaded as u8)
-                    | ((b.refetch as u8) << 1)
-                    | ((b.persisted as u8) << 2)
-                    | ((b.fetched as u8) << 3)
-                    | ((b.written as u8) << 4)
-                    | ((b.temp_row as u8) << 5)
-                    | ((b.db_row as u8) << 6)
-                    | ((b.first_write_truncates as u8) << 7),
-            );
+            crate::blob_form::put(&b.borrow(), out);
         }
         Value::Unknown(why) => {
             put_u8(out, 18);
@@ -284,26 +272,9 @@ pub fn decode(r: &mut Reader) -> Option<Value> {
             let id = r.u32()?;
             Value::Enum(id, i32::from_le_bytes(r.take(4)?.try_into().ok()?))
         }
-        17 => {
-            let bytes = r.bytes()?.to_vec();
-            let write_pos = r.u64()? as usize;
-            let flags = r.u8()?;
-            let blob = crate::stream::new_blob();
-            {
-                let mut b = blob.borrow_mut();
-                b.bytes = bytes;
-                b.write_pos = write_pos;
-                b.loaded = flags & 1 != 0;
-                b.refetch = flags & 2 != 0;
-                b.persisted = flags & 4 != 0;
-                b.fetched = flags & 8 != 0;
-                b.written = flags & 16 != 0;
-                b.temp_row = flags & 32 != 0;
-                b.db_row = flags & 64 != 0;
-                b.first_write_truncates = flags & 128 != 0;
-            }
-            Value::Blob(blob)
-        }
+        17 => Value::Blob(std::sync::Arc::new(crate::stream::BlobCell::new(
+            crate::blob_form::read(r)?,
+        ))),
         _ => return None,
     })
 }

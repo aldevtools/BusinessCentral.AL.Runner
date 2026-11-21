@@ -17,6 +17,10 @@ impl Server {
     }
 
     fn start_with(extra: &[&str], env: &[(&str, &str)]) -> Server {
+        Server::start_with_stderr(extra, env, Stdio::null())
+    }
+
+    fn start_with_stderr(extra: &[&str], env: &[(&str, &str)], stderr: Stdio) -> Server {
         let mut child = Command::new(env!("CARGO_BIN_EXE_al-runner"))
             .arg("serve")
             .args(extra)
@@ -28,7 +32,7 @@ impl Server {
             .env("AL_TEST_THREADS", "2")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(stderr)
             .spawn()
             .expect("start al-runner serve");
         let stdin = child.stdin.take();
@@ -2848,4 +2852,155 @@ fn a_coverage_request_after_one_without_coverage_gives_the_coverage_of_a_first_r
     assert_eq!(got["perTestCoverage"], want["perTestCoverage"], "{got}");
     s.send(json!({"command": "shutdown"}));
     assert_eq!(s.line(), json!({"status": "shutting down"}));
+}
+
+/// A stand-in of Microsoft's login in a dependency app, in the shape of its code (al-testrun `runtime/login_tests.rs`):
+/// Company Triggers `OnCompanyOpenCompleted` raises `OnAfterLogin`, whose subscriber raises the registration events.
+const LOGIN_STAND_IN: &str = r#"
+table 1990 "Guided Experience Item" { fields { field(1; "Object ID"; Integer) { } } keys { key(PK; "Object ID") { Clustered = true; } } }
+table 1996 "Checklist Setup" { fields { field(1; K; Code[10]) { } } keys { key(PK; K) { Clustered = true; } } }
+codeunit 150 "System Initialization" { [IntegrationEvent(false, false, true)] internal procedure OnAfterLogin() begin end; }
+codeunit 151 "System Initialization Impl."
+{
+    SingleInstance = true;
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Company Triggers", 'OnCompanyOpenCompleted', '', false, false)]
+    local procedure InitCompany() var SystemInitialization: Codeunit "System Initialization"; begin SystemInitialization.OnAfterLogin(); end;
+}
+codeunit 1990 "Guided Experience"
+{
+    procedure InsertAssistedSetup(ObjectID: Integer) var G: Record "Guided Experience Item"; begin G."Object ID" := ObjectID; G.Insert(); end;
+    procedure Register() begin OnRegisterManualSetup(); end;
+    [IntegrationEvent(false, false)] local procedure OnRegisterManualSetup() begin end;
+}
+codeunit 1997 "Checklist Events"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"System Initialization", 'OnAfterLogin', '', false, false)]
+    local procedure OnAfterLogIn() var S: Record "Checklist Setup"; G: Codeunit "Guided Experience";
+    begin
+        if S.Get('') then exit;
+        G.Register();
+        S.Insert();
+    end;
+}
+"#;
+
+/// The login stand-in app and an app under test whose login subscriber registers a row that depends on its resource
+/// `rpl.txt`: the apps of the login replay check's serve tests. Returns the stand-in's folder and the app's folder.
+fn login_probe(d: &Path) -> (PathBuf, PathBuf) {
+    let dep = d.join("login");
+    write(
+        &dep,
+        "app.json",
+        r#"{"id":"82110000-0000-0000-0000-000000000001","name":"Login Stand-in","publisher":"Someone","version":"1.0.0.0","dependencies":[]}"#,
+    );
+    write(&dep, "src/Login.al", LOGIN_STAND_IN);
+    let main = d.join("main");
+    write(
+        &main,
+        "app.json",
+        r#"{"id":"82110000-0000-0000-0000-000000000002","name":"Login Probe","publisher":"Test","version":"1.0.0.0","resourceFolders":["Res"],"dependencies":[{"id":"82110000-0000-0000-0000-000000000001","name":"Login Stand-in","publisher":"Someone","version":"1.0.0.0"}]}"#,
+    );
+    write(&main, "Res/rpl.txt", "a");
+    write(
+        &main,
+        "src/T.al",
+        r#"codeunit 50820 "Probe Registration"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterManualSetup', '', false, false)]
+    local procedure RegisterManualSetup() var G: Codeunit "Guided Experience";
+    begin G.InsertAssistedSetup(50800 + StrLen(NavApp.GetResourceAsText('rpl.txt'))); end;
+}
+codeunit 50821 "Probe Login Tests"
+{
+    Subtype = Test;
+    [Test] procedure SeesTheRow() var I: Record "Guided Experience Item"; begin if I.IsEmpty() then Error('no row'); end;
+}
+"#,
+    );
+    (dep, main)
+}
+
+/// Al-runner issue 8211: `ALRUNNER_LOGIN_REPLAY_CHECK=1` compares what each test session holds after the raised login with
+/// the first session of the same inputs, across the entries of a request (their `resources`, which the login reads here)
+/// and the requests of one kept daemon (another `seed`). No session of one key holds anything else.
+#[test]
+fn the_login_replay_check_finds_no_difference_across_entries_and_requests() {
+    let d = tempfile::tempdir().unwrap();
+    let (dep, main) = login_probe(d.path());
+    let log = d.path().join("stderr.txt");
+    let dep_arg = dep.to_string_lossy().to_string();
+    let mut s = Server::start_with_stderr(
+        &["--no-download", "--no-test-data", "--dep", &dep_arg],
+        &[("ALRUNNER_LOGIN_REPLAY_CHECK", "1")],
+        Stdio::from(std::fs::File::create(&log).unwrap()),
+    );
+    s.line();
+    let entries = json!([
+        {"id": "a", "resources": {"rpl.txt": "a"}, "test": "Codeunit50821."},
+        {"id": "b", "resources": {"rpl.txt": "abcd"}, "test": "Codeunit50821."},
+        {"id": "c", "resources": {"rpl.txt": "a"}, "test": "Codeunit50821."},
+    ]);
+    for seed in [1, 2] {
+        s.send(json!({"command": "runTests", "sourcePaths": [main], "entries": entries, "seed": seed}));
+        let lines = s.until_summary();
+        assert_eq!(lines.last().unwrap()["passed"], json!(3), "{lines:?}");
+    }
+    drop(s.stdin.take());
+    s.child.wait().unwrap();
+    let text = std::fs::read_to_string(&log).unwrap();
+    let checks: Vec<&str> = text.lines().filter(|l| l.starts_with("login replay check: ")).collect();
+    assert_eq!(checks.len(), 2, "one line per request: {text}");
+    // Per request: entries a and c are one key (c compared with a), entry b (`abcd`) another. The second request's seed
+    // makes two more keys: the seed moves the clock the login reads (without the seed in the key: "3 differ", the clock).
+    assert_eq!(
+        checks[0],
+        "login replay check: 3 sessions over 2 keys (a key seen before: 1 sessions, 33%), 1 compared, 0 differ; across test codeunits: 0 compared, 0 differ"
+    );
+    assert_eq!(
+        checks[1],
+        "login replay check: 6 sessions over 4 keys (a key seen before: 2 sessions, 33%), 2 compared, 0 differ; across test codeunits: 0 compared, 0 differ"
+    );
+}
+
+/// Al-runner issue 8211, step 2: under the same check each new key's session is frozen into a session image, thawn into a
+/// twin and compared (`login image:` line, after the check line). Over the same entries and requests as the check's test
+/// above: every key is imaged, every round trip equals, and an image is made once per key, so a key seen before adds none.
+#[test]
+fn the_login_image_round_trips_across_entries_and_requests() {
+    let d = tempfile::tempdir().unwrap();
+    let (dep, main) = login_probe(d.path());
+    let log = d.path().join("stderr.txt");
+    let dep_arg = dep.to_string_lossy().to_string();
+    let mut s = Server::start_with_stderr(
+        &["--no-download", "--no-test-data", "--dep", &dep_arg],
+        &[("ALRUNNER_LOGIN_REPLAY_CHECK", "1")],
+        Stdio::from(std::fs::File::create(&log).unwrap()),
+    );
+    s.line();
+    let entries = json!([
+        {"id": "a", "resources": {"rpl.txt": "a"}, "test": "Codeunit50821."},
+        {"id": "b", "resources": {"rpl.txt": "abcd"}, "test": "Codeunit50821."},
+        {"id": "c", "resources": {"rpl.txt": "a"}, "test": "Codeunit50821."},
+    ]);
+    for seed in [1, 2] {
+        s.send(json!({"command": "runTests", "sourcePaths": [main], "entries": entries, "seed": seed}));
+        let lines = s.until_summary();
+        assert_eq!(lines.last().unwrap()["passed"], json!(3), "{lines:?}");
+    }
+    // Stdin stays open until the last answer.
+    drop(s.stdin.take());
+    s.child.wait().unwrap();
+    let text = std::fs::read_to_string(&log).unwrap();
+    let images: Vec<&str> = text.lines().filter(|l| l.starts_with("login image: ")).collect();
+    assert_eq!(images.len(), 2, "one line per request: {text}");
+    assert!(
+        images[0].starts_with("login image: 2 keys, 2 imaged, 0 not imaged; round trips 2, 0 differ"),
+        "{}",
+        images[0]
+    );
+    assert!(
+        images[1].starts_with("login image: 4 keys, 4 imaged, 0 not imaged; round trips 4, 0 differ"),
+        "{}",
+        images[1]
+    );
 }

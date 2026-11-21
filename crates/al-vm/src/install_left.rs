@@ -5,7 +5,7 @@
 
 use crate::Session;
 
-mod clients;
+pub(crate) mod clients;
 
 /// The state besides the data that a session starting from the install code's session takes over
 /// ([`Session::install_left`], [`Session::restore_install_left`]).
@@ -266,7 +266,8 @@ impl Session {
             coverage: _,
             report: _,
         } = self;
-        if !(self.at_rest() && self.holds_as_new()) {
+        // The error the install code raised last stays with its session: the image holds it (`login_image`), install code may not.
+        if !(self.at_rest() && self.error_raised_in.is_none() && self.holds_as_new()) {
             return None;
         }
         Some(InstallLeft {
@@ -285,82 +286,88 @@ impl Session {
         })
     }
 
-    /// No code runs and nothing of a call is left: the fields that hold what runs now.
-    fn at_rest(&self) -> bool {
-        self.depth == 0
-            && self.frames.is_empty()
-            && self.call_stack.is_empty()
-            && self.xp_pass_views.is_empty()
-            && self.xp_unlinked_passes.is_empty()
-            && self.xp_link_hidden.is_empty()
-            && self.error_raised_in.is_none()
-            && self.runner_frames.is_empty()
-            && self.fault_site.is_empty()
-            && !self.fault_site_lost
-            && self.dirty_ops_open == 0
-            && self.dirty_frames.is_empty()
-            && self.live_xrecs.iter().all(|w| w.strong_count() == 0)
-            && self.truncate_undo.is_empty()
-            && self.validating.is_empty()
-            && self.stamp_validating.is_empty()
-            && self.validate_site.is_none()
-            && self.validate_sites.is_empty()
-            && self.plain_proc_xrec.is_empty()
-            && self.field_error_form.is_none()
-            && self.error_finals.is_none()
-            && self.var_alias_watch.is_empty()
-            && !self.install_scope
-            && !self.company_build
-            && !self.background_session
-            && !self.install_without_client
-            && self.session_id_override.is_none()
-            && self.run_trigger_unknown.is_none()
-            && !self.package_load
-            && !self.bulk_modify
-            && !self.set_value_from_variant
-            && self.host_new_running.is_none()
-            && !self.part_open_running
-            && self.host_move_running.is_none()
-            && self.part_sync_keeps_same_link.is_none()
-            && !self.get_load
-            && !self.sysid_load
-            && !self.find_load
-            && !self.find_through_recordref
-            && !self.through_recordref
-            && !self.permission_from_al
-            && !self.permission_from_recordref
-            && self.record_calls.is_empty()
-            && !self.setfilter_from_al
-            && !self.permission_autocalc
-            && !self.permission_page_calc
-            && !self.find_first_read
-            && self.al_record_call.is_none()
-            && self.permission_opening_source.is_none()
-            && self.permission_caller.is_none()
-            && self.permission_run_object.is_none()
-            && self.query_receiver.is_none()
-            && !self.keyref_receiver_local
+    /// No code runs and nothing of a call is left: the fields that hold what runs now ([`Session::at_rest_why`]).
+    pub(crate) fn at_rest(&self) -> bool {
+        self.at_rest_why().is_none()
     }
 
-    /// The fields a test reads, and the owners' sub-states, hold what a new session holds.
+    /// The first field of [`Session::at_rest`]'s rule that does not hold a session at rest, by its name (the login image's
+    /// `NotImaged::NotAtRest` reports it); `None` at rest. The one list of the rule.
+    pub(crate) fn at_rest_why(&self) -> Option<&'static str> {
+        let rule: [(bool, &'static str); 53] = [
+            (self.depth == 0, "depth"),
+            (self.frames.is_empty(), "frames"),
+            (!self.next_interface_call, "next_interface_call"),
+            (self.call_stack.is_empty(), "call_stack"),
+            (self.xp_pass_views.is_empty(), "xp_pass_views"),
+            (self.xp_unlinked_passes.is_empty(), "xp_unlinked_passes"),
+            (self.xp_link_hidden.is_empty(), "xp_link_hidden"),
+            (self.runner_frames.is_empty(), "runner_frames"),
+            (self.fault_site.is_empty(), "fault_site"),
+            (!self.fault_site_lost, "fault_site_lost"),
+            (self.dirty_ops_open == 0, "dirty_ops_open"),
+            (self.dirty_frames.is_empty(), "dirty_frames"),
+            (self.live_xrecs.iter().all(|w| w.strong_count() == 0), "live_xrecs"),
+            (self.truncate_undo.is_empty(), "truncate_undo"),
+            (self.validating.is_empty(), "validating"),
+            (self.stamp_validating.is_empty(), "stamp_validating"),
+            (self.validate_site.is_none(), "validate_site"),
+            (self.validate_sites.is_empty(), "validate_sites"),
+            (self.plain_proc_xrec.is_empty(), "plain_proc_xrec"),
+            (self.field_error_form.is_none(), "field_error_form"),
+            (self.error_finals.is_none(), "error_finals"),
+            (self.var_alias_watch.is_empty(), "var_alias_watch"),
+            (!self.install_scope, "install_scope"),
+            (!self.company_build, "company_build"),
+            (!self.background_session, "background_session"),
+            (!self.install_without_client, "install_without_client"),
+            (self.session_id_override.is_none(), "session_id_override"),
+            (self.run_trigger_unknown.is_none(), "run_trigger_unknown"),
+            (!self.package_load, "package_load"),
+            (!self.bulk_modify, "bulk_modify"),
+            (!self.set_value_from_variant, "set_value_from_variant"),
+            (self.host_new_running.is_none(), "host_new_running"),
+            (!self.part_open_running, "part_open_running"),
+            (self.host_move_running.is_none(), "host_move_running"),
+            (self.part_sync_keeps_same_link.is_none(), "part_sync_keeps_same_link"),
+            (!self.get_load, "get_load"),
+            (!self.sysid_load, "sysid_load"),
+            (!self.find_load, "find_load"),
+            (!self.find_through_recordref, "find_through_recordref"),
+            (!self.through_recordref, "through_recordref"),
+            (!self.permission_from_al, "permission_from_al"),
+            (!self.permission_from_recordref, "permission_from_recordref"),
+            (self.record_calls.is_empty(), "record_calls"),
+            (!self.setfilter_from_al, "setfilter_from_al"),
+            (!self.permission_autocalc, "permission_autocalc"),
+            (!self.permission_page_calc, "permission_page_calc"),
+            (!self.find_first_read, "find_first_read"),
+            (self.al_record_call.is_none(), "al_record_call"),
+            (self.permission_opening_source.is_none(), "permission_opening_source"),
+            (self.permission_caller.is_none(), "permission_caller"),
+            (self.permission_run_object.is_none(), "permission_run_object"),
+            (self.query_receiver.is_none(), "query_receiver"),
+            (!self.keyref_receiver_local, "keyref_receiver_local"),
+        ];
+        rule.iter().find(|(holds, _)| !holds).map(|(_, name)| *name)
+    }
+
+    /// The fields a test reads, and the owners' sub-states, hold what a new session holds: the `refuse` predicates of the
+    /// session image's field table (`login_image/fields.rs`, [`Session::install_refused_field`]), and the fields the image
+    /// holds by value but install code may not leave changed.
     fn holds_as_new(&self) -> bool {
         let fresh_guid_key = al_host::seed::fixed_guid_key(self.host.guid_seed.unwrap_or(self.host.random_seed));
         // State a test reads that a new session holds, by the reviewer's table of PR 8153 and the field list above.
-        self.last_error == al_builtins::native::AlError::default()
+        self.install_refused_field().is_none()
+            && self.last_error == al_builtins::native::AlError::default()
             && self.isolated_committed == self.isolated_storage
-            && self.isolated_set_in_test.is_empty()
-            && self.unmeasured.as_new()
-            && self.tasks.as_new()
-            && self.sessions_started == 0
             && self.demo_written.is_empty()
             && !self.gl_setup_written
             && !self.setup_caption_read_early
             && self.table_connections.is_empty()
             && self.default_table_connection.is_empty()
-            && self.crm_stores.is_empty()
             && self.sequences_changed.is_empty()
             && self.singletons.is_empty()
-            && self.singles_unclaimed.is_empty()
             && self.guid_key == fresh_guid_key
             && self.unseeded_base == self.host.random_seed
             && !self.randomized_with_seed
@@ -371,30 +378,14 @@ impl Session {
             && self.carried_draws == 0
             && self.unseeded_randomizes == 0
             && self.install_row_version == self.restored_row_version
-            && *self.cx.company == *self.host.identity.company_name()
-            && *self.cx.user == *self.host.identity.user_id()
             && self.baseline_origin.is_none()
-            && self.seed_refusal.is_none()
-            && self.tx_model == crate::TxModel::default()
             && !self.in_test_codeunit
             && !self.isolation_from_hub
             && !self.hub_disabled
-            && !self.runner_permission_step
-            && self.permission_roles.is_empty()
-            && self.permissions.is_none()
-            && !self.runner_permission_sets
-            && self.shadow_roles.is_empty()
-            && !self.shadow_active
-            && !self.shadow_lower_bound
-            && self.report_refusal_after_denial.is_none()
             && self.test_object.is_none()
             && self.http_policy.is_none()
-            && self.scratch_messages.is_none()
             && self.tdd_reached.is_empty()
             && self.global_group1.is_empty()
-            && self.capture.is_none()
-            && self.form == crate::Form::Plain
-            && self.debug.is_none()
             && self.media.objects.borrow().is_empty()
             && self.media.sets.borrow().is_empty()
             && self.media.removed.borrow().is_empty()
@@ -402,91 +393,31 @@ impl Session {
             && self.media_removed.0.is_empty()
             && self.media_removed.1.is_empty()
             && self.application_areas.is_empty()
-            && self.sleep_budget.is_none()
-            && self.slept_in_test == 0
             && self.encrypted.is_empty()
             && self.encryption_key == crate::EncryptionKey::Present
-            && self.temp_files == 0
-            && self.render_pending_files.is_empty()
             && self.clock_key == al_host::seed::clock_key(self.host.run_seed, 0, "")
             && self.caption_translations.is_empty()
             && self.ui_caption_translated.is_empty()
             && self.tx_left_as_after_commit()
-            && self.iso_min.as_new()
-            && self.runner_host.as_new()
             && self.blob_sources.as_new()
-            && self.error_scopes.as_new()
             && self.variant_refs.as_new()
-            && self.dotnet.as_new()
-            && !self.host.files.changed()
-            && self.placeholder_files.as_new()
             && self.temp_blob_impl_fields.as_new()
             && clients::ui_as_new(&self.ui_state)
-            && clients::pages_as_new(&self.pages)
             && clients::events_as_new(&self.events)
-            && clients::coverage_as_new(&self.coverage)
-            && clients::report_as_new(&self.report)
     }
 
-    /// The transaction state after the install's last Commit, field by field: what a new session holds, except what the
-    /// Commit sets (`committed_row_version`, carried in the Baseline; `commit_counter`, the store's change counter, which
+    /// The transaction state after the install's last Commit: what a new session holds, except what the Commit sets
+    /// (`committed_row_version`, carried in the Baseline; `commit_counter`, the store's change counter, which
     /// [`Session::restore_install_left`] sets again; `last_commit_wrote` and `transaction_type`, carried).
     fn tx_left_as_after_commit(&self) -> bool {
-        let crate::state::TxState {
-            tx_world,
-            commit_behavior,
-            phase,
-            // Carried in InstallLeft.
-            transaction_type: _,
-            lock_timeout,
-            lock_timeout_duration,
-            committed_row_version: _,
-            commit_counter,
-            rolled_back,
-            rollback_unpinned,
-            rollback_kind,
-            last_commit_wrote: _,
-            open,
-            failed_sql_rename,
-            insert_from_al,
-            rename_from_al,
-            get_from_al,
-            write_of_al,
-            deferred_by,
-            deferred_raised,
-            immediate_errors,
-            try_depth,
-            assert_depth,
-            used_tries,
-            guarded_runs,
-            guarded_bodies,
-            xp_export_try_world,
-        } = &self.tx;
         let fresh = crate::state::TxState::fresh();
-        *tx_world == fresh.tx_world
-            && *commit_behavior == fresh.commit_behavior
-            && *phase == fresh.phase
-            && *lock_timeout == fresh.lock_timeout
-            && *lock_timeout_duration == fresh.lock_timeout_duration
-            && *commit_counter == self.store.change_counter()
-            && !rolled_back
-            && rollback_unpinned.is_none()
-            && rollback_kind.is_none()
-            && failed_sql_rename.is_none()
-            && !insert_from_al
-            && !rename_from_al
-            && !get_from_al
-            && write_of_al.is_none()
-            && deferred_by.is_none()
-            && *deferred_raised == 0
-            && !immediate_errors
-            && *try_depth == 0
-            && *assert_depth == 0
-            && used_tries.is_empty()
-            && guarded_runs.is_empty()
-            && guarded_bodies.is_empty()
-            && xp_export_try_world.is_none()
-            && open.is_clear()
+        let tx = &self.tx;
+        tx.phase == fresh.phase
+            && tx.lock_timeout == fresh.lock_timeout
+            && tx.lock_timeout_duration == fresh.lock_timeout_duration
+            && tx.commit_counter == self.store.change_counter()
+            && !tx.rolled_back
+            && tx_left_as_new(tx)
     }
 
     /// Starts this new session from what install code left in a session of its own: the clock first (the restore keeps
@@ -510,4 +441,69 @@ impl Session {
             .borrow_mut()
             .clone_from(&left.subscriber_calls);
     }
+}
+
+/// The transaction state field by field: what a new session holds ([`crate::state::TxState::fresh`]), except what a
+/// Commit leaves for a later test to read (`phase`, `transaction_type`, `lock_timeout`, `lock_timeout_duration`,
+/// `committed_row_version`, `commit_counter`, `rolled_back`, `last_commit_wrote`), which the callers decide: no
+/// transaction is open and no call left anything behind.
+pub(crate) fn tx_left_as_new(tx: &crate::state::TxState) -> bool {
+    tx_not_as_new(tx).is_none()
+}
+
+/// The first field [`tx_left_as_new`] finds not as new, as `tx.<field>`.
+pub(crate) fn tx_not_as_new(tx: &crate::state::TxState) -> Option<&'static str> {
+    let crate::state::TxState {
+        tx_world,
+        commit_behavior,
+        phase: _,
+        transaction_type: _,
+        lock_timeout: _,
+        lock_timeout_duration: _,
+        committed_row_version: _,
+        commit_counter: _,
+        rolled_back: _,
+        rollback_unpinned,
+        rollback_kind,
+        last_commit_wrote: _,
+        open,
+        failed_sql_rename,
+        insert_from_al,
+        rename_from_al,
+        get_from_al,
+        write_of_al,
+        deferred_by,
+        deferred_raised,
+        immediate_errors,
+        try_depth,
+        assert_depth,
+        used_tries,
+        guarded_runs,
+        guarded_bodies,
+        xp_export_try_world,
+    } = tx;
+    let fresh = crate::state::TxState::fresh();
+    [
+        (*tx_world == fresh.tx_world, "tx.tx_world"),
+        (*commit_behavior == fresh.commit_behavior, "tx.commit_behavior"),
+        (rollback_unpinned.is_none(), "tx.rollback_unpinned"),
+        (rollback_kind.is_none(), "tx.rollback_kind"),
+        (failed_sql_rename.is_none(), "tx.failed_sql_rename"),
+        (!insert_from_al, "tx.insert_from_al"),
+        (!rename_from_al, "tx.rename_from_al"),
+        (!get_from_al, "tx.get_from_al"),
+        (write_of_al.is_none(), "tx.write_of_al"),
+        (deferred_by.is_none(), "tx.deferred_by"),
+        (*deferred_raised == 0, "tx.deferred_raised"),
+        (!immediate_errors, "tx.immediate_errors"),
+        (*try_depth == 0, "tx.try_depth"),
+        (*assert_depth == 0, "tx.assert_depth"),
+        (used_tries.is_empty(), "tx.used_tries"),
+        (guarded_runs.is_empty(), "tx.guarded_runs"),
+        (guarded_bodies.is_empty(), "tx.guarded_bodies"),
+        (xp_export_try_world.is_none(), "tx.xp_export_try_world"),
+        (open.is_clear(), "tx.open"),
+    ]
+    .into_iter()
+    .find_map(|(holds, field)| (!holds).then_some(field))
 }

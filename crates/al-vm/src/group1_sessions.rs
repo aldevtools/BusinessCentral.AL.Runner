@@ -113,6 +113,12 @@ impl Group1Filters {
         self.filters.by_table.values().all(|e| e.signature.is_empty())
     }
 
+    /// What a new session holds: no table entry (not even one another record took back) and no install shape.
+    pub(crate) fn as_new(&self) -> bool {
+        let Group1Filters { filters, shape } = self;
+        filters.by_table.is_empty() && matches!(shape, Group1InstallShape::Off)
+    }
+
     /// Some table holds a group 1 filter, or had one another record took back.
     pub(crate) fn has_tables(&self) -> bool {
         !self.filters.by_table.is_empty()

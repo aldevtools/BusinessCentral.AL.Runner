@@ -451,6 +451,16 @@ impl TempId {
         self.0.rows_unmeasured.set(true);
     }
 
+    /// The record state whose Insert [`TempId::note_empty_blob_insert`] last noted, while it lives (al-vm `login_image`
+    /// keeps the note).
+    pub fn empty_blob_inserter(&self) -> Option<Rc<RefCell<RecordState>>> {
+        self.0
+            .empty_blob_inserter
+            .borrow()
+            .as_ref()
+            .and_then(std::rc::Weak::upgrade)
+    }
+
     /// Whether [`TempId::mark_rows_unmeasured`] marked the table.
     pub fn rows_unmeasured(&self) -> bool {
         self.0.rows_unmeasured.get()
@@ -1018,6 +1028,27 @@ impl TableGlobals {
             Some(d) => d.borrow().instances.clone(),
             None => Vec::new(),
         }
+    }
+
+    /// The instances of `xRec`'s set, without making the set ([`TableGlobals::xrec`] makes it).
+    pub fn xrec_instances(&self) -> Vec<(u32, Rc<RefCell<Instance>>)> {
+        match &*self.data.borrow() {
+            Some(d) => d.borrow().xrec.instances(),
+            None => Vec::new(),
+        }
+    }
+
+    /// The address of the shared set (`None` while unset) and how many strong owners it has: the identity a session image
+    /// (al-vm `login_image`) keys it by, and the count it checks every owner against.
+    pub fn set_address(&self) -> Option<(usize, usize)> {
+        (self.data.borrow().as_ref()).map(|d| (Rc::as_ptr(d) as usize, Rc::strong_count(d)))
+    }
+
+    /// The xRec set of this set, when one was made ([`TableGlobals::xrec`] makes it); `None` makes nothing.
+    pub fn made_xrec(&self) -> Option<TableGlobals> {
+        let data = self.data.borrow();
+        let d = data.as_ref()?.borrow();
+        (!d.xrec.is_unset()).then(|| d.xrec.share())
     }
 
     /// A handle onto `xRec`'s set (created on first use).

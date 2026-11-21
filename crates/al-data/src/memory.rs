@@ -1042,17 +1042,26 @@ impl MemStore {
     /// (`with_backing`). The record of changes to restored rows is a log and is not exported.
     /// Changes that are not committed are not exported.
     pub fn export_committed(&self) -> Option<Vec<ExportedTable>> {
-        Some(
-            self.committed
-                .iter()
-                .map(|((company, object), table)| ExportedTable {
-                    company: company.to_string(),
-                    object: *object,
-                    pk_storage: table_storage(table),
-                    rows: table.iter().map(|(k, r)| (k.0.clone(), r.clone())).collect(),
-                })
-                .collect(),
-        )
+        Some(Self::export(&self.committed))
+    }
+
+    /// The tables the store holds now, uncommitted changes included, as [`MemStore::export_committed`] gives the committed
+    /// ones (a temporary table's store, which never commits; al-vm `Session::state_lines`). Counts no store operation.
+    pub fn export_current(&self) -> Vec<ExportedTable> {
+        Self::export(&self.tables)
+    }
+
+    /// Every table of `tables` with its rows in key order ([`MemStore::export_committed`], [`MemStore::export_current`]).
+    fn export(tables: &Tables) -> Vec<ExportedTable> {
+        tables
+            .iter()
+            .map(|((company, object), table)| ExportedTable {
+                company: company.to_string(),
+                object: *object,
+                pk_storage: table_storage(table),
+                rows: table.iter().map(|(k, r)| (k.0.clone(), r.clone())).collect(),
+            })
+            .collect()
     }
 
     /// A store whose committed (and current) data is `tables`, with no provider and no backing. Its stamps are new
@@ -1074,7 +1083,7 @@ impl MemStore {
         s.committed = s.tables.clone();
         s.committed_versions = s.versions.clone();
         s.committed_shapes = s.shapes.clone();
-        s
+        s.with_held_noted()
     }
 
     /// The committed tables (company, object) of this store that a write reached since it was `base` (a clone of
