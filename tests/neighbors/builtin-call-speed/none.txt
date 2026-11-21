@@ -1,0 +1,4 @@
+No neighbor shapes to probe: the change is speed only and adds no semantics. InStream.Read and OutStream.Write on a local
+stream variable run their native on the local in place instead of on a clone that is written back; the local ends with the
+same stream either way. Every other site (a global, field or Variant receiver, another stream method, more than two
+arguments) keeps run_builtin (al-vm exec/stream_local_tests.rs, tests/host/stream_call_path.rs).

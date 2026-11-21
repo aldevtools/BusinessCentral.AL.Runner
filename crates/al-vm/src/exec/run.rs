@@ -1092,6 +1092,69 @@ impl Session {
         result.map_err(|e| Self::name_builtin_refusal(site, e))
     }
 
+    /// A call on [`BuiltinSite::stream_local`] while local `i` holds a stream: what `run_builtin` and `run_native` do for it,
+    /// with the native run on the local in place and the arguments on the stack. Their write-back of the receiver puts the
+    /// same stream back into the local (`write_as` of a stream handle into a local stores it as it is), and `in_read` and
+    /// `out_write` never put another value in their receiver (`al_builtins::stream::keeps_receiver`), so the local ends as
+    /// it does there. Left out are the steps of `run_builtin` that only other builtins take (a VM class, a DotNet stream
+    /// argument, Media import, Clear, CopyArray, Blob streams of Temp Blob Impl., a Media Resources import) and those of
+    /// `run_native` that only a Query or KeyRef receiver takes.
+    #[inline(never)]
+    fn run_stream_builtin(
+        &mut self,
+        site: &BuiltinSite,
+        native: al_builtins::native::NativeFn,
+        i: usize,
+        f: &mut Frame,
+        nl: u16,
+    ) -> Result<Value, Signal> {
+        let mut args = [Value::Null, Value::Null];
+        for (slot, &r) in args.iter_mut().zip(&site.arg_regs) {
+            set(slot, take(f, r, nl));
+        }
+        let values = &mut args[..site.arg_regs.len()];
+        crate::assigned_audit::own_read_end_for_operands(site.id, values);
+        crate::records::rolled_read_end_for_operands(values);
+        crate::blob_transfer::records_into_builtin(self.blob_sources, site.id, Some(&f.locals[i]), values);
+        text_constant_arguments(site, values)?;
+        // `temp_blob_share_guard` of a builtin other than `Blob.CreateOutStream`, `Blob.Import` and `Clear`.
+        if site.temp_blob != SiteCheck::Never && crate::temp_blob_share::streams_kept() {
+            self.check_temp_out_streams(site.id, Some(&f.locals[i]), values)?;
+        }
+        if self.sql.active {
+            crate::sqlcount::guard(site.id, Some(&f.locals[i]), values)?;
+        }
+        if al_builtins::placeholder_output::sizes_made() {
+            al_builtins::placeholder_output::size_guard(site.id.name(), Some(&f.locals[i]), values)?;
+        }
+        if al_builtins::rendered_text::active() {
+            al_builtins::rendered_text::guard(site.id.name(), Some(&f.locals[i]), values, site.ret_used)?;
+        }
+        if self.without_client()
+            && let Some(answer) = self.clientless_guard(site.id, values)?
+        {
+            return Ok(answer);
+        }
+        self.ret_used = site.ret_used;
+        let drain_pending = self.pages.bg_drain_after_call.is_some();
+        let ret = native(self, Some(&mut f.locals[i]), values).map_err(|e| Self::name_builtin_refusal(site, e))?;
+        debug_assert!(holds_stream(&f.locals[i]));
+        al_builtins::text::check_unaudited().map_err(|e| Self::name_builtin_refusal(site, e))?;
+        for (a, slot) in site.args.iter().zip(values.iter_mut()) {
+            if let ir::Arg::Ref(p) = a {
+                let v = std::mem::replace(slot, Value::Null);
+                self.native_arg_back(p, v, site.id, site.class, f)
+                    .map_err(|e| Self::name_builtin_refusal(site, e))?;
+            }
+        }
+        drop(args);
+        if !drain_pending && self.pages.bg_drain_after_call.is_some() {
+            self.bg_drain_after_call()
+                .map_err(|e| Self::name_builtin_refusal(site, e))?;
+        }
+        Ok(ret)
+    }
+
     /// `FieldRef.Value` into a Text, Code or Blob. A number is its Format text and an Enum its caption, checked against the
     /// variable's or parameter's length (recordref-fieldref/Y13FieldRefValueToText.al:96-153;
     /// text/text-methods/Y49FieldRefIntoText.al:207-353).
@@ -1224,8 +1287,11 @@ impl Session {
     /// `Op::Builtin`: runs the builtin on its short or full path, then lets the profiler book a pending tick to it.
     #[inline(always)]
     fn op_builtin(&mut self, site: &BuiltinSite, f: &mut Frame, nl: u16) -> Result<Value, Signal> {
-        let v = match (site.plain, site.native) {
-            (true, Some(native)) => self.run_plain_builtin(site, native, f, nl),
+        let v = match (site.plain, site.native, site.stream_local) {
+            (true, Some(native), _) => self.run_plain_builtin(site, native, f, nl),
+            (_, Some(native), Some(i)) if holds_stream(&f.locals[i as usize]) => {
+                self.run_stream_builtin(site, native, i as usize, f, nl)
+            }
             _ => self.run_builtin(site, f, nl),
         };
         if let Some(g) = site.single_write {
@@ -1435,6 +1501,18 @@ fn mark_assigned_stream(v: &Value) {
     {
         s.shared_by_assign = true;
     }
+}
+
+/// A value [`Session::run_stream_builtin`] runs on: an InStream or OutStream handle.
+#[inline(always)]
+fn holds_stream(v: &Value) -> bool {
+    matches!(
+        v,
+        Value::Library(
+            al_builtins::library_kind::LibraryKind::InStream | al_builtins::library_kind::LibraryKind::OutStream,
+            _
+        )
+    )
 }
 
 /// The arguments of a builtin as it gets them when one is a TextConstant a Variant held (`al_builtins::conv::text_constant`).

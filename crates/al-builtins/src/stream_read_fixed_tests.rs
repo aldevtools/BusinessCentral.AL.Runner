@@ -67,9 +67,12 @@ fn after(v: &Value, answer: Result<Option<Vec<u8>>, Signal>) -> After {
     }
 }
 
+/// A named way to make a stream.
+type Case = (&'static str, fn() -> InState);
+
 /// The streams `read_fixed` answers: a snapshot, a loaded and an unloaded buffer, empty or not, at the end, past it, and one
 /// a use refuses.
-fn cases() -> Vec<(&'static str, fn() -> InState)> {
+fn cases() -> Vec<Case> {
     fn live(bytes: &[u8], loaded: bool) -> InState {
         let b = new_blob();
         b.borrow_mut().bytes.extend_from_slice(bytes);

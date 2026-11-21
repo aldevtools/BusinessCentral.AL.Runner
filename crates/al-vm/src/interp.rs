@@ -119,13 +119,7 @@ impl Session {
         }
         for (a, v) in args.iter().zip(values.drain(..)) {
             if let ir::Arg::Ref(p) = a {
-                let v = self.rendered_into_place(p, v, f)?;
-                let v = if class == al_builtins::builtin_id::Class::InStreamRead {
-                    self.fit_stream_read(p, v, f)?
-                } else {
-                    self.fit_ref_number(p, v, f)?
-                };
-                self.write_native_back(p, v, f, id)?;
+                self.native_arg_back(p, v, id, class, f)?;
             }
         }
         self.return_vec(values);
@@ -133,6 +127,25 @@ impl Session {
             self.bg_drain_after_call()?;
         }
         Ok(ret)
+    }
+
+    /// The write-back of by-reference argument `p` of builtin `id` once its native left `v` there.
+    #[inline]
+    pub(crate) fn native_arg_back(
+        &mut self,
+        p: &ir::Place,
+        v: Value,
+        id: BuiltinId,
+        class: al_builtins::builtin_id::Class,
+        f: &mut Frame,
+    ) -> Result<(), Signal> {
+        let v = self.rendered_into_place(p, v, f)?;
+        let v = if class == al_builtins::builtin_id::Class::InStreamRead {
+            self.fit_stream_read(p, v, f)?
+        } else {
+            self.fit_ref_number(p, v, f)?
+        };
+        self.write_native_back(p, v, f, id)
     }
 
     /// A number a builtin stored in a by-reference argument takes the declared number type of the variable, as an assignment

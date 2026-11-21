@@ -2846,6 +2846,13 @@ pub fn native_for(sig: &Signature) -> Option<NativeFn> {
     Some(f)
 }
 
+/// Builtin `id` runs `in_read` or `out_write` (the `InStream.Read` and `OutStream.Write` arms of [`native_for`]): a native
+/// that changes the stream behind its receiver and never puts another value in the receiver itself.
+pub fn keeps_receiver(id: crate::builtin_id::BuiltinId) -> bool {
+    let receiver = id.name().split_once('.').map_or("", |(r, _)| r);
+    matches!((receiver, id.method()), ("InStream", "Read") | ("OutStream", "Write"))
+}
+
 #[cfg(test)]
 #[path = "stream_read_fixed_tests.rs"]
 mod read_fixed_tests;
