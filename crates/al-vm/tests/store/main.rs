@@ -70,6 +70,7 @@ mod key_order_punctuation;
 mod key_ties;
 mod lane_codeunit_run;
 mod lane_guarded_run_try_write;
+mod lazy_record_locals;
 mod linked_object;
 mod loadfields;
 mod loadfields_flow;
