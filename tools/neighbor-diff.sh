@@ -182,10 +182,14 @@ for app in "${apps[@]}"; do
   entries="$app/differences.tsv"
   [ -f "$entries" ] || entries=/dev/null
   # deps/<name>/ folders (app.json + src) are packed into source packages at run time; no binary is committed.
-  dep_args=()
+  dep_args=() run_app="$app"
   if [ -d "$app/deps" ]; then
     python3 "$here/pack_deps.py" "$app" "$out/$name.packages" > /dev/null || exit 2
     dep_args=(--dep "$out/$name.packages")
+    # The runner reads every .al file under an app folder: the app runs from a copy without deps/, or each dependency
+    # would be compiled into it too.
+    run_app="$out/$name.app"
+    rm -rf "$run_app" && mkdir -p "$run_app" && cp -R "$app/." "$run_app/" && rm -rf "$run_app/deps" || exit 2
   fi
   for v in "${versions[@]}"; do
     build="$(pinned_build "$v")"
@@ -193,7 +197,7 @@ for app in "${apps[@]}"; do
       bin="$main_bin"
       [ $side = head ] && bin="$head_bin"
       rm -f "$out/$name-$v.$side.xml"
-      cap 3G timeout 900 "$bin" test "$app" "${dep_args[@]}" --bc-version "${build:-$v}" --seed 1 --junit "$out/$name-$v.$side.xml" \
+      cap 3G timeout 900 "$bin" test "$run_app" "${dep_args[@]}" --bc-version "${build:-$v}" --seed 1 --junit "$out/$name-$v.$side.xml" \
         > "$out/$name-$v.$side.log" 2>&1
       [ -s "$out/$name-$v.$side.xml" ] || { echo "neighbor-diff: no JUnit file, see $out/$name-$v.$side.log" >&2; exit 2; }
     done
