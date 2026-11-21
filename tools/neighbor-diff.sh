@@ -181,13 +181,19 @@ for app in "${apps[@]}"; do
   name="$(basename "$app")"
   entries="$app/differences.tsv"
   [ -f "$entries" ] || entries=/dev/null
+  # deps/<name>/ folders (app.json + src) are packed into source packages at run time; no binary is committed.
+  dep_args=()
+  if [ -d "$app/deps" ]; then
+    python3 "$here/pack_deps.py" "$app" "$out/$name.packages" > /dev/null || exit 2
+    dep_args=(--dep "$out/$name.packages")
+  fi
   for v in "${versions[@]}"; do
     build="$(pinned_build "$v")"
     for side in main head; do
       bin="$main_bin"
       [ $side = head ] && bin="$head_bin"
       rm -f "$out/$name-$v.$side.xml"
-      cap 3G timeout 900 "$bin" test "$app" --bc-version "${build:-$v}" --seed 1 --junit "$out/$name-$v.$side.xml" \
+      cap 3G timeout 900 "$bin" test "$app" "${dep_args[@]}" --bc-version "${build:-$v}" --seed 1 --junit "$out/$name-$v.$side.xml" \
         > "$out/$name-$v.$side.log" 2>&1
       [ -s "$out/$name-$v.$side.xml" ] || { echo "neighbor-diff: no JUnit file, see $out/$name-$v.$side.log" >&2; exit 2; }
     done

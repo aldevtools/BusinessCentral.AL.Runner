@@ -491,3 +491,39 @@ fn a_run_where_nothing_passed_on_either_side_fails() {
         "{out}"
     );
 }
+
+/// `deps/<name>/` of a neighbor app is packed at run time into `<publisher>_<name>_<version>.Source.zip` with
+/// `app.json` at the archive root, so no binary is committed (README, "Dependency apps").
+#[test]
+fn a_dependency_folder_is_packed_into_a_source_package() {
+    let d = tempfile::tempdir().unwrap();
+    let dep = d.path().join("app/deps/Lib");
+    std::fs::create_dir_all(dep.join("src")).unwrap();
+    std::fs::write(
+        dep.join("app.json"),
+        "{\"id\":\"1\",\"name\":\"Lib\",\"publisher\":\"Me Inc\",\"version\":\"1.0.0.0\"}",
+    )
+    .unwrap();
+    std::fs::write(dep.join("src/a.al"), "codeunit 50100 X { }\n").unwrap();
+    let out = d.path().join("out");
+    let o = std::process::Command::new("python3")
+        .arg(root().join("tools/pack_deps.py"))
+        .arg(d.path().join("app"))
+        .arg(&out)
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    assert_eq!(String::from_utf8_lossy(&o.stdout).trim(), "1");
+    let list = std::process::Command::new("python3")
+        .args(["-m", "zipfile", "-l"])
+        .arg(out.join("Me_Inc_Lib_1.0.0.0.Source.zip"))
+        .output()
+        .unwrap();
+    let list = String::from_utf8_lossy(&list.stdout);
+    assert!(list.contains("app.json") && list.contains("src/a.al"), "{list}");
+    let script = std::fs::read_to_string(root().join("tools/neighbor-diff.sh")).unwrap();
+    assert!(
+        script.contains("--dep \"$out/$name.packages\""),
+        "the script passes the packages to both runs"
+    );
+}

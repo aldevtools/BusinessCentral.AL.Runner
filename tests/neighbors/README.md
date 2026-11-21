@@ -27,6 +27,14 @@ A later pull request may delete old folders.
 - No Microsoft code. The legal guard checks it.
 - It is not a pin. A behavior is still pinned by the corpus or runs through an assumption entry (`CLAUDE.md`, rule 3).
 
+## Dependency apps
+
+A neighbor app that needs another app of its own puts it in `deps/<name>/` (`app.json` and `src/*.al`).
+`tools/neighbor-diff.sh` packs each one with `tools/pack_deps.py` into
+`<publisher>_<name>_<version>.Source.zip` in a temporary folder and passes it as `--dep`, on the main and on the head
+run, in CI as well. Never commit a `.zip`, `.app` or `.alpackages` folder (the legal guard fails the pull request),
+and do not put a dependency folder in `.alpackages`: the runner compiles a plain folder there into the app itself.
+
 ## differences.tsv
 
 One line per test that differs, `classname::name`, a tab, and the entry. Lines starting with `#` are comments.
