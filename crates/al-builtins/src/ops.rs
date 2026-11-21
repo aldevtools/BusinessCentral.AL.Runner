@@ -1554,6 +1554,8 @@ pub fn compare(l: &Value, r: &Value) -> Result<Ordering, Signal> {
         (V::Integer(a), V::BigInteger(b)) => return Ok(i64::from(*a).cmp(b)),
         (V::BigInteger(a), V::Integer(b)) => return Ok(a.cmp(&i64::from(*b))),
         (V::Decimal(a), V::Decimal(b)) => return Ok(a.cmp(b)),
+        // Two Bytes compare as numbers (`as_decimal` below): a byte read loop compares one pair per byte.
+        (V::Byte(a), V::Byte(b)) => return Ok(a.cmp(b)),
         (V::Boolean(a), V::Boolean(b)) => return Ok(a.cmp(b)),
         (V::Date(a, ca), V::Date(b, cb)) => return Ok((a, ca).cmp(&(b, cb))),
         (V::Time(a), V::Time(b)) | (V::DateTime(a), V::DateTime(b)) | (V::Duration(a), V::Duration(b)) => {
@@ -1822,6 +1824,16 @@ pub fn truthy(v: &Value) -> Result<bool, Signal> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn two_bytes_compare_as_the_general_path_compares_them() {
+        for a in 0..=u8::MAX {
+            for b in [0, 1, 127, 128, 254, 255, a] {
+                let (l, r) = (Value::Byte(a), Value::Byte(b));
+                assert_eq!(super::compare(&l, &r).ok(), super::compare_general(&l, &r).ok());
+            }
+        }
+    }
+
     #[test]
     fn a_dotnet_enum_converts_to_its_number_in_an_integer_and_a_biginteger() {
         // tests/al-language-onprem-dotnet/dotnet/dotnet/SgDotNetEnumToInteger.al:42-88 SG_DotNetEnum_IntoInteger.
