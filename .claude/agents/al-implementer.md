@@ -55,12 +55,21 @@ artifact in the PR body; without it the item is not done. Fix what you find, red
 
 In your report, add one line: "Self-check: items 1-10 in the PR body", and list anything you left open with the reason.
 
+## Flow before DONE (owner, 2026-11-21)
+
+Do everything before asking for review: neighbor apps under `tests/neighbors/`, `tools/neighbor-diff.sh`, tests of
+the touched and dependent crates and `al-test-cli`, local `--baseline-diff` on BC 29. Push only when these pass
+locally: every push costs a CI run and CI runners are a bottleneck. Aim for one push, at most a few. Then watch the
+draft CI (`test` and the "neighbor check", about 8 minutes). CI red: you fix and push again. Hand back DONE ("sound,
+ready for review") only when draft CI is green and every self-check item is done. Full CI (corpus) runs on ready and
+train, not per draft push.
+
 ## Fix rounds
 
 A fix round has the same self-check, and these rules:
 
-- Copy the reviewer's probe apps into `tests/neighbors/<topic>-review-rN/` and run `tools/neighbor-diff.sh --changed`
-  on the fix head. Every row the reviewer reported now has an entry.
+- Write the probe apps the reviewer asked for into `tests/neighbors/<topic>-review-rN/` and run
+  `tools/neighbor-diff.sh --changed` on the fix head. Every shape the reviewer named now has a row and an entry.
 - Every gate, mark or refusal the fix adds gets its own neighbor tests (items 1, 2 and 7). A fix is a new change.
 - Per fixed rule, grep every other site (item 3). Fix all of them or refuse them; never one site only.
 - When a finding of the same pattern comes back after one fix (the same rule leaks one more reader, site or shape),

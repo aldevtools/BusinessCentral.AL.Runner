@@ -51,7 +51,7 @@ became flagged), or another failure message. Another refusal text is not a diffe
 
 ```
 tools/neighbor-diff.sh --changed                     # what CI runs: the folders your branch changes
-tools/neighbor-diff.sh path/to/app [--bc-version 28]  # any app folder, for example a reviewer's
+tools/neighbor-diff.sh path/to/app [--bc-version 28]  # any app folder
 ```
 
 Default BC version: 29. Each run prints one table per app and version. Paste the tables into the pull request body.
