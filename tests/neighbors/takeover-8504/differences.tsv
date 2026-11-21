@@ -1,0 +1,10 @@
+# key	entry
+# Run on 29.0.54011.56262 (platform 29.0.56212, the oracle build) and 29.0.54011.55816 (platform 29.0.55782): no test
+# differs, both keep main's 13 rows. Run on 29.1.57326.58076 (platform 29.0.57943): the 14-row list, every read flagged.
+NB FK Neighbors::Count_Is14	ASSUMED feature-key-rows-container-measured (corpus PR 1484, FeatureKeyRowsReads291.al:147)
+NB FK Neighbors::RecordRef_Count_Is14	ASSUMED feature-key-rows-container-measured (corpus PR 1484, FeatureKeyRowsReads291.al:272)
+NB FK Neighbors::Get_NewNotificationBar	ASSUMED feature-key-rows-container-measured (corpus PR 1484, FeatureKeyRowsReads291.al:69)
+NB FK Neighbors::Get_KeyOfBothLists	ASSUMED feature-key-rows-container-measured (corpus PR 1484, FeatureKeyRowsReads291.al:113)
+NB FK Neighbors::Get_NoSuchKey	ASSUMED feature-key-rows-container-measured (corpus PR 1484, FeatureKeyRowsReads291.al:248)
+NB FK Neighbors::Description_PinnedKey	ASSUMED feature-key-rows-container-measured (corpus PR 1484, FeatureKeyRowsReads291.al:81)
+NB FK Neighbors::Description_UnpinnedKey	REFUSED the Description of a key BaFeatureKeyTexts.al does not pin, as on 29.0 (the list is served flagged)

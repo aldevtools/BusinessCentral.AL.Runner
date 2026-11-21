@@ -1382,10 +1382,8 @@ pub fn has(target: Option<&Target>, gate: Gate) -> bool {
 
 /// Which list of Feature Key rows a target has (record/PFFeatureKeyColumns.al:41-94 keys them on the version of the
 /// application): 27.0 (`RowsA`), 27.3 and 27.5 (`RowsB`), 28.0 (`RowsC`), 28.1 to 28.5 (`RowsD`, al-runner issue 5790) and
-/// 29.0 (`RowsE`). 29.1 (`Bc29_1`, al-runner issue 8192) is not in the corpus: its rows come from a contributor's
-/// measurement on one BC 29.1 W1 container with the probe of that file, and run on the assumption
-/// `feature-key-rows-container-measured`. The minors not measured (27.1, 27.2, 27.4, 28.6 and on, 29.2 and on) are not
-/// served.
+/// 29.0 (`RowsE`). The minors not measured (27.1, 27.2, 27.4, 28.6 and on, 29.1 and on) are not served, except on the
+/// platform builds of [`has_new_notification_bar`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FeatureKeyRows {
     Bc27_0,
@@ -1393,19 +1391,41 @@ pub enum FeatureKeyRows {
     Bc28_0,
     Bc28,
     Bc29,
-    Bc29_1,
+    /// The 29.0 list and NewNotificationBar ([`has_new_notification_bar`]).
+    Bc29NotificationBar,
 }
 
-pub fn feature_key_rows(target: Option<&Target>) -> Option<FeatureKeyRows> {
-    match target.map(|t| (t.bc.major, t.bc.minor))? {
+/// `platform`: the version of the platform's System app the run loaded, which is the platform build (the System.app of
+/// the 29.0.54011.55816 artifacts is version 29.0.55782.0, the platform the corpus file FeatureKeyRowsReads290.al names
+/// for that build); `None` when the run loaded none.
+pub fn feature_key_rows(target: Option<&Target>, platform: Option<&str>) -> Option<FeatureKeyRows> {
+    let t = target?;
+    if has_new_notification_bar(t, platform) {
+        return Some(FeatureKeyRows::Bc29NotificationBar);
+    }
+    match (t.bc.major, t.bc.minor) {
         (27, 0) => Some(FeatureKeyRows::Bc27_0),
         (27, 3 | 5) => Some(FeatureKeyRows::Bc27),
         (28, 0) => Some(FeatureKeyRows::Bc28_0),
         (28, 1..=5) => Some(FeatureKeyRows::Bc28),
         (29, 0) => Some(FeatureKeyRows::Bc29),
-        (29, 1) => Some(FeatureKeyRows::Bc29_1),
         _ => None,
     }
+}
+
+/// The 14-row list follows the platform build, not the application minor (corpus PR 1484, assumption
+/// feature-key-rows-container-measured): application 29.1 on platforms 29.0.57943 and 29.0.58337, W1 and DE
+/// (FeatureKeyRowsReads291.al:45-79), and application 29.0 on platform 29.0.56480 (a Windows container) list
+/// NewNotificationBar; application 29.0 on platform 29.0.55782 (FeatureKeyRowsReads290.al:41) does not. So: application
+/// 29.0 or 29.1 on platform 29.0.N with N at least 56480. The platform builds between 55782 and 56480 are not measured.
+fn has_new_notification_bar(t: &Target, platform: Option<&str>) -> bool {
+    let Some(p) = platform else { return false };
+    let parts: Vec<&str> = p.split('.').collect();
+    let build = match parts[..] {
+        ["29", "0", build, _] => build.parse::<u32>().ok(),
+        _ => None,
+    };
+    matches!((t.bc.major, t.bc.minor), (29, 0 | 1)) && build.is_some_and(|b| b >= 56480)
 }
 
 /// The name of the test runner's outermost method, which the TryFunctionWrite error names when the test method itself uses
@@ -1759,6 +1779,54 @@ mod tests {
         assert_eq!(test_runner_root_scope(Some(&target("29.0"))), Some("RootMethodScope"));
         assert_eq!(test_runner_root_scope(None), Some("RootMethodScope"));
         assert_eq!(test_runner_root_scope(Some(&target("30.0"))), None);
+    }
+
+    /// The Feature Key list of a 29 target follows the platform build (the version of the System app the run loaded):
+    /// app 29.0 or 29.1 on platform 29.0.56480 and later has NewNotificationBar (assumption
+    /// feature-key-rows-container-measured, corpus PR 1484). Every other shape keeps main's answer: 29.0 the 13 rows
+    /// (record/PFFeatureKeyColumns.al RowsE, measured on platform 29.0.55782), 29.1 and 29.2 none.
+    #[test]
+    fn the_feature_key_list_of_29_follows_the_platform_build() {
+        let rows = |bc: &str, platform: Option<&str>| feature_key_rows(Some(&target(bc)), platform);
+        let bar = Some(FeatureKeyRows::Bc29NotificationBar);
+        for (bc, platform) in [
+            ("29.0", "29.0.56480.0"),
+            ("29.1", "29.0.57943.0"),
+            ("29.1", "29.0.58337.0"),
+            ("29.1.57326.58379", "29.0.58337.0"),
+            ("29.1", "29.0.61000.0"),
+        ] {
+            assert_eq!(rows(bc, Some(platform)), bar, "{bc} on {platform}");
+        }
+        // Main's answer: the 13 rows of 29.0 whatever the platform below 56480 is, or with none known.
+        for platform in [
+            Some("29.0.55782.0"),
+            Some("29.0.56212.0"),
+            Some("29.0.56479.0"),
+            Some("29.0.50000.0"),
+            None,
+        ] {
+            assert_eq!(rows("29.0", platform), Some(FeatureKeyRows::Bc29), "{platform:?}");
+        }
+        // Main's answer: none for 29.1 below platform 56480 or with no platform known, for another platform minor or
+        // major, a platform text that is no four-part build, and for 29.2.
+        for (bc, platform) in [
+            ("29.1", None),
+            ("29.1", Some("29.0.55782.0")),
+            ("29.1", Some("29.0.56212.0")),
+            ("29.1", Some("29.1.58337.0")),
+            ("29.1", Some("30.0.58337.0")),
+            ("29.1", Some("29.0.58337")),
+            ("29.1", Some("1.0.0.0")),
+            ("29.2", Some("29.0.58337.0")),
+            ("29.2", None),
+        ] {
+            assert_eq!(rows(bc, platform), None, "{bc} on {platform:?}");
+        }
+        // Other majors ignore the platform.
+        assert_eq!(rows("28.4", Some("29.0.58337.0")), Some(FeatureKeyRows::Bc28));
+        assert_eq!(rows("27.0", Some("29.0.58337.0")), Some(FeatureKeyRows::Bc27_0));
+        assert_eq!(feature_key_rows(None, Some("29.0.58337.0")), None);
     }
 
     #[test]

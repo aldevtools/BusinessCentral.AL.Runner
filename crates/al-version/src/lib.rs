@@ -282,8 +282,8 @@ mod tests {
     }
 
     // al-runner issue 8209: `--bc-version 29`, `29.1` and the full build pick the same 29.1 build, so the target is that
-    // build however it was named, and all three get the Feature Key rows of 29.1 (al-runner issue 8192, served on an
-    // assumption), not the 29.0 rows.
+    // build however it was named. With no platform build known the Feature Key rows measured on 29.0 are refused in all
+    // three (the 29.1 list follows the platform build, `feature_key_rows`).
     #[test]
     fn the_target_follows_the_build_the_microsoft_apps_come_from() {
         let build = "29.1.57326.58275";
@@ -295,12 +295,12 @@ mod tests {
                 (29, 1, build.to_string()),
                 "{asked}"
             );
-            assert_eq!(feature_key_rows(Some(&t)), Some(FeatureKeyRows::Bc29_1), "{asked}");
+            assert_eq!(feature_key_rows(Some(&t), None), None, "{asked}");
         }
         // Neighbor: a 29.0 build keeps main's 29.0 rows.
         let mut t = Target::for_bc(bc("29"));
         t.bc.resolved_to("29.0.54011.56262").unwrap();
-        assert_eq!(feature_key_rows(Some(&t)), Some(FeatureKeyRows::Bc29));
+        assert_eq!(feature_key_rows(Some(&t), None), Some(FeatureKeyRows::Bc29));
     }
 
     // al-runner issue 8243: Microsoft apps of another major than the target's stop the run with both versions named, so

@@ -53,17 +53,22 @@ const FEATURE_KEY_TEXTS: &[(&str, &str, &str)] = &[
         "Feature Update: Enable multiple users to post job ledger entries at the same time",
         "https://go.microsoft.com/fwlink/?linkid=2299833",
     ),
+    // Only in the list of `FeatureKeyRows::Bc29NotificationBar` (corpus PR 1484, record/FeatureKeyRowsReads291.al:69, :102).
+    (
+        "NewNotificationBar",
+        "Feature: New notification bar",
+        "https://go.microsoft.com/fwlink/?LinkId=2384311",
+    ),
 ];
 
 /// The Feature Key table: ID, `Enabled` (None or All Users per row), `Mandatory By` (the wave the mandatory-by version falls in),
 /// `Mandatory By Version`, `Can Try`, `Is One Way` and `Data Update Required`, per major from record/PFFeatureKeyColumns.al
 /// (FeatureKey_RowsPerId_PerMeasuredVersion; the state is per tenant); `Enabled` and `Data Update Required` of the first major
 /// also record/TestFieldLenAndFeatureKeyContracts.al:83-125. The three lists are the newest minor of each major; 27.0 and
-/// 28.0 differ in one row. 29.1 (al-runner issue 8192) has a list the corpus did not measure: it is served on the
-/// assumption `feature-key-rows-container-measured`, which every read of the table marks ([`feature_key_assumption`]),
-/// and its Description columns are refused. Other minors the corpus did not measure are refused. The Description
-/// columns are not pinned.
-pub(super) fn feature_key_rows(t: &TableDef, target: Option<&al_version::Target>) -> Vec<Entry> {
+/// 28.0 differ in one row. The fourth list, the 29.0 list and NewNotificationBar, is served on an assumption
+/// ([`feature_key_list`]). Other minors the corpus did not measure are refused. The Description columns are pinned for
+/// the keys of `FEATURE_KEY_TEXTS` only.
+pub(super) fn feature_key_rows(t: &TableDef, engine: &crate::Engine) -> Vec<Entry> {
     // (ID, Enabled is All Users, Mandatory By Version major, Can Try, Is One Way, Data Update Required)
     type Row = (&'static str, bool, u32, bool, bool, bool);
     const ROWS_FIRST: &[Row] = &[
@@ -150,40 +155,15 @@ pub(super) fn feature_key_rows(t: &TableDef, target: Option<&al_version::Target>
         ("SaveValueToDatabasePromptly", true, 30, true, false, false),
         ("SemanticMetadataSearch", true, 30, false, false, false),
     ];
-    // 29.1 (al-runner issue 8192): the 29.0 list plus NewNotificationBar, measured by a contributor on one BC 29.1 W1
-    // sandbox container (build 29.1.57326.58379, fresh tenant, 2026-11-18) with the RowText of
-    // record/PFFeatureKeyColumns.al. The corpus has not measured 29.1: a read of this list marks the assumption
-    // feature-key-rows-container-measured.
-    const ROWS_THIRD_1: &[Row] = &[
-        ("AcceleratedDepreciation", false, 31, false, true, true),
-        ("AdvancedTellMe", true, 30, false, false, false),
-        ("ConcurrentInventoryPosting", true, 31, false, false, false),
-        ("ConcurrentJobPosting", true, 31, false, false, false),
-        ("ConcurrentResourcePosting", true, 31, false, false, false),
-        (
-            "DisableSoapWebServicesOnMicrosoftUIPages",
-            true,
-            29,
-            false,
-            false,
-            false,
-        ),
-        ("DocumentReportExperience", true, 31, false, false, false),
-        ("EXRPerformantTrialBalance", true, 31, true, false, false),
-        ("FinancialReportDefaults", true, 29, true, false, false),
-        ("FullTextSearch", false, 30, true, false, false),
-        ("NewNotificationBar", true, 30, true, false, false),
-        ("SalesPrices", false, 31, false, true, true),
-        ("SaveValueToDatabasePromptly", true, 30, true, false, false),
-        ("SemanticMetadataSearch", true, 30, false, false, false),
-    ];
+    // record/FeatureKeyRowsReads291.al:69 (corpus PR 1484); the list sorts it between FullTextSearch and SalesPrices (:176).
+    const NEW_NOTIFICATION_BAR: &[Row] = &[("NewNotificationBar", true, 30, true, false, false)];
     use al_version::FeatureKeyRows;
-    let which = al_version::feature_key_rows(target);
-    let rows = match which {
-        Some(FeatureKeyRows::Bc27 | FeatureKeyRows::Bc27_0) => ROWS_FIRST,
-        Some(FeatureKeyRows::Bc28 | FeatureKeyRows::Bc28_0) => ROWS_SECOND,
-        Some(FeatureKeyRows::Bc29) => ROWS_THIRD,
-        Some(FeatureKeyRows::Bc29_1) => ROWS_THIRD_1,
+    let which = feature_key_list(engine);
+    let (rows, added): (&[Row], &[Row]) = match which {
+        Some(FeatureKeyRows::Bc27 | FeatureKeyRows::Bc27_0) => (ROWS_FIRST, &[]),
+        Some(FeatureKeyRows::Bc28 | FeatureKeyRows::Bc28_0) => (ROWS_SECOND, &[]),
+        Some(FeatureKeyRows::Bc29) => (ROWS_THIRD, &[]),
+        Some(FeatureKeyRows::Bc29NotificationBar) => (ROWS_THIRD, NEW_NOTIFICATION_BAR),
         None => {
             return vec![Entry::poisoned_prefix(
                 blank(t),
@@ -196,10 +176,8 @@ pub(super) fn feature_key_rows(t: &TableDef, target: Option<&al_version::Target>
     // 27.0 and 28.0 differ from the newest minor of their major in one row: SemanticMetadataSearch is None on 27.0 (RowsA)
     // and All Users on 28.0 (RowsC), record/PFFeatureKeyColumns.al:96-160.
     let flipped = matches!(which, Some(FeatureKeyRows::Bc27_0 | FeatureKeyRows::Bc28_0));
-    // The texts of metadata/platform-tables/BaFeatureKeyTexts.al were measured on 27.5, 28.5 and 29.0; the measurement
-    // of the 29.1 list did not read them.
-    let texts_measured = which != Some(FeatureKeyRows::Bc29_1);
     rows.iter()
+        .chain(added)
         .map(|&(id, all_users, version, can_try, one_way, data_update)| {
             let all_users = all_users != (flipped && id == "SemanticMetadataSearch");
             let mut r = blank(t);
@@ -218,9 +196,9 @@ pub(super) fn feature_key_rows(t: &TableDef, target: Option<&al_version::Target>
             r[pos(t, 8)] = Value::Boolean(data_update);
             r[pos(t, 9)] = Value::Text(format!("{version}.0").into());
             // Description (3), "Learn More Link" (4) and "Description In English" (10) of the keys
-            // metadata/platform-tables/BaFeatureKeyTexts.al pins (the same on 27.5, 28.5 and 29.0); unknown for any
-            // other key, and for every key on 29.1.
-            let texts = FEATURE_KEY_TEXTS.iter().find(|(k, _, _)| texts_measured && *k == id);
+            // FEATURE_KEY_TEXTS names (metadata/platform-tables/BaFeatureKeyTexts.al pins them on 27.5, 28.5 and 29.0, and
+            // record/FeatureKeyRowsReads291.al:81-104 measured the same texts with the fourth list); unknown for any other key.
+            let texts = FEATURE_KEY_TEXTS.iter().find(|(k, _, _)| *k == id);
             for col in [3, 4, 10] {
                 if t.fields.iter().any(|f| f.id == col) {
                     r[pos(t, col)] = match texts {
@@ -235,14 +213,33 @@ pub(super) fn feature_key_rows(t: &TableDef, target: Option<&al_version::Target>
         .collect()
 }
 
-/// The assumption every read of the Feature Key table of `target` rests on, if any: the 29.1 list (`ROWS_THIRD_1`,
-/// al-runner issue 8192) comes from one contributor measurement, not from the corpus, and so does the answer of a read
-/// that finds no row (that the list has no other key). `None` where the corpus pins the list.
-pub(super) fn feature_key_assumption(
-    target: Option<&al_version::Target>,
-) -> Option<al_builtins::assumptions::Assumption> {
-    (al_version::feature_key_rows(target) == Some(al_version::FeatureKeyRows::Bc29_1))
-        .then_some(al_builtins::assumptions::Assumption::FeatureKeyRowsContainerMeasured)
+/// Which Feature Key list `engine` serves: its target and the version of the System app its program holds, which is
+/// the platform build (`al_version::feature_key_rows`).
+fn feature_key_list(engine: &crate::Engine) -> Option<al_version::FeatureKeyRows> {
+    let platform = engine
+        .program
+        .apps
+        .iter()
+        .find(|a| a.id.eq_ignore_ascii_case(super::objects::al_sema_platform_app_id()))
+        .map(|a| a.version.as_str());
+    al_version::feature_key_rows(engine.target.as_ref(), platform)
+}
+
+/// The assumption every read of the Feature Key table of `engine` rests on, if any: the list with NewNotificationBar
+/// (corpus PR 1484, not in the pinned corpus), also for a read that finds no row (that the list has no other key).
+/// `None` where the corpus pins the list.
+pub(super) fn feature_key_assumption(engine: &crate::Engine) -> Option<al_builtins::assumptions::Assumption> {
+    use al_version::FeatureKeyRows;
+    match feature_key_list(engine)? {
+        FeatureKeyRows::Bc29NotificationBar => {
+            Some(al_builtins::assumptions::Assumption::FeatureKeyRowsContainerMeasured)
+        }
+        FeatureKeyRows::Bc27_0
+        | FeatureKeyRows::Bc27
+        | FeatureKeyRows::Bc28_0
+        | FeatureKeyRows::Bc28
+        | FeatureKeyRows::Bc29 => None,
+    }
 }
 
 // ---- Windows Language -----------------------------------------------------------------------------
