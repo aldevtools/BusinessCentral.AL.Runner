@@ -326,6 +326,7 @@ pub(crate) mod tests {
             globals: Default::default(),
             unpinned_buffer: None,
             view_assumption: None,
+            auto_calc_dropped: false,
             run_page_link: None,
         })))
     }
