@@ -1593,33 +1593,27 @@ impl Session {
             let Some(sp) = from.fields.iter().position(|f| f.id == df.id && f.stored) else {
                 continue;
             };
-            // A field declared ObsoleteState = Removed is no field of its table at run time (to RecordRef:
-            // recordref-fieldref/PnD12_RemovedFieldRecordRef.al). TransferFields skips a removed field of the target, also
-            // when the source's field of that number has another type (al-runner issue 8494: the reporter's repro on
-            // Business Central 29.0, an assumption until a probe pins it). Into a field of the very same type the copy
-            // could not fail and no reader sees the field, so only a skip past a field of another type marks the
-            // assumption.
-            if self.field_removed(t, dp) {
-                if from.fields[sp].ty != df.ty {
-                    al_builtins::assumptions::assume(
-                        al_builtins::assumptions::Assumption::TransferFieldsSkipsRemovedTargetField,
-                    );
-                }
-                continue;
-            }
-            // From a removed field of the source into a live field of the target nothing is measured: whether the target
-            // keeps its value or takes the removed field's is not known.
-            if self.field_removed(&from, sp) {
-                return unsupported(format!(
-                    "TransferFields from field {} of {}, declared ObsoleteState = Removed, into field {} of {} (not measured)",
-                    from.fields[sp].name, from.name, df.name, t.name
-                ));
-            }
             // Fields of one number declared by different apps count as fields of different apps, also on two tables of one app:
             // a table extension's field against another app's extension field or against the table's own field
             // (record/transferfields-cross-app/TransferFieldsFieldApps.al:131-163 on corpus master
             // 3eb812ed, al-runner issue 6982).
             let cross_app = cross_app || self.field_app(t, dp) != self.field_app(&from, sp);
+            // A removed field of the target is skipped, or the call refused ([`Session::skip_removed_target_field`]).
+            if self.field_removed(t, dp) {
+                self.skip_removed_target_field((t, dp), (&from, sp), !cross_app && init_pk && !skip_mismatch)?;
+                continue;
+            }
+            // From a removed field of the source into a live field of the target nothing is measured: whether the target
+            // keeps its value or takes the removed field's is not known. Where the field is skipped anyway (another type
+            // with SkipFieldsNotMatchingType or across apps, a text too long with them) the answer is the same whether or not
+            // the removed field counts, so the skip stays; where it would be copied or raise an error, it is refused.
+            let src_removed = self.field_removed(&from, sp);
+            let removed_source = || {
+                unsupported(format!(
+                    "TransferFields from field {} of {}, declared ObsoleteState = Removed, into field {} of {} (not measured)",
+                    from.fields[sp].name, from.name, df.name, t.name
+                ))
+            };
             // An Enum field and an Option field with the same field number are the same kind of field to
             // TransferFields: Base Application's "Sales Order Entity Buffer" holds `Shipping Advice` as an
             // Option and `Sales Header` as an Enum, and its TransferFields from the header works in BC
@@ -1629,6 +1623,9 @@ impl Session {
                 matches!((a, b), (T::Enum(_), T::Option(_)) | (T::Option(_), T::Enum(_)))
             };
             if enum_option(&from.fields[sp].ty, &df.ty) {
+                if src_removed {
+                    return removed_source();
+                }
                 let ordinal = match &src_fields[sp] {
                     Value::Enum(_, o) | Value::Option(o, _) => *o,
                     other => {
@@ -1677,6 +1674,9 @@ impl Session {
                 if skip_mismatch {
                     continue;
                 }
+                if src_removed {
+                    return removed_source();
+                }
                 if let Some(e) = self.transfer_type_mismatch(rec, t, &from, (dp, sp), &updates) {
                     return Err(e);
                 }
@@ -1689,6 +1689,9 @@ impl Session {
             // nothing (Tests-ERM `AddFieldToBuffer`: `TempField.TransferFields(Field, true)`), and a later read of the
             // copy is refused. Into another type the conversion could fail or not, which is not known: `convert` refuses.
             if src_fields[sp].unknown().is_some() && from.fields[sp].ty == df.ty {
+                if src_removed {
+                    return removed_source();
+                }
                 updates.push((dp, src_fields[sp].clone()));
                 continue;
             }
@@ -1707,6 +1710,9 @@ impl Session {
                 if (from_code && (cross_app || skip_mismatch)) || (cross_app && skip_mismatch) {
                     continue;
                 }
+                if src_removed {
+                    return removed_source();
+                }
                 if cross_app {
                     return unsupported(format!(
                         "TransferFields across apps of a text too long for field {} of {} (not pinned)",
@@ -1723,6 +1729,9 @@ impl Session {
                     return Err(Signal::unsupported(why.clone()));
                 }
                 return Err(self.transfer_too_small(rec, t, &from, (dp, sp), updates));
+            }
+            if src_removed {
+                return removed_source();
             }
             tdd_fits(&schema.fields[dp], &src_fields[sp])?;
             // A Blob moves as `blob_transfer::moved` says.
@@ -1805,6 +1814,39 @@ impl Session {
             }
         }
         Ok(Value::Null)
+    }
+
+    /// TransferFields past field `dp` of the target `t`, declared ObsoleteState = Removed, with field `sp` of the source `from`
+    /// under its number. A removed field is no field of its table at run time (to RecordRef:
+    /// recordref-fieldref/PnD12_RemovedFieldRecordRef.al:90-93 FieldCount and FieldExist, :112 Field(n), :132 FieldIndex), and
+    /// TransferFields skips it (`Ok`). Into a field of the very same type the copy could not fail and no reader sees the field,
+    /// so that skip marks nothing. Past a field of another type only the shape of the reporter's repro is served (al-runner
+    /// issue 8494, Business Central 29.0), on an assumption until a probe pins it: a removed Code field, a live Boolean field
+    /// of the source, and `one_app_default_args` (both fields of one app, InitPrimaryKeyFields true and
+    /// SkipFieldsNotMatchingType false). Any other shape is refused.
+    fn skip_removed_target_field(
+        &self,
+        (t, dp): (&TableDef, usize),
+        (from, sp): (&TableDef, usize),
+        one_app_default_args: bool,
+    ) -> Result<(), Signal> {
+        let (to, of) = (&t.fields[dp], &from.fields[sp]);
+        if of.ty == to.ty {
+            return Ok(());
+        }
+        let measured = matches!(to.ty, RtType::Code(_))
+            && of.ty == RtType::Boolean
+            && !self.field_removed(from, sp)
+            && one_app_default_args;
+        if !measured {
+            return unsupported(format!(
+                "TransferFields into field {} of {}, declared ObsoleteState = Removed, from field {} of {} of another type \
+                 (measured only into a Code field from a live Boolean field of one app, with the default arguments)",
+                to.name, t.name, of.name, from.name
+            ));
+        }
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::TransferFieldsSkipsRemovedTargetField);
+        Ok(())
     }
 
     /// Two fields of one number and different types, between two tables of the same app: DB:TypeMisMatch naming the fields, the

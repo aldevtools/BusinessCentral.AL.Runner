@@ -1,8 +1,10 @@
 //! TransferFields and a field declared ObsoleteState = Removed (al-runner issue 8494). The reporter's repro passes on
-//! Business Central 29.0 (W1 OnPrem): a removed field of the target is skipped, also when the source's field of that
-//! number has another type, on two tables of one app and on two table extensions of one app; the same field not removed
-//! raises the type mismatch. The skip runs on the assumption transferfields-skips-removed-target-field. A removed field
-//! of the source against a live field of the target is not measured: refused.
+//! Business Central 29.0 (W1 OnPrem): a removed Code field of the target is skipped past a live Boolean field of the
+//! source, both fields of one app (two tables of one app, or two table extensions of one app), with the default
+//! arguments; the same field not removed raises the type mismatch. That skip runs on the assumption
+//! transferfields-skips-removed-target-field; into a removed field of the very same type the skip is unflagged, and every
+//! other shape past a removed target field is refused. A removed field of the source against a live field of the target
+//! is refused where the field would be copied or raise an error, and skipped where it is skipped anyway.
 
 use al_builtins::assumptions::{Assumption, take_hits};
 use al_builtins::value::Value;
@@ -41,6 +43,18 @@ table 95865 "RF Removed Source"
     keys { key(PK; "No.") { } }
 }
 table 95866 "RF Kept Target" { fields { field(1; "No."; Code[20]) { } field(2; "Kept Flag"; Boolean) { } } keys { key(PK; "No.") { } } }
+table 95870 "RF Text Source" { fields { field(1; "No."; Code[20]) { } field(2; "Note"; Text[30]) { } } keys { key(PK; "No.") { } } }
+table 95871 "RF Int Target"
+{
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(2; "Old Number"; Integer) { ObsoleteState = Removed; ObsoleteReason = 'Not used.'; ObsoleteTag = '1.0'; }
+    }
+    keys { key(PK; "No.") { } }
+}
+table 95872 "RF Code20 Source" { fields { field(1; "No."; Code[20]) { } field(2; "Long Code"; Code[20]) { } } keys { key(PK; "No.") { } } }
+table 95873 "RF Code5 Source" { fields { field(1; "No."; Code[20]) { } field(2; "Short Code"; Code[5]) { } } keys { key(PK; "No.") { } } }
 "#;
 
 const B: &str = r#"
@@ -110,7 +124,80 @@ codeunit 95869 T
         Tgt.TransferFields(Src);
         exit('ok: ' + Tgt."No." + ' ' + Format(Tgt."Kept Flag"));
     end;
+
+    procedure Direct(Mode: Integer): Text
+    var Src: Record "RF Source"; Tgt: Record "RF Target";
+    begin
+        Src."No." := 'A'; Src."My Flag" := true;
+        Tgt."No." := 'T';
+        case Mode of
+            1: Tgt.TransferFields(Src, true);
+            2: Tgt.TransferFields(Src, false);
+            3: Tgt.TransferFields(Src, true, true);
+        end;
+        exit('ok: ' + Tgt."No.");
+    end;
+
+    procedure IntFromText(): Text
+    var Src: Record "RF Text Source"; Tgt: Record "RF Int Target";
+    begin
+        Src."No." := 'A'; Src.Note := 'x';
+        Tgt.TransferFields(Src);
+        exit('ok: ' + Tgt."No.");
+    end;
+
+    procedure CodeTooLong(): Text
+    var Src: Record "RF Code20 Source"; Tgt: Record "RF Target";
+    begin
+        Src."No." := 'A'; Src."Long Code" := 'ABCDEFGHIJ';
+        Tgt.TransferFields(Src);
+        exit('ok: ' + Tgt."No.");
+    end;
+
+    procedure SameType(): Text
+    var Src: Record "RF Code5 Source"; Tgt: Record "RF Target";
+    begin
+        Src."No." := 'A'; Src."Short Code" := 'ABC';
+        Tgt.TransferFields(Src);
+        exit('ok: ' + Tgt."No.");
+    end;
+
+    procedure BothRemoved(): Text
+    var Src: Record "RF Removed Source"; Tgt: Record "RF Target";
+    begin
+        Src."No." := 'A';
+        Tgt.TransferFields(Src);
+        exit('ok: ' + Tgt."No.");
+    end;
+
+    procedure OtherApp(): Text
+    var Src: Record "RF B Source"; Tgt: Record "RF Target";
+    begin
+        Src."No." := 'A'; Src."My Flag" := true;
+        Tgt.TransferFields(Src);
+        exit('ok: ' + Tgt."No.");
+    end;
+
+    procedure RemovedSourceSkipped(): Text
+    var Src: Record "RF Removed Source"; Tgt: Record "RF Target Live";
+    begin
+        Src."No." := 'A';
+        Tgt."No." := 'T'; Tgt."Old Code" := 'KEEP';
+        Tgt.TransferFields(Src, true, true);
+        exit('ok: ' + Tgt."No." + ' ' + Tgt."Old Code");
+    end;
+
+    procedure RemovedSourceMismatch(): Text
+    var Src: Record "RF Removed Source"; Tgt: Record "RF Target Live";
+    begin
+        Src."No." := 'A';
+        Tgt."No." := 'T'; Tgt."Old Code" := 'KEEP';
+        Tgt.TransferFields(Src);
+        exit('ok: ' + Tgt."No." + ' ' + Tgt."Old Code");
+    end;
 }
+
+table 95874 "RF B Source" { fields { field(1; "No."; Code[20]) { } field(2; "My Flag"; Boolean) { } } keys { key(PK; "No.") { } } }
 "#;
 
 fn built() -> al_testkit::Built {
@@ -123,26 +210,60 @@ fn call(b: &mut al_testkit::Built, routine: &str, args: Vec<Value>) -> String {
     al_testkit::text(Ok(v))
 }
 
+fn refusal(b: &mut al_testkit::Built, routine: &str, args: Vec<Value>) -> String {
+    let (oi, ri) = b.routine_in("T", routine);
+    match b.call(oi, ri, args) {
+        Err(al_builtins::native::Signal::Unsupported(why)) => why.to_string(),
+        other => panic!("{routine}: expected a refusal, got {other:?}"),
+    }
+}
+
 /// The repro's TransferFieldsIntoTableWithRemovedFieldOfOtherType: field 2 of the target is a removed Code[5], the
-/// source's a Boolean; TransferFields copies the primary key (unless InitPrimaryKeyFields is false) and raises nothing.
-/// The repro's BaseAppTransferFieldsWithRemovedFieldOfOtherType in its shape: the two fields are table extension fields of
-/// one app. Each call marks the assumption.
+/// source's a live Boolean of the same app; TransferFields with the default arguments copies the primary key and raises
+/// nothing, also with InitPrimaryKeyFields true passed. The repro's BaseAppTransferFieldsWithRemovedFieldOfOtherType in its
+/// shape: the two fields are table extension fields of one app. Each call marks the assumption.
 #[test]
-fn a_removed_target_field_is_skipped_on_an_assumption() {
+fn the_repro_shape_is_skipped_on_an_assumption() {
     let mut b = built();
     let a = Assumption::TransferFieldsSkipsRemovedTargetField;
-    for (mode, pk) in [(1, "A"), (2, "T"), (3, "A")] {
+    for (routine, args) in [
+        ("Plain", vec![Value::Integer(1)]),
+        ("Direct", vec![Value::Integer(1)]),
+        ("Extension", vec![]),
+    ] {
         take_hits();
-        assert_eq!(
-            call(&mut b, "Plain", vec![Value::Integer(mode)]),
-            format!("ok: {pk}"),
-            "mode {mode}"
-        );
-        assert!(take_hits().contains(&a), "mode {mode} not flagged");
+        assert_eq!(call(&mut b, routine, args), "ok: A", "{routine}");
+        assert!(take_hits().contains(&a), "{routine} not flagged");
     }
+}
+
+/// Into a removed field of the very same type (Code[5] from Code[5]) the copy could not fail and no reader sees the field:
+/// skipped, unflagged.
+#[test]
+fn a_removed_target_field_of_the_same_type_is_skipped_unflagged() {
+    let mut b = built();
     take_hits();
-    assert_eq!(call(&mut b, "Extension", vec![]), "ok: A");
-    assert!(take_hits().contains(&a), "extension fields not flagged");
+    assert_eq!(call(&mut b, "SameType", vec![]), "ok: A");
+    assert!(!take_hits().contains(&Assumption::TransferFieldsSkipsRemovedTargetField));
+}
+
+/// Past a removed target field of another type, every shape the repro did not measure is refused: other types (an Integer
+/// field from a Text field, a Code[20] value too long for the removed Code[5]), InitPrimaryKeyFields false,
+/// SkipFieldsNotMatchingType true, a source field that is removed too, and fields of two apps.
+#[test]
+fn other_shapes_past_a_removed_target_field_are_refused() {
+    let mut b = built();
+    for (routine, args) in [
+        ("IntFromText", vec![]),
+        ("CodeTooLong", vec![]),
+        ("Direct", vec![Value::Integer(2)]),
+        ("Direct", vec![Value::Integer(3)]),
+        ("BothRemoved", vec![]),
+        ("OtherApp", vec![]),
+    ] {
+        let why = refusal(&mut b, routine, args);
+        assert!(why.contains("declared ObsoleteState = Removed"), "{routine}: {why}");
+    }
 }
 
 /// The repro's control TransferFieldsIntoTableWithLiveFieldOfOtherType: the same field, not removed, raises the type
@@ -159,13 +280,23 @@ fn a_live_field_of_another_type_still_raises_the_type_mismatch() {
     assert!(!take_hits().contains(&Assumption::TransferFieldsSkipsRemovedTargetField));
 }
 
-/// A removed field of the source against a live field of the target: whether the target keeps its value is not measured.
+/// A removed field of the source against a live field of the target, where the field would be copied (the same type) or
+/// raise the type mismatch (another type, the default arguments): whether the target keeps its value is not measured.
 #[test]
-fn a_removed_source_field_into_a_live_field_is_refused() {
+fn a_removed_source_field_that_would_move_or_raise_is_refused() {
     let mut b = built();
-    let (oi, ri) = b.routine_in("T", "RemovedSource");
-    match b.call(oi, ri, vec![]) {
-        Err(al_builtins::native::Signal::Unsupported(why)) => assert!(why.contains("Removed"), "{why}"),
-        other => panic!("expected a refusal, got {other:?}"),
+    for routine in ["RemovedSource", "RemovedSourceMismatch"] {
+        let why = refusal(&mut b, routine, vec![]);
+        assert!(why.contains("declared ObsoleteState = Removed"), "{routine}: {why}");
     }
+}
+
+/// With SkipFieldsNotMatchingType a field of another type is skipped whether or not the source's field is removed: the
+/// target keeps its value, as before the removed field was looked at.
+#[test]
+fn a_removed_source_field_of_another_type_stays_skipped_with_skip_fields_not_matching_type() {
+    let mut b = built();
+    take_hits();
+    assert_eq!(call(&mut b, "RemovedSourceSkipped", vec![]), "ok: A KEEP");
+    assert!(!take_hits().contains(&Assumption::TransferFieldsSkipsRemovedTargetField));
 }
