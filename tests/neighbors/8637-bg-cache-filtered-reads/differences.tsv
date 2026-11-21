@@ -73,8 +73,17 @@ BQ Tests 5::BgQueryCache_Run_TestReadsFirst_Group_FirstReadsAnswerThem	ASSUMED b
 BQ Tests 5::BgQueryCache_Run_TestReadsFirst_Range_FirstReadsAnswerThem	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:2387)
 BQ Tests 5::BgQueryCache_Run_TestReadsFirst_RecordRef_FirstReadsAnswerThem	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:2405)
 BQ Tests 5::BgQueryCache_Run_TestReadsFirst_SetFilter_FirstReadsAnswerThem	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:2381)
-# Neighbors (BQ Gate Tests): BC answers them from the cache; past what the cells measure, the head keeps main's answer, so they
-# fail on both alike. BQ Gate Test First 1 and 2: BC answers the worker with the test session's reads first in shapes no cell
-# measures; main read the table and failed, the head refuses.
-BQ Gate Test First 1::TestReadsFirst_TwoFilters	REFUSED a group read of a page background task after the test session read the group and then wrote the table
-BQ Gate Test First 2::TestReadsFirst_NonKeyFilter	REFUSED a group read of a page background task after the test session read the group and then wrote the table
+# The cells of BQ Tests 6 (corpus PR 1495): more filter shapes and the test session's reads first in every shape answer from
+# the cache; main read the table. Count and IsEmpty after SetLoadFields read the table on both.
+BQ Tests 6::BgQueryCache_Run_AllForms_FiveFilters_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:2711)
+BQ Tests 6::BgQueryCache_Run_AllForms_EightFilters_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:2717)
+BQ Tests 6::BgQueryCache_Run_AllForms_FilterGroups3And5_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:2723)
+BQ Tests 6::BgQueryCache_Run_AllForms_FilterGroup7_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:2730)
+BQ Tests 6::BgQueryCache_Run_AllForms_OrGroup_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:2736)
+BQ Tests 6::BgQueryCache_Run_AllForms_CompoundFilters_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:2743)
+BQ Tests 6::BgQueryCache_Run_AllForms_OtherFilterKinds_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:2751)
+BQ Tests 6::BgQueryCache_Run_AllForms_NoFilter_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:2775)
+BQ Tests 6::BgQueryCache_Run_TestReadsFirst_NoFilter_FirstReadsAnswerThem	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:2789)
+BQ Tests 6::BgQueryCache_Run_TestReadsFirst_EveryShape_FirstReadsAnswerThem	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:2808)
+# Neighbors (BQ Gate Tests: nine filters, filter group 8): BC answers them from the cache; past what the cells measure, the
+# head keeps main's answer, so they fail on both alike.

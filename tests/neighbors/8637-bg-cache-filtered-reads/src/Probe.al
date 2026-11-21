@@ -4,8 +4,8 @@
 // Scope: in-scope
 // local object: the reads of a page background task's worker and of the test session, and what the test writes, commits and
 //   rolls back between them, are what is under test
-// Fixtures used: shared Assert (60021); own tables 97500, 97501, 97514; mode codeunit 97502; codeunits 97503, 97504, 97509, 97517,
-//   97590; pages 97505, 97518, 97519; test codeunits 97506, 97507, 97508, 97544, 97545 (neighbors after 97507: see comments)
+// Fixtures used: Assert (60021); tables 97500, 97501, 97514, 97546; mode codeunit 97502; codeunits 97503, 97504, 97509, 97517,
+//   97590, 97591; pages 97505, 97518, 97519; test codeunits 97506-97508, 97544, 97545, 97592 (neighbors after 97507: see comments)
 // Probe (al-runner issue 8467): a read the worker of a page background task repeats gets the answer of the first read, also after
 //   the test session changed the rows without committing. The tests read lines of table 97500 (key Group, Line No.) in the worker,
 //   either from the page's OnAfterGetCurrRecord (CurrPage.EnqueueBackgroundTask, the page shows the answer) or with
@@ -2405,5 +2405,444 @@ codeunit 97545 "BQ Tests 5"
     procedure BgQueryCache_Run_TestReadsFirst_RecordRef_FirstReadsAnswerThem()
     begin
         Assert.AreEqual('a|a|1|No', TestReadsFirst('ref'), 'the worker''s reads');
+    end;
+}
+
+// Neighbors of BQ Tests 4 and 5 (al-runner issue 8637, the shapes the runner did not cache yet; measured on a local BC 29.1
+// OnPrem w1 container): FindFirst, FindLast, Count and IsEmpty of an empty set, read again after the test inserted a line the
+// filters keep, for five and eight filters, filter groups 3, 5 and 7, the cross-column OR group -1, an | of a range and a
+// value, an & inside an |, @ alone, an empty FILTER() of a view, a pattern not matched with @, and no filter at all (table
+// 97546): the cache answers them all.
+// Count and IsEmpty after SetLoadFields read the rows as they are. The test session's four reads first, then its change, then
+// the worker's first four reads: the worker answers the test's for no filter and every filter shape of BQ Reader 4 and of this
+// worker.
+
+table 97546 "BQ Empty"
+{
+    DataClassification = SystemMetadata;
+    ReplicateData = false;
+
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(2; Description; Text[50]) { }
+    }
+
+    keys
+    {
+        key(PK; "No.") { Clustered = true; }
+    }
+}
+
+// The worker of BQ Tests 6: the four reads of the filters a Mode names (`SetShape`), or of table 97546 without a filter.
+codeunit 97591 "BQ Reader 6"
+{
+    trigger OnRun()
+    var
+        Row: Record "BQ Row";
+        Empty: Record "BQ Empty";
+        Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
+        Group: Text;
+        Mode: Text;
+    begin
+        Parameters := Page.GetBackgroundParameters();
+        Parameters.Get('Group', Group);
+        Parameters.Get('Mode', Mode);
+        if Mode = 'unfiltered' then
+            Results.Add('Seen', EmptyForms(Empty))
+        else begin
+            SetShape(Row, Mode, Group);
+            Results.Add('Seen', Forms(Row, Mode));
+        end;
+        Page.SetBackgroundTaskResult(Results);
+    end;
+
+    // The filters of a Mode: those of BQ Reader 4 and the shapes of BQ Tests 6; any other Mode is a filter on Description next
+    // to the group's.
+    procedure SetShape(var Row: Record "BQ Row"; Mode: Text; Group: Text)
+    var
+        FilterGroupNo: Integer;
+    begin
+        case Mode of
+            'group':
+                Row.SetRange("Group", Group);
+            'second':
+                begin
+                    Row.SetRange("Group", Group);
+                    Row.SetRange(Note, '');
+                end;
+            'nonkey':
+                Row.SetRange(Note, Group);
+            'group2', 'group3', 'group4', 'group5', 'group6', 'group7':
+                begin
+                    Evaluate(FilterGroupNo, CopyStr(Mode, 6));
+                    Row.FilterGroup(FilterGroupNo);
+                    Row.SetRange("Group", Group);
+                    Row.FilterGroup(0);
+                end;
+            'range':
+                Row.SetRange("Group", Group, Group + 'Z');
+            'desc':
+                begin
+                    Row.Ascending(false);
+                    Row.SetRange("Group", Group);
+                end;
+            'setfilter':
+                Row.SetFilter("Group", Group);
+            'holder':
+                Row.SetFilter("Group", '%1', Group);
+            'or':
+                Row.SetFilter("Group", '%1|%2', Group, 'NOGROUP');
+            'like':
+                Row.SetFilter("Group", Group + '*');
+            'likeci':
+                Row.SetFilter("Group", '@' + LowerCase(Group) + '*');
+            'setfiltersecond':
+                begin
+                    Row.SetFilter("Group", Group);
+                    Row.SetRange(Note, '');
+                end;
+            'three':
+                begin
+                    Row.SetRange("Group", Group);
+                    Row.SetRange(Note, '');
+                    Row.FilterGroup(2);
+                    Row.SetFilter(Description, '<>%1', 'zz');
+                    Row.FilterGroup(0);
+                end;
+            'four':
+                begin
+                    Row.SetRange("Group", Group);
+                    Row.SetRange(Note, '');
+                    Row.SetFilter(Description, '<>%1', 'zz');
+                    Row.SetRange("Line No.", 1, 9);
+                end;
+            'combined':
+                begin
+                    Row.Ascending(false);
+                    Row.FilterGroup(2);
+                    Row.SetFilter("Group", '%1|%2', Group, 'NOGROUP');
+                    Row.FilterGroup(0);
+                    Row.SetFilter(Description, '>%1', '0');
+                end;
+            'five':
+                begin
+                    Row.SetRange("Group", Group);
+                    Row.SetRange(Note, '');
+                    Row.SetFilter(Description, '<>%1', 'zz');
+                    Row.SetRange("Line No.", 1, 9);
+                    Row.FilterGroup(2);
+                    Row.SetRange(Note, '');
+                    Row.FilterGroup(0);
+                end;
+            'eight':
+                begin
+                    Row.SetRange("Group", Group);
+                    Row.SetRange(Note, '');
+                    Row.SetFilter(Description, '<>%1', 'zz');
+                    Row.SetRange("Line No.", 1, 9);
+                    Row.FilterGroup(2);
+                    Row.SetRange("Group", Group);
+                    Row.SetRange(Note, '');
+                    Row.SetFilter(Description, '<>%1', 'zz');
+                    Row.SetRange("Line No.", 1, 9);
+                    Row.FilterGroup(0);
+                end;
+            'orgroup':
+                begin
+                    Row.FilterGroup(-1);
+                    Row.SetRange("Group", Group);
+                    Row.SetRange(Description, 'NODESCRIPTION');
+                    Row.FilterGroup(0);
+                end;
+            'orrange':
+                begin
+                    Row.SetRange("Group", Group);
+                    Row.SetFilter("Line No.", '1..3|5');
+                end;
+            'nested':
+                begin
+                    Row.SetRange("Group", Group);
+                    Row.SetFilter(Description, '>0&<z|zz');
+                end;
+            'atsign':
+                begin
+                    Row.SetRange("Group", Group);
+                    Row.SetFilter(Description, '@');
+                end;
+            'notlikeci':
+                begin
+                    Row.SetRange("Group", Group);
+                    Row.SetFilter(Description, '<>@zz*');
+                end;
+            'emptyview':
+                Row.SetView(StrSubstNo('WHERE(Group=FILTER(%1),Description=FILTER())', Group));
+            'loadfields':
+                begin
+                    Row.SetLoadFields(Description);
+                    Row.SetRange("Group", Group);
+                end;
+            else begin
+                Row.SetRange("Group", Group);
+                Row.SetFilter(Description, Mode);
+            end;
+        end;
+    end;
+
+    // FindFirst, FindLast, Count and IsEmpty; after SetLoadFields Count and IsEmpty alone.
+    procedure Forms(var Row: Record "BQ Row"; Mode: Text): Text
+    var
+        First: Text;
+        Last: Text;
+    begin
+        if Mode = 'loadfields' then
+            exit(Format(Row.Count()) + '|' + Format(Row.IsEmpty()));
+        First := '-';
+        Last := '-';
+        if Row.FindFirst() then
+            First := Row.Description;
+        if Row.FindLast() then
+            Last := Row.Description;
+        exit(First + '|' + Last + '|' + Format(Row.Count()) + '|' + Format(Row.IsEmpty()));
+    end;
+
+    procedure EmptyForms(var Empty: Record "BQ Empty"): Text
+    var
+        First: Text;
+        Last: Text;
+    begin
+        First := '-';
+        Last := '-';
+        if Empty.FindFirst() then
+            First := Empty.Description;
+        if Empty.FindLast() then
+            Last := Empty.Description;
+        exit(First + '|' + Last + '|' + Format(Empty.Count()) + '|' + Format(Empty.IsEmpty()));
+    end;
+}
+
+codeunit 97592 "BQ Tests 6"
+{
+    Subtype = Test;
+
+    var
+        Assert: Codeunit Assert;
+
+    local procedure NewGroup(): Code[20]
+    begin
+        exit(CopyStr(DelChr(Format(CreateGuid()), '=', '{}-'), 1, 18));
+    end;
+
+    // Inserts a line, then reads the group (as AddRow of BQ Tests).
+    local procedure AddRow(Group: Code[20]; LineNo: Integer; Description: Text[50]; Note: Text[50])
+    var
+        Row: Record "BQ Row";
+    begin
+        Row."Group" := Group;
+        Row."Line No." := LineNo;
+        Row.Description := Description;
+        Row.Note := Note;
+        Row.Insert();
+        Row.SetRange("Group", Group);
+        if Row.FindFirst() then;
+    end;
+
+    local procedure SetRow(Group: Code[20]; LineNo: Integer; Description: Text[50])
+    var
+        Row: Record "BQ Row";
+    begin
+        Row.Get(Group, LineNo);
+        Row.Description := Description;
+        Row.Modify();
+    end;
+
+    // Inserts a row of table 97546, then reads the table.
+    local procedure AddEmpty(No: Code[20]; Description: Text[50])
+    var
+        Empty: Record "BQ Empty";
+    begin
+        Empty."No." := No;
+        Empty.Description := Description;
+        Empty.Insert();
+        if Empty.FindFirst() then;
+    end;
+
+    // Empties table 97546 and commits.
+    local procedure ClearEmpty()
+    var
+        Empty: Record "BQ Empty";
+    begin
+        Empty.DeleteAll();
+        Commit();
+    end;
+
+    local procedure Run(var Rows: TestPage "BQ Plain Rows"; Mode: Text; Group: Code[20]): Text
+    var
+        Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
+        Seen: Text;
+    begin
+        Parameters.Add('Group', Group);
+        Parameters.Add('Mode', Mode);
+        Results := Rows.RunPageBackgroundTask(Codeunit::"BQ Reader 6", Parameters, false);
+        Results.Get('Seen', Seen);
+        exit(Seen);
+    end;
+
+    // The four reads of a Mode on an empty set; the test inserts a line the filters keep (Description as given); the four
+    // reads again.
+    local procedure InsertAfterFirstRead(Mode: Text; Description: Text[50]): Text
+    var
+        Rows: TestPage "BQ Plain Rows";
+        G: Code[20];
+        Seen: Text;
+    begin
+        G := NewGroup();
+        Rows.OpenView();
+        Assert.AreEqual('-|-|0|Yes', Run(Rows, Mode, G), Mode + ': the first reads');
+        AddRow(G, 1, Description, '');
+        Seen := Run(Rows, Mode, G);
+        Rows.Close();
+        exit(Seen);
+    end;
+
+    [Test]
+    procedure BgQueryCache_Run_AllForms_FiveFilters_FirstAnswer()
+    begin
+        Assert.AreEqual('-|-|0|Yes', InsertAfterFirstRead('five', 'a'), 'after the insert');
+    end;
+
+    [Test]
+    procedure BgQueryCache_Run_AllForms_EightFilters_FirstAnswer()
+    begin
+        Assert.AreEqual('-|-|0|Yes', InsertAfterFirstRead('eight', 'a'), 'after the insert');
+    end;
+
+    [Test]
+    procedure BgQueryCache_Run_AllForms_FilterGroups3And5_FirstAnswer()
+    begin
+        Assert.AreEqual('-|-|0|Yes', InsertAfterFirstRead('group3', 'a'), 'filter group 3, after the insert');
+        Assert.AreEqual('-|-|0|Yes', InsertAfterFirstRead('group5', 'a'), 'filter group 5, after the insert');
+    end;
+
+    [Test]
+    procedure BgQueryCache_Run_AllForms_FilterGroup7_FirstAnswer()
+    begin
+        Assert.AreEqual('-|-|0|Yes', InsertAfterFirstRead('group7', 'a'), 'after the insert');
+    end;
+
+    [Test]
+    procedure BgQueryCache_Run_AllForms_OrGroup_FirstAnswer()
+    begin
+        Assert.AreEqual('-|-|0|Yes', InsertAfterFirstRead('orgroup', 'a'), 'after the insert');
+    end;
+
+    // An | of a range and a value on Line No., and an & inside an | on Description.
+    [Test]
+    procedure BgQueryCache_Run_AllForms_CompoundFilters_FirstAnswer()
+    begin
+        Assert.AreEqual('-|-|0|Yes', InsertAfterFirstRead('orrange', 'a'), '1..3|5, after the insert');
+        Assert.AreEqual('-|-|0|Yes', InsertAfterFirstRead('nested', 'a'), '>0&<z|zz, after the insert');
+    end;
+
+    // @ alone, an empty FILTER() of a view, and a pattern not matched with @.
+    [Test]
+    procedure BgQueryCache_Run_AllForms_OtherFilterKinds_FirstAnswer()
+    begin
+        Assert.AreEqual('-|-|0|Yes', InsertAfterFirstRead('atsign', 'a'), '@, after the insert');
+        Assert.AreEqual('-|-|0|Yes', InsertAfterFirstRead('emptyview', 'a'), 'FILTER(), after the insert');
+        Assert.AreEqual('-|-|0|Yes', InsertAfterFirstRead('notlikeci', 'a'), '<>@zz*, after the insert');
+    end;
+
+    // Count and IsEmpty after SetLoadFields(Description): they read the rows as they are.
+    [Test]
+    procedure BgQueryCache_Run_LoadFields_CountIsEmpty_SeeTheChange()
+    var
+        Rows: TestPage "BQ Plain Rows";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        Rows.OpenView();
+        Assert.AreEqual('0|Yes', Run(Rows, 'loadfields', G), 'the first reads');
+        AddRow(G, 1, 'a', '');
+        Assert.AreEqual('1|No', Run(Rows, 'loadfields', G), 'after the insert');
+        Rows.Close();
+    end;
+
+    // The four reads of table 97546 without a filter: the table is empty, then the test inserts a row.
+    [Test]
+    procedure BgQueryCache_Run_AllForms_NoFilter_FirstAnswer()
+    var
+        Rows: TestPage "BQ Plain Rows";
+    begin
+        ClearEmpty();
+        Rows.OpenView();
+        Assert.AreEqual('-|-|0|Yes', Run(Rows, 'unfiltered', ''), 'the first reads');
+        AddEmpty(NewGroup(), 'a');
+        Assert.AreEqual('-|-|0|Yes', Run(Rows, 'unfiltered', ''), 'after the insert');
+        Rows.Close();
+    end;
+
+    // The test session reads table 97546 without a filter after a commit, then inserts a row: the worker's first four reads.
+    [Test]
+    procedure BgQueryCache_Run_TestReadsFirst_NoFilter_FirstReadsAnswerThem()
+    var
+        Rows: TestPage "BQ Plain Rows";
+        Empty: Record "BQ Empty";
+        Reader: Codeunit "BQ Reader 6";
+    begin
+        ClearEmpty();
+        AddEmpty(NewGroup(), 'a');
+        Commit();
+        Assert.AreEqual('a|a|1|No', Reader.EmptyForms(Empty), 'the test''s reads');
+        AddEmpty(NewGroup(), 'b');
+        Rows.OpenView();
+        Assert.AreEqual('a|a|1|No', Run(Rows, 'unfiltered', ''), 'the worker''s reads');
+        Rows.Close();
+    end;
+
+    // For every Mode: the test session reads its four reads after a commit, changes line 1 and inserts line 2; the worker's
+    // first four reads answer the test's. The Modes that differ are listed.
+    [Test]
+    procedure BgQueryCache_Run_TestReadsFirst_EveryShape_FirstReadsAnswerThem()
+    var
+        Modes: List of [Text];
+        Mode: Text;
+        Differ: Text;
+    begin
+        Modes.AddRange('group', 'second', 'nonkey', 'group2', 'group3', 'group4', 'group5', 'group6', 'group7', 'range');
+        Modes.AddRange('desc', 'setfilter', 'holder', 'or', 'like', 'likeci', 'setfiltersecond', 'three', 'four', 'combined');
+        Modes.AddRange('five', 'eight', 'orgroup', 'orrange', 'nested', 'atsign', 'emptyview', 'notlikeci');
+        Modes.AddRange('<>zz', '>0', '>=a', '<z', '<=a', 'a..', '..z', '>0&<z', '<>z*');
+        foreach Mode in Modes do
+            if not TestReadsFirst(Mode) then
+                Differ += ' ' + Mode;
+        Assert.AreEqual('', Differ, 'the Modes whose worker reads differ from the test''s');
+    end;
+
+    local procedure TestReadsFirst(Mode: Text): Boolean
+    var
+        Rows: TestPage "BQ Plain Rows";
+        Row: Record "BQ Row";
+        Reader: Codeunit "BQ Reader 6";
+        G: Code[20];
+        Note: Text[50];
+        TestSeen: Text;
+        Seen: Text;
+    begin
+        G := NewGroup();
+        if Mode = 'nonkey' then
+            Note := G;
+        AddRow(G, 1, 'a', Note);
+        Commit();
+        Reader.SetShape(Row, Mode, G);
+        TestSeen := Reader.Forms(Row, Mode);
+        SetRow(G, 1, 'b');
+        AddRow(G, 2, 'c', Note);
+        Rows.OpenView();
+        Seen := Run(Rows, Mode, G);
+        Rows.Close();
+        exit(Seen = TestSeen);
     end;
 }
