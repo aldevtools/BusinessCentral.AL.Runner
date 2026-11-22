@@ -407,9 +407,10 @@ impl Session {
 
     /// Whether the event `publisher` of object `publisher_o` has the subscribers the cells measured: one (each event of
     /// record/validate/XRecTableProcThroughSubscriber.al, `Some(false)`), or two, each of a codeunit neither bound manually nor
-    /// SingleInstance, each declaring the publisher's first parameters, all `var` (the reading one all of them, checked by
-    /// `through_subscriber`; the other all, `TwoSubscribers_*`, or only the record, `Wide_*`; record/validate/
-    /// XRecTableProcCallers.al, corpus PR 1482, merged at 5ad2970e, not pinned yet: assumed, `Some(true)`).
+    /// SingleInstance, all its parameters `var`, declaring all of the publisher's parameters (the reading one, checked by
+    /// `through_subscriber`, and the other in `TwoSubscribers_*`) or only one, a record of the table (`Wide_*`); parameters
+    /// bind by name, so a subscriber that declares only another parameter is not measured (review of PR 8304, 2026-11-22).
+    /// record/validate/XRecTableProcCallers.al, corpus PR 1482, merged at 5ad2970e, not pinned yet: assumed, `Some(true)`.
     fn subscribers_measured(&self, publisher_o: usize, publisher: &Routine) -> Option<bool> {
         let subscribers = self
             .engine
@@ -417,10 +418,12 @@ impl Session {
             .subscribers_at(publisher_o, &publisher.name.to_lowercase())?;
         let measured = |s: &crate::events::Subscriber| {
             let r = &self.engine.program.objects[s.object].routines[s.routine];
+            let only_the_record = r.params == 1
+                && matches!(r.locals.first().map(|l| &l.ty), Some(RtType::Record(t, _)) if *t as usize == publisher_o);
             !s.manual
                 && !self.engine.object_facts[s.object].manual_subscriber
                 && !self.engine.object_facts[s.object].single_instance
-                && (1..=publisher.params).contains(&r.params)
+                && (r.params == publisher.params || only_the_record)
                 && (0..r.params).all(|i| r.by_var.get(i) == Some(&true))
         };
         match subscribers.len() {
@@ -453,7 +456,8 @@ impl Session {
     /// `Record.Validate` from AL code (:1098 with one argument); the outer one's trigger is a field OnValidate of the table, of
     /// another field; between the two triggers run at most [`NESTING_PROCEDURES_MEASURED`] procedures of the table that are no
     /// triggers, each called on the outer trigger's own record: unqualified (:591), as `Rec.Proc()` (:1084) or as
-    /// `this.Proc()`, which the runner does not tell apart from the two (`plain_proc_xrec` notes a call on another record).
+    /// `this.Proc()`, which the runner does not tell apart from the two (BC gives all three forms the trigger's xRec,
+    /// record/validate/XRecTableProcCalls.al:66; `plain_proc_xrec` notes a call on another record).
     fn nested_by_own_code(&self, table: usize, handle: usize, inner: usize) -> Option<(&ValidateRun, &ValidateRun)> {
         let mut running = self.validate_sites.iter().filter(|v| v.handle == handle);
         let (Some(outer), Some(inner_run), None) = (running.next(), running.next(), running.next()) else {

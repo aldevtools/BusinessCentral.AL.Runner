@@ -46,6 +46,8 @@ table 50202 "XS Line"
                         OnModeTwoSingle(Rec);
                     'sub-wide':
                         OnModeWide(Rec, OtherRow);
+                    'sub-wide-other':
+                        OnModeWideOther(Rec, OtherRow);
                     'sub-two-noparams':
                         OnModeTwoNoParams(Rec);
                     'sub', 'nested', 'nested0', 'nested1', 'nested3', 'nested4', 'sub-assign', 'nested-assign', 'nested-assign-err', 'nested-assign-restore', 'nested-cu', 'nested-peer', 'nested-ext',
@@ -200,6 +202,8 @@ table 50202 "XS Line"
     [IntegrationEvent(false, false)]
     local procedure OnModeWide(var Line: Record "XS Line"; var Other: Record "XS Other") begin end;
     [IntegrationEvent(false, false)]
+    local procedure OnModeWideOther(var Line: Record "XS Line"; var Other: Record "XS Other") begin end;
+    [IntegrationEvent(false, false)]
     local procedure OnModeTwoNoParams(var Line: Record "XS Line") begin end;
     [IntegrationEvent(false, false)]
     local procedure OnModeTwo(var Line: Record "XS Line"; var Other: Record "XS Other") begin end;
@@ -317,6 +321,12 @@ codeunit 50204 "XS Subscriber"
         Line.ExtRead('X');
     end;
 
+    [EventSubscriber(ObjectType::Table, Database::"XS Line", 'OnModeWideOther', '', false, false)]
+    local procedure OnModeWideOther(var Line: Record "XS Line"; var Other: Record "XS Other")
+    begin
+        Line.ExtRead('X');
+    end;
+
     [EventSubscriber(ObjectType::Table, Database::"XS Line", 'OnModeTwoNoParams', '', false, false)]
     local procedure OnModeTwoNoParams(var Line: Record "XS Line")
     begin
@@ -396,6 +406,12 @@ codeunit 50210 "XS Second Subscriber"
     // Base Application's Asm. Requisition Line: only the record of a two-parameter event.
     [EventSubscriber(ObjectType::Table, Database::"XS Line", 'OnModeWide', '', false, false)]
     local procedure OnModeWide(var Line: Record "XS Line")
+    begin
+    end;
+
+    // Parameters bind by name: only the second parameter of the event, which no cell measured.
+    [EventSubscriber(ObjectType::Table, Database::"XS Line", 'OnModeWideOther', '', false, false)]
+    local procedure OnModeWideOther(var Other: Record "XS Other")
     begin
     end;
 
@@ -658,6 +674,7 @@ codeunit 50207 "XS Tests"
     [Test] procedure Refused_Sub_FromSingleInstanceCodeunit() var L: Record "XS Line"; H: Codeunit "XS Single Helper"; begin AfterInsert(L); Log.Set('sub'); H.ValidateMode(L); end;
     [Test] procedure Refused_Sub_TwoSubscribersOneSingleInstance() var L: Record "XS Line"; begin AfterInsert(L); ValidateMode(L, 'sub-two-single', ''); end;
     [Test] procedure Refused_Sub_TwoSubscribersOneWithoutParams() var L: Record "XS Line"; begin AfterInsert(L); ValidateMode(L, 'sub-two-noparams', ''); end;
+    [Test] procedure Refused_Sub_TwoSubscribersOtherDeclaresOnlySecond() var L: Record "XS Line"; begin AfterInsert(L); ValidateMode(L, 'sub-wide-other', ''); end;
     [Test] procedure Assumed_Sub_FromTryFunctionStatement() var L: Record "XS Line"; H: Codeunit "XS Helper"; begin AfterInsert(L); Log.Set('sub'); H.TryValidateMode(L); Check('T x=0/NEW/I1;X x=0/NEW/I1;P x=0/NEW/I1;'); end;
     [Test] procedure Refused_Sub_FromInterface() var L: Record "XS Line"; V: Codeunit "XS Iface Validator"; I: Interface "XS IValidator"; begin AfterInsert(L); Log.Set('sub'); I := V; I.ValidateMode(L); end;
     [Test] procedure Refused_Sub_FromGuardedCodeunitRunInTest() var L: Record "XS Line"; begin AfterInsert(L); Log.Set('sub'); Commit(); if Codeunit.Run(Codeunit::"XS Runner", L) then; end;
