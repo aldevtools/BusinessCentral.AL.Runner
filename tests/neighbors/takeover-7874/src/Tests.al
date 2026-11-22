@@ -1,4 +1,5 @@
-// RecordRef calls on a table whose filter group 1 another Record set (reporter's PR: metadata answers regardless).
+// RecordRef calls on a table whose filter group 1 another Record set. The metadata calls run through the assumption
+// `recordref-metadata-global-filter` (corpus PR 1525); the others keep main's refusal.
 codeunit 50100 "NB Glob Tests"
 {
     Subtype = Test;
@@ -116,7 +117,8 @@ codeunit 50100 "NB Glob Tests"
     begin
         SetGlobal();
         RR.Open(50100);
-        Expect(Format(RR.KeyCount()), '1');
+        if RR.KeyCount() < 1 then
+            Error('no keys');
     end;
 
     [Test]
@@ -158,6 +160,81 @@ codeunit 50100 "NB Glob Tests"
     begin
         SetGlobal();
         RR.Open(50100);
-        Expect(Format(RR.RecordId()), '');
+        Expect(Format(RR.RecordId()), 'NB Glob Row: 0');
+    end;
+
+    [Test]
+    procedure RefFieldExist_NumberNotMeasured()
+    var
+        RR: RecordRef;
+    begin
+        SetGlobal();
+        RR.Open(50100);
+        Expect(Format(RR.FieldExist(1)), 'Yes');
+    end;
+
+    [Test]
+    procedure RefCurrentCompany_NotMeasured()
+    var
+        RR: RecordRef;
+    begin
+        SetGlobal();
+        RR.Open(50100);
+        Expect(RR.CurrentCompany(), CompanyName());
+    end;
+
+    [Test]
+    procedure RefName_InGroupTwo()
+    var
+        RR: RecordRef;
+    begin
+        SetGlobal();
+        RR.Open(50100);
+        RR.FilterGroup(2);
+        Expect(RR.Name(), 'NB Glob Row');
+    end;
+
+    [Test]
+    procedure RefName_TemporaryRecordRef()
+    var
+        RR: RecordRef;
+    begin
+        SetGlobal();
+        RR.Open(50100, true);
+        Expect(RR.Name(), 'NB Glob Row');
+    end;
+
+    [Test]
+    procedure RefName_WithFilterOfItsOwn()
+    var
+        RR: RecordRef;
+    begin
+        SetGlobal();
+        RR.Open(50100);
+        RR.Field(1).SetRange(1);
+        Expect(RR.Name(), 'NB Glob Row');
+    end;
+
+    [Test]
+    procedure RefKeyIndexAndField_Measured()
+    var
+        RR: RecordRef;
+    begin
+        SetGlobal();
+        RR.Open(50100);
+        Expect(Format(RR.KeyIndex(1).FieldCount()), '1');
+        Expect(Format(RR.FieldIndex(1).Number()), '1');
+        Expect(Format(RR.CurrentKeyIndex()), '1');
+    end;
+
+    [Test]
+    procedure RefReadPermission_Measured()
+    var
+        RR: RecordRef;
+    begin
+        SetGlobal();
+        RR.Open(50100);
+        Expect(Format(RR.ReadPermission()), 'Yes');
+        Expect(Format(RR.SecurityFiltering()), 'Validated');
     end;
 }

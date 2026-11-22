@@ -331,7 +331,50 @@ fn measured_read(setter: VarKind, reader: VarKind, op: Group1Op, group: i32, arg
         // after a Record setter (:897-898).
         (RecordRef, Group1Op::RecordRef("Count"), 0, 0) => setter == RecordRef || setter == Record,
         (RecordRef, Group1Op::RecordRef("GetFilters"), 1, 0) => setter == Record,
+        // A RecordRef's metadata calls and reads after a Record setter (corpus PR 1525, assumption
+        // `recordref-metadata-global-filter`); the argument values are checked by [`rr_probe_args_measured`].
+        (RecordRef, Group1Op::RecordRef(m), 0, n) => setter == Record && rr_probe_call(m, n),
         _ => false,
+    }
+}
+
+/// The RecordRef calls RecordRefMetadataGlobalFilter.al (corpus PR 1525, not pinned yet) measured on a table whose filter group 1
+/// a Record variable set, with the number of arguments each passed. Close ends the ref (the test reopens it).
+fn rr_probe_call(method: &str, args: usize) -> bool {
+    matches!(
+        (method, args),
+        (
+            "Number"
+                | "Name"
+                | "Caption"
+                | "FieldCount"
+                | "KeyCount"
+                | "IsTemporary"
+                | "RecordId"
+                | "CurrentKeyIndex"
+                | "SecurityFiltering"
+                | "ReadPermission"
+                | "Close"
+                | "IsEmpty"
+                | "FindFirst",
+            0
+        ) | ("FieldExist" | "KeyIndex" | "FieldIndex" | "Field", 1)
+    )
+}
+
+/// The argument values of those calls: FieldExist(2) and (9), KeyIndex(1), FieldIndex(1), Field(1). Other calls pass.
+fn rr_probe_args_measured(op: Group1Op, args: &[Value]) -> bool {
+    let Group1Op::RecordRef(m) = op else {
+        return true;
+    };
+    if !rr_probe_call(m, args.len()) {
+        return true;
+    }
+    let one = |wanted: &[i32]| matches!(args, [Value::Integer(n)] if wanted.contains(n));
+    match m {
+        "FieldExist" => one(&[2, 9]),
+        "KeyIndex" | "FieldIndex" | "Field" => one(&[1]),
+        _ => args.is_empty(),
     }
 }
 
@@ -542,9 +585,13 @@ impl Session {
             && view_measured
             && (entry.setter.zip(reader)).is_some_and(|(s, r)| measured_read(s, r, op, group, args.len()))
             && (step != LoopStep::Next || in_loop())
+            && rr_probe_args_measured(op, args)
             && self.entry_pinned(rec, entry)
             && self.shared_write_runs_no_code(rec, op);
         if shared {
+            if matches!(op, Group1Op::RecordRef(m) if rr_probe_call(m, args.len())) {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RecordRefMetadataGlobalFilter);
+            }
             return Ok(Group1Use::Shared {
                 table,
                 filters: entry.filters.clone(),
