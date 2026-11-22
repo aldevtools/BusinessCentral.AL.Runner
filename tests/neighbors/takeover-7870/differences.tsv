@@ -1,0 +1,20 @@
+# key	entry
+HN Contains Tests::Measured_FreshRequest	ASSUMED http-contains-empty-name (corpus PR 1424)
+HN Contains Tests::Measured_FreshContent	ASSUMED http-contains-empty-name (corpus PR 1424)
+HN Contains Tests::Measured_RequestContentAfterTextWrite	ASSUMED http-contains-empty-name (corpus PR 1424)
+HN Contains Tests::StandaloneContentAfterTextWrite	ASSUMED http-contains-empty-name (corpus PR 1424)
+HN Contains Tests::RequestAfterAddRemove	REFUSED HttpHeaders.Contains with an empty name on an unmeasured version or header state
+HN Contains Tests::ClientAfterAddClear	REFUSED HttpHeaders.Contains with an empty name on an unmeasured version or header state
+HN Contains Tests::ContentTypeRemovedAndReadded	REFUSED HttpHeaders.Contains with an empty name on an unmeasured version or header state
+HN Contains Tests::ContentAfterSecondTextWrite	REFUSED HttpHeaders.Contains with an empty name on an unmeasured version or header state
+HN Contains Tests::ContentAfterStreamWrite	REFUSED HttpHeaders.Contains with an empty name on an unmeasured version or header state
+HN Contains Tests::ContentAfterClear	REFUSED HttpHeaders.Contains with an empty name on an unmeasured version or header state
+HN Contains Tests::CopyOfWrittenContent	REFUSED HttpHeaders.Contains with an empty name on an unmeasured version or header state
+HN Stream Tests::Measured_FreshRemoved	ASSUMED http-stream-write-keeps-removed-content-type (corpus PR 1424)
+HN Stream Tests::Measured_CopyRemoved	ASSUMED http-stream-write-keeps-removed-content-type (corpus PR 1424)
+HN Stream Tests::Measured_JsonReadded	ASSUMED http-stream-write-keeps-removed-content-type (corpus PR 1424); typed value http-typed-header-value-shapes
+HN Stream Tests::ReadAsBeforeStreamWrite	REFUSED HttpContent.WriteFrom(InStream) with a changed Content-Type in an unmeasured version, header or stream state
+HN Stream Tests::PartlyReadStream	REFUSED HttpContent.WriteFrom(InStream) with a changed Content-Type in an unmeasured version, header or stream state
+HN Stream Tests::StreamNotOnBlobField	REFUSED HttpContent.WriteFrom(InStream) with a changed Content-Type in an unmeasured version, header or stream state
+HN Stream Tests::SecondStreamWrite	REFUSED HttpContent.WriteFrom(InStream) with a changed Content-Type in an unmeasured version, header or stream state
+HN Stream Tests::JsonWithCharset	REFUSED HttpContent.WriteFrom(InStream) with a changed Content-Type in an unmeasured version, header or stream state

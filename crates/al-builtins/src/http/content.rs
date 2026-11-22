@@ -145,7 +145,9 @@ fn keep_stream_content_type(c: &dyn Ctx, s: &HttpContentState, stream: Option<&V
     if c.http_probe_1424_measured() && measured_type && measured_content && measured_stream {
         return Ok(true);
     }
-    unsupported("HttpContent.WriteFrom(InStream) with a changed Content-Type in an unmeasured version, header or stream state")
+    unsupported(
+        "HttpContent.WriteFrom(InStream) with a changed Content-Type in an unmeasured version, header or stream state",
+    )
 }
 
 /// `ReadAs(var Text)` gives the body back, UTF-8 decoded; a content nobody wrote to reads as an empty text and
