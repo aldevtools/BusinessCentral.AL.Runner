@@ -1252,11 +1252,10 @@ impl Session {
                         // combinations are not pinned.
                         let empty_table = filters.is_empty()
                             && method == RecordOp::Find
-                            && self
+                            && !self
                                 .store_for(rec)?
-                                .count(&cx, &t, &[])
-                                .map_err(|e| Signal::unsupported(format!("{e}")))?
-                                == 0;
+                                .exists(&cx, &t, &[])
+                                .map_err(|e| Signal::unsupported(format!("{e}")))?;
                         // A set filtered down to nothing says the same (recordref-fieldref/Y81EmptySetFinds.al:224-:520
                         // Y81_RecRef_FilteredOut_Unused: `=`, `>` and `<` on a RecordRef and a temporary Record; needs corpus bump).
                         let filtered_miss = !filters.is_empty() && matches!(which.as_str(), "=" | ">" | "<");
@@ -1389,8 +1388,10 @@ impl Session {
             RecordOp::Count | RecordOp::IsEmpty => {
                 let (filters, flow_field_filters) = self.split_filters(rec);
                 let n = if flow_field_filters.is_empty() && !rec.borrow().marked_only {
+                    // IsEmpty needs one row: the store stops at it.
+                    let limit = if method == RecordOp::IsEmpty { 1 } else { usize::MAX };
                     self.store_for(rec)?
-                        .count(&cx, &t, &filters)
+                        .count_up_to(&cx, &t, &filters, limit)
                         .map_err(|e| Signal::unsupported(format!("{e}")))?
                 } else {
                     // Rows are tested one by one against the calculated FlowFields.

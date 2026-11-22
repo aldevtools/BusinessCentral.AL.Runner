@@ -684,11 +684,9 @@ impl Session {
         }
         let cx = self.cx_for(rec, &src_t)?;
         self.refuse_filter_over_rolled(&cx, &src_t, &filters)?;
-        let n = self
-            .store
-            .count(&cx, &src_t, &filters)
-            .map_err(|e| Signal::unsupported(format!("store error {e}")))?;
-        Ok(n > 0)
+        self.store
+            .exists(&cx, &src_t, &filters)
+            .map_err(|e| Signal::unsupported(format!("store error {e}")))
     }
 
     /// The value of FlowField `pos` of `rec`.

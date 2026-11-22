@@ -3,10 +3,12 @@
 
 use crate::*;
 use al_builtins::filter::FieldFilter;
+use band::Band;
 pub use key::PkStorage;
 use key::{Key, table_storage};
 use std::cmp::Ordering;
 
+mod band;
 #[cfg(test)]
 mod collation_read_tests;
 mod frozen;
@@ -131,12 +133,6 @@ struct AltEntry {
     not_applicable: bool,
     /// The primary keys of the rows that pass the filters, in the order of the scan's key.
     keys: Option<std::rc::Rc<Vec<Key>>>,
-}
-
-/// Where the band of one key is: the primary key's rows between two keys, or a slice of the cached order.
-enum Band {
-    Pk,
-    Order(std::rc::Rc<Vec<OrderKey>>, std::ops::Range<usize>),
 }
 
 /// A primary key in a cached key order: shared, so a write that carries the order (`order_carry`) copies pointers,
@@ -1426,46 +1422,6 @@ impl MemStore {
         order
     }
 
-    /// The band of key `j` that the filters leave, and how many rows it holds; `None` when the filters bound no
-    /// leading field of the key or the order cannot be trusted, or (`sort` false) when no order of the key is cached.
-    fn band_of(
-        &self,
-        slot: &Slot,
-        j: usize,
-        t: &TableDef,
-        table: &Table,
-        filters: &[FieldFilter],
-        sort: bool,
-    ) -> Option<(Band, usize)> {
-        let seek = Seek::of(t, j, filters, table.values().next())?;
-        if j == 0 {
-            let n = pk_band(table, t, filters).count();
-            return Some((Band::Pk, n));
-        }
-        let order = if sort {
-            self.order_of(slot, j, t, table)
-        } else {
-            self.cached_order(slot, j, t, table)?
-        };
-        if order.len() != table.len() || !order.iter().take(1).all(|k| table.get(k).is_some()) {
-            return None;
-        }
-        let trusted = std::cell::Cell::new(true);
-        let probe = |k: &Key, f: &dyn Fn(&[Value]) -> Option<bool>| match table.get(k).map(|r| f(r)) {
-            Some(Some(b)) => b,
-            _ => {
-                trusted.set(false);
-                false
-            }
-        };
-        let start = order.partition_point(|k| probe(k, &|r| seek.before(r)));
-        let end = order.partition_point(|k| !probe(k, &|r| seek.after(r)));
-        (trusted.get() && start <= end).then(|| {
-            let n = end - start;
-            (Band::Order(order, start..end), n)
-        })
-    }
-
     /// A scan whose own key is not bounded by the filters, but another key is (an index the filters narrow, as SQL
     /// picks one): the rows that pass are found in that key's band and put in the order of the scan's key, once
     /// per table version and set of filters (the cache `alt_cache`). `None`: the caller walks.
@@ -1562,20 +1518,8 @@ impl MemStore {
                 }
             }
         }
-        // The narrowest band of any key, if it is a clear gain over the walk. Against a narrow band of the scan's own key, a
-        // key is sorted only when that band holds at least a quarter of the table: a scan that runs after each write
-        // (an Insert of two rows, then a Find; the Insert test of Tests-SCM codeunit 137380) would sort every such key
-        // each time, which costs more than walking the band.
-        let sort = own.is_none_or(|m| m * 4 >= table.len());
-        let mut best: Option<(Band, usize)> = None;
-        for j in (0..t.keys.len()).filter(|&j| own.is_none() || j != scan.key) {
-            if let Some((b, n)) = self.band_of(&slot, j, t, table, scan.filters, sort) {
-                if best.as_ref().is_none_or(|(_, m)| n < *m) {
-                    best = Some((b, n));
-                }
-            }
-        }
-        let Some((band, _)) = best.filter(|(_, n)| *n * 4 <= own.unwrap_or(table.len())) else {
+        // When `own` is `None` the filters do not bound the scan's key (checked above), so it has no band to leave out.
+        let Some(band) = self.narrowest_band(&slot, t, table, scan.filters, scan.key, own) else {
             if let Some(e) = self.alt_cache.borrow_mut().get_mut(&ck) {
                 e.not_applicable = true;
             }
@@ -2006,19 +1950,7 @@ impl Store for MemStore {
     }
 
     fn count(&self, cx: &AccessContext, t: &TableDef, f: &[FieldFilter]) -> Result<usize, StoreError> {
-        bump();
-        if let Some(v) = self.virtual_of(t) {
-            return v.count(self, cx, t, f);
-        }
-        self.unknown_read(cx, t, f, &[])?;
-        Self::unpinned_match_read(f)?;
-        Self::code_storage_read(t, f, &[])?;
-        self.collation_read(cx, t, f, None)?;
-        let Some(table) = self.table(cx, t) else {
-            return Ok(0);
-        };
-        let f = &*crate::code_storage::number_filters(t, f, &mut table.values())?;
-        Ok(pk_band(&table, t, f).filter(|(_, r)| passes(r, f)).count())
+        self.count_up_to(cx, t, f, usize::MAX)
     }
 
     fn delete_all(&mut self, cx: &AccessContext, t: &TableDef, f: &[FieldFilter]) -> Result<usize, StoreError> {

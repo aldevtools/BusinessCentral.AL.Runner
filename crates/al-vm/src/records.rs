@@ -1436,11 +1436,11 @@ impl Session {
                     group: 0,
                 })
                 .collect();
+            // Two rows decide it: the row being rewritten matches itself when its key values do not change.
             let mut n = self
                 .store_for(rec)?
-                .count(&cx, t, &filters)
+                .count_up_to(&cx, t, &filters, 2)
                 .map_err(|e| Signal::unsupported(format!("{e}")))?;
-            // The row being rewritten matches itself when its key values do not change.
             if let Some(old) = &current {
                 if t.keys[k].iter().try_fold(true, |all, &f| {
                     Ok::<_, Signal>(all && ops::compare_keys(&[old[f].clone()], &[row[f].clone()])?)
@@ -1867,11 +1867,9 @@ impl Session {
             group: 0,
         }];
         let cx = self.cx_for(rec, t)?;
-        let taken = self
-            .store_for(rec)?
-            .count(&cx, t, &filters)
-            .map_err(|e| Signal::unsupported(format!("{e}")))?;
-        Ok(taken > 0)
+        self.store_for(rec)?
+            .exists(&cx, t, &filters)
+            .map_err(|e| Signal::unsupported(format!("{e}")))
     }
 
     /// Refuses an explicit SystemId another row already holds. The wording after the pinned
