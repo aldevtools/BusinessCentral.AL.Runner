@@ -3,6 +3,13 @@
 //! count, never from a change of the last error. Its reader: the close of the pinned Document after its ModalPageHandler
 //! raised (pages/document_handler_error.rs `close_document_after_handler_error`), whose pinned handler catches nothing
 //! (pages/close-errors/CemDocumentTests.al:925-975 `CemDocModal`).
+//!
+//! The write-back of a failed routine (`Session::error_finals`) is for the AL call site the error reaches next
+//! (errors/TestTryFunctionContracts.al:85-95, codeunits/TestScopeIsolationContracts.al:63-77). Its owner is that call
+//! site: it clears the field before each call (interp.rs, before `call_with_facts`), so it writes back only what its own
+//! routine left. The catches here clear it too, so that a session whose last error was caught here is at rest again
+//! (install_left.rs `at_rest`). Page, report and xmlport paths that write `last_error` themselves leave it set until the
+//! next call (al-vm tests/language/error_finals_after_catch.rs).
 
 use al_builtins::native::{AlError, ExceptionKind, Signal};
 
@@ -28,6 +35,7 @@ impl Session {
     /// it (the count stays). The record of a failed Rename is refused there as in [`Self::catch_error`].
     pub(crate) fn hold_error(&mut self, e: AlError) -> Result<(), Signal> {
         self.refuse_live_failed_rename()?;
+        self.error_finals = None;
         self.last_error = e;
         Ok(())
     }
@@ -42,6 +50,7 @@ impl Session {
     }
 
     fn note_caught(&mut self, e: AlError) {
+        self.error_finals = None;
         self.last_error = e;
         self.caught_errors += 1;
     }

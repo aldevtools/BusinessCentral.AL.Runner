@@ -952,6 +952,9 @@ impl Session {
         if try_call {
             self.enter_used_try(object, routine);
         }
+        // The take below writes back only what this call's routine left as it failed (errors/TestTryFunctionContracts.al:85-95,
+        // codeunits/TestScopeIsolationContracts.al:63-77): what an earlier error left, wherever it ended, is not this call's.
+        self.error_finals = None;
         let result = self.call_with_facts(object, routine, inst, values, facts);
         if try_call {
             self.leave_used_try();
@@ -1597,7 +1600,10 @@ impl Session {
                 if let Value::Unknown(why) = &v {
                     return Err(Signal::unsupported(why.to_string()));
                 }
-                if let Some(why) = self.install_row_order(r.table, r.temporary, *pos, &r.fields) {
+                if let Some(why) = self
+                    .install_row_order(r.table, r.temporary, *pos, &r.fields)
+                    .or_else(|| self.restamped_read(&r, *pos))
+                {
                     return Err(Signal::unsupported(why));
                 }
                 if r.load.partial {
