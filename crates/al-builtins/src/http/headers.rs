@@ -270,9 +270,10 @@ pub(super) fn headers_contains(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [
 /// - request, response or client headers that hold nothing, and an HttpHeaders variable nothing filled, which `with_bag`
 ///   makes a request collection (tests/al-language/http/HttpHeaders.al:518-542);
 /// - request headers that hold only `X-Secret` added from a SecretText of `body` (HttpHeaders.al:545-563);
-/// - content headers that hold only `Content-Type: text/plain; charset=utf-8`: a fresh content (:518-542) and request content
-///   after one WriteFrom(Text) (:566-590);
-/// - the fresh content of a response, which holds nothing (:566-590).
+/// - content headers that hold only `Content-Type: text/plain; charset=utf-8`: a fresh content (:518-542) and the request's own
+///   content after one WriteFrom(Text) (:566-590); a text write on any other content marks it edited (`content::write_from`);
+/// - the fresh content of a response never sent, which holds nothing (:566-590). The response a handler filled is marked
+///   edited with its content (`send::send`).
 fn contains_empty_measured(b: &HeaderBag) -> bool {
     let unchanged = !b.edited && !b.set_cookies && !b.unnamed_secret_header;
     let nothing = b.items.is_empty() && b.secret.is_empty();

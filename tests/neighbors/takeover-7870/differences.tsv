@@ -2,7 +2,10 @@
 HN Contains Tests::Measured_FreshRequest	ASSUMED http-contains-empty-name (corpus PR 1424)
 HN Contains Tests::Measured_FreshContent	ASSUMED http-contains-empty-name (corpus PR 1424)
 HN Contains Tests::Measured_RequestContentAfterTextWrite	ASSUMED http-contains-empty-name (corpus PR 1424)
-HN Contains Tests::StandaloneContentAfterTextWrite	ASSUMED http-contains-empty-name (corpus PR 1424)
+HN Contains Tests::StandaloneContentAfterTextWrite	REFUSED HttpHeaders.Contains with an empty name on an unmeasured version or header state
+HN Contains Tests::ResponseContentAfterTextWrite	REFUSED HttpHeaders.Contains with an empty name on an unmeasured version or header state
+HN Contains Tests::HandlerWrittenResponseContent	REFUSED HttpHeaders.Contains with an empty name on an unmeasured version or header state
+HN Contains Tests::HandlerResponseHeadersUntouched	REFUSED HttpHeaders.Contains with an empty name on an unmeasured version or header state
 HN Contains Tests::RequestAfterAddRemove	REFUSED HttpHeaders.Contains with an empty name on an unmeasured version or header state
 HN Contains Tests::ClientAfterAddClear	REFUSED HttpHeaders.Contains with an empty name on an unmeasured version or header state
 HN Contains Tests::ContentTypeRemovedAndReadded	REFUSED HttpHeaders.Contains with an empty name on an unmeasured version or header state

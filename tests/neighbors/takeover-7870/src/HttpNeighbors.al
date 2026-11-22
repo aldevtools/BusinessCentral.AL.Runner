@@ -15,6 +15,7 @@ table 62700 "HN Blob"
 codeunit 62701 "HN Contains Tests"
 {
     Subtype = Test;
+    TestHttpRequestPolicy = AllowOutboundFromHandler;
 
     local procedure ExpectEmptyNameError(var H: HttpHeaders)
     var
@@ -66,6 +67,58 @@ codeunit 62701 "HN Contains Tests"
         C.WriteFrom('body');
         C.GetHeaders(H);
         ExpectEmptyNameError(H);
+    end;
+
+    [Test]
+    procedure ResponseContentAfterTextWrite()
+    var
+        Resp: HttpResponseMessage;
+        H: HttpHeaders;
+    begin
+        Resp.Content.WriteFrom('x');
+        Resp.Content.GetHeaders(H);
+        ExpectEmptyNameError(H);
+    end;
+
+    [Test]
+    [HandlerFunctions('WritingHandler')]
+    procedure HandlerWrittenResponseContent()
+    var
+        Client: HttpClient;
+        Resp: HttpResponseMessage;
+        H: HttpHeaders;
+    begin
+        Client.Get('http://localhost/a', Resp);
+        Resp.Content.GetHeaders(H);
+        ExpectEmptyNameError(H);
+    end;
+
+    [Test]
+    [HandlerFunctions('PlainHandler')]
+    procedure HandlerResponseHeadersUntouched()
+    var
+        Client: HttpClient;
+        Resp: HttpResponseMessage;
+        H: HttpHeaders;
+    begin
+        Client.Get('http://localhost/a', Resp);
+        H := Resp.Headers();
+        ExpectEmptyNameError(H);
+    end;
+
+    [HttpClientHandler]
+    procedure WritingHandler(Request: TestHttpRequestMessage; var Response: TestHttpResponseMessage): Boolean
+    begin
+        Response.HttpStatusCode := 200;
+        Response.Content.WriteFrom('x');
+        exit(false);
+    end;
+
+    [HttpClientHandler]
+    procedure PlainHandler(Request: TestHttpRequestMessage; var Response: TestHttpResponseMessage): Boolean
+    begin
+        Response.HttpStatusCode := 200;
+        exit(false);
     end;
 
     [Test]

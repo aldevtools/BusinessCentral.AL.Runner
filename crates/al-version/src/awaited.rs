@@ -30,7 +30,7 @@ pub fn web_service_session_measured(target: Option<&Target>) -> bool {
 /// Whether `target` is a minor the HTTP probe of corpus PR 1424 measured: `HttpHeaders.Contains('')`
 /// (tests/al-language/http/HttpHeaders.al:518, :545, :566) and `HttpContent.WriteFrom(InStream)` after the Content-Type
 /// changed (tests/al-language/http/content/HttpContent.al:717-793). The writer ran it on local 27.5, 28.5 and 29.1 hosts
-/// and its CI passed it on the 27.5, 28.5 and 29.0 legs (runner PR 7870). Other minors and no target are not measured.
+/// and its new cells passed on the 27.5, 28.5 and 29.0 legs; the 27.5 and 28.5 legs are red on an unrelated test (codeunit 72022 LT HtT Headers Errors, InvalidNames) (runner PR 7870). Other minors and no target are not measured.
 pub fn http_probe_1424_measured(target: Option<&Target>) -> bool {
     target.is_some_and(|t| matches!((t.bc.major, t.bc.minor), (27, 5) | (28, 5) | (29, 0) | (29, 1)))
 }

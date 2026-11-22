@@ -9,7 +9,9 @@ pub(super) fn write_from(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]
     let t = text(a, 0)?;
     with_content(r, |s| {
         s.note(Call::WriteText);
-        if s.written {
+        // Only the first text write on the request's own uninitialized content is the shape corpus PR 1424 measured
+        // (assumption http-contains-empty-name); a write on any other content leaves headers that probe did not see.
+        if s.written || !s.uninitialized {
             s.headers.borrow_mut().edited = true;
         }
         s.write_body(t.into_bytes(), false)
