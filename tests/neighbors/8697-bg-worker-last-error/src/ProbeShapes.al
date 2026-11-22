@@ -5,7 +5,7 @@
 // local object: what a page background task's worker does with a collectible error, and what a worker's caught error does to
 //   the close of a page a PageHandler handles, are what is under test
 // Fixtures used: Assert (60021); table 97390 "LEW Host" and page 97392 "LEW Hosts" (BgTaskWorkerLastError.al); the CEM
-//   fixtures of pages/close-errors/CemFixtures.al (objects 99500..99512); codeunits 97386 (worker), 97387 and 97388 (tests)
+//   fixtures of pages/close-errors/CemFixtures.al (objects 99500..99512); codeunits 97376 (worker), 97377 and 97378 (tests)
 // Probe (al-runner issue 8697, next to BgTaskWorkerLastError.al): the worker runs in a session of its own.
 // Cells:
 //   - a test session that collects errors ([ErrorBehavior(ErrorBehavior::Collect)]) runs a task whose worker raises a
@@ -18,7 +18,7 @@
 // BC versions: 29.1 (local W1 container).
 
 // The worker.
-codeunit 97386 "LWS Reader"
+codeunit 97376 "LWS Reader"
 {
     trigger OnRun()
     var
@@ -48,7 +48,7 @@ codeunit 97386 "LWS Reader"
     end;
 }
 
-codeunit 97387 "LWS Tests"
+codeunit 97377 "LWS Tests"
 {
     Subtype = Test;
     TestPermissions = Disabled;
@@ -108,7 +108,7 @@ codeunit 97387 "LWS Tests"
 }
 
 // Every test binds the PageHandler, as in CemPageHandlerTests.al.
-codeunit 97388 "LWS Handler Tests"
+codeunit 97378 "LWS Handler Tests"
 {
     Subtype = Test;
     TestPermissions = Disabled;
