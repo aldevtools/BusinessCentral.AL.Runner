@@ -1509,6 +1509,1182 @@ codeunit 97589 "LT RFU Tests"
         Note('stored', StoredRows());
     end;
 
+    // The test's read-only calls at a point of a cell (ReadAt): 1 before the SetValue on Name (or the action), 2 between it
+    // and the SetValue on Value, 3 after that, before First. Block 1: AssertEquals, Caption and Editable on both controls,
+    // Caption and Editable on the page; block 2: Enabled, Visible, HideValue, ShowMandatory and ValidationErrorCount on both
+    // controls, ValidationErrorCount on the page. The answers, then what the page logged meanwhile. Copies of RunIssueLines,
+    // RunLines, RunBoth, RunCurr and RunCard with the calls at that point; two blocks keep each test at 32 calls or fewer.
+    local procedure ReadsIssueLines(var Lines: TestPage "LT RFU Issue Lines"; Block: Integer): Text
+    var
+        Result: Text;
+    begin
+        if Block = 1 then begin
+            Lines.Name.AssertEquals('C');
+            Lines.Value.AssertEquals('');
+            Result := Lines.Name.Caption() + '/' + Lines.Value.Caption() + '/' + Format(Lines.Name.Editable()) + '/' + Format(Lines.Value.Editable()) + '/' +
+              Lines.Caption() + '/' + Format(Lines.Editable());
+        end else
+            Result := Format(Lines.Name.Enabled()) + '/' + Format(Lines.Value.Enabled()) + '/' + Format(Lines.Name.Visible()) + '/' + Format(Lines.Value.Visible()) + '/' +
+              Format(Lines.Name.HideValue()) + '/' + Format(Lines.Value.HideValue()) + '/' + Format(Lines.Name.ShowMandatory()) + '/' +
+              Format(Lines.Value.ShowMandatory()) + '/' + Format(Lines.Name.ValidationErrorCount()) + '/' + Format(Lines.Value.ValidationErrorCount()) + '/' +
+              Format(Lines.ValidationErrorCount());
+        exit(Result + ':' + Log.Take());
+    end;
+
+    local procedure RunReadsIssueLines(ReadAt: Integer; Block: Integer)
+    var
+        Lines: TestPage "LT RFU Issue Lines";
+        Walk: Text;
+    begin
+        Lines.OpenEdit();
+        Lines.Last();
+        Note('open', Log.Take());
+        if ReadAt = 1 then
+            Note('reads', ReadsIssueLines(Lines, Block));
+        Lines.Name.SetValue('C2');
+        Note('setname', Log.Take());
+        Note('shown', Lines.Name.Value() + '/' + Lines.Value.Value());
+        Note('filter', Lines.Filter.GetFilter("Group Code"));
+        if ReadAt = 2 then
+            Note('reads', ReadsIssueLines(Lines, Block));
+        Lines.Value.SetValue('V');
+        Note('setvalue', Log.Take());
+        Note('shown2', Lines.Name.Value() + '/' + Lines.Value.Value());
+        if ReadAt = 3 then
+            Note('reads', ReadsIssueLines(Lines, Block));
+        Lines.First();
+        Note('first', Lines.Name.Value() + ':' + Log.Take());
+        repeat
+            Walk += Lines.Name.Value() + ',';
+        until not Lines.Next();
+        Note('walk', Walk);
+        Log.Take();
+        Lines.Close();
+        Note('close', Log.Take());
+        Note('stored', StoredRows());
+    end;
+
+    local procedure ReadsLines(var Lines: TestPage "LT RFU Lines"; Block: Integer): Text
+    var
+        Result: Text;
+    begin
+        if Block = 1 then begin
+            Lines.Name.AssertEquals('C');
+            Lines.Value.AssertEquals('');
+            Result := Lines.Name.Caption() + '/' + Lines.Value.Caption() + '/' + Format(Lines.Name.Editable()) + '/' + Format(Lines.Value.Editable()) + '/' +
+              Lines.Caption() + '/' + Format(Lines.Editable());
+        end else
+            Result := Format(Lines.Name.Enabled()) + '/' + Format(Lines.Value.Enabled()) + '/' + Format(Lines.Name.Visible()) + '/' + Format(Lines.Value.Visible()) + '/' +
+              Format(Lines.Name.HideValue()) + '/' + Format(Lines.Value.HideValue()) + '/' + Format(Lines.Name.ShowMandatory()) + '/' +
+              Format(Lines.Value.ShowMandatory()) + '/' + Format(Lines.Name.ValidationErrorCount()) + '/' + Format(Lines.Value.ValidationErrorCount()) + '/' +
+              Format(Lines.ValidationErrorCount());
+        exit(Result + ':' + Log.Take());
+    end;
+
+    local procedure RunReadsLines(ByAction: Boolean; ReadAt: Integer; Block: Integer)
+    var
+        Lines: TestPage "LT RFU Lines";
+        Walk: Text;
+    begin
+        Lines.OpenEdit();
+        Lines.Last();
+        Note('open', Log.Take());
+        if ReadAt = 1 then
+            Note('reads', ReadsLines(Lines, Block));
+        if ByAction then
+            Lines.ChangeViewAction.Invoke()
+        else
+            Lines.Name.SetValue(Lines.Name.Value() + '2');
+        Note('setname', Log.Take());
+        Note('shown', Lines.Name.Value() + '/' + Lines.Value.Value());
+        Note('filter', Lines.Filter.GetFilter("Group Code"));
+        if ReadAt = 2 then
+            Note('reads', ReadsLines(Lines, Block));
+        Lines.Value.SetValue('V');
+        Note('setvalue', Log.Take());
+        Note('shown2', Lines.Name.Value() + '/' + Lines.Value.Value());
+        if ReadAt = 3 then
+            Note('reads', ReadsLines(Lines, Block));
+        Lines.First();
+        Note('first', Lines.Name.Value() + ':' + Log.Take());
+        repeat
+            Walk += Lines.Name.Value() + ',';
+        until not Lines.Next();
+        Note('walk', Walk);
+        Log.Take();
+        Lines.Close();
+        Note('close', Log.Take());
+        Note('stored', StoredRows());
+    end;
+
+    local procedure ReadsBoth(var Lines: TestPage "LT RFU Lines Both"; Block: Integer): Text
+    var
+        Result: Text;
+    begin
+        if Block = 1 then begin
+            Lines.Name.AssertEquals('C');
+            Lines.Value.AssertEquals('');
+            Result := Lines.Name.Caption() + '/' + Lines.Value.Caption() + '/' + Format(Lines.Name.Editable()) + '/' + Format(Lines.Value.Editable()) + '/' +
+              Lines.Caption() + '/' + Format(Lines.Editable());
+        end else
+            Result := Format(Lines.Name.Enabled()) + '/' + Format(Lines.Value.Enabled()) + '/' + Format(Lines.Name.Visible()) + '/' + Format(Lines.Value.Visible()) + '/' +
+              Format(Lines.Name.HideValue()) + '/' + Format(Lines.Value.HideValue()) + '/' + Format(Lines.Name.ShowMandatory()) + '/' +
+              Format(Lines.Value.ShowMandatory()) + '/' + Format(Lines.Name.ValidationErrorCount()) + '/' + Format(Lines.Value.ValidationErrorCount()) + '/' +
+              Format(Lines.ValidationErrorCount());
+        exit(Result + ':' + Log.Take());
+    end;
+
+    local procedure RunReadsBoth(ByAction: Boolean; ReadAt: Integer; Block: Integer)
+    var
+        Lines: TestPage "LT RFU Lines Both";
+        Walk: Text;
+    begin
+        Lines.OpenEdit();
+        Lines.Last();
+        Note('open', Log.Take());
+        if ReadAt = 1 then
+            Note('reads', ReadsBoth(Lines, Block));
+        if ByAction then
+            Lines.ChangeViewAction.Invoke()
+        else
+            Lines.Name.SetValue('C2');
+        Note('setname', Log.Take());
+        Note('shown', Lines.Name.Value() + '/' + Lines.Value.Value());
+        Note('filter', Lines.Filter.GetFilter("Group Code"));
+        if ReadAt = 2 then
+            Note('reads', ReadsBoth(Lines, Block));
+        Lines.Value.SetValue('V');
+        Note('setvalue', Log.Take());
+        Note('shown2', Lines.Name.Value() + '/' + Lines.Value.Value());
+        if ReadAt = 3 then
+            Note('reads', ReadsBoth(Lines, Block));
+        Lines.First();
+        Note('first', Lines.Name.Value() + ':' + Log.Take());
+        repeat
+            Walk += Lines.Name.Value() + ',';
+        until not Lines.Next();
+        Note('walk', Walk);
+        Log.Take();
+        Lines.Close();
+        Note('close', Log.Take());
+        Note('stored', StoredRows());
+    end;
+
+    local procedure ReadsCurr(var Lines: TestPage "LT RFU Lines Curr"; Block: Integer): Text
+    var
+        Result: Text;
+    begin
+        if Block = 1 then begin
+            Lines.Name.AssertEquals('C');
+            Lines.Value.AssertEquals('');
+            Result := Lines.Name.Caption() + '/' + Lines.Value.Caption() + '/' + Format(Lines.Name.Editable()) + '/' + Format(Lines.Value.Editable()) + '/' +
+              Lines.Caption() + '/' + Format(Lines.Editable());
+        end else
+            Result := Format(Lines.Name.Enabled()) + '/' + Format(Lines.Value.Enabled()) + '/' + Format(Lines.Name.Visible()) + '/' + Format(Lines.Value.Visible()) + '/' +
+              Format(Lines.Name.HideValue()) + '/' + Format(Lines.Value.HideValue()) + '/' + Format(Lines.Name.ShowMandatory()) + '/' +
+              Format(Lines.Value.ShowMandatory()) + '/' + Format(Lines.Name.ValidationErrorCount()) + '/' + Format(Lines.Value.ValidationErrorCount()) + '/' +
+              Format(Lines.ValidationErrorCount());
+        exit(Result + ':' + Log.Take());
+    end;
+
+    local procedure RunReadsCurr(ReadAt: Integer; Block: Integer)
+    var
+        Lines: TestPage "LT RFU Lines Curr";
+        Walk: Text;
+    begin
+        Lines.OpenEdit();
+        Lines.Last();
+        Note('open', Log.Take());
+        if ReadAt = 1 then
+            Note('reads', ReadsCurr(Lines, Block));
+        Lines.Name.SetValue('C2');
+        Note('setname', Log.Take());
+        Note('shown', Lines.Name.Value() + '/' + Lines.Value.Value());
+        Note('filter', Lines.Filter.GetFilter("Group Code"));
+        if ReadAt = 2 then
+            Note('reads', ReadsCurr(Lines, Block));
+        Lines.Value.SetValue('V');
+        Note('setvalue', Log.Take());
+        Note('shown2', Lines.Name.Value() + '/' + Lines.Value.Value());
+        if ReadAt = 3 then
+            Note('reads', ReadsCurr(Lines, Block));
+        Lines.First();
+        Note('first', Lines.Name.Value() + ':' + Log.Take());
+        repeat
+            Walk += Lines.Name.Value() + ',';
+        until not Lines.Next();
+        Note('walk', Walk);
+        Log.Take();
+        Lines.Close();
+        Note('close', Log.Take());
+        Note('stored', StoredRows());
+    end;
+
+    local procedure ReadsCard(var Card: TestPage "LT RFU Card"; Block: Integer): Text
+    var
+        Result: Text;
+    begin
+        if Block = 1 then begin
+            Card.Name.AssertEquals('C');
+            Card.Value.AssertEquals('');
+            Result := Card.Name.Caption() + '/' + Card.Value.Caption() + '/' + Format(Card.Name.Editable()) + '/' + Format(Card.Value.Editable()) + '/' +
+              Card.Caption() + '/' + Format(Card.Editable());
+        end else
+            Result := Format(Card.Name.Enabled()) + '/' + Format(Card.Value.Enabled()) + '/' + Format(Card.Name.Visible()) + '/' + Format(Card.Value.Visible()) + '/' +
+              Format(Card.Name.HideValue()) + '/' + Format(Card.Value.HideValue()) + '/' + Format(Card.Name.ShowMandatory()) + '/' +
+              Format(Card.Value.ShowMandatory()) + '/' + Format(Card.Name.ValidationErrorCount()) + '/' + Format(Card.Value.ValidationErrorCount()) + '/' +
+              Format(Card.ValidationErrorCount());
+        exit(Result + ':' + Log.Take());
+    end;
+
+    local procedure RunReadsCard(ByAction: Boolean; ReadAt: Integer; Block: Integer)
+    var
+        Card: TestPage "LT RFU Card";
+        Walk: Text;
+    begin
+        Card.OpenEdit();
+        Card.Last();
+        Note('open', Log.Take());
+        if ReadAt = 1 then
+            Note('reads', ReadsCard(Card, Block));
+        if ByAction then
+            Card.ChangeViewAction.Invoke()
+        else
+            Card.Name.SetValue('C2');
+        Note('setname', Log.Take());
+        Note('shown', Card.Name.Value() + '/' + Card.Value.Value());
+        Note('filter', Card.Filter.GetFilter("Group Code"));
+        if ReadAt = 2 then
+            Note('reads', ReadsCard(Card, Block));
+        Card.Value.SetValue('V');
+        Note('setvalue', Log.Take());
+        Note('shown2', Card.Name.Value() + '/' + Card.Value.Value());
+        if ReadAt = 3 then
+            Note('reads', ReadsCard(Card, Block));
+        Card.First();
+        Note('first', Card.Name.Value() + ':' + Log.Take());
+        repeat
+            Walk += Card.Name.Value() + ',';
+        until not Card.Next();
+        Note('walk', Walk);
+        Log.Take();
+        Card.Close();
+        Note('close', Log.Take());
+        Note('stored', StoredRows());
+    end;
+
+    // The cell :815 with AssertEquals, Caption and Editable before the SetValue on Name (or the action).
+    [Test]
+    procedure IssueList_ReadsCaptionsAndValues_BeforeFirstStep()
+    begin
+        Initialize(1, 1);
+        RunReadsIssueLines(1, 1);
+        Expect('open', 'P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);');
+        Expect('reads', 'Name/Value/Yes/Yes/LT RFU Issue Lines/Yes:');
+        Expect('setname', 'P.AGR(C);T.V(C2);P.AGR(C);P.AGR(B);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGR(C);P.AGR(C);P.AGR(B);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:');
+        Expect('walk', 'B,C,,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :815 with Enabled, Visible, HideValue, ShowMandatory and ValidationErrorCount before the SetValue on Name (or the action).
+    [Test]
+    procedure IssueList_ReadsControlState_BeforeFirstStep()
+    begin
+        Initialize(1, 1);
+        RunReadsIssueLines(1, 2);
+        Expect('open', 'P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);');
+        Expect('reads', 'Yes/Yes/Yes/Yes/No/No/No/No/0/0/0:');
+        Expect('setname', 'P.AGR(C);T.V(C2);P.AGR(C);P.AGR(B);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGR(C);P.AGR(C);P.AGR(B);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:');
+        Expect('walk', 'B,C,,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :815 with AssertEquals, Caption and Editable between it and the SetValue on Value.
+    [Test]
+    procedure IssueList_ReadsCaptionsAndValues_BetweenSteps()
+    begin
+        Initialize(1, 1);
+        RunReadsIssueLines(2, 1);
+        Expect('open', 'P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);');
+        Expect('reads', 'Name/Value/Yes/Yes/LT RFU Issue Lines/Yes:');
+        Expect('setname', 'P.AGR(C);T.V(C2);P.AGR(C);P.AGR(B);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGR(C);P.AGR(C);P.AGR(B);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:');
+        Expect('walk', 'B,C,,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :815 with Enabled, Visible, HideValue, ShowMandatory and ValidationErrorCount between it and the SetValue on Value.
+    [Test]
+    procedure IssueList_ReadsControlState_BetweenSteps()
+    begin
+        Initialize(1, 1);
+        RunReadsIssueLines(2, 2);
+        Expect('open', 'P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);');
+        Expect('reads', 'Yes/Yes/Yes/Yes/No/No/No/No/0/0/0:');
+        Expect('setname', 'P.AGR(C);T.V(C2);P.AGR(C);P.AGR(B);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGR(C);P.AGR(C);P.AGR(B);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:');
+        Expect('walk', 'B,C,,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :815 with AssertEquals, Caption and Editable after the SetValue on Value, before First.
+    [Test]
+    procedure IssueList_ReadsCaptionsAndValues_AfterSteps()
+    begin
+        Initialize(1, 1);
+        RunReadsIssueLines(3, 1);
+        Expect('open', 'P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);');
+        Expect('reads', 'Name/Value/Yes/Yes/LT RFU Issue Lines/Yes:');
+        Expect('setname', 'P.AGR(C);T.V(C2);P.AGR(C);P.AGR(B);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGR(C);P.AGR(C);P.AGR(B);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:');
+        Expect('walk', 'B,C,,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :815 with Enabled, Visible, HideValue, ShowMandatory and ValidationErrorCount after the SetValue on Value, before First.
+    [Test]
+    procedure IssueList_ReadsControlState_AfterSteps()
+    begin
+        Initialize(1, 1);
+        RunReadsIssueLines(3, 2);
+        Expect('open', 'P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);');
+        Expect('reads', 'Yes/Yes/Yes/Yes/No/No/No/No/0/0/0:');
+        Expect('setname', 'P.AGR(C);T.V(C2);P.AGR(C);P.AGR(B);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGR(C);P.AGR(C);P.AGR(B);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:');
+        Expect('walk', 'B,C,,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :832 with AssertEquals, Caption and Editable before the SetValue on Name (or the action).
+    [Test]
+    procedure List_ReadsCaptionsAndValues_BeforeFirstStep()
+    begin
+        Initialize(1, 1);
+        RunReadsLines(false, 1, 1);
+        Expect('open', 'P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);');
+        Expect('reads', 'Name/Value/Yes/Yes/LT RFU Lines/Yes:');
+        Expect('setname', 'P.AGR(C);T.V(C2);P.V(C2);P.AGR(C);P.AGR(B);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGR(C);P.AGR(C);P.AGR(B);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:');
+        Expect('walk', 'B,C,,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :832 with Enabled, Visible, HideValue, ShowMandatory and ValidationErrorCount before the SetValue on Name (or the action).
+    [Test]
+    procedure List_ReadsControlState_BeforeFirstStep()
+    begin
+        Initialize(1, 1);
+        RunReadsLines(false, 1, 2);
+        Expect('open', 'P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);');
+        Expect('reads', 'Yes/Yes/Yes/Yes/No/No/No/No/0/0/0:');
+        Expect('setname', 'P.AGR(C);T.V(C2);P.V(C2);P.AGR(C);P.AGR(B);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGR(C);P.AGR(C);P.AGR(B);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:');
+        Expect('walk', 'B,C,,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :832 with AssertEquals, Caption and Editable between it and the SetValue on Value.
+    [Test]
+    procedure List_ReadsCaptionsAndValues_BetweenSteps()
+    begin
+        Initialize(1, 1);
+        RunReadsLines(false, 2, 1);
+        Expect('open', 'P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);');
+        Expect('reads', 'Name/Value/Yes/Yes/LT RFU Lines/Yes:');
+        Expect('setname', 'P.AGR(C);T.V(C2);P.V(C2);P.AGR(C);P.AGR(B);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGR(C);P.AGR(C);P.AGR(B);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:');
+        Expect('walk', 'B,C,,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :832 with Enabled, Visible, HideValue, ShowMandatory and ValidationErrorCount between it and the SetValue on Value.
+    [Test]
+    procedure List_ReadsControlState_BetweenSteps()
+    begin
+        Initialize(1, 1);
+        RunReadsLines(false, 2, 2);
+        Expect('open', 'P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);');
+        Expect('reads', 'Yes/Yes/Yes/Yes/No/No/No/No/0/0/0:');
+        Expect('setname', 'P.AGR(C);T.V(C2);P.V(C2);P.AGR(C);P.AGR(B);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGR(C);P.AGR(C);P.AGR(B);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:');
+        Expect('walk', 'B,C,,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :832 with AssertEquals, Caption and Editable after the SetValue on Value, before First.
+    [Test]
+    procedure List_ReadsCaptionsAndValues_AfterSteps()
+    begin
+        Initialize(1, 1);
+        RunReadsLines(false, 3, 1);
+        Expect('open', 'P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);');
+        Expect('reads', 'Name/Value/Yes/Yes/LT RFU Lines/Yes:');
+        Expect('setname', 'P.AGR(C);T.V(C2);P.V(C2);P.AGR(C);P.AGR(B);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGR(C);P.AGR(C);P.AGR(B);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:');
+        Expect('walk', 'B,C,,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :832 with Enabled, Visible, HideValue, ShowMandatory and ValidationErrorCount after the SetValue on Value, before First.
+    [Test]
+    procedure List_ReadsControlState_AfterSteps()
+    begin
+        Initialize(1, 1);
+        RunReadsLines(false, 3, 2);
+        Expect('open', 'P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);');
+        Expect('reads', 'Yes/Yes/Yes/Yes/No/No/No/No/0/0/0:');
+        Expect('setname', 'P.AGR(C);T.V(C2);P.V(C2);P.AGR(C);P.AGR(B);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGR(C);P.AGR(C);P.AGR(B);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:');
+        Expect('walk', 'B,C,,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :1054 with AssertEquals, Caption and Editable before the SetValue on Name (or the action).
+    [Test]
+    procedure List_Action_ReadsCaptionsAndValues_BeforeFirstStep()
+    begin
+        Initialize(1, 1);
+        RunReadsLines(true, 1, 1);
+        Expect('open', 'P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);');
+        Expect('reads', 'Name/Value/Yes/Yes/LT RFU Lines/Yes:');
+        Expect('setname', 'P.AGR(C);P.AGR(C);P.A(C);P.AGR(C);P.AGR(C);P.AGR(B);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGR(C);P.AGR(C);P.AGR(B);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:');
+        Expect('walk', 'B,C,,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :1054 with Enabled, Visible, HideValue, ShowMandatory and ValidationErrorCount before the SetValue on Name (or the action).
+    [Test]
+    procedure List_Action_ReadsControlState_BeforeFirstStep()
+    begin
+        Initialize(1, 1);
+        RunReadsLines(true, 1, 2);
+        Expect('open', 'P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);');
+        Expect('reads', 'Yes/Yes/Yes/Yes/No/No/No/No/0/0/0:');
+        Expect('setname', 'P.AGR(C);P.AGR(C);P.A(C);P.AGR(C);P.AGR(C);P.AGR(B);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGR(C);P.AGR(C);P.AGR(B);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:');
+        Expect('walk', 'B,C,,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :1054 with AssertEquals, Caption and Editable between it and the SetValue on Value.
+    [Test]
+    procedure List_Action_ReadsCaptionsAndValues_BetweenSteps()
+    begin
+        Initialize(1, 1);
+        RunReadsLines(true, 2, 1);
+        Expect('open', 'P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);');
+        Expect('reads', 'Name/Value/Yes/Yes/LT RFU Lines/Yes:');
+        Expect('setname', 'P.AGR(C);P.AGR(C);P.A(C);P.AGR(C);P.AGR(C);P.AGR(B);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGR(C);P.AGR(C);P.AGR(B);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:');
+        Expect('walk', 'B,C,,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :1054 with Enabled, Visible, HideValue, ShowMandatory and ValidationErrorCount between it and the SetValue on Value.
+    [Test]
+    procedure List_Action_ReadsControlState_BetweenSteps()
+    begin
+        Initialize(1, 1);
+        RunReadsLines(true, 2, 2);
+        Expect('open', 'P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);');
+        Expect('reads', 'Yes/Yes/Yes/Yes/No/No/No/No/0/0/0:');
+        Expect('setname', 'P.AGR(C);P.AGR(C);P.A(C);P.AGR(C);P.AGR(C);P.AGR(B);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGR(C);P.AGR(C);P.AGR(B);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:');
+        Expect('walk', 'B,C,,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :1054 with AssertEquals, Caption and Editable after the SetValue on Value, before First.
+    [Test]
+    procedure List_Action_ReadsCaptionsAndValues_AfterSteps()
+    begin
+        Initialize(1, 1);
+        RunReadsLines(true, 3, 1);
+        Expect('open', 'P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);');
+        Expect('reads', 'Name/Value/Yes/Yes/LT RFU Lines/Yes:');
+        Expect('setname', 'P.AGR(C);P.AGR(C);P.A(C);P.AGR(C);P.AGR(C);P.AGR(B);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGR(C);P.AGR(C);P.AGR(B);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:');
+        Expect('walk', 'B,C,,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :1054 with Enabled, Visible, HideValue, ShowMandatory and ValidationErrorCount after the SetValue on Value, before First.
+    [Test]
+    procedure List_Action_ReadsControlState_AfterSteps()
+    begin
+        Initialize(1, 1);
+        RunReadsLines(true, 3, 2);
+        Expect('open', 'P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);');
+        Expect('reads', 'Yes/Yes/Yes/Yes/No/No/No/No/0/0/0:');
+        Expect('setname', 'P.AGR(C);P.AGR(C);P.A(C);P.AGR(C);P.AGR(C);P.AGR(B);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGR(C);P.AGR(C);P.AGR(B);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:');
+        Expect('walk', 'B,C,,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :1105 with AssertEquals, Caption and Editable before the SetValue on Name (or the action).
+    [Test]
+    procedure ListBoth_ReadsCaptionsAndValues_BeforeFirstStep()
+    begin
+        Initialize(1, 1);
+        RunReadsBoth(false, 1, 1);
+        Expect('open', 'P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);P.AGR(A);P.AGCR(A);P.AGCR();P.AGR(C);P.AGR(C);P.AGCR(C);');
+        Expect('reads', 'Name/Value/Yes/Yes/LT RFU Lines Both/Yes:');
+        Expect('setname', 'T.V(C2);P.V(C2);P.AGR(C);P.AGR(B);P.AGR(C);P.AGR(C);P.AGCR(C);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGR(C);P.AGR(B);P.AGR(C);P.AGR(C);P.AGCR(C);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:P.AGR(B);P.AGR(B);P.AGCR(B);');
+        Expect('walk', 'B,C,,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :1105 with Enabled, Visible, HideValue, ShowMandatory and ValidationErrorCount before the SetValue on Name (or the action).
+    [Test]
+    procedure ListBoth_ReadsControlState_BeforeFirstStep()
+    begin
+        Initialize(1, 1);
+        RunReadsBoth(false, 1, 2);
+        Expect('open', 'P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);P.AGR(A);P.AGCR(A);P.AGCR();P.AGR(C);P.AGR(C);P.AGCR(C);');
+        Expect('reads', 'Yes/Yes/Yes/Yes/No/No/No/No/0/0/0:');
+        Expect('setname', 'T.V(C2);P.V(C2);P.AGR(C);P.AGR(B);P.AGR(C);P.AGR(C);P.AGCR(C);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGR(C);P.AGR(B);P.AGR(C);P.AGR(C);P.AGCR(C);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:P.AGR(B);P.AGR(B);P.AGCR(B);');
+        Expect('walk', 'B,C,,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :1105 with AssertEquals, Caption and Editable between it and the SetValue on Value.
+    [Test]
+    procedure ListBoth_ReadsCaptionsAndValues_BetweenSteps()
+    begin
+        Initialize(1, 1);
+        RunReadsBoth(false, 2, 1);
+        Expect('open', 'P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);P.AGR(A);P.AGCR(A);P.AGCR();P.AGR(C);P.AGR(C);P.AGCR(C);');
+        Expect('reads', 'Name/Value/Yes/Yes/LT RFU Lines Both/Yes:');
+        Expect('setname', 'T.V(C2);P.V(C2);P.AGR(C);P.AGR(B);P.AGR(C);P.AGR(C);P.AGCR(C);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGR(C);P.AGR(B);P.AGR(C);P.AGR(C);P.AGCR(C);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:P.AGR(B);P.AGR(B);P.AGCR(B);');
+        Expect('walk', 'B,C,,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :1105 with Enabled, Visible, HideValue, ShowMandatory and ValidationErrorCount between it and the SetValue on Value.
+    [Test]
+    procedure ListBoth_ReadsControlState_BetweenSteps()
+    begin
+        Initialize(1, 1);
+        RunReadsBoth(false, 2, 2);
+        Expect('open', 'P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);P.AGR(A);P.AGCR(A);P.AGCR();P.AGR(C);P.AGR(C);P.AGCR(C);');
+        Expect('reads', 'Yes/Yes/Yes/Yes/No/No/No/No/0/0/0:');
+        Expect('setname', 'T.V(C2);P.V(C2);P.AGR(C);P.AGR(B);P.AGR(C);P.AGR(C);P.AGCR(C);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGR(C);P.AGR(B);P.AGR(C);P.AGR(C);P.AGCR(C);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:P.AGR(B);P.AGR(B);P.AGCR(B);');
+        Expect('walk', 'B,C,,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :1105 with AssertEquals, Caption and Editable after the SetValue on Value, before First.
+    [Test]
+    procedure ListBoth_ReadsCaptionsAndValues_AfterSteps()
+    begin
+        Initialize(1, 1);
+        RunReadsBoth(false, 3, 1);
+        Expect('open', 'P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);P.AGR(A);P.AGCR(A);P.AGCR();P.AGR(C);P.AGR(C);P.AGCR(C);');
+        Expect('reads', 'Name/Value/Yes/Yes/LT RFU Lines Both/Yes:');
+        Expect('setname', 'T.V(C2);P.V(C2);P.AGR(C);P.AGR(B);P.AGR(C);P.AGR(C);P.AGCR(C);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGR(C);P.AGR(B);P.AGR(C);P.AGR(C);P.AGCR(C);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:P.AGR(B);P.AGR(B);P.AGCR(B);');
+        Expect('walk', 'B,C,,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :1105 with Enabled, Visible, HideValue, ShowMandatory and ValidationErrorCount after the SetValue on Value, before First.
+    [Test]
+    procedure ListBoth_ReadsControlState_AfterSteps()
+    begin
+        Initialize(1, 1);
+        RunReadsBoth(false, 3, 2);
+        Expect('open', 'P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);P.AGR(A);P.AGCR(A);P.AGCR();P.AGR(C);P.AGR(C);P.AGCR(C);');
+        Expect('reads', 'Yes/Yes/Yes/Yes/No/No/No/No/0/0/0:');
+        Expect('setname', 'T.V(C2);P.V(C2);P.AGR(C);P.AGR(B);P.AGR(C);P.AGR(C);P.AGCR(C);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGR(C);P.AGR(B);P.AGR(C);P.AGR(C);P.AGCR(C);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:P.AGR(B);P.AGR(B);P.AGCR(B);');
+        Expect('walk', 'B,C,,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :1173 with AssertEquals, Caption and Editable before the SetValue on Name (or the action).
+    [Test]
+    procedure ListBoth_Action_ReadsCaptionsAndValues_BeforeFirstStep()
+    begin
+        Initialize(1, 1);
+        RunReadsBoth(true, 1, 1);
+        Expect('open', 'P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);P.AGR(A);P.AGCR(A);P.AGCR();P.AGR(C);P.AGR(C);P.AGCR(C);');
+        Expect('reads', 'Name/Value/Yes/Yes/LT RFU Lines Both/Yes:');
+        Expect('setname', 'P.AGR(C);P.A(C);P.AGR(C);P.AGR(C);P.AGR(B);P.AGR(C);P.AGR(C);P.AGCR(C);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGR(C);P.AGR(B);P.AGR(C);P.AGR(C);P.AGCR(C);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:P.AGR(B);P.AGR(B);P.AGCR(B);');
+        Expect('walk', 'B,C,,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :1173 with Enabled, Visible, HideValue, ShowMandatory and ValidationErrorCount before the SetValue on Name (or the action).
+    [Test]
+    procedure ListBoth_Action_ReadsControlState_BeforeFirstStep()
+    begin
+        Initialize(1, 1);
+        RunReadsBoth(true, 1, 2);
+        Expect('open', 'P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);P.AGR(A);P.AGCR(A);P.AGCR();P.AGR(C);P.AGR(C);P.AGCR(C);');
+        Expect('reads', 'Yes/Yes/Yes/Yes/No/No/No/No/0/0/0:');
+        Expect('setname', 'P.AGR(C);P.A(C);P.AGR(C);P.AGR(C);P.AGR(B);P.AGR(C);P.AGR(C);P.AGCR(C);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGR(C);P.AGR(B);P.AGR(C);P.AGR(C);P.AGCR(C);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:P.AGR(B);P.AGR(B);P.AGCR(B);');
+        Expect('walk', 'B,C,,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :1173 with AssertEquals, Caption and Editable between it and the SetValue on Value.
+    [Test]
+    procedure ListBoth_Action_ReadsCaptionsAndValues_BetweenSteps()
+    begin
+        Initialize(1, 1);
+        RunReadsBoth(true, 2, 1);
+        Expect('open', 'P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);P.AGR(A);P.AGCR(A);P.AGCR();P.AGR(C);P.AGR(C);P.AGCR(C);');
+        Expect('reads', 'Name/Value/Yes/Yes/LT RFU Lines Both/Yes:');
+        Expect('setname', 'P.AGR(C);P.A(C);P.AGR(C);P.AGR(C);P.AGR(B);P.AGR(C);P.AGR(C);P.AGCR(C);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGR(C);P.AGR(B);P.AGR(C);P.AGR(C);P.AGCR(C);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:P.AGR(B);P.AGR(B);P.AGCR(B);');
+        Expect('walk', 'B,C,,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :1173 with Enabled, Visible, HideValue, ShowMandatory and ValidationErrorCount between it and the SetValue on Value.
+    [Test]
+    procedure ListBoth_Action_ReadsControlState_BetweenSteps()
+    begin
+        Initialize(1, 1);
+        RunReadsBoth(true, 2, 2);
+        Expect('open', 'P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);P.AGR(A);P.AGCR(A);P.AGCR();P.AGR(C);P.AGR(C);P.AGCR(C);');
+        Expect('reads', 'Yes/Yes/Yes/Yes/No/No/No/No/0/0/0:');
+        Expect('setname', 'P.AGR(C);P.A(C);P.AGR(C);P.AGR(C);P.AGR(B);P.AGR(C);P.AGR(C);P.AGCR(C);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGR(C);P.AGR(B);P.AGR(C);P.AGR(C);P.AGCR(C);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:P.AGR(B);P.AGR(B);P.AGCR(B);');
+        Expect('walk', 'B,C,,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :1173 with AssertEquals, Caption and Editable after the SetValue on Value, before First.
+    [Test]
+    procedure ListBoth_Action_ReadsCaptionsAndValues_AfterSteps()
+    begin
+        Initialize(1, 1);
+        RunReadsBoth(true, 3, 1);
+        Expect('open', 'P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);P.AGR(A);P.AGCR(A);P.AGCR();P.AGR(C);P.AGR(C);P.AGCR(C);');
+        Expect('reads', 'Name/Value/Yes/Yes/LT RFU Lines Both/Yes:');
+        Expect('setname', 'P.AGR(C);P.A(C);P.AGR(C);P.AGR(C);P.AGR(B);P.AGR(C);P.AGR(C);P.AGCR(C);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGR(C);P.AGR(B);P.AGR(C);P.AGR(C);P.AGCR(C);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:P.AGR(B);P.AGR(B);P.AGCR(B);');
+        Expect('walk', 'B,C,,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :1173 with Enabled, Visible, HideValue, ShowMandatory and ValidationErrorCount after the SetValue on Value, before First.
+    [Test]
+    procedure ListBoth_Action_ReadsControlState_AfterSteps()
+    begin
+        Initialize(1, 1);
+        RunReadsBoth(true, 3, 2);
+        Expect('open', 'P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);P.AGR(A);P.AGCR(A);P.AGCR();P.AGR(C);P.AGR(C);P.AGCR(C);');
+        Expect('reads', 'Yes/Yes/Yes/Yes/No/No/No/No/0/0/0:');
+        Expect('setname', 'P.AGR(C);P.A(C);P.AGR(C);P.AGR(C);P.AGR(B);P.AGR(C);P.AGR(C);P.AGCR(C);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGR(C);P.AGR(B);P.AGR(C);P.AGR(C);P.AGCR(C);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:P.AGR(B);P.AGR(B);P.AGCR(B);');
+        Expect('walk', 'B,C,,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :1190 with AssertEquals, Caption and Editable before the SetValue on Name (or the action).
+    [Test]
+    procedure ListCurr_ReadsCaptionsAndValues_BeforeFirstStep()
+    begin
+        Initialize(1, 1);
+        RunReadsCurr(1, 1);
+        Expect('open', 'P.AGCR(A);P.AGCR();P.AGCR(C);');
+        Expect('reads', 'Name/Value/Yes/Yes/LT RFU Lines Curr/Yes:');
+        Expect('setname', 'T.V(C2);P.V(C2);P.AGCR(C);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGCR(C);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:P.AGCR(B);');
+        Expect('walk', 'B,C,,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :1190 with Enabled, Visible, HideValue, ShowMandatory and ValidationErrorCount before the SetValue on Name (or the action).
+    [Test]
+    procedure ListCurr_ReadsControlState_BeforeFirstStep()
+    begin
+        Initialize(1, 1);
+        RunReadsCurr(1, 2);
+        Expect('open', 'P.AGCR(A);P.AGCR();P.AGCR(C);');
+        Expect('reads', 'Yes/Yes/Yes/Yes/No/No/No/No/0/0/0:');
+        Expect('setname', 'T.V(C2);P.V(C2);P.AGCR(C);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGCR(C);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:P.AGCR(B);');
+        Expect('walk', 'B,C,,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :1190 with AssertEquals, Caption and Editable between it and the SetValue on Value.
+    [Test]
+    procedure ListCurr_ReadsCaptionsAndValues_BetweenSteps()
+    begin
+        Initialize(1, 1);
+        RunReadsCurr(2, 1);
+        Expect('open', 'P.AGCR(A);P.AGCR();P.AGCR(C);');
+        Expect('reads', 'Name/Value/Yes/Yes/LT RFU Lines Curr/Yes:');
+        Expect('setname', 'T.V(C2);P.V(C2);P.AGCR(C);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGCR(C);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:P.AGCR(B);');
+        Expect('walk', 'B,C,,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :1190 with Enabled, Visible, HideValue, ShowMandatory and ValidationErrorCount between it and the SetValue on Value.
+    [Test]
+    procedure ListCurr_ReadsControlState_BetweenSteps()
+    begin
+        Initialize(1, 1);
+        RunReadsCurr(2, 2);
+        Expect('open', 'P.AGCR(A);P.AGCR();P.AGCR(C);');
+        Expect('reads', 'Yes/Yes/Yes/Yes/No/No/No/No/0/0/0:');
+        Expect('setname', 'T.V(C2);P.V(C2);P.AGCR(C);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGCR(C);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:P.AGCR(B);');
+        Expect('walk', 'B,C,,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :1190 with AssertEquals, Caption and Editable after the SetValue on Value, before First.
+    [Test]
+    procedure ListCurr_ReadsCaptionsAndValues_AfterSteps()
+    begin
+        Initialize(1, 1);
+        RunReadsCurr(3, 1);
+        Expect('open', 'P.AGCR(A);P.AGCR();P.AGCR(C);');
+        Expect('reads', 'Name/Value/Yes/Yes/LT RFU Lines Curr/Yes:');
+        Expect('setname', 'T.V(C2);P.V(C2);P.AGCR(C);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGCR(C);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:P.AGCR(B);');
+        Expect('walk', 'B,C,,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :1190 with Enabled, Visible, HideValue, ShowMandatory and ValidationErrorCount after the SetValue on Value, before First.
+    [Test]
+    procedure ListCurr_ReadsControlState_AfterSteps()
+    begin
+        Initialize(1, 1);
+        RunReadsCurr(3, 2);
+        Expect('open', 'P.AGCR(A);P.AGCR();P.AGCR(C);');
+        Expect('reads', 'Yes/Yes/Yes/Yes/No/No/No/No/0/0/0:');
+        Expect('setname', 'T.V(C2);P.V(C2);P.AGCR(C);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGCR(C);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:P.AGCR(B);');
+        Expect('walk', 'B,C,,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :1258 with AssertEquals, Caption and Editable before the SetValue on Name (or the action).
+    [Test]
+    procedure Card_ReadsCaptionsAndValues_BeforeFirstStep()
+    begin
+        Initialize(1, 1);
+        RunReadsCard(false, 1, 1);
+        Expect('open', 'P.AGR(A);P.AGR(C);');
+        Expect('reads', 'Name/Value/Yes/Yes/LT RFU Card - G1 ∙ 3/Yes:');
+        Expect('setname', 'T.V(C2);P.V(C2);P.AGR(C);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGR(C);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:P.AGR(B);');
+        Expect('walk', 'B,C,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :1258 with Enabled, Visible, HideValue, ShowMandatory and ValidationErrorCount before the SetValue on Name (or the action).
+    [Test]
+    procedure Card_ReadsControlState_BeforeFirstStep()
+    begin
+        Initialize(1, 1);
+        RunReadsCard(false, 1, 2);
+        Expect('open', 'P.AGR(A);P.AGR(C);');
+        Expect('reads', 'Yes/Yes/Yes/Yes/No/No/No/No/0/0/0:');
+        Expect('setname', 'T.V(C2);P.V(C2);P.AGR(C);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGR(C);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:P.AGR(B);');
+        Expect('walk', 'B,C,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :1258 with AssertEquals, Caption and Editable between it and the SetValue on Value.
+    [Test]
+    procedure Card_ReadsCaptionsAndValues_BetweenSteps()
+    begin
+        Initialize(1, 1);
+        RunReadsCard(false, 2, 1);
+        Expect('open', 'P.AGR(A);P.AGR(C);');
+        Expect('reads', 'Name/Value/Yes/Yes/LT RFU Card - G1 ∙ 3/Yes:');
+        Expect('setname', 'T.V(C2);P.V(C2);P.AGR(C);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGR(C);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:P.AGR(B);');
+        Expect('walk', 'B,C,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :1258 with Enabled, Visible, HideValue, ShowMandatory and ValidationErrorCount between it and the SetValue on Value.
+    [Test]
+    procedure Card_ReadsControlState_BetweenSteps()
+    begin
+        Initialize(1, 1);
+        RunReadsCard(false, 2, 2);
+        Expect('open', 'P.AGR(A);P.AGR(C);');
+        Expect('reads', 'Yes/Yes/Yes/Yes/No/No/No/No/0/0/0:');
+        Expect('setname', 'T.V(C2);P.V(C2);P.AGR(C);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGR(C);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:P.AGR(B);');
+        Expect('walk', 'B,C,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :1258 with AssertEquals, Caption and Editable after the SetValue on Value, before First.
+    [Test]
+    procedure Card_ReadsCaptionsAndValues_AfterSteps()
+    begin
+        Initialize(1, 1);
+        RunReadsCard(false, 3, 1);
+        Expect('open', 'P.AGR(A);P.AGR(C);');
+        Expect('reads', 'Name/Value/Yes/Yes/LT RFU Card - G1 ∙ 3/Yes:');
+        Expect('setname', 'T.V(C2);P.V(C2);P.AGR(C);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGR(C);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:P.AGR(B);');
+        Expect('walk', 'B,C,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :1258 with Enabled, Visible, HideValue, ShowMandatory and ValidationErrorCount after the SetValue on Value, before First.
+    [Test]
+    procedure Card_ReadsControlState_AfterSteps()
+    begin
+        Initialize(1, 1);
+        RunReadsCard(false, 3, 2);
+        Expect('open', 'P.AGR(A);P.AGR(C);');
+        Expect('reads', 'Yes/Yes/Yes/Yes/No/No/No/No/0/0/0:');
+        Expect('setname', 'T.V(C2);P.V(C2);P.AGR(C);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGR(C);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:P.AGR(B);');
+        Expect('walk', 'B,C,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :1309 with AssertEquals, Caption and Editable before the SetValue on Name (or the action).
+    [Test]
+    procedure Card_Action_ReadsCaptionsAndValues_BeforeFirstStep()
+    begin
+        Initialize(1, 1);
+        RunReadsCard(true, 1, 1);
+        Expect('open', 'P.AGR(A);P.AGR(C);');
+        Expect('reads', 'Name/Value/Yes/Yes/LT RFU Card - G1 ∙ 3/Yes:');
+        Expect('setname', 'P.AGR(C);P.A(C);P.AGR(C);P.AGR(C);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGR(C);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:P.AGR(B);');
+        Expect('walk', 'B,C,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :1309 with Enabled, Visible, HideValue, ShowMandatory and ValidationErrorCount before the SetValue on Name (or the action).
+    [Test]
+    procedure Card_Action_ReadsControlState_BeforeFirstStep()
+    begin
+        Initialize(1, 1);
+        RunReadsCard(true, 1, 2);
+        Expect('open', 'P.AGR(A);P.AGR(C);');
+        Expect('reads', 'Yes/Yes/Yes/Yes/No/No/No/No/0/0/0:');
+        Expect('setname', 'P.AGR(C);P.A(C);P.AGR(C);P.AGR(C);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGR(C);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:P.AGR(B);');
+        Expect('walk', 'B,C,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :1309 with AssertEquals, Caption and Editable between it and the SetValue on Value.
+    [Test]
+    procedure Card_Action_ReadsCaptionsAndValues_BetweenSteps()
+    begin
+        Initialize(1, 1);
+        RunReadsCard(true, 2, 1);
+        Expect('open', 'P.AGR(A);P.AGR(C);');
+        Expect('reads', 'Name/Value/Yes/Yes/LT RFU Card - G1 ∙ 3/Yes:');
+        Expect('setname', 'P.AGR(C);P.A(C);P.AGR(C);P.AGR(C);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGR(C);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:P.AGR(B);');
+        Expect('walk', 'B,C,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :1309 with Enabled, Visible, HideValue, ShowMandatory and ValidationErrorCount between it and the SetValue on Value.
+    [Test]
+    procedure Card_Action_ReadsControlState_BetweenSteps()
+    begin
+        Initialize(1, 1);
+        RunReadsCard(true, 2, 2);
+        Expect('open', 'P.AGR(A);P.AGR(C);');
+        Expect('reads', 'Yes/Yes/Yes/Yes/No/No/No/No/0/0/0:');
+        Expect('setname', 'P.AGR(C);P.A(C);P.AGR(C);P.AGR(C);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGR(C);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:P.AGR(B);');
+        Expect('walk', 'B,C,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :1309 with AssertEquals, Caption and Editable after the SetValue on Value, before First.
+    [Test]
+    procedure Card_Action_ReadsCaptionsAndValues_AfterSteps()
+    begin
+        Initialize(1, 1);
+        RunReadsCard(true, 3, 1);
+        Expect('open', 'P.AGR(A);P.AGR(C);');
+        Expect('reads', 'Name/Value/Yes/Yes/LT RFU Card - G1 ∙ 3/Yes:');
+        Expect('setname', 'P.AGR(C);P.A(C);P.AGR(C);P.AGR(C);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGR(C);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:P.AGR(B);');
+        Expect('walk', 'B,C,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The cell :1309 with Enabled, Visible, HideValue, ShowMandatory and ValidationErrorCount after the SetValue on Value, before First.
+    [Test]
+    procedure Card_Action_ReadsControlState_AfterSteps()
+    begin
+        Initialize(1, 1);
+        RunReadsCard(true, 3, 2);
+        Expect('open', 'P.AGR(A);P.AGR(C);');
+        Expect('reads', 'Yes/Yes/Yes/Yes/No/No/No/No/0/0/0:');
+        Expect('setname', 'P.AGR(C);P.A(C);P.AGR(C);P.AGR(C);');
+        Expect('shown', 'C/');
+        Expect('filter', 'G1');
+        Expect('setvalue', 'P.AGR(C);');
+        Expect('shown2', 'C/');
+        Expect('first', 'B:P.AGR(B);');
+        Expect('walk', 'B,C,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
     // Last in this copy of the probe (the corpus file has it after List_SetRangeDropsRowUpdateFalse): main refuses it, and a
     // refusal makes main distrust every later failure of the codeunit (tests/neighbors/README.md).
     [Test]
@@ -1647,5 +2823,115 @@ codeunit 97572 "LT RFU Edit Tests"
         Assert.AreEqual('', Log.Take(), 'close');
         Row.Get('R1');
         Assert.AreEqual('Alpha', Row.Name, 'stored after Close');
+    end;
+
+    // The test's read-only calls at a point of the cell :1632, in the two blocks of ReadsLines.
+    local procedure ReadsEditCard(var Card: TestPage "LT RFU Edit Card"; Block: Integer): Text
+    var
+        Result: Text;
+    begin
+        if Block = 1 then begin
+            Card."No.".AssertEquals('R1');
+            Card.Name.AssertEquals('Alpha');
+            Result := Card."No.".Caption() + '/' + Card.Name.Caption() + '/' + Format(Card."No.".Editable()) + '/' + Format(Card.Name.Editable()) + '/' +
+              Card.Caption() + '/' + Format(Card.Editable());
+        end else
+            Result := Format(Card."No.".Enabled()) + '/' + Format(Card.Name.Enabled()) + '/' + Format(Card."No.".Visible()) + '/' + Format(Card.Name.Visible()) + '/' +
+              Format(Card."No.".HideValue()) + '/' + Format(Card.Name.HideValue()) + '/' + Format(Card."No.".ShowMandatory()) + '/' +
+              Format(Card.Name.ShowMandatory()) + '/' + Format(Card."No.".ValidationErrorCount()) + '/' + Format(Card.Name.ValidationErrorCount()) + '/' +
+              Format(Card.ValidationErrorCount());
+        exit(Result + ':' + Log.Take());
+    end;
+
+    // The cell :1632 with AssertEquals, Caption and Editable after GoToKey.
+    [Test]
+    procedure EditCard_ReadsCaptionsAndValues_AfterGoToKey()
+    var
+        Row: Record "LT RFU Edit Row";
+        Card: TestPage "LT RFU Edit Card";
+        Reads: Text;
+    begin
+        Initialize();
+        Card.OpenEdit();
+        Card.GoToKey('R1');
+        Assert.AreEqual('AGR(Alpha);AGR(Alpha);', Log.Take(), 'open');
+        Reads := ReadsEditCard(Card, 1);
+        Card.Name.SetValue('Beta');
+        Assert.AreEqual('AGR(Alpha);', Log.Take(), 'SetValue on Name');
+        Assert.AreEqual('Alpha', Card.Name.Value(), 'shown after the SetValue');
+        Card.Close();
+        Assert.AreEqual('', Log.Take(), 'close');
+        Row.Get('R1');
+        Assert.AreEqual('Alpha', Row.Name, 'stored after Close');
+        Assert.AreEqual('No./Name/Yes/Yes/LT RFU Edit Card - R1/Yes:', Reads, 'reads');
+    end;
+
+    // The cell :1632 with Enabled, Visible, HideValue, ShowMandatory and ValidationErrorCount after GoToKey.
+    [Test]
+    procedure EditCard_ReadsControlState_AfterGoToKey()
+    var
+        Row: Record "LT RFU Edit Row";
+        Card: TestPage "LT RFU Edit Card";
+        Reads: Text;
+    begin
+        Initialize();
+        Card.OpenEdit();
+        Card.GoToKey('R1');
+        Assert.AreEqual('AGR(Alpha);AGR(Alpha);', Log.Take(), 'open');
+        Reads := ReadsEditCard(Card, 2);
+        Card.Name.SetValue('Beta');
+        Assert.AreEqual('AGR(Alpha);', Log.Take(), 'SetValue on Name');
+        Assert.AreEqual('Alpha', Card.Name.Value(), 'shown after the SetValue');
+        Card.Close();
+        Assert.AreEqual('', Log.Take(), 'close');
+        Row.Get('R1');
+        Assert.AreEqual('Alpha', Row.Name, 'stored after Close');
+        Assert.AreEqual('Yes/Yes/Yes/Yes/No/No/No/No/0/0/0:', Reads, 'reads');
+    end;
+
+    // The cell :1632 with AssertEquals, Caption and Editable after the SetValue, before Close.
+    [Test]
+    procedure EditCard_ReadsCaptionsAndValues_AfterSetValue()
+    var
+        Row: Record "LT RFU Edit Row";
+        Card: TestPage "LT RFU Edit Card";
+        Reads: Text;
+    begin
+        Initialize();
+        Card.OpenEdit();
+        Card.GoToKey('R1');
+        Assert.AreEqual('AGR(Alpha);AGR(Alpha);', Log.Take(), 'open');
+        Card.Name.SetValue('Beta');
+        Assert.AreEqual('AGR(Alpha);', Log.Take(), 'SetValue on Name');
+        Assert.AreEqual('Alpha', Card.Name.Value(), 'shown after the SetValue');
+        Reads := ReadsEditCard(Card, 1);
+        Card.Close();
+        Assert.AreEqual('', Log.Take(), 'close');
+        Row.Get('R1');
+        Assert.AreEqual('Alpha', Row.Name, 'stored after Close');
+        Assert.AreEqual('No./Name/Yes/Yes/LT RFU Edit Card - R1/Yes:', Reads, 'reads');
+    end;
+
+    // The cell :1632 with Enabled, Visible, HideValue, ShowMandatory and ValidationErrorCount after the SetValue, before Close.
+    [Test]
+    procedure EditCard_ReadsControlState_AfterSetValue()
+    var
+        Row: Record "LT RFU Edit Row";
+        Card: TestPage "LT RFU Edit Card";
+        Reads: Text;
+    begin
+        Initialize();
+        Card.OpenEdit();
+        Card.GoToKey('R1');
+        Assert.AreEqual('AGR(Alpha);AGR(Alpha);', Log.Take(), 'open');
+        Card.Name.SetValue('Beta');
+        Assert.AreEqual('AGR(Alpha);', Log.Take(), 'SetValue on Name');
+        Assert.AreEqual('Alpha', Card.Name.Value(), 'shown after the SetValue');
+        Reads := ReadsEditCard(Card, 2);
+        Card.Close();
+        Assert.AreEqual('', Log.Take(), 'close');
+        Row.Get('R1');
+        Assert.AreEqual('Alpha', Row.Name, 'stored after Close');
+        Assert.AreEqual('Yes/Yes/Yes/Yes/No/No/No/No/0/0/0:', Reads, 'reads');
     end;
 }
