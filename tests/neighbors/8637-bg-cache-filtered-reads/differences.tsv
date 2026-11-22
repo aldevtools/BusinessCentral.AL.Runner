@@ -85,5 +85,29 @@ BQ Tests 6::BgQueryCache_Run_AllForms_OtherFilterKinds_FirstAnswer	ASSUMED backg
 BQ Tests 6::BgQueryCache_Run_AllForms_NoFilter_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:2775)
 BQ Tests 6::BgQueryCache_Run_TestReadsFirst_NoFilter_FirstReadsAnswerThem	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:2789)
 BQ Tests 6::BgQueryCache_Run_TestReadsFirst_EveryShape_FirstReadsAnswerThem	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:2808)
-# Neighbors (BQ Gate Tests: nine filters, filter group 8): BC answers them from the cache; past what the cells measure, the
-# head keeps main's answer, so they fail on both alike.
+# The cells of BQ Tests 7 (corpus PR 1495): more filters, filter groups 1 and 8-255, FindFirst and FindLast with a FlowField
+# filter next to the key, a FlowFilter filter and the test session's reads first answer from the cache; main read the table,
+# or refused every read of table 97500 after a worker's filter in filter group 1. That filter ends with the worker (:3438),
+# so the later reads of table 97500 (the test page's too) pass through the entry: <>@ alone and the FlowField shapes that
+# read the table pass on both, flagged on the head.
+BQ Tests 7::BgQueryCache_Run_AllForms_NineAndTwelveFilters_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:3394)
+BQ Tests 7::BgQueryCache_Run_AllForms_FilterOnEveryField_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:3401)
+BQ Tests 7::BgQueryCache_Run_AllForms_EveryFieldInManyGroups_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:3408)
+BQ Tests 7::BgQueryCache_Run_AllForms_FilterGroups8And10_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:3415)
+BQ Tests 7::BgQueryCache_Run_AllForms_FilterGroups100And255_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:3422)
+BQ Tests 7::BgQueryCache_Run_AllForms_FilterGroup1_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:3429)
+BQ Tests 7::BgQueryCache_Run_FilterGroup1_EndsWithTheWorker	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:3438)
+BQ Tests 7::BgQueryCache_Run_AllForms_NotAtSignAlone_KeepsNoLine	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:3438)
+BQ Tests 7::BgQueryCache_Run_FlowFieldAlone_SeesTheChange	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:3438)
+BQ Tests 7::BgQueryCache_Run_FlowFieldWithKey_FindsFirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:3475)
+BQ Tests 7::BgQueryCache_Run_FlowFieldWithKeyForms_FindsFirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:3485)
+BQ Tests 7::BgQueryCache_Run_FlowFieldWithoutTheKey_SeesTheChange	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:3438)
+BQ Tests 7::BgQueryCache_Run_FlowFieldWithKey_CommitOfTheCountedTable_SeesTheChange	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:3503)
+BQ Tests 7::BgQueryCache_Run_AllForms_FlowFilter_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:3510)
+BQ Tests 7::BgQueryCache_Run_TestReadsFirst_GroupShapes_FirstReadsAnswerThem	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:3520)
+BQ Tests 7::BgQueryCache_Run_TestReadsFirst_ManyFilters_FirstReadsAnswerThem	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:3536)
+BQ Tests 7::BgQueryCache_Run_TestReadsFirst_FlowShapes_WorkerReads	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:3552)
+# Neighbors (BQ Gate Tests: 7651 filters, a FlowField filter next to the key with a filter outside the key, as a range, or
+# with the key in filter group 5, a worker's fresh Record and RecordRef Count while the test session holds a filter in filter
+# group 1): BC answers them from the cache; past what the cells measure, the head keeps main's answer, so they fail on
+# both alike.
