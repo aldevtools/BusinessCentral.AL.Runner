@@ -126,19 +126,19 @@ impl Session {
         }
         // The next access of the table raises a deferred duplicate-key Insert, an Insert of another row not (the buffered inserts
         // stay buffered: record/P146TableExtProtected.al:P146_Triggers_BaseThenExtension, where
-        // `R2.Insert(true)` succeeds and the next Modify raises it). A Get of a page background task's worker raises nothing
-        // (pages/background-tasks/BgTaskInsertQueue.al:800); its other reads are refused before (`hide_queued_from_worker`).
+        // `R2.Insert(true)` succeeds and the next Modify raises it). A Get of a page background task's worker in the measured
+        // shapes raises nothing (`worker_get_past_deferred`); its other reads are refused before (`hide_queued_from_worker`).
         if insert_buffer::sends_queue(method)
             && !rec.borrow().temporary
-            && !(method == RecordOp::Get && self.pages.bg_worker.is_some() && self.queue_holds_rows(t.object))
+            && !self.worker_get_past_deferred(method, t.object)
             && self
                 .tx
                 .open
                 .deferred_insert
                 .as_ref()
-                .is_some_and(|(o, _)| *o == t.object as usize)
+                .is_some_and(|d| d.table == t.object as usize)
         {
-            let (_, e) = self.tx.open.deferred_insert.take().expect("checked");
+            let e = self.tx.open.deferred_insert.take().expect("checked").error;
             self.tx.deferred_raised += 1;
             return Err(Signal::Error(Box::new(e)));
         }
@@ -697,7 +697,7 @@ impl Session {
                         {
                             match self.fail(&t, &row, true) {
                                 Err(Signal::Error(e)) => {
-                                    self.defer_insert(rec, t.object, *e);
+                                    self.defer_insert(rec, t.object, *e, insert_buffer::DeferredKind::DuplicateKey);
                                 }
                                 // A key whose format is not pinned stays a refusal.
                                 Err(other) => return Err(other),
@@ -737,7 +737,7 @@ impl Session {
                                 .open
                                 .deferred_insert
                                 .as_ref()
-                                .is_some_and(|(o, _)| *o == t.object as usize)
+                                .is_some_and(|d| d.table == t.object as usize)
                         {
                             let same_key = format!(
                                 "The record in table {} already exists. Identification fields and values: {}",
@@ -749,11 +749,10 @@ impl Session {
                                 .open
                                 .deferred_insert
                                 .as_ref()
-                                .is_some_and(|(_, e)| e.message == same_key)
+                                .is_some_and(|d| d.error.message == same_key)
                             {
                                 // GetLastErrorText then gives the duplicate's text (`guarded`).
-                                let (_, e) = self.tx.open.deferred_insert.take().expect("checked");
-                                self.last_error = e;
+                                self.last_error = self.tx.open.deferred_insert.take().expect("checked").error;
                             }
                         }
                         // The flag hides the key of a duplicate Insert into a table with a Blob field (error-handling/

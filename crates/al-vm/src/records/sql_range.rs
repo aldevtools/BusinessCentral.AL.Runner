@@ -256,7 +256,12 @@ impl Session {
         }
         Self::restore_row_version(rec, old_version);
         Self::unstamp(rec, stamped);
-        self.defer_insert(rec, t.object, bad.error);
+        self.defer_insert(
+            rec,
+            t.object,
+            bad.error,
+            super::insert_buffer::DeferredKind::SqlRange(bad.kind),
+        );
         if after_event {
             self.table_event(t, "onafterinsertevent", rec, None, true, None)?;
         }

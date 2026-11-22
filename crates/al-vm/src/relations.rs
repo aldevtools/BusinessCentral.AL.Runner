@@ -329,7 +329,13 @@ impl Session {
             });
         }
         self.crm_source_refused(&related, "the TableRelation check")?;
-        self.note_indirect_read_of_queue(related.object as usize, false, "the TableRelation check")?;
+        let company = rec.borrow().company.clone();
+        self.note_indirect_read_of_queue(
+            related.object as usize,
+            company.as_deref(),
+            false,
+            "the TableRelation check",
+        )?;
         let cx = self.cx_for(rec, &related)?;
         let found = if flow_field_filters.is_empty() {
             self.store

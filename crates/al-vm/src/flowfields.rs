@@ -746,7 +746,7 @@ impl Session {
         self.unseeded_read(&src_t, rec.borrow().temporary, "a FlowField")?;
         // A CalcFields of the source table's own record raised a deferred Insert error before this (`record_op_inner`).
         self.refuse_read_while_deferred(calc.table, "a FlowField read")?;
-        self.note_indirect_read_of_queue(calc.table, true, "a FlowField read")?;
+        self.note_indirect_read_of_queue(calc.table, rec.borrow().company.as_deref(), true, "a FlowField read")?;
         // ADR-062: a FlowField reads its source table indirectly (CpPermLeads.al:29-63).
         if self.permission_checks() {
             self.permission_gate_flowfield(rec, calc.table, stack)?;

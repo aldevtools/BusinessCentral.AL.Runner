@@ -589,7 +589,7 @@ impl Session {
     /// Insert error into one of its tables is deferred: refused (`records/insert_buffer.rs`, al-runner issue 8288).
     fn refuse_query_read_while_deferred(&mut self, def: &ir::Query, method: &str) -> Result<(), Signal> {
         for item in &def.items {
-            self.refuse_unmeasured_read_while_deferred(item.table, &format!("Query.{method}"))?;
+            self.refuse_unmeasured_read_while_deferred(item.table, None, &format!("Query.{method}"))?;
         }
         Ok(())
     }

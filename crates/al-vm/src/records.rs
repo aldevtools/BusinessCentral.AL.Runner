@@ -33,7 +33,7 @@ mod setfilter_empty_or_side;
 mod setrange_filter;
 mod sql_range;
 mod sql_range_code;
-pub(crate) use insert_buffer::{InsertKind, InsertQueue};
+pub(crate) use insert_buffer::{DeferredInsert, InsertKind, InsertQueue};
 use sql_range::InsertShape;
 mod nested_validate;
 pub(crate) use nested_validate::{BeforeImage, ProcXrec, ValidateSite, XREC_OF_RUNNING_CALL};

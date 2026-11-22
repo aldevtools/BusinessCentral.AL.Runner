@@ -2015,7 +2015,8 @@ impl Session {
             return unsupported("GetBySystemId on a table without SystemId");
         };
         if !rec.borrow().temporary {
-            self.refuse_unmeasured_read_while_deferred(t.object as usize, "GetBySystemId")?;
+            let company = rec.borrow().company.clone();
+            self.refuse_unmeasured_read_while_deferred(t.object as usize, company.as_deref(), "GetBySystemId")?;
         }
         // A Text argument binds to the Guid parameter as a Text assigns to a Guid
         // (PXEnumRecordRef.al:232 passes the null Guid as a text literal).
