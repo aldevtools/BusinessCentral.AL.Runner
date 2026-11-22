@@ -191,13 +191,28 @@ pub(super) fn read_from_yaml(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
     let Some(text) = crate::native::text_of(&a[0]) else {
         return unsupported("ReadFromYaml with an argument that is not text");
     };
-    // A text the pinned reader refuses may be a shape corpus PR 1493 measured (`measured`, assumed until pinned).
+    // A text the pinned reader refuses may be a shape corpus PR 1493 measured (`measured`, assumed until pinned), and its
+    // text may hold characters only corpus PR 1515 measured.
     let (doc, measured) = match document(&text) {
-        Err(Signal::Unsupported(_)) => (measured::document(&text), true),
+        Err(Signal::Unsupported(_)) => (read_measured(&text), true),
         doc => (doc, false),
     };
-    if measured && doc.is_ok() {
-        assume(Assumption::ReadFromYamlBlankLinesAndBlocks);
+    // A raw U+0085, U+2028 or U+2029 at a measured place (`measured::document`): with the result used, into an empty
+    // object, false and the YAML error left as the last error, the object as it was (corpus PR 1515, JsonYamlUtf8.al
+    // :348-366, read through the Boolean form of `TryRead` :44-50 after `Clear(JO)`). The statement form and a receiver
+    // that holds members are not measured.
+    if measured && matches!(doc, Err(Signal::Error(_))) {
+        let h = recv(r)?;
+        let empty = with_node(&h, |n| matches!(n, JsonNode::Object(k) if k.is_empty()));
+        return match doc {
+            Err(Signal::Error(e)) if c.ret_used() && empty => {
+                c.set_last_error(*e);
+                Ok(Value::Boolean(false))
+            }
+            _ => unsupported(
+                "ReadFromYaml of a raw U+0085, U+2028 or U+2029 as a statement or into an object with members (not measured)",
+            ),
+        };
     }
     let mut json = String::new();
     match (&doc, measured, c.ret_used()) {
@@ -221,6 +236,27 @@ pub(super) fn read_from_yaml(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
     }
     doc?.write_json(&mut json);
     read_from(c, r, &mut [Value::Text(json.into())], Some("object"))
+}
+
+/// A measured read (`measured::document`), marked: every read it answers runs through
+/// `read-from-yaml-blank-lines-and-blocks`, and one that took a character only corpus PR 1515 measured (or gave its YAML
+/// error) also through `read-from-yaml-non-ascii-text`.
+fn read_measured(text: &str) -> Result<Yaml, Signal> {
+    let read = measured::document(text);
+    match &read {
+        Ok(m) => {
+            assume(Assumption::ReadFromYamlBlankLinesAndBlocks);
+            if m.utf8 {
+                assume(Assumption::ReadFromYamlNonAsciiText);
+            }
+        }
+        Err(Signal::Error(_)) => {
+            assume(Assumption::ReadFromYamlBlankLinesAndBlocks);
+            assume(Assumption::ReadFromYamlNonAsciiText);
+        }
+        Err(_) => {}
+    }
+    read.map(|m| m.tree)
 }
 
 #[cfg(test)]

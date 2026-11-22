@@ -11,8 +11,18 @@
 //! value null, and the empty top value and the first top line `key:` as null. Plain keys start with a letter. A word YAML
 //! reads as null or a Boolean is neither a key nor a quoted value (the pinned reader refuses them on purpose).
 
-use super::read::{Yaml, keyword};
+use super::read::{Yaml, bad_yaml, keyword};
 use crate::native::{Signal, unsupported};
+use std::borrow::Cow;
+
+mod utf8;
+
+/// What a measured read gave: the tree, and whether it took a character or a punctuation mark only corpus PR 1515
+/// measured (`utf8`; the caller then also marks `read-from-yaml-non-ascii-text`).
+pub(super) struct Measured {
+    pub(super) tree: Yaml,
+    pub(super) utf8: bool,
+}
 
 /// One line of the text after CRLF became LF.
 #[derive(Clone, Copy, PartialEq)]
@@ -38,11 +48,16 @@ fn row(line: &str) -> Row<'_> {
     }
 }
 
-/// `ReadFromYaml` of `text` in a measured shape, or a refusal.
-pub(super) fn document(text: &str) -> Result<Yaml, Signal> {
-    // Printable ASCII, LF and CR only (every cell); a tab, a byte order mark and every other character refuse.
-    if !text.chars().all(|c| matches!(c, '\n' | '\r' | ' '..='~')) {
-        return unsupported("ReadFromYaml of a character other than printable ASCII in a block form (not measured)");
+/// `ReadFromYaml` of `text` in a measured shape, or a refusal. A raw U+0085, U+2028 or U+2029 at a place corpus PR 1515
+/// measured gives the YAML error (`Signal::Error`, raised nowhere else in this module) once the rest of the text reads.
+pub(super) fn document(text: &str) -> Result<Measured, Signal> {
+    // Printable ASCII, LF and CR (every cell of PR 1493), the characters PR 1515 measured, and its bad line breaks, which
+    // `Parser` takes only at their measured places. A tab, a byte order mark and every other character refuse.
+    let known = |c: char| matches!(c, '\n' | '\r' | ' '..='~') || utf8::letter(c) || utf8::bad_break(c);
+    if !text.chars().all(known) || !utf8::combining_after_e(text) {
+        return unsupported(
+            "ReadFromYaml of a character other than printable ASCII that no cell measures (not measured)",
+        );
     }
     // Either no CR, or every line end CRLF (the `-crlf` cells).
     let crlf = text.contains('\r');
@@ -56,6 +71,8 @@ pub(super) fn document(text: &str) -> Result<Yaml, Signal> {
         rows: &rows,
         at: 0,
         taken: 0,
+        punctuation: false,
+        bad_break: false,
     };
     let tree = match p.peek() {
         // The text starts with its first line at indent 0 (every cell), or a comment line (CommentsAndQuotes/comment).
@@ -72,7 +89,13 @@ pub(super) fn document(text: &str) -> Result<Yaml, Signal> {
     if p.rows[p.at..].iter().any(|r| !matches!(r, Row::Empty | Row::Spaces)) {
         return unsupported("ReadFromYaml of a line after the end of the block it belongs to (not measured)");
     }
-    Ok(tree)
+    if p.bad_break {
+        return Err(bad_yaml());
+    }
+    Ok(Measured {
+        tree,
+        utf8: p.punctuation || !text.is_ascii(),
+    })
 }
 
 /// A comment line is measured at indent 0, holding `# ` and words, first or after a top `key: value` line, and followed
@@ -82,7 +105,7 @@ fn check_comments(rows: &[Row]) -> Result<(), Signal> {
         let Row::Comment { indent, text } = *r else { continue };
         let words = text
             .strip_prefix("# ")
-            .is_some_and(|t| t.chars().all(|c| c.is_ascii_alphanumeric() || c == ' '));
+            .is_some_and(|t| t.chars().all(|c| utf8::letter(c) || c == ' '));
         let text_row = |r: &&Row| matches!(r, Row::Text { .. });
         let before = rows[..i].iter().rev().find(text_row);
         let after = rows[i + 1..].iter().find(text_row);
@@ -104,6 +127,10 @@ struct Parser<'r, 'a> {
     at: usize,
     /// How many `Text` rows `take` moved past.
     taken: usize,
+    /// A `>-` line took punctuation (`utf8::folded_punctuation`).
+    punctuation: bool,
+    /// A bad line break stood at a measured place (`utf8::bad_break`).
+    bad_break: bool,
 }
 
 impl<'a> Parser<'_, 'a> {
@@ -164,6 +191,9 @@ impl<'a> Parser<'_, 'a> {
 
     /// What follows the `:` of a key at column `col`.
     fn value(&mut self, col: usize, rest: &str) -> Result<Yaml, Signal> {
+        if rest.chars().any(utf8::bad_break) {
+            return self.value_with_bad_break(col, rest);
+        }
         match rest {
             "" => self.block_under(col),
             // An empty top value is null (ScalarForms/words `c: `), followed by a top line.
@@ -178,6 +208,24 @@ impl<'a> Parser<'_, 'a> {
                     None => unsupported("ReadFromYaml of an empty value below the top mapping (not measured)"),
                 }
             }
+        }
+    }
+
+    /// A value holding a bad line break: measured between two ASCII letters of a top plain value without a tail comment
+    /// and of a top double-quoted value (`utf8::bad_break`). The value is read with each break as a letter; every other
+    /// place refuses.
+    fn value_with_bad_break(&mut self, col: usize, rest: &str) -> Result<Yaml, Signal> {
+        let lettered = utf8::breaks_between_letters(rest);
+        let measured = |v: &str| {
+            let v = v.strip_prefix(' ').unwrap_or_default();
+            v.starts_with('"') || (v.starts_with(|c: char| c.is_ascii_alphabetic()) && !v.contains(" #"))
+        };
+        match lettered {
+            Some(v) if col == 0 && measured(&v) => {
+                self.bad_break = true;
+                self.value(col, &v)
+            }
+            _ => unsupported("ReadFromYaml of a raw U+0085, U+2028 or U+2029 at this place (not measured)"),
         }
     }
 
@@ -244,6 +292,30 @@ impl<'a> Parser<'_, 'a> {
         }
     }
 
+    /// A line of a block scalar: letters, digits, the measured characters and spaces, starting and ending with a letter or
+    /// a digit; a `>-` line may also hold the measured punctuation, and a top `>-` line a bad line break between two
+    /// ASCII letters (`utf8`).
+    fn block_line(&mut self, col: usize, ind: &str, text: &str) -> Result<(), Signal> {
+        let line: Cow<str> = match utf8::breaks_between_letters(text) {
+            Some(l) if col == 0 && ind == ">-" && l != text => {
+                self.bad_break = true;
+                Cow::Owned(l)
+            }
+            _ => Cow::Borrowed(text),
+        };
+        let folded = ind == ">-";
+        let chars_ok = line
+            .chars()
+            .all(|c| utf8::letter(c) || c == ' ' || (folded && utf8::folded_punctuation(c)));
+        if !chars_ok || !line.starts_with(utf8::letter) || !line.ends_with(utf8::letter) {
+            return unsupported(
+                "ReadFromYaml of a block scalar line with other characters than letters, digits and spaces (not measured)",
+            );
+        }
+        self.punctuation |= line.contains(utf8::folded_punctuation);
+        Ok(())
+    }
+
     /// A block scalar under the key at column `col`: its lines indented by two more, from the very next line
     /// (LiteralBlockScalar, FoldedBlockScalar, BlockScalarEnd, BlockScalarInListItem).
     fn block_scalar(&mut self, col: usize, ind: &str) -> Result<Yaml, Signal> {
@@ -252,11 +324,7 @@ impl<'a> Parser<'_, 'a> {
         loop {
             match self.adjacent() {
                 Some(Row::Text { indent, text }) if indent == content => {
-                    if !text.chars().all(|c| c.is_ascii_alphanumeric() || c == ' ') || text.ends_with(' ') {
-                        return unsupported(
-                            "ReadFromYaml of a block scalar line with other characters than letters, digits and spaces (not measured)",
-                        );
-                    }
+                    self.block_line(col, ind, text)?;
                     lines.push(text);
                     self.at += 1;
                 }
@@ -325,7 +393,7 @@ fn key_and_rest(text: &str) -> Result<(String, &str), Signal> {
         }
         _ => {
             let end = text
-                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                .find(|c: char| !(utf8::letter(c) || c == '_'))
                 .unwrap_or(text.len());
             let key = &text[..end];
             // Every plain key of a cell starts with a letter and is no word YAML reads as null or a Boolean.
@@ -349,7 +417,7 @@ fn plain_value(v: &str, col: usize) -> Result<Yaml, Signal> {
     };
     let comment_ok = comment.is_none_or(|c| {
         c.strip_prefix(' ')
-            .is_some_and(|t| t.chars().all(|c| c.is_ascii_alphanumeric() || c == ' '))
+            .is_some_and(|t| t.chars().all(|c| utf8::letter(c) || c == ' '))
     });
     if !comment_ok {
         return unsupported("ReadFromYaml of a tail comment with these characters (not measured)");
@@ -387,7 +455,7 @@ fn scalar(v: &str, in_flow: bool) -> Result<Yaml, Signal> {
         || v.split_once('e').is_some_and(|(a, b)| digits(a) && digits(b));
     let chars_ok = v
         .chars()
-        .all(|c| c.is_ascii_alphanumeric() || matches!(c, ' ' | '-' | '.' | '/' | ':'));
+        .all(|c| utf8::letter(c) || matches!(c, ' ' | '-' | '.' | '/' | ':'));
     let word = v.starts_with(|c: char| c.is_ascii_alphabetic())
         && chars_ok
         && !(in_flow && v.contains(':'))
@@ -426,8 +494,8 @@ fn quoted(v: &str) -> Result<Yaml, Signal> {
                 closed = true;
                 break;
             }
-            (Some('"'), c) if c.is_ascii_alphanumeric() || " $-<>+,.".contains(c) => out.push(c),
-            (Some('\''), c) if c.is_ascii_alphanumeric() || c == ' ' => out.push(c),
+            (Some('"'), c) if utf8::letter(c) || " $-<>+,.".contains(c) => out.push(c),
+            (Some('\''), c) if utf8::letter(c) || c == ' ' => out.push(c),
             _ => return refuse(),
         }
     }
@@ -511,3 +579,6 @@ fn split_flow(inner: &str) -> Result<Vec<&str>, Signal> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod utf8_tests;
