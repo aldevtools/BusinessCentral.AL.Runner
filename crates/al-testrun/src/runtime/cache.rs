@@ -84,18 +84,7 @@ pub(crate) fn compile_with_cache(
     roots: al_sema::check::Roots,
 ) -> Result<CachedCompile, String> {
     use crate::compile_cache as cache;
-    let dep_symbols: Vec<Option<BTreeSet<String>>> = kinds
-        .iter()
-        .enumerate()
-        .map(|(i, k)| {
-            (*k == al_sema::AppKind::Dependency).then(|| {
-                manifests
-                    .get(i)
-                    .map(|m| m.symbols.iter().cloned().collect())
-                    .unwrap_or_default()
-            })
-        })
-        .collect();
+    let dep_symbols = super::internals_grant::dependency_symbols(&kinds, manifests);
     // The text of a lazily read app is read when something needs it: building an entry does, a hit
     // does not. Each app is filled once. Building the layers fills only the cached dependency apps (the first
     // `n_dep`); the ones after them (a dependency app on a workspace app) are filled when the index is built
@@ -250,12 +239,6 @@ pub(crate) fn load_stored_workspace(
     identities: &[Option<[u8; 32]>],
     stored: al_sema::StoredWorkspace,
 ) -> Result<(al_sema::Workspace, Option<&'static str>), AppsBack> {
-    let dep_symbols = crate::compile_cache::app_symbols(manifests)
-        .into_iter()
-        .zip(&kinds)
-        .map(|(s, k)| (*k == al_sema::AppKind::Dependency).then(|| s.unwrap_or_default()))
-        .collect::<Vec<_>>();
-    let granted = super::internals_grant::granted_app_ids(&apps, manifests);
     let (deps, source_index, save) = if lazy.iter().any(Option::is_some) {
         match lazy_index(cc, &apps, manifests, lazy, identities) {
             Ok(deps) => (deps, Some("read"), None),
@@ -271,16 +254,11 @@ pub(crate) fn load_stored_workspace(
     } else {
         (Vec::new(), None, None)
     };
-    match al_sema::Workspace::load_stored(apps, kinds, symbols, &dep_symbols, deps, stored) {
-        Ok(mut ws) => {
-            if let Some(key) = save {
-                save_index(cc, &ws, lazy, &key);
-            }
-            ws.set_internals_granted(granted);
-            Ok((ws, source_index))
-        }
-        Err(back) => Err(back),
+    let ws = super::internals_grant::load_stored(apps, kinds, symbols, deps, stored, manifests)?;
+    if let Some(key) = save {
+        save_index(cc, &ws, lazy, &key);
     }
+    Ok((ws, source_index))
 }
 
 /// The program order of a compile with the compile cache, as caller indexes, and how many apps from the first the

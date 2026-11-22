@@ -568,7 +568,7 @@ impl CorpusRuntime {
         };
         let suites = &suites_in[..];
         let manifests = &manifests[..];
-        let dep_symbols = dependency_symbols(&kinds, manifests);
+        let dep_symbols = internals_grant::dependency_symbols(&kinds, manifests);
         let load_ws =
             |apps, kinds, lazy| internals_grant::load_workspace(apps, kinds, symbols, &dep_symbols, lazy, manifests);
         // The apps whose files hold no text yet, in program order.
@@ -2593,24 +2593,6 @@ fn in_program_order(order: &[usize], v: &[(usize, u32)]) -> Vec<(usize, u32)> {
         new_of[old] = new;
     }
     v.iter().map(|&(a, id)| (new_of[a], id)).collect()
-}
-
-/// Per app of the program, the symbols it is compiled with: a dependency app's are those of its own app.json, the
-/// project's apps take the project's (`None`; hard rule 6: a project that defines CLEAN25 does not change Base
-/// Application).
-fn dependency_symbols(kinds: &[al_sema::AppKind], manifests: &[Manifest]) -> Vec<Option<BTreeSet<String>>> {
-    kinds
-        .iter()
-        .enumerate()
-        .map(|(i, k)| {
-            (*k == al_sema::AppKind::Dependency).then(|| {
-                manifests
-                    .get(i)
-                    .map(|m| m.symbols.iter().cloned().collect())
-                    .unwrap_or_default()
-            })
-        })
-        .collect()
 }
 
 /// The first compile error as a debugger's client is told it (`DebugReady::first_error`); a parse error has no code.
