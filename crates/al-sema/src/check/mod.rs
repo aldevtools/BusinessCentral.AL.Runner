@@ -1296,6 +1296,35 @@ pub(crate) fn one_char_literal(node: &SyntaxNode) -> bool {
         .is_some_and(|inner| inner.replace("''", "'").chars().count() == 1)
 }
 
+/// The `for` loops over a Char or an Integer variable whose bounds are one-character literals, the shapes language/ForCharBounds.al
+/// measured (open corpus PR 1525, assumption `for-char-literal-bounds`): a local Char loop variable with bounds (literal, literal),
+/// (literal, local Char variable), (local Char variable, literal), (literal, integer literal) or (integer literal, literal), `to`
+/// and `downto`; a local Integer loop variable with (literal, literal). `kids` are the loop variable, the start and the end.
+/// Every other loop variable, bound kind and pair is not measured and keeps its refusal.
+pub(crate) fn for_one_char_literal_bounds(
+    kids: &[SyntaxNode],
+    ty: &dyn Fn(&SyntaxNode) -> Ty,
+    local_variable: &dyn Fn(&SyntaxNode) -> bool,
+) -> bool {
+    let [var, from, to, ..] = kids else {
+        return false;
+    };
+    if var.kind() != SyntaxKind::NameRef || !local_variable(var) {
+        return false;
+    }
+    let (lit_from, lit_to) = (one_char_literal(from), one_char_literal(to));
+    let measured_other = |n: &SyntaxNode| {
+        one_char_literal(n)
+            || (n.kind() == SyntaxKind::Literal && matches!(literal_ty(n), Ty::Integer))
+            || (n.kind() == SyntaxKind::NameRef && matches!(ty(n), Ty::Char) && local_variable(n))
+    };
+    match ty(var) {
+        Ty::Char => (lit_from || lit_to) && measured_other(from) && measured_other(to),
+        Ty::Integer => lit_from && lit_to,
+        _ => false,
+    }
+}
+
 /// `Ch + 'X'`, `'X' - Ch` and the like: a Char variable and a one-character literal under `+` or `-` ([`one_char_literal`];
 /// AfCharLiteralArithmetic.al:22-43). A character taken by index from a Text or Code variable counts too (`S[1] - '0'`,
 /// `'A' + C[1]`: format-evaluate/AtTextCharLiteral.al:15-112), and so does such a sum or difference followed by

@@ -77,13 +77,33 @@ codeunit 69861 FD
     assert!(matches!(&v, Ok(al_builtins::value::Value::Integer(3))), "{v:?}");
 }
 
-// A one-character literal bounding a Char loop variable (`for c := '0' to '4'`) is refused: no corpus case pins that BC
-// reads the bound as that Char (the corpus has no `for` over a Char variable), so the runner does not guess (hard rule 3).
-// The reporter's pull request 7872 ran it; it waits for a corpus probe.
+// The one-character literal bounds of a Char loop variable that language/ForCharBounds.al measured (open corpus PR 1525) run through
+// the assumption for-char-literal-bounds; the corpus case is their test. Every other shape keeps main's refusal (hard rule 3):
+// a literal next to a Text variable, an expression or an Integer variable, and a global Char loop variable.
 #[test]
-fn a_one_character_literal_char_for_loop_bound_is_refused() {
+fn unmeasured_one_character_literal_for_loop_bounds_are_refused() {
+    for (decl, head) in [
+        ("var c: Char; t: Text; s: Text;", "for c := '0' to t do"),
+        ("var c: Char; i: Integer; s: Text;", "for c := '0' to i do"),
+        ("var c: Char; s: Text;", "for c := '0' to 'a' + 1 do"),
+        ("var b: BigInteger; c: Char; s: Text;", "for b := '0' to '4' do"),
+        ("var d: Decimal; c: Char; s: Text;", "for d := '0' to '4' do"),
+    ] {
+        let src = format!(
+            "codeunit 69862 FC\n{{\n    procedure F(): Text\n    {decl}\n    begin\n        {head} s += Format(c);\n        exit(s);\n    end;\n}}\n"
+        );
+        let why = match al_testkit::run_in(&src, "FC", "F") {
+            Err(al_builtins::native::Signal::Unsupported(why)) => why.into_reason(),
+            other => panic!("`{head}`: expected a refusal, got {other:?}"),
+        };
+        assert!(why.contains("used as an integer"), "`{head}`: {why}");
+    }
+}
+
+#[test]
+fn a_one_character_literal_char_for_loop_bound_runs_through_its_assumption() {
     let src = r#"
-codeunit 69862 FC
+codeunit 69863 FE
 {
     procedure F(): Text
     var c: Char; s: Text;
@@ -93,9 +113,6 @@ codeunit 69862 FC
     end;
 }
 "#;
-    let why = match al_testkit::run_in(src, "FC", "F") {
-        Err(al_builtins::native::Signal::Unsupported(why)) => why.into_reason(),
-        other => panic!("expected a refusal, got {other:?}"),
-    };
-    assert!(why.contains("used as an integer"), "{why}");
+    let v = al_testkit::run_in(src, "FE", "F");
+    assert!(matches!(&v, Ok(al_builtins::value::Value::Text(t)) if t.as_str() == "01234"), "{v:?}");
 }
