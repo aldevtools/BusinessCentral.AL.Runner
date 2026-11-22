@@ -13,6 +13,9 @@ fn outcomes(codeunit: &str) -> Vec<(String, Outcome, Vec<Assumption>)> {
         include_str!("../../../../tests/neighbors/8729-handler-caught-error-close/src/CemFixtures.al"),
         include_str!("../../../../tests/neighbors/8729-handler-caught-error-close/src/Neighbors.al"),
         include_str!("../../../../tests/neighbors/8729-handler-caught-error-close/src/Assert.al"),
+        include_str!("../../../../tests/neighbors/8729-handler-caught-error-close/src/ProbeObserver.al"),
+        include_str!("../../../../tests/neighbors/8729-handler-caught-error-close/src/ProbePageHandlerCaught.al"),
+        include_str!("../../../../tests/neighbors/8729-handler-caught-error-close/src/ProbeDocumentCaught.al"),
     ]
     .join("\n");
     let l = al_testkit::compile_apps(vec![al_testkit::app(&src)]);
@@ -82,7 +85,7 @@ fn issue_8729_document_run_modal_cells() {
 }
 
 /// The shapes next to the cells keep the answer they had: the card from a Page variable and the list at OK after a caught
-/// error pass clean, and the document whose close raises after a caught error is refused.
+/// error pass clean (a return or OK with no error is no cell of the matrix).
 #[test]
 fn issue_8729_neighbors() {
     let run = outcomes("CHN Run Tests");
@@ -91,10 +94,25 @@ fn issue_8729_neighbors() {
         assert_eq!(*r, Outcome::Pass, "{name}");
         assert!(marks.is_empty(), "{name}: {marks:?}");
     }
-    let modal = outcomes("CHN RunModal Tests");
-    assert!(
-        matches!(&modal[0].1, Outcome::NotRun(why) if why.contains("caught an error")),
-        "{:?}",
-        modal[0]
-    );
+}
+
+/// Every pinned close test again with a handler that first caught an error gives the pinned answer (corpus PR 1531): the
+/// mirrors pass, but the four whose pinned test the runner refuses with nothing caught too.
+#[test]
+fn issue_8729_pinned_matrix_after_a_caught_error() {
+    let refused_as_pinned = [
+        "CardStaticRun_HandlerCaughtEditOk_PageModifyRecordError",
+        "DocumentStaticRunModal_HandlerCaughtLineRefusesOk_NoError",
+        "DocumentStaticRunModal_HandlerCaughtLineRefusesOk_QueryCloseError",
+        "DocumentStaticRunModal_HandlerCaughtLineRefusesOk_ClosePageError",
+    ];
+    for codeunit in ["CEM Caught Page Handler Tests", "CEM Caught Document Tests"] {
+        for (name, r, _) in outcomes(codeunit) {
+            if refused_as_pinned.contains(&name.as_str()) {
+                assert!(matches!(r, Outcome::NotRun(_)), "{name}: {r:?}");
+            } else {
+                assert_eq!(r, Outcome::Pass, "{name}");
+            }
+        }
+    }
 }

@@ -66,39 +66,3 @@ codeunit 97345 "CHN Run Tests"
         Check('CEM_NO_ERROR', 'Dialog', 'Q-list OK; C-list; ', GetLastErrorText(), GetLastErrorCode());
     end;
 }
-
-codeunit 97346 "CHN RunModal Tests"
-{
-    Subtype = Test;
-    TestPermissions = Disabled;
-
-    var
-        Assert: Codeunit Assert;
-        Cfg: Codeunit "CEM Cfg";
-        Help: Codeunit "CEM Help";
-
-    [ModalPageHandler]
-    procedure DocCatchesThenRaises(var P: TestPage "CEM Doc")
-    begin
-        asserterror Error('CEM caught error');
-        Error('CEM handler error');
-    end;
-
-    [Test]
-    [HandlerFunctions('DocCatchesThenRaises')]
-    procedure DocumentStaticRunModal_HandlerCaughtWithAssertError_HandlerError_QueryCloseError()
-    var
-        Row: Record "CEM Row";
-        Res: Action;
-    begin
-        Help.Setup('query', 'doc', 7);
-        Row.Get('R1');
-        asserterror begin
-            Res := Page.RunModal(Page::"CEM Doc", Row);
-            Error('CEM_NO_ERROR');
-        end;
-        Assert.AreEqual('CEM query close error|Dialog|Q-doc LookupCancel; ', GetLastErrorText() + '|' + GetLastErrorCode() + '|' + Cfg.Take(), 'how the call ended, and the triggers that ran');
-        Assert.AreEqual('R1=start/ (1 rows) L1=1 L2=2', Help.Names(), 'the rows afterwards');
-        Cfg.Quiet();
-    end;
-}
