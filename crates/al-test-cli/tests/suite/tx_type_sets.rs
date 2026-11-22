@@ -70,9 +70,16 @@ fn the_probe_of_the_first_test_method_passes_with_its_marks() {
         for ty in ["Update", "Snapshot", "Browse", "Report"] {
             for (name, outcome, marks) in run(&src, &format!("TxF {pre} {ty}")) {
                 n += 1;
+                // After nothing or a read the set is refused: whether the test runner's transaction or the read started the
+                // transaction depends on the codeunits before it and on the data cache; the next test reads a type that is
+                // not known.
+                if matches!(pre, "None" | "Read") {
+                    if !matches!(&outcome, Outcome::NotRun(_)) {
+                        wrong.push(format!("{pre} {ty} {name}: {outcome:?}, expected a refusal"));
+                    }
+                    continue;
+                }
                 let want: Vec<&str> = match (pre, name.starts_with("A_")) {
-                    ("None" | "Read", _) if name.starts_with("A_") => vec![SET_AFTER_START],
-                    ("None" | "Read", _) => vec![],
                     ("AssertError" | "AssertErrorWrite", true) => vec![ROLLBACK],
                     ("AssertError" | "AssertErrorWrite", false) => vec![ROLLBACK, CARRIES],
                     ("Commit", true) => vec![],

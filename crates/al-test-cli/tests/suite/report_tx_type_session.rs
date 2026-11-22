@@ -678,19 +678,15 @@ fn an_update_report_without_its_page_runs_at_the_measured_moments_and_is_refused
             "AtTestStartWithoutWrite after a refused test that sets no type: expected a pass, got {o:?}"
         ));
     }
-    // At the start of a codeunit's first test method the test runner's transaction has started: a set to Snapshot raises
-    // (session-system/TxTypeFirstTestMethod.al of the open probe); under AutoRollback that is not measured.
-    match run_in_order(&["SetSnapshotAtTestStart"]) {
-        Outcome::Fail(m) if m.ends_with("changed from UpdateNoLocks to Snapshot.") => {}
-        other => wrong.push(format!(
-            "SetSnapshotAtTestStart first: expected DB:CannotChangeTransactionType, got {other:?}"
-        )),
-    }
-    match run_in_order(&["AutoRollbackSetUpdateAtStart"]) {
-        Outcome::NotRun(r) if r.contains("first test method under TransactionModel AutoRollback") => {}
-        other => wrong.push(format!(
-            "AutoRollbackSetUpdateAtStart first: expected a refusal, got {other:?}"
-        )),
+    // A set to another type at the start of a codeunit's first test method: whether the test runner's transaction has
+    // started there depends on the codeunits that ran before it (session-system/TxTypeFirstTestMethod.al of the open probe).
+    for t in ["SetSnapshotAtTestStart", "AutoRollbackSetUpdateAtStart"] {
+        match run_in_order(&[t]) {
+            Outcome::NotRun(r) if r.contains("at the start of a test codeunit's first test method") => {}
+            other => wrong.push(format!(
+                "{t} first: expected the first test method's refusal, got {other:?}"
+            )),
+        }
     }
     // An Insert at Snapshot raises (record/TxTypeSetAfterCall.al TxS16 of the open probe).
     match run_alone(&["CommitSetSnapshotInsertSetUpdate"]) {

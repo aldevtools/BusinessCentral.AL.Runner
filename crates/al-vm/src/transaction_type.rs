@@ -78,14 +78,16 @@ impl Session {
         Ok(Value::Null)
     }
 
-    /// A set to `new` once the transaction has started: after a database call, or at the start of a codeunit's first test
-    /// method (`OpenTx::runner_tx`). Measured (record/TxTypeSetAfterCall.al TxS01 to TxS15, TxTypeFirstTestMethod.al of the
-    /// open probe, `transaction-type-set-after-start`; the pins named at each arm):
+    /// A set to `new` once the transaction may have started: after a database call, or at the start of a codeunit's first
+    /// test method (`OpenTx::runner_tx`). Measured (record/TxTypeSetAfterCall.al TxS01 to TxS15 of the open probe,
+    /// `transaction-type-set-after-start`; the pins named at each arm):
     /// - a set to the type the transaction has has no effect;
-    /// - after a write, or the test runner's start: at UpdateNoLocks a set to Update or Snapshot raises
-    ///   DB:CannotChangeTransactionType and a set to Browse or Report has no effect; at Update no set has an effect;
-    /// - after a read call of the test's own, whether the read started the transaction depends on the server's data cache, so
-    ///   every other set is refused, but the pinned Report after a read at Update.
+    /// - after a write: at UpdateNoLocks a set to Update or Snapshot raises DB:CannotChangeTransactionType and a set to
+    ///   Browse or Report has no effect; at Update no set has an effect;
+    /// - after a read call, whether the read started the transaction depends on the server's data cache, and at a first test
+    ///   method's start whether the test runner's transaction has started depends on the codeunits that ran before it in
+    ///   the run (session-system/TxTypeFirstTestMethod.al: a set to Update raises after another codeunit and takes effect in
+    ///   the only codeunit of a run), so every other set is refused, but the pinned Report after a read at Update.
     fn set_after_start(&mut self, new: i32) -> Result<(), Signal> {
         let from = self.transaction_type_seen()?;
         if new == from {
@@ -93,14 +95,12 @@ impl Session {
         }
         let members = type_members();
         let name = |t: i32| members.get(t as usize).cloned().unwrap_or_default();
-        let decided = self.tx.phase == TxPhase::Write || self.tx.open.runner_tx;
-        // The test runner's transaction is measured under AutoCommit (TxTypeFirstTestMethod.al).
-        if self.tx.open.runner_tx && self.tx_model != crate::transactions::TxModel::AutoCommit {
+        let decided = self.tx.phase == TxPhase::Write;
+        if self.tx.phase == TxPhase::Fresh {
             return unsupported(format!(
-                "Database.CurrentTransactionType set to {} at the start of a test codeunit's first test method under \
-                 TransactionModel {:?} (measured under AutoCommit)",
-                name(new),
-                self.tx_model
+                "Database.CurrentTransactionType set to {} at the start of a test codeunit's first test method (whether the \
+                 test runner's transaction has started there depends on the codeunits that ran before it: not pinned)",
+                name(new)
             ));
         }
         let pinned = match (decided, from, new) {

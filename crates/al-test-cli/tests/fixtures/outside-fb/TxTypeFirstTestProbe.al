@@ -6,10 +6,13 @@
 //   has started. Each codeunit's first test method A sets the type after nothing, a read, an asserterror (with and without a
 //   write in it) or a Commit; its second test method B reads the type it starts with.
 //   * After nothing or a read, a set to Update or Snapshot raises DB:CannotChangeTransactionType ("... from UpdateNoLocks to
-//     ..."), and a set to Browse or Report has no effect: the type stays UpdateNoLocks, and B starts with it.
+//     ..."), and a set to Browse or Report has no effect: the type stays UpdateNoLocks, and B starts with it. This holds
+//     when another codeunit ran before in the same run, as here: run as the only codeunit of a run, "TxF None Update" fails,
+//     because the set to Update takes effect and B starts with Update.
 //   * After an asserterror, which rolls the transaction back, and after a Commit, the set takes effect, and B starts with the
-//     type set.
-//   Measured on a local BC 29.1 OnPrem w1 container (40/40 green, twice); BC 27.5, 28.5 and 29.0 are left to CI.
+//     type set; also as the only codeunit of a run ("TxF AssertError Update", "TxF AssertErrorWrite Snapshot").
+//   Measured on a local BC 29.1 OnPrem w1 container (40/40 green, twice, after the other codeunits of the app);
+//   BC 27.5, 28.5 and 29.0 are left to CI.
 // BC versions: 27, 28, 29
 codeunit 97212 "TxF None Update"
 {

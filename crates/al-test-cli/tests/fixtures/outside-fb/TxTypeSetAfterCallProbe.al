@@ -3,7 +3,7 @@
 // local object: the session's transaction type once a database call has started the transaction, and a write at a type that
 //   does not write
 // Fixtures used: shared Assert (60021); own table 97210 and test codeunit 97211
-// Probe (review of al-runner pull request 8607): what CurrentTransactionType(X) does once the transaction has started, by the
+// Probe (al-runner issues 8707, 8708 and 8709; review of al-runner pull request 8607): what CurrentTransactionType(X) does once the transaction has started, by the
 //   type it has and the call that started it, and what a write does at a type that does not write. Each cell commits, sets
 //   the type before any database call (that takes effect), runs the call, then sets the type again or writes.
 //   * After a write at UpdateNoLocks a set to Update or Snapshot raises DB:CannotChangeTransactionType, and a set to
