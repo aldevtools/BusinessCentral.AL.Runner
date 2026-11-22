@@ -145,8 +145,16 @@ BQ Tests 9b::AtSignAlone_TextFlowFilter_OverCodeAndText	ASSUMED at-sign-alone-da
 BQ Tests 9b::AtSignAlone_CodeFlowFilter_OverTextAndCode	ASSUMED at-sign-alone-database-blank (open corpus PR 1495: BgTaskQueryCache.al:5805)
 BQ Tests 9b::AtSignAlone_SourceFields_DatabaseAndTemporary	ASSUMED at-sign-alone-database-blank (open corpus PR 1495: BgTaskQueryCache.al:5818)
 BQ Tests 9b::AtSignAlone_LookupFlowFieldFilters_DatabaseAndTemporary	ASSUMED at-sign-alone-database-blank (open corpus PR 1495: BgTaskQueryCache.al:5847)
+# The cells of BQ Tests 9c (corpus PR 1495): a query's @ alone keeps the empty values; main refused it on a Code field and
+# kept every row of a Text field.
+BQ Tests 9c::QueryAtSignAlone_CodeColumn_KeepsTheEmptyValues	ASSUMED at-sign-alone-database-blank (open corpus PR 1495: BgTaskQueryCache.al:6407)
+BQ Tests 9c::QueryAtSignAlone_TextColumn_KeepsTheEmptyValues	ASSUMED at-sign-alone-database-blank (open corpus PR 1495: BgTaskQueryCache.al:6424)
+BQ Tests 9c::QueryAtSignAlone_CodeDataItemTableFilter_KeepsTheEmptyValues	ASSUMED at-sign-alone-database-blank (open corpus PR 1495: BgTaskQueryCache.al:6441)
+BQ Tests 9c::QueryAtSignAlone_TextDataItemTableFilter_KeepsTheEmptyValues	ASSUMED at-sign-alone-database-blank (open corpus PR 1495: BgTaskQueryCache.al:6457)
 # Neighbors (BQ Gate Tests: 100001 filters on a table of 503 fields, a FlowField filter next to the key set to its value in
 # three filter groups, the FlowField filters @k, <>K* and K*|X, a sum whose field() is a FlowField of the row after an
 # uncommitted note, a worker's fresh Record and RecordRef Count while the test session holds a filter in filter group 1):
 # BC answers them from the cache but @k, which reads the rows as they are; past what the cells measure, the head keeps
 # main's answer, so they fail on both alike (@k passes on both).
+# <>@ alone on a Code field is refused on both; @ alone on a platform table's Text field (BQ Gate Platform Tests) finds a
+# row and finds it again on BC and on both.

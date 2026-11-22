@@ -7,9 +7,9 @@
 // patterns, :5637; @k reads the rows as they are, as @k* does at :4794). Past :3429 (the worker's own record sets filter
 // group 1 while the test session holds none): the test session holds a filter in filter group 1 and the worker counts a
 // fresh Record and a RecordRef of the table. And a sum whose field() is a FlowField of the row after an uncommitted note (a
-// page background task's repeated CalcFields, drafted as an issue of its own). Past BQ Tests 9b: <>@ alone on a Code field
-// in the database (BC keeps the rows whose value is not empty) and @ alone on a query's Code and Text columns (BC keeps the
-// empty values, as a record read of the database does).
+// page background task's repeated CalcFields, drafted as an issue of its own). Past BQ Tests 9b and 9c: <>@ alone on a Code
+// field in the database (BC keeps the rows whose value is not empty), and @ alone on a platform table's Text field, read by
+// FindFirst and found again by Find('=').
 
 table 97532 "BQ Gate Widest"
 {
@@ -802,61 +802,24 @@ codeunit 97531 "BQ Gate Tests"
         end;
         Assert.AreEqual('0,0', Seen, 'the second counts less the first');
     end;
-    // Past BQ Tests 9b: <>@ alone on a Code field of the source rows in the database (K and empty), and @ alone on a query's
-    // Code and Text columns over them.
+
+    // Past BQ Tests 9b: <>@ alone on a Code field of the source rows in the database (K and empty).
     [Test]
-    procedure AtSignAloneNegatedCodeAndQueryColumns_SourceRows()
+    procedure AtSignAloneNegated_CodeField_SourceRows()
     var
         Source: Record "BQ Kind Source";
-        Kinds: Query "BQ Gate Kinds";
         G: Code[20];
-        Seen: Text;
-        N: Integer;
     begin
         G := NewGroup();
         Source."Group" := G;
         Source.Id := 1;
         Source."Code Kind" := 'K';
-        Source."Text Kind" := 'K';
         Source.Insert();
         Source.Id := 2;
         Source."Code Kind" := '';
-        Source."Text Kind" := '';
         Source.Insert();
         Source.SetRange("Group", G);
         Source.SetFilter("Code Kind", '<>@');
-        Seen := Format(Source.Count());
-        Kinds.SetRange(KindGroup, G);
-        Kinds.SetFilter(CodeKind, '@');
-        Kinds.Open();
-        while Kinds.Read() do
-            N += 1;
-        Kinds.Close();
-        Seen += '|' + Format(N);
-        N := 0;
-        Kinds.SetRange(CodeKind);
-        Kinds.SetFilter(TextKind, '@');
-        Kinds.Open();
-        while Kinds.Read() do
-            N += 1;
-        Kinds.Close();
-        Seen += '|' + Format(N);
-        Assert.AreEqual('1|1|1', Seen, '<>@ on Code, query @ on Code, query @ on Text');
+        Assert.AreEqual(1, Source.Count(), '<>@ on Code');
     end;
-}
-
-query 97533 "BQ Gate Kinds"
-{
-    QueryType = Normal;
-
-    elements
-    {
-        dataitem(Source; "BQ Kind Source")
-        {
-            column(KindGroup; "Group") { }
-            column(Id; Id) { }
-            column(CodeKind; "Code Kind") { }
-            column(TextKind; "Text Kind") { }
-        }
-    }
 }
