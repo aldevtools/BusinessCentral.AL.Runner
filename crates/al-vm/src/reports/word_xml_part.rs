@@ -219,7 +219,9 @@ impl Session {
             }
             (1, self.report_by_number(id, args.first())?.1)
         } else {
-            let inst = self.report_instance(receiver, false)?.0;
+            let inst = self
+                .report_instance(receiver, super::quit_in_init::InitQuit::Refuses)?
+                .0;
             (0, self.report_schema(&inst)?)
         };
         let extended = match args.get(flag_at) {
@@ -288,7 +290,7 @@ impl Session {
                 .map(|&e| engine.program.objects[e].report_ext.as_ref())
                 .collect(),
         };
-        let number = self.object_id_of(schema.object as u32);
+        let number = self.object_id_of(schema.object as u32)?;
         let ns = if extended { NS_EXTENDED } else { NS_PLAIN };
         let mut out = String::from("<?xml version=\"1.0\" encoding=\"utf-16\"?>\r\n");
         out.push_str(&format!(
@@ -371,12 +373,14 @@ impl Session {
             ItemRef::Added(k, _) => tree.report.extensions[k],
         };
         let mut out: Vec<(usize, &ir::ReportColumn)> = tree.item(r).columns.iter().map(|c| (owner, c)).collect();
-        if let ItemRef::Base(i) = r {
-            for (k, x) in tree.exts.iter().enumerate() {
-                let Some(x) = x else { continue };
-                for add in x.adds.iter().filter(|a| a.item == i) {
-                    out.extend(add.columns.iter().map(|c| (tree.report.extensions[k], c)));
-                }
+        for (k, x) in tree.exts.iter().enumerate() {
+            let Some(x) = x else { continue };
+            for add in x
+                .adds
+                .iter()
+                .filter(|a| super::item_anchor(tree.report, k, a.item) == Some(r))
+            {
+                out.extend(add.columns.iter().map(|c| (tree.report.extensions[k], c)));
             }
         }
         out

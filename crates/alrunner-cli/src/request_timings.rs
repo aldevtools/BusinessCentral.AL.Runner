@@ -31,7 +31,7 @@ pub struct RequestTimings {
 
 impl RequestTimings {
     /// The phases of a finished run `p`, with the setup parts and the coverage time the run measured itself, and the
-    /// test data it opened with its backup path (`run.rs` `open_backup`).
+    /// test data it opened with its backup path (`run/test_data.rs` `open_backup`).
     pub fn of(
         setup: SetupParts,
         p: &al_testrun::runtime::Phases,

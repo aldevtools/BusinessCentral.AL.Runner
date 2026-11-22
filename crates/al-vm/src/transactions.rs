@@ -131,6 +131,9 @@ pub(crate) fn al_error(message: &str) -> Signal {
     al_error_code(message, "")
 }
 
+/// `TxState::transaction_type` of a test's start: the TransactionType member UpdateNoLocks
+/// (session-system/ProbeSystemEnumMembers.al:60-161).
+pub(crate) const TRANSACTION_TYPE_UPDATE_NO_LOCKS: i32 = 0;
 /// How far the open transaction has started (`TxState::phase`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub(crate) enum TxPhase {
@@ -150,18 +153,6 @@ pub(crate) fn al_error_code(message: &str, code: &str) -> Signal {
         call_stack: String::new(),
         ..Default::default()
     }))
-}
-
-/// The emit version BC reports in a missing-object error. Only the measured builds are known
-/// (BC 27.5 is 27024 and BC 28.1 is 28014, read off the service tier by AL Runner v2:
-/// tests/runner-extras/object-metadata-system-table/OmstTests.Codeunit.al); any other build gets
-/// `<major>000`, which keeps the shape the corpus asserts (a number).
-fn emit_version(major: u16) -> u32 {
-    match major {
-        27 => 27024,
-        28 => 28014,
-        m => u32::from(m) * 1000,
-    }
 }
 
 impl Session {
@@ -212,17 +203,31 @@ impl Session {
             })
     }
 
-    /// The missing-object error with the object it names as the caller.
+    /// The missing-object error with the object it names as the caller. The text ends in the emit version of the run's
+    /// build, read from its platform artifact (`Engine::emit_version`; assumption
+    /// `missing-object-emit-version-from-artifact`: the corpus masks the number, errors/error-texts/AzErrorTexts.al:125).
+    /// When the number is not known the error is raised with its pinned code and no text, so only a read of the text is
+    /// refused.
     pub(crate) fn missing_object_from(&self, kind: &str, id: i64, caller: &str) -> Signal {
         if let Some(why) = self.missing_may_be_skipped(kind, id) {
             return Signal::unsupported(why);
         }
-        let major = self.engine.target.as_ref().map_or(29, |t| t.bc.major);
+        let emit_version = match self.engine.emit_version.get() {
+            Ok(n) => n,
+            Err(why) => {
+                return Signal::Error(Box::new(al_builtins::native::unpinned_text_error(
+                    "AL:MetadataNotFound",
+                    &format!(
+                        "the missing-object text: it ends with the emit version of the run's BC build, which is not known ({why})"
+                    ),
+                )));
+            }
+        };
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::MissingObjectEmitVersionFromArtifact);
         al_error_code(
             &format!(
                 "You tried to invoke the {kind} object with the ID {id} from the object {caller}. \
-                 An object with that ID does not exist in the current application compiled with emit version {}.",
-                emit_version(major)
+                 An object with that ID does not exist in the current application compiled with emit version {emit_version}."
             ),
             "AL:MetadataNotFound",
         )
@@ -751,7 +756,7 @@ impl Session {
             .iter()
             .any(|(k, v)| k.eq_ignore_ascii_case("Subtype") && v.trim().eq_ignore_ascii_case("Test"));
         if is_test && self.in_test_codeunit {
-            return Err(nested_test_codeunit(obj.id.unwrap_or(0), &obj.name));
+            return Err(nested_test_codeunit(crate::object_ids::declared_id(obj.id)?, &obj.name));
         }
         // ADR-066 decision 1: from a test runner codeunit's OnRun, the run of a test codeunit is the test runner's
         // (al-testrun), when one is installed.
@@ -770,7 +775,7 @@ impl Session {
             return Err(al_error_code(
                 &format!(
                     "Upgrade codeunit '{}' cannot be invoked outside the schema synchronization process.",
-                    obj.id.unwrap_or(0)
+                    crate::object_ids::declared_id(obj.id)?
                 ),
                 "UpgradeCodeunitOnRunCall",
             ));
@@ -833,12 +838,12 @@ impl Session {
             if let (Some(Value::Record(rc)), Value::Record(own)) = (record_arg, &inst.borrow().globals[slot]) {
                 let (given, wanted) = (rc.borrow().table as usize, own.borrow().table as usize);
                 if given != wanted {
-                    let id = |o: usize| engine.program.objects[o].id.unwrap_or(0);
+                    let id = |o: usize| crate::object_ids::declared_id(engine.program.objects[o].id);
                     return Err(al_error_code(
                         &format!(
                             "Record({}) is not compatible with Codeunit.Run(Record({})).",
-                            id(given),
-                            id(wanted)
+                            id(given)?,
+                            id(wanted)?
                         ),
                         "InvalidType",
                     ));
@@ -866,6 +871,8 @@ impl Session {
             }
         }
 
+        // A run ends the moment the Update report term is measured at (`OpenTx::at_test_start`).
+        self.tx.open.at_test_start = false;
         let on_run = obj
             .routines
             .iter()

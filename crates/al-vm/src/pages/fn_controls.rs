@@ -106,7 +106,7 @@ impl Session {
     pub(super) fn populate_current_pair_first(&mut self, st: &St) -> Result<(), Signal> {
         // A host that already read the row for its unlinked ListPart (`host_follows_part`) reads it once (Y63_TwoPart_LinkedPartNextFirst
         // `next log`).
-        if st.borrow().host_followed_part {
+        if st.borrow().lookup_left.host_followed() {
             return Ok(());
         }
         if !self.fn_log_controls(st).is_empty() {
@@ -207,7 +207,7 @@ impl Session {
                     Some(ir::PageType::Other(o)) if o == "listpart")
             })
             .count();
-        if list_parts == 2 && st.borrow().host_followed_part {
+        if list_parts == 2 && st.borrow().lookup_left.host_followed() {
             // The host, then the unlinked ListPart read the row the host moved to (Y63_TwoPart_LinkedPartNextFirst `next log`).
             self.fn_current_stage(st)?;
             let unlinked: Vec<St> = st.borrow().parts.iter().map(|(_, q)| q.clone()).collect();
@@ -221,7 +221,7 @@ impl Session {
         if list_parts == 1 {
             // After the refresh a Lookup left, a host without OnAfterGetCurrRecord reads its row as the client does a row it
             // holds (`lookup_next_refresh`).
-            if st.borrow().lookup_next_plain {
+            if st.borrow().lookup_left.next_plain() {
                 self.page_trigger_skipping_fn(st)?;
             }
             self.fn_current_stage(st)?;
@@ -229,7 +229,7 @@ impl Session {
         Ok(())
     }
 
-    /// Notes whether the tree of `root` stands as a cancelled TestField.Lookup left it (`PageState::lookup_cancelled`), on a host
+    /// Notes whether the tree of `root` stands as a cancelled TestField.Lookup left it (`LookupLeft::cancelled`), on a host
     /// with function controls: reads and part moves keep it, any other call ends it. `clean`: the call succeeded and the
     /// page's code called no `CurrPage` method.
     pub(super) fn note_lookup_cancelled(
@@ -244,10 +244,10 @@ impl Session {
         if method == PageOp::TestFieldLookup {
             let cancelled = clean
                 && Rc::ptr_eq(st, root)
-                && !root.borrow().lookup_value_set
-                && !root.borrow().lookup_refresh_deferred
+                && !root.borrow().lookup_left.value_set()
+                && !root.borrow().lookup_left.deferred()
                 && !self.fn_log_controls(root).is_empty();
-            root.borrow_mut().lookup_cancelled = cancelled;
+            root.borrow_mut().lookup_left.lookup_ended(cancelled);
             return;
         }
         let read =
@@ -256,7 +256,7 @@ impl Session {
             && !Rc::ptr_eq(st, root)
             && target.is_none();
         if !(clean && (read || part_move)) {
-            root.borrow_mut().lookup_cancelled = false;
+            root.borrow_mut().lookup_left.cancel_ended();
         }
     }
 
@@ -274,7 +274,7 @@ impl Session {
         if name == PageMethod::Next {
             self.fn_next_tail(st)?;
         }
-        st.borrow_mut().lookup_next_plain = false;
+        st.borrow_mut().lookup_left.host_step_done();
         Ok(())
     }
 

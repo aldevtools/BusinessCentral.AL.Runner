@@ -7,7 +7,6 @@
 //! recordref-fieldref/recordref/TestRecordRefFilter.al:23). Anything else is refused.
 
 use crate::Session;
-use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::describe::Describe;
 use al_builtins::filter::{FieldFilter, FilterExpr, needs_quotes};
 use al_builtins::native::{Signal, unsupported};
@@ -194,14 +193,15 @@ impl Session {
                 return unsupported("the filter text of a DateTime with seconds and no milliseconds (not pinned)");
             }
         }
-        // A closing date under another language than English: Format marks it with the letter of the language (assumption
-        // `closing-date-letter-by-language`); what GetFilter, GetFilters and GetView show there is not measured.
+        // A closing date under another language than English: Format marks it with the letter of the language
+        // (localization/global-language/GlobalLanguageClosingDate.al:155, :264). GetFilter of it is pinned
+        // (record/filters/FilterGlobalLanguageDateBool.al:271, :325) but not answered here; GetFilters and GetView are not measured.
         if let Value::Date(_, true) = v
-            && self.global_language != 1033
+            && self.global_language() != 1033
         {
             return unsupported(format!(
-                "the filter text of a closing date under GlobalLanguage {} (not measured)",
-                self.global_language
+                "the filter text of a closing date under GlobalLanguage {} (not implemented)",
+                self.global_language()
             ));
         }
         let text = self.message_value(v)?;
@@ -263,6 +263,13 @@ impl Session {
             // `@''` reads back as written (corpus master record/crud/RcAFilters.al:1011, :1026 `at two apos`).
             FilterExpr::Like(p, true) if p.is_empty() => "@''".to_string(),
             FilterExpr::Like(p, ci) => format!("{}{p}", if *ci { "@" } else { "" }),
+            // A pattern with a blank at one end comes only from `placeholder_wildcard_edge` on a Text field (the parser refuses it
+            // elsewhere). Only `GetFilter` of the field reads it (`field_filter_text`); GetFilters, GetView and the like are not measured.
+            e if let Some(p) = e.edge_blank_not_like() => {
+                return unsupported(format!(
+                    "a read of the filter `<>%1` with the wildcard text `{p}` with a blank at one end other than GetFilter of the field (not measured)"
+                ));
+            }
             // record/filters/WildcardGetFilter.al:125-171: `<>*`, `<>A*`, `<>@a*` read back as written.
             FilterExpr::NotLike(p, ci) => format!("<>{}{p}", if *ci { "@" } else { "" }),
             // record/filters/WcInvalidFilterExpr.al:84-111: `@` and `<>@` read back as written.
@@ -331,6 +338,11 @@ impl Session {
             .filter(|f| f.field == pos && f.group == r.filter_group)
             .map(|f| {
                 self.enum_ml_filter_check(&table, f)?;
+                // `<>'XYZ-* '`: corpus PR 1503 (open) record/filters/PlaceholderWildcardSuffix.al Text_NotEqualPlaceholder_StarSuffixValues;
+                // assumption `filter-placeholder-wildcard-edges`.
+                if let Some(p) = f.expr.edge_blank_not_like() {
+                    return Ok(format!("<>'{p}'"));
+                }
                 self.filter_text(&self.with_option_captions(&table, pos, &f.expr))
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -422,7 +434,7 @@ impl Session {
 
     /// The filters `get_filters` lists, in declaration order, except where a filter on a FlowField and a filter on a FlowFilter
     /// field form a pair: the FlowField comes first by declaration position or by field number. BC lists the FlowFilter first in
-    /// the one shape measured (assumption `get-filters-flowfilter-before-flowfield`, corpus PR 1430, ByValueRecordView.al:582):
+    /// the one shape pinned (record/filters/ByValueRecordView.al:575-576 with :582, :593-594 with :598):
     /// `Record.GetFilters`, filter group 0, no MarkedOnly, exactly those two filters, both fields declared by the table itself,
     /// the FlowField before the FlowFilter by position and by number alike, the FlowFilter's set first. Every other shape with
     /// such a pair refuses, also RecordRef.GetFilters and the filter list of a Find error: the order over field classes is not
@@ -460,10 +472,9 @@ impl Session {
             && set_at(&filters[1]) < set_at(&filters[0]);
         if !measured {
             return unsupported(
-                "GetFilters of a filter on a FlowField and a filter on a FlowFilter field, outside the one measured shape (the order over field classes is not measured, assumption get-filters-flowfilter-before-flowfield)",
+                "GetFilters of a filter on a FlowField and a filter on a FlowFilter field, outside the one pinned shape (ByValueRecordView.al:575-582; the order over field classes is not pinned)",
             );
         }
-        assume(Assumption::GetFiltersFlowfilterBeforeFlowfield);
         Ok(vec![filters[1].clone(), filters[0].clone()])
     }
 

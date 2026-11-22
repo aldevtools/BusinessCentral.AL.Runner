@@ -40,7 +40,7 @@ impl Session {
         let object = st.borrow().object as usize;
         let shape = {
             let s = st.borrow();
-            s.host.is_none() && s.modal && s.lookup && s.run_static == Some(true) && !s.tree_calls_unknown
+            s.host.is_none() && s.modal && s.lookup && s.modal_run == ModalRun::Static && !s.tree_calls_unknown
         };
         if !shape || engine.object_facts[object].page_type != Some(ir::PageType::Document) {
             return Ok(false);

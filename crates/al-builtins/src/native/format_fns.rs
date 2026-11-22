@@ -139,7 +139,7 @@ pub(super) fn format_decimal_field(
         if std != 0 {
             text.retain(|c| c != ',');
         }
-        return Ok(Value::Text(crate::format::pad(text, len).into()));
+        return unmeasured_length("a Decimal field with places", text, len);
     }
     plain(ctx, r, args)
 }
@@ -187,7 +187,7 @@ pub(super) fn format_field_string(
         if std != "0" {
             text.retain(|c| c != ',');
         }
-        return Ok(Value::Text(crate::format::pad(text, len).into()));
+        return unmeasured_length("a Decimal field with places", text, len);
     }
     let language = ctx.language();
     format_string_out(
@@ -314,7 +314,7 @@ pub(super) fn format_1(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Val
         _ => None,
     };
     if record_or_ref == Some(false) && matches!(std, 0 | 9) {
-        return Ok(Value::Text(crate::format::pad(String::new(), len).into()));
+        return unmeasured_length("a RecordRef that is not open", String::new(), len);
     }
     // A FieldRef with a format number other than 0 formats its value as `Format(FieldRef.Value, Length, Number)` does, which
     // differs from the field's own Format: a Decimal ignores the field's DecimalPlaces, an Option still shows its caption with 1
@@ -333,6 +333,7 @@ pub(super) fn format_1(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Val
                         "Format of a FieldRef with standard format {std} (only 1, 2 and 9 are pinned)"
                     )));
                 }
+                ctx.format_fieldref_read(&args[0])?;
                 let mut fr = args[0].clone();
                 let value = ctx.ref_op("FieldRef.Value#1", Some(&mut fr), &mut [])?;
                 let mut inner = [value, Value::Integer(len), Value::Integer(std)];
@@ -391,7 +392,8 @@ pub(super) fn format_1(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Val
         if let Some(r) = ctx.format_composite(&args[0]) {
             let t = r?;
             // A record's text longer than a length above 0 is cut to it (errors/lt-ms-refusals-133/
-            // P133DateEvaluateFormat.al:352-361 `length 5`, `length 20`); a shorter one is not pinned.
+            // P133DateEvaluateFormat.al:352-361 `length 5`, `length 20`); a shorter one, a negative length and any length of a
+            // RecordRef are not pinned.
             if matches!(&args[0], Value::Record(_)) && len > 0 {
                 let want = usize::try_from(len).unwrap_or(0);
                 if t.chars().count() <= want {
@@ -401,7 +403,7 @@ pub(super) fn format_1(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Val
                 }
                 return Ok(Value::Text(t.chars().take(want).collect::<String>().into()));
             }
-            return Ok(Value::Text(crate::format::pad(t, len).into()));
+            return unmeasured_length(&args[0].describe(), t, len);
         }
     }
     // Format of half of a surrogate pair is the one-unit text that holds it (ADR-068; streams/StTEncodings.al:238-244
@@ -419,6 +421,13 @@ pub(super) fn format_1(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Val
         }
     }
     format_value(&args[0], len, std, ctx)
+        .map(|s| Value::Text(s.into()))
+        .map_err(format_fail)
+}
+
+/// `text` as the Format of `what`, where no cited line measures a length (owner: `format::length::none_measured`).
+fn unmeasured_length(what: &str, text: String, len: i32) -> Result<Value, Signal> {
+    crate::format::length::none_measured(what, text, len)
         .map(|s| Value::Text(s.into()))
         .map_err(format_fail)
 }
@@ -485,4 +494,96 @@ pub(super) fn format_string_out(r: Result<String, String>, language: i32) -> Res
                 None => Signal::unsupported(e),
             },
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::native::Signal;
+    use crate::native::tests::{TestCtx, t};
+    use crate::value::{LibraryValue, Value};
+    use rust_decimal::Decimal;
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    fn call(ctx: &mut TestCtx, id: &str, mut args: Vec<Value>) -> Result<Value, Signal> {
+        crate::native::lookup(id).expect("registered")(ctx, None, &mut args)
+    }
+
+    fn text(r: Result<Value, Signal>) -> String {
+        match r {
+            Ok(Value::Text(s)) => s.to_string(),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    fn refused(r: Result<Value, Signal>) -> bool {
+        matches!(r, Err(Signal::Unsupported(_)))
+    }
+
+    /// Issue 8389: a Decimal field with places, in a standard format or a `<Standard Format,N>` string, takes no length: no
+    /// case measures one.
+    #[test]
+    fn a_decimal_field_with_places_and_a_length_refuses() {
+        let field = |len: i32, std: Value| {
+            vec![
+                Value::Decimal(Decimal::new(12345, 1)),
+                Value::Integer(len),
+                std,
+                t("2:2"),
+                Value::Integer(0),
+            ]
+        };
+        let mut ctx = TestCtx::default();
+        for std in [Value::Integer(0), t("<Standard Format,0>")] {
+            for len in [3, -3, 20] {
+                assert!(
+                    refused(call(&mut ctx, "System.FormatDecimalField#1", field(len, std.clone()))),
+                    "{len} {std:?}"
+                );
+            }
+            assert_eq!(
+                text(call(&mut ctx, "System.FormatDecimalField#1", field(0, std))),
+                "1,234.50"
+            );
+        }
+    }
+
+    /// Issue 8389: a RecordRef, open or not, and a Record with a negative length refuse a length; a Record's text longer than a
+    /// positive length is still cut (P133DateEvaluateFormat.al:352-361).
+    #[test]
+    fn a_record_or_record_ref_with_an_unmeasured_length_refuses() {
+        let closed = Value::Library("RecordRef".into(), Rc::new(RefCell::new(LibraryValue::Empty)));
+        let record = crate::describe::tests::record(7, false);
+        let open = match &record {
+            Value::Record(st) => Value::Library(
+                "RecordRef".into(),
+                Rc::new(RefCell::new(LibraryValue::RecordRef(st.clone()))),
+            ),
+            _ => unreachable!(),
+        };
+        let mut ctx = TestCtx::default();
+        ctx.composite = Some("Probe 8488 Row: 1".into());
+        for (v, len) in [
+            (closed.clone(), 5),
+            (closed.clone(), -5),
+            (open.clone(), 300),
+            (open.clone(), 3),
+            (record.clone(), -5),
+        ] {
+            let r = call(&mut ctx, "System.Format#1", vec![v.clone(), Value::Integer(len)]);
+            assert!(refused(r), "{v:?} {len}");
+        }
+        assert_eq!(
+            text(call(&mut ctx, "System.Format#1", vec![closed, Value::Integer(0)])),
+            ""
+        );
+        assert_eq!(
+            text(call(&mut ctx, "System.Format#1", vec![open, Value::Integer(0)])),
+            "Probe 8488 Row: 1"
+        );
+        assert_eq!(
+            text(call(&mut ctx, "System.Format#1", vec![record, Value::Integer(5)])),
+            "Probe"
+        );
+    }
 }

@@ -29,6 +29,11 @@ impl Lowerer<'_> {
         {
             return "System.EvaluateVariableOption#1";
         }
+        // A Date or DateTime local variable or parameter: the readers of corpus PR 1503 (al-builtins `evaluate::short_us_date`)
+        // were measured on these targets only; a field, a global and an array element keep the plain id.
+        if matches!(self.ty_of(a), Ty::Date | Ty::DateTime) && matches!(self.res(a), Some(Res::Local(_))) {
+            return "System.EvaluateDateVariable#1";
+        }
         if matches!(self.ty_of(a), Ty::Text(Some(_)) | Ty::Code(Some(_))) {
             return "System.EvaluateBounded#1";
         }
@@ -37,7 +42,7 @@ impl Lowerer<'_> {
 
     /// The target is a `var` parameter declared `Option` without members, or an element of a `var` array parameter of such
     /// Options (`var_option_arg::memberless_var_option_param`): it reads the caller's members, the Evaluate natives of these ids
-    /// read the text against them (al-builtins `evaluate::option_text`, assumption var-option-caller-members).
+    /// read the text against them (al-builtins `evaluate::option_text`).
     fn memberless_var_option_parameter(&self, a: &SyntaxNode) -> Option<&'static str> {
         let id = match a.kind() {
             SyntaxKind::NameRef => "System.EvaluateMemberlessVarOption#1",

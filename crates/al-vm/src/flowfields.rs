@@ -683,6 +683,7 @@ impl Session {
             self.permission_gate_flowfield(rec, calc.table, &[])?;
         }
         let cx = self.cx_for(rec, &src_t)?;
+        self.refuse_filter_over_rolled(&cx, &src_t, &filters)?;
         let n = self
             .store
             .count(&cx, &src_t, &filters)
@@ -750,6 +751,7 @@ impl Session {
             self.permission_gate_flowfield(rec, calc.table, stack)?;
         }
         let cx = self.cx_for(rec, &src_t)?;
+        self.refuse_filter_over_rolled(&cx, &src_t, &filters)?;
         let src_fields = &engine.program.objects[calc.table].table.as_ref().expect("table").fields;
         let (stored, flow): (Vec<FieldFilter>, Vec<FieldFilter>) = filters
             .iter()
@@ -933,9 +935,10 @@ impl Session {
                     }
                     return Ok(tally.best.unwrap_or_else(|| self.default_value(&src_ty)));
                 }
-                // Nothing matched: the type default (corpus record/TestCalcFormulaMinMaxAvgTests.Codeunit.al:250).
+                // Nothing matched: the type default (corpus record/TestCalcFormulaMinMaxAvgTests.Codeunit.al:250). A Time held past
+                // the day reads 00:00:00 (`sqltime::read_back`).
                 match tally.best {
-                    Some(v) => v,
+                    Some(v) => crate::sqltime::read_back_value(v),
                     None => self.default_value(&f.ty),
                 }
             }
@@ -1235,6 +1238,7 @@ impl Session {
     /// A Duration field sums too, also one in no SumIndexFields (record/flowfields/CalcSumsDuration.al
     /// CalcSums_Duration_All, _Filtered, _NotInSumIndexFields; `FieldRef.CalcSum`: FieldRefCalcSumTypes).
     pub(crate) fn calc_sums(&mut self, rec: &Rec, positions: &[usize]) -> Result<(), Signal> {
+        self.relation_field_no_calc_sum(rec, positions)?;
         let engine = self.engine.clone();
         let table = rec.borrow().table as usize;
         let t = self.engine.tables[table].clone().expect("table");
@@ -1311,8 +1315,11 @@ impl Session {
         // A database table compares its Time and DateTime columns with the filter values rounded as the columns hold them
         // (record/filters/P130DateFilters.al:206-227).
         if !r.temporary {
-            if let Some(t) = self.engine.tables[r.table as usize].as_ref() {
-                crate::sqltime::round_filters(t, &mut stored);
+            if let (Some(t), Some(schema)) = (
+                self.engine.tables[r.table as usize].as_ref(),
+                self.engine.program.objects[r.table as usize].table.as_ref(),
+            ) {
+                crate::sqltime::round_filters(t, schema, &mut stored);
             }
         }
         (stored, flow_fields)
@@ -1384,6 +1391,9 @@ impl Session {
                 let mut r = rec.borrow_mut();
                 if positions.is_empty() {
                     r.auto_calc.clear();
+                    // The record now calculates nothing of its own accord: its reads no longer rest on what its caller's
+                    // set was (`RecordState::auto_calc_dropped`).
+                    r.auto_calc_dropped = false;
                 } else {
                     for p in positions {
                         if !r.auto_calc.contains(&p) {
@@ -1397,9 +1407,18 @@ impl Session {
         Ok(Value::Boolean(true))
     }
 
-    /// After a row is read into `rec`: the fields of `SetAutoCalcFields`.
+    /// After a row is read into `rec`: the fields of `SetAutoCalcFields`. A row read of a by-value copy that did not take its
+    /// caller's SetAutoCalcFields (`RecordState::auto_calc_dropped`) rests on `by-value-record-no-auto-calc`, also when the
+    /// copy set fields of its own (record/filters/ByValueAutoCalcFields.al `ByValueAutoCalc_Codeunit_CalleeAddsAutoCalc`:
+    /// only those are calculated).
     pub(crate) fn auto_calculate(&mut self, rec: &Rec) -> Result<(), Signal> {
-        let auto = rec.borrow().auto_calc.clone();
+        let (auto, dropped) = {
+            let r = rec.borrow();
+            (r.auto_calc.clone(), r.auto_calc_dropped)
+        };
+        if dropped {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ByValueRecordNoAutoCalc);
+        }
         if auto.is_empty() {
             return Ok(());
         }
