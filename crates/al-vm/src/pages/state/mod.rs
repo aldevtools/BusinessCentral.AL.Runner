@@ -777,6 +777,8 @@ pub struct PageState {
     /// A rule pinned for one scenario ran on this page or one of its parts, and the scenario does nothing after it but the
     /// calls `PinnedEnd` lets through: every other test call is refused (`Session::refuse_after_pinned_end`).
     pub pinned_end: Option<crate::pages::pinned_shape::PinnedEnd>,
+    /// The steps of the cells of `validate_view_refresh.rs` the test took on this page since it opened.
+    pub validate_view: crate::pages::validate_view_refresh::ValidateView,
     /// `SetSelectionFilter` on the empty modal Worksheet answered once since the page opened
     /// (`empty_modal_worksheet_selection`); its pin makes one call.
     pub empty_selection_given: bool,
@@ -1175,6 +1177,7 @@ impl PageState {
         self.left_view_test_filter = Default::default();
         self.typed_key_dropped = false;
         self.pinned_end = None;
+        self.validate_view = Default::default();
         self.data_caption_at_open = false;
         self.data_caption_open_kept = false;
         self.ws_trigger_order = None;
