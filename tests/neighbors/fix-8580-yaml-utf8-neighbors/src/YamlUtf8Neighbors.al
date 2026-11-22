@@ -253,21 +253,22 @@ codeunit 60935 "YV Yaml Utf8 Tests"
     end;
 
     [Test]
-    procedure Refused_PunctuationInLiteral()
+    procedure Matrix_PunctuationInLiteral()
     begin
-        ReadStmt('q: |~  a, b.~n: 1');
+        Check('{"q":"a, b.\n","n":"1"}', ReadStmt('q: |~  a, b.~n: 1'));
     end;
 
     [Test]
-    procedure Refused_PunctuationFirstInFolded()
+    procedure Matrix_HyphenFirstInFolded()
     begin
-        ReadStmt('q: >-~  - a~n: 1');
+        Check('{"q":"- a","n":"1"}', ReadStmt('q: >-~  - a~n: 1'));
     end;
 
     [Test]
-    procedure Refused_CommaInListItemMappingValue()
+    procedure Matrix_CommaInListItemMappingValue()
     begin
-        ReadStmt('tests:~  - name: t~    description: Ask-order primary question, then more.');
+        Check('{"tests":[{"name":"t","description":"Ask-order primary question, then more."}]}',
+            ReadStmt('tests:~  - name: t~    description: Ask-order primary question, then more.'));
     end;
 
     [Test]
@@ -315,9 +316,9 @@ codeunit 60935 "YV Yaml Utf8 Tests"
     end;
 
     [Test]
-    procedure Refused_QuotedColonInNestedValue()
+    procedure Matrix_QuotedColonInNestedValueUsedResult()
     begin
-        ReadRet('o:~  q: say "a: b" end~n: 1');
+        Check('No|{}', ReadRet('o:~  q: say "a: b" end~n: 1'));
     end;
 
     [Test]

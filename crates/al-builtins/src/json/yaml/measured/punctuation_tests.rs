@@ -89,26 +89,17 @@ fn space_hash_starts_a_comment() {
     plain_all("a #b", "a");
 }
 
-/// ..PlainQuotedColon_Read :907, ..PlainQuotedColonSingle_Read :922 (`: ` inside quotes: the YAML error as a mapping value,
-/// a one-pair mapping as a list item) are not read; places no cell measures (a value of a list item mapping, a mapping
-/// value two levels down, a flow item) and forms next to the cells refuse, unmarked.
+/// ..PlainQuotedColonSingle_Read :922 (`: ` inside a list item: a one-pair mapping) is not read; places no cell measures
+/// (a mapping value two levels down, a flow item) and forms next to the cells refuse, unmarked. The matrix of PR 1519
+/// (`matrix_tests.rs`) reads the other shapes this list held before.
 #[test]
 fn unmeasured_neighbors_refuse() {
     for src in [
-        "o:~  q: say \"a: b\" end~n: 1",
         "k:~  - say 'a: b' end~  - c",
-        "k:~  - name: t~    description: a, b~",
         "o:~  p:~    q: a, b~n: 1",
         "o:~  q: [a (b) c]~n: 1",
-        "o:~  q: a,~n: 1",
-        "o:~  q: a (b)~n: 1",
-        "o:~  q: a \"b\"~n: 1",
-        "o:~  q: ,a~n: 1",
         "o:~  q: a  , b~n: 1",
         "o:~  q: a, \u{e9}~n: 1",
-        "o:~  q: a ^ b~n: 1",
-        "o:~  q: a #b c~n: 1",
-        "k:~  - a, b #c d~  - c",
         "q: a\u{2028}b, c~n: 1",
         "o:~  q: a\u{e9}b-c~n: 1",
         "k:~  - a\u{a7}b.~  - c",

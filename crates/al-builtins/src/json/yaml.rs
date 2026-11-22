@@ -197,10 +197,11 @@ pub(super) fn read_from_yaml(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
         Err(Signal::Unsupported(_)) => (read_measured(&text), true),
         doc => (doc, false),
     };
-    // A raw U+0085, U+2028 or U+2029 at a measured place (`measured::document`): with the result used, into an empty
-    // object, false and the YAML error left as the last error, the object as it was (corpus PR 1515, JsonYamlUtf8.al
-    // :735-798, read through the Boolean form of `TryRead` :60-66 after `Clear(JO)`). The statement form and a receiver
-    // that holds members are not measured.
+    // A raw U+0085, U+2028 or U+2029 at a measured place, or a value the punctuation matrix answers with the YAML error
+    // (`measured::document`): with the result used, into an empty object, false and the YAML error left as the last
+    // error, the object as it was (corpus PR 1515, JsonYamlUtf8.al :735-798, read through the Boolean form of `TryRead`
+    // :60-66 after `Clear(JO)`; corpus PR 1519, JsonYamlPunctMatrix.al `F1`, `TryRead` :48-54 and `Slot` :113-122). The
+    // statement form and a receiver that holds members are not measured.
     if measured && matches!(doc, Err(Signal::Error(_))) {
         let h = recv(r)?;
         let empty = with_node(&h, |n| matches!(n, JsonNode::Object(k) if k.is_empty()));
@@ -212,7 +213,7 @@ pub(super) fn read_from_yaml(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
                 Ok(Value::Boolean(false))
             }
             _ => unsupported(
-                "ReadFromYaml of a raw U+0085, U+2028 or U+2029 as a statement or into an object with members (not measured)",
+                "ReadFromYaml of a text that is not valid YAML, as a statement or into an object with members (not measured)",
             ),
         };
     }

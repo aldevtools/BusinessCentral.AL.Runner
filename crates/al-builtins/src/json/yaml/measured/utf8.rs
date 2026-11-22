@@ -66,34 +66,3 @@ pub(super) fn breaks_between_letters(text: &str) -> Option<String> {
 pub(super) fn folded_punctuation(c: char) -> bool {
     matches!(c, '.' | ',' | ':' | '-' | '/')
 }
-
-/// The punctuation corpus PR 1515 measured inside plain scalars, kept as written (`ReadFromYaml_Plain*_Read`, :856-1173):
-/// `,` `.` `:` `#` `(` `)` `/` `'` `"` `-` `?` `[` `]` `%` `@` `&`.
-const PLAIN_PUNCTUATION: &str = ",.:#()/'\"-?[]%@&";
-
-/// The marks of `PLAIN_PUNCTUATION` that only those cells measured (the PR 1493 reader takes `.` `:` `/` `-` already).
-const PLAIN_PUNCTUATION_NEW: &str = ",#()'\"?[]%@&";
-
-/// A plain scalar of ASCII letters, digits, single spaces and `PLAIN_PUNCTUATION` that holds a mark only PR 1515
-/// measured or starts with `-`: it starts with an ASCII letter or `-` and a letter (`-a b`, :1056), ends with a letter, a
-/// digit, `.` (`a ...`, :873) or `-` (`a b-`, :1073), and holds no `: ` (`say "a: b" end`, :907-936, is not read) and no
-/// ` #` (a comment, see `comment_word`).
-pub(super) fn plain_punctuated(v: &str) -> bool {
-    let mut chars = v.chars();
-    let start = match chars.next() {
-        Some('-') => chars.next().is_some_and(|c| c.is_ascii_alphabetic()),
-        Some(c) => c.is_ascii_alphabetic(),
-        None => false,
-    };
-    let end = v.ends_with(|c: char| c.is_ascii_alphanumeric() || c == '.' || c == '-');
-    let marks = v
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == ' ' || PLAIN_PUNCTUATION.contains(c));
-    let new = v.contains(|c: char| PLAIN_PUNCTUATION_NEW.contains(c)) || v.starts_with('-');
-    start && end && marks && new && !v.contains(": ") && !v.contains(" #") && !v.contains("  ")
-}
-
-/// The text after ` #` in a plain scalar that the cells read as a comment: ASCII letters only (`a #b`, :954-969).
-pub(super) fn comment_word(c: &str) -> bool {
-    !c.is_empty() && c.chars().all(|c| c.is_ascii_alphabetic())
-}

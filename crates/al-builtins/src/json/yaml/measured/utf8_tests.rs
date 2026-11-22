@@ -196,15 +196,10 @@ fn unmeasured_neighbors_refuse() {
         "\u{a7}b: 1~k:~  - c",
         "k:~  - \u{a7}b~  - c",
         "\"a\u{a7}b\": 1~k:~  - c",
-        // Punctuation in other block scalars, first or last in a `>-` line, other punctuation; a comma in a plain value.
-        "q: |~  a, b~n: 1",
-        "q: >~  a. b~n: 1",
-        "q: |-~  a/b~n: 1",
-        "q: >-~  - a~n: 1",
-        "q: >-~  a b.~n: 1",
-        "q: >-~  a; b~n: 1",
-        "q: >-~  a (b)~n: 1",
-        "tests:~  - name: t~    description: Ask-order primary question, then more.",
+        // Punctuation in block scalars below the places of the matrix of PR 1519 (`matrix_tests.rs` reads the others).
+        "o:~  q: |~    a, b~n: 1",
+        "o:~  q: >-~    a b.~n: 1",
+        "k:~  - name: t~    description: >~      a; b",
         // A raw U+0085 at another place: nested, in a literal or kept block, in a comment, a key, a list item, a flow
         // form, a single-quoted value, a tail comment, at a word edge.
         "k:~  q: a\u{85}b",
