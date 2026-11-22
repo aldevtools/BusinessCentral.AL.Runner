@@ -262,7 +262,10 @@ impl Session {
     /// codeunits' globals, the manual bindings, the `Random` sequence, the group 1 filters), plus the counters code
     /// advances (the clock, the Guid and SystemId draws and their key, the row versions) and the last error, as lines
     /// that compare across sessions: an instance is named by its codeunit id, not by its address (al-testrun
-    /// `login_replay.rs`, al-runner issue 8211).
+    /// `login_replay.rs`, al-runner issue 8211). It is not a pure read: `left_stamp` builds a fresh instance's globals to
+    /// compare with, and each temporary record among them takes a temporary table number (`Session::new_temp_id`), so
+    /// the session's counter moves on. Harmless: the number only names a temporary table's store inside the session, AL
+    /// code never sees it, and al-testrun's watched and partner logins call `left_stamp` the same way.
     pub fn state_lines(&mut self) -> StateLines {
         let stamp = self.left_stamp();
         let id = |o: usize| self.engine.program.objects[o].id.unwrap_or(0);

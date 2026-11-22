@@ -14,10 +14,14 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::{Mutex, PoisonError};
 
-/// Everything the login and its subscribers can read when the test session opens the company. Two sessions with the same
-/// key may share one run of the login only when they also hold the same after it ([`Check`]); a field left out of the
-/// key would let a replay hand a session the store of another input. The engine (the compiled program, its apps and
-/// their code) is not a field: the check lives on the engine (`Engine::derived`).
+/// The inputs of the login and its subscribers this check keys on, when the test session opens the company: the fields
+/// below. Two sessions with the same key may share one run of the login only when they also hold the same after it
+/// ([`Check`]); a field left out of the key would let a replay hand a session the store of another input. The engine
+/// (the compiled program, its apps and their code) is not a field: the check lives on the engine (`Engine::derived`).
+/// Not yet fields, though the login can read them: the clock start (`Scratch::clock_start`), the stability
+/// perturbation (`Scratch::perturb`) and the host's company list (the test data's `known_companies`); runtime
+/// `install_once.rs` `Key` holds the first two. Here a missing field can only show as a difference (the check replays
+/// nothing); a replay adds them before it serves a session (al-runner issue 8211).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Key {
     /// Every committed row before the login: the install baseline, what install code and an earlier codeunit left.
