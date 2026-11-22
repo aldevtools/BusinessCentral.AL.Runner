@@ -112,3 +112,18 @@ fn a_row_change_replay_keeps_the_number_order_of_the_key() {
     assert_eq!(up, ["1", "2", "10"]);
     assert_eq!(down, ["10", "2", "1"]);
 }
+
+/// A view without some rows (`MemStore::without_rows`, the rows the insert queue holds back from a page background task's worker)
+/// counts no access, write or store operation, and leaves the store it was taken from as it was.
+#[test]
+fn a_view_without_rows_counts_nothing_and_leaves_the_store() {
+    let t = int_table();
+    let s = store();
+    let (ops, accesses, writes) = (store_ops(), s.accesses(), s.writes());
+    let view = s.without_rows(&cx("C"), &t, &[code("9")]).unwrap();
+    assert_eq!((store_ops(), s.accesses(), s.writes()), (ops, accesses, writes));
+    assert_eq!(view.change_counter(), s.change_counter());
+    assert!(view.get(&cx("C"), &t, &code("9")).unwrap().is_none());
+    assert!(s.get(&cx("C"), &t, &code("9")).unwrap().is_some());
+    assert_eq!(order(&view).0, ["1", "10"]);
+}

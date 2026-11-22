@@ -1875,7 +1875,8 @@ impl Session {
     pub(crate) fn count_approx(&mut self, rec: &crate::records::Rec) -> Result<al_builtins::value::Value, Signal> {
         // The Count below would raise a deferred Insert error as Count does; for CountApprox that is not measured.
         if !rec.borrow().temporary {
-            self.refuse_unmeasured_read_while_deferred(rec.borrow().table as usize, "CountApprox")?;
+            let (table, company) = (rec.borrow().table as usize, rec.borrow().company.clone());
+            self.refuse_unmeasured_read_while_deferred(table, company.as_deref(), "CountApprox")?;
         }
         self.permission_from_al = self.permission_checks();
         self.record_op(al_builtins::record_op::RecordOp::Count, rec, &mut [])
