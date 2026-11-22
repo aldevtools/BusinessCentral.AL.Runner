@@ -2982,30 +2982,69 @@ fn a_coverage_request_after_one_without_coverage_gives_the_coverage_of_a_first_r
     assert_eq!(s.line(), json!({"status": "shutting down"}));
 }
 
-/// Removes what differs between two runs of the same request on purpose: the timings, the wall time, `cached` and the
-/// fresh seed of each daemon.
+/// Removes what differs between two runs of the same request on purpose, at any depth (the test lines of an `execute`
+/// answer are nested): the timings, the wall time, `cached` and the fresh seed of each daemon.
 fn without_times(lines: &[Value]) -> Vec<Value> {
+    fn strip(v: &mut Value) {
+        match v {
+            Value::Object(o) => {
+                for k in ["timings", "wallSeconds", "durationMs", "cached", "elapsedMs", "seed"] {
+                    o.remove(k);
+                }
+                o.values_mut().for_each(strip);
+            }
+            Value::Array(a) => a.iter_mut().for_each(strip),
+            _ => {}
+        }
+    }
     lines
         .iter()
         .map(|l| {
             let mut l = l.clone();
-            if let Some(o) = l.as_object_mut() {
-                for k in ["timings", "wallSeconds", "durationMs", "cached", "elapsedMs", "seed"] {
-                    o.remove(k);
-                }
-            }
+            strip(&mut l);
             l
         })
         .collect()
 }
 
-/// ADR-022 amendment 2026-11-15 (issue 8143): a restarted daemon over the same workspace (two `sourcePaths`) and the same
-/// cache folder reads the compiled workspace from the workspace layer (`workspaceCache: "read"`) and answers as the first
-/// daemon did.
-#[test]
-fn a_restarted_daemon_reads_the_compiled_workspace_and_answers_the_same() {
-    let d = tempfile::tempdir().unwrap();
-    let lib = d.path().join("lib");
+/// `request` sent alone to a new daemon over the cache folder `cache`: its answer, to the summary (or the one line of an
+/// `execute`, whose answer has no timings), and what its `--timings` line says the workspace layer did ("read",
+/// "built", "off" or "none" without the line).
+fn answer_of_a_new_daemon(cache: &Path, request: &Value) -> (Vec<Value>, String) {
+    let log = cache.with_extension("stderr.txt");
+    let dir = cache.to_string_lossy().to_string();
+    let err = std::fs::File::create(&log).unwrap();
+    let mut s = Server::start_to(
+        &["--no-download", "--no-test-data", "--timings", "--cache-dir", &dir],
+        &[],
+        Stdio::from(err),
+    );
+    assert_eq!(s.line(), json!({"ready": true}));
+    s.send(request.clone());
+    let lines = if request["command"] == "execute" {
+        vec![s.line()]
+    } else {
+        s.until_summary()
+    };
+    s.send(json!({"command": "shutdown"}));
+    s.line();
+    s.child.wait().unwrap();
+    let said = std::fs::read_to_string(&log).unwrap();
+    let state = said
+        .lines()
+        .find_map(|l| l.strip_prefix("compile cache: workspace layer "))
+        .and_then(|rest| rest.split(|c: char| !c.is_alphabetic()).next())
+        .unwrap_or("none")
+        .to_string();
+    if let Some(json_state) = lines.last().unwrap()["timings"].get("workspaceCache") {
+        assert_eq!(json_state, &json!(state), "the JSON and the --timings line: {said}");
+    }
+    (lines, state)
+}
+
+/// The apps of two `sourcePaths`: an app and its test app (issue 8143's shape).
+fn lib_and_tests(root: &Path) -> (PathBuf, PathBuf) {
+    let lib = root.join("lib");
     write(
         &lib,
         "app.json",
@@ -3016,7 +3055,7 @@ fn a_restarted_daemon_reads_the_compiled_workspace_and_answers_the_same() {
         "src/Lib.al",
         "codeunit 50300 Lib { procedure Twice(X: Integer): Integer begin exit(X * 2); end; }\n",
     );
-    let tests = d.path().join("tests");
+    let tests = root.join("tests");
     write(
         &tests,
         "app.json",
@@ -3027,28 +3066,64 @@ fn a_restarted_daemon_reads_the_compiled_workspace_and_answers_the_same() {
         "src/T.al",
         &MIXED.replace("Error('boom %1', 5);", "if 0 = 1 then; Error('boom %1', 5);"),
     );
-    let cache = d.path().join("cache").to_string_lossy().to_string();
-    let request = json!({"command": "runTests", "sourcePaths": [lib, tests]});
-    let mut answers = Vec::new();
-    for daemon in 0..2 {
-        let mut s = Server::start(&["--no-download", "--no-test-data", "--cache-dir", &cache]);
-        assert_eq!(s.line(), json!({"ready": true}));
-        s.send(request.clone());
-        let lines = s.until_summary();
-        let summary = lines.last().unwrap().clone();
-        let want = if daemon == 0 { "built" } else { "read" };
-        assert_eq!(
-            summary["timings"]["workspaceCache"],
-            json!(want),
-            "daemon {daemon}: {summary}"
-        );
-        assert_eq!(summary["cached"], json!(false), "{summary}");
-        s.send(json!({"command": "shutdown"}));
-        s.line();
-        s.child.wait().unwrap();
-        answers.push(without_times(&lines));
+    (lib, tests)
+}
+
+/// ADR-022 amendment 2026-11-15, "Equality requirement", serve suite (issue 8143): each request shape of this suite
+/// that compiles sources, sent to a fresh daemon (no entry yet) and then to a new daemon over the same cache folder. The
+/// second daemon reads the entry the first one built (`workspaceCache`: `built`, then `read`; `cached` stays false, as
+/// it means this daemon's kept compile), and the two answers are the same but for the timings.
+#[test]
+fn each_request_shape_answers_the_same_on_a_fresh_and_on_a_reading_daemon() {
+    let d = tempfile::tempdir().unwrap();
+    let mixed = app(d.path(), "mixed", MIXED);
+    let (lib, tests) = lib_and_tests(d.path());
+    let tdd = tdd_app(d.path());
+    let scratch = app(d.path(), "scratch", SCRATCH);
+    let broken = app(
+        d.path(),
+        "broken",
+        "codeunit 50990 Broken { Subtype = Test; [Test] procedure P() begin X := ; end; }\n",
+    );
+    let run = |more: Value| {
+        let mut r = json!({"command": "runTests", "sourcePaths": [mixed]});
+        for (k, v) in more.as_object().unwrap() {
+            r[k] = v.clone();
+        }
+        r
+    };
+    let requests = [
+        run(json!({})),
+        run(json!({"test": "Codeunit50100.Passes"})),
+        run(json!({"test": "Codeunit50100.Passes", "excludeTests": ["Codeunit50100.Fails"]})),
+        run(json!({"testIsolation": "test"})),
+        run(json!({"testRunner": "130450"})),
+        run(json!({"stopAfterFirstFailure": true})),
+        run(json!({"coverage": true, "perTestCoverage": true})),
+        run(json!({"entries": [
+            {"id": "e1", "excludeTestsExact": ["Passes"]},
+            {"id": "e2", "excludeTestsExact": ["Fails"]},
+        ]})),
+        json!({"command": "runTests", "sourcePaths": [lib, tests]}),
+        json!({"command": "runTests", "sourcePaths": [tdd], "tdd": true}),
+        json!({"command": "runTests", "sourcePaths": [broken]}),
+        json!({"command": "execute", "sourcePaths": [scratch]}),
+    ];
+    let mut states = Vec::new();
+    for (n, request) in requests.iter().enumerate() {
+        let cache = d.path().join(format!("cache-{n}"));
+        let (fresh, built) = answer_of_a_new_daemon(&cache, request);
+        let (read, reading) = answer_of_a_new_daemon(&cache, request);
+        states.push((built, reading));
+        assert_ne!(read.last().unwrap()["cached"], json!(true), "{request}");
+        assert_eq!(without_times(&fresh), without_times(&read), "{request}");
     }
-    assert_eq!(answers[0], answers[1]);
+    let built_then_read = ("built".to_string(), "read".to_string());
+    assert_eq!(
+        states,
+        vec![built_then_read; requests.len()],
+        "per request: {requests:?}"
+    );
 }
 
 /// The `--timings` line of the workspace layer is said for a request that compiled, as its JSON `workspaceCache` is: a
