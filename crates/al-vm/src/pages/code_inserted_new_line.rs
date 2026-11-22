@@ -575,16 +575,6 @@ impl Session {
         self.coded_must_have_landed(st)?;
         let save = std::mem::take(&mut st.borrow_mut().code_inserted_save);
         let why = match save {
-            // A SetValue on the row of the page with code whose validation did not save it (`FactboxStep::CodedTyped`).
-            CodeInsertedSave::Off
-                if matches!(
-                    st.borrow().code_inserted_row.as_ref().map(|r| r.factbox),
-                    Some(FactboxStep::CodedTyped { .. })
-                ) =>
-            {
-                "a SetValue on the row the new line of a List page with code and FactBoxes became, whose validation did not call \
-                 CurrPage.SaveRecord and then CurrPage.Update(false) (not measured)"
-            }
             CodeInsertedSave::Off => return Ok(()),
             CodeInsertedSave::Asked(view) if self.view_kept(st, &view)? => return Ok(()),
             CodeInsertedSave::Asked(_) => {

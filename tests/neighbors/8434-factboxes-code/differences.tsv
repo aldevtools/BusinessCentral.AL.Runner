@@ -11,14 +11,16 @@ LT NF Tests::ListNewLine_FactboxesCode_SecondValue_SameStepsAgain	ASSUMED list-n
 LT NF Tests::ListNewLine_FactboxesCode_UnknownName_ErrorUndoesTheInsert	REFUSED the validation of the first SetValue on a List page with code and FactBoxes, whose parts read its new line, did not leave the line
 LT NF Tests::ListNewLine_FactboxesCode_SubscriberBound_RunsAfterEachModify	REFUSED the validation of the first SetValue on a List page with code and FactBoxes, whose parts read its new line, did not leave the line
 LT NF Tests::ListNewLine_FactboxesCode_ValueFirst_SaveRecordInsertsTheLine	REFUSED AutoSplitKey on a part that is not read in primary key order
-# Neighbors: calls and code the probe does not measure. Main refused each at the landing; the head refuses each at that call.
+# Neighbors: calls the probe does not make, on page 97492 itself. Main refused each at the landing; the head refuses each at that
+# call, after the open and the first SetValue ran flagged.
 LT NF Neighbor Tests::ThirdValueSetValue	REFUSED a call on a List page with a CardPart FactBox, on the row its new line became
 LT NF Neighbor Tests::NextAfterTheLanding	REFUSED a call on a List page with a CardPart FactBox, on the row its new line became
 LT NF Neighbor Tests::ActionAfterTheLanding	REFUSED a call on a List page with a CardPart FactBox, on the row its new line became
 LT NF Neighbor Tests::SetValueOfAnotherControl	REFUSED a call on a List page with a CardPart FactBox, on the row its new line became
 LT NF Neighbor Tests::SecondNameSetValue	REFUSED a call on a List page with a CardPart FactBox, on the row its new line became
 LT NF Neighbor Tests::OverlongFirstSetValue	REFUSED a SetValue on a List page with code and FactBoxes, on its new line or on the row it became, ended without the landing
-LT NF Neighbor Tests::WritesAnotherRow	REFUSED the page's record, its view or the table changed between CurrPage.SaveRecord
-LT NF Neighbor Tests::WritesTheRowThroughAnotherRecord	REFUSED the page's record, its view or the table changed between CurrPage.SaveRecord
-LT NF Neighbor Tests::PartWritesRec	REFUSED a trigger of a List page with code and FactBoxes, or of its parts, wrote or changed Rec when the refresh read
-LT NF Neighbor Tests::FailingWorker	REFUSED a failing worker of a background task on a List page with code and FactBoxes
+# Code the probe does not run (Neighbors.al: DelayedInsert, a CaptionClass that calls a procedure, a part trigger, writes of another
+# row, of the row through another record, by a part trigger, a failing worker; CodeNeighbors.al: the review's shapes a-e) is not
+# the probe's line for line (code_inserted_pinned.rs coded_code): it keeps main's way, the same on both, so no row. Page 97523 is
+# page 97492 under another name with the probe's code: the page with code, flagged.
+LT NF Code Neighbor Tests::SameCode_AnotherName	ASSUMED list-new-line-coded-factboxes (corpus PR 1454, merged, not pinned yet: ListNewLineFactboxesCode.al)

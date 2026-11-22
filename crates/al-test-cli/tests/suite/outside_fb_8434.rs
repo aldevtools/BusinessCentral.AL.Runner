@@ -2,16 +2,22 @@
 //! ListNewLineFactboxesCode.al, measured on BC 29.1, 11 of 11 green) and the reporter's repro, run here until a bump pins the
 //! probe: a List page with code, control expressions, actions and four FactBoxes, whose new line the table field's OnValidate
 //! inserts before the control's OnValidate calls `CurrPage.SaveRecord()` and `CurrPage.Update(false)`
-//! (`al-vm` pages/code_inserted_coded.rs). Delete this file and the fixtures when the pin is in the corpus.
+//! (`al-vm` pages/code_inserted_coded.rs). The probe is read from its copy in the neighbor app. Delete this file when the pin
+//! is in the corpus.
 
 use al_builtins::assumptions::Assumption::{self, ListNewLineCodedFactboxes};
 use al_test_cli::report::Outcome;
 
-const PROBE: &str = include_str!("../fixtures/outside-fb/Issue8434Probe.al");
+/// The corpus probe, whole, as the neighbor app holds it (its first line says so).
+const PROBE: &str = include_str!("../../../../tests/neighbors/8434-factboxes-code/src/Probe.al");
 
 /// A stand-in for the System Application's codeunit the probe's OnOpenPage calls: false, as on the OnPrem container the probe
 /// was measured on.
-const ENVIRONMENT_INFORMATION: &str = "codeunit 457 \"Environment Information\"\n{\n    procedure IsSaaSInfrastructure(): Boolean\n    begin\n        exit(false);\n    end;\n}\n";
+const ENVIRONMENT_INFORMATION: &str =
+    include_str!("../../../../tests/neighbors/8434-factboxes-code/src/EnvironmentInformation.al");
+
+/// Main's refusal at the landing of a page that is not a measured cell.
+const MAIN_REFUSAL: &str = "CurrPage.Update on a page that shows no row";
 
 fn outcomes(src: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<Assumption>)> {
     let src = format!(
@@ -107,16 +113,19 @@ fn issue_8434_probe_cells() {
     }
 }
 
-/// The reporter's repro reaches the page's Where-Used part a second time after the Value step: its background task reads the
-/// rows the step changed again, which BC answers from its background sessions' query cache. Refused there.
+/// The reporter's repro: its code is not the probe's (review of #8463, round 1, finding 1), so it keeps main's way, with no
+/// flag.
 #[test]
-fn issue_8434_repro_stops_at_the_background_task_read_again() {
+fn issue_8434_repro_keeps_main() {
     let o = outcomes(
         include_str!("../fixtures/outside-fb/Issue8434.al"),
         "Repro Attr Line Tests",
     );
-    let [(_, r, _)] = o.as_slice() else { panic!("{o:?}") };
-    assert!(matches!(r, Outcome::NotRun(w) if w.contains("query cache")), "{r:?}");
+    let [(_, r, marks)] = o.as_slice() else { panic!("{o:?}") };
+    assert!(
+        matches!(r, Outcome::NotRun(w) if w.contains(MAIN_REFUSAL)) && marks.is_empty(),
+        "{r:?} {marks:?}"
+    );
 }
 
 /// The refusal of a call on the row the new line became that the probe does not make.
@@ -177,127 +186,182 @@ fn issue_8434_unmeasured_calls_are_refused() {
     }
 }
 
-/// A first SetValue that fails before its validation lands (a text longer than the field) and a background task whose worker
-/// fails are not measured, and refused.
+/// A first SetValue that fails before its validation lands (a text longer than the field) is not measured, and refused.
 #[test]
-fn issue_8434_unmeasured_failures_are_refused() {
-    for (name, change, why) in [
-        (
-            "an overlong first SetValue",
-            replace(
-                "        Lines.Name.SetValue('Station');\n        Check('setname', Log.Take());",
-                "        asserterror Lines.Name.SetValue('Station Station Station Station');\n        Check('setname', Log.Take());",
-            ),
-            "ended without the landing",
-        ),
-        (
-            "a failing worker",
-            replace(
-                "        Results.Add('Count', 'K' + Format(Kind.Count()));",
-                "        if Kind.Count() >= 0 then\n            Error('worker failed');\n        Results.Add('Count', 'K' + Format(Kind.Count()));",
-            ),
-            "a failing worker of a background task on a List page with code",
-        ),
-    ] {
-        let (r, marks) = probe_test("SecondaryKey_EmptyView_ReadsTheRowTwice", change);
-        assert!(
-            matches!(&r, Outcome::NotRun(w) if w.contains(why)),
-            "{name}: {r:?} {marks:?}"
-        );
-    }
-}
-
-/// Between the save and the update the code may write other tables, and the row itself when it reads Rec again; a write to
-/// another row of the page's table, and a row written while Rec still holds the old one, are refused. A part trigger that writes
-/// the row at the refresh's reads is refused too.
-#[test]
-fn issue_8434_unmeasured_writes_are_refused() {
-    let calc_modify =
-        "            Line.\"Calc State\" := Line.\"Calc State\"::Processed;\n            Line.Modify(false);";
-    type Change = Box<dyn Fn(&str) -> String>;
-    let cases: [(&str, Change, &str); 2] = [
-        (
-            "another row of the page's table",
-            Box::new(replace(
-                "        Setup.\"Calc Count\" += 1;\n        Setup.Modify();",
-                "        Setup.\"Calc Count\" += 1;\n        Setup.Modify();\n        Other.\"Group Code\" := 'G9';\n        Other.Insert();",
-            )),
-            "changed between CurrPage.SaveRecord",
-        ),
-        (
-            "the row written through another record, Rec not read again",
-            Box::new(move |s: &str| {
-                replace(
-                    "        if Line.GetBySystemId(Line.SystemId) then;\n    end;",
-                    "    end;",
-                )(&replace(
-                    calc_modify,
-                    "            Other.GetBySystemId(Line.SystemId);\n            Other.\"Calc State\" := Other.\"Calc State\"::Processed;\n            Other.Modify(false);",
-                )(s))
-            }),
-            "changed between CurrPage.SaveRecord",
-        ),
-    ];
-    for (name, change, why) in cases {
-        let declare = |s: &str| {
-            replace(
-                "        Setup: Record \"LT NF Setup\";\n        Log: Codeunit \"LT NF Log\";\n    begin\n        if Line.GetBySystemId",
-                "        Setup: Record \"LT NF Setup\";\n        Other: Record \"LT NF Line\";\n        Log: Codeunit \"LT NF Log\";\n    begin\n        if Line.GetBySystemId",
-            )(&change(s))
-        };
-        let (r, _) = probe_test("SecondaryKey_EmptyView_ReadsTheRowTwice", declare);
-        assert!(matches!(&r, Outcome::NotRun(w) if w.contains(why)), "{name}: {r:?}");
-    }
-    let (r, _) = probe_test(
+fn issue_8434_overlong_first_set_value_is_refused() {
+    let (r, marks) = probe_test(
         "SecondaryKey_EmptyView_ReadsTheRowTwice",
         replace(
-            "        RulesText := Format(Change.Count());",
-            "        RulesText := Format(Change.Count());\n        if Rec.Description = '' then begin\n            Rec.Description := 'read';\n            Rec.Modify();\n        end;",
+            "        Lines.Name.SetValue('Station');\n        Check('setname', Log.Take());",
+            "        asserterror Lines.Name.SetValue('Station Station Station Station');\n        Check('setname', Log.Take());",
         ),
     );
     assert!(
-        matches!(&r, Outcome::NotRun(w) if w.contains("wrote or changed Rec when the refresh read")),
-        "{r:?}"
+        matches!(&r, Outcome::NotRun(w) if w.contains("ended without the landing")),
+        "{r:?} {marks:?}"
     );
 }
 
-/// A fact the probe's pages do not have keeps main's way (no flag): a page property, a CaptionClass that calls a procedure
-/// (a field's Visible, Editable and StyleExpr cannot: AL0322), and a part page trigger.
+/// The save snapshots every row of the page's table to check what the code between the save and the update writes; past 1000
+/// rows it is not measured, and refused (a table of 1002 rows: 1001 of another group, outside the view).
 #[test]
-fn issue_8434_unmeasured_page_facts_keep_main() {
-    for (name, change) in [
+fn issue_8434_large_table_is_refused() {
+    let (r, marks) = probe_test("SecondaryKey_EmptyView_ReadsTheRowTwice", |s| {
+        let s = replace(
+            "        KindValue: Record \"LT NF Value\";\n    begin\n        Line.DeleteAll();",
+            "        KindValue: Record \"LT NF Value\";\n        Extra: Integer;\n    begin\n        Line.DeleteAll();",
+        )(s);
+        replace(
+            "        if RowBefore then begin\n            Line.Init();",
+            "        for Extra := 1 to 1001 do begin\n            Line.Init();\n            Line.\"Group Code\" := 'G9';\n            Line.\"Entry No.\" := 0;\n            Line.Insert();\n        end;\n        if RowBefore then begin\n            Line.Init();",
+        )(&s)
+    });
+    assert!(
+        matches!(&r, Outcome::NotRun(w) if w.contains("more than 1000 rows")),
+        "{r:?} {marks:?}"
+    );
+}
+
+/// Code that is not the probe's, on page 97492, its parts, its table or what they call, keeps main's way with no flag (review of
+/// #8463, round 1, finding 1; `code_inserted_pinned.rs` `coded_code`): the review's shapes (a) a part's
+/// OnPageBackgroundTaskCompleted that ends with `CurrPage.Update(false)`, (b) `CurrPage.Update(false)` without
+/// `CurrPage.Usage.Page.Invalidate()`, (c) a Value OnValidate that inserts a second row after its `CurrPage.Update(false)`, (d)
+/// another OnModify body, (e) another SourceTableView; and a page property, a control, a table field, a part trigger, a
+/// CaptionClass that calls a procedure, a worker that fails, and writes the probe does not make (another row of the page's
+/// table, the row through another record, a part trigger that writes the row). Main refuses each at the landing.
+#[test]
+fn issue_8434_other_code_keeps_main() {
+    let value_validate = "                    trigger OnValidate()\n                    begin\n                        Log.Add('P.VV(' + Rec.Value + ')');";
+    let calc_modify =
+        "            Line.\"Calc State\" := Line.\"Calc State\"::Processed;\n            Line.Modify(false);";
+    let calc_vars = "        Setup: Record \"LT NF Setup\";\n        Log: Codeunit \"LT NF Log\";\n    begin\n        if Line.GetBySystemId";
+    let calc_other = "        Setup: Record \"LT NF Setup\";\n        Other: Record \"LT NF Line\";\n        Log: Codeunit \"LT NF Log\";\n    begin\n        if Line.GetBySystemId";
+    type Change = Box<dyn Fn(&str) -> String>;
+    let cases: Vec<(&str, Change)> = vec![
         (
-            "DelayedInsert",
-            replace(
-                "    Editable = true;\n    PageType = List;",
-                "    Editable = true;\n    DelayedInsert = true;\n    PageType = List;",
-            ),
+            "(a) OnPageBackgroundTaskCompleted ends with CurrPage.Update(false)",
+            Box::new(replace(
+                "        Log.Add('W.DONE(' + UsageText + ')');\n    end;",
+                "        Log.Add('W.DONE(' + UsageText + ')');\n        CurrPage.Update(false);\n    end;",
+            )),
         ),
         (
-            "a CaptionClass that calls a procedure",
-            replace(
-                "                    CaptionClass = CustomHeader[1];",
-                "                    CaptionClass = StyleOf();",
-            ),
+            "(b) CurrPage.Update(false) without Invalidate",
+            Box::new(replace(
+                "        CurrPage.Usage.Page.Invalidate();\n        Log.Add('P.UPD');",
+                "        Log.Add('P.UPD');",
+            )),
+        ),
+        (
+            "(c) the Value OnValidate inserts a second row after the update",
+            Box::new(move |s: &str| {
+                let s = replace(
+                    value_validate,
+                    "                    trigger OnValidate()\n                    var\n                        Second: Record \"LT NF Line\";\n                    begin\n                        Log.Add('P.VV(' + Rec.Value + ')');",
+                )(s);
+                replace(
+                    "                        CalculateAndRefresh();\n                        Log.Add('P.VV.end');",
+                    "                        CalculateAndRefresh();\n                        Second.Init();\n                        Second.\"Group Code\" := Rec.\"Group Code\";\n                        Second.Insert(true);\n                        Log.Add('P.VV.end');",
+                )(&s)
+            }),
+        ),
+        (
+            "(d) another OnModify body",
+            Box::new(replace(
+                "        Log.Add('T.M(' + Name + '/' + Value + ')');",
+                "        Log.Add('T.M(' + Name + '/' + Value + ')');\n        Description := 'modified';",
+            )),
+        ),
+        (
+            "(e) SourceTableView sorting(Name)",
+            Box::new(replace(
+                "    SourceTableView = sorting(\"Sorting\") order(ascending);",
+                "    SourceTableView = sorting(Name) order(ascending);",
+            )),
+        ),
+        (
+            "DelayedInsert",
+            Box::new(replace(
+                "    Editable = true;\n    PageType = List;",
+                "    Editable = true;\n    DelayedInsert = true;\n    PageType = List;",
+            )),
+        ),
+        (
+            "a control",
+            Box::new(replace(
+                "                field(Description; Rec.Description)",
+                "                field(Style; Rec.Style) { ApplicationArea = Basic, Suite; }\n                field(Description; Rec.Description)",
+            )),
+        ),
+        (
+            "a table field",
+            Box::new(replace(
+                "        field(18; \"Old Flag\"; Boolean) { }",
+                "        field(18; \"Old Flag\"; Boolean) { }\n        field(20; Extra; Integer) { }",
+            )),
         ),
         (
             "a part trigger",
-            replace(
+            Box::new(replace(
                 "    trigger OnAfterGetRecord()\n    var\n        Change: Record \"LT NF Change\";",
                 "    trigger OnOpenPage()\n    begin\n    end;\n\n    trigger OnAfterGetRecord()\n    var\n        Change: Record \"LT NF Change\";",
-            ),
+            )),
         ),
-    ] {
-        let style_of = |s: &str| {
-            let s = change(s);
-            replace(
-                "    local procedure RefreshUsage()",
-                "    local procedure StyleOf(): Text\n    begin\n        exit(Rec.Style);\n    end;\n\n    local procedure RefreshUsage()",
-            )(&s)
-        };
-        let (r, marks) = probe_test("SecondaryKey_EmptyView_ReadsTheRowTwice", style_of);
+        (
+            "a CaptionClass that calls a procedure",
+            Box::new(|s: &str| {
+                let s = replace(
+                    "                    CaptionClass = CustomHeader[1];",
+                    "                    CaptionClass = StyleOf();",
+                )(s);
+                replace(
+                    "    local procedure RefreshUsage()",
+                    "    local procedure StyleOf(): Text\n    begin\n        exit(Rec.Style);\n    end;\n\n    local procedure RefreshUsage()",
+                )(&s)
+            }),
+        ),
+        (
+            "a worker that fails",
+            Box::new(replace(
+                "        Results.Add('Count', 'K' + Format(Kind.Count()));",
+                "        if Kind.Count() >= 0 then\n            Error('worker failed');\n        Results.Add('Count', 'K' + Format(Kind.Count()));",
+            )),
+        ),
+        (
+            "another row of the page's table",
+            Box::new(move |s: &str| {
+                replace(calc_vars, calc_other)(&replace(
+                    "        Setup.\"Calc Count\" += 1;\n        Setup.Modify();",
+                    "        Setup.\"Calc Count\" += 1;\n        Setup.Modify();\n        Other.\"Group Code\" := 'G9';\n        Other.Insert();",
+                )(s))
+            }),
+        ),
+        (
+            "the row written through another record",
+            Box::new(move |s: &str| {
+                let s = replace(
+                    calc_modify,
+                    "            Other.GetBySystemId(Line.SystemId);\n            Other.\"Calc State\" := Other.\"Calc State\"::Processed;\n            Other.Modify(false);",
+                )(s);
+                replace(calc_vars, calc_other)(&s)
+            }),
+        ),
+        (
+            "a part trigger that writes the row",
+            Box::new(replace(
+                "        RulesText := Format(Change.Count());",
+                "        RulesText := Format(Change.Count());\n        if Rec.Description = '' then begin\n            Rec.Description := 'read';\n            Rec.Modify();\n        end;",
+            )),
+        ),
+    ];
+    for (name, change) in cases {
+        let (r, marks) = probe_test("SecondaryKey_EmptyView_ReadsTheRowTwice", change);
+        // Main refuses the landing, or fails the probe's first check already: it does not run the parts' OnAfterGetCurrRecord at
+        // the open of a page that is not the page with code.
+        let main = matches!(&r, Outcome::NotRun(w) if w.contains(MAIN_REFUSAL))
+            || matches!(&r, Outcome::Fail(w) if w.contains("Actual:<open=P.OPEN;>"));
         assert!(
-            r != Outcome::Pass && !marks.contains(&ListNewLineCodedFactboxes),
+            main && !marks.contains(&ListNewLineCodedFactboxes),
             "{name}: {r:?} {marks:?}"
         );
     }

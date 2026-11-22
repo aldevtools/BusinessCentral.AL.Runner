@@ -1,10 +1,8 @@
-//! The page with code of al-runner issue 8434: a List page like the FactBox host of `code_inserted_new_line.rs`, which also
-//! declares Caption, Editable, Extensible and a SourceTableView, runs code in OnOpenPage, OnAfterGetRecord and OnDeleteRecord,
-//! carries control expressions and actions, and shows the Notes system part and up to three CardPart FactBoxes with triggers
-//! (one enqueues a page background task). Corpus pull request 1454 (merged, not pinned yet), tests/al-language/pages/currpage/
-//! ListNewLineFactboxesCode.al, measures it on Business Central 29.1 (11 of 11 green), under the assumption
-//! `list-new-line-coded-factboxes` until a bump pins it. Opened by a Page.RunModal statement on a record filtered to one group,
-//! on an empty view (:1401-1476):
+//! The page with code of al-runner issue 8434: page 97492 or 97493 of ListNewLineFactboxesCode.al (corpus pull request 1454,
+//! merged, not pinned yet), with its table, its three CardPart FactBoxes (one enqueues a page background task), the tables
+//! they read and the codeunits they call, all line for line (`code_inserted_pinned.rs` `coded_code`). The probe measures it on
+//! Business Central 29.1 (11 of 11 green), under the assumption `list-new-line-coded-factboxes` until a bump pins it. Opened
+//! by a Page.RunModal statement on a record filtered to one group, on an empty view (:1401-1476):
 //! - the open runs the parts' OnAfterGetCurrRecord on the blank record (`open=P.OPEN;W.AGCR();`), `coded_open_on_empty_view`;
 //! - the first SetValue after `New()` runs it again, before the validation (`setname=W.AGCR();T.VN(Station);...`),
 //!   `coded_line_before_set_value`;
@@ -14,290 +12,58 @@
 //! - up to two later SetValues whose validation saves the row and calls `CurrPage.Update(false)` refresh the same way
 //!   (:1407 `setvalue`, :1539 the value already there, :1576 a second one), then `OK()` runs nothing (`ok=`).
 //!
-//! The page's facts are in `coded_page_unmeasured`. The procedure the controls call may write other tables between the save
-//! and the update, never the page's table (`coded_rows`). The table may have manual subscribers nobody binds (:255-275, :1592
-//! binds one: refused). A row before the line (:1477), an error in the validation (:1499), a Value before any Name (:1553)
-//! and every other call are refused.
+//! Any other page, or other code, keeps main's way (`coded_page`). The table may have manual subscribers nobody binds
+//! (:255-274, :1592 binds one: refused). A row before the line (:1477), an error in the validation (:1499), a Value before any
+//! Name (:1553) and every other call are refused.
 
-use super::pinned_shape::{TestCall, code_stmts};
+use super::pinned_shape::TestCall;
 use super::state::{CodedLine, FactboxStep};
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::page_op::PageMethod;
 
-/// The page properties the probe's pages declare (:497-507, :818-827).
-const PAGE_PROPERTIES: [&str; 9] = [
-    "pagetype",
-    "sourcetable",
-    "autosplitkey",
-    "applicationarea",
-    "usagecategory",
-    "caption",
-    "editable",
-    "extensible",
-    "sourcetableview",
-];
-
-/// The page triggers of the probe's pages (:743-780).
-const PAGE_TRIGGERS: [&str; 3] = ["onopenpage", "onaftergetrecord", "ondeleterecord"];
-
-/// The properties of the probe's field controls (:515-667).
-const FIELD_PROPERTIES: [&str; 15] = [
-    "applicationarea",
-    "caption",
-    "tooltip",
-    "styleexpr",
-    "style",
-    "tablerelation",
-    "editable",
-    "visible",
-    "blankzero",
-    "drilldown",
-    "lookup",
-    "captionclass",
-    "obsoletestate",
-    "obsoletetag",
-    "obsoletereason",
-];
-
-/// The properties of the probe's actions (:696-737).
-const ACTION_PROPERTIES: [&str; 6] = ["applicationarea", "caption", "image", "tooltip", "visible", "enabled"];
-
-/// The page properties of the probe's CardParts (:310-496).
-const PART_PAGE_PROPERTIES: [&str; 7] = [
-    "caption",
-    "editable",
-    "pagetype",
-    "sourcetable",
-    "usagecategory",
-    "applicationarea",
-    "extensible",
-];
-
-/// The properties of the field controls of the probe's CardParts (:310-496).
-const PART_FIELD_PROPERTIES: [&str; 7] = [
-    "applicationarea",
-    "caption",
-    "showcaption",
-    "multiline",
-    "drilldown",
-    "style",
-    "styleexpr",
-];
-
-/// The triggers of the probe's CardParts (:333, :443-496).
-const PART_TRIGGERS: [&str; 4] = [
-    "onaftergetrecord",
-    "onaftergetcurrrecord",
-    "onpagebackgroundtaskcompleted",
-    "onpagebackgroundtaskerror",
-];
-
 impl Session {
-    /// Whether page `st` is the page with code (`coded_page_unmeasured`).
+    /// Whether page `st` is the page with code: the probe's objects line for line (`coded_code`), shown as the probe shows
+    /// them: Rec stored; no subscriber to the page or its table but manual ones (:255-274; whether one is bound matters only
+    /// from the landing on, where `no_active_subscriber` refuses it, :1592); its three parts shown, each over the host's
+    /// table, stored, not marked and filtered by its link only (`coded_part`).
     pub(super) fn coded_page(&self, st: &St) -> Result<bool, Signal> {
-        Ok(self.coded_page_unmeasured(st)?.is_none())
-    }
-
-    /// The first fact of page `st` the probe's pages do not have, `None` when it has only theirs:
-    /// - a List page over a stored table, without page extension or subscriber, with the properties of `PAGE_PROPERTIES`
-    ///   (AutoSplitKey and Editable true, Extensible false, a SourceTableView that sorts ascending and filters nothing) and the triggers of `PAGE_TRIGGERS`, OnAfterGetRecord among them;
-    /// - a repeater with Caption and IndentationColumn at most, field controls over Rec or a variable with the properties of
-    ///   `FIELD_PROPERTIES` and an OnValidate at most, actions in groups with the properties of `ACTION_PROPERTIES` and an
-    ///   OnAction at most; every property that is an expression reads variables, fields, constants and array elements at
-    ///   constant indexes, and calls nothing (`plain_property`);
-    /// - three CardParts (`coded_part`) in the measured roles: one with OnAfterGetRecord, one without a trigger, one with the
-    ///   background task's triggers; no hidden part;
-    /// - the table: no table extension, and no subscriber but manual ones (:255-275). Whether one is bound matters only from the
-    ///   landing on, where `no_active_subscriber` refuses it (:1592 binds one).
-    fn coded_page_unmeasured(&self, st: &St) -> Result<Option<&'static str>, Signal> {
-        // Manual subscribers to the page's events are allowed (:255-275); whether one is bound matters from the landing on.
-        let unextended = {
-            let engine = self.engine();
-            let object = st.borrow().object as usize;
-            page_of(&engine, st).extensions.is_empty() && engine.events.manual_subscribers_of(object).is_some()
-        };
-        if !(self.is_list_page(st) && self.has_source(st) && unextended) {
-            return Ok(Some("page"));
-        }
+        let manual_only = |object: usize| self.engine().events.manual_subscribers_of(object).is_some();
         let rec = self.page_rec(st);
-        if rec.borrow().temporary {
-            return Ok(Some("temporary"));
-        }
-        let table = self.table(&rec)?;
+        let table = rec.borrow().table as usize;
         let parts = st.borrow().parts.clone();
-        if !st.borrow().hidden_parts.is_empty() || parts.len() != 3 {
-            return Ok(Some("parts"));
-        }
-        let mut profiles = Vec::new();
-        for (idx, part) in &parts {
-            if !self.coded_part(st, *idx, part)? {
-                return Ok(Some("part"));
-            }
-            let engine = self.engine();
-            let mut names: Vec<String> = page_of(&engine, part).triggers.iter().map(|(n, _)| n.clone()).collect();
-            names.sort_unstable();
-            profiles.push(names.join(","));
-        }
-        // The three measured roles (:310-347, :348-398, :399-496): OnAfterGetRecord; no trigger; the background task, with
-        // OnPageBackgroundTaskError, or without it as in the repro of al-runner issue 8434 (green on BC 29.1). A worker that
-        // fails on this page is refused (`bg_drain`), so the error trigger never runs here.
-        profiles.sort_unstable();
-        let measured = |task: &str| profiles == ["", task, "onaftergetrecord"];
-        if !(measured("onaftergetcurrrecord,onpagebackgroundtaskcompleted,onpagebackgroundtaskerror")
-            || measured("onaftergetcurrrecord,onpagebackgroundtaskcompleted"))
+        if !(self.has_source(st)
+            && !rec.borrow().temporary
+            && manual_only(st.borrow().object as usize)
+            && manual_only(table)
+            && st.borrow().hidden_parts.is_empty()
+            && parts.len() == 3)
         {
-            return Ok(Some("part roles"));
+            return Ok(false);
         }
-        let engine = self.engine();
-        let program = &engine.program;
-        let object = st.borrow().object as usize;
-        let page = page_of(&engine, st);
-        let property = |(name, value): &(String, String)| {
-            let value = value.trim().to_ascii_lowercase();
-            match name.to_ascii_lowercase().as_str() {
-                "autosplitkey" | "editable" => value == "true",
-                "extensible" => value == "false",
-                "sourcetableview" => {
-                    value.starts_with("sorting(") && value.ends_with("order(ascending)") && !value.contains("where")
-                }
-                n => PAGE_PROPERTIES.contains(&n),
+        for (_, part) in &parts {
+            if !self.coded_part(st, part)? {
+                return Ok(false);
             }
-        };
-        let properties = &program.objects[object].properties;
-        if !(properties.iter().all(property) && properties.iter().any(|(n, _)| n.eq_ignore_ascii_case("autosplitkey")))
-        {
-            return Ok(Some("page property"));
         }
-        let triggers_measured = page.triggers.iter().all(|(n, _)| PAGE_TRIGGERS.contains(&n.as_str()))
-            && page.triggers.iter().any(|(n, _)| n == "onaftergetrecord");
-        if !triggers_measured {
-            return Ok(Some("page trigger"));
-        }
-        let only = |c: &ir::Control, props: &[&str], triggers: &[&str]| {
-            c.owner.is_none()
-                && c.ext_triggers.is_empty()
-                && c.triggers.iter().all(|(n, _)| triggers.contains(&n.as_str()))
-                && c.props
-                    .iter()
-                    .all(|(k, v)| props.contains(&k.as_str()) && plain_property(program, object, v))
-        };
-        let controls = page.controls.iter().all(|c| match c.kind {
-            ir::ControlKind::Repeater => {
-                c.binding == ir::Binding::None
-                    && only(c, &["caption", "indentationcolumn"], &[])
-                    && c.props
-                        .iter()
-                        .all(|(k, v)| k != "indentationcolumn" || matches!(v, ir::PropVal::Lit(l) if l.trim() == "0"))
-            }
-            ir::ControlKind::Field => match c.binding {
-                ir::Binding::Field(_) | ir::Binding::Var(_) => only(c, &FIELD_PROPERTIES, &["onvalidate"]),
-                // An element of an array variable (:632 `CustomValue[1]`): the expression reads it, `__sourceset` writes it.
-                ir::Binding::Expr(r) => {
-                    plain_property(program, object, &ir::PropVal::Routine(r))
-                        && only(c, &FIELD_PROPERTIES, &["onvalidate", "__sourceset"])
-                }
-                _ => false,
-            },
-            ir::ControlKind::Action => only(c, &ACTION_PROPERTIES, &["onaction"]),
-            ir::ControlKind::ActionGroup => only(c, &["caption"], &[]),
-            ir::ControlKind::Part => true,
-            _ => false,
-        });
-        if !controls {
-            return Ok(Some("control"));
-        }
-        let table_object = table.object as usize;
-        let plain_table = program.objects[table_object]
-            .table
-            .as_ref()
-            .is_some_and(|t| t.extensions.is_empty())
-            && engine.events.manual_subscribers_of(table_object).is_some();
-        if !plain_table {
-            return Ok(Some("table"));
-        }
-        Ok(None)
+        Ok(self.coded_code(st))
     }
 
-    /// Whether part control `idx` of host `st` and its page `part` are a FactBox of the probe (:310-496): a CardPart over the
-    /// host's table, linked on every primary key field to itself, the control with ApplicationArea, SubPageLink and
-    /// UpdatePropagation SubPart at most; the part's page with the properties of `PART_PAGE_PROPERTIES` (Editable and Extensible
-    /// false) and the triggers of `PART_TRIGGERS`; its controls fields over Rec, a variable or a field of a record variable with
-    /// the properties of `PART_FIELD_PROPERTIES` and an OnDrillDown at most, cue groups with a Caption, and actions with Caption,
-    /// Image and ToolTip and an OnAction; its Rec stored, not marked, filtered by the link only; no page extension, no subscriber.
-    fn coded_part(&self, st: &St, idx: usize, part: &St) -> Result<bool, Signal> {
+    /// Whether part `part` of host `st` shows its rows as the probe's parts do: over the host's table, stored, not marked,
+    /// filtered by its link on the primary key only, with no page extension and no subscriber.
+    fn coded_part(&self, st: &St, part: &St) -> Result<bool, Signal> {
         if !self.has_source(part) || !self.unextended_unsubscribed(part) {
             return Ok(false);
         }
         let (host_rec, part_rec) = (self.page_rec(st), self.page_rec(part));
         let key = self.table(&host_rec)?.keys[0].clone();
-        let same_table = {
-            let (h, p) = (host_rec.borrow(), part_rec.borrow());
-            h.table == p.table
-                && !p.temporary
-                && !p.marked_only
-                && p.filters
-                    .iter()
-                    .all(|f| f.group == super::parts::LINK_GROUP && key.contains(&f.field))
-        };
-        let engine = self.engine();
-        let program = &engine.program;
-        let part_object = part.borrow().object as usize;
-        let control = &page_of(&engine, st).controls[idx];
-        let link = control.part_link.as_ref().is_some_and(|l| {
-            l.provider.is_none()
-                && l.view.is_none()
-                && l.entries.len() == key.len()
-                && l.entries
-                    .iter()
-                    .zip(&key)
-                    .all(|(e, k)| matches!(e, ir::LinkEntry::Field(pf, hf) if pf == k && hf == k))
-        });
-        let part_control = control.factbox
-            && control.props.iter().all(|(k, v)| match k.as_str() {
-                "applicationarea" | "subpagelink" => true,
-                "updatepropagation" => matches!(v, ir::PropVal::Lit(l) if unquote(l).eq_ignore_ascii_case("subpart")),
-                _ => false,
-            });
-        let card_part = engine.object_facts[part_object].page_type == Some(ir::PageType::Other("cardpart".into()));
-        let part_properties =
-            program.objects[part_object]
-                .properties
+        let (h, p) = (host_rec.borrow(), part_rec.borrow());
+        Ok(h.table == p.table
+            && !p.temporary
+            && !p.marked_only
+            && p.filters
                 .iter()
-                .all(|(k, v)| match k.to_ascii_lowercase().as_str() {
-                    "editable" | "extensible" => v.trim().eq_ignore_ascii_case("false"),
-                    n => PART_PAGE_PROPERTIES.contains(&n),
-                });
-        let part_page = page_of(&engine, part);
-        let part_triggers = part_page
-            .triggers
-            .iter()
-            .all(|(n, _)| PART_TRIGGERS.contains(&n.as_str()));
-        let only = |c: &ir::Control, props: &[&str], triggers: &[&str]| {
-            c.owner.is_none()
-                && c.ext_triggers.is_empty()
-                && c.triggers.iter().all(|(n, _)| triggers.contains(&n.as_str()))
-                && c.props.iter().all(|(k, v)| {
-                    props.contains(&k.as_str())
-                        && plain_property(program, part_object, v)
-                        && (k != "showcaption"
-                            || matches!(v, ir::PropVal::Lit(l) if l.trim().eq_ignore_ascii_case("false")))
-                })
-        };
-        let part_controls = part_page.controls.iter().all(|c| match (&c.kind, &c.binding) {
-            (ir::ControlKind::Field, ir::Binding::Field(_) | ir::Binding::Var(_)) => {
-                only(c, &PART_FIELD_PROPERTIES, &["ondrilldown"])
-            }
-            // A field of a temporary record variable (the cue group's `TempKind.Name`): the expression reads it.
-            (ir::ControlKind::Field, ir::Binding::Expr(r)) => {
-                plain_property(program, part_object, &ir::PropVal::Routine(*r))
-                    && only(c, &PART_FIELD_PROPERTIES, &["ondrilldown", "__sourceset"])
-            }
-            (ir::ControlKind::CueGroup, _) => only(c, &["caption"], &[]),
-            (ir::ControlKind::Action, _) => only(c, &["caption", "image", "tooltip"], &["onaction"]),
-            _ => false,
-        });
-        Ok(same_table && link && part_control && card_part && part_properties && part_triggers && part_controls)
+                .all(|f| f.group == super::parts::LINK_GROUP && key.contains(&f.field)))
     }
 
     /// Whether every subscriber to an event of table object `table` is a manual one with no instance bound now (the probe's
@@ -494,38 +260,5 @@ impl Session {
         }
         let rows = self.view_rows(&probe, 1001)?;
         Ok((rows.len() <= 1000).then_some(rows))
-    }
-}
-
-/// Whether property value `v` of a control of `object` is a literal, or an expression that reads only (`plain_expr`).
-fn plain_property(program: &ir::Program, object: usize, v: &ir::PropVal) -> bool {
-    match v {
-        ir::PropVal::Lit(_) => true,
-        ir::PropVal::Routine(r) => {
-            matches!(code_stmts(program, object, *r).as_slice(), [ir::Stmt::Exit(Some(e))] if plain_expr(e))
-        }
-        ir::PropVal::Ext(..) => false,
-    }
-}
-
-/// Whether `e` reads variables, fields, constants and array elements at constant indexes, with operators, and calls nothing
-/// (the probe's `Rec.Style`, `ValueEditable`, `Rec."Has Quantity"`, `CustomHeader[1]`, `(Rec."Kind Type" = Rec."Kind Type"::Option)`,
-/// `Rec."Kind ID" <> 0`).
-fn plain_expr(e: &ir::Expr) -> bool {
-    match e {
-        ir::Expr::Const(_) => true,
-        ir::Expr::Load(p) => plain_place(p),
-        ir::Expr::Unary(_, a) | ir::Expr::Convert(_, a) => plain_expr(a),
-        ir::Expr::Binary(_, a, b) => plain_expr(a) && plain_expr(b),
-        _ => false,
-    }
-}
-
-fn plain_place(p: &ir::Place) -> bool {
-    match p {
-        ir::Place::Local(_) | ir::Place::Global(_) => true,
-        ir::Place::Field(base, _) => plain_place(base),
-        ir::Place::Index(base, at) => plain_place(base) && at.iter().all(|e| matches!(e, ir::Expr::Const(_))),
-        _ => false,
     }
 }

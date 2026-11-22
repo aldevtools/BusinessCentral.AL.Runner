@@ -300,13 +300,6 @@ impl Session {
                     let r = self.bg_completed(st, id, &results);
                     self.torn_down_on_error(st, r)?;
                 }
-                // The probe of the page with code measures only workers that complete (ListNewLineFactboxesCode.al:399-496).
-                Err(_) if watch => {
-                    return unsupported(
-                        "a failing worker of a background task on a List page with code and FactBoxes, on its new line or the \
-                         row it became (not measured)",
-                    );
-                }
                 // A failing worker under ErrorLevel Ignore: the error trigger runs, and the page stays open even though the
                 // trigger did not mark the error as handled (pages/background-tasks/W2BackgroundTasks.al:455 ErrorLevel_Ignore, `open|ok` = Yes,
                 // `log` = `error(id=n,row=L1,handled_in=false);`).
