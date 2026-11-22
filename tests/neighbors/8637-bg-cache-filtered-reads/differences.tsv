@@ -107,7 +107,28 @@ BQ Tests 7::BgQueryCache_Run_AllForms_FlowFilter_FirstAnswer	ASSUMED background-
 BQ Tests 7::BgQueryCache_Run_TestReadsFirst_GroupShapes_FirstReadsAnswerThem	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:3520)
 BQ Tests 7::BgQueryCache_Run_TestReadsFirst_ManyFilters_FirstReadsAnswerThem	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:3536)
 BQ Tests 7::BgQueryCache_Run_TestReadsFirst_FlowShapes_WorkerReads	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:3552)
-# Neighbors (BQ Gate Tests: 7651 filters, a FlowField filter next to the key with a filter outside the key, as a range, or
-# with the key in filter group 5, a worker's fresh Record and RecordRef Count while the test session holds a filter in filter
-# group 1): BC answers them from the cache; past what the cells measure, the head keeps main's answer, so they fail on
-# both alike.
+# The cells of BQ Tests 8 (corpus PR 1495): more than 7650 filters and FindFirst and FindLast with FlowField filters next to
+# one value on the key in any shape answer from the cache; main read the table, or refused every read of table 97593 after
+# the worker's key filter in filter group 1. The key in the OR group or as two values reads the table on both, flagged on
+# the head (a later read of table 97593); the commit of the line passes on both, clean.
+BQ Tests 8::BgQueryCache_Run_AllForms_MoreThan7650Filters_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:4226)
+BQ Tests 8::BgQueryCache_Run_AllForms_FiltersOfTheirOwnValues_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:4234)
+BQ Tests 8::BgQueryCache_Run_AllForms_WiderTable_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:4243)
+BQ Tests 8::BgQueryCache_Run_FlowFieldWithKey_OtherFilters_FindsFirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:4253)
+BQ Tests 8::BgQueryCache_Run_FlowFieldWithKey_OtherGroups_FindsFirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:4264)
+BQ Tests 8::BgQueryCache_Run_FlowFieldWithoutOneKeyValue_SeesTheChange	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:4275)
+BQ Tests 8::BgQueryCache_Run_FlowFieldMethods_FindsFirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:4286)
+BQ Tests 8::BgQueryCache_Run_TestReadsFirst_FlowFieldShapes_FindsAnswerThem	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:4305)
+# The cells of BQ Tests 8b (corpus PR 1495) whose answer the cache changes: main read the table, or refused every read of
+# table 97593 after the worker's FlowField filter in filter group 1. A wildcard on the FlowField and a FlowField over a
+# FlowField of its source read the table on both; an empty FILTER() of a view on a Code field is refused on both.
+BQ Tests 8b::BgQueryCache_Run_FlowFieldKeyAcrossGroups_FindsFirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:4771)
+BQ Tests 8b::BgQueryCache_Run_FlowFieldFilterKinds_FindsFirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:4781)
+BQ Tests 8b::BgQueryCache_Run_FlowFieldInOrGroup_DescriptionChanged	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:4801)
+BQ Tests 8b::BgQueryCache_Run_FlowFieldAndOtherFilterGroups_FindsFirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:4809)
+BQ Tests 8b::BgQueryCache_Run_FlowFieldFlowFilterAndExtension_FindsFirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:4819)
+# Neighbors (BQ Gate Tests: 26215 filters on a table of 103 fields, a FlowField filter next to the key set to its value
+# twice, a worker's fresh Record and RecordRef Count while the test session holds a filter in filter group 1, FlowField
+# filters of an open range, an & inside a |, a case-sensitive wildcard and @ alone, a sum whose field() is a FlowField of
+# the row after an uncommitted note): BC answers them; past what the cells measure, the head keeps main's answer, so they
+# fail on both alike (@ alone on a Code field is refused on both).
