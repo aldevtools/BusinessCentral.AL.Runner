@@ -1,0 +1,28 @@
+# key	entry
+# Main gives a procedure that a validate-event subscriber calls on Rec a blank xRec; head shares the Validate's xRec in the
+# pinned cells of XRecTableProcThroughSubscriber.al and refuses a read of xRec in every other shape. After_UnqualifiedProcInSharedProc:
+# the unqualified call from table extension code reads the caller's xRec (XRecTableProcCalls.al:274), here the shared one (:633).
+VE Tests::After_AfterGet	PINNED tests/al-language/record/validate/XRecTableProcThroughSubscriber.al:935
+VE Tests::After_AfterInsert	PINNED tests/al-language/record/validate/XRecTableProcThroughSubscriber.al:633
+VE Tests::After_FieldRefValidate	PINNED tests/al-language/record/validate/XRecTableProcThroughSubscriber.al:1257
+VE Tests::After_FreshRecord	PINNED tests/al-language/record/validate/XRecTableProcThroughSubscriber.al:952
+VE Tests::After_FromAfterModifySubscriber	PINNED tests/al-language/record/validate/XRecTableProcThroughSubscriber.al:1294
+VE Tests::After_OneArgumentValidate	PINNED tests/al-language/record/validate/XRecTableProcThroughSubscriber.al:1238
+VE Tests::After_PageAction	PINNED tests/al-language/record/validate/XRecTableProcThroughSubscriber.al:1192
+VE Tests::After_ProcAssigns_SubscriberReadsAfter	PINNED tests/al-language/record/validate/XRecTableProcThroughSubscriber.al:969
+VE Tests::After_ReadByFindFirst	PINNED tests/al-language/record/validate/XRecTableProcThroughSubscriber.al:1025
+VE Tests::After_TemporaryRecord	PINNED tests/al-language/record/validate/XRecTableProcThroughSubscriber.al:1011
+VE Tests::After_TestPageSetValue	PINNED tests/al-language/record/validate/XRecTableProcThroughSubscriber.al:1215
+VE Tests::Before_AfterInsert	PINNED tests/al-language/record/validate/XRecTableProcThroughSubscriber.al:983
+VE Tests::Before_ProcAssigns_TriggerReadsAfter	PINNED tests/al-language/record/validate/XRecTableProcThroughSubscriber.al:1326
+VE Tests::Before_RecOnlySubscriber	PINNED tests/al-language/record/validate/XRecTableProcThroughSubscriber.al:1312
+VE Tests::RecOnlySubscriber	PINNED tests/al-language/record/validate/XRecTableProcThroughSubscriber.al:997
+VE Tests::After_UnqualifiedProcInSharedProc	PINNED tests/al-language/record/validate/XRecTableProcCalls.al:274
+VE Tests::Refused_DescendantThroughCodeunit	REFUSED xRec in a table procedure called through other code
+VE Tests::Refused_FieldWithoutOnValidate	REFUSED xRec in a table procedure called through other code
+VE Tests::Refused_ManualSubscriber	REFUSED xRec in a table procedure called through other code
+VE Tests::Refused_TableExtensionField	REFUSED xRec in a table procedure called through other code
+VE Tests::Refused_ThroughCodeunit	REFUSED xRec in a table procedure called through other code
+VE Tests::Refused_ValidateFromCodeunitRun	REFUSED xRec in a table procedure called through other code
+VE Tests::Refused_ValidateFromTryFunction	REFUSED xRec in a table procedure called through other code
+VE Tests::Refused_XRecByValue	REFUSED xRec in a table procedure called through other code
