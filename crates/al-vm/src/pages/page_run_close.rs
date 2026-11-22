@@ -636,7 +636,7 @@ impl Session {
             return None;
         }
         let cell = cell(c.run, c.by, c.row, error)?;
-        if self.caught_errors() != c.caught {
+        if cell == Cell::Runs && self.caught_errors() != c.caught {
             al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageHandlerCaughtErrorClose);
         }
         Some((cell, error))

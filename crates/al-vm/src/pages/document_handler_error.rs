@@ -261,9 +261,12 @@ impl Session {
         let Signal::Error(err) = e else {
             return Ok(());
         };
-        if self.caught_errors() != caught_before {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageHandlerCaughtErrorClose);
-        }
+        let caught = self.caught_errors() != caught_before;
+        let note_caught = || {
+            if caught {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageHandlerCaughtErrorClose);
+            }
+        };
         if st.borrow().close.error() {
             self.mark_closed(st);
             if err.code != "MissingUIHandler" {
@@ -271,6 +274,7 @@ impl Session {
             }
             let mut wrapped = (**err).clone();
             wrapped.code = "TestWrapped:MissingUIHandler".into();
+            note_caught();
             return Err(Signal::Error(Box::new(wrapped)));
         }
         let calls = st.borrow().tree_calls.clone();
@@ -285,6 +289,7 @@ impl Session {
         );
         if typed_failed && err.code == "TestValidation" {
             self.mark_closed(st);
+            note_caught();
             return Ok(());
         }
         // The handler's own error is pinned only for a handler that made no call (mode 7); a value typed before it keeps
@@ -296,9 +301,13 @@ impl Session {
         }
         let a = self.unattended_action(st);
         match self.close_with(st, a, false, false) {
-            Ok(_) if !st.borrow().open => Ok(()),
+            Ok(_) if !st.borrow().open => {
+                note_caught();
+                Ok(())
+            }
             Err(Signal::Error(q)) if q.code == "MissingUIHandler" || q.code == "TestWrapped" => {
                 self.mark_closed(st);
+                note_caught();
                 Err(Signal::Error(q))
             }
             Ok(_) | Err(Signal::Error(_)) => unsupported(
