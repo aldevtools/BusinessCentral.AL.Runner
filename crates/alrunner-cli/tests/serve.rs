@@ -2538,7 +2538,7 @@ fn entries_with_resources_take_the_kept_baseline_and_give_what_a_fresh_daemon_gi
     }
 }
 
-/// `timings.testDataIndex` says how the open of the test data got the backup's kept index (al-runner PERF-14).
+/// `timings.testDataIndex` says how the open of the test data got the backup's kept index (al-runner issue 8479).
 #[test]
 fn a_summary_says_how_the_test_data_index_was_obtained() {
     let d = tempfile::tempdir().unwrap();
