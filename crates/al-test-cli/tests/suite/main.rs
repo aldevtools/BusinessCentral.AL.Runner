@@ -240,6 +240,7 @@ mod request_parameters_bindings;
 mod request_view_stale_address;
 mod requestpage;
 mod requestpage_close_and_parameters;
+mod restamped_row_version;
 mod rp1_worksheet_modal;
 mod run_page_link_copy_get;
 mod run_page_link_list_reads;

@@ -224,12 +224,30 @@ pub(crate) struct BulkEnd {
 /// The row versions of the open transaction as `Database.LastUsedRowVersion` sees them (`OpenTx::row_versions`).
 #[derive(Clone, Debug, Default)]
 pub(crate) struct RowVersionTx {
-    pub(crate) pending_inserts: Vec<(u32, Option<String>, i64)>,
+    /// (table, company, first, last): the row versions the Inserts of rows of that table that nothing sent yet handed out.
+    pub(crate) pending_inserts: Vec<(u32, Option<String>, i64, i64)>,
     pub(crate) sent: i64,
     pub(crate) handed_out: u64,
     pub(crate) accounted: u64,
     pub(crate) last: i64,
     pub(crate) unpinned: Option<&'static str>,
+    /// A Rename (`TxWriteKind::Other`) whose row version counts when it ends as a plain one (`Session::end_row_version_write`), or
+    /// a ModifyAll whose first modified row ends it (`Session::note_row_versions`). Set: `last_used_row_version` refuses.
+    pub(crate) write_sends: Option<(u32, Option<String>, TxWriteKind)>,
+    /// The value moved by a write after an Insert through the assumption `row-version-write-after-insert`
+    /// (`Session::note_row_versions`); `Session::last_used_row_version` marks the answer.
+    pub(crate) assumed_write: bool,
+}
+
+/// The rows of `table` whose SystemRowVersion lies in (`from`, `to`], in any company: the open transaction inserted them, and a row
+/// version sent before them was at or above theirs (`Session::send_pending_insert`). BC gives them their row version when it
+/// sends them (RowVersionWrites.al:392 of corpus PR 1509, merged, not pinned: InsertTwoTables `row/other` greater); this
+/// runtime keeps the Insert's, so what shows it is refused (`records/restamped.rs`). Kept until the session's data is replaced.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RestampedRows {
+    pub(crate) table: u32,
+    pub(crate) from: i64,
+    pub(crate) to: i64,
 }
 
 /// One Record write to the database store: the store's change counter before and after it.

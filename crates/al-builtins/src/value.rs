@@ -1024,6 +1024,14 @@ impl TableGlobals {
         }
     }
 
+    /// The instances of `xRec`'s set, without making the set ([`TableGlobals::xrec`] makes it).
+    pub fn xrec_instances(&self) -> Vec<(u32, Rc<RefCell<Instance>>)> {
+        match &*self.data.borrow() {
+            Some(d) => d.borrow().xrec.instances(),
+            None => Vec::new(),
+        }
+    }
+
     /// A handle onto `xRec`'s set (created on first use).
     pub fn xrec(&self) -> TableGlobals {
         let data = self.data();

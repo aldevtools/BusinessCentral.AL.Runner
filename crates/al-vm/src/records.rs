@@ -46,6 +46,7 @@ pub(crate) use by_value_view::{ByValueCall, EventArg, by_value_mark, primary_vie
 mod op_inner;
 mod own_rolled_back_modify;
 mod platform_rows;
+mod restamped;
 mod stale;
 mod stale_rule;
 mod tenant_media_rows;

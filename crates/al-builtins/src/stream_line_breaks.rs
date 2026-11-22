@@ -118,6 +118,41 @@ impl LineBreakHistory {
         }
     }
 
+    /// Appends every field (al-builtins `blob_form`, the bytes form of a Blob buffer); exhaustive, so a new field does not
+    /// compile until it is written.
+    pub(crate) fn put(&self, out: &mut Vec<u8>) {
+        let LineBreakHistory {
+            base_edits,
+            out_opens,
+            empty_default_opens,
+            default_text_writes,
+            in_creates,
+            in_uses,
+        } = self;
+        for n in [
+            base_edits,
+            out_opens,
+            empty_default_opens,
+            default_text_writes,
+            in_creates,
+            in_uses,
+        ] {
+            crate::value_codec::put_u32(out, *n);
+        }
+    }
+
+    /// The history [`LineBreakHistory::put`] wrote; `None` for bytes it did not write.
+    pub(crate) fn read(r: &mut crate::value_codec::Reader) -> Option<LineBreakHistory> {
+        Some(LineBreakHistory {
+            base_edits: r.u32()?,
+            out_opens: r.u32()?,
+            empty_default_opens: r.u32()?,
+            default_text_writes: r.u32()?,
+            in_creates: r.u32()?,
+            in_uses: r.u32()?,
+        })
+    }
+
     /// Whether the buffer holds what one `WriteText(Text)` through the one `CreateOutStream` of the default encoding on it empty
     /// wrote, and nothing else edited it since it was made or cleared (al-vm `blob_transfer::assigned_write`).
     pub fn one_text_write(&self, content_edits: u32) -> bool {
