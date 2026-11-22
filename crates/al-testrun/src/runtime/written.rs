@@ -42,9 +42,18 @@ pub(crate) mod state {
     /// (types/TestRandomSeededContracts.al:111-131), past the run seed's restart of each test (ADR-061). Set with
     /// [`RANDOM`].
     pub const RANDOM_SEED: u16 = 1 << 9;
+    /// A `DotNet` member that only answers (al-vm `server_classes::ANSWERS_ONLY`, such as
+    /// `NavTenantSettingsHelper.IsSandbox()`), or a variable of a class that has one. It leaves nothing behind, but
+    /// every reader of [`OTHER`] except the watched login (`login::watched_state`) still reads it as [`OTHER`]: [`MAY_LEAVE`].
+    pub const SERVER_ANSWER: u16 = 1 << 10;
+    /// `CurrentTransactionType`: the type a test method leaves is the type the next one starts with
+    /// (session-system/TxTypeNextTestMethod.al, al-runner issue 8606).
+    pub const TRANSACTION_TYPE: u16 = 1 << 11;
+    /// [`OTHER`] as every reader of it but the watched login takes it: with [`SERVER_ANSWER`].
+    pub const MAY_LEAVE: u16 = OTHER | SERVER_ANSWER;
     /// State every test is taken to read: what AL code reads without naming it (the posting date defaults to
     /// `WorkDate`, `Format` follows the language, any event can reach a bound subscriber).
-    pub const READ_BY_ALL: u16 = WORK_DATE | LANGUAGE | BINDING | OTHER;
+    pub const READ_BY_ALL: u16 = WORK_DATE | LANGUAGE | BINDING | MAY_LEAVE;
 
     pub fn name(bit: u16) -> &'static str {
         match bit {
@@ -57,6 +66,7 @@ pub(crate) mod state {
             FILES => "files",
             HTTP => "what an HTTP server received",
             RANDOM_SEED => "the Random seed",
+            TRANSACTION_TYPE => "the transaction type",
             _ => "session state the analysis does not follow",
         }
     }
@@ -323,11 +333,46 @@ impl ReachIndex {
         Some(cell.get_or_init(|| Box::new(Rec::record(events, lowered, self, o, r))))
     }
 
+    /// The tables routine `r` of `o` writes in its own body, when what it does beyond its static calls is known. `None`
+    /// when it runs an object (by an id, or through a codeunit variable), writes a table not known statically (a
+    /// `RecordRef`, an xmlport, media, `DataTransfer`) or has a part that is not known (a refused routine or construct,
+    /// triggers run on a table not known). For `table_reads::ReadOnlyTables`.
+    pub(crate) fn own_writes(
+        &self,
+        events: &al_vm::events::Registry,
+        lowered: &Lowered,
+        o: usize,
+        r: usize,
+    ) -> Option<Vec<u32>> {
+        let mut out = Vec::new();
+        for step in &self.summary(events, lowered, o, r)?.steps {
+            match step {
+                Step::Write(Some(t), _) => out.push(*t),
+                Step::Push(..) | Step::Events(_) | Step::TableOps(..) => {}
+                Step::Write(None, _) | Step::Run(_) | Step::Unknown(_) => return None,
+            }
+        }
+        Some(out)
+    }
+
     /// How many routines have a recorded [`Summary`].
     #[cfg(test)]
     fn recorded(&self) -> usize {
         self.summaries.iter().flatten().filter(|c| c.get().is_some()).count()
     }
+}
+
+/// The reach facts of test (or trigger) `routine` of `object` together with the handler functions it names
+/// (`handlers::test_roots`), which the test runner calls while it runs: one walk of their joined reach.
+pub(crate) fn test_reach_facts(
+    events: &al_vm::events::Registry,
+    lowered: &Lowered,
+    index: &ReachIndex,
+    object: usize,
+    routine: usize,
+) -> ReachFacts {
+    let roots = super::handlers::test_roots(lowered, object, routine);
+    walk_reach(events, lowered, index, &roots, &|_| false)
 }
 
 /// The reach facts of routine `routine` of `object`.
@@ -582,11 +627,7 @@ pub(crate) fn union_reach_has(
     fact(&walk_reach(events, lowered, index, roots, fact))
 }
 
-/// The reach facts of an unfinished test (the earlier side of [`ReachFacts::changes_read_by`]): the walk stops at
-/// the first part of the reach that is not known, because that alone decides both questions asked of it
-/// (`changes_read_by` and `random` answer from `unknown` before anything else). The rest of the facts are then
-/// incomplete and must not be read. A walk of the whole reach visits about 49 000 routines with Microsoft's apps
-/// (150 ms), once per unfinished test of a codeunit.
+/// The first report in the reach of routine `routine` of `object` that cannot run here, if any.
 pub(crate) fn report_that_cannot_run(
     events: &al_vm::events::Registry,
     lowered: &Lowered,
@@ -612,6 +653,12 @@ pub(crate) fn report_that_cannot_run(
     walk.out.report_cannot_run
 }
 
+/// The reach facts of unfinished test `routine` of `object` and the handler functions it names (`handlers::test_roots`;
+/// the earlier side of [`ReachFacts::changes_read_by`]): the walk stops at
+/// the first part of the reach that is not known, because that alone decides both questions asked of it
+/// (`changes_read_by` and `random` answer from `unknown` before anything else). The rest of the facts are then
+/// incomplete and must not be read. A walk of the whole reach visits about 49 000 routines with Microsoft's apps
+/// (150 ms), once per unfinished test of a codeunit.
 pub(crate) fn unfinished_reach_facts(
     events: &al_vm::events::Registry,
     lowered: &Lowered,
@@ -619,7 +666,8 @@ pub(crate) fn unfinished_reach_facts(
     object: usize,
     routine: usize,
 ) -> ReachFacts {
-    walk_reach(events, lowered, index, &[(object, routine)], &|f| f.unknown.is_some())
+    let roots = super::handlers::test_roots(lowered, object, routine);
+    walk_reach(events, lowered, index, &roots, &|f| f.unknown.is_some())
 }
 
 /// The index in the body of test routine `routine` of `object` of the statement that holds the statement position
@@ -639,6 +687,46 @@ pub(crate) fn statement_at(lowered: &Lowered, object: usize, routine: usize, pos
     }
     let body = &lowered.program.objects[object].routines.get(routine)?.body;
     body.iter().position(|s| holds(std::slice::from_ref(s), pos))
+}
+
+/// The local (`false`) or global (`true`) slot a place is part of; `None` for a slot of another instance.
+pub(crate) fn root(p: &Place) -> Option<(bool, usize)> {
+    let mut p = p;
+    loop {
+        match p {
+            Place::Index(b, _) | Place::Field(b, _) | Place::RecGlobal(b, ..) => p = b,
+            Place::Local(i) => return Some((false, *i)),
+            Place::Global(i) => return Some((true, *i)),
+            Place::BaseGlobal(_) | Place::ExtGlobal(..) => return None,
+        }
+    }
+}
+/// Calls `note` on every place `body` assigns, its loop variables included (statements only; the places of expressions
+/// are found by walking them).
+pub(crate) fn stmt_places(body: &[Stmt], note: &mut dyn FnMut(&Place)) {
+    for s in body {
+        match s {
+            Stmt::Assign(p, _) => note(p),
+            Stmt::For { var, body, .. } | Stmt::Foreach { var, body, .. } => {
+                note(var);
+                stmt_places(body, note);
+            }
+            Stmt::If(_, a, b) => {
+                stmt_places(a, note);
+                stmt_places(b, note);
+            }
+            Stmt::While(_, b) | Stmt::Repeat(b, _) | Stmt::AssertError(b) => stmt_places(b, note),
+            Stmt::Case {
+                branches, otherwise, ..
+            } => {
+                for (_, b) in branches {
+                    stmt_places(b, note);
+                }
+                stmt_places(otherwise, note);
+            }
+            _ => {}
+        }
+    }
 }
 
 /// The reach facts of a test refused while it ran, when the refusal came from a statement of the test method itself
@@ -674,42 +762,6 @@ pub(crate) fn remainder_reach_facts(
     let rest = rt.body.get(from..)?;
     // Per slot (global or not, index) the rest names: how often, and how often as the test page of a filter read.
     let mut named: BTreeMap<(bool, usize), (usize, usize)> = BTreeMap::new();
-    fn root(p: &Place) -> Option<(bool, usize)> {
-        let mut p = p;
-        loop {
-            match p {
-                Place::Index(b, _) | Place::Field(b, _) | Place::RecGlobal(b, ..) => p = b,
-                Place::Local(i) => return Some((false, *i)),
-                Place::Global(i) => return Some((true, *i)),
-                Place::BaseGlobal(_) | Place::ExtGlobal(..) => return None,
-            }
-        }
-    }
-    fn stmt_places(body: &[Stmt], note: &mut dyn FnMut(&Place)) {
-        for s in body {
-            match s {
-                Stmt::Assign(p, _) => note(p),
-                Stmt::For { var, body, .. } | Stmt::Foreach { var, body, .. } => {
-                    note(var);
-                    stmt_places(body, note);
-                }
-                Stmt::If(_, a, b) => {
-                    stmt_places(a, note);
-                    stmt_places(b, note);
-                }
-                Stmt::While(_, b) | Stmt::Repeat(b, _) | Stmt::AssertError(b) => stmt_places(b, note),
-                Stmt::Case {
-                    branches, otherwise, ..
-                } => {
-                    for (_, b) in branches {
-                        stmt_places(b, note);
-                    }
-                    stmt_places(otherwise, note);
-                }
-                _ => {}
-            }
-        }
-    }
     fn note(named: &mut BTreeMap<(bool, usize), (usize, usize)>, p: &Place) {
         if let Some(k) = root(p) {
             named.entry(k).or_default().0 += 1;
@@ -1055,7 +1107,7 @@ impl<'a> Walk<'a> {
             return;
         }
         // A report the runtime refuses when it runs (`Session::report_schema`): what the test does before it is not followed.
-        if let Some(why) = obj.report.as_ref().and_then(|r| r.unsupported.first()) {
+        if let Some(why) = obj.report.as_ref().and_then(|r| r.run_refusal()) {
             self.unknown(|| format!("runs {}, which cannot run: {why}", obj.name));
             if self.out.report_cannot_run.is_none() {
                 self.out.report_cannot_run = Some(format!("runs {}, which cannot run: {why}", obj.name));
@@ -1382,8 +1434,35 @@ impl Rec<'_> {
             // A codeunit, report or xmlport variable: what it runs is in the calls (`Lowered::calls_into`). An
             // xmlport imports into its tables without a record operation in AL.
             RtType::Codeunit(c) if objs[*c as usize].kind == ObjKind::XmlPort => self.note_table_write(None),
-            RtType::DotNet(_) => self.out.state_writes |= state::OTHER,
+            RtType::DotNet(d) => self.out.state_writes |= self.dotnet_slot(*d),
             _ => {}
+        }
+    }
+
+    /// What a `DotNet` variable declared through alias `d` (`Program::dotnet_types`) changes by being there: nothing
+    /// for a class with a member that only answers ([`state::SERVER_ANSWER`]); else what the analysis does not follow.
+    fn dotnet_slot(&self, d: u32) -> u16 {
+        let decl = self.lowered.program.dotnet_types.get(d as usize);
+        match decl {
+            Some(decl) if al_vm::dotnet::server_classes::holds_answering_class(&decl.type_name) => state::SERVER_ANSWER,
+            _ => state::OTHER,
+        }
+    }
+
+    /// What a `DotNet` member access through alias `ty` changes: nothing for a call or read of a member that only
+    /// answers ([`state::SERVER_ANSWER`]); else what the analysis does not follow. A receiver whose alias is not known
+    /// (the result of another `DotNet` call), a constructor and a property write are not such a member.
+    fn dotnet_member(&self, ty: Option<usize>, op: &al_ir::DotNetOp) -> u16 {
+        let decl = ty.and_then(|d| self.lowered.program.dotnet_types.get(d));
+        let member = match op {
+            al_ir::DotNetOp::Call(m) | al_ir::DotNetOp::Get(m) => Some(m),
+            _ => None,
+        };
+        match (decl, member) {
+            (Some(decl), Some(m)) if al_vm::dotnet::server_classes::answers_only(&decl.type_name, m) => {
+                state::SERVER_ANSWER
+            }
+            _ => state::OTHER,
         }
     }
 
@@ -1486,9 +1565,9 @@ impl Rec<'_> {
                 args,
                 ..
             } => self.arg_writes(o, args),
-            Expr::DotNet { args, .. } => {
+            Expr::DotNet { ty, op, args, .. } => {
                 self.arg_writes(o, args);
-                self.out.state_writes |= state::OTHER;
+                self.out.state_writes |= self.dotnet_member(*ty, op);
             }
             Expr::Refused(why) => {
                 let at = format!("{}.{}", objs[o].name, objs[o].routines[r].name);
@@ -1693,6 +1772,12 @@ impl Rec<'_> {
                 ) || method == "LockTimeout" && has_args
                 {
                     self.out.state_writes |= OTHER;
+                } else if method == "CurrentTransactionType" {
+                    if has_args {
+                        self.out.state_writes |= TRANSACTION_TYPE;
+                    } else {
+                        self.out.state_reads |= TRANSACTION_TYPE;
+                    }
                 }
             }
             "TaskScheduler" => self.out.state_writes |= OTHER,

@@ -355,6 +355,8 @@ selection code, a temporary selection of a Word layout no longer refused) yes; t
 built only after the Windows probe is merged; `Contains` only (no `StrPos`/`IndexOf`); `Message` with a marked text stays refused.
 Part A is built (al-builtins `rendered_text.rs`; A7 in al-vm `report_placeholder/selection.rs`, for a user-defined Word layout selected
 by name without an app id); Part B waits for the probe.
+Changed 2026-11-22 (accepted by the owner, al-runner issue 8458): in A1, two renders with equal entries share a number,
+and loss mode L15 names a later serve request too.
 Part A is the opaque value. Part B ("known static text of the chosen layout") is part of the amendment by owner decision
 of 2026-11-12; Part A is written so that it works without Part B.
 
@@ -425,9 +427,12 @@ Alternatives considered and not chosen:
 
 Shape of a marked text: known characters and marks in the order BC has them. `Signature + Body` is the signature's
 characters followed by the mark. The mark is followed by one character that numbers the render (read only directly after
-the mark). The number is unique in the process, never per session: a SingleInstance global or a stored row can carry a
-marked text from one test session into the next, and a number that started again at 0 would then name another render.
-The number points to an entry of a process-wide list: the report, the format and the layout. An entry is never reused.
+the mark). The number names an entry of a process-wide list: the report, the format, the layout and the rgba column of
+the save's row (B2 adds what it records). Two renders with equal entries share a number; an entry is never removed or
+reused, so a number names the same entry for the life of the process, never per session or per serve request: a
+SingleInstance global, a stored row, the kept install baseline or a file under `--files-dir` can carry a marked text
+from one session or request into the next, and a number that started again at 0 would then name another render
+(al-runner issue 8458).
 
 The mark has two forms (review finding 3):
 
@@ -643,7 +648,7 @@ A lost mark is a silent wrong result: AL would read made-up or missing character
 | L11 | The runner prints the mark or the placeholder in a report | `Describe` test for the mark; a test that a JUnit file and `--explain` of a refused test hold neither U+FDD4 nor the placeholder markup. |
 | L13 | An ordered comparison answers by code point | `compare_order` refuses a marked operand (A5). Test: `<`, `>`, `<=`, `>=`, `in` range and `case` range, with the mark at the start and after a differing known prefix, for each of the four marks. |
 | L14 | A length leaves as a number (Blob, Temp Blob, file, return value of `Write`, `WriteText`, `GetSubText`, `Read`) | Sign-only length (A4); the rows P3 and P7 require an unused return value. Test per call, with the value used and unused. |
-| L15 | A marked text from an earlier session is read with another session's render list, or with the guard off | Process-wide render numbers and flag (A1, A5). Test: strict order, a SingleInstance codeunit keeps the body of render A, the next test codeunit renders B and asks about the kept body. |
+| L15 | A marked text from an earlier session or a later serve request is read with another session's render list, or with the guard off | Process-wide render numbers and flag (A1, A5). Test: strict order, a SingleInstance codeunit keeps the body of render A, the next test codeunit renders B and asks about the kept body. |
 | L16 | An allowed step changes the content and Part B still answers from the layout | The whole and changed forms (A1). Test: after P12 `Contains` refuses; a `#n` field refuses. The catalog test fails when a row of A3 does not declare its form. |
 | L12 | A later change adds an allowed use by widening a rule | Table A3 is data in one file with one row per builtin id and position, each with its citation. A test fails when a row has no citation or when the table and this ADR section differ in count. |
 
@@ -885,10 +890,11 @@ committed binary fixtures like `Y17LayR1.docx`; the tests are Windows-tier only;
 6. `Error` and `Message` with a marked text refuse in step 1. Open `Message` to a MessageHandler that only receives the
    text when a reported test needs it, or keep it refused?
 
-## Amendment 2026-11-12b: a placeholder's size held in a record field (Proposed)
+## Amendment 2026-11-12b: a placeholder's size held in a record field (Accepted)
 
-Status: **Proposed**, not accepted. Nothing is built on it. It changes the accepted rule of the 2026-11-11 implementation
-notes ("a record field" is one of the uses of `Value::PlaceholderSize` that refuse), so it needs the owner's decision.
+Status: **Accepted** 2026-11-12 by the owner, option "Accept, with tests": points 1 to 4 for stored and temporary rows
+alike, and every platform read path of point 4 gets its own test before the change is built. It replaces the rule of the
+2026-11-11 implementation notes that a record field is one of the uses of `Value::PlaceholderSize` that refuse.
 
 ### The problem
 
@@ -904,9 +910,10 @@ test that never reads the field again is not run.
    as an Integer, BigInteger, Decimal or Variant variable already holds it. Any other field type refuses (`size_convert`).
 2. A read of the field by AL gives the same value back, with the same rules: a comparison with 0 answers (greater), every
    other use refuses (`size_guard`, `size_order`, `size_convert`).
-3. The value goes with the row: `Insert`, `Modify`, a record assignment, `TransferFields` into an Integer, BigInteger or
-   Decimal field, `Get`/`Find` back. The row store keeps the value as it is (it holds `Value` today; `frozen.rs` names the
-   kind).
+3. The value goes with the row: `Insert`, the `Modify` that writes it into a row that did not hold it, `Rename`, a record
+   assignment, `TransferFields` into a field of the same type, `Get`/`Find` back. The row store keeps the value as it is
+   (it holds `Value` today; `frozen.rs` names the kind). A `Modify` or `ModifyAll` of a stored row that already holds the
+   size refuses: it compares the old row with the new one by value (point 4).
 4. Every platform read of the field's value refuses where it happens, with the size refusal text: a filter or a range on the
    field (`SetRange`, `SetFilter`, a table relation, a FlowFilter), a sort or a key that holds the field, `CalcSums`,
    a FlowField that sums or looks it up, `Format` of the field (pages, TestPage, `FieldRef.Value` formatted, the change log,
@@ -924,11 +931,41 @@ test that never reads the field again is not run.
 | Store the placeholder's byte count | A made-up number: `Size > 1000` is true on BC and false here (A4). |
 | Store only in a temporary record | The reporter's table is not known; the rules of point 4 are the same for both. |
 
-### Open questions
+### Decisions on the open questions
 
-1. Accept points 1 to 4, for stored and temporary rows alike?
-2. Point 4 lists the platform reads known today. A read path not listed falls to the row store compare or `format`, which
-   refuse. Is that the guard the owner wants, or must each path get its own test before the change is built?
+1. Points 1 to 4 hold for stored and temporary rows alike.
+2. Each read path of point 4 has its own Rust test (`crates/al-vm/tests/reporting/report_placeholder_size_field.rs`), red
+   first where the path ran before. A path not listed falls to the central guards, which stay: the row store refuses a filter
+   or a sort on a column that holds the size and a filter whose value is the size (al-data `MemStore::unknown_read`), and
+   `format` refuses `Format`.
+
+### Implementation notes
+
+- The store write is no longer refused (`interp.rs` `write_as`). A field of another type refuses through the conversion
+  (`size_convert`); a Variant that holds the size into a Text field raises the pinned conversion error of a Variant holding an
+  Integer, as before.
+- A key that holds the field refuses at the write (`key_orderable`), so no sort by the field can run.
+- One helper says the refusal of a platform read: `placeholder_output::size_read`. It is called where each read happens:
+  a FlowField over the field (`flowfields.rs` `Tally::add`), `CalcSums`, `Validate(Field)` without a value, a page control
+  that shows the field.
+- Every write of a row (`Insert`, `Modify`, `Rename`, a virtual table's `Modify`, the Code Coverage replace) passes
+  through one store function (al-data `MemStore::kept`), which writes down the columns that hold the size, so a filter or a
+  sort on them refuses after any of them.
+- A record comparison by value that its caller turns into an answer: a page compares its row with xRec and the stored row
+  and counts a value that does not compare as a change (`pages/draft.rs` `same_values`, and the other comparisons in
+  `pages/` that take a failed comparison as "differs"). `size_order` writes down every comparison it refuses
+  (`placeholder_output` `UNANSWERED`); the next builtin call (`size_guard`) or the end of the running procedure
+  (`refuse_unanswered`) refuses in its place, so a test whose page compared a size is not run, whichever step compared it
+  (an action, a field, a part's row, a modal page under a handler, the close at the end of the test). A page that shows a
+  row holding the size and compares nothing runs.
+- The size keeps the number type of the slot that holds it (an Integer, BigInteger or Decimal field or variable), and
+  `Variant.Is*` answers that type: an Integer expression in a BigInteger variable (types/decimal-integer/Y66BigIntIntoInt.al:
+  143-144, :163; types/decimal-integer/ScT70063.al:159-162, :196-197) and a whole number of another type in a Decimal variable
+  (Y66BigIntIntoInt.al:139-140, :162).
+- `TransferFields` moves the size between fields of the same type. Between fields of different types the rule
+  `TransferFields` already has for them decides before any value is read (a refusal, or the type error).
+- Already refused before this amendment, kept: `TestField`, `FieldError`, `Format` of the field and of `FieldRef.Value`, a
+  report column, an XmlPort field, `JsonObject.Add`, `IsDirty`, `TransferFields` into a field of another type.
 
 ## Amendment 2026-11-13: the save answer as a table of measured cells, and merged Word text (Accepted, owner 2026-11-13)
 

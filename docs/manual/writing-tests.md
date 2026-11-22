@@ -141,7 +141,8 @@ al-runner test ./MyApp ./MyApp.Test --exclude-test Slow
   against the method name.
 - `--test-exact NAME`: the test whose method name or `Codeunit<ID>.<Method>` is exactly NAME.
 - `--codeunit ID`: a test codeunit by object id.
-- `--exclude-test TEXT`: leaves out the tests TEXT matches. It wins over every selecting option.
+- `--exclude-test TEXT`: leaves out the tests TEXT matches, as a substring (a whole qualified name also leaves out every test whose name contains it). It wins over every selecting option.
+- `--exclude-test-exact NAME`: leaves out the test whose method name or `Codeunit<ID>.<Method>` is exactly NAME (any case). It wins over every selecting option.
 
 `--filter` and `--test-exact` together select only the tests both match. All of them can be repeated. A selected test's codeunit runs whole, because the
 tests of a codeunit share state. Only the selected tests are reported, and only
@@ -259,8 +260,8 @@ al-runner test ./MyApp ./MyApp.Test --affected --include-failing
   `<cache dir>/affected/`, keyed by the ids and versions of the apps. In CI, use
   `--affected-store FILE` and save and restore that file between builds.
 - `--include-failing` also runs every codeunit with a test that did not pass last time.
-- It cannot be combined with `--test`, `--filter`, `--test-exact`, `--codeunit` or
-  `--exclude-test`.
+- It cannot be combined with `--test`, `--filter`, `--test-exact`, `--codeunit`,
+  `--exclude-test` or `--exclude-test-exact`.
 - In `serve`, the `runTests` fields `affectedOnly` and `includeFailing` do the same.
 
 ## Several versions and countries

@@ -92,7 +92,7 @@ impl Session {
             .any(|c| c.kind == ir::ControlKind::Repeater);
         if var_bound && on_row && (!has_repeater || self.in_repeater(st, idx)) && self.has_source(st) {
             let fields = self.page_rec(st).borrow().fields.clone();
-            st.borrow_mut().rec_before_var_validate = Some(fields);
+            st.borrow_mut().rec_before_var_validate = Some(fields.into_vec());
         }
         Ok(())
     }
@@ -136,16 +136,27 @@ impl Session {
             let s = st.borrow();
             s.open && s.dirty && !s.draft && s.cursor == Cursor::Row && s.host.is_none()
         };
-        if edited
-            && self.has_source(st)
-            && !self.declares(st, "onaftergetrecord")
-            && !self.declares(st, "onaftergetcurrrecord")
-        {
-            self.save_row(st)?;
+        if edited && self.has_source(st) {
+            // A page that declares no part, with a row trigger that reaches here (the shapes `action_invoke` pins save on their own paths):
+            // the reporter of al-runner issue 8342 measured on BC 29.1 that a Worksheet without parts with OnAfterGetCurrRecord
+            // alone saves the edit before the action runs, where this path saved nothing. Not pinned: refused. A page that declares
+            // a part (shown or hidden), with a row trigger, keeps the earlier path, which saves nothing here (not pinned either).
+            let row_trigger = self.declares(st, "onaftergetrecord") || self.declares(st, "onaftergetcurrrecord");
+            let declares_part = page_of(&self.engine(), st)
+                .controls
+                .iter()
+                .any(|c| c.kind == ir::ControlKind::Part);
+            if row_trigger && !declares_part {
+                return unsupported(
+                    "an action on a row edited through the TestPage, on a page with a row trigger whose save before the action is not pinned",
+                );
+            }
+            if !row_trigger {
+                self.save_row(st)?;
+            }
         }
         // The refresh the action asks for reads the row again.
-        st.borrow_mut().refresh = true;
-        st.borrow_mut().refresh_by_update = false;
+        st.borrow_mut().refresh.ask_after_action();
         Ok(())
     }
 
@@ -272,10 +283,14 @@ impl Session {
     /// `TestPage.*` with the rules above in front. The page notes the call (`note_test_call`), so a rule pinned for one
     /// scenario knows what the test did since the page opened.
     pub(super) fn test_page_op_held(&mut self, method: PageOp, st: &St, args: &mut [Value]) -> Result<Value, Signal> {
+        self.end_test_filter_steps_elsewhere(st, method);
         let call = self.note_test_call(st, method, None, args.len());
         self.end_read_at_test_call(st, call);
         Self::end_deferred_host_reread(st, call, method.method());
-        Self::refuse_after_pinned_end(st, call)?;
+        self.refuse_after_pinned_end(st, call, None)?;
+        self.validate_view_call(st, call)?;
+        self.refuse_off_factbox_row(st, call)?;
+        self.coded_line_before_set_value(st, call)?;
         Self::refuse_ws_trigger_order_step(st, call)?;
         if call.is_none() {
             // Page code calls a method of the page (`CurrPage.Update`): no List-host cell does (`empty_part_rec`).
@@ -361,10 +376,14 @@ impl Session {
         args: &mut [Value],
     ) -> Result<Value, Signal> {
         let st = &c.page;
+        self.end_test_filter_steps_elsewhere(st, method);
         let call = self.note_test_call(st, method, Some(&c.target), args.len());
         self.end_read_at_test_call(st, call);
         Self::end_deferred_host_reread(st, call, method.method());
-        Self::refuse_after_pinned_end(st, call)?;
+        self.refuse_after_pinned_end(st, call, Some(&c.target))?;
+        self.validate_view_call(st, call)?;
+        self.refuse_off_factbox_row(st, call)?;
+        self.coded_line_before_set_value(st, call)?;
         let control = match c.target {
             ControlTarget::Control(i) => Some(i),
             _ => None,

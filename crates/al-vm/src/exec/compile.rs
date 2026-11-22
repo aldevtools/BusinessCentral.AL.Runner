@@ -596,6 +596,13 @@ impl<'a> Compiler<'a> {
                 let receiver_reg = if receiver.is_some() { Some(regs.remove(0)) } else { None };
                 let receiver_arg = if receiver.is_some() { Some(kept.remove(0)) } else { None };
                 let plain = plain_builtin(*id, vm, native.is_some(), receiver_arg.as_ref(), &kept);
+                let stream_local = native.and(stream_local(
+                    *id,
+                    receiver_reg,
+                    receiver_arg.as_ref(),
+                    kept.len(),
+                    |i| self.locals_ty.get(i),
+                ));
                 self.chunk.builtins.push(BuiltinSite {
                     id: *id,
                     vm_class: vm,
@@ -608,6 +615,7 @@ impl<'a> Compiler<'a> {
                     args: kept,
                     ret_used: *ret_used,
                     plain,
+                    stream_local,
                     temp_blob,
                 });
                 let s = (self.chunk.builtins.len() - 1) as u32;
@@ -744,17 +752,8 @@ impl<'a> Compiler<'a> {
                 self.aux(AuxSite::FieldOf { pos: *pos }, d, a);
             }
             E::QueryColumn { query, column } => self.query_column(query, *column, d)?,
-            E::TddFit { max, why, inner } | E::FitOrRefuse { max, why, inner } => {
-                let a = self.expr_any(inner)?;
-                self.aux(
-                    AuxSite::Fit {
-                        max: *max,
-                        why: why.clone(),
-                    },
-                    d,
-                    a,
-                );
-            }
+            E::VarSectionValue(inner) => self.expr_into(inner, d)?,
+            E::TddFit { max, why, inner } | E::FitOrRefuse { max, why, inner } => self.fit_into(*max, why, inner, d)?,
             E::TddStub { stub, args, ty } => {
                 // The arguments run left to right for what they do, as a call's would; the stub reads none of them.
                 for a in args {
@@ -837,6 +836,14 @@ impl<'a> Compiler<'a> {
                 ir::Place::Index(Box::new(base), regs)
             }
         })
+    }
+
+    /// `ir::Expr::TddFit` and `ir::Expr::FitOrRefuse`: `inner`, refused when it is a text longer than `max`.
+    fn fit_into(&mut self, max: u32, why: &str, inner: &'a ir::Expr, d: u16) -> R<()> {
+        let a = self.expr_any(inner)?;
+        let why = why.to_string();
+        self.aux(AuxSite::Fit { max, why }, d, a);
+        Ok(())
     }
 
     /// A query column read; the site keeps the global slot when the query is a global variable (`query_reopen`).
@@ -1334,6 +1341,38 @@ impl<'a> Compiler<'a> {
             return Ok(());
         }
         match p {
+            // `FieldRef.Value` into a `var` parameter of type Date, Time or DateTime (al-builtins `fieldref_value_into_temporal`;
+            // the only slot the probe measured, corpus PR 1511). A by-value parameter, the named return value and a plain
+            // declared local are not measured: they convert as `Op::Convert` does, as does any other place.
+            ir::Place::Local(i)
+                if self.by_var.get(*i) == Some(&true)
+                    && let ir::Expr::Convert(t @ (RtType::Date | RtType::Time | RtType::DateTime), inner) = e
+                    && is_fieldref_value(inner) =>
+            {
+                let i = u16::try_from(*i).map_err(|_| ())?;
+                let a = self.expr_any(inner)?;
+                self.chunk.types.push(t.clone());
+                let t = (self.chunk.types.len() - 1) as u32;
+                let d = self.alloc()?;
+                self.emit(Op::ConvertFieldValue { d, a, t });
+                let pi = self.place(p);
+                self.emit(Op::StoreLocal { i, a: d, p: pi });
+            }
+            // A `var` Option parameter declared without members may hold its caller's members: its stores go through
+            // `write_as` (`var_option::param_store`).
+            ir::Place::Local(i)
+                if self.by_var.get(*i) == Some(&true)
+                    && matches!(self.locals_ty.get(*i), Some(RtType::Option(m)) if al_builtins::option_members::memberless(m)) =>
+            {
+                self.store_place(p, e, single)?;
+            }
+            // An element of an array of memberless Options stored from a variable of the `var` section (`var_option::element_store`).
+            ir::Place::Index(..) if let ir::Expr::VarSectionValue(inner) = e => {
+                let a = self.expr_copy(inner)?;
+                let rp = self.rplace(p)?;
+                let p = self.place(&rp);
+                self.emit(Op::StoreVarSectionValue { p, a });
+            }
             // A local of a typed kind takes a proven value of that kind straight into its register.
             ir::Place::Local(i)
                 if self.locals_ty.get(*i).and_then(of_rt).is_some_and(|t| {
@@ -1351,25 +1390,30 @@ impl<'a> Compiler<'a> {
                 let pi = self.place(p);
                 self.emit(Op::StoreLocal { i, a, p: pi });
             }
-            _ => {
-                let a = if has_index(p) {
-                    self.expr_copy(e)?
-                } else {
-                    self.expr_any(e)?
-                };
-                let rp = self.rplace(p)?;
-                // A field read stored in a global or an array element: a Blob moves first (`blob_transfer::FieldRead`).
-                if let Some(mut read) = self.blob_field_read(e).filter(|_| FieldRead::stored_in(p)) {
-                    read.global = matches!(p, ir::Place::Global(_));
-                    self.emit(Op::BlobFieldRead { r: a, read });
-                }
-                let pi = self.place(&rp);
-                if let Some((i, kind)) = single {
-                    self.emit(Op::SingleWrite { i, kind });
-                }
-                self.emit(Op::StorePlace { p: pi, a });
-            }
+            _ => self.store_place(p, e, single)?,
         }
+        Ok(())
+    }
+
+    /// `p := e` through `Op::StorePlace`, which writes through `Session::write_as`.
+    fn store_place(&mut self, p: &'a ir::Place, e: &'a ir::Expr, single: Option<(u32, SingleWriteKind)>) -> R<()> {
+        let a = if has_index(p) {
+            self.expr_copy(e)?
+        } else {
+            self.expr_any(e)?
+        };
+        let rp = self.rplace(p)?;
+        // A field read stored in a global or an array element: a Blob moves first (`blob_transfer::FieldRead`).
+        if let Some(mut read) = self.blob_field_read(e).filter(|_| FieldRead::stored_in(p)) {
+            read.global = matches!(p, ir::Place::Global(_));
+            self.emit(Op::BlobFieldRead { r: a, read });
+        }
+        let pi = self.place(&rp);
+        if let Some((i, kind)) = single {
+            self.emit(Op::SingleWrite { i, kind });
+        }
+        let fr = matches!(p, ir::Place::Field(..)) && is_fieldref_value(e);
+        self.emit(Op::StorePlace { p: pi, a, fr });
         Ok(())
     }
 
@@ -1448,11 +1492,16 @@ fn arg_pure(a: &ir::Arg) -> bool {
     }
 }
 
-/// A conversion of `FieldRef.Value` into a Text, Code or Blob, which runs `Op::ConvertFieldValue`.
+/// A conversion of `FieldRef.Value` into a Text, Code or Blob, which runs `Op::ConvertFieldValue` (as does one into a local
+/// Date, Time or DateTime, `Compiler::assign`).
 fn is_field_value_conversion(t: &RtType, inner: &ir::Expr) -> bool {
     (matches!(t, RtType::Text(_) | RtType::Code(_))
         || matches!(t, RtType::Library(n) if n.eq_ignore_ascii_case("Blob")))
-        && matches!(inner, ir::Expr::Builtin { id, .. } if *id == al_builtins::builtin_id::ids::FIELDREF_VALUE_1)
+        && is_fieldref_value(inner)
+}
+
+fn is_fieldref_value(e: &ir::Expr) -> bool {
+    matches!(e, ir::Expr::Builtin { id, .. } if *id == al_builtins::builtin_id::ids::FIELDREF_VALUE_1)
 }
 
 /// Whether evaluating `e` surely does not read global `g` of the running instance: only shapes known not to (a constant,
@@ -1498,6 +1547,28 @@ fn place_free_of_global(p: &ir::Place, g: usize, depth: u8) -> bool {
     }
 }
 
+/// [`BuiltinSite::stream_local`]: the local register of the receiver of an `InStream.Read` or `OutStream.Write` with at most
+/// two arguments (`al_builtins::stream::keeps_receiver`), when the receiver is that local in place (`arg_reg`) and its
+/// declared type is the stream type.
+fn stream_local<'t>(
+    id: al_builtins::builtin_id::BuiltinId,
+    receiver_reg: Option<u16>,
+    receiver: Option<&ir::Arg>,
+    n_args: usize,
+    local_ty: impl Fn(usize) -> Option<&'t RtType>,
+) -> Option<u16> {
+    use al_builtins::library_kind::LibraryKind;
+    let Some(ir::Arg::Ref(ir::Place::Local(i))) = receiver else {
+        return None;
+    };
+    let stream = matches!(
+        local_ty(*i),
+        Some(RtType::Library(LibraryKind::InStream | LibraryKind::OutStream))
+    );
+    let r = u16::try_from(*i).ok()?;
+    (stream && receiver_reg == Some(r) && n_args <= 2 && al_builtins::stream::keeps_receiver(id)).then_some(r)
+}
+
 /// A registered native whose receiver and arguments are all values and that `run_builtin` does not handle itself
 /// (`BuiltinSite::plain`).
 fn plain_builtin(
@@ -1514,3 +1585,7 @@ fn plain_builtin(
         && !receiver.is_some_and(by_ref)
         && !args.iter().any(by_ref)
 }
+
+#[cfg(test)]
+#[path = "stream_local_tests.rs"]
+mod stream_local_tests;

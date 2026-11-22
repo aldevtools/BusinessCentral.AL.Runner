@@ -232,6 +232,7 @@ impl Session {
         if read.is_some_and(|p| have.contains(p)) {
             return Ok(());
         }
+        self.refuse_load_of_replayed(&fetched)?;
         let t = self.table(rec)?;
         let fields = rec.borrow().fields.clone();
         // A key assigned after the fetch does not move the load: BC reads the missing fields from the row that was fetched
@@ -264,6 +265,9 @@ impl Session {
             }
             return unsupported("a load of the missing fields of a partial record whose row is gone (not pinned)");
         };
+        // A Time a database column holds past the day loads as 00:00:00 (`sqltime::read_back`).
+        let mut stored = stored;
+        crate::sqltime::read_back(&mut stored);
         if let Some(p) = read {
             if let Some(e) = self.jit_inconsistent_read(&t, &fields, &stored, p)? {
                 return Err(e);
@@ -379,7 +383,6 @@ impl Session {
                 let Some(b) = &r.load.buffer else {
                     // Nothing was fetched (record/TestRecordPartialLoad.al:102-141). A buffer that
                     // was filled by hand is not pinned.
-                    let fresh = self.initial_fields(t.object as usize);
                     // A record filled by assignment, Validate or Insert and never fetched reports every field
                     // loaded, whichever field was assigned; after Init it reports none
                     // (record/load-fields/AreFieldsLoadedUnfetched.al:42-68 assigned,
@@ -387,10 +390,7 @@ impl Session {
                     // Any assignment counts, a field assigned its own default value too
                     // (record/load-fields/AreFieldsLoadedDefault.al:57-88, :122-137). Insert, Modify and
                     // Validate are read from the buffer differing from a fresh one.
-                    let filled = r.assigned
-                        || fresh.len() != r.fields.len()
-                        || fresh.iter().zip(r.fields.iter()).any(|(a, b)| !a.identical(b));
-                    return Ok(Value::Boolean(filled));
+                    return Ok(Value::Boolean(!self.untouched_since_fresh(t, &r)));
                 };
                 // A Blob reads as loaded on a record that holds a partial fetch, requested or not (record/
                 // lt-loadfields-pagesource-validate/P81LoadFields.al:172-190 LoadFields_Name_Get_LoadedFlags `a_loaded_Notes`,
@@ -404,11 +404,17 @@ impl Session {
                 };
                 let partial = !matches!(b.have, FieldSet::All);
                 // After Clear a partial buffer holds no field (errors/PnBErrorsCollections.al:640-674
-                // SetLoadFields_ThenRead_AndClear `afterClear.name` No), and so does a whole fetched row that nothing was
-                // assigned to since (record/load-fields/Y87RecordRefLoadFields.al codeunit 94656 Rec_AfterClearOfFetched
-                // `NoNoNoNoNoNo`). A field assigned after the Clear of a whole row is not pinned and keeps the old answer.
-                if b.cleared && (partial || !r.assigned) {
-                    return Ok(Value::Boolean(false));
+                // SetLoadFields_ThenRead_AndClear `afterClear.name` No), and so does a whole fetched row (record/load-fields/
+                // Y87RecordRefLoadFields.al codeunit 94656 Rec_AfterClearOfFetched `NoNoNoNoNoNo`). Neither pin writes to the
+                // record after the Clear; any write since (an assignment, Validate, TransferFields, FieldRef.Value, Insert)
+                // is not pinned (al-runner issue 7632).
+                if b.cleared {
+                    if self.untouched_since_fresh(t, &r) {
+                        return Ok(Value::Boolean(false));
+                    }
+                    return unsupported(
+                        "AreFieldsLoaded after Clear of a fetched record and a write to it (not pinned)",
+                    );
                 }
                 let mut all = true;
                 for &p in &wanted {
@@ -426,6 +432,14 @@ impl Session {
             }
             _ => unreachable!(),
         }
+    }
+
+    /// Whether nothing was written to `r` since it was fresh: no field assignment and every field identical to a fresh
+    /// record's. A Validate, TransferFields, Insert or Modify that changed a field shows as a buffer that differs from a
+    /// fresh one; one that wrote only fresh values does not.
+    fn untouched_since_fresh(&mut self, t: &TableDef, r: &al_builtins::value::RecordState) -> bool {
+        let fresh = self.initial_fields(t.object as usize);
+        !r.assigned && fresh.len() == r.fields.len() && fresh.iter().zip(r.fields.iter()).all(|(a, b)| a.identical(b))
     }
 
     /// `Record.LoadFields(Fields)`: on a record that was never fetched it does not read the row (the buffer keeps

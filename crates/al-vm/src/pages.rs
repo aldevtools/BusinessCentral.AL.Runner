@@ -206,6 +206,7 @@ mod action_enabled_row;
 mod areas;
 mod auto_format_writer_cell;
 mod background;
+mod builtin_mode_action;
 mod end_move_no_read;
 mod flowfield_hidden;
 pub(crate) use background::BgWorker;
@@ -231,6 +232,7 @@ mod qualified_name;
 mod read_backwards;
 mod relation_lookup;
 pub(crate) mod relation_lookup_close;
+mod relation_text_entry;
 mod row_var_outside_call;
 mod split_key_view;
 mod split_part_second_control_xrec;
@@ -249,11 +251,14 @@ mod caption_class;
 mod caption_expr_list;
 mod caption_relation;
 mod caption_runs;
-pub(crate) use caption_runs::CaptionDialogs;
+pub(crate) use caption_runs::{CaptionDialogs, CaptionWriteGuard};
 mod caption_translation;
 mod clear_test_page;
 mod close_save_failed;
 mod code_close_veto;
+mod code_inserted_coded;
+mod code_inserted_new_line;
+mod code_inserted_pinned;
 mod modal_close_save_error;
 mod own_area_caption;
 mod triggerless_action;
@@ -274,6 +279,7 @@ mod empty_view_update;
 mod ext_column_visible;
 mod fn_controls;
 mod format;
+mod format_procedure;
 mod format_type11;
 mod gone_after_action;
 mod gone_new_line;
@@ -283,6 +289,7 @@ mod held_page_part;
 mod host_follows;
 mod inserted_rows;
 mod leave_new_line;
+mod list_factbox_new_line;
 mod list_refresh;
 mod list_view_switch;
 mod long_view;
@@ -311,7 +318,7 @@ mod ui_caption_translate;
 mod update_refresh_card;
 pub(crate) mod validate_xrec;
 mod validation_text;
-pub(crate) use open::written_by_routine;
+pub(crate) use open::{SavedRow, written_by_routine};
 mod action_body;
 mod card_part_new_host;
 mod empty_part_rec;
@@ -331,7 +338,9 @@ mod part_filter_find;
 mod part_filter_unsaved_host;
 mod part_host_update;
 mod part_insert_swallowed;
+mod part_refill_pins;
 mod part_refresh_find_forward;
+mod part_update_left_view;
 mod part_visible_gate;
 mod pinned_body;
 mod post_left_new_line;
@@ -352,12 +361,15 @@ mod temp_list_gone_row;
 mod temp_list_refill;
 mod test_end;
 mod typed_handler_temp;
+mod validate_view_cells;
+mod validate_view_refresh;
 mod walk_parts;
 pub(crate) mod ws_trigger_order;
 pub(crate) use shown::ShownNote;
 pub(crate) use state::{
-    ClosedBy, ControlRef, ControlTarget, Cursor, LiteralClassesAtOpen, LookupKind, OpenEditable, PageMode, PageState,
-    ReadBackwards, WindowRow, control_of, into_st, page_value, st_of, test_control,
+    ActionSaveCaptions, ChainRefill, ClosedBy, ControlRef, ControlTarget, Cursor, LiteralClassesAtOpen, LookupKind,
+    ModalRun, OpenEditable, PageMode, PageState, ReadBackwards, ReadUpFromLast, UnreadEdges, WindowRow, control_of,
+    into_st, page_value, st_of, test_control,
 };
 
 impl Session {
@@ -462,7 +474,12 @@ impl Session {
     fn page_trigger(&mut self, st: &St, name: &str, args: Vec<Value>) -> Result<Option<Value>, Signal> {
         self.data_caption_before_trigger(st, name)?;
         self.ws_caption_before_trigger(st, name)?;
-        let r = self.in_page_trigger(st, name, |s| s.page_trigger_run(st, name, args))?;
+        let r = self.in_page_trigger(st, name, |s| s.page_trigger_run(st, name, args));
+        if name == "onaftergetcurrrecord" && matches!(r, Err(Signal::Error(_))) {
+            // `lookup_refresh.rs` `lookup_move_stopped` reads it.
+            st.borrow_mut().lookup_left.curr_record_raised();
+        }
+        let r = r?;
         self.data_caption_after_trigger(st, name);
         self.ws_caption_after_trigger(st, name)?;
         self.show_ext_columns_after_first_open_row(st, name)?;
@@ -532,7 +549,7 @@ impl Session {
         };
         if declared && name == "onaftergetcurrrecord" && stored_row && self.has_source(st) {
             let started = self.page_rec(st).borrow().fields.clone();
-            st.borrow_mut().agcr_started = Some(started);
+            st.borrow_mut().agcr_started = Some(started.into_vec());
         }
         // OnAfterGetCurrRecord changes what the current row shows only for the variables it sets.
         let vars_before = (declared && name == "onaftergetcurrrecord" && stored_row).then(|| self.row_var_values(st));
@@ -577,9 +594,9 @@ impl Session {
             let now = self.page_rec(st).borrow().fields.clone();
             let mut s = st.borrow_mut();
             if name == "onaftergetrecord" {
-                s.agr_xrec = Some(now);
+                s.agr_xrec = Some(now.into_vec());
             } else {
-                s.agcr_xrec = Some(now);
+                s.agcr_xrec = Some(now.into_vec());
             }
         }
         self.end_page_call(st);
@@ -779,7 +796,7 @@ impl Session {
                 }
             }
         }
-        Ok(fields)
+        Ok(fields.into_vec())
     }
 
     /// The instance that runs the code of `owner`: the page itself, or one of its extensions.

@@ -5,7 +5,7 @@
 //! path there.
 
 use super::data_caption_open::{HandedRecord, Shape};
-use super::pinned_shape::{NextEnd, PinnedEnd};
+use super::pinned_shape::{NextEnd, PinnedEnd, Reads};
 use super::*;
 use crate::ui::UiKind;
 use al_builtins::filter::{FieldFilter, FilterExpr};
@@ -19,7 +19,7 @@ const MOST_ROWS: usize = 3;
 const GET_OPENED_END: PinnedEnd = PinnedEnd {
     reason: "a call of the test on a page whose DataCaptionExpression ran at the open as DataCaptionGetOpen.al measured, other \
              than Caption, a control's value read or Close (not pinned)",
-    reads: true,
+    reads: Reads::Any,
     caption: true,
     part_reads: false,
     one_action: false,
@@ -128,7 +128,7 @@ impl Session {
         let mut first = None;
         let mut ran = Ok(());
         for row in rows {
-            rec.borrow_mut().fields = row.clone();
+            rec.borrow_mut().fields = row.clone().into();
             ran = self.run_data_caption_held_back(st);
             if ran.is_err() {
                 break;
@@ -224,7 +224,7 @@ impl Session {
         self.ret_used = true;
         let mut found = self.record_op(RecordOp::FindSet, &probe, &mut [])?;
         while matches!(found, Value::Boolean(true)) && rows.len() <= MOST_ROWS {
-            rows.push(probe.borrow().fields.clone());
+            rows.push(probe.borrow().fields.to_vec());
             self.ret_used = true;
             found = match self.record_op(RecordOp::Next, &probe, &mut [])? {
                 Value::Integer(n) => Value::Boolean(n != 0),

@@ -51,6 +51,10 @@ pub fn recordref_copy(rec: &RecordState) -> RecordState {
 /// A Blob of a stored row whose bytes were not read yet gets its own copy, so the copy and the record do not share it (as
 /// RecordRef.GetTable does).
 pub fn own_unloaded_blobs(copy: &mut RecordState) {
+    // A shared buffer holds no Blob (`Fields`); walking it mutably would only copy it.
+    if copy.fields.is_shared() {
+        return;
+    }
     for v in &mut copy.fields {
         if let Value::Blob(b) = v {
             let unloaded = {

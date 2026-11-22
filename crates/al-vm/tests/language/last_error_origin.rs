@@ -57,6 +57,66 @@ codeunit 69871 "LO C"
         exit(GetLastErrorText(true));
     end;
 
+    procedure FieldErrInfoOption(): Text
+    var R: Record "LO Row";
+    begin
+        R.Id := 1; R.Kind := R.Kind::One;
+        asserterror R.FieldError(Kind, ErrorInfo.Create('not allowed'));
+        exit(GetLastErrorText(true));
+    end;
+
+    procedure FieldErrInfoCollectible(): Text
+    var R: Record "LO Row";
+    begin
+        R.Id := 1; R.Name := 'Jane';
+        asserterror R.FieldError(Name, ErrorInfo.Create('not allowed', true));
+        exit(GetLastErrorText(true));
+    end;
+
+    procedure FieldErrInfoBlankText(): Text
+    var R: Record "LO Row";
+    begin
+        R.Id := 1;
+        asserterror R.FieldError(Name, ErrorInfo.Create('not allowed'));
+        exit(GetLastErrorText(true));
+    end;
+
+    procedure FieldErrInfoLabel(): Text
+    var R: Record "LO Row";
+    begin
+        R.Id := 1; R.Name := 'Jane';
+        asserterror R.FieldError(Name, ErrorInfo.Create(Lbl));
+        exit(GetLastErrorText(true));
+    end;
+
+    procedure FieldErrInfoTextVar(): Text
+    var R: Record "LO Row"; T: Text;
+    begin
+        R.Id := 1; R.Name := 'Jane'; T := 'not allowed';
+        asserterror R.FieldError(Name, ErrorInfo.Create(T));
+        exit(GetLastErrorText(true));
+    end;
+
+    procedure FieldErrInfoMessageSet(): Text
+    var R: Record "LO Row"; Info: ErrorInfo;
+    begin
+        R.Id := 1; R.Name := 'Jane';
+        Info := ErrorInfo.Create('not allowed');
+        Info.Message := 'other';
+        asserterror R.FieldError(Name, Info);
+        exit(GetLastErrorText(true));
+    end;
+
+    procedure FieldErrInfoEmptyMessageSet(): Text
+    var R: Record "LO Row"; Info: ErrorInfo;
+    begin
+        R.Id := 1; R.Name := 'Jane';
+        Info := ErrorInfo.Create();
+        Info.Message := '';
+        asserterror R.FieldError(Name, Info);
+        exit(GetLastErrorText(true));
+    end;
+
     procedure FieldErrGlobalText(): Text
     var R: Record "LO Row";
     begin
@@ -225,10 +285,87 @@ fn the_text_forms_of_error_and_fielderror_answer_the_pinned_texts() {
 
 #[test]
 fn an_error_text_of_an_unpinned_form_is_refused() {
-    for routine in ["FromGlobalText", "FieldErrGlobalText"] {
+    // FieldError(Field, ErrorInfo) is pinned only on a Text field that holds a value, with a message that is not collectible
+    // or with no message (errors/last-error/SnLastErrorTextMoreForms.al:121-133, :161, :164): an Option field, a collectible
+    // ErrorInfo with a message and a blank Text field keep the refusal.
+    for routine in [
+        "FromGlobalText",
+        "FieldErrGlobalText",
+        "FieldErrInfoOption",
+        "FieldErrInfoCollectible",
+        "FieldErrInfoBlankText",
+        "FieldErrInfoLabel",
+        "FieldErrInfoTextVar",
+        "FieldErrInfoMessageSet",
+        "FieldErrInfoEmptyMessageSet",
+    ] {
         match run_in(SRC, "LO C", routine) {
             Err(Signal::Unsupported(m)) => assert!(m.contains("does not pin"), "{routine}: {m}"),
             other => panic!("{routine}: {other:?}"),
+        }
+    }
+}
+
+/// `FieldError(Name, Info)` on a filled Text field, with `Info` created by `create` and then `after` run on it.
+fn info_after(create: &str, after: &str) -> Result<al_builtins::value::Value, Signal> {
+    let src = format!(
+        "table 69873 \"LO Info Row\" {{ fields {{ field(1; Id; Integer) {{ }} field(2; Name; Text[30]) {{ }} }} keys {{ key(PK; Id) {{ }} }} }}
+         codeunit 69874 \"LO Info\" {{
+             procedure F(): Text
+             var R: Record \"LO Info Row\"; Info: ErrorInfo; D: Dictionary of [Text, Text]; T: Text;
+             begin
+                 R.Id := 1; R.Name := 'Jane';
+                 Info := {create};
+                 {after}
+                 asserterror R.FieldError(Name, Info);
+                 exit(GetLastErrorText(true));
+             end;
+         }}"
+    );
+    run_in(&src, "LO Info", "F")
+}
+
+#[test]
+fn a_fielderror_errorinfo_answers_only_when_nothing_was_set_after_create() {
+    // The pin sets nothing after Create (errors/last-error/SnLastErrorTextMoreForms.al:121-133, :161, :164).
+    let pinned = [
+        (
+            "ErrorInfo.Create('not allowed')",
+            "FieldError on field LO Info Row.Name",
+        ),
+        (
+            "ErrorInfo.Create()",
+            "FieldError for incorrect value of LO Info Row.Name",
+        ),
+    ];
+    for (create, want) in pinned {
+        // A read changes nothing.
+        for after in ["", "T := Info.Title; T := Info.Message; T := Format(Info.FieldNo);"] {
+            assert_eq!(text(info_after(create, after)), want, "{create} {after}");
+        }
+        for after in [
+            "Info.DataClassification := DataClassification::SystemMetadata;",
+            "Info.ErrorType := ErrorType::Internal;",
+            "Info.DetailedMessage := 'd';",
+            "Info.Title := 't';",
+            "Info.Verbosity := Verbosity::Warning;",
+            "Info.FieldNo := 2;",
+            "Info.RecordId := R.RecordId;",
+            "Info.PageNo := 1;",
+            "Info.CustomDimensions := D;",
+            "Info.CustomDimensions.Add('k', 'v');",
+            "Info.AddAction('a', 50000, 'b');",
+            "Info.AddNavigationAction();",
+            "Info.ControlName := 'c';",
+            "Info.TableId := 1;",
+            "Info.SystemId := CreateGuid();",
+            "Info.Collectible := Info.Collectible;",
+            "Info.Message := Info.Message;",
+        ] {
+            match info_after(create, after) {
+                Err(Signal::Unsupported(m)) => assert!(m.contains("does not pin"), "{create} {after}: {m}"),
+                other => panic!("{create} {after}: {other:?}"),
+            }
         }
     }
 }

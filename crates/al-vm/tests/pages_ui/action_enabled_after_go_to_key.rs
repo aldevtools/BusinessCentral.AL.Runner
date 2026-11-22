@@ -28,7 +28,7 @@ table 50311 "PX Source"
     fields
     {
         field(1; Code; Code[10]) { }
-        field(2; Rel; Code[10]) { TableRelation = "PX Target"; }
+        field(2; Rel; Code[10]) { TableRelation = "PX Target".Code; }
         field(3; Other; Code[10]) { }
     }
     keys { key(PK; Code) { } }

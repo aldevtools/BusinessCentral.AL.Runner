@@ -1,9 +1,30 @@
 use super::auto_format_writer_cell::ControlRead;
 use super::*;
+use crate::platform::relation_field_no_readers as rfn;
 
 impl Session {
     /// The value a control shows: its binding, read now.
     pub(super) fn control_value(&mut self, st: &St, idx: usize) -> Result<Value, Signal> {
+        self.control_value_read(st, idx, rfn::ControlRead::Other)
+    }
+
+    /// How page `st` was opened, as `relation_field_no_readers::relation_field_no_read` tells the opens apart.
+    pub(super) fn field_page_open(&self, st: &St) -> rfn::PageOpen {
+        let engine = self.engine();
+        let s = st.borrow();
+        let page_type = engine.object_facts[s.object as usize].page_type_lower();
+        match (page_type, s.test_open_view(), s.caught_by_trap, &s.trapped_run) {
+            ("list", true, _, _) => rfn::PageOpen::ListOpenView,
+            ("card", true, _, _) => rfn::PageOpen::CardOpenView,
+            ("card", false, true, Some(super::page_run_close::PageRunCall::StaticWithRecord)) => {
+                rfn::PageOpen::CardTrappedStaticRunWithRecord
+            }
+            _ => rfn::PageOpen::Other,
+        }
+    }
+
+    /// [`Session::control_value`] for a read of kind `read`.
+    pub(super) fn control_value_read(&mut self, st: &St, idx: usize, read: rfn::ControlRead) -> Result<Value, Signal> {
         if let Some(held) = Self::deferred_value_read(st, idx) {
             return Ok(held);
         }
@@ -58,11 +79,17 @@ impl Session {
                         "reading a row after CurrPage.Update on a page with OnFindRecord (the row it settles on is not pinned)",
                     );
                 }
-                let v = self.page_rec(st).borrow().fields[pos].clone();
+                let rec = self.page_rec(st);
+                let v = rec.borrow().fields[pos].clone();
                 // A column the platform row leaves unknown is not shown.
                 if let Some(why) = v.unknown() {
                     return unsupported(why.to_string());
                 }
+                self.relation_field_no_row_read(
+                    &rec,
+                    Some(pos),
+                    rfn::Reader::PageControl(self.field_page_open(st), read),
+                )?;
                 Ok(v)
             }
             ir::Binding::Var(_) | ir::Binding::BaseVar(_) => unreachable!("read above as a page variable"),
@@ -118,7 +145,11 @@ impl Session {
         if self.shows_no_row(st, idx) {
             return Ok(Value::default_for(to));
         }
-        let v = self.control_value(st, idx)?;
+        let read = match to {
+            RtType::Integer => rfn::ControlRead::AsInteger,
+            _ => rfn::ControlRead::Other,
+        };
+        let v = self.control_value_read(st, idx, read)?;
         // AsDecimal of a Text control that holds no number: '', ' ' and a word raise AL:Format naming the text
         // (testpage/notifications-and-control-values/CaTestPageTests.al:90-91, :130-135). A text with digits that does not convert is not pinned.
         if let (RtType::Decimal, Value::Text(t)) = (to, &v) {
@@ -267,8 +298,8 @@ impl Session {
         // A table field's AutoFormatExpression that is an expression, read through a control that names no expression of its
         // own: a field of the row is evaluated with the control's row (format-evaluate/QiTableFieldAutoFormat.al;
         // control expressions: format-evaluate/autoformat/PWAutoFormatTypes.al:19-22, AutoFormatCard.Page.al:53; literal field expressions:
-        // pages/run-modal/P113AutoFormat.al). A procedure call and any other expression are refused.
-        // `field_expression` is its text.
+        // pages/run-modal/P113AutoFormat.al). A procedure call takes what the page's fetch gave (`format_procedure.rs`); any other
+        // expression is refused. `field_expression` is its text.
         let mut field_expression = None;
         if ctl.prop("autoformatexpression").is_none() {
             if let Some(f) = format_field.as_ref() {
@@ -277,41 +308,40 @@ impl Session {
                     // BC runs an expression that calls a procedure when the page fetches the row (open, Next,
                     // GoToRecord), not when the text is read (format-evaluate/QiTableFieldAutoFormat.al:421
                     // QI_Type10Procedure_Card_Calls `after-open` fmt();fmt(A);, `after-t10-read` empty). Evaluated on read,
-                    // its side effects and errors would come at the wrong time, so it is refused.
-                    if text.as_deref().is_some_and(|e| e.contains('(')) {
-                        return unsupported(format!(
-                            "a control over table field {} whose AutoFormatExpression calls a procedure (BC runs it when the row is fetched; not modelled)",
-                            f.name
-                        ));
-                    }
-                    if let Some(why) = f.auto_format_refusal.clone() {
-                        return unsupported(why);
-                    }
-                    let Some((object, routine)) = f.auto_format_expression else {
-                        return unsupported(
-                            "a control over a table field whose AutoFormatExpression is an expression that did not compile",
-                        );
-                    };
-                    // A field of the row (`Rec."Currency Code"`, `"Currency Code"`) is pinned on a Card and a List, read on every
-                    // row it moves to (QiTableFieldAutoFormat.al:272 QI_TableFieldExpression_Card_ShowCurrencyNever, :300
-                    // QI_TableFieldExpression_List_ShowCurrencyNever: First, Next, Previous). Any other expression is not.
-                    if !is_field_reference(text.as_deref().unwrap_or_default()) {
-                        return unsupported(format!(
-                            "a control over table field {} whose AutoFormatExpression is neither a field of the row nor a text (not pinned)",
-                            f.name
-                        ));
-                    }
-                    let rec = format_rec.clone().unwrap_or_else(|| self.page_rec(st));
-                    field_expression = match self.call_on_record(object, routine, rec, None, Vec::new())?.0 {
-                        Value::Text(t) | Value::Code(t) => Some(t.into_string()),
-                        other => {
+                    // its side effects and errors would come at the wrong time: the read takes what the fetch kept, and refuses
+                    // when no pinned fetch ran it (`format_procedure.rs`, AutoFormatProcedureControl.al:14-16).
+                    if text.as_deref().is_some_and(super::format_procedure::calls_procedure) {
+                        field_expression = Some(self.format_procedure_text(st, idx, &f.name)?);
+                    } else {
+                        if let Some(why) = f.auto_format_refusal.clone() {
+                            return unsupported(why);
+                        }
+                        let Some((object, routine)) = f.auto_format_expression else {
+                            return unsupported(
+                                "a control over a table field whose AutoFormatExpression is an expression that did not compile",
+                            );
+                        };
+                        // A field of the row (`Rec."Currency Code"`, `"Currency Code"`) is pinned on a Card and a List, read on every
+                        // row it moves to (QiTableFieldAutoFormat.al:272 QI_TableFieldExpression_Card_ShowCurrencyNever, :300
+                        // QI_TableFieldExpression_List_ShowCurrencyNever: First, Next, Previous). Any other expression is not.
+                        if !is_field_reference(text.as_deref().unwrap_or_default()) {
                             return unsupported(format!(
-                                "the AutoFormatExpression of field {} gave a {}",
-                                f.name,
-                                other.describe()
+                                "a control over table field {} whose AutoFormatExpression is neither a field of the row nor a text (not pinned)",
+                                f.name
                             ));
                         }
-                    };
+                        let rec = format_rec.clone().unwrap_or_else(|| self.page_rec(st));
+                        field_expression = match self.call_on_record(object, routine, rec, None, Vec::new())?.0 {
+                            Value::Text(t) | Value::Code(t) => Some(t.into_string()),
+                            other => {
+                                return unsupported(format!(
+                                    "the AutoFormatExpression of field {} gave a {}",
+                                    f.name,
+                                    other.describe()
+                                ));
+                            }
+                        };
+                    }
                 }
             }
         }
@@ -799,6 +829,8 @@ impl Session {
         if let Some(refusal) = Self::rendered_field_refusal(v) {
             return Err(refusal);
         }
+        // A placeholder's size shows its digits (ADR-040 amendment 2026-11-12b, point 4).
+        al_builtins::placeholder_output::size_read(v, "a page control showing the value")?;
         // A Media control shows the id of its media, a MediaSet control the id of the first media
         // of its set; lowercase, no braces, empty when there is none
         // (testpage/TestPageFieldFormats_Tests.al:28, :628-640, TestPageFieldFormatsMediaFilled_Tests.al).

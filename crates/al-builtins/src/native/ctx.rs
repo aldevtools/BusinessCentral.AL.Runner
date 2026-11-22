@@ -205,6 +205,11 @@ pub trait Ctx: FormatCtx {
     fn format_composite(&mut self, _v: &Value) -> Option<Result<String, Signal>> {
         None
     }
+    /// `Format` of a `FieldRef` with standard format 1, 2 or 9 is about to read the field's value: the context refuses a read
+    /// `Format` may not make there.
+    fn format_fieldref_read(&mut self, _fr: &Value) -> Result<(), Signal> {
+        Ok(())
+    }
     /// `Format` of a `DotNet` object or enum: its `ToString()` (ADR-024). `None` where the context
     /// has no .NET host.
     fn format_dotnet(&mut self, _v: &Value) -> Option<Result<String, Signal>> {

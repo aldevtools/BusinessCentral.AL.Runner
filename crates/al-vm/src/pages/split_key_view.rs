@@ -251,7 +251,7 @@ impl Session {
             self.record_op(RecordOp::FindLast, &probe, &mut [])?,
             Value::Boolean(true)
         ) {
-            Ok(Some(probe.borrow().fields.clone()))
+            Ok(Some(probe.borrow().fields.to_vec()))
         } else {
             Ok(None)
         }

@@ -21,15 +21,16 @@ pub struct InstallLeft {
     isolated_written: std::collections::HashSet<(String, String)>,
     /// Its last Commit made writes durable (`TxState::last_commit_wrote`, min_row_version.rs).
     last_commit_wrote: bool,
-    /// `Database.CurrentTransactionType` after its last Commit (`TxState::transaction_type`; an AL `Commit` sets it).
+    /// `Database.CurrentTransactionType` after its last Commit (`TxState::transaction_type`; an AL `Commit` keeps it), and
+    /// what it rests on when no case pins it (`TxState::type_origin`): code that reads it before the first test method starts
+    /// sees both.
     transaction_type: i32,
+    type_origin: crate::transactions::TypeOrigin,
     /// What the SQL counters it never read noted (`SqlCounters::left_inactive`).
     sql: crate::sqlcount::SqlLeft,
     /// `EventState::caption_context_revision`: moved by a GlobalLanguage change and a binding; compared only with the value a
     /// page noted when it opened, so it is carried as it is.
     caption_context_revision: u64,
-    /// The language the Event Subscription and Report Layout lists follow (`EventStats::language`, 0 for 1033 until set).
-    stats_language: i32,
     /// How many events each subscriber handled (`EventStats::calls`, counted at dispatch.rs:322). Its one reader is the
     /// Event Subscription row's "Number of Calls" and the active-instances column next to it (platform/mod.rs:358
     /// `with_event_stats`); nothing clears it, so a session in which the install code ran reads these counts.
@@ -58,6 +59,7 @@ impl Session {
             spare_vecs: _,
             xp_pass_views: _,
             frames: _,
+            next_interface_call: _,
             xp_unlinked_passes: _,
             xp_link_hidden: _,
             call_stack: _,
@@ -73,6 +75,8 @@ impl Session {
             isolated_set_in_test: _,
             // Carried in InstallLeft.
             isolated_written_in_codeunit: _,
+            // Checked (`holds_as_new`): nothing is noted before a test codeunit's first test (`begin_codeunit_row_locks`).
+            row_locks: _,
             unmeasured: _,
             tasks: _,
             install_scope: _,
@@ -93,6 +97,10 @@ impl Session {
             // Carried: the Baseline.
             sequences: _,
             sequences_changed: _,
+            // Counts and insert stamps al-testrun compares within one test only (`sequence_start.rs`).
+            access_notes: _,
+            // Set by the caller after the install code, from the run's order (al-testrun `order_hint.rs`).
+            numbers_unmeasured: _,
             singletons: _,
             // Set by the caller after the install code, from the run's lane (`single_lane.rs`).
             si_track: _,
@@ -138,9 +146,12 @@ impl Session {
             truncate_undo: _,
             validating: _,
             stamp_validating: _,
+            validate_events: _,
             validate_site: _,
             validate_sites: _,
             plain_proc_xrec: _,
+            shared_proc_xrec: _,
+            iface_frames: _,
             cx: _,
             // Carried: `Baseline::install_rows` (the session has no baseline, so it is empty).
             baseline_rows: _,
@@ -180,8 +191,6 @@ impl Session {
             report_refusal_after_denial: _,
             permission_caller: _,
             permission_run_object: _,
-            // Set before each query method call that reads it.
-            query_object: _,
             query_receiver: _,
             keyref_receiver_local: _,
             test_object: _,
@@ -215,6 +224,8 @@ impl Session {
             host_new_running: _,
             part_open_running: _,
             host_move_running: _,
+            // Set only by a test page call (`pages/part_update_left_view.rs`), which install code never makes.
+            test_filter_steps: _,
             part_sync_keeps_same_link: _,
             dotnet: _,
             application_areas: _,
@@ -223,9 +234,12 @@ impl Session {
             host: _,
             // Made from the host's identity, the same in every session of the run.
             companies: _,
+            // Made from the shared test-data provider, the same in every session of the run.
+            backed_companies: _,
             // Carried: the Baseline.
             company_unknown: _,
             full_copies: _,
+            restamped_rows: _,
             run_trigger_unknown: _,
             package_load: _,
             // Carried in InstallLeft.
@@ -255,6 +269,7 @@ impl Session {
             find_load: _,
             find_through_recordref: _,
             through_recordref: _,
+            relation_field_no_refs: _,
             tx: _,
             ui_state: _,
             pages: _,
@@ -267,7 +282,7 @@ impl Session {
         }
         Some(InstallLeft {
             carried: crate::CarriedState {
-                language: self.global_language,
+                language: self.global_language(),
                 work_date: self.work_date,
             },
             clock_ms: self.waited_ms,
@@ -275,9 +290,9 @@ impl Session {
             isolated_written: self.isolated_written_in_codeunit.clone(),
             last_commit_wrote: self.tx.last_commit_wrote,
             transaction_type: self.tx.transaction_type,
+            type_origin: self.tx.type_origin,
             sql: self.sql.left_inactive()?,
             caption_context_revision: self.events.caption_context_revision,
-            stats_language: self.events.event_stats.language.get(),
             subscriber_calls: self.events.event_stats.calls.borrow().clone(),
         })
     }
@@ -300,9 +315,12 @@ impl Session {
             && self.truncate_undo.is_empty()
             && self.validating.is_empty()
             && self.stamp_validating.is_empty()
+            && self.validate_events.is_empty()
             && self.validate_site.is_none()
             && self.validate_sites.is_empty()
             && self.plain_proc_xrec.is_empty()
+            && self.shared_proc_xrec.is_empty()
+            && self.iface_frames.is_empty()
             && self.field_error_form.is_none()
             && self.error_finals.is_none()
             && self.var_alias_watch.is_empty()
@@ -346,6 +364,7 @@ impl Session {
         self.last_error == al_builtins::native::AlError::default()
             && self.isolated_committed == self.isolated_storage
             && self.isolated_set_in_test.is_empty()
+            && self.row_locks.as_new()
             && self.unmeasured.as_new()
             && self.tasks.as_new()
             && self.sessions_started == 0
@@ -427,96 +446,67 @@ impl Session {
 
     /// The transaction state after the install's last Commit, field by field: what a new session holds, except what the
     /// Commit sets (`committed_row_version`, carried in the Baseline; `commit_counter`, the store's change counter, which
-    /// [`Session::restore_install_left`] sets again; `last_commit_wrote` and `transaction_type`, carried).
+    /// [`Session::restore_install_left`] sets again; `last_commit_wrote`, `transaction_type` and `type_origin`, carried).
     fn tx_left_as_after_commit(&self) -> bool {
         let crate::state::TxState {
             tx_world,
             commit_behavior,
-            tx_phase,
+            phase,
             // Carried in InstallLeft.
             transaction_type: _,
+            // Carried in InstallLeft.
+            type_origin: _,
+            test_ended,
             lock_timeout,
             lock_timeout_duration,
             committed_row_version: _,
-            rows_touched,
-            tables_inserted,
-            locked_tables,
             commit_counter,
-            writes,
-            isolation_lock,
             rolled_back,
             rollback_unpinned,
             rollback_kind,
-            reads_after_rollback,
             last_commit_wrote: _,
-            deferred_insert,
+            open,
             failed_sql_rename,
-            insert_buffer,
             insert_from_al,
             rename_from_al,
+            get_from_al,
             write_of_al,
             deferred_by,
             deferred_raised,
             immediate_errors,
             try_depth,
+            assert_depth,
             used_tries,
             guarded_runs,
             guarded_bodies,
-            row_versions,
             xp_export_try_world,
-            inconsistent,
-            lock_tx,
-            lock_unpinned,
-            recref_lock_tx,
-            isolation_lock_tables,
-            locking_reads,
-            db_reads,
-            locking_read_tx_unpinned,
         } = &self.tx;
         let fresh = crate::state::TxState::fresh();
         *tx_world == fresh.tx_world
+            && !test_ended
             && *commit_behavior == fresh.commit_behavior
-            && *tx_phase == fresh.tx_phase
+            && *phase == fresh.phase
             && *lock_timeout == fresh.lock_timeout
             && *lock_timeout_duration == fresh.lock_timeout_duration
-            && rows_touched.is_empty()
-            && tables_inserted.is_empty()
-            && locked_tables.is_empty()
             && *commit_counter == self.store.change_counter()
-            && writes.is_empty()
-            && !isolation_lock
             && !rolled_back
             && rollback_unpinned.is_none()
             && rollback_kind.is_none()
-            && reads_after_rollback.is_empty()
-            && deferred_insert.is_none()
             && failed_sql_rename.is_none()
-            && insert_buffer.is_empty()
             && !insert_from_al
             && !rename_from_al
+            && !get_from_al
             && write_of_al.is_none()
             && deferred_by.is_none()
             && *deferred_raised == 0
             && !immediate_errors
             && *try_depth == 0
+            && *assert_depth == 0
             && used_tries.is_empty()
             && guarded_runs.is_empty()
             && guarded_bodies.is_empty()
-            && row_versions.pending_inserts.is_empty()
-            && row_versions.sent == 0
-            && row_versions.handed_out == 0
-            && row_versions.accounted == 0
-            && row_versions.last == 0
-            && row_versions.unpinned.is_none()
             && xp_export_try_world.is_none()
-            && inconsistent.is_empty()
-            && !lock_tx
-            && lock_unpinned.is_none()
-            && !recref_lock_tx
-            && isolation_lock_tables.is_empty()
-            && locking_reads.is_empty()
-            && *db_reads == 0
-            && !locking_read_tx_unpinned
+            && open.is_clear()
     }
 
     /// Starts this new session from what install code left in a session of its own: the clock first (the restore keeps
@@ -531,10 +521,10 @@ impl Session {
         self.isolated_written_in_codeunit = left.isolated_written.clone();
         self.tx.last_commit_wrote = left.last_commit_wrote;
         self.tx.transaction_type = left.transaction_type;
+        self.tx.type_origin = left.type_origin;
         self.tx.commit_counter = self.store.change_counter();
         self.sql.restore_left(&left.sql);
         self.events.caption_context_revision = left.caption_context_revision;
-        self.events.event_stats.language.set(left.stats_language);
         self.events
             .event_stats
             .calls

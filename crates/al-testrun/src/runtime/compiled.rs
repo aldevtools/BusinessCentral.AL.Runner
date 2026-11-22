@@ -87,6 +87,9 @@ pub struct RunOptions {
     /// The BC license of the run (ADR-060): the artifacts' license or `--license FILE`, parsed by the command line.
     /// `None`: no license; License Permission serves only the pinned rows.
     pub license: Option<std::sync::Arc<al_host::license::License>>,
+    /// The emit version of the run's build, which the missing-object error names (`crate::emit_version`). Default: none
+    /// known, and that error's text is not read.
+    pub emit_version: al_vm::emit_version::EmitVersion,
     /// Use the compile cache of the dependency apps (ADR-022). `None`: the demand-driven compile
     /// of every run, which is the reference path.
     pub compile_cache: Option<crate::compile_cache::CompileCache>,
@@ -189,6 +192,11 @@ pub struct RunOptions {
     /// `--skip-after-timeout` (al-runner issue 7517, opt-in, tooling): once a test is stopped at the time limit, the later tests
     /// of its codeunit are not run and end as not run, naming that test. Default `false`: a later pass is still reported.
     pub skip_after_timeout: bool,
+    /// `--stop-after-first-failure` and serve's `stopAfterFirstFailure` (al-runner issue 8210, opt-in, tooling): once a
+    /// test fails, the later tests of its codeunit and every later entry (`entries`) are not run and end as not run,
+    /// naming that test (`run::stopped_after_failure`). Each test codeunit stops on its own; every other test
+    /// codeunit of the same entry (or of a request without entries) still runs, also with one thread. Default `false`: every test runs.
+    pub stop_after_first_failure: bool,
     /// `al-runner test --permissions off` (ADR-062 section 5): no access kind is enforced, whatever stages are on by
     /// default. While no stage is on (today) it changes nothing.
     pub permissions_off: bool,
@@ -258,6 +266,10 @@ pub struct RunOptions {
     /// shared baseline, instead of sharing one frozen baseline. The reference side of the differential check
     /// (`AL_PRIVATE_BASELINE=1`, read by the front ends); not documented for users. Only time and memory depend on it.
     pub private_baseline: bool,
+    /// Compares what each test session holds after the raised login with the first session of the same inputs, and
+    /// reports it in `Phases::login_replay` (`login_replay.rs`, al-runner issue 8211; `ALRUNNER_LOGIN_REPLAY_CHECK=1`,
+    /// read by the front ends). Outcomes do not depend on it.
+    pub login_replay_check: bool,
 }
 
 impl RunOptions {
@@ -282,6 +294,10 @@ pub struct EntryRun {
     /// The time limit of this entry's tests (al-runner issue 8125): `None`: `RunOptions::test_time_limit`;
     /// `Some(None)`: no limit.
     pub test_time_limit: Option<Option<std::time::Duration>>,
+    /// With `RunOptions::stop_after_first_failure` (issue 8210), a failure stops only the later entries with the same
+    /// `stop_group`; `None` is one group, so with no group anywhere a failure stops every later entry (al-runner issue
+    /// 8210). The serve protocol refuses a mix of entries with and without a group.
+    pub stop_group: Option<String>,
 }
 
 /// One pass of `CorpusRuntime::run_compiled` (an entry, or the whole run), in program order.
@@ -292,6 +308,9 @@ pub(crate) struct Pass {
     pub(crate) resources: al_vm::ResourceOverrides,
     /// The time limit of the pass's tests (`RunOptions::test_time_limit`, or the entry's own).
     pub(crate) limit: Option<std::time::Duration>,
+    /// The scope of `RunOptions::stop_after_first_failure` for this pass (`pass_stopped` compares scopes by equality, so
+    /// the entries without a group share one); `None`: the stop is off.
+    pub(crate) stop: Option<super::run::StopAfterFailure>,
 }
 
 impl Pass {
@@ -315,8 +334,16 @@ impl Pass {
                 hooks: memory.hooks(&opts.hooks),
                 resources: Default::default(),
                 limit: opts.test_time_limit,
+                stop: opts
+                    .stop_after_first_failure
+                    .then_some(super::run::StopAfterFailure::Request),
             }];
         }
+        let stop = |e: &EntryRun| match &e.stop_group {
+            _ if !opts.stop_after_first_failure => None,
+            None => Some(super::run::StopAfterFailure::Request),
+            Some(g) => Some(super::run::StopAfterFailure::Group(Arc::from(g.as_str()))),
+        };
         let resources = |e: &EntryRun| {
             e.resources
                 .iter()
@@ -334,6 +361,7 @@ impl Pass {
                 hooks: memory.hooks(&e.hooks),
                 resources: resources(e),
                 limit: e.test_time_limit.unwrap_or(opts.test_time_limit),
+                stop: stop(e),
             })
             .collect()
     }
@@ -574,11 +602,12 @@ impl Compiled {
         }
         let t_replace = t_replace.elapsed();
         if declared {
-            // A declaration changed: the objects that name the changed ones may have read it, so they are
-            // checked and lowered again with them (ADR-033 step 5).
+            // A declaration changed: the objects that name or call the changed ones may have read it, so they are
+            // checked and lowered again with them (ADR-033 step 5). One with a call or member that did not resolve
+            // before is an error (`incremental::readers`): the caller compiles everything again.
             al_sema::incremental::eligible_for_declarations(ws, &dirty)?;
             let limit = ws.objects.len() / 5 + 20;
-            let readers = al_sema::incremental::readers(ws, &dirty, limit)?;
+            let readers = al_sema::incremental::readers(ws, lowered, &dirty, limit)?;
             dirty.extend(readers);
             dirty.sort_unstable();
         } else {

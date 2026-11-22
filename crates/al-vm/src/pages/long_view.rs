@@ -53,7 +53,7 @@ impl Session {
     pub(super) fn read_block_past_the_window(&mut self, st: &St, pinned_rows: Option<usize>) -> Result<(), Signal> {
         let rec = self.page_rec(st);
         let last = st.borrow().window[Self::WINDOW - 1].stored.clone();
-        rec.borrow_mut().fields = last;
+        rec.borrow_mut().fields = last.into();
         self.populate_current(st)?;
         let mut new_rows = 0;
         loop {
@@ -61,9 +61,9 @@ impl Session {
                 break;
             }
             let key = self.row_key(&rec)?;
-            let stored = rec.borrow().fields.clone();
+            let stored = rec.borrow().fields.to_vec();
             self.populate_current(st)?;
-            let shown = rec.borrow().fields.clone();
+            let shown = rec.borrow().fields.to_vec();
             st.borrow_mut()
                 .window
                 .push(crate::pages::WindowRow { key, stored, shown });
@@ -127,13 +127,13 @@ impl Session {
                 s.mode,
                 s.modal,
                 s.lookup,
-                s.run_static,
+                s.modal_run,
                 s.editable_preset,
             ) {
-                (true, PageMode::View, false, false, None, None) if !blank_line => Some(41..=100),
-                (true, PageMode::Edit, false, false, None, None) if blank_line => Some(100..=100),
-                (false, PageMode::Edit, true, true, Some(false), Some(false)) if !blank_line => Some(41..=100),
-                (false, PageMode::Edit, true, true, Some(true), None) if !blank_line => Some(100..=100),
+                (true, PageMode::View, false, false, ModalRun::Other, None) if !blank_line => Some(41..=100),
+                (true, PageMode::Edit, false, false, ModalRun::Other, None) if blank_line => Some(100..=100),
+                (false, PageMode::Edit, true, true, ModalRun::Variable, Some(false)) if !blank_line => Some(41..=100),
+                (false, PageMode::Edit, true, true, ModalRun::Static, None) if !blank_line => Some(100..=100),
                 _ => None,
             }
         };

@@ -9,6 +9,7 @@
 //! Core code: no OS access (ADR-006). The writer builds a string; the caller writes the bytes.
 
 use al_builtins::native::{Signal, unsupported};
+use al_builtins::value::Value;
 
 /// The name of a data item or column as the dataset spells it. A name made of letters, digits
 /// and underscores is written as it is (text/TestReportSaveAsDatasetContracts.al: `P`,
@@ -137,6 +138,10 @@ pub(crate) fn escape(text: &str) -> Result<String, Signal> {
 }
 
 fn escape_as(text: &str, attribute: bool) -> Result<String, Signal> {
+    escape_xml(text, attribute, false)
+}
+
+fn escape_xml(text: &str, attribute: bool, column_line_breaks: bool) -> Result<String, Signal> {
     // Rendered content never goes into a dataset or a query file: its characters would be written as known bytes into a
     // buffer without a mark (ADR-040 amendment 2026-11-12, A3b: a use that is not in table A3 refuses).
     if al_builtins::rendered_text::holds(text) {
@@ -146,12 +151,19 @@ fn escape_as(text: &str, attribute: bool) -> Result<String, Signal> {
         ));
     }
     let mut out = String::with_capacity(text.len());
-    for c in text.chars() {
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
         match c {
             '&' => out.push_str("&amp;"),
             '<' => out.push_str("&lt;"),
             '>' => out.push_str("&gt;"),
             '"' if attribute => out.push_str("&quot;"),
+            '\r' | '\n' if column_line_breaks => {
+                if c == '\r' && chars.peek() == Some(&'\n') {
+                    chars.next();
+                }
+                out.push_str("\r\n");
+            }
             c if c.is_control() => {
                 return unsupported(format!(
                     "text with the control character U+{:04X} in a dataset (its escaping is not pinned)",
@@ -449,6 +461,8 @@ pub(crate) enum DataFileText {
 #[derive(Default)]
 pub(crate) struct Dataset {
     body: String,
+    /// A save that writes CR, LF and CRLF in a Text field column as CRLF (`Dataset::for_report_save`).
+    column_line_breaks: bool,
     /// For every open `DataItem`: whether its own `DataItems` element is open.
     open: Vec<bool>,
     /// For every open `DataItem`: whether its data item declares nested items (an empty `DataItems` is written).
@@ -476,6 +490,48 @@ pub(crate) struct Dataset {
     flat: Vec<FlatRow>,
     /// For every open `DataItem`: the state to go back to when `PrintOnlyIfDetail` drops its row, and how many rows its nested items wrote.
     marks: Vec<Mark>,
+}
+
+impl Dataset {
+    /// The dataset of one save. Line breaks in a Text column are written as CRLF only for the call the corpus measures:
+    /// `Report.SaveAs(Number, '', ReportFormat::Xml, OutStream)` by number; `plain_call` is an empty parameters text and no
+    /// RecordRef (reports/dataset/TestReportDatasetLineBreaks.al:98, reports/extensions/TestReportExtensionParentLink.al:98).
+    /// The column side of the rule is in `escape_column_text`.
+    pub(crate) fn for_report_save(
+        id: al_ir::BuiltinId,
+        format: &str,
+        target: &crate::reports::SaveTarget,
+        plain_call: bool,
+        region: Option<(String, al_builtins::format::Region)>,
+        language: i32,
+    ) -> Self {
+        Self {
+            column_line_breaks: id == al_builtins::builtin_id::ids::REPORT_SAVEAS_2
+                && format == "Xml"
+                && matches!(target, crate::reports::SaveTarget::Stream(_))
+                && plain_call,
+            region,
+            language: (language == 1031).then(|| "de-DE".to_string()),
+            ..Self::default()
+        }
+    }
+
+    /// The text of a column. In a save `for_report_save` admits, a Text value of a column that the report itself declares over
+    /// one normal Text field (`own_field`: that field, None for any other column) writes CR, LF and CRLF as CRLF: TestReportDatasetLineBreaks.al:90 seeds the three, :110-113 find
+    /// CRLF for each (and TestReportExtensionParentLink.al:90 seeds the same column). Every other control character refuses.
+    pub(crate) fn escape_column_text(
+        dataset: Option<&Self>,
+        text: &str,
+        value: &Value,
+        own_field: Option<&al_data::FieldDef>,
+    ) -> Result<String, Signal> {
+        let own_text_field = own_field.is_some_and(|f| f.stored && matches!(f.ty, al_builtins::value::RtType::Text(_)));
+        escape_xml(
+            text,
+            false,
+            dataset.is_some_and(|d| d.column_line_breaks) && own_text_field && matches!(value, Value::Text(_)),
+        )
+    }
 }
 
 /// A row of a data item for a .NET DataSet (`Dataset::finish_data_set`).
@@ -1368,5 +1424,35 @@ mod tests {
     fn text_is_escaped() {
         assert_eq!(escape("one <&>").unwrap(), "one &lt;&amp;&gt;");
         assert!(escape("a\u{1}b").is_err());
+    }
+
+    #[test]
+    fn save_as_column_line_breaks_are_written_as_crlf() {
+        let ds = Dataset {
+            column_line_breaks: true,
+            ..Default::default()
+        };
+        let field = |ty, stored| al_data::FieldDef {
+            id: 1,
+            name: "Payload".into(),
+            ty,
+            stored,
+            code_storage: Default::default(),
+        };
+        let (text, flow, code) = (
+            field(al_builtins::value::RtType::Text(Some(100)), true),
+            field(al_builtins::value::RtType::Text(Some(100)), false),
+            field(al_builtins::value::RtType::Code(Some(100)), true),
+        );
+        let value = Value::Text("".into());
+        assert_eq!(
+            Dataset::escape_column_text(Some(&ds), "a\rb\r\nc\nd<&", &value, Some(&text)).unwrap(),
+            "a\r\nb\r\nc\r\nd&lt;&amp;"
+        );
+        assert!(Dataset::escape_column_text(Some(&ds), "a\u{1}b", &value, Some(&text)).is_err());
+        for other in [None, Some(&flow), Some(&code)] {
+            assert!(Dataset::escape_column_text(Some(&ds), "a\rb", &value, other).is_err());
+        }
+        assert!(Dataset::escape_column_text(None, "a\rb", &value, Some(&text)).is_err());
     }
 }

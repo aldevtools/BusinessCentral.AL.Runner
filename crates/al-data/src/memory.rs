@@ -3,17 +3,28 @@
 
 use crate::*;
 use al_builtins::filter::FieldFilter;
+use band::Band;
 pub use key::PkStorage;
 use key::{Key, table_storage};
 use std::cmp::Ordering;
 
+mod alt_cache;
+#[cfg(test)]
+mod alt_cache_tests;
+mod band;
+#[cfg(test)]
+mod collation_read_tests;
 mod frozen;
+mod held_cols;
 mod key;
 #[cfg(test)]
 mod key_value_tests;
 mod order_carry;
 mod replace;
 mod row_changes;
+mod source_stamps;
+#[cfg(test)]
+mod source_stamps_tests;
 #[cfg(test)]
 mod storage_tests;
 pub use frozen::{FrozenRows, FrozenStore, NotShareable, not_shareable, shareable};
@@ -76,15 +87,21 @@ impl Rows {
 pub trait Backing {
     /// The company the rows belong to.
     fn company(&self) -> &str;
+    /// Companies with rows the backing can provide.
+    fn companies(&self) -> Vec<String> {
+        vec![self.company().to_string()]
+    }
     /// The rows of table `object` for `company` (the empty name for a table that is not per
     /// company); `None` when the backing has none to offer. Answering is cheap after the first
     /// time: a clone of a shared map.
     fn rows(&self, company: &str, object: u32) -> Option<Rows>;
     /// Whether the table is served at all (a table with rows to offer in some company).
     fn has_rows(&self, object: u32) -> bool {
-        self.rows(self.company(), object)
-            .or_else(|| self.rows("", object))
-            .is_some_and(|r| !r.is_empty())
+        self.rows("", object).is_some_and(|r| !r.is_empty())
+            || self
+                .companies()
+                .iter()
+                .any(|company| self.rows(company, object).is_some_and(|r| !r.is_empty()))
     }
     /// Who offers the rows, for a cache across stores: two backings with the same identity offer the same rows for
     /// every table, and an identity is never given to another backing that offers other rows. `None` (the default):
@@ -108,25 +125,6 @@ struct OrderEntry {
     used: bool,
 }
 
-/// What `alt_next` knows about one scan (a table, a key and a set of filters) as of a table version.
-#[derive(Clone)]
-struct AltEntry {
-    version: u64,
-    /// How many scan steps came at this version: the first is answered by a pass over the band, the second builds
-    /// `keys`, the later ones search it.
-    calls: u32,
-    /// No other key narrows this scan: the caller walks.
-    not_applicable: bool,
-    /// The primary keys of the rows that pass the filters, in the order of the scan's key.
-    keys: Option<std::rc::Rc<Vec<Key>>>,
-}
-
-/// Where the band of one key is: the primary key's rows between two keys, or a slice of the cached order.
-enum Band {
-    Pk,
-    Order(std::rc::Rc<Vec<OrderKey>>, std::ops::Range<usize>),
-}
-
 /// A primary key in a cached key order: shared, so a write that carries the order (`order_carry`) copies pointers,
 /// not keys.
 type OrderKey = std::rc::Rc<Key>;
@@ -146,6 +144,13 @@ static STAMPS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(
 /// A stamp no store has used yet.
 fn next_stamp() -> u64 {
     STAMPS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1
+}
+
+/// The counts behind [`MemStore::accesses`] and [`MemStore::writes`].
+#[derive(Debug, Default)]
+struct AccessCounts {
+    accesses: std::cell::Cell<u64>,
+    writes: std::cell::Cell<u64>,
 }
 
 #[derive(Clone, Default)]
@@ -179,7 +184,7 @@ pub struct MemStore {
     order_cache: std::rc::Rc<std::cell::RefCell<OrderCache>>,
     /// The rows that pass one set of filters, in the order of one key, for scans whose filters bound the leading
     /// fields of another key (see `alt_next`).
-    alt_cache: std::cell::RefCell<std::collections::HashMap<(Slot, usize, String), AltEntry>>,
+    alt_cache: std::cell::RefCell<alt_cache::AltCache>,
     /// The stamp of the store's last write (`next_stamp`); never goes back, so a stamp is never reused.
     counter: u64,
     /// Tables that have no stored rows (ADR-019).
@@ -190,20 +195,43 @@ pub struct MemStore {
     /// nothing wrote to reads the source's backing rows, as the copy took them. Part of the transaction, like `tables`.
     copies: crate::pmap::PMap<std::sync::Arc<str>, std::sync::Arc<str>>,
     committed_copies: crate::pmap::PMap<std::sync::Arc<str>, std::sync::Arc<str>>,
+    /// Companies whose untouched rows were removed by deleting their Company row.
+    dropped_backed_companies: crate::pmap::PMap<std::sync::Arc<str>, ()>,
+    committed_dropped_backed_companies: crate::pmap::PMap<std::sync::Arc<str>, ()>,
+    /// Per company, the stamp of the last change of the rows its untouched tables serve (`copies`,
+    /// `dropped_backed_companies`): see `source_stamps.rs`. Part of the transaction, like `copies`.
+    source_stamps: crate::pmap::PMap<std::sync::Arc<str>, u64>,
+    committed_source_stamps: crate::pmap::PMap<std::sync::Arc<str>, u64>,
     /// While set, a change to a row of the backing (a modify, delete or rename) is written down
     /// here and allowed (ADR-020 amendment: install code may change restored rows). Shared by the
     /// clones of the store, so a snapshot or a rollback does not lose it.
     restored_log: Option<std::rc::Rc<std::cell::RefCell<Vec<RestoredChange>>>>,
-    /// Per table (object index), the columns in which a stored row held a value a platform row left unknown
-    /// (`Value::Unknown`, a record copied from one). Never cleared: a filter or an order on such a column checks the
+    /// Per table (object index), the columns in which a stored row held a value no filter or order may compare (`held_cols::unread`:
+    /// a value a platform row left unknown, or a placeholder's size). Never cleared: a filter or an order on such a column checks the
     /// rows (`unknown_read`).
     unknown_cols: std::collections::HashMap<u32, Vec<usize>>,
+    /// Per table, the columns in which a stored row held a text outside ASCII. Never cleared (`collation_read`).
+    accent_cols: std::collections::HashMap<u32, Vec<usize>>,
+    /// Per table, the columns in which a stored row held a text with `Æ` or `æ`. Never cleared (`collation_read`).
+    ae_cols: std::collections::HashMap<u32, Vec<usize>>,
+    /// Per table, the answers of `collation_read` kept for later reads (`held_cols::Verdict`).
+    collation_verdicts: std::cell::RefCell<std::collections::HashMap<Slot, Vec<held_cols::Verdict>>>,
+    /// Per table and column, the rows whose text can tie with an equality's text (`held_cols::FoldIndex`).
+    #[allow(clippy::type_complexity)]
+    fold_indexes: std::cell::RefCell<
+        std::collections::HashMap<(Slot, usize), (held_cols::KeptAt, std::rc::Rc<held_cols::FoldIndex>)>,
+    >,
+    /// Per table with noted columns, the Modifies since its last other write (`held_cols::ModifyRun`).
+    modify_runs: std::collections::HashMap<Slot, held_cols::ModifyRun>,
     /// A virtual table took a change (a Feature Key's Enabled) since the last commit: whether a rollback undoes it is
     /// not settled (metadata/platform-tables/AwTests.al:557-576, a Linux suspect), so the session refuses that rollback.
     virtual_write_pending: bool,
     /// While set, the tables whose access is watched and the first one that was read or written ([`MemStore::watch`]).
     /// Shared by the clones of the store, so a snapshot, a restore or a rollback does not lose it.
     watch: Option<std::rc::Rc<std::cell::RefCell<Watch>>>,
+    /// How many reads and writes of a table the store took ([`MemStore::accesses`], [`MemStore::writes`]). Shared by the
+    /// clones of the store, so a snapshot put back does not lower them.
+    counts: std::rc::Rc<AccessCounts>,
     /// The store stands for the database ([`MemStore::as_database`]): a Decimal it keeps carries no trailing zeros.
     database: bool,
 }
@@ -442,8 +470,9 @@ impl Seek {
                     }
                 }
             }
-            // The store orders text keys by `text_key_order`; the filters compare text by code points. The two agree
-            // for upper-case letters and digits only: any other text is looked at row by row.
+            // The store orders text keys by `collation::text_value_key_order`; a filter compares a Text field's ranges by it
+            // too and other text by `ops::compare`. The two agree for upper-case letters and digits: any other text is looked
+            // at row by row.
             if let (Value::Text(x) | Value::Code(x), Value::Text(y) | Value::Code(y)) = (&row[i], b) {
                 let neutral = |t: &str| t.bytes().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit());
                 if !neutral(x) || !neutral(y) {
@@ -512,42 +541,13 @@ fn passes(row: &Row, filters: &[FieldFilter]) -> bool {
     al_builtins::filter::row_passes_checked(row, filters)
 }
 
-impl MemStore {
-    /// A read that filters on, or orders by, a column a stored row holds unknown (a copy of a platform row) is refused:
-    /// whether that row passes, or where it sorts, is not known. Costs nothing until such a row was stored.
-    fn unknown_read(
-        &self,
-        cx: &AccessContext,
-        t: &TableDef,
-        filters: &[FieldFilter],
-        order: &[usize],
-    ) -> Result<(), StoreError> {
-        if self.unknown_cols.is_empty() {
-            return Ok(());
-        }
-        let Some(held) = self.unknown_cols.get(&t.object) else {
-            return Ok(());
-        };
-        let cols: Vec<usize> = filters
-            .iter()
-            .map(|f| f.field)
-            .chain(order.iter().copied())
-            .filter(|c| held.contains(c))
-            .collect();
-        if cols.is_empty() {
-            return Ok(());
-        }
-        let Some(table) = self.table(cx, t) else {
-            return Ok(());
-        };
-        for row in table.values() {
-            if let Some(why) = cols.iter().find_map(|&c| row.get(c).and_then(Value::unknown)) {
-                return Err(StoreError::Refused(why.to_string()));
-            }
-        }
-        Ok(())
-    }
+/// Whether two sets of filters are exactly the same filters, in the same order ([`FieldFilter::identical`]): the key of
+/// what a store keeps for a read (`alt_cache`, the collation verdicts).
+fn same_filters(a: &[FieldFilter], b: &[FieldFilter]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.identical(y))
+}
 
+impl MemStore {
     /// A read that filters a Code field with another SQLDataType than Varchar, Integer, BigInteger or Variant at all, or sorts by one
     /// whose first key field it is, is refused: the order and the comparison of such a field are not pinned (see [`CodeStorage`]).
     /// The Writes, Get by exact key and the other keys run.
@@ -578,18 +578,6 @@ impl MemStore {
         Ok(())
     }
 
-    /// Writes down the columns of `row` that hold an unknown value (see `unknown_cols`).
-    fn note_unknown(&mut self, t: &TableDef, row: &Row) {
-        for (i, v) in row.iter().enumerate() {
-            if v.unknown().is_some() {
-                let held = self.unknown_cols.entry(t.object).or_default();
-                if !held.contains(&i) {
-                    held.push(i);
-                }
-            }
-        }
-    }
-
     /// A store whose virtual tables are answered by `v`.
     pub fn with_virtual_tables(v: std::rc::Rc<dyn VirtualTables>) -> MemStore {
         MemStore {
@@ -607,8 +595,9 @@ impl MemStore {
         self
     }
 
-    /// `row` as this store keeps it ([`MemStore::as_database`]).
-    fn kept(&self, mut row: Row) -> Row {
+    /// `row` as this store keeps it ([`MemStore::as_database`]), with its held columns written down (`note_held`). Every
+    /// write of a row into `t` passes here, so no write path keeps a value a read must refuse without the note.
+    fn kept(&mut self, t: &TableDef, mut row: Row) -> Row {
         if self.database {
             for v in row.iter_mut() {
                 if let Value::Decimal(d) = v {
@@ -616,6 +605,7 @@ impl MemStore {
                 }
             }
         }
+        self.note_held(t, &row);
         row
     }
 
@@ -623,6 +613,8 @@ impl MemStore {
     pub fn with_backing(mut self, b: std::rc::Rc<dyn Backing>) -> MemStore {
         self.backing = Some(b);
         self.alt_cache.borrow_mut().clear();
+        self.collation_verdicts.borrow_mut().clear();
+        self.fold_indexes.borrow_mut().clear();
         // The clones of the store keep the old backing and its orders.
         self.order_cache = Default::default();
         self
@@ -678,6 +670,13 @@ impl MemStore {
 
     /// The backing's rows of table `object` in `company`; a copy reads those of the company it was copied from.
     fn backing_rows(&self, company: &str, object: u32) -> Option<Rows> {
+        if !self.dropped_backed_companies.is_empty()
+            && self
+                .dropped_backed_companies
+                .contains_key(&std::sync::Arc::from(company))
+        {
+            return None;
+        }
         let source = self
             .copies
             .get(&std::sync::Arc::from(company))
@@ -691,6 +690,13 @@ impl MemStore {
         let source = self.copy_source(source);
         self.copies.insert(copy.into(), source.clone());
         self.committed_copies.insert(copy.into(), source);
+        self.source_changed(copy);
+        let copy = std::sync::Arc::from(copy);
+        self.dropped_backed_companies.remove(&copy);
+        self.committed_dropped_backed_companies.remove(&copy);
+        if let Some(&stamp) = self.source_stamps.get(&copy) {
+            self.committed_source_stamps.insert(copy, stamp);
+        }
     }
 
     /// The company whose backing rows `company` holds: its source if it is a copy, else itself.
@@ -883,6 +889,11 @@ impl MemStore {
         }
     }
 
+    /// The stamp the last commit left for table `t`: it changes when a commit writes the table, never at a rollback.
+    pub fn committed_stamp(&self, cx: &AccessContext, t: &TableDef) -> Option<u64> {
+        self.committed_versions.get(&slot(cx, t)).copied()
+    }
+
     /// Whether a write since the last commit changed table `t` (and no rollback undid it).
     pub fn written_since_commit(&self, cx: &AccessContext, t: &TableDef) -> bool {
         let slot = slot(cx, t);
@@ -964,8 +975,20 @@ impl MemStore {
         hit
     }
 
-    /// Notes an access to table `object` for the watch.
+    /// How many reads and writes of a table this store and its clones took so far (al-testrun `isolation/failed_test.rs`:
+    /// what a failed test reached of the tables).
+    pub fn accesses(&self) -> u64 {
+        self.counts.accesses.get()
+    }
+
+    /// How many of [`MemStore::accesses`] were writes.
+    pub fn writes(&self) -> u64 {
+        self.counts.writes.get()
+    }
+
+    /// Notes an access to table `object` for the watch and the count of [`MemStore::accesses`].
     fn seen(&self, object: u32) {
+        self.counts.accesses.set(self.counts.accesses.get() + 1);
         if let Some(w) = &self.watch {
             let mut w = w.borrow_mut();
             if w.tables.contains(&object) {
@@ -982,6 +1005,7 @@ impl MemStore {
 
     /// Notes an access to every watched table (a read of the whole store).
     fn seen_all(&self) {
+        self.counts.accesses.set(self.counts.accesses.get() + 1);
         if let Some(w) = &self.watch {
             let mut w = w.borrow_mut();
             if w.hit.is_none() {
@@ -1001,8 +1025,20 @@ impl MemStore {
             return true;
         }
         // A table the store holds is what its rows are now; only an absent one reads the backing.
-        let held = self.tables.keys().any(|(_, o)| *o == object);
-        !held && self.backing.as_ref().is_some_and(|b| b.has_rows(object))
+        let Some(backing) = &self.backing else {
+            return false;
+        };
+        let shared_slot: Slot = (std::sync::Arc::from(""), object);
+        (!self.tables.contains_key(&shared_slot) && self.backing_rows("", object).is_some_and(|rows| !rows.is_empty()))
+            || backing.companies().iter().any(|company| {
+                let slot: Slot = (std::sync::Arc::from(company.as_str()), object);
+                !self.tables.contains_key(&slot)
+                    && self.backing_rows(company, object).is_some_and(|rows| !rows.is_empty())
+            })
+            || self.copies.keys().any(|copy| {
+                let slot: Slot = (copy.clone(), object);
+                !self.tables.contains_key(&slot) && self.backing_rows(copy, object).is_some_and(|rows| !rows.is_empty())
+            })
     }
 
     /// The table objects that hold a committed row in any company.
@@ -1014,17 +1050,26 @@ impl MemStore {
     /// (`with_backing`). The record of changes to restored rows is a log and is not exported.
     /// Changes that are not committed are not exported.
     pub fn export_committed(&self) -> Option<Vec<ExportedTable>> {
-        Some(
-            self.committed
-                .iter()
-                .map(|((company, object), table)| ExportedTable {
-                    company: company.to_string(),
-                    object: *object,
-                    pk_storage: table_storage(table),
-                    rows: table.iter().map(|(k, r)| (k.0.clone(), r.clone())).collect(),
-                })
-                .collect(),
-        )
+        Some(Self::export(&self.committed))
+    }
+
+    /// The tables the store holds now, uncommitted changes included, as [`MemStore::export_committed`] gives the committed
+    /// ones (a temporary table's store, which never commits; al-vm `Session::state_lines`). Counts no store operation.
+    pub fn export_current(&self) -> Vec<ExportedTable> {
+        Self::export(&self.tables)
+    }
+
+    /// Every table of `tables` with its rows in key order ([`MemStore::export_committed`], [`MemStore::export_current`]).
+    fn export(tables: &Tables) -> Vec<ExportedTable> {
+        tables
+            .iter()
+            .map(|((company, object), table)| ExportedTable {
+                company: company.to_string(),
+                object: *object,
+                pk_storage: table_storage(table),
+                rows: table.iter().map(|(k, r)| (k.0.clone(), r.clone())).collect(),
+            })
+            .collect()
     }
 
     /// A store whose committed (and current) data is `tables`, with no provider and no backing. Its stamps are new
@@ -1046,7 +1091,7 @@ impl MemStore {
         s.committed = s.tables.clone();
         s.committed_versions = s.versions.clone();
         s.committed_shapes = s.shapes.clone();
-        s
+        s.with_held_noted()
     }
 
     /// The committed tables (company, object) of this store that a write reached since it was `base` (a clone of
@@ -1167,10 +1212,15 @@ impl MemStore {
         self.tables
             .iter()
             .any(|((c, _), t)| !c.is_empty() && &**c == company && !t.is_empty())
-            || self
-                .backing
-                .as_ref()
-                .is_some_and(|b| !company.is_empty() && b.company().eq_ignore_ascii_case(&self.copy_source(company)))
+            || self.backing.as_ref().is_some_and(|b| {
+                !company.is_empty()
+                    && !self
+                        .dropped_backed_companies
+                        .contains_key(&std::sync::Arc::from(company))
+                    && b.companies()
+                        .iter()
+                        .any(|known| known.eq_ignore_ascii_case(&self.copy_source(company)))
+            })
     }
 
     /// The companies that hold a row in per-company table `object`, committed or not.
@@ -1183,14 +1233,17 @@ impl MemStore {
             .map(|((c, _), _)| c.to_string())
             .collect();
         if let Some(b) = &self.backing {
-            let company = b.company();
-            let held = self.tables.contains_key(&(std::sync::Arc::from(company), object));
-            if !held && b.rows(company, object).is_some_and(|r| !r.is_empty()) {
-                out.push(company.to_string());
+            for company in b.companies() {
+                let held = self
+                    .tables
+                    .contains_key(&(std::sync::Arc::from(company.as_str()), object));
+                if !held && self.backing_rows(&company, object).is_some_and(|r| !r.is_empty()) {
+                    out.push(company);
+                }
             }
-            for (copy, source) in self.copies.iter() {
+            for (copy, _) in self.copies.iter() {
                 let held = self.tables.contains_key(&(copy.clone(), object));
-                if !held && b.rows(source, object).is_some_and(|r| !r.is_empty()) {
+                if !held && self.backing_rows(copy, object).is_some_and(|r| !r.is_empty()) {
                     out.push(copy.to_string());
                 }
             }
@@ -1213,7 +1266,9 @@ impl MemStore {
             self.versions.insert(slot.clone(), self.counter);
             self.shapes.insert(slot, self.counter);
         }
+        self.dropped_backed_companies.insert(company.into(), ());
         self.copies.remove(&std::sync::Arc::from(company));
+        self.source_changed(company);
     }
 
     /// Moves every row of company `old` to company `new`, as renaming the company does
@@ -1237,9 +1292,15 @@ impl MemStore {
                 self.shapes.insert(target, self.counter);
             }
         }
-        if let Some(source) = self.copies.remove(&std::sync::Arc::from(old)) {
+        let source = self.copy_source(old);
+        self.copies.remove(&std::sync::Arc::from(old));
+        if self.backing.is_some() {
             self.copies.insert(new.into(), source);
         }
+        self.dropped_backed_companies.insert(old.into(), ());
+        self.dropped_backed_companies.remove(&std::sync::Arc::from(new));
+        self.source_changed(old);
+        self.source_changed(new);
     }
 
     /// Copies every row of company `from` to company `to`, as they are (system fields included), as
@@ -1250,6 +1311,8 @@ impl MemStore {
             let source = self.copy_source(from);
             self.copies.insert(to.into(), source);
         }
+        self.dropped_backed_companies.remove(&std::sync::Arc::from(to));
+        self.source_changed(to);
         let copied: Vec<(Slot, Table)> = self
             .tables
             .iter()
@@ -1285,10 +1348,12 @@ impl MemStore {
         if self.virtual_of(t).is_some() {
             return 0;
         }
-        self.versions.get(&slot(cx, t)).copied().unwrap_or(0)
+        self.stamp_of(&slot(cx, t), &self.versions)
     }
 
+    /// A write of the table: a new version, and one more of [`MemStore::writes`].
     fn touch(&mut self, cx: &AccessContext, t: &TableDef) {
+        self.counts.writes.set(self.counts.writes.get() + 1);
         self.counter = next_stamp();
         self.versions.insert(slot(cx, t), self.counter);
     }
@@ -1310,7 +1375,7 @@ impl MemStore {
 
     /// The order of key `key` that `order_of` cached for the table as it is now, without sorting; `None` when none fits.
     fn cached_order(&self, slot: &Slot, key: usize, t: &TableDef, table: &Table) -> Option<std::rc::Rc<Vec<OrderKey>>> {
-        let shape = self.shapes.get(slot).copied().unwrap_or(0);
+        let shape = self.stamp_of(slot, &self.shapes);
         let ck = (slot.clone(), key);
         let moved = self.moves.get(&ck).copied().unwrap_or(0);
         let fits =
@@ -1329,7 +1394,7 @@ impl MemStore {
         if let Some(order) = self.cached_order(slot, key, t, table) {
             return order;
         }
-        let shape = self.shapes.get(slot).copied().unwrap_or(0);
+        let shape = self.stamp_of(slot, &self.shapes);
         let ck = (slot.clone(), key);
         let moved = self.moves.get(&ck).copied().unwrap_or(0);
         ORDER_BUILDS.with(|n| n.set(n.get() + 1));
@@ -1356,46 +1421,6 @@ impl MemStore {
         );
         kept.truncate(ORDERS_PER_KEY);
         order
-    }
-
-    /// The band of key `j` that the filters leave, and how many rows it holds; `None` when the filters bound no
-    /// leading field of the key or the order cannot be trusted, or (`sort` false) when no order of the key is cached.
-    fn band_of(
-        &self,
-        slot: &Slot,
-        j: usize,
-        t: &TableDef,
-        table: &Table,
-        filters: &[FieldFilter],
-        sort: bool,
-    ) -> Option<(Band, usize)> {
-        let seek = Seek::of(t, j, filters, table.values().next())?;
-        if j == 0 {
-            let n = pk_band(table, t, filters).count();
-            return Some((Band::Pk, n));
-        }
-        let order = if sort {
-            self.order_of(slot, j, t, table)
-        } else {
-            self.cached_order(slot, j, t, table)?
-        };
-        if order.len() != table.len() || !order.iter().take(1).all(|k| table.get(k).is_some()) {
-            return None;
-        }
-        let trusted = std::cell::Cell::new(true);
-        let probe = |k: &Key, f: &dyn Fn(&[Value]) -> Option<bool>| match table.get(k).map(|r| f(r)) {
-            Some(Some(b)) => b,
-            _ => {
-                trusted.set(false);
-                false
-            }
-        };
-        let start = order.partition_point(|k| probe(k, &|r| seek.before(r)));
-        let end = order.partition_point(|k| !probe(k, &|r| seek.after(r)));
-        (trusted.get() && start <= end).then(|| {
-            let n = end - start;
-            (Band::Order(order, start..end), n)
-        })
     }
 
     /// A scan whose own key is not bounded by the filters, but another key is (an index the filters narrow, as SQL
@@ -1425,8 +1450,7 @@ impl MemStore {
             return None;
         }
         let slot = slot(cx, t);
-        let version = self.versions.get(&slot).copied().unwrap_or(0);
-        let ck = (slot.clone(), scan.key, format!("{:?}", scan.filters));
+        let stamp = self.stamp_of(&slot, &self.versions);
         let fields: Vec<usize> = if scan.key == 0 {
             t.keys[0].clone()
         } else {
@@ -1452,65 +1476,14 @@ impl MemStore {
                 }
             })
         };
-        let calls;
-        {
-            let mut cache = self.alt_cache.borrow_mut();
-            if cache.len() > 256 {
-                cache.clear();
-            }
-            match cache.get_mut(&ck) {
-                Some(e) if e.version == version => {
-                    if e.not_applicable {
-                        return None;
-                    }
-                    if let Some(keys) = e.keys.clone() {
-                        drop(cache);
-                        return Some(self.search_sorted(table, &keys, scan, &cmp_after));
-                    }
-                    e.calls += 1;
-                    calls = e.calls;
-                }
-                Some(e) => {
-                    // The first step after a write: walk.
-                    *e = AltEntry {
-                        version,
-                        calls: 1,
-                        not_applicable: false,
-                        keys: None,
-                    };
-                    return None;
-                }
-                None => {
-                    cache.insert(
-                        ck.clone(),
-                        AltEntry {
-                            version,
-                            calls: 1,
-                            not_applicable: false,
-                            keys: None,
-                        },
-                    );
-                    calls = 1;
-                }
-            }
-        }
-        // The narrowest band of any key, if it is a clear gain over the walk. Against a narrow band of the scan's own key, a
-        // key is sorted only when that band holds at least a quarter of the table: a scan that runs after each write
-        // (an Insert of two rows, then a Find; the Insert test of Tests-SCM codeunit 137380) would sort every such key
-        // each time, which costs more than walking the band.
-        let sort = own.is_none_or(|m| m * 4 >= table.len());
-        let mut best: Option<(Band, usize)> = None;
-        for j in (0..t.keys.len()).filter(|&j| own.is_none() || j != scan.key) {
-            if let Some((b, n)) = self.band_of(&slot, j, t, table, scan.filters, sort) {
-                if best.as_ref().is_none_or(|(_, m)| n < *m) {
-                    best = Some((b, n));
-                }
-            }
-        }
-        let Some((band, _)) = best.filter(|(_, n)| *n * 4 <= own.unwrap_or(table.len())) else {
-            if let Some(e) = self.alt_cache.borrow_mut().get_mut(&ck) {
-                e.not_applicable = true;
-            }
+        let calls = match self.alt_step(&slot, scan.key, scan.filters, stamp) {
+            alt_cache::AltStep::Walk => return None,
+            alt_cache::AltStep::Sorted(keys) => return Some(self.search_sorted(table, &keys, scan, &cmp_after)),
+            alt_cache::AltStep::Band(calls) => calls,
+        };
+        // When `own` is `None` the filters do not bound the scan's key (checked above), so it has no band to leave out.
+        let Some(band) = self.narrowest_band(&slot, t, table, scan.filters, scan.key, own) else {
+            self.alt_keep(&slot, scan.key, scan.filters, None);
             return None;
         };
         let band_keys: Vec<Key> = match &band {
@@ -1546,9 +1519,7 @@ impl MemStore {
             .collect();
         rows.sort_by(|a, b| cmp_rows(t, scan.key, a.1, b.1));
         let keys = std::rc::Rc::new(rows.into_iter().map(|(k, _)| k.clone()).collect::<Vec<_>>());
-        if let Some(e) = self.alt_cache.borrow_mut().get_mut(&ck) {
-            e.keys = Some(keys.clone());
-        }
+        self.alt_keep(&slot, scan.key, scan.filters, Some(keys.clone()));
         Some(self.search_sorted(table, &keys, scan, &cmp_after))
     }
 
@@ -1579,6 +1550,9 @@ impl MemStore {
         let slot = slot(cx, t);
         if !self.tables.contains_key(&slot) {
             let start = self.backing_rows(&slot.0, slot.1).map_or_else(Table::new, |r| r.0);
+            // The copied rows are the store's from now on, and an export carries them: note them as the store read back
+            // from that export notes them (`with_held_noted`; review of PR 8517).
+            self.note_held_rows(t.object, &start);
             self.tables.insert(slot.clone(), start);
         }
         let table = self.tables.get_mut(&slot).expect("the slot was just inserted");
@@ -1617,7 +1591,7 @@ pub fn store_ops() -> u64 {
 impl Store for MemStore {
     fn insert(&mut self, cx: &AccessContext, t: &TableDef, row: Row) -> Result<InsertOutcome, StoreError> {
         bump();
-        let row = self.kept(row);
+        let row = self.kept(t, row);
         t.check_key_values(&row)?;
         if let Some(v) = self.virtual_of(t) {
             if !v.takes_inserts(t) {
@@ -1627,7 +1601,6 @@ impl Store for MemStore {
                 return Ok(InsertOutcome::AlreadyExists);
             }
         }
-        self.note_unknown(t, &row);
         let k = Key::of(t, t.primary_key(&row));
         let carry = self.has_orders(&slot(cx, t), t);
         let table = self.table_mut(cx, t);
@@ -1636,7 +1609,7 @@ impl Store for MemStore {
         }
         let kept = carry.then(|| k.clone());
         table.insert(k, row);
-        let from = self.shapes.get(&slot(cx, t)).copied().unwrap_or(0);
+        let from = self.stamp_of(&slot(cx, t), &self.shapes);
         self.touch_shape(cx, t);
         if let Some(k) = kept {
             self.carry_orders(cx, t, &k, order_carry::Change::Insert, from);
@@ -1655,7 +1628,7 @@ impl Store for MemStore {
 
     fn modify(&mut self, cx: &AccessContext, t: &TableDef, row: Row) -> Result<WriteOutcome, StoreError> {
         bump();
-        let row = self.kept(row);
+        let row = self.kept(t, row);
         t.check_key_values(&row)?;
         if let Some(v) = self.virtual_of(t) {
             let k = Key::of(t, t.primary_key(&row));
@@ -1689,14 +1662,19 @@ impl Store for MemStore {
             }
             return Err(self.read_only(t, "Modify"));
         }
-        self.note_unknown(t, &row);
         let k = Key::of(t, t.primary_key(&row));
         self.note_restored(cx, t, &k, "Modify", Some(&row));
         let carry = self.has_orders(&slot(cx, t), t);
+        let watch = self.accent_cols.contains_key(&t.object);
+        let before = self.stamp_of(&slot(cx, t), &self.versions);
         let table = self.table_mut(cx, t);
         if !table.contains_key(&k) {
             return Ok(WriteOutcome::NotFound);
         }
+        let changed = match table.get(&k) {
+            Some(old) if watch => (0..row.len()).filter(|&i| key_fields_differ(&[i], old, &row)).collect(),
+            _ => Vec::new(),
+        };
         // A key is made of fields; when a Modify changes one the row stands elsewhere in that key, and only there (the
         // primary key does not change: that is a Rename).
         let moved: Vec<usize> = match table.get(&k) {
@@ -1718,6 +1696,9 @@ impl Store for MemStore {
             None => Vec::new(),
         };
         self.touch(cx, t);
+        if watch {
+            self.note_modify(&sl, before, changed);
+        }
         for j in stale {
             self.moves.insert((sl.clone(), j), self.counter);
         }
@@ -1744,7 +1725,7 @@ impl Store for MemStore {
         let k = Key::of(t, pk.to_vec());
         Ok(match self.table_mut(cx, t).remove(&k) {
             Some(old) => {
-                let from = self.shapes.get(&slot(cx, t)).copied().unwrap_or(0);
+                let from = self.stamp_of(&slot(cx, t), &self.shapes);
                 self.touch_shape(cx, t);
                 self.carry_orders(cx, t, &k, order_carry::Change::Delete { old: &old }, from);
                 WriteOutcome::Done
@@ -1761,7 +1742,7 @@ impl Store for MemStore {
         row: Row,
     ) -> Result<RenameOutcome, StoreError> {
         bump();
-        let row = self.kept(row);
+        let row = self.kept(t, row);
         t.check_primary_key(old)?;
         t.check_key_values(&row)?;
         if self.virtual_of(t).is_some() {
@@ -1793,6 +1774,7 @@ impl Store for MemStore {
         self.unknown_read(cx, t, scan.filters, t.keys.get(scan.key).map_or(&[], |k| k.as_slice()))?;
         Self::unpinned_match_read(scan.filters)?;
         Self::code_storage_read(t, scan.filters, t.keys.get(scan.key).map_or(&[], |k| k.as_slice()))?;
+        self.collation_read(cx, t, scan.filters, Some(scan.key).filter(|&k| k < t.keys.len()))?;
         let Some(table) = self.table(cx, t) else {
             return Ok(None);
         };
@@ -1927,18 +1909,7 @@ impl Store for MemStore {
     }
 
     fn count(&self, cx: &AccessContext, t: &TableDef, f: &[FieldFilter]) -> Result<usize, StoreError> {
-        bump();
-        if let Some(v) = self.virtual_of(t) {
-            return v.count(self, cx, t, f);
-        }
-        self.unknown_read(cx, t, f, &[])?;
-        Self::unpinned_match_read(f)?;
-        Self::code_storage_read(t, f, &[])?;
-        let Some(table) = self.table(cx, t) else {
-            return Ok(0);
-        };
-        let f = &*crate::code_storage::number_filters(t, f, &mut table.values())?;
-        Ok(pk_band(&table, t, f).filter(|(_, r)| passes(r, f)).count())
+        self.count_up_to(cx, t, f, usize::MAX)
     }
 
     fn delete_all(&mut self, cx: &AccessContext, t: &TableDef, f: &[FieldFilter]) -> Result<usize, StoreError> {
@@ -1949,6 +1920,7 @@ impl Store for MemStore {
         self.unknown_read(cx, t, f, &[])?;
         Self::unpinned_match_read(f)?;
         Self::code_storage_read(t, f, &[])?;
+        self.collation_read(cx, t, f, None)?;
         let doomed: Vec<Key> = match self.table(cx, t) {
             Some(table) => {
                 let f = &*crate::code_storage::number_filters(t, f, &mut table.values())?;
@@ -1983,6 +1955,8 @@ impl Store for MemStore {
         self.committed_shapes = self.shapes.clone();
         self.committed_moves = self.moves.clone();
         self.committed_copies = self.copies.clone();
+        self.committed_dropped_backed_companies = self.dropped_backed_companies.clone();
+        self.committed_source_stamps = self.source_stamps.clone();
         self.committed_emptied = self.emptied.clone();
     }
 
@@ -1994,6 +1968,8 @@ impl Store for MemStore {
         self.shapes = self.committed_shapes.clone();
         self.moves = self.committed_moves.clone();
         self.copies = self.committed_copies.clone();
+        self.dropped_backed_companies = self.committed_dropped_backed_companies.clone();
+        self.source_stamps = self.committed_source_stamps.clone();
         self.emptied = self.committed_emptied.clone();
     }
 }
@@ -2033,894 +2009,7 @@ impl SnapshotStore for MemStore {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    // Review of al-runner PR 8119: the test runner asks which tables install code wrote since it started that a rollback
-    // now takes back: not a write before it started, nor one it committed.
-    #[test]
-    fn the_store_tells_which_tables_a_rollback_takes_back_of_the_writes_since_a_mark() {
-        use crate::contract::{cx, row, table};
-        let c = cx("C");
-        let at = |object| {
-            let mut t = table();
-            t.object = object;
-            t
-        };
-        let mut s = MemStore::default();
-        s.insert(&c, &at(1), row("A", 1, 1)).unwrap();
-        let mark = s.change_counter();
-        s.insert(&c, &at(2), row("A", 1, 1)).unwrap();
-        assert_eq!(
-            s.tables_rolled_back_since(mark),
-            [2].into(),
-            "a write before the mark is not counted"
-        );
-        s.commit();
-        assert!(
-            s.tables_rolled_back_since(mark).is_empty(),
-            "a committed write is not taken back"
-        );
-        s.insert(&c, &at(3), row("A", 1, 1)).unwrap();
-        assert_eq!(s.tables_rolled_back_since(mark), [3].into());
-        s.rollback();
-        assert!(s.tables_rolled_back_since(mark).is_empty());
-    }
-
-    // al-runner issue 5641: the test runner asks which tables a Company Triggers subscriber wrote while it ran, and whether a
-    // test read or wrote one of them.
-    #[test]
-    fn the_store_tells_which_tables_changed_and_whether_a_watched_one_was_accessed() {
-        use crate::contract::{cx, row, table};
-        let (c, t) = (cx("C"), table());
-        let mut other = table();
-        other.object = 8;
-        let mut s = MemStore::default();
-        s.insert(&c, &other, row("A", 1, 1)).unwrap();
-        s.commit();
-        let before = s.change_counter();
-        s.insert(&c, &t, row("A", 1, 1)).unwrap();
-        assert_eq!(s.tables_changed_since(before), [7].into());
-        s.rollback();
-        assert!(
-            s.tables_changed_since(before).is_empty(),
-            "a rolled back write is not a change"
-        );
-        s.insert(&c, &t, row("A", 1, 1)).unwrap();
-        s.commit();
-        s.watch([7].into());
-        let snap = s.clone();
-        s.count(&c, &other, &[]).unwrap();
-        assert_eq!(s.watch_hit(), None);
-        s.count(&c, &t, &[]).unwrap();
-        assert_eq!(s.watch_hit(), Some(7));
-        assert_eq!(snap.watch_hit(), Some(7), "the clones of the store share the watch");
-        s.watch(Default::default());
-        s.count(&c, &t, &[]).unwrap();
-        assert_eq!(s.watch_hit(), None);
-        // A window on top of the watch (`watch_window`): it notes only what is accessed while it is open, whatever the
-        // watch noted before, and the watch keeps its own.
-        s.watch([7, 8].into());
-        s.count(&c, &t, &[]).unwrap();
-        s.watch_window([7].into());
-        s.count(&c, &other, &[]).unwrap();
-        assert_eq!(s.watch_window_end(), None, "7 was read before the window opened");
-        s.watch_window([7].into());
-        s.count(&c, &t, &[]).unwrap();
-        assert_eq!(s.watch_window_end(), Some(7));
-        assert_eq!(s.watch_hit(), Some(7), "the watch keeps its own");
-        assert_eq!(s.watch_window_end(), None, "closed");
-    }
-
-    // ---- the key seek (ADR-035): a scan starts where the filters on the leading key fields start ----
-
-    use al_builtins::filter::{FieldFilter, FilterExpr};
-    use al_builtins::value::RtType;
-
-    fn seek_table(keys: Vec<Vec<usize>>) -> TableDef {
-        let f = |id, name: &str, ty| FieldDef {
-            id,
-            name: name.into(),
-            ty,
-            stored: true,
-            code_storage: Default::default(),
-        };
-        TableDef {
-            object: 9,
-            name: "Seek".into(),
-            fields: vec![
-                f(1, "A", RtType::Integer),
-                f(2, "B", RtType::Integer),
-                f(3, "C", RtType::Code(Some(10))),
-                f(4, "D", RtType::Integer),
-            ],
-            keys,
-            per_company: true,
-        }
-    }
-
-    fn cx() -> AccessContext {
-        AccessContext {
-            company: "C".into(),
-            user: "U".into(),
-        }
-    }
-
-    fn range(field: usize, lo: Option<Value>, hi: Option<Value>) -> FieldFilter {
-        FieldFilter {
-            lang: al_builtins::filter::filter_language(),
-            field,
-            expr: FilterExpr::Range(lo, hi),
-            group: 0,
-        }
-    }
-
-    /// The rows a scan returns, one `next` after the other.
-    fn scan_all(s: &MemStore, t: &TableDef, key: usize, filters: &[FieldFilter], ascending: bool) -> Vec<Row> {
-        let mut out: Vec<Row> = Vec::new();
-        let mut after: Option<Vec<Value>> = None;
-        while let Some(r) = s
-            .next(
-                &cx(),
-                t,
-                &Scan {
-                    key,
-                    filters,
-                    ascending,
-                    after: after.as_deref(),
-                },
-            )
-            .unwrap()
-        {
-            after = Some(crate::position(t, key, &r));
-            out.push(r);
-        }
-        out
-    }
-
-    /// What the scan has to return, without any seek: every row, in the order of the key, that passes.
-    fn reference(s: &MemStore, t: &TableDef, key: usize, filters: &[FieldFilter], ascending: bool) -> Vec<Row> {
-        let mut rows: Vec<Row> = s.table(&cx(), t).unwrap().values().cloned().collect();
-        rows.sort_by(|a, b| cmp_rows(t, key, a, b));
-        if !ascending {
-            rows.reverse();
-        }
-        rows.retain(|r| al_builtins::filter::row_passes_checked(r, filters));
-        rows
-    }
-
-    mod seek_tests;
-
-    #[test]
-    fn passes_the_store_contract() {
-        crate::contract::run_all(MemStore::default);
-    }
-
-    #[test]
-    fn dropping_a_company_removes_its_rows_and_a_rollback_restores_them() {
-        let cx = |c: &str| AccessContext {
-            company: c.into(),
-            user: "U".into(),
-        };
-        let t = TableDef {
-            object: 7,
-            name: "T".into(),
-            fields: vec![FieldDef {
-                id: 1,
-                name: "K".into(),
-                ty: al_builtins::value::RtType::Integer,
-                stored: true,
-                code_storage: Default::default(),
-            }],
-            keys: vec![vec![0]],
-            per_company: true,
-        };
-        let mut s = MemStore::default();
-        s.insert(&cx("A"), &t, vec![Value::Integer(1)]).unwrap();
-        s.insert(&cx("B"), &t, vec![Value::Integer(1)]).unwrap();
-        s.commit();
-        assert!(
-            s.has_company_rows("A") && !s.has_company_rows("a"),
-            "company names are case sensitive"
-        );
-        assert_eq!(s.companies_with_rows(7).len(), 2);
-        let before = s.table_stamp(&cx("B"), &t);
-        s.drop_company("B");
-        assert!(!s.has_company_rows("B") && s.has_company_rows("A"));
-        assert_eq!(s.count(&cx("B"), &t, &[]).unwrap(), 0);
-        assert_eq!(s.count(&cx("A"), &t, &[]).unwrap(), 1);
-        assert_ne!(s.table_stamp(&cx("B"), &t), before, "queries see the change");
-        s.rollback();
-        assert_eq!(s.count(&cx("B"), &t, &[]).unwrap(), 1);
-        s.rename_company("B", "C");
-        assert_eq!(s.count(&cx("B"), &t, &[]).unwrap(), 0);
-        assert_eq!(s.count(&cx("C"), &t, &[]).unwrap(), 1);
-        s.rollback();
-        assert_eq!(s.count(&cx("B"), &t, &[]).unwrap(), 1);
-    }
-
-    #[test]
-    fn copying_a_company_copies_its_rows_as_they_are_and_a_rollback_removes_them() {
-        let cx = |c: &str| AccessContext {
-            company: c.into(),
-            user: "U".into(),
-        };
-        let field = |id| FieldDef {
-            id,
-            name: "K".into(),
-            ty: al_builtins::value::RtType::Integer,
-            stored: true,
-            code_storage: Default::default(),
-        };
-        let t = TableDef {
-            object: 7,
-            name: "T".into(),
-            fields: vec![field(1), field(2)],
-            keys: vec![vec![0]],
-            per_company: true,
-        };
-        let mut s = MemStore::default();
-        s.insert(&cx("A"), &t, vec![Value::Integer(1), Value::Integer(10)])
-            .unwrap();
-        s.insert(&cx("A"), &t, vec![Value::Integer(2), Value::Integer(20)])
-            .unwrap();
-        s.insert(&cx("B"), &t, vec![Value::Integer(9), Value::Integer(90)])
-            .unwrap();
-        s.commit();
-        let before = s.table_stamp(&cx("C"), &t);
-        s.copy_company("A", "C");
-        assert_eq!(s.count(&cx("C"), &t, &[]).unwrap(), 2);
-        let row = s.get(&cx("C"), &t, &[Value::Integer(2)]).unwrap().unwrap();
-        assert!(matches!(row[1], Value::Integer(20)), "the row is copied as it is");
-        assert_eq!(s.count(&cx("A"), &t, &[]).unwrap(), 2, "the source keeps its rows");
-        assert_ne!(s.table_stamp(&cx("C"), &t), before, "queries see the change");
-        s.insert(&cx("C"), &t, vec![Value::Integer(3), Value::Integer(30)])
-            .unwrap();
-        assert_eq!(
-            s.count(&cx("A"), &t, &[]).unwrap(),
-            2,
-            "the copy is apart from the source"
-        );
-        s.rollback();
-        assert_eq!(s.count(&cx("C"), &t, &[]).unwrap(), 0);
-    }
-
-    #[test]
-    fn tells_whether_a_company_changed_in_the_open_transaction() {
-        let cx = |c: &str| AccessContext {
-            company: c.into(),
-            user: "U".into(),
-        };
-        let t = TableDef {
-            object: 7,
-            name: "T".into(),
-            fields: vec![FieldDef {
-                id: 1,
-                name: "K".into(),
-                ty: al_builtins::value::RtType::Integer,
-                stored: true,
-                code_storage: Default::default(),
-            }],
-            keys: vec![vec![0]],
-            per_company: true,
-        };
-        let mut s = MemStore::default();
-        s.insert(&cx("A"), &t, vec![Value::Integer(1)]).unwrap();
-        assert!(s.company_changed("A") && !s.company_changed("B"));
-        s.commit();
-        assert!(!s.company_changed("A"));
-        s.insert(&cx("B"), &t, vec![Value::Integer(1)]).unwrap();
-        assert!(!s.company_changed("A") && s.company_changed("B"));
-    }
-
-    #[test]
-    fn reports_uncommitted_writes() {
-        let cx = AccessContext {
-            company: "C".into(),
-            user: "U".into(),
-        };
-        let t = TableDef {
-            object: 0,
-            name: "T".into(),
-            fields: vec![FieldDef {
-                id: 1,
-                name: "K".into(),
-                ty: al_builtins::value::RtType::Integer,
-                stored: true,
-                code_storage: Default::default(),
-            }],
-            keys: vec![vec![0]],
-            per_company: true,
-        };
-        let mut s = MemStore::default();
-        assert!(!s.has_uncommitted());
-        s.insert(&cx, &t, vec![Value::Integer(1)]).unwrap();
-        assert!(s.has_uncommitted());
-        s.commit();
-        assert!(!s.has_uncommitted());
-        s.insert(&cx, &t, vec![Value::Integer(2)]).unwrap();
-        s.rollback();
-        assert!(!s.has_uncommitted());
-    }
-
-    #[test]
-    fn table_stamp_changes_with_every_write_and_rollback() {
-        let cx = AccessContext {
-            company: "C".into(),
-            user: "U".into(),
-        };
-        let t = TableDef {
-            object: 0,
-            name: "T".into(),
-            fields: vec![FieldDef {
-                id: 1,
-                name: "K".into(),
-                ty: al_builtins::value::RtType::Integer,
-                stored: true,
-                code_storage: Default::default(),
-            }],
-            keys: vec![vec![0]],
-            per_company: true,
-        };
-        let mut s = MemStore::default();
-        let s0 = s.table_stamp(&cx, &t);
-        s.insert(&cx, &t, vec![Value::Integer(1)]).unwrap();
-        let s1 = s.table_stamp(&cx, &t);
-        assert_ne!(s0, s1, "an insert changes the stamp");
-        s.insert(&cx, &t, vec![Value::Integer(1)]).unwrap();
-        assert_eq!(s1, s.table_stamp(&cx, &t), "a refused insert does not");
-        s.commit();
-        s.insert(&cx, &t, vec![Value::Integer(2)]).unwrap();
-        let s2 = s.table_stamp(&cx, &t);
-        s.rollback();
-        assert_eq!(s1, s.table_stamp(&cx, &t), "a rollback restores the committed stamp");
-        s.insert(&cx, &t, vec![Value::Integer(3)]).unwrap();
-        assert_ne!(s2, s.table_stamp(&cx, &t), "a stamp is never reused for other content");
-    }
-
-    // Gap cycle G8: a DeleteAll without filters marks the table emptied (its rows from before are known to be gone); the mark
-    // follows the rows through commit, rollback and a snapshot. A DeleteAll with filters does not mark it.
-    #[test]
-    fn a_delete_all_without_filters_marks_the_table_emptied_until_a_rollback() {
-        let cx = AccessContext {
-            company: "C".into(),
-            user: "U".into(),
-        };
-        let t = TableDef {
-            object: 0,
-            name: "T".into(),
-            fields: vec![FieldDef {
-                id: 1,
-                name: "K".into(),
-                ty: al_builtins::value::RtType::Integer,
-                stored: true,
-                code_storage: Default::default(),
-            }],
-            keys: vec![vec![0]],
-            per_company: true,
-        };
-        let mut s = MemStore::default();
-        assert!(!s.emptied(&cx, &t));
-        let filter = FieldFilter {
-            lang: al_builtins::filter::filter_language(),
-            field: 0,
-            expr: al_builtins::filter::FilterExpr::Eq(Value::Integer(1)),
-            group: 0,
-        };
-        s.delete_all(&cx, &t, &[filter]).unwrap();
-        assert!(!s.emptied(&cx, &t), "a filtered DeleteAll");
-        s.delete_all(&cx, &t, &[]).unwrap();
-        assert!(s.emptied(&cx, &t));
-        s.insert(&cx, &t, vec![Value::Integer(1)]).unwrap();
-        assert!(s.emptied(&cx, &t), "rows written after it are known");
-        s.rollback();
-        assert!(!s.emptied(&cx, &t), "a rollback takes it back");
-        s.delete_all(&cx, &t, &[]).unwrap();
-        let snap = s.snapshot();
-        s.commit();
-        s.rollback();
-        assert!(s.emptied(&cx, &t), "a commit keeps it");
-        let mut fresh = MemStore::default();
-        assert!(!fresh.emptied(&cx, &t));
-        fresh.restore(snap);
-        assert!(fresh.emptied(&cx, &t), "a snapshot holds it");
-    }
-
-    /// Rows a table holds before anything wrote to it: three rows for company `C`, table 7.
-    struct ThreeRows {
-        reads: std::cell::Cell<usize>,
-    }
-
-    impl Backing for ThreeRows {
-        fn company(&self) -> &str {
-            "C"
-        }
-        fn rows(&self, company: &str, object: u32) -> Option<Rows> {
-            if company != "C" || object != 7 {
-                return None;
-            }
-            self.reads.set(self.reads.get() + 1);
-            let t = crate::contract::table();
-            Rows::from_rows(
-                &t,
-                vec![
-                    crate::contract::row("A", 1, 1),
-                    crate::contract::row("B", 2, 1),
-                    crate::contract::row("C", 3, 2),
-                ],
-            )
-            .ok()
-        }
-    }
-
-    fn backed() -> (MemStore, std::rc::Rc<ThreeRows>) {
-        let b = std::rc::Rc::new(ThreeRows {
-            reads: Default::default(),
-        });
-        (MemStore::default().with_backing(b.clone()), b)
-    }
-
-    #[test]
-    fn a_table_nothing_wrote_to_reads_the_backing_rows() {
-        let (s, _) = backed();
-        let (t, cx) = (crate::contract::table(), crate::contract::cx("C"));
-        assert_eq!(s.count(&cx, &t, &[]).unwrap(), 3);
-        assert!(s.get(&cx, &t, &[Value::Code("B".into())]).unwrap().is_some());
-        // another company and another table see nothing
-        assert_eq!(s.count(&crate::contract::cx("D"), &t, &[]).unwrap(), 0);
-        let mut other = t.clone();
-        other.object = 8;
-        assert_eq!(s.count(&cx, &other, &[]).unwrap(), 0);
-    }
-
-    // al-runner issue 6507: a copy of the backed company holds the backing's rows of the tables nothing wrote to
-    // (session-system/company/Y22CopyCompany.al:Y22_CopyCompany_CopiesCompanyAndRows), apart from the source's.
-    #[test]
-    fn a_copy_of_the_backed_company_reads_the_backing_rows() {
-        let (mut s, _) = backed();
-        let (t, c, d) = (
-            crate::contract::table(),
-            crate::contract::cx("C"),
-            crate::contract::cx("D"),
-        );
-        s.commit();
-        s.copy_company("C", "D");
-        assert_eq!(s.count(&d, &t, &[]).unwrap(), 3);
-        assert!(s.has_company_rows("D"));
-        assert!(s.companies_with_rows(7).contains(&"D".to_string()));
-        s.delete(&d, &t, &[Value::Code("A".into())]).unwrap();
-        assert_eq!(s.count(&d, &t, &[]).unwrap(), 2);
-        assert_eq!(s.count(&c, &t, &[]).unwrap(), 3, "the source keeps its rows");
-        // The copy is part of the transaction: a rollback removes it.
-        s.rollback();
-        assert_eq!(s.count(&d, &t, &[]).unwrap(), 0);
-        s.copy_company("C", "D");
-        s.commit();
-        s.rename_company("D", "E");
-        assert_eq!(s.count(&d, &t, &[]).unwrap(), 0);
-        assert_eq!(s.count(&crate::contract::cx("E"), &t, &[]).unwrap(), 3);
-        s.drop_company("E");
-        assert_eq!(s.count(&crate::contract::cx("E"), &t, &[]).unwrap(), 0);
-        assert!(!s.has_company_rows("E"));
-    }
-
-    #[test]
-    fn a_write_starts_from_the_backing_rows() {
-        let (mut s, _) = backed();
-        let (t, cx) = (crate::contract::table(), crate::contract::cx("C"));
-        assert_eq!(
-            s.insert(&cx, &t, crate::contract::row("A", 9, 9)).unwrap(),
-            InsertOutcome::AlreadyExists,
-            "a restored key cannot be inserted again"
-        );
-        assert_eq!(
-            s.insert(&cx, &t, crate::contract::row("D", 4, 3)).unwrap(),
-            InsertOutcome::Inserted
-        );
-        assert_eq!(s.count(&cx, &t, &[]).unwrap(), 4);
-        assert_eq!(
-            s.delete(&cx, &t, &[Value::Code("A".into())]).unwrap(),
-            WriteOutcome::Done
-        );
-        assert_eq!(s.count(&cx, &t, &[]).unwrap(), 3);
-    }
-
-    #[test]
-    fn deleting_every_restored_row_leaves_the_table_empty_not_restored_again() {
-        let (mut s, _) = backed();
-        let (t, cx) = (crate::contract::table(), crate::contract::cx("C"));
-        assert_eq!(s.delete_all(&cx, &t, &[]).unwrap(), 3);
-        assert_eq!(s.count(&cx, &t, &[]).unwrap(), 0);
-        s.commit();
-        s.rollback();
-        assert_eq!(s.count(&cx, &t, &[]).unwrap(), 0);
-    }
-
-    #[test]
-    fn a_rollback_puts_the_backing_rows_back_and_a_commit_keeps_a_write() {
-        let (mut s, _) = backed();
-        let (t, cx) = (crate::contract::table(), crate::contract::cx("C"));
-        s.insert(&cx, &t, crate::contract::row("D", 4, 3)).unwrap();
-        s.rollback();
-        assert_eq!(
-            s.count(&cx, &t, &[]).unwrap(),
-            3,
-            "the restored rows are committed data"
-        );
-        s.insert(&cx, &t, crate::contract::row("D", 4, 3)).unwrap();
-        s.commit();
-        s.rollback();
-        assert_eq!(s.count(&cx, &t, &[]).unwrap(), 4);
-    }
-
-    #[test]
-    fn a_snapshot_taken_before_a_touch_still_reads_the_backing_rows() {
-        let (s, _) = backed();
-        let (t, cx) = (crate::contract::table(), crate::contract::cx("C"));
-        let snap = s.snapshot();
-        let mut s = s;
-        s.insert(&cx, &t, crate::contract::row("D", 4, 3)).unwrap();
-        s.restore(snap);
-        assert_eq!(s.count(&cx, &t, &[]).unwrap(), 3);
-    }
-
-    #[test]
-    fn the_company_and_table_queries_include_the_backing_rows() {
-        let (s, _) = backed();
-        assert!(s.has_rows(7) && !s.has_rows(8));
-        assert!(s.has_company_rows("c") && !s.has_company_rows("D"));
-        assert_eq!(s.companies_with_rows(7), vec!["C".to_string()]);
-    }
-
-    #[test]
-    fn changes_to_backing_rows_are_allowed_and_written_down_when_recording() {
-        let (mut s, _) = backed();
-        let (t, cx) = (crate::contract::table(), crate::contract::cx("C"));
-        s.record_restored_changes(true);
-        // the same values: allowed, and said to be the same
-        let same = s.get(&cx, &t, &[Value::Code("A".into())]).unwrap().unwrap();
-        assert_eq!(s.modify(&cx, &t, same).unwrap(), WriteOutcome::Done);
-        // other values, a delete, a rename, a DeleteAll: allowed
-        assert_eq!(
-            s.modify(&cx, &t, crate::contract::row("A", 9, 9)).unwrap(),
-            WriteOutcome::Done
-        );
-        assert_eq!(
-            s.rename(&cx, &t, &[Value::Code("B".into())], crate::contract::row("Z", 1, 1))
-                .unwrap(),
-            RenameOutcome::Renamed
-        );
-        // a row the code made itself is not a restored row
-        s.insert(&cx, &t, crate::contract::row("D", 4, 3)).unwrap();
-        s.modify(&cx, &t, crate::contract::row("D", 5, 3)).unwrap();
-        s.delete(&cx, &t, &[Value::Code("D".into())]).unwrap();
-        let got: Vec<(&str, bool)> = s.restored_changes().iter().map(|c| (c.op, c.same)).collect();
-        assert_eq!(got, vec![("Modify", true), ("Modify", false), ("Rename", false)]);
-        assert!(s.restored_changes().iter().all(|c| c.table == t.name));
-        s.delete_all(&cx, &t, &[]).unwrap();
-        assert_eq!(s.count(&cx, &t, &[]).unwrap(), 0);
-        s.record_restored_changes(false);
-        assert!(s.restored_changes().is_empty());
-    }
-
-    /// Walking a table row by row costs a few comparisons a row, not a pass over the table: 30,000 rows in a
-    /// second, where a scan that looks at every row for each step needs minutes. Release only
-    /// (`cargo test --release -p al-data -- --ignored`).
-    #[test]
-    #[ignore]
-    fn walking_a_big_table_row_by_row_is_not_quadratic() {
-        let (t, cx) = (crate::contract::table(), crate::contract::cx("C"));
-        let mut s = MemStore::default();
-        for i in 0..30_000 {
-            s.insert(&cx, &t, crate::contract::row(&format!("{i:08}"), i, i % 7))
-                .unwrap();
-        }
-        let started = std::time::Instant::now();
-        for key in [0, 1] {
-            let rows = crate::contract::scan_all(&s, &cx, &t, key, &[], true);
-            assert_eq!(rows.len(), 30_000);
-        }
-        let took = started.elapsed();
-        assert!(took < std::time::Duration::from_secs(5), "two walks took {took:?}");
-    }
-
-    #[test]
-    fn the_backing_is_asked_again_only_while_the_slot_is_absent() {
-        let (mut s, b) = backed();
-        let (t, cx) = (crate::contract::table(), crate::contract::cx("C"));
-        s.insert(&cx, &t, crate::contract::row("D", 4, 3)).unwrap();
-        let after_write = b.reads.get();
-        for _ in 0..5 {
-            s.count(&cx, &t, &[]).unwrap();
-        }
-        assert_eq!(
-            b.reads.get(),
-            after_write,
-            "a table the store holds is not read from the backing again"
-        );
-    }
-
-    /// The last row in key 1 (`Group`, `Amount`), as a FindLast in a secondary key asks it.
-    fn last_in_key_1(s: &MemStore) -> Option<String> {
-        let (t, cx) = (crate::contract::table(), crate::contract::cx("C"));
-        let scan = Scan {
-            key: 1,
-            filters: &[],
-            ascending: false,
-            after: None,
-        };
-        s.next(&cx, &t, &scan).unwrap().map(|r| format!("{:?}", r[0]))
-    }
-
-    fn big_store() -> MemStore {
-        let (t, cx) = (crate::contract::table(), crate::contract::cx("C"));
-        let mut s = MemStore::default();
-        for i in 0..200 {
-            s.insert(&cx, &t, crate::contract::row(&format!("{i:04}"), i, i % 7))
-                .unwrap();
-        }
-        s.commit();
-        s
-    }
-
-    // Al-runner issue 5884: every test session starts from the same snapshot of the company and asks Base Application's
-    // login code for the last G/L entry by Posting Date. The order of the table in that key is built once, not once per
-    // session: a store restored to a snapshot keeps the orders its clones built for the same content.
-    #[test]
-    fn a_restored_snapshot_keeps_the_order_built_in_another_key() {
-        let mut s = big_store();
-        let snap = s.snapshot();
-        let before = order_builds();
-        assert_eq!(last_in_key_1(&s).as_deref(), Some("Code(\"0195\")"));
-        s.restore(snap.clone());
-        assert_eq!(last_in_key_1(&s).as_deref(), Some("Code(\"0195\")"));
-        let mut other = snap.clone();
-        assert_eq!(last_in_key_1(&other).as_deref(), Some("Code(\"0195\")"));
-        assert_eq!(
-            order_builds() - before,
-            1,
-            "the order of key 1 is built once for the same rows"
-        );
-        // A write in one clone changes its order and not the order of the snapshot or of the other clones.
-        let (t, cx) = (crate::contract::table(), crate::contract::cx("C"));
-        other.insert(&cx, &t, crate::contract::row("X", 1000, 6)).unwrap();
-        assert_eq!(last_in_key_1(&other).as_deref(), Some("Code(\"X\")"));
-        assert_eq!(last_in_key_1(&s).as_deref(), Some("Code(\"0195\")"));
-        s.restore(snap);
-        assert_eq!(last_in_key_1(&s).as_deref(), Some("Code(\"0195\")"));
-    }
-
-    #[test]
-    fn sessions_that_write_between_the_reads_of_the_snapshot_keep_its_order() {
-        let (t, cx) = (crate::contract::table(), crate::contract::cx("C"));
-        let snap = big_store();
-        let before = order_builds();
-        for i in 0..10 {
-            // A session opens on the snapshot, reads, writes and reads again.
-            let mut s = snap.clone();
-            assert_eq!(last_in_key_1(&s).as_deref(), Some("Code(\"0195\")"));
-            s.insert(&cx, &t, crate::contract::row(&format!("W{i}"), 1000, 6))
-                .unwrap();
-            assert_eq!(last_in_key_1(&s), Some(format!("Code(\"W{i}\")")));
-        }
-        assert_eq!(
-            order_builds() - before,
-            1,
-            "the snapshot's order once; each session's write carries it (order_carry)"
-        );
-    }
-
-    #[test]
-    fn two_clones_that_write_different_rows_each_see_their_own_order() {
-        let (t, cx) = (crate::contract::table(), crate::contract::cx("C"));
-        let snap = big_store();
-        let mut a = snap.clone();
-        let mut b = snap.clone();
-        a.insert(&cx, &t, crate::contract::row("A", 1000, 6)).unwrap();
-        b.insert(&cx, &t, crate::contract::row("B", 1000, 6)).unwrap();
-        assert_eq!(last_in_key_1(&a).as_deref(), Some("Code(\"A\")"));
-        assert_eq!(last_in_key_1(&b).as_deref(), Some("Code(\"B\")"));
-        // A modify that moves a row in key 1, in each clone the other way.
-        let mut a2 = snap.clone();
-        let mut b2 = snap.clone();
-        a2.modify(&cx, &t, crate::contract::row("0001", 2000, 6)).unwrap();
-        b2.modify(&cx, &t, crate::contract::row("0002", 2000, 6)).unwrap();
-        assert_eq!(last_in_key_1(&a2).as_deref(), Some("Code(\"0001\")"));
-        assert_eq!(last_in_key_1(&b2).as_deref(), Some("Code(\"0002\")"));
-    }
-
-    // Al-runner issue 6924: No. Series Line has the keys ("Series Code", "Starting Date", ...) and ("Last Date Used").
-    // Each number taken sets "Last Date Used", which moves the row in the second key only; the next read in the first
-    // key must not sort the table again.
-    #[test]
-    fn a_modify_that_moves_a_row_in_one_key_keeps_the_order_of_the_others() {
-        let mut t = crate::contract::table();
-        t.keys = vec![vec![0], vec![2], vec![1]];
-        let cx = crate::contract::cx("C");
-        let mut s = MemStore::default();
-        for i in 0..200 {
-            s.insert(&cx, &t, crate::contract::row(&format!("{i:04}"), i, i % 7))
-                .unwrap();
-        }
-        s.commit();
-        let last = |s: &MemStore, key: usize| {
-            let scan = Scan {
-                key,
-                filters: &[],
-                ascending: false,
-                after: None,
-            };
-            s.next(&cx, &t, &scan).unwrap().map(|r| format!("{:?}", r[0]))
-        };
-        assert_eq!(last(&s, 1).as_deref(), Some("Code(\"0195\")"));
-        assert_eq!(last(&s, 2).as_deref(), Some("Code(\"0199\")"));
-        // Amount (key 2) changes, Group (key 1) stays.
-        s.modify(&cx, &t, crate::contract::row("0003", 5000, 3)).unwrap();
-        let before = order_builds();
-        assert_eq!(last(&s, 1).as_deref(), Some("Code(\"0195\")"));
-        assert_eq!(order_builds() - before, 0, "key 1 keeps its order");
-        assert_eq!(last(&s, 2).as_deref(), Some("Code(\"0003\")"));
-        assert_eq!(
-            order_builds() - before,
-            0,
-            "key 2 carries its order over the move (order_carry)"
-        );
-        // A rollback brings back the order of key 2 from before the Modify.
-        s.rollback();
-        assert_eq!(last(&s, 2).as_deref(), Some("Code(\"0199\")"));
-    }
-
-    /// 201 rows of table 7 in company `C`, the last in key 1 named `last`.
-    struct ManyRows {
-        last: &'static str,
-    }
-
-    impl Backing for ManyRows {
-        fn company(&self) -> &str {
-            "C"
-        }
-        fn rows(&self, company: &str, object: u32) -> Option<Rows> {
-            if company != "C" || object != 7 {
-                return None;
-            }
-            let t = crate::contract::table();
-            let mut rows: Vec<Row> = (0..200)
-                .map(|i| crate::contract::row(&format!("{i:04}"), i, i % 7))
-                .collect();
-            rows.push(crate::contract::row(self.last, 1000, 6));
-            Rows::from_rows(&t, rows).ok()
-        }
-    }
-
-    #[test]
-    fn stores_over_different_backings_do_not_share_an_order() {
-        let a = MemStore::default().with_backing(std::rc::Rc::new(ManyRows { last: "A" }));
-        let b = a.clone().with_backing(std::rc::Rc::new(ManyRows { last: "B" }));
-        let before = order_builds();
-        assert_eq!(last_in_key_1(&a).as_deref(), Some("Code(\"A\")"));
-        assert_eq!(last_in_key_1(&b).as_deref(), Some("Code(\"B\")"));
-        let mut again = a.clone();
-        again.restore(a.snapshot());
-        assert_eq!(last_in_key_1(&again).as_deref(), Some("Code(\"A\")"));
-        assert_eq!(order_builds() - before, 2, "one order per backing");
-    }
-
-    #[test]
-    fn passes_the_snapshot_contract() {
-        crate::contract::snapshot_restores_everything(MemStore::default());
-    }
-
-    // ---- export and import of the committed rows (the install baseline's snapshot on disk) ----
-
-    #[test]
-    fn exported_rows_import_into_a_store_that_reads_and_writes_like_the_original() {
-        let t = seek_table(vec![vec![0, 1], vec![3, 0, 1]]);
-        let mut s = MemStore::default();
-        for a in 0..70 {
-            s.insert(
-                &cx(),
-                &t,
-                vec![
-                    Value::Integer(a),
-                    Value::Integer(a % 3),
-                    Value::Code("X".into()),
-                    Value::Integer(a % 5),
-                ],
-            )
-            .unwrap();
-        }
-        s.commit();
-        // A change that is not committed is not part of the export.
-        s.insert(
-            &cx(),
-            &t,
-            vec![
-                Value::Integer(999),
-                Value::Integer(0),
-                Value::Code("X".into()),
-                Value::Integer(0),
-            ],
-        )
-        .unwrap();
-        let exported = s.export_committed().expect("nothing backs this store");
-        assert_eq!(exported.len(), 1);
-        assert_eq!(
-            (exported[0].company.as_str(), exported[0].object, exported[0].rows.len()),
-            ("C", 9, 70)
-        );
-        let mut back = MemStore::from_exported(exported);
-        s.rollback();
-        for key in 0..2 {
-            assert_eq!(
-                format!("{:?}", scan_all(&back, &t, key, &[], true)),
-                format!("{:?}", scan_all(&s, &t, key, &[], true))
-            );
-        }
-        assert_eq!(back.count(&cx(), &t, &[]).unwrap(), 70);
-        // It is a store like any other: a write is seen, a rollback takes it away, a commit keeps it.
-        back.insert(
-            &cx(),
-            &t,
-            vec![
-                Value::Integer(500),
-                Value::Integer(0),
-                Value::Code("X".into()),
-                Value::Integer(0),
-            ],
-        )
-        .unwrap();
-        assert_eq!(back.count(&cx(), &t, &[]).unwrap(), 71);
-        back.rollback();
-        assert_eq!(back.count(&cx(), &t, &[]).unwrap(), 70);
-        let before = back.table_stamp(&cx(), &t);
-        back.insert(
-            &cx(),
-            &t,
-            vec![
-                Value::Integer(501),
-                Value::Integer(0),
-                Value::Code("X".into()),
-                Value::Integer(0),
-            ],
-        )
-        .unwrap();
-        assert_ne!(back.table_stamp(&cx(), &t), before, "a write changes the table's stamp");
-    }
-
-    #[test]
-    fn a_backed_store_exports_the_tables_it_holds_and_not_the_backing() {
-        let (mut s, b) = backed();
-        let (t, cx) = (crate::contract::table(), crate::contract::cx("C"));
-        let mut other = t.clone();
-        other.object = 8;
-        // Nothing wrote to table 9: it reads the backing and is not part of the export.
-        assert_eq!(s.count(&cx, &t, &[]).unwrap(), 3);
-        assert!(s.export_committed().expect("a backing is no obstacle").is_empty());
-        // A write copies the backing's rows into the store; deleting them all leaves an empty held table.
-        s.insert(&cx, &t, crate::contract::row("D", 4, 3)).unwrap();
-        s.delete(&cx, &t, &[Value::Code("A".into())]).unwrap();
-        s.commit();
-        let exported = s.export_committed().unwrap();
-        assert_eq!(exported.len(), 1);
-        assert_eq!(exported[0].rows.len(), 3, "B, C and D");
-        // The way back: the same backing, and the held table now says what it said.
-        let back = MemStore::from_exported(exported).with_backing(b);
-        assert_eq!(back.count(&cx, &t, &[]).unwrap(), 3);
-        assert!(back.get(&cx, &t, &[Value::Code("A".into())]).unwrap().is_none());
-        assert!(back.get(&cx, &t, &[Value::Code("D".into())]).unwrap().is_some());
-        assert_eq!(back.count(&cx, &other, &[]).unwrap(), 0);
-    }
-
-    #[test]
-    fn a_deleted_out_backed_table_stays_empty_after_the_way_back() {
-        let (mut s, b) = backed();
-        let (t, cx) = (crate::contract::table(), crate::contract::cx("C"));
-        s.delete_all(&cx, &t, &[]).unwrap();
-        s.commit();
-        let back = MemStore::from_exported(s.export_committed().unwrap()).with_backing(b);
-        assert_eq!(back.count(&cx, &t, &[]).unwrap(), 0, "not restored again");
-    }
-}
+mod tests;
 
 #[cfg(test)]
 mod virtual_tests {

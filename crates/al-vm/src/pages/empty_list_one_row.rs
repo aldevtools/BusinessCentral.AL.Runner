@@ -10,7 +10,7 @@
 //! Those are the answers of the ordinary calls on such a page, so a pinned call goes on as usual; after it only the calls the
 //! pin makes next are let through (`PinnedEnd`). Close stays as before (`pageops.rs`).
 
-use super::pinned_shape::{NextEnd, PinnedEnd, TestCall};
+use super::pinned_shape::{NextEnd, PinnedEnd, Reads, TestCall};
 use super::*;
 use al_builtins::page_op::PageMethod;
 use al_builtins::record_op::RecordOp;
@@ -21,7 +21,7 @@ const AFTER_CALL_REASON: &str = "a TestPage call after the call that followed an
 /// After Next, Previous, Last or GoToKey: control value reads, then OK (:88-:89 `ShownDelayed`, `TryCallDelayed(Pg, 'ok', ..)`).
 const AFTER_MOVE: PinnedEnd = PinnedEnd {
     reason: AFTER_CALL_REASON,
-    reads: true,
+    reads: Reads::Any,
     caption: false,
     part_reads: false,
     one_action: false,
@@ -212,8 +212,8 @@ impl Session {
             let f = probe.borrow().fields.clone();
             rest.push(crate::pages::WindowRow {
                 key: self.table(&probe)?.primary_key(&f),
-                stored: f.clone(),
-                shown: f,
+                stored: f.to_vec(),
+                shown: f.into_vec(),
             });
             if rest.len() >= Self::WINDOW {
                 return unsupported(
@@ -225,11 +225,11 @@ impl Session {
         self.populate_current(st)?;
         let key = self.row_key(&rec)?;
         {
-            let shown = rec.borrow().fields.clone();
+            let shown = rec.borrow().fields.to_vec();
             let mut s = st.borrow_mut();
             s.window = vec![crate::pages::WindowRow {
                 key,
-                stored: fields,
+                stored: fields.into_vec(),
                 shown,
             }];
             s.window_from_start = true;

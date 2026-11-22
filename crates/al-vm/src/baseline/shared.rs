@@ -19,10 +19,11 @@ pub struct SharedBaseline {
     isolated_storage: std::collections::HashMap<(String, String), (String, bool, bool)>,
     sequences: std::collections::HashMap<(String, String), crate::sessionops::Sequence>,
     last_stamp: i64,
-    workspace_installs: Option<Vec<(std::collections::BTreeSet<u32>, String)>>,
+    workspace_installs: Option<Vec<super::SkippedInstall>>,
     company_built: bool,
     company_unknown: Vec<(String, u32, String)>,
     full_copies: Vec<String>,
+    restamped_rows: Vec<crate::state::RestampedRows>,
     origin: u64,
     /// `Baseline::to_bytes` of the frozen baseline, to check at the end of a run that nothing wrote to it.
     bytes: Vec<u8>,
@@ -73,6 +74,7 @@ impl Baseline {
             company_built: copy.company_built,
             company_unknown: copy.company_unknown,
             full_copies: copy.full_copies,
+            restamped_rows: copy.restamped_rows,
             origin: self.origin,
             bytes,
         })
@@ -98,6 +100,7 @@ impl SharedBaseline {
             install_rows: None,
             company_unknown: self.company_unknown.clone(),
             full_copies: self.full_copies.clone(),
+            restamped_rows: self.restamped_rows.clone(),
             origin: self.origin,
         };
         match engine {

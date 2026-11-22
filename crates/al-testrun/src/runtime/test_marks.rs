@@ -1,5 +1,6 @@
 //! What a test leaves on its result beyond its outcome, taken from the session when the test ends and moved onto its
-//! `TestResult`: the `--tdd` stubs it reached and the UI calls `--dev-endpoint-ui` answered for it.
+//! `TestResult`: the `--tdd` stubs it reached, the UI calls `--dev-endpoint-ui` answered for it, and whether an option of
+//! the run left it out (`TestResult::skipped_by_option`).
 use super::{Scratch, TestResult};
 use al_vm::Session;
 
@@ -20,6 +21,13 @@ impl Scratch {
             self.cells.push((name.to_string(), c));
         }
         (reached, answered)
+    }
+
+    /// The outcome of the test `name` that `skip_after_timeout` or `stop_after_first_failure` leaves out for `why`; the
+    /// test is marked (`TestResult::skipped_by_option`) while its outcome is still that one.
+    pub(super) fn skip(&mut self, name: &str, why: &str) -> crate::Outcome {
+        self.skipped.push((name.to_string(), why.to_string()));
+        crate::Outcome::NotRun(why.to_string())
     }
 
     /// Moves the order hint of test `name` (ADR-066 amendment 12, decision 2; set by the lane) onto its result.
@@ -43,5 +51,49 @@ impl Scratch {
         if let Some(i) = self.ui_answered.iter().position(|(n, _)| n == name) {
             r.ui_answered = std::mem::take(&mut self.ui_answered[i].1);
         }
+        // A later step may have put another outcome in place of the one the option gave (`corpus::refuse_all`).
+        if let Some(i) = self.skipped.iter().position(|(n, _)| n == name) {
+            let (_, why) = self.skipped.swap_remove(i);
+            r.skipped_by_option = matches!(&r.outcome, crate::Outcome::NotRun(w) if *w == why);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Outcome;
+
+    fn bare(outcome: Outcome) -> TestResult {
+        TestResult::bare(0, 0, 50100, "C".into(), "T".into(), outcome)
+    }
+
+    #[test]
+    fn a_left_out_test_a_later_step_refused_is_not_marked() {
+        let mut scratch = Scratch::default();
+        let mut done = vec![("T".to_string(), scratch.skip("T", "stopped"))];
+        super::super::corpus::refuse_all(&mut done, "refused after the pass");
+        let mut r = bare(done[0].1.clone());
+        scratch.move_marks("T", Some(&mut r));
+        assert!(!r.skipped_by_option, "{:?}", r.outcome);
+    }
+
+    #[test]
+    fn a_left_out_test_keeps_its_mark() {
+        let mut scratch = Scratch::default();
+        let mut r = bare(scratch.skip("T", "stopped"));
+        scratch.move_marks("T", Some(&mut r));
+        assert!(r.skipped_by_option);
+    }
+
+    #[test]
+    fn another_outcome_in_place_of_a_left_out_ones_drops_the_mark() {
+        let left_out = bare(Outcome::NotRun("stopped".into())).skipped(true);
+        let mut same = left_out.clone();
+        same.take_outcome(Outcome::NotRun("stopped".into()));
+        assert!(same.skipped_by_option);
+        let mut other = left_out;
+        other.take_outcome(Outcome::NotRun("a fresh run refused it".into()));
+        assert!(!other.skipped_by_option);
     }
 }

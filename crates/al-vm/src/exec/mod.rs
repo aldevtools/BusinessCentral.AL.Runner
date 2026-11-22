@@ -56,6 +56,14 @@ pub(crate) enum Op {
     StorePlace {
         p: u32,
         a: u16,
+        /// The source is a direct FieldRef.Value read and the destination is a record field.
+        fr: bool,
+    },
+    /// `place p := a`, `a` the value of a variable of the `var` section stored into an element of an array of memberless
+    /// Options (`ir::Expr::VarSectionValue`, `Session::store_var_section`).
+    StoreVarSectionValue {
+        p: u32,
+        a: u16,
     },
     /// `place := a` where `a` may be a Variant and the place is no local: site `s` of `variant_copies` (`variant_copy.rs`). A
     /// local takes `Op::StoreLocal`, whose record goes to the site of its place.
@@ -462,6 +470,9 @@ pub(crate) struct BuiltinSite {
     /// A registered native whose receiver and arguments are all values (nothing is written back) and that has no
     /// special handling in `run_builtin`: it runs on the short path (`Session::run_plain_builtin`).
     pub plain: bool,
+    /// `InStream.Read` or `OutStream.Write` on a local stream variable, with at most two arguments: that local. While it
+    /// holds a stream the call runs on the stream path (`Session::run_stream_builtin`), the native on the local in place.
+    pub stream_local: Option<u16>,
     /// When the call runs `Session::temp_blob_share_guard` first (`temp_blob_share::site_check`).
     pub temp_blob: crate::temp_blob_share::SiteCheck,
 }

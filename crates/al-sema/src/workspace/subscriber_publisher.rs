@@ -1,7 +1,8 @@
 //! The object an `[EventSubscriber]` names as its publisher (al-runner issue 8171). BC binds a subscriber to the publisher object
 //! the compiler resolved its name to. Where one visible object has the name, that object. Where several have it (the same name in
-//! two namespaces of two apps; one app may not declare it twice, AL0197), the subscriber's file decides, by the shapes the
-//! assumption `subscriber-publisher-namespace-scope` covers; every other shape names none of them.
+//! two namespaces of two apps; one app may not declare it twice, AL0197), the subscriber's file decides, by the shapes
+//! events/subscriber-namespace/ pins (SnUsingTests.al:28-55 a `using` and the qualified names, SnOwnNamespaceTests.al:25-53 the
+//! file's own namespace, SnOwnOverUsingTests.al:26-54 the own namespace over a `using`); every other shape names none of them.
 
 use super::{ObjKind, Workspace, eq_ns};
 use al_ir::PublisherRef;
@@ -55,16 +56,16 @@ impl Workspace {
     }
 
     /// The one of `twins` that the publisher name `parts`, written in `file`, names; `None` outside the measured shapes. The
-    /// shapes are measured on codeunit twins that each have a namespace (corpus PR 1423, events/subscriber-namespace/: two
+    /// shapes are measured on codeunit twins that each have a namespace (events/subscriber-namespace/: two
     /// codeunits "Shared Name" in namespaces of two apps), so `kind` must be `Codeunit` and every twin must have a namespace.
     /// Then each shape is required by equality:
     /// - a qualified name in a file with a namespace: the one twin whose namespace is the written one (the reporter's alc 18.1
-    ///   compiles `Codeunit::Repro.Copy."Shared Name"` in a file of namespace Repro.Tests, issue 8171; corpus PR 1423
-    ///   SnUsingTests.al, each qualified name, file namespace LT.SN.Tests);
-    /// - a plain name in a file with a namespace that exactly one twin has (corpus PR 1423 SnOwnNamespaceTests.al), whatever the
-    ///   file's `using`s (SnOwnOverUsingTests.al);
+    ///   compiles `Codeunit::Repro.Copy."Shared Name"` in a file of namespace Repro.Tests, issue 8171;
+    ///   SnUsingTests.al:28-55, each qualified name, file namespace LT.SN.Tests);
+    /// - a plain name in a file with a namespace that exactly one twin has (SnOwnNamespaceTests.al:25-53), whatever the
+    ///   file's `using`s (SnOwnOverUsingTests.al:26-54);
     /// - a plain name in a file with a namespace that no twin has, whose `using`s name the namespace of exactly one twin (issue
-    ///   8171, alc 18.1 binds through `using Repro.Copy;` to 51655; SnUsingTests.al).
+    ///   8171, alc 18.1 binds through `using Repro.Copy;` to 51655; SnUsingTests.al:43-55).
     ///
     /// Not picked: table, page and other kinds of twins; a twin without a namespace; an id two objects have; a file without a
     /// namespace, for a qualified name (not measured) and a plain one (alc ignores its `using`s, AL0789, and reports AL0275,

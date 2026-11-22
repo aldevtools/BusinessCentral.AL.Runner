@@ -63,7 +63,8 @@ pub struct Manifest {
     /// `preprocessorSymbols` of the app's own app.json. A dependency app is compiled with these;
     /// the project's symbols apply to the workspace apps only (the publisher compiled the dependency).
     pub symbols: Vec<String>,
-    /// The files the app's reports name with `LayoutFile`: path relative to the app (`/` separators), content.
+    /// The files under the app folder that the app's reports name with `LayoutFile` and the legacy `RDLCLayout` and
+    /// `WordLayout` properties: path relative to the app (`/` separators), content.
     pub layout_files: Vec<(String, Vec<u8>)>,
     /// `idRanges` of the app's own app.json (`from`, `to`): the ids `--tdd` gives stub declarations (ADR-051 decision 10).
     pub id_ranges: Vec<(u32, u32)>,
@@ -105,8 +106,10 @@ fn lexical(path: &std::path::Path) -> Vec<String> {
     parts
 }
 
-/// The files the `.al` files of `dir` name with `LayoutFile = '...'`, read where they exist: the path is relative to `dir`
-/// (the written path from the app's folder), content bytes.
+/// The files the `.al` files of `dir` name with `LayoutFile = '...'` and with the legacy report properties `RDLCLayout` and
+/// `WordLayout` (reports/layouts-saveas/Y17LayoutExportTests.al:105-124 Export_LegacyProperties exports the files of these
+/// two; no corpus case exports the file of a legacy `ExcelLayout`), read where they exist under `dir`: the path is relative
+/// to `dir` (the written path from the app's folder), content bytes.
 fn load_layout_files(dir: &std::path::Path) -> Vec<(String, Vec<u8>)> {
     let mut out: Vec<(String, Vec<u8>)> = Vec::new();
     let mut stack = vec![dir.to_path_buf()];
@@ -128,29 +131,34 @@ fn load_layout_files(dir: &std::path::Path) -> Vec<(String, Vec<u8>)> {
                 continue;
             };
             let lower = text.to_ascii_lowercase();
-            let mut from = 0;
-            while let Some(at) = lower[from..].find("layoutfile") {
-                let start = from + at + "layoutfile".len();
-                from = start;
-                let rest = text[start..].trim_start();
-                let Some(rest) = rest.strip_prefix('=') else { continue };
-                let Some(rest) = rest.trim_start().strip_prefix('\'') else {
-                    continue;
-                };
-                let Some(end) = rest.find('\'') else { continue };
-                let written = &rest[..end];
-                let target = dir.join(written);
-                let Ok(bytes) = std::fs::read(&target) else { continue };
-                let (root, full) = (lexical(dir), lexical(&target));
-                let rel = full[root.len().min(full.len())..].join("/");
-                if !out.iter().any(|(r, _)| *r == rel) {
-                    out.push((rel, bytes));
+            for property in ["layoutfile", "rdlclayout", "wordlayout"] {
+                let mut from = 0;
+                while let Some(at) = lower[from..].find(property) {
+                    from += at + property.len();
+                    if let Some((rel, bytes)) = layout_file_at(dir, &text[from..])
+                        && !out.iter().any(|(r, _)| *r == rel)
+                    {
+                        out.push((rel, bytes));
+                    }
                 }
             }
         }
     }
     out.sort();
     out
+}
+
+/// The file a property's value names when `rest` (the text after the property's name) is `= '<path>'`, the path stays
+/// under `dir` once `.` and `..` are resolved, and the file exists: its path relative to `dir` (`/` separators) and its
+/// bytes. A path that leaves `dir` names no file of the app.
+fn layout_file_at(dir: &std::path::Path, rest: &str) -> Option<(String, Vec<u8>)> {
+    let rest = rest.trim_start().strip_prefix('=')?.trim_start().strip_prefix('\'')?;
+    let written = &rest[..rest.find('\'')?];
+    let target = dir.join(written);
+    let (root, full) = (lexical(dir), lexical(&target));
+    let rel = full.strip_prefix(root.as_slice())?;
+    let bytes = std::fs::read(&target).ok()?;
+    Some((rel.join("/"), bytes))
 }
 
 impl Manifest {
@@ -162,6 +170,15 @@ impl Manifest {
 
 /// The manifest fields `NavApp.GetCurrentModuleInfo` reports, from `dir/app.json`.
 pub fn load_manifest(dir: &std::path::Path) -> Result<Manifest, String> {
+    load_manifest_reading(dir).map(|(m, _)| m)
+}
+
+/// [`load_manifest`], with the files and folders outside `dir` it read or looked for: resource folders and the logo (a
+/// layout file outside `dir` is never read, `layout_file_at`); a warm server keeps the app while they are unchanged
+/// (alrunner-cli `kept_apps.rs`).
+pub fn load_manifest_reading(dir: &std::path::Path) -> Result<(Manifest, Vec<std::path::PathBuf>), String> {
+    let mut outside = Vec::new();
+    let is_outside = |p: &std::path::Path| !lexical(p).starts_with(&lexical(dir));
     let manifest: serde_json::Value = serde_json::from_str(&al_deps::load::read_text(&dir.join("app.json"))?)
         .map_err(|e| format!("{}/app.json: {e}", dir.display()))?;
     let s = |k: &str| manifest[k].as_str().unwrap_or_default().to_string();
@@ -173,6 +190,9 @@ pub fn load_manifest(dir: &std::path::Path) -> Result<Manifest, String> {
         .filter_map(|f| f.as_str())
     {
         let root = dir.join(folder);
+        if is_outside(&root) {
+            outside.push(root.clone());
+        }
         let mut stack = vec![root.clone()];
         while let Some(d) = stack.pop() {
             let Ok(entries) = std::fs::read_dir(&d) else { continue };
@@ -188,7 +208,10 @@ pub fn load_manifest(dir: &std::path::Path) -> Result<Manifest, String> {
         }
     }
     resources.sort();
-    Ok(Manifest {
+    if let Some(logo) = manifest["logo"].as_str().map(|l| dir.join(l)).filter(|l| is_outside(l)) {
+        outside.push(logo);
+    }
+    let manifest = Manifest {
         publisher: s("publisher"),
         version: s("version"),
         resources,
@@ -226,7 +249,8 @@ pub fn load_manifest(dir: &std::path::Path) -> Result<Manifest, String> {
             .unwrap_or_default(),
         // An app folder is never the platform package here: its `internalsVisibleTo` is not read.
         platform_internals_visible_to: Vec::new(),
-    })
+    };
+    Ok((manifest, outside))
 }
 
 /// Every corpus test's outcome on this runtime, keyed by (codeunit id, procedure).
@@ -375,6 +399,9 @@ pub struct TestResult {
     pub order_hint: Option<OrderHint>,
     /// With `RunOptions::cell_tap`: the `Expect` cells the test matched (`al_vm::observer_tap`); `None` when it did not use the fixture.
     pub cells: Option<al_vm::observer_tap::CellRecord>,
+    /// The test was not run because `RunOptions::stop_after_first_failure` or `RunOptions::skip_after_timeout` left it
+    /// out after an earlier test (al-runner issue 8492): a choice of the run, not a refusal.
+    pub skipped_by_option: bool,
 }
 
 impl TestResult {
@@ -408,6 +435,27 @@ impl TestResult {
             dotnet: false,
             order_hint: None,
             cells: None,
+            skipped_by_option: false,
+        }
+    }
+
+    /// `o` in place of the test's outcome; `skipped_by_option` stays only when `o` is the outcome it was set with.
+    pub(crate) fn take_outcome(&mut self, o: Outcome) {
+        self.skipped_by_option &= self.outcome == o;
+        self.outcome = o;
+    }
+
+    /// Whether the test is a refusal: not run, and not left out by a stop option (`skipped_by_option`). What "Top
+    /// refusals" and `--refusal-detail` rank.
+    pub fn is_refusal(&self) -> bool {
+        matches!(self.outcome, Outcome::NotRun(_)) && !self.skipped_by_option
+    }
+
+    /// The result with `skipped_by_option` set to `skip`.
+    pub(crate) fn skipped(self, skip: bool) -> Self {
+        TestResult {
+            skipped_by_option: skip,
+            ..self
         }
     }
 }
@@ -485,6 +533,8 @@ pub struct Phases {
     pub install_snapshot: Option<String>,
     /// A warm server ran the request on the engines an earlier request over the same compile kept.
     pub engine_kept: bool,
+    /// `RunOptions::login_replay_check`: the check's report line (`login_replay.rs`), counted over every request the engine ran.
+    pub login_replay: Option<String>,
     /// What the run did, counted (the work ratchet of `al-test-cli`).
     pub work: RunWork,
 }
@@ -652,6 +702,8 @@ pub(crate) struct Unit {
     report_unpinned_errors: bool,
     /// See `RunOptions::skip_after_timeout`.
     skip_after_timeout: bool,
+    /// See `RunOptions::stop_after_first_failure`.
+    stop_after_first_failure: Option<run::StopAfterFailure>,
     /// See `RunOptions::perturb`.
     perturb: crate::stability::Perturb,
     /// See `RunOptions::run_seed`.
@@ -666,6 +718,8 @@ pub(crate) struct Unit {
     /// carry chain for that (`ChainWhy::TestsTakeNumbers` without `--strict-order`): it is on the numbers list when
     /// it comes after another such codeunit (`order_hint::numbers_order`).
     takes_numbers: bool,
+    /// See `Scratch::numbers_unmeasured`.
+    numbers_unmeasured: Option<Arc<str>>,
     /// The driver whose behavior the unit models (ADR-074, `discovery.rs`).
     driver: TestDriver,
     /// This unit runs BcContainerHelper's discovery pass over these test codeunits instead of its tests
@@ -700,6 +754,9 @@ pub(crate) struct Scratch {
     cells: Vec<(String, al_vm::observer_tap::CellRecord)>,
     /// The time each test that slept asked `Sleep` for (`TestResult::slept_ms`).
     slept: Vec<(String, u64)>,
+    /// The tests `skip_after_timeout` or `stop_after_first_failure` left out, with the reason they were given
+    /// (`TestResult::skipped_by_option`).
+    skipped: Vec<(String, String)>,
     /// With `trace`: the workspace objects each test entered and whether it ran DotNet (`TestResult::entered`).
     entered: Vec<(String, Vec<String>, bool)>,
     /// See `RunOptions::run_only`.
@@ -733,6 +790,8 @@ pub(crate) struct Scratch {
     report_unpinned_errors: bool,
     /// See `RunOptions::skip_after_timeout`.
     skip_after_timeout: bool,
+    /// See `RunOptions::stop_after_first_failure`.
+    stop_after_first_failure: Option<run::StopAfterFailure>,
     /// See `RunOptions::perturb`.
     perturb: crate::stability::Perturb,
     /// See `RunOptions::run_seed`.
@@ -747,6 +806,9 @@ pub(crate) struct Scratch {
     /// ran on BC too; the part that did not run is the stopped codeunit's reach, which `strict_taint.rs` checks the later
     /// codeunits against. Off: R3 of ADR-066 amendment 3, the next codeunit starts without single instances.
     singles_past_stop: bool,
+    /// Why no NumberSequence call of the codeunit's session can have BC's answer (`order_hint::mark_unmeasured_numbers`):
+    /// every call is refused (al-vm `storage_checkpoint.rs`). `None`: every call runs.
+    numbers_unmeasured: Option<Arc<str>>,
     /// What this codeunit did with the watched single instances (`al_vm::single_track`).
     pub(crate) singles_out: Option<al_vm::single_track::SingleOut>,
     /// A test of the codeunit started and did not run to its end: it failed (also a failure judged not trusted) or was
@@ -903,11 +965,13 @@ fn run_unit(
             flags: u.flags,
             report_unpinned_errors: u.report_unpinned_errors,
             skip_after_timeout: u.skip_after_timeout,
+            stop_after_first_failure: u.stop_after_first_failure.clone(),
             perturb: u.perturb.clone(),
             run_seed: u.run_seed,
             runner: u.runner,
             watch: u.watch,
             singles_past_stop: u.singles_past_stop,
+            numbers_unmeasured: u.numbers_unmeasured.clone(),
             installs: u.installs.clone(),
             ..Default::default()
         };
@@ -1041,11 +1105,13 @@ fn scratch_unit(
         flags: Default::default(),
         report_unpinned_errors: false,
         skip_after_timeout: false,
+        stop_after_first_failure: None,
         perturb: Default::default(),
         run_seed: opts.run_seed,
         runner: None,
         watch: false,
         takes_numbers: false,
+        numbers_unmeasured: None,
         singles_past_stop: false,
         driver: opts.test_driver,
         discovery: None,
@@ -1167,6 +1233,7 @@ mod apply_manifests;
 mod baseline_key;
 mod blocked;
 mod cache;
+mod carry_after;
 mod case_lookup;
 mod chain;
 mod chain_walk;
@@ -1176,17 +1243,27 @@ mod corpus;
 mod data_driven;
 #[cfg(test)]
 mod diagnostics_tests;
+#[cfg(test)]
+mod disabled_login_memo_tests;
 mod discovery;
 #[cfg(test)]
 mod group1_sessions_tests;
 mod grow;
 mod handlers;
 mod install_once;
+#[cfg(test)]
+mod install_reads_tests;
 mod install_snapshot;
 #[cfg(test)]
 mod install_unknown_tests;
 mod internals_grant;
 mod lane_starts;
+#[cfg(test)]
+mod login_explain_tests;
+#[cfg(test)]
+mod login_memo_tests;
+#[cfg(test)]
+mod login_replay_tests;
 #[cfg(test)]
 mod login_tests;
 pub mod memory;
@@ -1204,7 +1281,7 @@ mod run_on_client_reach_tests;
 #[cfg(test)]
 mod runner_frames_tests;
 mod runner_reset;
-mod session_flags;
+pub(crate) mod session_flags;
 mod single_fresh;
 mod single_lane;
 mod strict_taint;
@@ -1212,6 +1289,7 @@ mod strict_walk;
 mod suite_rows;
 #[cfg(test)]
 mod suite_rows_tests;
+mod table_reads;
 mod test_handlers;
 mod test_marks;
 #[cfg(test)]

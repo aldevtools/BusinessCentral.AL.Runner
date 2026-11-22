@@ -98,12 +98,18 @@ pub struct TestArgs {
     pub test_driver: Option<al_testrun::runtime::TestDriver>,
     /// `--exclude-test TEXT`: tests whose name matches are left out of the selection. Repeatable.
     pub excludes: Vec<String>,
+    /// `--exclude-test-exact NAME`: leaves out the test whose method name or `Codeunit<ID>.<Method>` is exactly NAME
+    /// (any case), as `--test-exact` selects it. Repeatable.
+    pub excludes_exact: Vec<String>,
     /// `--test-exact NAME`: the test whose method name or `Codeunit<ID>.<Method>` is exactly NAME. Repeatable.
     pub exact: Vec<String>,
     /// `--define SYMBOL`: a preprocessor symbol for the apps. Repeatable. `--preprocessor-symbols A,B` adds several.
     pub defines: Vec<String>,
     /// `--coverage`: count the statements of the APPs each test runs.
     pub coverage: bool,
+    /// `serve` only, `coverage: "hit"` (issue 8244): the coverage JSON lists only the statements that ran
+    /// (`coverage::json`).
+    pub coverage_hit_only: bool,
     /// `--tdd` (ADR-051): a call in a test app of a procedure that does not exist yet runs against a stub.
     pub tdd: bool,
     /// `--run-selected-only` (issue 5611): of a selected codeunit, only the selected tests run.
@@ -194,6 +200,9 @@ pub struct TestArgs {
     /// `--skip-after-timeout` (al-runner issue 7517): once a test is stopped at the time limit, the rest of its codeunit is
     /// not run and ends as not run, naming that test.
     pub skip_after_timeout: bool,
+    /// `--stop-after-first-failure` (al-runner issue 8210): once a test fails, the rest of its codeunit and every later
+    /// serve entry are not run and end as not run, naming that test; a selection runs only the tests it picks.
+    pub stop_after_first_failure: bool,
     pub require_dotnet: bool,
     /// `--require-report-renderer` (ADR-040 amendment 2026-11-15): a save whose real Html needs BC's own merger and converter
     /// refuses when the report renderer is unavailable, instead of keeping the opaque Html.
@@ -218,8 +227,9 @@ pub struct TestArgs {
     pub no_test_data: bool,
     /// The `.bak` or `.bacpac` named; else the cached artifact for the selected BC build.
     pub test_data_path: Option<PathBuf>,
-    /// `--test-data-company NAME`: which company of the backup (default: the demo company).
+    /// First `--test-data-company NAME`: the test company. Repeats make additional companies available.
     pub test_data_company: Option<String>,
+    pub additional_test_data_companies: Vec<String>,
     /// `--company-data package` (or `--package PATH`): build the company from the artifact's RapidStart package instead of
     /// restoring the backup's company, as Microsoft's Legacy test lane does (Company-Initialize, then the package).
     pub company_package: bool,
@@ -393,8 +403,7 @@ fn stability_args(a: &mut TestArgs) -> Result<(), String> {
     stability_matrix_args(a)?;
     let Some(st) = &a.stability else { return Ok(()) };
     let sel = st.config.selection.clone();
-    let cli_selects = !a.codeunits.is_empty() || !a.filters.is_empty() || !a.exact.is_empty() || !a.excludes.is_empty();
-    if !cli_selects {
+    if !a.selects_tests() {
         a.codeunits = sel.codeunits;
         a.exact = sel.tests;
         a.excludes = sel.exclude_tests;
@@ -514,6 +523,27 @@ fn stability_matrix_args(a: &mut TestArgs) -> Result<(), String> {
 }
 
 impl TestArgs {
+    /// Whether the command line selects tests: the one list of the options that do (`--codeunit`, `--filter`,
+    /// `--test-exact`, `--exclude-test`, `--exclude-test-exact`). A new selecting option is added here.
+    pub fn selects_tests(&self) -> bool {
+        let Self {
+            codeunits,
+            filters,
+            exact,
+            excludes,
+            excludes_exact,
+            ..
+        } = self;
+        [
+            codeunits.is_empty(),
+            filters.is_empty(),
+            exact.is_empty(),
+            excludes.is_empty(),
+            excludes_exact.is_empty(),
+        ]
+        .contains(&false)
+    }
+
     /// The country version of the run: `--country`, else `w1`.
     pub fn country(&self) -> &str {
         self.country.as_deref().unwrap_or("w1")
@@ -638,6 +668,10 @@ selects only the tests both match)
                          written, without quotes (`Codeunit50100.Space Step`).
     --exclude-test TEXT  Leave out the tests TEXT matches (matched like --filter). Wins over
                          every selecting option. Repeatable.
+    --exclude-test-exact NAME
+                         Leave out the test whose method name or `Codeunit<ID>.<Method>` is exactly
+                         NAME (any case), as --test-exact selects it. Wins over every selecting
+                         option. Repeatable.
     --explain TEST       Run one test (its name, `Codeunit<ID>.<Method>`, or a part of either that only
                          one test has) and print
                          its outcome and, for a failure or a refusal, the routines and source
@@ -740,7 +774,7 @@ AFFECTED TESTS (ADR-050)
                          removed object, app.json, a dependency app, the BC build, a run option,
                          install code) runs everything and says why. Every run with --affected
                          writes the stored result for the next one. Cannot be combined with
-                         --test, --test-exact, --codeunit or --exclude-test.
+                         --test, --test-exact, --codeunit, --exclude-test or --exclude-test-exact.
     --affected-store FILE  Read and write the stored result at FILE (for CI: save and restore it
                          between builds). Default: <cache dir>/affected/<key>.json.gz, keyed by the
                          ids and versions of the APPs.
@@ -792,7 +826,8 @@ OUTPUT
                          FILE the document is the only thing on stdout and the report goes to
                          stderr. `--output-json=FILE` also works.
                          See https://aldev.tools/al-runner/tool-protocol/.
-    --timings            Compile phases and the slowest test codeunits. For the time per AL
+    --timings            The setup before the compile by part, the compile phases and the
+                         slowest test codeunits. For the time per AL
                          routine, set AL_PROFILE=FILE: the run samples the AL call stack every
                          5 ms (AL_PROFILE_US sets the interval in microseconds) and writes the
                          routines ranked by self and inclusive samples to FILE. One
@@ -907,7 +942,7 @@ TEST SOURCES (ADR-052)
                          no-index warning prints `al-runner impact-index build PATH ...`. A source
                          that is compiled only (no AL source) or has such a dependency, depends on
                          the extension, is also an APP or is given twice: exit 2 before any test.
-                         --filter, --codeunit, --test-exact and --exclude-test apply to your own
+                         --filter, --codeunit, --test-exact, --exclude-test and --exclude-test-exact apply to your own
                          tests only. --output-json FILE: your own tests as a plain run writes them,
                          plus `sources` (per source: source, kind, testApps, mode, lanes, counts,
                          notSelected, exitCode, tests). --impact-json FILE: format 2, `sources`
@@ -993,11 +1028,15 @@ ISOLATION
                          that fails because it needs state an earlier codeunit sets on Business
                          Central gets an order hint: the SingleInstance codeunit, its app, the
                          variable, the codeunit that sets it and this option (console, JUnit
-                         property `orderHint`, JSON `orderHint`). Test codeunits that take numbers
-                         after another codeunit took some are listed (`number order:` lines, JUnit
-                         property `numberSequenceOrder`). Fix such a test: set up the state it needs
-                         in its own codeunit's Initialize, or clear the SingleInstance codeunit there.
+                         property `orderHint`, JSON `orderHint`). Test codeunits that take or read
+                         numbers after another codeunit took some are listed (`number order:`
+                         lines, JUnit property `numberSequenceOrder`). Fix such a test: set up the
+                         state it needs in its own codeunit's Initialize, or clear the
+                         SingleInstance codeunit there.
                          With this option the state and the numbers carry as on Business Central.
+                         Under --isolation test what a later codeunit sees of the numbers an
+                         earlier codeunit's tests took is not measured: each NumberSequence call
+                         there is refused, and its test is reported as not run.
                          A test codeunit that reads SingleInstance state an earlier one left keeps
                          its parallel result, flagged `single-instance-order`, and runs again in
                          order with the codeunits it depends on when one of its tests failed or was
@@ -1059,12 +1098,12 @@ SERVE
                          request (--package-cache, --dep, --define, --test-timeout, --bc-version,
                          --cache-dir, --no-download, --test-data, ...); --recipe and --impact-of are
                          refused. A runTests request carries
-                         sourcePaths, packagePaths, test, excludeTests, testIsolation, coverage,
+                         sourcePaths, packagePaths, test, excludeTests, excludeTestsExact, testIsolation, coverage,
                          perTestCoverage, captureValues, iterationTracking, announceStart, serverUrl,
                          tdd (`serve --tdd` makes it the default), affectedOnly, includeFailing,
                          strictEnvironment (as --affected and its options; the summary gets `selection`),
                          entries (several runs on one compile and one install baseline, each with its own
-                         id, resources, test and excludeTests; ids are unique; `entry` on the test lines,
+                         id, resources, test, excludeTests and excludeTestsExact; ids are unique; `entry` on the test lines,
                          one `entrySummary` line per entry with its `exitCode`; an entry that matches no
                          test has exit code 6 and `warnings`, and so has the request). `test` is one text.
                          `seed` replays a run (ADR-061); a request without one gets the server's --seed
@@ -1111,8 +1150,8 @@ TEST DATA
     --test-data [PATH]   Name a backup (.bak or .bacpac), or insist on test data: a missing
                          backup then stops the run. Write `--test-data=PATH` or end the name in
                          .bak/.bacpac: a bare name after --test-data is an APP.
-    --test-data-company NAME  The company to restore (exact name or prefix). Default: the only
-                         company, else 'CRONUS International Ltd.'.
+    --test-data-company NAME  The company to restore (exact name or prefix). Repeat to include
+                         additional companies from the same backup for cross-company reads.
     The summary says what was loaded and every exclusion: tables the runtime could not rebuild,
     tables the reader failed on (with its text), and columns left out.
     --company-data bak|package|demotool|contoso-setup|contoso-all  `bak` (default) restores the CRONUS company of the backup. `package`
@@ -1236,6 +1275,11 @@ OTHER
                          `serve` (start option; a runTests request can set `skipAfterTimeout`). The
                          summary shows the time spent on tests that ended not run, and the JSON
                          document has it as `notRunSeconds`.
+    --stop-after-first-failure  Once a test fails, do not run the rest of its codeunit nor, in `serve`,
+                         the later entries: their tests end as not run, with a reason that names the
+                         failed test. Each test codeunit stops on its own; every other test codeunit of
+                         the same entry, or of a request without entries, still runs. A selection then runs only the tests it picks, as --run-selected-only.
+                         `serve`: a start option; a runTests request can set `stopAfterFirstFailure`.
     --dotnet-sidecar PATH, --dotnet-assembly-dir DIR, --dotnet-allow-roll-forward,
     --dotnet-timeout-secs N, --require-dotnet     The optional .NET helper (ADR-014).
     --require-report-renderer  A save whose real Html needs BC's own Word merger and converter refuses
@@ -1333,7 +1377,12 @@ fn parse_warm(mut it: impl Iterator<Item = String>) -> Result<Command, String> {
             "--country" => a.country = Some(al_deps::artifact::normalize_country(&text()?)?),
             "--cache-dir" => a.cache_dir = Some(text()?.into()),
             "--no-download" => a.no_download = true,
-            "--test-data-company" => a.test_data_company = Some(text()?),
+            "--test-data-company" => {
+                let company = text()?;
+                if a.test_data_company.replace(company).is_some() {
+                    return Err("--test-data-company may be given once with `warm`".into());
+                }
+            }
             f if !f.starts_with("--") && is_backup(f) => a.test_data_path = Some(PathBuf::from(f)),
             f => {
                 return Err(format!(
@@ -1407,10 +1456,7 @@ fn parse_serve(args: Vec<String>) -> Result<Command, String> {
     };
     let t = *t;
     if t.apps.len() != 1
-        || !t.codeunits.is_empty()
-        || !t.filters.is_empty()
-        || !t.excludes.is_empty()
-        || !t.exact.is_empty()
+        || t.selects_tests()
         || t.junit.is_some()
         || t.output_json.is_some()
         || t.coverage
@@ -1457,6 +1503,13 @@ fn permissions_off(value: &str) -> Result<bool, String> {
         "off" => Ok(true),
         other => Err(format!("--permissions takes on or off, not `{other}`")),
     }
+}
+
+/// `--stability-print-preset NAME`: the text of a stability preset.
+fn print_preset(name: &str) -> Result<Command, String> {
+    al_testrun::stability::preset(name)
+        .map(|t| Command::PrintText(t.to_string()))
+        .ok_or_else(|| format!("--stability-print-preset: no preset `{name}` (the presets are `microsoft` and `all`)"))
 }
 
 pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> {
@@ -1640,15 +1693,9 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             }
             "--seed-library" => a.seed_library = true,
             "--stability-max" => a.stability_max = Some(number("--stability-max", &text()?)?),
-            "--stability-print-preset" => {
-                let name = text()?;
-                return al_testrun::stability::preset(&name)
-                    .map(|t| Command::PrintText(t.to_string()))
-                    .ok_or_else(|| {
-                        format!("--stability-print-preset: no preset `{name}` (the presets are `microsoft` and `all`)")
-                    });
-            }
+            "--stability-print-preset" => return print_preset(&text()?),
             "--exclude-test" => a.excludes.push(text()?),
+            "--exclude-test-exact" => a.excludes_exact.push(text()?),
             "--define" => a.defines.push(text()?),
             "--preprocessor-symbols" => a.defines.extend(
                 text()?
@@ -1684,13 +1731,18 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             "--dotnet-allow-roll-forward" => a.dotnet_allow_roll_forward = true,
             "--require-dotnet" => a.require_dotnet = true,
             "--require-report-renderer" => a.require_report_renderer = true,
-            "--dotnet-timeout-secs" => {
-                let v = text()?;
-                a.dotnet_timeout_secs = Some(number(&flag, &v)? as u64);
-            }
+            "--dotnet-timeout-secs" => a.dotnet_timeout_secs = Some(number(&flag, &text()?)? as u64),
             "--test-timeout-secs" | "--test-timeout" => a.test_timeout_secs = Some(number(&flag, &text()?)? as u64),
             "--skip-after-timeout" => a.skip_after_timeout = true,
-            "--test-data-company" => a.test_data_company = Some(text()?),
+            "--stop-after-first-failure" => a.stop_after_first_failure = true,
+            "--test-data-company" => {
+                let company = text()?;
+                if a.test_data_company.is_none() {
+                    a.test_data_company = Some(company);
+                } else {
+                    a.additional_test_data_companies.push(company);
+                }
+            }
             "--country" => {
                 let v = text()?;
                 if v.contains(',') {
@@ -1797,39 +1849,11 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
     if a.no_test_data && a.test_data_asked_for() {
         return Err("--test-data and --no-test-data cannot be combined".into());
     }
-    if a.no_test_data && a.test_data_company.is_some() {
-        return Err("--test-data-company cannot be combined with --no-test-data".into());
-    }
+    let has_test_data_company = validate_test_data_company_selection(&mut a)?;
     if a.parity && a.disabled_tests_dir.is_none() {
         return Err("--parity needs --disabled-tests DIR".into());
     }
-    if a.company_package && !al_deps::artifact::is_w1(a.country()) {
-        return Err("--company-data package supports only the w1 country (its RapidStart package comes from the platform artifact)".into());
-    }
-    if a.company_package && a.no_test_data {
-        return Err("--company-data package cannot be combined with --no-test-data".into());
-    }
-    if let Some(e) = company_build_off(&a) {
-        return Err(e);
-    }
-    if a.company_demotool {
-        if !al_deps::artifact::is_w1(a.country()) {
-            return Err("--company-data demotool supports only the w1 country (the DemoTool's W1 layer)".into());
-        }
-        if a.no_test_data || a.test_data_asked_for() || a.test_data_company.is_some() {
-            return Err("--company-data demotool builds the company itself: --test-data, --test-data-company and --no-test-data cannot be combined with it".into());
-        }
-    }
-    if a.company_contoso.is_some() {
-        if !al_deps::artifact::is_w1(a.country()) {
-            return Err(
-                "--company-data contoso-setup|contoso-all supports only the w1 country (the W1 Contoso app)".into(),
-            );
-        }
-        if a.no_test_data || a.test_data_asked_for() || a.test_data_company.is_some() {
-            return Err("--company-data contoso-setup|contoso-all builds the company itself: --test-data, --test-data-company and --no-test-data cannot be combined with it".into());
-        }
-    }
+    validate_company_data(&a, has_test_data_company)?;
     if a.bcapps_dir.is_some() && !a.recipe && !a.affected_from.iter().any(|s| s == "microsoft") {
         return Err("--bcapps needs --recipe microsoft or the microsoft test source".into());
     }
@@ -1842,7 +1866,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             (a.no_test_data, "--no-test-data"),
             (a.disabled_tests_dir.is_some(), "--disabled-tests"),
             (a.parity, "--parity"),
-            (a.test_data_company.is_some(), "--test-data-company"),
+            (has_test_data_company, "--test-data-company"),
         ] {
             if given {
                 return Err(format!(
@@ -1927,6 +1951,7 @@ fn affected_selection_args(a: &TestArgs, other_command: bool) -> Result<(), Stri
         (!a.exact.is_empty(), "--test-exact"),
         (!a.codeunits.is_empty(), "--codeunit"),
         (!a.excludes.is_empty(), "--exclude-test"),
+        (!a.excludes_exact.is_empty(), "--exclude-test-exact"),
         (!a.impact_of.is_empty(), "--impact-of"),
         (!a.affected_from.is_empty(), "--affected-from"),
         (a.recipe, "--recipe microsoft"),
@@ -2090,6 +2115,87 @@ pub fn company_build_off(a: &TestArgs) -> Option<String> {
     })
 }
 
+fn validate_test_data_company_selection(a: &mut TestArgs) -> Result<bool, String> {
+    let has_selection = a.test_data_company.is_some() || !a.additional_test_data_companies.is_empty();
+    if a.no_test_data && has_selection {
+        return Err("--test-data-company cannot be combined with --no-test-data".into());
+    }
+    if a.company_package && !a.additional_test_data_companies.is_empty() {
+        return Err("repeated --test-data-company needs a database backup, not --company-data package".into());
+    }
+    if a.additional_test_data_companies.is_empty() {
+        return Ok(has_selection);
+    }
+
+    let mut selected = Vec::with_capacity(1 + a.additional_test_data_companies.len());
+    if let Some(company) = &a.test_data_company {
+        selected.push(company.clone());
+    }
+    for company in &a.additional_test_data_companies {
+        if selected.iter().any(|name| name.eq_ignore_ascii_case(company)) {
+            return Err(format!("--test-data-company `{company}` is selected more than once"));
+        }
+        selected.push(company.clone());
+    }
+    match a.companies.clone() {
+        Some(al_host::Companies::All) => {
+            return Err(
+                "--companies all cannot be combined with a repeated --test-data-company: the company selection conflicts"
+                    .into(),
+            );
+        }
+        Some(al_host::Companies::List(companies)) => {
+            if companies.len() != selected.len()
+                || !companies
+                    .iter()
+                    .zip(&selected)
+                    .all(|(company, test_data)| same_company_argument(company, test_data))
+            {
+                return Err("--companies and --test-data-company company selections must match in order".into());
+            }
+        }
+        None | Some(al_host::Companies::One) => a.companies = Some(al_host::Companies::List(selected)),
+    }
+    Ok(has_selection)
+}
+
+fn validate_company_data(a: &TestArgs, has_test_data_company: bool) -> Result<(), String> {
+    if a.company_package && !al_deps::artifact::is_w1(a.country()) {
+        return Err("--company-data package supports only the w1 country (its RapidStart package comes from the platform artifact)".into());
+    }
+    if a.company_package && a.no_test_data {
+        return Err("--company-data package cannot be combined with --no-test-data".into());
+    }
+    if let Some(e) = company_build_off(a) {
+        return Err(e);
+    }
+    if a.company_demotool {
+        if !al_deps::artifact::is_w1(a.country()) {
+            return Err("--company-data demotool supports only the w1 country (the DemoTool's W1 layer)".into());
+        }
+        if a.no_test_data || a.test_data_asked_for() || has_test_data_company {
+            return Err("--company-data demotool builds the company itself: --test-data, --test-data-company and --no-test-data cannot be combined with it".into());
+        }
+    }
+    if a.company_contoso.is_some() {
+        if !al_deps::artifact::is_w1(a.country()) {
+            return Err(
+                "--company-data contoso-setup|contoso-all supports only the w1 country (the W1 Contoso app)".into(),
+            );
+        }
+        if a.no_test_data || a.test_data_asked_for() || has_test_data_company {
+            return Err("--company-data contoso-setup|contoso-all builds the company itself: --test-data, --test-data-company and --no-test-data cannot be combined with it".into());
+        }
+    }
+    Ok(())
+}
+
+fn same_company_argument(left: &str, right: &str) -> bool {
+    let left = left.to_uppercase();
+    let right = right.to_uppercase();
+    left == right || left.starts_with(&right) || right.starts_with(&left)
+}
+
 /// The checks of `al-runner test-microsoft` (ADR-052 section 2). The recipe is always on; the options it decides are
 /// refused, as `--recipe microsoft` refuses them.
 fn test_microsoft_args(mut a: TestArgs) -> Result<Command, String> {
@@ -2104,7 +2210,10 @@ fn test_microsoft_args(mut a: TestArgs) -> Result<Command, String> {
         (a.no_test_data, "--no-test-data"),
         (a.disabled_tests_dir.is_some(), "--disabled-tests"),
         (a.parity, "--parity"),
-        (a.test_data_company.is_some(), "--test-data-company"),
+        (
+            a.test_data_company.is_some() || !a.additional_test_data_companies.is_empty(),
+            "--test-data-company",
+        ),
         (a.explain.is_some(), "--explain"),
         (!a.impact_of.is_empty(), "--impact-of"),
         (a.impact.is_some() && !extension, "--impact (it needs an extension APP)"),

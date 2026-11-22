@@ -24,7 +24,7 @@ Commands (not case sensitive): `runTests`, `execute`, `cancel`, `shutdown`.
   summary has `cancelled: true` and `exitCode: 130`.
 - **`shutdown`** stops a running request the same way and exits.
 
-A `runTests` request carries `sourcePaths`, `packagePaths`, `test`, `excludeTests`,
+A `runTests` request carries `sourcePaths`, `packagePaths`, `test`, `excludeTests`, `excludeTestsExact`,
 `testIsolation`, `coverage`, `perTestCoverage`, `captureValues`, `iterationTracking`,
 `announceStart`, `serverUrl`, `tdd`, `runSelectedOnly`, `ignorePermissionMock`,
 `affectedOnly`, `includeFailing`, `strictEnvironment` and `entries` (several runs on

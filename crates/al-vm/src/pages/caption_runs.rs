@@ -117,6 +117,48 @@ impl Session {
         }
     }
 
+    /// The refusal of a Record write `method` that a Record variable runs in the frame of the CaptionClass expression
+    /// `pages.caption_write_guard` names (set only around the expression's own call by `field_caption_class_value_write_checked`),
+    /// the write `effects::record_write_checked_at_run_time` let through. `None` for every other write: one in another frame
+    /// (a subscriber, a procedure the expression calls) or outside such a run keeps main's result.
+    pub(crate) fn caption_write_refusal(&self, method: al_builtins::record_op::RecordOp) -> Option<String> {
+        use al_builtins::record_op::RecordOp::{Delete, DeleteAll, Insert, Modify, ModifyAll, Rename};
+        let guard = self.pages.caption_write_guard.as_ref()?;
+        let in_expression_frame = self.frames.last() == Some(&guard.object)
+            && self.call_stack.last().map(|f| f.routine) == Some(guard.routine);
+        (in_expression_frame && matches!(method, Insert | Modify | Delete | Rename | ModifyAll | DeleteAll))
+            .then(|| caption_count_refusal(&guard.field, &guard.table, &format!("calls Record.{}", method.name())))
+    }
+
+    /// [`Session::field_caption_class_value`] with `pages.caption_write_guard` naming the expression of field `pos` of `t` for the
+    /// call, so a Record write the expression's own routine runs refuses (`caption_write_refusal`). Used by the runs of a page
+    /// whose open ran `run_caption_empty_unpinned` only (`PageState::caption_writes_checked`).
+    fn field_caption_class_value_write_checked(
+        &mut self,
+        t: &al_data::TableDef,
+        pos: usize,
+        rec: &Rec,
+        expr: &str,
+    ) -> Result<String, Signal> {
+        let object = &self.engine.program.objects[t.object as usize];
+        let guard = object
+            .table
+            .as_ref()
+            .and_then(|s| s.fields.get(pos))
+            .and_then(|f| f.caption_class)
+            .map(|(object_of, routine)| self.engine.caption_expression_body(object_of, routine))
+            .map(|(object_of, routine)| CaptionWriteGuard {
+                object: object_of,
+                routine,
+                field: t.fields[pos].name.clone(),
+                table: object.name.clone(),
+            });
+        let outer = std::mem::replace(&mut self.pages.caption_write_guard, guard);
+        let r = self.field_caption_class_value(t, pos, Some(rec), expr);
+        self.pages.caption_write_guard = outer;
+        r
+    }
+
     /// The cells of record/captions/CaptionClassStateFreeCalls.al with their number of empty-record runs, three cycles alike on
     /// BC 27, 28 and 29. Every fact is the probe's, by equality:
     /// - the source table has six fields, of them the third to sixth with CaptionClass expressions of four different texts
@@ -253,7 +295,8 @@ impl Session {
     /// best (owner decision 2026-10-21). A dialog or an Error with a text that a run raises refuses, here and in the page's later
     /// row runs (`PageState::caption_dialogs_refused`): the run-time half of `effects.rs`, whose walk lets an expression reach
     /// them as long as no run takes that branch (record/captions/CaptionClassStateFreeCalls.al:168-181 NotTakenCc with an empty
-    /// record, al-runner issue 7391).
+    /// record, al-runner issue 7391). So does a Record write that the walk let through, when the expression's own routine runs it
+    /// (`PageState::caption_writes_checked`, `Session::caption_write_refusal`).
     fn run_caption_empty_unpinned(
         &mut self,
         st: &St,
@@ -264,22 +307,70 @@ impl Session {
         if let Some(why) = self.caption_class_lasting_effect(t, exprs) {
             return unsupported(why);
         }
+        if !self.page_runs_no_code_on_rec(st, t) {
+            if let Some(why) = self.caption_class_checked_write(t, exprs) {
+                return unsupported(why);
+            }
+        }
         // The count has a reader only through what an expression leaves behind: a write it keeps (`effects::Effect::Kept`).
-        // Expressions that leave nothing run without the mark (a dialog or an Error with a text refuses below).
+        // Expressions that leave nothing run without the mark (a dialog or an Error with a text refuses below when a run raises
+        // it, and a Record write the walk let through when the expression's own routine runs it).
         if self.caption_class_keeps_effect(t, exprs) {
             al_builtins::assumptions::assume(
                 al_builtins::assumptions::Assumption::PageOpenCaptionClassEmptyRecordCount,
             );
         }
-        st.borrow_mut().caption_dialogs_refused = true;
+        {
+            let mut s = st.borrow_mut();
+            s.caption_dialogs_refused = true;
+            s.caption_writes_checked = true;
+        }
         self.with_caption_dialogs(CaptionDialogs::Refused, |this| {
             for _ in 0..20 {
                 for (pos, expr) in exprs {
-                    this.field_caption_class_value(t, *pos, Some(empty), expr)?;
+                    this.field_caption_class_value_write_checked(t, *pos, empty, expr)?;
                 }
             }
             Ok(())
         })
+    }
+
+    /// Why a Record write the walk let through (`Engine::caption_checked_write`) keeps main's static refusal on a page that runs
+    /// code which may assign fields of Rec: its guard reads fields of Rec, and the walk does not follow what that code assigns.
+    fn caption_class_checked_write(&self, t: &al_data::TableDef, exprs: &[(usize, String)]) -> Option<String> {
+        let table = self.engine.program.objects[t.object as usize].table.as_ref()?;
+        exprs.iter().find_map(|(pos, _)| {
+            let (object, routine) = table.fields.get(*pos)?.caption_class?;
+            let write = self.engine.caption_checked_write(object, routine)?;
+            Some(caption_count_refusal(
+                &t.fields[*pos].name,
+                &self.engine.program.objects[t.object as usize].name,
+                &write,
+            ))
+        })
+    }
+
+    /// Whether the page of `st` runs no code that may assign a field of its Rec: neither it nor an extension declares a page
+    /// trigger, no control has a trigger (an OnValidate, an OnAction, ...), and no field a control shows has an OnValidate in `t` or a table extension.
+    fn page_runs_no_code_on_rec(&self, st: &St, t: &al_data::TableDef) -> bool {
+        let object = st.borrow().object as usize;
+        let objects = &self.engine.program.objects;
+        let (Some(page), Some(table)) = (objects[object].page.as_ref(), objects[t.object as usize].table.as_ref())
+        else {
+            return false;
+        };
+        page.triggers.is_empty()
+            && page.ext_triggers.is_empty()
+            && page.controls.iter().all(|c| {
+                let no_trigger = c.triggers.is_empty() && c.ext_triggers.is_empty();
+                let shown_field_has_no_validate = match c.binding {
+                    al_ir::Binding::Field(pos) => table.fields.get(pos).is_some_and(|f| {
+                        f.on_validate.is_none() && f.ext_before_validate.is_empty() && f.ext_after_validate.is_empty()
+                    }),
+                    _ => true,
+                };
+                no_trigger && shown_field_has_no_validate
+            })
     }
 
     /// Whether the CaptionClass expression of a field of `t` in `exprs` can leave a kept write behind (`effects::Effect::Kept`).
@@ -312,11 +403,10 @@ impl Session {
             let crate::effects::Effect::Refused(effect) = self.engine.lasting_effect(object, routine)? else {
                 return None;
             };
-            Some(format!(
-                "the CaptionClass expression of field {} of table {} {effect}, and how many times BC runs it with an empty \
-                 record during a page open is not pinned (al-runner issue 5870)",
-                t.fields[*pos].name,
-                self.engine.program.objects[t.object as usize].name
+            Some(caption_count_refusal(
+                &t.fields[*pos].name,
+                &self.engine.program.objects[t.object as usize].name,
+                &effect,
             ))
         })
     }
@@ -349,6 +439,7 @@ impl Session {
         runs: usize,
     ) -> Result<(), Signal> {
         let rec = self.page_rec(st);
+        let write_checked = st.borrow().caption_writes_checked;
         let engine = self.engine();
         let page = page_of(&engine, st);
         for _ in 0..runs {
@@ -362,14 +453,18 @@ impl Session {
                 let Some((pos, expr)) = exprs.iter().find(|(pos, _)| t.fields[*pos].id == field.id) else {
                     continue;
                 };
-                let class = self.field_caption_class_value(t, *pos, Some(&rec), expr)?;
+                let class = if write_checked {
+                    self.field_caption_class_value_write_checked(t, *pos, &rec, expr)?
+                } else {
+                    self.field_caption_class_value(t, *pos, Some(&rec), expr)?
+                };
                 let (caption, own_area) = self.control_expression_caption(st, &t.fields[*pos].name, &class)?;
                 let mut s = st.borrow_mut();
                 s.field_captions.retain(|(i, ..)| *i != idx);
                 s.field_captions.push((idx, caption, own_area));
             }
         }
-        st.borrow_mut().field_captions_row = Some(rec.borrow().fields.clone());
+        st.borrow_mut().field_captions_row = Some(rec.borrow().fields.to_vec());
         Ok(())
     }
 }
@@ -382,11 +477,33 @@ pub(crate) enum CaptionDialogs {
     Free,
     /// Every dialog (Message, Confirm, any other) and every Error with a text refuses: the runs of a page whose empty-record count
     /// is not pinned (the walk of `effects.rs` let the expression reach them only on that condition), and every run of a
-    /// `caption_state_free_pin` page but the open's row run of its Card.
+    /// `caption_state_free_pin` page but the open's row run of its Card. Record writes are not decided by this mode
+    /// (`Session::caption_write_refusal`).
     Refused,
     /// The open's row run of the Card of `caption_state_free_pin`: a Message and an Error with a text run, as the probe measured
     /// (record/captions/CaptionClassStateFreeCalls.al:891-936); any other dialog refuses.
     OpenRowMessageOrError,
+}
+
+/// The CaptionClass expression whose own call runs now on a page whose open ran `Session::run_caption_empty_unpinned`
+/// (`Session::caption_write_refusal`).
+pub(crate) struct CaptionWriteGuard {
+    /// The routine that runs the expression's code (`Engine::caption_expression_body`).
+    object: usize,
+    routine: usize,
+    /// The field and the table, for the refusal text.
+    field: String,
+    table: String,
+}
+
+/// Why the CaptionClass expression of field `field` of table `table` refuses the runs of a page open: it `effect` (`calls
+/// Record.Insert`, ...), and how many times BC runs it with an empty record is not pinned. One text for the refusal from the code
+/// (`Session::caption_class_lasting_effect`) and the one raised when a let-through write runs (`Session::caption_write_refusal`).
+fn caption_count_refusal(field: &str, table: &str, effect: &str) -> String {
+    format!(
+        "the CaptionClass expression of field {field} of table {table} {effect}, and how many times BC runs it with an empty \
+         record during a page open is not pinned (al-runner issue 5870)"
+    )
 }
 
 /// A cell of `Session::caption_state_free_pin`.

@@ -1,9 +1,9 @@
-//! The DotNet `System.IO.File.Delete` of a file that holds a placeholder report output (assumption
-//! dotnet-file-delete-placeholder), and the session facts about a path that its gate needs. The marks themselves are
+//! The DotNet `System.IO.File.Delete` of a file that holds a placeholder report output, and the session facts about a path
+//! that its gate needs. The marks themselves are
 //! `Session::render_pending_files` (`ctx.rs`).
 //!
-//! The delete runs for one call sequence only, the one corpus probe pull request 1368 measures
-//! (al-language-onprem/reports/layouts-saveas/HtmlServerFileRoundTrip.al; lines of commit 06fa058c):
+//! The delete runs for one call sequence only, the one al-language-onprem/reports/layouts-saveas/HtmlServerFileRoundTrip.al
+//! pins (the delete answers Yes and the file is gone, :186-187):
 //!
 //! 1. `Report.SaveAs` of a report whose default layout is a Word layout, as Html or Pdf, into a stream (:51, :85, :164, :225);
 //! 2. the export, File Management.InstreamExportToServerFile or BLOBExportToServerFile on a path that has no file (:160,
@@ -39,7 +39,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::file::FileHandle;
 use al_builtins::native::Signal;
 use al_builtins::placeholder_output as po;
@@ -148,8 +147,8 @@ impl PlaceholderFiles {
 
 impl Session {
     /// DotNet `System.IO.File.Delete` of a file that holds a placeholder report output: `Ok(true)` when it was one and the
-    /// delete may go on, `Ok(false)` when the path holds none. Only the sequence of the module comment runs, under
-    /// assumption dotnet-file-delete-placeholder; every other file holding a placeholder refuses.
+    /// delete may go on, `Ok(false)` when the path holds none. Only the sequence of the module comment runs
+    /// (HtmlServerFileRoundTrip.al:149 with :186-187); every other file holding a placeholder refuses.
     pub(crate) fn dotnet_delete_placeholder_file(&mut self, path: &str) -> Result<bool, Signal> {
         let Some(mark) = self.placeholder_file_mark(path) else {
             return Ok(false);
@@ -171,15 +170,38 @@ impl Session {
         if !measured {
             return Err(refusal(&mark));
         }
-        assume(Assumption::DotNetFileDeletePlaceholder);
         self.placeholder_files.written(path);
         Ok(self.forget_placeholder_file(path))
     }
 }
 
 fn refusal(mark: &Arc<str>) -> Signal {
+    let mark = al_builtins::rendered_text::shown(mark);
     Signal::unsupported(format!(
         "DotNet System.IO.File.Delete of a file holding {mark}: only the Html or Pdf of a Word layout report that one File \
          wrote to a new file from a stream copy and one File then opened with an InStream, both closed, is measured"
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use al_builtins::native::Signal;
+    use al_builtins::rendered_text::html_mark;
+
+    fn why(s: Signal) -> String {
+        match s {
+            Signal::Unsupported(w) => w.to_string(),
+            other => panic!("not a refusal: {other:?}"),
+        }
+    }
+
+    /// The Delete refusal names an Html placeholder without its process-wide render number, like every other refusal
+    /// (review of draft PR 8614, LOW-1).
+    #[test]
+    fn the_delete_refusal_is_the_same_for_every_render_number() {
+        let want = why(refusal(&html_mark("RX Word Default", None)));
+        assert_eq!(why(refusal(&html_mark("RX Word Default", Some(1)))), want);
+        assert_eq!(why(refusal(&html_mark("RX Word Default", Some(56)))), want);
+    }
 }

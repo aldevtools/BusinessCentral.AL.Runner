@@ -46,7 +46,8 @@ impl Session {
                 }
             }
         }
-        self.fill_field_caption_expressions(st)
+        self.fill_field_caption_expressions(st)?;
+        self.fill_format_procedures(st)
     }
 
     /// A page open runs the CaptionClass expression of every field of the source table that has one, also those without a
@@ -95,16 +96,16 @@ impl Session {
         let own_stage = st.borrow().field_captions_action_save;
         // `staged`: this fill is one of those, so it marks nothing; `runs`: how many times the host's run.
         let (staged, runs) = match (pinned && st.borrow().field_captions_opened, own_stage, host_stage) {
-            (true, 1, _) => (true, 1),
-            (true, 2, _) => {
-                st.borrow_mut().field_captions_action_save = 3;
+            (true, ActionSaveCaptions::Refreshing, _) => (true, 1),
+            (true, ActionSaveCaptions::Saved, _) => {
+                st.borrow_mut().field_captions_action_save = ActionSaveCaptions::Updated;
                 (true, 2)
             }
-            (true, _, Some(1)) => {
+            (true, _, Some(ActionSaveCaptions::Refreshing)) => {
                 st.borrow_mut().field_captions_fill_first = false;
                 return Ok(());
             }
-            (true, _, Some(3)) => (true, 1),
+            (true, _, Some(ActionSaveCaptions::Updated)) => (true, 1),
             _ => (false, 1),
         };
         let first = std::mem::take(&mut st.borrow_mut().field_captions_fill_first);
@@ -182,7 +183,7 @@ impl Session {
             .collect();
         let saved_captions = st.borrow().field_captions.clone();
         let saved_row = st.borrow().field_captions_row.clone();
-        let own = std::mem::replace(&mut rec.borrow_mut().fields, fields);
+        let own = std::mem::replace(&mut rec.borrow_mut().fields, fields.into());
         let r = self.fill_field_captions_with_row(st, &t, &exprs, 1);
         rec.borrow_mut().fields = own;
         if keep {
@@ -217,7 +218,7 @@ impl Session {
             return Ok(r);
         }
         if saves {
-            self.run_caption_expressions_with(st, saved_row, false)?;
+            self.run_caption_expressions_with(st, saved_row.into_vec(), false)?;
         }
         let Some(row) = st.borrow().field_captions_row.clone() else {
             return Ok(r);
@@ -343,7 +344,7 @@ impl Session {
         st.borrow_mut().dirty = false;
         self.apply_data_caption_globals(st);
         self.calc_row_flowfields(st)?;
-        if !st.borrow().read_keeps_xrec {
+        if !st.borrow().refresh.keeps_xrec() {
             self.set_xrec(st);
         }
         self.populate_expressions(st)?;
@@ -450,14 +451,14 @@ impl Session {
         st.borrow_mut().view_read_to_end = false;
         st.borrow_mut().window_top_unread = false;
         st.borrow_mut().moved_rec_open_partial = None;
-        st.borrow_mut().read_up_from_last = None;
+        st.borrow_mut().read_up_from_last = ReadUpFromLast::Off;
         st.borrow_mut().opened_on_moved_rec = false;
         let rec = self.page_rec(st);
-        // The rows of a page whose table holds a global filter (filter group 1) another record set (records.rs
-        // `global_group_check`).
-        if !self.global_group1.is_empty() {
+        // The rows of a page whose table holds a global filter (filter group 1) another record set: only a record that holds
+        // the same filters is answered (`group1_sessions.rs` `group1_use`).
+        if self.global_group1.has_tables() {
             let table = rec.borrow().table;
-            self.global_group_check(&rec, table, "A page reading its rows")?;
+            self.group1_use(&rec, table, crate::group1_sessions::Group1Op::Page, &[])?;
         }
         let start = self.row_key(&rec)?;
         let mut keys = Vec::new();
@@ -480,7 +481,7 @@ impl Session {
         }
         for i in 0..Self::WINDOW {
             let key = self.row_key(&rec)?;
-            let stored = rec.borrow().fields.clone();
+            let stored = rec.borrow().fields.to_vec();
             self.populate_window_row(st)?;
             if let Some(controls) = &row_exprs {
                 self.note_row_exprs(st, key.clone(), controls)?;
@@ -488,7 +489,7 @@ impl Session {
             keys.push(crate::pages::WindowRow {
                 key,
                 stored,
-                shown: rec.borrow().fields.clone(),
+                shown: rec.borrow().fields.to_vec(),
             });
             if i + 1 == Self::WINDOW {
                 break;
@@ -528,7 +529,7 @@ impl Session {
                 return self.read_rows_up_from_the_last(st, keys);
             }
             if let Some(first) = keys.first() {
-                rec.borrow_mut().fields = first.stored.clone();
+                rec.borrow_mut().fields = first.stored.clone().into();
             }
             // A view of one row is not read again before OnNextRecord(-1) (pages/list-order/AiListOrderTests.al:535
             // Next_OneRow_Nav `F:=><=Yes;R:R1001;N:1=0;N:-1=0`, :565 Next_OneRow_NavCurr; testpage/
@@ -560,20 +561,20 @@ impl Session {
                         );
                     }
                     let key = self.row_key(&rec)?;
-                    let stored = rec.borrow().fields.clone();
+                    let stored = rec.borrow().fields.to_vec();
                     self.populate_current(st)?;
                     above.push(crate::pages::WindowRow {
                         key,
                         stored,
-                        shown: rec.borrow().fields.clone(),
+                        shown: rec.borrow().fields.to_vec(),
                     });
                     if !self.nav_next(st, -1)? {
                         break;
                     }
                 }
-                rec.borrow_mut().fields = keys[0].stored.clone();
+                rec.borrow_mut().fields = keys[0].stored.clone().into();
                 self.populate_current(st)?;
-                keys[0].shown = rec.borrow().fields.clone();
+                keys[0].shown = rec.borrow().fields.to_vec();
                 above.reverse();
             }
             // The closing OnFindRecord(`=`) and its read belong to the OnAfterGetCurrRecord that follows; a
@@ -594,7 +595,7 @@ impl Session {
                 self.nav_find(st, "=")?;
             }
             if let Some(row) = keys.first() {
-                rec.borrow_mut().fields = row.shown.clone();
+                rec.borrow_mut().fields = row.shown.clone().into();
                 self.set_xrec_fields(st, row.stored.clone());
             }
             above.extend(keys);
@@ -636,12 +637,12 @@ impl Session {
                 let mut top_unread = false;
                 while self.nav_next(st, -1)? {
                     let key = self.row_key(&rec)?;
-                    let stored = rec.borrow().fields.clone();
+                    let stored = rec.borrow().fields.to_vec();
                     self.populate_current(st)?;
                     above.push(crate::pages::WindowRow {
                         key,
                         stored,
-                        shown: rec.borrow().fields.clone(),
+                        shown: rec.borrow().fields.to_vec(),
                     });
                     if above.len() == Self::WINDOW {
                         top_unread = true;
@@ -650,7 +651,7 @@ impl Session {
                 }
                 above.reverse();
                 if let Some(row) = keys.first() {
-                    rec.borrow_mut().fields = row.shown.clone();
+                    rec.borrow_mut().fields = row.shown.clone().into();
                     self.set_xrec_fields(st, row.stored.clone());
                 }
                 above.extend(keys);
@@ -676,7 +677,7 @@ impl Session {
                 // OpenView_FindNext5Rows_ReadsAtOpen `F0;N2;N3;N4;N5;N5;N1`, _FindNext30Rows `...;N20;N1`).
                 // The client puts its first row back and asks OnNextRecord(-1) once, which answers 0 there.
                 if let Some(first) = keys.first() {
-                    rec.borrow_mut().fields = first.stored.clone();
+                    rec.borrow_mut().fields = first.stored.clone().into();
                 }
                 self.nav_next(st, -1)?;
                 if ascending_find_list_ended {
@@ -695,7 +696,7 @@ impl Session {
         }
         // The row buffer the page keeps for the row it stands on is what OnAfterGetRecord left.
         if let Some(row) = keys.first() {
-            rec.borrow_mut().fields = row.shown.clone();
+            rec.borrow_mut().fields = row.shown.clone().into();
             self.set_xrec_fields(st, row.stored.clone());
         }
         st.borrow_mut().window = keys;
@@ -734,7 +735,7 @@ impl Session {
         if (end_reached || (opening && self.declares(st, "onaftergetcurrrecord")))
             && !self.reads_as_part(st)
             && !one_row_read_once
-            && !st.borrow().lookup_next_plain
+            && !st.borrow().lookup_left.next_plain()
         {
             self.page_trigger(st, "onaftergetrecord", vec![])?;
         }
@@ -808,12 +809,12 @@ impl Session {
         let mut above = Vec::new();
         while above.len() < Self::WINDOW && self.nav_next(st, -1)? {
             let key = self.row_key(&rec)?;
-            let stored = rec.borrow().fields.clone();
+            let stored = rec.borrow().fields.to_vec();
             self.populate_current(st)?;
             above.push(crate::pages::WindowRow {
                 key,
                 stored,
-                shown: rec.borrow().fields.clone(),
+                shown: rec.borrow().fields.to_vec(),
             });
         }
         self.ret_used = true;
@@ -823,7 +824,7 @@ impl Session {
         }
         let shown = rec.borrow().fields.clone();
         let stored = keys[0].stored.clone();
-        keys[0].shown = shown;
+        keys[0].shown = shown.into_vec();
         self.set_xrec_fields(st, stored);
         above.reverse();
         above.extend(keys);
@@ -831,7 +832,7 @@ impl Session {
         let mut s = st.borrow_mut();
         s.window = above;
         s.reads_once_more_in = Some(at);
-        s.read_up_from_last = Some(false);
+        s.read_up_from_last = ReadUpFromLast::Opened;
         Ok(())
     }
 
@@ -847,12 +848,12 @@ impl Session {
         if self.nav_next(st, -1)? {
             loop {
                 let key = self.row_key(&rec)?;
-                let stored = rec.borrow().fields.clone();
+                let stored = rec.borrow().fields.to_vec();
                 self.populate_current(st)?;
                 above.push(crate::pages::WindowRow {
                     key,
                     stored,
-                    shown: rec.borrow().fields.clone(),
+                    shown: rec.borrow().fields.to_vec(),
                 });
                 if above.len() == Self::WINDOW {
                     whole = false;
@@ -864,7 +865,7 @@ impl Session {
             }
         }
         let first = forward[0].clone();
-        rec.borrow_mut().fields = first.stored.clone();
+        rec.borrow_mut().fields = first.stored.clone().into();
         // A view of one row: nothing above it, so the row is not read again before `=` (PnF06FindListMoves.al:348
         // PW_FindList_Descending_1Rows `F(=><);R1;N(1);N(-1);F(=);R1;C`; two rows read it again, :362).
         if !above.is_empty() {
@@ -884,7 +885,7 @@ impl Session {
         let shown = rec.borrow().fields.clone();
         let mut s = st.borrow_mut();
         if let Some(last) = s.window.last_mut() {
-            last.shown = shown;
+            last.shown = shown.into_vec();
         }
         drop(s);
         self.set_xrec_fields(st, first.stored);
@@ -901,17 +902,17 @@ impl Session {
         let before = self.xrec_before_move(st);
         let rec = self.page_rec(st);
         let top = st.borrow().window[0].stored.clone();
-        rec.borrow_mut().fields = top;
+        rec.borrow_mut().fields = top.into();
         self.populate_current(st)?;
         let mut new_rows = Vec::new();
         while self.nav_next(st, -1)? {
             let key = self.row_key(&rec)?;
-            let stored = rec.borrow().fields.clone();
+            let stored = rec.borrow().fields.to_vec();
             self.populate_current(st)?;
             new_rows.push(crate::pages::WindowRow {
                 key,
                 stored,
-                shown: rec.borrow().fields.clone(),
+                shown: rec.borrow().fields.to_vec(),
             });
             if new_rows.len() == Self::WINDOW {
                 return unsupported(
@@ -933,7 +934,7 @@ impl Session {
         self.populate_current(st)?;
         let shown = rec.borrow().fields.clone();
         if let Some(w) = st.borrow_mut().window.first_mut() {
-            w.shown = shown;
+            w.shown = shown.into_vec();
         }
         self.current_record_trigger(st, before)?;
         Ok(Some(true))
@@ -948,7 +949,7 @@ impl Session {
     fn first_above_the_find_list_window(&mut self, st: &St) -> Result<bool, Signal> {
         let rec = self.page_rec(st);
         let top = st.borrow().window[0].stored.clone();
-        rec.borrow_mut().fields = top;
+        rec.borrow_mut().fields = top.into();
         let mut new_rows = Vec::new();
         while self.nav_next(st, -1)? {
             if new_rows.len() == Self::WINDOW {
@@ -957,12 +958,12 @@ impl Session {
                 );
             }
             let key = self.row_key(&rec)?;
-            let stored = rec.borrow().fields.clone();
+            let stored = rec.borrow().fields.to_vec();
             self.populate_current(st)?;
             new_rows.push(crate::pages::WindowRow {
                 key,
                 stored,
-                shown: rec.borrow().fields.clone(),
+                shown: rec.borrow().fields.to_vec(),
             });
         }
         new_rows.reverse();
@@ -974,7 +975,7 @@ impl Session {
         let shown = s.window[0].shown.clone();
         let stored = s.window[0].stored.clone();
         drop(s);
-        rec.borrow_mut().fields = shown;
+        rec.borrow_mut().fields = shown.into();
         self.set_xrec_fields(st, stored);
         Ok(true)
     }
@@ -1020,12 +1021,12 @@ impl Session {
                 );
             }
             let key = self.row_key(&rec)?;
-            let stored = rec.borrow().fields.clone();
+            let stored = rec.borrow().fields.to_vec();
             self.populate_current(st)?;
             before.push(crate::pages::WindowRow {
                 key,
                 stored,
-                shown: rec.borrow().fields.clone(),
+                shown: rec.borrow().fields.to_vec(),
             });
             if !self.nav_next(st, -1)? {
                 break;
@@ -1033,7 +1034,7 @@ impl Session {
         }
         before.reverse();
         let first = forward[0].clone();
-        rec.borrow_mut().fields = first.shown;
+        rec.borrow_mut().fields = first.shown.into();
         self.set_xrec_fields(st, first.stored);
         before.extend(forward);
         let mut s = st.borrow_mut();
@@ -1062,12 +1063,12 @@ impl Session {
         let mut last_key = start.clone();
         for i in 0..prefix + Self::WINDOW {
             let key = self.row_key(&rec)?;
-            let stored = rec.borrow().fields.clone();
+            let stored = rec.borrow().fields.to_vec();
             self.populate_current(st)?;
             let row = crate::pages::WindowRow {
                 key: key.clone(),
                 stored,
-                shown: rec.borrow().fields.clone(),
+                shown: rec.borrow().fields.to_vec(),
             };
             {
                 let mut s = st.borrow_mut();
@@ -1157,7 +1158,7 @@ impl Session {
                     .cloned();
                 match row {
                     Some(w) => {
-                        rec.borrow_mut().fields = w.shown;
+                        rec.borrow_mut().fields = w.shown.into();
                         self.set_xrec_fields(st, w.stored);
                     }
                     None => self.set_xrec(st),
@@ -1206,7 +1207,7 @@ impl Session {
         if self.open_new_list_untouched(st) {
             return self.move_on_open_new_list(how);
         }
-        if st.borrow().read_up_from_last.is_some() {
+        if st.borrow().read_up_from_last != ReadUpFromLast::Off {
             return unsupported(format!(
                 "{how}() on a list that opened on the last row of its descending view in a key other than the primary key (not pinned)"
             ));
@@ -1333,7 +1334,7 @@ impl Session {
         }
         st.borrow_mut().moving_next = false;
         if let (Err(Signal::Error(e)), Some(trigger @ ("onnextrecord" | "onfindrecord"))) = (&r, origin.as_deref()) {
-            let raised = self.move_trigger_error(st, how, trigger, e, before);
+            let raised = self.move_trigger_error(st, how, trigger, e, before.into_vec());
             self.mark_closed(st);
             return Err(raised?);
         }
@@ -1382,7 +1383,7 @@ impl Session {
         let saved = rec.borrow().fields.clone();
         let table = self.table(&rec)?;
         let saved_key = table.primary_key(&saved);
-        rec.borrow_mut().fields = anchor;
+        rec.borrow_mut().fields = anchor.into();
         self.ret_used = true;
         let mut pk = table.primary_key(&rec.borrow().fields);
         let found = matches!(self.record_op(RecordOp::Get, &rec, &mut pk)?, Value::Boolean(true));
@@ -1444,7 +1445,7 @@ impl Session {
         }
         let rec = self.page_rec(st);
         let saved = rec.borrow().fields.clone();
-        rec.borrow_mut().fields = anchor;
+        rec.borrow_mut().fields = anchor.into();
         self.ret_used = true;
         let mut pk = self.table(&rec)?.primary_key(&rec.borrow().fields);
         let found = matches!(self.record_op(RecordOp::Get, &rec, &mut pk)?, Value::Boolean(true));
@@ -1663,7 +1664,7 @@ impl Session {
             && self.filtered_find_list_without_row_triggers(st)
         {
             let last = window[target].stored.clone();
-            rec.borrow_mut().fields = last;
+            rec.borrow_mut().fields = last.into();
             let mut new_rows = 0;
             while self.nav_next(st, 1)? {
                 if new_rows == Self::WINDOW {
@@ -1672,9 +1673,9 @@ impl Session {
                     );
                 }
                 let key = self.row_key(&rec)?;
-                let stored = rec.borrow().fields.clone();
+                let stored = rec.borrow().fields.to_vec();
                 self.populate_current(st)?;
-                let shown = rec.borrow().fields.clone();
+                let shown = rec.borrow().fields.to_vec();
                 st.borrow_mut()
                     .window
                     .push(crate::pages::WindowRow { key, stored, shown });
@@ -1697,20 +1698,18 @@ impl Session {
     }
 
     /// A move on a plain list whose open read on the row its OnOpenPage left Rec on held more rows than a window
-    /// (`PageState::moved_rec_open_partial`: rows above its top row, rows below its bottom row left unread). Next and Previous
+    /// (`PageState::moved_rec_open_partial`: the edges with rows left unread behind them). Next and Previous
     /// inside the rows it holds read the row twice, then OnAfterGetCurrRecord; First and Last onto a held row the same; First
     /// with rows above left unread reads the top row it holds, steps up reading each row to the first of the view, reads that
     /// one again and runs OnAfterGetCurrRecord, and Last below the bottom row likewise (pages/long-list-open/
     /// Y37LongListTests.al:103-109 `next log` `R:26;R:26;C:26;`, `first log` `R:5;R:4;R:3;R:2;R:1;R:1;C:1;`, :142-149 Next on the
     /// last row `No` with an empty log, :246-249 `last log` `R:24;R:25;...;R:30;R:30;C:30;`). Moves past an edge with a second
     /// block of 20 unread rows, and Next or Previous off the rows held, are not pinned.
-    fn move_after_long_moved_rec_open(
-        &mut self,
-        st: &St,
-        how: PageMethod,
-        edges: (bool, bool),
-    ) -> Result<bool, Signal> {
-        let (top_unread, bottom_unread) = edges;
+    fn move_after_long_moved_rec_open(&mut self, st: &St, how: PageMethod, edges: UnreadEdges) -> Result<bool, Signal> {
+        let UnreadEdges {
+            above: top_unread,
+            below: bottom_unread,
+        } = edges;
         let rec = self.page_rec(st);
         let key = self.row_key(&rec)?;
         let len = st.borrow().window.len();
@@ -1721,7 +1720,7 @@ impl Session {
             let before = s.xrec_before_move(st);
             let edge = if up { 0 } else { len - 1 };
             let stored = st.borrow().window[edge].stored.clone();
-            rec.borrow_mut().fields = stored;
+            rec.borrow_mut().fields = stored.into();
             s.populate_current(st)?;
             let mut new_rows = Vec::new();
             while s.nav_next(st, if up { -1 } else { 1 })? {
@@ -1731,12 +1730,12 @@ impl Session {
                     );
                 }
                 let key = s.row_key(&rec)?;
-                let stored = rec.borrow().fields.clone();
+                let stored = rec.borrow().fields.to_vec();
                 s.populate_current(st)?;
                 new_rows.push(crate::pages::WindowRow {
                     key,
                     stored,
-                    shown: rec.borrow().fields.clone(),
+                    shown: rec.borrow().fields.to_vec(),
                 });
             }
             s.populate_current(st)?;
@@ -1744,7 +1743,7 @@ impl Session {
             {
                 let mut b = st.borrow_mut();
                 if let Some(last) = new_rows.last_mut() {
-                    last.shown = shown;
+                    last.shown = shown.into_vec();
                 }
                 if up {
                     new_rows.reverse();
@@ -1753,11 +1752,11 @@ impl Session {
                 } else {
                     b.window.append(&mut new_rows);
                 }
-                if let Some((t, d)) = b.moved_rec_open_partial.as_mut() {
+                if let Some(e) = b.moved_rec_open_partial.as_mut() {
                     if up {
-                        *t = false;
+                        e.above = false;
                     } else {
-                        *d = false;
+                        e.below = false;
                     }
                 }
             }
@@ -1857,7 +1856,7 @@ impl Session {
         let held = st.borrow().window.iter().position(|w| Self::same_key(&w.key, want));
         if let Some(i) = held {
             let shown = st.borrow().window[i].shown.clone();
-            rec.borrow_mut().fields = shown;
+            rec.borrow_mut().fields = shown.into();
             self.set_xrec(st);
             return Ok(Some(true));
         }
@@ -1877,15 +1876,15 @@ impl Session {
             );
         }
         let last = st.borrow().window[Self::WINDOW - 1].stored.clone();
-        rec.borrow_mut().fields = last;
+        rec.borrow_mut().fields = last.into();
         let mut new_rows = 0;
         while self.nav_next(st, 1)? {
             let key = self.row_key(&rec)?;
             let stored = rec.borrow().fields.clone();
             st.borrow_mut().window.push(crate::pages::WindowRow {
                 key,
-                stored: stored.clone(),
-                shown: stored,
+                stored: stored.to_vec(),
+                shown: stored.into_vec(),
             });
             new_rows += 1;
             if new_rows == Self::WINDOW {
@@ -1897,7 +1896,7 @@ impl Session {
         match st.borrow().window.iter().position(|w| Self::same_key(&w.key, want)) {
             Some(i) => {
                 let shown = st.borrow().window[i].shown.clone();
-                rec.borrow_mut().fields = shown;
+                rec.borrow_mut().fields = shown.into();
                 drop(rec);
                 self.set_xrec(st);
                 Ok(Some(true))
@@ -1920,14 +1919,14 @@ impl Session {
             // `G60` at the end of a full block) and _Both61Rows, and by pages/W1Navigation.al:GoToKey_List_FiftyRows_RowsReadByAFarJump.
             let rec = self.page_rec(st);
             let last = st.borrow().window[idx].stored.clone();
-            rec.borrow_mut().fields = last;
+            rec.borrow_mut().fields = last.into();
             self.populate_current(st)?;
             let mut new_rows = 0;
             while new_rows < Self::WINDOW && self.nav_next(st, 1)? {
                 let key = self.row_key(&rec)?;
-                let stored = rec.borrow().fields.clone();
+                let stored = rec.borrow().fields.to_vec();
                 self.populate_current(st)?;
-                let shown = rec.borrow().fields.clone();
+                let shown = rec.borrow().fields.to_vec();
                 st.borrow_mut()
                     .window
                     .push(crate::pages::WindowRow { key, stored, shown });
@@ -2138,7 +2137,7 @@ impl Session {
                 return Ok(Value::Boolean(true));
             }
         }
-        if st.borrow().read_up_from_last.is_some() {
+        if st.borrow().read_up_from_last != ReadUpFromLast::Off {
             return self.go_to_key_from_the_last_row_read_up(st, &want);
         }
         self.refuse_descending_filtered_find_move(st)?;
@@ -2295,7 +2294,7 @@ impl Session {
                             .find(|w| Self::same_key(&w.key, &key))
                             .cloned();
                         if let Some(w) = row {
-                            rec.borrow_mut().fields = w.shown;
+                            rec.borrow_mut().fields = w.shown.into();
                             self.set_xrec_fields(st, w.stored);
                         }
                     } else {
@@ -2328,7 +2327,7 @@ impl Session {
                     at = self.nav_next(st, 1)?;
                 }
             }
-            rec.borrow_mut().fields = before_fields;
+            rec.borrow_mut().fields = before_fields.into();
             let mut s = st.borrow_mut();
             s.cursor = before_cursor;
             s.draft = before_draft;
@@ -2548,7 +2547,7 @@ impl Session {
                     }
                     return;
                 }
-                r.borrow_mut().fields = fields;
+                r.borrow_mut().fields = fields.into();
             }
         }
     }
@@ -2874,8 +2873,7 @@ impl Session {
     pub(super) fn answer_page(&mut self, st: &St, handler: Handler, modal: bool) -> Result<Value, Signal> {
         let (hobject, hroutine, hinst) = handler;
         let st = st.clone();
-        st.borrow_mut().test_close_vetoed = false;
-        st.borrow_mut().test_closed_in_handler = false;
+        st.borrow_mut().close.handler_started();
         let caught_before = self.caught_errors();
         self.ui_state.page_handler_depth += 1;
         let handled = self.call(hobject, hroutine, hinst, vec![page_value(&st)]);
@@ -2887,13 +2885,13 @@ impl Session {
             self.mark_closed(&st);
             return Err(e);
         }
-        if modal && std::mem::take(&mut st.borrow_mut().test_close_vetoed) {
+        if modal && st.borrow_mut().close.take_test_vetoed_in_handler() {
             // A TestPage.Close() the page's OnQueryClosePage refused in the handler: RunModal raises, no OnClosePage runs
             // (pages/triggers/PageModalQueryCloseVeto.al:167 Modal_HandlerClose_VetoAlways, :236
             // Modal_HandlerOkThenClose_VetoAlways). Only a veto by the page's own trigger is pinned.
             self.refuse_unpinned_modal_veto(&st)?;
             st.borrow_mut().modal = false;
-            let id = self.engine.program.objects[st.borrow().object as usize].id.unwrap_or(0);
+            let id = crate::object_ids::declared_id(self.engine.program.objects[st.borrow().object as usize].id)?;
             return Err(error_code(
                 format!("The RunModal procedure could not close the page {id} as it has already been closed."),
                 "TestCodeUnit",
@@ -2903,14 +2901,14 @@ impl Session {
         // and without a record (ui-handlers/CbHandlerTests.al:181 ModalHandler_CallsClose_RunModalOutcome), and a Page
         // variable's RunModal of a Card given SetRecord, whose Rec is the blank record without filters afterwards
         // (pages/currpage/UnopenedCurrPage.al:273 Update_Then_RunModal_Card_HandlerCloses `rec-after-close`).
-        let closed_in_handler = std::mem::take(&mut st.borrow_mut().test_closed_in_handler);
+        let closed_in_handler = st.borrow_mut().close.take_test_closed_in_handler();
         if modal && closed_in_handler && !self.relation_closed_in_handler(&st) {
             let page_type = self.engine.object_facts[st.borrow().object as usize]
                 .page_type_lower()
                 .to_string();
             let pinned = matches!(
-                (page_type.as_str(), st.borrow().run_static),
-                ("standarddialog", Some(true)) | ("card", Some(false))
+                (page_type.as_str(), st.borrow().modal_run),
+                ("standarddialog", ModalRun::Static) | ("card", ModalRun::Variable)
             );
             if !pinned {
                 return unsupported(
@@ -2929,7 +2927,7 @@ impl Session {
                     }
                 }
             }
-            let id = self.engine.program.objects[st.borrow().object as usize].id.unwrap_or(0);
+            let id = crate::object_ids::declared_id(self.engine.program.objects[st.borrow().object as usize].id)?;
             return Err(error_code(
                 format!("The RunModal procedure could not close the page {id} as it has already been closed."),
                 "TestCodeUnit",
@@ -2949,8 +2947,8 @@ impl Session {
                 // the last error is the veto's, and OnClosePage does not run (pages/triggers/
                 // PageModalQueryCloseVeto.al:275 Modal_HandlerDoesNothing_VetoAlways; after a vetoed OK or Cancel in the
                 // handler the platform asks once more with its own action, :129, :148, :255; the next run is a clean one, :309).
-                let vetoed = st.borrow().close_vetoed;
-                if !(modal && (st.borrow().close_error || vetoed)) {
+                let vetoed = st.borrow().close.vetoed();
+                if !(modal && (st.borrow().close.error() || vetoed)) {
                     return unsupported("a page whose OnQueryClosePage refused the platform's close");
                 }
                 if vetoed {

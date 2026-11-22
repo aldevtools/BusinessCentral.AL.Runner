@@ -150,7 +150,31 @@ impl Session {
             },
             _ => return None,
         };
+        if let Err(e) =
+            self.relation_field_no_row_read(&rec, only, crate::platform::relation_field_no_readers::Reader::Format)
+        {
+            return Some(Err(e));
+        }
         Some(self.format_record_fields(&rec, only))
+    }
+
+    /// `Format(FieldRef, Length, 1 | 2 | 9)` reads the field as `FieldRef.Value` does: the no-field RelationFieldNo 0 of the
+    /// Field table is refused there as `Format` (`relation_field_no_readers`).
+    pub(crate) fn format_fieldref_value_read(&self, fr: &Value) -> Result<(), Signal> {
+        let Value::Library(_, l) = fr else {
+            return Ok(());
+        };
+        let (rec, pos) = match &*l.borrow() {
+            al_builtins::value::LibraryValue::FieldRef(r, p) | al_builtins::value::LibraryValue::KeyFieldRef(r, p) => {
+                (r.clone(), *p)
+            }
+            _ => return Ok(()),
+        };
+        self.relation_field_no_row_read(
+            &rec,
+            Some(pos),
+            crate::platform::relation_field_no_readers::Reader::Format,
+        )
     }
 
     fn format_record_fields(&self, rec: &Rc<RefCell<RecordState>>, only: Option<usize>) -> Result<String, Signal> {
@@ -336,6 +360,17 @@ impl Session {
                 expr.trim()
             ));
         };
+        // A read of the field's caption while its own expression runs, from that expression or from one it calls: what BC's
+        // nested read gives is not pinned (al-runner issue 8329: the reporter's `'3,' + FieldCaption(<same field>)` passes on
+        // BC 29.1 with the field's caption), so it refuses instead of running the expression again.
+        let running =
+            (self.frames.iter().zip(&self.call_stack)).any(|(&o, f)| !f.event && (o, f.routine) == (object, routine));
+        if running {
+            return unsupported(format!(
+                "the caption of field {} read while its own CaptionClass expression runs (not pinned, al-runner issue 8329)",
+                t.fields[pos].name
+            ));
+        }
         let class = self.call_on_record(object, routine, rec.clone(), None, Vec::new())?.0;
         Self::refuse_rendered_caption_class(&class)?;
         match class {
@@ -494,18 +529,25 @@ impl Session {
                     // again is pinned only before a Commit; either on a temporary table is not pinned.
                     match (*i, r.temporary) {
                         (ISOLATION_UPDLOCK | ISOLATION_REPEATABLE_READ, false) if before == *i => {
-                            if *i == ISOLATION_REPEATABLE_READ && !self.tx.lock_tx && self.tx.lock_unpinned.is_none() {
-                                self.tx.lock_unpinned = Some(crate::records::REPEATABLE_READ_ASSIGNED_AGAIN);
+                            if *i == ISOLATION_REPEATABLE_READ
+                                && !self.tx.open.locks.lock_tx
+                                && self.tx.open.locks.lock_unpinned.is_none()
+                            {
+                                self.tx.open.locks.lock_unpinned = Some(crate::state::UnpinnedLock::Other(
+                                    crate::records::REPEATABLE_READ_ASSIGNED_AGAIN,
+                                ));
                             }
                         }
                         (ISOLATION_UPDLOCK | ISOLATION_REPEATABLE_READ, false) => {
-                            self.tx.lock_tx = true;
-                            self.tx.isolation_lock = true;
+                            self.tx.open.locks.lock_tx = true;
+                            self.tx.open.locks.isolation_lock = true;
                             let key = (r.table, r.company.clone());
-                            self.tx.note_isolation_lock(key.0, key.1);
+                            self.tx.open.locks.note_isolation_lock(key.0, key.1);
                         }
                         (ISOLATION_REPEATABLE_READ | ISOLATION_UPDLOCK, true) => {
-                            self.tx.lock_unpinned = Some("a locking ReadIsolation on a temporary table")
+                            self.tx.open.locks.lock_unpinned = Some(crate::state::UnpinnedLock::Other(
+                                "a locking ReadIsolation on a temporary table",
+                            ))
                         }
                         _ => {}
                     }
@@ -549,7 +591,7 @@ impl Session {
                 // (record/TestRowVersionFieldNumberFieldActiveContracts.al:110-119).
                 Ok(Value::Boolean(self.field_enabled(t, pos)))
             }
-            RecordOp::RecordId => Ok(self.record_id(rec, t)),
+            RecordOp::RecordId => self.record_id(rec, t),
             RecordOp::IsTemporary => Ok(Value::Boolean(rec.borrow().temporary)),
             RecordOp::IsDirty => self.record_is_dirty(rec),
             // Without an argument, whether the current row is marked; with one, marks or unmarks it.
@@ -728,9 +770,10 @@ impl Session {
                 // On a database table it starts the write transaction, on a temporary one not
                 // (codeunits/TestCodeunitRunWriteTransaction.al:211-252 RN_LockTable_WriteTransactionState, _Temporary_).
                 if !rec.borrow().temporary {
-                    self.tx.lock_tx = true;
+                    self.tx.open.locks.lock_tx = true;
                     let table = rec.borrow().table;
-                    self.tx.locked_tables.push(table);
+                    self.tx.open.locked_tables.push(table);
+                    self.note_row_lock_table(table);
                 }
                 Ok(Value::Null)
             }
@@ -739,11 +782,7 @@ impl Session {
                     Some(Value::Boolean(b)) => *b,
                     _ => return unsupported("Consistent without a Boolean argument"),
                 };
-                let (table, temporary) = {
-                    let r = rec.borrow();
-                    (r.table, r.temporary)
-                };
-                self.set_consistent(table, temporary, consistent)?;
+                self.set_consistent(rec, consistent)?;
                 Ok(Value::Null)
             }
             RecordOp::ReadConsistency => Ok(Value::Boolean(false)),
@@ -908,7 +947,7 @@ impl Session {
                 ))
             }
             RecordOp::HasFilter => Ok(Value::Boolean(Self::has_filter(rec))),
-            RecordOp::GetFilters => self.get_filters(rec, t).map(|s| Value::Text(s.into())),
+            RecordOp::GetFilters => self.get_filters(rec, t, true).map(|s| Value::Text(s.into())),
             RecordOp::GetFilter => self
                 .field_filter_text(rec, arg_pos(args, 0)?)
                 .map(|s| Value::Text(s.into())),
@@ -1008,8 +1047,7 @@ impl Session {
             }
             RecordOp::CopyFilters => Self::copy_filters(rec, args),
             RecordOp::Copy => self.record_copy(rec, args),
-            RecordOp::TestField => self.test_field(rec, t, args),
-            RecordOp::FieldError => self.field_error(rec, t, args),
+            RecordOp::TestField | RecordOp::FieldError => self.test_field_or_field_error(method, rec, t, args),
             other => unsupported(format!("Record.{other}")),
         }
     }
@@ -1057,6 +1095,9 @@ impl Session {
         };
         self.move_blobs(table, &mut d.fields, None, how, holder)?;
         d.filters = s.filters;
+        // The target keeps its company (above); whether it takes a ChangeCompany call of the source along is not measured, so
+        // the mark comes over and the shapes that read it stay refused.
+        d.change_company_called |= s.change_company_called;
         d.filter_group = s.filter_group;
         d.key = s.key;
         d.adhoc = s.adhoc;
@@ -1073,6 +1114,9 @@ impl Session {
         // The SetAutoCalcFields set comes over (record/crud/RcBFlowFields.al:SetAutoCalcFields_AfterInsertRead
         // `copy keeps autocalc`).
         d.auto_calc = s.auto_calc;
+        // So does the by-value copy's lack of its caller's set (record/filters/ByValueAutoCalcFields.al
+        // `ByValueAutoCalc_Codeunit_CopyOfCopy`), which marks a read of the target.
+        d.auto_calc_dropped = s.auto_calc_dropped;
         // SetLoadFields comes over with Copy (record/crud/RcAMisc.al:SetLoadFields_Copy_And_Assignment).
         d.load.request = s.load.request;
         d.load.buffer = s.load.buffer;
@@ -1102,6 +1146,24 @@ impl Session {
         }
     }
 
+    /// `TestField` or `FieldError` (`method`): both read the field's value, which on the no-field RelationFieldNo 0 of the
+    /// Field table is not measured (`relation_field_no_readers`).
+    fn test_field_or_field_error(
+        &mut self,
+        method: RecordOp,
+        rec: &Rec,
+        t: &TableDef,
+        args: &[Value],
+    ) -> Result<Value, Signal> {
+        use crate::platform::relation_field_no_readers::Reader;
+        self.relation_field_no_row_read(rec, Some(arg_pos(args, 0)?), Reader::TestFieldOrFieldError)?;
+        if method == RecordOp::TestField {
+            self.test_field(rec, t, args)
+        } else {
+            self.field_error(rec, t, args)
+        }
+    }
+
     pub(crate) fn test_field(&mut self, rec: &Rec, t: &TableDef, args: &[Value]) -> Result<Value, Signal> {
         // `TestField(Field [, Value], ErrorInfo)`: a check that holds raises nothing and leaves the ErrorInfo as it
         // was. A failing one raises the same text and code as the form without an ErrorInfo, whatever Message the
@@ -1117,7 +1179,7 @@ impl Session {
                         let pos = arg_pos(plain, 0)?;
                         let collectible = al_builtins::errorinfo::set_origin_of(
                             &copy,
-                            self.engine.program.objects[t.object as usize].id.unwrap_or(0) as i32,
+                            crate::object_ids::declared_id(self.engine.program.objects[t.object as usize].id)? as i32,
                             t.fields[pos].id as i32,
                         );
                         // No Message on the ErrorInfo: the collected one says what the uncollected call raises. The
@@ -1134,7 +1196,7 @@ impl Session {
                             al_builtins::assumptions::assume(
                                 al_builtins::assumptions::Assumption::TestfieldErrorinfoCollectedRecordId,
                             );
-                            al_builtins::errorinfo::set_record_id_of(&copy, self.record_id(rec, t));
+                            al_builtins::errorinfo::set_record_id_of(&copy, self.record_id(rec, t)?);
                             self.collect_error(&copy);
                             return Ok(Value::Null);
                         }
@@ -1492,29 +1554,22 @@ impl Session {
         let from = self.engine.tables[src_table]
             .clone()
             .ok_or_else(|| Signal::Unsupported("TransferFields from a table without a schema".into()))?;
-        let same_kind = |a: &al_builtins::value::RtType, b: &al_builtins::value::RtType| {
-            std::mem::discriminant(a) == std::mem::discriminant(b)
-        };
         let cross_app = {
             let objects = &self.engine.program.objects;
             objects[t.object as usize].app != objects[from.object as usize].app
         };
-        // The kinds the probes of a skipped field across apps cover (Y38TransferXApp.al, RcBTransfer.al:553); others stay refused.
-        let skipped_across_apps = |a: &RtType, b: &RtType| {
-            let probed = |ty: &RtType| {
-                matches!(
-                    ty,
-                    RtType::Boolean
-                        | RtType::Integer
-                        | RtType::Decimal
-                        | RtType::Option(_)
-                        | RtType::Date
-                        | RtType::DateTime
-                        | RtType::Text(_)
-                        | RtType::Code(_)
-                )
-            };
-            probed(a) && probed(b)
+        let cx = TransferCall {
+            rec,
+            src,
+            t,
+            from: &from,
+            src_fields: &src_fields,
+            src_table,
+            args,
+            holder,
+            skip_mismatch,
+            init_pk,
+            cross_app,
         };
         let mut updates = Vec::new();
         let engine = self.engine.clone();
@@ -1535,133 +1590,9 @@ impl Session {
             let Some(sp) = from.fields.iter().position(|f| f.id == df.id && f.stored) else {
                 continue;
             };
-            // Fields of one number declared by different apps count as fields of different apps, also on two tables of one app:
-            // a table extension's field against another app's extension field or against the table's own field
-            // (record/transferfields-cross-app/TransferFieldsFieldApps.al:131-163 on corpus master
-            // 3eb812ed, al-runner issue 6982).
-            let cross_app = cross_app || self.field_app(t, dp) != self.field_app(&from, sp);
-            // An Enum field and an Option field with the same field number are the same kind of field to
-            // TransferFields: Base Application's "Sales Order Entity Buffer" holds `Shipping Advice` as an
-            // Option and `Sales Header` as an Enum, and its TransferFields from the header works in BC
-            // (corpus record/TransferEnumOption.al). The ordinal moves.
-            let enum_option = |a: &al_builtins::value::RtType, b: &al_builtins::value::RtType| {
-                use al_builtins::value::RtType as T;
-                matches!((a, b), (T::Enum(_), T::Option(_)) | (T::Option(_), T::Enum(_)))
-            };
-            if enum_option(&from.fields[sp].ty, &df.ty) {
-                let ordinal = match &src_fields[sp] {
-                    Value::Enum(_, o) | Value::Option(o, _) => *o,
-                    other => {
-                        return unsupported(format!(
-                            "TransferFields of {} between an Enum and an Option",
-                            other.describe()
-                        ));
-                    }
-                };
-                let moved = match &df.ty {
-                    al_builtins::value::RtType::Option(m) => Value::Option(ordinal, m.clone()),
-                    // An ordinal the Enum lacks moves too, with no error (corpus record/lt-record-conversion-assumptions/
-                    // TransferEnumOption.al: P98_OptionToEnum_MissingOrdinal, P98_EnumToOption_MissingOrdinal).
-                    al_builtins::value::RtType::Enum(id) => Value::Enum(*id, ordinal),
-                    _ => unreachable!("enum_option"),
-                };
-                updates.push((dp, moved));
-                continue;
+            if let Some(v) = self.transfer_field(&cx, (dp, sp), &updates)? {
+                updates.push((dp, v));
             }
-            // A Code field moves into a Text field and a Text field into a Code field, within one app and across apps, with
-            // and without SkipFieldsWithoutCheck (record/transferfields-cross-app/Y38TransferXApp.al:449-512 `Cod`, `Txt`; :549 p41,
-            // :565 p43, :589-591; RcBTransfer.al:553 `search`).
-            let textual = |ty: &RtType| matches!(ty, RtType::Text(_) | RtType::Code(_));
-            let text_pair = textual(&from.fields[sp].ty) && textual(&df.ty);
-            if let (RtType::Text(_), RtType::Code(Some(to_len)), Value::Text(s)) =
-                (&from.fields[sp].ty, &df.ty, &src_fields[sp])
-                && Value::text_len(s) > *to_len as usize
-            {
-                // Across apps it is skipped, with and without SkipFieldsWithoutCheck (TransferFieldsFieldApps.al:147-148,
-                // `mode 1 long text`, `mode 3 long text`).
-                if cross_app {
-                    continue;
-                }
-                return unsupported(format!(
-                    "TransferFields of a Text too long for the Code field {} of {} (not pinned)",
-                    df.name, t.name
-                ));
-            }
-            if !same_kind(&from.fields[sp].ty, &df.ty) && !text_pair {
-                // Across apps BC skips a field of another kind, whatever SkipFieldsWithoutCheck says: the target keeps its value
-                // (Y38TransferXApp.al:449-499 X1-X5: Boolean, Integer into Decimal, Option into Integer, Date into DateTime,
-                // Decimal into Boolean; RcBTransfer.al:553 Transfer_From_Another_Apps_Table_Type_Mismatch_BQ: Text into Integer).
-                if cross_app && skipped_across_apps(&from.fields[sp].ty, &df.ty) {
-                    continue;
-                }
-                if skip_mismatch {
-                    continue;
-                }
-                if let Some(e) = self.transfer_type_mismatch(rec, t, &from, (dp, sp), &updates) {
-                    return Err(e);
-                }
-                return unsupported(format!(
-                    "TransferFields across fields of different types (error text not pinned): field {} of {} and field {} of {}",
-                    from.fields[sp].name, from.name, df.name, t.name
-                ));
-            }
-            // A column a platform row leaves unknown moves as it is into a field of the very same type: the copy reads
-            // nothing (Tests-ERM `AddFieldToBuffer`: `TempField.TransferFields(Field, true)`), and a later read of the
-            // copy is refused. Into another type the conversion could fail or not, which is not known: `convert` refuses.
-            if src_fields[sp].unknown().is_some() && from.fields[sp].ty == df.ty {
-                updates.push((dp, src_fields[sp].clone()));
-                continue;
-            }
-            // A Code value too long for the Text field: across apps (both flags) and with SkipFieldsWithoutCheck the field is
-            // skipped and keeps its value; within one app without it the size error below (Y38TransferXApp.al:504-512
-            // XA_TF_LongCode, :569 and :594 p41_long). A Text one across apps with SkipFieldsWithoutCheck is skipped too
-            // (RcBTransfer.al:553 `longAddressSkip`); across apps without it is not pinned.
-            if let (
-                RtType::Text(Some(_)) | RtType::Code(Some(_)),
-                RtType::Text(Some(to_len)),
-                Value::Text(s) | Value::Code(s),
-            ) = (&from.fields[sp].ty, &df.ty, &src_fields[sp])
-                && Value::text_len(s) > *to_len as usize
-            {
-                let from_code = matches!(from.fields[sp].ty, RtType::Code(_));
-                if (from_code && (cross_app || skip_mismatch)) || (cross_app && skip_mismatch) {
-                    continue;
-                }
-                if cross_app {
-                    return unsupported(format!(
-                        "TransferFields across apps of a text too long for field {} of {} (not pinned)",
-                        df.name, t.name
-                    ));
-                }
-                // A --tdd stub field of unknown length refuses first.
-                tdd_fits(&schema.fields[dp], &src_fields[sp])?;
-                let from_schema = engine.program.objects[from.object as usize]
-                    .table
-                    .as_ref()
-                    .expect("table");
-                if let Some(why) = &from_schema.fields[sp].tdd_length_unknown {
-                    return Err(Signal::unsupported(why.clone()));
-                }
-                return Err(self.transfer_too_small(rec, t, &from, (dp, sp), updates));
-            }
-            tdd_fits(&schema.fields[dp], &src_fields[sp])?;
-            // A Blob moves as `blob_transfer::moved` says.
-            if let Value::Blob(_) = &src_fields[sp] {
-                let cur = rec.borrow().fields[dp].clone();
-                let how = BlobMove::TransferFields(crate::blob_transfer::TransferCall::of(
-                    args,
-                    src.borrow().temporary,
-                    rec.borrow().temporary,
-                ));
-                let kind = || {
-                    self.blob_field_kind(src_table, sp)
-                        .with(self.blob_field_kind(t.object as usize, dp))
-                };
-                let v = crate::blob_transfer::moved(Some(&cur), src_fields[sp].clone(), how, holder, kind)?;
-                updates.push((dp, ops::convert(v, &df.ty)?));
-                continue;
-            }
-            updates.push((dp, ops::convert(src_fields[sp].clone(), &df.ty)?));
         }
         // From a row of the same table with the primary key (the default), the buffer takes the source's row version: a Modify of a
         // stale buffer then succeeds; without the key it does not (record/crud/CnTransferFieldsModify.al:133-150,
@@ -1725,6 +1656,218 @@ impl Session {
             }
         }
         Ok(Value::Null)
+    }
+
+    /// The value TransferFields moves into field `dp` of the target from field `sp` of the source, or `None` when the field
+    /// keeps its value. A field declared ObsoleteState = Removed on either side is no field of its table at run time (to
+    /// RecordRef: recordref-fieldref/PnD12_RemovedFieldRecordRef.al:80-99,
+    /// Counts_AndExistence). For the cells `removed_pair_measured` names,
+    /// source and target fields of one app, the field keeps its value on the assumption
+    /// transferfields-removed-field (corpus PR 1486). Any other shape with a removed field keeps main's answer where that
+    /// answer cannot depend on the removed field (a skip, or a copy into a removed target field, which no reader sees) and
+    /// is refused where main would copy a removed source field or raise an error.
+    fn transfer_field(
+        &mut self,
+        cx: &TransferCall<'_>,
+        (dp, sp): (usize, usize),
+        updates: &[(usize, Value)],
+    ) -> Result<Option<Value>, Signal> {
+        let (t, from) = (cx.t, cx.from);
+        let removed = (self.field_removed(from, sp), self.field_removed(t, dp));
+        if removed == (false, false) {
+            return self.move_field(cx, (dp, sp), updates);
+        }
+        let objects = &self.engine.program.objects;
+        let same_app = objects[t.object as usize].app == objects[from.object as usize].app
+            && self.field_app(t, dp) == self.field_app(from, sp);
+        if same_app
+            && removed_pair_measured(
+                removed,
+                &from.fields[sp].ty,
+                &t.fields[dp].ty,
+                (cx.skip_mismatch, cx.init_pk),
+            )
+        {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::TransferFieldsRemovedField);
+            return Ok(None);
+        }
+        let (_, target_removed) = removed;
+        match self.move_field(cx, (dp, sp), updates) {
+            Ok(None) => Ok(None),
+            Ok(Some(v)) if target_removed => Ok(Some(v)),
+            Err(Signal::Unsupported(why)) => Err(Signal::Unsupported(why)),
+            _ => unsupported(format!(
+                "TransferFields from field {} of {} into field {} of {}, one of them declared ObsoleteState = Removed, for these types or apps (not measured)",
+                from.fields[sp].name, from.name, t.fields[dp].name, t.name
+            )),
+        }
+    }
+
+    /// The value TransferFields moves from field `sp` of the source into field `dp` of the target, both live, or `None` when
+    /// the field keeps its value.
+    fn move_field(
+        &mut self,
+        cx: &TransferCall<'_>,
+        (dp, sp): (usize, usize),
+        updates: &[(usize, Value)],
+    ) -> Result<Option<Value>, Signal> {
+        let TransferCall {
+            rec,
+            src,
+            t,
+            from,
+            src_fields,
+            src_table,
+            args,
+            holder,
+            skip_mismatch,
+            ..
+        } = *cx;
+        let df = &t.fields[dp];
+        let engine = self.engine.clone();
+        let schema = engine.program.objects[t.object as usize].table.as_ref().expect("table");
+        let same_kind = |a: &RtType, b: &RtType| std::mem::discriminant(a) == std::mem::discriminant(b);
+        // The kinds the probes of a skipped field across apps cover (Y38TransferXApp.al, RcBTransfer.al:553); others stay refused.
+        let skipped_across_apps = |a: &RtType, b: &RtType| {
+            let probed = |ty: &RtType| {
+                matches!(
+                    ty,
+                    RtType::Boolean
+                        | RtType::Integer
+                        | RtType::Decimal
+                        | RtType::Option(_)
+                        | RtType::Date
+                        | RtType::DateTime
+                        | RtType::Text(_)
+                        | RtType::Code(_)
+                )
+            };
+            probed(a) && probed(b)
+        };
+        // Fields of one number declared by different apps count as fields of different apps, also on two tables of one app:
+        // a table extension's field against another app's extension field or against the table's own field
+        // (record/transferfields-cross-app/TransferFieldsFieldApps.al:131-163 on corpus master
+        // 3eb812ed, al-runner issue 6982).
+        let cross_app = cx.cross_app || self.field_app(t, dp) != self.field_app(from, sp);
+        // An Enum field and an Option field with the same field number are the same kind of field to
+        // TransferFields: Base Application's "Sales Order Entity Buffer" holds `Shipping Advice` as an
+        // Option and `Sales Header` as an Enum, and its TransferFields from the header works in BC
+        // (corpus record/TransferEnumOption.al). The ordinal moves.
+        let enum_option = |a: &al_builtins::value::RtType, b: &al_builtins::value::RtType| {
+            use al_builtins::value::RtType as T;
+            matches!((a, b), (T::Enum(_), T::Option(_)) | (T::Option(_), T::Enum(_)))
+        };
+        if enum_option(&from.fields[sp].ty, &df.ty) {
+            let ordinal = match &src_fields[sp] {
+                Value::Enum(_, o) | Value::Option(o, _) => *o,
+                other => {
+                    return unsupported(format!(
+                        "TransferFields of {} between an Enum and an Option",
+                        other.describe()
+                    ));
+                }
+            };
+            let moved = match &df.ty {
+                al_builtins::value::RtType::Option(m) => Value::Option(ordinal, m.clone()),
+                // An ordinal the Enum lacks moves too, with no error (corpus record/lt-record-conversion-assumptions/
+                // TransferEnumOption.al: P98_OptionToEnum_MissingOrdinal, P98_EnumToOption_MissingOrdinal).
+                al_builtins::value::RtType::Enum(id) => Value::Enum(*id, ordinal),
+                _ => unreachable!("enum_option"),
+            };
+            return Ok(Some(moved));
+        }
+        // A Code field moves into a Text field and a Text field into a Code field, within one app and across apps, with
+        // and without SkipFieldsWithoutCheck (record/transferfields-cross-app/Y38TransferXApp.al:449-512 `Cod`, `Txt`; :549 p41,
+        // :565 p43, :589-591; RcBTransfer.al:553 `search`).
+        let textual = |ty: &RtType| matches!(ty, RtType::Text(_) | RtType::Code(_));
+        let text_pair = textual(&from.fields[sp].ty) && textual(&df.ty);
+        if let (RtType::Text(_), RtType::Code(Some(to_len)), Value::Text(s)) =
+            (&from.fields[sp].ty, &df.ty, &src_fields[sp])
+            && Value::text_len(s) > *to_len as usize
+        {
+            // Across apps it is skipped, with and without SkipFieldsWithoutCheck (TransferFieldsFieldApps.al:147-148,
+            // `mode 1 long text`, `mode 3 long text`).
+            if cross_app {
+                return Ok(None);
+            }
+            return unsupported(format!(
+                "TransferFields of a Text too long for the Code field {} of {} (not pinned)",
+                df.name, t.name
+            ));
+        }
+        if !same_kind(&from.fields[sp].ty, &df.ty) && !text_pair {
+            // Across apps BC skips a field of another kind, whatever SkipFieldsWithoutCheck says: the target keeps its value
+            // (Y38TransferXApp.al:449-499 X1-X5: Boolean, Integer into Decimal, Option into Integer, Date into DateTime,
+            // Decimal into Boolean; RcBTransfer.al:553 Transfer_From_Another_Apps_Table_Type_Mismatch_BQ: Text into Integer).
+            if cross_app && skipped_across_apps(&from.fields[sp].ty, &df.ty) {
+                return Ok(None);
+            }
+            if skip_mismatch {
+                return Ok(None);
+            }
+            if let Some(e) = self.transfer_type_mismatch(rec, t, from, (dp, sp), updates) {
+                return Err(e);
+            }
+            return unsupported(format!(
+                "TransferFields across fields of different types (error text not pinned): field {} of {} and field {} of {}",
+                from.fields[sp].name, from.name, df.name, t.name
+            ));
+        }
+        // A column a platform row leaves unknown moves as it is into a field of the very same type: the copy reads
+        // nothing (Tests-ERM `AddFieldToBuffer`: `TempField.TransferFields(Field, true)`), and a later read of the
+        // copy is refused. Into another type the conversion could fail or not, which is not known: `convert` refuses.
+        if src_fields[sp].unknown().is_some() && from.fields[sp].ty == df.ty {
+            return Ok(Some(src_fields[sp].clone()));
+        }
+        // A Code value too long for the Text field: across apps (both flags) and with SkipFieldsWithoutCheck the field is
+        // skipped and keeps its value; within one app without it the size error below (Y38TransferXApp.al:504-512
+        // XA_TF_LongCode, :569 and :594 p41_long). A Text one across apps with SkipFieldsWithoutCheck is skipped too
+        // (RcBTransfer.al:553 `longAddressSkip`); across apps without it is not pinned.
+        if let (
+            RtType::Text(Some(_)) | RtType::Code(Some(_)),
+            RtType::Text(Some(to_len)),
+            Value::Text(s) | Value::Code(s),
+        ) = (&from.fields[sp].ty, &df.ty, &src_fields[sp])
+            && Value::text_len(s) > *to_len as usize
+        {
+            let from_code = matches!(from.fields[sp].ty, RtType::Code(_));
+            if (from_code && (cross_app || skip_mismatch)) || (cross_app && skip_mismatch) {
+                return Ok(None);
+            }
+            if cross_app {
+                return unsupported(format!(
+                    "TransferFields across apps of a text too long for field {} of {} (not pinned)",
+                    df.name, t.name
+                ));
+            }
+            // A --tdd stub field of unknown length refuses first.
+            tdd_fits(&schema.fields[dp], &src_fields[sp])?;
+            let from_schema = engine.program.objects[from.object as usize]
+                .table
+                .as_ref()
+                .expect("table");
+            if let Some(why) = &from_schema.fields[sp].tdd_length_unknown {
+                return Err(Signal::unsupported(why.clone()));
+            }
+            return Err(self.transfer_too_small(rec, t, from, (dp, sp), updates.to_vec()));
+        }
+        tdd_fits(&schema.fields[dp], &src_fields[sp])?;
+        // A Blob moves as `blob_transfer::moved` says.
+        if let Value::Blob(_) = &src_fields[sp] {
+            let cur = rec.borrow().fields[dp].clone();
+            let how = BlobMove::TransferFields(crate::blob_transfer::TransferCall::of(
+                args,
+                src.borrow().temporary,
+                rec.borrow().temporary,
+            ));
+            let kind = || {
+                self.blob_field_kind(src_table, sp)
+                    .with(self.blob_field_kind(t.object as usize, dp))
+            };
+            let v = crate::blob_transfer::moved(Some(&cur), src_fields[sp].clone(), how, holder, kind)?;
+            return Ok(Some(ops::convert(v, &df.ty)?));
+        }
+        Ok(Some(ops::convert(src_fields[sp].clone(), &df.ty)?))
     }
 
     /// Two fields of one number and different types, between two tables of the same app: DB:TypeMisMatch naming the fields, the
@@ -1875,6 +2018,9 @@ impl Session {
         let Some(i) = t.fields.iter().position(|f| f.id == 2_000_000_000) else {
             return unsupported("GetBySystemId on a table without SystemId");
         };
+        if !rec.borrow().temporary {
+            self.refuse_unmeasured_read_while_deferred(t.object as usize, "GetBySystemId")?;
+        }
         // A Text argument binds to the Guid parameter as a Text assigns to a Guid
         // (PXEnumRecordRef.al:232 passes the null Guid as a text literal).
         let parsed = match args.first() {
@@ -1971,7 +2117,7 @@ impl Session {
     /// (corpus record/TestRecordModify.al:87-170, TestTriggerContracts.al:123-146).
     fn modify_all(&mut self, rec: &Rec, t: &TableDef, args: &[Value]) -> Result<Value, Signal> {
         let of_al = self.take_write_of_al(crate::state::WriteOfAl::ModifyAll);
-        let at = self.note_bulk_write(rec, t, crate::state::TxWriteKind::ModifyAll);
+        let at = self.note_bulk_write(rec, t, crate::state::TxWriteKind::ModifyAll, &[]);
         let r = self.modify_all_noted(rec, t, args, of_al);
         self.note_bulk_end(at);
         r
@@ -2023,6 +2169,7 @@ impl Session {
             }
             return Err(error(cannot_change_value_text(&field, &table), "DB:Ok"));
         }
+        self.modify_all_audit_field(rec, t, pos, &rows, &value, args)?;
         // One fresh set of table globals for all rows, not the caller's (ADR-021 decision 6; corpus
         // probe TableGlobals_ModifyAll_WhatTheTriggersAndSubscribersSee).
         let shared = al_builtins::value::TableGlobals::new_shared();
@@ -2046,6 +2193,80 @@ impl Session {
         r
     }
 
+    /// `ModifyAll` of an audit field. The one shape measured (record/system-fields/AssignedAuditFields.al:594-631,
+    /// ModifyAll_CreatedAt) raises the "cannot change" error with code DB:Ok: SystemCreatedAt, SystemCreatedBy or
+    /// SystemModifiedAt; a table that holds one row; the variable as `Reset` leaves it (:604, no filter, marks, other filter
+    /// group, SetLoadFields or ReadIsolation), with no ChangeCompany call (also none to the session's own company or '', nor
+    /// on a record it took a `Copy` from), on the primary key ascending, not temporary; no RunTrigger
+    /// argument; a value that is not blank and differs from the stored one (FixedAt :98, FixedBy :105); called from a codeunit
+    /// (:602); the table as table 61800 declares it (:17-27): no Caption, no trigger of its own or of a field, no table
+    /// extension, data per company, and no Insert, Modify or Rename event subscriber or global trigger. Every other shape of
+    /// the four audit fields is refused. Any other field: `Ok`.
+    fn modify_all_audit_field(
+        &self,
+        rec: &Rec,
+        t: &TableDef,
+        pos: usize,
+        rows: &[Vec<Value>],
+        value: &Value,
+        args: &[Value],
+    ) -> Result<(), Signal> {
+        use crate::hostvalues::{SYSTEM_CREATED_AT, SYSTEM_CREATED_BY, SYSTEM_MODIFIED_AT, SYSTEM_MODIFIED_BY};
+        let id = t.fields[pos].id;
+        if ![
+            SYSTEM_CREATED_AT,
+            SYSTEM_CREATED_BY,
+            SYSTEM_MODIFIED_AT,
+            SYSTEM_MODIFIED_BY,
+        ]
+        .contains(&id)
+        {
+            return Ok(());
+        }
+        let (field, table) = (t.fields[pos].name.clone(), t.name.clone());
+        let r = rec.borrow();
+        let variable = crate::assigned_audit::default_variable(&r)
+            && !r.change_company_called
+            && r.key == 0
+            && r.ascending
+            && !r.temporary;
+        let value_differs = matches!(rows, [row] if crate::assigned_audit::non_blank(value)
+            && matches!(ops::compare(value, &row[pos]), Ok(Ordering::Less | Ordering::Greater)));
+        let measured = [SYSTEM_CREATED_AT, SYSTEM_CREATED_BY, SYSTEM_MODIFIED_AT].contains(&id)
+            && variable
+            && args.len() == 2
+            && value_differs
+            && self.caller_is_codeunit()
+            && self.table_as_61800(t, &table);
+        if measured {
+            return Err(error(cannot_change_value_text(&field, &table), "DB:Ok"));
+        }
+        unsupported(format!(
+            "ModifyAll of {field} outside the measured shape (SystemCreatedAt, SystemCreatedBy or SystemModifiedAt of a table that holds one row, by the variable without filters, marks or other state on the primary key ascending, not temporary, no RunTrigger argument, a value that is not blank and differs from the stored one, called from a codeunit, a table without a Caption, triggers, table extensions or subscribers, data per company)"
+        ))
+    }
+
+    /// The table facts of AssignedAuditFields.al:17-27 (table 61800) that `modify_all_audit_field` requires.
+    fn table_as_61800(&self, t: &TableDef, name: &str) -> bool {
+        use crate::globaltriggers::GlobalOp;
+        let object = &self.engine.program.objects[t.object as usize];
+        t.per_company
+            && self.caption(t) == name
+            && object.routines.iter().all(|r| !r.is_trigger)
+            && object.table.as_ref().is_some_and(|s| s.extensions.is_empty())
+            && [GlobalOp::Insert, GlobalOp::Modify, GlobalOp::Rename]
+                .into_iter()
+                .all(|op| self.audit_write_plain(t, op, false))
+    }
+
+    /// The innermost running object is a codeunit (the test codeunit of AssignedAuditFields.al:602).
+    fn caller_is_codeunit(&self) -> bool {
+        let heads = self.engine.program.objects.heads();
+        self.frames
+            .last()
+            .is_some_and(|&o| heads[o].is_kind(al_ir::ObjKind::Codeunit))
+    }
+
     fn modify_all_rows(
         &mut self,
         rec: &Rec,
@@ -2056,11 +2277,22 @@ impl Session {
         shared: al_builtins::value::TableGlobals,
     ) -> Result<Value, Signal> {
         for mut row in rows {
+            // ModifyAll(Field, 00:00:00) over a row whose Field is held past the day: whether it writes 00:00:00 is not probed.
+            if crate::sqltime::is_rolled(&row[pos]) && matches!(value, Value::Time(1)) {
+                return unsupported("ModifyAll of 00:00:00 into a Time field a row holds as 23:59:59.999 (not probed)");
+            }
+            // The record of each row holds what it reads: a Time held past the day reads 00:00:00 (`sqltime::read_back`), which the
+            // Modify below keeps as stored when the field is not the one set (`sqltime::keep_rolled`, ModifyAll's own read).
+            let rolled_read = row.iter().any(crate::sqltime::is_rolled).then(|| {
+                let t = self.engine.tables[rec.borrow().table as usize].clone().expect("table");
+                (al_builtins::value::RolledReadBy::ModifyAll, t.primary_key(&row))
+            });
+            crate::sqltime::read_back(&mut row);
             row[pos] = value.clone();
             let copy = {
                 let r = rec.borrow();
                 RecordState {
-                    fields: row,
+                    fields: row.into(),
                     // The caller's filters and current key stay: the Rec and xRec of the modify events show them (corpus
                     // record/events/Y7408XRecInModifyEvent.al:310 `ModifyAll(true) under a filter`, al-runner issue 7408).
                     filters: r.filters.clone(),
@@ -2071,6 +2303,7 @@ impl Session {
                     failed_insert: None,
                     row_origin: None,
                     own_read: Default::default(),
+                    rolled_read: al_builtins::value::RolledRead(rolled_read),
                     probed_source: Default::default(),
                     globals: shared.share(),
                     // The scanned row is whole: a partial load of the variable is not the copy's (al-runner issue 6654).
@@ -2091,7 +2324,7 @@ impl Session {
     }
 
     /// The `RecordId` of the row in `rec`'s buffer: the table and its primary key values.
-    pub(crate) fn record_id(&self, rec: &Rec, t: &TableDef) -> Value {
+    pub(crate) fn record_id(&self, rec: &Rec, t: &TableDef) -> Result<Value, Signal> {
         let mut key = t.primary_key(&rec.borrow().fields);
         // An Option key field with an OptionCaption shows its caption in the RecordId's text (format-evaluate/
         // OptionEvaluateCaptions.al:392 RecordId_OptionKeyWithCaption `format`: `LT Option Key Cap: Credit Memo cap,D-1`).
@@ -2100,15 +2333,15 @@ impl Session {
                 *k = Value::Option(*o, captions);
             }
         }
-        Value::Library(
+        Ok(Value::Library(
             "RecordId".into(),
             Rc::new(RefCell::new(al_builtins::value::LibraryValue::RecordId {
                 table: t.object,
-                table_no: self.engine.program.objects[t.object as usize].id.unwrap_or(0),
+                table_no: crate::object_ids::declared_id(self.engine.program.objects[t.object as usize].id)?,
                 name: t.name.clone(),
                 key,
             })),
-        )
+        ))
     }
 
     /// The primary key values read from the text after the colon of `Evaluate` into a RecordId: the values as Format writes them,
@@ -2366,25 +2599,38 @@ impl Session {
                 self.caption(t)
             ),
         };
+        let mut info_shape = None;
         if let Some(info) = info {
             if let Some(copy) = al_builtins::errorinfo::copy_of(&info) {
                 let collectible = al_builtins::errorinfo::set_message_of(&copy, &full);
                 if collectible && self.collect_error(&copy) {
                     return Ok(Value::Null);
                 }
+                info_shape = al_builtins::errorinfo::built_of(&info).map(|built| (collectible, built));
             }
         }
         // The flag: P86LastError.al:270, :276, :282 (no text); "You must specify" of a blank Text, Code or Date field
         // (errors/last-error/FieldErrorTextVariable.al:106, :112, :121); a text written as a literal,
         // a local Text or Code variable or a concatenation (P86LastError.al:273, :279, FieldErrorTextVariable.al:65-82,
         // :142-150); a global Label or TextConst (lt-last-error-text-exclude/LastErrorTextExcludeLabel.al:246,
-        // FieldErrorTextConst.al:51, :54). A blank DateTime, a text of another form and an ErrorInfo are not pinned.
+        // FieldErrorTextConst.al:51, :54); a blank DateTime with no text (errors/last-error/SnLastErrorTextMoreForms.al:167).
+        // An ErrorInfo is pinned only on a Text field that holds a value (SnLastErrorTextMoreForms.al:121-133): with a
+        // message and not collectible (`ErrorInfo.Create('ErrorInfo message')`, :161), and with no message, collectible and
+        // raised outside a collecting scope (`ErrorInfo.Create()`, :164). The message there is one string literal given to
+        // `Create` (:130), and nothing is set after `Create` (:128-131). A text of another form and any other ErrorInfo are
+        // not pinned.
         use al_builtins::native::ErrorTextForm;
+        use al_builtins::value::ErrorInfoBuilt;
         let field = format!("{}.{}", self.caption(t), self.field_caption(t, pos));
+        let filled_text = matches!(row[pos], Value::Text(_)) && !is_blank(&row[pos])?;
         let redacted = match (given_text, blank_value, info_given) {
             (false, false, false) => Some(format!("FieldError for incorrect value of {field}")),
-            (false, true, false) if !matches!(row[pos], Value::DateTime(_)) => {
-                Some(format!("FieldError for unspecified value of {field}"))
+            (false, true, false) => Some(format!("FieldError for unspecified value of {field}")),
+            (true, false, true) if filled_text && info_shape == Some((false, ErrorInfoBuilt::CreateLiteral)) => {
+                Some(format!("FieldError on field {field}"))
+            }
+            (false, false, true) if filled_text && info_shape == Some((true, ErrorInfoBuilt::CreateNoMessage)) => {
+                Some(format!("FieldError for incorrect value of {field}"))
             }
             (true, _, false) => match (form, args.get(1).and_then(al_builtins::native::text_of)) {
                 (ErrorTextForm::Literal | ErrorTextForm::Computed, _) => Some(format!(
@@ -2467,5 +2713,60 @@ pub(crate) fn tdd_fits(f: &al_ir::Field, v: &Value) -> Result<(), Signal> {
     match v {
         Value::Text(s) | Value::Code(s) if Value::text_len(s) > max as usize => Err(Signal::unsupported(why.clone())),
         _ => Ok(()),
+    }
+}
+
+/// One `TransferFields` call, as the move of each field reads it.
+#[derive(Clone, Copy)]
+struct TransferCall<'a> {
+    rec: &'a Rec,
+    src: &'a Rec,
+    t: &'a TableDef,
+    from: &'a TableDef,
+    src_fields: &'a [Value],
+    src_table: usize,
+    args: &'a [Value],
+    holder: crate::blob_transfer::Holder,
+    skip_mismatch: bool,
+    /// InitPrimaryKeyFields.
+    init_pk: bool,
+    /// The two tables belong to different apps.
+    cross_app: bool,
+}
+
+/// The cells corpus PR 1486 measured with a field declared ObsoleteState = Removed (`(source removed, target removed)`),
+/// source and target fields of one app, identical on BC 27.5, 28.5 and 29.0 (record/TransferFieldsRemovedField.al on corpus
+/// master d66ff75b): nothing raises and the field keeps its value. A cell is the type pair with its Code lengths,
+/// SkipFieldsNotMatchingType and InitPrimaryKeyFields, each as measured; any other cell is not answered here.
+fn removed_pair_measured(
+    (source_removed, target_removed): (bool, bool),
+    from: &RtType,
+    to: &RtType,
+    (skip, init_pk): (bool, bool),
+) -> bool {
+    use RtType as T;
+    match (source_removed, target_removed) {
+        // A removed target field: Boolean into Code[5], any Skip, InitPk true (:428, :468) and false (:448, :488), two table
+        // extension fields :870-891; Integer into Integer, Skip false, InitPk true (:508) and false (:528); Text into Integer,
+        // InitPk true, Skip false and true (:548, :568); Code[20] into Code[5], InitPk true, a value that fits and one too
+        // long (:588, :608, :629).
+        (false, true) => matches!(
+            (from, to, skip, init_pk),
+            (T::Boolean, T::Code(Some(5)), _, _)
+                | (T::Integer, T::Integer, false, _)
+                | (T::Text(_), T::Integer, _, true)
+                | (T::Code(Some(20)), T::Code(Some(5)), _, true)
+        ),
+        // Both removed: Boolean into Code[5], InitPk true (:650, :670, :690).
+        (true, true) => matches!((from, to, init_pk), (T::Boolean, T::Code(Some(5)), true)),
+        // A removed source field: Boolean into a live Integer, InitPk true, or false with Skip true (:710, :733, :756);
+        // Integer into a live Integer, InitPk true (:779, :802).
+        (true, false) => matches!(
+            (from, to, skip, init_pk),
+            (T::Boolean, T::Integer, _, true)
+                | (T::Boolean, T::Integer, true, false)
+                | (T::Integer, T::Integer, _, true)
+        ),
+        (false, false) => false,
     }
 }

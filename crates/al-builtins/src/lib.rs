@@ -1,7 +1,10 @@
 //! The AL standard library: builtin signatures (generated from the docs, see
 //! ADR-008) and, later, the value model and native implementations.
 
+mod blob_form;
+mod closing_date_days;
 mod conv_undefined;
+mod date_difference;
 pub mod date_filter_forms;
 mod date_formula_language;
 mod format_boolean;
@@ -14,6 +17,7 @@ mod stream_call_stack;
 pub mod stream_cleared;
 pub mod stream_line_breaks;
 mod stream_read_len;
+mod stream_read_typed;
 pub mod testcontexts;
 pub mod text;
 pub mod textfns;
@@ -49,7 +53,8 @@ pub mod fieldref_variant_cells;
 pub mod file;
 pub mod filter;
 pub mod filter_blob;
-mod filter_boolean_words;
+pub mod filter_boolean_words;
+mod filter_collation;
 pub mod format;
 mod format_json;
 mod format_textbuilder;
@@ -63,9 +68,11 @@ mod mcp_natives;
 pub mod media;
 mod media_export;
 pub mod media_orphans;
+mod media_word_package;
 pub mod moduleinfo;
 pub mod native;
 pub mod ops;
+pub mod option_members;
 pub mod page_handle;
 pub mod page_op;
 pub mod pagebuiltins;
@@ -77,6 +84,7 @@ pub mod platform;
 pub mod platform_native;
 pub mod query_reopen_step;
 pub mod querybuiltins;
+pub mod record_fields;
 pub mod record_into_recordref;
 pub mod record_op;
 pub mod refs;

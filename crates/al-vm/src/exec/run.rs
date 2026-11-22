@@ -6,7 +6,7 @@ use crate::{Frame, Session};
 use al_builtins::describe::Describe;
 use al_builtins::native::Signal;
 use al_builtins::ops;
-use al_builtins::value::Value;
+use al_builtins::value::{RtType, Value};
 
 /// The value in register `r`: a temporary is moved out (so it holds nothing alive afterwards), a local is cloned.
 #[inline(always)]
@@ -70,9 +70,53 @@ fn release(f: &mut Frame, r: u16, nl: u16) {
 
 impl Session {
     /// `Op::StorePlace`: `v` written to place `p`.
-    fn store_place(&mut self, chunk: &Chunk, p: u32, v: Value, f: &mut Frame) -> Result<(), Signal> {
+    fn store_place(
+        &mut self,
+        chunk: &Chunk,
+        p: u32,
+        v: Value,
+        f: &mut Frame,
+        from_fieldref: bool,
+    ) -> Result<(), Signal> {
+        let place = &chunk.places[p as usize];
+        let v = if from_fieldref && matches!(v, Value::Option(..)) {
+            self.option_fieldref_assignment(place, v, f)?
+        } else {
+            v
+        };
         mark_assigned_stream(&v);
-        self.write(&chunk.places[p as usize], v, f)
+        self.write(place, v, f)
+    }
+
+    // Corpus PR 1464, VariantEnumOptionToText.al: FieldRef_Value_OptionToTextAndCode_UsesCaption.
+    #[cold]
+    fn option_fieldref_assignment(&self, place: &ir::Place, v: Value, f: &Frame) -> Result<Value, Signal> {
+        let ty = self.place_type(place, f);
+        if !matches!(ty, RtType::Text(_) | RtType::Code(_)) || !self.supported_major() {
+            return Ok(v);
+        }
+        match al_builtins::fieldref_value_text::fieldref_value_into_text(&v, &ty, self) {
+            Some(Ok(text)) => {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::OptionFieldRefToTextField);
+                Ok(text)
+            }
+            Some(Err(Signal::Error(_))) => Err(Signal::unsupported(
+                "Option FieldRef.Value caption too long for the destination field (not pinned)",
+            )),
+            Some(Err(e)) => Err(e),
+            None => Ok(v),
+        }
+    }
+
+    /// `Op::StoreVarSectionValue`: `v`, a variable of the running routine's `var` section, into element place `p` of an
+    /// array of memberless Options (`var_option::Store::AssignVarSection`).
+    fn store_var_section(&mut self, chunk: &Chunk, p: u32, v: Value, f: &mut Frame) -> Result<(), Signal> {
+        self.write_as(
+            &chunk.places[p as usize],
+            v,
+            f,
+            crate::var_option::Store::AssignVarSection,
+        )
     }
 
     /// The record, RecordRef or Blob `Op::StoreLocal` stores into local place `p`: a record goes to
@@ -183,8 +227,7 @@ impl Session {
                 }
                 Op::Const { d, k } => set(&mut f.locals[d as usize], self.constant_once(&chunk.consts[k as usize])),
                 Op::LoadGlobal { d, i } => {
-                    self.global_read(i as usize, f)?;
-                    let v = f.instance.borrow().globals[i as usize].clone();
+                    let v = self.global_value(i as usize, f)?;
                     set(&mut f.locals[d as usize], v);
                 }
                 Op::SingleWrite { i, kind } => self.single_write_op(i as usize, kind, f),
@@ -201,7 +244,8 @@ impl Session {
                         set(&mut f.locals[i as usize], v);
                     }
                 }
-                Op::StorePlace { p, a } => self.store_place(chunk, p, take(f, a, nl), f)?,
+                Op::StorePlace { p, a, fr } => self.store_place(chunk, p, take(f, a, nl), f, fr)?,
+                Op::StoreVarSectionValue { p, a } => self.store_var_section(chunk, p, take(f, a, nl), f)?,
                 Op::StoreVariantCopy { s, a } => self.variant_copy_op(chunk, s, a, f)?,
                 Op::Bin { op, d, a, b } => {
                     let v = Self::binary_op(op, &f.locals[a as usize], &f.locals[b as usize])?;
@@ -477,19 +521,28 @@ impl Session {
         }
     }
 
-    /// `asserterror`: runs the body `pc..stop`; returns where the code goes on.
+    /// `asserterror`: runs the body `pc..stop`; returns where the code goes on. Its end without an error passes
+    /// `refuse_pending_at_assert_end`; an `exit` with a value that left it is refused. The lowering turns every other leave into a
+    /// refusal that runs where the leave would (al-sema `refuse_assert_error_leaves`).
     #[inline(never)]
     fn op_assert(&mut self, chunk: &Chunk, f: &mut Frame, pc: usize, stop: usize, from: u16) -> Result<usize, Signal> {
         let nl = chunk.nlocals;
         let open = self.cap_stmt_depth();
-        match self.run_range::<true>(chunk, f, pc, stop) {
-            Ok(at) if at == stop => Err(Signal::Error(Box::new(al_builtins::native::AlError {
-                message: "An error was expected inside an ASSERTERROR statement.".into(),
-                code: "AssertError".into(),
-                call_stack: String::new(),
-                ..Default::default()
-            }))),
-            Ok(at) => Ok(at),
+        self.tx.assert_depth += 1;
+        let body = self.run_range::<true>(chunk, f, pc, stop);
+        self.tx.assert_depth -= 1;
+        match body {
+            Ok(at) if at == stop => {
+                self.refuse_pending_at_assert_end()?;
+                Err(Signal::Error(Box::new(al_builtins::native::AlError {
+                    message: "An error was expected inside an ASSERTERROR statement.".into(),
+                    code: "AssertError".into(),
+                    call_stack: String::new(),
+                    ..Default::default()
+                })))
+            }
+            // An `exit` with a value that left the body (al-sema `refuse_assert_error_leaves` turns every other leave into a refusal).
+            Ok(_) | Err(Signal::Exit(_)) => Err(Signal::unsupported(ir::ASSERT_ERROR_LEAVE)),
             Err(Signal::Error(mut e)) => {
                 self.guarded_bodies_leave_pin();
                 self.trapped_error_rollback(&e, crate::records::TrappedRollback::AssertError)?;
@@ -680,7 +733,14 @@ impl Session {
         for &r in &site.arg_regs {
             values.push(take(f, r, nl));
         }
-        self.finish_call(object, routine, inst, &site.args, values, false, f)
+        // Taken by the callee's frame; cleared here too when the call ends before its frame (a refused or blocked call). The
+        // frame's index stays noted in `iface_frames` while the call runs (records/running_call_xrec.rs reads it).
+        self.next_interface_call = true;
+        self.iface_frames.push(self.call_stack.len());
+        let result = self.finish_call(object, routine, inst, &site.args, values, false, f);
+        self.iface_frames.pop();
+        self.next_interface_call = false;
+        result
     }
 
     #[inline(never)]
@@ -883,10 +943,7 @@ impl Session {
             return Ok(());
         }
         if closing {
-            return al_builtins::native::raise(
-                "The operation cannot be performed on a closing date value.",
-                "ClosingDateOperation",
-            );
+            return al_builtins::native::closing_date_operation();
         }
         let op = if site.down {
             al_builtins::ops::Arith::Sub
@@ -1005,25 +1062,8 @@ impl Session {
         for &r in &site.arg_regs {
             values.push(take(f, r, nl));
         }
-        crate::assigned_audit::own_read_end_for_operands(site.id, &values);
-        crate::blob_transfer::records_into_builtin(self.blob_sources, site.id, recv.as_ref(), &values);
-        // No operand is by reference, and `temp_blob_share_guard` checks a Blob field only through one: only the OutStreams
-        // the call takes are checked.
-        if site.temp_blob != SiteCheck::Never && crate::temp_blob_share::streams_kept() {
-            self.check_temp_out_streams(site.id, recv.as_ref(), &values)?;
-        }
-        if self.sql.active {
-            crate::sqlcount::guard(site.id, recv.as_ref(), &values)?;
-        }
-        if al_builtins::placeholder_output::sizes_made() {
-            al_builtins::placeholder_output::size_guard(site.id.name(), recv.as_ref(), &values)?;
-        }
-        if al_builtins::rendered_text::active() {
-            al_builtins::rendered_text::guard(site.id.name(), recv.as_ref(), &values, site.ret_used)?;
-        }
-        if self.without_client()
-            && let Some(answer) = self.clientless_guard(site.id, &values)?
-        {
+        self.builtin_prologue(site, recv.as_ref(), &mut values)?;
+        if let Some(answer) = self.value_builtin_guards(site, recv.as_ref(), &values)? {
             return Ok(answer);
         }
         self.ret_used = site.ret_used;
@@ -1034,11 +1074,105 @@ impl Session {
         result.map_err(|e| Self::name_builtin_refusal(site, e))
     }
 
-    /// `FieldRef.Value` into a Text, Code or Blob. A number is its Format text and an Enum its caption, checked against the
+    /// A call on [`BuiltinSite::stream_local`] while local `i` holds a stream: the call sequence of `run_builtin` and
+    /// `run_native` (the shared `builtin_prologue`, `value_builtin_guards` and `builtin_write_back`), with the native run on
+    /// the local in place and the arguments on the stack. The write-back of the receiver is left out: it would put the same
+    /// stream back into the local (`write_as` of a stream handle into a local stores it as it is), and `in_read` and
+    /// `out_write` never put another value in their receiver (`al_builtins::stream::keeps_receiver`).
+    #[inline(never)]
+    fn run_stream_builtin(
+        &mut self,
+        site: &BuiltinSite,
+        native: al_builtins::native::NativeFn,
+        i: usize,
+        f: &mut Frame,
+        nl: u16,
+    ) -> Result<Value, Signal> {
+        let mut args = [Value::Null, Value::Null];
+        for (slot, &r) in args.iter_mut().zip(&site.arg_regs) {
+            set(slot, take(f, r, nl));
+        }
+        let values = &mut args[..site.arg_regs.len()];
+        self.builtin_prologue(site, Some(&f.locals[i]), values)?;
+        if let Some(answer) = self.value_builtin_guards(site, Some(&f.locals[i]), values)? {
+            return Ok(answer);
+        }
+        self.ret_used = site.ret_used;
+        let drain_pending = self.pages.bg_drain_after_call.is_some();
+        let ret = native(self, Some(&mut f.locals[i]), values).map_err(|e| Self::name_builtin_refusal(site, e))?;
+        debug_assert!(holds_stream(&f.locals[i]));
+        self.builtin_write_back(site.id, site.class, None, &site.args, values, drain_pending, f)
+            .map_err(|e| Self::name_builtin_refusal(site, e))?;
+        Ok(ret)
+    }
+
+    /// The steps every builtin call takes on its evaluated operands before the guards: the audits, the record and Blob
+    /// bookkeeping and the TextConstant arguments. Shared by `run_builtin`, `run_plain_builtin` and `run_stream_builtin`.
+    #[inline]
+    fn builtin_prologue(&self, site: &BuiltinSite, recv: Option<&Value>, values: &mut [Value]) -> Result<(), Signal> {
+        crate::assigned_audit::own_read_end_for_operands(site.id, values);
+        crate::records::rolled_read_end_for_operands(values);
+        crate::blob_transfer::records_into_builtin(self.blob_sources, site.id, recv, values);
+        text_constant_arguments(site, values)
+    }
+
+    /// The guards every builtin call takes after the temp Blob step: SQL count, placeholder sizes, rendered text and the
+    /// client-less answer (`Some`). Shared by `run_builtin` and [`Self::value_builtin_guards`].
+    #[inline]
+    fn builtin_guards(
+        &mut self,
+        site: &BuiltinSite,
+        recv: Option<&Value>,
+        values: &[Value],
+    ) -> Result<Option<Value>, Signal> {
+        if self.sql.active {
+            crate::sqlcount::guard(site.id, recv, values)?;
+        }
+        if al_builtins::placeholder_output::sizes_made() {
+            al_builtins::placeholder_output::size_guard(site.id.name(), recv, values)?;
+        }
+        if al_builtins::rendered_text::active() {
+            al_builtins::rendered_text::guard(site.id.name(), recv, values, site.ret_used)?;
+        }
+        if self.without_client() {
+            return self.clientless_guard(site.id, values);
+        }
+        Ok(None)
+    }
+
+    /// The guards of a builtin none of whose operands is by reference (`run_plain_builtin`, `run_stream_builtin`):
+    /// `temp_blob_share_guard` checks a Blob field only through a by-reference operand, so only the OutStreams the call
+    /// takes are checked, then [`Self::builtin_guards`].
+    #[inline]
+    fn value_builtin_guards(
+        &mut self,
+        site: &BuiltinSite,
+        recv: Option<&Value>,
+        values: &[Value],
+    ) -> Result<Option<Value>, Signal> {
+        if site.temp_blob != SiteCheck::Never && crate::temp_blob_share::streams_kept() {
+            self.check_temp_out_streams(site.id, recv, values)?;
+        }
+        self.builtin_guards(site, recv, values)
+    }
+
+    /// Whether the run's BC major is one the assumption entries of this file measured (each supported major).
+    fn supported_major(&self) -> bool {
+        matches!(self.engine.target.as_ref().map_or(29, |t| t.bc.major), 27..=29)
+    }
+
+    /// `FieldRef.Value` into a Text, Code or Blob, or into a local Date, Time or DateTime. A number is its Format text and an Enum its caption, checked against the
     /// variable's or parameter's length (recordref-fieldref/Y13FieldRefValueToText.al:96-153;
     /// text/text-methods/Y49FieldRefIntoText.al:207-353).
     fn convert_field_value(&self, v: Value, ty: &al_builtins::value::RtType) -> Result<Value, Signal> {
         let from28 = self.has(al_version::Gate::FieldRefTextNumberEvaluateErrorFrom28);
+        if matches!(ty, RtType::Date | RtType::Time | RtType::DateTime) {
+            let cell = self
+                .supported_major()
+                .then(|| al_builtins::fieldref_value_text::fieldref_value_into_temporal(&v, ty, from28, self))
+                .flatten();
+            return cell.unwrap_or_else(|| ops::convert_plain(v, ty));
+        }
         match al_builtins::fieldref_value_text::fieldref_value_into_text(&v, ty, self)
             .or_else(|| al_builtins::fieldref_value_text::fieldref_value_into_blob(&v, ty, self, from28))
         {
@@ -1166,8 +1300,11 @@ impl Session {
     /// `Op::Builtin`: runs the builtin on its short or full path, then lets the profiler book a pending tick to it.
     #[inline(always)]
     fn op_builtin(&mut self, site: &BuiltinSite, f: &mut Frame, nl: u16) -> Result<Value, Signal> {
-        let v = match (site.plain, site.native) {
-            (true, Some(native)) => self.run_plain_builtin(site, native, f, nl),
+        let v = match (site.plain, site.native, site.stream_local) {
+            (true, Some(native), _) => self.run_plain_builtin(site, native, f, nl),
+            (_, Some(native), Some(i)) if holds_stream(&f.locals[i as usize]) => {
+                self.run_stream_builtin(site, native, i as usize, f, nl)
+            }
             _ => self.run_builtin(site, f, nl),
         };
         if let Some(g) = site.single_write {
@@ -1196,25 +1333,13 @@ impl Session {
         for &r in &site.arg_regs {
             values.push(take(f, r, nl));
         }
-        crate::assigned_audit::own_read_end_for_operands(site.id, &values);
-        crate::blob_transfer::records_into_builtin(self.blob_sources, site.id, recv.as_ref(), &values);
+        self.builtin_prologue(site, recv.as_ref(), &mut values)?;
         let open = match site.temp_blob {
             SiteCheck::Never => None,
             SiteCheck::StreamsKept if !crate::temp_blob_share::streams_kept() => None,
             _ => self.temp_blob_share_guard(site, nl, &mut recv, &values, f)?,
         };
-        if self.sql.active {
-            crate::sqlcount::guard(site.id, recv.as_ref(), &values)?;
-        }
-        if al_builtins::placeholder_output::sizes_made() {
-            al_builtins::placeholder_output::size_guard(site.id.name(), recv.as_ref(), &values)?;
-        }
-        if al_builtins::rendered_text::active() {
-            al_builtins::rendered_text::guard(site.id.name(), recv.as_ref(), &values, site.ret_used)?;
-        }
-        if self.without_client()
-            && let Some(answer) = self.clientless_guard(site.id, &values)?
-        {
+        if let Some(answer) = self.builtin_guards(site, recv.as_ref(), &values)? {
             return Ok(answer);
         }
         if site.vm_class {
@@ -1337,6 +1462,7 @@ impl Session {
         }
         let result = self.run_native(
             native,
+            site.id,
             site.class,
             site.receiver_arg.as_ref(),
             &site.args,
@@ -1374,4 +1500,27 @@ fn mark_assigned_stream(v: &Value) {
     {
         s.shared_by_assign = true;
     }
+}
+
+/// A value [`Session::run_stream_builtin`] runs on: an InStream or OutStream handle.
+#[inline(always)]
+fn holds_stream(v: &Value) -> bool {
+    matches!(
+        v,
+        Value::Library(
+            al_builtins::library_kind::LibraryKind::InStream | al_builtins::library_kind::LibraryKind::OutStream,
+            _
+        )
+    )
+}
+
+/// The arguments of a builtin as it gets them when one is a TextConstant a Variant held (`al_builtins::conv::text_constant`).
+#[inline]
+fn text_constant_arguments(site: &BuiltinSite, values: &mut [Value]) -> Result<(), Signal> {
+    if !values.iter().any(|v| matches!(v, Value::TextConst(..))) {
+        return Ok(());
+    }
+    al_builtins::conv::text_constant::read_arguments(site.id.name(), values, |i| {
+        matches!(site.args.get(i), Some(ir::Arg::Ref(_)))
+    })
 }

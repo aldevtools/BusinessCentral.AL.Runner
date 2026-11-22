@@ -285,6 +285,7 @@ impl Session {
         let Some(Value::Record(view)) = view else {
             return unsupported(format!("SetTableView with {}", view.describe()));
         };
+        Self::by_value_view_handed(view, || "XmlPort.SetTableView of a record".into())?;
         let view_table = view.borrow().table;
         let mut target = None;
         for node in schema.xp().nodes.iter().filter(|n| n.kind == ir::XmlNodeKind::Table) {
@@ -313,7 +314,7 @@ impl Session {
                 message: format!(
                     "The {} XmlPort does not have a XmlItem that uses the table (Table {} {}) specified in the function SetTableView.",
                     port.name,
-                    table.id.unwrap_or(0),
+                    crate::object_ids::declared_id(table.id)?,
                     table.name
                 ),
                 code: "XmlPortNodeNotFound".into(),

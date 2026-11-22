@@ -82,6 +82,8 @@ pub enum PlatformPublisher {
     ReportingTriggers,
     /// `Filter Helper Triggers`: `MakeDateFilter`, raised when a Date filter text has a piece that does not read.
     FilterHelperTriggers,
+    /// `UI Helper Triggers`: `CaptionClassTranslate`, raised for a caption class translation.
+    UiHelperTriggers,
 }
 
 /// The events of the `Caption Class` codeunit (42) the runtime raises for a caption class translation: `OnResolveCaptionClass`
@@ -110,6 +112,30 @@ pub const RAISED_REPORTING_EVENTS: [&str; 4] = [
 /// Microsoft's layout selection runs as AL (ADR-040 amendment 2026-11-13, part 1, point 3; al-vm `report_save::fact_selection`).
 pub const REPORT_MANAGEMENT_LAYOUT_EVENTS: [&str; 2] = ["SelectReportLayoutCode", "SelectedBuiltinLayoutType"];
 
+/// The publishers of the login events an app under test can subscribe to: (codeunit id, name, event in lower case), in
+/// the order the login raises them: "Guided Experience".`OnRegisterAssistedSetup` before "System Initialization".
+/// `OnAfterLogin` (LgnLoginChecklistTests.al:140, the expected entries).
+/// `OnRegisterManualSetup` and `OnRegisterGuidedExperienceItem` follow the first in Microsoft's
+/// `Checklist.InitializeGuidedExperienceItems`; the pin covers only the first (al-testrun `login::RAISE_ONLY`).
+pub const LOGIN_EVENTS: &[(u32, &str, &str)] = &[
+    (1990, "Guided Experience", "onregisterassistedsetup"),
+    (1990, "Guided Experience", "onregistermanualsetup"),
+    (1990, "Guided Experience", "onregisterguidedexperienceitem"),
+    (150, "System Initialization", "onafterlogin"),
+];
+
+/// Whether `EventSubscriber` attribute text `text` names one of the [`LOGIN_EVENTS`]: its codeunit as `Codeunit::"Name"` or as
+/// the bare id (`Codeunit::<id>` does not compile, corpus PR 1466 must-not-compile 3216), and its event.
+pub fn names_login_event(text: &str) -> bool {
+    let t = text.to_lowercase();
+    let args: Vec<&str> = t.split(',').map(str::trim).collect();
+    LOGIN_EVENTS.iter().any(|&(id, name, event)| {
+        let publisher = args.get(1).copied().unwrap_or("");
+        (publisher.ends_with(&format!("\"{}\"", name.to_lowercase())) || publisher == id.to_string())
+            && t.contains(event)
+    })
+}
+
 /// Base Application's app id.
 pub const BASE_APPLICATION_APP_ID: &str = "437dbf0e-84ff-417a-965d-ed2bb9650972";
 
@@ -131,6 +157,32 @@ pub const RAISED_FILTER_EVENTS: [&str; 4] = [
     "MakeTimeFilter",
     "MakeDateTimeFilter",
 ];
+
+/// The platform codeunits whose events the runtime raises without the codeunit object: id and name as the platform's System.app
+/// declares them (the System symbols of BC 27.5, 28.5 and 29.0).
+pub const FILTER_HELPER_CODEUNIT: (u32, &str) = (2_000_000_007, "Filter Helper Triggers");
+pub const UI_HELPER_CODEUNIT: (u32, &str) = (2_000_000_004, "UI Helper Triggers");
+pub const REPORTING_CODEUNIT: (u32, &str) = (2_000_000_005, "Reporting Triggers");
+
+/// The event of `UI Helper Triggers` the runtime raises: `CaptionClassTranslate`, from the `CaptionClassTranslate` statement
+/// (events/platform-triggers/P114GlobalTriggerEvents.al:309-330).
+pub const CAPTION_CLASS_TRANSLATE: &str = "CaptionClassTranslate";
+
+/// The System Application's app id.
+pub const SYSTEM_APPLICATION_APP_ID: &str = "63ca2fa4-4f03-4f2b-a480-172fef340d3f";
+
+/// The System Application codeunit whose `CaptionClassTranslate` subscriber raises `Caption Class`'s events, which the runtime
+/// raises itself (al-vm `caption_class_translate_unrefused`): it is not listed as an uncompiled subscriber and not run.
+pub const CAPTION_CLASS_IMPL: &str = "Caption Class Impl.";
+
+/// The System Application codeunit whose `Filter Helper Triggers` subscribers the runtime does not run (al-vm `filterevents`).
+pub const FILTER_TOKENS_IMPL: &str = "Filter Tokens Impl.";
+
+/// Whether codeunit `name` of the app with `app_id` is the System Application's codeunit `stand_in` ([`CAPTION_CLASS_IMPL`],
+/// [`FILTER_TOKENS_IMPL`]): the name and the app id both.
+pub fn is_system_application_codeunit(stand_in: &str, name: &str, app_id: &str) -> bool {
+    name.eq_ignore_ascii_case(stand_in) && app_id.eq_ignore_ascii_case(SYSTEM_APPLICATION_APP_ID)
+}
 
 /// The events of a page the test client raises (`al-vm/src/pages.rs`). A subscriber to any other
 /// event of a page is refused when the page opens.
@@ -598,6 +650,10 @@ pub struct Report {
     /// runs or its layout parts are read.
     #[serde(default)]
     pub assumes: Vec<al_builtins::assumptions::Assumption>,
+    /// A reportextension of the run names a data item that another of its extensions adds (ADR-075). Only a static
+    /// `Report.SaveAs` to an XML stream runs such a report (al-vm `reports/dependency_items.rs`).
+    #[serde(default)]
+    pub dependency_items: bool,
     /// Global slot of the hidden flag `Report.UseRequestPage(x)` sets: 0 = not set, 1 = true, 2 = false.
     pub request_flag_slot: usize,
     /// Procedures of the report whose body names `Rec` or `xRec` of a request page that states `SourceTable`: one called
@@ -620,8 +676,12 @@ pub struct Report {
     /// page still opens first.
     #[serde(default)]
     pub output: Vec<String>,
-    /// Why the runtime cannot run this report yet; empty = it can.
+    /// Why the runtime cannot run this report yet, and why a variable of it is refused; empty = it can.
     pub unsupported: Vec<String>,
+    /// Why the order of `extensions` is not pinned (al-sema `lower/ext_order.rs`). It refuses a run of the report, not a
+    /// variable of it: declaring one runs no extension. [`Report::run_refusal`] reads both.
+    #[serde(default)]
+    pub extension_order: Option<String>,
     /// The `Caption` property when it is a plain text literal.
     #[serde(default)]
     pub caption: Option<String>,
@@ -632,6 +692,12 @@ pub struct Report {
     /// The `FormatRegion` property: the culture of a SaveAs Xml dataset and of `Format` while it is written.
     #[serde(default)]
     pub format_region: Option<String>,
+    /// `ExcelLayoutMultipleDataSheets = true`.
+    #[serde(default)]
+    pub excel_multiple_data_sheets: bool,
+    /// The report declares a global variable (a `var` section of its own).
+    #[serde(default)]
+    pub declares_globals: bool,
     /// The request page's `AboutTitle` and `AboutText` when they are plain text literals.
     #[serde(default)]
     pub about_title: Option<String>,
@@ -665,6 +731,13 @@ pub struct Report {
     /// The kinds the `RDLCLayout`, `WordLayout` and `ExcelLayout` properties declare (`rdlc`, `word`, `excel`), in that order.
     #[serde(default)]
     pub layout_properties: Vec<String>,
+}
+
+impl Report {
+    /// Why a run of the report is refused: the first of `unsupported`, else `extension_order`. `None`: it can run.
+    pub fn run_refusal(&self) -> Option<&String> {
+        self.unsupported.first().or(self.extension_order.as_ref())
+    }
 }
 
 /// One `layout(Name) { ... }` of a report's `rendering` section.
@@ -710,6 +783,9 @@ pub struct ReportColumn {
     /// `IncludeCaption = true`: the dataset's Labels block carries `<Name>Caption`.
     #[serde(default)]
     pub include_caption: bool,
+    /// The names of the properties the column states, lowercase, in source order.
+    #[serde(default)]
+    pub stated_properties: Vec<String>,
     /// The table (object index) and the field position whose Caption an `IncludeCaption` label shows: the field the source names,
     /// bare or written with the name of the own, the parent, a child or an earlier top-level data item
     /// (streams/P138ColCaptionQualified.al, QS_* tests). `None` for any other source.
@@ -766,8 +842,8 @@ pub struct ReportExt {
     /// `OnPreReport` and `OnPostReport` of the extension, as routine indices.
     pub on_pre: Option<usize>,
     pub on_post: Option<usize>,
-    /// (base item index, global slot of the extension that names that item's record).
-    pub aliases: Vec<(usize, usize)>,
+    /// (item, global slot of the extension that names that item's record).
+    pub aliases: Vec<(ItemAnchor, usize)>,
     /// `modify(Item)` blocks.
     pub modifies: Vec<ReportExtModify>,
     /// Data items the extension adds with `addlast`.
@@ -780,11 +856,10 @@ pub struct ReportExt {
     pub labels: Vec<(String, String)>,
 }
 
-/// The columns an `add(Item)` block of a reportextension gives a base item.
+/// The columns an `add(Item)` block of a reportextension gives a data item.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReportExtAdd {
-    /// Index of the base item.
-    pub item: usize,
+    pub item: ItemAnchor,
     /// Routines of the extension.
     pub columns: Vec<ReportColumn>,
 }
@@ -792,8 +867,7 @@ pub struct ReportExtAdd {
 /// The triggers of a `modify(Item)` block of a reportextension.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReportExtModify {
-    /// Index of the base item.
-    pub item: usize,
+    pub item: ItemAnchor,
     /// `RequestFilterFields` as written, from the block's property (reports/runtime/YReportExt.al:231).
     #[serde(default)]
     pub request_filter_fields: Option<String>,
@@ -819,18 +893,29 @@ pub struct AddedItem {
     pub item: ReportItem,
     /// The base item it is added under (top-level added items).
     pub base_parent: Option<usize>,
+    /// Parent introduced by a dependency's report extension.
+    pub foreign_parent: Option<ForeignReportItem>,
     /// Where it sits among its siblings (`addlast` unless the extension says otherwise).
     #[serde(default)]
     pub place: AddedPlace,
 }
 
-/// A data item of a report or of the extension, as a sibling anchor.
+/// A data item named by a report extension.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ItemAnchor {
     /// Index into `Report::items`.
     Base(usize),
     /// Index into `ReportExt::added`.
     Added(usize),
+    /// A data item introduced by an extension in a dependency app.
+    Foreign(ForeignReportItem),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ForeignReportItem {
+    pub extension: usize,
+    pub item: usize,
+    pub table: Option<usize>,
 }
 
 /// `addfirst`, `addlast`, `addbefore` and `addafter`
@@ -880,6 +965,9 @@ pub struct ReportItem {
     /// `CalcFields`: the field positions of the FlowFields calculated for each row, before the row's triggers.
     #[serde(default)]
     pub calc_fields: Vec<usize>,
+    /// The names of the properties the data item states, lowercase, in source order.
+    #[serde(default)]
+    pub stated_properties: Vec<String>,
 }
 
 /// The direction an xmlport declares (`Direction`, default `Both`).
@@ -1505,6 +1593,10 @@ pub struct Table {
     /// parallel to `keys`; empty for a key the compiler adds.
     #[serde(default)]
     pub key_props: Vec<Vec<(String, String)>>,
+    /// The object index of the table or table extension that declares each key, parallel to `keys`; `None` for the primary
+    /// key the compiler adds to a table without a keys section. Empty in an IR written before it.
+    #[serde(default)]
+    pub key_declared_in: Vec<Option<u32>>,
     pub per_company: bool,
     /// Object index of each table extension (their triggers are not run yet).
     pub extensions: Vec<usize>,
@@ -1605,6 +1697,16 @@ pub struct Field {
     pub caption_modified: bool,
 }
 
+impl Field {
+    /// The unprobed assumption a condition of the field's relation rests on (`RelationCond::assumes`), if any.
+    pub fn relation_condition_assumption(&self) -> Option<al_builtins::assumptions::Assumption> {
+        self.relation_arms
+            .iter()
+            .flat_map(|arm| &arm.conditions)
+            .find_map(|c| c.assumes)
+    }
+}
+
 /// One arm of a `TableRelation`: `if (Kind = const(A)) Table.Field where(...)`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RelationArm {
@@ -1650,6 +1752,9 @@ pub struct RelationCond {
     /// `Field = filter(text)`: the arm applies when the field's value passes the filter `value` holds.
     #[serde(default)]
     pub filter: bool,
+    /// The unprobed assumption `value` rests on; the VM marks it each time it evaluates the condition.
+    #[serde(default)]
+    pub assumes: Option<al_builtins::assumptions::Assumption>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1925,7 +2030,7 @@ pub enum PublisherRef {
     /// The one object visible from the subscriber's app that has the kind and name (or id).
     Only(u32),
     /// Several visible objects have the kind and name (`twins`, `object` among them); the subscriber's file names `object`
-    /// (assumption `subscriber-publisher-namespace-scope`).
+    /// (events/subscriber-namespace/SnUsingTests.al, SnOwnNamespaceTests.al, SnOwnOverUsingTests.al).
     Picked { object: u32, twins: Vec<u32> },
     /// Several visible objects have the kind and name, and the file names none of them by a measured rule: raising the event
     /// of any of them is refused.
@@ -2077,7 +2182,7 @@ pub enum Expr {
     /// `this` in a codeunit: the running instance as a Codeunit value.
     ThisInstance,
     /// Code that lowers but refuses when it runs, with the reason (a call of a control add-in procedure:
-    /// control add-ins are not modelled).
+    /// control add-ins are not modelled; a statement that leaves an `asserterror` body, `ASSERT_ERROR_LEAVE`).
     Refused(String),
     /// Code that lowers and raises an AL error with this text and code when it runs (`this.<protected variable of the
     /// base report>` in a reportextension: BC compiles it and raises when it runs).
@@ -2181,6 +2286,10 @@ pub enum Expr {
         why: String,
         inner: Box<Expr>,
     },
+    /// The value of `inner`, a load of a variable of the running routine's `var` section, stored into an element of an array
+    /// of Options declared without members: the run tells it from the value of another place, which may hold another member
+    /// list than its declared one (al-sema `memberless_option_array_assign`, al-vm `var_option::element_store`).
+    VarSectionValue(Box<Expr>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2188,6 +2297,12 @@ pub enum SetElem {
     One(Expr),
     Range(Option<Expr>, Option<Expr>),
 }
+
+/// The refusal of an `asserterror` body that a statement of its own leaves by exit, break or continue (al-runner issue 8289):
+/// no corpus test measures it. The lowering turns an `exit` without a value, a `break` and a `continue` into an
+/// `Expr::Refused` with this text, raised only when the run reaches it; the VM refuses an `exit` with a value whose value raised
+/// nothing.
+pub const ASSERT_ERROR_LEAVE: &str = "an asserterror body left by exit, break or continue: whether the asserterror then raises its own error is not pinned";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Stmt {

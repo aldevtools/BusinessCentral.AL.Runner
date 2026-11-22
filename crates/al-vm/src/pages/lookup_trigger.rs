@@ -21,7 +21,7 @@ impl Session {
         let called = self.lookup_trigger_call(st, object, routine, inst, vec![Value::Text(shown.into())]);
         let called = match called {
             Err(e) => {
-                st.borrow_mut().refresh = false;
+                st.borrow_mut().refresh.cancel();
                 return self.lookup_error_outcome(Err(e)).unwrap_or(Ok(Value::Null));
             }
             ok => ok,
@@ -55,7 +55,7 @@ impl Session {
     /// The table field's OnLookup that `TestPage.<control>.Lookup()` starts on the page's record.
     pub(super) fn field_on_lookup(&mut self, st: &St, object: usize, routine: usize) -> Result<Value, Signal> {
         let rec = self.page_rec(st);
-        st.borrow_mut().refresh = false;
+        st.borrow_mut().refresh.cancel();
         let called = self.call_on_record(object, routine, rec, None, Vec::new());
         if let Some(done) = self.lookup_error_outcome(called.map(|_| Value::Null)) {
             return done;
@@ -79,7 +79,6 @@ impl Session {
                 if let Some(own) = e.code.strip_prefix("TestWrapped:") {
                     e.code = own.to_string();
                 }
-                self.error_finals = None;
                 if let Err(s) = self.hold_error(*e) {
                     return Some(Err(s));
                 }

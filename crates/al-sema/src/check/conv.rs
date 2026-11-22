@@ -158,11 +158,15 @@ impl Operand {
         }
     }
 
-    /// The type as alc names it in a message.
+    /// The type as alc names it in a message: a namespaced enum as `Enum Ns.Sub."Name"` (corpus must-not-compile 3291 to
+    /// 3293).
     fn name(&self) -> String {
         match &self.name {
             Name::Fixed(n) => (*n).to_string(),
-            Name::Of(Ty::Enum(n)) => format!("Enum \"{n}\""),
+            Name::Of(Ty::Enum(n)) => match n.rsplit_once(crate::types::QUAL_SEP) {
+                Some((ns, last)) => format!("Enum {}.\"{last}\"", crate::types::display_name(ns)),
+                None => format!("Enum \"{n}\""),
+            },
             Name::Of(Ty::Object(ObjKind::Interface, n)) => format!("Interface \"{n}\""),
             Name::Of(Ty::Label) => "Label".into(),
             Name::Of(_) if matches!(self.shape, Shape::Str(1)) => "Char".into(),
@@ -631,7 +635,9 @@ impl<'a> Checker<'a> {
         }
         let [a, b] = kids else { return None };
         let l = self.conv_operand(sc, a, lt)?;
-        let r = self.conv_operand(sc, b, rt).filter(Operand::is_variable)?;
+        let r = self
+            .conv_operand(sc, b, rt)
+            .filter(|r| r.is_variable() || variant_against_constant(&op, &l, r))?;
         if let Err(code) = binary_verdict(&op, &l, &r) {
             let verb = if code == "AL0174" {
                 "is ambiguous on"
@@ -685,6 +691,19 @@ impl<'a> Checker<'a> {
         }
         Some(())
     }
+}
+
+/// A Variant variable on the left of `=` with an Integer literal, or of `=` or `<>` with an enum value: the constant right
+/// operands must-not-compile 0502 pins as AL0175 (corpus tests/must-not-compile/cases/0502-variant-comparison-operators.al:1-3,
+/// al-runner issue 8041). Other constants on the right are not judged.
+fn variant_against_constant(op: &str, l: &Operand, r: &Operand) -> bool {
+    l.k == K::Variant
+        && l.shape == Shape::Place
+        && match r.shape {
+            Shape::Int => op == "=",
+            Shape::EnumValue => op == "=" || op == "<>",
+            _ => false,
+        }
 }
 
 /// The verdict of `l op r`: `Ok`, or AL0175 (no such operator for the types) or AL0174 (ambiguous).

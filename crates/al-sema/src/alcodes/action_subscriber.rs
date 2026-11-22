@@ -21,6 +21,53 @@ fn literal(n: &SyntaxNode) -> String {
         .unwrap_or_default()
 }
 
+/// The first four arguments of an `[EventSubscriber]` written `ObjectType::K, K::Name, 'Event', 'Element'`, the publisher a
+/// plain name or an id.
+pub(super) struct SubscriberTarget {
+    pub(super) object_type: String,
+    pub(super) publisher_kind: String,
+    pub(super) publisher: String,
+    pub(super) event: String,
+    pub(super) element: String,
+}
+
+/// The target of `attr`; `None` for any other form of its arguments.
+pub(super) fn subscriber_target(attr: &ast::Attribute) -> Option<SubscriberTarget> {
+    let args: Vec<SyntaxNode> = attr.args()?.children().collect();
+    let [kind, publisher, event, element, ..] = args.as_slice() else {
+        return None;
+    };
+    let scope = |n: &SyntaxNode| {
+        let mut k = n.children();
+        match (n.kind(), k.next(), k.next()) {
+            (SyntaxKind::ScopeExpr, Some(l), Some(r)) if l.kind() == SyntaxKind::NameRef => Some((l, r)),
+            _ => None,
+        }
+    };
+    let ((kl, kr), (pl, pr)) = (scope(kind)?, scope(publisher)?);
+    if !kl.text_string().eq_ignore_ascii_case("ObjectType") || pr.kind() != SyntaxKind::NameRef {
+        return None;
+    }
+    let name = pr
+        .children_with_tokens()
+        .filter_map(|e| e.into_token())
+        .find(|t| {
+            matches!(
+                t.kind(),
+                SyntaxKind::Ident | SyntaxKind::QuotedIdent | SyntaxKind::Integer
+            )
+        })
+        .map(|t| ast::ident_text(&t))
+        .unwrap_or_default();
+    Some(SubscriberTarget {
+        object_type: kr.text_string().trim().to_string(),
+        publisher_kind: pl.text_string().trim().to_string(),
+        publisher: name,
+        event: literal(event),
+        element: literal(element),
+    })
+}
+
 /// AL0271 for the action event subscribers of object `oi` (see the module).
 pub(super) fn check(ws: &Workspace, oi: usize, obj: &ast::Object, out: &mut Vec<Diagnostic>) {
     let file = ws.objects[oi].file;
@@ -29,44 +76,16 @@ pub(super) fn check(ws: &Workspace, oi: usize, obj: &ast::Object, out: &mut Vec<
             .attributes()
             .filter(|a| a.name().eq_ignore_ascii_case("EventSubscriber"))
         {
-            let Some(args) = attr.args() else { continue };
-            let args: Vec<SyntaxNode> = args.children().collect();
-            let [kind, publisher, event, element, ..] = args.as_slice() else {
-                continue;
-            };
-            let scope = |n: &SyntaxNode| {
-                let mut k = n.children();
-                match (n.kind(), k.next(), k.next()) {
-                    (SyntaxKind::ScopeExpr, Some(l), Some(r)) if l.kind() == SyntaxKind::NameRef => Some((l, r)),
-                    _ => None,
-                }
-            };
-            let (Some((kl, kr)), Some((pl, pr))) = (scope(kind), scope(publisher)) else {
-                continue;
-            };
-            if !kl.text_string().eq_ignore_ascii_case("ObjectType")
-                || !kr.text_string().eq_ignore_ascii_case("Page")
-                || !pl.text_string().eq_ignore_ascii_case("Page")
-                || pr.kind() != SyntaxKind::NameRef
-            {
+            let Some(t) = subscriber_target(&attr) else { continue };
+            if !t.object_type.eq_ignore_ascii_case("Page") || !t.publisher_kind.eq_ignore_ascii_case("Page") {
                 continue;
             }
-            let event = literal(event).to_ascii_lowercase();
-            let element = literal(element);
+            let event = t.event.to_ascii_lowercase();
+            let element = t.element;
             if element.is_empty() || !matches!(event.as_str(), "onbeforeactionevent" | "onafteractionevent") {
                 continue;
             }
-            let name = pr
-                .children_with_tokens()
-                .filter_map(|e| e.into_token())
-                .find(|t| {
-                    matches!(
-                        t.kind(),
-                        SyntaxKind::Ident | SyntaxKind::QuotedIdent | SyntaxKind::Integer
-                    )
-                })
-                .map(|t| ast::ident_text(&t))
-                .unwrap_or_default();
+            let name = t.publisher;
             let Resolution::Found(page) = ws.resolve_ref_certain(file, ObjKind::Page, &[name]) else {
                 continue;
             };

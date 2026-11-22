@@ -17,6 +17,10 @@ impl Server {
     }
 
     fn start_with(extra: &[&str], env: &[(&str, &str)]) -> Server {
+        Server::start_with_stderr(extra, env, Stdio::null())
+    }
+
+    fn start_with_stderr(extra: &[&str], env: &[(&str, &str)], stderr: Stdio) -> Server {
         let mut child = Command::new(env!("CARGO_BIN_EXE_al-runner"))
             .arg("serve")
             .args(extra)
@@ -28,7 +32,7 @@ impl Server {
             .env("AL_TEST_THREADS", "2")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(stderr)
             .spawn()
             .expect("start al-runner serve");
         let stdin = child.stdin.take();
@@ -972,6 +976,75 @@ fn a_selection_that_matches_no_test_answers_a_summary_with_exit_code_6() {
     s.line();
 }
 
+/// Issue 8059: `excludeTestsExact` of a request and of an entry leaves out the test whose method name or qualified name
+/// is exactly the text, in any case; `excludeTests` with the same text matches by substring.
+#[test]
+fn exclude_tests_exact_leaves_out_only_the_test_named() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app(d.path(), "mixed", MIXED);
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    s.line();
+    let names = |s: &mut Server, req: Value| -> Vec<String> {
+        s.send(req);
+        let mut n: Vec<String> = s
+            .until_summary()
+            .iter()
+            .filter(|l| l["type"] == "test")
+            .map(|l| l["name"].as_str().unwrap().to_string())
+            .collect();
+        n.sort();
+        n
+    };
+    let all = ["Codeunit50100.Fails", "Codeunit50100.Passes"];
+    let req = |extra: Value| {
+        let mut r = json!({"command": "runTests", "sourcePaths": [a]});
+        r.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        r
+    };
+    assert_eq!(
+        names(&mut s, req(json!({"excludeTestsExact": ["passes"]}))),
+        ["Codeunit50100.Fails"]
+    );
+    assert_eq!(
+        names(&mut s, req(json!({"excludeTestsExact": ["Codeunit50100.FAILS"]}))),
+        ["Codeunit50100.Passes"]
+    );
+    assert_eq!(names(&mut s, req(json!({"excludeTestsExact": ["Pass"]}))), all);
+    assert_eq!(
+        names(&mut s, req(json!({"excludeTests": ["Pass"]}))),
+        ["Codeunit50100.Fails"]
+    );
+    // An entry has its own `excludeTestsExact`.
+    s.send(req(json!({"entries": [
+        {"id": "e1", "excludeTestsExact": ["Passes"]},
+        {"id": "e2", "excludeTestsExact": ["Fails"]},
+    ]})));
+    let lines = s.until_summary();
+    let of = |entry: &str| -> Vec<String> {
+        lines
+            .iter()
+            .filter(|l| l["type"] == "test" && l["entry"] == entry)
+            .map(|l| l["name"].as_str().unwrap().to_string())
+            .collect()
+    };
+    assert_eq!(
+        (of("e1"), of("e2")),
+        (vec![all[0].to_string()], vec![all[1].to_string()]),
+        "{lines:?}"
+    );
+    // Not a list, and not with `entries` or `affectedOnly`, as `excludeTests`.
+    for bad in [
+        json!({"excludeTestsExact": "Passes"}),
+        json!({"excludeTestsExact": ["Passes"], "entries": [{"id": "x"}]}),
+        json!({"excludeTestsExact": ["Passes"], "affectedOnly": true}),
+    ] {
+        s.send(req(bad.clone()));
+        assert!(s.line().get("error").is_some(), "{bad}");
+    }
+    s.send(json!({"command": "shutdown"}));
+    s.line();
+}
+
 #[test]
 fn execute_with_announce_start_writes_the_started_line_and_no_warning() {
     let mut s = started();
@@ -1834,6 +1907,20 @@ codeunit 50701 \"Seeding Install\" { Subtype = Install;
     (main, dep)
 }
 
+/// The parts of `setupMs` in a summary's `timings.setupParts` (al-runner issue 8205).
+const SETUP_PARTS: [&str; 10] = [
+    "optionsMs",
+    "sourcesMs",
+    "selectionMs",
+    "dependenciesMs",
+    "testDataMs",
+    "licenseMs",
+    "dotnetMs",
+    "affectedMs",
+    "entriesMs",
+    "prepareMs",
+];
+
 /// Al-runner issue 5856: every request says where its time went, and a request over a kept compile also keeps the
 /// engines and the install baseline, while it still starts from the rows the install code left and none of an earlier
 /// request's writes.
@@ -1883,6 +1970,19 @@ fn a_summary_says_where_the_time_went_and_a_kept_baseline_does_not_carry_writes(
         ] {
             assert!(t[key].as_f64().is_some_and(|v| v >= 0.0), "{key}: {summary}");
         }
+        // Al-runner issue 8205: `setupMs` split into its parts, which add up to it (each rounded to a tenth).
+        let parts = &t["setupParts"];
+        let mut sum = 0.0;
+        for key in SETUP_PARTS {
+            let v = parts[key]
+                .as_f64()
+                .unwrap_or_else(|| panic!("setupParts.{key}: {summary}"));
+            assert!(v >= 0.0, "setupParts.{key}: {summary}");
+            sum += v;
+        }
+        assert_eq!(parts.as_object().map(|o| o.len()), Some(SETUP_PARTS.len()), "{summary}");
+        let total = t["setupMs"].as_f64().unwrap();
+        assert!((sum - total).abs() <= 0.5, "parts {sum} vs setupMs {total}: {summary}");
     }
     assert_eq!(
         summaries.iter().map(|s| s["passed"].clone()).collect::<Vec<_>>(),
@@ -2317,4 +2417,1065 @@ fn the_companies_field_is_the_companies_flag_for_one_request() {
         json!({"command": "runTests", "sourcePaths": [a], "packagePaths": [packages]}),
     );
     assert_eq!(o.0, "pass", "{o:?}");
+}
+
+/// Al-runner issue 8206: a dependency with install code (a row `INSTALL`), and an app under test with a resource file
+/// `flag.txt` whose test fails with the flag text and the row count in its message. With `install_reads_resource`, the
+/// app's own install code (which the install baseline runs too) adds a row holding the text of `flag.txt`.
+fn resource_baseline_apps(root: &Path, install_reads_resource: bool) -> (PathBuf, PathBuf) {
+    let dep = root.join("dep");
+    write(
+        &dep,
+        "app.json",
+        r#"{"id":"82060000-0000-0000-0000-000000000001","name":"Install Dep","publisher":"Someone","version":"1.0.0.0","dependencies":[]}"#,
+    );
+    write(
+        &dep,
+        "src/Dep.al",
+        "table 50830 Installed { fields { field(1; K; Code[20]) { } } keys { key(PK; K) { } } }
+codeunit 50831 \"Dep Install\" { Subtype = Install;
+    trigger OnInstallAppPerCompany() var S: Record Installed; begin S.K := 'INSTALL'; S.Insert(); end; }",
+    );
+    let main = root.join("main");
+    write(
+        &main,
+        "app.json",
+        r#"{"id":"82060000-0000-0000-0000-000000000002","name":"Resource Tests","publisher":"Test","version":"1.0.0.0","resourceFolders":["res"],"dependencies":[{"id":"82060000-0000-0000-0000-000000000001","name":"Install Dep","publisher":"Someone","version":"1.0.0.0"}]}"#,
+    );
+    write(&main, "res/flag.txt", "off");
+    let install = if install_reads_resource {
+        "codeunit 50833 \"Reads Flag\" { Subtype = Install;
+    trigger OnInstallAppPerCompany() var S: Record Installed; begin
+        S.K := CopyStr(NavApp.GetResourceAsText('flag.txt'), 1, 20); S.Insert(); end; }\n"
+    } else {
+        ""
+    };
+    write(
+        &main,
+        "src/T.al",
+        &format!(
+            "codeunit 50832 \"Resource Tests\" {{ Subtype = Test;
+    [Test] procedure Flag() var S: Record Installed; begin
+        Error('flag=%1 rows=%2', NavApp.GetResourceAsText('flag.txt'), S.Count()); end; }}\n{install}"
+        ),
+    );
+    (main, dep)
+}
+
+/// The test lines of a request (name, status, message) and its summary's `baselineSource`.
+fn outcomes_and_source(s: &mut Server, req: Value) -> (Vec<(String, String, String)>, Value) {
+    s.send(req);
+    let lines = s.until_summary();
+    let tests = lines
+        .iter()
+        .filter(|l| l["type"] == "test")
+        .map(|l| {
+            let text = |k: &str| l[k].as_str().unwrap_or_default().to_string();
+            (text("name"), text("status"), text("message"))
+        })
+        .collect();
+    let summary = lines.last().unwrap();
+    assert!(summary["type"] == "summary", "{lines:?}");
+    (tests, summary["timings"]["baselineSource"].clone())
+}
+
+/// Al-runner issue 8206: a kept daemon takes the kept install baseline for entries with `resources`, and every request
+/// gives what a fresh daemon gives for it: the entries' texts (the same or another), a resource file changed on disk,
+/// and install code that reads a resource (where a fresh run refuses an entry with resources of its own).
+#[test]
+fn entries_with_resources_take_the_kept_baseline_and_give_what_a_fresh_daemon_gives() {
+    for install_reads_resource in [false, true] {
+        let d = tempfile::tempdir().unwrap();
+        let (main, dep) = resource_baseline_apps(d.path(), install_reads_resource);
+        let dep = dep.to_string_lossy().to_string();
+        let start = |cache: &Path| {
+            let cache = cache.to_string_lossy().to_string();
+            let mut s = Server::start(&["--no-download", "--no-test-data", "--dep", &dep, "--cache-dir", &cache]);
+            s.line();
+            s
+        };
+        let request = |text: Option<&str>| {
+            let mut req = json!({"command": "runTests", "sourcePaths": [main], "testIsolation": "test"});
+            if let Some(t) = text {
+                req["entries"] = json!([{"id": "e0", "resources": {"flag.txt": t}, "test": "Codeunit50832."}]);
+            }
+            req
+        };
+        let mut kept = start(&d.path().join("kept-cache"));
+        let steps: [(Option<&str>, Option<&str>); 5] = [
+            (Some("on"), None),
+            (Some("on"), None),
+            (Some("other"), None),
+            (None, None),
+            // The app's own resource file changes on disk: a new compile and a new baseline.
+            (Some("on"), Some("changed")),
+        ];
+        let mut sources = Vec::new();
+        for (n, (text, on_disk)) in steps.into_iter().enumerate() {
+            if let Some(t) = on_disk {
+                write(&main, "res/flag.txt", t);
+            }
+            let (got, source) = outcomes_and_source(&mut kept, request(text));
+            let mut fresh = start(&d.path().join(format!("fresh-cache-{n}")));
+            let (want, fresh_source) = outcomes_and_source(&mut fresh, request(text));
+            assert_eq!(fresh_source, "ran", "a fresh daemon runs the install code");
+            assert_eq!(
+                got, want,
+                "step {n} (install reads a resource: {install_reads_resource})"
+            );
+            // What a fresh run gives: the entry's text and the install row, or, when the install code read a resource
+            // and the entry has resources of its own, the test not run (issue 5635).
+            let message = &want[0].2;
+            let expected = match (install_reads_resource, text) {
+                (true, Some(_)) => "the install code read a resource file".to_string(),
+                (false, Some(t)) => format!("flag={t} rows=1"),
+                (reads, None) => format!("flag=off rows={}", 1 + usize::from(reads)),
+            };
+            assert!(message.contains(&expected), "step {n}: {message}");
+            sources.push(source);
+        }
+        assert_eq!(
+            sources,
+            [json!("ran"), json!("kept"), json!("kept"), json!("kept"), json!("ran")],
+            "install reads a resource: {install_reads_resource}"
+        );
+    }
+}
+
+/// Two apps whose test needs the complete compile, so the dependency app is compiled into a layer of the compile cache.
+fn layered_apps(root: &Path) -> (PathBuf, PathBuf) {
+    let dep = root.join("dep");
+    write(
+        &dep,
+        "app.json",
+        r#"{"id":"82080000-0000-0000-0000-000000000001","name":"Literal Dep","publisher":"Probe","version":"1.0.0.0","dependencies":[]}"#,
+    );
+    write(
+        &dep,
+        "src/D.al",
+        "table 50952 \"Literal Row\" { fields { field(1; K; Integer) { } } keys { key(PK; K) { } } }
+codeunit 50950 \"Literal Source\" { procedure Value(): Integer begin exit(41); end; }\n",
+    );
+    let main = root.join("main");
+    write(
+        &main,
+        "app.json",
+        r#"{"id":"82080000-0000-0000-0000-000000000002","name":"Literal Tests","publisher":"Probe","version":"1.0.0.0","dependencies":[{"id":"82080000-0000-0000-0000-000000000001","name":"Literal Dep","publisher":"Probe","version":"1.0.0.0"}]}"#,
+    );
+    write(
+        &main,
+        "src/T.al",
+        "codeunit 50951 \"Literal Tests\" { Subtype = Test;
+    [Test] procedure ShowValue() var S: Codeunit \"Literal Source\"; R: Record \"Literal Row\";
+    begin R.K := 1; R.Insert(); Error('v=%1 rows=%2', S.Value(), R.Count()); end; }\n",
+    );
+    (main, dep)
+}
+
+/// The build tags (the first 16 hex of a cache file's name) of the dependency layers in `cache`.
+fn layer_tags(cache: &Path) -> Vec<String> {
+    let mut tags: Vec<String> = std::fs::read_dir(cache.join("compile"))
+        .map(|rd| {
+            rd.filter_map(|e| e.ok()?.file_name().into_string().ok())
+                .filter(|n| n.ends_with(".alcc"))
+                .map(|n| n[..16].to_string())
+                .collect()
+        })
+        .unwrap_or_default();
+    tags.sort();
+    tags.dedup();
+    tags
+}
+
+/// The compile cache's key holds a hash of the running build (`compile_cache::runtime_build`). A server whose executable
+/// was deleted or replaced after it started (an upgrade, a rebuild) still knows its build: it files its entries under the
+/// tag a normal run of the same build uses, not under a value two builds could share (two builds that both fell back read
+/// each other's entries: a program lowered by another build).
+#[cfg(target_os = "linux")]
+#[test]
+fn a_server_whose_executable_was_deleted_files_its_cache_entries_under_its_own_build() {
+    let d = tempfile::tempdir().unwrap();
+    let (main, dep) = layered_apps(d.path());
+    let dep = dep.to_string_lossy().to_string();
+    // A normal run of this build: the tag its layers carry.
+    let normal = d.path().join("normal-cache");
+    let o = Command::new(env!("CARGO_BIN_EXE_al-runner"))
+        .args([
+            "test",
+            main.to_str().unwrap(),
+            "--dep",
+            &dep,
+            "--no-download",
+            "--no-test-data",
+        ])
+        .env("ALRUNNER_CACHE", &normal)
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&o.stderr).to_string() + &String::from_utf8_lossy(&o.stdout);
+    assert!(text.contains("v=41"), "{text}");
+    let own = layer_tags(&normal);
+    assert_eq!(own.len(), 1, "one layer: {own:?}");
+    // The same build, started from a copy that is deleted before the first request.
+    let exe = d.path().join("al-runner-copy");
+    std::fs::copy(env!("CARGO_BIN_EXE_al-runner"), &exe).unwrap();
+    let cache = d.path().join("cache");
+    let mut server = Command::new(&exe);
+    server
+        .args(["serve", "--dep", &dep, "--no-download", "--no-test-data"])
+        .env("ALRUNNER_CACHE", &cache)
+        .env_remove("ALRUNNER_SEED")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    // A copy just written can be busy for a moment ("Text file busy"): another thread of this test binary that forks
+    // while the copy's write handle is open keeps it open in the child until that child execs.
+    let mut tries = 0;
+    let mut child = loop {
+        match server.spawn() {
+            Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy && tries < 50 => {
+                tries += 1;
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            spawned => break spawned.unwrap(),
+        }
+    };
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    let mut line = String::new();
+    stdout.read_line(&mut line).unwrap();
+    assert!(line.contains("ready"), "{line}");
+    std::fs::remove_file(&exe).unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    writeln!(stdin, "{}", json!({"command": "runTests", "sourcePaths": [main]})).unwrap();
+    stdin.flush().unwrap();
+    let mut answers = String::new();
+    loop {
+        line.clear();
+        assert!(
+            stdout.read_line(&mut line).unwrap() > 0,
+            "the server closed stdout: {answers}"
+        );
+        answers.push_str(&line);
+        if line.contains("\"type\":\"summary\"") {
+            break;
+        }
+    }
+    drop(stdin);
+    child.wait().unwrap();
+    assert!(answers.contains("v=41"), "{answers}");
+    assert_eq!(
+        layer_tags(&cache),
+        own,
+        "the deleted executable's server filed its layer under another build tag"
+    );
+}
+
+/// Al-runner issue 8244: `coverage: "hit"` lists in `coverage` only the statements the tests ran, each as the full list
+/// shows it, and `perTestCoverage` as without it. A coverage request keeps the install baseline of the server, and its
+/// coverage is the same as over a baseline it ran.
+#[test]
+fn coverage_hit_lists_the_statements_that_ran_and_a_coverage_request_keeps_the_baseline() {
+    let d = tempfile::tempdir().unwrap();
+    let (main, dep) = installing_apps(d.path());
+    let dep = dep.to_string_lossy().to_string();
+    let cache = d.path().join("cache").to_string_lossy().to_string();
+    let mut s = Server::start(&["--no-download", "--no-test-data", "--dep", &dep, "--cache-dir", &cache]);
+    s.line();
+    let mut run = |coverage: Value| {
+        s.send(
+            json!({"command": "runTests", "sourcePaths": [main], "test": "Codeunit50710.",
+            "coverage": coverage, "perTestCoverage": true}),
+        );
+        let lines = s.until_summary();
+        let summary = lines.last().unwrap().clone();
+        assert_eq!(
+            (summary["type"].as_str(), summary["passed"].as_u64()),
+            (Some("summary"), Some(1)),
+            "{lines:?}"
+        );
+        summary
+    };
+    let full = run(json!(true));
+    let hit = run(json!("hit"));
+    let again = run(json!(true));
+    assert_eq!(full["timings"]["baselineSource"], "ran", "{full}");
+    assert_eq!(hit["timings"]["baselineSource"], "kept", "{hit}");
+    assert_eq!(again["timings"]["baselineSource"], "kept", "{again}");
+    assert_eq!(again["coverage"], full["coverage"]);
+    assert_eq!(again["perTestCoverage"], full["perTestCoverage"]);
+    assert_eq!(hit["perTestCoverage"], full["perTestCoverage"]);
+    // The full list less its statements without a run, and less the files left with none.
+    let ran: Vec<Value> = full["coverage"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|f| {
+            let statements: Vec<Value> = f["statements"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|s| s["hits"] != 0)
+                .cloned()
+                .collect();
+            (!statements.is_empty()).then(|| json!({"file": f["file"], "statements": statements}))
+        })
+        .collect();
+    let all = |v: &Value| {
+        v.as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f["statements"].as_array().unwrap().len())
+            .sum::<usize>()
+    };
+    assert!(
+        all(&json!(ran)) > 0 && all(&json!(ran)) < all(&full["coverage"]),
+        "{full}"
+    );
+    assert_eq!(hit["coverage"], json!(ran), "{hit}");
+    s.send(json!({"command": "runTests", "sourcePaths": [main], "coverage": "all"}));
+    let lines = s.until_summary();
+    assert!(
+        lines.last().unwrap()["error"]
+            .as_str()
+            .is_some_and(|e| e.contains("`coverage`")),
+        "{lines:?}"
+    );
+    s.send(json!({"command": "shutdown"}));
+    assert_eq!(s.line(), json!({"status": "shutting down"}));
+}
+
+/// Al-runner issue 8210, the reporter's repro: with `stopAfterFirstFailure` each test codeunit stops at its first failing test. The
+/// rest of that entry and every later entry is not run, each with a `notRun` row whose message names the failed test.
+/// Without the field every test of every entry runs, as before.
+#[test]
+fn stop_after_first_failure_ends_the_request_at_its_first_failing_test() {
+    let d = tempfile::tempdir().unwrap();
+    let main = app(
+        d.path(),
+        "stopafterfail",
+        "codeunit 50110 \"Stop After Fail Tests\" { Subtype = Test;
+            [Test] procedure FailsFirst() begin Error('the first test fails'); end;
+            [Test] procedure SlowTwo() begin Burn(); end;
+            [Test] procedure SlowThree() begin Burn(); end;
+            [Test] procedure SlowFour() begin Burn(); end;
+            local procedure Burn() var i: Integer; x: Integer; begin for i := 1 to 3000 do x := (x + i) mod 7919; end; }",
+    );
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    s.line();
+    let entry = |id: &str| json!({"id": id, "test": "Codeunit50110."});
+    let mut rows = |stop: Option<bool>, entries: Vec<Value>| {
+        let mut req = json!({"command": "runTests", "sourcePaths": [main], "entries": entries});
+        if let Some(stop) = stop {
+            req["stopAfterFirstFailure"] = json!(stop);
+        }
+        s.send(req);
+        let lines = s.until_summary();
+        let tests: Vec<Value> = lines.iter().filter(|l| l["type"] == "test").cloned().collect();
+        (tests, lines)
+    };
+    let stopped = |t: &Value| {
+        t["notRun"] == true
+            && t["message"]
+                .as_str()
+                .is_some_and(|m| m.contains("Codeunit50110.FailsFirst") && m.contains("stopAfterFirstFailure"))
+    };
+    let (one, lines) = rows(Some(true), vec![entry("a")]);
+    assert_eq!(one.len(), 4, "{lines:?}");
+    assert_eq!(one[0]["status"], "fail", "{lines:?}");
+    assert!(one[1..].iter().all(stopped), "{lines:?}");
+    let (three, lines) = rows(Some(true), vec![entry("a"), entry("b"), entry("c")]);
+    assert_eq!(three.len(), 12, "{lines:?}");
+    assert_eq!(three[0]["status"], "fail", "{lines:?}");
+    assert!(three[1..].iter().all(stopped), "{lines:?}");
+    for stop in [None, Some(false)] {
+        let (all, lines) = rows(stop, vec![entry("a"), entry("b"), entry("c")]);
+        assert_eq!(all.len(), 12, "{lines:?}");
+        assert_eq!(all.iter().filter(|t| t["status"] == "pass").count(), 9, "{lines:?}");
+    }
+    s.send(json!({"command": "shutdown"}));
+    assert_eq!(s.line(), json!({"status": "shutting down"}));
+}
+
+/// Al-runner issue 8210: under `stopAfterFirstFailure` a selection runs only the tests it picks, as `runSelectedOnly`
+/// does, so a failing test the answer does not list cannot stop the run.
+#[test]
+fn stop_after_first_failure_runs_only_the_picked_tests() {
+    let d = tempfile::tempdir().unwrap();
+    let main = app(
+        d.path(),
+        "stoppicked",
+        "codeunit 50111 \"Stop Picked\" { Subtype = Test;
+            [Test] procedure A_FailsUnpicked() begin Error('not picked'); end;
+            [Test] procedure B_Picked() begin end;
+            [Test] procedure C_Picked() begin end; }",
+    );
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    s.line();
+    s.send(
+        json!({"command": "runTests", "sourcePaths": [main], "stopAfterFirstFailure": true,
+        "entries": [{"id": "e", "test": "Codeunit50111.", "excludeTests": ["FailsUnpicked"]},
+                    {"id": "f", "test": "Codeunit50111.", "excludeTests": ["FailsUnpicked"]}]}),
+    );
+    let lines = s.until_summary();
+    let tests: Vec<&Value> = lines.iter().filter(|l| l["type"] == "test").collect();
+    assert_eq!(tests.len(), 4, "{lines:?}");
+    assert!(tests.iter().all(|t| t["status"] == "pass"), "{lines:?}");
+    s.send(json!({"command": "shutdown"}));
+    assert_eq!(s.line(), json!({"status": "shutting down"}));
+}
+
+/// Al-runner issue 8334: a test the time limit stops in the middle of its work leaves nothing for the next test codeunit,
+/// the next entry or the next request: committed rows, WorkDate, a SingleInstance codeunit, NumberSequence and
+/// IsolatedStorage it set are gone, and the reader's answers equal those of a new daemon.
+#[test]
+fn a_daemon_after_a_test_timeout_answers_as_a_new_daemon() {
+    let d = tempfile::tempdir().unwrap();
+    let main = app(
+        d.path(),
+        "timeoutstate",
+        "table 50730 \"Timeout Row\" { fields { field(1; No; Integer) { } } keys { key(PK; No) { } } }
+codeunit 50731 \"Timeout Single\" { SingleInstance = true; var V: Integer;
+    procedure SetV(N: Integer) begin V := N; end; procedure GetV(): Integer begin exit(V); end; }
+codeunit 50732 Hanger { Subtype = Test;
+    [Test] procedure WritesThenHangs() var R: Record \"Timeout Row\"; S: Codeunit \"Timeout Single\"; i: Integer; begin
+        R.No := 1; R.Insert(); Commit(); R.No := 2; R.Insert();
+        WorkDate(20010101D); S.SetV(7);
+        NumberSequence.Insert('STATE8334'); IsolatedStorage.Set('state8334', 'x');
+        while true do i := (i + 1) mod 7919; end; }
+codeunit 50733 Reader { Subtype = Test;
+    [Test] procedure SeesNoState() var R: Record \"Timeout Row\"; S: Codeunit \"Timeout Single\"; begin
+        if not R.IsEmpty() then Error('rows leaked');
+        if WorkDate() = 20010101D then Error('WorkDate leaked');
+        if S.GetV() <> 0 then Error('SingleInstance leaked');
+        if NumberSequence.Exists('STATE8334') then Error('NumberSequence leaked');
+        if IsolatedStorage.Contains('state8334') then Error('IsolatedStorage leaked'); end; }\n",
+    );
+    let reader = |s: &mut Server| {
+        s.send(json!({"command": "runTests", "sourcePaths": [main], "test": "Codeunit50733."}));
+        let lines = s.until_summary();
+        let tests: Vec<Value> = lines
+            .iter()
+            .filter(|l| l["type"] == "test")
+            .map(|t| t["status"].clone())
+            .collect();
+        let summary = lines.last().unwrap().clone();
+        (
+            tests,
+            [
+                summary["exitCode"].clone(),
+                summary["passed"].clone(),
+                summary["total"].clone(),
+            ],
+        )
+    };
+    let mut fresh = Server::start(&["--no-download", "--no-test-data"]);
+    fresh.line();
+    let expected = reader(&mut fresh);
+    assert_eq!(expected.0, vec![json!("pass")], "{expected:?}");
+    fresh.send(json!({"command": "shutdown"}));
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    s.line();
+    s.send(
+        json!({"command": "runTests", "sourcePaths": [main], "testTimeoutSecs": 1,
+        "entries": [{"id": "h", "test": "Codeunit50732."}, {"id": "r", "test": "Codeunit50733."}]}),
+    );
+    let lines = s.until_summary();
+    let tests: Vec<&Value> = lines.iter().filter(|l| l["type"] == "test").collect();
+    assert_eq!(tests.len(), 2, "{lines:?}");
+    assert!(
+        tests[0]["notRun"] == true && tests[0]["message"].as_str().is_some_and(|m| m.contains("timeout")),
+        "{lines:?}"
+    );
+    assert_eq!(tests[1]["status"], "pass", "{lines:?}");
+    assert_eq!(reader(&mut s), expected);
+    s.send(json!({"command": "shutdown"}));
+    assert_eq!(s.line(), json!({"status": "shutting down"}));
+}
+
+/// Al-runner issue 8492: `stopAfterFirstFailure` over an app with a dependency whose install code writes a row. A later
+/// request keeps the install baseline and the engines; every request starts from the install row and none of the writes
+/// of an earlier one, with or without the stop.
+#[test]
+fn stop_after_first_failure_over_a_dependency_keeps_the_baseline_and_carries_no_writes() {
+    let d = tempfile::tempdir().unwrap();
+    let (main, dep) = installing_apps(d.path());
+    write(
+        &main,
+        "src/T.al",
+        "codeunit 50712 \"Seeded Stop\" { Subtype = Test;
+    [Test] procedure A_Fails() begin Error('fails first'); end;
+    [Test] procedure B_SeesTheInstallRowOnly() var S: Record Seeded; begin
+        if S.Count() <> 1 then Error('Seeded holds %1 rows', S.Count());
+        S.K := 'B'; S.Insert(); Commit(); end; }\n",
+    );
+    let dep = dep.to_string_lossy().to_string();
+    let cache = d.path().join("cache").to_string_lossy().to_string();
+    let mut s = Server::start(&["--no-download", "--no-test-data", "--dep", &dep, "--cache-dir", &cache]);
+    s.line();
+    let mut run = |stop: bool| {
+        s.send(json!({"command": "runTests", "sourcePaths": [main], "stopAfterFirstFailure": stop}));
+        let lines = s.until_summary();
+        let of = |name: &str| {
+            lines
+                .iter()
+                .find(|l| l["type"] == "test" && l["name"].as_str().is_some_and(|n| n.ends_with(name)))
+                .unwrap_or_else(|| panic!("{name}: {lines:?}"))
+                .clone()
+        };
+        let summary = lines.last().unwrap().clone();
+        (of("A_Fails"), of("B_SeesTheInstallRowOnly"), summary)
+    };
+    let stopped = |b: &Value| {
+        b["notRun"] == true
+            && b["message"]
+                .as_str()
+                .is_some_and(|m| m.contains("A_Fails") && m.contains("stopAfterFirstFailure"))
+    };
+    for (stop, source) in [(true, "ran"), (true, "kept"), (false, "kept"), (true, "kept")] {
+        let (a, b, summary) = run(stop);
+        assert_eq!(a["status"], "fail", "{stop}: {a}");
+        if stop {
+            assert!(stopped(&b), "{stop}: {b}");
+        } else {
+            assert_eq!(b["status"], "pass", "{b}");
+        }
+        assert_eq!(summary["timings"]["baselineSource"], source, "{stop}: {summary}");
+    }
+    s.send(json!({"command": "shutdown"}));
+    assert_eq!(s.line(), json!({"status": "shutting down"}));
+}
+
+/// Al-runner issue 8492: a coverage request after one without coverage gives the coverage a server's first request gives.
+#[test]
+fn a_coverage_request_after_one_without_coverage_gives_the_coverage_of_a_first_request() {
+    let d = tempfile::tempdir().unwrap();
+    let (main, dep) = installing_apps(d.path());
+    let dep = dep.to_string_lossy().to_string();
+    let cache = d.path().join("cache").to_string_lossy().to_string();
+    let start = || {
+        let mut s = Server::start(&["--no-download", "--no-test-data", "--dep", &dep, "--cache-dir", &cache]);
+        s.line();
+        s
+    };
+    let run = |s: &mut Server, coverage: Option<bool>| {
+        let mut req = json!({"command": "runTests", "sourcePaths": [main], "test": "Codeunit50710."});
+        if let Some(c) = coverage {
+            req["coverage"] = json!(c);
+            req["perTestCoverage"] = json!(c);
+        }
+        s.send(req);
+        let lines = s.until_summary();
+        let summary = lines.last().unwrap().clone();
+        assert_eq!(summary["passed"], 1, "{lines:?}");
+        summary
+    };
+    let mut first = start();
+    let want = run(&mut first, Some(true));
+    first.send(json!({"command": "shutdown"}));
+    let mut s = start();
+    let without = run(&mut s, None);
+    assert!(without.get("coverage").is_none(), "{without}");
+    let got = run(&mut s, Some(true));
+    assert_eq!(got["coverage"], want["coverage"], "{got}");
+    assert_eq!(got["perTestCoverage"], want["perTestCoverage"], "{got}");
+    s.send(json!({"command": "shutdown"}));
+    assert_eq!(s.line(), json!({"status": "shutting down"}));
+}
+
+/// A stand-in of Microsoft's login in a dependency app, in the shape of its code (al-testrun `runtime/login_tests.rs`):
+/// Company Triggers `OnCompanyOpenCompleted` raises `OnAfterLogin`, whose subscriber raises the registration events.
+const LOGIN_STAND_IN: &str = r#"
+table 1990 "Guided Experience Item" { fields { field(1; "Object ID"; Integer) { } } keys { key(PK; "Object ID") { Clustered = true; } } }
+table 1996 "Checklist Setup" { fields { field(1; K; Code[10]) { } } keys { key(PK; K) { Clustered = true; } } }
+codeunit 150 "System Initialization" { [IntegrationEvent(false, false, true)] internal procedure OnAfterLogin() begin end; }
+codeunit 151 "System Initialization Impl."
+{
+    SingleInstance = true;
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Company Triggers", 'OnCompanyOpenCompleted', '', false, false)]
+    local procedure InitCompany() var SystemInitialization: Codeunit "System Initialization"; begin SystemInitialization.OnAfterLogin(); end;
+}
+codeunit 1990 "Guided Experience"
+{
+    procedure InsertAssistedSetup(ObjectID: Integer) var G: Record "Guided Experience Item"; begin G."Object ID" := ObjectID; G.Insert(); end;
+    procedure Register() begin OnRegisterManualSetup(); end;
+    [IntegrationEvent(false, false)] local procedure OnRegisterManualSetup() begin end;
+}
+codeunit 1997 "Checklist Events"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"System Initialization", 'OnAfterLogin', '', false, false)]
+    local procedure OnAfterLogIn() var S: Record "Checklist Setup"; G: Codeunit "Guided Experience";
+    begin
+        if S.Get('') then exit;
+        G.Register();
+        S.Insert();
+    end;
+}
+"#;
+
+/// Al-runner issue 8211: `ALRUNNER_LOGIN_REPLAY_CHECK=1` compares what each test session holds after the raised login with
+/// the first session of the same inputs, across the entries of a request (their `resources`, which the login reads here)
+/// and the requests of one kept daemon (another `seed`). No session of one key holds anything else.
+#[test]
+fn the_login_replay_check_finds_no_difference_across_entries_and_requests() {
+    let d = tempfile::tempdir().unwrap();
+    let dep = d.path().join("login");
+    write(
+        &dep,
+        "app.json",
+        r#"{"id":"82110000-0000-0000-0000-000000000001","name":"Login Stand-in","publisher":"Someone","version":"1.0.0.0","dependencies":[]}"#,
+    );
+    write(&dep, "src/Login.al", LOGIN_STAND_IN);
+    let main = d.path().join("main");
+    write(
+        &main,
+        "app.json",
+        r#"{"id":"82110000-0000-0000-0000-000000000002","name":"Login Probe","publisher":"Test","version":"1.0.0.0","resourceFolders":["Res"],"dependencies":[{"id":"82110000-0000-0000-0000-000000000001","name":"Login Stand-in","publisher":"Someone","version":"1.0.0.0"}]}"#,
+    );
+    write(&main, "Res/rpl.txt", "a");
+    write(
+        &main,
+        "src/T.al",
+        r#"codeunit 50820 "Probe Registration"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterManualSetup', '', false, false)]
+    local procedure RegisterManualSetup() var G: Codeunit "Guided Experience";
+    begin G.InsertAssistedSetup(50800 + StrLen(NavApp.GetResourceAsText('rpl.txt'))); end;
+}
+codeunit 50821 "Probe Login Tests"
+{
+    Subtype = Test;
+    [Test] procedure SeesTheRow() var I: Record "Guided Experience Item"; begin if I.IsEmpty() then Error('no row'); end;
+}
+"#,
+    );
+    let log = d.path().join("stderr.txt");
+    let dep_arg = dep.to_string_lossy().to_string();
+    let mut s = Server::start_with_stderr(
+        &["--no-download", "--no-test-data", "--dep", &dep_arg],
+        &[("ALRUNNER_LOGIN_REPLAY_CHECK", "1")],
+        Stdio::from(std::fs::File::create(&log).unwrap()),
+    );
+    s.line();
+    let entries = json!([
+        {"id": "a", "resources": {"rpl.txt": "a"}, "test": "Codeunit50821."},
+        {"id": "b", "resources": {"rpl.txt": "abcd"}, "test": "Codeunit50821."},
+        {"id": "c", "resources": {"rpl.txt": "a"}, "test": "Codeunit50821."},
+    ]);
+    for seed in [1, 2] {
+        s.send(json!({"command": "runTests", "sourcePaths": [main], "entries": entries, "seed": seed}));
+        let lines = s.until_summary();
+        assert_eq!(lines.last().unwrap()["passed"], json!(3), "{lines:?}");
+    }
+    drop(s.stdin.take());
+    s.child.wait().unwrap();
+    let text = std::fs::read_to_string(&log).unwrap();
+    let checks: Vec<&str> = text.lines().filter(|l| l.starts_with("login replay check: ")).collect();
+    assert_eq!(checks.len(), 2, "one line per request: {text}");
+    // Per request: entries a and c are one key (c compared with a), entry b (`abcd`) another. The second request's seed
+    // makes two more keys: the seed moves the clock the login reads (without the seed in the key: "3 differ", the clock).
+    assert_eq!(
+        checks[0],
+        "login replay check: 3 sessions over 2 keys (a key seen before: 1 sessions, 33%), 1 compared, 0 differ; across test codeunits: 0 compared, 0 differ"
+    );
+    assert_eq!(
+        checks[1],
+        "login replay check: 6 sessions over 4 keys (a key seen before: 2 sessions, 33%), 2 compared, 0 differ; across test codeunits: 0 compared, 0 differ"
+    );
+}
+
+// ---- Issue 8210: per-entry `stopGroup` for `stopAfterFirstFailure` ----
+
+/// #8484's reason for a test after a failure when no entry has a `stopGroup`, byte for byte.
+const UPSTREAM_STOP_TEXT: &str = "the test Codeunit50110.FailsFirst failed before it, and stopAfterFirstFailure (--stop-after-first-failure) runs no test of its codeunit or of a later entry after a failure";
+
+/// 50110: the first test fails, three pass after it. 50140 (the echo): a failing test, then one that must pass.
+fn group_app(root: &Path) -> PathBuf {
+    app(
+        root,
+        "groupstop",
+        "codeunit 50110 \"Stop Fixture\" { Subtype = Test;
+    [Test] procedure FailsFirst() begin Error('killed'); end;
+    [Test] procedure SlowTwo() begin end;
+    [Test] procedure SlowThree() begin end;
+    [Test] procedure SlowFour() begin end; }
+codeunit 50140 \"Echo Fixture\" { Subtype = Test;
+    [Test] procedure E1_Fails() begin Error('echo reports through Error'); end;
+    [Test] procedure E2_Passes() begin end; }",
+    )
+}
+
+/// A server with one test thread, so that the order of the tests is the declaration order.
+fn one_thread_server(extra: &[&str]) -> Server {
+    let mut args = vec!["--no-download", "--no-test-data"];
+    args.extend_from_slice(extra);
+    let mut s = Server::start_with(&args, &[("AL_TEST_THREADS", "1")]);
+    s.line();
+    s
+}
+
+fn test_lines(lines: &[Value]) -> Vec<&Value> {
+    lines.iter().filter(|l| l["type"] == "test").collect()
+}
+
+fn run_request(s: &mut Server, a: &Path, extra: Value) -> Vec<Value> {
+    let mut r = json!({"command": "runTests", "sourcePaths": [a]});
+    for (k, v) in extra.as_object().unwrap() {
+        r[k] = v.clone();
+    }
+    s.send(r);
+    s.until_summary()
+}
+
+fn shut_down(mut s: Server) {
+    s.send(json!({"command": "shutdown"}));
+    s.line();
+}
+
+/// A row of a test the stop did not run, named for the failed `FailsFirst`; `group` is the text the reason must name.
+fn is_stopped(l: &Value, group: Option<&str>) -> bool {
+    l["notRun"] == true
+        && l["message"].as_str().is_some_and(|m| {
+            m.contains("Codeunit50110.FailsFirst")
+                && m.contains("stopAfterFirstFailure")
+                && group.is_none_or(|g| m.contains(&format!("stopGroup `{g}`")))
+        })
+}
+
+fn entry_exit_codes(lines: &[Value]) -> Vec<Value> {
+    lines
+        .iter()
+        .filter(|l| l["type"] == "entrySummary")
+        .map(|l| l["exitCode"].clone())
+        .collect()
+}
+
+/// S1: a failure stops the later entries of its own `stopGroup` only.
+#[test]
+fn stop_group_stops_only_the_later_entries_of_its_group() {
+    let d = tempfile::tempdir().unwrap();
+    let a = group_app(d.path());
+    let mut s = one_thread_server(&[]);
+    let t = "Codeunit50110.";
+    let lines = run_request(
+        &mut s,
+        &a,
+        json!({"stopAfterFirstFailure": true, "entries": [
+            {"id": "a", "test": t, "stopGroup": "m1"}, {"id": "b", "test": t, "stopGroup": "m1"},
+            {"id": "c", "test": t, "stopGroup": "m2"}, {"id": "d", "test": t, "stopGroup": "m2"}]}),
+    );
+    let tests = test_lines(&lines);
+    assert_eq!(tests.len(), 16, "{lines:?}");
+    for (k, (fails, group)) in [(true, "m1"), (false, "m1"), (true, "m2"), (false, "m2")]
+        .into_iter()
+        .enumerate()
+    {
+        let rows = &tests[4 * k..4 * k + 4];
+        let rest = if fails {
+            assert_eq!(rows[0]["status"], "fail", "{lines:?}");
+            &rows[1..]
+        } else {
+            rows
+        };
+        for r in rest {
+            assert!(is_stopped(r, Some(group)), "{r}");
+        }
+    }
+    assert_eq!(
+        entry_exit_codes(&lines),
+        [json!(1), json!(7), json!(1), json!(7)],
+        "{lines:?}"
+    );
+    let summary = lines.last().unwrap();
+    assert_eq!(
+        (&summary["failed"], &summary["notRun"], &summary["exitCode"]),
+        (&json!(2), &json!(14), &json!(1)),
+        "{summary}"
+    );
+    shut_down(s);
+}
+
+/// S2: the values and combinations of `stopGroup`; the daemon answers a plain request after each refusal.
+#[test]
+fn stop_group_values_and_combinations() {
+    let d = tempfile::tempdir().unwrap();
+    let a = group_app(d.path());
+    let mut s = one_thread_server(&[]);
+    let t = "Codeunit50110.";
+    for (extra, says) in [
+        (
+            json!({"stopAfterFirstFailure": true, "entries": [{"test": t, "stopGroup": true}]}),
+            "the `stopGroup` of an entry is a text or a number",
+        ),
+        (
+            json!({"stopAfterFirstFailure": true, "entries": [{"test": t, "stopGroup": "m1"}, {"test": t}]}),
+            STOP_GROUP_MIX,
+        ),
+        (
+            json!({"stopAfterFirstFailure": false, "entries": [{"test": t, "stopGroup": "m1"}]}),
+            STOP_GROUP_NEEDS_THE_STOP,
+        ),
+        (
+            json!({"entries": [{"test": t, "stopGroup": "m1"}]}),
+            STOP_GROUP_NEEDS_THE_STOP,
+        ),
+    ] {
+        let lines = run_request(&mut s, &a, extra.clone());
+        assert_eq!(lines.last().unwrap()["error"], says, "{extra}: {lines:?}");
+        let plain = run_request(&mut s, &a, json!({"test": "Codeunit50140."}));
+        assert_eq!(test_lines(&plain).len(), 2, "{plain:?}");
+    }
+    shut_down(s);
+    // A server started with the flag takes groups without the request field.
+    let mut s = one_thread_server(&["--stop-after-first-failure"]);
+    let lines = run_request(
+        &mut s,
+        &a,
+        json!({"entries": [{"id": "a", "test": t, "stopGroup": "m1"}, {"id": "b", "test": t, "stopGroup": "m1"}]}),
+    );
+    let tests = test_lines(&lines);
+    assert_eq!(tests.len(), 8, "{lines:?}");
+    assert_eq!(tests[0]["status"], "fail", "{lines:?}");
+    assert!(tests[1..].iter().all(|r| is_stopped(r, Some("m1"))), "{lines:?}");
+    shut_down(s);
+}
+
+const STOP_GROUP_MIX: &str = "some entries have a `stopGroup` and some do not: give every entry one (an entry that stops alone gets a group of its own), or none (a failure then stops the whole request)";
+
+const STOP_GROUP_NEEDS_THE_STOP: &str = "`stopGroup` needs `stopAfterFirstFailure` (or a server started with `--stop-after-first-failure`): without the stop a group changes nothing";
+
+/// E3, kept on its own so that it is easy to flip if a client needs `stopGroup` with the stop off to be ignored.
+#[test]
+fn stop_group_with_the_stop_off_is_refused() {
+    let d = tempfile::tempdir().unwrap();
+    let a = group_app(d.path());
+    let mut s = one_thread_server(&[]);
+    let lines = run_request(
+        &mut s,
+        &a,
+        json!({"stopAfterFirstFailure": false, "entries": [{"test": "Codeunit50110.", "stopGroup": "m1"}]}),
+    );
+    assert_eq!(lines.last().unwrap()["error"], STOP_GROUP_NEEDS_THE_STOP, "{lines:?}");
+    assert!(test_lines(&lines).is_empty(), "{lines:?}");
+    shut_down(s);
+}
+
+/// S3: under the stop with groups a selection runs only the tests it picks.
+#[test]
+fn stop_group_runs_only_the_picked_tests() {
+    let d = tempfile::tempdir().unwrap();
+    let main = app(
+        d.path(),
+        "groupspicked",
+        "codeunit 50111 \"Stop Picked\" { Subtype = Test;
+            [Test] procedure A_FailsUnpicked() begin Error('not picked'); end;
+            [Test] procedure B_Picked() begin end;
+            [Test] procedure C_Picked() begin end; }",
+    );
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    s.line();
+    s.send(
+        json!({"command": "runTests", "sourcePaths": [main], "stopAfterFirstFailure": true,
+        "entries": [{"id": "e", "test": "Codeunit50111.", "excludeTests": ["FailsUnpicked"], "stopGroup": "e"},
+                    {"id": "f", "test": "Codeunit50111.", "excludeTests": ["FailsUnpicked"], "stopGroup": "f"}]}),
+    );
+    let lines = s.until_summary();
+    let tests = test_lines(&lines);
+    assert_eq!(tests.len(), 4, "{lines:?}");
+    assert!(tests.iter().all(|t| t["status"] == "pass"), "{lines:?}");
+    shut_down(s);
+}
+
+/// S4: a grouped stop over a dependency keeps the install baseline and carries no writes into the next request.
+#[test]
+fn stop_group_over_a_dependency_keeps_the_baseline_and_carries_no_writes() {
+    let d = tempfile::tempdir().unwrap();
+    let (main, dep) = installing_apps(d.path());
+    write(
+        &main,
+        "src/T.al",
+        "codeunit 50712 \"Seeded Stop\" { Subtype = Test;
+    [Test] procedure A_Fails() begin Error('fails first'); end;
+    [Test] procedure B_SeesTheInstallRowOnly() var S: Record Seeded; begin
+        if S.Count() <> 1 then Error('Seeded holds %1 rows', S.Count());
+        S.K := 'B'; S.Insert(); Commit(); end; }\n",
+    );
+    let dep = dep.to_string_lossy().to_string();
+    let cache = d.path().join("cache").to_string_lossy().to_string();
+    let mut s = Server::start(&["--no-download", "--no-test-data", "--dep", &dep, "--cache-dir", &cache]);
+    s.line();
+    let mut run = |stop: bool, groups: bool| {
+        let entry = |id: &str, g: &str| {
+            let mut e = json!({"id": id, "test": "Codeunit50712."});
+            if groups {
+                e["stopGroup"] = json!(g);
+            }
+            e
+        };
+        s.send(
+            json!({"command": "runTests", "sourcePaths": [main], "stopAfterFirstFailure": stop,
+            "entries": [entry("a", "m1"), entry("b", "m2")]}),
+        );
+        let lines = s.until_summary();
+        let of = |entry: &str, name: &str| {
+            lines
+                .iter()
+                .find(|l| {
+                    l["type"] == "test" && l["entry"] == entry && l["name"].as_str().is_some_and(|n| n.ends_with(name))
+                })
+                .unwrap_or_else(|| panic!("{entry} {name}: {lines:?}"))
+                .clone()
+        };
+        let summary = lines.last().unwrap().clone();
+        (
+            of("a", "A_Fails"),
+            of("a", "B_SeesTheInstallRowOnly"),
+            of("b", "A_Fails"),
+            of("b", "B_SeesTheInstallRowOnly"),
+            summary,
+        )
+    };
+    let stopped = |b: &Value| {
+        b["notRun"] == true
+            && b["message"]
+                .as_str()
+                .is_some_and(|m| m.contains("A_Fails") && m.contains("stopAfterFirstFailure"))
+    };
+    for (stop, groups, source) in [
+        (true, true, "ran"),
+        (true, true, "kept"),
+        (false, false, "kept"),
+        (true, true, "kept"),
+    ] {
+        let (a_fails, a_b, b_fails, b_b, summary) = run(stop, groups);
+        assert_eq!(a_fails["status"], "fail", "{stop}: {a_fails}");
+        assert_eq!(b_fails["status"], "fail", "{stop}: {b_fails}");
+        if stop {
+            assert!(stopped(&a_b) && stopped(&b_b), "{a_b} {b_b}");
+        } else {
+            assert_eq!(
+                (&a_b["status"], &b_b["status"]),
+                (&json!("pass"), &json!("pass")),
+                "{a_b} {b_b}"
+            );
+        }
+        assert_eq!(summary["timings"]["baselineSource"], source, "{stop}: {summary}");
+    }
+    shut_down(s);
+}
+
+/// A fixture whose tests write a row, a SingleInstance text and WorkDate before they fail or pass, and a reader that
+/// reports what it sees (S5).
+fn state_stop_app(root: &Path) -> PathBuf {
+    app(
+        root,
+        "statestop",
+        "table 50130 \"Stop Row\" { fields { field(1; PK; Code[10]) { } } keys { key(PK; PK) { } } }
+codeunit 50131 \"Stop Single\" { SingleInstance = true; var Txt: Text;
+    procedure SetTxt(T: Text) begin Txt := T; end; procedure GetTxt(): Text begin exit(Txt); end; }
+codeunit 50132 \"Stop Writers\" { Subtype = Test;
+    [Test] procedure FailsAfterWriting() var R: Record \"Stop Row\"; S: Codeunit \"Stop Single\";
+    begin R.PK := 'A'; R.Insert(); S.SetTxt('written'); WorkDate(20300101D); Error('killed'); end;
+    [Test] procedure PassesAfterWriting() var R: Record \"Stop Row\"; S: Codeunit \"Stop Single\";
+    begin R.PK := 'B'; R.Insert(); S.SetTxt('written too'); WorkDate(20310101D); end; }
+codeunit 50133 \"Stop Reader\" { Subtype = Test;
+    [Test] procedure Reports() var R: Record \"Stop Row\"; S: Codeunit \"Stop Single\";
+    begin Error('rows=%1 txt=%2 date=%3', R.Count(), S.GetTxt(), WorkDate()); end; }",
+    )
+}
+
+/// The `test` lines of a request without their time, and its counts.
+fn answer_of(lines: &[Value]) -> (Vec<Value>, Vec<Value>) {
+    let tests = lines
+        .iter()
+        .filter(|l| l["type"] == "test")
+        .map(|l| {
+            let mut l = l.clone();
+            l.as_object_mut().unwrap().remove("durationMs");
+            l
+        })
+        .collect();
+    let s = lines.last().unwrap();
+    let counts = ["total", "passed", "failed", "notRun", "exitCode"]
+        .iter()
+        .map(|k| s[*k].clone())
+        .collect();
+    (tests, counts)
+}
+
+/// S5: a request after a grouped stop answers as it does on a fresh daemon.
+#[test]
+fn the_request_after_a_grouped_stop_answers_as_a_fresh_daemon_does() {
+    let d = tempfile::tempdir().unwrap();
+    let a = state_stop_app(d.path());
+    let mut stopped = one_thread_server(&[]);
+    let first = run_request(
+        &mut stopped,
+        &a,
+        json!({"stopAfterFirstFailure": true, "entries": [
+            {"id": "w", "test": "Codeunit50132.", "stopGroup": "m1"},
+            {"id": "r", "test": "Codeunit50133.", "stopGroup": "m2"}]}),
+    );
+    assert!(
+        test_lines(&first).iter().any(|t| t["notRun"] == true),
+        "the request did not stop: {first:?}"
+    );
+    let after = answer_of(&run_request(&mut stopped, &a, json!({})));
+    let mut fresh = one_thread_server(&[]);
+    let want = answer_of(&run_request(&mut fresh, &a, json!({})));
+    assert_eq!(after, want);
+    shut_down(stopped);
+    shut_down(fresh);
+}
+
+/// S7: the echo shape. An entry that fails on purpose alone in its own group stops no other group; a plain request
+/// answers after it.
+#[test]
+fn an_echo_entry_in_its_own_group_leaves_every_other_group_running() {
+    let d = tempfile::tempdir().unwrap();
+    let a = group_app(d.path());
+    let mut s = one_thread_server(&[]);
+    let t = "Codeunit50110.";
+    let lines = run_request(
+        &mut s,
+        &a,
+        json!({"stopAfterFirstFailure": true, "entries": [
+            {"id": "echo", "test": "Codeunit50140.", "stopGroup": "echo"},
+            {"id": "a", "test": t, "stopGroup": "m1"}, {"id": "b", "test": t, "stopGroup": "m2"}]}),
+    );
+    let tests = test_lines(&lines);
+    assert_eq!(tests.len(), 10, "{lines:?}");
+    assert_eq!(tests[0]["status"], "fail", "{lines:?}");
+    assert_eq!(tests[1]["notRun"], true, "{lines:?}");
+    for (k, group) in [(2, "m1"), (6, "m2")] {
+        assert_eq!(tests[k]["status"], "fail", "{lines:?}");
+        assert!(
+            tests[k + 1..k + 4].iter().all(|r| is_stopped(r, Some(group))),
+            "{lines:?}"
+        );
+    }
+    let plain = run_request(&mut s, &a, json!({"test": "Codeunit50140."}));
+    assert_eq!(test_lines(&plain).len(), 2, "{plain:?}");
+    shut_down(s);
+}
+
+/// With no `stopGroup` on any entry the reason is #8484's, byte for byte, and the stop is the whole request's.
+#[test]
+fn without_stop_groups_the_reason_is_upstreams_text() {
+    let d = tempfile::tempdir().unwrap();
+    let a = group_app(d.path());
+    let mut s = one_thread_server(&[]);
+    let t = "Codeunit50110.";
+    let lines = run_request(
+        &mut s,
+        &a,
+        json!({"stopAfterFirstFailure": true, "entries": [{"id": "a", "test": t}, {"id": "b", "test": t}]}),
+    );
+    let tests = test_lines(&lines);
+    assert_eq!(tests.len(), 8, "{lines:?}");
+    assert_eq!(tests[0]["status"], "fail", "{lines:?}");
+    for r in &tests[1..] {
+        assert_eq!(r["notRun"], true, "{r}");
+        let m = r["message"].as_str().unwrap();
+        assert_eq!(m, format!("NotRun: out-of-scope: {UPSTREAM_STOP_TEXT}"));
+    }
+    shut_down(s);
 }

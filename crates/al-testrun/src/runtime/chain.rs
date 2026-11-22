@@ -147,7 +147,7 @@ impl ChainReport {
             return self.numbers_lines();
         }
         vec![format!(
-            "number order: {n} test codeunits take NumberSequence numbers after another test codeunit took some on BC; \
+            "number order: {n} test codeunits take or read NumberSequence numbers after another test codeunit took some on BC; \
              --timings lists them, the JUnit property numberSequenceOrder marks their tests, --strict-order chains the numbers as on BC"
         )]
     }
@@ -313,23 +313,36 @@ fn onrun_writes(engine: &Arc<al_vm::Engine>, lowered: &Lowered, oi: usize) -> Op
 /// such a codeunit joins the carry chain as one whose OnRun writes (`numbers_taken.rs`). Counted only through what the
 /// tests are known to write, as for OnRun.
 fn tests_take_numbers(engine: &Arc<al_vm::Engine>, lowered: &Lowered, oi: usize) -> bool {
-    use super::written::{ReachIndex, state, union_reach_has};
-    let index = engine.derived(|| ReachIndex::new(&engine.events, lowered));
-    let o = &lowered.program.objects[oi];
-    // One walk of the tests' joined reach: a walk per test went over their shared reach once per test (11 % of the
-    // full corpus run with Microsoft's apps).
-    let tests: Vec<(usize, usize)> = (0..o.routines.len())
-        .filter(|&r| {
-            o.routines[r]
-                .attributes
-                .iter()
-                .any(|a| a.name.eq_ignore_ascii_case("Test"))
-        })
-        .map(|r| (oi, r))
-        .collect();
-    union_reach_has(&engine.events, lowered, &index, &tests, &|f| {
+    use super::written::state;
+    tests_reach_has(engine, lowered, oi, false, &|f| {
         f.state_writes & state::NUMBER_SEQUENCE != 0
     })
+}
+
+/// Whether the tests or the OnRun trigger of test codeunit `oi` can read a number sequence (any `NumberSequence` call,
+/// `written.rs`), for the numbers list of a default run.
+pub(super) fn reads_numbers(engine: &Arc<al_vm::Engine>, lowered: &Lowered, oi: usize) -> bool {
+    use super::written::state;
+    tests_reach_has(engine, lowered, oi, true, &|f| {
+        f.state_reads & state::NUMBER_SEQUENCE != 0
+    })
+}
+
+/// Whether the joined reach of the tests of test codeunit `oi` and their handler functions, and of its OnRun trigger when
+/// `onrun`, has `fact`.
+fn tests_reach_has(
+    engine: &Arc<al_vm::Engine>,
+    lowered: &Lowered,
+    oi: usize,
+    onrun: bool,
+    fact: &dyn Fn(&super::written::ReachFacts) -> bool,
+) -> bool {
+    use super::written::{ReachIndex, union_reach_has};
+    let index = engine.derived(|| ReachIndex::new(&engine.events, lowered));
+    // One walk of the tests' joined reach: a walk per test went over their shared reach once per test (11 % of the
+    // full corpus run with Microsoft's apps).
+    let roots = super::handlers::unit_roots(lowered, oi, onrun);
+    union_reach_has(&engine.events, lowered, &index, &roots, fact)
 }
 
 #[cfg(test)]
@@ -356,6 +369,7 @@ mod tests {
                     codeunit: i,
                     name: format!("C{i}"),
                     after: (i + 1, "X".into()),
+                    reads_only: false,
                 })
                 .collect(),
             ..Default::default()

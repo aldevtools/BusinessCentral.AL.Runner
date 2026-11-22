@@ -1,4 +1,5 @@
 //! `CorpusRuntime`: compiling suites of apps and running them.
+use super::carry_after::After;
 use super::narrowing::{Met, Narrowing};
 use super::*;
 
@@ -609,6 +610,12 @@ impl CorpusRuntime {
         // with the compile cache keeps a baseline.
         let uncovered = use_cache.then(|| super::baseline_key::uncovered_apps(manifests, &identities, n_cached));
         let any_lazy = lazy.iter().any(Option::is_some);
+        let company_install_events = opts.test_data.is_some()
+            && match crate::host::companies() {
+                al_host::Companies::One => false,
+                al_host::Companies::List(companies) => companies.len() > 1,
+                al_host::Companies::All => true,
+            };
         let fill_all = |apps: &mut Vec<al_sema::workspace::AppSource>| {
             for (a, l) in apps.iter_mut().zip(&lazy) {
                 if let Some(l) = l {
@@ -618,6 +625,7 @@ impl CorpusRuntime {
         };
         let roots = al_sema::check::Roots {
             baseline: baseline_wanted,
+            company_install_events,
             company_data: opts
                 .company_data
                 .iter()
@@ -1077,11 +1085,7 @@ impl CorpusRuntime {
             );
             global_triggers_find_unavailable(&mut engine, lowered);
             if let Some(e) = Arc::get_mut(&mut engine) {
-                (e.test_data, e.private_test_rows) = (opts.test_data.clone(), opts.private_baseline);
-                e.license = opts.license.clone();
-                e.write_in_try_allowed = opts.allow_write_in_try_functions;
-                e.dependencies_published_global = opts.dependencies_published_global;
-                e.skipped_apps = opts.skipped_dependencies.clone();
+                set_run_options(e, opts);
             }
             engine
         };
@@ -1118,9 +1122,9 @@ impl CorpusRuntime {
             // The impact index and an impact run's selection need what the install code raised and touched: the
             // baseline runs.
             .filter(|_| !opts.impact_trace && opts.narrow.is_none())
-            // An entry with resource files of its own (issue 5635): whether the install code read resources is known
-            // only when it runs here.
-            .filter(|_| opts.entries.iter().all(|e| e.resources.is_empty()))
+            // An entry with resource files of its own (issues 5635, 8206) takes a kept baseline too: the baseline runs
+            // before any entry's texts are set, so it is the same for every entry, and whether its install code read a
+            // resource file goes with it (`BaselineRun::read_resources`).
             .and_then(|((key, frame), cc)| {
                 // Over test data the file holds the tables the install code wrote to; the rest is the restored database.
                 let backed = |mut run: crate::baseline::BaselineRun| {
@@ -1184,9 +1188,8 @@ impl CorpusRuntime {
             crate::install::keep_login_records(b.baseline.origin(), &b.login);
             (b.baseline.origin(), b.login.clone())
         });
-        // The engine the install code ran on (the tests may get another below).
-        let install_read_resources =
-            baseline_run.is_some() && engine.resources_read.load(std::sync::atomic::Ordering::Relaxed);
+        // Whether the install code read a resource file: the baseline says, whether it ran here or was kept (issue 8206).
+        let install_read_resources = baseline_run.as_ref().is_some_and(|b| b.read_resources);
         // What .NET answers a call that may read more than its arguments (files, environment variables, the
         // machine's clock, user assemblies) is not in the key: a baseline whose code made one is not kept, and the next
         // run runs the install code again (`al_vm::dotnet::pure`).
@@ -1398,11 +1401,7 @@ impl CorpusRuntime {
             // Writing the snapshot the test threads read (the first pass on several threads does it).
             let mut encode_time = std::time::Duration::ZERO;
             super::install_once::begin_pass(&engine, &pass.resources);
-            // The install code read resource files, and this entry has resource files of its own: its install baseline
-            // would be another one, which is not made per entry.
-            let refused = (install_read_resources && !pass.resources.is_empty()).then(|| {
-            "the install code read a resource file, and an entry with resource files of its own would need an install baseline of its own (al-runner issue 5635)".to_string()
-        });
+            let (refused, skip) = pass_refused(install_read_resources, pass, &passes, &entry_ranges, &list);
             let (opts_only, limit) = (&pass.only, pass.limit);
             // The test codeunits to run, in the order the report lists them.
             let mut units: Vec<Unit> = Vec::new();
@@ -1454,11 +1453,13 @@ impl CorpusRuntime {
                             flags: super::session_flags::SessionFlags::of(opts),
                             report_unpinned_errors: opts.report_unpinned_errors,
                             skip_after_timeout: opts.skip_after_timeout,
+                            stop_after_first_failure: pass.stop.clone(),
                             perturb: opts.perturb.clone(),
                             run_seed: opts.run_seed,
                             runner: *runner,
                             watch: false,
                             takes_numbers: false,
+                            numbers_unmeasured: None,
                             singles_past_stop: false,
                             driver,
                             discovery: None,
@@ -1477,7 +1478,7 @@ impl CorpusRuntime {
                                 outcomes.insert((si, id, r.name.to_lowercase()), Outcome::NotRun(why.clone()));
                                 let not_run = Outcome::NotRun(why.clone());
                                 let (app, name) = (order[o.app as usize], o.name.clone());
-                                list.push(TestResult::bare(si, app, id, name, r.name.clone(), not_run));
+                                list.push(TestResult::bare(si, app, id, name, r.name.clone(), not_run).skipped(skip));
                             }
                         }
                     }
@@ -1567,7 +1568,7 @@ impl CorpusRuntime {
                 si == u.si && place(si, id) < place(u.si, u.id) && (leg == 0 || !u.hub_leg)
             };
             chain_report.single_lane.watched = super::single_lane::assign_watches(&mut units, &place, opts);
-            super::order_hint::note_numbers_order(lowered, &units, &place, opts, &mut chain_report);
+            super::order_hint::note_numbers_order(&engine, lowered, &mut units, &place, opts, &mut chain_report);
             let mut slots: Vec<Option<UnitResult>> = (0..units.len()).map(|_| None).collect();
             chain_report.units += units.len() + chain.iter().filter(|c| matches!(c.3, Link::Refused(..))).count();
             let first_origin = baseline.as_ref().map(al_vm::Baseline::origin);
@@ -1628,28 +1629,10 @@ impl CorpusRuntime {
                     .iter()
                     .rev()
                     .find(|(si, id, leg, _)| sees(*si, *id, *leg, &units[k]));
-                let storage = before
-                    .is_some_and(|(_, _, _, c)| c.everything && reaches_session_storage(&engine, lowered, units[k].oi));
-                let hit = r.result.as_ref().is_ok_and(|done| done.5.leak_hit) || storage;
-                if let (true, Some((_, _, leg, c))) = (hit, before) {
-                    let o = &lowered.program.objects[units[k].oi];
-                    let handlers = o.routines.iter().any(|r| {
-                        r.attributes
-                            .iter()
-                            .any(|a| a.name.eq_ignore_ascii_case("HandlerFunctions"))
-                    });
-                    let unfinished = if storage { c.storage_why.as_ref() } else { None }.or(c.unfinished.as_ref());
-                    let refused = match unfinished {
-                        Some(why) => Some(why.clone()),
-                        // BC's CI runs a codeunit with handlers through another runner than the TestRunnerHub
-                        // (QuCommitIsolation.al:11-13): whether it runs before or after the Disabled codeunit is not pinned.
-                        None if handlers && *leg == 0 => Some(
-                            "an earlier codeunit with RequiredTestIsolation = Disabled wrote a table this test reads, and \
-                             whether BC runs this codeunit, which has handlers, before or after it is not pinned"
-                                .to_string(),
-                        ),
-                        None => None,
-                    };
+                let after = before.map(|(_, _, leg, c)| (After::new(&engine, lowered, c, units[k].oi, *leg), c));
+                if let Some((after, c)) = after.filter(|(a, _)| a.read(&r)) {
+                    let storage = after.reaches_storage();
+                    let refused = after.outside_refusal(&r).cloned();
                     match refused {
                         Some(why) => {
                             if let Ok(done) = &mut r.result {
@@ -1657,7 +1640,6 @@ impl CorpusRuntime {
                             }
                         }
                         None => {
-                            units[k].leak = None;
                             // The run again is the one reported, so `--explain` names its site.
                             let (si, id) = (units[k].si, units[k].id);
                             let mut observe = |name: &str, _: &Outcome, seen: &Observed| {
@@ -1726,6 +1708,7 @@ impl CorpusRuntime {
                         dotnet: false,
                         order_hint: None,
                         cells: None,
+                        skipped_by_option: false,
                     })
                 };
                 match r.result {
@@ -1832,6 +1815,7 @@ impl CorpusRuntime {
             });
         }
         let install_runs = super::install_once::end_run(&engine, &installs);
+        let login_replay = crate::login_replay::report(&engine);
         let tests_time = tests_started.elapsed();
         memory.pool().unwatch();
         if let (Some((key, _)), Some(cc), Some((origin, read))) = (
@@ -1902,30 +1886,9 @@ impl CorpusRuntime {
                 passes: pass_times,
                 install_snapshot: snapshot_once.line(&lowered.program),
                 engine_kept,
+                login_replay,
                 decoded_on_touch: lowered.cached_objects.as_ref().map(|c| c.decoded()),
-                work: RunWork {
-                    compiles: *compiles,
-                    lower: lowered.work,
-                    dependency_apps: ws.kinds.iter().filter(|k| **k == al_sema::AppKind::Dependency).count(),
-                    // The dependency apps a compile cache supplied (objects a kept compile supplied are counted apart,
-                    // `LowerWork::objects_from_kept`).
-                    dependency_apps_from_cache: {
-                        let mut apps: Vec<usize> = (0..lowered.provided.len())
-                            .filter(|&oi| lowered.provided[oi] && lowered.work.objects_from_kept == 0)
-                            .map(|oi| ws.objects[oi].app)
-                            .collect();
-                        apps.dedup();
-                        apps.len()
-                    },
-                    cache_layers_hit: cache_report
-                        .as_ref()
-                        .map_or(0, |c| c.layers.iter().filter(|l| l.hit).count()),
-                    cache_layers_built: cache_report
-                        .as_ref()
-                        .map_or(0, |c| c.layers.iter().filter(|l| l.built).count()),
-                    baseline_rows,
-                    tests_run: list.iter().filter(|r| !matches!(r.outcome, Outcome::NotRun(_))).count(),
-                },
+                work: run_work(*compiles, lowered, ws, cache_report.as_ref(), baseline_rows, &list),
                 // Not redone, not warm: the caller sets them.
                 ..Default::default()
             },
@@ -1944,16 +1907,53 @@ impl CorpusRuntime {
     }
 }
 
+/// What a run sets on an engine on top of what `Engine::with_config` makes: the one list for a new engine, a sibling and a
+/// kept engine.
+fn set_run_options(e: &mut Engine, opts: &RunOptions) {
+    (e.test_data, e.private_test_rows) = (opts.test_data.clone(), opts.private_baseline);
+    e.license = opts.license.clone();
+    e.emit_version = opts.emit_version.clone();
+    e.write_in_try_allowed = opts.allow_write_in_try_functions;
+    e.dependencies_published_global = opts.dependencies_published_global;
+    e.skipped_apps = opts.skipped_dependencies.clone();
+}
+
+/// What the run did, counted (`Phases::work`, the work ratchet of `al-test-cli`).
+fn run_work(
+    compiles: usize,
+    lowered: &Lowered,
+    ws: &al_sema::Workspace,
+    cache_report: Option<&crate::compile_cache::CacheReport>,
+    baseline_rows: Option<usize>,
+    list: &[TestResult],
+) -> RunWork {
+    RunWork {
+        compiles,
+        lower: lowered.work,
+        dependency_apps: ws.kinds.iter().filter(|k| **k == al_sema::AppKind::Dependency).count(),
+        // The dependency apps a compile cache supplied (objects a kept compile supplied are counted apart,
+        // `LowerWork::objects_from_kept`).
+        dependency_apps_from_cache: {
+            let mut apps: Vec<usize> = (0..lowered.provided.len())
+                .filter(|&oi| lowered.provided[oi] && lowered.work.objects_from_kept == 0)
+                .map(|oi| ws.objects[oi].app)
+                .collect();
+            apps.dedup();
+            apps.len()
+        },
+        cache_layers_hit: cache_report.map_or(0, |c| c.layers.iter().filter(|l| l.hit).count()),
+        cache_layers_built: cache_report.map_or(0, |c| c.layers.iter().filter(|l| l.built).count()),
+        baseline_rows,
+        tests_run: list.iter().filter(|r| !matches!(r.outcome, Outcome::NotRun(_))).count(),
+    }
+}
+
 /// The tests' engine (with several test threads): it shares what `make_engine` worked out from the program with the
 /// install baseline's engine (`Engine::sibling`); what `make_engine` sets on top is set again.
 fn sibling_of(engine: &Arc<Engine>, opts: &RunOptions) -> Arc<Engine> {
     let mut sibling = engine.sibling();
     if let Some(e) = Arc::get_mut(&mut sibling) {
-        (e.test_data, e.private_test_rows) = (opts.test_data.clone(), opts.private_baseline);
-        e.license = opts.license.clone();
-        e.write_in_try_allowed = opts.allow_write_in_try_functions;
-        e.dependencies_published_global = opts.dependencies_published_global;
-        e.skipped_apps = opts.skipped_dependencies.clone();
+        set_run_options(e, opts);
     }
     sibling
 }
@@ -1966,7 +1966,7 @@ fn sibling_of(engine: &Arc<Engine>, opts: &RunOptions) -> Arc<Engine> {
 /// ends right after, they are not freed.
 fn keep_or_retire_engines(
     (engine, baseline_engine, spare_engine): (Arc<Engine>, Option<Arc<Engine>>, Option<Arc<Engine>>),
-    installs: Option<&[(BTreeSet<u32>, String)]>,
+    installs: Option<&[al_vm::SkippedInstall]>,
     kept: Option<(String, &std::sync::Mutex<Option<KeptEngines>>)>,
     process_ends_after: bool,
 ) -> Met {
@@ -1978,7 +1978,7 @@ fn keep_or_retire_engines(
     let met = installs
         .into_iter()
         .flatten()
-        .fold(met, |m, (_, why)| m.or(Met::of_reason(why)));
+        .fold(met, |m, s| m.or(Met::of_reason(&s.why)));
     let (engine, baseline_engine, spare_engine) = match kept {
         Some((key, kept_engines)) => {
             let (install, tests) = match baseline_engine {
@@ -2230,11 +2230,7 @@ fn take_kept_engines(
         // Every field a run sets, back to what `Engine::with_config` makes; then what `make_engine` sets.
         e.reset_run_state();
         e.dotnet = dotnet.clone();
-        (e.test_data, e.private_test_rows) = (opts.test_data.clone(), opts.private_baseline);
-        e.license = opts.license.clone();
-        e.write_in_try_allowed = opts.allow_write_in_try_functions;
-        e.dependencies_published_global = opts.dependencies_published_global;
-        e.skipped_apps = opts.skipped_dependencies.clone();
+        set_run_options(e, opts);
         Some(engine)
     };
     let install = reset(k.install);
@@ -2306,6 +2302,46 @@ fn run_serially<'a>(
 /// (ADR-074).
 fn hub_path(suite: &SuiteRun, opts: &RunOptions, driver: super::TestDriver) -> bool {
     suite.runner.is_none() && opts.required_isolation && opts.isolation.is_none() && driver.has_hub()
+}
+
+/// Why no test of `pass` runs, given the earlier passes and their rows (as `pass_stopped`), and whether that is the stop
+/// of an option rather than a refusal (`TestResult::skipped_by_option`, al-runner issue 8492): the install code read
+/// resource files and this entry has resource files of its own, so its install baseline would be another one, which is
+/// not made per entry; or `pass_stopped`. Every test of the pass gets the reason (`suite_isolation`).
+fn pass_refused(
+    install_read_resources: bool,
+    pass: &Pass,
+    passes: &[Pass],
+    ranges: &[std::ops::Range<usize>],
+    list: &[TestResult],
+) -> (Option<String>, bool) {
+    if install_read_resources && !pass.resources.is_empty() {
+        return (Some("the install code read a resource file, and an entry with resource files of its own would need an install baseline of its own (al-runner issue 5635)".to_string()), false);
+    }
+    let stopped = pass_stopped(pass, passes, ranges, list);
+    let skipped = stopped.is_some();
+    (stopped, skipped)
+}
+
+/// The reason `RunOptions::stop_after_first_failure` (al-runner issue 8210) runs no test of `pass`: an earlier pass
+/// with the same stop scope (`Pass::stop`; issue 8210) has a failed test, the first in `list` order. The entries
+/// without a group share one scope (the serve protocol refuses a mix of entries with and without one). `ranges[k]` holds the rows of `passes[k]` in
+/// `list`, one range per finished pass, so the `zip` ends at the current pass. With no entries `ranges` is empty, and
+/// the single pass has no earlier rows.
+fn pass_stopped(
+    pass: &Pass,
+    passes: &[Pass],
+    ranges: &[std::ops::Range<usize>],
+    list: &[TestResult],
+) -> Option<String> {
+    let stop = pass.stop.as_ref()?;
+    let failed = ranges
+        .iter()
+        .zip(passes)
+        .filter(|(_, p)| p.stop.as_ref() == Some(stop))
+        .flat_map(|(r, _)| &list[r.clone()])
+        .find(|r| matches!(r.outcome, Outcome::Fail(_)))?;
+    Some(super::run::stopped_after_failure(stop, failed.codeunit, &failed.test))
 }
 
 /// The isolation of the runner the test codeunits of `suite` run under, or why none of them runs (`refused`). With
@@ -2391,22 +2427,14 @@ fn check_baseline_rule(lowered: &Lowered, units: &mut [Unit]) {
     );
 }
 
-/// Whether the static reach of test codeunit `oi` (its tests and its `OnRun`) can read or change isolated storage or a
+/// Whether the static reach of test codeunit `oi` (its tests, their handler functions and its `OnRun`) can read or change isolated storage or a
 /// number sequence, or is not fully known. Only such a codeunit can see what an earlier Disabled codeunit left there
 /// (`Carried::everything`); one that cannot reach them does not depend on it.
 pub(super) fn reaches_session_storage(engine: &Arc<al_vm::Engine>, lowered: &Lowered, oi: usize) -> bool {
     use super::written::{ReachIndex, state, union_reach_has};
     let index = engine.derived(|| ReachIndex::new(&engine.events, lowered));
-    let bits = state::ISOLATED_STORAGE | state::NUMBER_SEQUENCE | state::OTHER;
-    let o = &lowered.program.objects[oi];
-    let roots: Vec<(usize, usize)> = (0..o.routines.len())
-        .filter(|&r| {
-            let routine = &o.routines[r];
-            (routine.is_trigger && routine.name.eq_ignore_ascii_case("OnRun"))
-                || routine.attributes.iter().any(|a| a.name.eq_ignore_ascii_case("Test"))
-        })
-        .map(|r| (oi, r))
-        .collect();
+    let bits = state::ISOLATED_STORAGE | state::NUMBER_SEQUENCE | state::MAY_LEAVE;
+    let roots = super::handlers::unit_roots(lowered, oi, true);
     union_reach_has(&engine.events, lowered, &index, &roots, &|f| {
         f.unknown.is_some() || (f.state_reads | f.state_writes) & bits != 0
     })
@@ -2416,7 +2444,7 @@ pub(super) fn reaches_session_storage(engine: &Arc<al_vm::Engine>, lowered: &Low
 pub(super) fn refuse_all(done: &mut [(String, Outcome)], why: &str) {
     for (_, o) in done.iter_mut() {
         // A test the run did not reach before it stopped at its memory limit keeps that reason (ADR-066 amendment 10).
-        if !matches!(o, Outcome::NotRun(r) if r.starts_with(super::memory::REASON)) {
+        if !super::memory::stopped_by_limit(o) {
             *o = Outcome::NotRun(why.to_string());
         }
     }
@@ -2469,7 +2497,7 @@ fn app_contexts(
 pub(super) fn observed_detail(lowered: &Lowered, seen: &Observed) -> explain::TestDetail {
     let mut d = explain::detail(
         &lowered.program,
-        seen.session.fault_site(),
+        seen.site,
         seen.error.map(|e| explain::ErrorInfo {
             message: e.message.clone(),
             code: e.code.clone(),
@@ -2541,7 +2569,7 @@ fn note_leaks(units: &mut [Unit], carried: &[super::chain_walk::Carry], sees: &d
     for u in units.iter_mut() {
         if let Some((_, _, _, c)) = carried.iter().rev().find(|(si, id, leg, _)| sees(*si, *id, *leg, u)) {
             if u.leak.is_none() {
-                u.leak = Some(Arc::new(c.tables.clone()));
+                u.leak = super::carry_after::leak(Some(c));
             }
         }
     }

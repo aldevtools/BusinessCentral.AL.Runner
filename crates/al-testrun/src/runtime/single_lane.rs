@@ -25,6 +25,7 @@
 //! Amendment 6: with `--test-suites` (`RunOptions::test_suites`) each listed suite is a BC session of its own, in the
 //! file's order, and a codeunit in no suite is a session of its own ([`streams`]); without it the whole run is one.
 
+use super::carry_after::After;
 use super::chain_walk::Carry as ChainCarry;
 use super::lane_starts::{Ask, Deltas, Held, Reply, Starts, carried_start};
 use super::order_hint::STRICT_FLAG;
@@ -248,6 +249,18 @@ pub(super) fn analyse(outs: &[Option<&SingleOut>]) -> Found {
     found
 }
 
+/// [`analyse`] of the BC session `ks` (in order), from what each codeunit's run in `slots` noted.
+fn session_found(ks: &[usize], slots: &[Option<UnitResult>]) -> Found {
+    let outs: Vec<Option<&SingleOut>> = ks
+        .iter()
+        .map(|&k| match slots[k].as_ref().map(|r| &r.result) {
+            Some(Ok(done)) => done.5.singles_out.as_ref(),
+            _ => None,
+        })
+        .collect();
+    analyse(&outs)
+}
+
 impl Found {
     /// The lane for the dependent codeunits `chosen` (ADR-066 amendment 4): each one, the writers it needs, and the
     /// writers of a writer that is dependent itself (R2), to the end. With every dependent codeunit chosen, this is
@@ -270,6 +283,12 @@ impl Found {
         lane
     }
 
+    /// How many codeunits the chain of the codeunit at position `p` holds as far as the notes show ([`Found::lane_for`]
+    /// of it alone): the length `--max-replay` is checked against (ADR-066 amendment 7, option 2).
+    pub(super) fn chain_len(&self, p: usize) -> usize {
+        self.lane_for(&BTreeSet::from([p])).len()
+    }
+
     /// ADR-066 amendment 7, option 2: splits `chosen` into the codeunits whose own chain ([`Found::lane_for`] of it
     /// alone) holds at most `limit` codeunits, and the others with the length of their chain.
     pub(super) fn within_limit(
@@ -280,7 +299,7 @@ impl Found {
         let mut kept = BTreeSet::new();
         let mut over = BTreeMap::new();
         for &p in chosen {
-            let n = self.lane_for(&BTreeSet::from([p])).len();
+            let n = self.chain_len(p);
             if n > limit {
                 over.insert(p, n);
             } else {
@@ -589,16 +608,13 @@ struct Chain {
 /// Where a codeunit of a serial session starts, worked out on this thread (amendment 5). A baseline a carry-chain
 /// member left (RequiredTestIsolation = Disabled) holds `Rc`s and stays on the thread that made it, so a worker thread
 /// asks this thread for it as bytes ([`Starts`]), as the chain walk's helpers do (`chain_walk.rs`). The same choices as
-/// [`Lane::run_bound`].
+/// [`Lane::run_bound`] (`carry_after.rs` `run_in_session`).
 struct Step {
     k: usize,
-    /// A chain member starts from what the member before it left (the index of that member's carry); `None`: the
-    /// install baseline.
-    from: Option<usize>,
-    /// A codeunit that is no member and comes after one: whether it reaches session storage that member changed (then
-    /// it runs again whatever it read), and the carry it runs again from when it read a table that member wrote
-    /// (`None`: it keeps its first run).
-    again: Option<(bool, Option<usize>)>,
+    /// It is a chain member.
+    member: bool,
+    /// The carry of the last member it comes after (its index) and what of it the codeunit's run looks at.
+    after: Option<(usize, After)>,
 }
 
 /// A carried start a session needs cannot be written as bytes: the session runs on this thread from the baselines
@@ -624,31 +640,22 @@ impl Worker<'_> {
     ) -> Result<Option<UnitResult>, NoBytes> {
         let mut u = self.units[s.k].clone();
         u.watch = false;
-        let first = match s.from {
-            Some(carry) => match start(carry)? {
-                Some(b) => Some(b),
-                None => return Ok(None),
-            },
-            None => None,
+        let ci = s.after.as_ref().map(|(ci, _)| *ci);
+        let mut carried = || match ci {
+            Some(ci) => start(ci).map(|b| b.map(std::borrow::Cow::Owned)),
+            None => Ok(None),
         };
-        let mut r = run_unit(
-            self.engine,
-            self.lowered,
-            first.as_ref().or(install),
-            &u,
-            None,
-            self.limit,
-        );
-        drop(first);
-        if let Some((storage, again)) = s.again {
-            if storage || r.result.as_ref().is_ok_and(|done| done.5.leak_hit) {
-                let Some(carry) = again else { return Ok(None) };
-                let Some(from) = start(carry)? else { return Ok(None) };
-                super::run::CARRIED.with(|c| c.borrow_mut().take());
-                r = run_unit(self.engine, self.lowered, Some(&from), &u, None, self.limit);
-            }
-        }
-        Ok(Some(r))
+        let mut run = |from: Option<&al_vm::Baseline>, leak| {
+            u.leak = leak;
+            run_unit(self.engine, self.lowered, from, &u, None, self.limit)
+        };
+        super::carry_after::run_in_session(
+            s.after.as_ref().map(|(_, a)| a),
+            s.member,
+            install,
+            &mut carried,
+            &mut run,
+        )
     }
 }
 
@@ -697,8 +704,10 @@ impl Lane<'_> {
         // here were not reached, so their tests are not run, for the limit (ADR-066 amendment 10, decision 6).
         if self.pool.halted() {
             let halt = self.pool.halt();
-            for k in chains.iter().flat_map(|c| c.chosen.iter()) {
-                if let Some(Ok(done)) = slots[*k].as_mut().map(|r| &mut r.result) {
+            let mut cut: BTreeSet<usize> = chains.iter().flat_map(|c| c.chosen.iter().copied()).collect();
+            cut.extend(self.after_stop(slots));
+            for k in cut {
+                if let Some(Ok(done)) = slots[k].as_mut().map(|r| &mut r.result) {
                     super::corpus::refuse_all(&mut done.0, halt.reason());
                 }
             }
@@ -749,6 +758,87 @@ impl Lane<'_> {
         report.took += started.elapsed();
     }
 
+    /// In a run stopped at its hard memory limit (ADR-066 amendment 10, decision 6): the codeunits that come after one the
+    /// stop cut short in the same BC session and that the lane would run again with it as their writer. What the cut
+    /// codeunit would have left is not known, so whether they depend on it is not known either (al-runner issue 8368: a
+    /// reader of a SingleInstance global failed in parallel while its writer was not reached). The lane's own choice
+    /// decides, with every global the codeunit read first taken as changed (the cut codeunit left no notes): it is no
+    /// chain member that keeps the walk's single instances ([`Lane::walk_keeps`]), [`Lane::reruns`] takes it, and a
+    /// `--max-replay` cap holds both its chain as far as the session's notes show ([`Found::chain_len`]; a longer one is
+    /// skipped in a complete run too, which keeps the failure) and two codeunits (with only itself known, it depends
+    /// only through the cut codeunit, so that chain holds two). Only under BC's order: without it nothing runs again.
+    fn after_stop(&self, slots: &[Option<UnitResult>]) -> Vec<usize> {
+        if !self.bc_order {
+            return Vec::new();
+        }
+        let cut_short = |k: usize| match slots[k].as_ref().map(|r| &r.result) {
+            Some(Ok(done)) => done.0.iter().any(|(_, o)| super::memory::stopped_by_limit(o)),
+            _ => false,
+        };
+        let may_depend = |found: &Found, p: usize, k: usize| {
+            let slot = slots[k].as_ref();
+            let read_first: BTreeSet<GlobalKey> = match slot.map(|r| &r.result) {
+                Some(Ok(done)) => done
+                    .5
+                    .singles_out
+                    .as_ref()
+                    .map(|o| o.observed.keys().copied().collect())
+                    .unwrap_or_default(),
+                _ => BTreeSet::new(),
+            };
+            !read_first.is_empty()
+                && !self.walk_keeps(k)
+                && self.reruns(slot, Some(&read_first))
+                && self.replay_cap().is_none_or(|limit| limit >= found.chain_len(p).max(2))
+        };
+        let has = |k: usize| slots[k].is_some();
+        let mut out = Vec::new();
+        for ks in streams(self.units, self.place, &has, self.suites) {
+            if let Some(first) = ks.iter().position(|&k| cut_short(k)) {
+                let found = session_found(&ks, slots);
+                out.extend(
+                    (first + 1..ks.len())
+                        .filter(|&p| may_depend(&found, p, ks[p]))
+                        .map(|p| ks[p]),
+                );
+            }
+        }
+        out
+    }
+
+    /// The lane's choice for a dependent codeunit, from its parallel run in `slot` and the globals it read first that
+    /// the earlier codeunits left otherwise (`changed`; `None`: not known, each counts): whether its result comes
+    /// from a serial re-run. Under `replay_every_dependent` always (amendment 12, decision 4); else when a test of it
+    /// failed or did not run to its end (amendment 4, decision 2; amendment 5, decision 2) and that test, or one before
+    /// it, read a changed global (amendment 7, option 1). `--max-replay` ([`Lane::replay_cap`]) may still skip it.
+    fn reruns(&self, slot: Option<&UnitResult>, changed: Option<&BTreeSet<GlobalKey>>) -> bool {
+        if self.strict {
+            return true;
+        }
+        if !needs_serial_run(slot) {
+            return false;
+        }
+        let read_in = match slot.map(|r| &r.result) {
+            Some(Ok(done)) => done.5.singles_out.as_ref().map(|o| &o.read_in),
+            _ => None,
+        };
+        match (read_in, changed) {
+            (Some(read_in), Some(changed)) => failure_saw_change(read_in, changed, failure_bound(slot)),
+            _ => true,
+        }
+    }
+
+    /// A chain member whose walk run kept the single instances (amendment 8): never dependent, never run again.
+    fn walk_keeps(&self, k: usize) -> bool {
+        self.kept_chain && self.keeps_singles(k)
+    }
+
+    /// `--max-replay` (amendment 7, option 2): the most codeunits a re-run's chain may hold; `replay_every_dependent`
+    /// wins over it.
+    fn replay_cap(&self) -> Option<usize> {
+        self.max_replay.filter(|_| !self.strict)
+    }
+
     /// Analyses each BC session, flags its dependent codeunits, and returns the serial sessions to run.
     fn chains(&self, slots: &mut [Option<UnitResult>], report: &mut LaneReport) -> Vec<Chain> {
         let has = |k: usize| slots[k].is_some();
@@ -759,16 +849,7 @@ impl Lane<'_> {
         let mut counted: BTreeSet<usize> = BTreeSet::new();
         let mut refill_counted: BTreeSet<usize> = BTreeSet::new();
         for ks in streams {
-            let found = {
-                let outs: Vec<Option<&SingleOut>> = ks
-                    .iter()
-                    .map(|&k| match slots[k].as_ref().map(|r| &r.result) {
-                        Some(Ok(done)) => done.5.singles_out.as_ref(),
-                        _ => None,
-                    })
-                    .collect();
-                analyse(&outs)
-            };
+            let found = session_found(&ks, slots);
             // Amendment 12: the default claims no BC order, so nothing is flagged.
             for &p in found.refill_assumed.keys().filter(|_| self.bc_order) {
                 if !refill_counted.insert(ks[p]) {
@@ -786,7 +867,7 @@ impl Lane<'_> {
                 .dependent
                 .keys()
                 .copied()
-                .filter(|&p| !(self.kept_chain && self.keeps_singles(ks[p])))
+                .filter(|&p| !self.walk_keeps(ks[p]))
                 .filter(|&p| counted.insert(ks[p]))
                 .collect();
             if fresh.is_empty() {
@@ -820,27 +901,15 @@ impl Lane<'_> {
             let mut chosen: BTreeSet<usize> = BTreeSet::new();
             for &p in &fresh {
                 let slot = slots[ks[p]].as_ref();
-                if self.strict {
+                if self.reruns(slot, found.changed.get(&p)) {
                     chosen.insert(p);
                 } else if needs_serial_run(slot) {
-                    let read_in = match slot.map(|r| &r.result) {
-                        Some(Ok(done)) => done.5.singles_out.as_ref().map(|o| &o.read_in),
-                        _ => None,
-                    };
-                    let saw = match (read_in, found.changed.get(&p)) {
-                        (Some(read_in), Some(changed)) => failure_saw_change(read_in, changed, failure_bound(slot)),
-                        _ => true,
-                    };
-                    if saw {
-                        chosen.insert(p);
-                    } else {
-                        report.kept += 1;
-                    }
+                    report.kept += 1;
                 }
             }
             // Amendment 7, option 2, opt-in since the owner's change of 2026-11-08: with `--max-replay N`, a chain over
             // `N` is not replayed (not under `--strict-order`). Without it every chosen re-run is replayed in full.
-            if let Some(limit) = self.max_replay.filter(|_| !self.strict) {
+            if let Some(limit) = self.replay_cap() {
                 let (kept, over) = found.within_limit(&chosen, limit);
                 chosen = kept;
                 for (p, chain) in over {
@@ -1029,35 +1098,18 @@ impl Lane<'_> {
     fn plan(&self, order: &[usize]) -> Vec<Step> {
         order
             .iter()
-            .map(|&k| {
-                let Some(ci) = self.earlier_carry_index(k) else {
-                    return Step {
-                        k,
-                        from: None,
-                        again: None,
-                    };
-                };
-                let c = &self.carried[ci].3;
-                let start = match (&c.unfinished, &c.storage_why, &c.baseline) {
-                    (None, None, Some(_)) => Some(ci),
-                    _ => None,
-                };
-                if self.is_member(k) {
-                    return Step {
-                        k,
-                        from: start,
-                        again: None,
-                    };
-                }
-                let storage =
-                    c.everything && super::corpus::reaches_session_storage(self.engine, self.lowered, self.units[k].oi);
-                Step {
-                    k,
-                    from: None,
-                    again: Some((storage, start)),
-                }
+            .map(|&k| Step {
+                k,
+                member: self.is_member(k),
+                after: self.earlier_carry_index(k).map(|ci| (ci, self.after(ci, k))),
             })
             .collect()
+    }
+
+    /// What codeunit `k` looks at of carry `ci`.
+    fn after(&self, ci: usize, k: usize) -> After {
+        let (_, _, leg, c) = &self.carried[ci];
+        After::new(self.engine, self.lowered, c, self.units[k].oi, *leg)
     }
 
     /// The index of the last chain member's carry (RequiredTestIsolation = Disabled) that codeunit `k` comes after.
@@ -1068,42 +1120,29 @@ impl Lane<'_> {
             .rposition(|(si, id, leg, _)| (si, id) != (&u.si, &u.id) && (self.sees)(*si, *id, *leg, u))
     }
 
-    /// The last chain member's carry that codeunit `k` comes after, if any.
-    fn earlier_carry(&self, k: usize) -> Option<&ChainCarry> {
-        self.earlier_carry_index(k).map(|i| &self.carried[i])
-    }
-
-    /// Runs codeunit `k` of a session bound to this thread. `None`: it keeps its first run.
+    /// Runs codeunit `k` of a session bound to this thread. `None`: it keeps its first run. A codeunit that comes after
+    /// a member runs as `carry_after.rs` `run_in_session` says: the walk's rule for a member, and for one outside the
+    /// chain the re-run of `corpus.rs` (a default test handler that writes to a SingleInstance log for every test codeunit
+    /// puts every codeunit in the lane: corpus Y35OnRunStorage.al:453, C302_B2_TestWritesStorage).
     fn run_bound(&self, k: usize) -> Option<UnitResult> {
         let mut u = self.units[k].clone();
         u.watch = false;
-        let earlier = self.earlier_carry(k);
-        let base = match earlier {
-            Some((_, _, _, c)) if self.is_member(k) && c.unfinished.is_none() && c.storage_why.is_none() => {
-                c.baseline.as_ref().or(self.baseline)
-            }
-            _ => self.baseline,
+        let ci = self.earlier_carry_index(k);
+        let after = ci.map(|ci| self.after(ci, k));
+        let start = ci.and_then(|ci| self.carried[ci].3.baseline.as_ref());
+        let mut carried = || Ok::<_, std::convert::Infallible>(start.map(std::borrow::Cow::Borrowed));
+        let mut run = |from: Option<&al_vm::Baseline>, leak| {
+            u.leak = leak;
+            run_unit(self.engine, self.lowered, from, &u, None, self.limit)
         };
-        let mut r = run_unit(self.engine, self.lowered, base, &u, None, self.limit);
-        // A codeunit that is no chain member runs from the install baseline, and runs again from what an earlier
-        // member left when it read a table that member wrote or reaches session storage (`corpus.rs`, "run as
-        // before"). The lane does the same, or a codeunit in it loses the rows it reads (corpus Y35OnRunStorage.al:453,
-        // C302_B2_TestWritesStorage: a default test handler that writes to a SingleInstance log for every test
-        // codeunit puts every codeunit in the lane). A case `corpus.rs` refuses keeps its first run.
-        if let (false, Some((_, _, _, c))) = (self.is_member(k), earlier) {
-            let storage = c.everything && super::corpus::reaches_session_storage(self.engine, self.lowered, u.oi);
-            let hit = storage || r.result.as_ref().is_ok_and(|done| done.5.leak_hit);
-            if hit {
-                match (&c.unfinished, &c.storage_why, c.baseline.as_ref()) {
-                    (None, None, Some(from)) => {
-                        super::run::CARRIED.with(|c| c.borrow_mut().take());
-                        r = run_unit(self.engine, self.lowered, Some(from), &u, None, self.limit);
-                    }
-                    _ => return None,
-                }
-            }
-        }
-        Some(r)
+        let Ok(r) = super::carry_after::run_in_session(
+            after.as_ref(),
+            self.is_member(k),
+            self.baseline,
+            &mut carried,
+            &mut run,
+        );
+        r
     }
 
     /// ADR-066 amendment 8: chain members of session `ks` that read first a global a codeunit that is no member, earlier

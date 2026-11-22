@@ -75,12 +75,14 @@ impl Session {
         Ok(())
     }
 
-    pub(in crate::pages) fn store_page_values(&mut self, st: &St) {
+    /// Stores what the page's variable-bound controls hold; a request page also asks for or notes its Object Options row
+    /// (`saved_row.rs`). `by_ok`: the OK action closed the page.
+    pub(in crate::pages) fn store_page_values(&mut self, st: &St, by_ok: bool) -> Result<(), Signal> {
         if !self.save_values(st) {
-            return;
+            return Ok(());
         }
         if st.borrow().instance.is_none() {
-            return;
+            return Ok(());
         }
         let saved: Vec<(Option<usize>, usize, Value)> = self
             .var_slots(st)
@@ -92,22 +94,30 @@ impl Session {
             })
             .collect();
         let object = st.borrow().object;
+        if self.is_request_page(st) {
+            self.mirror_saved_row(st, &saved, by_ok);
+        }
         self.pages.saved_values.insert(object, saved);
+        Ok(())
     }
 
-    pub(in crate::pages) fn restore_page_values(&mut self, st: &St) {
+    pub(in crate::pages) fn restore_page_values(&mut self, st: &St) -> Result<(), Signal> {
         // The page `RunRequestPage` opens shows the defaults, not what an earlier OK stored
         // (reports/request-page/Y42RequestLeftOpen.al:723 RqOpen_RunRequestPage_SetValue `rrp log` `rp open text=init` after a
         // run that stored `prime`).
         if st.borrow().parameters_wanted {
-            return;
+            return Ok(());
         }
         let object = st.borrow().object;
-        let Some(saved) = self.pages.saved_values.get(&object).cloned() else {
-            return;
+        let mut saved = self.pages.saved_values.get(&object).cloned();
+        if self.is_request_page(st) {
+            saved = self.saved_through_row(st, saved)?;
+        }
+        let Some(saved) = saved else {
+            return Ok(());
         };
         let Some(inst) = st.borrow().instance.clone() else {
-            return;
+            return Ok(());
         };
         // A request page's variables that the caller set before the run (`SetParameters`) keep those values: corpus
         // reports/extensions/TestPrecompiledReportExtensionDataItems.al (Base Application's "Get Demand To Reserve"
@@ -166,5 +176,6 @@ impl Session {
                 _ => inst.borrow_mut().globals[slot] = detached(&v),
             }
         }
+        Ok(())
     }
 }
