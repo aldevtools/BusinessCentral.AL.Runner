@@ -535,8 +535,7 @@ codeunit 50302 "Repro Report Tx Tests"
         ReproPublisher.Raise();
     end;
 
-    // A set to Update after a write at the Snapshot a set after the Commit gave: the error text is measured from
-    // UpdateNoLocks only.
+    // An Insert at the Snapshot a set after the Commit gave: Snapshot does not write, so the Insert raises before the set.
     [Test]
     procedure CommitSetSnapshotInsertSetUpdate()
     var
@@ -679,21 +678,25 @@ fn an_update_report_without_its_page_runs_at_the_measured_moments_and_is_refused
             "AtTestStartWithoutWrite after a refused test that sets no type: expected a pass, got {o:?}"
         ));
     }
-    // A set to another type at the start of a codeunit's first test method: BC ignores it there (TxTypeNextTestMethod.al
-    // TxN01's comment), not pinned.
-    for t in ["SetSnapshotAtTestStart", "AutoRollbackSetUpdateAtStart"] {
-        match run_in_order(&[t]) {
-            Outcome::NotRun(r) if r.contains("at the start of a test codeunit's first test method") => {}
-            other => wrong.push(format!(
-                "{t} first: expected the first test method's refusal, got {other:?}"
-            )),
-        }
-    }
-    // A set to Update after a write at another type than UpdateNoLocks: refused, not DB:CannotChangeTransactionType.
-    match run_alone(&["CommitSetSnapshotInsertSetUpdate"]) {
-        Outcome::NotRun(r) if r.contains("after a database call while the type is Snapshot") => {}
+    // At the start of a codeunit's first test method the test runner's transaction has started: a set to Snapshot raises
+    // (session-system/TxTypeFirstTestMethod.al of the open probe); under AutoRollback that is not measured.
+    match run_in_order(&["SetSnapshotAtTestStart"]) {
+        Outcome::Fail(m) if m.ends_with("changed from UpdateNoLocks to Snapshot.") => {}
         other => wrong.push(format!(
-            "CommitSetSnapshotInsertSetUpdate: expected a refusal, got {other:?}"
+            "SetSnapshotAtTestStart first: expected DB:CannotChangeTransactionType, got {other:?}"
+        )),
+    }
+    match run_in_order(&["AutoRollbackSetUpdateAtStart"]) {
+        Outcome::NotRun(r) if r.contains("first test method under TransactionModel AutoRollback") => {}
+        other => wrong.push(format!(
+            "AutoRollbackSetUpdateAtStart first: expected a refusal, got {other:?}"
+        )),
+    }
+    // An Insert at Snapshot raises (record/TxTypeSetAfterCall.al TxS16 of the open probe).
+    match run_alone(&["CommitSetSnapshotInsertSetUpdate"]) {
+        Outcome::Fail(m) if m.starts_with("Write operations in the database") => {}
+        other => wrong.push(format!(
+            "CommitSetSnapshotInsertSetUpdate: expected DB:TransActionIsReadOnly, got {other:?}"
         )),
     }
     assert!(wrong.is_empty(), "{wrong:#?}");

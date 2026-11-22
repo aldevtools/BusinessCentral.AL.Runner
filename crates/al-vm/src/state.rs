@@ -23,6 +23,9 @@ pub(crate) struct TxState {
     pub(crate) type_origin: crate::transaction_type::TypeOrigin,
     /// A test method of this codeunit has ended (`Session::test_method_ended`): the next one starts with the type it left.
     pub(crate) test_ended: bool,
+    /// A rollback ended the test runner's transaction in a codeunit's first test method (`OpenTx::runner_tx`) and no Commit
+    /// came after it: a set of the type then rests on `first-test-rollback-ends-runner-transaction`.
+    pub(crate) runner_tx_rolled_back: bool,
     /// `Database.LockTimeout`: whether a lock wait ends in a timeout error.
     pub(crate) lock_timeout: bool,
     /// `Database.LockTimeoutDuration` in milliseconds.
@@ -255,6 +258,7 @@ impl TxState {
             transaction_type: 0,
             type_origin: Default::default(),
             test_ended: false,
+            runner_tx_rolled_back: false,
             lock_timeout: true,
             lock_timeout_duration: 10,
             committed_row_version: 0,
@@ -646,6 +650,9 @@ pub(crate) struct RunningReport {
     /// one page trigger above them belong to this run (`running_page_answer`).
     pub(crate) depth: usize,
     pub(crate) page_triggers: usize,
+    /// The run entered a transaction world of a TransactionType = Update report: its writes run in that world's
+    /// transaction, whatever the session's type (record/TxTypeUpdateReport.al TxU13 to TxU15 of corpus pull request 1488).
+    pub(crate) update_world: bool,
 }
 
 /// How a running report body was started (`report_preview_pinned`).

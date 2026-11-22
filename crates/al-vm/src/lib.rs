@@ -1603,6 +1603,7 @@ impl Session {
         // A transaction a lock opened counts as one that wrote: MinimumActiveRowVersion after it is not pinned.
         self.tx.last_commit_wrote = self.tx.phase == crate::transactions::TxPhase::Write || self.tx.open.locks.lock_tx;
         self.end_open_transaction();
+        self.tx.runner_tx_rolled_back = false;
         self.tx.rolled_back = false;
         self.tx.rollback_unpinned = None;
         self.tx.rollback_kind = None;
@@ -1667,6 +1668,7 @@ impl Session {
         self.rollbacks += 1;
         self.crm_rolled_back();
         self.sql.rolled_back();
+        self.tx.runner_tx_rolled_back |= self.tx.open.runner_tx;
         self.end_open_transaction();
         self.tx.rolled_back = true;
         self.isolated_storage = self.isolated_committed.clone();

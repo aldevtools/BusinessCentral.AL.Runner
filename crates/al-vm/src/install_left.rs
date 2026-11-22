@@ -453,6 +453,7 @@ impl Session {
             // Carried in InstallLeft.
             type_origin: _,
             test_ended,
+            runner_tx_rolled_back,
             lock_timeout,
             lock_timeout_duration,
             committed_row_version: _,
@@ -480,6 +481,7 @@ impl Session {
         let fresh = crate::state::TxState::fresh();
         *tx_world == fresh.tx_world
             && !test_ended
+            && !runner_tx_rolled_back
             && *commit_behavior == fresh.commit_behavior
             && *phase == fresh.phase
             && *lock_timeout == fresh.lock_timeout
