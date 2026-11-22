@@ -232,6 +232,16 @@ fn unmeasured_shapes_refuse() {
         ("o:~  q: .inf~n: 1", ""),
         ("o:~  q: a  , b~n: 1", ""),
         ("o:~  q: a, \u{e9}~n: 1", ""),
+        ("o:~  q: a -   b~  r: 2~n: 1", ""),
+        ("o:~  q: a ?   b~  r: 2~n: 1", ""),
+        (
+            "k:~  - a: x~    b: >-~      c d!~    e: 1",
+            "`>-` block line with punctuation as a later pair of a list item mapping",
+        ),
+        (
+            "q: \"a\u{a7},b\"~n: 1",
+            "a non-ASCII character next to punctuation in a double-quoted value",
+        ),
     ] {
         let got = outcome(src);
         assert!(got.starts_with("R:") && got.contains(reason), "{src:?}: {got}");

@@ -57,6 +57,24 @@ codeunit 61300 "YR Yaml Review R1 Tests"
     end;
 
     [Test]
+    procedure Refused_ThreeSpacesAfterLoneHyphen()
+    begin
+        ReadStmt('o:~  q: a -   b~  r: 2~n: 1');
+    end;
+
+    [Test]
+    procedure Refused_FoldedPunctuationAsLaterListItemPair()
+    begin
+        ReadStmt('k:~  - a: x~    b: >-~      c d!~    e: 1');
+    end;
+
+    [Test]
+    procedure Refused_NonAsciiNextToPunctuationInDoubleQuotes()
+    begin
+        ReadStmt('q: "a{S},b"~n: 1');
+    end;
+
+    [Test]
     procedure Refused_NonAsciiValueSpaceHashComment()
     begin
         ReadStmt('o:~  q: a{S} #b~  r: 2~n: 1');

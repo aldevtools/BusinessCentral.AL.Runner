@@ -95,9 +95,11 @@ pub(super) fn plain(body: &str, place: Place, doc: &str) -> Option<Cell> {
         return None;
     }
     // Two spaces only after a lone `-`, `?` or `:` (W of `- `, `? `, `: `: `a -  b`, `a :  b`, :209-212).
-    if value
-        .match_indices("  ")
-        .any(|(i, _)| !matches!(value.get(i.saturating_sub(2)..i), Some(" -" | " ?" | " :")))
+    // Never three spaces in a row: no cell measures a run of three (the allowlist is exactly two).
+    if value.contains("   ")
+        || value
+            .match_indices("  ")
+            .any(|(i, _)| !matches!(value.get(i.saturating_sub(2)..i), Some(" -" | " ?" | " :")))
     {
         return None;
     }

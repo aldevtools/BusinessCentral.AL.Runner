@@ -76,6 +76,7 @@ pub(super) fn document(text: &str) -> Result<Measured, Signal> {
         bad_break: false,
         yaml_error: false,
         in_item_map: 0,
+        later_pair: false,
         block_rows: Vec::new(),
     };
     let tree = match p.peek() {
@@ -160,6 +161,8 @@ struct Parser<'r, 'a> {
     yaml_error: bool,
     /// How many list item mappings the parser is inside (the matrix measured values in one, of a list under a top key).
     in_item_map: usize,
+    /// The value being read is a later pair of a list item mapping (the matrix measured `>-` as the first pair only).
+    later_pair: bool,
     /// The rows a block scalar took as its lines.
     block_rows: Vec<usize>,
 }
@@ -202,6 +205,7 @@ impl<'a> Parser<'_, 'a> {
 
     /// The `key: value` and `key:` lines at `indent`, added to `members` (the first pair of a list item mapping).
     fn mapping(&mut self, indent: usize, mut members: Vec<(String, Yaml)>) -> Result<Yaml, Signal> {
+        let item_map = !members.is_empty();
         while let Some(Row::Text { indent: at, text }) = self.peek() {
             if at < indent {
                 break;
@@ -211,7 +215,10 @@ impl<'a> Parser<'_, 'a> {
             }
             self.take();
             let (key, rest) = key_and_rest(text)?;
-            let value = self.value(indent, rest)?;
+            self.later_pair = item_map;
+            let value = self.value(indent, rest);
+            self.later_pair = false;
+            let value = value?;
             if members.iter().any(|(k, _)| *k == key) {
                 return unsupported("ReadFromYaml of a duplicate key (not measured)");
             }
@@ -414,6 +421,9 @@ impl<'a> Parser<'_, 'a> {
             .chars()
             .all(|c| utf8::letter(c) || c == ' ' || utf8::folded_punctuation(c));
         unsupported(match (folded, marks) {
+            _ if printable && self.later_pair && folded && col == 4 && self.in_item_map == 1 => {
+                "ReadFromYaml of a `>-` block line with punctuation as a later pair of a list item mapping (not measured)"
+            }
             (true, true) => "ReadFromYaml of a block scalar line that starts or ends with punctuation (not measured)",
             (false, true) if !self.matrix_block(col, ind) => {
                 "ReadFromYaml of punctuation in a `|`, `|-` or `>` line at this place (not measured)"
@@ -424,7 +434,7 @@ impl<'a> Parser<'_, 'a> {
 
     /// A block scalar at a place of the matrix of PR 1519 (:443-667).
     fn matrix_block(&self, col: usize, ind: &str) -> bool {
-        (col == 0 && self.in_item_map == 0) || (col == 4 && self.in_item_map == 1 && ind == ">-")
+        (col == 0 && self.in_item_map == 0) || (col == 4 && self.in_item_map == 1 && ind == ">-" && !self.later_pair)
     }
 
     /// A block line holding a raw U+0085, U+2028 or U+2029: measured in a top `>-` line of ASCII letters only, the break
@@ -630,6 +640,12 @@ fn quoted(v: &str) -> Result<Yaml, Signal> {
     let mut out = String::new();
     let mut closed = false;
     while let Some(c) = chars.next() {
+        // PR 1515 measured non-ASCII letters in double quotes of letters and spaces only, never beside `$-<>+,.`.
+        if q == Some('"') && !c.is_ascii() && v.contains(['$', '-', '<', '>', '+', ',', '.']) {
+            return unsupported(
+                "ReadFromYaml of a non-ASCII character next to punctuation in a double-quoted value (not measured)",
+            );
+        }
         match (q, c) {
             (Some('"'), '\\') => match chars.next() {
                 Some('"') => out.push('"'),
