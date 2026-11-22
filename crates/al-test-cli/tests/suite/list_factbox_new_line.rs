@@ -48,13 +48,13 @@ fn outcomes(src: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<Assumption>)
 const PROBE: &str = include_str!("../fixtures/outside-fb/Issue8188Probe.al");
 const REPRO: &str = include_str!("../fixtures/outside-fb/Issue8188.al");
 
-/// The probe's two tests and the reporter's two pass, each flagged by the assumption list-factbox-new-line.
+/// The probe's two tests (pages/parts/ListHostFactBoxNewLine.al:158-202) and the reporter's two pass, unmarked.
 #[test]
 fn issue_8188_list_factbox_follows_the_new_line() {
     for (src, codeunit) in [(PROBE, "LT FB Tests"), (REPRO, "Repro FactBox Tests")] {
         let bad: Vec<_> = outcomes(src, codeunit)
             .into_iter()
-            .filter(|(_, o, marks)| *o != Outcome::Pass || !marks.contains(&Assumption::ListFactboxNewLine))
+            .filter(|(_, o, marks)| *o != Outcome::Pass || !marks.is_empty())
             .collect();
         assert!(bad.is_empty(), "{codeunit}: {bad:#?}");
     }
@@ -408,9 +408,9 @@ const MAIN_ROW: &str = "OBSERVE open=P.AGR(A);F.AGR(A);F.AGCR(A); | part=Alpha |
     setname=F.AGR(B);F.AGCR(B); | part3= | prev=Yes/A | prevlog=F.AGR(A);F.AGCR(A); | part4=Alpha | next=Yes/B | \
     nextlog=P.AGR(B);F.AGR(B);F.AGCR(B); | part5=N | next2=Yes/ | next2log= | part6= | close= | ";
 
-/// The outcome `name` of `o` is the failure `text` (an observation), and no test went through list-factbox-new-line.
+/// The outcome `name` of `o` is the failure `text` (an observation), and no test went through an assumption.
 fn reads(o: &[(String, Outcome, Vec<Assumption>)], name: &str, text: &str) -> bool {
-    o.iter().all(|(_, _, m)| !m.contains(&Assumption::ListFactboxNewLine))
+    o.iter().all(|(_, _, m)| m.is_empty())
         && o.iter()
             .any(|(n, r, _)| n == name && matches!(r, Outcome::Fail(t) if t.as_str() == text))
 }
@@ -649,7 +649,7 @@ fn issue_8188_key_table_relation_keeps_main() {
 
 /// On the probe's pages, a SetValue that raises an error after the open of an empty view ends the steps: the later SetValues
 /// and Close read what main (al-runner 5d12a5580) reads (`setno=`, `setname=F.AGR(B);F.AGCR(B);`); only the open is the
-/// assumption's (`open=F.AGCR();`, main `open=`).
+/// pinned step's (`open=F.AGCR();`, ListHostFactBoxNewLine.al:162; main `open=`).
 #[test]
 fn issue_8188_set_value_error_ends_the_steps() {
     let o = observe_errors(|s| s.to_string());
@@ -661,5 +661,5 @@ fn issue_8188_set_value_error_ends_the_steps() {
         outcome,
         Outcome::Fail("OBSERVE open=F.AGCR(); | err= | setno= | setname=F.AGR(B);F.AGCR(B); | close= | ".into())
     );
-    assert!(marks.contains(&Assumption::ListFactboxNewLine));
+    assert!(marks.is_empty());
 }

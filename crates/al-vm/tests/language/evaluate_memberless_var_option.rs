@@ -1,8 +1,7 @@
 //! `Evaluate` into a `var` Option parameter declared without members, or into an element of a `var` array of such Options
-//! (al-runner issue 7994): the text is read against the caller's members (assumption var-option-caller-members, corpus PR
-//! 1432, OptionVarMemberlessEvaluate.al; Microsoft's System Application test `Json Test`.
-//! TestGetEnumPropertyValueFromJObjectByName passes on BC 28.4). A caller without members has none to read; a blank text from
-//! a caller with an empty member or without members refuses (not measured). The neighbors keep their results. More shapes: `var_option_member_lists.rs`.
+//! (al-runner issue 7994): the text is read against the caller's members (tests/al-language/types/enum-option/
+//! OptionVarMemberlessEvaluate.al). A caller without members has none to read; a blank text from
+//! a caller with an empty member or without members refuses (not pinned). The neighbors keep their results. More shapes: `var_option_member_lists.rs`.
 
 use al_builtins::native::Signal;
 use al_testkit::text;
@@ -165,19 +164,16 @@ codeunit 69812 Subs
 }
 "#;
 
-fn assumed(routine: &str) -> String {
+fn pinned(routine: &str) -> String {
     al_builtins::assumptions::clear_hits();
     let out = text(al_testkit::run_in(SRC, "C", routine));
-    assert!(
-        al_builtins::assumptions::take_hits().contains(&al_builtins::assumptions::Assumption::VarOptionCallerMembers),
-        "{routine}: not flagged"
-    );
+    assert!(al_builtins::assumptions::take_hits().is_empty(), "{routine}: flagged");
     out
 }
 
 #[test]
 fn a_member_name_of_a_caller_with_members_reads_its_members() {
-    assert_eq!(assumed("LocalByMemberName"), "Second");
+    assert_eq!(pinned("LocalByMemberName"), "Second");
 }
 
 #[test]
@@ -194,12 +190,12 @@ fn a_member_name_in_an_event_subscriber_of_a_caller_without_members_raises_the_e
 
 #[test]
 fn a_member_name_of_a_record_field_caller_reads_its_members() {
-    assert_eq!(assumed("FieldByMemberName"), "Second");
+    assert_eq!(pinned("FieldByMemberName"), "Second");
 }
 
 #[test]
 fn a_member_name_with_the_result_used_reads_the_caller_s_members() {
-    assert_eq!(assumed("FieldByMemberNameResultUsed"), "Yes");
+    assert_eq!(pinned("FieldByMemberNameResultUsed"), "Yes");
 }
 
 #[test]
@@ -224,12 +220,12 @@ fn a_blank_text_from_a_caller_with_an_empty_member_is_refused() {
 
 #[test]
 fn a_blank_text_from_a_caller_with_a_blank_member_reads_that_member() {
-    assert_eq!(assumed("BlankMemberCallerBlankText"), "0");
+    assert_eq!(pinned("BlankMemberCallerBlankText"), "0");
 }
 
 #[test]
 fn a_member_name_into_an_element_of_a_var_array_keeps_the_caller_s_members() {
-    assert_eq!(assumed("ArrayElementByMemberName"), "Second");
+    assert_eq!(pinned("ArrayElementByMemberName"), "Second");
 }
 
 #[test]

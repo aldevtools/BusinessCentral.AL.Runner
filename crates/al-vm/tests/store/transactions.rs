@@ -98,6 +98,16 @@ fn run(body: &str) -> Result<Value, Signal> {
 /// Like `run`, with extra objects and a hook that sets the session up the way the test runner
 /// does (`tx_model`, `in_test_codeunit`) before F is called.
 fn run_in(extra: &str, body: &str, setup: impl FnOnce(&mut Session)) -> Result<Value, Signal> {
+    run_on(extra, body, |_| {}, setup)
+}
+
+/// Like `run_in`, with a hook that sets the engine up the way a run does before the session starts.
+fn run_on(
+    extra: &str,
+    body: &str,
+    engine_setup: impl FnOnce(&mut Engine),
+    setup: impl FnOnce(&mut Session),
+) -> Result<Value, Signal> {
     let src = format!("{FIXTURES}\n{extra}\ncodeunit 50100 C {{ {body} }}");
     let l = al_testkit::compile(&src);
     let blocked: Vec<Vec<Option<String>>> = l
@@ -114,7 +124,8 @@ fn run_in(extra: &str, body: &str, setup: impl FnOnce(&mut Session)) -> Result<V
     if let Some(Some(r)) = blocked.get(oi).and_then(|o| o.get(ri)) {
         panic!("F is blocked: {r}");
     }
-    let engine = Engine::new(l.program, blocked);
+    let mut engine = Engine::new(l.program, blocked);
+    engine_setup(std::sync::Arc::get_mut(&mut engine).expect("a fresh engine"));
     let mut s = Session::new(engine);
     setup(&mut s);
     let inst = s.instance(oi);
@@ -327,26 +338,27 @@ fn a_nested_guarded_run_that_fails_leaves_the_outer_run_working() {
     );
 }
 
-// codeunits/TestCodeunitRunErrorTextsAndModels.al:162-196: text and code of a run of an id no object declares. The emit version is a number.
+// codeunits/TestCodeunitRunErrorTextsAndModels.al:162-196: text and code of a run of an id no object declares. The number
+// is the emit version of the run's build (assumption `missing-object-emit-version-from-artifact`).
 #[test]
 fn running_a_codeunit_id_that_does_not_exist_raises_the_metadata_error() {
-    let r = run("procedure F(): Text begin Codeunit.Run(99990); exit(''); end;");
+    let body = "procedure F(): Text begin Codeunit.Run(99990); exit(''); end;";
+    let r = run_on(
+        "",
+        body,
+        |e| e.emit_version = al_vm::emit_version::EmitVersion::known(28015),
+        |_| {},
+    );
     let Err(Signal::Error(e)) = r else { panic!("{r:?}") };
-    assert!(
-        e.message.starts_with("You tried to invoke the CodeUnit object with the ID 99990 from the object C. An object with that ID does not exist in the current application compiled with emit version "),
-        "{}",
-        e.message
+    assert_eq!(
+        e.message,
+        "You tried to invoke the CodeUnit object with the ID 99990 from the object C. An object with that ID does not exist in the current application compiled with emit version 28015."
     );
-    assert!(
-        e.message.ends_with('.')
-            && e.message
-                .trim_end_matches('.')
-                .rsplit(' ')
-                .next()
-                .unwrap()
-                .parse::<u32>()
-                .is_ok()
-    );
+    assert_eq!(e.code, "AL:MetadataNotFound");
+    // Without the number the error is still raised, with its code and a text no reader may see.
+    let r = run(body);
+    let Err(Signal::Error(e)) = r else { panic!("{r:?}") };
+    assert!(al_builtins::native::text_unpinned(&e), "{}", e.message);
     assert_eq!(e.code, "AL:MetadataNotFound");
 }
 

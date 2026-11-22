@@ -34,7 +34,7 @@ impl Session {
     /// temporary record, a record that was never read, a row that is not stored or not newer than the record) or read a row
     /// version written in the open transaction, else the
     /// RecordChanged error in the measured shape and a refusal outside it. `from_al`: AL code called Rename
-    /// (`TxState::rename_from_al`); `own_note`: the length of `TxState::writes` before the Rename's own note; `refs`: the
+    /// (`TxState::rename_from_al`); `own_note`: the length of `OpenTx::writes` before the Rename's own note; `refs`: the
     /// relations to `t` (`rename_references`).
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn stale_rename(
@@ -150,7 +150,7 @@ impl Session {
         }
         // What made it stale: since the last Commit the only write is one Record Modify of this row (`StaleCopy.Modify()`,
         // :887), beside the Rename's own note, and no lock or rollback.
-        let one_modify = match &tx.writes[..own_note] {
+        let one_modify = match &tx.open.writes[..own_note] {
             [w] => {
                 w.kind == TxWriteKind::Modify
                     && w.bulk.is_none()
@@ -162,13 +162,13 @@ impl Session {
             _ => false,
         };
         if !(one_modify
-            && tx.writes.len() == own_note + 1
+            && tx.open.writes.len() == own_note + 1
             && self.writes_all_noted()
             && !tx.rolled_back
-            && !tx.lock_tx
-            && tx.locked_tables.is_empty()
-            && !tx.recref_lock_tx
-            && tx.lock_unpinned.is_none()
+            && !tx.open.locks.lock_tx
+            && tx.open.locked_tables.is_empty()
+            && !tx.open.locks.recref_lock_tx
+            && tx.open.locks.lock_unpinned.is_none()
             && !self.locking_read_in_tx())
         {
             return Err(

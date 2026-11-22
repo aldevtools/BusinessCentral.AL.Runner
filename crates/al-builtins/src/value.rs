@@ -517,6 +517,10 @@ pub struct RecordState {
     /// The company set by `ChangeCompany` or `RecordRef.Open(.., Company)`, as the Company table
     /// names it; `None` is the session company.
     pub company: Option<String>,
+    /// A `ChangeCompany` call succeeded on this variable, also to the session's own company or '' (which leave `company`
+    /// at `None`), or on a record `Copy` took this one from. No method clears it. It only marks state the corpus does not
+    /// measure: al-vm `modify_all_audit_field` refuses on it.
+    pub change_company_called: bool,
     /// The table is `TableType = CRM`: any use needs a registered table connection
     /// (session-system/TestCrmTableNoConnectionContracts.al).
     pub crm: bool,
@@ -595,6 +599,8 @@ pub struct RecordState {
     pub row_origin: Option<RowOrigin>,
     /// The variable's own Insert and its own Get of that row after it (see [`OwnRead`]).
     pub own_read: OwnRead,
+    /// The read of a row holding a Time stored past the day that the variable's buffer holds (see [`RolledRead`]).
+    pub rolled_read: RolledRead,
     /// The record is a source the Blob copy probes measured (see [`ProbedSource`]).
     pub probed_source: ProbedSource,
     /// The table's and its extensions' global variables of this record variable (ADR-021).
@@ -602,10 +608,14 @@ pub struct RecordState {
     /// Every use of the record refuses with this reason: what its buffer holds is not pinned (the row a page closed on after
     /// `Page.RunModal(Id, Rec)` called as a statement, see `hand_back_selection`).
     pub unpinned_buffer: Option<&'static str>,
-    /// A by-value copy whose filters were dropped on an assumption (`by-value-record-no-filters` or
-    /// `by-value-table-proc-other-table`, al-vm `records/by_value_view.rs`): a read of its view marks it. Clones of the state
+    /// A by-value copy whose filters were dropped on an assumption (`by-value-table-proc-other-table`,
+    /// al-vm `records/by_value_view.rs`): a read of its view marks it. Clones of the state
     /// keep it; `Reset`, `SetView` and `Clear` end it.
     pub view_assumption: Option<crate::assumptions::Assumption>,
+    /// A by-value copy that did not take its caller's SetAutoCalcFields (al-vm `records/by_value_view.rs`
+    /// `measured_auto_calc`): a row read of it that calculates no field marks `by-value-record-no-auto-calc`
+    /// (al-vm `flowfields.rs` `auto_calculate`). Clones of the state keep it.
+    pub auto_calc_dropped: bool,
     /// The filters an action's `RunPageLink` put on this Rec of the page it opened: a copy of Rec passed by value does not
     /// carry them (testpage/TestActionRunPageLinkFilterGroup.al:292-369, `filters=` in OnOpenPage and OnAfterGetCurrRecord).
     pub run_page_link: Option<Rc<Vec<crate::filter::FieldFilter>>>,
@@ -641,6 +651,30 @@ impl Clone for OwnRead {
     fn clone(&self) -> Self {
         OwnRead(None)
     }
+}
+
+/// The primary key of a database row holding a Time stored as 23:59:59.999 (al-vm `sqltime::is_rolled`) and which read put
+/// it into the buffer: the variable's own `Get` from AL code, or ModifyAll's read of each row. A Modify keeps the stored value
+/// of such a field only after that read (al-vm `records/time_rollover.rs`). Every other load, every record method but Modify,
+/// `:=` into the variable and a builtin given the variable end it; a Modify uses it up.
+///
+/// `Clone` gives `None`: a copy of a record state (a record passed by value, xRec) is not the variable that read the row.
+#[derive(Debug, Default)]
+pub struct RolledRead(pub Option<(RolledReadBy, Vec<Value>)>);
+
+impl Clone for RolledRead {
+    fn clone(&self) -> Self {
+        RolledRead(None)
+    }
+}
+
+/// Which read made a [`RolledRead`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RolledReadBy {
+    /// `Get` that AL code called on a Record variable.
+    Get,
+    /// ModifyAll, for the row it modifies.
+    ModifyAll,
 }
 
 /// See [`OwnRead`].
@@ -684,7 +718,7 @@ pub struct RowOrigin {
     /// A read by a Find, FindFirst, FindLast, FindSet or Next, not by Get, gave the buffer its committed version.
     pub from_find: bool,
     /// A `Get` gave the buffer its version (not GetBySystemId, not a Find), committed or written in the open transaction. Read
-    /// only by the xRec rule of al-runner issue 8189 (al-vm `records/nested_validate.rs` `measured_buffer`).
+    /// only by the xRec rule of record/validate/XRecTableProcThroughCodeunit.al (al-vm `records/nested_validate.rs` `measured_buffer`).
     pub by_get: bool,
 }
 
@@ -1435,7 +1469,7 @@ pub struct ModuleInfoState {
     pub version: Option<[i32; 4]>,
     pub dependencies: Vec<[u8; 16]>,
     /// The module BC makes up for the null app id: only its data version is pinned
-    /// (session-system/TestEnvironmentUserTenantContracts.al:195-201); the other properties are refused.
+    /// (session-system/TestEnvironmentUserTenantContracts.al:192-198); the other properties are refused.
     pub synthesized: bool,
 }
 
@@ -1467,11 +1501,20 @@ pub struct Instance {
     pub born: Born,
     /// The session watches this single instance's globals (al-vm `single_track.rs`).
     pub single: bool,
-    /// Why what this single instance holds is not the value BC has: every read of one of its globals is refused with this
-    /// reason (al-vm `single_unmeasured.rs`). `None` for every other instance.
-    pub unmeasured: Option<Rc<str>>,
+    /// What a read of one of this single instance's globals does, when the run found its state somewhere no pin covers
+    /// (al-vm `single_unmeasured.rs`). `None` for every other instance.
+    pub unmeasured: Option<SingleMark>,
     /// Counts the instance as live while it exists (`instance_cycles::live`).
     pub live: crate::instance_cycles::LiveCount,
+}
+
+/// The mark of a single instance whose state the run found somewhere no pin covers ([`Instance::unmeasured`]).
+#[derive(Debug, Clone)]
+pub enum SingleMark {
+    /// What it holds is not BC's value: every read of one of its globals is refused with this reason.
+    Refused(Rc<str>),
+    /// What it holds is BC's value by this assumption entry: every read of one of its globals marks it.
+    Assumed(crate::assumptions::Assumption),
 }
 
 thread_local! {
