@@ -1902,7 +1902,7 @@ impl Session {
                 }
                 let xrec = Self::validate_xrec_handle(rec, &before);
                 let outermost = outer.is_none().then_some(before);
-                self.while_validating(entry, rec, outermost, |s| {
+                self.while_validating(entry, rec, &xrec, outermost, |s| {
                     s.validate_hooks(&t, rec, &xrec, field, snapshot)
                 })?;
                 if sum_flowfield {

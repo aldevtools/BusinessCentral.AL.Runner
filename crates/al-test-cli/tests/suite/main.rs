@@ -291,6 +291,7 @@ mod xmlport_windows_import_refusals;
 mod xrec_part_triggers_shape;
 mod xrec_proc_call_scope;
 mod xrec_table_procedure_from_onvalidate;
+mod xrec_through_subscriber;
 mod xrec_validate_event;
 mod y14_pins;
 mod y17_expr_refresh;
