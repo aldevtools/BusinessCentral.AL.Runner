@@ -76,7 +76,9 @@ fn summary(first: &str) -> String {
 }
 
 impl Session {
-    /// Whether a collecting scope is open, so that `collect_error` keeps a collectible error.
+    /// Whether a collecting scope is open, so that `collect_error` keeps a collectible error. A TestField with a collectible
+    /// ErrorInfo asks it too (records/recmeta.rs); in a page background task's worker the test session's scope is not open,
+    /// so the worker's TestField fails the task (corpus PR 1516, BgTaskWorkerSessionShapes.al:98).
     pub(crate) fn collect_error_if_collecting(&self) -> bool {
         self.bg_note_worker_collection();
         !self.error_scopes.starts.is_empty()

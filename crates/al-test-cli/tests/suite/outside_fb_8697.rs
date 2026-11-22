@@ -11,6 +11,10 @@ fn outcomes(codeunit: &str) -> Vec<(String, Outcome, Vec<Assumption>)> {
         include_str!("../../../../tests/neighbors/8697-bg-worker-last-error/src/Probe.al"),
         include_str!("../../../../tests/neighbors/8697-bg-worker-last-error/src/Neighbors.al"),
         include_str!("../../../../tests/neighbors/8697-bg-worker-last-error/src/Assert.al"),
+        include_str!("../../../../tests/neighbors/8697-bg-worker-last-error/src/ProbeShapes.al"),
+        include_str!("../../../../tests/neighbors/8697-bg-worker-last-error/src/ProbeLastErrorObject.al"),
+        include_str!("../../../../tests/neighbors/8697-bg-worker-last-error/src/CemFixtures.al"),
+        include_str!("../../../../tests/neighbors/8697-bg-worker-last-error/src/NeighborsMore.al"),
     ]
     .join("\n");
     let l = al_testkit::compile_apps(vec![al_testkit::app(&src)]);
@@ -74,4 +78,17 @@ fn issue_8697_neighbors() {
         let clean = name == "WorkerUnhandledError_TryFunctionAroundTheCall_TheWorkersError";
         assert_eq!(marks.contains(&BgTaskWorkerLastError), !clean, "{name}: {marks:?}");
     }
+}
+
+/// A collectible TestField the worker raises while the test session collects fails the task, as BC does; main collected it in
+/// the test session's scope (corpus PR 1516, BgTaskWorkerSessionShapes.al:98).
+#[test]
+fn issue_8697_worker_collectible_testfield() {
+    let o = outcomes("LWS Tests");
+    let (name, r, marks) = o
+        .iter()
+        .find(|(n, ..)| n == "TestSessionCollects_WorkerCollectibleTestField_FailsTheTask")
+        .expect("the cell");
+    assert_eq!(*r, Outcome::Pass, "{name}");
+    assert!(marks.contains(&BgTaskWorkerLastError), "{name}: {marks:?}");
 }
