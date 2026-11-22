@@ -208,7 +208,11 @@ impl al_builtins::native::Ctx for Session {
         Session::auto_format_writer_refusal(self, kind, false)
     }
     fn last_error(&self) -> AlError {
+        self.bg_note_last_error_read();
         self.last_error.clone()
+    }
+    fn session_without_error(&self) -> bool {
+        self.bg_worker_without_error()
     }
     fn set_last_error(&mut self, e: AlError) {
         self.set_last_error_of_builtin(e);
