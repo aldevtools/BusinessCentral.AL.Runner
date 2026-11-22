@@ -2428,7 +2428,7 @@ fn check_baseline_rule(lowered: &Lowered, units: &mut [Unit]) {
 pub(super) fn reaches_session_storage(engine: &Arc<al_vm::Engine>, lowered: &Lowered, oi: usize) -> bool {
     use super::written::{ReachIndex, state, union_reach_has};
     let index = engine.derived(|| ReachIndex::new(&engine.events, lowered));
-    let bits = state::ISOLATED_STORAGE | state::NUMBER_SEQUENCE | state::OTHER;
+    let bits = state::ISOLATED_STORAGE | state::NUMBER_SEQUENCE | state::MAY_LEAVE;
     let roots = super::handlers::unit_roots(lowered, oi, true);
     union_reach_has(&engine.events, lowered, &index, &roots, &|f| {
         f.unknown.is_some() || (f.state_reads | f.state_writes) & bits != 0
