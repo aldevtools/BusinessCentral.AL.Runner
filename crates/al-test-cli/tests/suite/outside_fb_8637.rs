@@ -9,6 +9,7 @@ use al_test_cli::report::Outcome;
 const PROBE: &str = include_str!("../../../../tests/neighbors/8637-bg-cache-filtered-reads/src/Probe.al");
 const NEIGHBORS: &str = include_str!("../../../../tests/neighbors/8637-bg-cache-filtered-reads/src/Neighbors.al");
 const REPRO: &str = include_str!("../../../../tests/neighbors/8637-bg-cache-filtered-reads/src/Repro.al");
+const MORE: &str = include_str!("../../../../tests/neighbors/8637-bg-cache-filtered-reads/src/MoreNeighbors.al");
 
 fn outcomes(src: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<Assumption>)> {
     let src = format!("{src}\n{}", include_str!("../fixtures/outside-sc/Assert.al"));
@@ -307,5 +308,26 @@ fn issue_8637_bq13_cells() {
         }
         assert_eq!(*r, Outcome::Pass, "{name}");
         assert!(marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
+    }
+}
+
+/// Neighbors from the reviews of al-runner PRs 8656 and 8682 (MoreNeighbors.al; BC answers each from the cache, a local BC
+/// 29.1 container, 3 runs). A worker's Count of a group ascending twice answers the first read, flagged; ascending then
+/// descending reads the table here (the entry is keyed by the sort direction, BC shares it), as on main. A count and an exist
+/// over a count FlowField of the row, a CalcSums with no filter, and a CalcFields and a CalcSums after SetAscending(false)
+/// compute again, as on main: a page background task's CalcFields and CalcSums are al-runner issue 8677's.
+#[test]
+fn issue_8637_more_neighbors() {
+    let src = format!("{PROBE}\n{MORE}");
+    let o = outcomes(&src, "BQ More Tests");
+    assert_eq!(o.len(), 7);
+    for (name, r, marks) in &o {
+        if name.starts_with("CountAscendingTwice") {
+            assert_eq!(*r, Outcome::Pass, "{name}");
+            assert!(marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
+            continue;
+        }
+        assert!(matches!(r, Outcome::Fail(_)), "{name}: {r:?}");
+        assert!(!marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
     }
 }
