@@ -522,3 +522,27 @@ fn every_kind_of_value_the_login_leaves_compares_exactly() {
         assert_ne!(held(&firsts, 0, id), held(&firsts, 1, id), "{id}");
     }
 }
+
+// A backing that does not say who it is (`Backing::identity` `None`, the trait's default) may offer other rows than
+// another such backing: if the two gave one key, a replay could hand one session the store another backing's login made.
+// Each session over such a backing is a key of its own (maintainer's review of al-runner PR 8447).
+#[test]
+fn two_backings_that_do_not_say_who_they_are_are_never_one_key() {
+    struct Unnamed;
+    impl al_data::memory::Backing for Unnamed {
+        fn company(&self) -> &str {
+            ""
+        }
+        fn rows(&self, _: &str, _: u32) -> Option<al_data::memory::Rows> {
+            None
+        }
+    }
+    let (engine, _) = compiled();
+    let key = || {
+        let mut s = Session::new(engine.clone());
+        let store = std::mem::take(s.store_mut());
+        *s.store_mut() = store.with_backing(std::rc::Rc::new(Unnamed));
+        crate::login_replay::Key::of(&mut s, false, Default::default())
+    };
+    assert_ne!(key(), key());
+}

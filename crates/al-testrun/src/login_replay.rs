@@ -25,7 +25,7 @@ pub(crate) struct Key {
     /// Rows written and not committed before the login: the login reads them.
     uncommitted: bool,
     /// Who offers the rows of the tables no write reached (the test data, `MemStore::backing_identity`).
-    backing: Option<(u64, u64)>,
+    backing: BackingKey,
     /// The session state before the login (`Session::state_lines`): language, WorkDate, number sequences, isolated
     /// storage, SingleInstance globals, manual bindings, `Random`, filter group 1, the clock offset, the Guid key and
     /// draws, row versions, AutoIncrement counters, the last error.
@@ -64,7 +64,7 @@ impl Key {
         let store = session.store_mut();
         let database = digest(&committed_rows(store));
         let uncommitted = store.has_uncommitted();
-        let backing = store.backing_identity();
+        let backing = BackingKey::of(store.backing_identity());
         let resources = {
             let overrides = session
                 .engine
@@ -99,6 +99,26 @@ impl Key {
             flags,
             license: session.engine.license.clone(),
         }
+    }
+}
+
+/// Who offers the rows of the tables no write reached, as a field of [`Key`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum BackingKey {
+    /// `MemStore::backing_identity`: two backings with the same identity offer the same rows (`Backing::identity`).
+    Known((u64, u64)),
+    /// The backing does not say who it is (`Backing::identity` `None`: not known), so it may offer other rows than
+    /// another such backing: a number no other session gets, so that the key matches no other key.
+    Unknown(u64),
+}
+
+impl BackingKey {
+    fn of(identity: Option<(u64, u64)>) -> BackingKey {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        identity.map_or_else(
+            || BackingKey::Unknown(NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)),
+            BackingKey::Known,
+        )
     }
 }
 
@@ -328,7 +348,7 @@ mod tests {
         Key {
             database: 1,
             uncommitted: false,
-            backing: None,
+            backing: BackingKey::Known((0, 0)),
             session: 2,
             company: "C".into(),
             seed: 0,
