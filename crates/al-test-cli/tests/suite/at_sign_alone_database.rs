@@ -1,13 +1,15 @@
-//! `@` alone with no pattern keeps only the blank values when the database reads the rows, and every row of a temporary record
-//! (al-builtins `filter_at_sign`, assumption `at-sign-alone-database-blank`): BQ Tests 9b and 9c of open corpus pull request
-//! 1495 (tests/al-language/pages/background-tasks/BgTaskQueryCache.al), and the neighbors. The AL is the neighbor app's
-//! (tests/neighbors/at-sign-alone-database), one copy. Delete this file when the pin is in the corpus.
+//! `@` alone and `<>@` alone answer as BC reads the rows (al-builtins `filter_at_sign`, assumption
+//! `at-sign-alone-database-blank`): BQ Tests 9b and 9c of open corpus pull request 1495
+//! (tests/al-language/pages/background-tasks/BgTaskQueryCache.al), its record/filters/AtSignAloneReads.al, and the neighbors. The
+//! AL is the neighbor app's (tests/neighbors/at-sign-alone-database), one copy. Delete this file when the pin is in the corpus.
 
 use al_builtins::assumptions::Assumption;
 use al_test_cli::report::Outcome;
 
 const PROBE: &str = include_str!("../../../../tests/neighbors/at-sign-alone-database/src/Probe.al");
+const ROUTES: &str = include_str!("../../../../tests/neighbors/at-sign-alone-database/src/Routes.al");
 const NEIGHBORS: &str = include_str!("../../../../tests/neighbors/at-sign-alone-database/src/Neighbors.al");
+const CRM: &str = include_str!("../../../../tests/neighbors/at-sign-alone-database/src/Crm.al");
 
 fn outcomes(src: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<Assumption>)> {
     let src = format!("{src}\n{}", include_str!("../fixtures/outside-sc/Assert.al"));
@@ -78,12 +80,100 @@ fn at_sign_alone_bq9c_cells() {
     }
 }
 
-/// `<>@` alone on a Code field of a record in the database: BC keeps the rows whose value is not empty (a local BC 29.1
-/// container); not measured by a cell, so it stays refused, as on main.
+/// `<>@` alone on a Text field of a record in the database keeps the rows whose value is not empty (AtSignAloneReads.al:698), and
+/// the places no cell measures `@` alone on a Code field from keep main's refusal: a report's DataItemTableView, a query column's
+/// ColumnFilter, and `<>@` alone on a Code field (measured, not run yet).
 #[test]
-fn at_sign_alone_negated_code_field_stays_refused() {
+fn at_sign_alone_neighbors() {
     let src = format!("{PROBE}\n{NEIGHBORS}");
     let o = outcomes(&src, "BQ At Neighbor Tests");
+    let outcome = |name: &str| {
+        &o.iter()
+            .find(|(n, ..)| n == name)
+            .unwrap_or_else(|| panic!("{name}: {o:?}"))
+            .1
+    };
+    let flags = |name: &str| &o.iter().find(|(n, ..)| n == name).expect(name).2;
+    assert_eq!(*outcome("AtSignAloneNegated_TextField_SourceRows"), Outcome::Pass);
+    assert!(flags("AtSignAloneNegated_TextField_SourceRows").contains(&Assumption::AtSignAloneDatabaseBlank));
+    let not_measured = "`@` alone on a Code field from a place no cell measures";
+    for (name, origin) in [
+        ("AtSignAlone_ReportDataItemTableView_CodeField", "SetView: "),
+        ("AtSignAlone_QueryColumnFilter_CodeColumn", "query filter: "),
+    ] {
+        assert!(
+            matches!(outcome(name), Outcome::NotRun(w) if w.starts_with(&format!("{origin}{not_measured}"))),
+            "{name}: {:?}",
+            outcome(name)
+        );
+    }
+    let negated = outcome("AtSignAloneNegated_CodeField_SourceRows");
+    assert!(
+        matches!(negated, Outcome::NotRun(w) if w.contains("`<>@`")),
+        "{negated:?}"
+    );
+}
+
+/// The cells of AtSignAloneReads.al (corpus PR 1495): every read method and place a filter comes from, flagged. Three stay refused:
+/// the two with `<>@` alone on a Code field (:698, :730) and the CalcFormula's quoted `filter('@')` (:579), whose lowering refuses a
+/// quoted literal with filter operators.
+#[test]
+fn at_sign_alone_reads_cells() {
+    let o = outcomes(ROUTES, "AS Kind Tests");
+    assert_eq!(o.len(), 18);
+    for (name, r, marks) in &o {
+        let refused = match name.as_str() {
+            "AtSignAloneNegated_DatabaseAndTemporary" | "AtSignAloneNegated_LookupFlowFieldFilter" => Some("`<>@`"),
+            "AtSignAlone_CalcFormulaConstFilter" => Some("is one quoted literal with filter operators in it"),
+            _ => None,
+        };
+        if let Some(why) = refused {
+            assert!(matches!(r, Outcome::NotRun(w) if w.contains(why)), "{name}: {r:?}");
+            continue;
+        }
+        assert_eq!(*r, Outcome::Pass, "{name}");
+        assert!(
+            marks.contains(&Assumption::AtSignAloneDatabaseBlank),
+            "{name}: {marks:?}"
+        );
+    }
+}
+
+/// `@` alone on a Code field of a CRM table: the connection's rows are not the database's, and no cell measures them (a local
+/// Business Central 29.1 container keeps every row), so the read refuses with the store's refusal of `FilterExpr::AtSignAloneCode`.
+#[test]
+fn at_sign_alone_crm_table_refused() {
+    let o = outcomes(CRM, "AS Crm Neighbor Tests");
     let [(_, r, _)] = o.as_slice() else { panic!("{o:?}") };
-    assert!(matches!(r, Outcome::NotRun(w) if w.contains("`<>@`")), "{r:?}");
+    assert!(
+        matches!(r, Outcome::NotRun(w) if w.contains("a read through the filter `@` (alone) on a Code field by a reader no cell measures")),
+        "{r:?}"
+    );
+}
+
+/// FilterPageBuilder.SetView with `@` alone on a Code field: no cell measures a filter page's view.
+#[test]
+fn at_sign_alone_filter_page_view_refused() {
+    let src = r#"
+table 97590 "AS Fp Row" { fields { field(1; "No."; Code[20]) { } field(2; Kind; Code[20]) { } } keys { key(PK; "No.") { Clustered = true; } } }
+codeunit 97591 "AS Fp Tests"
+{
+    Subtype = Test;
+    [Test]
+    procedure FilterPageView_AtSignAlone()
+    var
+        Row: Record "AS Fp Row";
+        Builder: FilterPageBuilder;
+    begin
+        Builder.AddRecord('Rows', Row);
+        Builder.SetView('Rows', 'WHERE(Kind=FILTER(@))');
+    end;
+}
+"#;
+    let o = outcomes(src, "AS Fp Tests");
+    let [(_, r, _)] = o.as_slice() else { panic!("{o:?}") };
+    assert!(
+        matches!(r, Outcome::NotRun(w) if w.starts_with("FilterPageBuilder.SetView with `@` alone on a Code field")),
+        "{r:?}"
+    );
 }
