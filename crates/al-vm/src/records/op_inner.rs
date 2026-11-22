@@ -1459,7 +1459,12 @@ impl Session {
                     }
                     _ => None,
                 };
-                let shape = super::measured_setfilter::MeasuredSetFilter::of(from_al, &rec.borrow(), &text, args.len());
+                let shape = super::measured_setfilter::MeasuredSetFilter::of(
+                    from_al,
+                    &rec.borrow(),
+                    &text,
+                    args.get(2..).unwrap_or_default(),
+                );
                 let mut parsed = match record_id {
                     Some(p) => p,
                     None => match self.measured_language_filter(shape.as_ref(), &t, pos)? {
@@ -1897,7 +1902,9 @@ impl Session {
                 }
                 let xrec = Self::validate_xrec_handle(rec, &before);
                 let outermost = outer.is_none().then_some(before);
-                self.while_validating(entry, outermost, |s| s.validate_hooks(&t, rec, &xrec, field, snapshot))?;
+                self.while_validating(entry, rec, outermost, |s| {
+                    s.validate_hooks(&t, rec, &xrec, field, snapshot)
+                })?;
                 if sum_flowfield {
                     self.finish_flowfield_validate(rec, &t, pos, flowfield_error, args.get(1).cloned(), old_value)?;
                 }

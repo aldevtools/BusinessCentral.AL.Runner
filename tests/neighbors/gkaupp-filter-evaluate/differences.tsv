@@ -1,0 +1,26 @@
+# key	entry
+# Not here, the same on main and head: the MainKept_* tests (a Date field, a global, an array element, number 1 and 9, German,
+# hour 14, hour 24 (main answers it), 23 PM and `T25:00` into a DateTime, mixed digit parts and other times into a Date, a report with FormatRegion (refused on both), one-digit parts with seconds, day 0, the statement error, a DateTime short date; `%1` with a blank, a blank
+# inside, a long value on a Text field, a written filter, the reporter's value).
+GK Evaluate Tests::Measured_DateLocal_OneDigitParts	ASSUMED evaluate-date-variable-time-dropped (corpus PR 1503)
+GK Evaluate Tests::Measured_DateLocal_RejectedLeavesLastErrorCode	ASSUMED evaluate-short-date-rejected-last-error (corpus PR 1503)
+GK Evaluate Tests::Measured_DateLocal_TimeAfterDate	ASSUMED evaluate-date-variable-time-dropped (corpus PR 1503)
+GK Evaluate Tests::Measured_DateParameter_TimeAfterDate	ASSUMED evaluate-date-variable-time-dropped (corpus PR 1503)
+GK Evaluate Tests::Measured_DateTimeLocal_TClock	ASSUMED evaluate-date-variable-time-dropped (corpus PR 1503)
+GK Filter Tests::Measured_Code_BlankAfter	ASSUMED filter-placeholder-wildcard-edges (corpus PR 1503)
+GK Filter Tests::Measured_Code_TooLong	ASSUMED filter-placeholder-wildcard-edges (corpus PR 1503)
+GK Filter Tests::Measured_Text_BlankBefore	ASSUMED filter-placeholder-wildcard-edges (corpus PR 1503)
+GK R60953::Refused_FieldRef_BlankAfter	REFUSED SetFilter: `<>%n` with the wildcard text
+GK R60954::Refused_Temporary_BlankAfter	REFUSED SetFilter: `<>%n` with the wildcard text
+GK R60955::Refused_FilterGroup2_BlankAfter	REFUSED SetFilter: `<>%n` with the wildcard text
+GK R60956::Refused_German_BlankAfter	REFUSED SetFilter: `<>%n` with the wildcard text
+GK R60957::Refused_Lowercase_BlankAfter	REFUSED SetFilter: `<>%n` with the wildcard text
+GK R60958::Refused_TwoPlaceholders_BlankAfter	REFUSED SetFilter: `<>%n` with the wildcard text
+GK R60959::Refused_BlankAndTooLong	REFUSED SetFilter: `<>%n` with the wildcard text
+GK R60960::Refused_CodeArgument_TooLong	REFUSED SetFilter: `<>%n` with the wildcard text
+GK R60961::Refused_QuestionMark_TooLong	REFUSED SetFilter: `<>%n` with the wildcard text
+GK R60962::Refused_DateLocal_RejectedLastErrorText	REFUSED GetLastErrorText of an error whose text is not pinned
+GK R60963::Refused_DateTimeLocal_Hour13Statement	REFUSED the error of the statement Evaluate of
+GK R60972::Refused_Code_BlankAfter_Pattern20	REFUSED SetFilter: `<>%n` with the wildcard text
+GK R60973::Refused_Text_RowWithBlank	REFUSED a row 'XYZ-1 ' with a blank at one end under the filter
+GK R60974::Refused_Text_BlankAfter_GetView	REFUSED a read of the filter `<>%1` with the wildcard text
