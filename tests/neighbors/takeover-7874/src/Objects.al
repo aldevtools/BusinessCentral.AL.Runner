@@ -17,3 +17,21 @@ table 50101 "NB Free Row"
     }
     keys { key(PK; Id) { Clustered = true; } }
 }
+
+codeunit 50102 "NB Glob Once"
+{
+    SingleInstance = true;
+
+    var
+        Flag: Boolean;
+
+    procedure Done(): Boolean
+    begin
+        exit(Flag);
+    end;
+
+    procedure MarkDone()
+    begin
+        Flag := true;
+    end;
+}

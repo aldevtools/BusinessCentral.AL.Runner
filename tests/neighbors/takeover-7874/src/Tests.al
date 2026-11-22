@@ -12,8 +12,13 @@ codeunit 50100 "NB Glob Tests"
     local procedure SetGlobal()
     var
         R: Record "NB Glob Row";
+        Once: Codeunit "NB Glob Once";
         i: Integer;
     begin
+        // The filter stands for the whole session; a second SetRange would refuse, so only the first test sets it.
+        if Once.Done() then
+            exit;
+        Once.MarkDone();
         R.DeleteAll();
         for i := 1 to 4 do begin
             R.Id := i;
@@ -35,23 +40,39 @@ codeunit 50100 "NB Glob Tests"
     end;
 
     [Test]
-    procedure RefNumberName()
+    procedure RefCount_Reader()
     var
         RR: RecordRef;
-        R: Record "NB Glob Row";
-        s: Text;
     begin
         SetGlobal();
         RR.Open(50100);
-        Expect(Format(RR.Number()) + ' ' + RR.Name(), '50100 NB Glob Row');
+        Expect(Format(RR.Count()), '2');
+    end;
+
+    [Test]
+    procedure RefNumber()
+    var
+        RR: RecordRef;
+    begin
+        SetGlobal();
+        RR.Open(50100);
+        Expect(Format(RR.Number()), '50100');
+    end;
+
+    [Test]
+    procedure RefName()
+    var
+        RR: RecordRef;
+    begin
+        SetGlobal();
+        RR.Open(50100);
+        Expect(RR.Name(), 'NB Glob Row');
     end;
 
     [Test]
     procedure RefCaption()
     var
         RR: RecordRef;
-        R: Record "NB Glob Row";
-        s: Text;
     begin
         SetGlobal();
         RR.Open(50100);
@@ -62,8 +83,6 @@ codeunit 50100 "NB Glob Tests"
     procedure RefFieldCount()
     var
         RR: RecordRef;
-        R: Record "NB Glob Row";
-        s: Text;
     begin
         SetGlobal();
         RR.Open(50100);
@@ -74,8 +93,6 @@ codeunit 50100 "NB Glob Tests"
     procedure RefFieldExist()
     var
         RR: RecordRef;
-        R: Record "NB Glob Row";
-        s: Text;
     begin
         SetGlobal();
         RR.Open(50100);
@@ -86,8 +103,6 @@ codeunit 50100 "NB Glob Tests"
     procedure RefIsTemporary()
     var
         RR: RecordRef;
-        R: Record "NB Glob Row";
-        s: Text;
     begin
         SetGlobal();
         RR.Open(50100);
@@ -98,8 +113,6 @@ codeunit 50100 "NB Glob Tests"
     procedure RefKeyCount()
     var
         RR: RecordRef;
-        R: Record "NB Glob Row";
-        s: Text;
     begin
         SetGlobal();
         RR.Open(50100);
@@ -110,8 +123,6 @@ codeunit 50100 "NB Glob Tests"
     procedure RefClose()
     var
         RR: RecordRef;
-        R: Record "NB Glob Row";
-        s: Text;
     begin
         SetGlobal();
         RR.Open(50100);
@@ -119,22 +130,9 @@ codeunit 50100 "NB Glob Tests"
     end;
 
     [Test]
-    procedure RefCount_Reader()
-    var
-        RR: RecordRef;
-        R: Record "NB Glob Row";
-        s: Text;
-    begin
-        SetGlobal();
-        RR.Open(50100);
-        Expect(Format(RR.Count()), '4');
-    end;
-
-    [Test]
     procedure RefFindFirst_Reader()
     var
         RR: RecordRef;
-        R: Record "NB Glob Row";
         s: Text;
     begin
         SetGlobal();
@@ -147,8 +145,6 @@ codeunit 50100 "NB Glob Tests"
     procedure RefIsEmpty_Reader()
     var
         RR: RecordRef;
-        R: Record "NB Glob Row";
-        s: Text;
     begin
         SetGlobal();
         RR.Open(50100);
@@ -159,8 +155,6 @@ codeunit 50100 "NB Glob Tests"
     procedure RefRecordId_BufferOnly()
     var
         RR: RecordRef;
-        R: Record "NB Glob Row";
-        s: Text;
     begin
         SetGlobal();
         RR.Open(50100);

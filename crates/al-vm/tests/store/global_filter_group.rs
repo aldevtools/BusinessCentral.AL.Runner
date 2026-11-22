@@ -102,11 +102,60 @@ codeunit 70951 C
         R.FilterGroup(0);
     end;
 
-    procedure RefNumberAndName(): Text
+    procedure RefNumber(): Text
     var RR: RecordRef;
     begin
         RR.Open(70950);
-        exit(Format(RR.Number()) + ' ' + RR.Name());
+        exit(Format(RR.Number()));
+    end;
+
+    procedure RefName(): Text
+    var RR: RecordRef;
+    begin
+        RR.Open(70950);
+        exit(RR.Name());
+    end;
+
+    procedure RefCaption(): Text
+    var RR: RecordRef;
+    begin
+        RR.Open(70950);
+        exit(RR.Caption());
+    end;
+
+    procedure RefFieldCount(): Text
+    var RR: RecordRef;
+    begin
+        RR.Open(70950);
+        exit(Format(RR.FieldCount()));
+    end;
+
+    procedure RefFieldExist(): Text
+    var RR: RecordRef;
+    begin
+        RR.Open(70950);
+        exit(Format(RR.FieldExist(2)));
+    end;
+
+    procedure RefKeyCount(): Text
+    var RR: RecordRef;
+    begin
+        RR.Open(70950);
+        exit(Format(RR.KeyCount()));
+    end;
+
+    procedure RefIsTemporary(): Text
+    var RR: RecordRef;
+    begin
+        RR.Open(70950);
+        exit(Format(RR.IsTemporary()));
+    end;
+
+    procedure RefClose()
+    var RR: RecordRef;
+    begin
+        RR.Open(70950);
+        RR.Close();
     end;
 
     procedure CountTemporary(): Integer
@@ -434,12 +483,24 @@ fn next_on_a_reader_whose_find_set_ran_before_the_filter_keeps_main_s_refusal() 
 // (record/filters/FilterGroupOtherVariable.al:859, :896-898), so every other call keeps the refusal until a probe does.
 #[test]
 fn a_record_ref_metadata_call_keeps_main_s_refusal_while_the_global_filter_stands() {
-    let mut b = Built::from_source(SRC);
-    b.run_in("C", "Seed").unwrap();
-    b.run_in("C", "SetGlobal").unwrap();
-    let why = unsupported(b.run_in("C", "RefNumberAndName"));
-    assert!(
-        why.contains("RecordRef.Number") && why.contains("filter group 1"),
-        "{why}"
-    );
+    // One fresh session per call: each call is the first RecordRef call after the filter is set.
+    for (proc_name, call) in [
+        ("RefNumber", "RecordRef.Number"),
+        ("RefName", "RecordRef.Name"),
+        ("RefCaption", "RecordRef.Caption"),
+        ("RefFieldCount", "RecordRef.FieldCount"),
+        ("RefFieldExist", "RecordRef.FieldExist"),
+        ("RefKeyCount", "RecordRef.KeyCount"),
+        ("RefIsTemporary", "RecordRef.IsTemporary"),
+        ("RefClose", "RecordRef.Close"),
+    ] {
+        let mut b = Built::from_source(SRC);
+        b.run_in("C", "Seed").unwrap();
+        b.run_in("C", "SetGlobal").unwrap();
+        let why = unsupported(b.run_in("C", proc_name));
+        assert!(
+            why.contains(call) && why.contains("filter group 1"),
+            "{proc_name}: {why}"
+        );
+    }
 }
