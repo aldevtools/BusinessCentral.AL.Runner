@@ -1,0 +1,16 @@
+# key	entry
+# Not here, the same on main and head: the MainKept_* tests (a Date and a DateTime field into a DateTime, an Integer through a
+# Variant, an Integer field into an Integer) and the Refused_* tests (a plain local, a by-value parameter, a named return value,
+# a global, a field, an argument, an exit value, an array element, a whole Decimal, a Decimal of 1000 or more, a negative or
+# long Decimal, a Duration of 0, with days or with milliseconds, a Decimal into a Date, a Boolean into a Time, an Option
+# field), refused on both.
+GK Fvt Measured::Measured_IntVarParam_DateTime	ASSUMED fieldref-value-temporal-error (corpus PR 1511)
+GK Fvt Measured::Measured_IntVarParam_DateTime_Max	ASSUMED fieldref-value-temporal-error (corpus PR 1511)
+GK Fvt Measured::Measured_BigVarParam_Date	ASSUMED fieldref-value-temporal-error (corpus PR 1511)
+GK Fvt Measured::Measured_IntVarParam_Time	ASSUMED fieldref-value-temporal-error (corpus PR 1511)
+GK Fvt Measured::Measured_DecVarParam_DateTime	ASSUMED fieldref-value-temporal-error (corpus PR 1511)
+GK Fvt Measured::Measured_DurVarParam_DateTime	ASSUMED fieldref-value-temporal-error (corpus PR 1511)
+GK Fvt Measured::Measured_BoolVarParam_DateTime	ASSUMED fieldref-value-temporal-error (corpus PR 1511)
+GK Fvt Measured::Measured_IntVarParam_KeepsValue	ASSUMED fieldref-value-temporal-error (corpus PR 1511)
+GK Fvt Measured::Measured_PkFieldIndex_DateTime	ASSUMED fieldref-value-temporal-error (corpus PR 1511)
+GK Fvt Measured::Measured_IntVarParam_DateTime_ValueCall	ASSUMED fieldref-value-temporal-error (corpus PR 1511)
