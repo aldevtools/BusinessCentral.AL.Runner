@@ -7,7 +7,7 @@
 use crate::records::{Rec, ValidateRun, ValidateSite};
 use crate::{Frame, Session};
 use al_builtins::native::Signal;
-use al_builtins::value::Value;
+use al_builtins::value::{RtType, Value};
 use al_data::TableDef;
 use al_ir::ObjKind;
 use std::rc::Rc;
@@ -83,9 +83,14 @@ impl Session {
         let frame = self.call_stack.last()?;
         let objects = &self.engine.program.objects;
         let sub = &objects[f.object].routines[f.routine];
+        // Parameters bind by name: the second of three is xRec only when it is a record of the table (review of PR 8307,
+        // 2026-11-22: `(var Rec; var CurrFieldNo: Integer; xRec)` is not measured).
         let declares = match sub.params {
             1 => true,
-            3 => sub.by_var.get(1) == Some(&true),
+            3 => {
+                sub.by_var.get(1) == Some(&true)
+                    && matches!(sub.locals.get(1).map(|l| &l.ty), Some(RtType::Record(t, _)) if *t as usize == table)
+            }
             _ => false,
         };
         let measured = *handle == Rc::as_ptr(rc) as usize
@@ -114,8 +119,9 @@ impl Session {
     }
 
     /// Whether the record `rc` is as the Validate `run` found it: no record method ran on it since, its fields are those it had
-    /// when the Validate's triggers started, and its buffer came from no TransferFields.
-    fn untouched_since(&self, run: &ValidateRun, rc: &Rec) -> bool {
+    /// when the Validate's triggers started, and its buffer came from no TransferFields. Also read by `cell_facts` in
+    /// `running_call_xrec.rs`.
+    pub(super) fn untouched_since(&self, run: &ValidateRun, rc: &Rec) -> bool {
         let r = rc.borrow();
         !run.touched && Self::same_values(&r.fields, &run.entered) && r.row_origin.is_none_or(|o| !o.lock_only)
     }

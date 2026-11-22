@@ -135,6 +135,13 @@ pub fn build_layer_with_dictionary(layer: &DepLayer, key: &Key, dictionary: &[u8
     build_parts(layer.base_len, &layer.objects, &layer.set, key, Some(dictionary))
 }
 
+/// The compressor of a layer's blocks: the layer's dictionary, prepared once for all blocks, and a checksum per block.
+fn block_compressor<'a>(prepared: &'a zstd::dict::EncoderDictionary<'a>) -> zstd::bulk::Compressor<'a> {
+    let mut c = zstd::bulk::Compressor::with_prepared_dictionary(prepared).expect("a zstd compressor");
+    c.include_checksum(true).expect("checksum flag");
+    c
+}
+
 fn build_parts(base_len: usize, objects: &[u32], set: &DepSet, key: &Key, shared_dict: Option<&[u8]>) -> Vec<u8> {
     assert_eq!(set.facts.len(), set.blocks.len(), "one block per object");
     assert_eq!(set.facts.len(), set.heads.len(), "one head per object");
@@ -158,14 +165,13 @@ fn build_parts(base_len: usize, objects: &[u32], set: &DepSet, key: &Key, shared
     } else {
         Vec::new()
     };
+    // The dictionary prepared once: with the raw bytes, every compressor loaded the 512 KB dictionary into its tables again
+    // (`ZSTD_fillDoubleHashTable` was a tenth of the instructions of a cold build of the layers).
+    let prepared = zstd::dict::EncoderDictionary::copy(&dict, LEVEL);
     let compressed: Vec<Vec<u8>> = raw
         .par_iter()
         .map_init(
-            || {
-                let mut c = zstd::bulk::Compressor::with_dictionary(LEVEL, &dict).expect("a zstd compressor");
-                c.include_checksum(true).expect("checksum flag");
-                c
-            },
+            || block_compressor(&prepared),
             |c, bytes| {
                 al_sema::halt::check();
                 c.compress(bytes).expect("a block compresses")
@@ -512,5 +518,49 @@ impl LayerSource for Entry {
     }
     fn parse_problems(&self) -> &[(String, String)] {
         &self.index.parse_problems
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Blocks shaped like lowered objects: shared structure, differing names and numbers.
+    fn blocks() -> Vec<Vec<u8>> {
+        (0..64u32)
+            .map(|i| {
+                let mut b = Vec::new();
+                for r in 0..40 {
+                    b.extend_from_slice(
+                        format!("routine P{r} of object {i}: Exit(Add(Var {r}, Const {}))\n", i * r).as_bytes(),
+                    );
+                }
+                b
+            })
+            .collect()
+    }
+
+    /// A block compressed with the dictionary prepared once is byte-identical to one compressed by a compressor that loads
+    /// the raw dictionary itself (how the blocks were compressed before), with a trained dictionary and with none (a small
+    /// layer): the entries a build writes do not change.
+    #[test]
+    fn a_prepared_dictionary_compresses_every_block_to_the_same_bytes() {
+        let raw = blocks();
+        let samples: Vec<&[u8]> = raw.iter().map(Vec::as_slice).collect();
+        let trained = zstd::dict::from_samples(&samples, DICT_SIZE).expect("a dictionary");
+        for dict in [trained, Vec::new()] {
+            let prepared = zstd::dict::EncoderDictionary::copy(&dict, LEVEL);
+            let mut now = block_compressor(&prepared);
+            let mut before = zstd::bulk::Compressor::with_dictionary(LEVEL, &dict).expect("a zstd compressor");
+            before.include_checksum(true).expect("checksum flag");
+            for (i, b) in raw.iter().enumerate() {
+                assert_eq!(
+                    now.compress(b).unwrap(),
+                    before.compress(b).unwrap(),
+                    "block {i}, dictionary of {} bytes",
+                    dict.len()
+                );
+            }
+        }
     }
 }

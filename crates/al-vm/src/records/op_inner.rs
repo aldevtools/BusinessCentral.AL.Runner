@@ -268,6 +268,8 @@ impl Session {
                 self.gate_used_try_other_write(&t, method)?;
             }
             self.user_bulk_refusal(&t, rec.borrow().temporary, method)?;
+            // A write call is a step of the moment an Update report is measured at (`OpenTx::moment`).
+            self.moment_db_call(method, true);
             // A write call starts the transaction, also a DeleteAll that finds no row
             // (session-system/ProbeSystemEnumMembers.al:143-161, session-system/TestDatabaseExtended.al:
             // Database_CurrentTransactionType_SetAfterWriteOp_Throws over fixture DeleteAlls).
@@ -280,8 +282,8 @@ impl Session {
             self.tx.phase = crate::transactions::TxPhase::Read;
         }
         if !rec.borrow().temporary && Self::is_read_call(method) {
-            // A read call ends the moment the Update report rule is pinned at (`OpenTx::at_test_start`).
-            self.tx.open.at_test_start = false;
+            // A read call is a step of the moment an Update report is measured at (`OpenTx::moment`).
+            self.moment_db_call(method, false);
             // What LastUsedRowVersion reports after a read of a table the open transaction inserted into.
             let company = rec.borrow().company.clone();
             // GetBySystemId, Find('='), Find('-'), Find('+') and a CalcFields of a record whose own table holds inserted rows
@@ -1902,7 +1904,7 @@ impl Session {
                 }
                 let xrec = Self::validate_xrec_handle(rec, &before);
                 let outermost = outer.is_none().then_some(before);
-                self.while_validating(entry, rec, outermost, |s| {
+                self.while_validating(entry, rec, &xrec, outermost, |s| {
                     s.validate_hooks(&t, rec, &xrec, field, snapshot)
                 })?;
                 if sum_flowfield {

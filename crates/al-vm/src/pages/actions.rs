@@ -2157,7 +2157,7 @@ impl Session {
             s.cursor = Cursor::Row;
             s.window_from_start = true;
         }
-        self.reread_view_from_row(st, without_curr, without_parts)?;
+        self.reread_view_from_row(st, without_curr, without_parts, true)?;
         Ok(true)
     }
 
@@ -2505,7 +2505,7 @@ impl Session {
             return Ok(());
         };
         if self.code_inserted_refresh_due(st, code_inserted_line, by_update)? {
-            return self.reread_view_from_row(st, without_curr, without_parts);
+            return self.code_inserted_refresh(st, without_curr, without_parts);
         }
         if by_update && self.refresh_after_validate_filter(st, filters_before, without_curr, without_parts)? {
             return Ok(());

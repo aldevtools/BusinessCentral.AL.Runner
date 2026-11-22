@@ -2,13 +2,19 @@
 //! Insert(true)`, an AutoIncrement key field) before the control's OnValidate calls `CurrPage.Update()` or `CurrPage.Update(false)`
 //! (al-runner issue 8186). BC treats the line as the stored row from then on: `Update()` modifies it (OnModifyRecord and the
 //! table's OnModify run inside the OnValidate, OnInsertRecord never runs), `Update(false)` saves nothing, and both refresh onto
-//! that row; the next SetValue lands on it. Pinned by pages/currpage/ListNewLineCodeInsertUpdate.al:515-617, :783-810. The entry
-//! condition is `code_inserted_cell`: the facts every pinned cell shares, then the cells themselves. A validation that ends with
-//! an error after the page moved onto the row is refused (`refuse_error_after_landing`), and so is the host with two CardPart
-//! FactBoxes (:249-299) at its open (`refuse_code_inserted_parts_host`): BC's part triggers there (:718, :736) are not the
-//! runner's.
+//! that row; the next SetValue lands on it. Pinned by pages/currpage/ListNewLineCodeInsertUpdate.al:515-617, :783-810.
+//! `CurrPage.Update(true)` written out, and `CurrPage.SaveRecord()` followed by `CurrPage.Update(false)`, do what `Update()` does
+//! (SaveRecord modifies the row, the Update(false) after it asks the same refresh; al-runner issue 8285): pinned by
+//! pages/currpage/ListNewLineSaveRecordUpdate.al:429-874, for the probe's code only, line for line (`code_inserted_pinned.rs`;
+//! the reporter's repro under an assumption). The entry condition is `code_inserted_cell`: the facts every pinned cell shares,
+//! then the cells themselves. A validation that ends with an error after the page moved onto the row is refused
+//! (`refuse_error_after_landing`), and so is one whose SaveRecord left the line without the `Update(false)` after it
+//! (`code_inserted_step_end`), and the host with two CardPart FactBoxes (ListNewLineCodeInsertUpdate.al:249-299) at its open
+//! (`refuse_code_inserted_parts_host`): BC's part triggers there (:718, :736) are not the runner's.
 
+use super::code_inserted_pinned::PinnedCode;
 use super::pinned_shape::TestCall;
+use super::state::{CodeInsertedRow, CodeInsertedSave, FactboxStep, SavedView};
 use super::*;
 use al_builtins::filter::FilterExpr;
 use al_builtins::page_op::PageMethod;
@@ -21,19 +27,50 @@ enum Triggers {
     Row,
     /// None: page 97039 (:345-372).
     Quiet,
+    /// OnAfterGetRecord only, and one CardPart FactBox (`code_inserted_factbox`): ListNewLineSaveRecordUpdate.al page 97474
+    /// (:210-254), and the partner app's page in the repro of al-runner issue 8285.
+    FactboxHost,
 }
 
 /// How the page was opened, with the view it shows.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum Opened {
     /// The test's `TestPage.OpenEdit()`, no filter (:520, :532, :544, :556, :568, :580, :790, :805).
     OpenEdit,
     /// AL code's `Page.RunModal(Id, Rec)` as a statement, in Edit mode, its record without a filter; the test's ModalPageHandler
     /// gets the page (:232-237, :610-617).
     RunModal,
-    /// The same, its record filtered with `SetRange` to one value of the key's first field: the repro of al-runner issue 8186, refused
-    /// (`code_inserted_cell`).
+    /// The same, its record filtered with `SetRange` to one value of the key's first field: ListNewLineSaveRecordUpdate.al:272-281
+    /// (the opener) with a row of another group outside the view. The repro of al-runner issue 8186 (`CurrPage.Update()` on the
+    /// page without triggers opened so) is refused (`code_inserted_cell`).
     RunModalOneGroup,
+}
+
+/// The refusal of a SaveRecord or Update(true) cell whose code is not the measured code (`code_inserted_pinned.rs`).
+const UNMEASURED_CODE: &str = "CurrPage.SaveRecord or Update(true) on the new line whose table field inserted it, on a page \
+     whose code, or the code of its table, its part or what they call, is not the code ListNewLineSaveRecordUpdate.al or the \
+     repro of al-runner issue 8285 runs (not measured)";
+
+/// The measured view the inserted row stands in (`code_inserted_view`).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum View {
+    /// The row alone.
+    Alone,
+    /// The row last, after one row of its group.
+    AfterRow,
+}
+
+/// The page call that leaves the line, as the control's OnValidate makes it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Leave {
+    /// `CurrPage.Update()`.
+    Update,
+    /// `CurrPage.Update(false)`.
+    UpdateFalse,
+    /// `CurrPage.Update(true)` (ListNewLineSaveRecordUpdate.al:131, :196).
+    UpdateTrue,
+    /// `CurrPage.SaveRecord()`, then `CurrPage.Update(false)` (ListNewLineSaveRecordUpdate.al:127-129, :193-194).
+    SaveRecord,
 }
 
 /// The triggers of `Triggers::Row`, lower case.
@@ -122,71 +159,183 @@ impl Session {
         Ok(())
     }
 
-    /// Whether `CurrPage.Update()` (`update_false` false) or `CurrPage.Update(false)` on `st` is a measured cell: a measured
-    /// page (`code_inserted_page`) opened as measured (`code_inserted_open`), on the line `New()` started (`code_inserted_line`),
-    /// whose table field inserted the line (`inserted_by_table_field`), in a measured view (`code_inserted_view`). Every other shape
-    /// keeps main's way.
-    fn code_inserted_cell(&mut self, st: &St, update_false: bool) -> Result<bool, Signal> {
-        let Some((triggers, split)) = self.code_inserted_page(st) else {
+    /// Whether a call `leave` on `st` is a pinned cell: a pinned page (`code_inserted_page`) opened as pinned
+    /// (`code_inserted_open`), on the line `New()` started (`code_inserted_line`), whose table field inserted the line
+    /// (`inserted_by_table_field`), in a pinned view (`code_inserted_view`). Every other shape keeps main's way, except the repro
+    /// of al-runner issue 8186, which is refused.
+    fn code_inserted_cell(&mut self, st: &St, leave: Leave) -> Result<bool, Signal> {
+        let Some((triggers, split)) = self.code_inserted_page(st)? else {
             return Ok(false);
         };
         let Some(opened) = self.code_inserted_open(st)? else {
             return Ok(false);
         };
-        // (triggers, AutoSplitKey, open, Update(false)) of each cell.
+        // (triggers, AutoSplitKey, open, call) of each cell.
         let cell = matches!(
-            (triggers, split, opened, update_false),
-            // Page 97032: Update() :515-536, Update(false) :563-584, RunModal with Update() :588-617.
-            (Triggers::Row, true, Opened::OpenEdit, _)
-                | (Triggers::Row, true, Opened::RunModal, false)
+            (triggers, split, opened, leave),
+            // ListNewLineCodeInsertUpdate.al, page 97032: Update() :515-536, Update(false) :563-584, RunModal with Update()
+            // :588-617.
+            (Triggers::Row, true, Opened::OpenEdit, Leave::Update | Leave::UpdateFalse)
+                | (Triggers::Row, true, Opened::RunModal, Leave::Update)
                 // Page 97033: :539-560.
-                | (Triggers::Row, false, Opened::OpenEdit, false)
+                | (Triggers::Row, false, Opened::OpenEdit, Leave::Update)
                 // Page 97039: :783-810.
-                | (Triggers::Quiet, true, Opened::OpenEdit, false)
+                | (Triggers::Quiet, true, Opened::OpenEdit, Leave::Update)
+                // ListNewLineSaveRecordUpdate.al, page 97472 (:105-170): :429-559, :739; page 97473 (:172-208): :561-675, :757-782.
+                | (
+                    Triggers::Row | Triggers::Quiet,
+                    true,
+                    Opened::OpenEdit | Opened::RunModalOneGroup,
+                    Leave::UpdateTrue | Leave::SaveRecord,
+                )
+                // ListNewLineSaveRecordUpdate.al, page 97474: :677-737, :784-874.
+                | (Triggers::FactboxHost, true, Opened::OpenEdit | Opened::RunModalOneGroup, Leave::SaveRecord)
         );
         // The repro of issue 8186: page 97039's shape opened by a RunModal filtered to one group. The corpus opens that page
-        // with OpenEdit only (:783-810), and main's way is the result the issue reports as wrong: refused.
+        // with OpenEdit only for Update() (ListNewLineCodeInsertUpdate.al:783-810), and main's way is the result the issue
+        // reports as wrong: refused.
         let repro = matches!(
-            (triggers, split, opened, update_false),
-            (Triggers::Quiet, true, Opened::RunModalOneGroup, false)
+            (triggers, split, opened, leave),
+            (Triggers::Quiet, true, Opened::RunModalOneGroup, Leave::Update)
         );
         if !(cell || repro) {
             return Ok(false);
         }
-        let shape = self.code_inserted_line(st) && self.inserted_by_table_field(st)? && self.code_inserted_view(st)?;
+        let view = if self.code_inserted_line(st) && self.inserted_by_table_field(st)? {
+            self.code_inserted_view(st)?
+        } else {
+            None
+        };
+        let shape = view.is_some();
         if shape && repro {
             return Err(Signal::unsupported(
                 "CurrPage.Update on the new line whose table field inserted it, on a List page without triggers opened by \
                  Page.RunModal with a filter on the key's first field (ListNewLineCodeInsertUpdate.al pins OpenEdit only, :783-810)",
             ));
         }
+        // The SaveRecord and Update(true) cells run only the code that was measured (`code_inserted_pinned.rs`).
+        if shape && cell && matches!(leave, Leave::UpdateTrue | Leave::SaveRecord) {
+            match self.code_inserted_code(st)? {
+                Some(PinnedCode::Probe) => {}
+                // The repro is measured only when Page.RunModal opens it on one group with one row before the new line
+                // (Issue8285.al:146-211); OpenEdit and an empty group are not (review of #8305, round 4).
+                Some(PinnedCode::Repro) if opened == Opened::RunModalOneGroup && view == Some(View::AfterRow) => {
+                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ListNewLineSaveRecordRepro)
+                }
+                Some(PinnedCode::Repro) | None => return Err(Signal::unsupported(UNMEASURED_CODE)),
+            }
+        }
         Ok(shape)
     }
 
     /// The page's triggers and whether it declares AutoSplitKey, for a measured page: PageType List (`is_list_page`, :105) over a
-    /// database table, with no part, no page extension and no event subscriber, that declares only PageType, SourceTable,
-    /// AutoSplitKey (as true), ApplicationArea and UsageCategory (:105-109, :169-172, :347-351), and the
-    /// triggers of `Triggers`.
-    fn code_inserted_page(&self, st: &St) -> Option<(Triggers, bool)> {
-        let engine = self.engine();
-        let object = st.borrow().object as usize;
-        let page = page_of(&engine, st);
-        let properties = &engine.program.objects[object].properties;
-        let split = properties.iter().any(|(n, _)| n.eq_ignore_ascii_case("AutoSplitKey"));
-        let no_parts = page.controls.iter().all(|c| c.kind != ir::ControlKind::Part);
-        let shape = self.is_list_page(st)
-            && self.has_source(st)
-            && self.unextended_unsubscribed(st)
-            && no_parts
-            && properties.iter().all(pinned_property)
-            && !self.page_rec(st).borrow().temporary;
-        let names: Vec<&str> = page.triggers.iter().map(|(n, _)| n.as_str()).collect();
-        let triggers = match names.len() {
-            0 => Triggers::Quiet,
-            5 if ROW_TRIGGERS.iter().all(|t| names.contains(t)) => Triggers::Row,
-            _ => return None,
+    /// database table, with no page extension and no event subscriber, that declares only PageType, SourceTable, AutoSplitKey (as
+    /// true), ApplicationArea and UsageCategory (:105-109, :169-172, :347-351; ListNewLineSaveRecordUpdate.al
+    /// :105-111, :172-178, :210-216), and the triggers of `Triggers`: no part, except the one FactBox of `Triggers::FactboxHost`.
+    fn code_inserted_page(&self, st: &St) -> Result<Option<(Triggers, bool)>, Signal> {
+        let (shape, split, triggers, no_parts) = {
+            let engine = self.engine();
+            let object = st.borrow().object as usize;
+            let page = page_of(&engine, st);
+            let properties = &engine.program.objects[object].properties;
+            let split = properties.iter().any(|(n, _)| n.eq_ignore_ascii_case("AutoSplitKey"));
+            let shape = self.is_list_page(st)
+                && self.has_source(st)
+                && self.unextended_unsubscribed(st)
+                && properties.iter().all(pinned_property)
+                && !self.page_rec(st).borrow().temporary;
+            let names: Vec<String> = page.triggers.iter().map(|(n, _)| n.clone()).collect();
+            let no_parts = page.controls.iter().all(|c| c.kind != ir::ControlKind::Part);
+            (shape, split, names, no_parts)
         };
-        shape.then_some((triggers, split))
+        let triggers = match triggers.as_slice() {
+            [] if no_parts => Triggers::Quiet,
+            names if no_parts && names.len() == 5 && ROW_TRIGGERS.iter().all(|t| names.iter().any(|n| n == t)) => {
+                Triggers::Row
+            }
+            [only] if only == "onaftergetrecord" && self.code_inserted_factbox(st)? => Triggers::FactboxHost,
+            _ => return Ok(None),
+        };
+        Ok(shape.then_some((triggers, split)))
+    }
+
+    /// Whether host `st` shows the measured FactBox, every fact required (ListNewLineSaveRecordUpdate.al:210-270, and the
+    /// partner app's page in the repro of al-runner issue 8285, whose controls carry no ApplicationArea and whose part declares
+    /// UsageCategory):
+    /// - one part control, shown, in the FactBoxes area (:237-244), with no property but ApplicationArea and a SubPageLink that
+    ///   links each field of the primary key to itself, in key order (:242), no SubPageView, no Provider;
+    /// - the part: a CardPart over the host's table (:258-259), its Rec stored, not marked, filtered by the link only, with no
+    ///   page trigger, no page extension and no subscriber, that declares only PageType, SourceTable, ApplicationArea and
+    ///   UsageCategory, and whose controls are fields of Rec without a trigger and with no property but ApplicationArea
+    ///   (:266-267);
+    /// - the host's other controls: a repeater without a property and fields of Rec with no property but ApplicationArea
+    ///   (:220-234).
+    fn code_inserted_factbox(&self, st: &St) -> Result<bool, Signal> {
+        let parts = st.borrow().parts.clone();
+        let [(idx, part)] = parts.as_slice() else {
+            return Ok(false);
+        };
+        if !st.borrow().hidden_parts.is_empty() || !self.has_source(part) || !self.unextended_unsubscribed(part) {
+            return Ok(false);
+        }
+        let (host_rec, part_rec) = (self.page_rec(st), self.page_rec(part));
+        let key = self.table(&host_rec)?.keys[0].clone();
+        let same_table = {
+            let (h, p) = (host_rec.borrow(), part_rec.borrow());
+            h.table == p.table
+                && !p.temporary
+                && !p.marked_only
+                && p.filters
+                    .iter()
+                    .all(|f| f.group == super::parts::LINK_GROUP && key.contains(&f.field))
+        };
+        let engine = self.engine();
+        let part_object = part.borrow().object as usize;
+        let (host_page, part_page) = (page_of(&engine, st), page_of(&engine, part));
+        let control = &host_page.controls[*idx];
+        let link = control.part_link.as_ref().is_some_and(|l| {
+            l.provider.is_none()
+                && l.view.is_none()
+                && l.entries.len() == key.len()
+                && l.entries
+                    .iter()
+                    .zip(&key)
+                    .all(|(e, k)| matches!(e, ir::LinkEntry::Field(pf, hf) if pf == k && hf == k))
+        });
+        let part_control = control.factbox
+            && control
+                .props
+                .iter()
+                .all(|(k, _)| k == "applicationarea" || k == "subpagelink");
+        let card_part = engine.object_facts[part_object].page_type == Some(ir::PageType::Other("cardpart".into()));
+        let part_properties = engine.program.objects[part_object].properties.iter().all(|(k, _)| {
+            matches!(
+                k.to_ascii_lowercase().as_str(),
+                "pagetype" | "sourcetable" | "applicationarea" | "usagecategory"
+            )
+        });
+        let plain = |controls: &[ir::Control], part_at: Option<usize>| {
+            controls.iter().enumerate().all(|(i, c)| match c.kind {
+                ir::ControlKind::Field => {
+                    matches!(c.binding, ir::Binding::Field(_))
+                        && c.owner.is_none()
+                        && c.ext_triggers.is_empty()
+                        && c.props.iter().all(|(k, _)| k == "applicationarea")
+                }
+                ir::ControlKind::Repeater => c.props.is_empty(),
+                ir::ControlKind::Part => part_at == Some(i),
+                _ => false,
+            })
+        };
+        Ok(same_table
+            && link
+            && part_control
+            && card_part
+            && part_properties
+            && part_page.triggers.is_empty()
+            && part_page.controls.iter().all(|c| c.triggers.is_empty())
+            && plain(&host_page.controls, Some(*idx))
+            && plain(&part_page.controls, None))
     }
 
     /// How `st` was opened, for a measured open: the test's OpenEdit (`PageState::test_open_edit`) on a view without filters, or
@@ -225,13 +374,13 @@ impl Session {
     }
 
     /// The page stands on the line `New()` started, editable, inside a control's validation, and the test made exactly the
-    /// measured calls on it since the open: `New()`, then the SetValue that runs now (:477-479, :697-698).
+    /// measured calls on it since the open: `New()`, then the SetValue that runs now (:477-479, :697-698;
+    /// ListNewLineSaveRecordUpdate.al:354-356, :397-399).
     fn code_inserted_line(&self, st: &St) -> bool {
         let line = {
             let s = st.borrow();
             s.open
                 && s.host.is_none()
-                && s.parts.is_empty()
                 && s.hidden_parts.is_empty()
                 && !s.test_opened_new
                 && s.cursor == Cursor::NewLine
@@ -241,10 +390,16 @@ impl Session {
                 && !s.editable_off
                 && s.validating_control
         };
-        line && matches!(
-            Self::test_calls(st).as_deref(),
-            Some([TestCall::Page(PageMethod::New), TestCall::Write(_)])
-        )
+        // A part's calls count too: they are kept with the page's own (`PageState::tree_calls`).
+        let no_part_calls = {
+            let s = st.borrow();
+            !s.tree_calls_unknown && s.tree_calls.iter().all(|c| c.part.is_none())
+        };
+        line && no_part_calls
+            && matches!(
+                Self::test_calls(st).as_deref(),
+                Some([TestCall::Page(PageMethod::New), TestCall::Write(_)])
+            )
     }
 
     /// Whether Rec is the row the table field's OnValidate inserted from the line before the control's OnValidate began (:30-37):
@@ -290,23 +445,25 @@ impl Session {
             .is_some_and(|v| (line_mark + 1..=control_mark).contains(&v)))
     }
 
-    /// Whether the view holds the inserted row last, alone or after one row with the same value in the key's first field: the
-    /// measured views (an empty view, or row 'A' before the line, :386-398, :620-641). Two rows before it,
-    /// or a row after it, are not measured.
-    fn code_inserted_view(&mut self, st: &St) -> Result<bool, Signal> {
+    /// Which measured view holds the inserted row last: alone, or after one row with the same value in the key's first field
+    /// (an empty view, or row 'A' before the line, :386-398, :620-641). `None` for two rows before it, or a row after it: not
+    /// measured.
+    fn code_inserted_view(&mut self, st: &St) -> Result<Option<View>, Signal> {
         let rec = self.page_rec(st);
         let table = self.table(&rec)?;
         let Some(&code) = table.keys[0].first() else {
-            return Ok(false);
+            return Ok(None);
         };
         let row = table.primary_key(&rec.borrow().fields);
         let is_row = |fields: &[Value]| Self::same_key(&table.primary_key(fields), &row);
         Ok(match self.view_rows(&rec, 3)?.as_slice() {
-            [only] => is_row(only),
-            [before, last] => {
-                is_row(last) && Self::same_values(&before[code..=code], &rec.borrow().fields[code..=code])
+            [only] if is_row(only) => Some(View::Alone),
+            [before, last]
+                if is_row(last) && Self::same_values(&before[code..=code], &rec.borrow().fields[code..=code]) =>
+            {
+                Some(View::AfterRow)
             }
-            _ => false,
+            _ => None,
         })
     }
 
@@ -331,50 +488,213 @@ impl Session {
         result
     }
 
-    /// A control's validation ended with `e` (`validate_step_close`): an AL error after `land_on_code_inserted_line` moved the
-    /// page onto the row (an OnValidate that fails after `CurrPage.Update`, whose insert the error rolls back) is not measured,
-    /// and refused. Every other signal goes on.
+    /// A control's validation ended with `e` (`validate_step_close`): an AL error after `land_on_code_inserted_line` or
+    /// `save_record_on_code_inserted_line` moved the page onto the row (an OnValidate that fails after `CurrPage.Update` or
+    /// `CurrPage.SaveRecord`, whose insert the error rolls back) is not measured, and refused. Every other signal goes on.
     pub(super) fn refuse_error_after_landing(&mut self, st: &St, e: Signal) -> Signal {
-        let landed = st.borrow().refresh.starts_from_code_inserted_line();
+        let landed = {
+            let s = st.borrow();
+            s.refresh.starts_from_code_inserted_line() || !matches!(s.code_inserted_save, CodeInsertedSave::Off)
+        };
         match e {
             Signal::Error(_) if landed => {
                 st.borrow_mut().forget_code_inserted_line();
                 Signal::unsupported(
-                    "an error ended the validation after CurrPage.Update moved the page from its new line onto the row the table \
-                     field inserted (not measured)",
+                    "an error ended the validation after CurrPage.Update or CurrPage.SaveRecord moved the page from its new line \
+                     onto the row the table field inserted (not measured)",
                 )
             }
             e => e,
         }
     }
-    /// `CurrPage.Update()` (`arg` `None`) or `CurrPage.Update(false)` in a measured cell (`code_inserted_cell`): the page leaves
-    /// the new line for the stored row before the call goes on, so `Update()` saves it as a stored row (its modify,
-    /// `P.MOD(X/);T.M(X/);` before the OnValidate ends, ListNewLineCodeInsertUpdate.al:419 `ExpectedSetName`) and `Update(false)`
-    /// saves nothing. The refresh the call asked for reads the view from its first row (`code_inserted_refresh_due`).
-    /// `Update(true)` written out is not measured and keeps main's way.
+
+    /// A control's validation ended without an error (`validate_step_close`). After `CurrPage.SaveRecord` or `CurrPage.Update(true)`
+    /// left the new line, it must end as the cells do (ListNewLineSaveRecordUpdate.al:123-134, :190-197): the SaveRecord followed
+    /// by its `CurrPage.Update(false)`, and the page's record, its view and the table as the save left them (`view_kept`). Any
+    /// other end is not measured, and refused.
+    pub(super) fn code_inserted_step_end(&mut self, st: &St) -> Result<(), Signal> {
+        let save = std::mem::take(&mut st.borrow_mut().code_inserted_save);
+        let why = match save {
+            CodeInsertedSave::Off => return Ok(()),
+            CodeInsertedSave::Asked(view) if self.view_kept(st, &view)? => return Ok(()),
+            CodeInsertedSave::Asked(_) => {
+                "the validation changed the page's record, its view or the table after CurrPage.SaveRecord or Update(true) moved the \
+                 page from its new line onto the row the table field inserted (not measured)"
+            }
+            CodeInsertedSave::Pending { .. } | CodeInsertedSave::Saved(_) => {
+                "CurrPage.SaveRecord moved the page from its new line onto the row the table field inserted, and the validation \
+                 ended without the CurrPage.Update(false) after it (not measured)"
+            }
+        };
+        st.borrow_mut().forget_code_inserted_line();
+        unsupported(why)
+    }
+
+    /// Whether the page's record (its fields, filters, filter group, key, sort order and MarkedOnly) and the store's write mark
+    /// are as `view` noted them after the save.
+    fn view_kept(&self, st: &St, view: &SavedView) -> Result<bool, Signal> {
+        let rec = self.page_rec(st);
+        let (r, v) = (rec.borrow(), &view.rec);
+        Ok(self.write_mark() == view.writes
+            && Self::same_values(&r.fields, &v.fields)
+            && crate::records::same_filters(&r.filters, &v.filters)
+            && r.filter_group == v.filter_group
+            && r.key == v.key
+            && r.adhoc == v.adhoc
+            && r.ascending == v.ascending
+            && r.field_descending == v.field_descending
+            && r.marked_only == v.marked_only)
+    }
+
+    /// The save of `CurrPage.SaveRecord` or `CurrPage.Update(true)` that left the new line (`save_from_update`) is done: the page's
+    /// record and the store as it left them are noted, which the calls after it must keep (`view_kept`).
+    pub(super) fn code_inserted_saved(&mut self, st: &St) {
+        let CodeInsertedSave::Pending { asked } = st.borrow().code_inserted_save else {
+            return;
+        };
+        let view = Box::new(SavedView {
+            rec: self.page_rec(st).borrow().clone(),
+            writes: self.write_mark(),
+        });
+        st.borrow_mut().code_inserted_save = match asked {
+            true => CodeInsertedSave::Asked(view),
+            false => CodeInsertedSave::Saved(view),
+        };
+    }
+
+    /// `CurrPage.Update()` (`arg` `None`), `CurrPage.Update(false)` or `CurrPage.Update(true)` in a measured cell
+    /// (`code_inserted_cell`): the page leaves the new line for the stored row before the call goes on, so `Update()` and
+    /// `Update(true)` save it as a stored row (its modify, `P.MOD(X/);T.M(X/);` before the OnValidate ends,
+    /// ListNewLineCodeInsertUpdate.al:419 `ExpectedSetName`, ListNewLineSaveRecordUpdate.al:510 `setname`) and `Update(false)`
+    /// saves nothing. The refresh the call asked for reads the view from its first row (`code_inserted_refresh_due`). After a
+    /// `CurrPage.SaveRecord` that left the line, see `update_after_code_inserted_save`.
     pub(super) fn land_on_code_inserted_line(&mut self, st: &St, arg: Option<&Value>) -> Result<(), Signal> {
-        let save = match arg {
-            None => true,
-            Some(Value::Boolean(false)) => false,
+        let save = st.borrow().code_inserted_save.clone();
+        match save {
+            CodeInsertedSave::Off => {}
+            CodeInsertedSave::Saved(view) => return self.update_after_code_inserted_save(st, arg, &view),
+            _ => {
+                st.borrow_mut().forget_code_inserted_line();
+                return unsupported(
+                    "a further CurrPage.Update after CurrPage.SaveRecord or Update(true) moved the page from its new line onto the \
+                     row the table field inserted (not measured)",
+                );
+            }
+        }
+        let leave = match arg {
+            None => Leave::Update,
+            Some(Value::Boolean(false)) => Leave::UpdateFalse,
+            Some(Value::Boolean(true)) => Leave::UpdateTrue,
             _ => return Ok(()),
         };
-        if !self.code_inserted_cell(st, !save)? {
+        if !self.code_inserted_cell(st, leave)? {
             return Ok(());
         }
+        self.leave_code_inserted_line(st, leave != Leave::UpdateFalse);
+        if leave == Leave::UpdateTrue {
+            st.borrow_mut().code_inserted_save = CodeInsertedSave::Pending { asked: true };
+        }
+        self.ask_code_inserted_refresh(st)
+    }
+
+    /// `CurrPage.SaveRecord()` in a measured cell (`code_inserted_cell`, `Leave::SaveRecord`): the page leaves the new line for the
+    /// stored row, and the save goes on as the modify of that row (`P.MOD(X/);T.M(X/);P.SR;`, ListNewLineSaveRecordUpdate.al:445
+    /// `setname`). The `CurrPage.Update(false)` the cell makes next asks the refresh (`update_after_code_inserted_save`). A second
+    /// SaveRecord before it is not measured, and refused.
+    pub(super) fn save_record_on_code_inserted_line(&mut self, st: &St) -> Result<(), Signal> {
+        if !matches!(st.borrow().code_inserted_save, CodeInsertedSave::Off) {
+            st.borrow_mut().forget_code_inserted_line();
+            return unsupported(
+                "a further CurrPage.SaveRecord after CurrPage.SaveRecord or Update(true) moved the page from its new line onto the \
+                 row the table field inserted (not measured)",
+            );
+        }
+        if !self.code_inserted_cell(st, Leave::SaveRecord)? {
+            return Ok(());
+        }
+        self.leave_code_inserted_line(st, true);
+        st.borrow_mut().code_inserted_save = CodeInsertedSave::Pending { asked: false };
+        Ok(())
+    }
+
+    /// The `CurrPage.Update` after a `CurrPage.SaveRecord` that left the line (`save_record_on_code_inserted_line`): `Update(false)`
+    /// asks the refresh `Update()` asks (ListNewLineSaveRecordUpdate.al:445 `setname`: `P.SR;P.V.end;P.AGR(X);P.AGR(A);P.AGR(X);
+    /// P.AGR(X);P.AGCR(X);`) when the page's record, its view and the table are as the save left them (`view_kept`); `Update()`
+    /// and `Update(true)`, and an `Update(false)` after a change, are not measured there, and refused.
+    fn update_after_code_inserted_save(
+        &mut self,
+        st: &St,
+        arg: Option<&Value>,
+        view: &SavedView,
+    ) -> Result<(), Signal> {
+        if !matches!(arg, Some(Value::Boolean(false))) {
+            st.borrow_mut().forget_code_inserted_line();
+            return unsupported(
+                "CurrPage.Update() or Update(true) after CurrPage.SaveRecord moved the page from its new line onto the row the \
+                 table field inserted (not measured)",
+            );
+        }
+        if !self.view_kept(st, view)? {
+            st.borrow_mut().forget_code_inserted_line();
+            return unsupported(
+                "the page's record, its view or the table changed between CurrPage.SaveRecord, which moved the page from its new \
+                 line onto the row the table field inserted, and the CurrPage.Update(false) after it (not measured)",
+            );
+        }
+        st.borrow_mut().code_inserted_save = CodeInsertedSave::Asked(Box::new(view.clone()));
+        self.ask_code_inserted_refresh(st)
+    }
+
+    /// The page leaves the new line for the row the table field inserted; without `save` the row it shows is xRec from here on.
+    fn leave_code_inserted_line(&mut self, st: &St, save: bool) {
         {
             let mut s = st.borrow_mut();
             s.cursor = Cursor::Row;
             s.draft = false;
             s.new_by_call = false;
             s.dirty = false;
-            s.refresh.land_on_code_inserted_line();
         }
         if !save {
             self.set_xrec(st);
         }
+    }
+
+    /// The refresh about to run lands on the row the page left its line for (`code_inserted_refresh_due`), and the next move
+    /// starts from it (`previous_on_code_inserted_row`).
+    fn ask_code_inserted_refresh(&mut self, st: &St) -> Result<(), Signal> {
         let key = self.row_key(&self.page_rec(st))?;
-        let calls = st.borrow().test_calls.len();
-        st.borrow_mut().code_inserted_row = Some((key, calls));
+        let mut s = st.borrow_mut();
+        s.refresh.land_on_code_inserted_line();
+        let calls = s.test_calls.len();
+        s.code_inserted_row = Some(CodeInsertedRow {
+            key,
+            calls,
+            read_before_leave: false,
+            factbox: FactboxStep::Off,
+        });
+        Ok(())
+    }
+
+    /// The refresh `land_on_code_inserted_line` asked for (`code_inserted_refresh_due`): the view again from the row
+    /// (`reread_view_from_row`). The FactBox host reads the row, then the row before it, and not the row once more
+    /// (ListNewLineSaveRecordUpdate.al:692 `setname=...T.M(X/);P.AGR(X/);P.AGR(A/);`, :677 `P.AGR(X/);` on an empty view, where the
+    /// page with the five triggers reads `P.AGR(X);P.AGR(A);P.AGR(X);P.AGR(X);P.AGCR(X);`, :445); with a row before, it reads
+    /// the row again before it leaves it (`read_code_inserted_row_again`).
+    pub(super) fn code_inserted_refresh(
+        &mut self,
+        st: &St,
+        without_curr: bool,
+        without_parts: bool,
+    ) -> Result<(), Signal> {
+        let factbox = matches!(self.code_inserted_page(st)?, Some((Triggers::FactboxHost, _)));
+        self.reread_view_from_row(st, without_curr, without_parts, !factbox)?;
+        if factbox {
+            let row_before = self.view_row_count(st)? > 1;
+            if let Some(row) = st.borrow_mut().code_inserted_row.as_mut() {
+                row.read_before_leave = row_before;
+                row.factbox = FactboxStep::Landed;
+            }
+        }
         Ok(())
     }
 
@@ -389,32 +709,196 @@ impl Session {
             .borrow()
             .code_inserted_row
             .as_ref()
-            .is_some_and(|(landed, _)| Self::same_key(landed, &key)))
+            .is_some_and(|row| Self::same_key(&row.key, &key)))
     }
 
-    /// `Previous()` on the row that refresh landed on, when it is the only row of the view and the test only read and wrote
-    /// controls since: BC answers false, runs no trigger and keeps an edit typed since unsaved (ListNewLineCodeInsertUpdate.al:455
-    /// `prev` steps of the empty views: `F/X` and an empty log; `Next()` then saves it). `None` for every other move, which also
-    /// ends the mark.
+    /// `Previous()` on the row that refresh landed on, when the test only read and wrote controls since: on the view's only row
+    /// BC answers false, runs no trigger and keeps an edit typed since unsaved (ListNewLineCodeInsertUpdate.al:455 `prev` steps of
+    /// the empty views: `F/X` and an empty log; `Next()` then saves it; ListNewLineSaveRecordUpdate.al:429, :494, :561, :618, :677
+    /// the same after SaveRecord and Update(true)). The FactBox host with a row before reads the row again, then moves as any
+    /// list does (`read_code_inserted_row_again`). `None` for every other move, which also ends the mark; on the FactBox host
+    /// another move is not measured, and refused.
     pub(super) fn previous_on_code_inserted_row(&mut self, st: &St, how: PageMethod) -> Result<Option<bool>, Signal> {
-        let Some((landed, calls)) = st.borrow_mut().code_inserted_row.take() else {
+        let Some(row) = st.borrow_mut().code_inserted_row.take() else {
             return Ok(None);
         };
-        if how != PageMethod::Previous || st.borrow().cursor != Cursor::Row {
+        // The Next() `refuse_off_factbox_row` lets through after Previous() answered false moves as on main (:683 `nextlog`).
+        if row.factbox == FactboxStep::PreviousNo {
             return Ok(None);
         }
-        // The calls since the landing SetValue: control reads and writes, then this Previous.
-        let only_fields = Self::test_calls(st).is_some_and(|c| {
-            c.len() > calls
-                && c[calls..c.len() - 1]
-                    .iter()
-                    .all(|t| matches!(t, TestCall::Read | TestCall::Write(_)))
-                && c[c.len() - 1] == TestCall::Page(PageMethod::Previous)
-        });
-        let key = self.row_key(&self.page_rec(st))?;
-        if !only_fields || !Self::same_key(&landed, &key) || self.view_row_count(st)? != 1 {
+        let previous = how == PageMethod::Previous
+            && st.borrow().cursor == Cursor::Row
+            && Self::same_key(&row.key, &self.row_key(&self.page_rec(st))?);
+        if row.factbox != FactboxStep::Off {
+            // `refuse_off_factbox_row` let only the measured calls through: the Value SetValue, then this Previous.
+            if !(previous && row.factbox == FactboxStep::Typed && self.typed_since_landing(st)?) {
+                return unsupported(MOVE_OFF_FACTBOX_ROW);
+            }
+            if row.read_before_leave {
+                self.read_code_inserted_row_again(st)?;
+                return Ok(None);
+            }
+            if self.view_row_count(st)? != 1 {
+                return unsupported(MOVE_OFF_FACTBOX_ROW);
+            }
+            // On the empty view Previous() answers false (:677 `prev=F/X`); only reads and Next() follow it (:683).
+            st.borrow_mut().code_inserted_row = Some(CodeInsertedRow {
+                factbox: FactboxStep::PreviousNo,
+                ..row
+            });
+            return Ok(Some(false));
+        } else if !(previous && self.only_fields_since(st, &row)) {
+            return Ok(None);
+        }
+        if self.view_row_count(st)? != 1 {
             return Ok(None);
         }
         Ok(Some(false))
     }
+
+    /// The page closes (`close_with`) on the row its line became. On the FactBox host the close is measured after a SetValue that
+    /// changed the row and control reads only: `Close()` under OpenEdit and `OK().Invoke()` under both opens (`Close()` in the
+    /// ModalPageHandler raises on BC). Any other close there is refused. With a row before, the host reads the row again before
+    /// the close saves it (ListNewLineSaveRecordUpdate.al:784 `close=P.AGR(X/);T.M(X/V);`, :801 and :846 with OK); on an empty view
+    /// it does not (:816, :831, :862 `close=T.M(X/V);`). Other pages close as before.
+    pub(super) fn code_inserted_row_at_close(&mut self, st: &St) -> Result<(), Signal> {
+        if !matches!(st.borrow().code_inserted_save, CodeInsertedSave::Off) {
+            st.borrow_mut().forget_code_inserted_line();
+            return unsupported(
+                "the page closed after CurrPage.SaveRecord or Update(true) moved it from its new line onto the row the table field \
+                 inserted, before the validation ended (not measured)",
+            );
+        }
+        let Some(row) = st.borrow_mut().code_inserted_row.take() else {
+            return Ok(());
+        };
+        // Close() in the ModalPageHandler of a Page.RunModal raises on BC; OK() is measured there.
+        let measured = match row.factbox {
+            FactboxStep::Typed => !st.borrow().modal,
+            FactboxStep::OkAsked => true,
+            _ => false,
+        };
+        match row.factbox {
+            FactboxStep::Off => Ok(()),
+            _ if measured && st.borrow().cursor == Cursor::Row && self.typed_since_landing(st)? => {
+                if row.read_before_leave {
+                    self.read_code_inserted_row_again(st)?;
+                }
+                Ok(())
+            }
+            _ => unsupported(MOVE_OFF_FACTBOX_ROW),
+        }
+    }
+
+    /// The FactBox host, whose refresh read another row last (`code_inserted_refresh`), reads the row it stands on again before
+    /// it leaves it: OnAfterGetRecord on the row as stored, after which Rec holds the edits typed since again, which the save then
+    /// writes (ListNewLineSaveRecordUpdate.al:692 `prevlog=P.AGR(X/);T.M(X/V);`, :784 `close=P.AGR(X/);T.M(X/V);`).
+    fn read_code_inserted_row_again(&mut self, st: &St) -> Result<(), Signal> {
+        let rec = self.page_rec(st);
+        let Some(stored) = self.stored_row(&rec)? else {
+            return unsupported(MOVE_OFF_FACTBOX_ROW);
+        };
+        let typed = std::mem::replace(&mut rec.borrow_mut().fields, stored.clone().into());
+        let read = self.page_trigger(st, "onaftergetrecord", vec![]);
+        let unchanged = Self::same_values(&rec.borrow().fields, &stored);
+        rec.borrow_mut().fields = typed;
+        read?;
+        if !unchanged {
+            return unsupported(
+                "the OnAfterGetRecord of a List page with a CardPart FactBox changed Rec when it read the row its new line \
+                 became again before the save (not measured)",
+            );
+        }
+        Ok(())
+    }
+
+    /// Whether Rec holds an edit the test typed since the landing: a field differs from the stored row (the SetValue on Value,
+    /// ListNewLineSaveRecordUpdate.al:404, writes 'V' over the empty Value). A SetValue of the value already there is not
+    /// measured.
+    fn typed_since_landing(&mut self, st: &St) -> Result<bool, Signal> {
+        let rec = self.page_rec(st);
+        let Some(stored) = self.stored_row(&rec)? else {
+            return Ok(false);
+        };
+        Ok(!Self::same_values(&rec.borrow().fields, &stored))
+    }
+
+    /// Whether the test's calls on `st` since the landing on `row` are control reads and writes, then this `Previous()`.
+    fn only_fields_since(&self, st: &St, row: &CodeInsertedRow) -> bool {
+        Self::test_calls(st).is_some_and(|c| match c.get(row.calls..).unwrap_or_default() {
+            [fields @ .., TestCall::Page(PageMethod::Previous)] => {
+                fields.iter().all(|t| matches!(t, TestCall::Read | TestCall::Write(_)))
+            }
+            _ => false,
+        })
+    }
+
+    /// The test's `call` on `st` or one of its parts while the FactBox host stands on the row its new line became
+    /// (`FactboxStep`): only the calls ListNewLineSaveRecordUpdate.al:394-418 and :739-829 make are let through, reads of the
+    /// host's and the part's controls, then one SetValue of a host control without code (`control_without_code`, :404), then
+    /// `Previous()` (:411, `previous_on_code_inserted_row`), `Close()` or `OK()` and its `Invoke` (`code_inserted_row_at_close`); after
+    /// a `Previous()` that answered false, reads and `Next()` (:683). Every other call is refused. Calls of page code (`None`) go
+    /// on.
+    pub(super) fn refuse_off_factbox_row(&self, st: &St, call: Option<TestCall>) -> Result<(), Signal> {
+        let (root, part) = Self::tree_root(st);
+        let Some(step) = root.borrow().code_inserted_row.as_ref().map(|r| r.factbox) else {
+            return Ok(());
+        };
+        let Some(call) = call else {
+            return Ok(());
+        };
+        let next = match (step, call, part) {
+            (FactboxStep::Off, _, _) => return Ok(()),
+            (_, TestCall::Read, _) => step,
+            (FactboxStep::Landed, TestCall::Write(i), None) if self.control_without_code(&root, i) => {
+                FactboxStep::Typed
+            }
+            (FactboxStep::Typed, TestCall::Page(PageMethod::Previous | PageMethod::Close), None) => step,
+            (FactboxStep::Typed, TestCall::Page(PageMethod::OK), None) => FactboxStep::OkAsked,
+            (FactboxStep::OkAsked, TestCall::Other(PageMethod::Invoke), None) => step,
+            (FactboxStep::PreviousNo, TestCall::Page(PageMethod::Next), None) => step,
+            _ => {
+                root.borrow_mut().forget_code_inserted_line();
+                return unsupported(MOVE_OFF_FACTBOX_ROW);
+            }
+        };
+        if let Some(row) = root.borrow_mut().code_inserted_row.as_mut() {
+            row.factbox = next;
+        }
+        Ok(())
+    }
+
+    /// Whether control `idx` of `st` is bound to a field of Rec outside the primary key, and neither the control nor the field
+    /// runs code when it is written: no trigger, no TableRelation (the Value control, ListNewLineSaveRecordUpdate.al:234, of
+    /// field :40).
+    fn control_without_code(&self, st: &St, idx: usize) -> bool {
+        let engine = self.engine();
+        let Some(control) = page_of(&engine, st).controls.get(idx) else {
+            return false;
+        };
+        let ir::Binding::Field(f) = control.binding else {
+            return false;
+        };
+        let rec = self.page_rec(st);
+        let Ok(table) = self.table(&rec) else {
+            return false;
+        };
+        let field = engine.program.objects[table.object as usize]
+            .table
+            .as_ref()
+            .and_then(|t| t.fields.get(f));
+        control.triggers.is_empty()
+            && control.ext_triggers.is_empty()
+            && !table.keys[0].contains(&f)
+            && field.is_some_and(|d| {
+                d.on_validate.is_none()
+                    && d.ext_before_validate.is_empty()
+                    && d.ext_after_validate.is_empty()
+                    && !d.relation
+            })
+    }
 }
+
+/// The refusal of a call that leaves the FactBox host's row other than as measured.
+const MOVE_OFF_FACTBOX_ROW: &str = "a call on a List page with a CardPart FactBox, on the row its new line became, other than control \
+                                    reads, one SetValue, then Previous(), Close() or OK() (not measured)";
