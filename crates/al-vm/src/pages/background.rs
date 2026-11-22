@@ -233,17 +233,26 @@ impl Session {
         }
         let worker_error = std::mem::replace(&mut self.last_error, parked.last_error);
         if worker_error != AlError::default() && worker_error != self.last_error {
-            self.pages.bg_kept_last_error = Some(self.last_error.clone());
+            *self.pages.bg_kept_last_error.borrow_mut() = Some(self.last_error.clone());
         }
     }
 
     /// A read of the last error (GetLastErrorText, GetLastErrorCode, GetLastErrorCallStack and the rest of
     /// `Ctx::last_error`) that the worker's own last error decides: a worker's that has set none of its own yet while the test
-    /// session held one, or the test session's after a worker set its own, until it changes. It runs through the assumption.
+    /// session held one, or the test session's after a worker set its own, until it changes (the first read of another
+    /// error ends it). It runs through the assumption.
     pub(crate) fn bg_note_last_error_read(&self) {
         let in_worker = (self.pages.bg_worker.as_ref()).is_some_and(|w| w.test_had_last_error)
             && self.last_error == AlError::default();
-        if in_worker || self.pages.bg_kept_last_error.as_ref() == Some(&self.last_error) {
+        let kept = self.pages.bg_worker.is_none() && {
+            let mut kept = self.pages.bg_kept_last_error.borrow_mut();
+            let same = kept.as_ref() == Some(&self.last_error);
+            if !same {
+                *kept = None;
+            }
+            same
+        };
+        if in_worker || kept {
             al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::BgTaskWorkerLastError);
         }
     }

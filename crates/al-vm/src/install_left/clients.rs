@@ -74,7 +74,7 @@ pub(super) fn pages_as_new(p: &PageClients) -> bool {
         && traps.is_empty()
         && scope_unpinned.is_empty()
         && bg_worker.is_none()
-        && bg_kept_last_error.is_none()
+        && bg_kept_last_error.borrow().is_none()
         && !bg_task_error_unrecorded
         && *caption_dialogs == crate::pages::CaptionDialogs::default()
         && caption_write_guard.is_none()

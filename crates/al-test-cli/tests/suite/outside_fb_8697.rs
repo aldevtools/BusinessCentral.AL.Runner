@@ -7,6 +7,11 @@ use al_test_cli::report::Outcome;
 use al_testrun::isolation::TestIsolation;
 
 fn outcomes(codeunit: &str) -> Vec<(String, Outcome, Vec<Assumption>)> {
+    outcomes_with("", codeunit)
+}
+
+/// The outcomes of `codeunit`, with the AL source `extra` next to the neighbor app's files.
+fn outcomes_with(extra: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<Assumption>)> {
     let src = [
         include_str!("../../../../tests/neighbors/8697-bg-worker-last-error/src/Probe.al"),
         include_str!("../../../../tests/neighbors/8697-bg-worker-last-error/src/Neighbors.al"),
@@ -15,6 +20,7 @@ fn outcomes(codeunit: &str) -> Vec<(String, Outcome, Vec<Assumption>)> {
         include_str!("../../../../tests/neighbors/8697-bg-worker-last-error/src/ProbeLastErrorObject.al"),
         include_str!("../../../../tests/neighbors/8697-bg-worker-last-error/src/CemFixtures.al"),
         include_str!("../../../../tests/neighbors/8697-bg-worker-last-error/src/NeighborsMore.al"),
+        extra,
     ]
     .join("\n");
     let l = al_testkit::compile_apps(vec![al_testkit::app(&src)]);
@@ -127,4 +133,55 @@ fn issue_8697_worker_last_error_object() {
         let clean = name == "WorkerCaughtItsError_WorkerGetLastErrorObject_DialogException";
         assert_eq!(marks.contains(&BgTaskWorkerLastError), !clean, "{name}: {marks:?}");
     }
+}
+
+/// The test session's last error that a worker's end gave back is flagged until the first read of another one: the same
+/// error raised again later reads as it would have before issue 8697 (review of PR 8705).
+#[test]
+fn issue_8697_kept_last_error_ends_at_the_first_read_of_another() {
+    let extra = r#"
+codeunit 97389 "LEK Tests"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure KeptEndsAtTheFirstReadOfAnother()
+    var
+        Host: Record "LEW Host";
+        Hosts: TestPage "LEW Hosts";
+        Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
+        Seen: Text;
+        I: Integer;
+    begin
+        Host.DeleteAll();
+        Host."No." := 'H';
+        Host.Insert();
+        Commit();
+        Parameters.Add('Mode', 'catch');
+        for I := 1 to 2 do begin
+            Raise();
+            if I = 1 then begin
+                Hosts.OpenView();
+                Results := Hosts.RunPageBackgroundTask(Codeunit::"LWS Reader", Parameters, false);
+                Hosts.Close();
+                asserterror Error('Another');
+                Seen := GetLastErrorText();
+            end;
+        end;
+        Seen := GetLastErrorText();
+    end;
+
+    local procedure Raise()
+    var
+        Host: Record "LEW Host";
+    begin
+        asserterror Host.Get('MISSING');
+    end;
+}
+"#;
+    let o = outcomes_with(extra, "LEK Tests");
+    let (name, r, marks) = &o[0];
+    assert_eq!(*r, Outcome::Pass, "{name}");
+    assert!(!marks.contains(&BgTaskWorkerLastError), "{name}: {marks:?}");
 }
