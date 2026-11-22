@@ -248,6 +248,16 @@ fn describe(a: &Rows, b: &Rows, object: u32, engine: &crate::Engine) -> Vec<Stri
                     al_builtins::value_codec::encode_row(std::slice::from_ref(x), &mut ex);
                     al_builtins::value_codec::encode_row(std::slice::from_ref(y), &mut ey);
                     if ex != ey {
+                        // Two Blobs show alike: name the buffer fields that differ instead (al-runner issue 8588).
+                        if let (Value::Blob(bx), Value::Blob(by)) = (x, y) {
+                            let fields = bx.borrow().differing_fields(&by.borrow()).join(", ");
+                            out.push(format!(
+                                "key {}, field {}: the Blob differs in {fields}",
+                                key(k),
+                                field(i)
+                            ));
+                            continue;
+                        }
                         out.push(format!(
                             "key {}, field {}: {} against {}",
                             key(k),

@@ -789,7 +789,24 @@ impl Session {
                     // call's), else none.
                     let proc_xrec = self.table_proc_xrec(object, &rc, f);
                     let caller_xrec = match &proc_xrec {
-                        crate::records::ProcXrec::Shared(x) => Some(x.clone()),
+                        crate::records::ProcXrec::Shared(x) | crate::records::ProcXrec::SharedReadOnly(x) => {
+                            Some(x.clone())
+                        }
+                        _ => None,
+                    };
+                    // Under a nested Validate the procedure may read the shared xRec, not change it: other values, another view
+                    // (`XrecView`: filters, marks, key, sort), or a first assignment (the `assigned` mark set where it was clear,
+                    // which `AreFieldsLoaded` reads) refuse on every way out.
+                    let read_only = match &proc_xrec {
+                        crate::records::ProcXrec::SharedReadOnly(x) => {
+                            let xs = x.borrow();
+                            Some((
+                                x.clone(),
+                                xs.fields.clone(),
+                                crate::records::XrecView::of(&xs),
+                                xs.assigned,
+                            ))
+                        }
                         _ => None,
                     };
                     let handle = Rc::as_ptr(&rc) as usize;
@@ -822,6 +839,15 @@ impl Session {
                         self.shared_proc_xrec.pop();
                     }
                     Self::leave_record(&inst, saved);
+                    if let Some((x, fields, view, assigned)) = read_only {
+                        let xs = x.borrow();
+                        if (xs.assigned && !assigned)
+                            || !crate::records::XrecView::of(&xs).same(&view)
+                            || !Self::same_values(&xs.fields, &fields)
+                        {
+                            return Err(Signal::unsupported(crate::records::XREC_CHANGED_UNDER_NESTED_VALIDATE));
+                        }
+                    }
                     return r;
                 }
                 // A query procedure runs with the query it was called on as its own state.
@@ -926,6 +952,9 @@ impl Session {
         if try_call {
             self.enter_used_try(object, routine);
         }
+        // The take below writes back only what this call's routine left as it failed (errors/TestTryFunctionContracts.al:85-95,
+        // codeunits/TestScopeIsolationContracts.al:63-77): what an earlier error left, wherever it ended, is not this call's.
+        self.error_finals = None;
         let result = self.call_with_facts(object, routine, inst, values, facts);
         if try_call {
             self.leave_used_try();
@@ -1571,7 +1600,10 @@ impl Session {
                 if let Value::Unknown(why) = &v {
                     return Err(Signal::unsupported(why.to_string()));
                 }
-                if let Some(why) = self.install_row_order(r.table, r.temporary, *pos, &r.fields) {
+                if let Some(why) = self
+                    .install_row_order(r.table, r.temporary, *pos, &r.fields)
+                    .or_else(|| self.restamped_read(&r, *pos))
+                {
                     return Err(Signal::unsupported(why));
                 }
                 if r.load.partial {

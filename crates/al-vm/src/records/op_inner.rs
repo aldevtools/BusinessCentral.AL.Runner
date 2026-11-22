@@ -268,6 +268,8 @@ impl Session {
                 self.gate_used_try_other_write(&t, method)?;
             }
             self.user_bulk_refusal(&t, rec.borrow().temporary, method)?;
+            // A write call is a step of the moment an Update report is measured at (`OpenTx::moment`).
+            self.moment_db_call(method, true);
             // A write call starts the transaction, also a DeleteAll that finds no row
             // (session-system/ProbeSystemEnumMembers.al:143-161, session-system/TestDatabaseExtended.al:
             // Database_CurrentTransactionType_SetAfterWriteOp_Throws over fixture DeleteAlls).
@@ -280,8 +282,8 @@ impl Session {
             self.tx.phase = crate::transactions::TxPhase::Read;
         }
         if !rec.borrow().temporary && Self::is_read_call(method) {
-            // A read call ends the moment the Update report rule is pinned at (`OpenTx::at_test_start`).
-            self.tx.open.at_test_start = false;
+            // A read call is a step of the moment an Update report is measured at (`OpenTx::moment`).
+            self.moment_db_call(method, false);
             // What LastUsedRowVersion reports after a read of a table the open transaction inserted into.
             let company = rec.borrow().company.clone();
             // GetBySystemId, Find('='), Find('-'), Find('+') and a CalcFields of a record whose own table holds inserted rows
@@ -297,7 +299,7 @@ impl Session {
                 .row_versions
                 .pending_inserts
                 .iter()
-                .any(|(o, c, _)| *o == t.object && *c == company);
+                .any(|(o, c, _, _)| *o == t.object && *c == company);
             let find_form = match args.first() {
                 Some(Value::Text(w)) => Some(w.as_str()),
                 _ => None,
@@ -333,6 +335,7 @@ impl Session {
                         | RecordOp::CalcSums
                 ),
             );
+            self.restamped_find(&cx, &t, &rec.borrow(), method)?;
             use crate::recmeta::{ISOLATION_REPEATABLE_READ, ISOLATION_UPDLOCK};
             // The assignment of a locking isolation opened the write transaction (`RecordOp::ReadIsolation`), the read does
             // not: a Get, Find('='), IsEmpty, Count, Next or CalcFields under UpdLock or RepeatableRead set in an earlier
@@ -1002,7 +1005,7 @@ impl Session {
                 self.delete_one(&cx, &t, rec, run)
             }
             RecordOp::DeleteAll => {
-                let at = self.note_bulk_write(rec, &t, crate::state::TxWriteKind::DeleteAll);
+                let at = self.note_bulk_write(rec, &t, crate::state::TxWriteKind::DeleteAll, &[]);
                 let r = arg_bool(args, 0).and_then(|run| self.delete_all(&t, rec, &cx, run));
                 self.note_bulk_end(at);
                 r
@@ -1902,7 +1905,7 @@ impl Session {
                 }
                 let xrec = Self::validate_xrec_handle(rec, &before);
                 let outermost = outer.is_none().then_some(before);
-                self.while_validating(entry, rec, outermost, |s| {
+                self.while_validating(entry, rec, &xrec, outermost, |s| {
                     s.validate_hooks(&t, rec, &xrec, field, snapshot)
                 })?;
                 if sum_flowfield {
@@ -1913,7 +1916,8 @@ impl Session {
             RecordOp::Rename => {
                 let from_al = std::mem::take(&mut self.tx.rename_from_al);
                 let rename_note = (self.tx.open.writes.len(), self.store.change_counter());
-                self.note_bulk_write(rec, &t, crate::state::TxWriteKind::Other);
+                let old_key = Self::sql_key(rec, &t, &rec.borrow().fields);
+                self.note_bulk_write(rec, &t, crate::state::TxWriteKind::Other, &old_key);
                 if !rec.borrow().temporary {
                     self.rename_jit_gone(rec)?;
                 }
@@ -2083,6 +2087,8 @@ impl Session {
                             w.pk = t.primary_key(&old_fields);
                             w.before = rename_note.1;
                             w.after = self.store.change_counter();
+                            let company = rec.borrow().company.clone();
+                            self.end_row_version_write(t.object, &company);
                         }
                         // The variable's own Rename after its own Insert, in that transaction, makes the buffer's new version its own
                         // write (record/crud/SbStaleOwnModify.al:268-298). After a Get it is not pinned: the origin

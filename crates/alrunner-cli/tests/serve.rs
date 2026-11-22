@@ -17,6 +17,10 @@ impl Server {
     }
 
     fn start_with(extra: &[&str], env: &[(&str, &str)]) -> Server {
+        Server::start_with_stderr(extra, env, Stdio::null())
+    }
+
+    fn start_with_stderr(extra: &[&str], env: &[(&str, &str)], stderr: Stdio) -> Server {
         let mut child = Command::new(env!("CARGO_BIN_EXE_al-runner"))
             .arg("serve")
             .args(extra)
@@ -28,7 +32,7 @@ impl Server {
             .env("AL_TEST_THREADS", "2")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(stderr)
             .spawn()
             .expect("start al-runner serve");
         let stdin = child.stdin.take();
@@ -2538,6 +2542,133 @@ fn entries_with_resources_take_the_kept_baseline_and_give_what_a_fresh_daemon_gi
     }
 }
 
+/// Two apps whose test needs the complete compile, so the dependency app is compiled into a layer of the compile cache.
+fn layered_apps(root: &Path) -> (PathBuf, PathBuf) {
+    let dep = root.join("dep");
+    write(
+        &dep,
+        "app.json",
+        r#"{"id":"82080000-0000-0000-0000-000000000001","name":"Literal Dep","publisher":"Probe","version":"1.0.0.0","dependencies":[]}"#,
+    );
+    write(
+        &dep,
+        "src/D.al",
+        "table 50952 \"Literal Row\" { fields { field(1; K; Integer) { } } keys { key(PK; K) { } } }
+codeunit 50950 \"Literal Source\" { procedure Value(): Integer begin exit(41); end; }\n",
+    );
+    let main = root.join("main");
+    write(
+        &main,
+        "app.json",
+        r#"{"id":"82080000-0000-0000-0000-000000000002","name":"Literal Tests","publisher":"Probe","version":"1.0.0.0","dependencies":[{"id":"82080000-0000-0000-0000-000000000001","name":"Literal Dep","publisher":"Probe","version":"1.0.0.0"}]}"#,
+    );
+    write(
+        &main,
+        "src/T.al",
+        "codeunit 50951 \"Literal Tests\" { Subtype = Test;
+    [Test] procedure ShowValue() var S: Codeunit \"Literal Source\"; R: Record \"Literal Row\";
+    begin R.K := 1; R.Insert(); Error('v=%1 rows=%2', S.Value(), R.Count()); end; }\n",
+    );
+    (main, dep)
+}
+
+/// The build tags (the first 16 hex of a cache file's name) of the dependency layers in `cache`.
+fn layer_tags(cache: &Path) -> Vec<String> {
+    let mut tags: Vec<String> = std::fs::read_dir(cache.join("compile"))
+        .map(|rd| {
+            rd.filter_map(|e| e.ok()?.file_name().into_string().ok())
+                .filter(|n| n.ends_with(".alcc"))
+                .map(|n| n[..16].to_string())
+                .collect()
+        })
+        .unwrap_or_default();
+    tags.sort();
+    tags.dedup();
+    tags
+}
+
+/// The compile cache's key holds a hash of the running build (`compile_cache::runtime_build`). A server whose executable
+/// was deleted or replaced after it started (an upgrade, a rebuild) still knows its build: it files its entries under the
+/// tag a normal run of the same build uses, not under a value two builds could share (two builds that both fell back read
+/// each other's entries: a program lowered by another build).
+#[cfg(target_os = "linux")]
+#[test]
+fn a_server_whose_executable_was_deleted_files_its_cache_entries_under_its_own_build() {
+    let d = tempfile::tempdir().unwrap();
+    let (main, dep) = layered_apps(d.path());
+    let dep = dep.to_string_lossy().to_string();
+    // A normal run of this build: the tag its layers carry.
+    let normal = d.path().join("normal-cache");
+    let o = Command::new(env!("CARGO_BIN_EXE_al-runner"))
+        .args([
+            "test",
+            main.to_str().unwrap(),
+            "--dep",
+            &dep,
+            "--no-download",
+            "--no-test-data",
+        ])
+        .env("ALRUNNER_CACHE", &normal)
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&o.stderr).to_string() + &String::from_utf8_lossy(&o.stdout);
+    assert!(text.contains("v=41"), "{text}");
+    let own = layer_tags(&normal);
+    assert_eq!(own.len(), 1, "one layer: {own:?}");
+    // The same build, started from a copy that is deleted before the first request.
+    let exe = d.path().join("al-runner-copy");
+    std::fs::copy(env!("CARGO_BIN_EXE_al-runner"), &exe).unwrap();
+    let cache = d.path().join("cache");
+    let mut server = Command::new(&exe);
+    server
+        .args(["serve", "--dep", &dep, "--no-download", "--no-test-data"])
+        .env("ALRUNNER_CACHE", &cache)
+        .env_remove("ALRUNNER_SEED")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    // A copy just written can be busy for a moment ("Text file busy"): another thread of this test binary that forks
+    // while the copy's write handle is open keeps it open in the child until that child execs.
+    let mut tries = 0;
+    let mut child = loop {
+        match server.spawn() {
+            Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy && tries < 50 => {
+                tries += 1;
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            spawned => break spawned.unwrap(),
+        }
+    };
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    let mut line = String::new();
+    stdout.read_line(&mut line).unwrap();
+    assert!(line.contains("ready"), "{line}");
+    std::fs::remove_file(&exe).unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    writeln!(stdin, "{}", json!({"command": "runTests", "sourcePaths": [main]})).unwrap();
+    stdin.flush().unwrap();
+    let mut answers = String::new();
+    loop {
+        line.clear();
+        assert!(
+            stdout.read_line(&mut line).unwrap() > 0,
+            "the server closed stdout: {answers}"
+        );
+        answers.push_str(&line);
+        if line.contains("\"type\":\"summary\"") {
+            break;
+        }
+    }
+    drop(stdin);
+    child.wait().unwrap();
+    assert!(answers.contains("v=41"), "{answers}");
+    assert_eq!(
+        layer_tags(&cache),
+        own,
+        "the deleted executable's server filed its layer under another build tag"
+    );
+}
+
 /// Al-runner issue 8244: `coverage: "hit"` lists in `coverage` only the statements the tests ran, each as the full list
 /// shows it, and `perTestCoverage` as without it. A coverage request keeps the install baseline of the server, and its
 /// coverage is the same as over a baseline it ran.
@@ -2848,6 +2979,107 @@ fn a_coverage_request_after_one_without_coverage_gives_the_coverage_of_a_first_r
     assert_eq!(got["perTestCoverage"], want["perTestCoverage"], "{got}");
     s.send(json!({"command": "shutdown"}));
     assert_eq!(s.line(), json!({"status": "shutting down"}));
+}
+
+/// A stand-in of Microsoft's login in a dependency app, in the shape of its code (al-testrun `runtime/login_tests.rs`):
+/// Company Triggers `OnCompanyOpenCompleted` raises `OnAfterLogin`, whose subscriber raises the registration events.
+const LOGIN_STAND_IN: &str = r#"
+table 1990 "Guided Experience Item" { fields { field(1; "Object ID"; Integer) { } } keys { key(PK; "Object ID") { Clustered = true; } } }
+table 1996 "Checklist Setup" { fields { field(1; K; Code[10]) { } } keys { key(PK; K) { Clustered = true; } } }
+codeunit 150 "System Initialization" { [IntegrationEvent(false, false, true)] internal procedure OnAfterLogin() begin end; }
+codeunit 151 "System Initialization Impl."
+{
+    SingleInstance = true;
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Company Triggers", 'OnCompanyOpenCompleted', '', false, false)]
+    local procedure InitCompany() var SystemInitialization: Codeunit "System Initialization"; begin SystemInitialization.OnAfterLogin(); end;
+}
+codeunit 1990 "Guided Experience"
+{
+    procedure InsertAssistedSetup(ObjectID: Integer) var G: Record "Guided Experience Item"; begin G."Object ID" := ObjectID; G.Insert(); end;
+    procedure Register() begin OnRegisterManualSetup(); end;
+    [IntegrationEvent(false, false)] local procedure OnRegisterManualSetup() begin end;
+}
+codeunit 1997 "Checklist Events"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"System Initialization", 'OnAfterLogin', '', false, false)]
+    local procedure OnAfterLogIn() var S: Record "Checklist Setup"; G: Codeunit "Guided Experience";
+    begin
+        if S.Get('') then exit;
+        G.Register();
+        S.Insert();
+    end;
+}
+"#;
+
+/// Al-runner issue 8211: `ALRUNNER_LOGIN_REPLAY_CHECK=1` compares what each test session holds after the raised login with
+/// the first session of the same inputs, across the entries of a request (their `resources`, which the login reads here)
+/// and the requests of one kept daemon (another `seed`). No session of one key holds anything else.
+#[test]
+fn the_login_replay_check_finds_no_difference_across_entries_and_requests() {
+    let d = tempfile::tempdir().unwrap();
+    let dep = d.path().join("login");
+    write(
+        &dep,
+        "app.json",
+        r#"{"id":"82110000-0000-0000-0000-000000000001","name":"Login Stand-in","publisher":"Someone","version":"1.0.0.0","dependencies":[]}"#,
+    );
+    write(&dep, "src/Login.al", LOGIN_STAND_IN);
+    let main = d.path().join("main");
+    write(
+        &main,
+        "app.json",
+        r#"{"id":"82110000-0000-0000-0000-000000000002","name":"Login Probe","publisher":"Test","version":"1.0.0.0","resourceFolders":["Res"],"dependencies":[{"id":"82110000-0000-0000-0000-000000000001","name":"Login Stand-in","publisher":"Someone","version":"1.0.0.0"}]}"#,
+    );
+    write(&main, "Res/rpl.txt", "a");
+    write(
+        &main,
+        "src/T.al",
+        r#"codeunit 50820 "Probe Registration"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterManualSetup', '', false, false)]
+    local procedure RegisterManualSetup() var G: Codeunit "Guided Experience";
+    begin G.InsertAssistedSetup(50800 + StrLen(NavApp.GetResourceAsText('rpl.txt'))); end;
+}
+codeunit 50821 "Probe Login Tests"
+{
+    Subtype = Test;
+    [Test] procedure SeesTheRow() var I: Record "Guided Experience Item"; begin if I.IsEmpty() then Error('no row'); end;
+}
+"#,
+    );
+    let log = d.path().join("stderr.txt");
+    let dep_arg = dep.to_string_lossy().to_string();
+    let mut s = Server::start_with_stderr(
+        &["--no-download", "--no-test-data", "--dep", &dep_arg],
+        &[("ALRUNNER_LOGIN_REPLAY_CHECK", "1")],
+        Stdio::from(std::fs::File::create(&log).unwrap()),
+    );
+    s.line();
+    let entries = json!([
+        {"id": "a", "resources": {"rpl.txt": "a"}, "test": "Codeunit50821."},
+        {"id": "b", "resources": {"rpl.txt": "abcd"}, "test": "Codeunit50821."},
+        {"id": "c", "resources": {"rpl.txt": "a"}, "test": "Codeunit50821."},
+    ]);
+    for seed in [1, 2] {
+        s.send(json!({"command": "runTests", "sourcePaths": [main], "entries": entries, "seed": seed}));
+        let lines = s.until_summary();
+        assert_eq!(lines.last().unwrap()["passed"], json!(3), "{lines:?}");
+    }
+    drop(s.stdin.take());
+    s.child.wait().unwrap();
+    let text = std::fs::read_to_string(&log).unwrap();
+    let checks: Vec<&str> = text.lines().filter(|l| l.starts_with("login replay check: ")).collect();
+    assert_eq!(checks.len(), 2, "one line per request: {text}");
+    // Per request: entries a and c are one key (c compared with a), entry b (`abcd`) another. The second request's seed
+    // makes two more keys: the seed moves the clock the login reads (without the seed in the key: "3 differ", the clock).
+    assert_eq!(
+        checks[0],
+        "login replay check: 3 sessions over 2 keys (a key seen before: 1 sessions, 33%), 1 compared, 0 differ; across test codeunits: 0 compared, 0 differ"
+    );
+    assert_eq!(
+        checks[1],
+        "login replay check: 6 sessions over 4 keys (a key seen before: 2 sessions, 33%), 2 compared, 0 differ; across test codeunits: 0 compared, 0 differ"
+    );
 }
 
 // ---- Issue 8210: per-entry `stopGroup` for `stopAfterFirstFailure` ----
