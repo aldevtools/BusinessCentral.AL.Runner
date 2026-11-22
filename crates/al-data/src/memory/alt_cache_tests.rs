@@ -79,4 +79,8 @@ fn filters_built_apart_share_their_entry_and_other_filters_keep_their_own_rows()
     grouped[1].group = 2;
     assert_eq!(walk(&s, &grouped), expected(3, 10));
     assert_eq!(s.alt_entries(&cx("C"), &table(), 0), 3);
+    let mut danish = group_from(3, 10);
+    danish[1].lang = 1030;
+    assert_eq!(walk(&s, &danish), expected(3, 10));
+    assert_eq!(s.alt_entries(&cx("C"), &table(), 0), 4);
 }
