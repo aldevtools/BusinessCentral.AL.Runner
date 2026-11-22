@@ -142,6 +142,15 @@ impl Session {
         }
     }
 
+    /// Whether the test session's insert queue of `table` (object id) holds rows.
+    pub(crate) fn queue_holds_rows(&self, table: u32) -> bool {
+        self.tx
+            .open
+            .insert_buffer
+            .iter()
+            .any(|q| q.table == table && q.rows > 0)
+    }
+
     /// Whether an unguarded Insert of AL code into `rec`'s table is queued by the platform: a database table without a Blob or
     /// AutoIncrement field (`TableFacts::insert_unqueued`), outside the page client (which raises a duplicate at once).
     pub(super) fn insert_is_queued(&mut self, rec: &Rec) -> bool {
