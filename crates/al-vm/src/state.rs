@@ -350,6 +350,13 @@ pub(crate) struct PageClients {
     pub(crate) scope_unpinned: Vec<Rc<RefCell<crate::pages::PageState>>>,
     /// A page background task worker is running: its parameters and the result it set.
     pub(crate) bg_worker: Option<pages::BgWorker>,
+    /// The test session's last error as a worker's end gave it back, when the worker had set one of its own: until the first
+    /// read of another last error, a read of it differs from the answer before issue 8697, which gave the worker's
+    /// (`Session::bg_note_last_error_read`, which ends it).
+    pub(crate) bg_kept_last_error: std::cell::RefCell<Option<al_builtins::native::AlError>>,
+    /// A failing worker's error left `TestPage.RunPageBackgroundTask` and has not left a routine of the test session yet: an
+    /// asserterror around the call itself keeps the last error (`Session::bg_catch_keeps_last_error`).
+    pub(crate) bg_task_error_unrecorded: bool,
     /// The query cache page background tasks and the test session read through (`query_cache.rs`).
     pub(crate) query_cache: crate::query_cache::QueryCache,
     /// Which dialogs and errors the CaptionClass runs in progress may raise (`Session::caption_dialog_refusal`).
