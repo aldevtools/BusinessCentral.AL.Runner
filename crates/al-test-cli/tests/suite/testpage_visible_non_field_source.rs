@@ -578,6 +578,35 @@ codeunit 50136 "Repro Route Tests"
         Card.Close();
     end;
 
+    [Test]
+    [HandlerFunctions('NoReadHandler')]
+    procedure VarModalNoRead()
+    var
+        Row: Record "Repro Route Row";
+        Card: Page "Repro Route Card";
+    begin
+        InsertRow(Row);
+        Card.SetRecord(Row);
+        Card.RunModal();
+    end;
+
+    [Test]
+    [HandlerFunctions('ModalHandler')]
+    procedure VarModalRead()
+    var
+        Row: Record "Repro Route Row";
+        Card: Page "Repro Route Card";
+    begin
+        InsertRow(Row);
+        Card.SetRecord(Row);
+        Card.RunModal();
+    end;
+
+    [ModalPageHandler]
+    procedure NoReadHandler(var Card: TestPage "Repro Route Card")
+    begin
+    end;
+
     [ModalPageHandler]
     procedure ModalHandler(var Card: TestPage "Repro Route Card")
     begin
@@ -662,6 +691,23 @@ codeunit 50137 "Repro Route Old Tests"
         Check('Amount');
     end;
 
+    [Test]
+    [HandlerFunctions('NoReadHandler')]
+    procedure VarModalNoRead()
+    var
+        Row: Record "Repro Route Row";
+        Card: Page "Repro Route Card";
+    begin
+        InsertRow(Row);
+        Card.SetRecord(Row);
+        Card.RunModal();
+    end;
+
+    [ModalPageHandler]
+    procedure NoReadHandler(var Card: TestPage "Repro Route Card")
+    begin
+    end;
+
     [ModalPageHandler]
     procedure ModalHandler(var Card: TestPage "Repro Route Card")
     begin
@@ -717,6 +763,9 @@ fn from_bc_29_every_measured_route_and_shape_reads_yes_flagged() {
         ("BoundFirst", "Pass", true),
         ("NamesKey", "Pass", true),
         ("OneBound", "Pass", true),
+        // A route no probe measured: the open runs, and only the Visible read of such a control is refused.
+        ("VarModalNoRead", "Pass", false),
+        ("VarModalRead", "Refused", false),
     ]
     .into_iter()
     .map(|(n, k, f)| (n.to_string(), k, f))
@@ -735,6 +784,8 @@ fn before_29_every_measured_route_and_shape_raises_at_the_open_flagged() {
             ("BoundFirst", "Pass", true),
             ("NamesKey", "Pass", true),
             ("OneBound", "Pass", true),
+            // Before 29 an unmeasured route stays refused at the open: BC raises at every open it measured.
+            ("VarModalNoRead", "Refused", false),
         ]
         .into_iter()
         .map(|(n, k, f)| (n.to_string(), k, f))

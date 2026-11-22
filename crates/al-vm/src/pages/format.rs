@@ -1817,7 +1817,11 @@ impl Session {
             self.prop_bool_now(st, idx, "visible", true)?
         } else if self.visible_reads_row(st, idx) {
             // A field control bound to no field of the source table whose own Visible names a field of the record reads Yes
-            // on a Card, whatever the row holds (al-runner issue 8660, pages/controls/VisibleExpressionSource.al).
+            // on a Card, whatever the row holds (al-runner issue 8660, pages/controls/VisibleExpressionSource.al). On a route
+            // no probe measured only this read is refused; the open and the other controls run (`freeze_visible`).
+            if st.borrow().visible_route_unmeasured {
+                return unsupported(UNMEASURED_ROUTE);
+            }
             al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::VisibleNamesRowFieldReadsYes);
             true
         } else {
@@ -1837,8 +1841,9 @@ impl Session {
     /// `al_version::visible_names_row_field_reads_yes` answers `Some(false)`, a TestPage's OpenEdit, OpenView or OpenNew raises
     /// "The identifier '<field>' could not be found." (code Expression:Argument) for the first such control's field
     /// (pages/controls/VisibleExpressionSource.al, al-runner issue 8660); where it answers `Some(true)` the control reads Yes
-    /// (`visible_reads_row`). Another way to open it, and a major the probe did not measure, is refused
-    /// (`visible_route_measured`).
+    /// (`visible_reads_row`). Another way to open it (`visible_route_measured`) is refused: at the open where it raises, since
+    /// BC raises there; where it reads Yes only at the Visible read of such a control (`visible_route_unmeasured`), so a test
+    /// that never reads it runs as main. A major the probe did not measure is refused at the open.
     pub(super) fn freeze_visible(&mut self, st: &St) -> Result<(), Signal> {
         let engine = self.engine();
         let page = page_of(&engine, st);
@@ -1846,7 +1851,7 @@ impl Session {
         let reads_yes = al_version::visible_names_row_field_reads_yes(self.engine.target.as_ref());
         match (first, reads_yes) {
             (None, _) => {}
-            (Some(_), Some(true)) if self.visible_route_measured(st, true) => {}
+            (Some(_), Some(true)) => st.borrow_mut().visible_route_unmeasured = !self.visible_route_measured(st, true),
             (Some(field), Some(false)) if self.visible_route_measured(st, false) => {
                 // Not pinned yet: the probe's open PR is the only evidence, so a test that expects this error is a flagged pass.
                 al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::VisibleNamesRowFieldReadsYes);
@@ -1856,9 +1861,7 @@ impl Session {
                 ));
             }
             (Some(_), _) => {
-                return unsupported(
-                    "a Card with a field control bound to no field whose Visible names a field of the record, opened in a way the probe did not measure (a TestPage's OpenEdit, OpenView or OpenNew, a Trap of Page.Run(Id, Rec), and where the control reads Yes a static Page.RunModal(Id, Rec) statement answered by a ModalPageHandler), or on a BC version the probe did not measure (al-runner issue 8660)",
-                );
+                return unsupported(UNMEASURED_ROUTE);
             }
         }
         let mut frozen = Vec::new();
@@ -1901,6 +1904,10 @@ impl Session {
         page_of(&engine, st).controls[idx].visible_row_field.clone()
     }
 }
+/// The refusal of a Card with a `Control::visible_row_field` control on a route or a major no probe measured (`freeze_visible`,
+/// `control_visible`).
+const UNMEASURED_ROUTE: &str = "a Card with a field control bound to no field whose Visible names a field of the record, opened in a way the probe did not measure (a TestPage's OpenEdit, OpenView or OpenNew, a Trap of Page.Run(Id, Rec), and where the control reads Yes a static Page.RunModal(Id, Rec) statement answered by a ModalPageHandler), or on a BC version the probe did not measure (al-runner issue 8660)";
+
 /// The text of the `ENU = '...'` entry of a `...ML` property value.
 /// The class text goes to OnResolveCaptionClass (see `caption_class_text`): not area 3, not a numeric or empty area, and with a comma.
 pub(super) fn raises_resolve(text: &str) -> bool {
