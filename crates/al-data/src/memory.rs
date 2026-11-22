@@ -19,9 +19,9 @@ mod key_value_tests;
 mod order_carry;
 mod replace;
 mod row_changes;
-mod served;
+mod source_stamps;
 #[cfg(test)]
-mod served_tests;
+mod source_stamps_tests;
 #[cfg(test)]
 mod storage_tests;
 pub use frozen::{FrozenRows, FrozenStore, NotShareable, not_shareable, shareable};
@@ -209,9 +209,9 @@ pub struct MemStore {
     dropped_backed_companies: crate::pmap::PMap<std::sync::Arc<str>, ()>,
     committed_dropped_backed_companies: crate::pmap::PMap<std::sync::Arc<str>, ()>,
     /// Per company, the stamp of the last change of the rows its untouched tables serve (`copies`,
-    /// `dropped_backed_companies`): see `served.rs`. Part of the transaction, like `copies`.
-    served: crate::pmap::PMap<std::sync::Arc<str>, u64>,
-    committed_served: crate::pmap::PMap<std::sync::Arc<str>, u64>,
+    /// `dropped_backed_companies`): see `source_stamps.rs`. Part of the transaction, like `copies`.
+    source_stamps: crate::pmap::PMap<std::sync::Arc<str>, u64>,
+    committed_source_stamps: crate::pmap::PMap<std::sync::Arc<str>, u64>,
     /// While set, a change to a row of the backing (a modify, delete or rename) is written down
     /// here and allowed (ADR-020 amendment: install code may change restored rows). Shared by the
     /// clones of the store, so a snapshot or a rollback does not lose it.
@@ -694,12 +694,12 @@ impl MemStore {
         let source = self.copy_source(source);
         self.copies.insert(copy.into(), source.clone());
         self.committed_copies.insert(copy.into(), source);
-        self.serve_changed(copy);
+        self.source_changed(copy);
         let copy = std::sync::Arc::from(copy);
         self.dropped_backed_companies.remove(&copy);
         self.committed_dropped_backed_companies.remove(&copy);
-        if let Some(&stamp) = self.served.get(&copy) {
-            self.committed_served.insert(copy, stamp);
+        if let Some(&stamp) = self.source_stamps.get(&copy) {
+            self.committed_source_stamps.insert(copy, stamp);
         }
     }
 
@@ -1258,7 +1258,7 @@ impl MemStore {
         }
         self.dropped_backed_companies.insert(company.into(), ());
         self.copies.remove(&std::sync::Arc::from(company));
-        self.serve_changed(company);
+        self.source_changed(company);
     }
 
     /// Moves every row of company `old` to company `new`, as renaming the company does
@@ -1289,8 +1289,8 @@ impl MemStore {
         }
         self.dropped_backed_companies.insert(old.into(), ());
         self.dropped_backed_companies.remove(&std::sync::Arc::from(new));
-        self.serve_changed(old);
-        self.serve_changed(new);
+        self.source_changed(old);
+        self.source_changed(new);
     }
 
     /// Copies every row of company `from` to company `to`, as they are (system fields included), as
@@ -1302,7 +1302,7 @@ impl MemStore {
             self.copies.insert(to.into(), source);
         }
         self.dropped_backed_companies.remove(&std::sync::Arc::from(to));
-        self.serve_changed(to);
+        self.source_changed(to);
         let copied: Vec<(Slot, Table)> = self
             .tables
             .iter()
@@ -1985,7 +1985,7 @@ impl Store for MemStore {
         self.committed_moves = self.moves.clone();
         self.committed_copies = self.copies.clone();
         self.committed_dropped_backed_companies = self.dropped_backed_companies.clone();
-        self.committed_served = self.served.clone();
+        self.committed_source_stamps = self.source_stamps.clone();
         self.committed_emptied = self.emptied.clone();
     }
 
@@ -1998,7 +1998,7 @@ impl Store for MemStore {
         self.moves = self.committed_moves.clone();
         self.copies = self.committed_copies.clone();
         self.dropped_backed_companies = self.committed_dropped_backed_companies.clone();
-        self.served = self.committed_served.clone();
+        self.source_stamps = self.committed_source_stamps.clone();
         self.emptied = self.committed_emptied.clone();
     }
 }
