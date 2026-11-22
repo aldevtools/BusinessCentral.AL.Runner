@@ -235,7 +235,7 @@ fn rendered_text_email_replace_the_save_keeps_the_rgba_column_of_its_row() {
         ("RgbaBody", "dataset holds rgba( yes (row: no)"),
         ("LabelBody", "dataset holds rgba( yes (row: no)"),
         // Two items side by side and an extension with a trigger are no measured form.
-        ("TwoItemsBody", "data items another tree (row: one)"),
+        ("TwoItemsBody", "data items two top-level (row: one)"),
         ("ExtTriggerBody", "report extensions another set (row: none)"),
     ] {
         let why = not_measured(proc);
@@ -264,7 +264,7 @@ fn rendered_text_email_replace_takes_each_form_measured_alone() {
 fn rendered_text_email_replace_refuses_each_unmeasured_report_shape() {
     assumptions::clear_hits();
     for (proc, want) in [
-        ("ReplaceTwoItems", "data items another tree (row: one)"),
+        ("ReplaceTwoItems", "data items two top-level (row: one)"),
         ("ReplaceExtTrigger", "report extensions another set (row: none)"),
         // Two forms measured one at a time.
         ("ReplaceLegacyNested", "the nearest measured renders differ in: "),

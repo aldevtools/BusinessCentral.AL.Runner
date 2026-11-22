@@ -200,6 +200,7 @@ fn open_company(
     mode: Option<bool>,
     skipped_installs: &[al_vm::SkippedInstall],
     perturb: &crate::stability::Perturb,
+    after_refusal: bool,
 ) -> Result<(crate::install::CompanyOpenWrites, al_builtins::assumptions::HitBits), crate::install::NotOpened> {
     // A scratch run is not a test session: it opens nothing.
     let Some(disabled) = mode else {
@@ -210,7 +211,7 @@ fn open_company(
     // It runs before the workspace's own Company Triggers subscribers: the order of the two is not pinned
     // (docs/probes-needed.md, WorkDate row).
     crate::install::login_work_date(engine, lowered, session)?;
-    let wrote = crate::install::test_session_company_open(lowered, session, disabled, skipped_installs)?;
+    let wrote = crate::install::test_session_company_open(lowered, session, disabled, skipped_installs, after_refusal)?;
     session.commit_transaction();
     // `workDate.offset` of a stability run (ADR-058): the work date the session starts with, after the login code set it;
     // a `WorkDate(d)` of the test still wins.
@@ -422,18 +423,9 @@ fn run_codeunit_inner(
     let obj = &lowered.program.objects[object];
     let perturb = scratch.perturb.clone();
     let run_seed = scratch.run_seed;
-    let mut host = crate::host::host_perturbed(scratch.clock_start, &perturb);
-    host.run_seed = run_seed.seed;
-    let (mut session, moved) = new_session(engine, host, baseline, execute);
-    session.trace_faults(observe.is_some());
-    scratch.flags.apply(&mut session);
+    let (mut session, moved) = new_session(engine, session_host(scratch), baseline, execute);
+    set_up_session(&mut session, scratch, observe.is_some());
     let covering = crate::coverage::enabled();
-    if covering {
-        session.enable_coverage();
-    }
-    if scratch.trace || scratch.driver.watches_reads() {
-        session.enable_impact_trace();
-    }
     let is_on_run = |r: usize| obj.routines[r].is_trigger && obj.routines[r].name.eq_ignore_ascii_case("OnRun");
     let tests: Vec<usize> = (0..obj.routines.len())
         .filter(|&r| {
@@ -497,27 +489,24 @@ fn run_codeunit_inner(
         Ok(models) => models,
         Err(why) => return all(Outcome::NotRun(why)),
     };
-    // What publishing the app does first: run its install codeunits, then commit. No single instance of an earlier
-    // codeunit moved in: the session is as `install_once` makes one.
-    let skipped_installs = super::install_once::installs_for(
+    let start = Start {
+        engine,
         lowered,
-        &mut session,
+        object,
         baseline,
-        scratch,
+        isolation,
         execute,
-        observe.is_some(),
-        moved.is_none(),
-    );
-    // What install code wrote is known only in part (ADR-046): the tests read it through the facts of this engine.
-    crate::install::ensure_facts(engine, lowered);
-    enter_test_codeunit(&mut session, scratch, object, isolation);
-    // Company Triggers when the test session opens the company, before the codeunit's OnRun and first test (ADR-046
-    // amendment 1, A4 item 10). What the step relied on counts for every test of the session
-    // (`mark_test_start_assumptions`).
-    // `None`: a scratch run (`execute`), not a test session; else whether the isolation is Disabled.
-    let mode = (!execute).then_some(isolation == TestIsolation::Disabled);
-    let opened = open_company(engine, lowered, &mut session, mode, &skipped_installs, &perturb);
-    let (company_open, company_open_marks) = match opened {
+        observed: observe.is_some(),
+        moved_in: moved.is_some(),
+    };
+    let mut opened = start.open(&mut session, scratch, &perturb, false);
+    // Microsoft's login code refused where only System Application's login memos made it decide (`login::decide`): the
+    // codeunit starts again from a new session, with the apps under test's own login.
+    if opened.as_ref().is_err_and(|not| not.retry_own_login) {
+        session = start.again(scratch, moved.as_ref());
+        opened = start.open(&mut session, scratch, &perturb, true);
+    }
+    let (skipped_installs, (company_open, company_open_marks)) = match opened {
         Ok(opened) => opened,
         Err(not) => return observed_not_run(observe.as_deref_mut(), &session, &not, all),
     };
@@ -1234,8 +1223,8 @@ fn run_codeunit_inner(
                 Err(o) => (o, None),
             };
             let ended = ended_of(&outcome, began, untrusted.is_some());
-            if scratch.stop_after_first_failure && matches!(outcome, Outcome::Fail(_)) {
-                stopped.get_or_insert_with(|| stopped_after_failure(obj.id.unwrap_or(0), &name));
+            if let (Some(stop), Outcome::Fail(_)) = (&scratch.stop_after_first_failure, &outcome) {
+                stopped.get_or_insert_with(|| stopped_after_failure(stop, obj.id.unwrap_or(0), &name));
             }
             note_unfinished(scratch, ended, runner_refused.is_some(), test_no, &name);
             if let (Some(ended), Outcome::NotRun(why) | Outcome::Fail(why)) = (ended, &outcome) {
@@ -1579,26 +1568,116 @@ fn new_session(
     baseline: Option<&al_vm::Baseline>,
     execute: bool,
 ) -> (Session, Option<al_vm::single_track::MovedSingles>) {
+    // The lane: the single instances of the codeunit before, moved in later (`start_singles`).
+    let moved = if execute {
+        None
+    } else {
+        LANE_SINGLES.with(|c| c.borrow_mut().as_mut().and_then(Option::take))
+    };
+    (session_from(engine, host, baseline, moved.as_ref()), moved)
+}
+
+/// A session on `baseline`; the temporary tables of the single instances `moved` keep their ids.
+fn session_from(
+    engine: &Arc<Engine>,
+    host: al_host::Host,
+    baseline: Option<&al_vm::Baseline>,
+    moved: Option<&al_vm::single_track::MovedSingles>,
+) -> Session {
     let mut session = Session::with_host(engine.clone(), host);
     if let Some(b) = baseline {
         session.restore_baseline(b);
     }
-    let moved = singles_moved_in(&mut session, execute);
-    crate::profiling::begin(&mut session);
-    (session, moved)
-}
-
-/// The lane: the single instances of the codeunit before, moved in later (`start_singles`); their temporary tables
-/// keep their ids.
-fn singles_moved_in(session: &mut Session, execute: bool) -> Option<al_vm::single_track::MovedSingles> {
-    if execute {
-        return None;
-    }
-    let moved = LANE_SINGLES.with(|c| c.borrow_mut().as_mut().and_then(Option::take));
-    if let Some(m) = &moved {
+    if let Some(m) = moved {
         session.continue_temp_ids(m);
     }
-    moved
+    crate::profiling::begin(&mut session);
+    session
+}
+
+/// The host of a test codeunit's session: the run's clock and seed, perturbed by a stability run.
+fn session_host(scratch: &Scratch) -> al_host::Host {
+    let mut host = crate::host::host_perturbed(scratch.clock_start, &scratch.perturb);
+    host.run_seed = scratch.run_seed.seed;
+    host
+}
+
+/// The settings of the run on a new session: fault tracing when observed, the run's flags, coverage, impact trace.
+fn set_up_session(session: &mut Session, scratch: &Scratch, observed: bool) {
+    session.trace_faults(observed);
+    scratch.flags.apply(session);
+    if crate::coverage::enabled() {
+        session.enable_coverage();
+    }
+    if scratch.trace || scratch.driver.watches_reads() {
+        session.enable_impact_trace();
+    }
+}
+
+/// What a test codeunit's session needs to open the company ([`Start::open`]), and to start once more ([`Start::again`]).
+struct Start<'a> {
+    engine: &'a Arc<Engine>,
+    lowered: &'a Lowered,
+    object: usize,
+    baseline: Option<&'a al_vm::Baseline>,
+    isolation: TestIsolation,
+    execute: bool,
+    observed: bool,
+    /// Single instances of an earlier codeunit moved in (`new_session`).
+    moved_in: bool,
+}
+
+type Opened = (
+    Vec<al_vm::SkippedInstall>,
+    (crate::install::CompanyOpenWrites, al_builtins::assumptions::HitBits),
+);
+
+impl Start<'_> {
+    /// What publishing the app does first (its install codeunits, then commit), then the session enters the codeunit and
+    /// opens the company ([`open_company`]): the installs that could not run, and what the open left.
+    fn open(
+        &self,
+        session: &mut Session,
+        scratch: &Scratch,
+        perturb: &crate::stability::Perturb,
+        after_refusal: bool,
+    ) -> Result<Opened, crate::install::NotOpened> {
+        // No single instance of an earlier codeunit moved in: the session is as `install_once` makes one.
+        let skipped = super::install_once::installs_for(
+            self.lowered,
+            session,
+            self.baseline,
+            scratch,
+            self.execute,
+            self.observed,
+            !self.moved_in,
+        );
+        // What install code wrote is known only in part (ADR-046): the tests read it through the facts of this engine.
+        crate::install::ensure_facts(self.engine, self.lowered);
+        enter_test_codeunit(session, scratch, self.object, self.isolation);
+        // Company Triggers when the test session opens the company, before the codeunit's OnRun and first test (ADR-046
+        // amendment 1, A4 item 10). What the step relied on counts for every test of the session
+        // (`mark_test_start_assumptions`). `None`: a scratch run (`execute`), not a test session; else whether the
+        // isolation is Disabled.
+        let mode = (!self.execute).then_some(self.isolation == TestIsolation::Disabled);
+        let opened = open_company(
+            self.engine,
+            self.lowered,
+            session,
+            mode,
+            &skipped,
+            perturb,
+            after_refusal,
+        )?;
+        Ok((skipped, opened))
+    }
+
+    /// A new session in place of one whose open did not end, set up as the first ([`set_up_session`]).
+    fn again(&self, scratch: &Scratch, moved: Option<&al_vm::single_track::MovedSingles>) -> Session {
+        let mut session = session_from(self.engine, session_host(scratch), self.baseline, moved);
+        set_up_session(&mut session, scratch, self.observed);
+        session
+    }
 }
 
 /// Takes over the moved single instances and starts the notes (not for a codeunit the runner runs with
@@ -1758,10 +1837,25 @@ fn not_run_reason(r: Refusal) -> String {
     }
 }
 
+/// The scope of `RunOptions::stop_after_first_failure` for one pass (issue 8210); a pass without the stop has none.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum StopAfterFailure {
+    /// The entry has no `stop_group` (or there are no entries): a failure stops every later entry without one (al-runner
+    /// issue 8210).
+    Request,
+    /// The entry's `EntryRun::stop_group`: a failure stops the later entries of this group only.
+    Group(Arc<str>),
+}
+
 /// The reason of a test `RunOptions::stop_after_first_failure` does not run, after test `test` of codeunit `codeunit` failed.
-pub(crate) fn stopped_after_failure(codeunit: u32, test: &str) -> String {
+/// Without a group it is al-runner issue 8210's text, byte for byte; with one it names the group.
+pub(crate) fn stopped_after_failure(stop: &StopAfterFailure, codeunit: u32, test: &str) -> String {
+    let later = match stop {
+        StopAfterFailure::Request => "a later entry".to_string(),
+        StopAfterFailure::Group(g) => format!("a later entry of its stopGroup `{g}`"),
+    };
     format!(
-        "the test Codeunit{codeunit}.{test} failed before it, and stopAfterFirstFailure (--stop-after-first-failure) runs no test of its codeunit or of a later entry after a failure"
+        "the test Codeunit{codeunit}.{test} failed before it, and stopAfterFirstFailure (--stop-after-first-failure) runs no test of its codeunit or of {later} after a failure"
     )
 }
 
