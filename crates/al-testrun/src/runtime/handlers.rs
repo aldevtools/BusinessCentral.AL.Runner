@@ -1,5 +1,73 @@
-//! The handler functions a test declares, bound for the length of the test.
+//! The handler functions a test declares, bound for the length of the test, and the routines a test or a test codeunit
+//! starts AL code from (the roots of their static reach), its handler functions included.
 use super::*;
+
+/// The names a `[HandlerFunctions('A,B')]` attribute lists, or `None` when its argument is no text.
+fn handler_names(attr: &al_ir::Attribute) -> Option<Vec<String>> {
+    match attr.args.as_slice() {
+        [al_ir::Const::Text(list)] => Some(list.split(',').map(|n| n.trim().to_string()).collect()),
+        _ => None,
+    }
+}
+
+/// The routine of `obj` a `[HandlerFunctions]` name refers to.
+fn named_routine(obj: &al_ir::Object, name: &str) -> Option<usize> {
+    obj.routines.iter().position(|r| r.name.eq_ignore_ascii_case(name))
+}
+
+/// The attribute that makes `routine` a handler function (`MessageHandler`, `ConfirmHandler`, ...), if it has one.
+fn handler_attr(routine: &al_ir::Routine) -> Option<&str> {
+    routine
+        .attributes
+        .iter()
+        .map(|a| a.name.as_str())
+        .find(|n| n.to_ascii_lowercase().ends_with("handler") && !n.eq_ignore_ascii_case("HandlerFunctions"))
+}
+
+/// Routine `routine` of test codeunit `oi` and the handler functions it names in `[HandlerFunctions]`, which the test
+/// runner calls while the test runs: the roots of one test's static reach. A name that is no routine, or names a routine
+/// without a handler attribute, adds nothing: `resolve_handlers` refuses that test.
+pub(crate) fn test_roots(lowered: &Lowered, oi: usize, routine: usize) -> Vec<(usize, usize)> {
+    let o = &lowered.program.objects[oi];
+    let mut roots = vec![(oi, routine)];
+    let named = o.routines[routine]
+        .attributes
+        .iter()
+        .filter(|a| a.name.eq_ignore_ascii_case("HandlerFunctions"))
+        .filter_map(handler_names)
+        .flatten();
+    for name in named {
+        if let Some(hr) = named_routine(o, &name).filter(|&hr| handler_attr(&o.routines[hr]).is_some()) {
+            if !roots.contains(&(oi, hr)) {
+                roots.push((oi, hr));
+            }
+        }
+    }
+    roots
+}
+
+/// The routines test codeunit `oi` starts AL code from: its `[Test]` methods, its `OnRun` trigger with `onrun`, and the
+/// handler functions its tests name ([`test_roots`]). With `test_roots`, the one root list of a test codeunit's static
+/// reach (`chain.rs`, `corpus.rs` `reaches_session_storage`, `strict_taint.rs`, `not_run_link.rs`; the per-test walks of
+/// `run.rs` take [`test_roots`]).
+pub(crate) fn unit_roots(lowered: &Lowered, oi: usize, onrun: bool) -> Vec<(usize, usize)> {
+    let o = &lowered.program.objects[oi];
+    let is_test = |r: &al_ir::Routine| r.attributes.iter().any(|a| a.name.eq_ignore_ascii_case("Test"));
+    let tests: Vec<usize> = (0..o.routines.len()).filter(|&r| is_test(&o.routines[r])).collect();
+    let mut roots: Vec<(usize, usize)> = (0..o.routines.len())
+        .filter(|&r| {
+            let routine = &o.routines[r];
+            is_test(routine) || (onrun && routine.is_trigger && routine.name.eq_ignore_ascii_case("OnRun"))
+        })
+        .map(|r| (oi, r))
+        .collect();
+    for root in tests.into_iter().flat_map(|t| test_roots(lowered, oi, t)) {
+        if !roots.contains(&root) {
+            roots.push(root);
+        }
+    }
+    roots
+}
 
 /// The handler functions test routine `test` of `object` declares with
 /// `[HandlerFunctions('A,B')]`, as (kind, routine index), or why the test
@@ -17,23 +85,18 @@ pub(crate) fn resolve_handlers(lowered: &Lowered, object: usize, test: usize) ->
         .iter()
         .filter(|a| a.name.eq_ignore_ascii_case("HandlerFunctions"))
     {
-        let names: Vec<String> = match attr.args.as_slice() {
-            [al_ir::Const::Text(list)] => list.split(',').map(|n| n.trim().to_string()).collect(),
-            _ => return Err(format!("{} is not a list of handler names", attr.text)),
+        let Some(names) = handler_names(attr) else {
+            return Err(format!("{} is not a list of handler names", attr.text));
         };
         for name in names {
-            let Some(hr) = obj.routines.iter().position(|r| r.name.eq_ignore_ascii_case(&name)) else {
+            let Some(hr) = named_routine(obj, &name) else {
                 return Err(format!("handler function {name} not found in {}", obj.name));
             };
             if out.iter().any(|(_, r)| *r == hr) {
                 continue;
             }
             let routine = &obj.routines[hr];
-            let kind_attr =
-                routine.attributes.iter().map(|a| a.name.as_str()).find(|n| {
-                    n.to_ascii_lowercase().ends_with("handler") && !n.eq_ignore_ascii_case("HandlerFunctions")
-                });
-            let Some(kind_attr) = kind_attr else {
+            let Some(kind_attr) = handler_attr(routine) else {
                 return Err(format!(
                     "{} is named in [HandlerFunctions] but is no handler function",
                     routine.name

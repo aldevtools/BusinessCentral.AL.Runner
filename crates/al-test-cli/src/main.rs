@@ -181,7 +181,7 @@ fn run() -> Result<ExitCode, String> {
     }
 
     if args.awaiting_assumptions {
-        let newest = versions[0];
+        let newest = newest_version(&versions);
         return awaiting_assumptions(&mut args, &root, &oracle_path, &cfg, newest);
     }
 
@@ -198,6 +198,14 @@ fn run() -> Result<ExitCode, String> {
         print!("{}", drift_summary(&runs));
     }
     Ok(ExitCode::from(code))
+}
+
+/// The newest of `versions` (al-runner issue 7625): `--all-versions` sorts them by ascending major.
+fn newest_version<'a>(versions: &[&'a config::VersionEntry]) -> &'a config::VersionEntry {
+    versions
+        .iter()
+        .max_by_key(|v| v.major)
+        .expect("at least one version is selected")
 }
 
 /// `--awaiting-assumptions`: the assumptions that wait for a corpus pin, against the pinned corpus (`awaiting.rs`).
@@ -873,6 +881,31 @@ fn check_companies(companies: &al_host::Companies) -> Result<(), String> {
         .map_err(|e| format!("--companies: {e}"))
 }
 
+/// What the run reads from the artifacts of its BC build: the license (ADR-060) and the emit version of the
+/// missing-object error (al-vm `emit_version`, read on its first use).
+fn build_facts(
+    build: &al_deps::build::BuildId,
+    provision: &deps::Provision,
+    cache_dir: Option<&Path>,
+) -> Result<(al_testrun::license::LicenseUse, al_vm::emit_version::EmitVersion), String> {
+    let fetch = al_deps::artifact::Fetch {
+        cache_root: al_deps::cache::cache_root_from_env(cache_dir),
+        download: provision.download,
+        query: provision.query.clone(),
+        local_artifacts: provision.local_artifacts.clone(),
+        country: provision.country.clone(),
+    };
+    let license =
+        al_testrun::license::LicenseUse::from_artifact(&al_deps::artifact::HttpCdn::from_env(), &fetch, build)?;
+    let emit_version = al_testrun::emit_version::of_build(
+        build,
+        &fetch.cache_root,
+        fetch.download,
+        fetch.local_artifacts.as_deref(),
+    );
+    Ok((license, emit_version))
+}
+
 #[allow(clippy::too_many_arguments)]
 fn run_version_inner(
     args: &Args,
@@ -1084,6 +1117,7 @@ fn run_version_inner(
     let mut bc_build = None;
     // ADR-060: the license of the BC artifacts the run uses; none without them (`--no-deps`, or every dependency on disk).
     let mut license = al_testrun::license::LicenseUse::none("no BC artifact is used by this run");
+    let mut emit_version = al_vm::emit_version::EmitVersion::default();
     if !args.no_deps {
         // Dependencies go after the corpus apps, so the corpus objects keep their positions.
         // ADR-013 Layer A: the oracle leg is the explicit `--bc-version`, so the Microsoft build
@@ -1107,20 +1141,9 @@ fn run_version_inner(
         match &deps.build {
             Some(u) => {
                 println!("bc build: {} ({})", u.build, origin_word(u.origin));
-                chosen.target.bc.resolved_to(&u.build.to_string());
+                chosen.target.bc.resolved_to(&u.build.to_string())?;
                 bc_build = Some(u.build.to_string());
-                let fetch = al_deps::artifact::Fetch {
-                    cache_root: al_deps::cache::cache_root_from_env(args.cache_dir.as_deref()),
-                    download: provision.download,
-                    query: provision.query.clone(),
-                    local_artifacts: provision.local_artifacts.clone(),
-                    country: provision.country.clone(),
-                };
-                license = al_testrun::license::LicenseUse::from_artifact(
-                    &al_deps::artifact::HttpCdn::from_env(),
-                    &fetch,
-                    &u.build,
-                )?;
+                (license, emit_version) = build_facts(&u.build, &provision, args.cache_dir.as_deref())?;
             }
             None => println!("bc build: none needed (every dependency came from --deps)"),
         }
@@ -1246,6 +1269,7 @@ fn run_version_inner(
         // The corpus has no test data: its oracle is a database the cases fill themselves.
         test_data: None,
         license: license.license.clone(),
+        emit_version,
         company_data: None,
         compile_cache,
         test_time_limit: None,
@@ -1709,18 +1733,20 @@ struct Target<'a> {
 
 /// The rule of ADR-065 section 2 over each target's list: `--list-new-cases` adds the lines of new cases first,
 /// `--prune-not-passing` deletes the stale lines, `--baseline-diff` prints the check. The exit code: 1 when a list
-/// does not hold.
+/// does not hold. Every list is checked before any is written, so an error leaves every file as it was (al-runner
+/// issue 7625).
 fn check_lists(args: &Args, root: &Path, targets: &[Target]) -> Result<u8, String> {
     let base = match &args.list_new_cases {
         Some(rev) => Some(al_test_cli::base_oracle::Base::open(root, rev)?),
         None => None,
     };
     let mut failed = false;
+    let mut writes: Vec<(&Path, String, Vec<String>)> = Vec::new();
     for t in targets {
         let Some(path) = &t.list_path else { continue };
         let text = if path.exists() { read(path)? } else { String::new() };
         let mut list = not_passing::parse(&text).map_err(|e| format!("{}: {e}", path.display()))?;
-        let mut changed = false;
+        let mut notes = Vec::new();
         if let Some(base) = &base {
             let base_ids = base.oracle_ids(t.major, t.suite.as_deref())?;
             let c = not_passing::check(&list, t.all, &*t.selected, &*t.recorded);
@@ -1733,15 +1759,14 @@ fn check_lists(args: &Args, root: &Path, targets: &[Target]) -> Result<u8, Strin
             }
             let new = not_passing::new_cases(&list, t.all, &base_ids, &*t.recorded);
             if !new.is_empty() {
-                println!(
+                notes.push(format!(
                     "BC {}: {} new case(s) that the oracle at {} does not have and the runtime does not pass, added to {}",
                     t.label,
                     new.len(),
                     base.rev(),
                     path.display()
-                );
+                ));
                 list.extend(new);
-                changed = true;
             }
         }
         let c = not_passing::check(&list, t.all, &*t.selected, &*t.recorded);
@@ -1766,19 +1791,18 @@ fn check_lists(args: &Args, root: &Path, targets: &[Target]) -> Result<u8, Strin
         }
         let stale: Vec<_> = c.stale().cloned().collect();
         if args.prune_not_passing && !stale.is_empty() {
-            println!(
+            notes.push(format!(
                 "BC {}: {} stale line(s) deleted from {}",
                 t.label,
                 stale.len(),
                 path.display()
-            );
+            ));
             for s in &stale {
                 list.remove(s);
             }
-            changed = true;
         }
-        if changed {
-            write(path, &not_passing::format(&list))?;
+        if !notes.is_empty() {
+            writes.push((path, not_passing::format(&list), notes));
         }
         report_check(t, path, &c, args.prune_not_passing);
         match not_passing::decide(&c, args.prune_not_passing, args.require_dotnet) {
@@ -1786,6 +1810,10 @@ fn check_lists(args: &Args, root: &Path, targets: &[Target]) -> Result<u8, Strin
             not_passing::Decision::Setup(why) => return Err(why),
             not_passing::Decision::Fail => failed = true,
         }
+    }
+    for (path, text, notes) in writes {
+        write(path, &text)?;
+        notes.iter().for_each(|n| println!("{n}"));
     }
     Ok(u8::from(failed))
 }
@@ -1999,4 +2027,60 @@ fn slowest_and_chain_lines(p: &al_testrun::runtime::Phases) -> Vec<String> {
     let mut lines = vec![format!("slowest test codeunits: {}", slowest.join("; "))];
     lines.extend(p.chain.lines());
     lines
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// al-runner issue 7625: under `--all-versions` the versions are sorted ascending; the newest is the last.
+    #[test]
+    fn the_newest_version_is_the_highest_major() {
+        let cfg = config::OracleFile::parse(
+            &std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../oracle/oracle.toml")).unwrap(),
+        )
+        .unwrap();
+        let mut v: Vec<&config::VersionEntry> = cfg.versions.iter().collect();
+        v.sort_by_key(|v| v.major);
+        let top = cfg.versions.iter().map(|v| v.major).max().unwrap();
+        assert_eq!(newest_version(&v).major, top);
+    }
+
+    /// al-runner issue 7625: an error on a later list leaves every list file as it was, also one an earlier target
+    /// would have pruned.
+    #[test]
+    fn an_error_on_a_later_list_writes_no_list() {
+        let d = tempfile::tempdir().unwrap();
+        let first = d.path().join("first.txt");
+        let second = d.path().join("second.txt");
+        std::fs::write(&first, "1 A\n").unwrap();
+        std::fs::write(&second, "not a line\n").unwrap();
+        let all = vec![oracle::OracleCase {
+            id: oracle::CaseId {
+                codeunit: 1,
+                name: "A".into(),
+            },
+            bc_failed: false,
+        }];
+        let target = |path: &Path| Target {
+            label: "27.5".into(),
+            major: 27,
+            suite: None,
+            list_path: Some(path.to_path_buf()),
+            cases: &all,
+            all: &all,
+            recorded: Box::new(|_| Some(report::Outcome::Pass)),
+            area_of: Box::new(|_| None),
+            selected: Box::new(|_| true),
+        };
+        let args = Args {
+            prune_not_passing: true,
+            ..Args::default()
+        };
+        assert!(check_lists(&args, d.path(), &[target(&first), target(&second)]).is_err());
+        assert_eq!(std::fs::read_to_string(&first).unwrap(), "1 A\n");
+        // Neighbor: without the error the stale line is pruned, as before.
+        assert_eq!(check_lists(&args, d.path(), &[target(&first)]).unwrap(), 0);
+        assert!(!std::fs::read_to_string(&first).unwrap().contains("1 A"));
+    }
 }

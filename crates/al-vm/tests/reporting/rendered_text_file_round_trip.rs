@@ -497,7 +497,6 @@ fn rendered_text_file_round_trip_keeps_the_body_and_deletes_the_file() {
     assert_eq!(al_testkit::text(run("RoundTrip")), "YesNoYes");
     let hits = assumptions::take_hits();
     assert!(hits.contains(&Assumption::ReportHtmlRenderedText), "{hits:?}");
-    assert!(hits.contains(&Assumption::DotNetFileDeletePlaceholder), "{hits:?}");
 }
 
 #[test]
@@ -510,9 +509,8 @@ fn rendered_text_file_round_trip_a_read_of_the_file_stays_refused() {
 
 #[test]
 fn rendered_text_file_round_trip_of_a_pdf_deletes_the_file() {
-    assumptions::clear_hits();
+    // HtmlServerFileRoundTrip.al:225 with its delete facts.
     assert_eq!(al_testkit::text(run("RoundTripPdf")), "YesNoYes");
-    assert!(assumptions::take_hits().contains(&Assumption::DotNetFileDeletePlaceholder));
 }
 
 // Shapes the probe (HtmlServerFileRoundTrip.al) does not measure. Each refuses at the delete, as on main.
@@ -563,20 +561,16 @@ fn rendered_text_file_round_trip_unmeasured_deletes_refuse() {
 // The measured chain again on a path AL erased in between runs: the second export makes a new file.
 #[test]
 fn rendered_text_file_round_trip_after_an_erase_of_the_path_deletes_the_file() {
-    assumptions::clear_hits();
     assert_eq!(al_testkit::text(run("ChainEraseChain")), "NoYes");
-    assert!(assumptions::take_hits().contains(&Assumption::DotNetFileDeletePlaceholder));
 }
 
 // Out of scope of the delete gate, as on main: AL Erase deletes a placeholder file whatever handles came before, File.Copy
 // and File.Rename stop at the read of the file, and Clear of a File variable is refused.
 #[test]
 fn rendered_text_file_round_trip_erase_copy_and_rename_keep_main() {
-    assumptions::clear_hits();
     for p in ["SaveAsHtmlToFileWriteOpenCloseErase", "ExportOpenHeldErase"] {
         assert!(matches!(run(p), Ok(Value::Boolean(false))), "{p}: the file is gone");
     }
-    assert!(!assumptions::take_hits().contains(&Assumption::DotNetFileDeletePlaceholder));
     for p in ["CopyThePlaceholderFile", "RenameThePlaceholderFile"] {
         match run(p) {
             Err(Signal::Unsupported(why)) => assert!(why.contains("a placeholder Html"), "{p}: {why}"),

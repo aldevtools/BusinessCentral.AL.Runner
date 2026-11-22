@@ -25,7 +25,7 @@ pub(crate) fn execute_check(s: &Session, schema: &Schema) -> Result<(), Signal> 
     Err(Signal::Error(Box::new(al_builtins::native::AlError {
         message: format!(
             "Report {} does not have a valid layout. Valid layout types are: Word, RDLC, Excel, and Custom.",
-            s.object_id_of(schema.object() as u32)
+            s.object_id_of(schema.object() as u32)?
         ),
         code: "ReportNoLayout".into(),
         ..Default::default()

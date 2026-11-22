@@ -73,6 +73,30 @@ impl Session {
         self.engine.program.objects[t.object as usize].id == Some(COMPANY_TABLE)
     }
 
+    /// A Rename of the Company row of a company `--companies` selected is refused (ADR-046).
+    pub(crate) fn refuse_selected_company_rename(
+        &self,
+        temporary: bool,
+        t: &TableDef,
+        old: &[Value],
+        new: &[Value],
+    ) -> Result<(), Signal> {
+        if !temporary
+            && self.is_company_table(t)
+            && let (Some(from), Some(to)) = (
+                old.first().and_then(al_builtins::native::text_of),
+                new.first().and_then(al_builtins::native::text_of),
+            )
+            && from != to
+            && self.companies.iter().any(|company| company == &from)
+        {
+            return unsupported(format!(
+                "renaming selected company {from} under --companies is not supported (ADR-046)"
+            ));
+        }
+        Ok(())
+    }
+
     /// The name of the company `name` refers to, as the Company table spells it. The session
     /// company always exists; another one exists while its row does. A program that never compiled
     /// the Company table has no way to make a company, so the session company is the only one.
@@ -110,13 +134,12 @@ impl Session {
     /// baseline made for the session company, since a company BC creates holds such rows too.
     pub(crate) fn cx_for(&self, rec: &Rec, t: &TableDef) -> Result<AccessContext, Signal> {
         let r = rec.borrow();
+        let company = r.company.as_deref().unwrap_or(&self.cx.company);
+        let backed_company = self.backed_companies.iter().any(|known| known == company);
         // ADR-046 decision 5, under the `--companies` opt-in: in a declared company other than the session company only
-        // the per-company tables of the apps under test are answered (new at that app's install, so they hold what install
-        // code and tests wrote there). What a dependency app, Company-Initialize or the platform put into a per-company
-        // table of that company is not known: record/BfInstallTests.al:74-95 counts rows there that
-        // the runtime does not make (P3).
+        // the per-company tables of the apps under test are answered, unless the backup was explicitly selected to supply
+        // that company's rows.
         if !self.companies.is_empty() && t.per_company && !r.temporary {
-            let company = r.company.as_deref().unwrap_or(&self.cx.company);
             if let Some(why) = self.company_unknown.get(&(company.to_string(), t.object)) {
                 return unsupported(format!("{} in company {company}: {why}", t.name));
             }
@@ -128,6 +151,7 @@ impl Session {
                     .install_facts
                     .get()
                     .is_some_and(|f| f.under_test_tables.contains(&(t.object as usize)))
+                && !backed_company
             {
                 if self.starts_empty_in(company, t) {
                     return Ok(AccessContext {
@@ -273,6 +297,7 @@ impl Session {
         // The filters, the current key and the marks stay (a mark is a primary key), and a
         // temporary record keeps its rows (:25-30).
         let mut r = rec.borrow_mut();
+        r.change_company_called = true;
         if r.company == target {
             return Ok(Value::Boolean(true));
         }

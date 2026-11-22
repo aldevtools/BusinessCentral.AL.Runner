@@ -83,7 +83,9 @@ depend on.
 5. After a corpus bump: regenerate the goldens
    (`UPDATE_GOLDEN=1 cargo test --release -p al-test-cli --test corpus_resolve_deps -- --ignored`)
    and check the `cargo test -p al-version` gate evidence for new BC28PLUS guards.
-6. `cargo test -p <crate>` and `cargo clippy -p <crate> -- -D warnings` for each crate you touched.
+6. `cargo test -p <crate>` and `cargo clippy -p <crate> -- -D warnings` for each crate you touched, `cargo test -p` for
+   each crate that depends on one of them, and always `al-test-cli`. `tools/neighbor-diff.sh --changed` exits 0
+   (`tests/neighbors/README.md`; CI runs it too).
    If you touched dependency loading, lowering, the checker, `observe.rs` or lazy package reading:
    run the check that `docs/agents/checks.md` names for it.
 7. `cargo fmt --all` LAST, after every edit. Then `tools/prepush.sh`.
@@ -98,6 +100,7 @@ depend on.
   refused only while cases of the issue are still refused.
 - The area table.
 - Red run and green run of the repro or the new tests.
+- The self-check artifacts (`.claude/agents/al-implementer.md`), the neighbor-diff tables among them.
 - The numbers of step 2 for 27, 28 and 29, and the lines you pruned.
 - Needs probe. Needs CI observation.
 - Decisions you took without the owner.
@@ -107,7 +110,8 @@ Under 200 words plus the table.
 - **Page state** (ADR-072): `PageState`, `PageMode`, `WindowRow`, `Cursor`, `ReadBackwards`, `ControlRef` and `ControlTarget`
   live in `crates/al-vm/src/pages/state/mod.rs`, not in `crates/al-builtins/src/value.rs`. A branch that added a field in
   `value.rs`: after you merge `main`, put the field into `state/mod.rs`. It starts at its type's default; `PageState::closed`
-  gets a line only for another starting value. `Value::TestPage` and
+  gets a line only for another starting value. A page flag that belongs to a mechanism with a file in `pages/state/`
+  (for example `close.rs`, `after_go_to_key.rs`, `lookup_left.rs`) goes into that file's type, set through a transition and read through a question. `Value::TestPage` and
   `Value::TestControl` hold a handle: read it with `st_of` / `control_of`, build a value with `page_value` / `test_control`.
 
 ## Other files

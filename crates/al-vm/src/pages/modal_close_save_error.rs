@@ -127,10 +127,10 @@ impl Session {
         // How the page was run. Every pinned static `Page.RunModal` passes a record (ModalCloseSaveErrorShapes.al:258, :321,
         // :343, :384; CemModalHandlerTests.al: all 66 calls are `Page.RunModal(Id, Row)`); one without a record is no pinned
         // shape and keeps the refusal.
-        let run = match (s.run_static, s.static_run_record, s.lookup.then_some(s.lookup_kind)) {
-            (Some(true), true, Some(LookupKind::StaticRunModal)) => Run::StaticRecordUsed,
-            (Some(true), true, None) => Run::StaticRecordStatement,
-            (Some(true), ..) => return None,
+        let run = match (s.modal_run, s.static_run_record, s.lookup.then_some(s.lookup_kind)) {
+            (ModalRun::Static, true, Some(LookupKind::StaticRunModal)) => Run::StaticRecordUsed,
+            (ModalRun::Static, true, None) => Run::StaticRecordStatement,
+            (ModalRun::Static, ..) => return None,
             (_, _, None) => Run::NoLookup,
             (_, _, Some(LookupKind::Variable)) => Run::VariableLookup,
             _ => return None,

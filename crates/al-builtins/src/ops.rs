@@ -12,6 +12,9 @@ use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::rc::Rc;
 
+mod quotient;
+use quotient::whole_quotient;
+
 /// [`convert`] with a value of the plain type it goes into handled here: what every argument, return value and typed
 /// assignment of ordinary code meets, without the call. The same result as `convert` (a Decimal of more than 18
 /// significant digits takes `convert`'s path, which keeps 18).
@@ -511,17 +514,22 @@ pub fn shown_in_length_error(s: &str) -> String {
     }
 }
 
+/// The error of a text `s` longer than `max` characters (types/TestProbeScalarContracts.al:CodeAssign_UpperAndTrim, `too_long_11`:
+/// a Code[10] given 11 characters).
+pub fn string_length_error<T>(s: &str, max: u32) -> Result<T, Signal> {
+    crate::native::raise(
+        format!(
+            "The length of the string is {}, but it must be less than or equal to {max} characters. Value: {}",
+            Value::text_len(s),
+            shown_in_length_error(s)
+        ),
+        "StringLengthExceeded",
+    )
+}
+
 fn fit(s: String, max: Option<u32>) -> Result<String, Signal> {
     match max {
-        // types/TestProbeScalarContracts.al:CodeAssign_UpperAndTrim, `too_long_11` (a Code[10] given 11 characters).
-        Some(m) if Value::text_len(&s) > m as usize => crate::native::raise(
-            format!(
-                "The length of the string is {}, but it must be less than or equal to {m} characters. Value: {}",
-                Value::text_len(&s),
-                shown_in_length_error(&s)
-            ),
-            "StringLengthExceeded",
-        ),
+        Some(m) if Value::text_len(&s) > m as usize => string_length_error(&s, m),
         _ => Ok(s),
     }
 }
@@ -860,11 +868,14 @@ fn duration_divide(op: Arith, a: i64, r: &Value) -> Result<Value, Signal> {
                 .map(Value::BigInteger)
                 .ok_or_else(|| Signal::Unsupported("Duration overflow (error text not pinned yet)".into()));
         }
-        let q = Decimal::from(a)
-            .checked_div(Decimal::from(b))
-            .and_then(|q| q.round_sf_with_strategy(18, rust_decimal::RoundingStrategy::MidpointAwayFromZero))
-            .ok_or_else(|| Signal::Unsupported("decimal overflow".into()))?;
-        return Ok(Value::Decimal(q));
+    }
+    // The quotient is a Decimal and never raises (`slash-int` is `22500`, ExpressionBinaryDateTimeOperands.al:
+    // P195_Binary_DurationOperands); only an assignment into a Duration does when it has a fraction (D_Duration.al:358-362
+    // `asserterror D := D1 / 7`, `Dec := D1 / D2`). The milliseconds, and a BigInteger divisor, may have 19 digits.
+    if op == Arith::Div {
+        let keep_r = by_duration || matches!(r, Value::BigInteger(_));
+        let l = (&Value::Duration(a), Decimal::from(a), true);
+        return whole_quotient(l, (r, Decimal::from(b), keep_r)).map(Value::Decimal);
     }
     match op {
         // The result formats as a Decimal (`D1 div 7` is '12,857' in Format; D_Duration.al:369).
@@ -872,16 +883,39 @@ fn duration_divide(op: Arith, a: i64, r: &Value) -> Result<Value, Signal> {
         // The remainder is a whole number that formats without a thousands separator: `3600000 mod 1000000` is '600000', not
         // '600,000' (types/date-time/Arithmetic.al:Duration_Arithmetic `A mod 1000000`, :393).
         Arith::Mod => Ok(Value::BigInteger(a % b)),
-        // The quotient is a number too (`slash-int` is `22500`, ExpressionBinaryDateTimeOperands.al:P195_Binary_DurationOperands).
-        // The quotient is a Decimal and never raises; only an assignment into a Duration does when it has a fraction
-        // (D_Duration.al:358-362 `asserterror D := D1 / 7`, `Dec := D1 / D2`).
-        Arith::Div => Decimal::from(a)
-            .checked_div(Decimal::from(b))
-            .and_then(|q| q.round_sf_with_strategy(18, rust_decimal::RoundingStrategy::MidpointAwayFromZero))
-            .map(Value::Decimal)
-            .ok_or_else(|| Signal::Unsupported("decimal overflow".into())),
         _ => unsupported("Duration arithmetic (not pinned)".to_string()),
     }
+}
+
+/// Arithmetic where a side is no number: Duration `/`, `div` and `mod` a whole number, and Duration / Duration (types/duration/
+/// D_Duration.al:Duration_Arithmetic), Duration / Decimal, else the refusal. Off the path of the numbers.
+#[cold]
+#[inline(never)]
+fn arith_not_number(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
+    use Value as V;
+    if let V::Duration(d) = l {
+        if matches!(op, Arith::Div | Arith::IntDiv | Arith::Mod) && (int_of(r).is_some() || matches!(r, V::Duration(_)))
+        {
+            return duration_divide(op, *d, r);
+        }
+        // Duration / Decimal: the Duration counts as its milliseconds and the quotient is a Decimal; a zero divisor
+        // raises DivideByZero (format-evaluate/AxDurationDateTime.al:21 Duration_DividedBy_IntegerAndDecimal,
+        // :53 Duration_DividedBy_ZeroDecimal).
+        if op == Arith::Div {
+            if let V::Decimal(b) = r {
+                if b.is_zero() {
+                    return raise("Attempted to divide by zero.", "AL:DivideByZero");
+                }
+                return whole_quotient((l, Decimal::from(*d), true), (r, *b, false)).map(V::Decimal);
+            }
+        }
+    }
+    unsupported(format!(
+        "{} of {l} and {r}",
+        op.describe(),
+        l = l.describe(),
+        r = r.describe()
+    ))
 }
 
 fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
@@ -1159,38 +1193,7 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
         _ => {}
     }
     let (Some(a), Some(b)) = (as_decimal(l), as_decimal(r)) else {
-        // Duration `/`, `div` and `mod` a whole number, and Duration / Duration (types/duration/
-        // D_Duration.al:Duration_Arithmetic). Here, off the path of the numbers.
-        if let V::Duration(d) = l {
-            if matches!(op, Arith::Div | Arith::IntDiv | Arith::Mod)
-                && (int_of(r).is_some() || matches!(r, V::Duration(_)))
-            {
-                return duration_divide(op, *d, r);
-            }
-            // Duration / Decimal: the Duration counts as its milliseconds and the quotient is a Decimal; a zero divisor
-            // raises DivideByZero (format-evaluate/AxDurationDateTime.al:21 Duration_DividedBy_IntegerAndDecimal,
-            // :53 Duration_DividedBy_ZeroDecimal).
-            if op == Arith::Div {
-                if let V::Decimal(b) = r {
-                    if b.is_zero() {
-                        return raise("Attempted to divide by zero.", "AL:DivideByZero");
-                    }
-                    return Decimal::from(*d)
-                        .checked_div(*b)
-                        .and_then(|q| {
-                            q.round_sf_with_strategy(18, rust_decimal::RoundingStrategy::MidpointAwayFromZero)
-                        })
-                        .map(|q| V::Decimal(q.normalize()))
-                        .ok_or_else(|| Signal::Unsupported("decimal overflow".into()));
-                }
-            }
-        }
-        return unsupported(format!(
-            "{} of {l} and {r}",
-            op.describe(),
-            l = l.describe(),
-            r = r.describe()
-        ));
+        return arith_not_number(op, l, r);
     };
     let both_int =
         matches!(l, V::Integer(_) | V::Byte(_) | V::Char(_)) && matches!(r, V::Integer(_) | V::Byte(_) | V::Char(_));
@@ -1203,15 +1206,15 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
     // A BigInteger operand of a Decimal operation becomes a Decimal of 18 significant digits first:
     // `4611686018427387905L - Power(2, 62)` is 10, not 5 (types/decimal-integer/DecimalDigits.al:257-346
     // QE_Decimal_BigIntegerOperands, `b62p1 - p62`; `dec := b62p1` holds ...910).
+    let kept = |v: &Value, d: Decimal| {
+        if matches!(v, V::BigInteger(_)) {
+            keep_18_digits(d)
+        } else {
+            d
+        }
+    };
     let (a, b) = if any_dec && any_big {
-        let round = |v: &Value, d: Decimal| {
-            if matches!(v, V::BigInteger(_)) {
-                keep_18_digits(d)
-            } else {
-                d
-            }
-        };
-        (round(l, a), round(r, b))
+        (kept(l, a), kept(r, b))
     } else {
         (a, b)
     };
@@ -1219,16 +1222,10 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
         Arith::Add => a.checked_add(b),
         Arith::Sub => a.checked_sub(b),
         Arith::Mul => a.checked_mul(b),
+        // A BigInteger beside a whole number (with a Decimal it is kept to 18 digits above).
         Arith::Div => {
-            // A quotient keeps 18 significant digits, rounded at the last one
-            // (types/TestDateRoundFormatStringContracts.al:Decimal_Division_KeepsEighteenSignificantDigits).
-            return Ok(V::Decimal(
-                a.checked_div(b)
-                    .and_then(|q| q.round_sf_with_strategy(18, rust_decimal::RoundingStrategy::MidpointAwayFromZero))
-                    // A quotient carries no trailing zeros (types/decimal-integer/ScT70056.al:Integer_DivisionResult `value 3.5`).
-                    .map(|q| q.normalize())
-                    .ok_or_else(|| Signal::Unsupported("decimal overflow".into()))?,
-            ));
+            let big = |v: &Value| !any_dec && matches!(v, V::BigInteger(_));
+            return whole_quotient((l, a, big(l)), (r, b, big(r))).map(V::Decimal);
         }
         Arith::IntDiv => (a / b).trunc().into(),
         Arith::Mod => Some(a % b),
@@ -1562,6 +1559,8 @@ pub fn compare(l: &Value, r: &Value) -> Result<Ordering, Signal> {
         (V::Integer(a), V::BigInteger(b)) => return Ok(i64::from(*a).cmp(b)),
         (V::BigInteger(a), V::Integer(b)) => return Ok(a.cmp(&i64::from(*b))),
         (V::Decimal(a), V::Decimal(b)) => return Ok(a.cmp(b)),
+        // Two Bytes compare as numbers (`as_decimal` below): a byte read loop compares one pair per byte.
+        (V::Byte(a), V::Byte(b)) => return Ok(a.cmp(b)),
         (V::Boolean(a), V::Boolean(b)) => return Ok(a.cmp(b)),
         (V::Date(a, ca), V::Date(b, cb)) => return Ok((a, ca).cmp(&(b, cb))),
         (V::Time(a), V::Time(b)) | (V::DateTime(a), V::DateTime(b)) | (V::Duration(a), V::Duration(b)) => {
@@ -1830,6 +1829,16 @@ pub fn truthy(v: &Value) -> Result<bool, Signal> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn two_bytes_compare_as_the_general_path_compares_them() {
+        for a in 0..=u8::MAX {
+            for b in [0, 1, 127, 128, 254, 255, a] {
+                let (l, r) = (Value::Byte(a), Value::Byte(b));
+                assert_eq!(super::compare(&l, &r).ok(), super::compare_general(&l, &r).ok());
+            }
+        }
+    }
+
     #[test]
     fn a_dotnet_enum_converts_to_its_number_in_an_integer_and_a_biginteger() {
         // tests/al-language-onprem-dotnet/dotnet/dotnet/SgDotNetEnumToInteger.al:42-88 SG_DotNetEnum_IntoInteger.

@@ -337,8 +337,9 @@ fn issue_8189_reporter_repro_sees_the_trigger_xrec_in_every_way() {
     assert_eq!(o.len(), 10);
     for (name, outcome, flagged) in &o {
         assert_eq!(outcome, "Pass", "{name}");
-        // The OnValidate runs all five ways in every test; ways 3 and 4 run through the assumption.
-        assert!(*flagged, "{name}");
+        // The OnValidate runs all five ways in every test; ways 3 and 4 are pinned by
+        // record/validate/XRecTableProcThroughCodeunit.al:365-414.
+        assert!(!*flagged, "{name}");
     }
 }
 
@@ -399,7 +400,8 @@ fn issue_8185_reporter_repro_hands_a_by_value_record_no_filters() {
             .contains("caller: {Status: Posted} | by value: {} | by var: {Status: Posted} | FindFirst by value: Yes"),
         "{name}: {outcome}"
     );
-    assert!(*flagged, "{name}");
+    // Pinned by record/filters/ByValueRecordView.al: no assumption.
+    assert!(!*flagged, "{name}");
 }
 
 /// Neighbors of the shape of issue 8189, one fact flipped each: `(test, outcome prefix, flagged)`.
@@ -652,11 +654,11 @@ fn issue_8189_neighbors_refuse_a_read_of_xrec_or_keep_main() {
         ("DirectFromTrigger_CopyOfXRec_Refused", XREC_REFUSED, false),
         ("MeasuredChain_FreshRecord_Refused", XREC_REFUSED, false),
         ("MeasuredChain_FieldRefValidate_Refused", XREC_REFUSED, false),
-        // The reporter measured a record read by Get or inserted by itself, both stored.
+        // Run: a record read by Get or inserted by itself, both stored (XRecTableProcThroughCodeunit.al:337-352).
         ("MeasuredChain_ReadByFindFirst_Refused", XREC_REFUSED, false),
         ("MeasuredChain_Temporary_Refused", XREC_REFUSED, false),
-        // The measured chain hands the trigger's xRec on whether the procedure reads it or not: flagged.
-        ("MeasuredChain_NoXRecRead_Runs", PASS, true),
+        // The pinned chain hands the trigger's xRec on whether the procedure reads it or not.
+        ("MeasuredChain_NoXRecRead_Runs", PASS, false),
         ("NoRunningCall_PlainCall_BlankXRec", PASS, false),
     ];
     check(&o, &want);
@@ -761,7 +763,7 @@ codeunit 50144 "XG Test"
     end;
 
     [Test]
-    procedure MeasuredChain_GetOfRowInsertedInOpenTx_Flagged()
+    procedure MeasuredChain_GetOfRowInsertedInOpenTx_Pinned()
     var
         Item: Record "XG Item";
         Read: Record "XG Item";
@@ -839,8 +841,9 @@ codeunit 50144 "XG Test"
 fn issue_8189_get_of_a_written_row_and_running_extension_triggers_refuse() {
     let o = run(XREC_GET_AND_EXTENSIONS, "XG Test");
     let want = [
-        // The reporter's second buffer: a Get of the row the open transaction inserted, nothing written to it since.
-        ("MeasuredChain_GetOfRowInsertedInOpenTx_Flagged", PASS, true),
+        // The second pinned buffer (XRecTableProcThroughCodeunit.al:348-352): a Get of the row the open transaction
+        // inserted, nothing written to it since.
+        ("MeasuredChain_GetOfRowInsertedInOpenTx_Pinned", PASS, false),
         // A Get of a row the open transaction modified, after a Commit or after its Insert: not measured.
         ("MeasuredChain_GetOfRowModifiedInOpenTx_Refused", XREC_REFUSED, false),
         (
@@ -1377,7 +1380,7 @@ codeunit 50131 "BN Test"
     end;
 
     [Test]
-    procedure GroupZero_PageRun_Flagged()
+    procedure GroupZero_PageRun_Pinned()
     var
         Line: Record "BN Row";
     begin
@@ -1388,7 +1391,7 @@ codeunit 50131 "BN Test"
     end;
 
     [Test]
-    procedure GroupZero_CopyKept_Flagged()
+    procedure GroupZero_CopyKept_Pinned()
     var
         Line: Record "BN Row";
         Holder: Codeunit "BN Holder";
@@ -1399,7 +1402,7 @@ codeunit 50131 "BN Test"
     end;
 
     [Test]
-    procedure GroupZero_CopyKept_LaterRead_Flagged()
+    procedure GroupZero_CopyKept_LaterRead_Pinned()
     var
         Holder: Codeunit "BN Holder";
     begin
@@ -1419,7 +1422,7 @@ codeunit 50131 "BN Test"
     end;
 
     [Test]
-    procedure GroupZero_PassedOn_FindFirst_Flagged()
+    procedure GroupZero_PassedOn_FindFirst_Pinned()
     var
         Line: Record "BN Row";
     begin
@@ -1468,7 +1471,7 @@ codeunit 50131 "BN Test"
     end;
 
     [Test]
-    procedure Descending_GetFilters_Flagged()
+    procedure Descending_GetFilters_Pinned()
     var
         Line: Record "BN Row";
     begin
@@ -1490,7 +1493,7 @@ codeunit 50131 "BN Test"
     end;
 
     [Test]
-    procedure Temporary_NoFilters_Flagged()
+    procedure Temporary_NoFilters_Pinned()
     var
         Line: Record "BN Row" temporary;
     begin
@@ -1510,11 +1513,11 @@ fn issue_8185_neighbors_refuse_a_read_of_the_view_or_keep_main() {
         ("NoFilter_AdHocKey_PrimaryKey", PASS, false),
         // The copy does not take the FlowField key's mark (record/keys-sorting/PwFlowFieldKeyRule.al:249).
         ("NoFilter_RowDependentFlowFieldKey_PrimaryKey", PASS, false),
-        // A declared secondary key: the primary key (corpus PR 1430, ByValueRecordView.al ByValue_SecondaryKey_NoFilter).
-        ("NoFilter_DeclaredKey_PrimaryKey", PASS, true),
-        // Only a read of the view marks the assumption, also on a copy handed on.
+        // A declared secondary key: the primary key (record/filters/ByValueRecordView.al ByValue_SecondaryKey_NoFilter).
+        ("NoFilter_DeclaredKey_PrimaryKey", PASS, false),
+        // Pinned reads of the view, also on a copy handed on: no assumption.
         ("GroupZero_FieldRead_NotFlagged", PASS, false),
-        ("GroupZero_PassedOn_FindFirst_Flagged", PASS, true),
+        ("GroupZero_PassedOn_FindFirst_Pinned", PASS, false),
         ("FilterGroupThree_GetFilters_Refused", VIEW_REFUSED, false),
         ("FilterGroupThree_FieldRead_Runs", PASS, false),
         ("FilterGroupThree_ResetThenCount_Runs", PASS, false),
@@ -1530,15 +1533,15 @@ fn issue_8185_neighbors_refuse_a_read_of_the_view_or_keep_main() {
         ("FilterGroupThree_TransferFieldsFrom_Runs", PASS, false),
         ("FilterGroupThree_GetTable_Refused", VIEW_REFUSED, false),
         ("FilterGroupThree_PageRun_Refused", VIEW_REFUSED, false),
-        ("GroupZero_PageRun_Flagged", PASS, true),
-        // Copy hands the assumed view on: a later test that reads the kept copy is flagged too.
-        ("GroupZero_CopyKept_Flagged", PASS, true),
-        ("GroupZero_CopyKept_LaterRead_Flagged", PASS, true),
+        ("GroupZero_PageRun_Pinned", PASS, false),
+        // Copy hands the pinned view on: a later test reads the kept copy, with no assumption.
+        ("GroupZero_CopyKept_Pinned", PASS, false),
+        ("GroupZero_CopyKept_LaterRead_Pinned", PASS, false),
         // Descending and a temporary record into a stored parameter: no filters (ByValueRecordView.al
         // ByValue_Descending_NoFilter, ByValue_TemporaryToPlainParameter).
-        ("Descending_GetFilters_Flagged", PASS, true),
+        ("Descending_GetFilters_Pinned", PASS, false),
         ("ByVar_KeepsFilters", PASS, false),
-        ("Temporary_NoFilters_Flagged", PASS, true),
+        ("Temporary_NoFilters_Pinned", PASS, false),
     ];
     check(&o, &want);
 }
@@ -1827,14 +1830,14 @@ fn issue_8248_reporter_repro_gives_the_by_value_copy_no_filters() {
         } else {
             outcome.contains(text)
         };
-        if !ok || !flagged {
+        if !ok || *flagged {
             wrong.push(format!("{name}: {outcome} (flagged {flagged})"));
         }
     }
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
 
-/// The shapes of corpus PR 1430 (record/filters/ByValueRecordView.al) beyond issue 8185, and their neighbors, one fact flipped
+/// The shapes record/filters/ByValueRecordView.al pins beyond issue 8185, and their neighbors, one fact flipped
 /// each.
 const BY_VALUE_VIEWS: &str = r##"
 table 50150 "BW Row"
@@ -1938,7 +1941,7 @@ codeunit 50155 "BW Test"
     end;
 
     [Test]
-    procedure Group2_Flagged()
+    procedure Group2_Pinned()
     var
         Line: Record "BW Row";
     begin
@@ -1948,7 +1951,7 @@ codeunit 50155 "BW Test"
     end;
 
     [Test]
-    procedure Group4_Flagged()
+    procedure Group4_Pinned()
     var
         Line: Record "BW Row";
     begin
@@ -1958,7 +1961,7 @@ codeunit 50155 "BW Test"
     end;
 
     [Test]
-    procedure GroupMinus1_TwoFields_Flagged()
+    procedure GroupMinus1_TwoFields_Pinned()
     var
         Line: Record "BW Row";
     begin
@@ -1971,7 +1974,7 @@ codeunit 50155 "BW Test"
     end;
 
     [Test]
-    procedure CallerStandsInGroup2_Flagged()
+    procedure CallerStandsInGroup2_Pinned()
     var
         Line: Record "BW Row";
     begin
@@ -1983,7 +1986,7 @@ codeunit 50155 "BW Test"
     end;
 
     [Test]
-    procedure Descending_SecondaryKey_Marks_Flagged()
+    procedure Descending_SecondaryKey_Marks_Pinned()
     var
         Line: Record "BW Row";
     begin
@@ -1997,7 +2000,7 @@ codeunit 50155 "BW Test"
     end;
 
     [Test]
-    procedure DeclaredKey_NoFilter_Flagged()
+    procedure DeclaredKey_NoFilter_Pinned()
     var
         Line: Record "BW Row";
     begin
@@ -2007,7 +2010,7 @@ codeunit 50155 "BW Test"
     end;
 
     [Test]
-    procedure SetLoadFields_BeforeAnyRead_Flagged()
+    procedure SetLoadFields_BeforeAnyRead_Pinned()
     var
         Line: Record "BW Row";
     begin
@@ -2018,7 +2021,7 @@ codeunit 50155 "BW Test"
     end;
 
     [Test]
-    procedure TemporaryToPlainParameter_Flagged()
+    procedure TemporaryToPlainParameter_Pinned()
     var
         Line: Record "BW Row" temporary;
     begin
@@ -2099,8 +2102,9 @@ codeunit 50155 "BW Test"
         Expect(Line.ExtFilters(Line), '');
     end;
 
+    // Measured by corpus PR 1451 (record/filters/ByValueTableProcedureView.al:301-321): the copy has no filters.
     [Test]
-    procedure TableProcedure_OtherTable_Refused()
+    procedure TableProcedure_OtherTable_Flagged()
     var
         Line: Record "BW Row";
         Other: Record "BW Other";
@@ -2139,17 +2143,17 @@ codeunit 50155 "BW Test"
 "##;
 
 #[test]
-fn by_value_views_of_the_probe_run_flagged_and_their_neighbors_refuse_or_keep_main() {
+fn by_value_views_of_the_probe_run_and_their_neighbors_refuse_or_keep_main() {
     let o = run(BY_VALUE_VIEWS, "BW Test");
     let want = [
-        ("Group2_Flagged", PASS, true),
-        ("Group4_Flagged", PASS, true),
-        ("GroupMinus1_TwoFields_Flagged", PASS, true),
-        ("CallerStandsInGroup2_Flagged", PASS, true),
-        ("Descending_SecondaryKey_Marks_Flagged", PASS, true),
-        ("DeclaredKey_NoFilter_Flagged", PASS, true),
-        ("SetLoadFields_BeforeAnyRead_Flagged", PASS, true),
-        ("TemporaryToPlainParameter_Flagged", PASS, true),
+        ("Group2_Pinned", PASS, false),
+        ("Group4_Pinned", PASS, false),
+        ("GroupMinus1_TwoFields_Pinned", PASS, false),
+        ("CallerStandsInGroup2_Pinned", PASS, false),
+        ("Descending_SecondaryKey_Marks_Pinned", PASS, false),
+        ("DeclaredKey_NoFilter_Pinned", PASS, false),
+        ("SetLoadFields_BeforeAnyRead_Pinned", PASS, false),
+        ("TemporaryToPlainParameter_Pinned", PASS, false),
         // No filter to drop: what main gave (record/temporary/TempRecordByValue.al pins the stored table).
         ("TemporaryToPlainParameter_NoFilter_NotFlagged", PASS, false),
         ("Group1_Refused", VIEW_REFUSED, false),
@@ -2159,7 +2163,7 @@ fn by_value_views_of_the_probe_run_flagged_and_their_neighbors_refuse_or_keep_ma
         ("PageProcedure_Group0Filter_Refused", VIEW_REFUSED, false),
         ("PageProcedure_NoFilter_KeepsMain", PASS, false),
         ("TableExtensionProcedure_Group0Filter_Refused", VIEW_REFUSED, false),
-        ("TableProcedure_OtherTable_Refused", VIEW_REFUSED, false),
+        ("TableProcedure_OtherTable_Flagged", PASS, true),
         ("ByVar_KeepsFilters", PASS, false),
     ];
     check(&o, &want);

@@ -82,7 +82,7 @@ impl Session {
                     .as_ref()
                     .is_some_and(|img| version(&img[version_field]) == mine)
         };
-        if !own_image || !self.tx.rolled_back || !self.tx.writes.is_empty() || !self.writes_all_noted() {
+        if !own_image || !self.tx.rolled_back || !self.tx.open.writes.is_empty() || !self.writes_all_noted() {
             return Ok(None);
         }
         let img = rec.borrow().last_modify.clone().expect("checked");

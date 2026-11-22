@@ -2661,7 +2661,9 @@ fn a_table_field_of_type_char_or_byte_is_al0156() {
 }
 
 mod internals_grant;
+mod keyword_variable_names;
 mod scope;
+mod subscriber_var_param;
 
 // al-runner issue 7803, alc 18.0.39.10160: `::In` (the keyword `in`, unquoted) after an option field, an option variable
 // or an enum type is AL0107 at `In`, the first of alc's syntax errors there; `::"In"` compiles.

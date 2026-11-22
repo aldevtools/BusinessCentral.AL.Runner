@@ -138,6 +138,7 @@ impl Lowerer<'_> {
                             field: pos,
                             value: ir::Const::Text(numbers),
                             filter: true,
+                            assumes: None,
                         });
                         continue;
                     }
@@ -156,6 +157,7 @@ impl Lowerer<'_> {
                         field: pos,
                         value: ir::Const::Text(raw),
                         filter: true,
+                        assumes: None,
                     });
                     continue;
                 }
@@ -204,13 +206,14 @@ impl Lowerer<'_> {
                     (Some(number), false) => number.as_str(),
                     _ => qualified.as_deref().unwrap_or(value),
                 };
-                let Some(value) = self.condition_const(file, value, &own.fields[pos].ty) else {
+                let Some((value, assumes)) = self.relation_condition_const(oi, pos, scope.unwrap_or(oi), value) else {
                     return Vec::new();
                 };
                 conditions.push(ir::RelationCond {
                     field: pos,
                     value,
                     filter: false,
+                    assumes,
                 });
             }
             // The whole path names a table, or all but the last part do and the last is a field.
@@ -483,27 +486,72 @@ impl Lowerer<'_> {
         arms
     }
 
-    /// The constant of a `Field = const(x)` condition, typed by the field.
-    pub(crate) fn condition_const(&self, file: usize, text: &str, ty: &Ty) -> Option<ir::Const> {
-        if let Ty::Enum(name) = ty {
-            // The enum is named in the file that declares the field, as a relation target is: a
-            // dependency's file resolves it among the apps it saw (its `using`s included), so that an
-            // enum of another namespace is found (Gen. Journal Line."IC Account No.", issue 23).
-            let Resolution::Found(e) =
-                self.ws
-                    .resolve_relation_target(file, ObjKind::Enum, &crate::types::qualified_parts(name))
-            else {
-                return None;
-            };
-            let (value, _) = self.members[e]
+    /// The constant of the `const(x)` condition on field `pos` of table `oi`, in a relation that object `setter` set (the table
+    /// or one of its extensions), with the assumption it rests on. An Enum member is a value of the field's own enum, the one
+    /// [`Self::field_rt`] gives. How the setter's file names that enum decides whether that is pinned:
+    /// * the file names the field's enum: pinned (record/table-relation/TableRelationArms.al and the rest of that folder);
+    /// * a table extension's file that cannot name it (no `using` of its namespace: Base Application's "Mfg. Item Journal
+    ///   Line" on Item Journal Line."Order Type", al-runner issue 8297), or whose own namespace declares another enum of that
+    ///   name, on a field the table declares: the member is still the field's enum's (corpus PR 1437, merged,
+    ///   not pinned yet: table-objects/extensions/ExtRelationEnumNamespace_Tests.al:49-260, :369, :400, :424), under assumption relation-condition-enum-of-declaring-file;
+    /// * a file that names another enum of that name any other way keeps main's answer, that enum's member; a name the file
+    ///   finds twice is not understood.
+    fn relation_condition_const(
+        &self,
+        oi: usize,
+        pos: usize,
+        setter: usize,
+        text: &str,
+    ) -> Option<(ir::Const, Option<al_builtins::assumptions::Assumption>)> {
+        let field = &self.members[oi].fields[pos];
+        let Ty::Enum(name) = &field.ty else {
+            return init_const(text, &field.ty).map(|c| (c, None));
+        };
+        // Both sides trimmed: the blank member `" "` is named `" "` in `const(" ")` (Base Application
+        // "Standard Service Line"."No.").
+        let member = |e: usize| {
+            self.members[e]
                 .enum_values
                 .iter()
-                // Both sides trimmed: the blank member `" "` is named `" "` in `const(" ")`
-                // (Base Application "Standard Service Line"."No.").
-                .find(|(_, n)| n.trim().eq_ignore_ascii_case(text.trim()))?;
-            return Some(ir::Const::Enum(e as u32, *value as i32));
+                .find(|(_, n)| n.trim().eq_ignore_ascii_case(text.trim()))
+                .map(|(v, _)| ir::Const::Enum(e as u32, *v as i32))
+        };
+        let file = self.ws.objects[setter].file;
+        let own = match self.field_rt(oi, field) {
+            RtType::Enum(e) => Some(e as usize),
+            _ => None,
+        };
+        let measured = self.ws.objects[setter].kind == ObjKind::TableExtension && field.declared_in == Some(oi);
+        let assumed = |e: usize| {
+            member(e).map(|c| {
+                (
+                    c,
+                    Some(al_builtins::assumptions::Assumption::RelationConditionEnumOfDeclaringFile),
+                )
+            })
+        };
+        // A dependency's file resolves the enum among the apps it saw (its `using`s included), so that an enum of another
+        // namespace is found (Gen. Journal Line."IC Account No.", issue 23).
+        match self
+            .ws
+            .resolve_relation_target(file, ObjKind::Enum, &crate::types::qualified_parts(name))
+        {
+            Resolution::Found(e) if Some(e) == own => member(e).map(|c| (c, None)),
+            Resolution::Found(e) => match own {
+                Some(own) if measured && self.own_namespace_declares(file, e) => assumed(own),
+                _ => member(e).map(|c| (c, None)),
+            },
+            Resolution::Missing => own.filter(|_| measured).and_then(assumed),
+            Resolution::Ambiguous(_) => None,
         }
-        init_const(text, ty)
+    }
+
+    /// Object `object` is declared in the namespace `file` declares (not the global one).
+    fn own_namespace_declares(&self, file: usize, object: usize) -> bool {
+        match (&self.ws.files[file].namespace, &self.ws.objects[object].namespace) {
+            (Some(a), Some(b)) => a.eq_ignore_ascii_case(b),
+            _ => false,
+        }
     }
 
     /// The position of field `id`.
@@ -922,6 +970,8 @@ impl Lowerer<'_> {
                 }
             }
         }
+        // The primary key the compiler adds is declared by no object.
+        let added_key = keys.is_empty();
         if keys.is_empty() {
             // Without a keys section the first field is the primary key (doc: Table keys).
             keys.push(vec![0]);
@@ -929,6 +979,7 @@ impl Lowerer<'_> {
             unique_keys.push(false);
             key_props.push(Vec::new());
         }
+        let key_declared_in: Vec<Option<u32>> = key_owners.iter().map(|&o| (!added_key).then_some(o as u32)).collect();
         let per_company = !obj.properties().any(|p| {
             p.name().eq_ignore_ascii_case("DataPerCompany") && p.value_text().trim().eq_ignore_ascii_case("false")
         });
@@ -938,6 +989,7 @@ impl Lowerer<'_> {
                 keys,
                 unique_keys,
                 key_props,
+                key_declared_in,
                 per_company,
                 extensions,
                 unsupported: super::shared::over_max_length_of(self.ws, oi),

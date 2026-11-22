@@ -39,6 +39,8 @@ pub(crate) struct TestCtx {
     pub(crate) result_ignored: bool,
     /// What `held_by_temp_blob_impl` answers for every buffer.
     pub(crate) temp_blob_impl: bool,
+    /// What `format_composite` answers for a Record or a RecordRef: `None` as without a table schema.
+    pub(crate) composite: Option<String>,
 }
 impl FormatCtx for TestCtx {
     fn enum_name(&self, _id: u32, o: i32) -> String {
@@ -46,6 +48,9 @@ impl FormatCtx for TestCtx {
     }
 }
 impl Ctx for TestCtx {
+    fn format_composite(&mut self, _v: &Value) -> Option<Result<String, Signal>> {
+        self.composite.clone().map(Ok)
+    }
     fn held_by_temp_blob_impl(&self, _b: &crate::stream::BlobRef) -> bool {
         self.temp_blob_impl
     }
@@ -168,6 +173,7 @@ fn every_registered_id_is_in_the_catalog() {
         "System.EvaluateMemberlessVarOption#1",
         "System.EvaluateMemberlessVarOptionElement#1",
         "System.EvaluateBounded#1",
+        "System.EvaluateDateVariable#1",
         "System.EvaluateOptionField#1",
         "System.FormatVariant#1",
         "TextBuilder.AppendVariant#1",

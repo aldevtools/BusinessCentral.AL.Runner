@@ -57,6 +57,18 @@ impl Session {
         self.crm_stores.remove(name);
     }
 
+    /// A FlowField or a TableRelation check that reads the `TableType = CRM` table `src`: BC reads it through the table
+    /// connection, which no corpus test pins for these readers (al-runner issue 7632). Refused.
+    pub(crate) fn crm_source_refused(&self, src: &TableDef, reader: &str) -> Result<(), Signal> {
+        if self.engine.object_facts[src.object as usize].crm() {
+            return unsupported(format!(
+                "{reader} over the TableType = CRM table {}: its read through the table connection is not pinned",
+                src.name
+            ));
+        }
+        Ok(())
+    }
+
     /// The lower-case name of the connection a record of a CRM table uses: the default one. `None` for any other record.
     pub(crate) fn crm_connection_of(&self, rec: &Rec) -> Option<String> {
         let r = rec.borrow();

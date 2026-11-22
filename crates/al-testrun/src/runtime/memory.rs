@@ -30,6 +30,11 @@ pub const WORKER_FLOOR: u64 = 64 << 20;
 /// How the reason of a test not reached starts when the run stopped at its hard limit ([`Halt::reason`]).
 pub const REASON: &str = "memory limit (";
 
+/// A test the run did not reach, or stopped, because it stopped at its hard limit.
+pub(crate) fn stopped_by_limit(o: &crate::Outcome) -> bool {
+    matches!(o, crate::Outcome::NotRun(r) if r.starts_with(REASON))
+}
+
 /// How often the watcher reads the resident memory while the tests run.
 const SAMPLE: Duration = Duration::from_millis(10);
 
