@@ -4634,3 +4634,28 @@ fn an_azure_ml_with_events_variable_runs_flagged_in_the_shape_of_codeunit_2001()
         unsupported(&r)
     );
 }
+
+/// Every member of `server_classes::ANSWERS_ONLY` is a registry member that is called (not a constructor or a property
+/// write) that writes no argument back.
+#[test]
+fn the_members_that_only_answer_are_registered_calls() {
+    use al_vm::dotnet::server_classes::{ANSWERS_ONLY, answers_only, holds_answering_class};
+    let reg = Registry::builtin();
+    for (clr, member) in ANSWERS_ONLY {
+        let t = reg.get(clr).unwrap_or_else(|| panic!("{clr} is not registered"));
+        let m = t
+            .member(member, MemberKind::Call)
+            .unwrap_or_else(|| panic!("{clr}.{member} is not a call"));
+        assert_eq!(m.kind, MemberKind::Call, "{clr}.{member}");
+        assert!(m.call_ref.is_none(), "{clr}.{member} writes an argument back");
+        assert!(
+            answers_only(&clr.to_lowercase(), &member.to_uppercase()),
+            "{clr}.{member}"
+        );
+        assert!(holds_answering_class(clr), "{clr}");
+    }
+    let helper = al_builtins::dotnet_sigs::TENANT_SETTINGS_HELPER;
+    assert!(!answers_only(helper, "IsProduction"));
+    assert!(!answers_only(helper, "SetTestTenantEnvironmentType"));
+    assert!(!holds_answering_class("System.Text.StringBuilder"));
+}
