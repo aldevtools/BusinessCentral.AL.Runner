@@ -1606,7 +1606,7 @@ impl<'a> Checker<'a> {
                     )
                 {
                     if let Some(e) = kids.get(1).and_then(|m| self.this_member(sc, node, m)) {
-                        return e;
+                        return self.field_member_type(sc, node, e);
                     }
                 }
                 // `CurrPage.<protected var of the base page>` in a page extension: the base page's variable, as the plain name
@@ -1704,7 +1704,7 @@ impl<'a> Checker<'a> {
                 self.currreport_request_options_page(sc, node, &kids[0], &base_ty, &mname);
                 self.al_codeunit_access(sc, node, &base_ty, &mname);
                 match self.member(sc, &base_ty, &mname) {
-                    Some(e) => e,
+                    Some(e) => self.field_member_type(sc, node, e),
                     None if self.tdd_member(sc, node, &kids[0], &base_ty, &mname) => E::Val(Ty::Unknown),
                     None if self.tdd_field(sc, node, &kids[0], &base_ty, &mname) => E::Val(Ty::Unknown),
                     None => {
@@ -1720,7 +1720,8 @@ impl<'a> Checker<'a> {
                 let rhs = kids.get(1).map(name_of).unwrap_or_default();
                 let base = if kids[0].kind() == NameRef {
                     match self.lookup_name(sc, &kids[0]) {
-                        Some(e) => e,
+                        // A bare field name of the current record: its enum as `Rec.Field` reads it (`field_enum.rs`).
+                        Some(e) => self.field_member_type(sc, &kids[0], e),
                         None => {
                             // `"Some Enum"::Value` where the enum is outside the workspace.
                             self.diag(sc, node, "AR0002", format!("unresolved enum `{}`", name_of(&kids[0])));
@@ -1804,7 +1805,7 @@ impl<'a> Checker<'a> {
                     // (Base Application's "Find Record Management"). Its type is the option's.
                     E::Callable(c) => {
                         let t = self.pick(sc, &kids[0], &c, &[], &rhs);
-                        self.scope_member(sc, node, &t, &rhs);
+                        self.scope_member(sc, node, None, &t, &rhs);
                         E::Val(t)
                     }
                 }
@@ -1886,18 +1887,39 @@ impl<'a> Checker<'a> {
         }
     }
 
-    /// `T::Member` where `T` is the type of the left side: records the enum value or option member.
-    pub(crate) fn scope_member(&mut self, sc: &mut Scope, node: &SyntaxNode, t: &Ty, rhs: &str) {
+    /// `T::Member` where `T` is the type of the left side `left`: records the enum value or option member. A left side that is
+    /// a record field names a member of the field's own enum where the file reads the enum's name otherwise
+    /// ([`Self::field_enum_reading`]).
+    pub(crate) fn scope_member(
+        &mut self,
+        sc: &mut Scope,
+        node: &SyntaxNode,
+        left: Option<&SyntaxNode>,
+        t: &Ty,
+        rhs: &str,
+    ) {
         match t {
             Ty::Enum(name) => {
-                if let Some(ei) = self.resolve(sc, ObjKind::Enum, name) {
+                let reading = left.and_then(|l| self.field_enum_reading(sc, l));
+                let enum_index = match &reading {
+                    Some(super::field_enum::FieldEnumReading::Field(own)) => {
+                        self.touch(*own);
+                        Some(*own)
+                    }
+                    // A shape no probe measured: `field_member_type` noted AR1010 on the field, which refuses the routine.
+                    Some(super::field_enum::FieldEnumReading::Unmeasured(_)) => return,
+                    None => self.resolve(sc, ObjKind::Enum, name),
+                };
+                let assumed = reading.is_some();
+                if let Some(ei) = enum_index {
                     if let Some((v, _)) = self.members[ei]
                         .enum_values
                         .iter()
                         .find(|(_, n)| n.eq_ignore_ascii_case(rhs))
                     {
                         let value = *v as i32;
-                        self.record(sc, node, Res::EnumValue { object: ei, value });
+                        let res = Res::EnumValue { object: ei, value };
+                        self.record(sc, node, Self::assumed_if(assumed, res));
                     } else if self.tdd_enum_value(sc, node, ei, rhs) {
                         // `--tdd` (ADR-051 decision 10): the next compile declares the value.
                     } else if !self.ws.is_dependency(sc.oi) && !self.ws.is_dependency(ei) {
@@ -1945,7 +1967,7 @@ impl<'a> Checker<'a> {
 
     pub(crate) fn name(&mut self, sc: &mut Scope, node: &SyntaxNode) -> E {
         match self.lookup_name(sc, node) {
-            Some(e) => e,
+            Some(e) => self.field_member_type(sc, node, e),
             None if self.tdd_bare(sc, node) => E::Val(Ty::Unknown),
             None if self.tdd_bare_field(sc, node) => E::Val(Ty::Unknown),
             None => {

@@ -8,7 +8,7 @@
 //! reproduced. A quoted name compiles, and so do the other words (`Local`, `Key`, `Area`, `Value`). A namespace segment that
 //! is such a word compiles in `namespace`, `using` and a variable's type, which are not code. An expression property or a
 //! control's source expression (`Visible = Rec.If > 0;`) is rejected the same way by the AL compilers but is not judged
-//! here: this checker sees it only as a synthetic routine.
+//! here: this checker sees it only as a synthetic routine (al-runner issue 8650).
 
 use super::{IDENTIFIER_EXPECTED, push};
 use crate::workspace::{Diagnostic, Workspace};
