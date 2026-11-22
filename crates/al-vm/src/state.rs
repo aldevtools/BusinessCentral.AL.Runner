@@ -10,12 +10,19 @@ pub(crate) struct TxState {
     /// The `[CommitBehavior]` of the innermost procedure that declares one.
     pub(crate) commit_behavior: transactions::CommitBehavior,
     /// How far the transaction has started since the test method began or the last `Commit()`: nothing yet, a read call or a
-    /// write call (also a DeleteAll that finds no row). `CurrentTransactionType` depends on it (`sessionops.rs`). A Commit or a
-    /// rollback ends a write phase (`Session::end_open_transaction`); a read phase stays.
+    /// write call (also a DeleteAll that finds no row). `CurrentTransactionType` depends on it (`transactions.rs`). A Commit or
+    /// a rollback ends a write phase (`Session::end_open_transaction`); a read phase stays.
     pub(crate) phase: transactions::TxPhase,
-    /// `Database.CurrentTransactionType`: a member index of the TransactionType option; a test
-    /// method starts at 0, UpdateNoLocks (`start_test_method`).
+    /// `Database.CurrentTransactionType`: a member index of the TransactionType option. A session starts at 0, UpdateNoLocks,
+    /// and so does the first test method of a codeunit; a later test method starts with the type the one before it left
+    /// (`start_test_method`), and a Commit keeps it.
     pub(crate) transaction_type: i32,
+    /// What `transaction_type` rests on when no corpus case pins it (`Session::transaction_type_seen`): the assumptions it
+    /// went through (a Commit kept it, al-runner issue 8605; a test method before left it, 8606), or that it is not known (a
+    /// test method before it did not run to its end and could set it). A set that takes effect clears it.
+    pub(crate) type_origin: crate::transactions::TypeOrigin,
+    /// A test method of this codeunit has ended (`Session::test_method_ended`): the next one starts with the type it left.
+    pub(crate) test_ended: bool,
     /// `Database.LockTimeout`: whether a lock wait ends in a timeout error.
     pub(crate) lock_timeout: bool,
     /// `Database.LockTimeoutDuration` in milliseconds.
@@ -114,12 +121,16 @@ pub(crate) struct OpenTx {
     /// The locks the open transaction holds and the locking reads it ran; a test method also starts without them
     /// (`Session::start_test_method`).
     pub(crate) locks: TxLocks,
-    /// The open transaction is the test method's first and nothing but writes has run in it: set by
-    /// `Session::start_test_method`; a read call (`records/op_inner.rs`), a CurrentTransactionType set (`sessionops.rs`), a
-    /// Codeunit.Run (`transactions.rs`) and a report run (`reports/transaction_world.rs`) clear it, and so does the end of the
-    /// transaction. The
-    /// TransactionType term of an Update report is measured only then.
-    pub(crate) at_test_start: bool,
+    /// Where the open transaction began (the test method's start, an AL Commit) and which measured steps ran in it since: the
+    /// moments the TransactionType term of an Update report is measured at (`reports/transaction_world.rs`). Set by
+    /// `Session::start_test_method` and the AL Commit of test code; a database call (`records/op_inner.rs`) and a
+    /// CurrentTransactionType set (`transactions.rs`) are noted in it or end it, a Codeunit.Run (`transactions.rs`) and a
+    /// report run end it, and so does the end of the transaction.
+    pub(crate) moment: Option<crate::reports::transaction_world::Moment>,
+    /// The open transaction is the one the test runner started before the first test method of the codeunit: a
+    /// CurrentTransactionType set to another type has no effect there on BC (corpus pull request 1488,
+    /// session-system/TxTypeNextTestMethod.al TxN01's comment), which no case pins.
+    pub(crate) runner_tx: bool,
 }
 
 /// The locks of the open transaction (`OpenTx::locks`).
@@ -260,6 +271,8 @@ impl TxState {
             commit_behavior: Default::default(),
             phase: crate::transactions::TxPhase::Fresh,
             transaction_type: 0,
+            type_origin: Default::default(),
+            test_ended: false,
             lock_timeout: true,
             lock_timeout_duration: 10,
             committed_row_version: 0,
@@ -695,7 +708,9 @@ impl OpenTx {
                     db_reads,
                     locking_read_tx_unpinned,
                 },
-            at_test_start,
+            // `Session::start_test_method` sets them before any test code runs.
+            moment: _,
+            runner_tx: _,
         } = self;
         rows_touched.is_empty()
             && tables_inserted.is_empty()
@@ -718,7 +733,6 @@ impl OpenTx {
             && isolation_lock_tables.is_empty()
             && locking_reads.is_empty()
             && *db_reads == 0
-            && !at_test_start
             && !locking_read_tx_unpinned
     }
 }
