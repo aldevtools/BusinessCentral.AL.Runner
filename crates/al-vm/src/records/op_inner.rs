@@ -1462,7 +1462,12 @@ impl Session {
                     }
                     _ => None,
                 };
-                let shape = super::measured_setfilter::MeasuredSetFilter::of(from_al, &rec.borrow(), &text, args.len());
+                let shape = super::measured_setfilter::MeasuredSetFilter::of(
+                    from_al,
+                    &rec.borrow(),
+                    &text,
+                    args.get(2..).unwrap_or_default(),
+                );
                 let mut parsed = match record_id {
                     Some(p) => p,
                     None => match self.measured_language_filter(shape.as_ref(), &t, pos)? {

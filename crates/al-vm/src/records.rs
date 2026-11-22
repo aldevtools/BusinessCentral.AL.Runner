@@ -28,6 +28,7 @@ mod flowfield_key;
 mod insert_buffer;
 mod measured_setfilter;
 mod option_filter_error;
+mod placeholder_wildcard_edge;
 mod setfilter_empty_or_side;
 mod setrange_filter;
 mod sql_range;
