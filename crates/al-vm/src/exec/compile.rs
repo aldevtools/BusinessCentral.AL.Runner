@@ -1341,6 +1341,21 @@ impl<'a> Compiler<'a> {
             return Ok(());
         }
         match p {
+            // `FieldRef.Value` into a local Date, Time or DateTime (al-builtins `fieldref_value_into_temporal`); into any other
+            // place it converts as `Op::Convert` does.
+            ir::Place::Local(i)
+                if let ir::Expr::Convert(t @ (RtType::Date | RtType::Time | RtType::DateTime), inner) = e
+                    && is_fieldref_value(inner) =>
+            {
+                let i = u16::try_from(*i).map_err(|_| ())?;
+                let a = self.expr_any(inner)?;
+                self.chunk.types.push(t.clone());
+                let t = (self.chunk.types.len() - 1) as u32;
+                let d = self.alloc()?;
+                self.emit(Op::ConvertFieldValue { d, a, t });
+                let pi = self.place(p);
+                self.emit(Op::StoreLocal { i, a: d, p: pi });
+            }
             // A `var` Option parameter declared without members may hold its caller's members: its stores go through
             // `write_as` (`var_option::param_store`).
             ir::Place::Local(i)
@@ -1475,7 +1490,8 @@ fn arg_pure(a: &ir::Arg) -> bool {
     }
 }
 
-/// A conversion of `FieldRef.Value` into a Text, Code or Blob, which runs `Op::ConvertFieldValue`.
+/// A conversion of `FieldRef.Value` into a Text, Code or Blob, which runs `Op::ConvertFieldValue` (as does one into a local
+/// Date, Time or DateTime, `Compiler::assign`).
 fn is_field_value_conversion(t: &RtType, inner: &ir::Expr) -> bool {
     (matches!(t, RtType::Text(_) | RtType::Code(_))
         || matches!(t, RtType::Library(n) if n.eq_ignore_ascii_case("Blob")))

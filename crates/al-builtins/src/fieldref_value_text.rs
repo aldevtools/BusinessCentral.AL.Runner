@@ -92,3 +92,48 @@ pub fn fieldref_value_into_blob(
         Err(e) => Err(Signal::unsupported(e)),
     })
 }
+
+/// A `FieldRef.Value()` of an Integer, BigInteger, Decimal, Duration or Boolean field assigned to a local DateTime, Date or
+/// Time variable or `var` parameter (al-vm `Compiler::assign`): an error, the variable keeps its value. From BC 28 (`from28`,
+/// the gate FieldRefTextNumberEvaluateErrorFrom28) the Evaluate error of the value's text, code Evaluate:Conversion; in BC 27
+/// `Unable to convert from Microsoft.Dynamics.Nav.Runtime.Nav<Type> to System.DateTime.`, code Conversion, for all three targets.
+/// Measured cells only (assumption fieldref-value-temporal-error, corpus PR 1511, recordref-fieldref/fieldref-value-convert/
+/// FvcIntegerField.al, FvcBigIntegerField.al, FvcOtherFields.al): an Integer or BigInteger into each target, written as its
+/// digits (`1000`, `2147483647`, `3000000000`); a Decimal (`1.5`), a Duration (`1 minute 5 seconds`) and a Boolean (`Yes`, `No`)
+/// into a DateTime. A whole Decimal, one of 1000 or more (its text may group digits) and a Duration of 0 or less are not
+/// measured. `None`:
+/// any other value or target.
+pub fn fieldref_value_into_temporal(
+    v: &Value,
+    t: &RtType,
+    from28: bool,
+    ctx: &dyn crate::format::FormatCtx,
+) -> Option<Result<Value, Signal>> {
+    let (nav, text) = match (v, t) {
+        (Value::Integer(n), RtType::DateTime | RtType::Date | RtType::Time) => ("NavInteger", n.to_string()),
+        (Value::BigInteger(n), RtType::DateTime | RtType::Date | RtType::Time) => ("NavBigInteger", n.to_string()),
+        (Value::Decimal(d), RtType::DateTime)
+            if !d.fract().is_zero() && d.abs() < rust_decimal::Decimal::from(1000) =>
+        {
+            ("NavDecimal", crate::format::try_format(v, 0, 0, ctx).ok()?)
+        }
+        (Value::Duration(ms), RtType::DateTime) if *ms > 0 => {
+            ("NavDuration", crate::format::try_format(v, 0, 0, ctx).ok()?)
+        }
+        (Value::Boolean(_), RtType::DateTime) => ("NavBoolean", crate::format::try_format(v, 0, 0, ctx).ok()?),
+        _ => return None,
+    };
+    crate::assumptions::assume(crate::assumptions::Assumption::FieldRefValueTemporalError);
+    if !from28 {
+        return Some(crate::native::raise(
+            format!("Unable to convert from Microsoft.Dynamics.Nav.Runtime.{nav} to System.DateTime."),
+            "Conversion",
+        ));
+    }
+    let message = match t {
+        RtType::Date => crate::fieldref_variant_cells::date_settings_error(&text),
+        RtType::Time => format!("The value \"{text}\" can't be evaluated into type Time."),
+        _ => format!("The value \"{text}\" can't be evaluated into type DateTime."),
+    };
+    Some(crate::native::raise(message, "Evaluate:Conversion"))
+}
