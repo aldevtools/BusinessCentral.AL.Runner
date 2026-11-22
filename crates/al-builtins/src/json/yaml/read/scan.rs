@@ -82,8 +82,33 @@ pub(super) fn tokens(text: &[char]) -> Res<Vec<Tok>> {
     }
 }
 
+/// The character a one-letter escape of a double-quoted text stands for (the cells `top[..]` and `list[..]`).
+fn named_escape(c: char) -> Option<char> {
+    Some(match c {
+        '0' => '\0',
+        'a' => '\u{7}',
+        'b' => '\u{8}',
+        't' | '\t' => '\t',
+        'n' => '\n',
+        'v' => '\u{b}',
+        'f' => '\u{c}',
+        'r' => '\r',
+        'e' => '\u{1b}',
+        ' ' => ' ',
+        '"' => '"',
+        '/' => '/',
+        '\\' => '\\',
+        'N' => '\u{85}',
+        '_' => '\u{a0}',
+        'L' => '\u{2028}',
+        'P' => '\u{2029}',
+        _ => return None,
+    })
+}
+
+/// LF, CR, and the line breaks of `super::unicode_break`.
 fn is_break(c: char) -> bool {
-    c == '\n' || c == '\r'
+    c == '\n' || c == '\r' || super::unicode_break(c)
 }
 
 fn is_blank(c: char) -> bool {
@@ -204,7 +229,9 @@ impl Scanner {
                     return if self.col == 0 {
                         Err(Fail::Bad)
                     } else {
-                        Err(Fail::Refuse("ReadFromYaml of a tab after the spaces of an indentation (not measured)"))
+                        Err(Fail::Refuse(
+                            "ReadFromYaml of a tab after the spaces of an indentation (not measured)",
+                        ))
                     };
                 }
                 self.adv();
@@ -290,7 +317,8 @@ impl Scanner {
         self.keys.push(None);
         self.allowed = true;
         self.adv();
-        self.toks.push(if c == '[' { Tok::FlowSeqStart } else { Tok::FlowMapStart });
+        self.toks
+            .push(if c == '[' { Tok::FlowSeqStart } else { Tok::FlowMapStart });
         Ok(())
     }
 
@@ -638,7 +666,8 @@ impl Scanner {
             }
         }
         self.adv();
-        self.toks.push(Tok::Scalar(out, if single { Style::Single } else { Style::Double }));
+        self.toks
+            .push(Tok::Scalar(out, if single { Style::Single } else { Style::Double }));
         Ok(())
     }
 
@@ -647,37 +676,49 @@ impl Scanner {
     fn escape(&mut self, out: &mut String) -> Res<()> {
         self.adv();
         let c = self.adv();
+        if let Some(e) = named_escape(c) {
+            out.push(e);
+            return Ok(());
+        }
         let hex_len = match c {
-            '0' => return Ok(out.push('\0')),
-            'a' => return Ok(out.push('\u{7}')),
-            'b' => return Ok(out.push('\u{8}')),
-            't' | '\t' => return Ok(out.push('\t')),
-            'n' => return Ok(out.push('\n')),
-            'v' => return Ok(out.push('\u{b}')),
-            'f' => return Ok(out.push('\u{c}')),
-            'r' => return Ok(out.push('\r')),
-            'e' => return Ok(out.push('\u{1b}')),
-            ' ' => return Ok(out.push(' ')),
-            '"' => return Ok(out.push('"')),
-            '/' => return Ok(out.push('/')),
-            '\\' => return Ok(out.push('\\')),
-            'N' => return Ok(out.push('\u{85}')),
-            '_' => return Ok(out.push('\u{a0}')),
-            'L' => return Ok(out.push('\u{2028}')),
-            'P' => return Ok(out.push('\u{2029}')),
             'x' => 2,
             'u' => 4,
             'U' => 8,
             _ => return Err(Fail::Bad),
         };
+        let v = self.hex(hex_len)?;
+        // `\uD83D\uDE00` is one character (JsonYamlUtf8.al `u-pair` of corpus PR 1515); a lone surrogate is not measured.
+        if (0xD800..0xDC00).contains(&v) && self.at(0) == '\\' && self.at(1) == 'u' {
+            self.adv();
+            self.adv();
+            let low = self.hex(4)?;
+            if (0xDC00..0xE000).contains(&low) {
+                let c = 0x10000 + ((v - 0xD800) << 10) + (low - 0xDC00);
+                out.push(char::from_u32(c).ok_or(Fail::Bad)?);
+                return Ok(());
+            }
+        }
+        match char::from_u32(v) {
+            Some(c) => out.push(c),
+            None if (0xD800..0xE000).contains(&v) => {
+                return Err(Fail::Refuse(
+                    "ReadFromYaml of a lone surrogate escape in double quotes (not measured)",
+                ));
+            }
+            None => return Err(Fail::Refuse("ReadFromYaml of an escape above U+10FFFF (not measured)")),
+        }
+        Ok(())
+    }
+
+    /// `n` hex digits; a short or bad one is the YAML error (`top[x]`, `top[u12]`).
+    fn hex(&mut self, n: usize) -> Res<u32> {
         let mut v = 0u32;
-        for _ in 0..hex_len {
+        for _ in 0..n {
             let d = self.at(0).to_digit(16).ok_or(Fail::Bad)?;
             self.adv();
             v = v * 16 + d;
         }
-        out.push(char::from_u32(v).ok_or(Fail::Bad)?);
-        Ok(())
+        Ok(v)
     }
 
     fn block_scalar(&mut self, folded: bool) -> Res<()> {
@@ -716,7 +757,11 @@ impl Scanner {
             return Err(Fail::Bad);
         }
         self.read_break();
-        let mut indent = if inc > 0 { (self.indent.max(0) as usize) + inc } else { 0 };
+        let mut indent = if inc > 0 {
+            (self.indent.max(0) as usize) + inc
+        } else {
+            0
+        };
         if inc > 0 && self.indent < 0 {
             indent = inc;
         }

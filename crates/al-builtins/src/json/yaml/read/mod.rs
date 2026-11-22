@@ -1,14 +1,77 @@
-//! The third reader of `ReadFromYaml`: a libyaml-style scanner (`scan`), a parser and the conversion to the tree BC hands
-//! on to JSON. It reads a text the pinned reader and `measured` refuse, as the cells of corpus PR 1530
-//! (`tests/al-language/json/JsonYamlRemaining.al`, codeunit 75671, identical on BC 27.5, 28.5 and 29.0) measured, marked
-//! by the assumption `read-from-yaml-remaining-shapes`. It is deleted when the pin lands and the pinned reader takes over.
-//! Cell names below (`tg4`, `ck22`, `ml13`...) are the cells of that file.
+//! The YAML reader of `ReadFromYaml`: a libyaml-style scanner (`scan`), a parser and the conversion to the tree BC hands
+//! on to JSON. Every rule here is measured by the cells of the corpus probes of al-runner issue 8580, identical on BC 27.5,
+//! 28.5 and 29.0, read through the assumption `read-from-yaml-probed-shapes` until they are pinned:
+//! - PR 1493 `tests/al-language/json/JsonYamlBlankLines.al` (codeunit 75620),
+//! - PR 1515 `tests/al-language/json/JsonYamlUtf8.al` (codeunit 75621),
+//! - PR 1519 `tests/al-language/json/JsonYamlPunctMatrix.al` (codeunit 75623),
+//! - PR 1530 `tests/al-language/json/JsonYamlRemaining.al` (codeunit 75671).
+//!
+//! Cell names below (`tg4`, `ck22`, `ml13`...) are the cells of PR 1530 unless another file is named. A shape no cell
+//! measures refuses (`Fail::Refuse`).
 
-use super::read::Yaml;
+use crate::json::{error, write_string};
 use scan::{Style, Tok};
 use std::collections::HashMap;
 
 mod scan;
+
+/// A YAML node as BC hands it on to JSON: every untagged scalar but the null forms is a text (P88:230-236, PnA:159 of
+/// `corpus/tests/al-language/json/`).
+#[derive(Debug, PartialEq)]
+pub(crate) enum Yaml {
+    Null,
+    Text(String),
+    /// A JSON number or Boolean written as is (a tagged scalar, `tg2`-`tg4`).
+    Raw(String),
+    Map(Vec<(String, Yaml)>),
+    Seq(Vec<Yaml>),
+}
+
+impl Yaml {
+    pub(crate) fn write_json(&self, out: &mut String) {
+        match self {
+            Yaml::Null => out.push_str("null"),
+            Yaml::Text(t) => write_string(out, t),
+            Yaml::Raw(t) => out.push_str(t),
+            Yaml::Map(members) => {
+                out.push('{');
+                for (i, (k, v)) in members.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    write_string(out, k);
+                    out.push(':');
+                    v.write_json(out);
+                }
+                out.push('}');
+            }
+            Yaml::Seq(items) => {
+                out.push('[');
+                for (i, v) in items.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    v.write_json(out);
+                }
+                out.push(']');
+            }
+        }
+    }
+
+    /// The containers on the deepest path, this one counted.
+    pub(crate) fn depth(&self) -> usize {
+        match self {
+            Yaml::Map(m) => 1 + m.iter().map(|(_, v)| v.depth()).max().unwrap_or(0),
+            Yaml::Seq(s) => 1 + s.iter().map(Yaml::depth).max().unwrap_or(0),
+            _ => 0,
+        }
+    }
+}
+
+/// The YAML error (P88:238, PnA:177-178).
+pub(crate) fn bad_yaml() -> crate::native::Signal {
+    error("The data does not represent valid YAML.", "YamlBadFormat")
+}
 
 /// Why a text does not read.
 pub(crate) enum Fail {
@@ -21,16 +84,51 @@ pub(crate) enum Fail {
 type Res<T> = Result<T, Fail>;
 
 /// The characters a text may hold: printable ASCII, tab, line breaks, U+00E9 (`literal-e-acute`), U+FEFF (`bt1`-`bt4`)
-/// and the characters corpus PR 1515 measured. Anything else is not measured here. U+0000 is dropped (`bt22`, `bt23`).
+/// and the characters of corpus PR 1515 (JsonYamlUtf8.al :25-34: U+00A7, U+00E9, U+00FC, U+00F8, U+20AC, U+1F600, U+0301,
+/// U+00A0, U+0085, U+2028, U+2029, U+FEFF, U+0080). Anything else is not measured. U+0000 is dropped (`bt22`, `bt23`).
 fn measured_char(c: char) -> bool {
-    matches!(c, '\t' | '\n' | '\r' | ' '..='~' | '\u{e9}' | '\u{feff}' | '§' | 'ü' | 'ø' | '€' | '\u{1F600}')
+    matches!(
+        c,
+        '\t' | '\n' | '\r' | ' '
+            ..='~'
+                | '\u{80}'
+                | '\u{85}'
+                | '\u{a0}'
+                | '\u{a7}'
+                | '\u{e9}'
+                | '\u{f8}'
+                | '\u{fc}'
+                | '\u{301}'
+                | '\u{2028}'
+                | '\u{2029}'
+                | '\u{20ac}'
+                | '\u{feff}'
+                | '\u{1F600}'
+    )
+}
+
+/// U+0085, U+2028 and U+2029 break a line, as LF does: every place JsonYamlUtf8.al of corpus PR 1515 put one (a plain
+/// value `sp-N`, a `>-` line `sf-N`, double quotes `sd-N`, :735-798) answers the YAML error. A text with one that reads
+/// is not measured.
+fn unicode_break(c: char) -> bool {
+    matches!(c, '\u{85}' | '\u{2028}' | '\u{2029}')
 }
 
 #[derive(Clone, Debug)]
 enum Node {
-    Scalar { v: String, style: Style, tag: Option<String> },
-    Seq { items: Vec<Node>, tag: Option<String> },
-    Map { pairs: Vec<(Node, Node)>, tag: Option<String> },
+    Scalar {
+        v: String,
+        style: Style,
+        tag: Option<String>,
+    },
+    Seq {
+        items: Vec<Node>,
+        tag: Option<String>,
+    },
+    Map {
+        pairs: Vec<(Node, Node)>,
+        tag: Option<String>,
+    },
 }
 
 struct Parser {
@@ -45,7 +143,7 @@ struct Parser {
 pub(crate) fn document(text: &str) -> Res<Yaml> {
     let chars: Vec<char> = text.chars().filter(|&c| c != '\0').collect();
     if !chars.iter().all(|&c| measured_char(c)) {
-        return Err(Fail::Refuse("ReadFromYaml of a character that no cell of corpus PR 1530 measures"));
+        return Err(Fail::Refuse("ReadFromYaml of a character that no probe measures"));
     }
     let mut p = Parser {
         t: scan::tokens(&chars)?,
@@ -55,14 +153,24 @@ pub(crate) fn document(text: &str) -> Res<Yaml> {
         depth: 0,
     };
     let root = p.stream()?;
-    match root {
-        None => Ok(Yaml::Null),
-        Some(n) => convert(&n),
+    let doc = match root {
+        None => Yaml::Null,
+        Some(n) => convert(&n)?,
+    };
+    if chars.iter().any(|&c| unicode_break(c)) {
+        return Err(Fail::Refuse(
+            "ReadFromYaml of a text with U+0085, U+2028 or U+2029 that reads (not measured)",
+        ));
     }
+    Ok(doc)
 }
 
 fn empty() -> Node {
-    Node::Scalar { v: String::new(), style: Style::Plain, tag: None }
+    Node::Scalar {
+        v: String::new(),
+        style: Style::Plain,
+        tag: None,
+    }
 }
 
 impl Parser {
@@ -130,7 +238,9 @@ impl Parser {
     fn node(&mut self, block: bool, indentless: bool) -> Res<Node> {
         self.depth += 1;
         if self.depth > 600 {
-            return Err(Fail::Refuse("ReadFromYaml of a text nested deeper than 600 levels (not measured)"));
+            return Err(Fail::Refuse(
+                "ReadFromYaml of a text nested deeper than 600 levels (not measured)",
+            ));
         }
         let r = self.node_inner(block, indentless);
         self.depth -= 1;
@@ -153,16 +263,35 @@ impl Parser {
             self.i += 1;
         }
         let node = match self.peek().clone() {
-            Tok::BlockEntry if indentless => Node::Seq { items: self.indentless_seq()?, tag },
+            Tok::BlockEntry if indentless => Node::Seq {
+                items: self.indentless_seq()?,
+                tag,
+            },
             Tok::Scalar(v, style) => {
                 self.i += 1;
                 Node::Scalar { v, style, tag }
             }
-            Tok::FlowSeqStart => Node::Seq { items: self.flow_seq()?, tag },
-            Tok::FlowMapStart => Node::Map { pairs: self.flow_map()?, tag },
-            Tok::BlockSeqStart if block => Node::Seq { items: self.block_seq()?, tag },
-            Tok::BlockMapStart if block => Node::Map { pairs: self.block_map()?, tag },
-            _ if anchor.is_some() || tag.is_some() => Node::Scalar { v: String::new(), style: Style::Plain, tag },
+            Tok::FlowSeqStart => Node::Seq {
+                items: self.flow_seq()?,
+                tag,
+            },
+            Tok::FlowMapStart => Node::Map {
+                pairs: self.flow_map()?,
+                tag,
+            },
+            Tok::BlockSeqStart if block => Node::Seq {
+                items: self.block_seq()?,
+                tag,
+            },
+            Tok::BlockMapStart if block => Node::Map {
+                pairs: self.block_map()?,
+                tag,
+            },
+            _ if anchor.is_some() || tag.is_some() => Node::Scalar {
+                v: String::new(),
+                style: Style::Plain,
+                tag,
+            },
             _ => return Err(Fail::Bad),
         };
         if let Some(a) = anchor {
@@ -269,7 +398,10 @@ impl Parser {
                 } else {
                     empty()
                 };
-                items.push(Node::Map { pairs: vec![(k, v)], tag: None });
+                items.push(Node::Map {
+                    pairs: vec![(k, v)],
+                    tag: None,
+                });
             } else {
                 items.push(self.node(false, false)?);
             }
@@ -343,20 +475,30 @@ fn tagged_scalar(v: &str, tag: &str) -> Res<Yaml> {
     };
     // An empty value under `!!str` or `!!map` is null (`tg12`).
     match kind {
-        "str" => Ok(if v.is_empty() { Yaml::Null } else { Yaml::Text(v.to_string()) }),
+        "str" => Ok(if v.is_empty() {
+            Yaml::Null
+        } else {
+            Yaml::Text(v.to_string())
+        }),
         "int" => match v.parse::<i64>() {
             Ok(n) if v.chars().all(|c| c.is_ascii_digit() || c == '-') => Ok(Yaml::Raw(n.to_string())),
             _ if v.chars().all(|c| c.is_ascii_alphabetic()) && !v.is_empty() => Err(Fail::Bad),
-            _ => Err(Fail::Refuse("ReadFromYaml of a !!int text other than a whole number (not measured)")),
+            _ => Err(Fail::Refuse(
+                "ReadFromYaml of a !!int text other than a whole number (not measured)",
+            )),
         },
         "float" => match v.parse::<f64>() {
             Ok(n) if v.chars().all(|c| c.is_ascii_digit() || c == '.' || c == '-') => Ok(Yaml::Raw(format!("{n:?}"))),
-            _ => Err(Fail::Refuse("ReadFromYaml of a !!float text other than a plain decimal (not measured)")),
+            _ => Err(Fail::Refuse(
+                "ReadFromYaml of a !!float text other than a plain decimal (not measured)",
+            )),
         },
         "bool" => match v {
             "yes" | "true" => Ok(Yaml::Raw("true".into())),
             "no" | "false" => Ok(Yaml::Raw("false".into())),
-            _ => Err(Fail::Refuse("ReadFromYaml of a !!bool text other than yes, no, true and false (not measured)")),
+            _ => Err(Fail::Refuse(
+                "ReadFromYaml of a !!bool text other than yes, no, true and false (not measured)",
+            )),
         },
         "timestamp" => date(v).map(|d| Yaml::Text(format!("{d}T00:00:00"))),
         "null" | "seq" | "binary" | "set" | "omap" | "pairs" => Err(Fail::Bad),
@@ -368,8 +510,20 @@ fn tagged_scalar(v: &str, tag: &str) -> Res<Yaml> {
 fn date(v: &str) -> Res<&str> {
     let b = v.as_bytes();
     let ok = b.len() == 10
-        && b.iter().enumerate().all(|(i, c)| if i == 4 || i == 7 { *c == b'-' } else { c.is_ascii_digit() });
-    if ok { Ok(v) } else { Err(Fail::Refuse("ReadFromYaml of a !!timestamp other than a date (not measured)")) }
+        && b.iter().enumerate().all(|(i, c)| {
+            if i == 4 || i == 7 {
+                *c == b'-'
+            } else {
+                c.is_ascii_digit()
+            }
+        });
+    if ok {
+        Ok(v)
+    } else {
+        Err(Fail::Refuse(
+            "ReadFromYaml of a !!timestamp other than a date (not measured)",
+        ))
+    }
 }
 
 fn key_text(k: &Node) -> Res<String> {
@@ -400,12 +554,14 @@ fn convert(n: &Node) -> Res<Yaml> {
         Node::Seq { items, tag } => {
             match tag.as_deref() {
                 None => {}
-                Some(t) if t == "!" => {}
+                Some("!") => {}
                 Some(t) if t.starts_with(CORE) && t != format!("{CORE}map") && t != format!("{CORE}str") => {
                     return Err(Fail::Bad);
                 }
                 Some(t) if t.starts_with(CORE) => {
-                    return Err(Fail::Refuse("ReadFromYaml of a list tagged !!map or !!str (not measured)"));
+                    return Err(Fail::Refuse(
+                        "ReadFromYaml of a list tagged !!map or !!str (not measured)",
+                    ));
                 }
                 Some(_) => return Err(Fail::Bad),
             }
