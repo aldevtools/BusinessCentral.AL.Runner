@@ -178,6 +178,17 @@ const INTEGER_STRING_CELLS: &[(bool, &str, bool, Ordering)] = {
     ]
 };
 
+/// Whether a result longer than `length` is cut to it, by the value type of `with_format_string`: a Decimal, Date, Time, Integer
+/// or BigInteger in a positive length, and an Integer in a negative one (the `INTEGER_STRING_CELLS` rule). Read by
+/// `formatstr::format_codes`; the gate decides separately whether the call runs.
+pub(crate) fn cuts_to_length(v: &Value, length: i32) -> bool {
+    match v {
+        Value::Decimal(_) | Value::Date(..) | Value::Time(_) | Value::BigInteger(_) => length > 0,
+        Value::Integer(_) => length != 0,
+        _ => false,
+    }
+}
+
 /// Whether `Format(v, length, template)` of an Integer or BigInteger is a cell of `INTEGER_STRING_CELLS`.
 fn integer_string_cell(v: &Value, template: &str, positive: bool, fit: Ordering) -> bool {
     integer_kind(v).is_some_and(|big| INTEGER_STRING_CELLS.contains(&(big, template, positive, fit)))

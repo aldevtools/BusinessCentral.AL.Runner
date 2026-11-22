@@ -8,3 +8,5 @@ FLF Format Tests::Cell_EmptyString	ASSUMED format-length-integer-string (corpus 
 FLF Format Tests::Reader_Variant	ASSUMED format-length-integer-string (corpus PR 1505)
 FLF Format Tests::Reader_RecordField	ASSUMED format-length-integer-string (corpus PR 1505)
 FLF Format Tests::Reader_FieldRefValue	ASSUMED format-length-integer-string (corpus PR 1505)
+FLF Format Tests::Pinned_LoneStandardFormatIntegerCut	PINNED tests/al-language/format-evaluate/format-length/FormatLengthNeighbors.al:453
+FLF Format Tests::Pinned_LoneStandardFormatBigIntegerCut	PINNED tests/al-language/format-evaluate/format-length/FormatLengthNeighbors.al:413

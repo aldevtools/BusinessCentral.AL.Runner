@@ -439,15 +439,13 @@ fn format_codes(
         }
     }
     // A result longer than the length is cut to it (P86FormatDecimal.al:1091 `l4`; a Date: types/date-time/Format.al:537
-    // `date len 5 custom`; a Time: Format.al:912, :918 TU_Time_Format_CodeNames). Which values may take a length at all:
-    // `format::length::with_format_string`. An Integer or BigInteger is cut the same, and an Integer in a negative length is cut to
-    // its first |length| characters too (corpus PR 1505, FormatLengthIntegerString.al:34, :36, :39, :204; assumption
-    // `format-length-integer-string`, marked by the gate).
-    let cut = match (v, length > 0) {
-        (Value::Decimal(_) | Value::Date(..) | Value::Time(_) | Value::Integer(_) | Value::BigInteger(_), true) => true,
-        (Value::Integer(_), false) => length < 0,
-        _ => false,
-    };
+    // `date len 5 custom`; a Time: Format.al:912, :918 TU_Time_Format_CodeNames). Which values take a length: `format::length`
+    // (`cuts_to_length`, the gate's own type list). An Integer or BigInteger is cut the same, and an Integer in a negative length
+    // is cut to its first |length| characters too (corpus PR 1505, FormatLengthIntegerString.al:34, :36, :39, :204; assumption
+    // `format-length-integer-string`, marked by the gate). The cut also reaches the lone `<Standard Format,0>` gate
+    // (`lone_standard_format`): an Integer or BigInteger longer than a positive length now passes clean, pinned at
+    // format-evaluate/format-length/FormatLengthNeighbors.al:413 (BigInteger) and :453 (Integer).
+    let cut = crate::format::length::cuts_to_length(v, length);
     if cut && out.chars().count() > length.unsigned_abs() as usize {
         return Ok(out.chars().take(length.unsigned_abs() as usize).collect());
     }

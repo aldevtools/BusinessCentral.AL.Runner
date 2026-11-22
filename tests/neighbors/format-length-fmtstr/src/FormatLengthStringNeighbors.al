@@ -211,4 +211,19 @@ codeunit 60930 "FLF Format Tests"
     begin
         Check(Format(1234, 8, '<Integer Thousand><Comma,.>'), '');
     end;
+
+    [Test]
+    procedure Pinned_LoneStandardFormatIntegerCut()
+    begin
+        Check(Format(1234567, 3, '<Standard Format,0>'), '123');
+    end;
+
+    [Test]
+    procedure Pinned_LoneStandardFormatBigIntegerCut()
+    var
+        B: BigInteger;
+    begin
+        B := 1234567890;
+        Check(Format(B, 3, '<Standard Format,0>'), '123');
+    end;
 }
