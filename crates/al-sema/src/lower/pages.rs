@@ -507,6 +507,13 @@ impl Lowerer<'_> {
             if matches!(binding, ir::Binding::BaseVar(_)) && self.in_run_changing_report_ext(raw.owner) {
                 props.push((ir::EXT_MIRROR_PROPERTY.to_string(), ir::PropVal::Lit("true".into())));
             }
+            // Not measured: a field of a record variable, an array element, a call (`[` or `(` in the source as written).
+            let other_source = var_field.is_some()
+                || array_element.is_some()
+                || array_element_field.is_some()
+                || expr_call
+                || sec.args_raw().get(1).is_some_and(|a| a.contains(['[', '(']));
+            let visible_row_field = self.visible_row_field(oi, raw, &binding, other_source, &props);
             controls.push(ir::Control {
                 name: raw.name.clone(),
                 kind: raw.kind.clone(),
@@ -537,6 +544,7 @@ impl Lowerer<'_> {
                 rec_method_source,
                 array_element,
                 bare_quoted_ext_source,
+                visible_row_field,
                 factbox: raw.factbox,
             });
         }
@@ -993,6 +1001,7 @@ fn data_item_control(name: &str, binding: ir::Binding) -> ir::Control {
         rec_method_source: false,
         array_element: None,
         bare_quoted_ext_source: false,
+        visible_row_field: None,
         source_text: None,
         factbox: false,
     }

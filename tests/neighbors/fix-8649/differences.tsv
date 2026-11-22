@@ -1,0 +1,4 @@
+# key	entry
+# Every test is a name after `::` next to the new rule that the AL compiler takes and main runs: keywords quoted, and words
+# that are no keyword there unquoted, on an enum variable, an enum type, an option field and variable, a case label and
+# Database::. No test differs.
