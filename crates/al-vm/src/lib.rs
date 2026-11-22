@@ -56,7 +56,7 @@ pub use profile::{
     DbStat, PosStat, ProfFrame, ProfNode, ProfileMode, ProfileTree, reaches_database,
     routine_label as profile_routine_label,
 };
-pub use state_stamp::{LeftChange, LeftStamp, StateStamp};
+pub use state_stamp::{LeftChange, LeftStamp, StateLines, StateStamp};
 pub use test_runner_host::TestCodeunitHost;
 mod auto_format_writer;
 mod callstack;
@@ -158,6 +158,7 @@ mod sqltime;
 mod stale_buffer_origin;
 mod stale_own_modify;
 mod stale_rename;
+mod state_render;
 mod state_stamp;
 mod table_facts;
 mod tasks;
@@ -722,9 +723,11 @@ impl Engine {
         self.codeunits.get(&id).and_then(|c| c.any)
     }
 
-    /// The value of type `T` made from this engine's program, made by `make` the first time it is asked for and shared
-    /// by every session and thread of the engine after that: for data that depends on the program alone (al-testrun's
-    /// index of the static reach). `make` must not ask the engine for derived data itself.
+    /// The value of type `T` made by `make` the first time it is asked for and shared by every session and thread of the
+    /// engine after that: for data that depends on the program alone (al-testrun's index of the static reach), and for
+    /// state that lives as long as the engine and that every session adds to, as one value (al-testrun's login replay
+    /// check, `login_replay.rs`: its tally behind a lock, across the engine's requests). `make` must not ask the engine
+    /// for derived data itself.
     pub fn derived<T: std::any::Any + Send + Sync>(&self, make: impl FnOnce() -> T) -> Arc<T> {
         let mut slots = self.derived.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let slot = slots
