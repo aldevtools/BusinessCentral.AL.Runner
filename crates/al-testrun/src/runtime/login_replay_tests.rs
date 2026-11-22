@@ -901,7 +901,7 @@ fn sql_counters_the_login_read_are_not_comparable() {
     }
     let line = crate::login_replay::report(&engine).unwrap();
     assert!(
-        line.contains("1 differ (not comparable 1, ") && line.contains("SQL counters (read, or not at rest"),
+        line.contains("1 differ (not comparable 1, ") && line.contains("SQL counters: read, or not at rest"),
         "{line}"
     );
 }

@@ -7,8 +7,9 @@ use crate::state_render::content;
 use std::collections::BTreeMap;
 
 /// Why the SQL counters have no comparable form: a counter was read, or the record methods since the last Commit left
-/// state that only the session's own log explains (`SqlCounters::left_inactive`).
-const SQL_ACTIVE: &str = "SQL counters (read, or not at rest since the last Commit)";
+/// state that only the session's own log explains (`SqlCounters::left_inactive`). Written as every value with no
+/// comparable form is: its path, `: `, then why.
+const SQL_ACTIVE: &str = "SQL counters: read, or not at rest since the last Commit";
 
 impl Session {
     /// The lines of the facts of this module, in a fixed order; a fact with no comparable form goes to `opaque` with why.
