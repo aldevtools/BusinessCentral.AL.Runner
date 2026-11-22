@@ -1,0 +1,30 @@
+# key	entry
+# Now run through the open probe (record/TxTypeSetAfterCall.al, session-system/TxTypeFirstTestMethod.al); main failed or refused them.
+NB TS Insert Snapshot::InsertAtSnapshot_Raises	ASSUMED transaction-type-read-only-writes (corpus PR 1520, TxS16)
+NB TS Modify Browse::ModifyAtBrowse_Raises	ASSUMED transaction-type-read-only-writes (corpus PR 1520, TxS22)
+NB TS ModifyAll Report::ModifyAllAtReport_Raises	ASSUMED transaction-type-read-only-writes (corpus PR 1520, TxS30)
+NB TS NoLocks After Upd Write::UpdateWriteSetNoLocks_NoEffect	ASSUMED transaction-type-set-after-start (corpus PR 1520, TxS06)
+NB TS Same Type After Read::SnapshotReadSetSnapshot_NoEffect	ASSUMED transaction-type-set-after-start (corpus PR 1520, TxS13)
+NB TS First Test Rollback::FirstTestRollbackSetBrowse_TakesEffect	ASSUMED first-test-rollback-ends-runner-transaction (corpus PR 1520, TxTypeFirstTestMethod.al AssertError_SetBrowse_TakesEffect)
+# Pinned by the corpus; main ignored the Snapshot sets and refused the Browse one.
+NB TS Snapshot After Write::NoLocksWriteSetSnapshot_Raises	PINNED tests/al-language/metadata/platform-tables/PlTDatabase.al:159
+NB TS First Test Write Set::FirstTestWriteSetSnapshot_Raises	PINNED tests/al-language/metadata/platform-tables/PlTDatabase.al:159
+NB TS Browse After Write::NoLocksWriteSetBrowse_NoEffect	PINNED tests/al-language/metadata/platform-tables/PlTDatabase.al:155
+# Refused on purpose. Main answered each; the first gave Update where BC gives UpdateNoLocks or Report (issue 8709), the
+# writes at Snapshot ran without an error, and the guarded run let the first test's set take effect.
+NB TS NoLocks Read Report::NoLocksReadSetReport_Refused	REFUSED Database.CurrentTransactionType set to Report after a read call while the type is UpdateNoLocks
+NB TS Rename Snapshot::RenameAtSnapshot_Refused	REFUSED Rename while Database.CurrentTransactionType is Snapshot
+NB TS Codeunit Run Snapshot::CodeunitRunInsertAtSnapshot_Refused	REFUSED Insert while Database.CurrentTransactionType is Snapshot
+NB TS Insert RunTrigger::InsertTrueAtSnapshot_Refused	REFUSED Insert while Database.CurrentTransactionType is Snapshot
+NB TS Insert Subscribed::InsertSubscribedAtSnapshot_Refused	REFUSED Insert while Database.CurrentTransactionType is Snapshot
+NB TS Modify Unchanged::ModifyUnchangedAtSnapshot_Refused	REFUSED Modify while Database.CurrentTransactionType is Snapshot
+NB TS ModifyAll No Row::ModifyAllNoRowAtSnapshot_Refused	REFUSED ModifyAll while Database.CurrentTransactionType is Snapshot
+NB TS Modify After CalcFields::CalcFieldsModifyAtSnapshot_Refused	REFUSED Modify while Database.CurrentTransactionType is Snapshot
+NB TS First Test Guarded Run::FailedRunThenSetBrowse_Refused	REFUSED Database.CurrentTransactionType set to Browse at the start of a test codeunit's first test method
+# A write at the type a refused test may have left is marked (it rests on that test having left a type that writes), and a
+# later failure is not trusted: main ran both clean.
+NB TS After Refused Setter::B_WriteThenFail_NotTrusted	REFUSED an earlier test of this codeunit was refused while it ran
+NB TS After Refused Setter::C_WriteThenPass_Flagged	ASSUMED transaction-type-carries-to-next-test (corpus PR 1488, TxTypeNextTestMethod.al TxN01 to TxN12)
+# Not here: the temporary Insert, the Update report world at Snapshot and the Report after a read at Update (with and
+# without a Commit before the Update set) pass clean on both; a set to Browse after a read, a set at a first test
+# method's start (Snapshot, Browse, under AutoRollback) and a duplicate-key Insert at Snapshot are refused on both.

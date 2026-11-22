@@ -1646,7 +1646,11 @@ fn read_fixed(r: Option<&mut Value>, width: usize) -> Option<Result<Option<[u8; 
         return Some(Err(crate::stream_read_len::invalid_data()));
     };
     let mut buf = [0u8; 16];
-    buf[..width].copy_from_slice(got);
+    // A Byte, the common case, without the call of a copy of variable length.
+    match got {
+        [b] => buf[0] = *b,
+        _ => buf[..width].copy_from_slice(got),
+    }
     s.pos += width;
     Some(Ok(Some(buf)))
 }
