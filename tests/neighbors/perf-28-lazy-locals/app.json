@@ -1,0 +1,16 @@
+{
+  "id": "6d1f3c20-1a2b-4c3d-9e8f-861100000001",
+  "name": "Neighbors perf-28-lazy-locals",
+  "publisher": "AL Runner",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "16.0",
+  "target": "OnPrem",
+  "idRanges": [
+    {
+      "from": 50100,
+      "to": 50199
+    }
+  ],
+  "dependencies": []
+}
