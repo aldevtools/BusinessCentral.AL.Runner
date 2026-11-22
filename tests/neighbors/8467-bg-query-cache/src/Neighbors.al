@@ -1,6 +1,6 @@
-// Neighbors of al-runner issue 8467 the probe does not measure, on the probe's tables and page. Refused: a group read of a
-// worker after the test session read that group and then wrote the table; a field load into a copy of a record the cache
-// answered; CalcFields of a Blob of a row the cache answered with another row (BC's CalcFields of a Blob in a worker waits on
+// Neighbors of al-runner issue 8467 the probe does not measure, on the probe's tables and page. A group read of a worker after
+// the test session read that group and then wrote the table answers the test's read (BgTaskQueryCache.al:6498; al-runner issue
+// 8637). Refused: a field load into a copy of a record the cache answered; CalcFields of a Blob of a row the cache answered with another row (BC's CalcFields of a Blob in a worker waits on
 // the rows the test codeunit wrote, the comment at corpus PR 1495 BgTaskQueryCache.al:6534). A row read again after commits
 // that wrote it while no commit held it before or after reads the table (BgTaskQueryCache.al:1207). A row read again after a
 // commit of a ModifyAll or a DeleteAll of another row follows the BC version (the cells of BQ Tests 12, :7035 and :7042, need
@@ -223,7 +223,7 @@ codeunit 97511 "BQ Neighbor Tests"
         Assert.AreEqual(1, Row.Count(), 'the test''s Count');
         AddRow('NB1', 2, 'b');
         OpenOn(Rows, 'NB1');
-        Assert.AreEqual('2', Run(Rows, Codeunit::"BQ Reader", 'count', 'NB1'), 'Count');
+        Assert.AreEqual('1', Run(Rows, Codeunit::"BQ Reader", 'count', 'NB1'), 'Count');
         Rows.Close();
     end;
 

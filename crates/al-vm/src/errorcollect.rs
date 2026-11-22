@@ -76,13 +76,17 @@ fn summary(first: &str) -> String {
 }
 
 impl Session {
-    /// Whether a collecting scope is open, so that `collect_error` keeps a collectible error.
+    /// Whether a collecting scope is open, so that `collect_error` keeps a collectible error. A TestField with a collectible
+    /// ErrorInfo asks it too (records/recmeta.rs); in a page background task's worker the test session's scope is not open,
+    /// so the worker's TestField fails the task (corpus PR 1516, BgTaskWorkerSessionShapes.al:98).
     pub(crate) fn collect_error_if_collecting(&self) -> bool {
+        self.bg_note_worker_collection();
         !self.error_scopes.starts.is_empty()
     }
 
     /// `Error(ErrorInfo)` of a collectible error: kept when a scope is open.
     pub(crate) fn collect_error(&mut self, info: &Value) -> bool {
+        self.bg_note_worker_collection();
         if self.error_scopes.starts.is_empty() {
             return false;
         }
@@ -138,7 +142,7 @@ impl Session {
         id: al_ir::BuiltinId,
         args: &[Value],
     ) -> Option<Result<Value, Signal>> {
-        Some(match id {
+        let result = match id {
             ids::SYSTEM_ISCOLLECTINGERRORS_1 => Ok(Value::Boolean(!self.error_scopes.starts.is_empty())),
             // Outside a scope the platform computes 0 < 0 - (-1), which is true
             // (errors/errorinfo/TestErrorInfoType.al:133-141, corpus docs/al-language-coverage-gaps.md:518).
@@ -179,6 +183,8 @@ impl Session {
                 Ok(Value::List(Rc::new(RefCell::new(copies))))
             }
             _ => return None,
-        })
+        };
+        self.bg_note_worker_collection();
+        Some(result)
     }
 }

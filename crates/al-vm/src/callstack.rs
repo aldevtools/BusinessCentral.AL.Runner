@@ -108,6 +108,13 @@ impl Session {
             None => e.call_stack.push_str(UNTRACKED_CALL_STACK),
         }
     }
+
+    /// An error leaves routine `frame` of `object`: it takes the routine's frame, and a failing page background task's error
+    /// is the test session's last error from here on (`pages/background.rs` `bg_error_left_routine`).
+    pub(crate) fn add_leaving_frame(&mut self, e: &mut AlError, object: usize, frame: CallFrame) {
+        self.add_frame(e, object, frame);
+        self.bg_error_left_routine();
+    }
 }
 
 /// The text of one frame; `None` where the format is not known.
