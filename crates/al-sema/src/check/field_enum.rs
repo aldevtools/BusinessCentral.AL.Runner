@@ -51,7 +51,7 @@ impl<'a> Checker<'a> {
         let measured = nameable
             && match receiver {
                 Receiver::Variable => matches!(kind, ObjKind::Codeunit | ObjKind::TableExtension | ObjKind::Page),
-                // EnumMemberFieldTypeShapes_Tests.al:143, :154 (corpus PR 1492): a global record of a codeunit.
+                // EnumMemberFieldTypeShapes_Tests.al:143, :154 (corpus PR 1492, merged, not pinned yet): a global record of a codeunit.
                 Receiver::GlobalVariable => kind == ObjKind::Codeunit,
                 Receiver::CurrentRecord => matches!(kind, ObjKind::TableExtension | ObjKind::Page),
                 Receiver::Other => false,
