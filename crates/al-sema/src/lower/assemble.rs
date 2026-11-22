@@ -2675,7 +2675,11 @@ mod sorted_diagnostics_tests {
     #[test]
     fn every_order_of_the_threads_gives_one_order_and_the_same_findings() {
         let thread_a = vec![d("a.al", 0, 90, "AL0118"), d("a.al", 0, 10, "AL0132")];
-        let thread_b = vec![d("b.al", 0, 40, "AL0118"), d("b.al", 0, 40, "AL0133"), d("b.al", 1, 5, "AL0185")];
+        let thread_b = vec![
+            d("b.al", 0, 40, "AL0118"),
+            d("b.al", 0, 40, "AL0133"),
+            d("b.al", 1, 5, "AL0185"),
+        ];
         let a_first: Vec<Diagnostic> = thread_a.iter().chain(&thread_b).cloned().collect();
         let b_first: Vec<Diagnostic> = thread_b.iter().chain(&thread_a).cloned().collect();
         let interleaved = vec![
