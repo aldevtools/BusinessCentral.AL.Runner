@@ -1857,7 +1857,7 @@ impl Session {
             }
             (Some(_), _) => {
                 return unsupported(
-                    "a Card with a field control bound to no field whose Visible names a field of the record, opened in a way the probe did not measure (a TestPage's OpenEdit, OpenView or OpenNew, a Trap of Page.Run(Id, Rec), and from BC 29 a static Page.RunModal(Id, Rec) statement answered by a ModalPageHandler), or on a BC version the probe did not measure (al-runner issue 8660)",
+                    "a Card with a field control bound to no field whose Visible names a field of the record, opened in a way the probe did not measure (a TestPage's OpenEdit, OpenView or OpenNew, a Trap of Page.Run(Id, Rec), and where the control reads Yes a static Page.RunModal(Id, Rec) statement answered by a ModalPageHandler), or on a BC version the probe did not measure (al-runner issue 8660)",
                 );
             }
         }
@@ -1872,7 +1872,7 @@ impl Session {
     /// Whether this open of a Card with a `Control::visible_row_field` control is one the probe measured, on a major where
     /// the control reads Yes (`reads_yes`) or the open raises (pages/controls/VisibleExpressionSource.al): a TestPage's own
     /// OpenEdit, OpenView or OpenNew, and a `Trap` of `Page.Run(Id, Rec)`, on every major; a static `Page.RunModal(Id, Rec)`
-    /// statement answered by a ModalPageHandler where it reads Yes. Before BC 29 that modal run raises the same error before
+    /// statement answered by a ModalPageHandler where it reads Yes. Where the open raises, that modal run raises the same error before
     /// the handler runs (corpus PR 1504's observe run), but no test can pin it: its handler never runs.
     fn visible_route_measured(&self, st: &St, reads_yes: bool) -> bool {
         let s = st.borrow();
