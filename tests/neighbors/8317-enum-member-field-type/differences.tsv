@@ -1,0 +1,20 @@
+# key	entry
+# FileFindsFieldsEnum_Unchanged passes on both: the file finds the field's enum, main's path.
+NX Name Found Three Times::NameFoundThreeTimes_LocalRecord	ASSUMED enum-member-of-field-type (corpus PR 1442, PR 1480, PR 1492)
+NX Extension Member::NameFoundThreeTimes_EnumExtensionMember	ASSUMED enum-member-of-field-type (corpus PR 1442, PR 1480, PR 1492)
+NX Global Twin::TwinInGlobalNamespace	ASSUMED enum-member-of-field-type (corpus PR 1442, PR 1480, PR 1492)
+NX Field Enum Tests::TwinOwnNamespace_LocalRecord	ASSUMED enum-member-of-field-type (corpus PR 1442, PR 1480, PR 1492)
+NX Field Enum Tests::TwinOwnNamespace_VarParameter	ASSUMED enum-member-of-field-type (corpus PR 1442, PR 1480, PR 1492)
+NX Field Enum Tests::TwinOwnNamespace_TemporaryRecord	ASSUMED enum-member-of-field-type (corpus PR 1442, PR 1480, PR 1492)
+NX Field Enum Tests::TwinOwnNamespace_TableExtensionRec	ASSUMED enum-member-of-field-type (corpus PR 1442, PR 1480, PR 1492)
+NX Field Enum Tests::TwinOwnNamespace_TableExtensionBareField	ASSUMED enum-member-of-field-type (corpus PR 1442, PR 1480, PR 1492)
+NX Field Enum Tests::TwinOwnNamespace_PageRec	ASSUMED enum-member-of-field-type (corpus PR 1442, PR 1480, PR 1492)
+NX Field Enum Tests::TwinOwnNamespace_PageBareField	ASSUMED enum-member-of-field-type (corpus PR 1442, PR 1480, PR 1492)
+NX Field Enum Tests::TwinThroughUsing	ASSUMED enum-member-of-field-type (corpus PR 1442, PR 1480, PR 1492)
+NX Field Enum Tests::UsingsFindFieldsEnumAndTwin	ASSUMED enum-member-of-field-type (corpus PR 1442, PR 1480, PR 1492)
+NX Field Enum Tests::UsingsFindTwoTwins	ASSUMED enum-member-of-field-type (corpus PR 1442, PR 1480, PR 1492)
+NX Field Enum Tests::TwinOwnNamespace_GlobalNamespaceFieldEnum_Refused	REFUSED NX Twin Reader.GlobalNamespaceFieldEnumOrdinal: `Line."G Kind"`: this file finds another enum than the field's by the name NX GKind
+NX Field Enum Tests::TwinOwnNamespace_TableExtensionThis_Refused	REFUSED NX Twin Line Ext.ThisOrdinal: `this.Kind`: this file finds another enum than the field's by the name NX Kind
+NX Field Enum Tests::TwinOwnNamespace_TableCode_Refused	REFUSED NX Twin Holder.LocalOrdinal: `Line.Kind`: this file finds another enum than the field's by the name NX Kind
+NX Field Enum Tests::TwinOwnNamespace_GlobalRecord	ASSUMED enum-member-of-field-type (corpus PR 1442, PR 1480, PR 1492)
+NX Field Enum Tests::TwinOwnNamespace_GlobalRecordWithoutMember	ASSUMED enum-member-of-field-type (corpus PR 1442, PR 1480, PR 1492)

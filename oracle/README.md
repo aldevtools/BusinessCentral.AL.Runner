@@ -8,7 +8,7 @@ pass rate is measured against: every `<testcase>` in it passed on real BC.
 | Field | Value |
 |---|---|
 | Corpus repo | aldevtools/BusinessCentral.AL.Language.Tests (until 2026-10-21 StefanMaron/BusinessCentral.AL.Language.Tests), branch `master` (the default branch; until 2026-10-19 the side branch `al-runtime-rs`, whose commits are all on `master`) |
-| Corpus pin | `8fcde9a6353f2de20e58c951efd0c4862ab1e558` (the `corpus` submodule, master merge of corpus PR 706; must equal `corpus_commit` in `oracle.toml`) |
+| Corpus pin | `90e21a841735f131a4db10181f3eb3738043d41f` (the `corpus` submodule; must equal `corpus_commit` in `oracle.toml`). It is not on `master`: it is the branch `pin-8fcde9a6-gzip-split`, the old pin `8fcde9a6` plus a cherry-pick of master commit `92aeb923` (corpus PR 1491, the split of codeunit 75290; see below) |
 
 | Major | Oracle leg | Corpus commit of the run | Workflow run | Artifact | Artifact id | Cases |
 |---|---|---|---|---|---|---|
@@ -85,3 +85,12 @@ JUnit or XUnit file.
 The OnPrem DotNet app (`corpus/tests/al-language-onprem-dotnet`) is the suite `onprem-dotnet`. Its oracle is
 `oracle/<major>/junit-dotnet.xml` (the smallest of the three `junit-test-results-<leg>` artifacts of a run) and its
 not-passing list is `metrics/<major>/not-passing-dotnet.txt`.
+
+## The GZip Trailer split on top of 8fcde9a6
+
+Corpus PR 1491 split codeunit 75290 "GZZ GZip Trailer" into 75290, 75294 and 75295 with the same tests and expected
+values (`tests/rename-map.tsv`). The pin `90e21a84` is `8fcde9a6` plus that one commit (draft corpus PR 1510, not for
+merge). In the three JUnit files above, the suites of codeunits 75290, 75294 and 75295 come from that PR's green CI run
+44996706204 (artifacts 14745765768, 14744569609, 14745218680 for BC 27.5, 28.5 and 29.0), put in with
+`tools/corpus_bump_pr.py merge`. That run tested the PR merged into master; the three test files are the same there. Every
+other suite is still from run 44570648530. The next bump to `master` replaces this section.

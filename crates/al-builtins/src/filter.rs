@@ -1567,6 +1567,19 @@ impl Parser<'_> {
                 Ok(Some(FilterExpr::AtSignAlone(true)))
             }
             _ if ci => Err("`<>@` before a value without a wildcard (not pinned)".into()),
+            // A placeholder wildcard text with a blank at one end, or longer than a Code field, BC reads otherwise (trimmed, as a
+            // literal text, or the length error; corpus PR 1503, open: record/filters/PlaceholderWildcardSuffix.al). al-vm
+            // `placeholder_wildcard_edge` answers the measured caller and values before the parser; every other one refuses here.
+            Some(Tok::Arg(s))
+                if wild(s)
+                    && (s.starts_with(char::is_whitespace)
+                        || s.ends_with(char::is_whitespace)
+                        || matches!(self.ty, T::Code(Some(n)) if crate::value::Value::text_len(s) > *n as usize)) =>
+            {
+                Err(format!(
+                    "`<>%n` with the wildcard text `{s}` with a blank at one end or longer than the field (not pinned)"
+                ))
+            }
             // A substituted text with a filter operator arrives quoted (`tokenize`), so a plain `Arg` holds none.
             // A quoted pattern with blank space in it (`<>'A *'`) is pinned by no case: refused below, as before.
             Some(Tok::Arg(s) | Tok::Quoted(s))
@@ -2856,5 +2869,40 @@ mod compare_error_tests {
             );
         }
         assert!(super::parse_filter("<", &[], &code).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod placeholder_edge_tests {
+    use super::{FilterExpr, parse_filter};
+    use crate::value::{RtType, Value};
+
+    /// Corpus PR 1503 (open): the parser refuses a `<>%1` wildcard text with a blank at one end or longer than the Code field;
+    /// al-vm `placeholder_wildcard_edge` answers the measured shape before it.
+    #[test]
+    fn the_parser_refuses_a_wildcard_text_with_a_blank_at_one_end_or_too_long() {
+        let code = RtType::Code(Some(20));
+        let text = RtType::Text(Some(30));
+        let arg = |s: &str| [Value::Text(s.into())];
+        for s in ["XYZ-* ", " XYZ-*"] {
+            assert!(parse_filter("<>%1", &arg(s), &code).is_err(), "{s:?}");
+            assert!(parse_filter("<>%1", &arg(s), &text).is_err(), "{s:?}");
+        }
+        assert!(parse_filter("<>%1", &arg("XYZ-ABCDEFGHIJKLMNOPQRST*"), &code).is_err());
+        assert!(parse_filter("<>%1", &arg("XYZ-*"), &code).is_ok());
+    }
+
+    /// A Text row with a blank at one end under the filter `<>'XYZ-* '` is not measured: the read refuses; the measured rows keep
+    /// running, and the filter makes a store check its rows.
+    #[test]
+    fn a_text_row_with_a_blank_at_one_end_refuses_under_the_edge_blank_filter() {
+        let f = FilterExpr::NotLike("XYZ-* ".into(), false);
+        assert!(f.collation_open());
+        for row in ["XYZ-1 ", " XYZ-1"] {
+            assert!(f.collation_refusal(&Value::Text(row.into()), true).is_some(), "{row:?}");
+        }
+        for row in ["XYZ-1", "ABC", "XYZ-*", ""] {
+            assert!(f.collation_refusal(&Value::Text(row.into()), true).is_none(), "{row:?}");
+        }
     }
 }
