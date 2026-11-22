@@ -9,3 +9,6 @@ LT NS Other Code Tests::SameCode_Quiet	PINNED tests/al-language/pages/currpage/L
 LT NS Neighbor Tests::SaveRecordWithoutUpdate	REFUSED CurrPage.SaveRecord or Update(true) on the new line whose table field inserted it, on a page whose code
 LT NS Neighbor Tests::SaveRecordThenClose	REFUSED CurrPage.SaveRecord or Update(true) on the new line whose table field inserted it, on a page whose code
 LT NS Neighbor Tests::ErrorAfterSaveRecord	REFUSED CurrPage.SaveRecord or Update(true) on the new line whose table field inserted it, on a page whose code
+# Page 97479 is the reporter's "Repro Lines Save Update" line for line (code_inserted_pinned.rs REPRO_SAVE), opened as the
+# repro measured it. Its other opens (OpenEdit, an empty group) are refused on main and on the head (review of #8305, round 4).
+LT NR Tests::Repro_RunModal_OneGroup_RowBefore	ASSUMED list-new-line-save-record-repro (corpus PR 1481)
