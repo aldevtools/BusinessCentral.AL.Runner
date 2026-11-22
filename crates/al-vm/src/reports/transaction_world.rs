@@ -77,6 +77,11 @@ impl Session {
         *m.depth.get_or_insert(self.depth) == self.depth
     }
 
+    /// A test method starts: the moment its start opens (`transaction_type.rs` `start_test_transaction`).
+    pub(crate) fn moment_at_test_start(&mut self) {
+        self.tx.open.moment = Some(Moment::at(MomentStart::TestStart));
+    }
+
     /// An AL `Commit` ran (`transactions.rs`): it opens a moment in the code of a test, as the cells commit: in the test
     /// method or a codeunit procedure it calls (TxTypeUpdateReport.al TxU01's library codeunit), with nothing between them but
     /// such procedures, so not in a trigger, an event subscriber, a handler, a TryFunction, a Codeunit.Run, a report or a page

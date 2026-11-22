@@ -247,11 +247,20 @@ impl Session {
         }
     }
 
+    /// The open transaction at a test method's start: the type ([`Self::start_test_transaction_type`]), nothing of it has
+    /// run, no lock, and the moment an Update report is measured at is the test's start (`OpenTx::moment`).
+    pub(crate) fn start_test_transaction(&mut self) {
+        self.start_test_transaction_type();
+        self.tx.phase = TxPhase::Fresh;
+        self.tx.open.locks = Default::default();
+        self.moment_at_test_start();
+    }
+
     /// The type a test method starts with. The first test method of a codeunit starts at UpdateNoLocks, whatever install
     /// code left (session-system/TestClearAllTransactionTypeContracts.al:12-13, read at :261). A later one starts with
     /// the type the one before left: UpdateNoLocks is read at a test's start after every kind of test before it in the corpus;
     /// any other type, Update too, rests on `transaction-type-carries-to-next-test`.
-    pub(crate) fn start_test_transaction_type(&mut self) {
+    fn start_test_transaction_type(&mut self) {
         let origin = &mut self.tx.type_origin;
         if !self.tx.test_ended {
             self.tx.transaction_type = TRANSACTION_TYPE_UPDATE_NO_LOCKS;
