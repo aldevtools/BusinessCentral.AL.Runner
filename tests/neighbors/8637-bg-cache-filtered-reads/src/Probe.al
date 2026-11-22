@@ -4840,3 +4840,1030 @@ codeunit 97547 "BQ Tests 8b"
         Assert.AreEqual('a|a|1|No / a|a|1|No', Reads('calcempty', 'desc'), 'FILTER()');
     end;
 }
+
+// BQ Tests 9 (al-runner issue 8637, the shapes past BQ Tests 8b; measured on a local BC 29.1 OnPrem w1 container): FindFirst,
+// FindLast, Count and IsEmpty in one worker run, read again after the test session changed the rows without committing. The
+// cache answers all four for 26215, 60000 and 100000 filters on table 97596 (502 fields, then again in filter groups 2 and
+// on): no limit found. With a filter on a FlowField next to the key, FindFirst and FindLast answer the first answer
+// and Count and IsEmpty see the change when the key is set twice to its value (in filter groups 0 and 2, or by SetRange then
+// SetFilter in group 0), and for the FlowField filters 1.., ..0, >0&<5|9, the case-sensitive wildcards K*, *K, ? and k* (a
+// Code filter is upper-cased), and @ alone; all four answer the first answers for the key set twice without a FlowField. @
+// alone on a Code field keeps the rows whose value is empty, @k keeps K, and GetFilter returns @.
+// Fixtures (the header's Fixtures used lines have no room): table 97596, worker codeunit 97528, test codeunit 97539.
+
+table 97596 "BQ Widest"
+{
+    DataClassification = SystemMetadata;
+    ReplicateData = false;
+
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(2; Description; Text[50]) { }
+        field(3; F3; Integer) { }
+        field(4; F4; Integer) { }
+        field(5; F5; Integer) { }
+        field(6; F6; Integer) { }
+        field(7; F7; Integer) { }
+        field(8; F8; Integer) { }
+        field(9; F9; Integer) { }
+        field(10; F10; Integer) { }
+        field(11; F11; Integer) { }
+        field(12; F12; Integer) { }
+        field(13; F13; Integer) { }
+        field(14; F14; Integer) { }
+        field(15; F15; Integer) { }
+        field(16; F16; Integer) { }
+        field(17; F17; Integer) { }
+        field(18; F18; Integer) { }
+        field(19; F19; Integer) { }
+        field(20; F20; Integer) { }
+        field(21; F21; Integer) { }
+        field(22; F22; Integer) { }
+        field(23; F23; Integer) { }
+        field(24; F24; Integer) { }
+        field(25; F25; Integer) { }
+        field(26; F26; Integer) { }
+        field(27; F27; Integer) { }
+        field(28; F28; Integer) { }
+        field(29; F29; Integer) { }
+        field(30; F30; Integer) { }
+        field(31; F31; Integer) { }
+        field(32; F32; Integer) { }
+        field(33; F33; Integer) { }
+        field(34; F34; Integer) { }
+        field(35; F35; Integer) { }
+        field(36; F36; Integer) { }
+        field(37; F37; Integer) { }
+        field(38; F38; Integer) { }
+        field(39; F39; Integer) { }
+        field(40; F40; Integer) { }
+        field(41; F41; Integer) { }
+        field(42; F42; Integer) { }
+        field(43; F43; Integer) { }
+        field(44; F44; Integer) { }
+        field(45; F45; Integer) { }
+        field(46; F46; Integer) { }
+        field(47; F47; Integer) { }
+        field(48; F48; Integer) { }
+        field(49; F49; Integer) { }
+        field(50; F50; Integer) { }
+        field(51; F51; Integer) { }
+        field(52; F52; Integer) { }
+        field(53; F53; Integer) { }
+        field(54; F54; Integer) { }
+        field(55; F55; Integer) { }
+        field(56; F56; Integer) { }
+        field(57; F57; Integer) { }
+        field(58; F58; Integer) { }
+        field(59; F59; Integer) { }
+        field(60; F60; Integer) { }
+        field(61; F61; Integer) { }
+        field(62; F62; Integer) { }
+        field(63; F63; Integer) { }
+        field(64; F64; Integer) { }
+        field(65; F65; Integer) { }
+        field(66; F66; Integer) { }
+        field(67; F67; Integer) { }
+        field(68; F68; Integer) { }
+        field(69; F69; Integer) { }
+        field(70; F70; Integer) { }
+        field(71; F71; Integer) { }
+        field(72; F72; Integer) { }
+        field(73; F73; Integer) { }
+        field(74; F74; Integer) { }
+        field(75; F75; Integer) { }
+        field(76; F76; Integer) { }
+        field(77; F77; Integer) { }
+        field(78; F78; Integer) { }
+        field(79; F79; Integer) { }
+        field(80; F80; Integer) { }
+        field(81; F81; Integer) { }
+        field(82; F82; Integer) { }
+        field(83; F83; Integer) { }
+        field(84; F84; Integer) { }
+        field(85; F85; Integer) { }
+        field(86; F86; Integer) { }
+        field(87; F87; Integer) { }
+        field(88; F88; Integer) { }
+        field(89; F89; Integer) { }
+        field(90; F90; Integer) { }
+        field(91; F91; Integer) { }
+        field(92; F92; Integer) { }
+        field(93; F93; Integer) { }
+        field(94; F94; Integer) { }
+        field(95; F95; Integer) { }
+        field(96; F96; Integer) { }
+        field(97; F97; Integer) { }
+        field(98; F98; Integer) { }
+        field(99; F99; Integer) { }
+        field(100; F100; Integer) { }
+        field(101; F101; Integer) { }
+        field(102; F102; Integer) { }
+        field(103; F103; Integer) { }
+        field(104; F104; Integer) { }
+        field(105; F105; Integer) { }
+        field(106; F106; Integer) { }
+        field(107; F107; Integer) { }
+        field(108; F108; Integer) { }
+        field(109; F109; Integer) { }
+        field(110; F110; Integer) { }
+        field(111; F111; Integer) { }
+        field(112; F112; Integer) { }
+        field(113; F113; Integer) { }
+        field(114; F114; Integer) { }
+        field(115; F115; Integer) { }
+        field(116; F116; Integer) { }
+        field(117; F117; Integer) { }
+        field(118; F118; Integer) { }
+        field(119; F119; Integer) { }
+        field(120; F120; Integer) { }
+        field(121; F121; Integer) { }
+        field(122; F122; Integer) { }
+        field(123; F123; Integer) { }
+        field(124; F124; Integer) { }
+        field(125; F125; Integer) { }
+        field(126; F126; Integer) { }
+        field(127; F127; Integer) { }
+        field(128; F128; Integer) { }
+        field(129; F129; Integer) { }
+        field(130; F130; Integer) { }
+        field(131; F131; Integer) { }
+        field(132; F132; Integer) { }
+        field(133; F133; Integer) { }
+        field(134; F134; Integer) { }
+        field(135; F135; Integer) { }
+        field(136; F136; Integer) { }
+        field(137; F137; Integer) { }
+        field(138; F138; Integer) { }
+        field(139; F139; Integer) { }
+        field(140; F140; Integer) { }
+        field(141; F141; Integer) { }
+        field(142; F142; Integer) { }
+        field(143; F143; Integer) { }
+        field(144; F144; Integer) { }
+        field(145; F145; Integer) { }
+        field(146; F146; Integer) { }
+        field(147; F147; Integer) { }
+        field(148; F148; Integer) { }
+        field(149; F149; Integer) { }
+        field(150; F150; Integer) { }
+        field(151; F151; Integer) { }
+        field(152; F152; Integer) { }
+        field(153; F153; Integer) { }
+        field(154; F154; Integer) { }
+        field(155; F155; Integer) { }
+        field(156; F156; Integer) { }
+        field(157; F157; Integer) { }
+        field(158; F158; Integer) { }
+        field(159; F159; Integer) { }
+        field(160; F160; Integer) { }
+        field(161; F161; Integer) { }
+        field(162; F162; Integer) { }
+        field(163; F163; Integer) { }
+        field(164; F164; Integer) { }
+        field(165; F165; Integer) { }
+        field(166; F166; Integer) { }
+        field(167; F167; Integer) { }
+        field(168; F168; Integer) { }
+        field(169; F169; Integer) { }
+        field(170; F170; Integer) { }
+        field(171; F171; Integer) { }
+        field(172; F172; Integer) { }
+        field(173; F173; Integer) { }
+        field(174; F174; Integer) { }
+        field(175; F175; Integer) { }
+        field(176; F176; Integer) { }
+        field(177; F177; Integer) { }
+        field(178; F178; Integer) { }
+        field(179; F179; Integer) { }
+        field(180; F180; Integer) { }
+        field(181; F181; Integer) { }
+        field(182; F182; Integer) { }
+        field(183; F183; Integer) { }
+        field(184; F184; Integer) { }
+        field(185; F185; Integer) { }
+        field(186; F186; Integer) { }
+        field(187; F187; Integer) { }
+        field(188; F188; Integer) { }
+        field(189; F189; Integer) { }
+        field(190; F190; Integer) { }
+        field(191; F191; Integer) { }
+        field(192; F192; Integer) { }
+        field(193; F193; Integer) { }
+        field(194; F194; Integer) { }
+        field(195; F195; Integer) { }
+        field(196; F196; Integer) { }
+        field(197; F197; Integer) { }
+        field(198; F198; Integer) { }
+        field(199; F199; Integer) { }
+        field(200; F200; Integer) { }
+        field(201; F201; Integer) { }
+        field(202; F202; Integer) { }
+        field(203; F203; Integer) { }
+        field(204; F204; Integer) { }
+        field(205; F205; Integer) { }
+        field(206; F206; Integer) { }
+        field(207; F207; Integer) { }
+        field(208; F208; Integer) { }
+        field(209; F209; Integer) { }
+        field(210; F210; Integer) { }
+        field(211; F211; Integer) { }
+        field(212; F212; Integer) { }
+        field(213; F213; Integer) { }
+        field(214; F214; Integer) { }
+        field(215; F215; Integer) { }
+        field(216; F216; Integer) { }
+        field(217; F217; Integer) { }
+        field(218; F218; Integer) { }
+        field(219; F219; Integer) { }
+        field(220; F220; Integer) { }
+        field(221; F221; Integer) { }
+        field(222; F222; Integer) { }
+        field(223; F223; Integer) { }
+        field(224; F224; Integer) { }
+        field(225; F225; Integer) { }
+        field(226; F226; Integer) { }
+        field(227; F227; Integer) { }
+        field(228; F228; Integer) { }
+        field(229; F229; Integer) { }
+        field(230; F230; Integer) { }
+        field(231; F231; Integer) { }
+        field(232; F232; Integer) { }
+        field(233; F233; Integer) { }
+        field(234; F234; Integer) { }
+        field(235; F235; Integer) { }
+        field(236; F236; Integer) { }
+        field(237; F237; Integer) { }
+        field(238; F238; Integer) { }
+        field(239; F239; Integer) { }
+        field(240; F240; Integer) { }
+        field(241; F241; Integer) { }
+        field(242; F242; Integer) { }
+        field(243; F243; Integer) { }
+        field(244; F244; Integer) { }
+        field(245; F245; Integer) { }
+        field(246; F246; Integer) { }
+        field(247; F247; Integer) { }
+        field(248; F248; Integer) { }
+        field(249; F249; Integer) { }
+        field(250; F250; Integer) { }
+        field(251; F251; Integer) { }
+        field(252; F252; Integer) { }
+        field(253; F253; Integer) { }
+        field(254; F254; Integer) { }
+        field(255; F255; Integer) { }
+        field(256; F256; Integer) { }
+        field(257; F257; Integer) { }
+        field(258; F258; Integer) { }
+        field(259; F259; Integer) { }
+        field(260; F260; Integer) { }
+        field(261; F261; Integer) { }
+        field(262; F262; Integer) { }
+        field(263; F263; Integer) { }
+        field(264; F264; Integer) { }
+        field(265; F265; Integer) { }
+        field(266; F266; Integer) { }
+        field(267; F267; Integer) { }
+        field(268; F268; Integer) { }
+        field(269; F269; Integer) { }
+        field(270; F270; Integer) { }
+        field(271; F271; Integer) { }
+        field(272; F272; Integer) { }
+        field(273; F273; Integer) { }
+        field(274; F274; Integer) { }
+        field(275; F275; Integer) { }
+        field(276; F276; Integer) { }
+        field(277; F277; Integer) { }
+        field(278; F278; Integer) { }
+        field(279; F279; Integer) { }
+        field(280; F280; Integer) { }
+        field(281; F281; Integer) { }
+        field(282; F282; Integer) { }
+        field(283; F283; Integer) { }
+        field(284; F284; Integer) { }
+        field(285; F285; Integer) { }
+        field(286; F286; Integer) { }
+        field(287; F287; Integer) { }
+        field(288; F288; Integer) { }
+        field(289; F289; Integer) { }
+        field(290; F290; Integer) { }
+        field(291; F291; Integer) { }
+        field(292; F292; Integer) { }
+        field(293; F293; Integer) { }
+        field(294; F294; Integer) { }
+        field(295; F295; Integer) { }
+        field(296; F296; Integer) { }
+        field(297; F297; Integer) { }
+        field(298; F298; Integer) { }
+        field(299; F299; Integer) { }
+        field(300; F300; Integer) { }
+        field(301; F301; Integer) { }
+        field(302; F302; Integer) { }
+        field(303; F303; Integer) { }
+        field(304; F304; Integer) { }
+        field(305; F305; Integer) { }
+        field(306; F306; Integer) { }
+        field(307; F307; Integer) { }
+        field(308; F308; Integer) { }
+        field(309; F309; Integer) { }
+        field(310; F310; Integer) { }
+        field(311; F311; Integer) { }
+        field(312; F312; Integer) { }
+        field(313; F313; Integer) { }
+        field(314; F314; Integer) { }
+        field(315; F315; Integer) { }
+        field(316; F316; Integer) { }
+        field(317; F317; Integer) { }
+        field(318; F318; Integer) { }
+        field(319; F319; Integer) { }
+        field(320; F320; Integer) { }
+        field(321; F321; Integer) { }
+        field(322; F322; Integer) { }
+        field(323; F323; Integer) { }
+        field(324; F324; Integer) { }
+        field(325; F325; Integer) { }
+        field(326; F326; Integer) { }
+        field(327; F327; Integer) { }
+        field(328; F328; Integer) { }
+        field(329; F329; Integer) { }
+        field(330; F330; Integer) { }
+        field(331; F331; Integer) { }
+        field(332; F332; Integer) { }
+        field(333; F333; Integer) { }
+        field(334; F334; Integer) { }
+        field(335; F335; Integer) { }
+        field(336; F336; Integer) { }
+        field(337; F337; Integer) { }
+        field(338; F338; Integer) { }
+        field(339; F339; Integer) { }
+        field(340; F340; Integer) { }
+        field(341; F341; Integer) { }
+        field(342; F342; Integer) { }
+        field(343; F343; Integer) { }
+        field(344; F344; Integer) { }
+        field(345; F345; Integer) { }
+        field(346; F346; Integer) { }
+        field(347; F347; Integer) { }
+        field(348; F348; Integer) { }
+        field(349; F349; Integer) { }
+        field(350; F350; Integer) { }
+        field(351; F351; Integer) { }
+        field(352; F352; Integer) { }
+        field(353; F353; Integer) { }
+        field(354; F354; Integer) { }
+        field(355; F355; Integer) { }
+        field(356; F356; Integer) { }
+        field(357; F357; Integer) { }
+        field(358; F358; Integer) { }
+        field(359; F359; Integer) { }
+        field(360; F360; Integer) { }
+        field(361; F361; Integer) { }
+        field(362; F362; Integer) { }
+        field(363; F363; Integer) { }
+        field(364; F364; Integer) { }
+        field(365; F365; Integer) { }
+        field(366; F366; Integer) { }
+        field(367; F367; Integer) { }
+        field(368; F368; Integer) { }
+        field(369; F369; Integer) { }
+        field(370; F370; Integer) { }
+        field(371; F371; Integer) { }
+        field(372; F372; Integer) { }
+        field(373; F373; Integer) { }
+        field(374; F374; Integer) { }
+        field(375; F375; Integer) { }
+        field(376; F376; Integer) { }
+        field(377; F377; Integer) { }
+        field(378; F378; Integer) { }
+        field(379; F379; Integer) { }
+        field(380; F380; Integer) { }
+        field(381; F381; Integer) { }
+        field(382; F382; Integer) { }
+        field(383; F383; Integer) { }
+        field(384; F384; Integer) { }
+        field(385; F385; Integer) { }
+        field(386; F386; Integer) { }
+        field(387; F387; Integer) { }
+        field(388; F388; Integer) { }
+        field(389; F389; Integer) { }
+        field(390; F390; Integer) { }
+        field(391; F391; Integer) { }
+        field(392; F392; Integer) { }
+        field(393; F393; Integer) { }
+        field(394; F394; Integer) { }
+        field(395; F395; Integer) { }
+        field(396; F396; Integer) { }
+        field(397; F397; Integer) { }
+        field(398; F398; Integer) { }
+        field(399; F399; Integer) { }
+        field(400; F400; Integer) { }
+        field(401; F401; Integer) { }
+        field(402; F402; Integer) { }
+        field(403; F403; Integer) { }
+        field(404; F404; Integer) { }
+        field(405; F405; Integer) { }
+        field(406; F406; Integer) { }
+        field(407; F407; Integer) { }
+        field(408; F408; Integer) { }
+        field(409; F409; Integer) { }
+        field(410; F410; Integer) { }
+        field(411; F411; Integer) { }
+        field(412; F412; Integer) { }
+        field(413; F413; Integer) { }
+        field(414; F414; Integer) { }
+        field(415; F415; Integer) { }
+        field(416; F416; Integer) { }
+        field(417; F417; Integer) { }
+        field(418; F418; Integer) { }
+        field(419; F419; Integer) { }
+        field(420; F420; Integer) { }
+        field(421; F421; Integer) { }
+        field(422; F422; Integer) { }
+        field(423; F423; Integer) { }
+        field(424; F424; Integer) { }
+        field(425; F425; Integer) { }
+        field(426; F426; Integer) { }
+        field(427; F427; Integer) { }
+        field(428; F428; Integer) { }
+        field(429; F429; Integer) { }
+        field(430; F430; Integer) { }
+        field(431; F431; Integer) { }
+        field(432; F432; Integer) { }
+        field(433; F433; Integer) { }
+        field(434; F434; Integer) { }
+        field(435; F435; Integer) { }
+        field(436; F436; Integer) { }
+        field(437; F437; Integer) { }
+        field(438; F438; Integer) { }
+        field(439; F439; Integer) { }
+        field(440; F440; Integer) { }
+        field(441; F441; Integer) { }
+        field(442; F442; Integer) { }
+        field(443; F443; Integer) { }
+        field(444; F444; Integer) { }
+        field(445; F445; Integer) { }
+        field(446; F446; Integer) { }
+        field(447; F447; Integer) { }
+        field(448; F448; Integer) { }
+        field(449; F449; Integer) { }
+        field(450; F450; Integer) { }
+        field(451; F451; Integer) { }
+        field(452; F452; Integer) { }
+        field(453; F453; Integer) { }
+        field(454; F454; Integer) { }
+        field(455; F455; Integer) { }
+        field(456; F456; Integer) { }
+        field(457; F457; Integer) { }
+        field(458; F458; Integer) { }
+        field(459; F459; Integer) { }
+        field(460; F460; Integer) { }
+        field(461; F461; Integer) { }
+        field(462; F462; Integer) { }
+        field(463; F463; Integer) { }
+        field(464; F464; Integer) { }
+        field(465; F465; Integer) { }
+        field(466; F466; Integer) { }
+        field(467; F467; Integer) { }
+        field(468; F468; Integer) { }
+        field(469; F469; Integer) { }
+        field(470; F470; Integer) { }
+        field(471; F471; Integer) { }
+        field(472; F472; Integer) { }
+        field(473; F473; Integer) { }
+        field(474; F474; Integer) { }
+        field(475; F475; Integer) { }
+        field(476; F476; Integer) { }
+        field(477; F477; Integer) { }
+        field(478; F478; Integer) { }
+        field(479; F479; Integer) { }
+        field(480; F480; Integer) { }
+        field(481; F481; Integer) { }
+        field(482; F482; Integer) { }
+        field(483; F483; Integer) { }
+        field(484; F484; Integer) { }
+        field(485; F485; Integer) { }
+        field(486; F486; Integer) { }
+        field(487; F487; Integer) { }
+        field(488; F488; Integer) { }
+        field(489; F489; Integer) { }
+        field(490; F490; Integer) { }
+        field(491; F491; Integer) { }
+        field(492; F492; Integer) { }
+        field(493; F493; Integer) { }
+        field(494; F494; Integer) { }
+        field(495; F495; Integer) { }
+        field(496; F496; Integer) { }
+        field(497; F497; Integer) { }
+        field(498; F498; Integer) { }
+        field(499; F499; Integer) { }
+        field(500; F500; Integer) { }
+        field(501; F501; Integer) { }
+        field(502; F502; Integer) { }
+    }
+
+    keys
+    {
+        key(PK; "No.") { Clustered = true; }
+    }
+}
+
+// The worker of BQ Tests 9: the four reads of the filters a Mode names, on table 97593, 97596 or 97597.
+codeunit 97528 "BQ Reader 9"
+{
+    trigger OnRun()
+    var
+        Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
+        Group: Text;
+        Mode: Text;
+    begin
+        Parameters := Page.GetBackgroundParameters();
+        Parameters.Get('Group', Group);
+        Parameters.Get('Mode', Mode);
+        Results.Add('Seen', Forms(Mode, Group));
+        Page.SetBackgroundTaskResult(Results);
+    end;
+
+    procedure Forms(Mode: Text; Group: Text): Text
+    var
+        Wide: Record "BQ Wide";
+        Calc: Record "BQ Calc";
+        Ref: RecordRef;
+        N: Integer;
+        First: Text;
+        Last: Text;
+    begin
+        First := '-';
+        Last := '-';
+        if Mode.StartsWith('widest-') then begin
+            Evaluate(N, CopyStr(Mode, 8));
+            SetWidest(Ref, N, Group);
+            if Ref.FindFirst() then
+                First := Format(Ref.Field(2).Value());
+            if Ref.FindLast() then
+                Last := Format(Ref.Field(2).Value());
+            exit(First + '|' + Last + '|' + Format(Ref.Count()) + '|' + Format(Ref.IsEmpty()));
+        end;
+        if Mode.StartsWith('calc') then begin
+            Calc.SetRange("No.", Group);
+            case Mode of
+                'calcK*':
+                    Calc.SetFilter("Line Kind", 'K*');
+                'calc*K':
+                    Calc.SetFilter("Line Kind", '*K');
+                'calc?':
+                    Calc.SetFilter("Line Kind", '?');
+                'calck*':
+                    Calc.SetFilter("Line Kind", 'k*');
+                'calcat':
+                    Calc.SetFilter("Line Kind", '@');
+            end;
+            if Calc.FindFirst() then
+                First := Calc.Description;
+            if Calc.FindLast() then
+                Last := Calc.Description;
+            exit(First + '|' + Last + '|' + Format(Calc.Count()) + '|' + Format(Calc.IsEmpty()));
+        end;
+        case Mode of
+            'keytwice', 'keytwiceplain':
+                begin
+                    Wide.SetRange("No.", Group);
+                    Wide.FilterGroup(2);
+                    Wide.SetRange("No.", Group);
+                    Wide.FilterGroup(0);
+                end;
+            'keysame':
+                begin
+                    Wide.SetRange("No.", Group);
+                    Wide.SetFilter("No.", Group);
+                end;
+            'openfrom':
+                Wide.SetFilter("Child Count", '1..');
+            'opento':
+                Wide.SetFilter("Child Count", '..0');
+            'andinor':
+                Wide.SetFilter("Child Count", '>0&<5|9');
+        end;
+        if Mode <> 'keytwice' then
+            if Mode <> 'keytwiceplain' then
+                if Mode <> 'keysame' then
+                    Wide.SetRange("No.", Group);
+        if Mode in ['keytwice', 'keysame'] then
+            Wide.SetRange("Child Count", 1);
+        if Mode = 'keytwiceplain' then
+            Wide.SetRange(Description, 'a');
+        if Wide.FindFirst() then
+            First := Wide.Description;
+        if Wide.FindLast() then
+            Last := Wide.Description;
+        exit(First + '|' + Last + '|' + Format(Wide.Count()) + '|' + Format(Wide.IsEmpty()));
+    end;
+
+    procedure SetWidest(var Ref: RecordRef; N: Integer; Group: Text)
+    var
+        Groups: List of [Integer];
+        K: Integer;
+        G: Integer;
+        FieldNo: Integer;
+    begin
+        Ref.Open(Database::"BQ Widest");
+        Groups.Add(0);
+        for G := 2 to 255 do
+            Groups.Add(G);
+        Groups.Add(-1);
+        Groups.Add(1);
+        for K := 0 to N - 1 do begin
+            FieldNo := K mod 502 + 1;
+            Ref.FilterGroup(Groups.Get(K div 502 + 1));
+            case FieldNo of
+                1:
+                    Ref.Field(1).SetRange(Group);
+                2:
+                    Ref.Field(2).SetFilter('<>zz');
+                else
+                    Ref.Field(FieldNo).SetRange(0);
+            end;
+        end;
+        Ref.FilterGroup(0);
+    end;
+}
+
+codeunit 97539 "BQ Tests 9"
+{
+    Subtype = Test;
+
+    var
+        Assert: Codeunit Assert;
+
+    local procedure NewGroup(): Code[20]
+    begin
+        exit(CopyStr(DelChr(Format(CreateGuid()), '=', '{}-'), 1, 18));
+    end;
+
+    local procedure Run(var Rows: TestPage "BQ Plain Rows"; Mode: Text; Group: Code[20]): Text
+    var
+        Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
+        Seen: Text;
+    begin
+        Parameters.Add('Group', Group);
+        Parameters.Add('Mode', Mode);
+        Results := Rows.RunPageBackgroundTask(Codeunit::"BQ Reader 9", Parameters, false);
+        Results.Get('Seen', Seen);
+        exit(Seen);
+    end;
+
+    // Inserts a line of table 97594 (Amount 5), then reads the parent's lines.
+    local procedure AddChild(Parent: Code[20]; LineNo: Integer; Kind: Code[10])
+    var
+        Child: Record "BQ Child";
+    begin
+        Child.Parent := Parent;
+        Child."Line No." := LineNo;
+        Child.Kind := Kind;
+        Child.Amount := 5;
+        Child.Insert();
+        Child.SetRange(Parent, Parent);
+        if Child.FindFirst() then;
+    end;
+
+    // The row a Mode reads committed (table 97593 or 97597, Description a; none for 'widest'); the four reads; the test's
+    // change without a commit: a row of table 97596 for 'widest', Description b for 'keytwiceplain', else a line of table 97594
+    // (Kind K); the four reads again: both answers, as 'first / again'.
+    local procedure Reads(Mode: Text): Text
+    var
+        Rows: TestPage "BQ Plain Rows";
+        Wide: Record "BQ Wide";
+        Calc: Record "BQ Calc";
+        Widest: Record "BQ Widest";
+        G: Code[20];
+        Seen: Text;
+    begin
+        G := NewGroup();
+        if Mode.StartsWith('calc') then begin
+            Calc."No." := G;
+            Calc.Description := 'a';
+            Calc.Insert();
+        end else
+            if not Mode.StartsWith('widest') then begin
+                Wide."No." := G;
+                Wide.Description := 'a';
+                Wide.Insert();
+            end;
+        Commit();
+        Rows.OpenView();
+        Seen := Run(Rows, Mode, G);
+        if Mode.StartsWith('widest') then begin
+            Widest."No." := G;
+            Widest.Description := 'a';
+            Widest.Insert();
+            Widest.SetRange("No.", G);
+            if Widest.FindFirst() then;
+        end else
+            if Mode = 'keytwiceplain' then begin
+                Wide.Get(G);
+                Wide.Description := 'b';
+                Wide.Modify();
+            end else
+                AddChild(G, 1, 'K');
+        Seen += ' / ' + Run(Rows, Mode, G);
+        Rows.Close();
+        exit(Seen);
+    end;
+
+    // The Modes whose Reads answer is not Expected, with their answers.
+    local procedure Differ(Modes: List of [Text]; Expected: Text): Text
+    var
+        Mode: Text;
+        Seen: Text;
+        Found: Text;
+    begin
+        foreach Mode in Modes do begin
+            Seen := Reads(Mode);
+            if Seen <> Expected then
+                Found += ' ' + Mode + ': ' + Seen;
+        end;
+        exit(Found);
+    end;
+
+    // 26215 and 60000 filters on table 97596 (502 fields in filter groups 0, 2 and on).
+    [Test]
+    procedure BgQueryCache_Run_AllForms_26215And60000Filters_FirstAnswer()
+    var
+        Modes: List of [Text];
+    begin
+        Modes.AddRange('widest-26215', 'widest-60000');
+        Assert.AreEqual('', Differ(Modes, '-|-|0|Yes / -|-|0|Yes'), 'the Modes that differ');
+    end;
+
+    // 100000 filters on table 97596.
+    [Test]
+    procedure BgQueryCache_Run_AllForms_100000Filters_FirstAnswer()
+    begin
+        Assert.AreEqual('-|-|0|Yes / -|-|0|Yes', Reads('widest-100000'), '100000 filters');
+    end;
+
+    // The key set twice to its value next to "Child Count" 1: in filter groups 0 and 2, and by SetRange then SetFilter.
+    [Test]
+    procedure BgQueryCache_Run_FlowFieldKeyTwice_FindsFirstAnswer()
+    var
+        Modes: List of [Text];
+    begin
+        Modes.AddRange('keytwice', 'keysame');
+        Assert.AreEqual('', Differ(Modes, '-|-|0|Yes / -|-|1|No'), 'the Modes that differ');
+    end;
+
+    // The key in filter groups 0 and 2 next to Description a, no FlowField; the test sets the Description to b.
+    [Test]
+    procedure BgQueryCache_Run_AllForms_KeyTwice_FirstAnswer()
+    begin
+        Assert.AreEqual('a|a|1|No / a|a|1|No', Reads('keytwiceplain'), 'after the change');
+    end;
+
+    // "Child Count" 1.. and >0&<5|9, then ..0, next to the key.
+    [Test]
+    procedure BgQueryCache_Run_FlowFieldOpenRangesAndAndInsideOr_FindsFirstAnswer()
+    var
+        Modes: List of [Text];
+    begin
+        Modes.AddRange('openfrom', 'andinor');
+        Assert.AreEqual('', Differ(Modes, '-|-|0|Yes / -|-|1|No'), '1.. and >0&<5|9');
+        Assert.AreEqual('a|a|1|No / a|a|0|Yes', Reads('opento'), '..0');
+    end;
+
+    // "Line Kind" (a lookup) K*, *K, ? and k* next to the key.
+    [Test]
+    procedure BgQueryCache_Run_FlowFieldCaseSensitiveWildcards_FindsFirstAnswer()
+    var
+        Modes: List of [Text];
+    begin
+        Modes.AddRange('calcK*', 'calc*K', 'calc?', 'calck*');
+        Assert.AreEqual('', Differ(Modes, '-|-|0|Yes / -|-|1|No'), 'the Modes that differ');
+    end;
+
+    // "Line Kind" @ alone next to the key: it keeps the row while the lookup is empty.
+    [Test]
+    procedure BgQueryCache_Run_FlowFieldAtSignAlone_FindsFirstAnswer()
+    begin
+        Assert.AreEqual('a|a|1|No / a|a|0|Yes', Reads('calcat'), '@');
+    end;
+
+    // @ alone on a Code field of the test session's own lines (Kind K on line 1, empty on line 2), @k, and GetFilter of @.
+    [Test]
+    procedure AtSignAlone_CodeField_KeepsTheEmptyValues()
+    var
+        Child: Record "BQ Child";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        AddChild(G, 1, 'K');
+        AddChild(G, 2, '');
+        Child.SetRange(Parent, G);
+        Child.SetFilter(Kind, '@');
+        Assert.AreEqual(1, Child.Count(), 'the lines @ keeps');
+        Child.FindFirst();
+        Assert.AreEqual(2, Child."Line No.", 'the line @ keeps');
+        Assert.AreEqual('@', Child.GetFilter(Kind), 'GetFilter');
+        Child.SetFilter(Kind, '@k');
+        Assert.AreEqual(1, Child.Count(), 'the lines @k keeps');
+        Child.FindFirst();
+        Assert.AreEqual(1, Child."Line No.", 'the line @k keeps');
+    end;
+}
+
+// BQ Tests 9b (al-runner issue 8637, @ alone in the database and in a temporary record; measured on a local BC 29.1 OnPrem
+// w1 container). The source rows are K (Amount 10) and empty (Amount 5), in a Code and a Text field. @ alone keeps the rows
+// whose value is empty when the database reads them, whatever the field's type: a FlowFilter's @ that CalcFields applies to
+// a source field of either type, the same or the other (a Text FlowFilter over a Code field, a Code FlowFilter over a Text
+// field), @ set on the source's Code and Text fields, and @ on a lookup FlowField (Text or Code) of a host in the database.
+// It keeps every row of a temporary record: its Code and Text fields, and a lookup FlowField of a temporary host.
+// Fixtures (the header's Fixtures used lines have no room): tables 97548 and 97549, test codeunit 97550.
+
+table 97548 "BQ Kind Source"
+{
+    DataClassification = SystemMetadata;
+    ReplicateData = false;
+
+    fields
+    {
+        field(1; "Group"; Code[20]) { }
+        field(2; Id; Integer) { }
+        field(3; "Code Kind"; Code[20]) { }
+        field(4; "Text Kind"; Text[50]) { }
+        field(5; Amount; Decimal) { }
+    }
+
+    keys
+    {
+        key(PK; "Group", Id) { Clustered = true; }
+    }
+}
+
+table 97549 "BQ Kind Host"
+{
+    DataClassification = SystemMetadata;
+    ReplicateData = false;
+
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(2; "Text Filter"; Text[50]) { FieldClass = FlowFilter; }
+        field(3; "Code Filter"; Code[20]) { FieldClass = FlowFilter; }
+        field(4; "Code By Text"; Decimal)
+        {
+            FieldClass = FlowField;
+            CalcFormula = sum("BQ Kind Source".Amount where("Group" = field("No."), "Code Kind" = field("Text Filter")));
+        }
+        field(5; "Text By Text"; Decimal)
+        {
+            FieldClass = FlowField;
+            CalcFormula = sum("BQ Kind Source".Amount where("Group" = field("No."), "Text Kind" = field("Text Filter")));
+        }
+        field(6; "Text By Code"; Decimal)
+        {
+            FieldClass = FlowField;
+            CalcFormula = sum("BQ Kind Source".Amount where("Group" = field("No."), "Text Kind" = field("Code Filter")));
+        }
+        field(7; "Code By Code"; Decimal)
+        {
+            FieldClass = FlowField;
+            CalcFormula = sum("BQ Kind Source".Amount where("Group" = field("No."), "Code Kind" = field("Code Filter")));
+        }
+        field(8; "Count Code By Text"; Integer)
+        {
+            FieldClass = FlowField;
+            CalcFormula = count("BQ Kind Source" where("Group" = field("No."), "Code Kind" = field("Text Filter")));
+        }
+        field(9; "Count Text By Code"; Integer)
+        {
+            FieldClass = FlowField;
+            CalcFormula = count("BQ Kind Source" where("Group" = field("No."), "Text Kind" = field("Code Filter")));
+        }
+        field(10; "Kind One Text"; Text[50])
+        {
+            FieldClass = FlowField;
+            CalcFormula = lookup("BQ Kind Source"."Text Kind" where("Group" = field("No."), Id = const(1)));
+        }
+        field(11; "Kind One Code"; Code[20])
+        {
+            FieldClass = FlowField;
+            CalcFormula = lookup("BQ Kind Source"."Code Kind" where("Group" = field("No."), Id = const(1)));
+        }
+    }
+
+    keys
+    {
+        key(PK; "No.") { Clustered = true; }
+    }
+}
+
+codeunit 97550 "BQ Tests 9b"
+{
+    Subtype = Test;
+
+    var
+        Assert: Codeunit Assert;
+
+    // A host and its source rows: K (Amount 10) and empty (Amount 5), the same in both kind fields.
+    local procedure NewHost(var Host: Record "BQ Kind Host")
+    var
+        Source: Record "BQ Kind Source";
+    begin
+        Host."No." := CopyStr(DelChr(Format(CreateGuid()), '=', '{}-'), 1, 18);
+        Host.Insert();
+        Source."Group" := Host."No.";
+        Source.Id := 1;
+        Source."Code Kind" := 'K';
+        Source."Text Kind" := 'K';
+        Source.Amount := 10;
+        Source.Insert();
+        Source.Id := 2;
+        Source."Code Kind" := '';
+        Source."Text Kind" := '';
+        Source.Amount := 5;
+        Source.Insert();
+        Host.SetRange("No.", Host."No.");
+    end;
+
+    // A Text FlowFilter @ alone: over a Code field (sum and count) and over a Text field.
+    [Test]
+    procedure AtSignAlone_TextFlowFilter_OverCodeAndText()
+    var
+        Host: Record "BQ Kind Host";
+    begin
+        NewHost(Host);
+        Host.SetFilter("Text Filter", '@');
+        Host.FindFirst();
+        Host.CalcFields("Code By Text", "Text By Text", "Count Code By Text");
+        Assert.AreEqual('5|5|1', Format(Host."Code By Text") + '|' + Format(Host."Text By Text") + '|' +
+            Format(Host."Count Code By Text"), 'code, text, count');
+    end;
+
+    // A Code FlowFilter @ alone: over a Text field (sum and count) and over a Code field.
+    [Test]
+    procedure AtSignAlone_CodeFlowFilter_OverTextAndCode()
+    var
+        Host: Record "BQ Kind Host";
+    begin
+        NewHost(Host);
+        Host.SetFilter("Code Filter", '@');
+        Host.FindFirst();
+        Host.CalcFields("Text By Code", "Code By Code", "Count Text By Code");
+        Assert.AreEqual('5|5|1', Format(Host."Text By Code") + '|' + Format(Host."Code By Code") + '|' +
+            Format(Host."Count Text By Code"), 'text, code, count');
+    end;
+    // @ alone set on the kind fields of the source rows themselves, in the database and in a temporary record.
+    [Test]
+    procedure AtSignAlone_SourceFields_DatabaseAndTemporary()
+    var
+        Host: Record "BQ Kind Host";
+        Source: Record "BQ Kind Source";
+        Temp: Record "BQ Kind Source" temporary;
+        Seen: Text;
+    begin
+        NewHost(Host);
+        Source.SetRange("Group", Host."No.");
+        if Source.FindSet() then
+            repeat
+                Temp := Source;
+                Temp.Insert();
+            until Source.Next() = 0;
+        Source.SetFilter("Code Kind", '@');
+        Seen := Format(Source.Count());
+        Source.SetRange("Code Kind");
+        Source.SetFilter("Text Kind", '@');
+        Seen += '|' + Format(Source.Count());
+        Temp.SetFilter("Code Kind", '@');
+        Seen += '|' + Format(Temp.Count());
+        Temp.SetRange("Code Kind");
+        Temp.SetFilter("Text Kind", '@');
+        Seen += '|' + Format(Temp.Count());
+        Assert.AreEqual('1|1|2|2', Seen, 'database code, database text, temporary code, temporary text');
+    end;
+    // @ alone on a lookup FlowField whose value is K (a Text and a Code one), of the host in the database and in a temporary
+    // record.
+    [Test]
+    procedure AtSignAlone_LookupFlowFieldFilters_DatabaseAndTemporary()
+    var
+        Host: Record "BQ Kind Host";
+        Temp: Record "BQ Kind Host" temporary;
+        Seen: Text;
+    begin
+        NewHost(Host);
+        Temp := Host;
+        Temp.Insert();
+        Temp.SetRange("No.", Host."No.");
+        Host.SetFilter("Kind One Text", '@');
+        Seen := Format(Host.Count());
+        Host.SetRange("Kind One Text");
+        Host.SetFilter("Kind One Code", '@');
+        Seen += '|' + Format(Host.Count());
+        Temp.SetFilter("Kind One Text", '@');
+        Seen += '|' + Format(Temp.Count());
+        Temp.SetRange("Kind One Text");
+        Temp.SetFilter("Kind One Code", '@');
+        Seen += '|' + Format(Temp.Count());
+        Assert.AreEqual('0|0|1|1', Seen, 'database text, database code, temporary text, temporary code');
+    end;
+}

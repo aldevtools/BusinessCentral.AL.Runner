@@ -81,10 +81,10 @@ BQ Tests 6::BgQueryCache_Run_AllForms_FilterGroups3And5_FirstAnswer	ASSUMED back
 BQ Tests 6::BgQueryCache_Run_AllForms_FilterGroup7_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:2730)
 BQ Tests 6::BgQueryCache_Run_AllForms_OrGroup_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:2736)
 BQ Tests 6::BgQueryCache_Run_AllForms_CompoundFilters_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:2743)
-BQ Tests 6::BgQueryCache_Run_AllForms_OtherFilterKinds_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:2751)
+BQ Tests 6::BgQueryCache_Run_AllForms_OtherFilterKinds_FirstAnswer	ASSUMED at-sign-alone-database-blank,background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:2751)
 BQ Tests 6::BgQueryCache_Run_AllForms_NoFilter_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:2775)
 BQ Tests 6::BgQueryCache_Run_TestReadsFirst_NoFilter_FirstReadsAnswerThem	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:2789)
-BQ Tests 6::BgQueryCache_Run_TestReadsFirst_EveryShape_FirstReadsAnswerThem	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:2808)
+BQ Tests 6::BgQueryCache_Run_TestReadsFirst_EveryShape_FirstReadsAnswerThem	ASSUMED at-sign-alone-database-blank,background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:2808)
 # The cells of BQ Tests 7 (corpus PR 1495): more filters, filter groups 1 and 8-255, FindFirst and FindLast with a FlowField
 # filter next to the key, a FlowFilter filter and the test session's reads first answer from the cache; main read the table,
 # or refused every read of table 97500 after a worker's filter in filter group 1. That filter ends with the worker (:3438),
@@ -127,8 +127,26 @@ BQ Tests 8b::BgQueryCache_Run_FlowFieldFilterKinds_FindsFirstAnswer	ASSUMED back
 BQ Tests 8b::BgQueryCache_Run_FlowFieldInOrGroup_DescriptionChanged	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:4801)
 BQ Tests 8b::BgQueryCache_Run_FlowFieldAndOtherFilterGroups_FindsFirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:4809)
 BQ Tests 8b::BgQueryCache_Run_FlowFieldFlowFilterAndExtension_FindsFirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:4819)
-# Neighbors (BQ Gate Tests: 26215 filters on a table of 103 fields, a FlowField filter next to the key set to its value
-# twice, a worker's fresh Record and RecordRef Count while the test session holds a filter in filter group 1, FlowField
-# filters of an open range, an & inside a |, a case-sensitive wildcard and @ alone, a sum whose field() is a FlowField of
-# the row after an uncommitted note): BC answers them; past what the cells measure, the head keeps main's answer, so they
-# fail on both alike (@ alone on a Code field is refused on both).
+# The cells of BQ Tests 9 (corpus PR 1495): up to 100000 filters, the key set twice, and FindFirst and FindLast with
+# FlowField filters of open ranges, an & inside a |, case-sensitive wildcards and @ alone next to the key answer from the
+# cache; main refused every read of table 97593 after the worker's key filter in filter group 1, or refused @ alone on a
+# Code field, which keeps the empty values.
+BQ Tests 9::BgQueryCache_Run_AllForms_26215And60000Filters_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:5592)
+BQ Tests 9::BgQueryCache_Run_AllForms_100000Filters_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:5602)
+BQ Tests 9::BgQueryCache_Run_FlowFieldKeyTwice_FindsFirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:5609)
+BQ Tests 9::BgQueryCache_Run_AllForms_KeyTwice_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:5619)
+BQ Tests 9::BgQueryCache_Run_FlowFieldOpenRangesAndAndInsideOr_FindsFirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:5626)
+BQ Tests 9::BgQueryCache_Run_FlowFieldCaseSensitiveWildcards_FindsFirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:5637)
+BQ Tests 9::BgQueryCache_Run_FlowFieldAtSignAlone_FindsFirstAnswer	ASSUMED at-sign-alone-database-blank,background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:5647)
+BQ Tests 9::AtSignAlone_CodeField_KeepsTheEmptyValues	ASSUMED at-sign-alone-database-blank (open corpus PR 1495: BgTaskQueryCache.al:5654)
+# The cells of BQ Tests 9b (corpus PR 1495): @ alone keeps the empty values when the database reads the rows, whatever the
+# field's type, and every value of a temporary record. Main kept every Text value and refused @ alone on a Code field.
+BQ Tests 9b::AtSignAlone_TextFlowFilter_OverCodeAndText	ASSUMED at-sign-alone-database-blank (open corpus PR 1495: BgTaskQueryCache.al:5791)
+BQ Tests 9b::AtSignAlone_CodeFlowFilter_OverTextAndCode	ASSUMED at-sign-alone-database-blank (open corpus PR 1495: BgTaskQueryCache.al:5805)
+BQ Tests 9b::AtSignAlone_SourceFields_DatabaseAndTemporary	ASSUMED at-sign-alone-database-blank (open corpus PR 1495: BgTaskQueryCache.al:5818)
+BQ Tests 9b::AtSignAlone_LookupFlowFieldFilters_DatabaseAndTemporary	ASSUMED at-sign-alone-database-blank (open corpus PR 1495: BgTaskQueryCache.al:5847)
+# Neighbors (BQ Gate Tests: 100001 filters on a table of 503 fields, a FlowField filter next to the key set to its value in
+# three filter groups, the FlowField filters @k, <>K* and K*|X, a sum whose field() is a FlowField of the row after an
+# uncommitted note, a worker's fresh Record and RecordRef Count while the test session holds a filter in filter group 1):
+# BC answers them from the cache but @k, which reads the rows as they are; past what the cells measure, the head keeps
+# main's answer, so they fail on both alike (@k passes on both).
