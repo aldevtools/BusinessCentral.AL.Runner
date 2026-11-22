@@ -68,7 +68,7 @@ impl Session {
             let app = engine.program.apps.get(o.app as usize);
             let owner = app
                 .and_then(|a| al_builtins::ops::parse_guid(&a.id))
-                .filter(|_| !app.is_some_and(|a| a.id.eq_ignore_ascii_case("8874ed3a-0643-4247-9ced-7a7002f7135d")))
+                .filter(|_| !app.is_some_and(|a| a.id.eq_ignore_ascii_case(super::objects::al_sema_platform_app_id())))
                 .unwrap_or([0; 16]);
             let mut r = super::blank(t);
             r[pos(t, 1)] = super::option(t, 1, 1);

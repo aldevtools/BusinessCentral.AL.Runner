@@ -24,4 +24,18 @@ impl Session {
         self.events.only_targets = None;
         raised
     }
+
+    /// Of `subscribers` (object, routine) of event `event` (lower case) of `object`, the ones the event reaches now, in the
+    /// order a raise to them runs them (the event code's order, `dispatch.rs`).
+    pub fn subscriber_order(
+        &mut self,
+        object: usize,
+        event: &str,
+        subscribers: &[(usize, usize)],
+    ) -> Result<Vec<(usize, usize)>, Signal> {
+        self.events.only_targets = Some(subscribers.to_vec());
+        let order = self.event_subscribers(object, event);
+        self.events.only_targets = None;
+        Ok(order?.into_iter().map(|s| (s.object, s.routine)).collect())
+    }
 }

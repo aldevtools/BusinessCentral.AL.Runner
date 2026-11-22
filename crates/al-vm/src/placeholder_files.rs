@@ -176,8 +176,32 @@ impl Session {
 }
 
 fn refusal(mark: &Arc<str>) -> Signal {
+    let mark = al_builtins::rendered_text::shown(mark);
     Signal::unsupported(format!(
         "DotNet System.IO.File.Delete of a file holding {mark}: only the Html or Pdf of a Word layout report that one File \
          wrote to a new file from a stream copy and one File then opened with an InStream, both closed, is measured"
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use al_builtins::native::Signal;
+    use al_builtins::rendered_text::html_mark;
+
+    fn why(s: Signal) -> String {
+        match s {
+            Signal::Unsupported(w) => w.to_string(),
+            other => panic!("not a refusal: {other:?}"),
+        }
+    }
+
+    /// The Delete refusal names an Html placeholder without its process-wide render number, like every other refusal
+    /// (review of draft PR 8614, LOW-1).
+    #[test]
+    fn the_delete_refusal_is_the_same_for_every_render_number() {
+        let want = why(refusal(&html_mark("RX Word Default", None)));
+        assert_eq!(why(refusal(&html_mark("RX Word Default", Some(1)))), want);
+        assert_eq!(why(refusal(&html_mark("RX Word Default", Some(56)))), want);
+    }
 }
