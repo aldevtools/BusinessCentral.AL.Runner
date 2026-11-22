@@ -1,7 +1,7 @@
 // Neighbors of "@ alone" (al-runner issue 8637) past BQ Tests 9b and 9c and the routes of AtSignAloneReads.al (Routes.al):
-// <>@ alone on a Text field of a record in the database, and the places of a filter no cell measures with @ alone on a Code field,
-// which the runner refuses as main does: a report's DataItemTableView, a query column's ColumnFilter, and <>@ alone on a Code
-// field.
+// <>@ alone on a Text and on a Code field of a record in the database (BC: the K row), and the places of a filter no cell measures
+// with @ alone on a Code field, which the runner refuses as main does: a report's DataItemTableView and a query column's
+// ColumnFilter (BC: the empty row).
 report 97501 "BQ Kind View Rows"
 {
     ProcessingOnly = true;
@@ -128,5 +128,62 @@ codeunit 97534 "BQ At Neighbor Tests"
         Source.SetRange("Group", NewGroup());
         Source.SetFilter("Code Kind", '<>@');
         Assert.AreEqual(1, Source.Count(), '<>@ on Code');
+    end;
+}
+
+// Neighbors of <>@ alone on a Code field (AtSignAloneReads.al:698, :730 measure Record.SetFilter): the places a filter comes from
+// and the readers no cell measures it with, which the runner refuses as main does.
+codeunit 97537 "BQ Not At Neighbor Tests"
+{
+    Subtype = Test;
+
+    var
+        Assert: Codeunit Assert;
+
+    local procedure NewGroup(): Code[20]
+    var
+        Source: Record "BQ Kind Source";
+    begin
+        Source."Group" := CopyStr(DelChr(Format(CreateGuid()), '=', '{}-'), 1, 20);
+        Source.Id := 1;
+        Source."Code Kind" := 'K';
+        Source.Insert();
+        Source.Id := 2;
+        Source."Code Kind" := '';
+        Source.Insert();
+        exit(Source."Group");
+    end;
+
+    [Test]
+    procedure NotAtSignAlone_CodeField_FieldRefSetFilter()
+    var
+        Ref: RecordRef;
+        GroupRef: FieldRef;
+        KindRef: FieldRef;
+    begin
+        Ref.Open(Database::"BQ Kind Source");
+        GroupRef := Ref.Field(1);
+        KindRef := Ref.Field(3);
+        GroupRef.SetRange(NewGroup());
+        KindRef.SetFilter('<>@');
+        Assert.AreEqual(1, Ref.Count(), 'FieldRef <>@ on Code');
+    end;
+
+    [Test]
+    procedure NotAtSignAlone_CodeField_SetView()
+    var
+        Source: Record "BQ Kind Source";
+    begin
+        Source.SetView(StrSubstNo('WHERE(Group=CONST(%1),Code Kind=FILTER(<>@))', NewGroup()));
+        Assert.AreEqual(1, Source.Count(), 'SetView <>@ on Code');
+    end;
+
+    [Test]
+    procedure NotAtSignAlone_CodeField_GetFilter()
+    var
+        Source: Record "BQ Kind Source";
+    begin
+        Source.SetFilter("Code Kind", '<>@');
+        Assert.AreEqual('<>@', Source.GetFilter("Code Kind"), 'GetFilter <>@ on Code');
     end;
 }

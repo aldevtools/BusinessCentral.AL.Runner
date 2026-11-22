@@ -1,8 +1,13 @@
 # key	entry
-# AS Kind Tests (Routes.al, a copy of AtSignAloneReads.al of corpus PR 1495): main refuses @ alone on a Code field; the head runs
-# each read method and place a filter comes from as BC read them. The cells with <>@ alone on a Code field and the quoted
-# filter('@') of a CalcFormula stay refused on both. So do the neighbors of BQ At Neighbor Tests that no cell measures (a report's
-# DataItemTableView, a query's ColumnFilter, <>@ alone on a Code field) and the CRM table (AS Crm Neighbor Tests): no difference.
+# AS Kind Tests (Routes.al, a copy of AtSignAloneReads.al of corpus PR 1495): main refuses @ alone and <>@ alone on a Code field;
+# the head runs each read method and place a filter comes from as BC read them, <>@ alone on a Code field set by Record.SetFilter
+# (:698, :730) and the quoted filter('@') of a CalcFormula (:579) included. The neighbors no cell measures stay refused on both:
+# a report's DataItemTableView, a query's ColumnFilter, the CRM table (AS Crm Neighbor Tests), and <>@ alone on a Code field
+# from FieldRef.SetFilter or SetView, or read back by GetFilter (BQ Not At Neighbor Tests): no difference.
+AS Kind Tests::AtSignAloneNegated_DatabaseAndTemporary	ASSUMED at-sign-alone-database-blank (corpus PR 1495)
+AS Kind Tests::AtSignAloneNegated_LookupFlowFieldFilter	ASSUMED at-sign-alone-database-blank (corpus PR 1495)
+AS Kind Tests::AtSignAlone_CalcFormulaConstFilter	ASSUMED at-sign-alone-database-blank (corpus PR 1495)
+BQ At Neighbor Tests::AtSignAloneNegated_CodeField_SourceRows	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneReads.al:698)
 AS Kind Tests::AtSignAlone_CalcFormulaFieldFilterOfFlowFilter	ASSUMED at-sign-alone-database-blank (corpus PR 1495)
 AS Kind Tests::AtSignAlone_CalcFormulaFieldFilterOfPattern	ASSUMED at-sign-alone-database-blank (corpus PR 1495)
 AS Kind Tests::AtSignAlone_DeleteAll	ASSUMED at-sign-alone-database-blank (corpus PR 1495)
