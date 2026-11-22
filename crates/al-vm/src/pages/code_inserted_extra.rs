@@ -17,6 +17,7 @@
 //! open has a filter (`code_inserted_open`). Every other open, view and page keeps main's refusal (`UNMEASURED_CODE`).
 
 use super::code_inserted_new_line::{Leave, Opened, UNMEASURED_CODE, View};
+use super::state::SavedView;
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};
 
@@ -79,6 +80,35 @@ impl Session {
                 "a List page with extra code around CurrPage.SaveRecord over a table of more than 1000 rows (not measured)",
             ),
         }
+    }
+
+    /// What the page, the table and the store hold at `CurrPage.Update(false)` after the save: Rec, every stored row of the page's
+    /// table and the write mark, which the validation must leave as they are (`extra_code_unchanged`). In every cell the Update
+    /// is the last statement (review of #8720, point 1).
+    pub(super) fn extra_code_at_update(&mut self, st: &St) -> Result<SavedView, Signal> {
+        Ok(SavedView {
+            rec: self.page_rec(st).borrow().clone(),
+            writes: self.write_mark(),
+            rows: Some(self.extra_code_rows(st)?),
+            extra: true,
+        })
+    }
+
+    /// Whether the validation ended with Rec, every stored row of the page's table, the store's write mark and Rec's view as
+    /// `at` noted them at the `CurrPage.Update` (`extra_code_at_update`, or the save of `Update(true)`, `code_inserted_saved`):
+    /// code after the Update is not measured (a modify through another record, a field set; review of #8720, point 1).
+    pub(super) fn extra_code_unchanged(&mut self, st: &St, at: &SavedView) -> Result<bool, Signal> {
+        let rec = self.page_rec(st);
+        let rows = self.coded_rows(st)?;
+        let same_rows = match (rows, &at.rows) {
+            (Some(now), Some(then)) => {
+                now.len() == then.len() && now.iter().zip(then).all(|(a, b)| Self::same_values(a, b))
+            }
+            _ => false,
+        };
+        let unchanged =
+            self.write_mark() == at.writes && same_rows && Self::same_values(&rec.borrow().fields, &at.rec.fields);
+        Ok(unchanged && self.view_kept(st, at)?)
     }
 
     /// Whether Rec's fields `rec` and the stored row `stored` changed since the save left both as `saved` as measured: the row

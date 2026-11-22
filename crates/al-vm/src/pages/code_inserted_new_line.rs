@@ -579,6 +579,14 @@ impl Session {
         let save = std::mem::take(&mut st.borrow_mut().code_inserted_save);
         let why = match save {
             CodeInsertedSave::Off => return Ok(()),
+            // The effect gate: nothing changed since the Update (`extra_code_unchanged`).
+            CodeInsertedSave::Asked(view) if view.extra => {
+                if self.extra_code_unchanged(st, &view)? {
+                    return Ok(());
+                }
+                "the validation changed the page's record, the table or the store after CurrPage.Update moved the page from its \
+                 new line onto the row the table field inserted, under code that is not a pinned page's (not measured)"
+            }
             CodeInsertedSave::Asked(view) if self.view_kept(st, &view)? => return Ok(()),
             CodeInsertedSave::Asked(_) => {
                 "the validation changed the page's record, its view or the table after CurrPage.SaveRecord or Update(true) moved the \
@@ -597,7 +605,7 @@ impl Session {
     /// are as `view` noted them after the save. On the page with code the procedure its controls call writes another table and
     /// may write the row itself, then reads Rec again (ListNewLineFactboxesCode.al:276-297): there every other row of the page's
     /// table is as the save left it, Rec holds the row as stored now, and no subscriber of the table or the page is bound.
-    fn view_kept(&mut self, st: &St, view: &SavedView) -> Result<bool, Signal> {
+    pub(super) fn view_kept(&mut self, st: &St, view: &SavedView) -> Result<bool, Signal> {
         let rec = self.page_rec(st);
         let fields_kept = match &view.rows {
             None => self.write_mark() == view.writes && Self::same_values(&rec.borrow().fields, &view.rec.fields),
@@ -759,7 +767,12 @@ impl Session {
                  line onto the row the table field inserted, and the CurrPage.Update(false) after it (not measured)",
             );
         }
-        st.borrow_mut().code_inserted_save = CodeInsertedSave::Asked(Box::new(view.clone()));
+        let asked = match view.extra {
+            // The effect gate notes what the page, the table and the store hold at the Update (`extra_code_unchanged`).
+            true => self.extra_code_at_update(st)?,
+            false => view.clone(),
+        };
+        st.borrow_mut().code_inserted_save = CodeInsertedSave::Asked(Box::new(asked));
         if view.extra {
             super::code_inserted_extra::extra_code_assume();
         }
