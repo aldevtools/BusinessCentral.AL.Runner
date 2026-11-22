@@ -362,8 +362,9 @@ pub(crate) struct Lowerer<'a> {
     emit_pos: bool,
     /// Index of the routine being lowered in its object.
     routine_idx: usize,
-    /// The assumptions the lowering of each statement being lowered rests on (innermost last).
-    assumed: Vec<Vec<al_builtins::assumptions::Assumption>>,
+    /// The assumptions the lowering of each statement being lowered rests on (innermost last); `res` notes the ones the check
+    /// recorded on a name (`Res::Assumed`).
+    assumed: std::cell::RefCell<Vec<Vec<al_builtins::assumptions::Assumption>>>,
     /// `--tdd` (ADR-051 decision 10): the stub declarations each statement being lowered uses (innermost last); `res`
     /// notes them, so a `Stmt::TddMark` goes before the statement.
     tdd_marked: std::cell::RefCell<Vec<Vec<String>>>,

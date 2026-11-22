@@ -673,6 +673,116 @@ mod tests {
         assert_eq!(summary(&back), summary(&b));
     }
 
+    /// The table `Names` (object 11) of al-data's collation tests: the Text key `Name`, the Code field `Tag`.
+    fn names() -> al_data::TableDef {
+        let f = |id, name: &str, ty| al_data::FieldDef {
+            id,
+            name: name.into(),
+            ty,
+            stored: true,
+            code_storage: Default::default(),
+        };
+        al_data::TableDef {
+            object: 11,
+            name: "Names".into(),
+            fields: vec![
+                f(1, "Name", al_builtins::value::RtType::Text(Some(30))),
+                f(2, "Tag", al_builtins::value::RtType::Code(Some(20))),
+            ],
+            keys: vec![vec![0], vec![1, 0]],
+            per_company: true,
+        }
+    }
+
+    /// Whether the first row of `store` in the order of `Name` is refused.
+    fn ordered_read_refused(store: &al_data::memory::MemStore) -> bool {
+        use al_data::Store;
+        let scan = al_data::Scan {
+            key: 0,
+            filters: &[],
+            ascending: true,
+            after: None,
+        };
+        matches!(
+            store.next(&al_data::contract::cx("C"), &names(), &scan),
+            Err(al_data::StoreError::Refused(_))
+        )
+    }
+
+    // al-data collation_read_tests.rs `an_ordered_read_of_a_text_key_holding_a_small_ae_refuses` (review of PR 8220, issue
+    // 8195): an ordered read of a text key holding `æ` refuses. A baseline read back from its bytes (a thread's own copy, the
+    // shared baseline, the baseline cache) holds the same rows, so it refuses the same read.
+    #[test]
+    fn a_baseline_read_back_from_bytes_refuses_what_the_captured_one_refuses() {
+        use al_data::Store;
+        let mut store = al_data::memory::MemStore::default().as_database();
+        for (n, c) in [("Alpha", "A"), ("ærø", "B"), ("Bravo", "C")] {
+            let row = vec![
+                al_builtins::value::Value::Text(n.into()),
+                al_builtins::value::Value::Code(c.into()),
+            ];
+            store.insert(&al_data::contract::cx("C"), &names(), row).unwrap();
+        }
+        store.commit();
+        let mut b = sample();
+        b.store = store;
+        assert!(ordered_read_refused(&b.store), "the captured baseline refuses");
+        let back = Baseline::from_bytes(&b.to_bytes().unwrap()).unwrap();
+        assert!(
+            ordered_read_refused(&back.store.as_database()),
+            "read back from its bytes"
+        );
+        let shared = b.freeze().unwrap().thaw(None);
+        assert!(ordered_read_refused(&shared.store.as_database()), "the shared baseline");
+    }
+
+    /// The rows `--test-data` backs table `Names` with in company `C`: `Alpha`, `ærø` and `Bravo`.
+    struct NameRows;
+
+    impl al_data::memory::Backing for NameRows {
+        fn company(&self) -> &str {
+            "C"
+        }
+        fn rows(&self, company: &str, object: u32) -> Option<al_data::memory::Rows> {
+            let rows = [("Alpha", "A"), ("ærø", "B"), ("Bravo", "C")].map(|(n, c)| {
+                vec![
+                    al_builtins::value::Value::Text(n.into()),
+                    al_builtins::value::Value::Code(c.into()),
+                ]
+            });
+            (company == "C" && object == 11)
+                .then(|| al_data::memory::Rows::from_rows(&names(), rows.to_vec()).ok())
+                .flatten()
+        }
+    }
+
+    // Review of PR 8517 (issue 8516): install code that writes to a table test data backs copies the backing's rows into
+    // the store (`table_mut`). The captured baseline, the one read back from its bytes and the thawed shared one hold the
+    // same rows, so they give the same answer to an ordered read of a text key holding `æ` (al-data collation_read_tests.rs
+    // `an_ordered_read_of_a_text_key_holding_a_small_ae_refuses`): all three refuse it.
+    #[test]
+    fn a_backed_baseline_refuses_alike_captured_read_back_and_thawed() {
+        use al_data::Store;
+        let backing: std::rc::Rc<dyn al_data::memory::Backing> = std::rc::Rc::new(NameRows);
+        let mut store = al_data::memory::MemStore::default()
+            .as_database()
+            .with_backing(backing.clone());
+        let row = vec![
+            al_builtins::value::Value::Text("Alpha".into()),
+            al_builtins::value::Value::Code("Z".into()),
+        ];
+        store.modify(&al_data::contract::cx("C"), &names(), row).unwrap();
+        store.commit();
+        let mut b = sample();
+        b.store = store;
+        let back = Baseline::from_bytes(&b.to_bytes().unwrap()).unwrap();
+        let read_back = back.store.as_database().with_backing(backing.clone());
+        let thawed = b.freeze().unwrap().thaw(None).store.as_database().with_backing(backing);
+        assert!(ordered_read_refused(&b.store), "the captured baseline");
+        assert!(ordered_read_refused(&read_back), "read back from its bytes");
+        assert!(ordered_read_refused(&thawed), "the shared baseline");
+    }
+
     // corpus record/TestSystemFieldStampsContracts.al:Insert_StampsBothFieldsWithTheUtcClock_SystemIdIsSetBeforeOnInsert:
     // the install ran on a clock its Sleep calls had moved forward; a session restored from its baseline stamps on the real clock.
     #[test]

@@ -106,7 +106,6 @@ impl Session {
             // readable (xmlports/TestXmlPortImportWriteTx.al:StaticGuardedImport_FailingSecondElement_ReturnsFalse_AndRollsBackTheFirstRow).
             Err(Signal::Error(e)) if guarded => {
                 self.rollback_transaction();
-                self.error_finals = None;
                 self.hold_error(*e)?;
                 Ok(Value::Boolean(false))
             }
