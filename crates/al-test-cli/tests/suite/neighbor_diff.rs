@@ -277,6 +277,23 @@ fn an_entry_whose_test_shows_no_difference_is_stale_and_fails() {
     assert!(out.contains("stale entry, no difference: P::Gone"), "{out}");
 }
 
+/// A folder the pull request does not change (`--stale-note`, set by `tools/neighbor-diff.sh`) already has its
+/// change on main: its stale entries print as a note and exit 0; an unexplained difference still fails.
+#[test]
+fn a_stale_entry_of_an_unchanged_folder_is_a_note_and_a_changed_folder_fails() {
+    let d = tempfile::tempdir().unwrap();
+    let main = junit(d.path(), "m.xml", &[("A", "")]);
+    let head = junit(d.path(), "h.xml", &[("A", "")]);
+    let (code, out) = compare_on(d.path(), &main, &head, "P::A\tREFUSED x\n", &["--stale-note"]);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("note: stale entry, no difference: P::A"), "{out}");
+    let (code, out) = compare(d.path(), &main, &head, "P::A\tREFUSED x\n");
+    assert_eq!(code, 1, "{out}");
+    let head = junit(d.path(), "h2.xml", &[("A", "<failure message=\"boom\"/>")]);
+    let (code, out) = compare_on(d.path(), &main, &head, "", &["--stale-note"]);
+    assert_eq!(code, 1, "{out}");
+}
+
 /// A third column names the BC version a row applies to: a major (`27`) or a major.minor (`29.1`), matched against the
 /// build of the run. A row for another version neither counts nor is stale.
 #[test]
@@ -526,4 +543,35 @@ fn a_dependency_folder_is_packed_into_a_source_package() {
         script.contains("--dep \"$out/$name.packages\""),
         "the script passes the packages to both runs"
     );
+}
+
+/// `neighbor-diff.sh --stale-mode APP` says "note" only for a folder inside the repository (physical path) that git
+/// reports unchanged; an app outside the repository, or one reached through a symlink, is judged by its real path.
+#[test]
+fn the_stale_note_needs_a_folder_inside_the_repository_that_git_reports_unchanged() {
+    let mode = |app: &Path| -> String {
+        let o = std::process::Command::new("bash")
+            .arg(root().join("tools/neighbor-diff.sh"))
+            .args(["--base", "HEAD", "--stale-mode"])
+            .arg(app)
+            .current_dir(root())
+            .output()
+            .unwrap();
+        assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+        String::from_utf8(o.stdout).unwrap().trim().to_string()
+    };
+    let d = tempfile::tempdir().unwrap();
+    let outside = d.path().join("probe");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("differences.tsv"), "P::A\tREFUSED x\n").unwrap();
+    assert_eq!(mode(&outside), "strict");
+    let inside = std::fs::read_dir(root().join("tests/neighbors"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .find(|p| p.is_dir())
+        .expect("a neighbor folder");
+    let link = d.path().join("link");
+    std::os::unix::fs::symlink(&inside, &link).unwrap();
+    // The symlink resolves to the same folder, so both get the same answer, never a path git cannot place.
+    assert_eq!(mode(&link), mode(&inside));
 }

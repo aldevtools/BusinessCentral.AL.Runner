@@ -23,7 +23,11 @@ impl Session {
         // whose members are all non-blank and that has no OptionCaption or OptionCaptionML, GlobalLanguage 1033
         // (FilterNonMemberOptionEnum.al:30, :137). The pinned word is no prefix of a member; whether BC reads a prefix as the member
         // is not pinned.
-        let Some(text) = shape.map(|s| s.text).filter(|text| *text == word) else {
+        let Some(text) = shape
+            .filter(|s| s.without_argument())
+            .map(|s| s.text)
+            .filter(|text| *text == word)
+        else {
             return refused();
         };
         let measured = word.bytes().all(|b| b.is_ascii_alphabetic())
@@ -65,7 +69,7 @@ impl Session {
         let RtType::Option(members) = &t.fields[pos].ty else {
             return refused();
         };
-        let measured = shape.is_some_and(|s| s.text == "-1")
+        let measured = shape.is_some_and(|s| s.without_argument() && s.text == "-1")
             && value == "-1"
             && members.iter().all(|m| !m.trim().is_empty())
             && self.field_property(t, pos, "OptionCaption").is_none()

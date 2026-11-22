@@ -1261,14 +1261,18 @@ impl CompanyOpenWrites {
 ///
 /// All of it runs with the tables of `skipped` watched (`runtime::skipped_install_tables`): code that reads or writes the
 /// rows of install code that did not run to its end refuses the codeunit (review of al-runner PR 8119, probes n15, n16).
+///
+/// `after_refusal`: the second open of a codeunit whose first one ended with [`NotOpened::retry_own_login`]
+/// (`login::decide`).
 pub(crate) fn test_session_company_open(
     lowered: &Lowered,
     session: &mut Session,
     disabled: bool,
     skipped: &[al_vm::SkippedInstall],
+    after_refusal: bool,
 ) -> Result<CompanyOpenWrites, NotOpened> {
     match crate::runtime::watching_skipped_installs(lowered, session, skipped, crate::runtime::Assumed::Marked, |s| {
-        let opened = open_test_session_company(lowered, s, disabled);
+        let opened = open_test_session_company(lowered, s, disabled, after_refusal);
         // The window the partner dependency apps' login subscribers opened (`partner_login::PartnerLogin::watch_after`)
         // closes on every exit.
         let end = s.store_mut().watch_window_end();
@@ -1291,6 +1295,7 @@ fn open_test_session_company(
     lowered: &Lowered,
     session: &mut Session,
     disabled: bool,
+    after_refusal: bool,
 ) -> Result<CompanyOpenWrites, NotOpened> {
     let engine = session.engine.clone();
     let objs = &lowered.program.objects;
@@ -1307,7 +1312,7 @@ fn open_test_session_company(
         None
     };
     let mut decision = session.test_object.map_or(crate::login::Login::None, |t| {
-        crate::login::decide(&engine, lowered, t, watched)
+        crate::login::decide(&engine, lowered, t, watched, after_refusal)
     });
     // Microsoft's code raises OnRegisterAssistedSetup only while the checklist is not set up (the pin measured a session
     // where it was not, LgnLoginChecklistTests.al:10, :139): when it is, Microsoft's code decides (review of al-runner
@@ -1316,20 +1321,25 @@ fn open_test_session_company(
         if events.iter().any(|e| e.event == "onregisterassistedsetup")
             && crate::login::checklist_set_up(lowered, session)
         {
-            decision = crate::login::Login::Raise;
+            decision = crate::login::Login::Raise { fallback: false };
         }
     }
-    let raise = matches!(decision, crate::login::Login::Raise);
+    let raise = matches!(decision, crate::login::Login::Raise { .. });
+    let fallback = matches!(decision, crate::login::Login::Raise { fallback: true });
     // Under `--no-client` which login events a web-service session raises is not measured (assumption `no-client-session`):
     // the raised login is refused, before any login code runs.
     if raise && watched == Some(crate::login::NO_CLIENT) {
         return Err(format!("the login: {}", crate::login::NO_CLIENT_RAISE).into());
     }
     let partner = crate::partner_login::subscribers(lowered, &engine.events, raise, watched);
-    let (own, watched): (&[crate::login::OwnEvent], _) = match &decision {
-        crate::login::Login::Own { events, watched } => (events, *watched),
+    let (own, watched, memo_alone): (&[crate::login::OwnEvent], _, _) = match &decision {
+        crate::login::Login::Own {
+            events,
+            watched,
+            memo_alone,
+        } => (events, *watched, *memo_alone),
         crate::login::Login::Refused(why) => return Err(why.clone().into()),
-        _ => (&[], None),
+        _ => (&[], None, false),
     };
     let steps = crate::partner_login::steps(lowered, &engine.events, own, &partner);
     // The subscribers to run, (object, routine); `None` for the login raised to the apps' own subscribers.
@@ -1353,23 +1363,21 @@ fn open_test_session_company(
     let mut own_wrote = BTreeSet::new();
     for step in subs {
         let Some((o, r)) = step else {
-            (own_wrote, wrote.partner_login) = own_login(lowered, session, &steps, watched)?;
+            (own_wrote, wrote.partner_login) = own_login(lowered, session, &steps, watched, memo_alone)?;
             continue;
         };
         let name = label(lowered, o, r);
         let who = format!("Company Triggers OnCompanyOpen(Completed) subscriber {name}");
         if let Some(reason) = crate::runtime::blocked_reason(lowered, o, r) {
-            return Err(NotOpened::refused_at_lowering(
-                format!("{who} before the first test: {reason}"),
-                o,
-                r,
-            ));
+            let not = NotOpened::refused_at_lowering(format!("{who} before the first test: {reason}"), o, r);
+            return Err(not.after_microsofts_login(lowered, fallback));
         }
         // The subscriber runs here, so what it wrote is what it wrote while it ran, not what its static reach could write:
         // code it did not run (a routine refused at lowering, a run by an id known only at run time, behind a branch that
         // is not taken) wrote nothing (al-runner issue 5641). Code it ran that is not supported raises `Unsupported`.
         let since = session.store_mut().change_counter();
-        call_before_first_test(lowered, session, &who, |s| s.call_parameterless_subscriber(o, r))?;
+        call_before_first_test(lowered, session, &who, |s| s.call_parameterless_subscriber(o, r))
+            .map_err(|not| not.after_microsofts_login(lowered, fallback))?;
         let store = session.store_mut();
         // A change to a computed (platform) table is not a stored row the watch can follow.
         if store.virtual_write_pending() {
@@ -1406,6 +1414,11 @@ pub(crate) struct NotOpened {
     pub why: String,
     pub site: Vec<al_vm::FaultFrame>,
     pub refused_in: Option<(usize, usize)>,
+    /// The runner refused (a refusal at lowering or `Signal::Unsupported`), not an AL error or another stop.
+    pub refusal: bool,
+    /// Microsoft's login code, raised with `login::Login::Raise { fallback: true }`, refused in Microsoft's code: the
+    /// codeunit runs again from a new session with the apps under test's own login (`runtime::run`).
+    pub retry_own_login: bool,
 }
 
 impl From<String> for NotOpened {
@@ -1421,7 +1434,18 @@ impl NotOpened {
             why,
             site: Vec::new(),
             refused_in: Some((o, r)),
+            refusal: true,
+            retry_own_login: false,
         }
+    }
+
+    /// Sets [`NotOpened::retry_own_login`] when `fallback` and the runner refused in a routine of a dependency app
+    /// published by Microsoft: the subscriber refused at lowering, else the innermost frame of the refusal's site.
+    fn after_microsofts_login(mut self, lowered: &Lowered, fallback: bool) -> Self {
+        let at = self.refused_in.map(|(o, _)| o).or(self.site.last().map(|f| f.object));
+        self.retry_own_login =
+            fallback && self.refusal && at.is_some_and(|o| crate::login_memo::microsoft_dependency(lowered, o));
+        self
     }
 }
 
@@ -1446,7 +1470,8 @@ pub(crate) fn call_before_first_test(
                     crate::explain::site_suffix(&lowered.program, &site)
                 ),
                 site,
-                refused_in: None,
+                refusal: true,
+                ..NotOpened::default()
             })
         }
         Err(Signal::Error(e)) => Err(NotOpened {
@@ -1455,7 +1480,7 @@ pub(crate) fn call_before_first_test(
                 e.message
             ),
             site: session.fault_site().to_vec(),
-            refused_in: None,
+            ..NotOpened::default()
         }),
         Err(_) => Err(format!("{who} stopped before the first test (not pinned)").into()),
     }
@@ -1472,6 +1497,7 @@ fn own_login(
     session: &mut Session,
     steps: &[crate::partner_login::Step],
     watched: Option<&'static str>,
+    memo_alone: bool,
 ) -> Result<(BTreeSet<u32>, crate::partner_login::PartnerLogin), NotOpened> {
     let before = watched.map(|_| session.state_stamp());
     let mut wrote = BTreeSet::new();
@@ -1499,7 +1525,7 @@ fn own_login(
         let at = session.left_stamp();
         call_before_first_test(lowered, session, &what, |s| s.raise_to(po, pr, &step.subscribers))?;
         let singles = at.changed(&session.left_stamp()).singles;
-        crate::partner_login::own_step(lowered, session, singles, &mut partner);
+        crate::partner_login::own_step(lowered, session, singles, &mut partner, memo_alone);
         // On BC the registration events are raised inside Base Application's "Checklist Events" subscriber of the
         // isolated OnAfterLogin, whose own transaction commits before the app's OnAfterLogin subscribers run; an isolated
         // event isolates a subscriber only when nothing is pending (codeunits/TestIsolatedEventSubscriberError.al:5-11,
