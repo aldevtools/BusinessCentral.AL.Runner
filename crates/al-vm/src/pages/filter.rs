@@ -276,6 +276,7 @@ impl Session {
         if set_filter && self.part_filter_runs_fn_on_new_line(st) {
             self.run_fn_controls_on_new_line(st)?;
         }
+        self.note_part_rows_read_by_test_filter(st, set_filter)?;
         // A page the filter left without a row shows a blank one, its key pre-filled from a
         // single-valued filter (corpus pages/currpage/TestPageUpdateGoneRow.al:
         // Card_OpenEdit_FilterMatchesNothing_NoOpAction_StaysOpen).
