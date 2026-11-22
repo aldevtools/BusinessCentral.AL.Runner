@@ -1506,6 +1506,9 @@ impl MemStore {
         let slot = slot(cx, t);
         if !self.tables.contains_key(&slot) {
             let start = self.backing_rows(&slot.0, slot.1).map_or_else(Table::new, |r| r.0);
+            // The copied rows are the store's from now on, and an export carries them: note them as the store read back
+            // from that export notes them (`with_held_noted`; review of PR 8517).
+            self.note_held_rows(t.object, &start);
             self.tables.insert(slot.clone(), start);
         }
         let table = self.tables.get_mut(&slot).expect("the slot was just inserted");
