@@ -223,10 +223,11 @@ impl Session {
     }
 
     /// A read of the last error (GetLastErrorText, GetLastErrorCode, GetLastErrorCallStack and the rest of
-    /// `Ctx::last_error`) that the worker's own last error decides: a worker's while the test session held one, or the test
-    /// session's after a worker set its own, until it changes. It runs through the assumption.
+    /// `Ctx::last_error`) that the worker's own last error decides: a worker's that has set none of its own yet while the test
+    /// session held one, or the test session's after a worker set its own, until it changes. It runs through the assumption.
     pub(crate) fn bg_note_last_error_read(&self) {
-        let in_worker = self.pages.bg_worker.as_ref().is_some_and(|w| w.test_had_last_error);
+        let in_worker = (self.pages.bg_worker.as_ref()).is_some_and(|w| w.test_had_last_error)
+            && self.last_error == AlError::default();
         if in_worker || self.pages.bg_kept_last_error.as_ref() == Some(&self.last_error) {
             al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::BgTaskWorkerLastError);
         }
