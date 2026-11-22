@@ -176,21 +176,6 @@ pub(crate) fn read_filters(
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::str::FromStr;
-
-    #[test]
-    fn cuts_toward_zero_after_twenty_decimals() {
-        let d = |s: &str| Decimal::from_str(s).unwrap();
-        assert_eq!(cut(&(d("1000") / d("3600000"))), Some(d("0.00027777777777777777")));
-        assert_eq!(cut(&d("-0.000000000000000000019")), Some(d("-0.00000000000000000001")));
-        assert_eq!(cut(&d("0.1")), None);
-        assert_eq!(cut(&d("0.00000000000000000001")), None);
-    }
-}
-
 impl crate::Session {
     /// Marks the filter `set` (the record op that set it and the filter) on `r` when it is a measured setter
     /// ([`measured_setter`]; `args` are the arguments of the record op): the mark [`read_filters`] reads. A temporary table keeps no mark.
@@ -211,5 +196,20 @@ impl crate::Session {
         if !r.temporary && schema.is_some_and(|s| measured_setter(t, s, filter, by_al, text, values)) {
             r.decimal_cut_filters.push(filter.clone());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::str::FromStr;
+
+    #[test]
+    fn cuts_toward_zero_after_twenty_decimals() {
+        let d = |s: &str| Decimal::from_str(s).unwrap();
+        assert_eq!(cut(&(d("1000") / d("3600000"))), Some(d("0.00027777777777777777")));
+        assert_eq!(cut(&d("-0.000000000000000000019")), Some(d("-0.00000000000000000001")));
+        assert_eq!(cut(&d("0.1")), None);
+        assert_eq!(cut(&d("0.00000000000000000001")), None);
     }
 }
