@@ -507,6 +507,21 @@ fn same_key(t: &TableDef, rc: &Rc<RefCell<RecordState>>, open: &OutOpen) -> bool
             .all(|(i, (a, k))| t.cmp_key_field(t.keys[0][i], a, k).is_eq())
 }
 
+/// The holders of buffer `b` the stream's open accounts for without a look at the rows: `b` and the stream, and the record's own
+/// copies of the field while the record lives (`RecordState::blob_copies_of`).
+fn own_holders(b: &BlobRef, open: &OutOpen) -> usize {
+    2 + open
+        .record
+        .upgrade()
+        .map_or(0, |rc| rc.borrow().blob_copies_of(open.field, b))
+}
+
+/// Main's path for a write through a stream the measured detach did not open: no value besides [`own_holders`] holds the
+/// buffer, so no row can share it. Checked on every write through such a stream ([`Session::check_temp_out_streams`]).
+fn own_holders_only(b: &BlobRef, open: &OutOpen) -> bool {
+    !open.detached && Arc::strong_count(b) <= own_holders(b, open)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -540,19 +555,4 @@ mod tests {
             assert_eq!(check(id, &[local(0)], &locals), SiteCheck::Always);
         }
     }
-}
-
-/// The holders of buffer `b` the stream's open accounts for without a look at the rows: `b` and the stream, and the record's own
-/// copies of the field while the record lives (`RecordState::blob_copies_of`).
-fn own_holders(b: &BlobRef, open: &OutOpen) -> usize {
-    2 + open
-        .record
-        .upgrade()
-        .map_or(0, |rc| rc.borrow().blob_copies_of(open.field, b))
-}
-
-/// Main's path for a write through a stream the measured detach did not open: no value besides [`own_holders`] holds the
-/// buffer, so no row can share it. Checked on every write through such a stream ([`Session::check_temp_out_streams`]).
-fn own_holders_only(b: &BlobRef, open: &OutOpen) -> bool {
-    !open.detached && Arc::strong_count(b) <= own_holders(b, open)
 }
