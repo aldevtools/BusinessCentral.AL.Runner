@@ -8,6 +8,18 @@
 use super::shown::{Effect, shown_root, shown_tree};
 use super::*;
 use al_builtins::page_op::{PageMethod, PageOp};
+use al_builtins::record_op::RecordOp;
+
+/// How a TestPage call on a host starts with respect to the refresh a Lookup left for its move (`Session::lookup_move_start`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum CarriedMove {
+    /// The call carries no such refresh.
+    No,
+    /// It carries it, starting as the measured cells do.
+    Measured,
+    /// It carries it from any other start.
+    Other,
+}
 
 impl Session {
     /// Before the refresh after the SetValue of TestField.Lookup on `st` (`control_set_value`): on a page with OnAfterGetRecord or OnAfterGetCurrRecord whose OnValidate
@@ -30,9 +42,7 @@ impl Session {
                 && !s.draft
                 && s.cursor == Cursor::Row
                 && matches!(s.parts.len(), 1..=5)
-                && s.refresh
-                && s.refresh_by_update
-                && s.refresh_update_false
+                && s.refresh.asked_by_update_false()
         };
         if !shape
             || !self.has_source(st)
@@ -100,7 +110,7 @@ impl Session {
         if calls_nothing && parts_ok {
             {
                 let mut s = st.borrow_mut();
-                s.refresh = false;
+                s.refresh.cancel();
                 s.lookup_left.refresh_deferred();
             }
             // The host's function controls run once more within the Lookup, after the OnValidate (Y15LookupThreeFieldLink.al:373
@@ -322,6 +332,75 @@ impl Session {
             && s.window.len() == 1
     }
 
+    /// Before TestPage call `method` on `st`, after `lookup_refresh_deferred_call`: whether it is a host move that carries the
+    /// refresh a Lookup left (`LookupLeft::move_refresh`), and whether it starts as the measured cells of
+    /// `lookup_move_stopped` do: the first call after the Lookup (`carried_before` false), Next from the first row of the view
+    /// or First from its last row (testpage/LookupLeftMoveStops.al:368 Next_MoveReadFails from R1, :450 First_MoveReadFails from
+    /// R3 after Last).
+    pub(super) fn lookup_move_start(
+        &mut self,
+        method: PageOp,
+        st: &St,
+        carried_before: bool,
+    ) -> Result<CarriedMove, Signal> {
+        if !st.borrow().lookup_left.move_refresh() {
+            return Ok(CarriedMove::No);
+        }
+        st.borrow_mut().lookup_left.take_curr_record_raised();
+        let rec = self.page_rec(st);
+        let measured = !carried_before
+            && match method {
+                PageOp::TestPageNext => self.on_first_row_of_view(&rec)?,
+                PageOp::TestPageFirst => self.on_last_row_of_view(&rec)?,
+                _ => false,
+            };
+        Ok(if measured {
+            CarriedMove::Measured
+        } else {
+            CarriedMove::Other
+        })
+    }
+
+    /// A host move that carried the refresh a Lookup left (`lookup_move_start`) ended with `moved`. In the measured cells, when
+    /// the move's own OnAfterGetCurrRecord raised an error that closed the TestPage, the refresh is dropped, so the same variable
+    /// opens again as a fresh page whose first move reads once (assumption `lookup-move-error-drops-refresh`, corpus pull request
+    /// 1467, LookupLeftMoveStops.al:368 Next_MoveReadFails and :450 First_MoveReadFails). Any other error that closed the page
+    /// while it carried the refresh (Previous, Last, a move from another row, a later call, an error from elsewhere) is not
+    /// measured and refused. A move whose error left the page open keeps main's result.
+    pub(super) fn lookup_move_stopped(
+        &mut self,
+        st: &St,
+        carried: CarriedMove,
+        moved: Result<Value, Signal>,
+    ) -> Result<Value, Signal> {
+        let closed = matches!(moved, Err(Signal::Error(_))) && !st.borrow().open;
+        if carried == CarriedMove::No || !closed {
+            return moved;
+        }
+        let raised = st.borrow_mut().lookup_left.take_curr_record_raised();
+        if carried == CarriedMove::Measured && raised {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::LookupMoveErrorDropsRefresh);
+            st.borrow_mut().lookup_left.take_move_refresh();
+            return moved;
+        }
+        unsupported(
+            "an error closed the TestPage in a host move that carried the refresh TestField.Lookup left, outside the measured cells (whether the refresh still runs is not pinned)",
+        )
+    }
+
+    /// Whether `rec` stands on the last row of its view (found on a copy, so `rec` does not move).
+    fn on_last_row_of_view(&mut self, rec: &Rec) -> Result<bool, Signal> {
+        let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+        self.ret_used = true;
+        if !matches!(
+            self.record_op(RecordOp::FindLast, &probe, &mut [])?,
+            Value::Boolean(true)
+        ) {
+            return Ok(false);
+        }
+        Ok(Self::same_key(&self.row_key(&probe)?, &self.row_key(rec)?))
+    }
+
     /// After a host move that carried the refresh a Lookup left (`LookupLeft::move_refresh`): the refresh runs on the row the host moved
     /// to. A move that found no row is not pinned.
     pub(super) fn lookup_move_refresh_after(&mut self, st: &St, moved: &Value) -> Result<(), Signal> {
@@ -340,10 +419,7 @@ impl Session {
         {
             let mut s = root.borrow_mut();
             s.lookup_left.refresh_taken();
-            s.refresh = true;
-            s.refresh_by_update = true;
-            s.update_left_view = None;
-            s.refresh_without_parts = !with_parts;
+            s.refresh.ask_lookup_left(with_parts);
         }
         self.run_refresh(root)
     }

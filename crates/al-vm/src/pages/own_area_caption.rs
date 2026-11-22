@@ -86,7 +86,7 @@ impl Session {
         .then(|| {
             self.caption_translations
                 .iter()
-                .find(|(t, l, _)| t == class && *l == self.global_language)
+                .find(|(t, l, _)| t == class && *l == self.global_language())
                 .map(|(_, _, caption)| caption.clone())
         })
         .flatten();
@@ -262,7 +262,7 @@ impl Session {
     /// The session facts of every CaptionClassOwnArea.al pin: its one subscriber is static (:65), so no subscription is bound, and
     /// the session language is the default one (`s` at :622), 1033.
     fn own_area_session_pinned(&self) -> bool {
-        self.global_language == 1033 && self.bound_subscriptions().is_empty()
+        self.global_language() == 1033 && self.bound_subscriptions().is_empty()
     }
 
     /// Whether the test calls on page `st` since it opened, the running one last, are a prefix of `pinned` and every one before

@@ -25,13 +25,14 @@ mod package_data;
 mod partial_gone;
 mod placeholder_files;
 mod run_restore;
+mod session_language;
 pub mod single_track;
 mod single_unmeasured;
 mod state;
 pub(crate) use state::*;
 mod baseline;
 mod sequence_start;
-pub use sequence_start::SequenceStart;
+pub use sequence_start::{DataAccess, SequenceStart};
 mod storage_checkpoint;
 pub use storage_checkpoint::{StorageCheckpoint, Unkept};
 mod capture;
@@ -73,6 +74,7 @@ mod dev_endpoint_ui;
 mod dispatch;
 pub mod dotnet;
 mod effects;
+pub mod emit_version;
 mod empty_reads;
 mod enum_caption_ml;
 mod order_trial;
@@ -242,6 +244,8 @@ pub struct Engine {
     /// Whether the license gives some table of the program less than Yes on Read, Insert, Modify or Delete, so that
     /// record accesses check it also in an unrestricted session (license_ceiling.rs). Worked out on first use.
     pub(crate) license_caps: std::sync::OnceLock<bool>,
+    /// The emit version of the run's build, which the missing-object error names (`emit_version.rs`). Default: none known.
+    pub emit_version: emit_version::EmitVersion,
     /// The service-tier setting DisableWriteInsideTryFunctions is off (`al-runner test --allow-write-in-try-functions`, al-runner
     /// issue 7143), as on Business Central online. Default `false`: the setting at its default, as on a BC container and the
     /// corpus CI, where a write inside a TryFunction whose result is used raises TryFunctionWrite.
@@ -285,7 +289,7 @@ pub struct Engine {
     pub private_test_rows: bool,
     pub(crate) delete_subscribed: std::sync::OnceLock<std::collections::HashSet<String>>,
     /// What a run of a routine on a transient instance can leave behind (`effects.rs`), per (object, routine).
-    pub(crate) lasting_effects: std::sync::Mutex<std::collections::HashMap<(usize, usize), Option<effects::Effect>>>,
+    pub(crate) lasting_effects: std::sync::Mutex<std::collections::HashMap<(usize, usize), effects::Walked>>,
     /// What a run of a page's DataCaptionExpression can raise or leave behind (`effects/open_risk.rs`), per (object, routine).
     pub(crate) caption_open_risks: std::sync::Mutex<std::collections::HashMap<(usize, usize), Option<String>>>,
     /// Per object, per routine: what a call needs to know about the routine, found once (see [`RoutineFacts`]).
@@ -320,11 +324,12 @@ pub struct InstallFacts {
     /// in one part writes (A2 item d). A read of `SystemRowVersion`, `SystemCreatedAt` or `SystemModifiedAt` of a row
     /// install code wrote is refused.
     pub row_order: std::collections::HashMap<usize, String>,
-    /// Table object -> (app under test, the assumption its install rows rely on): the install session of an app under test
-    /// raises Company Triggers OnCompanyOpen(Completed) to the subscribers of every installed app (ADR-046 amendment 1, A4
-    /// item 4, owner decision 2026-10-19), an assumption until probe Q3. A test that touches the table outside install code
-    /// is a flagged pass.
-    pub assumed: std::collections::HashMap<usize, (usize, al_builtins::assumptions::Assumption)>,
+    /// Table object -> the assumptions its install rows rely on: the install session of an app under test raises Company
+    /// Triggers OnCompanyOpen(Completed) to the subscribers of every installed app (ADR-046 amendment 1, A4 item 4, owner
+    /// decision 2026-10-19), an assumption until probe Q3; the install order of ids above the probed range; an install
+    /// subscriber written with the bare id (al-testrun `install::assume_by_id_install_tables`). A test that touches the
+    /// table outside install code is a flagged pass, through each of them.
+    pub assumed: std::collections::HashMap<usize, std::collections::BTreeSet<al_builtins::assumptions::Assumption>>,
 }
 
 /// The codeunit objects with one id, first in program order.
@@ -527,6 +532,7 @@ impl Engine {
             test_data: None,
             license: None,
             license_caps: Default::default(),
+            emit_version: Default::default(),
             write_in_try_allowed: false,
             dependencies_published_global: false,
             unevaluable_init: Arc::new(unevaluable_init),
@@ -579,6 +585,7 @@ impl Engine {
             test_data: None,
             license: None,
             license_caps: Default::default(),
+            emit_version: Default::default(),
             write_in_try_allowed: false,
             dependencies_published_global: false,
             unevaluable_init: self.unevaluable_init.clone(),
@@ -647,6 +654,7 @@ impl Engine {
             test_data,
             license,
             license_caps,
+            emit_version,
             write_in_try_allowed,
             dependencies_published_global,
             // From the program and the config of `with_config` (and al-testrun's `global_triggers_find_unavailable`,
@@ -697,6 +705,7 @@ impl Engine {
         *test_data = None;
         *license = None;
         *license_caps = Default::default();
+        *emit_version = Default::default();
         *write_in_try_allowed = false;
         *dependencies_published_global = false;
     }
@@ -900,6 +909,8 @@ pub struct Session {
     /// Each sequence this session restarted or deleted, as it was just before the first of those (`numbers_taken.rs` in
     /// al-testrun: what a codeunit under runner 130450 leaves of it).
     pub(crate) sequences_changed: std::collections::HashMap<(String, String), sessionops::SequenceChange>,
+    /// What AL code reached of the table data and when each sequence was inserted (`sequence_start.rs`).
+    access_notes: sequence_start::Notes,
     /// Why no NumberSequence call of this session can have BC's answer (`storage_checkpoint.rs`); `None`: every call runs.
     numbers_unmeasured: Option<Rc<str>>,
     /// The one instance of each `SingleInstance = true` codeunit in this session.
@@ -979,14 +990,19 @@ pub struct Session {
     /// The records (by handle) whose `validating` entry a part's link stamp pushed (`stamp_from_filters_seen_as`): the
     /// platform validates the link value, so the entry holds whatever code runs at that moment.
     pub(crate) stamp_validating: Vec<usize>,
+    /// The OnBeforeValidateEvent or OnAfterValidateEvent being raised now, innermost last (`records/validate_event_xrec.rs`).
+    pub(crate) validate_events: Vec<crate::records::ValidateEvent>,
     /// The call site named for the Validate about to start, with its record's handle (`Session::validate_at`).
     pub(crate) validate_site: Option<(usize, crate::records::ValidateSite)>,
-    /// The Validates running now, innermost last: the record's handle and the call site (`Session::take_validate_site`).
-    pub(crate) validate_sites: Vec<(usize, Option<crate::records::ValidateSite>)>,
+    /// The Validates running now, innermost last (`Session::while_validating`).
+    pub(crate) validate_sites: Vec<crate::records::ValidateRun>,
     /// The table procedures that run on a record by a plain call (no operation of the record called them), innermost
     /// last: the record's handle, the depth of `call_stack` inside the procedure and its blank xRec. A Validate of that
     /// record in the procedure's own body passes this xRec (`RecordOp::Validate`).
     pub(crate) plain_proc_xrec: Vec<(usize, usize, crate::records::Rec)>,
+    /// The xRecs of the table procedures that run on a record with an xRec they share with their caller or a running call
+    /// (`ProcXrec::Shared` and `ProcXrec::SharedReadOnly`), innermost last.
+    pub(crate) shared_proc_xrec: Vec<crate::records::Rec>,
     pub(crate) cx: al_data::AccessContext,
     /// The tables that held a row when the install baseline was captured (none without one).
     pub(crate) baseline_rows: std::collections::BTreeSet<u32>,
@@ -1145,6 +1161,9 @@ pub struct Session {
     /// The host move whose parts are reading again: Next and Previous, a GoToKey or GoToRecord that stayed on the row, and the
     /// moves `pageops.rs` syncs in its last branch (GoToRecord, GoToKey and the others) (`pages/empty_part_rec.rs`).
     pub(crate) host_move_running: Option<pages::HostMove>,
+    /// The part whose calls after the test's own filter take the steps of `pages/part_update_left_view.rs`
+    /// (`TestFilterReread`): a test call on any other page ends them.
+    pub(crate) test_filter_steps: Option<std::rc::Weak<std::cell::RefCell<pages::PageState>>>,
     /// A host move syncs a part that serves its rows from OnFindRecord or OnNextRecord: the part keeps its rows when its link
     /// values did not change (`pages/parts.rs` `sync_parts_with`).
     /// `Some(true)`: a part that shows no row or only its blank line stays as it is too (a part linked through a Provider that
@@ -1161,6 +1180,8 @@ pub struct Session {
     /// The companies the run declared, the session company first (ADR-046 decision 2, `--companies`); empty for the
     /// default of one company.
     pub(crate) companies: Vec<String>,
+    /// Companies the selected test-data provider explicitly backs; this does not add companies to the host's declaration.
+    pub(crate) backed_companies: Vec<String>,
     /// (company, table) -> why the rows of a per-company table in a company other than the session company are not known
     /// (ADR-046 decision 6, `Session::mark_company_unknown`).
     pub(crate) company_unknown: std::collections::HashMap<(String, u32), String>,
@@ -1204,8 +1225,8 @@ pub struct Session {
     pub(crate) clock_draws: u64,
     /// The date `WorkDate(Date)` set; today until then.
     pub(crate) work_date: Option<i32>,
-    /// The language `GlobalLanguage(Id)` set.
-    pub(crate) global_language: i32,
+    /// The language `GlobalLanguage(Id)` set (`session_language.rs`).
+    pub(crate) global_language: session_language::SessionLanguage,
     /// What `CaptionClassTranslate` translated in this session: (class text, GlobalLanguage then, caption). Cleared by
     /// `SelectLatestVersion` (types/PSCaptionClass.al:94-115).
     pub(crate) caption_translations: Vec<(String, i32, String)>,
@@ -1225,6 +1246,9 @@ pub struct Session {
     /// A RecordRef method that forwards to the record method of its name is running: that method, and those nested in it,
     /// are not a Record variable's (`assigned_audit.rs`).
     pub(crate) through_recordref: bool,
+    /// How each RecordRef over the database Field table reached its row and who set its filters on RelationFieldNo
+    /// (`platform/relation_field_no_readers.rs`).
+    pub(crate) relation_field_no_refs: crate::platform::relation_field_no_readers::RecordRefTraces,
     /// Transactions: the depth of transaction-beginning constructs, and where the open transaction stands.
     pub(crate) tx: TxState,
     /// Handler functions and notifications of the running test method.
@@ -1304,11 +1328,19 @@ impl Session {
         let mut ident = platform::Ident::of(&host);
         let declared = host.identity.companies();
         let restored = match declared {
-            al_host::Companies::All => engine.test_data.as_ref().map(|td| td.provider.companies()),
+            al_host::Companies::All => engine
+                .test_data
+                .as_ref()
+                .map(|td| td.provider.known_companies().unwrap_or_else(|| td.provider.companies())),
             _ => None,
         };
         ident.resolve_companies(declared, restored);
         let companies = ident.companies.clone();
+        let backed_companies = engine
+            .test_data
+            .as_ref()
+            .and_then(|data| data.provider.known_companies())
+            .unwrap_or_default();
         let event_stats = Rc::new(platform::EventStats::default());
         let media = al_builtins::media::MediaStore::default();
         let mut store = al_data::memory::MemStore::with_virtual_tables(Rc::new(platform::Providers::new(
@@ -1329,10 +1361,9 @@ impl Session {
             .as_ref()
             .and_then(|td| td.provider.last_row_version())
             .map_or(0, |v| i64::try_from(v).unwrap_or(i64::MAX));
-        al_builtins::ops::set_turkic_code(al_builtins::native::is_turkic_language(host.identity.global_language()));
-        al_builtins::filter::set_filter_language(host.identity.global_language());
+        let language = host.identity.global_language();
         let mut session = Session {
-            global_language: host.identity.global_language(),
+            global_language: session_language::SessionLanguage::unset(),
             caption_translations: Vec::new(),
             ui_caption_translated: Vec::new(),
             get_load: false,
@@ -1340,10 +1371,12 @@ impl Session {
             find_load: false,
             find_through_recordref: false,
             through_recordref: false,
+            relation_field_no_refs: Default::default(),
             host,
             waited_ms: 0,
             resource_reads: Default::default(),
             companies,
+            backed_companies,
             company_unknown: Default::default(),
             full_copies: Default::default(),
             run_trigger_unknown: None,
@@ -1402,9 +1435,11 @@ impl Session {
             truncate_undo: Default::default(),
             validating: Vec::new(),
             stamp_validating: Vec::new(),
+            validate_events: Vec::new(),
             validate_site: None,
             validate_sites: Vec::new(),
             plain_proc_xrec: Vec::new(),
+            shared_proc_xrec: Vec::new(),
             cx: al_data::AccessContext {
                 company: company.into(),
                 user: user.into(),
@@ -1443,6 +1478,7 @@ impl Session {
             setup_caption_read_early: false,
             sequences,
             sequences_changed: Default::default(),
+            access_notes: Default::default(),
             table_connections: Default::default(),
             default_table_connection: Default::default(),
             crm_stores: Default::default(),
@@ -1498,6 +1534,7 @@ impl Session {
             host_new_running: None,
             part_open_running: false,
             host_move_running: None,
+            test_filter_steps: None,
             part_sync_keeps_same_link: None,
             dotnet: Default::default(),
             application_areas: String::new(),
@@ -1514,6 +1551,7 @@ impl Session {
             coverage: CoverageState::default(),
             report: ReportState::default(),
         };
+        session.set_language(language);
         session.seed_platform_rows(&ident);
         session
     }
@@ -1537,9 +1575,11 @@ impl Session {
         self.isolated_set_in_test.clear();
         self.demo_written.clear();
         self.gl_setup_written = false;
-        self.tx.transaction_type = 0;
+        self.tx.transaction_type = crate::transactions::TRANSACTION_TYPE_UPDATE_NO_LOCKS;
         self.tx.phase = crate::transactions::TxPhase::Fresh;
         self.tx.open.locks = Default::default();
+        self.tx.open.at_test_start = true;
+        self.pages.test_methods_started += 1;
     }
 
     /// Makes every change so far durable (and a Truncate of this transaction final).
@@ -1695,10 +1735,12 @@ impl Session {
                     failed_insert: None,
                     row_origin: None,
                     own_read: Default::default(),
+                    rolled_read: Default::default(),
                     probed_source: Default::default(),
                     globals: Default::default(),
                     unpinned_buffer: None,
                     view_assumption: None,
+                    auto_calc_dropped: false,
                     run_page_link: None,
                 })))
             }
@@ -1898,17 +1940,14 @@ impl Session {
     /// (`GlobalLanguage`) and WorkDate (`restore_carried` puts it back).
     pub fn carried_state(&self) -> CarriedState {
         CarriedState {
-            language: self.global_language,
+            language: self.global_language(),
             work_date: self.work_date,
         }
     }
 
     /// Puts back what [`Session::carried_state`] took (al-testrun `stopped_state.rs` decides when).
     pub fn restore_carried(&mut self, state: CarriedState) {
-        self.global_language = state.language;
-        self.events.event_stats.language.set(state.language);
-        al_builtins::ops::set_turkic_code(al_builtins::native::is_turkic_language(state.language));
-        al_builtins::filter::set_filter_language(state.language);
+        self.set_language(state.language);
         self.work_date = state.work_date;
     }
 
@@ -2740,7 +2779,7 @@ impl Session {
     /// German text for Code are not pinned and are refused.
     pub(crate) fn variant_to_text_error(&self, code: bool) -> Signal {
         let kind = if code { "NavCode" } else { "NavText" };
-        match (self.global_language, code) {
+        match (self.global_language(), code) {
             (1033, _) => crate::transactions::al_error_code(
                 &format!(
                     "The expression Microsoft.Dynamics.Nav.Runtime.NavIndirectValue cannot be type-converted to a Microsoft.Dynamics.Nav.Runtime.{kind} value."

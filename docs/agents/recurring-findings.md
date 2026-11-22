@@ -5,8 +5,8 @@ checks its diff against this list before hand-back; the reviewer checks it first
 numbers: `recurring-findings-examples.md`. Read an item's examples when your change touches it. A finding seen in two
 or more pull requests gets an item here and there, in the change that fixes it.
 
-1. **A new rule runs on shapes no case pins** (29). One allowlist predicate at the owner: every pinned fact by equality, each cited. Flip one fact at a time.
-2. **A shape main answered now refuses or answers differently** (13). Neighbors keep main's result (Rust tests). A refusal is only as wide as its reason.
+1. **A new rule runs on shapes no case pins** (29). One allowlist predicate at the owner: every pinned fact by equality, each cited. Flip one fact at a time, one test each, in a neighbor app run by `tools/neighbor-diff.sh`.
+2. **A shape main answered now refuses or answers differently** (13). Neighbors keep main's result (a neighbor app and Rust tests). A refusal is only as wide as its reason.
 3. **Text that does not match the code or CI** (comments 13, PR body or ADR 9). Read comments, PR body and area table against the final diff and the real CI run.
 4. **More than one owner** (10). Put a rule at the one site its pin covers. Call the owner. Match by kind or raise site, not text.
 5. **New refusals without a Rust test** (10). A Rust test or a corpus case reaches every new refusal.
@@ -29,3 +29,9 @@ or more pull requests gets an item here and there, in the change that fixes it.
 21. **A mark set on the first read only.** Mark the first reader and every later test. A keeping write is a read.
 22. **Code moved to a session of its own.** One predicate names every `Session` field (no `..`). Probe each.
 23. **A workflow or action change without the Rust tests that read workflow text.** Grep `crates/al-test-cli/tests/suite/ci_*.rs` for the changed step text; run `cargo test -p al-test-cli --test suite ci_`.
+24. **A corpus bump deletes an assumption entry, and its unmeasured shapes keep running.** Every shape the entry listed as assumed beyond or still to measure refuses after the bump, unless the new pin measures it.
+25. **A gate compares names, not bodies.** A trigger, procedure, subscriber, codeunit or extension name says nothing about what runs. A gate that compares names also compares the bodies line for line with the pin (`pinned_body.rs`), callees included, or it refuses.
+26. **A value kind a new lowering builds reaches every reader of the old kind.** Run it through the readers main used (field, Text[n], Code[n], list, filter, FieldRef, Evaluate, StrSubstNo) against a main binary. A new mid-run refusal is a regression.
+27. **A gate reads a state field as "the start of the test".** A field that only some events change also reads "at start" after other events (a commit, a rollback, a set back to the start value). Gate on the pinned moment itself, and name every event that ends it.
+28. **A tooling gate that reads a command's empty output as "nothing changed".** Require that the command exits 0 (and that its path is inside the repository) before an empty output relaxes a check. Example: `neighbor-diff.sh` stale-entry note.
+29. **A neighbor row picks the entry kind the checker accepts, not the one that names the cause.** A PINNED row's line must pin the shape the test runs. A clean pass that comes from a known gap is no row: drop the test and move it to the gap's issue.

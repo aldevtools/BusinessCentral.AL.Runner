@@ -182,7 +182,8 @@ impl Session {
         self.profile_enter(object, routine, true);
         self.events.publish_frame = true;
         self.events.blob_publisher = blob_publisher;
-        self.events.by_value_publisher = Some((object, routine));
+        let var_param_arg = std::mem::take(&mut self.events.raise_arg_var_param);
+        self.events.by_value_publisher = Some((object, routine, var_param_arg));
         self.events.sender_refused = sender_refused;
         self.events.var_origins = origins;
         self.events.publisher_var_lens = lens;
@@ -279,6 +280,7 @@ impl Session {
         self.events.trial.allowed = false;
         let trials = std::mem::take(&mut self.events.trial.picked);
         let targets = targets?;
+        let subscribers = targets.len();
         for (s, inst) in targets {
             // A manual instance unbound since the raise began. One that unbound itself in an earlier method of this raise
             // is not called again (events/ProbeEventSubscriberOrder.al:253
@@ -353,7 +355,7 @@ impl Session {
                     .collect();
             }
             self.events.next_is_subscriber = true;
-            self.events.next_event_args = self.event_args(by_value_publisher.as_ref(), &s, &map);
+            self.events.next_event_args = self.event_args(by_value_publisher.as_ref(), &s, &map, subscribers);
             self.events.next_blob_event = crate::blob_transfer::measured_subscriber(blob_publisher, s.manual);
             let manual_inst = s.manual.then(|| inst.clone());
             // What the event recursion error would name (see `Session::call`): the publisher and the subscriber routine, for the
@@ -444,6 +446,42 @@ impl Session {
             return false;
         }
         !matches!(self.event_targets(object, event, None), Ok(v) if v.is_empty())
+    }
+
+    /// The first subscriber of a dependency app that raising `event` under the runtime-raised platform key `key` would reach now,
+    /// other than the System Application's codeunit `stand_in` (`al_ir::is_system_application_codeunit`), as `codeunit "Name"`:
+    /// a compiled one (a manual one only while an instance is bound, as `event_targets` reaches it), else one the program
+    /// cannot run: left out by the compile (`MissingWhy::NotCompiled`; the demand lists no manual one) or compiled with a
+    /// publisher it binds to no object (a bare id, `Missing::bound_only` for a manual one). What such a subscriber does is
+    /// pinned by no case, so the caller refuses (`filterevents`, `pages/ui_caption_translate`, `pages/caption_class`).
+    pub(crate) fn receiving_dependency_subscriber(&self, key: usize, event: &str, stand_in: &str) -> Option<String> {
+        let program = &self.engine.program;
+        let heads = program.objects.heads();
+        let foreign = |object: usize| {
+            let o = &heads[object];
+            program
+                .apps
+                .get(o.app as usize)
+                .is_some_and(|a| a.dependency && !al_ir::is_system_application_codeunit(stand_in, &o.name, &a.id))
+        };
+        let compiled = (self
+            .engine
+            .events
+            .subscribers
+            .get(&(key, event.to_string()))
+            .into_iter()
+            .flatten())
+        .find(|s| foreign(s.object) && (!s.manual || self.is_bound_object(s.object)));
+        if let Some(s) = compiled {
+            let o = &heads[s.object];
+            return Some(format!("{} \"{}\"", o.kind.label(), o.name));
+        }
+        (self.engine.events.missing_at(key, event).iter())
+            .find(|m| match m.from {
+                None => m.why == crate::events::MissingWhy::NotCompiled,
+                Some(o) => foreign(o) && m.bound_only().is_none_or(|b| self.is_bound_object(b)),
+            })
+            .map(|m| m.subscriber.clone())
     }
 
     /// The subscribers an event reaches right now, each with the instance it

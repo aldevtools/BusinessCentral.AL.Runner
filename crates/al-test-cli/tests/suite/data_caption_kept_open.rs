@@ -1,5 +1,5 @@
-//! The two Worksheet opens whose DataCaptionExpression run at the open main skips under the assumption
-//! `data-caption-two-microsoft-opens-skipped` (`data_caption_kept_open.rs` in al-vm): a temporary Worksheet without inserts whose
+//! The two Worksheet opens whose DataCaptionExpression run at the open main skips (`data_caption_kept_open.rs` in al-vm,
+//! pinned by al-language/pages/properties/DataCaptionKeptOpen.al): a temporary Worksheet without inserts whose
 //! expression is a page procedure that returns a StrSubstNo of a label and a Text field of Rec when that field is not empty, opened
 //! by a Page variable's `Run()` into a Trap; and one whose expression returns a Text variable of a codeunit variable of the page,
 //! opened by a Page variable's `SetTableView` and `RunModal()` for a ModalPageHandler. Every neighbor keeps main's result: a
@@ -185,7 +185,7 @@ codeunit 69909 T
     begin P.Trap(); Pg.SetDoc('D1'); Pg.Run(); Seen := P.Caption(); end;
     [Test] [HandlerFunctions('LinesCaptionHandler')] procedure K12_Lines_Modal_View_Caption()
     var Pg: Page "KO Lines"; R: Record "KO Entry" temporary;
-    begin Pg.SetSource('Src'); Pg.SetTableView(R); Pg.RunModal(); end;
+    begin R.SetRange("Entry No.", 1); Pg.SetSource('Src'); Pg.SetTableView(R); Pg.RunModal(); end;
 
     // Neighbors: each differs in one fact and keeps main's refusal at the open.
     [Test] procedure K03_Nav_Trap_StaticRun()
@@ -242,18 +242,14 @@ const NEIGHBOR: &str =
     "a Worksheet with DataCaptionExpression that AL code opened with a handler or a Trap, outside the measured cells";
 
 #[test]
-fn the_two_evidence_opens_keep_mains_open_flagged() {
+fn the_two_pinned_opens_keep_mains_open_unflagged() {
     let out = run(SRC);
-    let flagged = [Assumption::DataCaptionTwoMicrosoftOpensSkipped];
-    for t in ["K01_Nav_Trap_VarRun", "K11_Lines_Modal_View"] {
+    // DataCaptionKeptOpen.al:436-485 and :584-606; K17 is Y50ListCaptionExpr.al's read on main's path.
+    for t in ["K01_Nav_Trap_VarRun", "K11_Lines_Modal_View", "K17_Lines_Modal_Only"] {
         let (o, h) = get(&out, t);
         assert_eq!(o, "Pass", "{t}");
-        assert!(h.contains(&flagged[0]), "{t}: {h:?}");
+        assert!(h.is_empty(), "{t}: {h:?}");
     }
-    // Y50ListCaptionExpr.al's read: main's path, not flagged.
-    let (o, h) = get(&out, "K17_Lines_Modal_Only");
-    assert_eq!(o, "Pass");
-    assert!(!h.contains(&flagged[0]), "{h:?}");
 }
 
 #[test]
@@ -377,15 +373,12 @@ fn neighbor_src() -> String {
 }
 
 #[test]
-fn the_page_facts_of_the_evidence_pages_keep_mains_open_flagged() {
+fn the_page_facts_of_the_pinned_pages_keep_mains_open() {
     let out = run(&neighbor_src());
-    // The evidence page, and the same page with OnInit and OnClosePage (both Microsoft pages declare OnInit, Order Promising
-    // Lines also OnClosePage).
-    for t in ["X69910", "X69920"] {
-        let (o, h) = get(&out, t);
-        assert_eq!(o, "Pass", "{t}");
-        assert_eq!(h, [Assumption::DataCaptionTwoMicrosoftOpensSkipped], "{t}");
-    }
+    // The pinned page facts (DataCaptionKeptOpen.al:97-149): OnOpenPage is its only trigger.
+    let (o, h) = get(&out, "X69910");
+    assert_eq!(o, "Pass");
+    assert!(h.is_empty(), "{h:?}");
 }
 
 #[test]
@@ -397,11 +390,89 @@ fn a_page_outside_the_evidence_page_facts_keeps_the_refusal_at_the_open() {
         "X69913", // an extension's SourceTableTemporary = false
         "X69914", // an extension's OnOpenPage trigger
         "X69915", // an OnOpenPageEvent subscriber
-        "X69916", // a page trigger outside OnInit, OnOpenPage and OnClosePage
+        "X69916", // a page trigger other than OnOpenPage
+        "X69920", // OnInit and OnClosePage next to OnOpenPage (only Microsoft's tests had them; the pin has OnOpenPage alone)
         "X69917", // Editable = false
         "X69918", // DelayedInsert = true
         "X69919", // a label 'Picked %10': placeholder ten, no %1
         "X69921", // an extension's Editable = false
+    ]
+    .into_iter()
+    .filter(|t| {
+        let (o, h) = get(&out, t);
+        !(h.is_empty() && o.contains("NotRun") && o.contains(NEIGHBOR))
+    })
+    .collect::<Vec<_>>();
+    assert!(wrong.is_empty(), "not refused at the open: {wrong:?}");
+}
+
+/// The modal shape (DataCaptionKeptOpen.al:659-666: a temporary record filtered to `"Entry No." = 1` handed by SetTableView,
+/// `RunModal()` as a statement, the caption from a codeunit without properties) with one fact changed each, the four shapes the
+/// deleted assumption data-caption-two-microsoft-opens-skipped still wanted measured (review probe codeunit 50125 D1-D4).
+const MODAL_SRC: &str = r#"
+table 69900 "KO Entry" { fields { field(1; "Entry No."; Integer) { } field(2; "Doc Name"; Text[50]) { } field(3; Qty; Decimal) { } } keys { key(PK; "Entry No.") { } } }
+codeunit 69901 "KO Mgt" { var CaptionText: Text; procedure SetCaption(T: Text) begin CaptionText := T; end; procedure GetCaption(): Text begin exit(CaptionText); end; }
+codeunit 69911 "KO Single" { SingleInstance = true; var CaptionText: Text; procedure SetCaption(T: Text) begin CaptionText := T; end; procedure GetCaption(): Text begin exit(CaptionText); end; }
+page 69906 "KO Lines"
+{
+    PageType = Worksheet; SourceTable = "KO Entry"; SourceTableTemporary = true; InsertAllowed = false; Caption = 'KO LINES';
+    DataCaptionExpression = Mgt.GetCaption(); UsageCategory = None;
+    layout { area(Content) { repeater(L) { field(QtyCtl; Rec.Qty) { } } } }
+    var Mgt: Codeunit "KO Mgt";
+    procedure SetSource(T: Text) begin Mgt.SetCaption(T); end;
+    trigger OnOpenPage() begin Rec."Entry No." := 1; Rec.Qty := 3; Rec.Insert(); end;
+}
+page 69912 "KO Lines Single"
+{
+    PageType = Worksheet; SourceTable = "KO Entry"; SourceTableTemporary = true; InsertAllowed = false; Caption = 'KO LINES S';
+    DataCaptionExpression = Mgt.GetCaption(); UsageCategory = None;
+    layout { area(Content) { repeater(L) { field(QtyCtl; Rec.Qty) { } } } }
+    var Mgt: Codeunit "KO Single";
+    procedure SetSource(T: Text) begin Mgt.SetCaption(T); end;
+    trigger OnOpenPage() begin Rec."Entry No." := 1; Rec.Qty := 3; Rec.Insert(); end;
+}
+codeunit 69909 T
+{
+    Subtype = Test;
+    [Test] [HandlerFunctions('LinesHandler')] procedure D0_Pinned()
+    var Pg: Page "KO Lines"; R: Record "KO Entry" temporary;
+    begin R.SetRange("Entry No.", 1); Pg.SetSource('Src'); Pg.SetTableView(R); Pg.RunModal(); end;
+    [Test] [HandlerFunctions('LinesHandler')] procedure D1_ResultUsed()
+    var Pg: Page "KO Lines"; R: Record "KO Entry" temporary; A: Action;
+    begin R.SetRange("Entry No.", 1); Pg.SetSource('Src'); Pg.SetTableView(R); A := Pg.RunModal(); end;
+    [Test] [HandlerFunctions('LinesHandler')] procedure D2_StoredRecord()
+    var Pg: Page "KO Lines"; R: Record "KO Entry";
+    begin R.SetRange("Entry No.", 1); Pg.SetSource('Src'); Pg.SetTableView(R); Pg.RunModal(); end;
+    [Test] [HandlerFunctions('LinesSingleHandler')] procedure D3_SingleInstanceSource()
+    var Pg: Page "KO Lines Single"; R: Record "KO Entry" temporary;
+    begin R.SetRange("Entry No.", 1); Pg.SetSource('Src'); Pg.SetTableView(R); Pg.RunModal(); end;
+    [Test] [HandlerFunctions('LinesHandler')] procedure D4_NonKeyFilter()
+    var Pg: Page "KO Lines"; R: Record "KO Entry" temporary;
+    begin R.SetRange(Qty, 3); Pg.SetSource('Src'); Pg.SetTableView(R); Pg.RunModal(); end;
+    [Test] [HandlerFunctions('LinesHandler')] procedure D5_NoFilter()
+    var Pg: Page "KO Lines"; R: Record "KO Entry" temporary;
+    begin Pg.SetSource('Src'); Pg.SetTableView(R); Pg.RunModal(); end;
+    [Test] [HandlerFunctions('LinesHandler')] procedure D6_OtherKeyValue()
+    var Pg: Page "KO Lines"; R: Record "KO Entry" temporary;
+    begin R.SetRange("Entry No.", 2); Pg.SetSource('Src'); Pg.SetTableView(R); Pg.RunModal(); end;
+    [ModalPageHandler] procedure LinesHandler(var P: TestPage "KO Lines") begin P.First(); end;
+    [ModalPageHandler] procedure LinesSingleHandler(var P: TestPage "KO Lines Single") begin P.First(); end;
+}
+"#;
+
+#[test]
+fn the_modal_shape_with_one_fact_changed_keeps_the_refusal_at_the_open() {
+    let out = run(MODAL_SRC);
+    let (o, h) = get(&out, "D0_Pinned");
+    assert_eq!(o, "Pass");
+    assert!(h.is_empty(), "{h:?}");
+    let wrong = [
+        "D1_ResultUsed",           // RunModal's result is used
+        "D2_StoredRecord",         // SetTableView of a stored record
+        "D3_SingleInstanceSource", // a SingleInstance codeunit is the caption source
+        "D4_NonKeyFilter",         // the filter is on a field outside the key
+        "D5_NoFilter",             // no filter at all
+        "D6_OtherKeyValue",        // the key filter holds another value than the pin's 1
     ]
     .into_iter()
     .filter(|t| {
