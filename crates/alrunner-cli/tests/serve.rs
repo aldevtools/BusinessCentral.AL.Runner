@@ -2615,15 +2615,26 @@ fn a_server_whose_executable_was_deleted_files_its_cache_entries_under_its_own_b
     let exe = d.path().join("al-runner-copy");
     std::fs::copy(env!("CARGO_BIN_EXE_al-runner"), &exe).unwrap();
     let cache = d.path().join("cache");
-    let mut child = Command::new(&exe)
+    let mut server = Command::new(&exe);
+    server
         .args(["serve", "--dep", &dep, "--no-download", "--no-test-data"])
         .env("ALRUNNER_CACHE", &cache)
         .env_remove("ALRUNNER_SEED")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap();
+        .stderr(Stdio::null());
+    // A copy just written can be busy for a moment ("Text file busy"): another thread of this test binary that forks
+    // while the copy's write handle is open keeps it open in the child until that child execs.
+    let mut tries = 0;
+    let mut child = loop {
+        match server.spawn() {
+            Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy && tries < 50 => {
+                tries += 1;
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            spawned => break spawned.unwrap(),
+        }
+    };
     let mut stdout = BufReader::new(child.stdout.take().unwrap());
     let mut line = String::new();
     stdout.read_line(&mut line).unwrap();
