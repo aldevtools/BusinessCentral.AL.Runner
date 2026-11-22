@@ -1187,18 +1187,8 @@ impl Lowerer<'_> {
             ForStmt => {
                 let down = sig_tokens(n).iter().any(|t| t.text().eq_ignore_ascii_case("downto"));
                 let var = self.place(&kids[0]);
-                let mut from = self.operand(&kids[1], ir::OperandUse::Value);
-                let mut to = self.operand(&kids[2], ir::OperandUse::Value);
-                // A one-character literal bounding a Char loop variable is that Char (`for C := '0' to '4'`).
-                if matches!(self.ty_ref(&kids[0]), Ty::Char) {
-                    for (k, b) in [(&kids[1], &mut from), (&kids[2], &mut to)] {
-                        if crate::check::one_char_literal(k) {
-                            if let Ok(x) = b.as_ref().map(Clone::clone) {
-                                *b = self.convert_to(&Ty::Char, &Ty::Text(None), x);
-                            }
-                        }
-                    }
-                }
+                let from = self.operand(&kids[1], ir::OperandUse::Value);
+                let to = self.operand(&kids[2], ir::OperandUse::Value);
                 self.loops.push(false);
                 let body = self.stmt_or_empty(kids.get(3));
                 self.loops.pop();

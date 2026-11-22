@@ -77,9 +77,11 @@ codeunit 69861 FD
     assert!(matches!(&v, Ok(al_builtins::value::Value::Integer(3))), "{v:?}");
 }
 
-// A one-character literal bounds a Char loop variable as that Char.
+// A one-character literal bounding a Char loop variable (`for c := '0' to '4'`) is refused: no corpus case pins that BC
+// reads the bound as that Char (the corpus has no `for` over a Char variable), so the runner does not guess (hard rule 3).
+// The reporter's pull request 7872 ran it; it waits for a corpus probe.
 #[test]
-fn a_one_character_literal_is_a_char_for_loop_bound() {
+fn a_one_character_literal_char_for_loop_bound_is_refused() {
     let src = r#"
 codeunit 69862 FC
 {
@@ -91,9 +93,9 @@ codeunit 69862 FC
     end;
 }
 "#;
-    let v = al_testkit::run_in(src, "FC", "F");
-    assert!(
-        matches!(&v, Ok(al_builtins::value::Value::Text(t)) if &**t == "01234"),
-        "{v:?}"
-    );
+    let why = match al_testkit::run_in(src, "FC", "F") {
+        Err(al_builtins::native::Signal::Unsupported(why)) => why.into_reason(),
+        other => panic!("expected a refusal, got {other:?}"),
+    };
+    assert!(why.contains("used as an integer"), "{why}");
 }
