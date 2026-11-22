@@ -2538,6 +2538,133 @@ fn entries_with_resources_take_the_kept_baseline_and_give_what_a_fresh_daemon_gi
     }
 }
 
+/// Two apps whose test needs the complete compile, so the dependency app is compiled into a layer of the compile cache.
+fn layered_apps(root: &Path) -> (PathBuf, PathBuf) {
+    let dep = root.join("dep");
+    write(
+        &dep,
+        "app.json",
+        r#"{"id":"82080000-0000-0000-0000-000000000001","name":"Literal Dep","publisher":"Probe","version":"1.0.0.0","dependencies":[]}"#,
+    );
+    write(
+        &dep,
+        "src/D.al",
+        "table 50952 \"Literal Row\" { fields { field(1; K; Integer) { } } keys { key(PK; K) { } } }
+codeunit 50950 \"Literal Source\" { procedure Value(): Integer begin exit(41); end; }\n",
+    );
+    let main = root.join("main");
+    write(
+        &main,
+        "app.json",
+        r#"{"id":"82080000-0000-0000-0000-000000000002","name":"Literal Tests","publisher":"Probe","version":"1.0.0.0","dependencies":[{"id":"82080000-0000-0000-0000-000000000001","name":"Literal Dep","publisher":"Probe","version":"1.0.0.0"}]}"#,
+    );
+    write(
+        &main,
+        "src/T.al",
+        "codeunit 50951 \"Literal Tests\" { Subtype = Test;
+    [Test] procedure ShowValue() var S: Codeunit \"Literal Source\"; R: Record \"Literal Row\";
+    begin R.K := 1; R.Insert(); Error('v=%1 rows=%2', S.Value(), R.Count()); end; }\n",
+    );
+    (main, dep)
+}
+
+/// The build tags (the first 16 hex of a cache file's name) of the dependency layers in `cache`.
+fn layer_tags(cache: &Path) -> Vec<String> {
+    let mut tags: Vec<String> = std::fs::read_dir(cache.join("compile"))
+        .map(|rd| {
+            rd.filter_map(|e| e.ok()?.file_name().into_string().ok())
+                .filter(|n| n.ends_with(".alcc"))
+                .map(|n| n[..16].to_string())
+                .collect()
+        })
+        .unwrap_or_default();
+    tags.sort();
+    tags.dedup();
+    tags
+}
+
+/// The compile cache's key holds a hash of the running build (`compile_cache::runtime_build`). A server whose executable
+/// was deleted or replaced after it started (an upgrade, a rebuild) still knows its build: it files its entries under the
+/// tag a normal run of the same build uses, not under a value two builds could share (two builds that both fell back read
+/// each other's entries: a program lowered by another build).
+#[cfg(target_os = "linux")]
+#[test]
+fn a_server_whose_executable_was_deleted_files_its_cache_entries_under_its_own_build() {
+    let d = tempfile::tempdir().unwrap();
+    let (main, dep) = layered_apps(d.path());
+    let dep = dep.to_string_lossy().to_string();
+    // A normal run of this build: the tag its layers carry.
+    let normal = d.path().join("normal-cache");
+    let o = Command::new(env!("CARGO_BIN_EXE_al-runner"))
+        .args([
+            "test",
+            main.to_str().unwrap(),
+            "--dep",
+            &dep,
+            "--no-download",
+            "--no-test-data",
+        ])
+        .env("ALRUNNER_CACHE", &normal)
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&o.stderr).to_string() + &String::from_utf8_lossy(&o.stdout);
+    assert!(text.contains("v=41"), "{text}");
+    let own = layer_tags(&normal);
+    assert_eq!(own.len(), 1, "one layer: {own:?}");
+    // The same build, started from a copy that is deleted before the first request.
+    let exe = d.path().join("al-runner-copy");
+    std::fs::copy(env!("CARGO_BIN_EXE_al-runner"), &exe).unwrap();
+    let cache = d.path().join("cache");
+    let mut server = Command::new(&exe);
+    server
+        .args(["serve", "--dep", &dep, "--no-download", "--no-test-data"])
+        .env("ALRUNNER_CACHE", &cache)
+        .env_remove("ALRUNNER_SEED")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    // A copy just written can be busy for a moment ("Text file busy"): another thread of this test binary that forks
+    // while the copy's write handle is open keeps it open in the child until that child execs.
+    let mut tries = 0;
+    let mut child = loop {
+        match server.spawn() {
+            Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy && tries < 50 => {
+                tries += 1;
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            spawned => break spawned.unwrap(),
+        }
+    };
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    let mut line = String::new();
+    stdout.read_line(&mut line).unwrap();
+    assert!(line.contains("ready"), "{line}");
+    std::fs::remove_file(&exe).unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    writeln!(stdin, "{}", json!({"command": "runTests", "sourcePaths": [main]})).unwrap();
+    stdin.flush().unwrap();
+    let mut answers = String::new();
+    loop {
+        line.clear();
+        assert!(
+            stdout.read_line(&mut line).unwrap() > 0,
+            "the server closed stdout: {answers}"
+        );
+        answers.push_str(&line);
+        if line.contains("\"type\":\"summary\"") {
+            break;
+        }
+    }
+    drop(stdin);
+    child.wait().unwrap();
+    assert!(answers.contains("v=41"), "{answers}");
+    assert_eq!(
+        layer_tags(&cache),
+        own,
+        "the deleted executable's server filed its layer under another build tag"
+    );
+}
+
 /// Al-runner issue 8244: `coverage: "hit"` lists in `coverage` only the statements the tests ran, each as the full list
 /// shows it, and `perTestCoverage` as without it. A coverage request keeps the install baseline of the server, and its
 /// coverage is the same as over a baseline it ran.
