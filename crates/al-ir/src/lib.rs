@@ -1476,6 +1476,12 @@ pub struct Control {
     /// (`field("LT WD Profile"; "LT WD Profile Code")`): from BC 28 a TestPage cannot read it (testpage/WdBareQuotedField.al:185).
     #[serde(default)]
     pub bare_quoted_ext_source: bool,
+    /// A page's own field control whose source is no field of the source table (a page variable, or an arithmetic or
+    /// constant expression) and whose own Visible is an expression that names a field of the source record (`Rec.Amount >
+    /// 0`, `Rec.Flag`, a bare field name): on a Card, a TestPage reads its Visible as Yes, whatever the row holds (al-runner
+    /// issue 8660, assumption `visible-names-row-field-reads-yes`).
+    #[serde(default)]
+    pub visible_reads_row: bool,
     /// For a report's own request page control bound to an expression: the source as written, trimmed (`BufArr[1].Name`).
     /// `Report.RunRequestPage` names the control's parameter by it (reports/request-page/R6960RequestParamBindings.al).
     #[serde(default)]

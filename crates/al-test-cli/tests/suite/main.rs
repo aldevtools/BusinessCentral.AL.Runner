@@ -267,6 +267,7 @@ mod tenant_permission_set_delete;
 mod test_framework_refusals;
 mod test_handlers;
 mod testpage_action_without_parentheses;
+mod testpage_visible_non_field_source;
 mod this_in_objects;
 mod trigger_setup_read_permission;
 mod typed_handler_set_up_variable;

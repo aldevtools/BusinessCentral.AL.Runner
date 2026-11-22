@@ -1815,6 +1815,11 @@ impl Session {
             ir::ControlKind::Group | ir::ControlKind::CueGroup | ir::ControlKind::Part | ir::ControlKind::Action
         ) {
             self.prop_bool_now(st, idx, "visible", true)?
+        } else if self.visible_reads_row(st, idx) {
+            // A field control bound to no field of the source table whose own Visible names a field of the record reads Yes
+            // on a Card, whatever the row holds (al-runner issue 8660, pages/controls/VisibleExpressionSource.al).
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::VisibleNamesRowFieldReadsYes);
+            true
         } else {
             self.ext_column_shown(st, idx) || st.borrow().frozen_visible.get(idx).copied().unwrap_or(true)
         };
@@ -1825,6 +1830,39 @@ impl Session {
             parent = page.controls[p].parent;
         }
         Ok(visible)
+    }
+
+    /// Evaluates every control's Visible once, at open (`PageState::frozen_visible`). A Card with a control that
+    /// `Control::visible_reads_row` marks is refused on a BC major where a TestPage of it raises "The identifier '<field>' could
+    /// not be found." at a step not pinned yet, or that the probe did not measure (`al_version::visible_names_row_field_reads_yes`).
+    pub(super) fn freeze_visible(&mut self, st: &St) -> Result<(), Signal> {
+        let engine = self.engine();
+        let page = page_of(&engine, st);
+        if (0..page.controls.len()).any(|i| self.visible_reads_row_on_card(st, i))
+            && al_version::visible_names_row_field_reads_yes(self.engine.target.as_ref()) != Some(true)
+        {
+            return unsupported(
+                "a Card with a field control bound to no field whose Visible names a field of the record, on a BC version where a TestPage of it raises \"The identifier ... could not be found.\" at a step that is not pinned (al-runner issue 8660)",
+            );
+        }
+        let mut frozen = Vec::new();
+        for i in 0..page.controls.len() {
+            frozen.push(self.prop_bool_now(st, i, "visible", true)?);
+        }
+        st.borrow_mut().frozen_visible = frozen;
+        Ok(())
+    }
+
+    /// Whether control `idx` reads Yes by `Control::visible_reads_row` on this page and BC major.
+    fn visible_reads_row(&self, st: &St, idx: usize) -> bool {
+        self.visible_reads_row_on_card(st, idx)
+            && al_version::visible_names_row_field_reads_yes(self.engine.target.as_ref()) == Some(true)
+    }
+
+    fn visible_reads_row_on_card(&self, st: &St, idx: usize) -> bool {
+        let engine = self.engine();
+        engine.object_facts[st.borrow().object as usize].page_type == Some(al_ir::PageType::Card)
+            && page_of(&engine, st).controls[idx].visible_reads_row
     }
 }
 

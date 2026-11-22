@@ -1,6 +1,7 @@
 //! What the lowering of a page does with a Boolean control expression BC compiles on the client when the page opens
-//! (`crate::pages::client_expression`): refuse what the client compile fails on, set aside a BigInteger literal, and check
-//! the types behind a qualified value through a member (`E.Mode::Beta`).
+//! (`crate::pages::client_expression`): refuse what the client compile fails on, set aside a BigInteger literal, check
+//! the types behind a qualified value through a member (`E.Mode::Beta`), and tell whether it names a field of the page's
+//! record (`names_source_field`).
 use super::*;
 use al_builtins::assumptions::Assumption;
 use std::cell::RefCell;
@@ -81,6 +82,60 @@ impl Lowerer<'_> {
                     && matches!(res(&qualifier), Some(Res::Field { .. }))
                     && matches!(res(&base), Some(Res::Global(_)))
                     && matches!(self.checked.types.get(&key(file, &base)), Some(Ty::Record { .. }))
+            })
+    }
+
+    /// Whether synthetic routine `routine` (a position among `owner`'s routines) of a control expression names a field of
+    /// the page's record: `Rec.<field>`, or a bare name that resolves to a field (no `Rec.`, warning AL0604). A member of
+    /// `xRec` or of another record is not counted (al-runner issue 8660, pages/controls/VisibleExpressionSource.al).
+    pub(super) fn names_source_field(&self, owner: usize, routine: usize) -> bool {
+        let Some(r) = self.routine_nodes.get(owner).get(routine) else {
+            return false;
+        };
+        let file = self.ws.objects[owner].file;
+        let res = |n: &SyntaxNode| self.checked.resolutions.get(&key(file, n)).map(Res::inner);
+        r.syntax().descendants().any(|n| {
+            if !matches!(res(&n), Some(Res::Field { .. })) {
+                return false;
+            }
+            match n.kind() {
+                SyntaxKind::MemberExpr => n.first_child().is_some_and(|base| {
+                    base.kind() == SyntaxKind::NameRef
+                        && base
+                            .text()
+                            .to_string()
+                            .trim()
+                            .trim_matches('"')
+                            .eq_ignore_ascii_case("rec")
+                }),
+                SyntaxKind::NameRef => !n.parent().is_some_and(|p| p.kind() == SyntaxKind::MemberExpr),
+                _ => false,
+            }
+        })
+    }
+
+    /// `Control::visible_reads_row` of field control `control` of page `page`, its own (no extension declares it), bound by
+    /// `binding`: a page variable, or an expression that is no field of a record variable, no array element and no call
+    /// (`other_source`; those are not measured), with its own Visible an expression that names a field of the record. A
+    /// Visible an extension changes is a `PropVal::Ext` and is not counted.
+    pub(super) fn visible_reads_row(
+        &self,
+        page: usize,
+        control: &crate::pages::RawControl,
+        binding: &ir::Binding,
+        other_source: bool,
+        props: &[(String, ir::PropVal)],
+    ) -> bool {
+        let source = match binding {
+            ir::Binding::Var(_) => true,
+            ir::Binding::Expr(_) => !other_source,
+            _ => false,
+        };
+        control.owner.is_none()
+            && control.kind == ir::ControlKind::Field
+            && source
+            && props.iter().any(|(n, v)| {
+                n == "visible" && matches!(v, ir::PropVal::Routine(r) if self.names_source_field(page, *r))
             })
     }
 }
