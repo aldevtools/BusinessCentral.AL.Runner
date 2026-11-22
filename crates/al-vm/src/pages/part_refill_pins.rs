@@ -8,10 +8,12 @@
 
 use super::pinned_body::{Callees, Names, callees_are, page_is, routine_text, table_is};
 use super::*;
+use al_builtins::page_op::PageMethod;
 
 /// One measured combination of objects, the position of the part's key field the test's filter is on, and the moves and reads
 /// its tests made after that filter (`part_update_left_view.rs` `measured_step_after_test_filter`).
-pub(super) struct Cell {
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Cell {
     host: &'static [&'static str],
     host_table: &'static [&'static str],
     part: &'static [&'static str],
@@ -27,7 +29,17 @@ pub(super) struct Cell {
     pub(super) next_previous: bool,
     /// The controls whose `Value` the tests read after `First()`.
     pub(super) value_reads: &'static [&'static str],
+    /// The AsDate and AsDecimal reads the tests made after each move: (control, method).
+    pub(super) fact_reads: &'static [(&'static str, PageMethod)],
+    /// Those reads right after the filter, before any move.
+    pub(super) read_without_move: bool,
 }
+
+/// The reads of every probe cell after each move (the `Fact` of PartRefillTestFilter.al).
+const PROBE_READS: &[(&str, PageMethod)] = &[
+    ("Period Start", PageMethod::AsDate),
+    ("Allocated Qty.", PageMethod::AsDecimal),
+];
 
 /// The host's code that fills the part in its own OnAfterGetCurrRecord (:152 "LT PR Load Host", :200, :403, PR 1475's
 /// "LT PR Typed Trig Host", and the repro's host).
@@ -247,7 +259,8 @@ const TYPED_PART_CALLEES: &[&str] = &[
 
 /// The measured cells, with the corpus lines of the tests that ran them.
 const CELLS: &[Cell] = &[
-    // :512, :537, :561 (First, Next, Previous), :590 (Last) (and :615, :643, which never reach the steps).
+    // :512, :537 (a read right after the filter), :561 (First, Next, Previous), :590 (Last) (and :615, :643, which never
+    // reach the steps).
     Cell {
         host: WORKSHEET_HOST,
         host_table: OP_TABLE,
@@ -260,6 +273,8 @@ const CELLS: &[Cell] = &[
         last: true,
         next_previous: true,
         value_reads: &[],
+        fact_reads: PROBE_READS,
+        read_without_move: true,
     },
     // :671 PartRefill_ListActionThenFilterFirst_FindsRefilledRow.
     Cell {
@@ -274,6 +289,8 @@ const CELLS: &[Cell] = &[
         last: false,
         next_previous: false,
         value_reads: &[],
+        fact_reads: PROBE_READS,
+        read_without_move: false,
     },
     // :696 PartRefill_BackgroundTaskActionThenFilterFirst_FindsRefilledRow.
     Cell {
@@ -288,6 +305,8 @@ const CELLS: &[Cell] = &[
         last: false,
         next_previous: false,
         value_reads: &[],
+        fact_reads: PROBE_READS,
+        read_without_move: false,
     },
     // :723 PartRefill_TriggerPartActionThenFilterFirst_FindsRefilledRow: Value of QtyText and Scope after First.
     Cell {
@@ -302,6 +321,8 @@ const CELLS: &[Cell] = &[
         last: false,
         next_previous: false,
         value_reads: &["QtyText", "Scope"],
+        fact_reads: PROBE_READS,
+        read_without_move: false,
     },
     // PR 1475 PartRefill_TypedKeyTriggerPartActionThenFilterFirst_FindsRefilledRow: the filter on the key's second field; Value of
     // QtyText and Scope after First.
@@ -317,8 +338,10 @@ const CELLS: &[Cell] = &[
         last: false,
         next_previous: false,
         value_reads: &["QtyText", "Scope"],
+        fact_reads: PROBE_READS,
+        read_without_move: false,
     },
-    // The reporter's repro (issue 8537, green on Business Central 29.1).
+    // The reporter's repro (issue 8537, green on Business Central 29.1): only the AsDecimal of Allocated Qty.
     Cell {
         host: REPRO_HOST,
         host_table: REPRO_OP_TABLE,
@@ -331,6 +354,8 @@ const CELLS: &[Cell] = &[
         last: false,
         next_previous: false,
         value_reads: &[],
+        fact_reads: &[("Allocated Qty.", PageMethod::AsDecimal)],
+        read_without_move: false,
     },
 ];
 
