@@ -1731,12 +1731,9 @@ impl Session {
         let (filters, flow_field_filters) = self.split_filters(rec);
         let store = self.store_of(rec).0;
         let normal_record = store.holds_normal_records();
-        // A platform table its provider serves keeps main's answer for `@` alone, as its read did (al-data `MemStore::next`).
-        let filters = if store.is_virtual(t) {
-            std::borrow::Cow::Borrowed(&filters[..])
-        } else {
-            al_builtins::filter::at_sign_alone_read(&filters, normal_record, |i| Value::default_for(&t.fields[i].ty))
-        };
+        // `@` alone as BC checks a row it found against the filters (al-data `MemStore::at_sign_alone_read`; Find('='),
+        // AtSignAloneReads.al:314, :698).
+        let filters = store.at_sign_alone_read(t, &filters, true);
         if !al_builtins::filter::all_match_on(&filters, row, normal_record)? {
             return Ok(false);
         }

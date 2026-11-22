@@ -234,6 +234,8 @@ pub struct MemStore {
     counts: std::rc::Rc<AccessCounts>,
     /// The store stands for the database ([`MemStore::as_database`]): a Decimal it keeps carries no trailing zeros.
     database: bool,
+    /// The store holds the rows of a table connection ([`MemStore::as_table_connection`]), which BC does not read through SQL.
+    connection: bool,
 }
 
 /// The tables [`MemStore::watch`] watches and the first of them that was read or written, and the window open on top
@@ -548,13 +550,27 @@ fn same_filters(a: &[FieldFilter], b: &[FieldFilter]) -> bool {
 }
 
 impl MemStore {
-    /// A read that filters a Code field with another SQLDataType than Varchar, Integer, BigInteger or Variant at all, or sorts by one
-    /// whose first key field it is, is refused: the order and the comparison of such a field are not pinned (see [`CodeStorage`]).
-    /// The Writes, Get by exact key and the other keys run.
-    /// The filters of a read with `@` alone answered as this store's rows are read: the empty values in the database, every
-    /// value in a temporary record (al-builtins `filter_at_sign`).
-    fn at_sign_alone_read<'a>(&self, t: &TableDef, filters: &'a [FieldFilter]) -> std::borrow::Cow<'a, [FieldFilter]> {
-        al_builtins::filter::at_sign_alone_read(filters, self.database, |i| {
+    /// The filters of a read with `@` alone or `<>@` alone answered as BC reads this store's rows (al-builtins `filter_at_sign`):
+    /// a read of the database, a row of the database checked against the filters (`row_check`: `AtSignRows::DatabaseRowCheck`),
+    /// or a temporary record. The rows of a table connection (a CRM table) and of a platform table its provider serves are none
+    /// of these: their filters stay as they are, so `@` alone on a Code field refuses (`unpinned_match_read`) and a Text field
+    /// keeps main's answer.
+    pub fn at_sign_alone_read<'a>(
+        &self,
+        t: &TableDef,
+        filters: &'a [FieldFilter],
+        row_check: bool,
+    ) -> std::borrow::Cow<'a, [FieldFilter]> {
+        use al_builtins::filter::AtSignRows;
+        if self.connection || self.is_virtual(t) {
+            return std::borrow::Cow::Borrowed(filters);
+        }
+        let rows = match (self.database, row_check) {
+            (true, false) => AtSignRows::Database,
+            (true, true) => AtSignRows::DatabaseRowCheck,
+            (false, _) => AtSignRows::Temporary,
+        };
+        al_builtins::filter::at_sign_alone_read(filters, rows, |i| {
             al_builtins::value::Value::default_for(&t.fields[i].ty)
         })
     }
@@ -567,6 +583,9 @@ impl MemStore {
         }
     }
 
+    /// A read that filters a Code field with another SQLDataType than Varchar, Integer, BigInteger or Variant at all, or sorts by one
+    /// whose first key field it is, is refused: the order and the comparison of such a field are not pinned (see [`CodeStorage`]).
+    /// The Writes, Get by exact key and the other keys run.
     fn code_storage_read(t: &TableDef, filters: &[FieldFilter], order: &[usize]) -> Result<(), StoreError> {
         let stored_as = |i: usize| t.fields.get(i).map_or(CodeStorage::Text, |f| f.code_storage);
         if let Some(f) = filters.iter().find(|f| stored_as(f.field) == CodeStorage::Other) {
@@ -600,6 +619,13 @@ impl MemStore {
     /// back from `1.00000` gives `D05 * 1` = `1`). A temporary table stays in memory and keeps the values as written.
     pub fn as_database(mut self) -> MemStore {
         self.database = true;
+        self
+    }
+
+    /// This store as the rows of a table connection (a CRM table's, al-vm `crm.rs`): a read of `@` alone keeps its filters
+    /// ([`MemStore::at_sign_alone_read`]).
+    pub fn as_table_connection(mut self) -> MemStore {
+        self.connection = true;
         self
     }
 
@@ -1799,7 +1825,7 @@ impl Store for MemStore {
         if let Some(v) = self.virtual_of(t) {
             return v.next(self, cx, t, scan);
         }
-        let at_sign = self.at_sign_alone_read(t, scan.filters);
+        let at_sign = self.at_sign_alone_read(t, scan.filters, false);
         let scan = &Scan {
             filters: &at_sign,
             ..scan.clone()
@@ -1950,7 +1976,7 @@ impl Store for MemStore {
         if self.virtual_of(t).is_some() {
             return Err(self.read_only(t, "DeleteAll"));
         }
-        let f = &*self.at_sign_alone_read(t, f);
+        let f = &*self.at_sign_alone_read(t, f, false);
         self.unknown_read(cx, t, f, &[])?;
         Self::unpinned_match_read(f)?;
         Self::code_storage_read(t, f, &[])?;
@@ -2034,11 +2060,12 @@ impl SnapshotStore for MemStore {
     fn restore(&mut self, s: MemStore) {
         bump();
         let counter = self.counter.max(s.counter);
-        // Whether the store stands for the database is its role, not part of the rows a snapshot holds.
-        let database = self.database;
+        // Whether the store stands for the database or a table connection is its role, not part of the rows a snapshot holds.
+        let (database, connection) = (self.database, self.connection);
         *self = s;
         self.counter = counter;
         self.database = database;
+        self.connection = connection;
     }
 }
 

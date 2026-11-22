@@ -30,7 +30,7 @@ impl MemStore {
         if let Some(v) = self.virtual_of(t) {
             return Ok(v.count(self, cx, t, filters)?.min(limit));
         }
-        let filters = &*self.at_sign_alone_read(t, filters);
+        let filters = &*self.at_sign_alone_read(t, filters, false);
         self.unknown_read(cx, t, filters, &[])?;
         Self::unpinned_match_read(filters)?;
         Self::code_storage_read(t, filters, &[])?;
