@@ -1,6 +1,7 @@
-//! Record variables built on first use (PERF-28): the one owner of which local of a frame starts as an unbuilt record
-//! (`Value::UnbuiltRecord`), of the locals a statement names (the compiler emits `Op::BuildLocal` for them at the start of the
-//! statement), of building one, and of the session's counts. Nothing else makes or builds an unbuilt record.
+//! Record variables built on first use (issue 8610): the one owner of which local of a frame starts as an unbuilt
+//! record (`Value::UnbuiltRecord`), of the locals a statement names (the compiler emits `Op::BuildLocal` for them at
+//! the start of the statement), of building one, and of the session's counts. Nothing else makes or builds an unbuilt
+//! record.
 //!
 //! A local is a candidate when it is a declared local (not a parameter, not the named return value) of type
 //! `Record(_, false)` ([`watched_local`]); the session defers it when, in addition, its table is a stored table

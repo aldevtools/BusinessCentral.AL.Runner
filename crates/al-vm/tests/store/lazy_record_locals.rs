@@ -1,4 +1,4 @@
-//! Record locals built on first use (PERF-28 stage 1, locals only). A declared local of a stored table starts unbuilt and is
+//! Record locals built on first use (issue 8610, locals only). A declared local of a stored table starts unbuilt and is
 //! built by the statement that first names it; the session counts both (`Session::lazy_record_stats`, per session, so the
 //! exact numbers hold with the tests running in parallel).
 //!
