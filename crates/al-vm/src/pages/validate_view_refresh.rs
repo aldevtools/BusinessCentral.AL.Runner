@@ -216,6 +216,8 @@ impl Session {
     /// and after a refresh that read back to the first row; :1003 `P.AGR(B);` on the middle row after the open, and nothing
     /// before its second SetValue, whose refresh ended on B; :1037 nothing on the first row; :1413 nothing before the SetValue
     /// after the failed one, which read C; :1397 and :1413 `close` `P.AGR(C);`, :1381 `close` empty after Previous onto B).
+    /// After the walk Close reads nothing: Next until it answers No ends on the new line, which holds no stored row (:832 `walk`
+    /// `B,C,,`, `close` empty).
     fn validate_view_read_row(&mut self, st: &St, v: &mut ValidateView) -> Result<(), Signal> {
         if !v.page.is_some_and(CellPage::reads_first) {
             return Ok(());
