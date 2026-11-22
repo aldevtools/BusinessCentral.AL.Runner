@@ -29,6 +29,11 @@ impl Lowerer<'_> {
         {
             return "System.EvaluateVariableOption#1";
         }
+        // A Date or DateTime local variable or parameter: the readers of corpus PR 1503 (al-builtins `evaluate::short_us_date`)
+        // were measured on these targets only; a field, a global and an array element keep the plain id.
+        if matches!(self.ty_of(a), Ty::Date | Ty::DateTime) && matches!(self.res(a), Some(Res::Local(_))) {
+            return "System.EvaluateDateVariable#1";
+        }
         if matches!(self.ty_of(a), Ty::Text(Some(_)) | Ty::Code(Some(_))) {
             return "System.EvaluateBounded#1";
         }
