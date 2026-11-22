@@ -1497,11 +1497,20 @@ pub struct Instance {
     pub born: Born,
     /// The session watches this single instance's globals (al-vm `single_track.rs`).
     pub single: bool,
-    /// Why what this single instance holds is not the value BC has: every read of one of its globals is refused with this
-    /// reason (al-vm `single_unmeasured.rs`). `None` for every other instance.
-    pub unmeasured: Option<Rc<str>>,
+    /// What a read of one of this single instance's globals does, when the run found its state somewhere no pin covers
+    /// (al-vm `single_unmeasured.rs`). `None` for every other instance.
+    pub unmeasured: Option<SingleMark>,
     /// Counts the instance as live while it exists (`instance_cycles::live`).
     pub live: crate::instance_cycles::LiveCount,
+}
+
+/// The mark of a single instance whose state the run found somewhere no pin covers ([`Instance::unmeasured`]).
+#[derive(Debug, Clone)]
+pub enum SingleMark {
+    /// What it holds is not BC's value: every read of one of its globals is refused with this reason.
+    Refused(Rc<str>),
+    /// What it holds is BC's value by this assumption entry: every read of one of its globals marks it.
+    Assumed(crate::assumptions::Assumption),
 }
 
 thread_local! {
