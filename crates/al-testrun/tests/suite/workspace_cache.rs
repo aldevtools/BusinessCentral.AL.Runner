@@ -545,3 +545,79 @@ fn a_grant_of_internals_misses() {
     }];
     assert_misses(&base, &granted, "a grant");
 }
+
+/// A run of `i` under a hard memory limit of 1000 MB whose resident memory reads as `rss` (in MB), with the layer's
+/// writes deferred to the end of the run as `al-runner test` defers them.
+fn run_under_limit(i: &Inputs, dir: &Path, rss: impl Fn() -> u64 + Send + Sync + 'static) -> CorpusRuntime {
+    let opts = RunOptions {
+        compile_cache: cache(dir),
+        workspace_cache: layer(false),
+        memory: Some(al_testrun::runtime::memory::MemoryBudget {
+            limit: 1000 << 20,
+            source: "--max-memory".into(),
+            rss: std::sync::Arc::new(move || Some(rss() << 20)),
+            hard: true,
+        }),
+        ..i.opts.clone()
+    };
+    let rt = CorpusRuntime::try_run_suites_with(
+        i.apps.clone(),
+        i.kinds.clone(),
+        &i.manifests,
+        &i.symbols,
+        i.target.as_ref(),
+        Default::default(),
+        &[SuiteRun::everything()],
+        &opts,
+    )
+    .unwrap();
+    wc::wait_for_writes();
+    rt
+}
+
+/// Decision 6: only a compile the run goes on with is stored. A compile the memory limit stops after its last check
+/// (the stop line is passed once the compile has ended, before its watcher stops) reports every test not run and
+/// leaves no entry, so the next run of the same inputs compiles fresh, as it would without the first run.
+#[test]
+fn a_compile_the_memory_limit_stops_after_its_last_check_stores_no_entry() {
+    let i = with_dependency();
+    let dir = tempfile::tempdir().unwrap();
+    let (plain, _) = outcomes(&i, tempfile::tempdir().unwrap().path(), false);
+    // The watcher's first two reads (when it starts) are under the line. Its next read, on its own thread, waits until
+    // the compile has ended (its entry queued, or two seconds), then reads over the line. The compile has made its
+    // last check by then, and the run stops when the watcher stops (`compile_halt.rs`).
+    let reads = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let stopped = run_under_limit(&i, dir.path(), move || {
+        if reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst) < 2 {
+            return 100;
+        }
+        let started = std::time::Instant::now();
+        while wc::pending_writes() == 0 && started.elapsed() < std::time::Duration::from_secs(2) {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        990
+    });
+    assert!(stopped.phases.memory.halted.is_some(), "{:?}", stopped.phases.memory);
+    assert_eq!(stopped.results().len(), plain.len());
+    for r in stopped.results() {
+        assert_eq!(
+            format!("{:?}", r.outcome),
+            "NotRun(\"memory limit (--max-memory 1000 MB)\")",
+            "{}",
+            r.test
+        );
+    }
+    let left = entries(dir.path());
+    let next = run_under_limit(&i, dir.path(), || 100);
+    let list: Vec<String> = next
+        .results()
+        .iter()
+        .map(|r| format!("{} {} {} {:?}", r.app, r.codeunit, r.test, r.outcome))
+        .collect();
+    let state = next.phases.workspace_cache.as_ref().map(|r| r.state);
+    assert_eq!(
+        (left, list, state),
+        (Vec::new(), plain, Some(WorkspaceState::Built)),
+        "a stopped compile writes no entry, and the next run compiles fresh"
+    );
+}

@@ -398,6 +398,11 @@ impl CorpusRuntime {
             false,
             &mut Grow::Off,
         )
+        .map(|(mut c, store)| {
+            // The caller goes on with the compile: a warm server keeps it, a test runs on it.
+            store.go_on(&mut c);
+            c
+        })
     }
 
     /// [`compile_suites`](Self::compile_suites); with `lean`, selected tests that are free of data are compiled without
@@ -414,7 +419,7 @@ impl CorpusRuntime {
         opts: &RunOptions,
         lean: bool,
         grow: &mut Grow,
-    ) -> Result<Compiled, String> {
+    ) -> Result<(Compiled, super::workspace_layer::Store), String> {
         use al_sema::check::tdd_decl;
         let ranges: std::collections::BTreeMap<String, Vec<(u32, u32)>> = if opts.tdd {
             apps.iter()
@@ -427,7 +432,7 @@ impl CorpusRuntime {
         } else {
             Default::default()
         };
-        let mut compiled =
+        let (mut compiled, mut store) =
             Self::compile_suites_once(apps, kinds, manifests, symbols, target, suites, opts, lean, grow)?;
         // `--tdd` (ADR-051 decision 10): the fields, enum values and objects the test apps need are declared in a stub
         // file of each, and the apps are compiled again (a stub table's fields are found only once it exists).
@@ -439,7 +444,7 @@ impl CorpusRuntime {
             let files = tdd_decl::stub_files(&compiled.ws, &seen, &ranges);
             let (mut apps, kinds) = compiled.into_apps();
             tdd_decl::set_stub_files(&mut apps, files);
-            compiled = Self::compile_suites_once(
+            let (next, more) = Self::compile_suites_once(
                 apps,
                 kinds,
                 manifests,
@@ -450,8 +455,10 @@ impl CorpusRuntime {
                 lean,
                 &mut Grow::Off,
             )?;
+            compiled = next;
+            store = store.and(more);
         }
-        Ok(compiled)
+        Ok((compiled, store))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -465,7 +472,7 @@ impl CorpusRuntime {
         opts: &RunOptions,
         lean: bool,
         grow: &mut Grow,
-    ) -> Result<Compiled, String> {
+    ) -> Result<(Compiled, super::workspace_layer::Store), String> {
         // AL_NO_BASELINE=1 leaves the install baseline out (to measure what it costs).
         let baseline_wanted =
             kinds.contains(&al_sema::AppKind::Dependency) && std::env::var_os("AL_NO_BASELINE").is_none();
@@ -962,8 +969,8 @@ impl CorpusRuntime {
             grow_kept,
             uncovered,
         };
-        layer.finish(&mut compiled, pre_apply);
-        Ok(compiled)
+        let store = layer.finish(&mut compiled, pre_apply);
+        Ok((compiled, store))
     }
 
     /// The run phase: engine, install baseline, the test codeunits. Leaves `compiled` as it was, so a warm

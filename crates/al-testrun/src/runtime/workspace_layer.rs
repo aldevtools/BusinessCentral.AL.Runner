@@ -53,6 +53,49 @@ pub(super) struct Hit {
     pub(super) decided: Decided,
 }
 
+/// The entries of the fresh compiles of one compile phase, encoded and written only once the run goes on with the compile
+/// (decision 6): [`Store::go_on`]. A compile the run does not go on with (the memory limit stopped it after its last
+/// check, `compile_halt.rs`) drops its store, so no entry stands for a compile whose tests were reported not run.
+#[must_use = "an entry is written only through `Store::go_on`"]
+#[derive(Default)]
+pub(super) struct Store(Vec<Write>);
+
+/// The job that encodes and writes one entry (it gives the size written), and whether the options ask to write it now.
+struct Write {
+    job: Box<dyn FnOnce() -> usize + Send>,
+    now: bool,
+}
+
+impl Store {
+    /// This store and then `later`'s (the compiles of `--tdd`, in their order).
+    pub(super) fn and(mut self, later: Store) -> Store {
+        self.0.extend(later.0);
+        self
+    }
+
+    /// The run goes on with the compile `c`: each entry is written after the run (`workspace_cache::defer_write`), or
+    /// now when the options ask for it, and `c`'s report gets the time and the size written.
+    pub(super) fn go_on(self, c: &mut Compiled) {
+        let started = Instant::now();
+        for w in self.0 {
+            if w.now {
+                let bytes = (w.job)();
+                if let Some(r) = c.workspace_cache.as_mut() {
+                    r.bytes = bytes;
+                }
+            } else {
+                let job = w.job;
+                wc::defer_write(move || {
+                    job();
+                });
+            }
+        }
+        if let Some(r) = c.workspace_cache.as_mut() {
+            r.store += started.elapsed();
+        }
+    }
+}
+
 impl Layer {
     /// The layer of a compile with `i`: off (with the reason) when the run did not ask for it or the compile is one the
     /// layer does not cover (decision 7).
@@ -319,35 +362,31 @@ impl Layer {
 
     /// Stores the fresh compile `c` (decision 6) when it is one the layer covers (a complete compile of the workspace on
     /// the dependency layers, of a workspace without dependency apps, or of selected tests free of data, which used no
-    /// layer), and sets its report. The parts are taken now;
-    /// the entry is encoded and written after the run (`workspace_cache::defer_write`) unless the options ask to write it now.
-    pub(super) fn finish(mut self, c: &mut Compiled, pre_apply: Option<(Vec<al_ir::AppInfo>, Vec<al_ir::SourceFile>)>) {
+    /// layer), and sets its report. The parts are taken now; the entry is written only once the run goes on with the
+    /// compile ([`Store::go_on`]).
+    pub(super) fn finish(
+        mut self,
+        c: &mut Compiled,
+        pre_apply: Option<(Vec<al_ir::AppInfo>, Vec<al_ir::SourceFile>)>,
+    ) -> Store {
+        let mut out = Store::default();
         if let (Some(plan), Some((apps, sources))) = (self.plan.take(), pre_apply) {
             match storable(c, plan.key.below != [0; 32]).and_then(|()| Self::store(&plan, c, apps, sources)) {
                 Ok(job) => {
-                    let started = Instant::now();
                     if let Some(r) = self.report.as_mut() {
                         r.state = WorkspaceState::Built;
                         r.file = Some(plan.cc.dir.join(plan.key.file_name()));
                     }
-                    if plan.write_now {
-                        let bytes = job();
-                        if let Some(r) = self.report.as_mut() {
-                            r.bytes = bytes;
-                        }
-                    } else {
-                        wc::defer_write(move || {
-                            job();
-                        });
-                    }
-                    if let Some(r) = self.report.as_mut() {
-                        r.store += started.elapsed();
-                    }
+                    out.0.push(Write {
+                        job: Box::new(job),
+                        now: plan.write_now,
+                    });
                 }
                 Err(why) => self.note(format!("not stored: {why}")),
             }
         }
         c.workspace_cache = self.report;
+        out
     }
 
     /// The parts of `c` the entry holds, and the job that encodes and writes them (it gives the size written).
@@ -494,7 +533,7 @@ mod tests {
             baseline_wanted: false,
             growing: false,
         });
-        layer.finish(&mut c, Some((Vec::new(), Vec::new())));
+        layer.finish(&mut c, Some((Vec::new(), Vec::new()))).go_on(&mut c);
         let r = c.workspace_cache.as_ref().expect("a report");
         assert_eq!(r.state.as_str(), "off", "{r:?}");
         assert!(r.notes.iter().any(|n| n.contains("second parse")), "{r:?}");
