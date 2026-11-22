@@ -205,3 +205,28 @@ fn an_inserted_row_read_back_from_the_bytes_keeps_its_mark() {
     );
     assert_eq!(theirs, ours);
 }
+
+// The install-order comparison names the Blob fields that differ (`BlobBuf::differing_fields`), not only that a Blob does:
+// the two orders here store the same two bytes, one through Byte writes (utf16_binary), one through WriteText.
+#[test]
+fn a_differing_install_order_names_the_blob_fields() {
+    let (mut s, writer) = session();
+    let start = s.capture_baseline();
+    let order = |routine: &str| {
+        let mut o = Session::new(s.engine.clone());
+        o.restore_baseline(&start);
+        outcome(&mut o, writer, routine);
+        o.capture_baseline()
+    };
+    let (a, b) = (order("WriteUtf16Bytes"), order("WriteUtf16Text"));
+    let d = a
+        .install_order_differences(&b, &start, &s.engine, ((0, 0), (0, 0)))
+        .expect("tables only");
+    let lines: Vec<&String> = d.values().flatten().collect();
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.starts_with("key 1, field Data: the Blob differs in ") && l.contains("utf16_binary")),
+        "{lines:?}"
+    );
+}
