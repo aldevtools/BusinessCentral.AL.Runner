@@ -6,3 +6,4 @@
 EF Error Finals Tests::IsolatedEventFailed_ThenCallFailsBeforeStart	PINNED tests/al-language/codeunits/TestScopeIsolationContracts.al:65
 EF Error Finals Tests::AsserterrorValidateSubscriberFailed_ThenRecCallFailsBeforeStart	PINNED tests/al-language/codeunits/TestScopeIsolationContracts.al:65
 EF Error Finals Tests::AsserterrorValidateSubscriberFailed_ThenScalarCallFailsBeforeStart	PINNED tests/al-language/codeunits/TestScopeIsolationContracts.al:65
+EF Error Finals Tests::TestPageNewSwallowedOnNewRecordError_ThenCallFailsBeforeStart	PINNED tests/al-language/codeunits/TestScopeIsolationContracts.al:65

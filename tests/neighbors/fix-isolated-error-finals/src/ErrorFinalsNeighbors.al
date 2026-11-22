@@ -2,7 +2,8 @@
 // routine it left are not written into the `var` arguments of a later call that fails before its routine starts (a
 // Variant holding an Integer meets a by-value Text parameter: TypeConversion). The errors caught first: one an Isolated
 // event swallows, one asserterror catches out of a table event subscriber under Validate, one a TryFunction catches, one
-// a guarded Codeunit.Run catches. The controls: the same calls with nothing failing first, and the pinned write-backs of
+// a guarded Codeunit.Run catches, one a TestPage swallows (OnNewRecord on New, Error('') in an action), and a duplicate
+// Insert(true) whose answer is used. The controls: the same calls with nothing failing first, and the pinned write-backs of
 // a routine that ran and failed (TryFunction and asserterror).
 table 61080 "EF Row"
 {
@@ -15,6 +16,45 @@ table 61080 "EF Row"
     {
         key(PK; Id) { }
     }
+}
+
+page 61085 "EF Card"
+{
+    PageType = Card;
+    SourceTable = "EF Row";
+    UsageCategory = None;
+
+    layout
+    {
+        area(Content)
+        {
+            field(Id; Rec.Id) { ApplicationArea = All; }
+        }
+    }
+
+    actions
+    {
+        area(Processing)
+        {
+            action(SilentError)
+            {
+                ApplicationArea = All;
+
+                trigger OnAction()
+                begin
+                    Error('');
+                end;
+            }
+        }
+    }
+
+    trigger OnNewRecord(BelowxRec: Boolean)
+    var
+        R: Record "EF Row";
+    begin
+        if R.Get(99) then
+            Error('first');
+    end;
 }
 
 codeunit 61081 "EF Publisher"
@@ -242,5 +282,62 @@ codeunit 61084 "EF Error Finals Tests"
     begin
         if Codeunit.Run(Codeunit::"EF Failing Run", R) then;
         Check('1/5 TypeConversion', LateRecCall());
+    end;
+
+    local procedure OpenCard(var Card: TestPage "EF Card"; FailNew: Boolean)
+    var
+        R: Record "EF Row";
+    begin
+        R.DeleteAll();
+        R.Id := 1;
+        R.Insert();
+        if FailNew then begin
+            R.Id := 99;
+            R.Insert();
+        end;
+        Card.OpenEdit();
+    end;
+
+    [Test]
+    procedure TestPageNewOk_ThenCallFailsBeforeStart()
+    var
+        Card: TestPage "EF Card";
+    begin
+        OpenCard(Card, false);
+        Card.New();
+        Check('1 TypeConversion', LateCall());
+    end;
+
+    [Test]
+    procedure TestPageNewSwallowedOnNewRecordError_ThenCallFailsBeforeStart()
+    var
+        Card: TestPage "EF Card";
+    begin
+        OpenCard(Card, true);
+        Card.New();
+        Check('1 TypeConversion', LateCall());
+    end;
+
+    [Test]
+    procedure TestPageActionSilentError_ThenCallFailsBeforeStart()
+    var
+        Card: TestPage "EF Card";
+    begin
+        OpenCard(Card, false);
+        Card.SilentError.Invoke();
+        Check('1 TypeConversion', LateCall());
+    end;
+
+    [Test]
+    procedure DuplicateInsertTrueAnswerUsed_ThenCallFailsBeforeStart()
+    var
+        R: Record "EF Row";
+    begin
+        R.DeleteAll();
+        R.Id := 1;
+        R.Insert();
+        if R.Insert(true) then
+            Error('duplicate inserted');
+        Check('1 TypeConversion', LateCall());
     end;
 }
