@@ -10,7 +10,7 @@ use al_builtins::value::Value;
 const SRC: &str = r#"
 table 50100 "Blob Row"
 {
-    fields { field(1; Id; Integer) { } field(2; Data; Blob) { } }
+    fields { field(1; Id; Integer) { } field(2; Data; Blob) { } field(3; Pic; Media) { } }
     keys { key(PK; Id) { } }
 }
 codeunit 50100 Writer
@@ -27,6 +27,30 @@ codeunit 50100 Writer
     var R: Record "Blob Row"; I: InStream; T: Text;
     begin
         R.Get(1); R.CalcFields(Data); R.Data.CreateInStream(I, TextEncoding::UTF16); I.Read(T); exit(T);
+    end;
+    // The same two bytes as a Text: no utf16_binary mark.
+    procedure WriteUtf16Text()
+    var R: Record "Blob Row"; O: OutStream;
+    begin
+        R.Id := 1; R.Data.CreateOutStream(O, TextEncoding::UTF16); O.WriteText('A');
+        R.Insert();
+    end;
+    // A Text through the default encoding; the Insert leaves BlobBuf::inserted.
+    procedure WriteText()
+    var R: Record "Blob Row"; O: OutStream;
+    begin
+        R.Id := 1; R.Data.CreateOutStream(O); O.WriteText('content');
+        R.Insert();
+    end;
+    procedure ReadText(): Text
+    var R: Record "Blob Row"; I: InStream; T: Text;
+    begin
+        R.Get(1); R.CalcFields(Data); R.Data.CreateInStream(I); I.ReadText(T); exit(T);
+    end;
+    procedure ImportOwnBlob(): Boolean
+    var R: Record "Blob Row"; I: InStream;
+    begin
+        R.Get(1); R.CalcFields(Data); R.Data.CreateInStream(I); R.Pic.ImportStream(I, 'pic'); exit(R.Pic.HasValue());
     end;
 }
 "#;
@@ -133,4 +157,51 @@ fn a_blob_row_read_back_from_the_bytes_keeps_every_buffer_field() {
     );
     let back = Baseline::from_bytes(&b.to_bytes().expect("plain rows")).expect("reads back");
     assert_eq!(format!("{:?}", *row_blob(&back).borrow()), ours);
+}
+
+/// What `read` answers on a session restored from the captured `b`, and on one restored from `b`'s bytes.
+fn captured_and_from_bytes(s: &Session, writer: usize, b: &Baseline, read: &str) -> (String, String) {
+    let mut captured = Session::new(s.engine.clone());
+    captured.restore_baseline(b);
+    let ours = outcome(&mut captured, writer, read);
+    (ours, outcome(&mut restored_from_bytes(s, b), writer, read))
+}
+
+// BlobBuf::render_pending (ADR-040): the output of a report saved to the Blob and not rendered. Any look at it is refused,
+// and a stored row hands the mark to the record that reads it (`copy_blob`). Issue 8588: the bytes form dropped it, so a
+// session restored from them read the content.
+#[test]
+fn a_report_output_row_read_back_from_the_bytes_keeps_its_mark() {
+    let (mut s, writer) = session();
+    outcome(&mut s, writer, "WriteText");
+    let b = s.capture_baseline();
+    row_blob(&b).borrow_mut().render_pending = Some("Neighbor Report".into());
+    let (ours, theirs) = captured_and_from_bytes(&s, writer, &b, "ReadText");
+    assert!(
+        ours.contains("Neighbor Report"),
+        "the captured baseline refuses: {ours}"
+    );
+    assert_eq!(theirs, ours);
+    let back = Baseline::from_bytes(&b.to_bytes().expect("plain rows")).expect("reads back");
+    assert_eq!(
+        row_blob(&back).borrow().render_pending.as_deref(),
+        Some("Neighbor Report")
+    );
+}
+
+// BlobBuf::inserted: the content is what an Insert stored. Media.ImportStream from a stream on that Blob of the same record
+// is refused (streams/PnE06Media.al:66-84; `refuse_media_import_from_own_blob`). Issue 8588: the bytes form dropped the
+// mark, so a session restored from them imported.
+#[test]
+fn an_inserted_row_read_back_from_the_bytes_keeps_its_mark() {
+    let (mut s, writer) = session();
+    outcome(&mut s, writer, "WriteText");
+    let b = s.capture_baseline();
+    assert!(row_blob(&b).borrow().inserted, "the Insert marks the stored buffer");
+    let (ours, theirs) = captured_and_from_bytes(&s, writer, &b, "ImportOwnBlob");
+    assert!(
+        ours.contains("Media.ImportStream"),
+        "the captured baseline refuses: {ours}"
+    );
+    assert_eq!(theirs, ours);
 }
