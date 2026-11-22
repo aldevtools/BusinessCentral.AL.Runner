@@ -18,7 +18,7 @@
 "crates/al-sema/src/lower/pages.rs::page" = 472
 "crates/al-sema/src/lower/shared.rs::lower_object" = 450
 "crates/al-sema/src/lower/stmt.rs::assign" = 407
-"crates/al-test-cli/src/main.rs::run_version_inner" = 723
+"crates/al-test-cli/src/main.rs::run_version_inner" = 718
 "crates/al-testrun/src/impact_static.rs::build" = 332
 "crates/al-testrun/src/reach.rs::report" = 315
 "crates/al-testrun/src/runtime/corpus.rs::compile_suites_once" = 434
