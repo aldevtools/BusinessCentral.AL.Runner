@@ -133,29 +133,57 @@ pub fn runtime_build() -> [u8; 32] {
 /// [`runtime_build`] is made later (on first use), and a handle opened at start still reads the build that runs when
 /// the file at the path was replaced since (an upgrade, a rebuild): on macOS and Windows the path alone would give the
 /// key the new build's identity (issue 8691).
-static PINNED_EXECUTABLE: OnceLock<std::io::Result<std::fs::File>> = OnceLock::new();
+static PINNED_EXECUTABLE: OnceLock<std::io::Result<PinnedFile>> = OnceLock::new();
 
 /// Opens the running executable and keeps the handle. Call it first thing in `main`; later calls do nothing.
-pub fn pin_running_executable() -> &'static std::io::Result<std::fs::File> {
+pub fn pin_running_executable() -> &'static std::io::Result<PinnedFile> {
     PINNED_EXECUTABLE.get_or_init(open_running_executable)
 }
 
-fn open_running_executable() -> std::io::Result<std::fs::File> {
+fn open_running_executable() -> std::io::Result<PinnedFile> {
     // On Linux `/proc/self/exe` opens the file the process runs from even when its path was deleted or replaced.
     #[cfg(target_os = "linux")]
     if let Ok(f) = std::fs::File::open("/proc/self/exe") {
-        return Ok(f);
+        return PinnedFile::new(f);
     }
-    std::env::current_exe().and_then(std::fs::File::open)
+    PinnedFile::new(std::fs::File::open(std::env::current_exe()?)?)
 }
 
-/// All bytes of the pinned file, read from the handle (the file at its old path is not looked at).
-fn read_pinned(file: &std::io::Result<std::fs::File>) -> std::io::Result<Vec<u8>> {
+/// An open file with its size and modification time at pin time. A rename over the path leaves the handle on the old
+/// file; an overwrite in place (`cp` onto it) changes the file itself, which the two values show: the hash then
+/// refuses to read it, and the key takes the process's own value (a cache miss, never a wrong hit).
+pub struct PinnedFile {
+    file: std::fs::File,
+    len: u64,
+    modified: Option<std::time::SystemTime>,
+}
+
+impl PinnedFile {
+    fn new(file: std::fs::File) -> std::io::Result<PinnedFile> {
+        let m = file.metadata()?;
+        Ok(PinnedFile {
+            file,
+            len: m.len(),
+            modified: m.modified().ok(),
+        })
+    }
+}
+
+/// All bytes of the pinned file, read from the handle (the file at its old path is not looked at). An error when the
+/// file changed in place since the pin.
+fn read_pinned(pinned: &std::io::Result<PinnedFile>) -> std::io::Result<Vec<u8>> {
     use std::io::{Read, Seek, SeekFrom};
-    let mut f = match file {
-        Ok(f) => f,
+    let p = match pinned {
+        Ok(p) => p,
         Err(e) => return Err(std::io::Error::new(e.kind(), e.to_string())),
     };
+    let m = p.file.metadata()?;
+    if m.len() != p.len || m.modified().ok() != p.modified {
+        return Err(std::io::Error::other(
+            "the executable changed in place since the process started",
+        ));
+    }
+    let mut f = &p.file;
     let mut bytes = Vec::new();
     f.seek(SeekFrom::Start(0))?;
     f.read_to_end(&mut bytes)?;
@@ -911,12 +939,27 @@ mod build_identity_tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("alrunner");
         std::fs::write(&path, b"old build").unwrap();
-        let pinned = std::fs::File::open(&path);
+        let pinned = std::fs::File::open(&path).and_then(PinnedFile::new);
         let new = dir.path().join("alrunner.new");
         std::fs::write(&new, b"new build, longer").unwrap();
         std::fs::rename(&new, &path).unwrap();
         let bytes = read_pinned(&pinned).unwrap();
         assert_eq!(build_identity(Ok(bytes), 1), hash_build_bytes(b"old build"));
+    }
+
+    // An overwrite in place (cp onto the file) changes the file the handle holds: no hash of the new bytes.
+    #[test]
+    fn a_pinned_executable_overwritten_in_place_gives_no_build_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("alrunner");
+        std::fs::write(&path, b"old build").unwrap();
+        let pinned = std::fs::File::open(&path).and_then(PinnedFile::new);
+        std::fs::write(&path, b"new build, longer").unwrap();
+        let bytes = read_pinned(&pinned);
+        assert!(bytes.is_err());
+        let a = build_identity(bytes, 1);
+        assert_ne!(a, hash_build_bytes(b"new build, longer"));
+        assert_ne!(a, build_identity(read_pinned(&pinned), 2));
     }
 
     #[test]
