@@ -1,0 +1,15 @@
+# key	entry
+# On main a lane reads its row through a copy of the install baseline made from its bytes when it runs on a worker
+# thread or from the cached baseline, and the marks are lost there. Head carries them, so every copy refuses (issue 8588).
+BF Marks Lane 1::Utf16Binary_ReadAsText	REFUSED InStream.Read into a Text on a UTF-16 stream of bytes a Write of a Byte
+BF Marks Lane 1::RenderPending_ReadAsText	REFUSED a read of the content of a placeholder Pdf of report BF Layout Report
+BF Marks Lane 1::Inserted_MediaImportOwnBlob	REFUSED Media.ImportStream from a stream on a Blob field of the same record that an Insert stored
+BF Marks Lane 2::Utf16Binary_ReadAsText	REFUSED InStream.Read into a Text on a UTF-16 stream of bytes a Write of a Byte
+BF Marks Lane 2::RenderPending_ReadAsText	REFUSED a read of the content of a placeholder Pdf of report BF Layout Report
+BF Marks Lane 2::Inserted_MediaImportOwnBlob	REFUSED Media.ImportStream from a stream on a Blob field of the same record that an Insert stored
+BF Marks Lane 3::Utf16Binary_ReadAsText	REFUSED InStream.Read into a Text on a UTF-16 stream of bytes a Write of a Byte
+BF Marks Lane 3::RenderPending_ReadAsText	REFUSED a read of the content of a placeholder Pdf of report BF Layout Report
+BF Marks Lane 3::Inserted_MediaImportOwnBlob	REFUSED Media.ImportStream from a stream on a Blob field of the same record that an Insert stored
+BF Marks Lane 4::Utf16Binary_ReadAsText	REFUSED InStream.Read into a Text on a UTF-16 stream of bytes a Write of a Byte
+BF Marks Lane 4::RenderPending_ReadAsText	REFUSED a read of the content of a placeholder Pdf of report BF Layout Report
+BF Marks Lane 4::Inserted_MediaImportOwnBlob	REFUSED Media.ImportStream from a stream on a Blob field of the same record that an Insert stored
