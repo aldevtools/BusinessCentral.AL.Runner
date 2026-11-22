@@ -1,4 +1,5 @@
-//! The cells of corpus pull request 1518, tests/al-language/pages/currpage/ListValidateFilterRefresh.al (open), that
+//! The cells of corpus pull request 1518, tests/al-language/pages/currpage/ListValidateFilterRefresh.al (merged), with the
+//! read cells of corpus pull requests 1529 (the same file) and 1535 (ListValidateViewReads.al, open), that
 //! `validate_view_refresh.rs` runs: the code of each measured page line for line (`pinned_body.rs`), and the test's steps on
 //! it, each cell with the line of its test.
 
@@ -26,6 +27,46 @@ const ISSUE_PAGE: [&str; 10] = [
     "  trigger onvalidate: begin Rec.SetRange(field#0, 'G1'); CurrPage.Update(false); end",
     "field Value in Lines = Value {applicationarea=All}",
     "  trigger onvalidate: begin CurrPage.Update(false); end",
+    "trigger onaftergetrecord: begin Log.Add((('P.AGR(' + Rec.\"Name\") + ')')); end",
+];
+
+/// The read probe's table 97496 "LT RVR Row" (corpus pull request 1535, ListValidateViewReads.al:15-49): page 97583's table
+/// with fields of every type; `«L»` is its log codeunit.
+const WIDE_TABLE: [&str; 14] = [
+    "DataClassification = CustomerContent",
+    "field 1 \"Group Code\": Code[10]",
+    "field 2 \"Entry No.\": Integer",
+    "field 3 \"Name\": Text[30]",
+    "field 4 \"Value\": Text[30]",
+    "field 5 \"Kind\": Option Alpha,Beta,Gamma",
+    "field 6 \"Qty\": Decimal",
+    "field 7 \"Day\": Date",
+    "field 8 \"At\": Time",
+    "field 9 \"Stamp\": DateTime",
+    "field 10 \"Flag\": Boolean",
+    "field 11 \"Indentation\": Integer",
+    "key \"Group Code\", \"Entry No.\" {Clustered=true}",
+    "trigger \"Name\".OnValidate: var Log: Codeunit \"«L»\"; begin Log.Add((('T.V(' + Rec.\"Name\") + ')')); end",
+];
+
+/// Its page 97498 "LT RVR Lines" (:73-144): the issue's page with a control for each other field.
+const WIDE_PAGE: [&str; 17] = [
+    "PageType = List",
+    "SourceTable = \"«T»\"",
+    "ApplicationArea = All",
+    "UsageCategory = None",
+    "repeater Lines in - {}",
+    "field Name in Lines = Name {applicationarea=All}",
+    "  trigger onvalidate: begin Rec.SetRange(field#0, 'G1'); CurrPage.Update(false); end",
+    "field Value in Lines = Value {applicationarea=All}",
+    "  trigger onvalidate: begin CurrPage.Update(false); end",
+    "field Entry No. in Lines = Entry No. {applicationarea=All}",
+    "field Kind in Lines = Kind {applicationarea=All}",
+    "field Qty in Lines = Qty {applicationarea=All}",
+    "field Day in Lines = Day {applicationarea=All}",
+    "field At in Lines = At {applicationarea=All}",
+    "field Stamp in Lines = Stamp {applicationarea=All}",
+    "field Flag in Lines = Flag {applicationarea=All}",
     "trigger onaftergetrecord: begin Log.Add((('P.AGR(' + Rec.\"Name\") + ')')); end",
 ];
 
@@ -158,16 +199,19 @@ pub(crate) enum CellPage {
     Card,
     /// Page 97571, the Card of issue 8717.
     EditCard,
+    /// Page 97498 of ListValidateViewReads.al: the issue's page with controls of every type.
+    Wide,
 }
 
 impl CellPage {
-    pub(crate) const ALL: [CellPage; 6] = [
+    pub(crate) const ALL: [CellPage; 7] = [
         CellPage::Issue,
         CellPage::Lines,
         CellPage::Both,
         CellPage::Curr,
         CellPage::Card,
         CellPage::EditCard,
+        CellPage::Wide,
     ];
 
     /// The lines of the page, of its table and of the procedures they call.
@@ -185,6 +229,7 @@ impl CellPage {
             CellPage::Curr => (&CURR_PAGE, &TABLE, &CALLEES),
             CellPage::Card => (&CARD_PAGE, &TABLE, &CALLEES),
             CellPage::EditCard => (&EDIT_PAGE, &EDIT_TABLE, &EDIT_CALLEES),
+            CellPage::Wide => (&WIDE_PAGE, &WIDE_TABLE, &EDIT_CALLEES),
         }
     }
 
@@ -197,6 +242,7 @@ impl CellPage {
             CellPage::Curr => &CURR_CELLS,
             CellPage::Card => &CARD_CELLS,
             CellPage::EditCard => &EDIT_CELLS,
+            CellPage::Wide => &WIDE_CELLS,
         }
     }
 
@@ -212,9 +258,50 @@ impl CellPage {
     /// Close read the row first when the page's last read was of another row. On the other pages every cell's last read
     /// before such a call was of the row itself.
     pub(crate) fn reads_first(self) -> bool {
-        matches!(self, CellPage::Issue | CellPage::Lines)
+        matches!(self, CellPage::Issue | CellPage::Wide | CellPage::Lines)
+    }
+
+    /// The read-only calls the read cells measure on the page (`Step::Reads`): on a control bound to a field, and on the page.
+    pub(crate) fn read_calls(self) -> (&'static [PageMethod], &'static [PageMethod]) {
+        match self {
+            CellPage::Wide => (&WIDE_CONTROL_READS, &WIDE_PAGE_READS),
+            _ => (&CONTROL_READS, &PAGE_READS),
+        }
     }
 }
+
+/// The read-only calls of corpus pull request 1529 (ListValidateFilterRefresh.al `ReadsLines` and the others), on a control
+/// and on the page.
+const CONTROL_READS: [PageMethod; 8] = [
+    PageMethod::AssertEquals,
+    PageMethod::Caption,
+    PageMethod::Editable,
+    PageMethod::Enabled,
+    PageMethod::HideValue,
+    PageMethod::ShowMandatory,
+    PageMethod::ValidationErrorCount,
+    PageMethod::Visible,
+];
+const PAGE_READS: [PageMethod; 3] = [
+    PageMethod::Caption,
+    PageMethod::Editable,
+    PageMethod::ValidationErrorCount,
+];
+
+/// The read-only calls of corpus pull request 1535 on page 97498 (ListValidateViewReads.al `ReadsLines` blocks 1 and 2):
+/// the As* reads, OptionCount and GetOption on a control, IsExpanded on the page. GetField by a control id (block 3) is not
+/// among them: the runner does not know the compiler's control ids.
+const WIDE_CONTROL_READS: [PageMethod; 8] = [
+    PageMethod::AsBoolean,
+    PageMethod::AsDate,
+    PageMethod::AsDateTime,
+    PageMethod::AsDecimal,
+    PageMethod::AsInteger,
+    PageMethod::AsTime,
+    PageMethod::OptionCount,
+    PageMethod::GetOption,
+];
+const WIDE_PAGE_READS: [PageMethod; 1] = [PageMethod::IsExpanded];
 
 /// The control a SetValue typed into: the one bound to the field Name or to the field Value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -282,6 +369,7 @@ pub(crate) struct Cell {
 use Change::{Drop, Keep, KeepText, Reset, Same};
 use Ctl::{Name, Value as Val};
 use Step::{Action, Fail, GoToKey, Last, Previous, Reads, Set};
+use al_builtins::page_op::PageMethod;
 
 const fn walk(steps: &'static [Step]) -> Cell {
     Cell {
@@ -408,6 +496,15 @@ const ISSUE_CELLS: [Cell; 6] = [
         tail: Tail::FirstClose,
     },
     walk(&[Last, Set(Name, Upd::False, Keep, Some((2, 1)))]),
+];
+
+/// The cells on page 97498 of ListValidateViewReads.al (corpus pull request 1535): the issue's cell (:465) and its read
+/// cells at each point (blocks 1 and 2, :496-:581).
+const WIDE_CELLS: [Cell; 4] = [
+    walk(&KEEP_F),
+    walk(&KEEP_F_READS[0]),
+    walk(&KEEP_F_READS[1]),
+    walk(&KEEP_F_READS[2]),
 ];
 
 /// The cells on page 97585, both row triggers (:1105, :1122, :1139, :1156, :1173).
