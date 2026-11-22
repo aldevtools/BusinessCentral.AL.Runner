@@ -1,5 +1,5 @@
-// An excerpt of the corpus probe BgTaskQueryCache.al of corpus pull requests 1457 and 1495 at 37bffb8a (al-runner issues 8467
-// and 8637): the file up to BQ Tests 9, then BQ Tests 3b, BQ Tests 11, BQ Media Row and BQ Reader 12. Left out: BQ Tests 9b and
+// An excerpt of the corpus probe BgTaskQueryCache.al of corpus pull requests 1457 and 1495 at d0497714 (al-runner issues 8467
+// and 8637): the file up to BQ Tests 9, then BQ Tests 3b, BQ Tests 11, BQ Media Row, BQ Reader 12 and BQ Tests 13. Left out: BQ Tests 9b and
 // 9c (the "@ alone" pull request's), BQ Tests 10 (al-runner issue 8677's), BQ Tests 12 and BQ Version, which need Base
 // Application, and the cell of 100000 filters (:5564), which al-test-cli's Issue8637Heavy.al runs: main's al-runner runs it
 // past the neighbor check's 20 s CPU limit on the CI runners.
@@ -6175,5 +6175,223 @@ codeunit 97580 "BQ Reader 12"
             Seen := '-';
         Results.Add('Seen', Seen);
         Page.SetBackgroundTaskResult(Results);
+    end;
+}
+
+// BQ Tests 13 (reviews of al-runner PRs 8490 and 8682; measured on a local BC 29.1 OnPrem w1 container, 3 runs):
+//   - a worker's CalcFields after SetLoadFields and Get (table 97597, as BQ Tests 10 reads it): the test session inserts lines
+//     without a commit between the worker's two reads;
+//   - SelectLatestVersion before a Get with every read in one worker codeunit (BQ Reader 13), next to BQ Tests 11's cells, whose
+//     first read is BQ Reader's;
+//   - a table with a MediaSet field (table 97586), as BQ Tests 11 reads the Media one.
+table 97586 "BQ MediaSet Row"
+{
+    DataClassification = SystemMetadata;
+    ReplicateData = false;
+
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(2; Description; Text[50]) { }
+        field(3; Pictures; MediaSet) { }
+    }
+
+    keys
+    {
+        key(PK; "No.") { Clustered = true; }
+    }
+}
+
+codeunit 97586 "BQ Reader 13"
+{
+    trigger OnRun()
+    var
+        Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
+        Group: Text;
+        LineText: Text;
+        LineNo: Integer;
+    begin
+        Parameters := Page.GetBackgroundParameters();
+        Parameters.Get('Group', Group);
+        Parameters.Get('Line', LineText);
+        Evaluate(LineNo, LineText);
+        Results.Add('Seen', Read(Parameters.Get('Mode'), Group, LineNo));
+        Page.SetBackgroundTaskResult(Results);
+    end;
+
+    local procedure Read(Mode: Text; Group: Text; LineNo: Integer): Text
+    var
+        Row: Record "BQ Row";
+        Parent: Record "BQ Calc";
+        MediaSetRow: Record "BQ MediaSet Row";
+    begin
+        case Mode of
+            'get':
+                if Row.Get(Group, LineNo) then
+                    exit(Row.Description);
+            'slvget':
+                begin
+                    Database.SelectLatestVersion();
+                    if Row.Get(Group, LineNo) then
+                        exit(Row.Description);
+                end;
+            'loadfieldscount':
+                begin
+                    Parent.SetLoadFields(Description);
+                    Parent.Get(Group);
+                    Parent.CalcFields("Line Count");
+                    exit(Format(Parent."Line Count"));
+                end;
+            'mediasetdesc':
+                if MediaSetRow.Get(Group) then
+                    exit(MediaSetRow.Description);
+            else
+                Error('Mode %1', Mode);
+        end;
+        exit('-');
+    end;
+}
+
+codeunit 97587 "BQ Tests 13"
+{
+    Subtype = Test;
+
+    var
+        Assert: Codeunit Assert;
+        // No BQ Mode (a SingleInstance of BQ Tests): page 97519 starts no task of its own.
+
+    local procedure NewGroup(): Code[20]
+    begin
+        exit(CopyStr(DelChr(Format(CreateGuid()), '=', '{}-'), 1, 18));
+    end;
+
+    // Inserts a line, then reads the group (as AddRow of BQ Tests).
+    local procedure AddRow(Group: Code[20]; LineNo: Integer; Description: Text[50])
+    var
+        Row: Record "BQ Row";
+    begin
+        Row."Group" := Group;
+        Row."Line No." := LineNo;
+        Row.Description := Description;
+        Row.Insert();
+        Row.SetRange("Group", Group);
+        if Row.FindFirst() then;
+    end;
+
+    // Changes the line after reading it (Get, Modify).
+    local procedure SetRow(Group: Code[20]; LineNo: Integer; Description: Text[50])
+    var
+        Row: Record "BQ Row";
+    begin
+        Row.Get(Group, LineNo);
+        Row.Description := Description;
+        Row.Modify();
+    end;
+
+    // Inserts a line of table 97594, then reads the parent's lines (as AddChild of BQ Tests 10).
+    local procedure AddChild(Parent: Code[20]; LineNo: Integer; Amount: Decimal)
+    var
+        Child: Record "BQ Child";
+    begin
+        Child.Parent := Parent;
+        Child."Line No." := LineNo;
+        Child.Kind := 'K';
+        Child.Amount := Amount;
+        Child.Insert();
+        Child.SetRange(Parent, Parent);
+        if Child.FindFirst() then;
+    end;
+
+    local procedure OpenOn(var Rows: TestPage "BQ Plain Rows"; Group: Code[20])
+    begin
+        Rows.OpenView();
+        Rows.Filter.SetFilter("Group", Group);
+        Rows.First();
+    end;
+
+    local procedure Run(var Rows: TestPage "BQ Plain Rows"; Mode: Text; Group: Code[20]; LineNo: Integer): Text
+    var
+        Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
+        Seen: Text;
+    begin
+        Parameters.Add('Group', Group);
+        Parameters.Add('Line', Format(LineNo));
+        Parameters.Add('Mode', Mode);
+        Results := Rows.RunPageBackgroundTask(Codeunit::"BQ Reader 13", Parameters, false);
+        Results.Get('Seen', Seen);
+        exit(Seen);
+    end;
+
+    // A committed parent of table 97597 with line 1; the worker's SetLoadFields(Description), Get and CalcFields("Line Count");
+    // the test inserts lines 0 and 2 without a commit; the worker's same three calls again.
+    [Test]
+    procedure BgCalcFields_AfterSetLoadFields_FirstAnswer()
+    var
+        Rows: TestPage "BQ Plain Rows";
+        Parent: Record "BQ Calc";
+        G: Code[20];
+        H: Code[20];
+        Seen: Text;
+    begin
+        G := NewGroup();
+        H := NewGroup();
+        AddRow(H, 1, 'h');
+        Parent."No." := G;
+        Parent.Insert();
+        AddChild(G, 1, 5);
+        Commit();
+        OpenOn(Rows, H);
+        Seen := Run(Rows, 'loadfieldscount', G, 0);
+        AddChild(G, 0, 2);
+        AddChild(G, 2, 11);
+        Seen += ' / ' + Run(Rows, 'loadfieldscount', G, 0);
+        Rows.Close();
+        Assert.AreEqual('1 / 1', Seen, 'CalcFields after SetLoadFields');
+    end;
+
+    // A Get of line 1; the test changes it; SelectLatestVersion, then Get; the test changes the line again; the next Get. Every
+    // read is BQ Reader 13's.
+    [Test]
+    procedure BgQueryCache_Run_SelectLatestVersion_SameWorker_ThenGet()
+    var
+        Rows: TestPage "BQ Plain Rows";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        AddRow(G, 1, 'first');
+        OpenOn(Rows, G);
+        Assert.AreEqual('first', Run(Rows, 'get', G, 1), 'Get');
+        SetRow(G, 1, 'second');
+        Assert.AreEqual('second', Run(Rows, 'slvget', G, 1), 'Get after SelectLatestVersion');
+        SetRow(G, 1, 'third');
+        Assert.AreEqual('second', Run(Rows, 'get', G, 1), 'the next Get');
+        Rows.Close();
+    end;
+
+    // A committed row of a table with a MediaSet field; a Get of it; the test changes the row: the same Get.
+    [Test]
+    procedure BgQueryCache_Run_MediaSetTable_GetAgain_AfterChange()
+    var
+        Rows: TestPage "BQ Plain Rows";
+        MediaSetRow: Record "BQ MediaSet Row";
+        G: Code[20];
+        K: Code[20];
+    begin
+        G := NewGroup();
+        K := NewGroup();
+        AddRow(G, 1, 'h');
+        MediaSetRow."No." := K;
+        MediaSetRow.Description := 'first';
+        MediaSetRow.Insert();
+        Commit();
+        OpenOn(Rows, G);
+        Assert.AreEqual('first', Run(Rows, 'mediasetdesc', K, 0), 'Get');
+        MediaSetRow.Get(K);
+        MediaSetRow.Description := 'second';
+        MediaSetRow.Modify();
+        Assert.AreEqual('first', Run(Rows, 'mediasetdesc', K, 0), 'Get again');
+        Rows.Close();
     end;
 }

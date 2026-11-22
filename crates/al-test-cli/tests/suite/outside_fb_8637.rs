@@ -287,3 +287,25 @@ fn issue_8637_heavy() {
         }
     }
 }
+
+/// The cells of BQ Tests 13 (corpus PR 1495 at d0497714, BgTaskQueryCache.al:7106-7322, the review of al-runner PR 8490),
+/// each green 3 of 3 on BC 29.1: with every read in one worker codeunit the Get after SelectLatestVersion reads the table and
+/// the next Get answers it (:7282); a table with a MediaSet field answers the first read (:7300). Both pass, flagged. The
+/// CalcFields after SetLoadFields (:7255) is al-runner issue 8677's: here a worker computes it again, as main does.
+#[test]
+fn issue_8637_bq13_cells() {
+    let o = outcomes(PROBE, "BQ Tests 13");
+    assert_eq!(o.len(), 3);
+    for (name, r, marks) in &o {
+        if name.starts_with("BgCalcFields") {
+            assert!(
+                matches!(r, Outcome::Fail(m) if m.contains("Actual:<1 / 3>")),
+                "{name}: {r:?}"
+            );
+            assert!(!marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
+            continue;
+        }
+        assert_eq!(*r, Outcome::Pass, "{name}");
+        assert!(marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
+    }
+}
