@@ -155,3 +155,73 @@ fn a_non_field_control_whose_visible_names_a_row_field_reads_yes() {
     let got: Vec<String> = o.iter().map(|(n, x)| format!("{n}: {x:?}")).collect();
     assert_eq!(got, ["ExprSource: Pass", "OtherSources: Pass", "OpenTime: Pass"]);
 }
+
+/// Shapes the rule does not cover keep the value at open (No here): a Visible whose only field is the qualifier of an
+/// Option value (`Rec.Kind::B`, a constant), and sources that index an array or call a procedure (not measured).
+const NOT_COVERED: &str = r##"
+table 50110 "Repro Kind Row"
+{
+    fields
+    {
+        field(1; Id; Integer) { }
+        field(2; Kind; Option) { OptionMembers = A,B; }
+    }
+    keys { key(PK; Id) { Clustered = true; } }
+}
+
+page 50111 "Repro Not Covered"
+{
+    PageType = Card;
+    SourceTable = "Repro Kind Row";
+    layout
+    {
+        area(Content)
+        {
+            field(ScopeOnly; Rec.Id + 1) { Visible = Rec.Kind::B = Rec.Kind::A; }
+            field(IndexSource; Values[Index]) { Visible = Rec.Id > 0; }
+            field(CallSource; Twice() + 1) { Visible = Rec.Id > 0; }
+        }
+    }
+    var
+        Values: array[2] of Integer;
+        Index: Integer;
+
+    local procedure Twice(): Integer
+    begin
+        exit(Rec.Id * 2);
+    end;
+
+    trigger OnOpenPage()
+    begin
+        Index := 1;
+    end;
+}
+
+codeunit 50112 "Repro Not Covered Tests"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure NotCovered()
+    var
+        Row: Record "Repro Kind Row";
+        Card: TestPage "Repro Not Covered";
+    begin
+        Row.DeleteAll();
+        Row.Id := 1;
+        Row.Insert();
+        Card.OpenEdit();
+        Card.GoToRecord(Row);
+        if Card.ScopeOnly.Visible() or Card.IndexSource.Visible() or Card.CallSource.Visible() then
+            Error('ScopeOnly %1, IndexSource %2, CallSource %3', Card.ScopeOnly.Visible(), Card.IndexSource.Visible(), Card.CallSource.Visible());
+        Card.Close();
+    end;
+}
+"##;
+
+#[test]
+fn shapes_the_rule_does_not_cover_keep_the_value_at_open() {
+    let o = outcomes_in(NOT_COVERED, "Repro Not Covered Tests");
+    let got: Vec<String> = o.iter().map(|(n, x)| format!("{n}: {x:?}")).collect();
+    assert_eq!(got, ["NotCovered: Pass"]);
+}

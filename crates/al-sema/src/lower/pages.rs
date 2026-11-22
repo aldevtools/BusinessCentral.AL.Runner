@@ -465,8 +465,12 @@ impl Lowerer<'_> {
             if matches!(binding, ir::Binding::BaseVar(_)) && self.in_run_changing_report_ext(raw.owner) {
                 props.push((ir::EXT_MIRROR_PROPERTY.to_string(), ir::PropVal::Lit("true".into())));
             }
-            let other_source =
-                var_field.is_some() || array_element.is_some() || array_element_field.is_some() || expr_call;
+            // Not measured: a field of a record variable, an array element, a call (`[` or `(` in the source as written).
+            let other_source = var_field.is_some()
+                || array_element.is_some()
+                || array_element_field.is_some()
+                || expr_call
+                || sec.args_raw().get(1).is_some_and(|a| a.contains(['[', '(']));
             let visible_reads_row = self.visible_reads_row(oi, raw, &binding, other_source, &props);
             controls.push(ir::Control {
                 name: raw.name.clone(),

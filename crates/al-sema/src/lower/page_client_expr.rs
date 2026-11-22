@@ -95,7 +95,11 @@ impl Lowerer<'_> {
         let file = self.ws.objects[owner].file;
         let res = |n: &SyntaxNode| self.checked.resolutions.get(&key(file, n)).map(Res::inner);
         r.syntax().descendants().any(|n| {
-            if !matches!(res(&n), Some(Res::Field { .. })) {
+            // The qualifier of an Option or Enum value (`Rec.Status::Open`) is a constant: the record is not read.
+            let qualifier = n
+                .parent()
+                .is_some_and(|p| p.kind() == SyntaxKind::ScopeExpr && p.first_child().as_ref() == Some(&n));
+            if qualifier || !matches!(res(&n), Some(Res::Field { .. })) {
                 return false;
             }
             match n.kind() {
