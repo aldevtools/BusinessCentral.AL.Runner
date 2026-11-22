@@ -172,7 +172,7 @@ impl Session {
         if host.borrow().host.is_some() {
             return Ok(false);
         }
-        let Some(field) = self.refill_cell(&host, st) else {
+        let Some(field) = self.refill_cell(&host, st).map(|cell| cell.filter_field) else {
             return Ok(false);
         };
         let rec = self.page_rec(st);
@@ -196,13 +196,15 @@ impl Session {
         Ok(rows?.len() == 1)
     }
 
-    /// The step call `m` on part `st` (on its control `target`) makes after the test's filter, when a probe cell made it there
-    /// (PartRefillTestFilter.al of corpus PR 1474): AsDate and AsDecimal of a field control after any step (the `Fact` reads of
-    /// every cell) and a Value read (:723 PartRefill_TriggerPartActionThenFilterFirst_FindsRefilledRow, `QtyText`); `First()`
-    /// (:512 PartRefill_WorksheetActionThenFilterFirst_FindsRefilledRow) or `Last()` (:590
-    /// PartRefill_WorksheetActionThenFilterLast_FindsRefilledRow) after the filter; `Next()` after that `First()` and
-    /// `Previous()` after that `Next()` (:561 PartRefill_WorksheetActionThenFilterFirstNextPrevious_StayOnRefilledRow). `None`
-    /// for any other call, a Value with an argument included.
+    /// The step call `m` on part `st` (on its control `target`) makes after the test's filter, when the probe cell the part reads
+    /// as (`refill_cell`) made it there (PartRefillTestFilter.al of corpus PR 1474, the two-field key cell of corpus PR 1475):
+    /// AsDate and AsDecimal of a field control after any step (the `Fact` reads of every cell); `First()` after the filter
+    /// (every cell); `Last()` after the filter (:590 PartRefill_WorksheetActionThenFilterLast_FindsRefilledRow), and `Next()`
+    /// after that `First()` and `Previous()` after that `Next()` (:561
+    /// PartRefill_WorksheetActionThenFilterFirstNextPrevious_StayOnRefilledRow), on the cell of the Worksheet host and the plain
+    /// part only; a Value read after `First()` of the controls the cell read (:723
+    /// PartRefill_TriggerPartActionThenFilterFirst_FindsRefilledRow and PR 1475's cell: `QtyText` and `Scope`). `None` for any
+    /// other call, a Value with an argument included.
     fn measured_step_after_test_filter(
         &self,
         st: &St,
@@ -215,19 +217,25 @@ impl Session {
         if step == S::Off {
             return None;
         }
-        let field = match target {
+        let host = st.borrow().host.as_ref().and_then(|(h, _)| h.upgrade())?;
+        let cell = self.refill_cell(&host, st)?;
+        let engine = self.engine();
+        let control = match target {
             Some(ControlTarget::Control(idx)) => {
-                page_of(&self.engine(), st).controls[*idx].kind == ir::ControlKind::Field
+                Some(&page_of(&engine, st).controls[*idx]).filter(|c| c.kind == ir::ControlKind::Field)
             }
-            _ => false,
+            _ => None,
         };
-        let read = field && (matches!(m, PageMethod::AsDate | PageMethod::AsDecimal) || field_read);
+        let fact_read = control.is_some() && matches!(m, PageMethod::AsDate | PageMethod::AsDecimal);
+        let value_read = field_read
+            && step == S::First
+            && control.is_some_and(|c| cell.value_reads.iter().any(|n| n.eq_ignore_ascii_case(&c.name)));
         match (step, m, target) {
-            _ if read => Some(step),
+            _ if fact_read || value_read => Some(step),
             (S::Filtered, PageMethod::First, None) => Some(S::First),
-            (S::Filtered, PageMethod::Last, None) => Some(S::Last),
-            (S::First, PageMethod::Next, None) => Some(S::Next),
-            (S::Next, PageMethod::Previous, None) => Some(S::Previous),
+            (S::Filtered, PageMethod::Last, None) if cell.last => Some(S::Last),
+            (S::First, PageMethod::Next, None) if cell.next_previous => Some(S::Next),
+            (S::Next, PageMethod::Previous, None) if cell.next_previous => Some(S::Previous),
             _ => None,
         }
     }
