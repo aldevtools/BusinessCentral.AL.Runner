@@ -1200,7 +1200,7 @@ impl Session {
                     other => return unsupported(format!("Find('{other}')")),
                 };
                 crate::platform::unmeasured_find(&self.engine, &t, &mut found, method, &which, args);
-                found = self.cached_find_first(rec, &cx, &t, method, found)?;
+                found = self.cached_find(rec, &cx, &t, method, found)?;
                 match found {
                     Some(row) => {
                         // Every form of Find gives the origin FindFirst gives (record/stale-find/Y89StaleFind.al:256-480,

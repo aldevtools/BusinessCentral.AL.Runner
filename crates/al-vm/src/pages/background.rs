@@ -24,6 +24,8 @@ struct ChildParked {
     si_track: Option<Box<crate::single_track::Track>>,
     bindings: Vec<crate::dispatch::Binding>,
     session_id_override: Option<i32>,
+    /// The test session's group 1 filters, kept aside while the worker runs (`Group1Filters::enter_worker`).
+    group1: Option<crate::group1_sessions::Filters>,
 }
 
 /// A new dictionary with the entries of `v` (the worker gets its own copy of the parameters).
@@ -181,6 +183,7 @@ impl Session {
             si_track: self.si_track.take(),
             bindings: std::mem::take(&mut self.events.bindings),
             session_id_override: self.session_id_override.replace(id),
+            group1: self.global_group1.enter_worker(),
         }
     }
 
@@ -190,6 +193,7 @@ impl Session {
         self.si_track = parked.si_track;
         self.events.bindings = parked.bindings;
         self.session_id_override = parked.session_id_override;
+        self.global_group1.leave_worker(parked.group1);
     }
 
     /// `TestPage.RunPageBackgroundTask(CodeunitId; [var Parameters]; [RunCompletionTriggers])`: runs the

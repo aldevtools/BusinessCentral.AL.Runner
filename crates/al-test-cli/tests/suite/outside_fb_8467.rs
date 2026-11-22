@@ -116,10 +116,9 @@ fn issue_8467_probe_cells() {
 }
 
 /// BQ Tests 3 and 3b of corpus pull request 1495: a Get after commits that inserted and deleted the row reads the table, clean.
-/// FindLast, IsEmpty and FindFirst after a SetFilter, repeated after a change, read the rows as they are and fail: BC answers
-/// them from the cache (BgTaskQueryCache.al:1238, :1255, :1274), which is not modelled here. In BQ Tests 3b, the worker's first
-/// Count after the test counted the group and then inserted (:6498), and a copy of a record a partial Get answered from the
-/// cache (:6518), stay refused.
+/// FindLast, IsEmpty and FindFirst after a SetFilter, repeated after a change, answer their first answer (:1238, :1255, :1274),
+/// and the worker's first Count after the test counted the group and then inserted answers the test's count (:6498), flagged
+/// (al-runner issue 8637). A copy of a record a partial Get answered from the cache (:6518) stays refused.
 #[test]
 fn issue_8467_neighbor_cells() {
     let o = outcomes(PROBE, "BQ Tests 3");
@@ -133,15 +132,10 @@ fn issue_8467_neighbor_cells() {
         "BgQueryCache_Run_IsEmpty_Insert_FirstAnswer",
         "BgQueryCache_Run_SetFilterFindFirst_ChangedRow_FirstAnswer",
     ] {
-        let (_, r, _) = get(&o, name);
-        assert!(matches!(r, Outcome::Fail(_)), "{name}: {r:?}");
+        assert_pass(&o, name, true);
     }
     let o = outcomes(PROBE, "BQ Tests 3b");
-    assert_refused(
-        &o,
-        "BgQueryCache_Run_GroupCount_TestCountThenInsert_FirstRead",
-        "a group read of a page background task after the test session read the group",
-    );
+    assert_pass(&o, "BgQueryCache_Run_GroupCount_TestCountThenInsert_FirstRead", true);
     assert_refused(
         &o,
         "BgQueryCache_Run_PartialGet_Copy_FirstAnswer",
@@ -183,14 +177,10 @@ fn issue_8467_repro() {
 fn issue_8467_unmeasured_neighbors() {
     let src = format!("{PROBE}\n{NEIGHBORS}");
     let o = outcomes(&src, "BQ Neighbor Tests");
-    assert_refused(
-        &o,
-        "GroupRead_AfterTestReadAndWrite",
-        "a group read of a page background task after the test session read the group",
-    );
     assert_refused(&o, "CopyOfReplayed_LoadsOmittedField", "a field SetLoadFields left out");
     assert_refused(&o, "BlobTable_ReadAgain_AfterChange", "CalcFields of a Blob of a row");
     assert_pass(&o, "FetchAfterReplay_LoadsOmittedField", true);
+    assert_pass(&o, "GroupRead_AfterTestReadAndWrite", true);
     for name in ["LongFilterValues_KeepTheirOwnEntries", "RowGoneAgain_AfterCommits"] {
         assert_pass(&o, name, false);
     }

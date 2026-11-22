@@ -164,6 +164,7 @@ mod option_enum_bigtext;
 mod or_group_page_rec;
 mod outside_fb_8434;
 mod outside_fb_8467;
+mod outside_fb_8637;
 mod outside_fb_8638;
 mod outside_fb_repros;
 mod outside_id_repros;
