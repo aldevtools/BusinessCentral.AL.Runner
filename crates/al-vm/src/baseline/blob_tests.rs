@@ -89,8 +89,8 @@ fn a_blob_row_read_back_from_the_bytes_refuses_as_the_captured_one() {
     assert_eq!(outcome(&mut restored_from_bytes(&s, &b), writer, "ReadUtf16"), ours);
 }
 
-// Every field of the buffer comes back, each set apart from what a new buffer holds (al-runner PERF-01 step 2c: a test-data
-// row's `written_base` and `content_edits` did not survive the bytes).
+// Every field of the buffer comes back, each set apart from what a new buffer holds (issue 8588: a test-data row's
+// `written_base` and `content_edits` did not survive the bytes).
 #[test]
 fn a_blob_row_read_back_from_the_bytes_keeps_every_buffer_field() {
     let (mut s, writer) = session();
