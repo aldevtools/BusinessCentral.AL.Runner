@@ -51,7 +51,8 @@ impl Session {
     ///   unless the caller shares a running call's xRec (`shared_xrec_of_own_procedure`).
     /// - Called from other code while triggers or procedures on the same record run further up: the instances of the record
     ///   variable (ADR-021) of its table and of its table extensions that hold `rc` as Rec, and those calls' xRecs
-    ///   (`running_xrecs`).
+    ///   (`running_xrecs`); while a validate event of `rc` is raised, also the xRec it hands its subscribers
+    ///   (`raised_validate_event_xrec`, records/validate_event_xrec.rs).
     /// - A chain the corpus measured (`measured_chain`): the xRec of the call running on the table's own instance (the field
     ///   trigger's), shared, so an assignment to it shows in the trigger after the call
     ///   (record/validate/XRecTableProcThroughCodeunit.al `Way3_ProcAssignsXRec_TriggerReadsAfter`,
@@ -75,7 +76,8 @@ impl Session {
         let blank = self.initial_fields(table);
         let not_blank = |x: &Rec| !Self::same_values(&x.borrow().fields, &blank);
         let running = self.running_xrecs(table, rc);
-        if !running.iter().any(|(_, x)| not_blank(x)) {
+        let event = self.raised_validate_event_xrec(rc);
+        if !running.iter().any(|(_, x)| not_blank(x)) && !event.as_ref().is_some_and(not_blank) {
             return ProcXrec::Plain;
         }
         let of_table = running.iter().find(|(o, _)| *o == table).map(|(_, x)| x.clone());
@@ -121,7 +123,7 @@ impl Session {
     /// The xRecs of the calls running on the record variable `rc` of table `table`: of each instance (ADR-021) of the table
     /// and of its table extensions whose Rec slot holds `rc` (`enter_record` fills it while the call runs, `leave_record`
     /// empties it), with the instance's object.
-    fn running_xrecs(&self, table: usize, rc: &Rec) -> Vec<(usize, Rec)> {
+    pub(super) fn running_xrecs(&self, table: usize, rc: &Rec) -> Vec<(usize, Rec)> {
         let instances = rc.borrow().globals.instances();
         let objects = &self.engine.program.objects;
         let mut running = Vec::new();
@@ -235,14 +237,9 @@ impl Session {
     ///   subscriber chain's): assumed (`Some(true)`).
     fn cell_facts(&self, rc: &Rec, cu: usize, trigger: usize, caller: usize, subscriber: bool) -> Option<bool> {
         let handle = Rc::as_ptr(rc) as usize;
-        let r = rc.borrow();
-        let untouched = |v: &ValidateRun| {
-            v.handle == handle && v.depth == trigger && !v.touched && Self::same_values(&r.fields, &v.entered)
-        };
-        let facts = !self.engine.object_facts[cu].single_instance
-            && self.validate_sites.iter().any(untouched)
-            && r.row_origin.is_none_or(|o| !o.lock_only)
-            && caller > 0;
+        let untouched = |v: &ValidateRun| v.handle == handle && v.depth == trigger && self.untouched_since(v, rc);
+        let facts =
+            !self.engine.object_facts[cu].single_instance && self.validate_sites.iter().any(untouched) && caller > 0;
         if !facts {
             return None;
         }

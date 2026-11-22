@@ -164,6 +164,21 @@ impl Session {
         self.sole_validate_from_al_depth(handle) == Some(depth)
     }
 
+    /// The call site of the one Validate of the record at `handle` that runs now; `None` when none runs, when one is nested
+    /// in another, or when the site is not named.
+    pub(super) fn sole_validate_site(&self, handle: usize) -> Option<&ValidateSite> {
+        self.sole_validate_run(handle)?.site.as_ref()
+    }
+
+    /// The one Validate of the record at `handle` that runs now; `None` when none runs or when one is nested in another.
+    pub(super) fn sole_validate_run(&self, handle: usize) -> Option<&ValidateRun> {
+        let mut running = self.validate_sites.iter().filter(|v| v.handle == handle);
+        match (running.next(), running.next()) {
+            (Some(run), None) => Some(run),
+            _ => None,
+        }
+    }
+
     /// Notes that record method `method` runs on `rec`: when it writes the record (its buffer or its row) or reads it again,
     /// each running Validate of it counts as touched (`ValidateRun::touched`). A method that only reads the buffer or the view
     /// (TestField, GetFilter, FieldCaption) or sets the view (SetRange, SetCurrentKey) does not; one that changes a field
@@ -207,16 +222,12 @@ impl Session {
     /// The depth of the call stack the trigger of the one Validate of the record at `handle` runs at, when that Validate is a
     /// `Record.Validate` AL code called and no other Validate of the record runs.
     fn sole_validate_from_al_depth(&self, handle: usize) -> Option<usize> {
-        let mut running = self.validate_sites.iter().filter(|v| v.handle == handle);
-        match (running.next(), running.next()) {
-            (
-                Some(&ValidateRun {
-                    site: Some(ValidateSite::AlRecordValidate),
-                    depth,
-                    ..
-                }),
-                None,
-            ) => Some(depth),
+        match self.sole_validate_run(handle)? {
+            &ValidateRun {
+                site: Some(ValidateSite::AlRecordValidate),
+                depth,
+                ..
+            } => Some(depth),
             _ => None,
         }
     }
@@ -241,12 +252,16 @@ impl Session {
     ///
     /// Every other call from the table's or a table extension's own code keeps the blank xRec of a plain call, unprobed (OnInsert,
     /// OnModify, OnDelete, OnRename, OnBeforeValidate, another record variable, a table extension's own procedure, a table
-    /// extension's trigger at a call site that is not measured). A call from other code: [`Session::running_call_xrec`].
+    /// extension's trigger at a call site that is not measured). A subscriber of a validate event calling it on Rec:
+    /// [`Session::validate_event_xrec`]. A call from other code: [`Session::running_call_xrec`].
     pub(crate) fn table_proc_xrec(&mut self, object: usize, rc: &Rec, f: &Frame) -> ProcXrec {
-        match self.frame_xrec(object, rc, f) {
-            Some(x) => ProcXrec::Shared(x),
-            None => self.running_call_xrec(object, rc, f),
+        if let Some(x) = self.frame_xrec(object, rc, f) {
+            return ProcXrec::Shared(x);
         }
+        if let Some(x) = self.validate_event_xrec(object, rc, f) {
+            return ProcXrec::Shared(x);
+        }
+        self.running_call_xrec(object, rc, f)
     }
 
     /// The caller's xRec of [`Session::table_proc_xrec`] that the code running in frame `f` holds (the cases listed there).

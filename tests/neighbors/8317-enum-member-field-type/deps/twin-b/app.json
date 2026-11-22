@@ -1,0 +1,15 @@
+{
+  "id": "6d1f3c20-8317-4c3d-9e8f-831700000002",
+  "name": "Neighbors 8317 Twin B",
+  "publisher": "AL Runner",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "16.0",
+  "idRanges": [
+    {
+      "from": 50130,
+      "to": 50139
+    }
+  ],
+  "dependencies": []
+}
