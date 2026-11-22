@@ -50,7 +50,7 @@ impl Yaml {
 }
 
 /// The YAML error (P88:238, PnA:177-178).
-fn bad_yaml() -> Signal {
+pub(super) fn bad_yaml() -> Signal {
     error("The data does not represent valid YAML.", "YamlBadFormat")
 }
 
