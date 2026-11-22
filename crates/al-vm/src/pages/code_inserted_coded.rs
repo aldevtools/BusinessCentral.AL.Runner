@@ -28,12 +28,14 @@ impl Session {
     /// from the landing on, where `no_active_subscriber` refuses it, :1592); its three parts shown, each over the host's
     /// table, stored, not marked and filtered by its link only (`coded_part`).
     pub(super) fn coded_page(&self, st: &St) -> Result<bool, Signal> {
+        if !self.has_source(st) {
+            return Ok(false);
+        }
         let manual_only = |object: usize| self.engine().events.manual_subscribers_of(object).is_some();
         let rec = self.page_rec(st);
         let table = rec.borrow().table as usize;
         let parts = st.borrow().parts.clone();
-        if !(self.has_source(st)
-            && !rec.borrow().temporary
+        if !(!rec.borrow().temporary
             && manual_only(st.borrow().object as usize)
             && manual_only(table)
             && st.borrow().hidden_parts.is_empty()
