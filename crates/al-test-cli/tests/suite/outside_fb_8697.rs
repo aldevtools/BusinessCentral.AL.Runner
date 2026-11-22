@@ -59,7 +59,7 @@ fn outcomes_with(extra: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<Assum
 }
 
 /// Every cell of the probe passes. The cells whose worker raises an error it does not catch, caught by the test session through
-/// a procedure of its own (as on main), pass clean; every other cell runs through the assumption.
+/// a procedure of its own (as before issue 8697), pass clean; every other cell runs through the assumption.
 #[test]
 fn issue_8697_probe_cells() {
     let o = outcomes("LEW Tests");
@@ -74,7 +74,7 @@ fn issue_8697_probe_cells() {
 }
 
 /// The shapes next to the cells (an enqueued task, a test session error from a TryFunction, a worker's guarded Codeunit.Run)
-/// pass through the assumption; a TryFunction around the call records the worker's error, as on main, clean.
+/// pass through the assumption; a TryFunction around the call records the worker's error, as before issue 8697, clean.
 #[test]
 fn issue_8697_neighbors() {
     let o = outcomes("LEN Tests");
@@ -86,8 +86,8 @@ fn issue_8697_neighbors() {
     }
 }
 
-/// A collectible TestField the worker raises while the test session collects fails the task, as BC does; main collected it in
-/// the test session's scope (corpus PR 1516, BgTaskWorkerSessionShapes.al:98).
+/// A collectible TestField the worker raises while the test session collects fails the task, as BC does; before issue
+/// 8697 it was collected in the test session's scope (corpus PR 1516, BgTaskWorkerSessionShapes.al:98).
 #[test]
 fn issue_8697_worker_collectible_testfield() {
     let o = outcomes("LWS Tests");
@@ -129,7 +129,7 @@ fn issue_8697_worker_last_error_object() {
         .filter(|(n, ..)| n.ends_with("_GetLastErrorObjectNull"));
     for (name, r, marks) in cells.iter().chain(two) {
         assert_eq!(*r, Outcome::Pass, "{name}");
-        // The worker's own exception after it caught its error is main's answer.
+        // The worker's own exception after it caught its error was the answer before issue 8697 too.
         let clean = name == "WorkerCaughtItsError_WorkerGetLastErrorObject_DialogException";
         assert_eq!(marks.contains(&BgTaskWorkerLastError), !clean, "{name}: {marks:?}");
     }

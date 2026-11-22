@@ -14,7 +14,7 @@ pub(crate) struct BgWorker {
     params: V,
     result: Option<V>,
     /// The test session held a last error when the worker started: what the worker reads of its own last error differs from
-    /// main's, which shared the test session's (`Session::bg_note_last_error_read`).
+    /// what it read before issue 8697, when it shared the test session's (`Session::bg_note_last_error_read`).
     test_had_last_error: bool,
     /// The test session collected errors when the worker started (`Session::bg_note_worker_collection`).
     test_collecting: bool,
@@ -217,7 +217,8 @@ impl Session {
     }
 
     /// Puts the test session's state back after a worker ran ([`Session::bg_enter_child_session`]). Where the worker set a
-    /// last error of its own, main's test session would read that one: the reads of the test session's own are noted.
+    /// last error of its own, the test session read that one before issue 8697: the reads of the test session's own are
+    /// noted.
     fn bg_leave_child_session(&mut self, parked: ChildParked) {
         self.singletons = parked.singletons;
         self.si_track = parked.si_track;
@@ -269,7 +270,8 @@ impl Session {
     }
 
     /// An error-collection call of the worker, or a collectible error it raises, while the test session collects: the worker
-    /// is outside any collecting scope, where main shared the test session's. It runs through the assumption.
+    /// is outside any collecting scope, where it shared the test session's before issue 8697. It runs through the
+    /// assumption.
     pub(crate) fn bg_note_worker_collection(&self) {
         if self.pages.bg_worker.as_ref().is_some_and(|w| w.test_collecting) {
             al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::BgTaskWorkerLastError);
