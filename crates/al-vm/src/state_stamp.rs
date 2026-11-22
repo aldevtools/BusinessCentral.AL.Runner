@@ -263,7 +263,11 @@ impl Session {
     /// sequence and its draws by origin, plus the counters code advances (the clock offset, the clock's draws, key and
     /// last system stamp, the Guid and SystemId draws and their key, the row versions), the last error and the facts of
     /// `state_facts.rs`, as lines that compare across sessions: an instance is named by a number by first sight, not by
-    /// its address (al-testrun `login_replay.rs`, al-runner issue 8211).
+    /// its address (al-testrun `login_replay.rs`, al-runner issue 8211). It is not a pure read: `left_stamp` builds a
+    /// fresh instance's globals to compare with, and each temporary record among them takes a temporary table number
+    /// (`Session::new_temp_id`), so the session's counter moves on. Harmless: the number only names a temporary table's
+    /// store inside the session, AL code never sees it, and al-testrun's watched and partner logins call `left_stamp`
+    /// the same way.
     pub fn state_lines(&mut self) -> StateLines {
         let stamp = self.left_stamp();
         let id = |o: usize| self.engine.program.objects[o].id.unwrap_or(0);

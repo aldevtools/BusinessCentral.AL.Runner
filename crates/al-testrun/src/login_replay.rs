@@ -12,10 +12,15 @@ use al_vm::{Engine, Session};
 use std::collections::BTreeSet;
 use std::sync::{Mutex, PoisonError};
 
-/// Everything the login and its subscribers can read when the test session opens the company. Two sessions with the same
-/// key may share one run of the login only when they also hold the same after it ([`Check`]); a field left out of the
-/// key would let a replay hand a session the store of another input. The engine (the compiled program, its apps and
-/// their code) is not a field: the check lives on the engine (`Engine::derived`).
+/// The inputs of the login and its subscribers this check keys on, when the test session opens the company: the fields
+/// below. Two sessions with the same key may share one run of the login only when they also hold the same after it
+/// ([`Check`]); a field left out of the key would let a replay hand a session the store of another input. The engine
+/// (the compiled program, its apps and their code) is not a field: the check lives on the engine (`Engine::derived`).
+/// Not yet fields, though the login can read them or run otherwise under them: the clock start
+/// (`Scratch::clock_start`), the stability perturbation (`Scratch::perturb`), the host's company list (the test data's
+/// `known_companies`) and the modes that follow the code a session runs (coverage, the impact trace, the observer);
+/// runtime `install_once.rs` `Key` holds the first two. Here a missing field can only show as a difference (the check
+/// replays nothing); the replay adds them before it serves a session (al-runner issue 8211).
 ///
 /// The maintainer's two conditions for the replay (al-runner issue 8211): every field holds its input by content or by a
 /// SHA-256 digest ([`LinesDigest`]), never a 64-bit hash; and the test codeunit stays a field until a repeat across test
@@ -30,7 +35,7 @@ pub(crate) struct Key {
     /// committed (the rows are then `database`).
     uncommitted: Option<LinesDigest>,
     /// Who offers the rows of the tables no write reached (the test data, `MemStore::backing_identity`).
-    backing: Option<(u64, u64)>,
+    backing: BackingKey,
     /// The session state before the login (`Session::state_lines`): language, WorkDate, number sequences, isolated
     /// storage, SingleInstance globals, manual bindings, `Random`, filter group 1, the clock offset, the Guid key and
     /// draws, row versions, AutoIncrement counters, the last error.
@@ -69,7 +74,7 @@ impl Key {
         let store = session.store_mut();
         let database = digest(&committed_rows(store));
         let uncommitted = store.has_uncommitted().then(|| digest(&current_rows(store)));
-        let backing = store.backing_identity();
+        let backing = BackingKey::of(store.backing_identity());
         let resources = {
             let overrides = session
                 .engine
@@ -104,6 +109,26 @@ impl Key {
             flags,
             license: session.engine.license.clone(),
         }
+    }
+}
+
+/// Who offers the rows of the tables no write reached, as a field of [`Key`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum BackingKey {
+    /// `MemStore::backing_identity`: two backings with the same identity offer the same rows (`Backing::identity`).
+    Known((u64, u64)),
+    /// The backing does not say who it is (`Backing::identity` `None`: not known), so it may offer other rows than
+    /// another such backing: a number no other session gets, so that the key matches no other key.
+    Unknown(u64),
+}
+
+impl BackingKey {
+    fn of(identity: Option<(u64, u64)>) -> BackingKey {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        identity.map_or_else(
+            || BackingKey::Unknown(NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)),
+            BackingKey::Known,
+        )
     }
 }
 
@@ -376,7 +401,7 @@ mod tests {
         Key {
             database: digest(&["1".into()]),
             uncommitted: None,
-            backing: None,
+            backing: BackingKey::Known((0, 0)),
             session: digest(&["2".into()]),
             company: "C".into(),
             seed: 0,
@@ -392,7 +417,8 @@ mod tests {
     // Condition 1 of the maintainer's acceptance on al-runner issue 8211: the key compares content or a strong hash, never
     // a 64-bit digest. Every field is named with its type, so a field added or changed does not compile until it is
     // classified here: a SHA-256 digest of lines, or the content itself. `backing` is not a digest: two process-unique
-    // numbers (`TestData::id`, `Engine::uid`) that name who offers the rows. The module's own code names no 64-bit hasher.
+    // numbers (`TestData::id`, `Engine::uid`) that name who offers the rows, or, for a backing that does not say who it
+    // is, a number no other session gets (`BackingKey`). The module's own code names no 64-bit hasher.
     #[test]
     fn every_key_field_is_content_or_a_sha256_digest() {
         let k = key(1);
@@ -412,7 +438,7 @@ mod tests {
         } = &k;
         let digests: [&LinesDigest; 3] = [database, session, resources];
         let _: &Option<LinesDigest> = uncommitted;
-        let _: &Option<(u64, u64)> = backing;
+        let _: &BackingKey = backing;
         let _: (&String, &i32, &String, &Option<usize>) = (company, seed, user, test_codeunit);
         let _: &(bool, bool, bool) = client;
         let _: &crate::runtime::session_flags::SessionFlags = flags;
