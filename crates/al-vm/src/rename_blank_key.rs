@@ -134,7 +134,7 @@ impl Session {
                 t.name
             ));
         }
-        rec.borrow_mut().fields = old.to_vec();
+        rec.borrow_mut().fields = old.to_vec().into();
         Err(Signal::Error(Box::new(pending.error)))
     }
 

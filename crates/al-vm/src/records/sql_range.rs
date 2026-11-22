@@ -378,7 +378,7 @@ impl Session {
         let measured = match (&stored, bad.kind) {
             (Some(row), BadKind::Date1753 | BadKind::Date1752 | BadKind::DateTime1753) => Self::holds_row(t, old, row),
             (None, BadKind::Date1753 | BadKind::DateTime1753) => {
-                rec.borrow_mut().fields = old.to_vec();
+                rec.borrow_mut().fields = old.to_vec().into();
                 return self.fail(t, old, false);
             }
             _ => false,
@@ -386,7 +386,7 @@ impl Session {
         if !measured {
             return unsupported("a Rename with a value its SQL column cannot hold (not pinned)");
         }
-        rec.borrow_mut().fields = old.to_vec();
+        rec.borrow_mut().fields = old.to_vec().into();
         self.tx.failed_sql_rename = Some(std::rc::Rc::downgrade(rec));
         Err(Signal::Error(Box::new(bad.error)))
     }

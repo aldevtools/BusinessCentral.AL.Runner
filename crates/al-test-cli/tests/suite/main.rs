@@ -165,6 +165,7 @@ mod or_group_page_rec;
 mod outside_fb_8434;
 mod outside_fb_8491;
 mod outside_fb_8638;
+mod outside_fb_8670;
 mod outside_fb_repros;
 mod outside_id_repros;
 mod outside_rt_pages;

@@ -762,7 +762,7 @@ impl Session {
         let rec = self.page_rec(child);
         let stale = child.borrow_mut().shows_sibling_save.take();
         if let Some(at) = &stale {
-            rec.borrow_mut().fields = at.clone();
+            rec.borrow_mut().fields = at.clone().into();
             child.borrow_mut().unpinned_state = None;
         }
         let table = self.table(&rec)?;
@@ -770,18 +770,18 @@ impl Session {
         let Some(current) = self.stored_row(&rec)? else {
             return unsupported("a part re-read after a host SaveRecord whose current row is gone (not pinned)");
         };
-        rec.borrow_mut().fields = current.clone();
+        rec.borrow_mut().fields = current.clone().into();
         let mut after = Vec::new();
         while self.nav_next(child, 1)? {
-            after.push(rec.borrow().fields.clone());
+            after.push(rec.borrow().fields.to_vec());
             if after.len() > 4 {
                 break;
             }
         }
-        rec.borrow_mut().fields = current.clone();
+        rec.borrow_mut().fields = current.clone().into();
         let mut before = Vec::new();
         while self.nav_next(child, -1)? {
-            before.push(rec.borrow().fields.clone());
+            before.push(rec.borrow().fields.to_vec());
             if before.len() > 4 {
                 break;
             }
@@ -793,7 +793,7 @@ impl Session {
             ));
         }
         if stale.is_some() {
-            rec.borrow_mut().fields = current.clone();
+            rec.borrow_mut().fields = current.clone().into();
             self.populate_current(child)?;
             child.borrow_mut().agcr_xrec = Some(current.clone());
         }
@@ -804,10 +804,10 @@ impl Session {
         order.push(current.clone());
         let mut shown_current = current.clone();
         for (i, row) in order.iter().enumerate() {
-            rec.borrow_mut().fields = row.clone();
+            rec.borrow_mut().fields = row.clone().into();
             self.populate_current(child)?;
             if i + 1 == order.len() {
-                shown_current = rec.borrow().fields.clone();
+                shown_current = rec.borrow().fields.to_vec();
             }
         }
         let mut view: Vec<Vec<Value>> = before.into_iter().rev().collect();
@@ -825,7 +825,7 @@ impl Session {
                 stored,
             })
             .collect();
-        rec.borrow_mut().fields = shown_current;
+        rec.borrow_mut().fields = shown_current.into();
         self.set_xrec_fields(child, current);
         {
             let mut c = child.borrow_mut();
@@ -2084,7 +2084,7 @@ impl Session {
         }
         let shown = self.page_rec(st).borrow().fields.clone();
         if let Some(w) = st.borrow_mut().window.get_mut(0) {
-            w.shown = shown;
+            w.shown = shown.into_vec();
         }
         self.current_record_trigger(st, None)?;
         self.land_on_new_line(st)?;
@@ -2128,7 +2128,7 @@ impl Session {
         // `H.MODR(t=9 x.t=1) ... H.AGR(t=9 x.t=9)`; :1332 QJ_Both_HostEdited_PartModifiesHost_ThenHostSave `H.AGR(t=5 ... x.t=1)`
         // after saving t=1): the saved row counts as the host's last read.
         let saved = hrec.borrow().fields.clone();
-        host.borrow_mut().agr_xrec = Some(saved);
+        host.borrow_mut().agr_xrec = Some(saved.into_vec());
         // The host row a part access stored with its blank key: after the save the parts read their rows again, three times as at
         // the insert (pages/new-host-key-entry/Y80NewHostKey.al Y80_NH_Card_NameThenLineOnly `line log` = `HM:|N1;LN:;LN:;LN:`).
         if host.borrow().host_stored_blank_key {
@@ -2239,7 +2239,7 @@ impl Session {
             self.page_event(&sib, "onaftergetcurrrecordevent", None, None)?;
             if inserted {
                 let mut s = sib.borrow_mut();
-                s.shows_sibling_save = Some(at);
+                s.shows_sibling_save = Some(at.into_vec());
                 s.unpinned_state = Some(
                     "a part that shows a row another part saved, other than the row it stands on (what it reads next is not pinned)".into(),
                 );
@@ -2265,7 +2265,7 @@ impl Session {
                     "closing a host that saves nothing while a part shows a row another part saved (not pinned)",
                 );
             }
-            self.page_rec(&part).borrow_mut().fields = at;
+            self.page_rec(&part).borrow_mut().fields = at.into();
             self.populate_current(&part)?;
         }
         Ok(())
@@ -2673,7 +2673,7 @@ impl Session {
             self.set_xrec(st);
             let shown = self.page_rec(st).borrow().fields.clone();
             if let Some(w) = st.borrow_mut().window.get_mut(last) {
-                w.shown = shown;
+                w.shown = shown.into_vec();
             }
             return Ok(Some(true));
         }
@@ -2684,7 +2684,7 @@ impl Session {
         self.populate_current(st)?;
         let shown = self.page_rec(st).borrow().fields.clone();
         if let Some(w) = st.borrow_mut().window.get_mut(last) {
-            w.shown = shown;
+            w.shown = shown.into_vec();
         }
         self.current_record_trigger(st, Some(before))?;
         Ok(Some(true))

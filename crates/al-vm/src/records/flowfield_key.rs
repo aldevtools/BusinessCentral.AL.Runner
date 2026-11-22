@@ -199,7 +199,7 @@ impl Session {
             cursor = Some(position(t, key, &row));
             let probe = {
                 let mut p = rec.borrow().clone();
-                p.fields = row.clone();
+                p.fields = row.clone().into();
                 p.temporary = false;
                 p.auto_calc.clear();
                 Rc::new(RefCell::new(p))

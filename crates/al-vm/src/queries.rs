@@ -1540,7 +1540,7 @@ impl Session {
         };
         {
             let mut r = rc.borrow_mut();
-            r.fields = row.to_vec();
+            r.fields = row.to_vec().into();
             r.filters = flow.to_vec();
             r.temporary = false;
             r.temp_id = None;

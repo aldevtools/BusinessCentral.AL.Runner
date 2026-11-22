@@ -12,7 +12,7 @@ use al_builtins::filter::{FieldFilter, FilterExpr};
 use al_builtins::native::{AlError, Signal, unsupported};
 use al_builtins::ops;
 use al_builtins::value::{RecordState, RtType, Value};
-use al_data::{Store, TableDef};
+use al_data::TableDef;
 use al_ir as ir;
 use std::cell::RefCell;
 use std::cmp::Ordering;
@@ -339,12 +339,12 @@ impl Session {
         let cx = self.cx_for(rec, &related)?;
         let found = if flow_field_filters.is_empty() {
             self.store
-                .count(&cx, &related, &filters)
+                .exists(&cx, &related, &filters)
                 .map_err(|e| Signal::unsupported(format!("{e}")))?
         } else {
-            self.count_passing_flow_fields(&cx, &related, &filters, &flow_field_filters)?
+            self.count_passing_flow_fields(&cx, &related, &filters, &flow_field_filters)? > 0
         };
-        if found > 0 {
+        if found {
             return Ok(());
         }
         // A related table the baseline could not fill may hold the row in BC.
