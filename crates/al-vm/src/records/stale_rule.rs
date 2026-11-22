@@ -364,7 +364,11 @@ impl Session {
             || self.tx.open.locks.lock_unpinned.is_some();
         let undid_write = !self.tx.open.writes.is_empty() || self.store.change_counter() != self.tx.commit_counter;
         let earlier = self.tx.rollback_kind;
+        let ends_runner_tx = kind == TrappedRollback::AssertError && self.asserterror_ends_runner_tx();
         self.rollback_in_run()?;
+        if ends_runner_tx {
+            self.runner_tx_ended_by_asserterror();
+        }
         if before.is_some() || held_lock || e.exception != ExceptionKind::Dialog {
             return Ok(());
         }
