@@ -13,8 +13,9 @@
 //! - a Get under ReadCommitted of a key no row has answers not found at once (:280); under ReadUncommitted and without a
 //!   ReadIsolation the worker reads the row as it is (:220, :235, :339), which is what the reads do without this module;
 //! - a row the test session's insert queue still holds (`records/insert_buffer.rs`) is not in the database and holds no lock:
-//!   the worker's ReadCommitted Count and Get read the table without it (:583, :606). The runner has no view of the store
-//!   without the queued rows, so a locking read of a table whose queue holds rows refuses.
+//!   the worker's ReadCommitted Count and Get read the table without it (:583, :606), on the view of the store without the
+//!   queued rows (`hide_queued_from_worker`). Only when every row the codeunit wrote of the table is still queued; another
+//!   locking read of a table whose queue holds rows refuses.
 //!
 //! The error is measured only caught by a TryFunction of the worker, where GetLastErrorText gives each line break of the message
 //! as CR LF (the probe's `OneLine`). [`CodeunitRowLocks`] notes the rows from the codeunit's first test on
@@ -254,15 +255,7 @@ impl Session {
             isolation,
             ISOLATION_READ_COMMITTED | ISOLATION_REPEATABLE_READ | ISOLATION_UPDLOCK
         ) {
-            // The runner lets this read send the test session's insert queue, which a worker's read does not do on BC
-            // (corpus master pages/background-tasks/BgTaskInsertQueue.al:412): which of the table's rows hold a lock is then
-            // not known.
-            if self.row_locks.codeunit_isolation.is_some() && self.queue_holds_rows(table) {
-                self.row_locks.mark_unknown(
-                    table,
-                    "a read of a page background task's worker while the test session's insert queue held rows of the table",
-                );
-            }
+            // A worker's read sends nothing of the test session's insert queue (`note_insert_buffer`).
             return Ok(());
         }
         self.worker_locking_read(method, rec, args, isolation)
@@ -290,14 +283,36 @@ impl Session {
             }
             return Ok(());
         }
-        // A row the insert queue holds is not in the database yet and holds no lock: the worker reads the table without it
-        // (BgTaskReadIsolationLock.al:583, :606). The runner has no view of the store without it.
+        let unnoted = self.unnoted_tables();
+        // A row the insert queue holds is not in the database yet and holds no lock: when every row the codeunit wrote of the
+        // table is still queued, a Get and a Count under ReadCommitted read the view of the store without them
+        // (`hide_queued_from_worker`): Count leaves them out (BgTaskReadIsolationLock.al:583), Get does not find them (:606).
+        // A write of the table the runtime does not note (`unnoted_tables`) may hold a lock: refused below.
         if self.queue_holds_rows(table) {
+            let only_queued = isolation == ISOLATION_READ_COMMITTED
+                && matches!(method, RecordOp::Get | RecordOp::Count)
+                && !calc
+                && !unnoted.contains(&table)
+                && !self.row_locks.unknown.iter().any(|(t, _)| *t == table)
+                && self
+                    .row_locks
+                    .written
+                    .get(&(table, company.clone()))
+                    .is_none_or(|keys| {
+                        keys.iter().all(|k| {
+                            self.queued_in_store(table, &company)
+                                .iter()
+                                .any(|q| crate::records::same_key(q, k))
+                        })
+                    });
+            if only_queued {
+                assume(Assumption::BgTaskReadIsolationLock);
+                return Ok(());
+            }
             return unsupported(format!(
-                "{REFUSAL} of a table the test codeunit wrote or locked: a row the test session's insert queue still holds (the worker reads the table without it, corpus PR 1498; the runner has no view of the store without the queued rows)"
+                "{REFUSAL} of a table the test codeunit wrote or locked: a row the test session's insert queue still holds, in a form no cell measures (corpus PR 1498 measures a ReadCommitted Get and Count while every row the codeunit wrote of the table is queued)"
             ));
         }
-        let unnoted = self.unnoted_tables();
         let wrote = !self.row_locks.written.is_empty() || !self.row_locks.unknown.is_empty() || !unnoted.is_empty();
         if wrote && calc {
             return refuse("CalcFields, CalcSums or SetAutoCalcFields after the test codeunit wrote rows");
