@@ -20,7 +20,7 @@ pub(crate) struct TxState {
     /// What `transaction_type` rests on when no corpus case pins it (`Session::transaction_type_seen`): the assumptions it
     /// went through (a Commit kept it, al-runner issue 8605; a test method before left it, 8606), or that it is not known (a
     /// test method before it did not run to its end and could set it). A set that takes effect clears it.
-    pub(crate) type_origin: crate::transactions::TypeOrigin,
+    pub(crate) type_origin: crate::transaction_type::TypeOrigin,
     /// A test method of this codeunit has ended (`Session::test_method_ended`): the next one starts with the type it left.
     pub(crate) test_ended: bool,
     /// `Database.LockTimeout`: whether a lock wait ends in a timeout error.

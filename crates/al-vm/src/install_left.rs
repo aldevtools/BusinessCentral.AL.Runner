@@ -25,7 +25,7 @@ pub struct InstallLeft {
     /// what it rests on when no case pins it (`TxState::type_origin`): code that reads it before the first test method starts
     /// sees both.
     transaction_type: i32,
-    type_origin: crate::transactions::TypeOrigin,
+    type_origin: crate::transaction_type::TypeOrigin,
     /// What the SQL counters it never read noted (`SqlCounters::left_inactive`).
     sql: crate::sqlcount::SqlLeft,
     /// `EventState::caption_context_revision`: moved by a GlobalLanguage change and a binding; compared only with the value a

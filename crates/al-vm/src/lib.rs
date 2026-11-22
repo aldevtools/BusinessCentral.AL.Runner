@@ -168,6 +168,7 @@ mod tenant_set_delete;
 mod test_rows;
 mod test_runner_host;
 mod testdata;
+mod transaction_type;
 mod transactions;
 mod translations;
 mod ui;

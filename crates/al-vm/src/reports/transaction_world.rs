@@ -2,7 +2,8 @@
 //! transaction it is measured at ([`Moment`]).
 
 use super::Schema;
-use crate::transactions::{TRANSACTION_TYPE_UPDATE_NO_LOCKS as UPDATE_NO_LOCKS, TxModel, TxPhase};
+use crate::transaction_type::TRANSACTION_TYPE_UPDATE_NO_LOCKS as UPDATE_NO_LOCKS;
+use crate::transactions::{TxModel, TxPhase};
 use crate::{Session, Signal};
 use al_builtins::assumptions::{self, Assumption};
 use al_builtins::native::unsupported;
