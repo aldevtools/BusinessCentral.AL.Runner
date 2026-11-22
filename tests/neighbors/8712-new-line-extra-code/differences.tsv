@@ -8,6 +8,9 @@ LT NE Tests::NewLine_TableFieldSetsFieldBeforeSaveRecord_ShowsAndSavesIt	ASSUMED
 LT NE Tests::NewLine_FieldSetThenUpdateTrue_ShowsAndSavesIt	ASSUMED list-new-line-extra-code (corpus PR 1521, open: ListNewLineExtraCode.al)
 LT NE Tests::NewLine_FieldSetAfterSaveRecord_UpdateFalseReadsTheStoredRow	ASSUMED list-new-line-extra-code (corpus PR 1521, open: ListNewLineExtraCode.al)
 LT NE Tests::NewLine_SaveRecordThenWriteAnotherTable_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code (corpus PR 1521, open: ListNewLineExtraCode.al)
+LT NE Tests::NewLine_TableFieldSetsFieldBeforeSaveRecord_RowBefore_ShowsAndSavesIt	ASSUMED list-new-line-extra-code (corpus PR 1521, open: ListNewLineExtraCode.al)
+LT NE Tests::NewLine_FieldSetAfterSaveRecord_RowBefore_UpdateFalseReadsTheStoredRow	ASSUMED list-new-line-extra-code (corpus PR 1521, open: ListNewLineExtraCode.al)
+LT NE Tests::NewLine_SaveRecordThenWriteAnotherTable_RowBefore_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code (corpus PR 1521, open: ListNewLineExtraCode.al)
 # Shapes the gate takes at the save, then refuses where their code leaves what the cells measure: Update(true) after
 # SaveRecord (a measured cell, :475), and the neighbors that change both the row and Rec, another row, or Rec's view
 # between the save and Update(false). Main refused each at the save.

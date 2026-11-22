@@ -11,9 +11,10 @@
 //   through another record and calls Update(false); the repro of 8713 sets another field of Rec, saves and calls
 //   Update(false); the third page varies one step at a time (a modify through another record before the save, a field the
 //   table field sets, Update(true) after a field set, Update(true) after a modify through another record, a field set after
-//   the save, a write of another table). The page is opened with Page.RunModal on a record filtered to one group (empty, or
-//   with one row before the new line), or with TestPage.OpenEdit and a filter. Readings: what the page shows after the Name
-//   and the Value SetValue, and the rows after OK or Close.
+//   the save, a write of another table; the field the table field sets, the field set after the save and the write of
+//   another table also with one row before the new line). The page is opened with Page.RunModal on a record filtered to one
+//   group (empty, or with one row before the new line), or with TestPage.OpenEdit and a filter. Readings: what the page shows
+//   after the Name and the Value SetValue, and the rows after OK or Close.
 //   Measured on a local BC 29.1 OnPrem w1 container.
 // BC versions: 27, 28, 29
 table 97386 "LT NE Stamp Line"
@@ -507,6 +508,45 @@ codeunit 97398 "LT NE Tests"
         Check('notes', '1', Format(VarNote.Count()));
     end;
 
+    [Test]
+    [HandlerFunctions('VarHandler')]
+    procedure NewLine_TableFieldSetsFieldBeforeSaveRecord_RowBefore_ShowsAndSavesIt()
+    begin
+        Initialize();
+        AddVarRow('B');
+        RunVar(2);
+        Check('shown after the Name SetValue', 'A/ByTable/', ShownAfterName);
+        Check('shown after the Value SetValue', 'A/ByTable/V', ShownAfterValue);
+        Check('rows', 'B//;A/ByTable/V;', VarRows());
+    end;
+
+    [Test]
+    [HandlerFunctions('VarHandler')]
+    procedure NewLine_FieldSetAfterSaveRecord_RowBefore_UpdateFalseReadsTheStoredRow()
+    begin
+        Initialize();
+        AddVarRow('B');
+        RunVar(5);
+        Check('shown after the Name SetValue', 'A//', ShownAfterName);
+        Check('shown after the Value SetValue', 'A//V', ShownAfterValue);
+        Check('rows', 'B//;A//V;', VarRows());
+    end;
+
+    [Test]
+    [HandlerFunctions('VarHandler')]
+    procedure NewLine_SaveRecordThenWriteAnotherTable_RowBefore_ShowsAndSavesTheRow()
+    var
+        VarNote: Record "LT NE Var Note";
+    begin
+        Initialize();
+        AddVarRow('B');
+        RunVar(6);
+        Check('shown after the Name SetValue', 'A//', ShownAfterName);
+        Check('shown after the Value SetValue', 'A//V', ShownAfterValue);
+        Check('rows', 'B//;A//V;', VarRows());
+        Check('notes', '1', Format(VarNote.Count()));
+    end;
+
     [ModalPageHandler]
     procedure VarHandler(var Lines: TestPage "LT NE Var Lines")
     begin
@@ -534,6 +574,16 @@ codeunit 97398 "LT NE Tests"
         Commit();
         ShownAfterName := '';
         ShownAfterValue := '';
+    end;
+
+    local procedure AddVarRow(Name: Text[30])
+    var
+        Line: Record "LT NE Var Line";
+    begin
+        Line."Group Code" := 'G1';
+        Line.Name := Name;
+        Line.Insert();
+        Commit();
     end;
 
     local procedure RunVar(M: Integer)

@@ -1,20 +1,23 @@
 //! Code that is not a pinned page's around `CurrPage.SaveRecord()` and `CurrPage.Update` on the new line its table field
 //! inserted, on a List page without page triggers and parts (al-runner issues 8712 and 8713). The cells of
 //! `code_inserted_new_line.rs` run only the measured code, line for line (`code_inserted_pinned.rs`); on this page the gate is
-//! what the code did to the store, the row and Rec instead, as ListNewLineExtraCode.al (corpus pull request 1521, open, 11 of 11
+//! what the code did to the store, the row and Rec instead, as ListNewLineExtraCode.al (corpus pull request 1521, open, 14 of 14
 //! green on BC 29.1 in 3 runs) measures it, under the assumption `list-new-line-extra-code`:
-//! - the page's table declares no OnInsert, OnModify, OnDelete or OnRename trigger (:18-42, :101-125, :170-198), so the save
-//!   runs no table code; before the save nothing but the table field's insert wrote the store; the save then writes Rec with
-//!   every field it holds,
-//!   set by the control (:400, :413) or by the table field (:453), also through `CurrPage.Update(true)` (:464);
-//! - between the save and `CurrPage.Update(false)` the code modified the row through another record (:341, :354), or set
-//!   a field of Rec (:486), or wrote another table (:497), and `Update(false)` reads the row as stored: the page shows the other
-//!   record's write and drops Rec's (`extra_code_kept`). Every other row of the page's table is as the save left it, and so is
-//!   Rec's view (`view_kept`).
+//! - the page's table declares no OnInsert, OnModify, OnDelete or OnRename trigger (:19-43, :102-126, :171-199), so a save runs
+//!   no table code;
+//! - before the save nothing but the table field's insert wrote the store; the save then writes Rec with every field it holds,
+//!   set by the control (:401, :414) or by the table field (:454, :512), also through `CurrPage.Update(true)` (:465);
+//! - between the save and `CurrPage.Update(false)` the code modified the row through another record (:342, :355), or set a
+//!   field of Rec (:487, :524), or wrote another table (:498, :536), and `Update(false)` reads the row as stored: the page
+//!   shows the other record's write and drops Rec's (`extra_code_kept`). Every other row of the page's table is as the save
+//!   left it, and so is Rec's view (`view_kept`);
+//! - the Update is the validation's last statement: Rec, the table's rows and the store's write mark stay as they were at the
+//!   Update until the validation ends (`extra_code_unchanged`).
 //!
-//! Measured but refused: a modify of the row through another record before the save (:442, the save writes Rec over it) and
-//! `Update(true)` after `SaveRecord` (:475). The cell under TestPage.OpenEdit with a filter (:371) keeps main's way: no pinned
-//! open has a filter (`code_inserted_open`). Every other open, view and page keeps main's refusal (`UNMEASURED_CODE`).
+//! Measured but refused: a modify of the row through another record before the save (:443, the save writes Rec over it),
+//! `Update(true)` after `SaveRecord` (:476), and the cell under TestPage.OpenEdit with a filter (:372), which keeps main's way:
+//! no pinned open has a filter (`code_inserted_open`). Every other open, view and page keeps main's refusal
+//! (`UNMEASURED_CODE`).
 
 use super::code_inserted_new_line::{Leave, Opened, UNMEASURED_CODE, View};
 use super::state::SavedView;
@@ -29,7 +32,8 @@ pub(super) fn extra_code_assume() {
 impl Session {
     /// The SaveRecord or Update(true) cell `leave` on page `st` without triggers, opened as `opened` with the line in `view`, runs
     /// code that is not a pinned page's. It runs under the effect gate when the open and the view are measured (Page.RunModal on
-    /// one group, empty or with a row before, :341, :354, :400, :413; Update(true) on an empty group, :464), its table declares no
+    /// one group, empty or with one row before the line, each effect measured both ways, :342, :355, :401, :414, :454, :512,
+    /// :487, :524, :498, :536; Update(true) on an empty group, :465), its table declares no
     /// record trigger (`no_record_trigger`), and nothing but the table field's insert wrote the store since the line began;
     /// otherwise refused.
     pub(super) fn extra_code_cell(
@@ -58,7 +62,7 @@ impl Session {
     }
 
     /// Whether the table of page `st` declares none of OnInsert, OnModify, OnDelete and OnRename: no table code runs at the save
-    /// or the saves after it (the cells' tables, :18-42, :101-125, :170-198).
+    /// or the saves after it (the cells' tables, :19-43, :102-126, :171-199).
     fn no_record_trigger(&self, st: &St) -> bool {
         let table = self.page_rec(st).borrow().table as usize;
         let engine = self.engine();
@@ -112,7 +116,7 @@ impl Session {
     }
 
     /// Whether Rec's fields `rec` and the stored row `stored` changed since the save left both as `saved` as measured: the row
-    /// through another record only (:341), or Rec only (:486); `CurrPage.Update(false)` then reads the stored row.
+    /// through another record only (:342), or Rec only (:487); `CurrPage.Update(false)` then reads the stored row.
     pub(super) fn extra_code_kept(rec: &[Value], stored: &[Value], saved: &[Value]) -> bool {
         Self::same_values(rec, saved) || Self::same_values(stored, saved)
     }

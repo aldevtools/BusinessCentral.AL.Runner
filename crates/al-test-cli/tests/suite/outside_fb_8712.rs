@@ -1,5 +1,5 @@
 //! The corpus probe of al-runner issues 8712 and 8713 (corpus pull request 1521, open: tests/al-language/pages/currpage/
-//! ListNewLineExtraCode.al, measured on BC 29.1, 11 of 11 green in 3 runs), run here until a bump pins it: a List page without
+//! ListNewLineExtraCode.al, measured on BC 29.1, 14 of 14 green in 3 runs), run here until a bump pins it: a List page without
 //! triggers whose new line the table field's OnValidate inserts, with extra code around `CurrPage.SaveRecord()` and
 //! `CurrPage.Update` in the control's OnValidate (`al-vm` pages/code_inserted_extra.rs). The probe is read from its copy in the
 //! neighbor app. Delete this file when the pin is in the corpus.
@@ -52,7 +52,8 @@ fn outcomes(src: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<Assumption>)
 /// The measured cells pass, flagged by list-new-line-extra-code: the repro of 8712 (a modify through another record between
 /// the save and `Update(false)`) on an empty group and with a row before; the repro of 8713 (a field set before
 /// the save) on an empty group and with a row before; a field the table field sets; `Update(true)` after a field set; a field set
-/// after the save, which `Update(false)` drops; a write of another table after the save.
+/// after the save, which `Update(false)` drops; a write of another table after the save; the field the table field sets, the
+/// field set after the save and the write of another table also with a row before the line (review of #8720, point 3).
 #[test]
 fn issue_8712_probe_cells() {
     let o = outcomes(PROBE, "LT NE Tests");
@@ -65,6 +66,9 @@ fn issue_8712_probe_cells() {
         "NewLine_FieldSetThenUpdateTrue_ShowsAndSavesIt",
         "NewLine_FieldSetAfterSaveRecord_UpdateFalseReadsTheStoredRow",
         "NewLine_SaveRecordThenWriteAnotherTable_ShowsAndSavesTheRow",
+        "NewLine_TableFieldSetsFieldBeforeSaveRecord_RowBefore_ShowsAndSavesIt",
+        "NewLine_FieldSetAfterSaveRecord_RowBefore_UpdateFalseReadsTheStoredRow",
+        "NewLine_SaveRecordThenWriteAnotherTable_RowBefore_ShowsAndSavesTheRow",
     ] {
         let (_, r, marks) = o.iter().find(|(n, _, _)| n == name).expect("the test");
         assert_eq!(*r, Outcome::Pass, "{name}");
