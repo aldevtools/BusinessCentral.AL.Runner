@@ -173,6 +173,7 @@ fn every_registered_id_is_in_the_catalog() {
         "System.EvaluateMemberlessVarOption#1",
         "System.EvaluateMemberlessVarOptionElement#1",
         "System.EvaluateBounded#1",
+        "System.EvaluateDateVariable#1",
         "System.EvaluateOptionField#1",
         "System.FormatVariant#1",
         "TextBuilder.AppendVariant#1",
