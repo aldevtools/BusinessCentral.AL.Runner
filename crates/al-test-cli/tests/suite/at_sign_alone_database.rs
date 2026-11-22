@@ -114,8 +114,8 @@ fn at_sign_alone_neighbors() {
     }
 }
 
-/// `<>@` alone on a Code field from FieldRef.SetFilter and SetView, and its GetFilter: no cell measures them, so they refuse as on
-/// main.
+/// `<>@` alone on a Code field from a query's SetFilter and DataItemTableFilter and as a FlowFilter CalcFields applies: no cell
+/// measures them (a local Business Central 29.1 container keeps the K row, and sums 10), so they refuse as on main.
 #[test]
 fn not_at_sign_alone_code_neighbors_refused() {
     let src = format!("{PROBE}\n{NEIGHBORS}");
@@ -123,7 +123,7 @@ fn not_at_sign_alone_code_neighbors_refused() {
     assert_eq!(o.len(), 3);
     for (name, r, _) in &o {
         let why = match name.as_str() {
-            "NotAtSignAlone_CodeField_GetFilter" => "GetFilter of `<>@` alone on a Code field",
+            "NotAtSignAlone_CodeField_FlowFilter" => "a FlowFilter of `<>@` alone on a Code field (not measured)",
             _ => "`<>@` alone on a Code field from a place no cell measures",
         };
         assert!(matches!(r, Outcome::NotRun(w) if w.contains(why)), "{name}: {r:?}");
@@ -131,11 +131,12 @@ fn not_at_sign_alone_code_neighbors_refused() {
 }
 
 /// The cells of AtSignAloneReads.al (corpus PR 1495): every read method and place a filter comes from, `<>@` alone on a Code field
-/// (:698, :730) and the CalcFormula's quoted `filter('@')` (:579) included, flagged.
+/// (:698, :730, :792), the CalcFormula's quoted `filter('@')` and `filter('<>@')` (:579, :752) and the read-back of both (:823)
+/// included, flagged.
 #[test]
 fn at_sign_alone_reads_cells() {
     let o = outcomes(ROUTES, "AS Kind Tests");
-    assert_eq!(o.len(), 18);
+    assert_eq!(o.len(), 21);
     for (name, r, marks) in &o {
         assert_eq!(*r, Outcome::Pass, "{name}");
         assert!(

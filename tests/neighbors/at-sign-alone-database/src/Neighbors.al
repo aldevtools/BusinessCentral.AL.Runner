@@ -131,8 +131,24 @@ codeunit 97534 "BQ At Neighbor Tests"
     end;
 }
 
-// Neighbors of <>@ alone on a Code field (AtSignAloneReads.al:698, :730 measure Record.SetFilter): the places a filter comes from
-// and the readers no cell measures it with, which the runner refuses as main does.
+// Neighbors of <>@ alone on a Code field past the cells (AtSignAloneReads.al:698, :730, :752, :792 measure Record.SetFilter,
+// FieldRef.SetFilter, SetView, RecordRef.SetView and a CalcFormula's filter('<>@')): a query's SetFilter and DataItemTableFilter
+// and a FlowFilter that CalcFields applies, which no cell measures and the runner refuses as main does.
+query 97563 "BQ Kind Code Not At"
+{
+    QueryType = Normal;
+
+    elements
+    {
+        dataitem(Source; "BQ Kind Source")
+        {
+            DataItemTableFilter = "Code Kind" = filter('<>@');
+            column(KindGroup; "Group") { }
+            column(Id; Id) { }
+        }
+    }
+}
+
 codeunit 97537 "BQ Not At Neighbor Tests"
 {
     Subtype = Test;
@@ -144,46 +160,56 @@ codeunit 97537 "BQ Not At Neighbor Tests"
     var
         Source: Record "BQ Kind Source";
     begin
-        Source."Group" := CopyStr(DelChr(Format(CreateGuid()), '=', '{}-'), 1, 20);
+        Source."Group" := CopyStr(DelChr(Format(CreateGuid()), '=', '{}-'), 1, 18);
         Source.Id := 1;
         Source."Code Kind" := 'K';
+        Source.Amount := 10;
         Source.Insert();
         Source.Id := 2;
         Source."Code Kind" := '';
+        Source.Amount := 5;
         Source.Insert();
         exit(Source."Group");
     end;
 
     [Test]
-    procedure NotAtSignAlone_CodeField_FieldRefSetFilter()
+    procedure NotAtSignAlone_CodeField_QuerySetFilter()
     var
-        Ref: RecordRef;
-        GroupRef: FieldRef;
-        KindRef: FieldRef;
+        Columns: Query "BQ Kind Columns";
+        Seen: Text;
     begin
-        Ref.Open(Database::"BQ Kind Source");
-        GroupRef := Ref.Field(1);
-        KindRef := Ref.Field(3);
-        GroupRef.SetRange(NewGroup());
-        KindRef.SetFilter('<>@');
-        Assert.AreEqual(1, Ref.Count(), 'FieldRef <>@ on Code');
+        Columns.SetRange(KindGroup, NewGroup());
+        Columns.SetFilter(CodeKind, '<>@');
+        Columns.Open();
+        while Columns.Read() do
+            Seen += Format(Columns.Id) + ',';
+        Columns.Close();
+        Assert.AreEqual('1,', Seen, 'query SetFilter <>@ on Code');
     end;
 
     [Test]
-    procedure NotAtSignAlone_CodeField_SetView()
+    procedure NotAtSignAlone_CodeField_DataItemTableFilter()
     var
-        Source: Record "BQ Kind Source";
+        NotAt: Query "BQ Kind Code Not At";
+        Seen: Text;
     begin
-        Source.SetView(StrSubstNo('WHERE(Group=CONST(%1),Code Kind=FILTER(<>@))', NewGroup()));
-        Assert.AreEqual(1, Source.Count(), 'SetView <>@ on Code');
+        NotAt.SetRange(KindGroup, NewGroup());
+        NotAt.Open();
+        while NotAt.Read() do
+            Seen += Format(NotAt.Id) + ',';
+        NotAt.Close();
+        Assert.AreEqual('1,', Seen, 'DataItemTableFilter <>@ on Code');
     end;
 
     [Test]
-    procedure NotAtSignAlone_CodeField_GetFilter()
+    procedure NotAtSignAlone_CodeField_FlowFilter()
     var
-        Source: Record "BQ Kind Source";
+        Host: Record "BQ Kind Host";
     begin
-        Source.SetFilter("Code Kind", '<>@');
-        Assert.AreEqual('<>@', Source.GetFilter("Code Kind"), 'GetFilter <>@ on Code');
+        Host."No." := NewGroup();
+        Host.Insert();
+        Host.SetFilter("Code Filter", '<>@');
+        Host.CalcFields("Code By Code");
+        Assert.AreEqual('10', Format(Host."Code By Code"), 'FlowFilter <>@ on Code');
     end;
 }
