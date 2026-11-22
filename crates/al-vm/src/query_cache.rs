@@ -472,7 +472,6 @@ fn calc_formulas<'a>(
     source: impl Fn(usize) -> Option<&'a al_ir::Table>,
 ) -> Option<Vec<&'a al_ir::CalcFormula>> {
     let src = source(calc.table)?;
-    let flow_field = |t: &al_ir::Table, f: usize| t.fields.get(f).is_none_or(|d| !d.stored && !d.flow_filter);
     if calc.negate || calc.field.is_some_and(|f| flow_field(src, f)) {
         return None;
     }
@@ -507,12 +506,16 @@ fn calc_formulas<'a>(
     Some(formulas)
 }
 
+/// Whether field `f` of `t` is a FlowField (neither stored nor a FlowFilter), or not a field of `t`.
+fn flow_field(t: &al_ir::Table, f: usize) -> bool {
+    t.fields.get(f).is_none_or(|d| !d.stored && !d.flow_filter)
+}
+
 /// Whether FlowField `calc` of a row of `row` reads only its source table: it aggregates no FlowField of the source and has
 /// no condition on one (`tally_source_rows` computes those per source row), and no `field()` condition names a FlowField of
 /// the row (`calc_filters` computes it first). Such a FlowField reads tables the entry's commit stamps do not hold, and no
 /// cell measures whether a commit of them ends the entry, so its reads keep main's answer.
 fn calc_reads_one_table(row: &al_ir::Table, source: Option<&al_ir::Table>, calc: &al_ir::CalcFormula) -> bool {
-    let flow_field = |t: &al_ir::Table, f: usize| t.fields.get(f).is_none_or(|d| !d.stored && !d.flow_filter);
     let Some(source) = source else {
         return false;
     };
@@ -879,6 +882,9 @@ impl Session {
         positions: &[usize],
         fresh: Vec<Value>,
     ) -> Result<Vec<Value>, Signal> {
+        if !self.query_cache_on() {
+            return Ok(fresh);
+        }
         let Some(mut values) = self.group_key(rec, t, Form::Sums) else {
             return Ok(fresh);
         };
@@ -932,15 +938,15 @@ impl Session {
         }
     }
 
-    /// The key of a `CalcFields` of `positions` on `rec` and the tables it reads, when the cells measure it: the fields in
-    /// their order (another order, a field more or less read the table, :6195-:6207), the row's primary key and the values of
-    /// the row its formulas read by `field()`, and the record's filters, each on a FlowFilter in filter group 0, one value or a
+    /// The key of a `CalcFields` of `positions` on `rec` and the tables it reads, when the cells measure it: the number of
+    /// fields and the fields in their order (another order, a field more or less read the table, :6195-:6207), the row's
+    /// primary key and the values of the row its formulas read by `field()`, and the record's filters, each on a FlowFilter in filter group 0, one value or a
     /// `|` of values (another value reads the table, :6219, :6225). Each FlowField is one `calc_formulas` takes.
     fn calc_key(&self, rec: &Rec, t: &TableDef, positions: &[usize]) -> Option<(Vec<Value>, Vec<Arc<TableDef>>)> {
         let schema = self.engine.program.objects[t.object as usize].table.as_ref()?;
         let source = |i: usize| self.engine.program.objects[i].table.as_ref();
         let r = rec.borrow();
-        let mut values = vec![Value::Text("calcfields".into())];
+        let mut values = vec![Value::Text("calcfields".into()), Value::Integer(positions.len() as i32)];
         values.extend(positions.iter().map(|&p| Value::Integer(p as i32)));
         values.extend(t.keys[0].iter().map(|&k| r.fields[k].clone()));
         let mut filters: Vec<_> = r.filters.iter().collect();
