@@ -148,7 +148,7 @@ impl Session {
             v.steps.push(step);
         }
         let cells = page.cells();
-        if !Self::validate_view_calls_ok(st) || !cells.iter().any(|c| c.steps.starts_with(&v.steps)) {
+        if !Self::validate_view_calls_ok(st, page) || !cells.iter().any(|c| c.steps.starts_with(&v.steps)) {
             return Ok(false);
         }
         let tail = |t: Tail| cells.iter().any(|c| c.steps == v.steps.as_slice() && c.tail == t);
@@ -300,10 +300,10 @@ impl Session {
         Ok(self.view_rows(&rec, 1)?.first().map(|r| table.primary_key(r)))
     }
 
-    /// Every call the test made on `st` since it opened ended as the cells' calls do: an error only from a SetValue, No only
-    /// from a Next or a read-only call (HideValue(), ShowMandatory(), IsExpanded()); the test wrote nothing to the store between two calls
-    /// (`tree_calls_unknown`).
-    fn validate_view_calls_ok(st: &St) -> bool {
+    /// Every call the test made on `st`, a page of kind `page`, since it opened ended as the cells' calls do: an error only
+    /// from a SetValue, No only from a Next or one of the page's own read-only calls (`CellPage::read_calls`: HideValue(),
+    /// ShowMandatory(), IsExpanded()); the test wrote nothing to the store between two calls (`tree_calls_unknown`).
+    fn validate_view_calls_ok(st: &St, page: CellPage) -> bool {
         let s = st.borrow();
         if s.host.is_some() || s.tree_calls_unknown {
             return false;
@@ -316,11 +316,11 @@ impl Session {
                 (!c.failed || matches!(c.call, TestCall::Write(_)))
                     && (!c.no
                         || c.call == TestCall::Page(PageMethod::Next)
-                        || CellPage::ALL.iter().any(|p| match c.call {
-                            TestCall::Other(m) => p.read_calls().0.contains(&m),
-                            TestCall::Page(m) => p.read_calls().1.contains(&m),
+                        || match c.call {
+                            TestCall::Other(m) => page.read_calls().0.contains(&m),
+                            TestCall::Page(m) => page.read_calls().1.contains(&m),
                             _ => false,
-                        }))
+                        })
             })
     }
 
