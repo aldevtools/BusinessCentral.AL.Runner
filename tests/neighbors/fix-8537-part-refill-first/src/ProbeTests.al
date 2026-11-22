@@ -1,5 +1,5 @@
-// The objects and tests of corpus PR 1474 (pages/parts/PartRefillTestFilter.al, merged) and its two-field key cell
-// (corpus PR 1475), both merged; the suite test part_left_view_test_filter.rs reads them from here.
+// The objects and tests of corpus PR 1474 (pages/parts/PartRefillTestFilter.al, merged) its two-field key cell
+// (corpus PR 1475), both merged, and the styled part (corpus PR 1534, open); the suite test part_left_view_test_filter.rs reads them from here.
 codeunit 97109 "LT PR Tests"
 {
     Subtype = Test;
@@ -323,5 +323,30 @@ codeunit 97109 "LT PR Tests"
         Seen += 'text=' + Host.Load.QtyText.Value() + ';scope=' + Host.Load.Scope.Value() + ';';
         Host.Close();
         Assert.AreEqual('before=T:0:10;text=agr10;scope=open;after=T:0:30;text=agr30;scope=open;', Seen, 'Worksheet, a part with OnOpenPage and OnAfterGetRecord over a two-field key (Period Type, Period Start): Refresh, then Filter.SetFilter on Period Start and First on the part');
+    end;
+
+    [Test]
+    procedure PartRefill_StyledPartActionThenFilterFirst_FindsRefilledRow()
+    var
+        Op: Record "LT PR Op";
+        Host: TestPage "LT PR Styled Host";
+        Found: Boolean;
+        Seen: Text;
+    begin
+        Initialize();
+        Seed();
+        Op.Get('OP1');
+        Host.OpenView();
+        Host.GoToRecord(Op);
+        Host.Load.Filter.SetFilter("Period Start", Format(TheDay()));
+        Found := Host.Load.First();
+        Seen := Fact('before', Found, Host.Load."Period Start".AsDate(), Host.Load."Allocated Qty.".AsDecimal());
+        AddBooking(3, 'R1', TheDay(), 20);
+        Host.Refresh.Invoke();
+        Host.Load.Filter.SetFilter("Period Start", Format(TheDay()));
+        Found := Host.Load.First();
+        Seen += Fact('after', Found, Host.Load."Period Start".AsDate(), Host.Load."Allocated Qty.".AsDecimal());
+        Host.Close();
+        Assert.AreEqual('before=T:0:10;after=T:0:30;', Seen, 'Worksheet, the plain part with StyleExpr on Allocated Qty. set in its OnAfterGetRecord: Refresh, then Filter.SetFilter and First on the part');
     end;
 }
