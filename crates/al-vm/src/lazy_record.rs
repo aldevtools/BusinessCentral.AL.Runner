@@ -15,6 +15,7 @@
 //! which locals are built is not observable: building a stored table's record draws no temporary table number and counts
 //! nothing.
 
+use al_builtins::native::Signal;
 use al_builtins::value::{RtType, Value};
 use al_ir as ir;
 
@@ -97,6 +98,18 @@ impl Session {
         }
         self.lazy_records.built += 1;
         f.locals[i] = v;
+    }
+
+    /// A read of local `i` of frame `f` that is still unbuilt: a statement named it that the compiler did not see naming
+    /// it, so no `Op::BuildLocal` ran. Refused, in a release build too, rather than handing the marker on as a value.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn unbuilt_read(&self, i: usize, f: &Frame) -> Signal {
+        let r = &self.engine.program.objects[f.object].routines[f.routine];
+        Signal::unsupported(format!(
+            "record variable `{}` of `{}` is read by a statement that did not build it first",
+            r.locals[i].name, r.name
+        ))
     }
 }
 
@@ -183,10 +196,9 @@ mod tests {
     use super::*;
     use ir::{Arg, Expr, Place, Stmt};
 
-    /// A measured local built after a Commit carries the commit count of its declaration, as the eager build stamped it
-    /// (`blob_transfer::new_variable`, `measured_variable`): the visible value of a copy does not show it.
-    #[test]
-    fn a_local_built_after_a_commit_keeps_the_commit_count_of_its_declaration() {
+    /// A session and the frame of `C.Run` (one Record local `R` of a stored table with a Blob) as entered at commit count
+    /// `commits`: `R` is unbuilt.
+    fn entered(commits: u64) -> (Session, Frame) {
         const SRC: &str = "table 50100 Row { fields { field(1; Id; Integer) { } field(2; B; Blob) { } } }
             codeunit 50101 C { procedure Run() var R: Record Row; begin R.Id := 1; end; }";
         let (ws, l) = al_sema::lower::compile(
@@ -207,7 +219,7 @@ mod tests {
             .position(|r| r.name == "Run")
             .unwrap();
         let mut s = Session::new(engine.clone());
-        s.commits = 3;
+        s.commits = commits;
         let mut locals = Vec::new();
         s.frame_locals(
             object,
@@ -215,10 +227,7 @@ mod tests {
             0,
             &mut locals,
         );
-        assert!(matches!(locals[0], Value::UnbuiltRecord(3)), "{:?}", locals[0]);
-        // A Commit between the declaration and the first statement that names it.
-        s.commits = 4;
-        let mut f = Frame {
+        let f = Frame {
             object,
             routine,
             instance: s.instance(object),
@@ -227,12 +236,37 @@ mod tests {
             var_lens: Vec::new(),
             option_hops: Vec::new(),
         };
+        (s, f)
+    }
+
+    /// A measured local built after a Commit carries the commit count of its declaration, as the eager build stamped it
+    /// (`blob_transfer::new_variable`, `measured_variable`): the visible value of a copy does not show it.
+    #[test]
+    fn a_local_built_after_a_commit_keeps_the_commit_count_of_its_declaration() {
+        let (mut s, mut f) = entered(3);
+        assert!(matches!(f.locals[0], Value::UnbuiltRecord(3)), "{:?}", f.locals[0]);
+        // A Commit between the declaration and the first statement that names it.
+        s.commits = 4;
         s.build_local(0, &mut f);
         let Value::Record(rc) = &f.locals[0] else {
             panic!("{:?}", f.locals[0])
         };
         assert_eq!(rc.borrow().probed_source.1, 3, "the declaration's commit count");
         assert_eq!(s.lazy_record_stats(), LazyRecordStats { deferred: 1, built: 1 });
+    }
+
+    /// A read of a local that no `Op::BuildLocal` built (a statement the compiler failed to see naming it) is refused, in a
+    /// release build too, instead of handing the marker on as a value.
+    #[test]
+    fn a_read_of_a_local_never_built_is_refused() {
+        let (mut s, mut f) = entered(0);
+        match s.read_place(&ir::Place::Local(0), true, &mut f) {
+            Err(Signal::Unsupported(r)) => assert_eq!(
+                r.to_string(),
+                "record variable `R` of `Run` is read by a statement that did not build it first"
+            ),
+            other => panic!("{other:?}"),
+        }
     }
 
     #[test]

@@ -1491,10 +1491,9 @@ impl Session {
     pub(crate) fn read_place(&mut self, p: &ir::Place, value: bool, f: &mut Frame) -> Result<Value, Signal> {
         match p {
             ir::Place::Local(i) => {
-                debug_assert!(
-                    !matches!(f.locals[*i], Value::UnbuiltRecord(_)),
-                    "an unbuilt local read by place"
-                );
+                if let Value::UnbuiltRecord(_) = f.locals[*i] {
+                    return Err(self.unbuilt_read(*i, f));
+                }
                 Ok(f.locals[*i].clone())
             }
             ir::Place::Global(i) => self.global_value(*i, f),
