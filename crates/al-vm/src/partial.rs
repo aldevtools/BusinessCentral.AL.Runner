@@ -232,6 +232,7 @@ impl Session {
         if read.is_some_and(|p| have.contains(p)) {
             return Ok(());
         }
+        self.refuse_load_of_replayed(&fetched)?;
         let t = self.table(rec)?;
         let fields = rec.borrow().fields.clone();
         // A key assigned after the fetch does not move the load: BC reads the missing fields from the row that was fetched
