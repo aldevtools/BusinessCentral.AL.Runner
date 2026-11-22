@@ -3,30 +3,12 @@
 // answered; CalcFields of a Blob of a row the cache answered with another row (BC's CalcFields of a Blob in a worker waits on
 // the rows the test codeunit wrote, the comment at corpus PR 1495 BgTaskQueryCache.al:6534). A row read again after commits
 // that wrote it while no commit held it before or after reads the table (BgTaskQueryCache.al:1207). A row read again after a
-// commit of a ModifyAll or a DeleteAll of another row follows the BC version (the cells of BQ Tests 12, :7009 and :7016, need
+// commit of a ModifyAll or a DeleteAll of another row follows the BC version (the cells of BQ Tests 12, :7035 and :7042, need
 // Base Application to tell the versions apart, so they are not in Probe.al; these assert the answer of BC 27.5, 28.5 and
-// 29.0), and is refused where no version is measured; after a Truncate (no cell) it is refused. A table with a Media field
-// reads its rows as they are, as on main (no cell has one). Read as on main, from the rows as they are (no flag): a
-// ReadIsolation read (BC waits on the test session's write, corpus PR 1498, not modelled here). Two filter values with the
-// same first characters keep their own entries; a field load after a fetch of another row is not refused.
-
-table 97520 "BQ Media Row"
-{
-    DataClassification = SystemMetadata;
-    ReplicateData = false;
-
-    fields
-    {
-        field(1; "No."; Code[20]) { }
-        field(2; Description; Text[50]) { }
-        field(3; Picture; Media) { }
-    }
-
-    keys
-    {
-        key(PK; "No.") { Clustered = true; }
-    }
-}
+// 29.0), and is refused where no version is measured; after a Truncate (no cell) it is refused. Read as on main, from the rows
+// as they are (no flag): a ReadIsolation read (BC waits on the test session's write, corpus PR 1498, not modelled here). Two
+// filter values with the same first characters keep their own entries; a field load after a fetch of another row is not
+// refused.
 
 codeunit 97512 "BQ Neighbor Reader"
 {
@@ -35,7 +17,6 @@ codeunit 97512 "BQ Neighbor Reader"
         Row: Record "BQ Row";
         Copy: Record "BQ Row";
         BlobRow: Record "BQ Blob Row";
-        MediaRow: Record "BQ Media Row";
         InS: InStream;
         Content: Text;
         Parameters: Dictionary of [Text, Text];
@@ -73,11 +54,6 @@ codeunit 97512 "BQ Neighbor Reader"
                     BlobRow.Data.CreateInStream(InS);
                     InS.ReadText(Content);
                     Seen := BlobRow.Description + '/' + Content;
-                end;
-            'mediaget':
-                begin
-                    MediaRow.Get(Group);
-                    Seen := MediaRow.Description;
                 end;
         end;
         Results.Add('Seen', Seen);
@@ -311,27 +287,6 @@ codeunit 97511 "BQ Neighbor Tests"
         Assert.AreEqual('first/b1', Run(Rows, Codeunit::"BQ Neighbor Reader", 'blobread', 'NBB1'), 'Get and CalcFields again');
         Rows.Close();
     end;
-
-    [Test]
-    procedure MediaTable_GetAgain_ReadsTheRows()
-    var
-        Rows: TestPage "BQ Rows";
-        MediaRow: Record "BQ Media Row";
-    begin
-        BqMode.Set('');
-        AddRow('NBM', 1, 'h');
-        MediaRow."No." := 'NBM1';
-        MediaRow.Description := 'first';
-        MediaRow.Insert();
-        Commit();
-        OpenOn(Rows, 'NBM');
-        Assert.AreEqual('first', Run(Rows, Codeunit::"BQ Neighbor Reader", 'mediaget', 'NBM1'), 'Get');
-        MediaRow.Get('NBM1');
-        MediaRow.Description := 'second';
-        MediaRow.Modify();
-        Assert.AreEqual('second', Run(Rows, Codeunit::"BQ Neighbor Reader", 'mediaget', 'NBM1'), 'Get again');
-        Rows.Close();
-    end;
 }
 
 // The tests a refusal earlier in the codeunit would stop from running (a test codeunit the runner refused a test of runs no
@@ -434,8 +389,8 @@ codeunit 97513 "BQ Neighbor Tests 2"
         Commit();
         Row.SetRange("Line No.", 1);
         Row.ModifyAll(Description, 'second');
-        // BC 27.5, 28.5 and 29.0 end the entry of line 1 at the commit of a ModifyAll or a DeleteAll (BgTaskQueryCache.al:7009,
-        // :7016), a local BC 29.1 keeps it (al_version::bulk_commit_ends_cached_row); no cell has the Truncate.
+        // BC 27.5, 28.5 and 29.0 end the entry of line 1 at the commit of a ModifyAll or a DeleteAll (BgTaskQueryCache.al:7035,
+        // :7042), a local BC 29.1 keeps it (al_version::bulk_commit_ends_cached_row); no cell has the Truncate.
         Assert.AreEqual('second', RunGet(Rows, Group), 'Get after the commit');
         Rows.Close();
     end;

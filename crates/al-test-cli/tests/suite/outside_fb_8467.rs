@@ -150,13 +150,13 @@ fn issue_8467_neighbor_cells() {
 }
 
 /// BQ Tests 11 of corpus pull request 1495: SelectLatestVersion in the worker ends the row entries of its table (every table
-/// without one), and the read after it is cached again (:6729, :6736, :6785); another table's changes nothing (:6743). In the
-/// test session it changes no worker answer (:6770, :6777, :6806, :6825, :6862, :6879). A table with a Blob field is cached as
-/// any other (:6897).
+/// without one), and the read after it is cached again (:6730, :6737, :6786); another table's changes nothing (:6744). In the
+/// test session it changes no worker answer (:6771, :6778, :6807, :6826, :6863, :6880). A table with a Blob or a Media field is
+/// cached as any other (:6898, :6918).
 #[test]
 fn issue_8467_select_latest_version_and_blob_cells() {
     let o = outcomes(PROBE, "BQ Tests 11");
-    assert_eq!(o.len(), 12);
+    assert_eq!(o.len(), 13);
     for (name, _, _) in &o {
         let flagged = name != "BgQueryCache_Run_GetMissing_SelectLatestVersionInWorker_SeesTheInsert";
         assert_pass(&o, name, flagged);
@@ -195,14 +195,13 @@ fn issue_8467_unmeasured_neighbors() {
         "ReadIsolation_ReadsTheRows",
         "LongFilterValues_KeepTheirOwnEntries",
         "RowGoneAgain_AfterCommits",
-        "MediaTable_GetAgain_ReadsTheRows",
     ] {
         assert_pass(&o, name, false);
     }
 }
 
 /// A commit of a ModifyAll, a DeleteAll or a Truncate of another row, then a change of the row: the neighbors assert the
-/// answer of BC 27.5, 28.5 and 29.0 for the first two (the cache entry ended, BgTaskQueryCache.al:7009, :7016). On 29.0 the
+/// answer of BC 27.5, 28.5 and 29.0 for the first two (the cache entry ended, BgTaskQueryCache.al:7035, :7042). On 29.0 the
 /// head reads the table, clean; on 29.1 it answers the first read (so the neighbors fail there); with no target, or on a minor
 /// no cell measured, it refuses both. A Truncate has no cell: refused on every target.
 #[test]

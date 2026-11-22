@@ -12,20 +12,19 @@
 //!
 //! A row entry holds until a commit writes that row (:430, :804 against :741, :762, :784; also when no commit held the row
 //! before or after, an insert and a delete each committed: open corpus pull request 1495, the same file :1207; a commit of a
-//! ModifyAll or DeleteAll of another row of the table ends it or keeps it by the target's minor, :7009, :7016,
+//! ModifyAll or DeleteAll of another row of the table ends it or keeps it by the target's minor, :7035, :7042,
 //! `al_version::bulk_commit_ends_cached_row`; after a Truncate, and on a minor no cell measured, a read it would answer
-//! otherwise than the table is refused), or until a worker's `SelectLatestVersion` of the table or of every table (:6729,
-//! :6736, :6785, :6844; another table's keeps it, :6743; the test session's changes no answer, :6770, :6777, :6806, :6825,
-//! :6862, :6879); a group entry until a commit writes the table (:823, :845, :870, :891 against :451). A rollback changes neither (:983, :1016, :1029), and a found row, a
+//! otherwise than the table is refused), or until a worker's `SelectLatestVersion` of the table or of every table (:6730,
+//! :6737, :6786, :6845; another table's keeps it, :6744; the test session's changes no answer, :6771, :6778, :6807, :6826,
+//! :6863, :6880); a group entry until a commit writes the table (:823, :845, :870, :891 against :451). A rollback changes neither (:983, :1016, :1029), and a found row, a
 //! missing row and a count are all kept (:604, :624, :692). The test session's own read of a form fills the cache while that
 //! session has not written the table since its last commit (:500, :541, :938; not after it wrote the table, :959), and a
 //! worker's first read then answers what the test read; the test session's own read answers from an entry a worker filled
 //! (:983), which is refused here. The cache starts empty in every test codeunit (:1044, :1067). Every other read keeps reading
 //! the rows as they are, as on main; BC answers a repeated FindLast, IsEmpty and FindFirst after a SetFilter from the cache too
-//! (open corpus pull request 1495, :1238, :1255, :1274), which is not modelled yet. A table with a Blob field is cached as any
-//! other (:6897), and CalcFields of a Blob of a row the cache answered with another row is refused; a table with a Media or
-//! MediaSet field is not cached (no cell). The cache keeps no notes at all in a program whose own apps run no page background
-//! task (`Session::query_cache_on`).
+//! (open corpus pull request 1495, :1238, :1255, :1274), which is not modelled yet. A table with a Blob or a Media field is
+//! cached as any other (:6898, :6918), and CalcFields of a Blob of a row the cache answered with another row is refused. The
+//! cache keeps no notes at all in a program whose own apps run no page background task (`Session::query_cache_on`).
 
 use crate::records::Rec;
 use crate::{Session, Signal};
@@ -155,8 +154,8 @@ enum Holds {
 /// Whether an entry taken at `then` still holds `now`; `bulk_ends`: per `BulkWrite`, whether a commit of that write of another
 /// row of the table ends it on the target (`al_version::bulk_commit_ends_cached_row`). A commit that wrote the row ends it, also
 /// when no commit held the row before or after (an insert and a delete, each committed: corpus PR 1495,
-/// BgTaskQueryCache.al:1207), and so does a worker's SelectLatestVersion of the table (:6729, :6736, :6785, :6844; another
-/// table's, :6743, does not).
+/// BgTaskQueryCache.al:1207), and so does a worker's SelectLatestVersion of the table (:6730, :6737, :6786, :6845; another
+/// table's, :6744, does not).
 fn holds(then: Committed, now: Committed, bulk_ends: [Option<bool>; 3]) -> Holds {
     if then.version != now.version || then.writes != now.writes || then.selects != now.selects {
         return Holds::No;
@@ -181,8 +180,8 @@ fn holds(then: Committed, now: Committed, bulk_ends: [Option<bool>; 3]) -> Holds
 
 /// What a commit had left of a table when the cache took a group read: the table's commit stamp, and how many SelectLatestVersion
 /// calls of a worker covered the table. A worker's SelectLatestVersion before a group read is not measured (the reads answered
-/// otherwise at two read sites, the comment at BgTaskQueryCache.al:6534); the test session's changes no group answer (:6862,
-/// :6879).
+/// otherwise at two read sites, the comment at BgTaskQueryCache.al:6534); the test session's changes no group answer (:6863,
+/// :6880).
 #[derive(Clone, Copy, PartialEq)]
 struct GroupThen {
     stamp: Option<u64>,
@@ -306,8 +305,8 @@ impl Session {
     }
 
     /// `Database.SelectLatestVersion` (`table`: the overload with a table number). In a worker the reads of the rows of the
-    /// table (every table without one) that follow go to the table (:6729, :6736, :6785, :6844; another table's changes nothing,
-    /// :6743). In the test session it changes no answer of a worker's read (:6770, :6777, :6806, :6825, :6862, :6879).
+    /// table (every table without one) that follow go to the table (:6730, :6737, :6786, :6845; another table's changes nothing,
+    /// :6744). In the test session it changes no answer of a worker's read (:6771, :6778, :6807, :6826, :6863, :6880).
     pub(crate) fn note_select_latest_version(&mut self, table: Option<u32>) {
         if !self.in_worker() || !self.query_cache_on() {
             return;
@@ -339,12 +338,12 @@ impl Session {
         self.pages.query_cache.replay_load = false;
     }
 
-    /// Whether `rec` reads as every measured read does: a database table of the session's company with no Media or MediaSet
-    /// field (no cell has one; a Blob field is measured, :6897), the primary key, ascending, no marks, the default ReadIsolation
-    /// and SecurityFiltering, no SetAutoCalcFields, no LockTable of its table, and (with `all_fields`) no `SetLoadFields`; and
-    /// whether the program runs page background tasks at all (`query_cache_on`).
+    /// Whether `rec` reads as every measured read does: a database table of the session's company (one with a Blob or a Media
+    /// field too, :6898, :6918), the primary key, ascending, no marks, the default ReadIsolation and SecurityFiltering, no
+    /// SetAutoCalcFields, no LockTable of its table, and (with `all_fields`) no `SetLoadFields`; and whether the program runs
+    /// page background tasks at all (`query_cache_on`).
     fn cached_form(&mut self, rec: &Rec, t: &TableDef, all_fields: bool) -> Result<bool, Signal> {
-        if !self.query_cache_on() || self.engine.table_facts[t.object as usize].media_fields {
+        if !self.query_cache_on() {
             return Ok(false);
         }
         let plain = {

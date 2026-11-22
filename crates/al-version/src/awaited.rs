@@ -37,7 +37,7 @@ pub enum BulkWrite {
 
 /// Whether a commit of a `kind` write of another row of a table ends the query cache entry of a row a page background task read,
 /// when the test then changes the row without reading it (al-runner issue 8467, open corpus PR 1495, tests/al-language/pages/
-/// background-tasks/BgTaskQueryCache.al:7009 ModifyAll, :7016 DeleteAll; the cells tell the minors apart at run time, which the
+/// background-tasks/BgTaskQueryCache.al:7035 ModifyAll, :7042 DeleteAll; the cells tell the minors apart at run time, which the
 /// preprocessor cannot): `Some(true)` on 27.5, 28.5 and 29.0 (the corpus CI), `Some(false)` on 29.1 (a local container). A
 /// Truncate has no cell (after it, a ModifyAll of the row made the worker's read wait on a lock on the local container): `None`.
 /// On every other minor, and with no target, `None`.

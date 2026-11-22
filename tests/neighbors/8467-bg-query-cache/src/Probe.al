@@ -1,6 +1,6 @@
-// An excerpt of the corpus probe BgTaskQueryCache.al of corpus pull requests 1457 and 1495 at e1dee852 (al-runner issue 8467):
-// the file up to BQ Tests 3 and page 97519, then BQ Tests 3b and BQ Tests 11. Left out: the cells of al-runner issues 8637 and
-// 8677 between them, and BQ Tests 12 and BQ Version, which need Base Application.
+// An excerpt of the corpus probe BgTaskQueryCache.al of corpus pull requests 1457 and 1495 at 37bffb8a (al-runner issue 8467):
+// the file up to BQ Tests 3 and page 97519, then BQ Tests 3b, BQ Tests 11, BQ Media Row and BQ Reader 12. Left out: the cells
+// of al-runner issues 8637 and 8677 between them, and BQ Tests 12 and BQ Version, which need Base Application.
 // BC Documentation:
 //   https://learn.microsoft.com/en-us/dynamics365/business-central/dev-itpro/developer/methods-auto/page/page-enqueuebackgroundtask-method
 //   https://learn.microsoft.com/en-us/dynamics365/business-central/dev-itpro/developer/methods-auto/testpage/testpagetestpage-runpagebackgroundtask-method
@@ -1420,8 +1420,9 @@ codeunit 97577 "BQ Tests 3b"
 //     answered the first read; no cell.)
 //   - Database.SelectLatestVersion in the test session changes no answer of a worker read: a row, a row the test session read
 //     first (before or after its change), a Count and a FindFirst of a group.
-//   - A table with a Blob field: a repeated Get answers the first read, as on BQ Row. (CalcFields of the Blob in a worker waits
-//     for the rows the test codeunit wrote, as the locking reads of corpus PR 1498 do, so no cell reads it here.)
+//   - A table with a Blob field, and one with a Media field (BQ Media Row and BQ Reader 12, at the end of the file): a repeated
+//     Get answers the first read, as on BQ Row. (CalcFields of the Blob in a worker waits for the rows the test codeunit wrote,
+//     as the locking reads of corpus PR 1498 do, so no cell reads it here.)
 //   - A commit of a ModifyAll or a DeleteAll of another row of the table, then a change of the row the test does not read: BC
 //     27.5, 28.5 and 29.0 end the row's entry (for ModifyAll: the corpus CI of PR 1457), BC 29.1 keeps it; BQ Version tells
 //     them apart. These cells are in BQ Tests 12, so BQ Tests 11 needs no Base Application. (After a Truncate of another row
@@ -1790,5 +1791,68 @@ codeunit 97576 "BQ Tests 11"
         SetBlob(K, 'second', 'b2');
         Assert.AreEqual('first', Run(Rows, Codeunit::"BQ Reader 11", 'blobdesc', K, 0), 'Get again');
         Rows.Close();
+    end;
+
+    // As above, a table with a Media field.
+    [Test]
+    procedure BgQueryCache_Run_MediaTable_GetAgain_AfterChange()
+    var
+        Rows: TestPage "BQ Plain Rows";
+        MediaRow: Record "BQ Media Row";
+        G: Code[20];
+        K: Code[20];
+    begin
+        G := NewGroup();
+        K := NewGroup();
+        AddRow(G, 1, 'h');
+        MediaRow."No." := K;
+        MediaRow.Description := 'first';
+        MediaRow.Insert();
+        Commit();
+        OpenOn(Rows, G);
+        Assert.AreEqual('first', Run(Rows, Codeunit::"BQ Reader 12", 'mediadesc', K, 0), 'Get');
+        MediaRow.Get(K);
+        MediaRow.Description := 'second';
+        MediaRow.Modify();
+        Assert.AreEqual('first', Run(Rows, Codeunit::"BQ Reader 12", 'mediadesc', K, 0), 'Get again');
+        Rows.Close();
+    end;
+}
+
+// The table and worker of the Media cell of BQ Tests 11.
+table 97576 "BQ Media Row"
+{
+    DataClassification = SystemMetadata;
+    ReplicateData = false;
+
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(2; Description; Text[50]) { }
+        field(3; Picture; Media) { }
+    }
+
+    keys
+    {
+        key(PK; "No.") { Clustered = true; }
+    }
+}
+
+codeunit 97580 "BQ Reader 12"
+{
+    trigger OnRun()
+    var
+        MediaRow: Record "BQ Media Row";
+        Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
+        Seen: Text;
+    begin
+        Parameters := Page.GetBackgroundParameters();
+        if MediaRow.Get(Parameters.Get('Group')) then
+            Seen := MediaRow.Description
+        else
+            Seen := '-';
+        Results.Add('Seen', Seen);
+        Page.SetBackgroundTaskResult(Results);
     end;
 }
