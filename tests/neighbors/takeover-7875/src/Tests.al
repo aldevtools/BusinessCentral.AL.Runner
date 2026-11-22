@@ -79,4 +79,115 @@ codeunit 50100 "NB Cnt Tests"
         P.First();
         Expect(P.Total.Value(), '7');
     end;
+
+    [Test]
+    procedure RecCount_Control_AfterLast()
+    var
+        P: TestPage "NB Cnt Count";
+    begin
+        Seed();
+        P.OpenView();
+        P.Last();
+        Expect(P.Total.Value(), '3');
+    end;
+
+    [Test]
+    procedure RecCount_Control_AfterNextLast()
+    var
+        P: TestPage "NB Cnt Count";
+    begin
+        Seed();
+        P.OpenView();
+        P.Next();
+        P.Last();
+        Expect(P.Total.Value(), '3');
+    end;
+
+    [Test]
+    procedure RecCount_CardControl()
+    var
+        P: TestPage "NB Cnt Card";
+    begin
+        Seed();
+        P.OpenView();
+        P.First();
+        Expect(P.Total.Value(), '3');
+    end;
+
+    [Test]
+    procedure RecCount_WorksheetControl()
+    var
+        P: TestPage "NB Cnt Worksheet";
+    begin
+        Seed();
+        P.OpenView();
+        P.First();
+        Expect(P.Total.Value(), '3');
+    end;
+
+    [Test]
+    procedure RecHasFilter_Control()
+    var
+        P: TestPage "NB Cnt HasFilter";
+    begin
+        Seed();
+        P.OpenView();
+        P.First();
+        Expect(P.Total.Value(), 'No');
+    end;
+
+    [Test]
+    procedure BareCount_Control()
+    var
+        P: TestPage "NB Cnt Bare Count";
+    begin
+        Seed();
+        P.OpenView();
+        P.First();
+        Expect(P.Total.Value(), '3');
+    end;
+
+    [Test]
+    procedure RecCount_TableProcedureCount()
+    var
+        P: TestPage "NB Cnt Proc Count";
+    begin
+        Seed();
+        P.OpenView();
+        P.First();
+        Expect(P.Total.Value(), '42');
+    end;
+
+    [Test]
+    procedure RecCount_PageExtensionControl()
+    var
+        P: TestPage "NB Cnt Plain";
+    begin
+        Seed();
+        P.OpenView();
+        P.First();
+        Expect(P.ExtTotal.Value(), '3');
+    end;
+
+    [Test]
+    procedure RecCount_OtherExpressionControlAfterLast()
+    var
+        P: TestPage "NB Cnt Other Expr";
+    begin
+        Seed();
+        P.OpenView();
+        P.Last();
+        Expect(P.Text.Value(), '3');
+    end;
+
+    [Test]
+    procedure RecCount_OtherExpressionControlAfterFirst()
+    var
+        P: TestPage "NB Cnt Other Expr";
+    begin
+        Seed();
+        P.OpenView();
+        P.First();
+        Expect(P.Text.Value(), '1');
+    end;
 }

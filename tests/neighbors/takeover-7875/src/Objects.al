@@ -102,3 +102,145 @@ page 50104 "NB Cnt Field Count"
         }
     }
 }
+
+table 50102 "NB Cnt Proc Row"
+{
+    fields { field(1; Id; Integer) { } }
+    keys { key(PK; Id) { Clustered = true; } }
+
+    procedure Count(): Integer
+    begin
+        exit(42);
+    end;
+}
+
+page 50105 "NB Cnt Card"
+{
+    PageType = Card;
+    SourceTable = "NB Cnt Row";
+    layout
+    {
+        area(Content)
+        {
+            group(G)
+            {
+                field(Id; Rec.Id) { }
+                field(Total; Rec.Count) { }
+            }
+        }
+    }
+}
+
+page 50106 "NB Cnt Worksheet"
+{
+    PageType = Worksheet;
+    SourceTable = "NB Cnt Row";
+    layout
+    {
+        area(Content)
+        {
+            repeater(R)
+            {
+                field(Id; Rec.Id) { }
+                field(Total; Rec.Count) { }
+            }
+        }
+    }
+}
+
+page 50107 "NB Cnt HasFilter"
+{
+    PageType = List;
+    SourceTable = "NB Cnt Row";
+    layout
+    {
+        area(Content)
+        {
+            repeater(R)
+            {
+                field(Id; Rec.Id) { }
+                field(Total; Rec.HasFilter) { }
+            }
+        }
+    }
+}
+
+page 50108 "NB Cnt Bare Count"
+{
+    PageType = List;
+    SourceTable = "NB Cnt Row";
+    layout
+    {
+        area(Content)
+        {
+            repeater(R)
+            {
+                field(Id; Rec.Id) { }
+                field(Total; Count) { }
+            }
+        }
+    }
+}
+
+page 50109 "NB Cnt Proc Count"
+{
+    PageType = List;
+    SourceTable = "NB Cnt Proc Row";
+    layout
+    {
+        area(Content)
+        {
+            repeater(R)
+            {
+                field(Id; Rec.Id) { }
+                field(Total; Rec.Count) { }
+            }
+        }
+    }
+}
+
+page 50110 "NB Cnt Plain"
+{
+    PageType = List;
+    SourceTable = "NB Cnt Row";
+    layout
+    {
+        area(Content)
+        {
+            repeater(R)
+            {
+                field(Id; Rec.Id) { }
+                field(Total; Rec.Id) { }
+            }
+        }
+    }
+}
+
+pageextension 50100 "NB Cnt Plain Ext" extends "NB Cnt Plain"
+{
+    layout
+    {
+        addlast(R)
+        {
+            field(ExtTotal; Rec.Count) { }
+        }
+    }
+}
+
+page 50111 "NB Cnt Other Expr"
+{
+    PageType = List;
+    SourceTable = "NB Cnt Row";
+    layout
+    {
+        area(Content)
+        {
+            repeater(R)
+            {
+                field(Id; Rec.Id) { }
+                field(Total; Rec.Count) { }
+                field(Text; Format(Rec.Id)) { }
+            }
+        }
+    }
+}
