@@ -57,7 +57,7 @@ fn issue_8717_repro_passes() {
 #[test]
 fn probe_cells_pass_on_the_measured_pages() {
     let o = outcomes(PROBE, "LT RFU Tests");
-    assert_eq!(o.len(), 38);
+    assert_eq!(o.len(), 86);
     let mark = |n: &str| match n {
         "List_ResetAfterTestFilterUpdateFalse" => None,
         _ if n.starts_with("IssueList_") || n.starts_with("List_") => Some(ListValidateViewRefresh),
@@ -77,11 +77,14 @@ fn probe_cells_pass_on_the_measured_pages() {
     let count = |m| o.iter().filter(|(n, ..)| mark(n) == Some(m)).count();
     assert_eq!(
         (count(ListValidateViewRefresh), count(ValidateUpdateFalseRereadsRow)),
-        (24, 11)
+        (42, 41)
     );
     let edit = outcomes(PROBE, "LT RFU Edit Tests");
     assert!(
-        edit.len() == 1 && edit[0].1 == Outcome::Pass && edit[0].2 == [ValidateUpdateFalseRereadsRow],
+        edit.len() == 5
+            && edit
+                .iter()
+                .all(|(_, r, marks)| *r == Outcome::Pass && *marks == [ValidateUpdateFalseRereadsRow]),
         "{edit:#?}"
     );
 }
@@ -112,12 +115,11 @@ fn neighbors_keep_main_or_refuse() {
     }
 }
 
-/// AssertEquals and Editable() on the Name control pass only where the neighbor measured them: after the cell's two SetValues,
-/// before First. Another read-only call there (Visible() on Name, the page's Caption), AssertEquals on another control, and
-/// AssertEquals before the first SetValue keep main's path or refuse.
+/// The read-only calls pass at the points the read cells of corpus pull request 1529 measure (Visible() on Name after the
+/// cell's two SetValues, before First); after First, in a cell the read cells do not measure (the row dropped), and at two
+/// points of one cell they refuse.
 #[test]
 fn read_only_calls_pass_only_where_measured() {
-    const AT: &str = "                    Lines.Name.AssertEquals('C');\n";
     let outcome = |from: &str, to: &str| {
         assert!(NEIGHBORS.contains(from));
         let o = outcomes(
@@ -128,19 +130,32 @@ fn read_only_calls_pass_only_where_measured() {
             .find(|(n, ..)| n == "Lines_ReadOnlyCallsAfterSetValues")
             .unwrap()
     };
-    for to in [
-        "                    if Lines.Name.Visible() then;\n",
-        "                    if Lines.Caption() = '' then;\n",
-        "                    Lines.Value.AssertEquals('');\n",
+    let at = "                    Lines.Name.AssertEquals('C');\n";
+    let (_, r, marks) = outcome(at, "                    if Lines.Name.Visible() then;\n");
+    assert!(
+        r == Outcome::Pass && marks == [ListValidateViewRefresh],
+        "{r:?} {marks:?}"
+    );
+    let first = "                    Lines.First();\n";
+    let open = "        Lines.Last();\n        Note('open', Log.Take());\n        Lines.Name.SetValue(Lines.Name.Value() + '2');\n";
+    for (from, to) in [
+        (
+            first,
+            "                    Lines.First();\n                    if Lines.Name.Visible() then;\n",
+        ),
+        (
+            "        Initialize(1, 1, 3);\n        RunLines(3);\n",
+            "        Initialize(4, 1, 3);\n        RunLines(3);\n",
+        ),
+        (
+            open,
+            "        Lines.Last();\n        Lines.Name.AssertEquals('C');\n        Note('open', Log.Take());\n        Lines.Name.SetValue(Lines.Name.Value() + '2');\n",
+        ),
     ] {
-        let (_, r, _) = outcome(AT, to);
+        let (_, r, _) = outcome(from, to);
         assert!(
             matches!(&r, Outcome::NotRun(why) if why.starts_with(UNMEASURED)),
             "{to}: {r:?}"
         );
     }
-    let open = "        Lines.Last();\n        Note('open', Log.Take());\n        Lines.Name.SetValue(Lines.Name.Value() + '2');\n";
-    let early = "        Lines.Last();\n        Lines.Name.AssertEquals('C');\n        Note('open', Log.Take());\n        Lines.Name.SetValue(Lines.Name.Value() + '2');\n";
-    let (_, r, marks) = outcome(open, early);
-    assert!(marks.is_empty() && r != Outcome::Pass, "{r:?} {marks:?}");
 }
