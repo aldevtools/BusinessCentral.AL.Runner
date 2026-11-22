@@ -86,6 +86,23 @@ codeunit 50001 "NB KO Tests"
         Check(Format(Row.Opt), 'Local');
     end;
 
+    [Test]
+    procedure ArrayOfOption_QuotedKeywords()
+    var
+        Arr: array[2] of Option Zero,"Key";
+    begin
+        Arr[1] := 1;
+        Check(Format(Arr[1]), 'Key');
+        Check(Format(Arr[2]), 'Zero');
+        Arr[2] := 1;
+        Check(Second(Arr), 'Key');
+    end;
+
+    local procedure Second(A: array[2] of Option Zero,"Key"): Text
+    begin
+        exit(Format(A[2]));
+    end;
+
     local procedure Echo(Value: Integer): Option Zero,"Key","End"
     begin
         exit(Value);
