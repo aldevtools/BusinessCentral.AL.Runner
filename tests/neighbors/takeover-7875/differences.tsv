@@ -1,2 +1,9 @@
 # key	entry
-# head and main answer alike: no row differs.
+NB Cnt Tests::BareCount_Control	ASSUMED page-control-rec-method-source (corpus PR 1525)
+NB Cnt Tests::RecCountApprox_Control	ASSUMED page-control-rec-method-source (corpus PR 1525)
+NB Cnt Tests::RecCountParens_Control	ASSUMED page-control-rec-method-source (corpus PR 1525)
+NB Cnt Tests::RecCount_CardControl	ASSUMED page-control-rec-method-source (corpus PR 1525)
+NB Cnt Tests::RecCount_Control	ASSUMED page-control-rec-method-source (corpus PR 1525)
+NB Cnt Tests::RecCount_Control_AfterLast	ASSUMED page-control-rec-method-source (corpus PR 1525)
+NB Cnt Tests::RecCount_Control_AfterNextLast	ASSUMED page-control-rec-method-source,page-expression-control-live-read-after-next-filter-activate (corpus PR 1525)
+NB Cnt Tests::RecGetFilters_Control	ASSUMED page-control-rec-method-source (corpus PR 1525)

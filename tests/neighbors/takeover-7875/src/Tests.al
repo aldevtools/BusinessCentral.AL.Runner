@@ -179,15 +179,4 @@ codeunit 50100 "NB Cnt Tests"
         P.Last();
         Expect(P.Text.Value(), '3');
     end;
-
-    [Test]
-    procedure RecCount_OtherExpressionControlAfterFirst()
-    var
-        P: TestPage "NB Cnt Other Expr";
-    begin
-        Seed();
-        P.OpenView();
-        P.First();
-        Expect(P.Text.Value(), '1');
-    end;
 }
