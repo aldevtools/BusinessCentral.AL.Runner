@@ -18,8 +18,9 @@
 //! - `CurrPage.Update(true)` after the save writes Rec again, over what another record wrote since (:476), then refreshes as
 //!   `Update(false)` does (`extra_code_update_true`).
 //!
-//! - a modify of the row through another record before the save, its only write since the control's OnValidate began, is
-//!   written over by the save (:443 `A//`, `Inserted::Rewritten`, measured under Page.RunModal on an empty group).
+//! - a modify of the row through another record before the save, its only write since the control's OnValidate began, when only
+//!   the table field's insert wrote the store before, is written over by the save (:443 `A//`, `Inserted::Rewritten`, measured
+//!   under Page.RunModal on an empty group).
 //!
 //! Every other open, view and page keeps main's refusal (`UNMEASURED_CODE`).
 
@@ -60,8 +61,14 @@ impl Session {
         let line = st.borrow().new_line_writes;
         let only_the_insert = line.is_some_and(|(mark, deletes)| self.write_mark() == (mark + 1, deletes));
         // The row the control's OnValidate wrote once through another record before the save (`Inserted::Rewritten`): measured
-        // under Page.RunModal on an empty group (:443).
-        let rewritten_measured = rewritten && opened == Opened::RunModalOneGroup && view == Some(View::Alone);
+        // under Page.RunModal on an empty group, where nothing but the table field's insert wrote the store before the control's
+        // OnValidate began (:443).
+        let insert_before_control = {
+            let s = st.borrow();
+            matches!((line, s.control_onvalidate.as_ref()), (Some((mark, deletes)), Some(c)) if c.writes == (mark + 1, deletes))
+        };
+        let rewritten_measured =
+            rewritten && insert_before_control && opened == Opened::RunModalOneGroup && view == Some(View::Alone);
         if !(measured && (only_the_insert || rewritten_measured) && self.no_record_trigger(st)) {
             return Err(Signal::unsupported(UNMEASURED_CODE));
         }
