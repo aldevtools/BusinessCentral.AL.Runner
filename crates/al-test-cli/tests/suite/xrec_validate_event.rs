@@ -337,6 +337,17 @@ codeunit 50404 "VE Subscriber"
             exit;
         Rec.ExtRead('X');
     end;
+
+    // Parameters bind by name: CurrFieldNo by var in the second place, xRec third.
+    [EventSubscriber(ObjectType::Table, Database::"VE Line", 'OnAfterValidateEvent', 'Mode', false, false)]
+    local procedure OnAfterValidateModeFieldNoSecond(var Rec: Record "VE Line"; var CurrFieldNo: Integer; xRec: Record "VE Line")
+    var
+        Log: Codeunit "VE Log";
+    begin
+        if Log.Mode() <> 'fieldno-second' then
+            exit;
+        Rec.ExtRead('X');
+    end;
 }
 
 codeunit 50408 "VE Single Subscriber"
@@ -488,6 +499,7 @@ codeunit 50407 "VE Tests"
     [Test] procedure Refused_DescendantThroughCodeunit() var L: Record "VE Line"; begin AfterInsert(L); ValidateMode(L, 'after-descendant', 'C=NEW;'); end;
     [Test] procedure Refused_ThroughCodeunit() var L: Record "VE Line"; begin AfterInsert(L); ValidateMode(L, 'after-helper', 'C=NEW;'); end;
     [Test] procedure Refused_XRecByValue() var L: Record "VE Line"; begin AfterInsert(L); ValidateMode(L, 'xrec-by-value', 'X=NEW;'); end;
+    [Test] procedure Refused_CurrFieldNoSecondXRecThird() var L: Record "VE Line"; begin AfterInsert(L); ValidateMode(L, 'fieldno-second', 'X=NEW;'); end;
     [Test] procedure Refused_ManualSubscriber() var L: Record "VE Line"; M: Codeunit "VE Manual Subscriber"; begin AfterInsert(L); BindSubscription(M); ValidateMode(L, 'manual', 'X=NEW;'); end;
     [Test] procedure Refused_ValidateFromOwnOnModify() var L: Record "VE Line"; begin AfterInsert(L); Log.Set('own-modify'); L.Modify(true); end;
     [Test] procedure Refused_ValidateFromOwnOnInsert() var L: Record "VE Line"; begin Log.Set(''); L.DeleteAll(); L."Line No." := 1; L.Series := 'NEW'; Log.Set('own-insert'); L.Insert(true); end;
@@ -525,6 +537,6 @@ fn validate_event_subscribers_share_the_validate_xrec_clean_and_their_neighbors_
             wrong.push(format!("{name}: {outcome} {hits:?}"));
         }
     }
-    assert_eq!(o.len(), 33);
+    assert_eq!(o.len(), 34);
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
