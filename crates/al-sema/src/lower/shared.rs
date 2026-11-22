@@ -260,7 +260,7 @@ pub(crate) fn make_lowerer<'a>(sh: &'a Shared<'a>, tl: &'a Local<'a>, seq: &'a S
         lines: None,
         emit_pos: false,
         routine_idx: 0,
-        assumed: Vec::new(),
+        assumed: Default::default(),
         tdd_marked: Default::default(),
         tdd_globals: HashMap::default(),
         tys: Vec::new(),
@@ -699,8 +699,16 @@ pub(crate) fn lower_object<'a>(
             && !ws.routine_unreached(oi, routine_offsets[oi][ri])
             && demand.is_none_or(|d| !ws.is_dependency(oi) || d.reached(oi, routine_offsets[oi][ri]));
         // A routine whose check panicked has no types and resolutions to lower from: it refuses.
+        let span = r.syntax().text_range();
+        let file = &ws.files[lw.file];
         let routine = if let Some(why) = checked.panic_of(oi, routine_offsets[oi][ri]) {
             lw.refused(r, format!("internal error while checking: {why}"))
+        } else if let Some(d) = reached
+            .then(|| checked.routine_refusal(file.app, &file.path, span.start().into()..span.end().into()))
+            .flatten()
+        {
+            // The checker refused the routine (AR1010, `check/diag_index.rs` ROUTINE_REFUSALS).
+            lw.refused(r, d.message.clone())
         } else if reached {
             lowered_routines += 1;
             // A panic lowering one routine is a bug in the compiler; the routine refuses and the
