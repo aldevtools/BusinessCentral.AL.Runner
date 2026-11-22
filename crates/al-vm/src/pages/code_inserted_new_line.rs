@@ -6,7 +6,8 @@
 //! `CurrPage.Update(true)` written out, and `CurrPage.SaveRecord()` followed by `CurrPage.Update(false)`, do what `Update()` does
 //! (SaveRecord modifies the row, the Update(false) after it asks the same refresh; al-runner issue 8285): pinned by
 //! pages/currpage/ListNewLineSaveRecordUpdate.al:429-874, for the probe's code only, line for line (`code_inserted_pinned.rs`;
-//! the reporter's repro under an assumption). The entry condition is `code_inserted_cell`: the facts every pinned cell shares,
+//! the reporter's repro under an assumption); on the page without triggers other code runs under the effect gate of
+//! `code_inserted_extra.rs`. The entry condition is `code_inserted_cell`: the facts every pinned cell shares,
 //! then the cells themselves. A validation that ends with an error after the page moved onto the row is refused
 //! (`refuse_error_after_landing`), and so is one whose SaveRecord left the line without the `Update(false)` after it
 //! (`code_inserted_step_end`), and the host with two CardPart FactBoxes (ListNewLineCodeInsertUpdate.al:249-299) at its open
@@ -38,7 +39,7 @@ enum Triggers {
 
 /// How the page was opened, with the view it shows.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Opened {
+pub(super) enum Opened {
     /// The test's `TestPage.OpenEdit()`, no filter (:520, :532, :544, :556, :568, :580, :790, :805).
     OpenEdit,
     /// AL code's `Page.RunModal(Id, Rec)` as a statement, in Edit mode, its record without a filter; the test's ModalPageHandler
@@ -50,14 +51,15 @@ enum Opened {
     RunModalOneGroup,
 }
 
-/// The refusal of a SaveRecord or Update(true) cell whose code is not the measured code (`code_inserted_pinned.rs`).
-const UNMEASURED_CODE: &str = "CurrPage.SaveRecord or Update(true) on the new line whose table field inserted it, on a page \
+/// The refusal of a SaveRecord or Update(true) cell whose code is not the measured code (`code_inserted_pinned.rs`), and not
+/// within the effect gate of `code_inserted_extra.rs`.
+pub(super) const UNMEASURED_CODE: &str = "CurrPage.SaveRecord or Update(true) on the new line whose table field inserted it, on a page \
      whose code, or the code of its table, its part or what they call, is not the code ListNewLineSaveRecordUpdate.al or the \
      repro of al-runner issue 8285 runs (not measured)";
 
 /// The measured view the inserted row stands in (`code_inserted_view`).
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum View {
+pub(super) enum View {
     /// The row alone.
     Alone,
     /// The row last, after one row of its group.
@@ -66,7 +68,7 @@ enum View {
 
 /// The page call that leaves the line, as the control's OnValidate makes it.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Leave {
+pub(super) enum Leave {
     /// `CurrPage.Update()`.
     Update,
     /// `CurrPage.Update(false)`.
@@ -244,6 +246,8 @@ impl Session {
                 Some(PinnedCode::Repro) if opened == Opened::RunModalOneGroup && view == Some(View::AfterRow) => {
                     al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ListNewLineSaveRecordRepro)
                 }
+                // Other code on the page without triggers: the effect gate of the cells of al-runner issues 8712 and 8713.
+                None if matches!(triggers, Triggers::Quiet) => self.extra_code_cell(st, opened, view, leave)?,
                 Some(PinnedCode::Repro) | None => return Err(Signal::unsupported(UNMEASURED_CODE)),
             }
         }
@@ -607,7 +611,10 @@ impl Session {
                 same_row
                     && self.no_active_subscriber(rec.borrow().table as usize)
                     && self.no_active_subscriber(page_object)
-                    && stored.is_some_and(|s| Self::same_values(&rec.borrow().fields, &s))
+                    && stored.is_some_and(|s| {
+                        Self::same_values(&rec.borrow().fields, &s)
+                            || (view.extra && Self::extra_code_kept(&rec.borrow().fields, &s, &view.rec.fields))
+                    })
                     && now.is_some_and(|now| {
                         now.len() == rows.len()
                             && now
@@ -634,6 +641,7 @@ impl Session {
         let CodeInsertedSave::Pending { asked } = st.borrow().code_inserted_save else {
             return Ok(());
         };
+        let extra = std::mem::take(&mut st.borrow_mut().code_inserted_extra);
         let rows = match self.code_inserted_page(st)? {
             Some((Triggers::Coded, _)) => match self.coded_rows(st)? {
                 Some(rows) => Some(rows),
@@ -643,12 +651,14 @@ impl Session {
                     );
                 }
             },
+            _ if extra => Some(self.extra_code_rows(st)?),
             _ => None,
         };
         let view = Box::new(SavedView {
             rec: self.page_rec(st).borrow().clone(),
             writes: self.write_mark(),
             rows,
+            extra,
         });
         st.borrow_mut().code_inserted_save = match asked {
             true => CodeInsertedSave::Asked(view),
@@ -749,6 +759,9 @@ impl Session {
             );
         }
         st.borrow_mut().code_inserted_save = CodeInsertedSave::Asked(Box::new(view.clone()));
+        if view.extra {
+            super::code_inserted_extra::extra_code_assume();
+        }
         if matches!(self.code_inserted_page(st)?, Some((Triggers::Coded, _))) {
             super::code_inserted_coded::coded_assume(st);
         }

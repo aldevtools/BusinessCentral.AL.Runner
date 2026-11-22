@@ -159,6 +159,9 @@ pub struct SavedView {
     pub rec: RecordState,
     pub writes: (i64, u64),
     pub rows: Option<Vec<Vec<Value>>>,
+    /// The save ran code that is not a pinned page's under the effect gate of `code_inserted_extra.rs`: between the save and
+    /// `CurrPage.Update(false)` the row may change through another record, or Rec's fields, but not both (`extra_code_kept`).
+    pub extra: bool,
 }
 
 /// The calls measured on the FactBox host after the page left its new line for the row (`code_inserted_new_line.rs`).
@@ -1006,6 +1009,9 @@ pub struct PageState {
     /// Where the validation running now stands after `CurrPage.SaveRecord` or `CurrPage.Update(true)` left such a new line for its
     /// row (`code_inserted_new_line.rs`).
     pub code_inserted_save: CodeInsertedSave,
+    /// The cell that left the new line runs code that is not a pinned page's, under the effect gate of
+    /// `code_inserted_extra.rs`; its save notes it in `SavedView::extra`.
+    pub code_inserted_extra: bool,
     /// Where the page with code stands before its new line lands on a row (`code_inserted_coded.rs`).
     pub coded_line: CodedLine,
     /// Whose objects the page with code is, noted at its open (`coded_open_on_empty_view`).
@@ -1194,6 +1200,7 @@ impl PageState {
         self.refresh.forget_code_inserted_line();
         self.code_inserted_row = None;
         self.code_inserted_save = CodeInsertedSave::Off;
+        self.code_inserted_extra = false;
         self.coded_line = Default::default();
     }
 
