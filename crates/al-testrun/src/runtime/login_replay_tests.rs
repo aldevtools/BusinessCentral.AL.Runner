@@ -173,7 +173,7 @@ fn sessions_of_one_key_hold_the_same_after_the_raised_login() {
     // What the login wrote is in the state compared: the subscriber's row (77400 + 1).
     let firsts = crate::login_replay::check(&engine).firsts();
     assert!(
-        firsts[0].1.rows().iter().any(|r| r.contains("Integer(77401)")),
+        firsts[0].1.rows().iter().any(|r| r.holds("Integer(77401)")),
         "{:?}",
         firsts[0].1.rows()
     );
@@ -209,11 +209,15 @@ fn an_entrys_resource_text_is_part_of_the_key_and_changes_what_the_login_leaves(
         )
     );
     let firsts = crate::login_replay::check(&engine).firsts();
+    // Named by where it differs, never by the value (77401 against 77404).
     let difference = first_difference(&firsts[0].1, &firsts[1].1);
     assert!(
-        difference.as_deref().is_some_and(|d| d.contains("77404")),
+        difference
+            .as_deref()
+            .is_some_and(|d| d.starts_with("row ") && !d.contains("7740")),
         "{difference:?}"
     );
+    assert!(firsts[1].1.rows().iter().any(|r| r.holds("Integer(77404)")));
     // The temporary table of the SingleInstance cache holds the other row too.
     let temp_row = |k: usize, id: &str| {
         (firsts[k].1.state_lines().lines.iter()).any(|l| l.starts_with("temp table 0 row ") && l.contains(id))
@@ -354,8 +358,9 @@ codeunit 77412 "RPL Ref Holder"
 }
 "#;
 
-// A value with no comparable form inside a codeunit instance is reported with its path: the SingleInstance global, the
-// instance's codeunit and global, and the kind of value (ids, indexes and type names only).
+// A value with no comparable form inside a codeunit instance is reported by the SingleInstance global that holds it (the
+// path before the first `: `); what follows (the instances inside and the kind of value, which can describe a value) is
+// not printed (login_replay/difference.rs).
 #[test]
 fn a_value_with_no_comparable_form_inside_an_instance_is_named_with_its_path() {
     let (engine, l) = compiled_with(&format!("{MAIN}{OPAQUE_INSIDE}"));
@@ -363,7 +368,7 @@ fn a_value_with_no_comparable_form_inside_an_instance_is_named_with_its_path() {
     run(&engine, &l, "RPL Tests A");
     let line = crate::login_replay::report(&engine).unwrap();
     assert!(
-        line.contains("not comparable: codeunit 77411 global 0: instance of codeunit 77412 global 1: HttpClient (a client of the network: what it holds lies outside the session))"),
+        line.contains("first: not comparable: codeunit 77411 global 0); across"),
         "{line}"
     );
 }
@@ -714,10 +719,15 @@ codeunit 77461 "RPL Gap Tests"
 }
 "#;
 
+/// A planted session: the check's line, the differences, and the first session state line of the base that differs from
+/// the planted session's (the difference text names only its place).
+type Planted = (String, Vec<(usize, String)>, Option<String>);
+
 /// Runs the login of [`GAP`] with `plant` twice with the resource text `base` and once with each text of `others`. Asserts
 /// the two sessions of `base` compare equal; returns, per text of `others`, the check's line when its session is noted
-/// under the key of `base` (a planted difference: what a key that missed the text would compare) and the differences.
-fn planted(plant: &str, base: &str, others: &[&str]) -> Vec<(String, Vec<(usize, String)>)> {
+/// under the key of `base` (a planted difference: what a key that missed the text would compare), the differences and
+/// the first base state line that differs.
+fn planted(plant: &str, base: &str, others: &[&str]) -> Vec<Planted> {
     let (engine, l) = compiled_with(&format!("{GAP}{plant}"));
     for text in std::iter::repeat_n(base, 2).chain(others.iter().copied()) {
         set_resource(&engine, &l, Some(text));
@@ -733,24 +743,27 @@ fn planted(plant: &str, base: &str, others: &[&str]) -> Vec<(String, Vec<(usize,
             check.note(firsts[0].0.clone(), firsts[0].1.clone());
             check.note(firsts[0].0.clone(), state.clone());
             let line = check.line().unwrap();
-            (line, crate::login_replay::differences(&firsts[0].1, state))
+            let (base, other) = (&firsts[0].1.state_lines().lines, &state.state_lines().lines);
+            let first = (base.iter().zip(other)).find(|(a, b)| a != b).map(|(a, _)| a.clone());
+            (line, crate::login_replay::differences(&firsts[0].1, state), first)
         })
         .collect()
 }
 
-/// Asserts that each planted session differs from the base in the session state only, and that the first differing
-/// line starts with `what`.
-fn assert_planted_state(planted: &[(String, Vec<(usize, String)>)], what: &str) {
-    for (line, differences) in planted {
+/// Asserts that each planted session differs from the base in the session state only, that the difference names the
+/// first differing line by its place, and that the line starts with `what`.
+fn assert_planted_state(planted: &[Planted], what: &str) {
+    for (line, differences, first) in planted {
         assert!(
             line.contains("1 compared, 1 differ (not comparable 0, rows 0, session state 1, marks 0, open writes 0;"),
             "{line}"
         );
         let state = differences.iter().find(|(kind, _)| *kind == 2);
         assert!(
-            state.is_some_and(|(_, d)| d.split(": ").nth(1).is_some_and(|l| l.starts_with(what))),
+            state.is_some_and(|(_, d)| d.starts_with("session state ") && !d.contains(':')),
             "{differences:?}"
         );
+        assert!(first.as_deref().is_some_and(|l| l.starts_with(what)), "{first:?}");
     }
 }
 
@@ -901,7 +914,7 @@ fn sql_counters_the_login_read_are_not_comparable() {
     }
     let line = crate::login_replay::report(&engine).unwrap();
     assert!(
-        line.contains("1 differ (not comparable 1, ") && line.contains("SQL counters: read, or not at rest"),
+        line.contains("1 differ (not comparable 1, ") && line.contains("first: not comparable: SQL counters)"),
         "{line}"
     );
 }
@@ -939,12 +952,12 @@ codeunit 77462 "RPL Gap"
 // of its own.
 #[test]
 fn what_the_company_open_noted_for_the_tests_is_compared() {
-    for (line, differences) in planted(GAP_OPEN_WRITES, "a", &["ab"]) {
+    for (line, differences, _) in planted(GAP_OPEN_WRITES, "a", &["ab"]) {
         assert!(line.contains(", open writes 1;"), "{line}");
         assert!(
             differences
                 .iter()
-                .any(|(_, d)| d.starts_with("open writes: ") && d.contains("Opened")),
+                .any(|(kind, d)| (*kind, d.as_str()) == (4, "open writes")),
             "{differences:?}"
         );
     }

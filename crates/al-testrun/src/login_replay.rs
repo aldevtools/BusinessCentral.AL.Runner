@@ -8,8 +8,11 @@
 //! keeps its state on the engine ([`Check`]); every later session of the key is compared with it
 //! ([`first_difference`]). Outcomes do not change. [`report`] is the line the front ends print.
 
+mod difference;
+
 use al_vm::{Engine, Session};
-use std::collections::BTreeSet;
+pub(crate) use difference::differences;
+use difference::{KINDS, StoredRow, stored_rows};
 use std::sync::{Mutex, PoisonError};
 
 /// The inputs of the login and its subscribers this check keys on, when the test session opens the company: the fields
@@ -176,16 +179,16 @@ impl Key {
 /// it).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LoginState {
-    rows: Vec<String>,
+    rows: Vec<StoredRow>,
     state: al_vm::StateLines,
     hits: al_builtins::assumptions::HitBits,
     open: String,
 }
 
 impl LoginState {
-    /// The committed rows, one line each.
+    /// The committed rows, field by field.
     #[cfg(test)]
-    pub(crate) fn rows(&self) -> &[String] {
+    pub(crate) fn rows(&self) -> &[StoredRow] {
         &self.rows
     }
 
@@ -202,53 +205,12 @@ impl LoginState {
         hits: al_builtins::assumptions::HitBits,
     ) -> LoginState {
         LoginState {
-            rows: committed_rows(session.store_mut()),
+            rows: stored_rows(&session.store_mut().export_committed().unwrap_or_default()),
             state: session.state_lines(),
             hits,
             open: format!("{wrote:?}"),
         }
     }
-}
-
-/// The kinds of difference between two sessions' states, in the order [`differences`] looks at them: a value with no
-/// comparable form (which no replay could give back), the committed rows, the session state lines, the assumption marks,
-/// what the company open noted for the tests.
-const KINDS: [&str; 5] = ["not comparable", "rows", "session state", "marks", "open writes"];
-
-/// What differs between `a` and `b`, the states of two sessions of one key: per kind of [`KINDS`] that differs, its index
-/// and its first difference. One kind does not hide another.
-pub(crate) fn differences(a: &LoginState, b: &LoginState) -> Vec<(usize, String)> {
-    let lines = |x: &[String], y: &[String], what: &str| {
-        let n = x
-            .iter()
-            .zip(y)
-            .position(|(p, q)| p != q)
-            .unwrap_or(x.len().min(y.len()));
-        (x.len() != y.len() || n < x.len()).then(|| {
-            format!(
-                "{what} {}: {} | {}",
-                n + 1,
-                x.get(n).map_or("(none)", String::as_str),
-                y.get(n).map_or("(none)", String::as_str)
-            )
-        })
-    };
-    let opaque: BTreeSet<&String> = a.state.opaque.iter().chain(&b.state.opaque).collect();
-    let opaque = (!opaque.is_empty()).then(|| {
-        let what: Vec<&str> = opaque.into_iter().map(String::as_str).collect();
-        format!("not comparable: {}", what.join("; "))
-    });
-    [
-        opaque,
-        lines(&a.rows, &b.rows, "row"),
-        lines(&a.state.lines, &b.state.lines, "session state"),
-        (a.hits != b.hits).then(|| format!("assumption marks: {:?} | {:?}", a.hits, b.hits)),
-        (a.open != b.open).then(|| format!("open writes: {} | {}", a.open, b.open)),
-    ]
-    .into_iter()
-    .enumerate()
-    .filter_map(|(k, d)| Some((k, d?)))
-    .collect()
 }
 
 /// The first of [`differences`]: `None` when the two states are the same.
@@ -457,10 +419,28 @@ fn digest(lines: &[String]) -> LinesDigest {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use al_builtins::value::Value;
 
+    /// A state whose committed rows are one Text field each, of table object 1.
     fn state(rows: &[&str], lines: &[&str]) -> LoginState {
+        let rows: Vec<_> = (rows.iter())
+            .map(|r| (1, vec![al_builtins::value::Value::Text((*r).into())]))
+            .collect();
+        state_of(&rows, lines)
+    }
+
+    /// A state whose committed rows are `rows` (table object, values) of company C.
+    fn state_of(rows: &[(u32, Vec<al_builtins::value::Value>)], lines: &[&str]) -> LoginState {
+        let tables: Vec<al_data::memory::ExportedTable> = (rows.iter())
+            .map(|(object, row)| al_data::memory::ExportedTable {
+                company: "C".into(),
+                object: *object,
+                pk_storage: None,
+                rows: vec![(Vec::new(), row.clone())],
+            })
+            .collect();
         LoginState {
-            rows: rows.iter().map(|s| s.to_string()).collect(),
+            rows: stored_rows(&tables),
             state: al_vm::StateLines {
                 lines: lines.iter().map(|s| s.to_string()).collect(),
                 opaque: Vec::new(),
@@ -556,36 +536,36 @@ mod tests {
 
     #[test]
     fn equal_states_have_no_difference() {
-        let a = state(&["C|1990|[Integer(7)]"], &["session x"]);
+        let a = state_of(&[(1990, vec![Value::Integer(7)])], &["session x"]);
         assert_eq!(first_difference(&a, &a.clone()), None);
     }
 
     #[test]
     fn a_row_a_session_line_an_assumption_mark_or_a_value_with_no_comparable_form_is_a_difference() {
-        let a = state(&["C|1990|[Integer(7)]"], &["session x"]);
-        let row = state(&["C|1990|[Integer(8)]"], &["session x"]);
+        let a = state_of(&[(1990, vec![Value::Integer(7)])], &["session x"]);
+        let row = state_of(&[(1990, vec![Value::Integer(8)])], &["session x"]);
         assert_eq!(
             first_difference(&a, &row).as_deref(),
-            Some("row 1: C|1990|[Integer(7)] | C|1990|[Integer(8)]")
+            Some("row 1 (table object 1990): field 1")
         );
-        let more = state(&["C|1990|[Integer(7)]", "C|1990|[Integer(9)]"], &["session x"]);
+        let more = state_of(
+            &[(1990, vec![Value::Integer(7)]), (1990, vec![Value::Integer(9)])],
+            &["session x"],
+        );
         assert_eq!(
             first_difference(&a, &more).as_deref(),
-            Some("row 2: (none) | C|1990|[Integer(9)]")
+            Some("row 2 (table object 1990): added")
         );
-        let session = state(&["C|1990|[Integer(7)]"], &["session y"]);
-        assert_eq!(
-            first_difference(&a, &session).as_deref(),
-            Some("session state 1: session x | session y")
-        );
+        let session = state_of(&[(1990, vec![Value::Integer(7)])], &["session y"]);
+        assert_eq!(first_difference(&a, &session).as_deref(), Some("session state 1"));
         let mut marked = a.clone();
         marked.hits.0[0] = 1;
-        assert!(first_difference(&a, &marked).is_some_and(|w| w.starts_with("assumption marks")));
+        assert_eq!(first_difference(&a, &marked).as_deref(), Some("assumption marks"));
         let mut opaque = a.clone();
         opaque.state.opaque.push("codeunit 5 global 0: DotNet".into());
         assert_eq!(
             first_difference(&opaque, &opaque.clone()).as_deref(),
-            Some("not comparable: codeunit 5 global 0: DotNet")
+            Some("not comparable: codeunit 5 global 0")
         );
     }
 
@@ -601,17 +581,49 @@ mod tests {
             check.line().as_deref(),
             Some(
                 "login replay check: 3 sessions over 2 keys (a key seen before: 1 sessions, 33%), 1 compared, 0 differ; across test codeunits: 1 compared, \
-                 1 differ (not comparable 0, rows 1, session state 0, marks 0, open writes 0; first: row 1: r | other)"
+                 1 differ (not comparable 0, rows 1, session state 0, marks 0, open writes 0; first: row 1 (table object 1): field 1)"
             )
         );
         check.note(key(1), b);
         assert_eq!(
             check.line().as_deref(),
             Some(
-                "login replay check: 4 sessions over 2 keys (a key seen before: 2 sessions, 50%), 2 compared, 1 differ (not comparable 0, rows 1, session state 0, marks 0, open writes 0; first: row 1: r | other); across test \
-                 codeunits: 1 compared, 1 differ (not comparable 0, rows 1, session state 0, marks 0, open writes 0; first: row 1: r | other)"
+                "login replay check: 4 sessions over 2 keys (a key seen before: 2 sessions, 50%), 2 compared, 1 differ (not comparable 0, rows 1, session state 0, marks 0, open writes 0; first: row 1 (table object 1): field 1); across test \
+                 codeunits: 1 compared, 1 differ (not comparable 0, rows 1, session state 0, marks 0, open writes 0; first: row 1 (table object 1): field 1)"
             )
         );
+    }
+
+    // The report never prints a value (the rows are the company's data, issue 8211): a row, a session state line, a value
+    // with no comparable form and the open writes that hold a planted value are named by where they differ only, in the
+    // check's line and in each difference it takes its first from.
+    #[test]
+    fn the_difference_text_names_where_and_never_a_value() {
+        let secret = |s: &str| Value::Text(format!("SECRET-VALUE-{s}").as_str().into());
+        let a = state_of(
+            &[(15, vec![Value::Integer(1), secret("123")])],
+            &["session SECRET-VALUE-123"],
+        );
+        let mut b = state_of(
+            &[(15, vec![Value::Integer(1), secret("124")])],
+            &["session SECRET-VALUE-124"],
+        );
+        b.state
+            .opaque
+            .push("codeunit 5 global 1: Text 'SECRET-VALUE-123'".into());
+        b.open = "SECRET-VALUE-123".into();
+        let check = Check::default();
+        check.note(key(1), a.clone());
+        check.note(key(1), b.clone());
+        let line = check.line().unwrap();
+        assert!(!line.contains("SECRET"), "{line}");
+        for (_, what) in differences(&a, &b) {
+            assert!(!what.contains("SECRET"), "{what}");
+        }
+        let missing = state_of(&[], &["session SECRET-VALUE-123"]);
+        for (_, what) in differences(&a, &missing).into_iter().chain(differences(&missing, &a)) {
+            assert!(!what.contains("SECRET"), "{what}");
+        }
     }
 
     #[test]
@@ -632,7 +644,7 @@ mod tests {
         assert!(
             line.contains(
                 "1 compared, 1 differ (not comparable 1, rows 1, session state 0, marks 0, open writes 0; first: not comparable: \
-                 codeunit 5 global 1: Codeunit instance)"
+                 codeunit 5 global 1)"
             ),
             "{line}"
         );
