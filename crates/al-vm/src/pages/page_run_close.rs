@@ -269,6 +269,23 @@ fn cell(run: PinnedRun, by: CloseBy, row: RowAtClose, error: Option<CloseError>)
     pinned.then_some(Cell::Runs)
 }
 
+/// The closes measured with a handler that caught an error before it handled the page (corpus PR 1524,
+/// pages/close-errors/CemHandlerCaughtErrors.al): they close as the pinned cell of a handler that caught none, whatever way it
+/// caught the error. The card by object id after a handler error (:150 asserterror, :157 a TryFunction, :164 two errors,
+/// :199 ClearLastError after the catch, :206 Codeunit.Run, :213 JsonObject.ReadFrom, :220 a procedure that catches) and at a
+/// return while OnQueryClosePage raises (:192); the list by object id after a handler error (:227). A return or OK with no
+/// error (:178, :185, :234) is no cell of the matrix. Assumption `page-handler-caught-error-close`.
+fn caught_cell_measured(c: &PageRunClose, error: Option<CloseError>) -> bool {
+    use CloseBy as B;
+    use PinnedRun as P;
+    c.row == RowAtClose::Unchanged
+        && matches!(
+            (c.run, c.by, error),
+            (P::CardStatic | P::ListStatic, B::HandlerError, None)
+                | (P::CardStatic, B::Returned, Some(CloseError::Query))
+        )
+}
+
 /// `e` is an AL `Error` with a text (the fixtures' form: code Dialog, `ExceptionKind::Dialog`, a text that is not empty).
 fn error_with_text(e: &AlError) -> bool {
     e.code == "Dialog" && e.exception == ExceptionKind::Dialog && !e.message.is_empty()
@@ -598,7 +615,8 @@ impl Session {
     /// THE decision of this module: the cell of the matrix that the close `c` of page `st` is in, now that `failure` was
     /// raised (`None`: nothing was). Every fact of the cell is proved here or in `page_run_close`, which built `c`:
     /// - the error and its source (`close_error_of`);
-    /// - the handler caught no error and nothing committed since the run started (no pin commits after `Setup`,
+    /// - the handler caught no error, or the cell is one measured with a handler that caught one (`caught_cell_measured`), and
+    ///   nothing committed since the run started (no pin commits after `Setup`,
     ///   CemFixtures.al:549), and the test binds no handler but PageHandlers (every test of CemPageHandlerTests.al binds only
     ///   its PageHandler);
     /// - a typed value was saved by this close before a close trigger failed: the page holds nothing unsaved, and the only
@@ -628,11 +646,19 @@ impl Session {
         } else {
             mark == c.writes && store.change_counter() == c.changes
         };
-        let same = self.caught_errors() == c.caught && self.commits == c.commits;
-        if !writes || !same || !self.every_ui_handler_is(UiKind::Page) {
+        let caught = self.caught_errors() != c.caught;
+        if !writes
+            || self.commits != c.commits
+            || !self.every_ui_handler_is(UiKind::Page)
+            || (caught && !caught_cell_measured(&c, error))
+        {
             return None;
         }
-        cell(c.run, c.by, c.row, error).map(|cell| (cell, error))
+        let cell = cell(c.run, c.by, c.row, error)?;
+        if caught {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageHandlerCaughtErrorClose);
+        }
+        Some((cell, error))
     }
 
     /// An error `e` of OnQueryClosePage in the close `c`. At the platform's close the page closes without OnClosePage and

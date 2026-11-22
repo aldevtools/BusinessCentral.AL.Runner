@@ -247,8 +247,11 @@ impl Session {
     ///   HandlerError_QueryCloseError `MissingUIHandler`), an OnClosePage error wrapped (HandlerError_ClosePageError
     ///   `One or more errors occurred while closing the page.\\CEM close page error` `TestWrapped`).
     ///
-    /// Every case above runs a handler of `CemDocModal` (:925-975), which catches no error. A handler that caught one
-    /// (the session's count of caught errors moved from `caught_before`, caught_errors.rs) is refused (al-runner issue 7826).
+    /// Every case above runs a handler of `CemDocModal` (:925-975), which catches no error. A handler that caught one (the
+    /// session's count of caught errors moved from `caught_before`, caught_errors.rs) closes the page as one that caught none
+    /// in the last case when the close raises nothing, whatever way it caught the error (corpus PR 1524,
+    /// CemHandlerCaughtErrors.al:398 asserterror, :405 a TryFunction, :412 to :433 the other ways; assumption
+    /// `page-handler-caught-error-close`); every other case of such a handler is refused (al-runner issue 7826).
     pub(super) fn close_document_after_handler_error(
         &mut self,
         st: &St,
@@ -258,13 +261,16 @@ impl Session {
         let Signal::Error(err) = e else {
             return Ok(());
         };
-        let nothing_caught = self.caught_errors() == caught_before;
-        if !nothing_caught {
-            return unsupported(
+        let caught = self.caught_errors() != caught_before;
+        let refuse_caught = || {
+            unsupported(
                 "a page left open by a ModalPageHandler that caught an error before it raised its own (not pinned)",
-            );
-        }
+            )
+        };
         if st.borrow().close.error() {
+            if caught {
+                return refuse_caught();
+            }
             self.mark_closed(st);
             if err.code != "MissingUIHandler" {
                 return Err(Signal::Error(Box::new(al_builtins::native::unpinned_error())));
@@ -284,19 +290,34 @@ impl Session {
             }]
         );
         if typed_failed && err.code == "TestValidation" {
+            if caught {
+                return refuse_caught();
+            }
             self.mark_closed(st);
             return Ok(());
         }
         // The handler's own error is pinned only for a handler that made no call (mode 7); a value typed before it keeps
         // main's refusal (al-runner PR 7816 review, round 3).
         if !calls.is_empty() || st.borrow().dirty || st.borrow().draft {
+            if caught {
+                return refuse_caught();
+            }
             return unsupported(
                 "a page left open by a ModalPageHandler that raised an error, with an unsaved row or a hidden part (not pinned)",
             );
         }
         let a = self.unattended_action(st);
         match self.close_with(st, a, false, false) {
-            Ok(_) if !st.borrow().open => Ok(()),
+            Ok(_) if !st.borrow().open => {
+                if caught {
+                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageHandlerCaughtErrorClose);
+                }
+                Ok(())
+            }
+            Err(Signal::Error(q)) if caught && (q.code == "MissingUIHandler" || q.code == "TestWrapped") => {
+                self.mark_closed(st);
+                refuse_caught()
+            }
             Err(Signal::Error(q)) if q.code == "MissingUIHandler" || q.code == "TestWrapped" => {
                 self.mark_closed(st);
                 Err(Signal::Error(q))

@@ -222,13 +222,21 @@ fn a_handler_outside_the_pinned_modes_keeps_mains_refusal() {
     }
 }
 
-/// A handler that caught an error before it raised its own is not one of the pinned handlers of `CemDocModal`, which catch
-/// nothing (al-runner issue 7826, item 1): asserterror, a TryFunction, `Codeunit.Run` and `JsonObject.ReadFrom` with their result used,
-/// a helper procedure that catches, also when ClearLastError then cleared the last error; and the same before the two other
-/// pinned errors, a failed SetValue (mode 8) and OK whose OnQueryClosePage message nobody handled.
+/// A handler that caught an error before it raised its own closes the page as one that caught none (corpus PR 1524,
+/// CemHandlerCaughtErrors.al, the Document cells: asserterror, a TryFunction, ClearLastError after the catch, `Codeunit.Run`
+/// and `JsonObject.ReadFrom` with their result used, a procedure that catches; assumption `page-handler-caught-error-close`,
+/// al-runner issue 8729). Before the two other pinned errors, a failed SetValue (mode 30, 45) and OK whose OnQueryClosePage
+/// message nobody handled (47), it keeps the refusal of al-runner issue 7826, item 1.
 #[test]
-fn a_handler_that_caught_an_error_before_its_own_is_refused() {
-    for mode in [30, 33, 35, 37, 38, 41, 45, 48] {
+fn a_handler_that_caught_an_error_before_its_own_closes_as_one_that_caught_none() {
+    for mode in [33, 35, 37, 38, 41, 48] {
+        assert_eq!(
+            run("Doc", "none", mode),
+            Outcome::Fail("OBS handler error | Dialog | Q LookupCancel; C; ".into()),
+            "mode {mode}"
+        );
+    }
+    for mode in [30, 45] {
         assert_refused("Doc", "none", mode, "caught an error");
     }
     assert_refused("Doc", "query", 47, "caught an error");
