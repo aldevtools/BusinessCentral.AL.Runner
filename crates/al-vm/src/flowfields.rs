@@ -1252,7 +1252,7 @@ impl Session {
                 ));
             }
         }
-        let (filters, flow_field_filters) = self.split_filters(rec);
+        let (filters, flow_field_filters) = self.split_filters(rec)?;
         let mut sums = vec![Decimal::ZERO; positions.len()];
         let cx = self.cx_for(rec, &t)?;
         let mut add = |row: &[Value]| -> Result<(), Signal> {
@@ -1294,7 +1294,17 @@ impl Session {
     /// fields) and those on FlowFields. Filters on FlowFilter fields are
     /// dropped: they hold no data and never constrain their own table (corpus
     /// record/TestCalcFormulaFlowFiltersTests.Codeunit.al:258).
-    pub(crate) fn split_filters(&self, rec: &Rec) -> (Vec<FieldFilter>, Vec<FieldFilter>) {
+    pub(crate) fn split_filters(&self, rec: &Rec) -> Result<(Vec<FieldFilter>, Vec<FieldFilter>), Signal> {
+        self.split_filters_read(rec, false)
+    }
+
+    /// [`Self::split_filters`] for a read that is a `Count()` AL code called on the Record variable (`count_by_al`): the one
+    /// read that compares a filter value a Decimal column cuts (`decimal_column::read_filters`).
+    pub(crate) fn split_filters_read(
+        &self,
+        rec: &Rec,
+        count_by_al: bool,
+    ) -> Result<(Vec<FieldFilter>, Vec<FieldFilter>), Signal> {
         let r = rec.borrow();
         let fields = &self.engine.program.objects[r.table as usize]
             .table
@@ -1318,9 +1328,10 @@ impl Session {
                 self.engine.program.objects[r.table as usize].table.as_ref(),
             ) {
                 crate::sqltime::round_filters(t, schema, &mut stored);
+                crate::decimal_column::read_filters(t, schema, &mut stored, &r.decimal_cut_filters, count_by_al)?;
             }
         }
-        (stored, flow_fields)
+        Ok((stored, flow_fields))
     }
 
     /// Whether a row passes the filters set on FlowFields: each is checked

@@ -1693,7 +1693,7 @@ impl Session {
         self.coverage_read(t, temporary)?;
         let key = rec.borrow().key;
         // Filters on FlowFilter fields drop out; those on FlowFields are checked per row.
-        let (filters, flow_field_filters) = self.split_filters(rec);
+        let (filters, flow_field_filters) = self.split_filters(rec)?;
         let marked_only = rec.borrow().marked_only;
         let cx = self.cx_for(rec, t)?;
         let mut after = after;
@@ -1728,7 +1728,7 @@ impl Session {
     /// Whether `row` passes the record's filters (every group), its FlowField filters and
     /// MarkedOnly. A filter answer that rests on the letters `Æ` or `É` is measured only for the rows of the database.
     fn row_passes(&mut self, rec: &Rec, t: &TableDef, row: &[Value]) -> Result<bool, Signal> {
-        let (filters, flow_field_filters) = self.split_filters(rec);
+        let (filters, flow_field_filters) = self.split_filters(rec)?;
         let normal_record = self.store_of(rec).0.holds_normal_records();
         if !al_builtins::filter::all_match_on(&filters, row, normal_record)? {
             return Ok(false);
@@ -1893,13 +1893,14 @@ impl Session {
         }
     }
 
-    /// The Date, Time and DateTime values of a database table's row as its SQL columns hold them (`sqltime`): `Some` error
-    /// for a value the column cannot hold. A temporary table keeps the values as they are.
+    /// The Date, Time and DateTime values of a database table's row as its SQL columns hold them (`sqltime`), and its Decimal
+    /// values (`decimal_column`): `Some` error for a value the column cannot hold. A temporary table keeps the values as they are.
     fn sql_columns(
         &self,
         rec: &Rec,
         t: &TableDef,
         row: &mut [Value],
+        write: crate::decimal_column::Write,
     ) -> Result<Option<crate::sqltime::BadValue>, Signal> {
         if rec.borrow().temporary {
             return Ok(None);
@@ -1908,7 +1909,15 @@ impl Session {
         let engine = self.engine.clone();
         let schema = engine.program.objects[t.object as usize].table.as_ref().expect("table");
         match crate::sqltime::store(t, schema, &|i| self.field_caption(t, i), &caption, row)? {
-            crate::sqltime::Stored::Fits => Ok(None),
+            crate::sqltime::Stored::Fits => {
+                let op = match write {
+                    crate::decimal_column::Write::Insert { .. } => RecordOp::Insert,
+                    crate::decimal_column::Write::Modify { .. } => RecordOp::Modify,
+                    crate::decimal_column::Write::Rename => RecordOp::Rename,
+                };
+                crate::decimal_column::store(t, schema, row, write, self.is_al_record_call(op, rec))?;
+                Ok(None)
+            }
             crate::sqltime::Stored::Bad(bad) => Ok(Some(bad)),
         }
     }
