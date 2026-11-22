@@ -182,6 +182,7 @@ mod user_password;
 mod usertable;
 mod var_option;
 mod variant_copy;
+mod version_entry;
 mod view_empty;
 mod view_unknown;
 mod views;
@@ -1732,6 +1733,7 @@ impl Session {
                     last_modify: None,
                     failed_insert: None,
                     row_origin: None,
+                    version_entry: Default::default(),
                     own_read: Default::default(),
                     rolled_read: Default::default(),
                     probed_source: Default::default(),

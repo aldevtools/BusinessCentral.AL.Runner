@@ -1,6 +1,7 @@
 //! Sub-states of a [`Session`] (ADR-037 item 3): fields that belong together, so `Session` stays readable.
 
 use super::*;
+use al_builtins::value::TableWritten;
 
 /// Transactions: the depth of transaction-beginning constructs, and where the open transaction stands.
 pub(crate) struct TxState {
@@ -32,6 +33,8 @@ pub(crate) struct TxState {
     /// The database store's change counter when the last Commit or rollback ran: with `writes` it tells whether every write
     /// since was a Record Insert, Modify or Delete (`Session::stale_verdict`, al-runner issue 6028).
     pub(crate) commit_counter: u64,
+    /// The Record writes noted in the whole session, never reset (`version_entry.rs`).
+    pub(crate) write_counts: WriteCounts,
     /// A rollback ran since the last Commit.
     pub(crate) rolled_back: bool,
     /// Why a rollback since the last Commit is not one the stale-buffer rule knows (`Session::note_rollback_for_stale_rule`);
@@ -106,6 +109,9 @@ pub(crate) struct OpenTx {
     pub(crate) locked_tables: Vec<u32>,
     /// The Record writes to the database store since the last Commit or rollback, in order (`Session::stale_verdict`).
     pub(crate) writes: Vec<TxWrite>,
+    /// Per table and company, what those writes and LockTable did to it, kept as each is noted, so a load reads it
+    /// without a scan of `writes` (`Session::load_version_entry`).
+    pub(crate) table_writes: TableWrites,
     /// The database reads (table object, company, the key a Get named; `None` for any other read) since the last rollback, while
     /// the transaction then open began at it (`Session::note_read_after_rollback`).
     pub(crate) reads_after_rollback: Vec<(u32, Option<String>, Option<Vec<Value>>)>,
@@ -253,6 +259,53 @@ pub(crate) struct RestampedRows {
     pub(crate) to: i64,
 }
 
+/// [`OpenTx::table_writes`]: one entry per table and company the open transaction wrote or locked.
+#[derive(Debug, Default)]
+pub(crate) struct TableWrites(pub(crate) Vec<(u32, Option<String>, TableWritten)>);
+
+impl TableWrites {
+    /// Notes a write or lock of `table` in `company` of kind `w`; the verdict only grows (`TableWritten` order).
+    pub(crate) fn note(&mut self, table: u32, company: &Option<String>, w: TableWritten) {
+        match self.0.iter_mut().find(|(t, c, _)| *t == table && c == company) {
+            Some((_, _, v)) => *v = (*v).max(w),
+            None => self.0.push((table, company.clone(), w)),
+        }
+    }
+
+    /// What the open transaction wrote or locked of `table` in `company`.
+    pub(crate) fn of(&self, table: u32, company: &Option<String>) -> TableWritten {
+        let e = self.0.iter().find(|(t, c, _)| *t == table && c == company);
+        e.map_or(TableWritten::No, |(_, _, v)| *v)
+    }
+}
+
+/// [`TxState::write_counts`]: how many writes the session noted, how many of them of a kind no cell of the
+/// failed-Insert check measures after the read (`version_entry::unmeasured_after`), and how many per table and company.
+#[derive(Debug, Default)]
+pub(crate) struct WriteCounts {
+    pub(crate) all: u64,
+    pub(crate) unmeasured: u64,
+    pub(crate) tables: Vec<(u32, Option<String>, u64)>,
+}
+
+impl WriteCounts {
+    /// Counts one write of `table` in `company`; `unmeasured` when its kind is not measured.
+    pub(crate) fn note(&mut self, table: u32, company: &Option<String>, unmeasured: bool) {
+        self.all += 1;
+        self.unmeasured += u64::from(unmeasured);
+        match self.tables.iter_mut().find(|(t, c, _)| *t == table && c == company) {
+            Some((_, _, n)) => *n += 1,
+            None => self.tables.push((table, company.clone(), 1)),
+        }
+    }
+
+    /// All writes, the unmeasured ones, and those of `table` in `company`, so far.
+    pub(crate) fn now(&self, table: u32, company: &Option<String>) -> [u64; 3] {
+        let of = self.tables.iter().find(|(t, c, _)| *t == table && c == company);
+        [self.all, self.unmeasured, of.map_or(0, |(_, _, n)| *n)]
+    }
+}
+
 /// One Record write to the database store: the store's change counter before and after it.
 #[derive(Clone, Debug)]
 pub(crate) struct TxWrite {
@@ -283,6 +336,7 @@ impl TxState {
             lock_timeout_duration: 10,
             committed_row_version: 0,
             commit_counter: 0,
+            write_counts: WriteCounts::default(),
             rolled_back: false,
             rollback_unpinned: None,
             rollback_kind: None,
@@ -702,6 +756,7 @@ impl OpenTx {
             tables_inserted,
             locked_tables,
             writes,
+            table_writes,
             reads_after_rollback,
             deferred_insert,
             insert_buffer,
@@ -726,6 +781,7 @@ impl OpenTx {
             && tables_inserted.is_empty()
             && locked_tables.is_empty()
             && writes.is_empty()
+            && table_writes.0.is_empty()
             && reads_after_rollback.is_empty()
             && deferred_insert.is_none()
             && insert_buffer.is_empty()
@@ -775,6 +831,25 @@ mod open_tx_tests {
         assert!(!tx.open.is_clear());
         tx.open = Default::default();
         assert!(tx.open.is_clear());
+    }
+
+    /// A load reads the verdict of its table without a scan of the write log (al-runner issue 8721: 20000 Inserts and
+    /// the reads after them were quadratic): however many writes are noted, the store holds one entry per table and
+    /// company.
+    #[test]
+    fn the_table_verdicts_stay_one_entry_per_table_and_company() {
+        use al_builtins::value::TableWritten;
+        let mut w = super::TableWrites::default();
+        for i in 0..20_000u32 {
+            w.note(5 + i % 2, &None, TableWritten::Written);
+        }
+        w.note(5, &Some("Other".into()), TableWritten::Written);
+        w.note(6, &None, TableWritten::Unmeasured);
+        w.note(6, &None, TableWritten::Written);
+        assert_eq!(w.0.len(), 3);
+        assert_eq!(w.of(5, &None), TableWritten::Written);
+        assert_eq!(w.of(6, &None), TableWritten::Unmeasured);
+        assert_eq!(w.of(7, &None), TableWritten::No);
     }
 
     #[test]

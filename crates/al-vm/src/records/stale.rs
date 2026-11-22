@@ -45,6 +45,10 @@ impl Session {
         before: u64,
     ) {
         self.note_row_lock_write(t.object, &company, kind, pk);
+        let verdict = crate::version_entry::write_verdict(kind, self.through_recordref);
+        self.tx.open.table_writes.note(t.object, &company, verdict);
+        let unmeasured = crate::version_entry::unmeasured_after(kind, self.through_recordref);
+        self.tx.write_counts.note(t.object, &company, unmeasured);
         self.tx.open.writes.push(crate::state::TxWrite {
             table: t.object,
             company,

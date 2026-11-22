@@ -41,7 +41,6 @@ mod validate_event_xrec;
 pub(crate) use nested_validate::{BeforeImage, ProcXrec, ValidateRun, ValidateSite, XREC_OF_RUNNING_CALL};
 pub(crate) use running_call_xrec::{XREC_CHANGED_UNDER_NESTED_VALIDATE, XrecView};
 pub(crate) use validate_event_xrec::ValidateEvent;
-pub(crate) use write_notes::inserted_unwritten;
 mod by_value_view;
 pub(crate) use by_value_view::{ByValueCall, EventArg, by_value_mark, primary_view};
 mod op_inner;
@@ -1860,8 +1859,8 @@ impl Session {
         // PnC02Filters.al:FindEqual_OutsideFilter and record/crud/RcAMisc.al:MarkedOnly_With_Find_Get_And_Order).
         let passes = self.row_passes(rec, &t, &row)?;
         let version = t.fields.iter().position(|f| f.id == 2_000_000_005).map(|i| &row[i]);
-        let written = self.load_table_written(&t, rec);
-        let origin = self.load_origin(version, [via_get, via_sysid, via_find], written);
+        let origin = self.load_origin(version, [via_get, via_sysid, via_find]);
+        let entry = self.load_version_entry(&t, rec, version, [via_get, via_sysid, via_find], &pk);
         let own_read = self.own_read_after_load(&t, rec, &row, via_get && !via_sysid && !via_find && passes);
         let temporary = rec.borrow().temporary;
         if via_get && !temporary && self.tx.open.locked_tables.contains(&t.object) {
@@ -1879,6 +1878,7 @@ impl Session {
             r.position = passes.then_some(pk);
             r.fields = row.into();
             r.row_origin = origin;
+            r.version_entry = entry;
             r.own_read = own_read;
         }
         self.note_replayed_load(rec);

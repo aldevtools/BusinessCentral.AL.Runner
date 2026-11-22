@@ -256,6 +256,13 @@ impl Session {
         let v = self.record_by_value_into(rc, param);
         if let Value::Record(copy) = &v {
             copy.borrow_mut().is_dirty_base = rc.borrow().is_dirty_base.copy();
+            // A procedure called by name takes the version's entry (corpus PR 1523, record/crud/
+            // TestRecordFailedInsertMovedKey.al:1100 S4); a subscriber's or an interface call's copy is not measured.
+            let via = match call.dispatch {
+                Dispatch::Direct => al_builtins::value::VersionVia::ByValue,
+                _ => al_builtins::value::VersionVia::Cloned,
+            };
+            copy.borrow_mut().version_entry = rc.borrow().version_entry.carried(via);
             self.by_value_view(rc, copy, param, call, index);
         }
         v

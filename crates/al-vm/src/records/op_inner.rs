@@ -919,8 +919,7 @@ impl Session {
                             rec.borrow_mut().fields[i] = old[i].clone();
                         }
                         if !rec.borrow().temporary {
-                            let image = rec.borrow().fields.to_vec();
-                            rec.borrow_mut().last_modify = Some(image);
+                            self.note_own_modify(&t, rec);
                             // The variable's own Modify (false or true, the first or a later one) after its own Insert or Get, in that
                             // transaction, makes the buffer's new version its own write (record/crud/SbStaleOwnModify.al:
                             // 132-264, :410-448). An own Modify in a later transaction leaves the origin behind, as before.
@@ -1910,7 +1909,7 @@ impl Session {
             }
             RecordOp::Rename => {
                 let from_al = std::mem::take(&mut self.tx.rename_from_al);
-                let rename_note = (self.tx.open.writes.len(), self.store.change_counter());
+                let rename_note = self.rename_note(rec, &t);
                 let old_key = Self::sql_key(rec, &t, &rec.borrow().fields);
                 self.note_bulk_write(rec, &t, crate::state::TxWriteKind::Other, &old_key);
                 if !rec.borrow().temporary {
@@ -2101,9 +2100,10 @@ impl Session {
                                 && now != was
                             {
                                 let keep = o.own_write && !o.read_in_write_tx && o.commits == self.commits;
-                                r.row_origin = keep.then(|| crate::stale_buffer_origin::renamed_origin(o, now));
+                                r.row_origin = keep.then_some(al_builtins::value::RowOrigin { version: now, ..o });
                             }
                         }
+                        self.note_own_rename(&t, rec, rename_note);
                         // The record itself shows no Blob value after a Rename of a temporary record; the row keeps one only when a write came
                         // after the last Insert or Modify (record/PnABlobAssignRename.al:RenameTemporary_* `A..E-rec-content`).
                         // So does a database record for every Blob field, while the renamed row keeps the bytes

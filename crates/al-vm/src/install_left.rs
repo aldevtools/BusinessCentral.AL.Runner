@@ -461,6 +461,8 @@ impl Session {
             lock_timeout_duration,
             committed_row_version: _,
             commit_counter,
+            // Read only against a stamp taken later (`version_entry.rs`): any value.
+            write_counts: _,
             rolled_back,
             rollback_unpinned,
             rollback_kind,

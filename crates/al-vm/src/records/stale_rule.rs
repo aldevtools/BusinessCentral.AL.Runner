@@ -266,7 +266,7 @@ impl Session {
 
     /// Whether every write to the database store since the last Commit or rollback is in `tx.open.writes`, a DeleteAll the store did in
     /// one step counting as its own note (`TxWrite::bulk`).
-    fn stale_writes_noted(&self) -> bool {
+    pub(crate) fn stale_writes_noted(&self) -> bool {
         let mut at = self.tx.commit_counter;
         for w in &self.tx.open.writes {
             if w.before != at {

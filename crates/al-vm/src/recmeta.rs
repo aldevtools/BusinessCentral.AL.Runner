@@ -773,6 +773,7 @@ impl Session {
                     self.tx.open.locks.lock_tx = true;
                     let table = rec.borrow().table;
                     self.tx.open.locked_tables.push(table);
+                    self.note_table_locked(rec, table);
                     self.note_row_lock_table(table);
                 }
                 Ok(Value::Null)
@@ -1087,6 +1088,8 @@ impl Session {
         // The row version the buffer got comes over with the fields, and where it came from (record/crud/
         // Y76StaleBuffers.al Y76_Part1_Copy_TransferFromRecord, `copy/*`).
         (d.fields, d.row_origin) = (s.fields, s.row_origin);
+        // And the version's entry (corpus PR 1523, record/crud/TestRecordFailedInsertMovedKey.al:1078 S3).
+        d.version_entry = s.version_entry.carried(al_builtins::value::VersionVia::Copied);
         // The Blobs move as `BlobMove::RecordCopy` says.
         let table = d.table as usize;
         let how = BlobMove::RecordCopy {
@@ -1626,6 +1629,12 @@ impl Session {
         for (dp, v) in updates {
             r.fields[dp] = v;
         }
+        // The row version taken with the key is a copy of a field: the buffer neither read nor wrote that row, so the
+        // Modify after a failed Insert keeps its raise (corpus PR 1523,
+        // record/crud/TestRecordFailedInsertMovedKey.al:844 R8).
+        if init_pk && src_table == t.object as usize {
+            r.version_entry = Default::default();
+        }
         // The row version came over from the source (above), which a Commit may have left behind. Where it came from decides the
         // stale write (record/crud/Y76StaleBuffers.al Y76_Part1_Copy_TransferFromRecord, _GetThenTransferFields,
         // _TransferFromTemp): from a temporary copy never written; from a record read by Get or Find, written only after a LockTable
@@ -1642,10 +1651,8 @@ impl Session {
                 (s.temporary, s.row_origin)
             };
             let from_insert = src_origin.is_some_and(|o| o.own_write && !o.read_in_write_tx);
-            let table_written = self.transferred_table_written(src_origin, t.object, &r.company);
             let origin = |own_write, lock_only| al_builtins::value::RowOrigin {
                 lock_only,
-                table_written,
                 ..al_builtins::value::RowOrigin::new(own_write, v, self.commits)
             };
             if src_temporary {
@@ -2305,6 +2312,7 @@ impl Session {
                     last_modify: None,
                     failed_insert: None,
                     row_origin: None,
+                    version_entry: Default::default(),
                     own_read: Default::default(),
                     rolled_read: al_builtins::value::RolledRead(rolled_read),
                     probed_source: Default::default(),

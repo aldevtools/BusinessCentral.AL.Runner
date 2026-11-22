@@ -1,8 +1,10 @@
 //! `if not R.Insert() then R.Modify()` on a buffer read before, whose row another variable changed since, raises DB:RecordChanged
 //! at the Modify, also with no Commit in between; a buffer never read, and one whose row nobody changed, write
-//! (record/crud/Y71FailedInsertModify.al: FailedInsert_ThenModify_*, FailedInsertTwice_ThenModify; its seed is committed,
-//! `Seed(true)`). With the seed not committed the table was written before the read: that shape of the same key is not
-//! measured and refuses (al-runner issue 8721; corpus PR 1523 measures only a key moved onto a row inserted after the read).
+//! (record/crud/Y71FailedInsertModify.al: FailedInsert_ThenModify_*, FailedInsertTwice_ThenModify; its seed is
+//! committed, `Seed(true)` at :372, :389, :404, :419). With the seed not committed the table was written before the
+//! read, and the Modify is written (al-runner issue 8721; corpus PR 1523,
+//! record/crud/TestRecordFailedInsertMovedKey.al:784 R6, the same key changed by another variable after the read),
+//! through the assumption `failed-insert-after-table-write`.
 
 use al_testkit::text;
 
@@ -48,11 +50,10 @@ codeunit 69721 C
         R2.Qty := 2;
         R2.Modify();
         R.Qty := 5;
-        if not R.Insert() then begin
-            asserterror R.Modify();
-            exit(GetLastErrorCode());
-        end;
-        exit('inserted');
+        if not R.Insert() then
+            R.Modify();
+        R2.Get('A');
+        exit(Format(R2.Qty));
     end;
 
     procedure NothingChanged(): Text
@@ -93,16 +94,8 @@ fn a_buffer_read_before_and_changed_elsewhere_raises() {
 }
 
 #[test]
-fn the_same_key_after_an_open_seed_refuses() {
-    match al_testkit::run_in(SRC, "C", "ChangedElsewhereOpenSeed") {
-        Err(al_builtins::native::Signal::Unsupported(why)) => {
-            assert!(
-                why.to_string().contains("came after the open transaction wrote"),
-                "{why}"
-            )
-        }
-        r => panic!("expected a refusal, got {r:?}"),
-    }
+fn the_same_key_changed_after_the_read_after_an_open_seed_is_written() {
+    assert_eq!(text(al_testkit::run_in(SRC, "C", "ChangedElsewhereOpenSeed")), "5");
 }
 
 #[test]

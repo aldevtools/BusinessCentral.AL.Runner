@@ -597,6 +597,8 @@ pub struct RecordState {
     /// commits of the session then). A stale buffer from the Insert of the transaction the last Commit closed may still be
     /// written (record/TestRecordStaleBufferWrite.al:395-690, `Session::stale_verdict`).
     pub row_origin: Option<RowOrigin>,
+    /// Where the buffer's row version came from, for the Modify after a failed guarded Insert (see [`VersionEntry`]).
+    pub version_entry: VersionEntry,
     /// The variable's own Insert and its own Get of that row after it (see [`OwnRead`]).
     pub own_read: OwnRead,
     /// The read of a row holding a Time stored past the day that the variable's buffer holds (see [`RolledRead`]).
@@ -694,8 +696,108 @@ pub struct OwnReadAt {
     pub store_changes: u64,
 }
 
-/// See [`RecordState::row_origin`]. Two origins are equal when every field but `by_get` and `table_written` is: the
-/// stale-buffer rules compare origins without them.
+/// Where a buffer's row version came from, read only by the Modify after a failed guarded Insert (al-vm
+/// `stale_own_modify.rs` `check_failed_insert_stale`, al-runner issue 8721). A clone of the record state marks it
+/// [`VersionVia::Cloned`]; `:=`, Record.Copy, a by-value parameter and RecordRef.GetTable carry it as themselves
+/// ([`VersionEntry::carried`]). Empty when no read or write of the buffer gave it its version (a TransferFields with
+/// the key copies one: the buffer neither read nor wrote that row).
+#[derive(Debug, Default)]
+pub struct VersionEntry(pub Option<VersionSource>);
+
+impl Clone for VersionEntry {
+    fn clone(&self) -> Self {
+        self.carried(VersionVia::Cloned)
+    }
+}
+
+impl VersionEntry {
+    /// The entry a copy of the buffer takes, made by `via`: no failed Insert of its own yet.
+    pub fn carried(&self, via: VersionVia) -> VersionEntry {
+        VersionEntry(self.0.clone().map(|s| VersionSource {
+            via,
+            failed_inserts: 0,
+            ..s
+        }))
+    }
+}
+
+/// One [`VersionEntry`]: the version, how it reached the buffer, and the open transaction at that moment.
+#[derive(Debug, Clone)]
+pub struct VersionSource {
+    /// The row version.
+    pub version: i64,
+    /// The primary key of the row it is the version of.
+    pub key: Vec<Value>,
+    /// The read or the write that gave it.
+    pub how: VersionHow,
+    /// Which copy holds it.
+    pub via: VersionVia,
+    /// What the open transaction had written to the table then (the buffer's own write included).
+    pub table_written: TableWritten,
+    /// The buffer's company then (`None`: the session's own).
+    pub company: Option<String>,
+    /// The session's test methods started, Commits and rollbacks then.
+    pub tests: u32,
+    pub commits: u64,
+    pub rollbacks: u64,
+    /// The session's noted writes then (al-vm `TxState::write_counts`): all of them, those no cell measures after the
+    /// read, and those of this table and company.
+    pub writes: [u64; 3],
+    /// The guarded Inserts at this version that answered false.
+    pub failed_inserts: u32,
+}
+
+/// The read or write that gave a buffer its row version ([`VersionSource::how`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VersionHow {
+    /// `Get`.
+    Get,
+    /// FindFirst, FindLast, FindSet, Find or Next.
+    Find,
+    /// Another read: GetBySystemId, a read through a RecordRef, any other load.
+    OtherRead,
+    /// The variable's own Insert, Modify or Rename (a plain Rename that rewrote no related row).
+    OwnInsert,
+    OwnModify,
+    OwnRename,
+    /// Another write of the variable: through a RecordRef, a Rename that rewrote related rows, or a Delete.
+    OtherWrite,
+}
+
+/// Which copy of the buffer holds a [`VersionSource`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VersionVia {
+    /// The variable whose read or write gave the version.
+    Own,
+    /// A variable that took it by `:=`.
+    Assigned,
+    /// A variable that took it by Record.Copy.
+    Copied,
+    /// A by-value parameter of a procedure called by name.
+    ByValue,
+    /// A RecordRef that took it by GetTable.
+    GetTable,
+    /// Any other copy of the record state.
+    Cloned,
+}
+
+/// What the open transaction had written or locked of a table, in one company, since the last Commit or rollback (al-vm
+/// `OpenTx::table_writes`). `No` is also the answer for a temporary record, whose writes are not in the transaction,
+/// and for a write the runtime did not note: both keep main's raise.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub enum TableWritten {
+    /// No noted write and no LockTable of the table.
+    #[default]
+    No,
+    /// Only writes of kinds a cell measures: a Record variable's Insert, Modify, Delete, DeleteAll or ModifyAll, and
+    /// LockTable (corpus PR 1523, record/crud/TestRecordFailedInsertMovedKey.al).
+    Written,
+    /// Also another write: a Rename, a Truncate, a write through a RecordRef.
+    Unmeasured,
+}
+
+/// See [`RecordState::row_origin`]. Two origins are equal when every field but `by_get` is: the stale-buffer rules compare
+/// origins without it.
 #[derive(Debug, Clone, Copy)]
 pub struct RowOrigin {
     /// The variable's own write: its Insert, or its own Modify or Rename after its Insert or Get in the same transaction
@@ -720,24 +822,6 @@ pub struct RowOrigin {
     /// A `Get` gave the buffer its version (not GetBySystemId, not a Find), committed or written in the open transaction. Read
     /// only by the xRec rule of record/validate/XRecTableProcThroughCodeunit.al (al-vm `records/nested_validate.rs` `measured_buffer`).
     pub by_get: bool,
-    /// What the open transaction had written to the table when the version reached the buffer. Read only by the check
-    /// after a failed Insert (al-vm `stale_own_modify.rs` `check_failed_insert_stale`; al-runner issue 8721).
-    pub table_written: TableWritten,
-}
-
-/// What the open transaction had written to a buffer's table when its row version reached the buffer
-/// ([`RowOrigin::table_written`]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum TableWritten {
-    /// Nothing: no write and no lock of the table since the last Commit.
-    #[default]
-    No,
-    /// A Record variable's Insert or Modify of a row of the table in the buffer's company, or the version is the
-    /// buffer's own Insert (or its own Modify after that Insert).
-    ByRecord,
-    /// Something else: a Delete, Rename or bulk write of the table, a write through a RecordRef, a LockTable, a write
-    /// of the table in another company, or a version from a TransferFields or Rename after such a write.
-    Otherwise,
 }
 
 impl PartialEq for RowOrigin {
@@ -751,7 +835,6 @@ impl PartialEq for RowOrigin {
             own_modified,
             from_find,
             by_get: _,
-            table_written: _,
         } = *self;
         (
             own_write,
@@ -787,7 +870,6 @@ impl RowOrigin {
             own_modified: false,
             from_find: false,
             by_get: false,
-            table_written: TableWritten::No,
         }
     }
 }

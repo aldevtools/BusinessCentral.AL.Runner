@@ -234,6 +234,7 @@ fn same_view(a: &RecordState, b: &RecordState) -> bool {
         && a.last_modify.is_none()
         && a.failed_insert.is_none()
         && a.row_origin.is_none()
+        && a.version_entry.0.is_none()
 }
 
 /// The session state that [`Session::state_lines`] takes, as lines that compare across sessions.
