@@ -31,7 +31,6 @@ fn run(src: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<&'static str>)> {
 const SET_AFTER_START: &str = "transaction-type-set-after-start";
 const READ_ONLY: &str = "transaction-type-read-only-writes";
 const ROLLBACK: &str = "first-test-rollback-ends-runner-transaction";
-const CARRIES: &str = "transaction-type-carries-to-next-test";
 
 #[test]
 fn the_probe_of_sets_after_a_database_call_passes_with_its_marks() {
@@ -67,31 +66,18 @@ fn the_probe_of_the_first_test_method_passes_with_its_marks() {
     );
     let mut wrong = Vec::new();
     let mut n = 0;
-    for pre in ["None", "Read", "AssertError", "AssertErrorWrite", "Commit"] {
+    for pre in ["AssertError", "AssertErrorWrite", "Commit"] {
         for ty in ["Update", "Snapshot", "Browse", "Report"] {
             for (name, outcome, marks) in run(&src, &format!("TxF {pre} {ty}")) {
                 n += 1;
-                // After nothing or a read the set is refused: whether the test runner's transaction or the read started the
-                // transaction depends on the codeunits before it and on the data cache; the next test reads a type that is
-                // not known.
-                if matches!(pre, "None" | "Read") {
-                    if !matches!(&outcome, Outcome::NotRun(_)) {
-                        wrong.push(format!("{pre} {ty} {name}: {outcome:?}, expected a refusal"));
-                    }
-                    continue;
-                }
-                let want: Vec<&str> = match (pre, name.starts_with("A_")) {
-                    ("AssertError" | "AssertErrorWrite", true) => vec![ROLLBACK],
-                    ("AssertError" | "AssertErrorWrite", false) => vec![ROLLBACK, CARRIES],
-                    ("Commit", true) => vec![],
-                    _ => vec![CARRIES],
-                };
+                // A set after a Commit takes effect as at any test's start; after a rollback it rests on the open probe.
+                let want: Vec<&str> = if pre == "Commit" { vec![] } else { vec![ROLLBACK] };
                 if outcome != Outcome::Pass || marks != want {
                     wrong.push(format!("{pre} {ty} {name}: {outcome:?} {marks:?}, expected {want:?}"));
                 }
             }
         }
     }
-    assert_eq!(n, 40);
+    assert_eq!(n, 12);
     assert!(wrong.is_empty(), "{wrong:#?}");
 }

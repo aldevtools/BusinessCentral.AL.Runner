@@ -679,7 +679,7 @@ fn an_update_report_without_its_page_runs_at_the_measured_moments_and_is_refused
         ));
     }
     // A set to another type at the start of a codeunit's first test method: whether the test runner's transaction has
-    // started there depends on the codeunits that ran before it (session-system/TxTypeFirstTestMethod.al of the open probe).
+    // started there depends on the runner and on what ran before it (the description of corpus pull request 1520).
     for t in ["SetSnapshotAtTestStart", "AutoRollbackSetUpdateAtStart"] {
         match run_in_order(&[t]) {
             Outcome::NotRun(r) if r.contains("at the start of a test codeunit's first test method") => {}

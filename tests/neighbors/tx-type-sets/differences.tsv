@@ -4,7 +4,7 @@ NB TS Insert Snapshot::InsertAtSnapshot_Raises	ASSUMED transaction-type-read-onl
 NB TS Modify Browse::ModifyAtBrowse_Raises	ASSUMED transaction-type-read-only-writes (corpus PR 1520, TxS22)
 NB TS ModifyAll Report::ModifyAllAtReport_Raises	ASSUMED transaction-type-read-only-writes (corpus PR 1520, TxS30)
 NB TS NoLocks After Upd Write::UpdateWriteSetNoLocks_NoEffect	ASSUMED transaction-type-set-after-start (corpus PR 1520, TxS06)
-NB TS First Test Rollback::FirstTestRollbackSetBrowse_TakesEffect	ASSUMED first-test-rollback-ends-runner-transaction (corpus PR 1520, TxTypeFirstTestMethod.al A_AssertError_SetBrowse)
+NB TS First Test Rollback::FirstTestRollbackSetBrowse_TakesEffect	ASSUMED first-test-rollback-ends-runner-transaction (corpus PR 1520, TxTypeFirstTestMethod.al AssertError_SetBrowse_TakesEffect)
 # Pinned by the corpus; main ignored the Snapshot set and refused the Browse one.
 NB TS Snapshot After Write::NoLocksWriteSetSnapshot_Raises	PINNED tests/al-language/metadata/platform-tables/PlTDatabase.al:159
 NB TS Browse After Write::NoLocksWriteSetBrowse_NoEffect	PINNED tests/al-language/metadata/platform-tables/PlTDatabase.al:155

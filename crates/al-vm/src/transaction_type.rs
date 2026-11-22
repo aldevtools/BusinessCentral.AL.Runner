@@ -54,9 +54,8 @@ impl Session {
                 "Database.CurrentTransactionType set after a LockTable or a locking ReadIsolation (not pinned)",
             );
         }
-        // At the start of a codeunit's first test method the test runner's transaction has started
-        // (session-system/TxTypeFirstTestMethod.al of the open probe): a set is a set after the start until a Commit or a
-        // rollback ends it.
+        // At the start of a codeunit's first test method the test runner's transaction may have started (the description of
+        // corpus pull request 1520): until a Commit or a rollback ends it, a set is one after the start.
         let fresh = self.tx.phase == TxPhase::Fresh && !self.tx.open.runner_tx;
         // The set is a step of the moment an Update report is measured at (`OpenTx::moment`).
         self.moment_type_set(
@@ -65,7 +64,7 @@ impl Session {
         );
         if fresh {
             // After a rollback in a codeunit's first test method the set takes effect as after a Commit
-            // (TxTypeFirstTestMethod.al, the A tests after an asserterror).
+            // (session-system/TxTypeFirstTestMethod.al of corpus pull request 1520, the asserterror cells).
             let mut marks = al_builtins::assumptions::HitBits::default();
             if self.tx.runner_tx_rolled_back {
                 al_builtins::assumptions::assume(Assumption::FirstTestRollbackEndsRunnerTransaction);
@@ -85,9 +84,10 @@ impl Session {
     /// - after a write: at UpdateNoLocks a set to Update or Snapshot raises DB:CannotChangeTransactionType and a set to
     ///   Browse or Report has no effect; at Update no set has an effect;
     /// - after a read call, whether the read started the transaction depends on the server's data cache, and at a first test
-    ///   method's start whether the test runner's transaction has started depends on the codeunits that ran before it in
-    ///   the run (session-system/TxTypeFirstTestMethod.al: a set to Update raises after another codeunit and takes effect in
-    ///   the only codeunit of a run), so every other set is refused, but the pinned Report after a read at Update.
+    ///   method's start whether the test runner's transaction has started depends on the runner and on what ran before it
+    ///   (corpus pull request 1520: a set to Update raised after another codeunit on a local container, and took effect
+    ///   when the codeunit ran alone and on the BC 27.5 leg), so every other set is refused, but the pinned Report after a
+    ///   read at Update.
     fn set_after_start(&mut self, new: i32) -> Result<(), Signal> {
         let from = self.transaction_type_seen()?;
         if new == from {
@@ -99,7 +99,7 @@ impl Session {
         if self.tx.phase == TxPhase::Fresh {
             return unsupported(format!(
                 "Database.CurrentTransactionType set to {} at the start of a test codeunit's first test method (whether the \
-                 test runner's transaction has started there depends on the codeunits that ran before it: not pinned)",
+                 test runner's transaction has started there depends on the runner and on what ran before it: not pinned)",
                 name(new)
             ));
         }
