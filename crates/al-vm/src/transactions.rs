@@ -411,8 +411,8 @@ impl Session {
                     "DB:CannotChangeTransactionType",
                 ));
             }
-            // From UpdateNoLocks (ProbeSystemEnumMembers.al:93-111).
-            TxPhase::Read if new == report && from == TRANSACTION_TYPE_UPDATE_NO_LOCKS => {
+            // From UpdateNoLocks, and from the Update the test before left (ProbeSystemEnumMembers.al:93-111, after :77-91).
+            TxPhase::Read if new == report => {
                 (self.tx.transaction_type, self.tx.type_origin) = (update, TypeOrigin::default())
             }
             _ => {
