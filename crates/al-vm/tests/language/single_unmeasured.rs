@@ -1,6 +1,7 @@
 //! al-runner issue 8239: a SingleInstance codeunit marked as holding state whose BC value the run does not know refuses
 //! every read of one of its globals, from any code, and runs a write (`single_unmeasured.rs`). The mark moves with the
-//! instance to a later session and goes when the session drops its single instances. A session whose number sequences
+//! instance to a later session and goes when the session drops its single instances. A single instance marked as holding
+//! BC's value by an assumption entry marks the entry on every read and keeps a refusal mark it already has. A session whose number sequences
 //! are marked refuses every NumberSequence call (`storage_checkpoint.rs`).
 
 use al_builtins::native::Signal;
@@ -73,4 +74,36 @@ fn a_session_with_marked_number_sequences_refuses_every_call() {
     assert!(refused(b.run_in("Unm Driver", "Ins")));
     b.session.clear_unmeasured();
     assert!(refused(b.run_in("Unm Driver", "Seq")), "it holds for the session");
+}
+
+use al_builtins::assumptions::{Assumption, take_hits};
+
+/// A made single instance marked as holding BC's value by assumption `partner-login-memo-kept`.
+fn assumed() -> Built {
+    let mut b = Built::from_source(SRC);
+    b.run_in("Unm Driver", "Put").expect("made");
+    let object = b.routine_in("Unm State", "Put").0;
+    b.session.mark_single_assumed(object, Assumption::PartnerLoginMemoKept);
+    take_hits();
+    b
+}
+
+#[test]
+fn a_read_of_an_assumed_single_instance_marks_the_entry_and_a_write_does_not() {
+    let mut b = assumed();
+    b.run_in("Unm Driver", "Put").expect("a write runs");
+    assert!(take_hits().is_empty(), "a write reads nothing");
+    assert!(matches!(
+        b.run_in("Unm Driver", "Read"),
+        Ok(al_builtins::value::Value::Boolean(true))
+    ));
+    assert_eq!(take_hits(), [Assumption::PartnerLoginMemoKept]);
+}
+
+#[test]
+fn an_assumed_mark_does_not_replace_a_refusal() {
+    let mut b = marked();
+    let object = b.routine_in("Unm State", "Put").0;
+    b.session.mark_single_assumed(object, Assumption::PartnerLoginMemoKept);
+    assert!(refused(b.run_in("Unm Driver", "Read")));
 }

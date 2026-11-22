@@ -63,7 +63,13 @@ pub struct Built {
 impl Built {
     /// A session on `lowered`.
     pub fn new(lowered: Lowered) -> Built {
-        let engine = Engine::new(lowered.program.clone(), blocked(&lowered));
+        Built::with(lowered, |_| {})
+    }
+
+    /// A session on `lowered`, on an engine `set` sets up as a run would (its emit version, say).
+    pub fn with(lowered: Lowered, set: impl FnOnce(&mut Engine)) -> Built {
+        let mut engine = Engine::new(lowered.program.clone(), blocked(&lowered));
+        set(Arc::get_mut(&mut engine).expect("a fresh engine"));
         Built {
             session: Session::new(engine),
             lowered,
@@ -158,8 +164,28 @@ pub fn outcomes_in(src: &str, codeunit: &str) -> Vec<(String, al_testrun::Outcom
 /// [`outcomes_in`] for an app the caller describes (for example one with a GUID id, whose module is readable).
 #[cfg(feature = "runner")]
 pub fn outcomes_in_app(app: AppSource, codeunit: &str) -> Vec<(String, al_testrun::Outcome)> {
+    outcomes_in_set(app, codeunit, |_| {})
+}
+
+/// [`outcomes_in`] on an engine `set` sets up as a run would (its emit version, say) before the tests run.
+#[cfg(feature = "runner")]
+pub fn outcomes_in_with(
+    src: &str,
+    codeunit: &str,
+    set: impl FnOnce(&mut Engine),
+) -> Vec<(String, al_testrun::Outcome)> {
+    outcomes_in_set(app(src), codeunit, set)
+}
+
+#[cfg(feature = "runner")]
+fn outcomes_in_set(
+    app: AppSource,
+    codeunit: &str,
+    set: impl FnOnce(&mut Engine),
+) -> Vec<(String, al_testrun::Outcome)> {
     let l = compile_apps(vec![app]);
-    let engine = Engine::new(l.program.clone(), blocked(&l));
+    let mut engine = Engine::new(l.program.clone(), blocked(&l));
+    set(Arc::get_mut(&mut engine).expect("a fresh engine"));
     let oi = l
         .program
         .objects

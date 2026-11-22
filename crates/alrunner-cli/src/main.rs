@@ -13,6 +13,7 @@ mod demotool;
 mod dev_endpoint_ui;
 mod impact;
 mod impact_index;
+mod kept_apps;
 mod matrix;
 mod memory_budget;
 mod output;

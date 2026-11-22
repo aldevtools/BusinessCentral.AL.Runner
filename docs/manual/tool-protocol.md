@@ -251,9 +251,12 @@ Differences a client must adapt to:
    longest of them; 0 with one thread). With `entries`, each `entrySummary` has `timings` with that entry's `resetMs`
    and `wallMs` (its wall time, the reset included). The fields are for reading only: a client must not depend on
    their set or their values.
-   A server keeps, for its next request over the same compile, the dependency apps it read (read again when the app
-   files, the options or a file in a package folder change), the engines and the install baseline: a request that
-   reuses the compile costs the tests and little else. What a request starts from is the same as when nothing is
+   A server keeps the apps under test it read for its next request: an app is read again when a file under its folder,
+   the record next to it (`<path>.json`), or a resource folder or the logo outside its folder changes, comes or goes,
+   or when the request is for another build. Where a file's stamp has no change time (off unix today), the apps under
+   test are read on every request. For its next request over the same compile, a server also keeps the dependency apps
+   it read (read again when the app files, the options or a file in a package folder change), the engines and the
+   install baseline: a request that reuses the compile costs the tests and little else. What a request starts from is the same as when nothing is
    kept: the rows the install code left, none of an earlier request's writes.
    What each test codeunit starts from (in every request and every entry; al-runner issue 5862): a new session over
    the post-install database. Reset: table rows, the system id, row version and AutoIncrement counters,

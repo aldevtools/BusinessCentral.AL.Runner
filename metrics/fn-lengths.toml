@@ -8,7 +8,7 @@
 "crates/al-builtins/src/ops.rs::arith_general" = 261
 "crates/al-deps/src/artifact.rs::load_with_artifacts" = 432
 "crates/alrunner-cli/src/args.rs::parse" = 431
-"crates/alrunner-cli/src/run.rs::test_inner" = 1346
+"crates/alrunner-cli/src/run.rs::test_inner" = 1340
 "crates/al-sema/src/check/infer.rs::infer" = 473
 "crates/al-sema/src/check/mod.rs::check_inner" = 257
 "crates/al-sema/src/lower/assemble.rs::build_shared" = 574
@@ -18,7 +18,7 @@
 "crates/al-sema/src/lower/pages.rs::page" = 472
 "crates/al-sema/src/lower/shared.rs::lower_object" = 450
 "crates/al-sema/src/lower/stmt.rs::assign" = 407
-"crates/al-test-cli/src/main.rs::run_version_inner" = 736
+"crates/al-test-cli/src/main.rs::run_version_inner" = 723
 "crates/al-testrun/src/impact_static.rs::build" = 332
 "crates/al-testrun/src/reach.rs::report" = 315
 "crates/al-testrun/src/runtime/corpus.rs::compile_suites_once" = 434
@@ -36,6 +36,6 @@
 "crates/al-vm/src/recmeta.rs::record_meta_op" = 404
 "crates/al-vm/src/records/op_inner.rs::record_op_inner" = 1820
 "crates/al-vm/src/refs.rs::recordref_op_inner" = 337
-"crates/al-vm/src/reports.rs::report_builtin" = 490
+"crates/al-vm/src/reports.rs::report_builtin" = 464
 "crates/al-vm/src/reports.rs::report_save_core" = 296
 "crates/al-vm/src/sessionops.rs::session_op" = 300

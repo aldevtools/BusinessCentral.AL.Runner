@@ -87,6 +87,9 @@ pub struct RunOptions {
     /// The BC license of the run (ADR-060): the artifacts' license or `--license FILE`, parsed by the command line.
     /// `None`: no license; License Permission serves only the pinned rows.
     pub license: Option<std::sync::Arc<al_host::license::License>>,
+    /// The emit version of the run's build, which the missing-object error names (`crate::emit_version`). Default: none
+    /// known, and that error's text is not read.
+    pub emit_version: al_vm::emit_version::EmitVersion,
     /// Use the compile cache of the dependency apps (ADR-022). `None`: the demand-driven compile
     /// of every run, which is the reference path.
     pub compile_cache: Option<crate::compile_cache::CompileCache>,

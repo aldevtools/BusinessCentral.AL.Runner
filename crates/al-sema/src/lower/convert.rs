@@ -4,7 +4,11 @@ use super::*;
 impl<'a> Lowerer<'a> {
     /// What `n` resolved to; a name a `with` statement supplied is read as the member it names.
     pub(crate) fn res(&self, n: &SyntaxNode) -> Option<&Res> {
-        let r = self.checked.resolutions.get(&key(self.file, n)).map(Res::inner);
+        let raw = self.checked.resolutions.get(&key(self.file, n));
+        if let Some(a) = raw.and_then(Res::assumption) {
+            self.assume(a);
+        }
+        let r = raw.map(Res::inner);
         if let (Some(d), Some(r)) = (&self.checked.tdd_decls, r) {
             if !d.is_empty() {
                 self.tdd_note(d, r);
