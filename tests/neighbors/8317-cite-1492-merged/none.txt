@@ -1,0 +1,1 @@
+Text only: the assumption entry enum-member-of-field-type, two comments and the generated docs/probes-needed.md row now cite corpus PR 1492 as merged (ec089104, not pinned yet); no code path changes.
