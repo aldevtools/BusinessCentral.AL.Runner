@@ -694,8 +694,8 @@ pub struct OwnReadAt {
     pub store_changes: u64,
 }
 
-/// See [`RecordState::row_origin`]. Two origins are equal when every field but `by_get` is: the stale-buffer rules compare
-/// origins without it.
+/// See [`RecordState::row_origin`]. Two origins are equal when every field but `by_get` and `table_written` is: the
+/// stale-buffer rules compare origins without them.
 #[derive(Debug, Clone, Copy)]
 pub struct RowOrigin {
     /// The variable's own write: its Insert, or its own Modify or Rename after its Insert or Get in the same transaction
@@ -720,6 +720,24 @@ pub struct RowOrigin {
     /// A `Get` gave the buffer its version (not GetBySystemId, not a Find), committed or written in the open transaction. Read
     /// only by the xRec rule of record/validate/XRecTableProcThroughCodeunit.al (al-vm `records/nested_validate.rs` `measured_buffer`).
     pub by_get: bool,
+    /// What the open transaction had written to the table when the version reached the buffer. Read only by the check
+    /// after a failed Insert (al-vm `stale_own_modify.rs` `check_failed_insert_stale`; al-runner issue 8721).
+    pub table_written: TableWritten,
+}
+
+/// What the open transaction had written to a buffer's table when its row version reached the buffer
+/// ([`RowOrigin::table_written`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TableWritten {
+    /// Nothing: no write and no lock of the table since the last Commit.
+    #[default]
+    No,
+    /// A Record variable's Insert or Modify of a row of the table in the buffer's company, or the version is the
+    /// buffer's own Insert (or its own Modify after that Insert).
+    ByRecord,
+    /// Something else: a Delete, Rename or bulk write of the table, a write through a RecordRef, a LockTable, a write
+    /// of the table in another company, or a version from a TransferFields or Rename after such a write.
+    Otherwise,
 }
 
 impl PartialEq for RowOrigin {
@@ -733,6 +751,7 @@ impl PartialEq for RowOrigin {
             own_modified,
             from_find,
             by_get: _,
+            table_written: _,
         } = *self;
         (
             own_write,
@@ -768,6 +787,7 @@ impl RowOrigin {
             own_modified: false,
             from_find: false,
             by_get: false,
+            table_written: TableWritten::No,
         }
     }
 }

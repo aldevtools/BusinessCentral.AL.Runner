@@ -1,6 +1,8 @@
 //! `if not R.Insert() then R.Modify()` on a buffer read before, whose row another variable changed since, raises DB:RecordChanged
 //! at the Modify, also with no Commit in between; a buffer never read, and one whose row nobody changed, write
-//! (record/crud/Y71FailedInsertModify.al: FailedInsert_ThenModify_*, FailedInsertTwice_ThenModify).
+//! (record/crud/Y71FailedInsertModify.al: FailedInsert_ThenModify_*, FailedInsertTwice_ThenModify; its seed is committed,
+//! `Seed(true)`). With the seed not committed the table was written before the read: that shape of the same key is not
+//! measured and refuses (al-runner issue 8721; corpus PR 1523 measures only a key moved onto a row inserted after the read).
 
 use al_testkit::text;
 
@@ -15,12 +17,32 @@ codeunit 69721 C
         Row."No." := 'A';
         Row.Qty := 1;
         Row.Insert();
+        Commit();
     end;
 
     procedure ChangedElsewhere(): Text
     var R: Record "FIM Row"; R2: Record "FIM Row";
     begin
         Seed();
+        R.Get('A');
+        R2.Get('A');
+        R2.Qty := 2;
+        R2.Modify();
+        R.Qty := 5;
+        if not R.Insert() then begin
+            asserterror R.Modify();
+            exit(GetLastErrorCode());
+        end;
+        exit('inserted');
+    end;
+
+    procedure ChangedElsewhereOpenSeed(): Text
+    var R: Record "FIM Row"; R2: Record "FIM Row";
+    begin
+        R.DeleteAll();
+        R."No." := 'A';
+        R.Qty := 1;
+        R.Insert();
         R.Get('A');
         R2.Get('A');
         R2.Qty := 2;
@@ -68,6 +90,19 @@ fn a_buffer_read_before_and_changed_elsewhere_raises() {
         text(al_testkit::run_in(SRC, "C", "ChangedElsewhere")),
         "DB:RecordChanged"
     );
+}
+
+#[test]
+fn the_same_key_after_an_open_seed_refuses() {
+    match al_testkit::run_in(SRC, "C", "ChangedElsewhereOpenSeed") {
+        Err(al_builtins::native::Signal::Unsupported(why)) => {
+            assert!(
+                why.to_string().contains("came after the open transaction wrote"),
+                "{why}"
+            )
+        }
+        r => panic!("expected a refusal, got {r:?}"),
+    }
 }
 
 #[test]

@@ -92,7 +92,8 @@ impl Session {
 
     /// A buffer whose Insert failed on the existing key and whose row another writer changed since it was read cannot be saved,
     /// with no Commit in between (Y71FailedInsertModify.al:FailedInsert_ThenModify_*). A buffer never read (version 0) writes.
-    /// A buffer whose version came from its own Modify of another row writes.
+    /// A buffer whose version came from its own Modify of another row writes, and so does one whose version reached it
+    /// after the open transaction had written the table (`version_after_table_write`).
     pub(crate) fn check_failed_insert_stale(
         &self,
         t: &TableDef,
@@ -115,12 +116,50 @@ impl Session {
                 version(&img[i]) == mine
                     && !crate::records::same_key(&t.primary_key(img), &t.primary_key(&rec.borrow().fields))
             });
-            if other_row {
+            if other_row || self.version_after_table_write(t, rec, mine)? {
                 return Ok(());
             }
             return Err(self.record_changed(t, rec)?);
         }
         Ok(())
+    }
+
+    /// Whether the buffer's version `mine` reached it after the open transaction had written its table (`RowOrigin::
+    /// table_written`, judged then; a Commit since does not matter): the Modify after the failed Insert is then
+    /// written. A read before any write of the table, or after a write of another table only, raises (corpus PR 1523,
+    /// aldevtools/BusinessCentral.AL.Language.Tests#1523, record/crud/TestRecordFailedInsertMovedKey.al: written :283
+    /// P6, :393 Q1a, :414 Q1b, :432 Q2, :481 Q4, :503 Q5, :528 Q6, :561 Q7; raised :169-:261 P1-P5, :315 P7, :338 P8,
+    /// :454 Q3). Measured for a version from a Get or from the buffer's own Insert (and its own Modify after it),
+    /// copied by `:=`, with TransferFields or not, Modify(true) or Modify(), when the stored row at the buffer's key is
+    /// one the open transaction inserted and did not write since (every written cell moves the key to such a row).
+    /// Every other shape after a write of the table refuses: a row of the buffer's own key changed after the read is
+    /// not measured.
+    fn version_after_table_write(&self, t: &TableDef, rec: &Rec, mine: i64) -> Result<bool, Signal> {
+        use al_builtins::value::TableWritten;
+        let Some(o) = rec.borrow().row_origin.filter(|o| o.version == mine) else {
+            return Ok(false);
+        };
+        let get = o.by_get && !o.from_find && !o.own_modified && !o.lock_only;
+        let own_insert = o.own_write && !o.read_in_write_tx && !o.by_get && !o.from_find && !o.lock_only;
+        let inserted_row = || {
+            let r = rec.borrow();
+            let pk = crate::sqltime::rounded_key(&t.primary_key(&r.fields));
+            self.writes_all_noted()
+                && crate::records::inserted_unwritten(&self.tx.open.writes, t.object, &r.company, &pk)
+        };
+        match o.table_written {
+            TableWritten::No => Ok(false),
+            TableWritten::ByRecord if (get || own_insert) && !self.through_recordref && inserted_row() => {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::FailedInsertAfterTableWrite);
+                Ok(true)
+            }
+            _ => al_builtins::native::unsupported(format!(
+                "Modify after a failed Insert of a {} buffer whose row version came after the open transaction \
+                 wrote or locked the table: measured only for a Get or the buffer's own Insert after a Record Insert \
+                 or Modify of the table, onto a row the transaction inserted and did not write since (not pinned)",
+                t.name
+            )),
+        }
     }
 
     /// Refuses a Modify through a stale buffer before its events run (`stale_verdict` Refused). After a failed Insert the events

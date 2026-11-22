@@ -626,8 +626,8 @@ impl Session {
                             .position(|f| f.id == 2_000_000_005)
                             .map(|i| rec.borrow().fields[i].clone());
                         if let Some(Value::BigInteger(v)) = version {
-                            let commits = self.commits;
-                            rec.borrow_mut().row_origin = Some(al_builtins::value::RowOrigin::new(true, v, commits));
+                            let origin = self.own_insert_origin(&t, rec, v);
+                            rec.borrow_mut().row_origin = Some(origin);
                         }
                         // The Blob content an Insert of a temporary record stored is persisted, as one a Modify stored (see Rename).
                         if rec.borrow().temp_id.is_some() {
@@ -933,13 +933,8 @@ impl Session {
                                 };
                                 if now != was {
                                     let keep = o.commits == self.commits;
-                                    rec.borrow_mut().row_origin = keep.then_some(al_builtins::value::RowOrigin {
-                                        own_write: true,
-                                        version: now,
-                                        read_in_write_tx: false,
-                                        own_modified: true,
-                                        ..o
-                                    });
+                                    rec.borrow_mut().row_origin =
+                                        keep.then(|| crate::stale_buffer_origin::own_modify_origin(o, now));
                                 }
                             }
                             let company = rec.borrow().company.clone();
@@ -2105,7 +2100,7 @@ impl Session {
                                 && now != was
                             {
                                 let keep = o.own_write && !o.read_in_write_tx && o.commits == self.commits;
-                                r.row_origin = keep.then_some(al_builtins::value::RowOrigin { version: now, ..o });
+                                r.row_origin = keep.then(|| crate::stale_buffer_origin::renamed_origin(o, now));
                             }
                         }
                         // The record itself shows no Blob value after a Rename of a temporary record; the row keeps one only when a write came
