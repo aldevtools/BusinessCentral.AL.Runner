@@ -42,9 +42,15 @@ pub(crate) mod state {
     /// (types/TestRandomSeededContracts.al:111-131), past the run seed's restart of each test (ADR-061). Set with
     /// [`RANDOM`].
     pub const RANDOM_SEED: u16 = 1 << 9;
+    /// A `DotNet` member that only answers (al-vm `server_classes::ANSWERS_ONLY`, such as
+    /// `NavTenantSettingsHelper.IsSandbox()`), or a variable of a class that has one. It leaves nothing behind, but
+    /// every reader of [`OTHER`] except the watched login (`login::watched_state`) still reads it as [`OTHER`]: [`MAY_LEAVE`].
+    pub const SERVER_ANSWER: u16 = 1 << 10;
+    /// [`OTHER`] as every reader of it but the watched login takes it: with [`SERVER_ANSWER`].
+    pub const MAY_LEAVE: u16 = OTHER | SERVER_ANSWER;
     /// State every test is taken to read: what AL code reads without naming it (the posting date defaults to
     /// `WorkDate`, `Format` follows the language, any event can reach a bound subscriber).
-    pub const READ_BY_ALL: u16 = WORK_DATE | LANGUAGE | BINDING | OTHER;
+    pub const READ_BY_ALL: u16 = WORK_DATE | LANGUAGE | BINDING | MAY_LEAVE;
 
     pub fn name(bit: u16) -> &'static str {
         match bit {
@@ -1424,8 +1430,35 @@ impl Rec<'_> {
             // A codeunit, report or xmlport variable: what it runs is in the calls (`Lowered::calls_into`). An
             // xmlport imports into its tables without a record operation in AL.
             RtType::Codeunit(c) if objs[*c as usize].kind == ObjKind::XmlPort => self.note_table_write(None),
-            RtType::DotNet(_) => self.out.state_writes |= state::OTHER,
+            RtType::DotNet(d) => self.out.state_writes |= self.dotnet_slot(*d),
             _ => {}
+        }
+    }
+
+    /// What a `DotNet` variable declared through alias `d` (`Program::dotnet_types`) changes by being there: nothing
+    /// for a class with a member that only answers ([`state::SERVER_ANSWER`]); else what the analysis does not follow.
+    fn dotnet_slot(&self, d: u32) -> u16 {
+        let decl = self.lowered.program.dotnet_types.get(d as usize);
+        match decl {
+            Some(decl) if al_vm::dotnet::server_classes::holds_answering_class(&decl.type_name) => state::SERVER_ANSWER,
+            _ => state::OTHER,
+        }
+    }
+
+    /// What a `DotNet` member access through alias `ty` changes: nothing for a call or read of a member that only
+    /// answers ([`state::SERVER_ANSWER`]); else what the analysis does not follow. A receiver whose alias is not known
+    /// (the result of another `DotNet` call), a constructor and a property write are not such a member.
+    fn dotnet_member(&self, ty: Option<usize>, op: &al_ir::DotNetOp) -> u16 {
+        let decl = ty.and_then(|d| self.lowered.program.dotnet_types.get(d));
+        let member = match op {
+            al_ir::DotNetOp::Call(m) | al_ir::DotNetOp::Get(m) => Some(m),
+            _ => None,
+        };
+        match (decl, member) {
+            (Some(decl), Some(m)) if al_vm::dotnet::server_classes::answers_only(&decl.type_name, m) => {
+                state::SERVER_ANSWER
+            }
+            _ => state::OTHER,
         }
     }
 
@@ -1528,9 +1561,9 @@ impl Rec<'_> {
                 args,
                 ..
             } => self.arg_writes(o, args),
-            Expr::DotNet { args, .. } => {
+            Expr::DotNet { ty, op, args, .. } => {
                 self.arg_writes(o, args);
-                self.out.state_writes |= state::OTHER;
+                self.out.state_writes |= self.dotnet_member(*ty, op);
             }
             Expr::Refused(why) => {
                 let at = format!("{}.{}", objs[o].name, objs[o].routines[r].name);

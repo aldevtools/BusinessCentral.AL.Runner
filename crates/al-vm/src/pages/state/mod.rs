@@ -606,6 +606,9 @@ pub struct PageState {
     pub empty_list_landing: Option<crate::pages::empty_part_rec::EmptyListLanding>,
     /// The last measured step of a List host's CardPart FactBox around the new line (`list_factbox_new_line.rs`).
     pub factbox_line: crate::pages::list_factbox_new_line::FactboxLine,
+    /// The calls the test made on this part since its own `Filter.SetFilter` read its rows again while the refresh of its own
+    /// `CurrPage.Update` waits (`part_update_left_view.rs`).
+    pub left_view_test_filter: crate::pages::part_update_left_view::TestFilterReread,
     /// A measured step of `factbox_line` reads the part now: a part that finds no row runs OnAfterGetCurrRecord on the blank
     /// record (`list_factbox_new_line.rs`, `factbox_blank_landing`).
     pub factbox_blank_landing: bool,
@@ -1051,6 +1054,7 @@ impl PageState {
         self.empty_list_landing = None;
         self.factbox_line = Default::default();
         self.factbox_blank_landing = false;
+        self.left_view_test_filter = Default::default();
         self.typed_key_dropped = false;
         self.pinned_end = None;
         self.data_caption_at_open = false;
