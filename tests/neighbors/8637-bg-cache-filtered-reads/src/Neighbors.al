@@ -1,7 +1,8 @@
 // Neighbors of al-runner issue 8637 that no cell of the corpus probe BgTaskQueryCache.al measures (appended to it), on its
 // tables 97593 "BQ Wide", 97594 "BQ Child", 97597 "BQ Calc", page 97519 "BQ Plain Rows" and a table of their own. Each test
 // asserts BC's answer (a local BC 29.1 container) as 'first reads / reads again'. They are past what the cells of BQ Tests 9
-// measure: 100001 filters (on a table of 503 fields; the cells reach 100000 at :5564), a FlowField filter next to the key set
+// measure: 100001 filters (on a table of 503 fields; the cells reach 100000 at :5564; that test runs from al-test-cli's
+// Issue8637Heavy.al, past the neighbor check's CPU limit on main), a FlowField filter next to the key set
 // to its value in three filter groups (the cells set it in two, :5571), and the FlowField filters @k (a value compared
 // without regard to case), <>K* (a pattern not matched) and K*|X (a | of patterns) (the cells measure the case-sensitive
 // patterns, :5599; @k reads the rows as they are, as @k* does at :4756). Past :3391 (the worker's own record sets filter
@@ -715,12 +716,6 @@ codeunit 97531 "BQ Gate Tests"
         Seen += ' / ' + Run(Rows, Mode, G);
         Rows.Close();
         exit(Seen);
-    end;
-
-    [Test]
-    procedure Filters100001_InsertAfterFirstRead()
-    begin
-        Assert.AreEqual('-|-|0|Yes / -|-|0|Yes', Reads('many100001'), 'after the insert');
     end;
 
     [Test]

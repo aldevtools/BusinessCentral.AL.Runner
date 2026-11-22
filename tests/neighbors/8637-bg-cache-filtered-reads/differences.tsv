@@ -102,7 +102,6 @@ BQ Tests 8b::BgQueryCache_Run_FlowFieldFlowFilterAndExtension_FindsFirstAnswer	A
 # reads the table. The two @ alone cells (:5609, :5616) are refused on both, as main refuses @ alone on a Code field; they
 # pass once the "@ alone" pull request has landed too.
 BQ Tests 9::BgQueryCache_Run_AllForms_26215And60000Filters_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:5554)
-BQ Tests 9::BgQueryCache_Run_AllForms_100000Filters_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:5564)
 BQ Tests 9::BgQueryCache_Run_FlowFieldKeyTwice_FindsFirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:5571)
 BQ Tests 9::BgQueryCache_Run_AllForms_KeyTwice_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:5581)
 BQ Tests 9::BgQueryCache_Run_FlowFieldOpenRangesAndAndInsideOr_FindsFirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:5588)
