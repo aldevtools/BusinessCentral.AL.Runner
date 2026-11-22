@@ -129,6 +129,39 @@ no neighbor app applies, add `tests/neighbors/<topic>/none.txt` with the reason.
 
 CI for a first-time contributor's pull request starts after a maintainer approves the run.
 
+## How a pull request gets reviewed
+
+A review starts only after the pull request reports ready. Before that, CI runs the job `test` and the
+job "neighbor check" on every draft. The neighbor check runs small test apps for the cases next to your
+change on a build of `main` and on a build of your branch, and compares the results. Most review findings
+so far were cases next to a change that ran without a corpus pin. The check finds them before a reviewer
+reads the code, so reviews take fewer rounds.
+
+For each pull request:
+
+1. Merge the current `main` into your branch.
+2. If your change touches a file the binary is built from (`tools/binary-inputs.txt`, which includes
+   `crates/*/src/**/*.rs`), add a folder `tests/neighbors/<topic>/`. `<topic>` is your branch name or the
+   issue number. The folder holds one of:
+   - A neighbor app: `app.json`, `src/*.al` with one test for each case next to your change, and
+     `differences.tsv`. The file explains every test whose result differs from `main`: the corpus test
+     that pins it (`PINNED file:line`), the assumption entry it runs through (`ASSUMED id`), or the
+     refusal you added on purpose (`REFUSED text`).
+   - `none.txt`: one line that says why no neighbor app applies, for example a speed change, a
+     refactor or comments only. The reviewer checks the reason.
+
+   The format is in [tests/neighbors/README.md](tests/neighbors/README.md).
+3. Run `tools/neighbor-diff.sh --changed` locally. See [tools/neighbor-diff.sh](tools/neighbor-diff.sh).
+   It runs the check CI runs and prints a table. Paste the table into the pull request description.
+4. Push once when it passes. Draft CI (`test` and "neighbor check") runs on that push.
+5. When draft CI is green, post a comment with the words "ready for review". Keep the pull request a
+   draft. Marking a pull request ready for review starts the full CI set, and a maintainer does that.
+
+Reviews follow the order in which pull requests report ready. If a review already left findings on a
+pull request, the next review checks only those findings and the results of the neighbor check.
+
+If the neighbor check does not fit your change, say so on the pull request.
+
 ## License and contributor agreement
 
 AL Runner is released under the license in [LICENSE](LICENSE).
