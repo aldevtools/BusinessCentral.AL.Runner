@@ -25,7 +25,7 @@ struct ChildParked {
     bindings: Vec<crate::dispatch::Binding>,
     session_id_override: Option<i32>,
     /// The test session's group 1 filters, kept aside while the worker runs (`Group1Filters::enter_worker`).
-    group1: Option<crate::group1_sessions::Filters>,
+    group1: crate::group1_sessions::Filters,
 }
 
 /// A new dictionary with the entries of `v` (the worker gets its own copy of the parameters).
@@ -173,7 +173,8 @@ impl Session {
     /// not seen by the test afterwards (:231-248, :250-270 `1;1;1;`); a manual binding of the test does not answer there
     /// while an automatic subscriber does (:272-305, :334-367), so a worker that needs the binding fails and raises
     /// OnPageBackgroundTaskError with ErrorCode `Dialog` (:307-332). The Completed and Error triggers run in the test
-    /// session (:222, :323): the state is put back before they run. The database and the transaction stay as they were:
+    /// session (:222, :323): the state is put back before they run. Its filters in filter group 1 start empty and end with it
+    /// (`group1_sessions.rs`). The database and the transaction stay as they were:
     /// what the worker reads and may not write is pinned by testpage/TestPageBgTaskTx_Tests.al and TestPageBgTask_Tests.al.
     fn bg_enter_child_session(&mut self) -> ChildParked {
         self.sessions_started += 1;

@@ -810,6 +810,10 @@ impl Session {
             return Ok(fresh);
         };
         if !self.cached_form(rec, t, true)? {
+            // A worker's Count or IsEmpty after SetLoadFields reads the table (:2722), a cell of the entry's open probe.
+            if self.in_worker() && rec.borrow().load.request.is_some() && self.cached_form(rec, t, false)? {
+                assume(Assumption::BackgroundTaskQueryCache);
+            }
             return Ok(fresh);
         }
         let sources = self.flow_field_sources(rec, t);

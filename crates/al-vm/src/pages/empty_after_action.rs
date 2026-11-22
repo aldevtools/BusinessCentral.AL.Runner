@@ -111,7 +111,7 @@ impl Session {
             self.ret_used = true;
             if matches!(self.record_op(RecordOp::Next, &probe, &mut [Value::Integer(step)])?, Value::Integer(n) if n != 0)
             {
-                return Ok(Some(probe.borrow().fields.clone()));
+                return Ok(Some(probe.borrow().fields.to_vec()));
             }
         }
         unsupported(

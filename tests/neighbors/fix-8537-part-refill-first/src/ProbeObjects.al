@@ -1,5 +1,5 @@
 // The objects and tests of corpus PR 1474 (pages/parts/PartRefillTestFilter.al, merged) and its two-field key cell
-// (corpus PR 1475), as in crates/al-test-cli/tests/fixtures/outside-fb/Issue8537Probe.al.
+// (corpus PR 1475), both merged; the suite test part_left_view_test_filter.rs reads them from here.
 table 97100 "LT PR Op"
 {
     DataClassification = SystemMetadata;

@@ -88,7 +88,7 @@ impl Session {
         // The client re-reads the row the cursor stands on.
         let on_row = |s: &mut Self, rec: &Rec| -> Result<(), Signal> {
             let stored = st.borrow().window[at].stored.clone();
-            rec.borrow_mut().fields = stored;
+            rec.borrow_mut().fields = stored.into();
             s.reread_held_row(st, at)?;
             Ok(())
         };
@@ -138,9 +138,9 @@ impl Session {
             s.populate_current(st)?;
             while s.nav_next(st, if up { -1 } else { 1 })? {
                 let key = s.row_key(&rec)?;
-                let stored = rec.borrow().fields.clone();
+                let stored = rec.borrow().fields.to_vec();
                 s.populate_current(st)?;
-                let shown = rec.borrow().fields.clone();
+                let shown = rec.borrow().fields.to_vec();
                 rows.push(crate::pages::WindowRow { key, stored, shown });
                 if rows.len() > expect {
                     break;
@@ -158,7 +158,7 @@ impl Session {
         on_row(self, &rec)?;
         self.populate_current(st)?;
         self.populate_current(st)?;
-        let shown = rec.borrow().fields.clone();
+        let shown = rec.borrow().fields.to_vec();
         let stored = st.borrow().window[at].stored.clone();
         let key = st.borrow().window[at].key.clone();
         self.current_record_trigger(st, before)?;
