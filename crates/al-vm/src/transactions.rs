@@ -1255,3 +1255,31 @@ mod tests {
         assert_eq!(CommitBehavior::from_attribute("[CommitBehavior]"), None);
     }
 }
+
+impl Session {
+    /// Makes every change so far durable (and a Truncate of this transaction final).
+    pub fn commit_transaction(&mut self) {
+        self.note_row_locks_commit();
+        self.note_commit_for_query_cache();
+        self.guarded_body_commit();
+        self.send_pending_inserts();
+        al_data::Store::commit(&mut self.store);
+        self.crm_committed();
+        self.commits += 1;
+        self.sql.committed();
+        self.truncate_undo.clear();
+        // Rows at or below this rowversion are durable: a buffer older than one of them is stale.
+        self.tx.committed_row_version = self.next_row_version;
+        // A transaction a lock opened counts as one that wrote: MinimumActiveRowVersion after it is not pinned.
+        self.tx.last_commit_wrote = self.tx.phase == crate::transactions::TxPhase::Write || self.tx.open.locks.lock_tx;
+        self.end_open_transaction();
+        self.tx.rolled_back = false;
+        self.tx.rollback_unpinned = None;
+        self.tx.rollback_kind = None;
+        self.isolated_committed = self.isolated_storage.clone();
+        self.pages.saved_values_committed = self.pages.saved_values.clone();
+        self.tasks.commit();
+        let removed = std::mem::take(&mut self.media_removed.0);
+        self.media_removed.1.extend(removed);
+    }
+}

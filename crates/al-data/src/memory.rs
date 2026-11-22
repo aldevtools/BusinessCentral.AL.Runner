@@ -17,6 +17,9 @@ mod key_value_tests;
 mod order_carry;
 mod replace;
 mod row_changes;
+mod source_stamps;
+#[cfg(test)]
+mod source_stamps_tests;
 #[cfg(test)]
 mod storage_tests;
 pub use frozen::{FrozenRows, FrozenStore, NotShareable, not_shareable, shareable};
@@ -209,6 +212,10 @@ pub struct MemStore {
     /// Companies whose untouched rows were removed by deleting their Company row.
     dropped_backed_companies: crate::pmap::PMap<std::sync::Arc<str>, ()>,
     committed_dropped_backed_companies: crate::pmap::PMap<std::sync::Arc<str>, ()>,
+    /// Per company, the stamp of the last change of the rows its untouched tables serve (`copies`,
+    /// `dropped_backed_companies`): see `source_stamps.rs`. Part of the transaction, like `copies`.
+    source_stamps: crate::pmap::PMap<std::sync::Arc<str>, u64>,
+    committed_source_stamps: crate::pmap::PMap<std::sync::Arc<str>, u64>,
     /// While set, a change to a row of the backing (a modify, delete or rename) is written down
     /// here and allowed (ADR-020 amendment: install code may change restored rows). Shared by the
     /// clones of the store, so a snapshot or a rollback does not lose it.
@@ -691,9 +698,13 @@ impl MemStore {
         let source = self.copy_source(source);
         self.copies.insert(copy.into(), source.clone());
         self.committed_copies.insert(copy.into(), source);
+        self.source_changed(copy);
         let copy = std::sync::Arc::from(copy);
         self.dropped_backed_companies.remove(&copy);
         self.committed_dropped_backed_companies.remove(&copy);
+        if let Some(&stamp) = self.source_stamps.get(&copy) {
+            self.committed_source_stamps.insert(copy, stamp);
+        }
     }
 
     /// The company whose backing rows `company` holds: its source if it is a copy, else itself.
@@ -1047,17 +1058,26 @@ impl MemStore {
     /// (`with_backing`). The record of changes to restored rows is a log and is not exported.
     /// Changes that are not committed are not exported.
     pub fn export_committed(&self) -> Option<Vec<ExportedTable>> {
-        Some(
-            self.committed
-                .iter()
-                .map(|((company, object), table)| ExportedTable {
-                    company: company.to_string(),
-                    object: *object,
-                    pk_storage: table_storage(table),
-                    rows: table.iter().map(|(k, r)| (k.0.clone(), r.clone())).collect(),
-                })
-                .collect(),
-        )
+        Some(Self::export(&self.committed))
+    }
+
+    /// The tables the store holds now, uncommitted changes included, as [`MemStore::export_committed`] gives the committed
+    /// ones (a temporary table's store, which never commits; al-vm `Session::state_lines`). Counts no store operation.
+    pub fn export_current(&self) -> Vec<ExportedTable> {
+        Self::export(&self.tables)
+    }
+
+    /// Every table of `tables` with its rows in key order ([`MemStore::export_committed`], [`MemStore::export_current`]).
+    fn export(tables: &Tables) -> Vec<ExportedTable> {
+        tables
+            .iter()
+            .map(|((company, object), table)| ExportedTable {
+                company: company.to_string(),
+                object: *object,
+                pk_storage: table_storage(table),
+                rows: table.iter().map(|(k, r)| (k.0.clone(), r.clone())).collect(),
+            })
+            .collect()
     }
 
     /// A store whose committed (and current) data is `tables`, with no provider and no backing. Its stamps are new
@@ -1079,7 +1099,7 @@ impl MemStore {
         s.committed = s.tables.clone();
         s.committed_versions = s.versions.clone();
         s.committed_shapes = s.shapes.clone();
-        s
+        s.with_held_noted()
     }
 
     /// The committed tables (company, object) of this store that a write reached since it was `base` (a clone of
@@ -1256,6 +1276,7 @@ impl MemStore {
         }
         self.dropped_backed_companies.insert(company.into(), ());
         self.copies.remove(&std::sync::Arc::from(company));
+        self.source_changed(company);
     }
 
     /// Moves every row of company `old` to company `new`, as renaming the company does
@@ -1286,6 +1307,8 @@ impl MemStore {
         }
         self.dropped_backed_companies.insert(old.into(), ());
         self.dropped_backed_companies.remove(&std::sync::Arc::from(new));
+        self.source_changed(old);
+        self.source_changed(new);
     }
 
     /// Copies every row of company `from` to company `to`, as they are (system fields included), as
@@ -1297,6 +1320,7 @@ impl MemStore {
             self.copies.insert(to.into(), source);
         }
         self.dropped_backed_companies.remove(&std::sync::Arc::from(to));
+        self.source_changed(to);
         let copied: Vec<(Slot, Table)> = self
             .tables
             .iter()
@@ -1332,7 +1356,7 @@ impl MemStore {
         if self.virtual_of(t).is_some() {
             return 0;
         }
-        self.versions.get(&slot(cx, t)).copied().unwrap_or(0)
+        self.stamp_of(&slot(cx, t), &self.versions)
     }
 
     /// A write of the table: a new version, and one more of [`MemStore::writes`].
@@ -1359,7 +1383,7 @@ impl MemStore {
 
     /// The order of key `key` that `order_of` cached for the table as it is now, without sorting; `None` when none fits.
     fn cached_order(&self, slot: &Slot, key: usize, t: &TableDef, table: &Table) -> Option<std::rc::Rc<Vec<OrderKey>>> {
-        let shape = self.shapes.get(slot).copied().unwrap_or(0);
+        let shape = self.stamp_of(slot, &self.shapes);
         let ck = (slot.clone(), key);
         let moved = self.moves.get(&ck).copied().unwrap_or(0);
         let fits =
@@ -1378,7 +1402,7 @@ impl MemStore {
         if let Some(order) = self.cached_order(slot, key, t, table) {
             return order;
         }
-        let shape = self.shapes.get(slot).copied().unwrap_or(0);
+        let shape = self.stamp_of(slot, &self.shapes);
         let ck = (slot.clone(), key);
         let moved = self.moves.get(&ck).copied().unwrap_or(0);
         ORDER_BUILDS.with(|n| n.set(n.get() + 1));
@@ -1474,7 +1498,7 @@ impl MemStore {
             return None;
         }
         let slot = slot(cx, t);
-        let version = self.versions.get(&slot).copied().unwrap_or(0);
+        let version = self.stamp_of(&slot, &self.versions);
         let ck = (slot.clone(), scan.key, format!("{:?}", scan.filters));
         let fields: Vec<usize> = if scan.key == 0 {
             t.keys[0].clone()
@@ -1628,6 +1652,9 @@ impl MemStore {
         let slot = slot(cx, t);
         if !self.tables.contains_key(&slot) {
             let start = self.backing_rows(&slot.0, slot.1).map_or_else(Table::new, |r| r.0);
+            // The copied rows are the store's from now on, and an export carries them: note them as the store read back
+            // from that export notes them (`with_held_noted`; review of PR 8517).
+            self.note_held_rows(t.object, &start);
             self.tables.insert(slot.clone(), start);
         }
         let table = self.tables.get_mut(&slot).expect("the slot was just inserted");
@@ -1684,7 +1711,7 @@ impl Store for MemStore {
         }
         let kept = carry.then(|| k.clone());
         table.insert(k, row);
-        let from = self.shapes.get(&slot(cx, t)).copied().unwrap_or(0);
+        let from = self.stamp_of(&slot(cx, t), &self.shapes);
         self.touch_shape(cx, t);
         if let Some(k) = kept {
             self.carry_orders(cx, t, &k, order_carry::Change::Insert, from);
@@ -1741,7 +1768,7 @@ impl Store for MemStore {
         self.note_restored(cx, t, &k, "Modify", Some(&row));
         let carry = self.has_orders(&slot(cx, t), t);
         let watch = self.accent_cols.contains_key(&t.object);
-        let before = self.versions.get(&slot(cx, t)).copied().unwrap_or(0);
+        let before = self.stamp_of(&slot(cx, t), &self.versions);
         let table = self.table_mut(cx, t);
         if !table.contains_key(&k) {
             return Ok(WriteOutcome::NotFound);
@@ -1800,7 +1827,7 @@ impl Store for MemStore {
         let k = Key::of(t, pk.to_vec());
         Ok(match self.table_mut(cx, t).remove(&k) {
             Some(old) => {
-                let from = self.shapes.get(&slot(cx, t)).copied().unwrap_or(0);
+                let from = self.stamp_of(&slot(cx, t), &self.shapes);
                 self.touch_shape(cx, t);
                 self.carry_orders(cx, t, &k, order_carry::Change::Delete { old: &old }, from);
                 WriteOutcome::Done
@@ -2043,6 +2070,7 @@ impl Store for MemStore {
         self.committed_moves = self.moves.clone();
         self.committed_copies = self.copies.clone();
         self.committed_dropped_backed_companies = self.dropped_backed_companies.clone();
+        self.committed_source_stamps = self.source_stamps.clone();
         self.committed_emptied = self.emptied.clone();
     }
 
@@ -2055,6 +2083,7 @@ impl Store for MemStore {
         self.moves = self.committed_moves.clone();
         self.copies = self.committed_copies.clone();
         self.dropped_backed_companies = self.committed_dropped_backed_companies.clone();
+        self.source_stamps = self.committed_source_stamps.clone();
         self.emptied = self.committed_emptied.clone();
     }
 }

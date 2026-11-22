@@ -517,19 +517,16 @@ impl Session {
     /// the last Commit or rollback is noted (`writes_all_noted`), and the last of them that is to the row's key or to its whole
     /// table (a Rename, ModifyAll, DeleteAll, Truncate or other write whose rows are not told apart) is an Insert of the row.
     fn inserted_unwritten_in_tx(&self, r: &RecordState) -> bool {
-        use crate::state::TxWriteKind;
         let Some(t) = self.engine.tables.get(r.table as usize).and_then(|t| t.as_deref()) else {
             return false;
         };
-        let pk = t.primary_key(&r.fields);
-        let last = self.tx.open.writes.iter().rev().find(|w| {
-            w.table == t.object
-                && w.company == r.company
-                && (crate::records::same_key(&w.pk, &pk)
-                    || !matches!(w.kind, TxWriteKind::Insert | TxWriteKind::Modify | TxWriteKind::Delete))
-        });
         self.writes_all_noted()
-            && last.is_some_and(|w| w.kind == TxWriteKind::Insert && crate::records::same_key(&w.pk, &pk))
+            && super::write_notes::inserted_unwritten(
+                &self.tx.open.writes,
+                t.object,
+                &r.company,
+                &t.primary_key(&r.fields),
+            )
     }
 }
 
