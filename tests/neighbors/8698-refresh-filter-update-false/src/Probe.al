@@ -1,7 +1,7 @@
 // BC Documentation: https://learn.microsoft.com/en-us/dynamics365/business-central/dev-itpro/developer/methods-auto/page/page-update-method
 // Scope: in-scope
 // local object: the control's OnValidate and the action that change the page's view, and the page triggers that log, are what is under test
-// Fixtures used: shared Assert (60021); own table 97581, log codeunit 97582, pages 97583 to 97588, test codeunit 97589
+// Fixtures used: shared Assert (60021); own tables 97581, 97570, log codeunits 97582, 97573, pages 97583-97588, 97571, tests 97589, 97572
 // Probe (al-runner issue 8698): a page stands on the last of three rows A (group G0), B and C (group G1), opened with OpenEdit. SetValue
 //   on Name runs the table field's OnValidate, then the control's OnValidate, which sets a filter on Rec and calls CurrPage.Update(false).
 //   A SetValue on Value, whose OnValidate calls CurrPage.Update(false) too, follows; then First() and a walk with Next(), Close, and the
@@ -1526,5 +1526,126 @@ codeunit 97589 "LT RFU Tests"
         Expect('walk', 'A,,');
         Expect('close', '');
         Expect('stored', 'A/,B/,C2/,');
+    end;
+}
+
+// The Card page of al-runner issue 8717, line for line: its Name control's OnValidate calls CurrPage.Update(false) without a
+// change of view, OnAfterGetRecord logs the name it reads; over a table of its own with one row.
+table 97570 "LT RFU Edit Row"
+{
+    DataClassification = CustomerContent;
+
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(2; Name; Text[30]) { }
+    }
+
+    keys
+    {
+        key(PK; "No.") { Clustered = true; }
+    }
+}
+
+codeunit 97573 "LT RFU Edit Log"
+{
+    SingleInstance = true;
+
+    var
+        Buffer: Text;
+
+    procedure Add(Entry: Text)
+    begin
+        Buffer += Entry + ';';
+    end;
+
+    procedure Take(): Text
+    var
+        Result: Text;
+    begin
+        Result := Buffer;
+        Buffer := '';
+        exit(Result);
+    end;
+}
+
+page 97571 "LT RFU Edit Card"
+{
+    PageType = Card;
+    SourceTable = "LT RFU Edit Row";
+    ApplicationArea = All;
+    UsageCategory = None;
+
+    layout
+    {
+        area(Content)
+        {
+            group(General)
+            {
+                field("No."; Rec."No.")
+                {
+                    ApplicationArea = All;
+                }
+                field(Name; Rec.Name)
+                {
+                    ApplicationArea = All;
+
+                    trigger OnValidate()
+                    begin
+                        CurrPage.Update(false);
+                    end;
+                }
+            }
+        }
+    }
+
+    trigger OnAfterGetRecord()
+    begin
+        Log.Add('AGR(' + Rec.Name + ')');
+    end;
+
+    var
+        Log: Codeunit "LT RFU Edit Log";
+}
+
+codeunit 97572 "LT RFU Edit Tests"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    var
+        Assert: Codeunit Assert;
+        Log: Codeunit "LT RFU Edit Log";
+
+    local procedure Initialize()
+    var
+        Row: Record "LT RFU Edit Row";
+    begin
+        Row.DeleteAll();
+        Row."No." := 'R1';
+        Row.Name := 'Alpha';
+        Row.Insert();
+        Commit();
+        Log.Take();
+    end;
+
+    // Opened on its only row: SetValue on Name, whose OnValidate calls CurrPage.Update(false), then Close.
+    [Test]
+    procedure EditCard_UpdateFalseInOnValidate_ReadsTheStoredRowAgain()
+    var
+        Row: Record "LT RFU Edit Row";
+        Card: TestPage "LT RFU Edit Card";
+    begin
+        Initialize();
+        Card.OpenEdit();
+        Card.GoToKey('R1');
+        Assert.AreEqual('AGR(Alpha);AGR(Alpha);', Log.Take(), 'open');
+        Card.Name.SetValue('Beta');
+        Assert.AreEqual('AGR(Alpha);', Log.Take(), 'SetValue on Name');
+        Assert.AreEqual('Alpha', Card.Name.Value(), 'shown after the SetValue');
+        Card.Close();
+        Assert.AreEqual('', Log.Take(), 'close');
+        Row.Get('R1');
+        Assert.AreEqual('Alpha', Row.Name, 'stored after Close');
     end;
 }

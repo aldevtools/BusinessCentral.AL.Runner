@@ -2,7 +2,7 @@
 // changes one fact. Measured on a local BC 29.1 W1 container (3 runs); every reading is BC's.
 
 // The issue's page with Update(true) in the Name control's OnValidate: not the probe's code.
-page 97571 "LT RFU Other Lines"
+page 97590 "LT RFU Other Lines"
 {
     PageType = List;
     SourceTable = "LT RFU Line";
@@ -47,7 +47,7 @@ page 97571 "LT RFU Other Lines"
         Log: Codeunit "LT RFU Log";
 }
 
-codeunit 97570 "LT RFU Neighbor Tests"
+codeunit 97591 "LT RFU Neighbor Tests"
 {
     Subtype = Test;
     TestPermissions = Disabled;
@@ -215,6 +215,31 @@ codeunit 97570 "LT RFU Neighbor Tests"
         Expect('stored', 'A/,B/,C2/,');
     end;
 
+    // The steps of ListValidateFilterRefresh.al:1258 on the Card over four rows (D in G1 after C).
+    [Test]
+    procedure Card_FourRows()
+    var
+        Card: TestPage "LT RFU Card";
+    begin
+        Initialize(1, 1, 4);
+        Card.OpenEdit();
+        Card.Last();
+        Log.Take();
+        Card.Name.SetValue('D2');
+        Note('setname', Log.Take());
+        Note('shown', Card.Name.Value() + '/' + Card.Value.Value());
+        Card.Value.SetValue('V');
+        Note('setvalue', Log.Take());
+        Note('shown2', Card.Name.Value() + '/' + Card.Value.Value());
+        Card.Close();
+        Note('stored', StoredRows());
+        Expect('setname', 'T.V(D2);P.V(D2);P.AGR(D);');
+        Expect('shown', 'D/');
+        Expect('setvalue', 'P.AGR(D);');
+        Expect('shown2', 'D/');
+        Expect('stored', 'A/,B/,C/,D/,');
+    end;
+
     // The steps of ListValidateFilterRefresh.al:832, then Next() instead of First().
     [Test]
     procedure Lines_NextAfterSetValues()
@@ -243,5 +268,57 @@ codeunit 97570 "LT RFU Neighbor Tests"
         Expect('shown2', 'C/');
         Expect('then', 'C/:P.AGR(C);P.AGR(C);P.A(C);P.AGR(C);P.AGR(C);P.AGR(B);');
         Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The steps of ListValidateFilterRefresh.al:1105 on the List with both row triggers, then Next() instead of First().
+    [Test]
+    procedure Both_NextAfterSetValues()
+    var
+        Lines: TestPage "LT RFU Lines Both";
+    begin
+        Initialize(1, 1, 3);
+        Lines.OpenEdit();
+        Lines.Last();
+        Log.Take();
+        Lines.Name.SetValue('C2');
+        Note('setname', Log.Take());
+        Lines.Value.SetValue('V');
+        Note('setvalue', Log.Take());
+        Note('then', Format(Lines.Next()) + ':' + Lines.Name.Value() + ':' + Log.Take());
+        Lines.Close();
+        Note('stored', StoredRows());
+        Expect('setname', 'T.V(C2);P.V(C2);P.AGR(C);P.AGR(B);P.AGR(C);P.AGR(C);P.AGCR(C);');
+        Expect('setvalue', 'P.AGR(C);P.AGR(B);P.AGR(C);P.AGR(C);P.AGCR(C);');
+        Expect('then', 'Yes::P.AGCR();');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The steps of ListValidateFilterRefresh.al:1632 on the Card of issue 8717, with a second SetValue on Name before Close.
+    [Test]
+    procedure EditCard_SecondSetValue()
+    var
+        Row: Record "LT RFU Edit Row";
+        Card: TestPage "LT RFU Edit Card";
+        EditLog: Codeunit "LT RFU Edit Log";
+    begin
+        Initialize(0, 0, 3);
+        Row.DeleteAll();
+        Row."No." := 'R1';
+        Row.Name := 'Alpha';
+        Row.Insert();
+        Commit();
+        Card.OpenEdit();
+        Card.GoToKey('R1');
+        EditLog.Take();
+        Card.Name.SetValue('Beta');
+        Note('setname', EditLog.Take() + Card.Name.Value());
+        Card.Name.SetValue('Gamma');
+        Note('setname2', EditLog.Take() + Card.Name.Value());
+        Card.Close();
+        Row.Get('R1');
+        Note('stored', EditLog.Take() + Row.Name);
+        Expect('setname', 'AGR(Alpha);Alpha');
+        Expect('setname2', 'AGR(Alpha);Alpha');
+        Expect('stored', 'Alpha');
     end;
 }
