@@ -773,6 +773,7 @@ impl Session {
                     self.tx.open.locks.lock_tx = true;
                     let table = rec.borrow().table;
                     self.tx.open.locked_tables.push(table);
+                    self.note_row_lock_table(table);
                 }
                 Ok(Value::Null)
             }

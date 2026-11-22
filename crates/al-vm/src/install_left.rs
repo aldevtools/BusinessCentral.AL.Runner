@@ -75,6 +75,8 @@ impl Session {
             isolated_set_in_test: _,
             // Carried in InstallLeft.
             isolated_written_in_codeunit: _,
+            // Checked (`holds_as_new`): nothing is noted before a test codeunit's first test (`begin_codeunit_row_locks`).
+            row_locks: _,
             unmeasured: _,
             tasks: _,
             install_scope: _,
@@ -362,6 +364,7 @@ impl Session {
         self.last_error == al_builtins::native::AlError::default()
             && self.isolated_committed == self.isolated_storage
             && self.isolated_set_in_test.is_empty()
+            && self.row_locks.as_new()
             && self.unmeasured.as_new()
             && self.tasks.as_new()
             && self.sessions_started == 0

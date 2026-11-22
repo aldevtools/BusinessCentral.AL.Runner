@@ -2519,6 +2519,8 @@ impl Session {
             RecordOp::Insert if !self.ret_used && self.insert_is_queued(rec) => InsertKind::Queued,
             _ => InsertKind::Other,
         };
+        // A page background task's locking read of a row the test codeunit wrote (bg_readisolation_lock.rs).
+        self.row_locks_read(method, rec, args)?;
         self.note_read_after_rollback(method, rec, args);
         if self.sql.active {
             let r = self.record_op_counted(method, rec, args);

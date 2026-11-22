@@ -35,7 +35,7 @@ impl Session {
         self.push_write(t, company, kind, pk, before);
     }
 
-    /// Appends the note of a Record write to `OpenTx::writes` (`note_write`).
+    /// Notes a Record write for the row locks (`note_row_lock_write`) and appends it to `OpenTx::writes` (`note_write`).
     fn push_write(
         &mut self,
         t: &TableDef,
@@ -44,6 +44,7 @@ impl Session {
         pk: &[Value],
         before: u64,
     ) {
+        self.note_row_lock_write(t.object, &company, kind, pk);
         self.tx.open.writes.push(crate::state::TxWrite {
             table: t.object,
             company,
