@@ -19,7 +19,8 @@ only when `--build B` (the run's BC build) is of that major or major.minor. An e
 the head result and its evidence exists under `--root` (default: this repository), see `states_head`. Exit 1 while a difference has no such entry, while an entry
 has no difference (stale), when neither file has a test, when a side has a test stopped by a resource limit,
 when no test ran on either side, when nothing passed on either side and nothing differs, or when the entries file
-has a malformed row or a duplicate key. The suite-level `baseline_assumptions` is the pseudo test `<baseline>`.
+has a malformed row or a duplicate key. `--stale-note`: a stale entry is printed as a note and does not fail (a folder
+the pull request does not change already has its change on main); a difference without an entry still fails. The suite-level `baseline_assumptions` is the pseudo test `<baseline>`.
 """
 import os
 import re
@@ -143,7 +144,7 @@ def read_entries(path, build):
     return entries
 
 
-def entries_table(path, title, main, head, root, build):
+def entries_table(path, title, main, head, root, build, stale_note=False):
     """The neighbor table (see the module text); returns the exit code."""
     if title:
         print(f"### {title}\n")
@@ -177,10 +178,10 @@ def entries_table(path, title, main, head, root, build):
     print(f"\n{differ} of {len(keys)} tests differ, {missing} without an entry\n")
     stale = sorted(written for key, (written, _) in entries.items() if key not in used)
     for written in stale:
-        print(f"stale entry, no difference: {written}")
+        print(f"{'note: ' if stale_note else ''}stale entry, no difference: {written}")
     if stale:
         print()
-    return 1 if missing or stale else 0
+    return 1 if missing or (stale and not stale_note) else 0
 
 
 def main(argv):
@@ -189,6 +190,9 @@ def main(argv):
     reasons = "--reasons" in args
     if reasons:
         args.remove("--reasons")
+    stale_note = "--stale-note" in args
+    if stale_note:
+        args.remove("--stale-note")
     title = ""
     if "--title" in args:
         i = args.index("--title")
@@ -219,7 +223,7 @@ def main(argv):
         return 2
     demand, eager = outcomes(args[0]), outcomes(args[1])
     if entries is not None:
-        return entries_table(entries, title, demand, eager, root, build)
+        return entries_table(entries, title, demand, eager, root, build, stale_note)
     bad = 0
     for key in sorted(set(demand) | set(eager)):
         d = demand.get(key, ("missing", "", ""))

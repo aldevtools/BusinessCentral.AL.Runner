@@ -1,10 +1,12 @@
 //! `JsonObject.WriteToYaml` and `JsonObject.ReadFromYaml`. Citations are relative to `corpus/tests/al-language/json/`:
 //! P88 `json/P88ObjectPathYaml.al`, PnA `PnAJsonYaml.al`, Dc `DcJsonLeads.al`, Probe `TestProbeJsonContracts.al`.
 
-use super::{Handle, JsonNode, Scalar, read_from, recv, with_node, write};
+use super::{Handle, JsonNode, Reader, Scalar, read_from, read_text_into, recv, with_node, write};
+use crate::assumptions::{Assumption, assume};
 use crate::native::{Ctx, Signal, unsupported};
 use crate::value::Value;
 
+mod measured;
 mod read;
 use read::{Yaml, document, keyword};
 
@@ -189,17 +191,34 @@ pub(super) fn read_from_yaml(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
     let Some(text) = crate::native::text_of(&a[0]) else {
         return unsupported("ReadFromYaml with an argument that is not text");
     };
-    let doc = document(&text);
-    // Every pin calls ReadFromYaml as a statement; what a used result answers is not pinned.
-    if c.ret_used()
-        && matches!(
-            doc,
-            Ok(Yaml::Seq(_) | Yaml::Text(_) | Yaml::Null) | Err(Signal::Error(_))
-        )
-    {
-        return unsupported("the result of ReadFromYaml of a text that is no YAML object (not pinned)");
+    // A text the pinned reader refuses may be a shape corpus PR 1493 measured (`measured`, assumed until pinned).
+    let (doc, measured) = match document(&text) {
+        Err(Signal::Unsupported(_)) => (measured::document(&text), true),
+        doc => (doc, false),
+    };
+    if measured && doc.is_ok() {
+        assume(Assumption::ReadFromYamlBlankLinesAndBlocks);
     }
     let mut json = String::new();
+    match (&doc, measured, c.ret_used()) {
+        // A measured top list, the result used: false, and the statement's InvalidJsonType error left as the last error
+        // without raising it (corpus PR 1493, JsonYamlBlankLines.al BlankLineTopList/toplist-ret, CrLfNoBlank/toplist-ret).
+        (Ok(seq @ Yaml::Seq(_)), true, true) => {
+            seq.write_json(&mut json);
+            return match read_text_into(false, r, &json, Some("object"), Reader::ReadFromText) {
+                Err(Signal::Error(e)) => {
+                    c.set_last_error(*e);
+                    Ok(Value::Boolean(false))
+                }
+                _ => unsupported("the result of ReadFromYaml of a measured top list that reads (not measured)"),
+            };
+        }
+        // Every pin calls ReadFromYaml as a statement; what a used result answers is not pinned.
+        (Ok(Yaml::Seq(_) | Yaml::Text(_) | Yaml::Null) | Err(Signal::Error(_)), _, true) => {
+            return unsupported("the result of ReadFromYaml of a text that is no YAML object (not pinned)");
+        }
+        _ => {}
+    }
     doc?.write_json(&mut json);
     read_from(c, r, &mut [Value::Text(json.into())], Some("object"))
 }
