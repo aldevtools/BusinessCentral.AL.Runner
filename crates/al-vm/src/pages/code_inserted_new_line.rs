@@ -35,6 +35,10 @@ enum Triggers {
     /// FactBoxes with triggers (`code_inserted_coded.rs`): ListNewLineFactboxesCode.al pages 97492 and 97493 (corpus pull
     /// request 1454), and the partner app's page in the repro of al-runner issue 8434.
     Coded,
+    /// OnAfterGetRecord and OnAfterGetCurrRecord, and one CardPart FactBox whose OnAfterGetRecord sets a variable a field shows
+    /// (`code_inserted_factbox` with code): ListNewLineExtraCodeFactbox.al pages 97694 (:101-164) and 97698 (:217-296), for
+    /// code that is not a pinned page's only (`code_inserted_extra.rs`).
+    FactboxExtra,
 }
 
 /// How the page was opened, with the view it shows.
@@ -215,6 +219,8 @@ impl Session {
                 | (Triggers::FactboxHost, true, Opened::OpenEdit | Opened::RunModalOneGroup, Leave::SaveRecord)
                 // ListNewLineExtraCode.al:372, for code that is not a pinned page's only (`code_inserted_extra.rs`).
                 | (Triggers::Quiet, true, Opened::OpenEditOneGroup, Leave::SaveRecord)
+                // ListNewLineExtraCodeFactbox.al, for code that is not a pinned page's only (`code_inserted_extra.rs`).
+                | (Triggers::FactboxExtra, true, Opened::RunModalOneGroup, Leave::SaveRecord)
         );
         // The repro of issue 8186: page 97039's shape opened by a RunModal filtered to one group. The corpus opens that page
         // with OpenEdit only for Update() (ListNewLineCodeInsertUpdate.al:783-810), and main's way is the result the issue
@@ -270,9 +276,13 @@ impl Session {
                 {
                     al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ListNewLineSaveRecordRepro)
                 }
-                // Other code on the page without triggers: the effect gate of the cells of al-runner issues 8712 and 8713.
+                // Other code on the page without triggers: the effect gate of the cells of al-runner issues 8712 and 8713; on the
+                // page with triggers and a FactBox, of al-runner issue 8734.
                 None if matches!(triggers, Triggers::Quiet) => {
-                    self.extra_code_cell(st, opened, view, leave, rewritten)?
+                    self.extra_code_cell(st, opened, view, leave, rewritten, false)?
+                }
+                None if matches!(triggers, Triggers::FactboxExtra) => {
+                    self.extra_code_cell(st, opened, view, leave, rewritten, true)?
                 }
                 Some(PinnedCode::Probe | PinnedCode::Repro) | None => return Err(Signal::unsupported(UNMEASURED_CODE)),
             }
@@ -305,7 +315,14 @@ impl Session {
             names if no_parts && names.len() == 5 && ROW_TRIGGERS.iter().all(|t| names.iter().any(|n| n == t)) => {
                 Triggers::Row
             }
-            [only] if only == "onaftergetrecord" && self.code_inserted_factbox(st)? => Triggers::FactboxHost,
+            [only] if only == "onaftergetrecord" && self.code_inserted_factbox(st, false)? => Triggers::FactboxHost,
+            [a, b]
+                if [a, b].iter().any(|n| n.as_str() == "onaftergetrecord")
+                    && [a, b].iter().any(|n| n.as_str() == "onaftergetcurrrecord")
+                    && self.code_inserted_factbox(st, true)? =>
+            {
+                Triggers::FactboxExtra
+            }
             _ if self.coded_page(st)? => return Ok(Some((Triggers::Coded, split))),
             _ => return Ok(None),
         };
@@ -323,7 +340,7 @@ impl Session {
     ///   (:266-267);
     /// - the host's other controls: a repeater without a property and fields of Rec with no property but ApplicationArea
     ///   (:220-234).
-    fn code_inserted_factbox(&self, st: &St) -> Result<bool, Signal> {
+    fn code_inserted_factbox(&self, st: &St, with_code: bool) -> Result<bool, Signal> {
         let parts = st.borrow().parts.clone();
         let [(idx, part)] = parts.as_slice() else {
             return Ok(false);
@@ -367,10 +384,10 @@ impl Session {
                 "pagetype" | "sourcetable" | "applicationarea" | "usagecategory"
             )
         });
-        let plain = |controls: &[ir::Control], part_at: Option<usize>| {
+        let plain = |controls: &[ir::Control], part_at: Option<usize>, vars: bool| {
             controls.iter().enumerate().all(|(i, c)| match c.kind {
                 ir::ControlKind::Field => {
-                    matches!(c.binding, ir::Binding::Field(_))
+                    (matches!(c.binding, ir::Binding::Field(_)) || vars && matches!(c.binding, ir::Binding::Var(_)))
                         && c.owner.is_none()
                         && c.ext_triggers.is_empty()
                         && c.props.iter().all(|(k, _)| k == "applicationarea")
@@ -380,15 +397,21 @@ impl Session {
                 _ => false,
             })
         };
+        // The part of `Triggers::FactboxExtra` declares OnAfterGetRecord, and a field shows a variable of its own
+        // (ListNewLineExtraCodeFactbox.al:75-99, :189-215); the part of `Triggers::FactboxHost` declares no trigger.
+        let part_triggers = match with_code {
+            true => matches!(part_page.triggers.as_slice(), [(n, _)] if n == "onaftergetrecord"),
+            false => part_page.triggers.is_empty(),
+        };
         Ok(same_table
             && link
             && part_control
             && card_part
             && part_properties
-            && part_page.triggers.is_empty()
+            && part_triggers
             && part_page.controls.iter().all(|c| c.triggers.is_empty())
-            && plain(&host_page.controls, Some(*idx))
-            && plain(&part_page.controls, None))
+            && plain(&host_page.controls, Some(*idx), false)
+            && plain(&part_page.controls, None, with_code))
     }
 
     /// How `st` was opened, for a measured open: the test's OpenEdit (`PageState::test_open_edit`) on a view without filters, or
@@ -885,6 +908,9 @@ impl Session {
         let kind = self.code_inserted_page(st)?.map(|(t, _)| t);
         if matches!(kind, Some(Triggers::Coded)) {
             return self.coded_refresh(st, without_curr, without_parts);
+        }
+        if matches!(kind, Some(Triggers::FactboxExtra)) {
+            return self.extra_code_factbox_refresh(st, without_curr, without_parts);
         }
         let factbox = matches!(kind, Some(Triggers::FactboxHost));
         self.reread_view_from_row(st, without_curr, without_parts, !factbox)?;

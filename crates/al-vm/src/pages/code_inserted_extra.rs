@@ -27,6 +27,11 @@
 //!   corpus pull request 1527, open, 11 of 11 green on BC 29.1 in 3 runs, under the assumption `list-new-line-writes-other-table`,
 //!   `only_other_tables_written`).
 //!
+//! - on a List page with OnAfterGetRecord, OnAfterGetCurrRecord and one CardPart FactBox (`Triggers::FactboxExtra`), the same
+//!   gate for SaveRecord under Page.RunModal on one group, with nothing but the insert written before the save
+//!   (ListNewLineExtraCodeFactbox.al, corpus pull request 1532, open, 10 of 10 green on BC 29.1 in 3 runs, under the assumption
+//!   `list-new-line-extra-code-factbox`); the refresh of the Update and its triggers are `code_inserted_refresh`'s.
+//!
 //! Every other open, view and page keeps main's refusal (`UNMEASURED_CODE`).
 
 use super::code_inserted_new_line::{Leave, Opened, UNMEASURED_CODE, View};
@@ -46,7 +51,9 @@ impl Session {
     /// :487, :524, :498, :536; Update(true) on an empty group, :465), its table declares no
     /// record trigger (`no_record_trigger`), and nothing but the table field's insert wrote the store since the line began (or,
     /// `rewritten`, that row once more inside the control's OnValidate, :443), or only other tables besides
-    /// (`only_other_tables_written`); otherwise refused.
+    /// (`only_other_tables_written`); otherwise refused. On the page with triggers and a FactBox (`factbox`) only SaveRecord under
+    /// Page.RunModal on one group, empty or with one row before, with nothing but the insert written before, is measured
+    /// (ListNewLineExtraCodeFactbox.al, `list-new-line-extra-code-factbox`).
     pub(super) fn extra_code_cell(
         &mut self,
         st: &St,
@@ -54,7 +61,27 @@ impl Session {
         view: Option<View>,
         leave: Leave,
         rewritten: bool,
+        factbox: bool,
     ) -> Result<(), Signal> {
+        let line = st.borrow().new_line_writes;
+        let only_the_insert = line.is_some_and(|(mark, deletes)| self.write_mark() == (mark + 1, deletes));
+        if factbox {
+            let measured = matches!(
+                (leave, opened, view),
+                (
+                    Leave::SaveRecord,
+                    Opened::RunModalOneGroup,
+                    Some(View::Alone | View::AfterRow)
+                )
+            );
+            if !(measured && only_the_insert && !rewritten && self.no_record_trigger(st)) {
+                return Err(Signal::unsupported(UNMEASURED_CODE));
+            }
+            assume(Assumption::ListNewLineExtraCodeFactbox);
+            extra_code_assume();
+            st.borrow_mut().code_inserted_extra = true;
+            return Ok(());
+        }
         let measured = matches!(
             (leave, opened, view),
             (
@@ -64,8 +91,6 @@ impl Session {
             ) | (Leave::SaveRecord, Opened::OpenEditOneGroup, Some(View::Alone))
                 | (Leave::UpdateTrue, Opened::RunModalOneGroup, Some(View::Alone))
         );
-        let line = st.borrow().new_line_writes;
-        let only_the_insert = line.is_some_and(|(mark, deletes)| self.write_mark() == (mark + 1, deletes));
         // The row the control's OnValidate wrote once through another record before the save (`Inserted::Rewritten`): measured
         // under Page.RunModal on an empty group, where nothing but the table field's insert wrote the store before the control's
         // OnValidate began (:443).
@@ -102,6 +127,47 @@ impl Session {
         extra_code_assume();
         st.borrow_mut().code_inserted_extra = true;
         Ok(())
+    }
+
+    /// The refresh of `CurrPage.Update(false)` on the page with triggers and a FactBox (`Triggers::FactboxExtra`): the Update
+    /// reads the row as stored before the page's OnAfterGetRecord runs on it, so the first read shows a write made through
+    /// another record after the save (ListNewLineExtraCodeFactbox.al:344 `AGR(A/Resolved/Stamped)`); then the view from the row,
+    /// the row twice more, OnAfterGetCurrRecord and the part's OnAfterGetRecord (:344; :355 with a row before). The cells'
+    /// triggers only read: one that wrote the store, or left the page's or the part's record other than stored, is not
+    /// measured, and refused.
+    pub(super) fn extra_code_factbox_refresh(
+        &mut self,
+        st: &St,
+        without_curr: bool,
+        without_parts: bool,
+    ) -> Result<(), Signal> {
+        let rec = self.page_rec(st);
+        let mut pk = self.table(&rec)?.primary_key(&rec.borrow().fields);
+        self.ret_used = true;
+        self.record_op(al_builtins::record_op::RecordOp::Get, &rec, &mut pk)?;
+        let writes = self.write_mark();
+        self.reread_view_from_row(st, without_curr, without_parts, true)?;
+        let part = st.borrow().parts.first().map(|(_, p)| p.clone());
+        let parts_kept = match part {
+            Some(p) => self.holds_stored_row(&p)?,
+            None => false,
+        };
+        if self.write_mark() != writes || !self.holds_stored_row(st)? || !parts_kept {
+            st.borrow_mut().forget_code_inserted_line();
+            return unsupported(
+                "a trigger of a List page with a FactBox, or of its part, wrote the store or changed its record in the refresh \
+                 after CurrPage.Update moved the page from its new line onto the row the table field inserted (not measured)",
+            );
+        }
+        Ok(())
+    }
+
+    /// Whether the record of page `st` holds its row as stored.
+    fn holds_stored_row(&mut self, st: &St) -> Result<bool, Signal> {
+        let rec = self.page_rec(st);
+        Ok(self
+            .stored_row(&rec)?
+            .is_some_and(|stored| Self::same_values(&rec.borrow().fields, &stored)))
     }
 
     /// Whether the table of page `st` declares none of OnInsert, OnModify, OnDelete and OnRename: no table code runs at the save

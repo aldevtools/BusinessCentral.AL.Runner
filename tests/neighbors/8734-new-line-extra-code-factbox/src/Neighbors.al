@@ -1,0 +1,376 @@
+// Neighbors of ListNewLineExtraCodeFactbox.al (al-runner issue 8734): a List page with page triggers and a CardPart FactBox,
+// whose code goes just past what its cells measure. Each test holds Business Central's answer, measured on a local BC 29.1
+// container (3 runs of 3).
+table 97701 "LT NG Line"
+{
+    DataClassification = CustomerContent;
+
+    fields
+    {
+        field(1; "Group Code"; Code[10]) { }
+        field(2; "Entry No."; Integer) { AutoIncrement = true; }
+        field(3; Name; Text[30])
+        {
+            trigger OnValidate()
+            begin
+                if "Entry No." = 0 then
+                    Insert(true);
+            end;
+        }
+        field(4; Note; Text[30]) { }
+        field(5; Mark; Text[30]) { }
+        field(6; Value; Text[30]) { }
+    }
+
+    keys
+    {
+        key(PK; "Group Code", "Entry No.") { Clustered = true; }
+    }
+}
+
+table 97702 "LT NG Other"
+{
+    DataClassification = CustomerContent;
+
+    fields
+    {
+        field(1; "Entry No."; Integer) { AutoIncrement = true; }
+        field(2; Text; Text[30]) { }
+    }
+
+    keys
+    {
+        key(PK; "Entry No.") { Clustered = true; }
+    }
+}
+
+codeunit 97703 "LT NG Mode"
+{
+    SingleInstance = true;
+
+    var
+        Current: Integer;
+
+    procedure Set(NewMode: Integer)
+    begin
+        Current := NewMode;
+    end;
+
+    procedure Get(): Integer
+    begin
+        exit(Current);
+    end;
+
+    procedure AddOther(NewText: Text[30])
+    var
+        Other: Record "LT NG Other";
+    begin
+        Other.Init();
+        Other.Text := NewText;
+        Other.Insert();
+    end;
+
+    procedure StampMark(Line: Record "LT NG Line")
+    var
+        Other: Record "LT NG Line";
+    begin
+        Other.Get(Line."Group Code", Line."Entry No.");
+        Other.Mark := 'Stamped';
+        Other.Modify();
+    end;
+}
+
+page 97704 "LT NG Info"
+{
+    PageType = CardPart;
+    SourceTable = "LT NG Line";
+
+    layout
+    {
+        area(Content)
+        {
+            field(Note; Rec.Note) { ApplicationArea = All; }
+            field(Mark; Rec.Mark) { ApplicationArea = All; }
+            field(Info; Info) { ApplicationArea = All; }
+        }
+    }
+
+    trigger OnAfterGetRecord()
+    var
+        Mode: Codeunit "LT NG Mode";
+    begin
+        Info := Rec.Name;
+        if (Mode.Get() = 2) and (Rec.Name <> '') then
+            Mode.AddOther('ByPart');
+    end;
+
+    var
+        Info: Text;
+}
+
+page 97705 "LT NG Lines"
+{
+    PageType = List;
+    SourceTable = "LT NG Line";
+    AutoSplitKey = true;
+    ApplicationArea = All;
+    UsageCategory = None;
+
+    layout
+    {
+        area(Content)
+        {
+            repeater(Lines)
+            {
+                field(Name; Rec.Name)
+                {
+                    ApplicationArea = All;
+
+                    trigger OnValidate()
+                    var
+                        Mode: Codeunit "LT NG Mode";
+                    begin
+                        case Mode.Get() of
+                            3:
+                                Mode.StampMark(Rec);
+                            4:
+                                Mode.AddOther('ByPage');
+                        end;
+                        Rec.Note := 'Resolved';
+                        CurrPage.SaveRecord();
+                        if Mode.Get() in [0, 1, 2] then
+                            Mode.StampMark(Rec);
+                        CurrPage.Update(false);
+                    end;
+                }
+                field(Note; Rec.Note) { ApplicationArea = All; }
+                field(Mark; Rec.Mark) { ApplicationArea = All; }
+                field(Value; Rec.Value) { ApplicationArea = All; }
+            }
+        }
+        area(FactBoxes)
+        {
+            part(Info; "LT NG Info")
+            {
+                ApplicationArea = All;
+                SubPageLink = "Group Code" = field("Group Code"), "Entry No." = field("Entry No.");
+            }
+        }
+    }
+
+    trigger OnAfterGetRecord()
+    var
+        Mode: Codeunit "LT NG Mode";
+    begin
+        if (Mode.Get() = 1) and (Rec.Name <> '') then
+            Rec.Value := 'Got';
+    end;
+
+    trigger OnAfterGetCurrRecord()
+    begin
+        CurrentName := Rec.Name;
+    end;
+
+    var
+        CurrentName: Text;
+}
+
+// The same page without OnAfterGetCurrRecord.
+page 97706 "LT NG Lines Read"
+{
+    PageType = List;
+    SourceTable = "LT NG Line";
+    AutoSplitKey = true;
+    ApplicationArea = All;
+    UsageCategory = None;
+
+    layout
+    {
+        area(Content)
+        {
+            repeater(Lines)
+            {
+                field(Name; Rec.Name)
+                {
+                    ApplicationArea = All;
+
+                    trigger OnValidate()
+                    var
+                        Mode: Codeunit "LT NG Mode";
+                    begin
+                        Rec.Note := 'Resolved';
+                        CurrPage.SaveRecord();
+                        Mode.StampMark(Rec);
+                        CurrPage.Update(false);
+                    end;
+                }
+                field(Note; Rec.Note) { ApplicationArea = All; }
+                field(Mark; Rec.Mark) { ApplicationArea = All; }
+                field(Value; Rec.Value) { ApplicationArea = All; }
+            }
+        }
+        area(FactBoxes)
+        {
+            part(Info; "LT NG Info")
+            {
+                ApplicationArea = All;
+                SubPageLink = "Group Code" = field("Group Code"), "Entry No." = field("Entry No.");
+            }
+        }
+    }
+
+    trigger OnAfterGetRecord()
+    begin
+        Reads += 1;
+    end;
+
+    var
+        Reads: Integer;
+}
+
+codeunit 97707 "LT NG Opener"
+{
+    procedure Open(GroupCode: Code[10]; PageId: Integer)
+    var
+        Line: Record "LT NG Line";
+    begin
+        Line.SetRange("Group Code", GroupCode);
+        Page.RunModal(PageId, Line);
+    end;
+}
+
+codeunit 97708 "LT NG Tests"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    var
+        Shown: Text;
+
+    // The page's OnAfterGetRecord sets a field of Rec.
+    [Test]
+    [HandlerFunctions('LinesHandler')]
+    procedure NewLine_PageTriggerSetsAField_ShowsIt()
+    begin
+        Initialize();
+        RunMode(1, Page::"LT NG Lines");
+        Check('shown', 'name=A/Resolved/Stamped/Got part=Resolved/Stamped/A value=A/Resolved/Stamped/V part=Resolved/Stamped/A ', Shown);
+        Check('rows', 'A/Resolved/Stamped/V;', Rows());
+    end;
+
+    // The part's OnAfterGetRecord writes another table.
+    [Test]
+    [HandlerFunctions('LinesHandler')]
+    procedure NewLine_PartTriggerWritesAnotherTable_ShowsAndSavesTheRow()
+    var
+        Other: Record "LT NG Other";
+    begin
+        Initialize();
+        RunMode(2, Page::"LT NG Lines");
+        Check('shown', 'name=A/Resolved/Stamped/ part=Resolved/Stamped/A value=A/Resolved/Stamped/V part=Resolved/Stamped/A ', Shown);
+        Check('rows', 'A/Resolved/Stamped/V;', Rows());
+        Check('others', '1', Format(Other.Count()));
+    end;
+
+    // The control modifies the row through another record before the save.
+    [Test]
+    [HandlerFunctions('LinesHandler')]
+    procedure NewLine_ModifyThroughAnotherRecordBeforeSaveRecord_SaveWritesRecOverIt()
+    begin
+        Initialize();
+        RunMode(3, Page::"LT NG Lines");
+        Check('shown', 'name=A/Resolved// part=Resolved//A value=A/Resolved//V part=Resolved//A ', Shown);
+        Check('rows', 'A/Resolved//V;', Rows());
+    end;
+
+    // The control writes another table before the save.
+    [Test]
+    [HandlerFunctions('LinesHandler')]
+    procedure NewLine_WriteAnotherTableBeforeSaveRecord_ShowsAndSavesTheRow()
+    var
+        Other: Record "LT NG Other";
+    begin
+        Initialize();
+        RunMode(4, Page::"LT NG Lines");
+        Check('shown', 'name=A/Resolved// part=Resolved//A value=A/Resolved//V part=Resolved//A ', Shown);
+        Check('rows', 'A/Resolved//V;', Rows());
+        Check('others', '1', Format(Other.Count()));
+    end;
+
+    // The page declares OnAfterGetRecord only, with the same part.
+    [Test]
+    [HandlerFunctions('ReadHandler')]
+    procedure NewLine_PageWithoutOnAfterGetCurrRecord_ShowsAndSavesTheRow()
+    begin
+        Initialize();
+        RunMode(0, Page::"LT NG Lines Read");
+        Check('shown', 'name=A/Resolved/Stamped/ part=Resolved/Stamped/A value=A/Resolved/Stamped/V part=Resolved/Stamped/A ', Shown);
+        Check('rows', 'A/Resolved/Stamped/V;', Rows());
+    end;
+
+    [ModalPageHandler]
+    procedure LinesHandler(var Lines: TestPage "LT NG Lines")
+    begin
+        Lines.New();
+        Lines.Name.SetValue('A');
+        Shown += 'name=' + Lines.Name.Value() + '/' + Lines.Note.Value() + '/' + Lines.Mark.Value() + '/' + Lines.Value.Value();
+        Shown += ' part=' + Lines.Info.Note.Value() + '/' + Lines.Info.Mark.Value() + '/' + Lines.Info.Info.Value() + ' ';
+        Lines.Value.SetValue('V');
+        Shown += 'value=' + Lines.Name.Value() + '/' + Lines.Note.Value() + '/' + Lines.Mark.Value() + '/' + Lines.Value.Value();
+        Shown += ' part=' + Lines.Info.Note.Value() + '/' + Lines.Info.Mark.Value() + '/' + Lines.Info.Info.Value() + ' ';
+        Lines.OK().Invoke();
+    end;
+
+    [ModalPageHandler]
+    procedure ReadHandler(var Lines: TestPage "LT NG Lines Read")
+    begin
+        Lines.New();
+        Lines.Name.SetValue('A');
+        Shown += 'name=' + Lines.Name.Value() + '/' + Lines.Note.Value() + '/' + Lines.Mark.Value() + '/' + Lines.Value.Value();
+        Shown += ' part=' + Lines.Info.Note.Value() + '/' + Lines.Info.Mark.Value() + '/' + Lines.Info.Info.Value() + ' ';
+        Lines.Value.SetValue('V');
+        Shown += 'value=' + Lines.Name.Value() + '/' + Lines.Note.Value() + '/' + Lines.Mark.Value() + '/' + Lines.Value.Value();
+        Shown += ' part=' + Lines.Info.Note.Value() + '/' + Lines.Info.Mark.Value() + '/' + Lines.Info.Info.Value() + ' ';
+        Lines.OK().Invoke();
+    end;
+
+    local procedure Initialize()
+    var
+        Line: Record "LT NG Line";
+        Other: Record "LT NG Other";
+        Mode: Codeunit "LT NG Mode";
+    begin
+        Line.DeleteAll();
+        Other.DeleteAll();
+        Mode.Set(0);
+        Commit();
+        Shown := '';
+    end;
+
+    local procedure RunMode(M: Integer; PageId: Integer)
+    var
+        Mode: Codeunit "LT NG Mode";
+        Opener: Codeunit "LT NG Opener";
+    begin
+        Mode.Set(M);
+        Opener.Open('G1', PageId);
+        Mode.Set(0);
+    end;
+
+    local procedure Rows() Result: Text
+    var
+        Line: Record "LT NG Line";
+    begin
+        Line.SetRange("Group Code", 'G1');
+        if Line.FindSet() then
+            repeat
+                Result += Line.Name + '/' + Line.Note + '/' + Line.Mark + '/' + Line.Value + ';';
+            until Line.Next() = 0;
+    end;
+
+    local procedure Check(What: Text; Expected: Text; Actual: Text)
+    begin
+        if Expected <> Actual then
+            Error('%1: expected <%2>, found <%3>.', What, Expected, Actual);
+    end;
+}
