@@ -42,6 +42,7 @@ pub struct RowDelta {
     install_rows: Option<BTreeSet<u32>>,
     company_unknown: Vec<(String, u32, String)>,
     full_copies: Vec<String>,
+    restamped_rows: Vec<crate::state::RestampedRows>,
     origin: u64,
 }
 
@@ -77,6 +78,7 @@ impl Baseline {
             install_rows: None,
             company_unknown: Vec::new(),
             full_copies: Vec::new(),
+            restamped_rows: Vec::new(),
             origin: super::new_origin(),
         }
     }
@@ -133,6 +135,7 @@ impl Baseline {
             install_rows: self.install_rows.clone(),
             company_unknown: self.company_unknown.clone(),
             full_copies: self.full_copies.clone(),
+            restamped_rows: self.restamped_rows.clone(),
             origin: self.origin,
         })
     }
@@ -187,6 +190,7 @@ impl Baseline {
         b.install_rows = delta.install_rows.clone();
         b.company_unknown = delta.company_unknown.clone();
         b.full_copies = delta.full_copies.clone();
+        b.restamped_rows = delta.restamped_rows.clone();
         b.origin = delta.origin;
         Some(b)
     }
