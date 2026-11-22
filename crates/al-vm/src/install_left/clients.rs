@@ -36,6 +36,9 @@ pub(super) fn pages_as_new(p: &PageClients) -> bool {
         bg_worker,
         bg_kept_last_error,
         bg_task_error_unrecorded,
+        // Emptied when the session enters a test codeunit (`Session::reset_query_cache`), so what install code read is not
+        // carried.
+        query_cache: _,
         caption_dialogs,
         caption_write_guard,
         bg_drain_after_call,

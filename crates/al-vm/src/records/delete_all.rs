@@ -169,7 +169,7 @@ impl Session {
                 }
                 let mut row = row;
                 crate::sqltime::read_back(&mut row);
-                let mut st = state_with_fields(rec, row);
+                let mut st = state_with_fields(rec, row.into());
                 st.filters.clear();
                 st.globals = shared.share();
                 self.delete_row(t, &Rc::new(RefCell::new(st)), run)?;

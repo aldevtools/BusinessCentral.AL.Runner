@@ -336,7 +336,7 @@ impl Session {
                 }
             }
             TraceStep::Reach(Reach::GetTable) if moved && self.session_company_field_ref(rec) => {
-                let row = rec.borrow().fields.clone();
+                let row = rec.borrow().fields.to_vec();
                 let t = self.relation_field_no_refs.entry(rec);
                 t.plain_open = true;
                 t.reach = Some((Reach::GetTable, row));
@@ -346,7 +346,7 @@ impl Session {
                     && self.session_company_field_ref(rec)
                     && self.relation_field_no_refs.get(rec).is_some_and(|t| t.plain_open) =>
             {
-                let row = rec.borrow().fields.clone();
+                let row = rec.borrow().fields.to_vec();
                 self.relation_field_no_refs.entry(rec).reach = Some((reach, row));
             }
             step => {

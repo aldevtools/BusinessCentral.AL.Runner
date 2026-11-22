@@ -32,6 +32,8 @@ struct ChildParked {
     /// The test session's last error and its collecting scopes (assumption `bg-task-worker-last-error`).
     last_error: AlError,
     error_scopes: crate::errorcollect::Scopes,
+    /// The test session's group 1 filters, kept aside while the worker runs (`Group1Filters::enter_worker`).
+    group1: crate::group1_sessions::Filters,
 }
 
 /// A new dictionary with the entries of `v` (the worker gets its own copy of the parameters).
@@ -181,7 +183,8 @@ impl Session {
     /// not seen by the test afterwards (:231-248, :250-270 `1;1;1;`); a manual binding of the test does not answer there
     /// while an automatic subscriber does (:272-305, :334-367), so a worker that needs the binding fails and raises
     /// OnPageBackgroundTaskError with ErrorCode `Dialog` (:307-332). The Completed and Error triggers run in the test
-    /// session (:222, :323): the state is put back before they run. The database and the transaction stay as they were:
+    /// session (:222, :323): the state is put back before they run. Its filters in filter group 1 start empty and end with it
+    /// (`group1_sessions.rs`). The database and the transaction stay as they were:
     /// what the worker reads and may not write is pinned by testpage/TestPageBgTaskTx_Tests.al and TestPageBgTask_Tests.al.
     ///
     /// Its last error and its error collection are its own (corpus PR 1516, pages/background-tasks/BgTaskWorkerLastError.al,
@@ -205,6 +208,7 @@ impl Session {
             session_id_override: self.session_id_override.replace(id),
             last_error,
             error_scopes: std::mem::take(&mut self.error_scopes),
+            group1: self.global_group1.enter_worker(),
         }
     }
 
@@ -215,6 +219,7 @@ impl Session {
         self.si_track = parked.si_track;
         self.events.bindings = parked.bindings;
         self.session_id_override = parked.session_id_override;
+        self.global_group1.leave_worker(parked.group1);
         self.error_scopes = parked.error_scopes;
         let worker_error = std::mem::replace(&mut self.last_error, parked.last_error);
         if worker_error != AlError::default() && worker_error != self.last_error {

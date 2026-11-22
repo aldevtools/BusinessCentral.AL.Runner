@@ -348,6 +348,8 @@ pub(crate) struct PageClients {
     /// A failing worker's error left `TestPage.RunPageBackgroundTask` and has not left a routine of the test session yet: an
     /// asserterror around the call itself keeps the last error (`Session::bg_catch_keeps_last_error`).
     pub(crate) bg_task_error_unrecorded: bool,
+    /// The query cache page background tasks and the test session read through (`query_cache.rs`).
+    pub(crate) query_cache: crate::query_cache::QueryCache,
     /// Which dialogs and errors the CaptionClass runs in progress may raise (`Session::caption_dialog_refusal`).
     pub(crate) caption_dialogs: crate::pages::CaptionDialogs,
     /// The CaptionClass expression whose own call runs now, on a page whose open ran its empty-record runs without a pinned

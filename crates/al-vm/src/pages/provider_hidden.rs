@@ -295,7 +295,7 @@ impl Session {
             before.pinned_host_rec = Some(match (mismatch, journal_miss) {
                 (Some(_), Some(journal)) if self.journal_host_type(st).is_some() => Err(journal),
                 (Some(reason), Some(_)) => Err(reason),
-                _ => Ok(self.page_rec(st).borrow().fields.clone()),
+                _ => Ok(self.page_rec(st).borrow().fields.to_vec()),
             });
         }
         Ok(before)
