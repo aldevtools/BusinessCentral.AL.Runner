@@ -208,7 +208,9 @@ fn open_company(
     };
     let engine = session.engine.clone();
     al_builtins::assumptions::clear_hits();
-    // `RunOptions::login_replay_check` (al-runner issue 8211): what the login can read, before it runs.
+    // `RunOptions::login_replay_check` (al-runner issue 8211): what the login can read, before it runs. A retry on a new
+    // session (`Start::again`, `after_refusal`) takes its own key; the call that refused ends at `?` below unnoted, so
+    // only the session that opens the company is checked.
     let replay_key = scratch
         .flags
         .login_replay_check()
