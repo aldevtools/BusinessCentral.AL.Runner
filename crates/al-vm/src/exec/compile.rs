@@ -1410,15 +1410,16 @@ impl<'a> Compiler<'a> {
     /// declared in a procedure. A trigger's locals are not measured.
     fn temporal_slot(&self, i: usize) -> Option<al_builtins::fieldref_value_temporal::TemporalSlot> {
         use al_builtins::fieldref_value_temporal::TemporalSlot as S;
+        // The probes measured procedures only: a trigger's parameters and locals refuse.
+        if self.trigger {
+            return None;
+        }
         if i < self.params {
             return Some(if self.by_var.get(i) == Some(&true) {
                 S::VarParam
             } else {
                 S::ByValueParam
             });
-        }
-        if self.trigger {
-            return None;
         }
         Some(if self.ret_local == Some(i) {
             S::NamedReturn

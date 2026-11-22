@@ -25,3 +25,7 @@ GK Fvt Slots::Measured_TextValueParam_DateTime	ASSUMED fieldref-value-temporal-e
 GK Fvt Slots::Measured_TextLocal_Date	ASSUMED fieldref-value-temporal-error (corpus PR 1522)
 GK Fvt Slots::Measured_CodeVarParam_Time	ASSUMED fieldref-value-temporal-error (corpus PR 1522)
 GK Fvt Slots::Measured_CodeNamedReturn_DateTime	ASSUMED fieldref-value-temporal-error (corpus PR 1522)
+GK Fvt Refused::Refused_IntVarParam_Language1031	REFUSED an Integer field into a DateTime var parameter under GlobalLanguage 1031: main ran it with the en-US text, no probe measured another language (assumption fieldref-value-temporal-error)
+GK Fvt Refused::Refused_BigVarParam_Language1031	REFUSED a BigInteger field into a DateTime var parameter under GlobalLanguage 1031: main ran it with the en-US text, no probe measured another language (assumption fieldref-value-temporal-error)
+GK Fvt Refused::Refused_DecVarParam_Language1031	REFUSED a Decimal 1.5 field into a DateTime var parameter under GlobalLanguage 1031: main ran it with the en-US text, no probe measured another language (assumption fieldref-value-temporal-error)
+GK Fvt Refused::Refused_BoolVarParam_Language1031	REFUSED a Boolean field into a DateTime var parameter under GlobalLanguage 1031: main ran it with the en-US text, no probe measured another language (assumption fieldref-value-temporal-error)

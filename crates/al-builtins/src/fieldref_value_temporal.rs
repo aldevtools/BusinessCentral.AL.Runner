@@ -21,13 +21,6 @@ pub enum TemporalSlot {
     NamedReturn,
 }
 
-/// Whether the text of a value is the en-US text the probe measured: the language is 1033 and no format region applies. A
-/// Decimal (`1,000.5`), a Duration (`1 minute 5 seconds`) and a Boolean (`Yes`) change with either, and so does the language of an
-/// error text.
-fn en_us(ctx: &dyn crate::format::FormatCtx) -> bool {
-    ctx.language() == 1033 && ctx.region().is_none_or(|r| r.is_empty()) && ctx.region_unpinned().is_none()
-}
-
 /// The Integer values of the DateTime cells (recordref-fieldref/fieldref-value-convert/FvcDateTimeShapes.al IntField_To_DateTime_Shapes).
 const INT_DATETIME: [i32; 4] = [0, 1, 1000, -1];
 /// The Integer values of the Date and Time cells (FvcDateTimeShapesDateTime.al IntField_To_Date_Shapes, IntField_To_Time_Shapes).
@@ -82,7 +75,7 @@ fn in_dec(d: &Decimal, set: &[(i64, u32)]) -> bool {
 /// - into a Date or Time, `VarParam` and `PlainLocal`: the Integer, Decimal and Duration values listed above and the ten digit
 ///   strings (FvcDateTimeShapesDateTime.al, FvcDateTimeDigits.al).
 ///
-/// Every cell but the first reads the en-US text only (`en_us`). `None`: any other value, slot or target.
+/// Every cell runs in the en-US session only (`format::en_us_session`), the language of an error text changes with it. `None`: any other value, slot or target.
 pub fn fieldref_value_into_temporal(
     v: &Value,
     t: &RtType,
@@ -94,32 +87,28 @@ pub fn fieldref_value_into_temporal(
     let temporal = matches!(t, RtType::DateTime | RtType::Date | RtType::Time);
     let two = matches!(slot, TemporalSlot::VarParam | TemporalSlot::PlainLocal);
     let var = slot == TemporalSlot::VarParam;
-    // The cell's `Nav<Type>` name, its measured text, and whether the cell needs the en-US text.
-    let (nav, text, plain) = match v {
+    // The cell's `Nav<Type>` name and its measured text.
+    let (nav, text) = match v {
         Value::Integer(n)
             if temporal && (var || (dt && INT_DATETIME.contains(n)) || (two && INT_DATE_TIME.contains(n))) =>
         {
-            ("NavInteger", n.to_string(), !var)
+            ("NavInteger", n.to_string())
         }
         Value::BigInteger(n) if temporal && (var || (dt && BIG_DATETIME.contains(n))) => {
-            ("NavBigInteger", n.to_string(), !var)
+            ("NavBigInteger", n.to_string())
         }
         Value::Decimal(d) if (dt && in_dec(d, &DEC_DATETIME)) || (temporal && two && in_dec(d, &DEC_DATE_TIME)) => {
-            ("NavDecimal", crate::format::try_format(v, 0, 0, ctx).ok()?, true)
+            ("NavDecimal", crate::format::try_format(v, 0, 0, ctx).ok()?)
         }
         Value::Duration(ms) if (dt && DUR_DATETIME.contains(ms)) || (temporal && two && DUR_DATE_TIME.contains(ms)) => {
-            ("NavDuration", crate::format::try_format(v, 0, 0, ctx).ok()?, true)
+            ("NavDuration", crate::format::try_format(v, 0, 0, ctx).ok()?)
         }
-        Value::Boolean(_) if dt => ("NavBoolean", crate::format::try_format(v, 0, 0, ctx).ok()?, true),
-        Value::Text(s) if temporal && (dt || two) && DIGITS.contains(&s.as_str()) => {
-            ("NavText", s.as_str().to_owned(), true)
-        }
-        Value::Code(s) if temporal && (dt || two) && DIGITS.contains(&s.as_str()) => {
-            ("NavCode", s.as_str().to_owned(), true)
-        }
+        Value::Boolean(_) if dt => ("NavBoolean", crate::format::try_format(v, 0, 0, ctx).ok()?),
+        Value::Text(s) if temporal && (dt || two) && DIGITS.contains(&s.as_str()) => ("NavText", s.as_str().to_owned()),
+        Value::Code(s) if temporal && (dt || two) && DIGITS.contains(&s.as_str()) => ("NavCode", s.as_str().to_owned()),
         _ => return None,
     };
-    if plain && !en_us(ctx) {
+    if !crate::format::en_us_session(ctx) {
         return None;
     }
     crate::assumptions::assume(crate::assumptions::Assumption::FieldRefValueTemporalError);
@@ -135,4 +124,58 @@ pub fn fieldref_value_into_temporal(
         _ => format!("The value \"{text}\" can't be evaluated into type DateTime."),
     };
     Some(crate::native::raise(message, "Evaluate:Conversion"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Session(i32);
+    impl crate::format::FormatCtx for Session {
+        fn enum_name(&self, _: u32, _: i32) -> String {
+            String::new()
+        }
+        fn language(&self) -> i32 {
+            self.0
+        }
+    }
+
+    fn run(v: &Value, t: &RtType, slot: TemporalSlot, lang: i32) -> bool {
+        fieldref_value_into_temporal(v, t, slot, true, &Session(lang)).is_some()
+    }
+
+    #[test]
+    fn every_cell_runs_in_en_us_only() {
+        for v in [
+            Value::Integer(1),
+            Value::BigInteger(1),
+            Value::Decimal(Decimal::new(15, 1)),
+            Value::Boolean(true),
+        ] {
+            assert!(
+                run(&v, &RtType::DateTime, TemporalSlot::VarParam, 1033),
+                "{v:?} in 1033"
+            );
+            assert!(
+                !run(&v, &RtType::DateTime, TemporalSlot::VarParam, 1031),
+                "{v:?} in 1031"
+            );
+        }
+    }
+
+    #[test]
+    fn a_slot_or_value_off_the_lists_gets_none() {
+        assert!(!run(
+            &Value::Integer(1),
+            &RtType::Date,
+            TemporalSlot::ByValueParam,
+            1033
+        ));
+        assert!(!run(
+            &Value::Decimal(Decimal::new(2, 0)),
+            &RtType::DateTime,
+            TemporalSlot::VarParam,
+            1033
+        ));
+    }
 }

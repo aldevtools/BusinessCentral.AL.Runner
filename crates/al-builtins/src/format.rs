@@ -87,6 +87,12 @@ pub trait FormatCtx {
     }
 }
 
+/// Whether the session is the en-US one the probes ran in: GlobalLanguage 1033, no `CurrReport.FormatRegion` and a region that is
+/// pinned. The one check for every path that is measured in that session only.
+pub fn en_us_session(c: &dyn FormatCtx) -> bool {
+    c.language() == 1033 && c.region().is_none() && c.region_unpinned().is_none()
+}
+
 /// A context without the format region, for the plain en-US text a region then rewrites.
 struct WithoutRegion<'a>(&'a dyn FormatCtx);
 

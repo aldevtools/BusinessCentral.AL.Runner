@@ -209,6 +209,58 @@ codeunit 61630 "GK Fvt Refused"
     end;
 
     [Test]
+    procedure Refused_IntVarParam_Language1031()
+    var
+        FR: FieldRef;
+        R: DateTime;
+    begin
+        Lib.Field(2, 1, FR);
+        GlobalLanguage(1031);
+        asserterror IntoVar(FR, R);
+        GlobalLanguage(1033);
+        Refused();
+    end;
+
+    [Test]
+    procedure Refused_BigVarParam_Language1031()
+    var
+        FR: FieldRef;
+        R: DateTime;
+    begin
+        Lib.Field(3, 1, FR);
+        GlobalLanguage(1031);
+        asserterror IntoVar(FR, R);
+        GlobalLanguage(1033);
+        Refused();
+    end;
+
+    [Test]
+    procedure Refused_DecVarParam_Language1031()
+    var
+        FR: FieldRef;
+        R: DateTime;
+    begin
+        Lib.Field(4, 1.5, FR);
+        GlobalLanguage(1031);
+        asserterror IntoVar(FR, R);
+        GlobalLanguage(1033);
+        Refused();
+    end;
+
+    [Test]
+    procedure Refused_BoolVarParam_Language1031()
+    var
+        FR: FieldRef;
+        R: DateTime;
+    begin
+        Lib.Field(6, true, FR);
+        GlobalLanguage(1031);
+        asserterror IntoVar(FR, R);
+        GlobalLanguage(1033);
+        Refused();
+    end;
+
+    [Test]
     procedure Refused_TriggerLocal_DateTime()
     var
         FR: FieldRef;
