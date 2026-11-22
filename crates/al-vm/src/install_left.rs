@@ -141,9 +141,11 @@ impl Session {
             truncate_undo: _,
             validating: _,
             stamp_validating: _,
+            validate_events: _,
             validate_site: _,
             validate_sites: _,
             plain_proc_xrec: _,
+            shared_proc_xrec: _,
             cx: _,
             // Carried: `Baseline::install_rows` (the session has no baseline, so it is empty).
             baseline_rows: _,
@@ -305,9 +307,11 @@ impl Session {
             && self.truncate_undo.is_empty()
             && self.validating.is_empty()
             && self.stamp_validating.is_empty()
+            && self.validate_events.is_empty()
             && self.validate_site.is_none()
             && self.validate_sites.is_empty()
             && self.plain_proc_xrec.is_empty()
+            && self.shared_proc_xrec.is_empty()
             && self.field_error_form.is_none()
             && self.error_finals.is_none()
             && self.var_alias_watch.is_empty()
