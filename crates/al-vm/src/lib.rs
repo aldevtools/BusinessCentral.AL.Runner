@@ -2717,7 +2717,7 @@ impl Session {
             if e.call_stack.is_empty() {
                 self.error_raised_in = Some(object);
             }
-            self.add_frame(e, object, top);
+            self.add_leaving_frame(e, object, top);
         }
         self.profile_leave();
         self.call_stack.pop();
