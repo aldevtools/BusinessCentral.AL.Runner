@@ -105,6 +105,12 @@ pub(crate) struct Filters {
 pub(crate) struct Group1Filters {
     pub(crate) filters: Filters,
     shape: Group1InstallShape,
+    /// The tables whose group 1 filter a page background task's worker set, ended with the worker (`leave_worker`).
+    worker_ended: Vec<u32>,
+    /// A worker runs with the test session's group 1 kept aside (`enter_worker`): what is in group 1 now is the worker's.
+    worker_parked: bool,
+    /// A record reads with group 1 filters another record set (`Session::with_group1`), not its own.
+    sharing: bool,
 }
 
 impl Group1Filters {
@@ -113,9 +119,43 @@ impl Group1Filters {
         self.filters.by_table.values().all(|e| e.signature.is_empty())
     }
 
-    /// Some table holds a group 1 filter, or had one another record took back.
+    /// Some table holds a group 1 filter, or had one another record took back, or a worker's that ended.
     pub(crate) fn has_tables(&self) -> bool {
-        !self.filters.by_table.is_empty()
+        !self.filters.by_table.is_empty() || !self.worker_ended.is_empty()
+    }
+
+    /// A page background task's worker starts in a child session: the test session's group 1, kept aside when no table holds
+    /// an entry. When one does, the worker shares it, as before (not measured).
+    pub(crate) fn enter_worker(&mut self) -> Option<Filters> {
+        let parked = self
+            .filters
+            .by_table
+            .is_empty()
+            .then(|| std::mem::take(&mut self.filters));
+        self.worker_parked = parked.is_some();
+        parked
+    }
+
+    /// The read running is a worker's, on a record whose group 1 filters it set itself while the test session's group 1 was
+    /// kept aside: the shape BgTaskQueryCache.al:3429 measures (open corpus PR 1495). Not a record that reads the test
+    /// session's filters, nor another record's of the worker.
+    pub(crate) fn worker_owns_group1(&self) -> bool {
+        self.worker_parked && !self.sharing
+    }
+
+    /// The worker ended: what it set in group 1 is not on the test session's records (open corpus PR 1495,
+    /// BgTaskQueryCache.al:3438), and a later read of such a table runs through the assumption (`Session::group1_use`).
+    pub(crate) fn leave_worker(&mut self, parked: Option<Filters>) {
+        let Some(parked) = parked else {
+            return;
+        };
+        self.worker_parked = false;
+        let worker = std::mem::replace(&mut self.filters, parked);
+        for table in worker.by_table.into_keys() {
+            if !self.worker_ended.contains(&table) {
+                self.worker_ended.push(table);
+            }
+        }
     }
 
     /// The group 1 filters of every table that holds some, as text to compare (al-vm `state_stamp.rs`).
@@ -418,6 +458,9 @@ impl Session {
     /// shape is refused.
     pub(crate) fn group1_use(&self, rec: &Rec, table: u32, op: Group1Op, args: &[Value]) -> Result<Group1Use, Signal> {
         let Some(entry) = self.global_group1.filters.by_table.get(&table) else {
+            if self.global_group1.worker_ended.contains(&table) {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::BackgroundTaskQueryCache);
+            }
             return Ok(Group1Use::Own);
         };
         if op.is_filter_group() {
@@ -489,7 +532,9 @@ impl Session {
             return f(self);
         };
         rec.borrow_mut().filters.extend(filters);
+        let sharing = std::mem::replace(&mut self.global_group1.sharing, true);
         let r = f(self);
+        self.global_group1.sharing = sharing;
         rec.borrow_mut().filters.retain(|f| f.group != 1);
         let found = match (step, &r) {
             (LoopStep::FindSet, Ok(Value::Boolean(true))) => true,

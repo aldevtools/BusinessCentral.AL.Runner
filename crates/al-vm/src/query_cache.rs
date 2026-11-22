@@ -9,9 +9,10 @@
 //! - a group: `FindFirst`, `FindLast`, `Count` and `IsEmpty` of AL code (a Record or a RecordRef; not a page's own read,
 //!   :2137), keyed by the read, the sort direction and every filter (`group_key`): the group alone (:641, :658, :675, :692),
 //!   a field outside the key and two fields (:870, :891), and in PR 1495 FindLast, IsEmpty and FindFirst after `SetFilter`
-//!   (:1276, :1293, :1312) and all four reads of every shape of :1718-:1832 and :2711-:2775 (no filter or up to eight, filter
-//!   groups 0 and 2-7 and the OR group, a descending sort, ranges, `SetFilter` of values, wildcards, the comparison operators,
-//!   `@` alone, an empty `FILTER()`, an `&` inside an `|`). One value set by `SetRange`,
+//!   (:1276, :1293, :1312) and all four reads of every shape of :1718-:1832, :2711-:2775 and :3394-:3422 (no filter or up to
+//!   7650, filter groups 0 to 255 and the OR group, filter group 1 in a worker, a descending sort, ranges, `SetFilter` of
+//!   values, wildcards, the comparison operators, `@` alone, an empty `FILTER()`, an `&` inside an `|`, a FlowFilter field,
+//!   :3510), and FindFirst and FindLast with a FlowField filter next to the key (:3475, :3485). One value set by `SetRange`,
 //!   by `SetFilter`, by a range from the value to itself or by `FieldRef.SetRange` is one filter (:917, :1840, :1856).
 //!   `Find('+')`, `Find('-')`, `FindSet`, and any of the four after `SetLoadFields`, read the rows as they are (:2037-:2121,
 //!   :2760).
@@ -20,10 +21,12 @@
 //! before or after, an insert and a delete each committed: PR 1495 :1207; a commit of a ModifyAll or DeleteAll of the table
 //! ends it or keeps it by the target's minor, `al_version::bulk_commit_ends_cached_row`, and elsewhere a read it would answer
 //! otherwise than the table is refused); a group entry until a commit writes the table (:823, :845, :870, :891 against :451;
-//! :1945, :1962, :2018). A rollback changes neither (:983, :1016, :1029), and a found row, a missing row and a count are all
+//! :1945, :1962, :2018), or the table its FlowField filter counts or sums (:3503). A rollback changes neither (:983, :1016,
+//! :1029), and a found row, a missing row and a count are all
 //! kept (:604, :624, :692). The test session's own read fills the cache while that session has not written the table since
-//! its last commit (:500, :541, :938; a test page's read of a line too, :2300, :2322, :2355; a group read in every shape,
-//! :1239, :1904, :1924, :2375-:2405, :2789, :2808; not after it wrote the table, :959, :1982, :2101), and a worker's first read
+//! its last commit (:500, :541, :938; a test page's read of a line too, :2300, :2322, :2355; a group read in every shape but
+//! filter group 1, :1239, :1904, :1924, :2375-:2405, :2789, :2808, :3520-:3552; not after it wrote the table, :959, :1982,
+//! :2101), and a worker's first read
 //! then answers what the test read. The test session's own read answers from an entry a worker filled
 //! (:983), which is refused here. The cache starts empty in every test codeunit (:1044, :1067). Every other read keeps
 //! reading the rows as they are, as on main.
@@ -32,13 +35,15 @@ use crate::records::Rec;
 use crate::{Session, Signal};
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::describe::Describe;
-use al_builtins::filter::FilterExpr;
+use al_builtins::filter::{FieldFilter, FilterExpr};
 use al_builtins::native::unsupported;
 use al_builtins::record_op::RecordOp;
 use al_builtins::value::Value;
 use al_data::{AccessContext, Store, TableDef};
+use al_ir::CalcMethod;
 use std::collections::HashMap;
 use std::rc::{Rc, Weak};
+use std::sync::Arc;
 
 /// Entries by table (object, company) and a text of their key values that may be shared by other keys; the key values
 /// themselves tell them apart (`Value::identical`).
@@ -159,19 +164,27 @@ impl Form {
     }
 }
 
-/// The filter groups the cells set a group read's filters in: 0, 2 (:1736), 3 and 5 (:2723), 4 (:1742), 6 (:1804), 7 (:2730)
-/// and the cross-column OR group (:2736). Filter group 1 is the global one, and groups past 7 are not measured.
-const CACHED_FILTER_GROUPS: [i32; 8] = [al_builtins::filter::OR_GROUP, 0, 2, 3, 4, 5, 6, 7];
-/// The most filters a cell's group read had (:2717); no filter at all is measured too (:2775).
-const MAX_CACHED_FILTERS: usize = 8;
+/// Whether the cells set a group read's filters in filter group `group`: 0, 2 (:1736), 3 and 5 (:2723), 4 (:1742), 6 (:1804), 7
+/// (:2730), 8 and 10 (:3415), 100 and 255 (:3422), each of 2-255 (:3408), and the cross-column OR group (:2736); filter group 1,
+/// the global one, only on a worker's record that set it itself while the test session held none (:3429, `own_group1`: the
+/// test session's read in it and a record that reads another record's group 1 are not measured). BC drops a filter set in a
+/// group past 255 (record/crud/RcAFilterInfo.al FilterGroup_Numbers_Past_The_Range_BQ), which the runner does not model.
+fn cached_filter_group(group: i32, own_group1: bool) -> bool {
+    group == al_builtins::filter::OR_GROUP || matches!(group, 0 | 2..=255) || group == 1 && own_group1
+}
+
+/// The most filters a cell's group read had: one on each of 30 fields in filter groups 0 and 2-255 (:3408); no filter at all is
+/// measured too (:2775).
+const MAX_CACHED_FILTERS: usize = 7650;
 
 /// What the cache holds for one codeunit run (`Session::reset_query_cache` empties it).
 #[derive(Default)]
 pub(crate) struct QueryCache {
     /// The rows workers read.
     rows: Entries<(Committed, Option<Vec<Value>>)>,
-    /// The groups workers and the test session read, with the table's commit stamp then.
-    groups: Entries<(Option<u64>, GroupAnswer)>,
+    /// The groups workers and the test session read, with the commit stamps then of the table and of the tables its FlowField
+    /// filter counts or sums.
+    groups: Entries<(Vec<Option<u64>>, GroupAnswer)>,
     /// The rows the test session read while it had not written their table.
     test_rows: Entries<Committed>,
     /// The read running is AL code's (`mark_al_record_read`): only it reads a group through the cache.
@@ -212,8 +225,9 @@ fn same_group(a: &GroupAnswer, b: &GroupAnswer) -> bool {
 /// cells set (PR 1495): one value (:1718, also by `SetFilter`, a placeholder and a range to itself, :1766, :917), a range and an
 /// open one (:1748, :1818), `<>`, `<`, `<=`, `>`, `>=` and a pattern not matched, with and without `@` (:1818, :2751), a
 /// pattern with and without `@` (:1779), `@` alone and an empty `FILTER()` of a view (:2751), `|` and `&` of those (:1773,
-/// :1818), and an `&` inside an `|` (:2743). A wildcard written as a value (`=a*`) is an error on BC, not a read; `<>@` alone
-/// and other nestings are not measured.
+/// :1818), and an `&` inside an `|` (:2743). A wildcard written as a value (`=a*`) is an error on BC, not a read. `<>@` alone
+/// keeps no row before and after a change (:3459), so whether BC answers it from the cache cannot be seen: it reads the rows as
+/// they are. Other nestings are not measured.
 fn encode_filter(expr: &FilterExpr, level: Nesting, out: &mut Vec<Value>) -> Option<()> {
     use FilterExpr as F;
     let tag = |t: &str| Value::Text(t.into());
@@ -262,6 +276,48 @@ enum Nesting {
     Top,
     InOr,
     Simple,
+}
+
+/// Whether a group read with a filter on a FlowField (`flow_fields`, of its `filters`) is keyed: a FindFirst or FindLast whose
+/// one FlowField filter, of one value in filter group 0 on a FlowField that counts or sums, stands next to one value on each
+/// primary-key field (in filter group 0, by SetRange or SetFilter, or in filter group 2; a key of one field and of two fields)
+/// and FlowFilter filters, nothing else (:3475, :3485). The entry also ends with a commit of the table the FlowField counts or
+/// sums (`Session::flow_field_sources`, :3503). Count and IsEmpty read the rows as they are (:3475, :3552; `cached_count`'s
+/// `plain`), and so do all four with the FlowField filter alone (:3466, :3552), next to a range on the key, a filter outside
+/// the key or a part of a two-field key (:3494).
+fn flow_field_find(
+    schema: &al_ir::Table,
+    t: &TableDef,
+    filters: &[&FieldFilter],
+    flow_fields: &[&FieldFilter],
+    form: Form,
+) -> bool {
+    let one_value = |e: &FilterExpr| match e {
+        FilterExpr::Range(Some(a), Some(b)) => a.identical(b),
+        FilterExpr::Eq(_) => true,
+        _ => false,
+    };
+    let [flow] = flow_fields else {
+        return false;
+    };
+    let counts_or_sums = schema.fields[flow.field]
+        .calc
+        .as_ref()
+        .is_some_and(|c| matches!(c.method, CalcMethod::Count | CalcMethod::Sum) && !c.negate);
+    let pk = &t.keys[0];
+    let key = pk.iter().all(|k| {
+        let mut on = filters.iter().filter(|f| f.field == *k);
+        matches!((on.next(), on.next()), (Some(f), None) if matches!(f.group, 0 | 2) && one_value(&f.expr))
+    });
+    let others = filters
+        .iter()
+        .all(|f| f.field == flow.field || pk.contains(&f.field) || schema.fields[f.field].flow_filter && f.group == 0);
+    matches!(form, Form::First | Form::Last)
+        && counts_or_sums
+        && flow.group == 0
+        && one_value(&flow.expr)
+        && key
+        && others
 }
 
 const TEST_READ_REFUSAL: &str = "a read of the test session that a page background task's earlier read answers from the query \
@@ -385,9 +441,10 @@ impl Session {
     }
 
     /// The key of the group read `form` of `rec`: a read of AL code, its sort direction and every filter (filter group, field,
-    /// expression) in group and field order, when the cells measure each: no filter or up to eight (:2775, :2717), on stored fields (a
-    /// FlowField or FlowFilter is no column of the query), in the filter groups of `CACHED_FILTER_GROUPS`, of the kinds
-    /// `encode_filter` takes. `None`: another read, which reads the rows as they are.
+    /// expression) in group and field order, when the cells measure each: no filter or up to `MAX_CACHED_FILTERS` (:2775,
+    /// :3408), in a filter group `cached_filter_group` takes, of the kinds `encode_filter` takes, on stored fields and FlowFilter
+    /// fields (:3510), with a FlowField filter only as `flow_field_find` allows. `None`: another read, which reads the rows as
+    /// they are.
     fn group_key(&self, rec: &Rec, t: &TableDef, form: Form) -> Option<Vec<Value>> {
         if !self.pages.query_cache.al_record_read {
             return None;
@@ -396,15 +453,23 @@ impl Session {
         if r.filters.len() > MAX_CACHED_FILTERS {
             return None;
         }
+        let schema = self.engine.program.objects[t.object as usize].table.as_ref()?;
         let mut filters: Vec<_> = r.filters.iter().collect();
         filters.sort_by_key(|f| (f.group, f.field));
         let mut values = vec![Value::Text(form.kind().into()), Value::Boolean(r.ascending)];
-        for f in filters {
-            if !CACHED_FILTER_GROUPS.contains(&f.group) || !t.fields.get(f.field).is_some_and(|d| d.stored) {
+        let mut flow_fields = Vec::new();
+        for f in &filters {
+            if !cached_filter_group(f.group, self.global_group1.worker_owns_group1()) {
                 return None;
+            }
+            if !t.fields.get(f.field)?.stored && !schema.fields.get(f.field)?.flow_filter {
+                flow_fields.push(*f);
             }
             values.extend([Value::Integer(f.group), Value::Integer(f.field as i32)]);
             encode_filter(&f.expr, Nesting::Top, &mut values)?;
+        }
+        if !flow_fields.is_empty() && !flow_field_find(schema, t, &filters, &flow_fields, form) {
+            return None;
         }
         Some(values)
     }
@@ -415,6 +480,20 @@ impl Session {
             company: rec.borrow().company.clone(),
             values,
         }
+    }
+
+    /// The tables the FlowFields `rec` filters on count or sum (`flow_field_find` keys a read with one).
+    fn flow_field_sources(&self, rec: &Rec, t: &TableDef) -> Vec<Arc<TableDef>> {
+        let Some(schema) = self.engine.program.objects[t.object as usize].table.as_ref() else {
+            return Vec::new();
+        };
+        let r = rec.borrow();
+        r.filters
+            .iter()
+            .filter(|f| !t.fields[f.field].stored)
+            .filter_map(|f| schema.fields[f.field].calc.as_ref())
+            .filter_map(|c| self.engine.tables[c.table].clone())
+            .collect()
     }
 
     fn committed(&mut self, rec: &Rec, cx: &AccessContext, t: &TableDef, pk: &[Value]) -> Result<Committed, Signal> {
@@ -457,8 +536,9 @@ impl Session {
         Ok(fresh)
     }
 
-    /// What `Count` or `IsEmpty` of `rec` that counted `fresh` answers (`plain`: no FlowField filter); an `IsEmpty` the cache
-    /// answers empty counts 0 rows, one it answers not empty 1.
+    /// What `Count` or `IsEmpty` of `rec` that counted `fresh` answers (`plain`: no FlowField filter; with one, both read the
+    /// rows as they are, BgTaskQueryCache.al:3475, :3552); an `IsEmpty` the cache answers empty counts 0 rows, one it answers
+    /// not empty 1.
     pub(crate) fn cached_count(
         &mut self,
         rec: &Rec,
@@ -598,9 +678,10 @@ impl Session {
     }
 
     /// A group read of `rec` for `values` that the table answers with `fresh`: what the read answers. An entry holds while no
-    /// commit wrote the table (:823, :845, :1945, :2018). The test session's read fills it while that session has not written
-    /// the table since its last commit, in every shape `group_key` takes (:1239, :1904, :1924, :2375-:2405, :2789, :2808), and
-    /// after it wrote the table reads the table (:1982, :2101).
+    /// commit wrote the table (:823, :845, :1945, :2018), nor the table its FlowField filter counts or sums (:3503; a commit of
+    /// another table keeps it). The test session's read fills it while that session has not written those tables since its last
+    /// commit, in every shape `group_key` takes (:1239, :1904, :1924, :2375-:2405, :2789, :2808, :3520-:3552), and after it wrote
+    /// the table reads the table (:1982, :2101).
     fn cached_group(
         &mut self,
         rec: &Rec,
@@ -610,7 +691,15 @@ impl Session {
         fresh: GroupAnswer,
     ) -> Result<GroupAnswer, Signal> {
         let at = Self::at(rec, t, values);
-        let stamp = self.store_for(rec)?.committed_stamp(cx, t);
+        let sources = self.flow_field_sources(rec, t);
+        let store = self.store_for(rec)?;
+        let stamp: Vec<Option<u64>> = std::iter::once(t)
+            .chain(sources.iter().map(|s| &**s))
+            .map(|table| store.committed_stamp(cx, table))
+            .collect();
+        let written = std::iter::once(t)
+            .chain(sources.iter().map(|s| &**s))
+            .any(|table| store.written_since_commit(cx, table));
         let entry = self
             .pages
             .query_cache
@@ -619,7 +708,7 @@ impl Session {
             .filter(|(then, _)| *then == stamp)
             .map(|(_, a)| a.clone());
         if !self.in_worker() {
-            if self.store_for(rec)?.written_since_commit(cx, t) {
+            if written {
                 return Ok(fresh);
             }
             if entry.as_ref().is_some_and(|a| !same_group(a, &fresh)) {

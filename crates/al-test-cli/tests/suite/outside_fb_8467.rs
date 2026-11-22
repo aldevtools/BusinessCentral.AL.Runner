@@ -537,8 +537,11 @@ fn issue_8637_repro() {
     }
 }
 
-/// Neighbors of al-runner issue 8637 past what the cells measure (the fixture's header): nine filters and filter group 8. BC
-/// answers them from the cache; the runner keeps main's answer, the rows as they are, with no flag.
+/// Neighbors of al-runner issue 8637 past what the cells measure (the fixture's header): 7651 filters, and a FlowField filter
+/// next to the key with a filter outside the key, as a range, or with the key in filter group 5; and a worker's fresh Record
+/// and RecordRef Count while the test session holds a filter in filter group 1 (:3429 measures the worker's own record
+/// setting it while the test session holds none). BC answers them from the cache; the runner keeps main's answer, the rows as
+/// they are, with no flag.
 #[test]
 fn issue_8637_neighbors() {
     let src = format!(
@@ -546,12 +549,14 @@ fn issue_8637_neighbors() {
         include_str!("../fixtures/outside-fb/Issue8637Neighbors.al")
     );
     let o = outcomes(&src, "BQ Gate Tests");
-    assert_eq!(o.len(), 2);
+    assert_eq!(o.len(), 5);
     for (name, r, marks) in &o {
-        assert!(
-            matches!(r, Outcome::Fail(m) if m.contains("Actual:<a|a|1|No>")),
-            "{name}: {r:?}"
-        );
+        let main = if name.starts_with("TestSessionGroup1") {
+            "Actual:<1,1>"
+        } else {
+            "Actual:<-|-|0|Yes / a|a|1|No>"
+        };
+        assert!(matches!(r, Outcome::Fail(m) if m.contains(main)), "{name}: {r:?}");
         assert!(!marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
     }
 }
@@ -572,6 +577,21 @@ fn issue_8637_more_cells() {
         );
     }
 }
+/// The cells of BQ Tests 7 (corpus PR 1495, BgTaskQueryCache.al:2850-3605): 9 to 7650 filters, filter groups 1 and 8-255,
+/// FindFirst and FindLast with a FlowField filter next to the key, and a FlowFilter filter answer from the cache, as do the test
+/// session's reads first, flagged. A worker's filter in filter group 1 ends with it (:3438): every later read of its table,
+/// the test page's included, is flagged too. A FlowField filter alone or without the key reads the table, and <>@ alone keeps
+/// no line, as on main.
+#[test]
+fn issue_8637_bq7_cells() {
+    let o = outcomes(PROBE, "BQ Tests 7");
+    assert_eq!(o.len(), 17);
+    for (name, r, marks) in &o {
+        assert_eq!(*r, Outcome::Pass, "{name}");
+        assert!(marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
+    }
+}
+
 /// The cells of BQ Tests 5 (corpus PR 1495, BgTaskQueryCache.al:2229-2409). A test page's read of a line fills the row cache,
 /// as the test session's Get does, through filters on every key field (:2300, :2322) and through a filter on the group alone
 /// (:2355; the page reads its line by the full key). The test session's four reads first answer the worker's first four reads
