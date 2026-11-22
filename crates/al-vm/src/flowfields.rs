@@ -1334,7 +1334,13 @@ impl Session {
         row: &[Value],
         filters: &[FieldFilter],
     ) -> Result<bool, Signal> {
-        let table = rec.borrow().table as usize;
+        let (table, temporary) = {
+            let r = rec.borrow();
+            (r.table as usize, r.temporary)
+        };
+        let def = self.engine.tables[table].clone().expect("table");
+        // A platform table its provider serves keeps main's answer for `@` alone (al-data `MemStore::next`).
+        let platform = self.store_for(rec)?.is_virtual(&def);
         let probe = {
             let r = rec.borrow();
             let mut p = r.clone();
@@ -1346,7 +1352,14 @@ impl Session {
         for f in filters {
             self.check_calc_field(table, f.field)?;
             let v = self.calc_value_in(&probe, f.field, &mut Vec::new(), Asked::RecordFilter)?;
-            if !f.expr.matches(&v)? {
+            // `@` alone as the record's rows are read (al-builtins `filter_at_sign`; BgTaskQueryCache.al:5809).
+            let at_sign = (!platform)
+                .then(|| {
+                    f.expr
+                        .at_sign_alone_read(!temporary, || Value::default_for(&def.fields[f.field].ty))
+                })
+                .flatten();
+            if !at_sign.as_ref().unwrap_or(&f.expr).matches(&v)? {
                 return Ok(false);
             }
         }

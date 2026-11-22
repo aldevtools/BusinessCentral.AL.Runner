@@ -559,6 +559,14 @@ impl MemStore {
     /// A read that filters a Code field with another SQLDataType than Varchar, Integer, BigInteger or Variant at all, or sorts by one
     /// whose first key field it is, is refused: the order and the comparison of such a field are not pinned (see [`CodeStorage`]).
     /// The Writes, Get by exact key and the other keys run.
+    /// The filters of a read with `@` alone answered as this store's rows are read: the empty values in the database, every
+    /// value in a temporary record (al-builtins `filter_at_sign`).
+    fn at_sign_alone_read<'a>(&self, t: &TableDef, filters: &'a [FieldFilter]) -> std::borrow::Cow<'a, [FieldFilter]> {
+        al_builtins::filter::at_sign_alone_read(filters, self.database, |i| {
+            al_builtins::value::Value::default_for(&t.fields[i].ty)
+        })
+    }
+
     /// A read that selects rows through a filter whose matching is not pinned is refused (see `FilterExpr::UnpinnedMatch`).
     fn unpinned_match_read(filters: &[FieldFilter]) -> Result<(), StoreError> {
         match al_builtins::filter::unpinned_match(filters) {
@@ -1868,6 +1876,11 @@ impl Store for MemStore {
         if let Some(v) = self.virtual_of(t) {
             return v.next(self, cx, t, scan);
         }
+        let at_sign = self.at_sign_alone_read(t, scan.filters);
+        let scan = &Scan {
+            filters: &at_sign,
+            ..scan.clone()
+        };
         self.unknown_read(cx, t, scan.filters, t.keys.get(scan.key).map_or(&[], |k| k.as_slice()))?;
         Self::unpinned_match_read(scan.filters)?;
         Self::code_storage_read(t, scan.filters, t.keys.get(scan.key).map_or(&[], |k| k.as_slice()))?;
@@ -2010,6 +2023,7 @@ impl Store for MemStore {
         if let Some(v) = self.virtual_of(t) {
             return v.count(self, cx, t, f);
         }
+        let f = &*self.at_sign_alone_read(t, f);
         self.unknown_read(cx, t, f, &[])?;
         Self::unpinned_match_read(f)?;
         Self::code_storage_read(t, f, &[])?;
@@ -2026,6 +2040,7 @@ impl Store for MemStore {
         if self.virtual_of(t).is_some() {
             return Err(self.read_only(t, "DeleteAll"));
         }
+        let f = &*self.at_sign_alone_read(t, f);
         self.unknown_read(cx, t, f, &[])?;
         Self::unpinned_match_read(f)?;
         Self::code_storage_read(t, f, &[])?;

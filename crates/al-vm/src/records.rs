@@ -1822,7 +1822,14 @@ impl Session {
     /// MarkedOnly. A filter answer that rests on the letters `Æ` or `É` is measured only for the rows of the database.
     fn row_passes(&mut self, rec: &Rec, t: &TableDef, row: &[Value]) -> Result<bool, Signal> {
         let (filters, flow_field_filters) = self.split_filters(rec);
-        let normal_record = self.store_of(rec).0.holds_normal_records();
+        let store = self.store_of(rec).0;
+        let normal_record = store.holds_normal_records();
+        // A platform table its provider serves keeps main's answer for `@` alone, as its read did (al-data `MemStore::next`).
+        let filters = if store.is_virtual(t) {
+            std::borrow::Cow::Borrowed(&filters[..])
+        } else {
+            al_builtins::filter::at_sign_alone_read(&filters, normal_record, |i| Value::default_for(&t.fields[i].ty))
+        };
         if !al_builtins::filter::all_match_on(&filters, row, normal_record)? {
             return Ok(false);
         }
