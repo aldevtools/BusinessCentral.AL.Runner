@@ -750,8 +750,8 @@ fn a_save_that_did_not_write_exactly_the_row_keeps_mains_outcome() {
 
 // Review round 2, MED 5: the handler's calls and the record. The pinned handlers do nothing, type Name, invoke OK or Cancel,
 // call Close or raise an error (CemPageHandlerTests.al:1814-1941), and every run gets the record (CemFixtures.al:476-500).
-// A page action invoked first (the wizard of al-runner issue 7480 included), a read, two typed values, a caught error, a write
-// by the handler, another call before OK and a run without the record keep main's outcome.
+// A page action invoked first (the wizard of al-runner issue 7480 included), a read, two typed values, a caught error before
+// a close error, a write by the handler, another call before OK and a run without the record keep main's outcome.
 #[test]
 fn other_handler_calls_and_a_run_without_the_record_keep_mains_outcome() {
     main_gives(
@@ -782,13 +782,15 @@ fn other_handler_calls_and_a_run_without_the_record_keep_mains_outcome() {
     main_gives(PINNED, "CardH", "card", "c-error", 11, &refused(ON_CLOSE_PAGE_REFUSED));
     main_gives(PINNED, "CardH", "card", "c-error", 12, &refused(ON_CLOSE_PAGE_REFUSED));
     main_gives(PINNED, "CardH", "card", "c-error", 13, &refused(ON_CLOSE_PAGE_REFUSED));
+    // A TryFunction's caught error before the handler's own error closes as a handler that caught nothing (corpus PR 1524,
+    // CemHandlerCaughtErrors.al:157; assumption `page-handler-caught-error-close`, al-runner issue 8729).
     main_gives(
         PINNED,
         "CardH",
         "card",
         "none",
         15,
-        "error=Dialog|RV handler error log=H;  others=0 name=one",
+        "error=Dialog|RV handler error log=H; Q OK; C; C-done;  others=0 name=one",
     );
     main_gives(
         PINNED,
