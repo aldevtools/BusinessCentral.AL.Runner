@@ -1832,18 +1832,32 @@ impl Session {
         Ok(visible)
     }
 
-    /// Evaluates every control's Visible once, at open (`PageState::frozen_visible`). A Card with a control that
-    /// `Control::visible_reads_row` marks is refused on a BC major where a TestPage of it raises "The identifier '<field>' could
-    /// not be found." at a step not pinned yet, or that the probe did not measure (`al_version::visible_names_row_field_reads_yes`).
+    /// Evaluates every control's Visible once, at open (`PageState::frozen_visible`), after OnOpenPage and before the first row's
+    /// OnAfterGetRecord. A Card with a control that `Control::visible_row_field` marks: where
+    /// `al_version::visible_names_row_field_reads_yes` answers `Some(false)`, a TestPage's OpenEdit, OpenView or OpenNew raises
+    /// "The identifier '<field>' could not be found." (code Expression:Argument) for the first such control's field
+    /// (pages/controls/VisibleExpressionSource.al, al-runner issue 8660); another way to open it there, and a major the probe
+    /// did not measure, is refused.
     pub(super) fn freeze_visible(&mut self, st: &St) -> Result<(), Signal> {
         let engine = self.engine();
         let page = page_of(&engine, st);
-        if (0..page.controls.len()).any(|i| self.visible_reads_row_on_card(st, i))
-            && al_version::visible_names_row_field_reads_yes(self.engine.target.as_ref()) != Some(true)
-        {
-            return unsupported(
-                "a Card with a field control bound to no field whose Visible names a field of the record, on a BC version where a TestPage of it raises \"The identifier ... could not be found.\" at a step that is not pinned (al-runner issue 8660)",
-            );
+        let first = (0..page.controls.len()).find_map(|i| self.visible_row_field_on_card(st, i));
+        match (
+            first,
+            al_version::visible_names_row_field_reads_yes(self.engine.target.as_ref()),
+        ) {
+            (None, _) | (Some(_), Some(true)) => {}
+            (Some(field), Some(false)) if st.borrow().opened_by_test => {
+                return Err(error_code(
+                    format!("The identifier '{field}' could not be found."),
+                    "Expression:Argument",
+                ));
+            }
+            (Some(_), _) => {
+                return unsupported(
+                    "a Card with a field control bound to no field whose Visible names a field of the record, opened other than by a TestPage's OpenEdit, OpenView or OpenNew, or on a BC version the probe did not measure (al-runner issue 8660)",
+                );
+            }
         }
         let mut frozen = Vec::new();
         for i in 0..page.controls.len() {
@@ -1853,19 +1867,20 @@ impl Session {
         Ok(())
     }
 
-    /// Whether control `idx` reads Yes by `Control::visible_reads_row` on this page and BC major.
+    /// Whether control `idx` reads Yes by `Control::visible_row_field` on this page and BC major.
     fn visible_reads_row(&self, st: &St, idx: usize) -> bool {
-        self.visible_reads_row_on_card(st, idx)
+        self.visible_row_field_on_card(st, idx).is_some()
             && al_version::visible_names_row_field_reads_yes(self.engine.target.as_ref()) == Some(true)
     }
 
-    fn visible_reads_row_on_card(&self, st: &St, idx: usize) -> bool {
+    fn visible_row_field_on_card(&self, st: &St, idx: usize) -> Option<String> {
         let engine = self.engine();
-        engine.object_facts[st.borrow().object as usize].page_type == Some(al_ir::PageType::Card)
-            && page_of(&engine, st).controls[idx].visible_reads_row
+        if engine.object_facts[st.borrow().object as usize].page_type != Some(al_ir::PageType::Card) {
+            return None;
+        }
+        page_of(&engine, st).controls[idx].visible_row_field.clone()
     }
 }
-
 /// The text of the `ENU = '...'` entry of a `...ML` property value.
 /// The class text goes to OnResolveCaptionClass (see `caption_class_text`): not area 3, not a numeric or empty area, and with a comma.
 pub(super) fn raises_resolve(text: &str) -> bool {

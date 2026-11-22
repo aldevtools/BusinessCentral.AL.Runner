@@ -225,3 +225,140 @@ fn shapes_the_rule_does_not_cover_keep_the_value_at_open() {
     let got: Vec<String> = o.iter().map(|(n, x)| format!("{n}: {x:?}")).collect();
     assert_eq!(got, ["NotCovered: Pass"]);
 }
+
+/// Before BC 29, a TestPage's open of such a Card raises "The identifier '<field>' could not be found." (code
+/// Expression:Argument) for the first such control's field, after OnOpenPage and before OnAfterGetRecord (corpus PR 1504,
+/// the BC 27.5 and 28.5 CI of VisibleExpressionSource.al).
+const BEFORE_29: &str = r##"
+table 50120 "Repro Old Row"
+{
+    fields
+    {
+        field(1; Id; Integer) { }
+        field(2; Amount; Integer) { }
+        field(3; Flag; Boolean) { }
+    }
+    keys { key(PK; Id) { Clustered = true; } }
+}
+
+page 50121 "Repro Old Card"
+{
+    PageType = Card;
+    SourceTable = "Repro Old Row";
+    layout
+    {
+        area(Content)
+        {
+            field(Plain; Rec.Id) { Visible = Rec.Amount > 0; }
+            field(FlagShown; Rec.Amount + 1) { Visible = Rec.Flag; }
+            field(AmountShown; Rec.Amount + 1) { Visible = Rec.Amount > 0; }
+        }
+    }
+}
+
+page 50122 "Repro Old On Open"
+{
+    PageType = Card;
+    SourceTable = "Repro Old Row";
+    layout
+    {
+        area(Content)
+        {
+            field(AmountShown; Rec.Amount + 1) { Visible = Rec.Amount > 0; }
+        }
+    }
+    trigger OnOpenPage()
+    begin
+        Error('OnOpenPage ran');
+    end;
+}
+
+page 50123 "Repro Old On Get"
+{
+    PageType = Card;
+    SourceTable = "Repro Old Row";
+    layout
+    {
+        area(Content)
+        {
+            field(AmountShown; Rec.Amount + 1) { Visible = Rec.Amount > 0; }
+        }
+    }
+    trigger OnAfterGetRecord()
+    begin
+        Error('OnAfterGetRecord ran');
+    end;
+}
+
+codeunit 50124 "Repro Old Tests"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure OpenModes()
+    var
+        Row: Record "Repro Old Row";
+        EditCard: TestPage "Repro Old Card";
+        ViewCard: TestPage "Repro Old Card";
+        NewCard: TestPage "Repro Old Card";
+    begin
+        Row.DeleteAll();
+        Row.Id := 1;
+        Row.Insert();
+        asserterror EditCard.OpenEdit();
+        Check();
+        asserterror ViewCard.OpenView();
+        Check();
+        asserterror NewCard.OpenNew();
+        Check();
+    end;
+
+    [Test]
+    procedure OnOpenPageFirst()
+    var
+        Card: TestPage "Repro Old On Open";
+    begin
+        asserterror Card.OpenEdit();
+        if GetLastErrorText() <> 'OnOpenPage ran' then
+            Error('got %1', GetLastErrorText());
+    end;
+
+    [Test]
+    procedure BeforeOnAfterGetRecord()
+    var
+        Row: Record "Repro Old Row";
+        Card: TestPage "Repro Old On Get";
+    begin
+        Row.DeleteAll();
+        Row.Id := 1;
+        Row.Insert();
+        asserterror Card.OpenEdit();
+        if GetLastErrorText() <> 'The identifier ''Amount'' could not be found.' then
+            Error('got %1', GetLastErrorText());
+    end;
+
+    local procedure Check()
+    begin
+        if (GetLastErrorText() <> 'The identifier ''Flag'' could not be found.') or (GetLastErrorCode() <> 'Expression:Argument') then
+            Error('got %1 (%2)', GetLastErrorText(), GetLastErrorCode());
+    end;
+}
+"##;
+
+#[test]
+fn before_29_a_testpage_open_raises_the_client_compile_error() {
+    for v in ["27.5", "28.5"] {
+        let target = al_version::Target::for_bc(al_version::BcVersion::parse(v).unwrap());
+        let o = al_testkit::outcomes_in_with(BEFORE_29, "Repro Old Tests", |e| e.target = Some(target));
+        let got: Vec<String> = o.iter().map(|(n, x)| format!("{n}: {x:?}")).collect();
+        assert_eq!(
+            got,
+            [
+                "OpenModes: Pass",
+                "OnOpenPageFirst: Pass",
+                "BeforeOnAfterGetRecord: Pass"
+            ],
+            "{v}"
+        );
+    }
+}

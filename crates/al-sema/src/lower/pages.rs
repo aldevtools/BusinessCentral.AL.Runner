@@ -471,7 +471,7 @@ impl Lowerer<'_> {
                 || array_element_field.is_some()
                 || expr_call
                 || sec.args_raw().get(1).is_some_and(|a| a.contains(['[', '(']));
-            let visible_reads_row = self.visible_reads_row(oi, raw, &binding, other_source, &props);
+            let visible_row_field = self.visible_row_field(oi, raw, &binding, other_source, &props);
             controls.push(ir::Control {
                 name: raw.name.clone(),
                 kind: raw.kind.clone(),
@@ -501,7 +501,7 @@ impl Lowerer<'_> {
                 expr_call,
                 array_element,
                 bare_quoted_ext_source,
-                visible_reads_row,
+                visible_row_field,
                 factbox: raw.factbox,
             });
         }
@@ -957,7 +957,7 @@ fn data_item_control(name: &str, binding: ir::Binding) -> ir::Control {
         expr_call: false,
         array_element: None,
         bare_quoted_ext_source: false,
-        visible_reads_row: false,
+        visible_row_field: None,
         source_text: None,
         factbox: false,
     }

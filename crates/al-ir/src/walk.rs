@@ -926,7 +926,7 @@ fn walk_control<V: RefVisitor>(
         expr_call: _,
         array_element: _,
         bare_quoted_ext_source: _,
-        visible_reads_row: _,
+        visible_row_field: _,
         source_text: _,
         factbox: _,
     } = c;

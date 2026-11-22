@@ -28,10 +28,10 @@ pub fn web_service_session_measured(target: Option<&Target>) -> bool {
 }
 
 /// What a TestPage does with a Card's field control bound to no field of the source table whose own Visible names a field of
-/// the record (al-vm `Control::visible_reads_row`; open corpus PR 1504, tests/al-language/pages/controls/VisibleExpressionSource.al,
+/// the record (`ir::Control::visible_row_field`; open corpus PR 1504, tests/al-language/pages/controls/VisibleExpressionSource.al,
 /// al-runner issue 8660): `Some(true)` on 29, where its Visible reads Yes whatever the row holds; `Some(false)` on 27 and 28,
-/// where a TestPage of the page raises "The identifier '<field>' could not be found." at a step the probe's `#if not BC29PLUS`
-/// tests measure; `None` on a major the probe did not measure.
+/// where a TestPage's OpenEdit, OpenView or OpenNew of the page raises "The identifier '<field>' could not be found."
+/// (the probe's `#if not BC29PLUS` tests); `None` on a major the probe did not measure.
 pub fn visible_names_row_field_reads_yes(target: Option<&Target>) -> Option<bool> {
     match target.map(|t| t.bc.major) {
         Some(27 | 28) => Some(false),

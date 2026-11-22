@@ -1893,7 +1893,7 @@ mod tests {
             array_element: None,
             source_text: None,
             bare_quoted_ext_source: false,
-            visible_reads_row: false,
+            visible_row_field: None,
             factbox: false,
         }
     }
