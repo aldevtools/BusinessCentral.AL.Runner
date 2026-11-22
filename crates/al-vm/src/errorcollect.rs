@@ -142,16 +142,7 @@ impl Session {
         id: al_ir::BuiltinId,
         args: &[Value],
     ) -> Option<Result<Value, Signal>> {
-        if matches!(
-            id,
-            ids::SYSTEM_ISCOLLECTINGERRORS_1
-                | ids::SYSTEM_HASCOLLECTEDERRORS_1
-                | ids::SYSTEM_CLEARCOLLECTEDERRORS_1
-                | ids::SYSTEM_GETCOLLECTEDERRORS_1
-        ) {
-            self.bg_note_worker_collection();
-        }
-        Some(match id {
+        let result = match id {
             ids::SYSTEM_ISCOLLECTINGERRORS_1 => Ok(Value::Boolean(!self.error_scopes.starts.is_empty())),
             // Outside a scope the platform computes 0 < 0 - (-1), which is true
             // (errors/errorinfo/TestErrorInfoType.al:133-141, corpus docs/al-language-coverage-gaps.md:518).
@@ -192,6 +183,8 @@ impl Session {
                 Ok(Value::List(Rc::new(RefCell::new(copies))))
             }
             _ => return None,
-        })
+        };
+        self.bg_note_worker_collection();
+        Some(result)
     }
 }
