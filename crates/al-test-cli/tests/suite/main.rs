@@ -13,6 +13,7 @@ mod areas_changed_while_page_open;
 mod array_size_mismatch;
 mod assert_error_leaves;
 mod assert_error_pending_insert;
+mod at_sign_alone_database;
 mod auto_format_writer_tiers;
 mod autoformat_units;
 mod awaiting_assumptions;

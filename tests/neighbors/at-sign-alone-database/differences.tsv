@@ -1,0 +1,10 @@
+# key	entry
+# BQ Tests 9b and 9c: main refuses @ alone on a Code field and keeps every row of a Text field; the head keeps the blank values in the database.
+BQ Tests 9b::AtSignAlone_CodeFlowFilter_OverTextAndCode	ASSUMED at-sign-alone-database-blank (corpus PR 1495)
+BQ Tests 9b::AtSignAlone_LookupFlowFieldFilters_DatabaseAndTemporary	ASSUMED at-sign-alone-database-blank (corpus PR 1495)
+BQ Tests 9b::AtSignAlone_SourceFields_DatabaseAndTemporary	ASSUMED at-sign-alone-database-blank (corpus PR 1495)
+BQ Tests 9b::AtSignAlone_TextFlowFilter_OverCodeAndText	ASSUMED at-sign-alone-database-blank (corpus PR 1495)
+BQ Tests 9c::QueryAtSignAlone_CodeColumn_KeepsTheEmptyValues	ASSUMED at-sign-alone-database-blank (corpus PR 1495)
+BQ Tests 9c::QueryAtSignAlone_CodeDataItemTableFilter_KeepsTheEmptyValues	ASSUMED at-sign-alone-database-blank (corpus PR 1495)
+BQ Tests 9c::QueryAtSignAlone_TextColumn_KeepsTheEmptyValues	ASSUMED at-sign-alone-database-blank (corpus PR 1495)
+BQ Tests 9c::QueryAtSignAlone_TextDataItemTableFilter_KeepsTheEmptyValues	ASSUMED at-sign-alone-database-blank (corpus PR 1495)
