@@ -1,4 +1,4 @@
-//! Tests of `Fields` (PERF-22 design section 4, tests 1-4): copy on first write, clones, the fixed length and the iterators.
+//! Tests of `Fields` (issue 8570, "Design and seam"): copy on first write, clones, the fixed length and the iterators.
 //! Memory sharing is invisible to AL, so the corpus cannot pin it (CLAUDE.md rule 1).
 
 use super::Fields;

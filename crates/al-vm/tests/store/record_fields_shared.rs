@@ -1,9 +1,9 @@
-//! PERF-22: a fresh record's field buffer may be shared with the other fresh records of its table until its first write
-//! (`Fields::Shared`). Sharing is invisible to AL, so these tests pin that every value a fresh record shows, and every
-//! write through every mutation path, is what it was before sharing (green guards), and that sharing happens only where
-//! the design allows it (`is_shared`: a table without a Blob or a cleared InitValue). Expected values are characterized on
-//! the unshared code (step 1); the AL shapes follow record/ACRecordIsDirty.al, record/PWTableGlobals.al:196-260 and
-//! install-upgrade/install-order/Y8InstallOrderTests.al:88-110.
+//! Issue 8570: a fresh record's field buffer may be shared with the other fresh records of its table until its first
+//! write (`Fields::Shared`). Sharing is invisible to AL, so these tests pin that every value a fresh record shows, and
+//! every write through every mutation path, is what it was before sharing (green guards), and that sharing happens only
+//! where the design allows it (`is_shared`: a table without a Blob or a cleared InitValue). Expected values are
+//! characterized on the unshared code (step 1); the AL shapes follow record/ACRecordIsDirty.al,
+//! record/PWTableGlobals.al:196-260 and install-upgrade/install-order/Y8InstallOrderTests.al:88-110.
 
 use al_builtins::value::Value;
 use al_testkit::{AppSource, Built, compile_apps, text};

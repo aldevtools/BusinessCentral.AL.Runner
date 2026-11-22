@@ -16,7 +16,7 @@ impl Session {
         // (a text shares its buffer, copy on write). A value that is a shared object (a Blob's buffer) is built fresh
         // for each record in its slot of the copy (issue 6133: a local record variable of a table with a Blob field
         // built every field anew on each call). A table without such a slot hands out the cached values themselves,
-        // copied on the record's first write (PERF-22, `Fields`).
+        // copied on the record's first write (issue 8570, `Fields`).
         if let Some(template) = self.initial_cache.get(&table) {
             let mut fields = if template.fresh.is_empty() {
                 Fields::shared(Rc::clone(&template.values))

@@ -1,8 +1,8 @@
 //! A record's field buffer (`RecordState::fields`): the field values in the table's field order. Its length never changes
 //! after the record is made, so it reads and writes as a slice (`[Value]`), never as a growable vector.
 //!
-//! The buffer is copy-on-write (PERF-22): a fresh record of a table whose initial values are all plain values shares them
-//! (`Shared`) until something takes `&mut` to them, which copies them first. Every other buffer is `Owned`.
+//! The buffer is copy-on-write (issue 8570): a fresh record of a table whose initial values are all plain values shares
+//! them (`Shared`) until something takes `&mut` to them, which copies them first. Every other buffer is `Owned`.
 //!
 //! The one invariant: a `Shared` slice is never written and holds only plain values, never a value with identity or
 //! interior state (a Blob buffer, a RecordId, a List, ...). Al-vm `Session::initial_fields` is the only maker. So a Blob's
