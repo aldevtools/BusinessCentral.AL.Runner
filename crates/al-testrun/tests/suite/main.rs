@@ -17,6 +17,7 @@ mod chain_numbers_handed_on;
 mod chain_singles;
 mod code_coverage_refresh;
 mod compile_cache;
+mod datatransfer_at_sign;
 mod datatransfer_clear;
 mod datatransfer_install;
 mod datatransfer_other_app_ext;
