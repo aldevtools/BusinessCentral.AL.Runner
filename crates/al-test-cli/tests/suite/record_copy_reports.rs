@@ -9,8 +9,18 @@ use al_testrun::isolation::TestIsolation;
 /// Each test of codeunit `codeunit` in `src`, each rolled back on its own: its outcome (debug form) and whether it ran through
 /// an assumption.
 pub(crate) fn run(src: &str, codeunit: &str) -> Vec<(String, String, bool)> {
+    run_with(src, codeunit, |_| {})
+}
+
+/// [`run`], with `setup` applied to the engine first (a BC version's target, for one).
+pub(crate) fn run_with(
+    src: &str,
+    codeunit: &str,
+    setup: impl FnOnce(&mut al_vm::Engine),
+) -> Vec<(String, String, bool)> {
     let l = compile(src);
-    let engine = al_vm::Engine::new(l.program.clone(), blocked(&l));
+    let mut engine = al_vm::Engine::new(l.program.clone(), blocked(&l));
+    setup(std::sync::Arc::get_mut(&mut engine).expect("a fresh engine"));
     let oi = l
         .program
         .objects
