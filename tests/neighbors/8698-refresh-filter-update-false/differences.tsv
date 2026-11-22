@@ -1,0 +1,34 @@
+# key	entry
+# The probe's cells on the issue's page 97583 and on page 97584: main kept the typed value and read nothing first; the head
+# reads as BC does. The cells on the other pages (both row triggers, OnAfterGetCurrRecord only, none, the Card) and the one that
+# starts with the test's own filter keep main's answer on both, so no row.
+LT RFU Tests::IssueList_FirstAfterSetName	ASSUMED list-validate-view-refresh (corpus PR 1518, open: ListValidateFilterRefresh.al)
+LT RFU Tests::IssueList_FirstThenClose	ASSUMED list-validate-view-refresh (corpus PR 1518, open: ListValidateFilterRefresh.al)
+LT RFU Tests::IssueList_SetRangeUpdateFalse_ReadsStoredRowAndAppliesFilter	ASSUMED list-validate-view-refresh (corpus PR 1518, open: ListValidateFilterRefresh.al)
+LT RFU Tests::List_Action_SetRangeDropsRowUpdateFalse	ASSUMED list-validate-view-refresh (corpus PR 1518, open: ListValidateFilterRefresh.al)
+LT RFU Tests::List_Action_SetRangeKeepsRowNoUpdate	ASSUMED list-validate-view-refresh (corpus PR 1518, open: ListValidateFilterRefresh.al)
+LT RFU Tests::List_Action_SetRangeKeepsRowUpdateFalse	ASSUMED list-validate-view-refresh (corpus PR 1518, open: ListValidateFilterRefresh.al)
+LT RFU Tests::List_FirstRow_NoFilterChangeUpdateFalse	ASSUMED list-validate-view-refresh (corpus PR 1518, open: ListValidateFilterRefresh.al)
+LT RFU Tests::List_FirstRow_SetRangeDropsRowUpdateFalse	ASSUMED list-validate-view-refresh (corpus PR 1518, open: ListValidateFilterRefresh.al)
+LT RFU Tests::List_MiddleRow_SetRangeKeepsRowUpdateFalse	ASSUMED list-validate-view-refresh (corpus PR 1518, open: ListValidateFilterRefresh.al)
+LT RFU Tests::List_NoFilterChangeUpdateFalse	ASSUMED list-validate-view-refresh (corpus PR 1518, open: ListValidateFilterRefresh.al)
+LT RFU Tests::List_NoFilterChangeUpdateTrue	ASSUMED list-validate-view-refresh (corpus PR 1518, open: ListValidateFilterRefresh.al)
+LT RFU Tests::List_PreviousAfterSetValues	ASSUMED list-validate-view-refresh (corpus PR 1518, open: ListValidateFilterRefresh.al)
+LT RFU Tests::List_ResetWithoutFilterUpdateFalse	ASSUMED list-validate-view-refresh (corpus PR 1518, open: ListValidateFilterRefresh.al)
+LT RFU Tests::List_SetFilterKeepsRowUpdateFalse	ASSUMED list-validate-view-refresh (corpus PR 1518, open: ListValidateFilterRefresh.al)
+LT RFU Tests::List_SetFilterKeepsRowUpdateTrue	ASSUMED list-validate-view-refresh (corpus PR 1518, open: ListValidateFilterRefresh.al)
+LT RFU Tests::List_SetRangeDropsRowNoUpdate	ASSUMED list-validate-view-refresh (corpus PR 1518, open: ListValidateFilterRefresh.al)
+LT RFU Tests::List_SetRangeDropsRowUpdateFalse	ASSUMED list-validate-view-refresh (corpus PR 1518, open: ListValidateFilterRefresh.al)
+LT RFU Tests::List_SetRangeDropsRowUpdateTrue	ASSUMED list-validate-view-refresh (corpus PR 1518, open: ListValidateFilterRefresh.al)
+LT RFU Tests::List_SetRangeKeepsRowNoUpdate	ASSUMED list-validate-view-refresh (corpus PR 1518, open: ListValidateFilterRefresh.al)
+LT RFU Tests::List_SetRangeKeepsRowUpdateFalse	ASSUMED list-validate-view-refresh (corpus PR 1518, open: ListValidateFilterRefresh.al)
+LT RFU Tests::List_SetRangeKeepsRowUpdateTrue	ASSUMED list-validate-view-refresh (corpus PR 1518, open: ListValidateFilterRefresh.al)
+LT RFU Tests::List_SetRangeThenReset_UpdateFalse	ASSUMED list-validate-view-refresh (corpus PR 1518, open: ListValidateFilterRefresh.al)
+LT RFU Tests::List_ThirdSetValue	ASSUMED list-validate-view-refresh (corpus PR 1518, open: ListValidateFilterRefresh.al)
+LT RFU Tests::List_TooLongName_ThenSetRangeKeepsRowUpdateFalse	ASSUMED list-validate-view-refresh (corpus PR 1518, open: ListValidateFilterRefresh.al)
+# The reporter's repro of issue 8698: its page reads as page 97583 line for line.
+Repro Filter Update Tests::SetFilterThenUpdateFalse_ReadsTheStoredRowAndAppliesTheFilter	ASSUMED list-validate-view-refresh (corpus PR 1518, open: ListValidateFilterRefresh.al)
+# Neighbors: Next, or the action, after the cell's two SetValues on page 97584. Main failed at the first SetValue; the head
+# refuses the call the cells do not make. Four rows, two rows and a page with Update(true) keep main's path on both, so no row.
+LT RFU Neighbor Tests::Lines_NextAfterSetValues	REFUSED a call on a page of ListValidateFilterRefresh.al after the page read its row or the view again
+LT RFU Neighbor Tests::Lines_ActionAfterSetValues	REFUSED a call on a page of ListValidateFilterRefresh.al after the page read its row or the view again

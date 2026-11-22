@@ -1,0 +1,15 @@
+{
+  "id": "b1c6f7a2-5d3e-4f80-9a1b-869800000001",
+  "name": "Neighbors 8698 refresh after a control's OnValidate that changes the view",
+  "publisher": "al-runner neighbors",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "16.0",
+  "idRanges": [
+    { "from": 50120, "to": 50124 },
+    { "from": 97570, "to": 97571 },
+    { "from": 97581, "to": 97589 },
+    { "from": 130000, "to": 130000 }
+  ],
+  "dependencies": []
+}
