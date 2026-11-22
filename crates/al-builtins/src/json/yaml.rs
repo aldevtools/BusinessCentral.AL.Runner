@@ -199,7 +199,7 @@ pub(super) fn read_from_yaml(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
     };
     // A raw U+0085, U+2028 or U+2029 at a measured place (`measured::document`): with the result used, into an empty
     // object, false and the YAML error left as the last error, the object as it was (corpus PR 1515, JsonYamlUtf8.al
-    // :348-366, read through the Boolean form of `TryRead` :44-50 after `Clear(JO)`). The statement form and a receiver
+    // :735-798, read through the Boolean form of `TryRead` :60-66 after `Clear(JO)`). The statement form and a receiver
     // that holds members are not measured.
     if measured && matches!(doc, Err(Signal::Error(_))) {
         let h = recv(r)?;

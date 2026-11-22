@@ -265,7 +265,7 @@ codeunit 60935 "YV Yaml Utf8 Tests"
     end;
 
     [Test]
-    procedure Refused_CommaInNestedPlainValue()
+    procedure Refused_CommaInListItemMappingValue()
     begin
         ReadStmt('tests:~  - name: t~    description: Ask-order primary question, then more.');
     end;
@@ -280,5 +280,61 @@ codeunit 60935 "YV Yaml Utf8 Tests"
     procedure Refused_SectionFirstInListItem()
     begin
         ReadStmt('k:~  - §b~  - c');
+    end;
+
+    // Punctuation in plain scalars (JsonYamlUtf8.al ReadFromYaml_Plain*_Read, the four places of PlainAll).
+    [Test]
+    procedure Punct_CommaInNestedValue()
+    begin
+        Check('{"o":{"q":"a, b","r":"2"},"n":"1"}', ReadStmt('o:~  q: a, b~  r: 2~n: 1'));
+    end;
+
+    [Test]
+    procedure Punct_IssueLineInListItemUsedResult()
+    begin
+        Check('Yes|{"k":["Ask-order primary question, then fallthrough ...","c"]}',
+            ReadRet('k:~  - Ask-order primary question, then fallthrough ...~  - c'));
+    end;
+
+    [Test]
+    procedure Punct_SymbolsInNestedListItem()
+    begin
+        Check('{"o":{"k":["a @ b & c","c"]}}', ReadStmt('o:~  k:~    - a @ b & c~    - c'));
+    end;
+
+    [Test]
+    procedure Punct_LeadingHyphenInListItem()
+    begin
+        Check('{"k":["-a b","c"]}', ReadStmt('k:~  - -a b~  - c'));
+    end;
+
+    [Test]
+    procedure Punct_SpaceHashCommentInNestedValue()
+    begin
+        Check('{"o":{"q":"a","r":"2"},"n":"1"}', ReadStmt('o:~  q: a #b~  r: 2~n: 1'));
+    end;
+
+    [Test]
+    procedure Refused_QuotedColonInNestedValue()
+    begin
+        ReadRet('o:~  q: say "a: b" end~n: 1');
+    end;
+
+    [Test]
+    procedure Refused_QuotedColonInListItem()
+    begin
+        ReadStmt('k:~  - say ''a: b'' end~  - c');
+    end;
+
+    [Test]
+    procedure Refused_CommaTwoLevelsDown()
+    begin
+        ReadStmt('o:~  p:~    q: a, b~n: 1');
+    end;
+
+    [Test]
+    procedure Refused_CommaWithLineSeparatorUsedResult()
+    begin
+        ReadRet('q: a{L}b, c~n: 1');
     end;
 }

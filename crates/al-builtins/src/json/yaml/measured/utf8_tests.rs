@@ -1,6 +1,6 @@
-//! The cells of corpus PR 1515 (`tests/al-language/json/JsonYamlUtf8.al`, codeunit 75621, open) that reach the measured
+//! The cells of corpus PR 1515 (`tests/al-language/json/JsonYamlUtf8.al`, codeunit 75621, merged on corpus master at b7fa8dd7, not yet pinned) that reach the measured
 //! reader, each read as the probe reads it, and their neighbors. `~` is a line feed, `X` each measured character in turn
-//! (`EachChar`, :171-179).
+//! (`EachChar`, :195-205).
 
 use super::super::super::{JsonNode, new_handle, recv, tagged, write};
 use super::super::read_from_yaml;
@@ -82,7 +82,7 @@ fn refused(text: &str) -> bool {
         .all(|&used| matches!(read(text, used).answer, Err(Signal::Unsupported(_))))
 }
 
-/// ReadFromYaml_Utf8FoldedStrip_Read :193, ..Folded_Read :200, ..Literal_Read :207, ..LiteralStrip_Read :214.
+/// ReadFromYaml_Utf8FoldedStrip_Read :218, ..Folded_Read :246, ..Literal_Read :274, ..LiteralStrip_Read :302.
 #[test]
 fn block_scalars() {
     each_char("q: >-~  aXb~n: 1", r#"{"q":"aXb","n":"1"}"#);
@@ -91,7 +91,7 @@ fn block_scalars() {
     each_char("q: |-~  aXb~n: 1", r#"{"q":"aXb","n":"1"}"#);
 }
 
-/// ..FoldedLineEdges_Read :263, ..FoldedKeepLineEdges_Read :270, ..LiteralLineEdges_Read :277, ..FoldedCharOnly_Read :284.
+/// ..FoldedLineEdges_Read :498, ..FoldedKeepLineEdges_Read :526, ..LiteralLineEdges_Read :554, ..FoldedCharOnly_Read :582.
 #[test]
 fn block_scalar_line_edges() {
     each_char(
@@ -106,7 +106,7 @@ fn block_scalar_line_edges() {
     each_char("q: >-~  X~n: 1", r#"{"q":"X","n":"1"}"#);
 }
 
-/// ..SingleQuoted_Read :235, ..DoubleQuoted_Read :242, ..ListItem_Read :256 (the plain value and key cells :221-253 are
+/// ..SingleQuoted_Read :386, ..DoubleQuoted_Read :414, ..ListItem_Read :470 (the plain value and key cells :330-385, :442-469 are
 /// flat lines, which main's pinned reader reads, see `flat_lines_keep_mains_reader`).
 #[test]
 fn quoted_values_and_list_items() {
@@ -115,7 +115,7 @@ fn quoted_values_and_list_items() {
     each_char("k:~  - aXb~  - c", r#"{"k":["aXb","c"]}"#);
 }
 
-/// ..FlowAndComments_Read :317-326.
+/// ..FlowAndComments_Read :678-705.
 #[test]
 fn flow_forms_and_comments() {
     cell(
@@ -134,7 +134,7 @@ fn flow_forms_and_comments() {
 const ISSUE: &str = "name: x~description: >-~  T1 \u{a7} 19.11 ask-order test, two turns. Turn 1: a clear item reference but no~  shipment/invoice number anywhere - the agent must ask~tests:~  - name: t~    description: Ask-order primary question.~";
 const ISSUE_JSON: &str = "{\"name\":\"x\",\"description\":\"T1 \u{a7} 19.11 ask-order test, two turns. Turn 1: a clear item reference but no shipment/invoice number anywhere - the agent must ask\",\"tests\":[{\"name\":\"t\",\"description\":\"Ask-order primary question.\"}]}";
 
-/// ..IssueDocument_Read :329-338 (LF, CRLF, a `>-` block in a list item mapping), ..IssueDescriptionLen_Read :341-345.
+/// ..IssueDocument_Read :707-723 (LF, CRLF, a `>-` block in a list item mapping), ..IssueDescriptionLen_Read :725-733.
 #[test]
 fn issue_document() {
     cell(ISSUE, ISSUE_JSON);
@@ -154,7 +154,7 @@ fn issue_document() {
     assert_eq!(desc.encode_utf16().count(), 129);
 }
 
-/// ..SpecialPlain_Read :348, ..SpecialFolded_Read :355, ..SpecialDoubleQuoted_Read :362: a raw U+0085, U+2028 or U+2029
+/// ..SpecialPlain_Read :735, ..SpecialFolded_Read :757, ..SpecialDoubleQuoted_Read :779: a raw U+0085, U+2028 or U+2029
 /// makes the Boolean form answer false with the YAML error, the object empty.
 #[test]
 fn bad_breaks_answer_false_with_the_yaml_error() {
@@ -224,7 +224,7 @@ fn unmeasured_neighbors_refuse() {
     }
 }
 
-/// Flat lines of measured characters are read by main's pinned reader, unmarked (:221-253).
+/// Flat lines of measured characters are read by main's pinned reader, unmarked (:330-385, :442-469).
 #[test]
 fn flat_lines_keep_mains_reader() {
     for x in CHARS {

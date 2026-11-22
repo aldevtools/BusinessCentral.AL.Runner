@@ -73,6 +73,7 @@ pub(super) fn document(text: &str) -> Result<Measured, Signal> {
         taken: 0,
         punctuation: false,
         bad_break: false,
+        in_item_map: 0,
     };
     let tree = match p.peek() {
         // The text starts with its first line at indent 0 (every cell), or a comment line (CommentsAndQuotes/comment).
@@ -131,6 +132,8 @@ struct Parser<'r, 'a> {
     punctuation: bool,
     /// A bad line break stood at a measured place (`utf8::bad_break`).
     bad_break: bool,
+    /// How many list item mappings the parser is inside: PR 1515 measured no plain scalar punctuation there.
+    in_item_map: usize,
 }
 
 impl<'a> Parser<'_, 'a> {
@@ -204,7 +207,15 @@ impl<'a> Parser<'_, 'a> {
                     Some(ind @ ("|" | "|-" | ">" | ">-")) => self.block_scalar(col, ind),
                     Some(v) if v.starts_with(['[', '{']) => flow(v),
                     Some(v) if v.starts_with(['"', '\'']) => quoted(v),
-                    Some(v) => plain_value(v, col),
+                    Some(v) => {
+                        let read = plain_value(v, col);
+                        // A top value and a value of a mapping under a top key (`PlainAll`, utf8.rs).
+                        let place = matches!(col, 0 | 2) && self.in_item_map == 0;
+                        match read {
+                            Err(Signal::Unsupported(_)) if place => self.punctuated(v).map_or(read, Ok),
+                            read => read,
+                        }
+                    }
                     None => unsupported("ReadFromYaml of an empty value below the top mapping (not measured)"),
                 }
             }
@@ -227,6 +238,28 @@ impl<'a> Parser<'_, 'a> {
             }
             _ => unsupported("ReadFromYaml of a raw U+0085, U+2028 or U+2029 at this place (not measured)"),
         }
+    }
+
+    /// A plain value or list item word the reader of PR 1493 refuses, holding the punctuation PR 1515 measured in plain
+    /// scalars (`utf8::plain_punctuated`) or ending in a ` #` comment of letters (`utf8::comment_word`), at the four places
+    /// of `PlainAll` (:122-129): a top value, a value of a mapping under a top key, and a word of a list under either.
+    fn punctuated(&mut self, v: &str) -> Option<Yaml> {
+        // No cell holds a bad line break and this punctuation in one text.
+        if self.bad_break {
+            return None;
+        }
+        let value = match v.split_once(" #") {
+            Some((value, c)) if utf8::comment_word(c) => value,
+            Some(_) => return None,
+            None => v,
+        };
+        let text = match scalar(value, false) {
+            Ok(Yaml::Text(t)) if !value.starts_with(['"', '\'']) => t,
+            _ if utf8::plain_punctuated(value) => value.to_string(),
+            _ => return None,
+        };
+        self.punctuation = true;
+        Some(Yaml::Text(text))
     }
 
     /// The block under `key:` at column `col`, starting on the very next line.
@@ -283,10 +316,23 @@ impl<'a> Parser<'_, 'a> {
                     "ReadFromYaml of a list item mapping that opens a block on its dash line (not measured)",
                 );
             }
-            let first = self.value(indent + 2, after)?;
-            return self.mapping(indent + 2, vec![(key, first)]);
+            self.in_item_map += 1;
+            let map = match self.value(indent + 2, after) {
+                Ok(first) => self.mapping(indent + 2, vec![(key, first)]),
+                Err(e) => Err(e),
+            };
+            self.in_item_map -= 1;
+            return map;
         }
-        match scalar(rest, false)? {
+        // A list item of a list under a top key, or under a key of a mapping under a top key (`PlainAll`, utf8.rs).
+        let place = matches!(indent, 2 | 4) && self.in_item_map == 0;
+        let read = match scalar(rest, false) {
+            Err(Signal::Unsupported(_)) if place && !rest.starts_with(['"', '\'']) => {
+                self.punctuated(rest).map_or_else(|| scalar(rest, false), Ok)
+            }
+            read => read,
+        };
+        match read? {
             text @ Yaml::Text(_) if !rest.starts_with(['"', '\'']) => Ok(text),
             _ => unsupported("ReadFromYaml of a list item that is not a word, a flow form or a mapping (not measured)"),
         }
@@ -453,9 +499,12 @@ fn scalar(v: &str, in_flow: bool) -> Result<Yaml, Signal> {
     let number = digits(v.strip_prefix('-').unwrap_or(v))
         || v.split_once('.').is_some_and(|(a, b)| digits(a) && digits(b))
         || v.split_once('e').is_some_and(|(a, b)| digits(a) && digits(b));
+    // PR 1515 measured its characters in plain values of letters and spaces only (`utf8::letter`), never next to `-`,
+    // `.`, `/` or `:`.
     let chars_ok = v
         .chars()
-        .all(|c| utf8::letter(c) || matches!(c, ' ' | '-' | '.' | '/' | ':'));
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, ' ' | '-' | '.' | '/' | ':'))
+        || v.chars().all(|c| utf8::letter(c) || c == ' ');
     let word = v.starts_with(|c: char| c.is_ascii_alphabetic())
         && chars_ok
         && !(in_flow && v.contains(':'))
@@ -582,3 +631,6 @@ mod tests;
 
 #[cfg(test)]
 mod utf8_tests;
+
+#[cfg(test)]
+mod punctuation_tests;
