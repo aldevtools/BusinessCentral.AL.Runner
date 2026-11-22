@@ -1135,6 +1135,7 @@ impl Session {
                 // (the stale-buffer shapes and the rest that read `lock_tx`) is pinned for Record.LockTable only.
                 let started = !locked && self.tx.open.locks.lock_tx;
                 self.lock_through_recordref(locked, "a RecordRef.LockTable");
+                self.note_recordref_lock(&rec, &t);
                 if started {
                     self.tx.open.locks.recref_lock_tx = true;
                 }

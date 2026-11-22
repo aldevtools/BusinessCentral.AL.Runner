@@ -23,36 +23,35 @@ use std::rc::Rc;
 type Rec = Rc<RefCell<RecordState>>;
 
 /// Whether a noted write of kind `kind` after a version reached a buffer is one no cell measures there. Measured
-/// through a Record variable: an Insert, a Modify and a Delete (S6 :1146, S8 :1195, R6 :784; issue 8721's cells 6 and
-/// 7, measured by its reporter on BC 29).
+/// through a Record variable: an Insert, a Modify and a Delete (S6 :1146, S8 :1195, R6 :784, Q8 :1225, Q9 :1250).
 pub(crate) fn unmeasured_after(kind: TxWriteKind, through_recordref: bool) -> bool {
     through_recordref || !matches!(kind, TxWriteKind::Insert | TxWriteKind::Modify | TxWriteKind::Delete)
 }
 
 /// What a noted write of kind `kind` does to its table's verdict. A cell measures these as a write before the read
-/// through a Record variable: an Insert (Q1a :393, Q2 :432), a Modify (Q5 :503), a Delete (R4 :712), a DeleteAll (Q1a's
-/// seed, R5a :736) and a ModifyAll (R5b :760). A Rename, a Truncate and any write through a RecordRef are not measured.
+/// through a Record variable: an Insert (Q1a :393, Q2 :432), a Modify (Q5 :503), a Delete (R4 :712), and a DeleteAll or
+/// ModifyAll that changed a row (R5a :736, R5b :760; `note_bulk_changed` at its end). One that matched no row is
+/// measured only beside another write (Q1a's seed). A Rename, a Truncate and any write through a RecordRef are not
+/// measured.
 pub(crate) fn write_verdict(kind: TxWriteKind, through_recordref: bool) -> TableWritten {
-    let measured = matches!(
-        kind,
-        TxWriteKind::Insert
-            | TxWriteKind::Modify
-            | TxWriteKind::Delete
-            | TxWriteKind::DeleteAll
-            | TxWriteKind::ModifyAll
-    );
-    if measured && !through_recordref {
-        TableWritten::Written
-    } else {
-        TableWritten::Unmeasured
+    match kind {
+        _ if through_recordref => TableWritten::Unmeasured,
+        TxWriteKind::Insert | TxWriteKind::Modify | TxWriteKind::Delete => TableWritten::Written,
+        TxWriteKind::DeleteAll | TxWriteKind::ModifyAll => TableWritten::EmptyBulk,
+        _ => TableWritten::Unmeasured,
     }
 }
 
-/// The variable's own Delete of `rec`: its version is of a row it deleted, which no cell measures after a failed
-/// Insert.
+/// A DeleteAll or ModifyAll of `table` in `company` ended having changed the store (`write_verdict`).
+pub(crate) fn note_bulk_changed(writes: &mut crate::state::TableWrites, table: u32, company: &Option<String>) {
+    writes.note(table, company, TableWritten::Written);
+}
+
+/// The variable's own Delete of `rec`. Its version keeps its source for the own-Modify rule (al-runner issue 7798,
+/// which reads no Delete fact); no cell of the assumption measures a version whose row the variable deleted.
 pub(crate) fn note_own_delete(rec: &Rec) {
     if let Some(e) = rec.borrow_mut().version_entry.0.as_mut() {
-        e.how = VersionHow::OtherWrite;
+        e.deleted = true;
     }
 }
 
@@ -67,6 +66,27 @@ impl Session {
         };
         let company = rec.borrow().company.clone();
         self.tx.open.table_writes.note(table, &company, verdict);
+    }
+
+    /// A RecordRef.LockTable of `rec`'s table: no cell measures it (R1 and R1b lock through a Record variable).
+    pub(crate) fn note_recordref_lock(&mut self, rec: &Rec, t: &TableDef) {
+        let r = rec.borrow();
+        if !r.temporary {
+            self.tx
+                .open
+                .table_writes
+                .note(t.object, &r.company, TableWritten::Unmeasured);
+        }
+    }
+
+    /// At a Commit: a transaction that held a store write nothing noted counts as an unmeasured write (no stamp before
+    /// it then passes), and the session's write count is kept, so a Commit after a write that followed a stamp is
+    /// told apart from one before it (Q4 :481 and Q6 :528 commit before the TARGET Insert).
+    pub(crate) fn note_commit_for_version_entries(&mut self) {
+        if !self.stale_writes_noted() {
+            self.tx.write_counts.note_unmeasured();
+        }
+        self.tx.write_counts.at_commit = self.tx.write_counts.all;
     }
 
     /// A stamp of the open transaction for a version `version` of the row `key` of `table`, reached by `how`.
@@ -89,7 +109,9 @@ impl Session {
             commits: self.commits,
             rollbacks: self.rollbacks,
             writes: self.tx.write_counts.now(table, company),
+            log: self.tx.open.writes.len(),
             failed_inserts: 0,
+            deleted: false,
         }
     }
 
@@ -186,8 +208,14 @@ impl Session {
             (e, moved, r.company.clone())
         };
         // A version from the buffer's own Modify of another row: written
-        // (record/crud/CodeunitRunTableNoWrites.al:828-904, al-runner issue 7798; also Q7 :561, R9 :875).
-        if e.how == VersionHow::OwnModify && e.via == VersionVia::Own && moved {
+        // (record/crud/CodeunitRunTableNoWrites.al:828-904, al-runner issue 7798; also Q7 :561, R9 :875). As main's
+        // rule read `last_modify`, which every clone of the record state carries and a Delete keeps: the variable
+        // itself, a by-value copy, a RecordRef's GetTable copy and any other clone, not `:=` or Record.Copy.
+        let own_modify_copy = matches!(
+            e.via,
+            VersionVia::Own | VersionVia::ByValue | VersionVia::GetTable | VersionVia::Cloned
+        );
+        if e.how == VersionHow::OwnModify && own_modify_copy && moved {
             return Ok(true);
         }
         // Read before any write or lock of its table: raised (see the module comment). An own write always writes it.
@@ -214,15 +242,16 @@ impl Session {
     ///   :984, S1b :1011) or kept (R6 :784, the row changed by another variable after the read).
     /// - Before the version: an Insert, Modify, Delete, DeleteAll, ModifyAll or LockTable of the table
     ///   (`write_verdict`, `note_table_locked`), TARGET among them (S2b :1058). After it: Insert, Modify or Delete of
-    ///   the table's rows (S6 :1146, S8 :1195), a LockTable (S5 :1122), a rollback of a read version (S7 :1171), at
-    ///   most one Commit (Q4, Q6).
+    ///   the table's rows (S6 :1146, S8 :1195, Q8 :1225, Q9 :1250), a LockTable (S5 :1122), one rollback of a read
+    ///   version (S7 :1171), one Commit before any write after the version (Q4, Q6).
     /// - Insert or Insert(true), Modify or Modify(true) (S1a, S1b), with TransferFields(Src, false) or not (S1a, R6,
     ///   R10).
     ///
     /// Measured for none of them, so refused: another company, a version carried into another test, an own write rolled
-    /// back or followed by an own Delete, two Commits, a write of another table or of a kind `unmeasured_after` names
-    /// after the version, a second failed Insert, a Modify whose result is used, and a table with triggers,
-    /// subscribers or global triggers.
+    /// back or followed by an own Delete, two rollbacks, two Commits or a Commit after a write that followed the
+    /// version, a write of another table, a write that is not a Record write, or a write of a kind `unmeasured_after`
+    /// names after the version, the key kept with its row deleted or inserted since, a second failed Insert, a Modify
+    /// whose result is used, and a table with triggers, subscribers or global triggers.
     fn measured_after_table_write(
         &mut self,
         t: &TableDef,
@@ -241,13 +270,19 @@ impl Session {
         );
         let read = matches!(e.how, Get | Find);
         let [all, unmeasured, of_table] = self.tx.write_counts.now(t.object, company);
+        // One Commit, before any write after the version (Q4, Q6); one rollback, of a read version (S7).
+        let commit = self.commits == e.commits
+            || (self.commits == e.commits + 1 && self.tx.write_counts.at_commit == e.writes[0]);
+        let rollback = self.rollbacks == e.rollbacks || (read && self.rollbacks == e.rollbacks + 1);
         let shape = source
             && e.table_written == TableWritten::Written
+            && !e.deleted
             && e.company.is_none()
             && company.is_none()
             && e.tests == self.pages.test_methods_started
-            && (read || e.rollbacks == self.rollbacks)
-            && self.commits <= e.commits + 1
+            && commit
+            && rollback
+            && (moved || self.key_only_modified(t, e, company))
             && unmeasured == e.writes[1]
             && all - e.writes[0] == of_table - e.writes[2]
             && e.failed_inserts == 1
@@ -255,6 +290,19 @@ impl Session {
             && !self.ret_used
             && self.stale_writes_noted();
         Ok(shape && !self.write_hooks(t)?)
+    }
+
+    /// The key kept (R6 :784): since the version, its row was only modified, in the same transaction. R6 measures one
+    /// Modify by another variable; a Delete and Insert of the row (S8 :1195 measures them for another key) is not.
+    fn key_only_modified(&self, t: &TableDef, e: &VersionSource, company: &Option<String>) -> bool {
+        let writes = &self.tx.open.writes;
+        self.commits == e.commits
+            && self.rollbacks == e.rollbacks
+            && writes.len() >= e.log
+            && writes[e.log..]
+                .iter()
+                .filter(|w| w.table == t.object && w.company == *company && same_key(&w.pk, &e.key))
+                .all(|w| w.kind == TxWriteKind::Modify)
     }
 
     /// Whether an Insert or Modify of `t` runs code of its own: a trigger, a table extension's trigger, an event

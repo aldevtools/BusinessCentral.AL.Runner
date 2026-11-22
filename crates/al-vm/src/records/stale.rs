@@ -321,6 +321,10 @@ impl Session {
                 entries: len - at - 1,
                 counter,
             });
+            if counter != before {
+                let (table, company) = (w.table, w.company.clone());
+                crate::version_entry::note_bulk_changed(&mut self.tx.open.table_writes, table, &company);
+            }
             self.end_row_version_modify_all(at);
         }
     }

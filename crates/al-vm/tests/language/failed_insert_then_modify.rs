@@ -56,6 +56,25 @@ codeunit 69721 C
         exit(Format(R2.Qty));
     end;
 
+    procedure TwoCommitsAfterTheRead(): Text
+    var R: Record "FIM Row"; R2: Record "FIM Row";
+    begin
+        R.DeleteAll();
+        R."No." := 'A';
+        R.Qty := 1;
+        R.Insert();
+        R.Get('A');
+        Commit();
+        R2.Get('A');
+        R2.Qty := 2;
+        R2.Modify();
+        Commit();
+        R.Qty := 5;
+        if not R.Insert() then
+            R.Modify();
+        exit('written');
+    end;
+
     procedure NothingChanged(): Text
     var R: Record "FIM Row";
     begin
@@ -96,6 +115,18 @@ fn a_buffer_read_before_and_changed_elsewhere_raises() {
 #[test]
 fn the_same_key_changed_after_the_read_after_an_open_seed_is_written() {
     assert_eq!(text(al_testkit::run_in(SRC, "C", "ChangedElsewhereOpenSeed")), "5");
+}
+
+/// Two Commits after a version read once the table was written: no cell measures it, so the Modify refuses (al-runner
+/// issue 8721; corpus PR 1523 measures one Commit, record/crud/TestRecordFailedInsertMovedKey.al:481 Q4).
+#[test]
+fn two_commits_after_the_read_refuse() {
+    match al_testkit::run_in(SRC, "C", "TwoCommitsAfterTheRead") {
+        Err(al_builtins::native::Signal::Unsupported(why)) => {
+            assert!(why.to_string().contains("in a shape no test measures"), "{why}")
+        }
+        r => panic!("expected a refusal, got {r:?}"),
+    }
 }
 
 #[test]

@@ -286,6 +286,8 @@ pub(crate) struct WriteCounts {
     pub(crate) all: u64,
     pub(crate) unmeasured: u64,
     pub(crate) tables: Vec<(u32, Option<String>, u64)>,
+    /// `all` at the last Commit.
+    pub(crate) at_commit: u64,
 }
 
 impl WriteCounts {
@@ -297,6 +299,13 @@ impl WriteCounts {
             Some((_, _, n)) => *n += 1,
             None => self.tables.push((table, company.clone(), 1)),
         }
+    }
+
+    /// Counts one write that is not a Record write (IsolatedStorage), or a Commit whose transaction held a store write
+    /// nothing noted: unmeasured.
+    pub(crate) fn note_unmeasured(&mut self) {
+        self.all += 1;
+        self.unmeasured += 1;
     }
 
     /// All writes, the unmeasured ones, and those of `table` in `company`, so far.

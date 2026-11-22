@@ -743,8 +743,12 @@ pub struct VersionSource {
     /// The session's noted writes then (al-vm `TxState::write_counts`): all of them, those no cell measures after the
     /// read, and those of this table and company.
     pub writes: [u64; 3],
+    /// The length of the open transaction's write log then (al-vm `OpenTx::writes`).
+    pub log: usize,
     /// The guarded Inserts at this version that answered false.
     pub failed_inserts: u32,
+    /// The variable deleted its row since.
+    pub deleted: bool,
 }
 
 /// The read or write that gave a buffer its row version ([`VersionSource::how`]).
@@ -760,7 +764,7 @@ pub enum VersionHow {
     OwnInsert,
     OwnModify,
     OwnRename,
-    /// Another write of the variable: through a RecordRef, a Rename that rewrote related rows, or a Delete.
+    /// Another write of the variable: through a RecordRef, or a Rename that rewrote related rows.
     OtherWrite,
 }
 
@@ -789,8 +793,11 @@ pub enum TableWritten {
     /// No noted write and no LockTable of the table.
     #[default]
     No,
-    /// Only writes of kinds a cell measures: a Record variable's Insert, Modify, Delete, DeleteAll or ModifyAll, and
-    /// LockTable (corpus PR 1523, record/crud/TestRecordFailedInsertMovedKey.al).
+    /// Only a DeleteAll or ModifyAll that matched no row (no cell measures it alone).
+    EmptyBulk,
+    /// Only writes of kinds a cell measures: a Record variable's Insert, Modify or Delete, a DeleteAll or ModifyAll
+    /// that changed a row, and a Record variable's LockTable (corpus PR 1523,
+    /// record/crud/TestRecordFailedInsertMovedKey.al).
     Written,
     /// Also another write: a Rename, a Truncate, a write through a RecordRef.
     Unmeasured,
