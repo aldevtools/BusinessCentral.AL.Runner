@@ -609,6 +609,8 @@ pub struct Entry {
     pub resources: std::collections::BTreeMap<String, String>,
     /// As `--test-timeout-secs`, for this entry (al-runner issue 8125). `None`: the request's limit.
     pub test_timeout_secs: Option<u64>,
+    /// The entry's `stopGroup`, keyed as its text: with the stop after a failure, the group of later entries it skips.
+    pub stop_group: Option<String>,
 }
 
 impl Entry {
@@ -958,6 +960,7 @@ fn entry_runs(
                 },
                 resources,
                 test_time_limit: e.test_timeout_secs.map(time_limit),
+                stop_group: e.stop_group.clone(),
             }
         })
         .collect()
