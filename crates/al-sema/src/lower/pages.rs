@@ -416,18 +416,7 @@ impl Lowerer<'_> {
                                     // branch al-runtime-rs-staging-y5, testpage/Y5PartArrayElementControl.al). Only a
                                     // page's own control (owner None, this block): `globals` are the page's variables, not
                                     // those of a pageextension that adds the control.
-                                    array_element = args.get(1).and_then(|a| crate::pages::array_element(a)).and_then(
-                                        |(v, text)| {
-                                            let index: usize =
-                                                text.split_once('[')?.1.strip_suffix(']')?.trim().parse().ok()?;
-                                            let slot = globals.iter().position(|g| g.name.eq_ignore_ascii_case(&v))?;
-                                            let RtType::Array(dims, _) = &globals[slot].ty else {
-                                                return None;
-                                            };
-                                            (dims.len() == 1 && index >= 1 && index <= dims[0] as usize)
-                                                .then_some((slot, index - 1))
-                                        },
-                                    );
+                                    array_element = args.get(1).and_then(|a| page_array_element(a, globals));
                                     expr_source =
                                         args.get(1).and_then(|a| own_expr_source(a, globals, found.is_some()));
                                 }
@@ -1019,4 +1008,16 @@ fn owner_names(obj: &ast::Object, is_extension: bool) -> std::collections::BTree
         );
     }
     names
+}
+
+/// The slot of the page array and the 0-based position of `ElementText[2]`, an element of a one-dimensional array with a number
+/// index in its bounds (al-runner issue 6379; testpage/Y5PartArrayElementControl.al).
+fn page_array_element(src: &str, globals: &[ir::Slot]) -> Option<(usize, usize)> {
+    let (v, text) = crate::pages::array_element(src)?;
+    let index: usize = text.split_once('[')?.1.strip_suffix(']')?.trim().parse().ok()?;
+    let slot = globals.iter().position(|g| g.name.eq_ignore_ascii_case(&v))?;
+    let RtType::Array(dims, _) = &globals[slot].ty else {
+        return None;
+    };
+    (dims.len() == 1 && index >= 1 && index <= dims[0] as usize).then_some((slot, index - 1))
 }
