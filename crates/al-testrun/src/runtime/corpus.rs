@@ -1395,7 +1395,7 @@ impl CorpusRuntime {
             // Writing the snapshot the test threads read (the first pass on several threads does it).
             let mut encode_time = std::time::Duration::ZERO;
             super::install_once::begin_pass(&engine, &pass.resources);
-            let (refused, skip) = pass_refused(install_read_resources, pass, opts, &list);
+            let (refused, skip) = pass_refused(install_read_resources, pass, &passes, &entry_ranges, &list);
             let (opts_only, limit) = (&pass.only, pass.limit);
             // The test codeunits to run, in the order the report lists them.
             let mut units: Vec<Unit> = Vec::new();
@@ -1447,7 +1447,7 @@ impl CorpusRuntime {
                             flags: super::session_flags::SessionFlags::of(opts),
                             report_unpinned_errors: opts.report_unpinned_errors,
                             skip_after_timeout: opts.skip_after_timeout,
-                            stop_after_first_failure: opts.stop_after_first_failure,
+                            stop_after_first_failure: pass.stop.clone(),
                             perturb: opts.perturb.clone(),
                             run_seed: opts.run_seed,
                             runner: *runner,
@@ -2308,31 +2308,44 @@ fn hub_path(suite: &SuiteRun, opts: &RunOptions, driver: super::TestDriver) -> b
     suite.runner.is_none() && opts.required_isolation && opts.isolation.is_none() && driver.has_hub()
 }
 
-/// Why no test of `pass` runs, given the rows of the earlier passes (`earlier`), and whether that is the stop of an
-/// option rather than a refusal (`TestResult::skipped_by_option`, al-runner issue 8492): the install code read resource
-/// files and this entry has resource files of its own, so its install baseline would be another one, which is not made
-/// per entry; or `RunOptions::stop_after_first_failure` (al-runner issue 8210) and an earlier pass has a failed test.
-/// Every test of the pass gets the reason (`suite_isolation`).
+/// Why no test of `pass` runs, given the earlier passes and their rows (as `pass_stopped`), and whether that is the stop
+/// of an option rather than a refusal (`TestResult::skipped_by_option`, al-runner issue 8492): the install code read
+/// resource files and this entry has resource files of its own, so its install baseline would be another one, which is
+/// not made per entry; or `pass_stopped`. Every test of the pass gets the reason (`suite_isolation`).
 fn pass_refused(
     install_read_resources: bool,
     pass: &Pass,
-    opts: &RunOptions,
-    earlier: &[TestResult],
+    passes: &[Pass],
+    ranges: &[std::ops::Range<usize>],
+    list: &[TestResult],
 ) -> (Option<String>, bool) {
     if install_read_resources && !pass.resources.is_empty() {
         return (Some("the install code read a resource file, and an entry with resource files of its own would need an install baseline of its own (al-runner issue 5635)".to_string()), false);
     }
-    let stopped = pass_stopped(opts, earlier);
+    let stopped = pass_stopped(pass, passes, ranges, list);
     let skipped = stopped.is_some();
     (stopped, skipped)
 }
 
-/// `RunOptions::stop_after_first_failure` and an earlier pass (`earlier`) has a failed test: the reason.
-fn pass_stopped(opts: &RunOptions, earlier: &[TestResult]) -> Option<String> {
-    let failed = earlier.iter().find(|r| matches!(r.outcome, Outcome::Fail(_)));
-    failed
-        .filter(|_| opts.stop_after_first_failure)
-        .map(|r| super::run::stopped_after_failure(r.codeunit, &r.test))
+/// The reason `RunOptions::stop_after_first_failure` (al-runner issue 8210) runs no test of `pass`: an earlier pass
+/// with the same stop scope (`Pass::stop`; issue 8210) has a failed test, the first in `list` order. The entries
+/// without a group share one scope (the serve protocol refuses a mix of entries with and without one). `ranges[k]` holds the rows of `passes[k]` in
+/// `list`, one range per finished pass, so the `zip` ends at the current pass. With no entries `ranges` is empty, and
+/// the single pass has no earlier rows.
+fn pass_stopped(
+    pass: &Pass,
+    passes: &[Pass],
+    ranges: &[std::ops::Range<usize>],
+    list: &[TestResult],
+) -> Option<String> {
+    let stop = pass.stop.as_ref()?;
+    let failed = ranges
+        .iter()
+        .zip(passes)
+        .filter(|(_, p)| p.stop.as_ref() == Some(stop))
+        .flat_map(|(r, _)| &list[r.clone()])
+        .find(|r| matches!(r.outcome, Outcome::Fail(_)))?;
+    Some(super::run::stopped_after_failure(stop, failed.codeunit, &failed.test))
 }
 
 /// The isolation of the runner the test codeunits of `suite` run under, or why none of them runs (`refused`). With

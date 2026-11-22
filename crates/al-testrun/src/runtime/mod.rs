@@ -703,7 +703,7 @@ pub(crate) struct Unit {
     /// See `RunOptions::skip_after_timeout`.
     skip_after_timeout: bool,
     /// See `RunOptions::stop_after_first_failure`.
-    stop_after_first_failure: bool,
+    stop_after_first_failure: Option<run::StopAfterFailure>,
     /// See `RunOptions::perturb`.
     perturb: crate::stability::Perturb,
     /// See `RunOptions::run_seed`.
@@ -791,7 +791,7 @@ pub(crate) struct Scratch {
     /// See `RunOptions::skip_after_timeout`.
     skip_after_timeout: bool,
     /// See `RunOptions::stop_after_first_failure`.
-    stop_after_first_failure: bool,
+    stop_after_first_failure: Option<run::StopAfterFailure>,
     /// See `RunOptions::perturb`.
     perturb: crate::stability::Perturb,
     /// See `RunOptions::run_seed`.
@@ -965,7 +965,7 @@ fn run_unit(
             flags: u.flags,
             report_unpinned_errors: u.report_unpinned_errors,
             skip_after_timeout: u.skip_after_timeout,
-            stop_after_first_failure: u.stop_after_first_failure,
+            stop_after_first_failure: u.stop_after_first_failure.clone(),
             perturb: u.perturb.clone(),
             run_seed: u.run_seed,
             runner: u.runner,
@@ -1105,7 +1105,7 @@ fn scratch_unit(
         flags: Default::default(),
         report_unpinned_errors: false,
         skip_after_timeout: false,
-        stop_after_first_failure: false,
+        stop_after_first_failure: None,
         perturb: Default::default(),
         run_seed: opts.run_seed,
         runner: None,

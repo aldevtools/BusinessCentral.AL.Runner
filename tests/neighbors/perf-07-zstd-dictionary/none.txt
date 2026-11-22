@@ -1,0 +1,1 @@
+Speed only: the compile cache prepares the zstd dictionary once per layer instead of once per block; the compressed bytes are identical (unit test a_prepared_dictionary_compresses_every_block_to_the_same_bytes), so entries, hits and misses give main's answers and no AL-visible result changes.

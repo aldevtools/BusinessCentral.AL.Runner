@@ -125,6 +125,56 @@ pub struct WindowRow {
     pub shown: Vec<Value>,
 }
 
+/// The row a List page left its new line for after the table field's OnValidate inserted it (`code_inserted_new_line.rs`).
+#[derive(Debug, Clone)]
+pub struct CodeInsertedRow {
+    /// Its primary key.
+    pub key: Vec<Value>,
+    /// The number of test calls when the page landed on it.
+    pub calls: usize,
+    /// The refresh read another row after it, so the page reads it again before it leaves it (the FactBox host).
+    pub read_before_leave: bool,
+    /// Where the test stands in the calls measured on the FactBox host after the landing (`refuse_off_factbox_row`).
+    pub factbox: FactboxStep,
+}
+
+/// The calls of the validation that left a new line for its row by `CurrPage.SaveRecord` or `CurrPage.Update(true)`
+/// (`code_inserted_new_line.rs`): what may follow, and the page's record and the store as the save left them, which must stay so.
+#[derive(Debug, Clone, Default)]
+pub enum CodeInsertedSave {
+    #[default]
+    Off,
+    /// The page left the line; its save runs now. `asked`: the call was `Update(true)`, which asks the refresh itself.
+    Pending { asked: bool },
+    /// `SaveRecord` saved: the `CurrPage.Update(false)` after it asks the refresh.
+    Saved(Box<SavedView>),
+    /// The refresh is asked: no further `CurrPage.Update` or `SaveRecord` in the validation.
+    Asked(Box<SavedView>),
+}
+
+/// The page's record and the store's write mark right after the save of `CodeInsertedSave`.
+#[derive(Debug, Clone)]
+pub struct SavedView {
+    pub rec: RecordState,
+    pub writes: (i64, u64),
+}
+
+/// The calls measured on the FactBox host after the page left its new line for the row (`code_inserted_new_line.rs`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FactboxStep {
+    /// Not the FactBox host: the gate lets every call through.
+    #[default]
+    Off,
+    /// The landing: reads, and one SetValue of a control without code.
+    Landed,
+    /// After that SetValue: reads, then `Previous()`, `Close()` or `OK()`.
+    Typed,
+    /// After `OK()`: its `Invoke`.
+    OkAsked,
+    /// `Previous()` on the empty view's only row answered false: reads, then `Next()`.
+    PreviousNo,
+}
+
 /// Where the test client's cursor stands on a page (ADR-012).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Cursor {
@@ -889,9 +939,11 @@ pub struct PageState {
     pub static_run_record: bool,
     /// A SetValue wrote a control bound to an expression on this page with no source table (an action after it is refused).
     pub expr_set_no_source: bool,
-    /// The key of the row that refresh landed on and the number of test calls then, until the next move
-    /// (`code_inserted_new_line.rs`).
-    pub code_inserted_row: Option<(Vec<Value>, usize)>,
+    /// The row the page left its new line for, until the next move (`code_inserted_new_line.rs`).
+    pub code_inserted_row: Option<CodeInsertedRow>,
+    /// Where the validation running now stands after `CurrPage.SaveRecord` or `CurrPage.Update(true)` left such a new line for its
+    /// row (`code_inserted_new_line.rs`).
+    pub code_inserted_save: CodeInsertedSave,
     /// The page control's own OnValidate while it runs (`code_inserted_new_line.rs` `run_control_onvalidate`).
     pub control_onvalidate: Option<ControlOnValidate>,
     /// `CurrPage.SaveRecord()` saved the row page code found from the new-row line through assumption
@@ -1075,6 +1127,7 @@ impl PageState {
     pub(crate) fn forget_code_inserted_line(&mut self) {
         self.refresh.forget_code_inserted_line();
         self.code_inserted_row = None;
+        self.code_inserted_save = CodeInsertedSave::Off;
     }
 
     /// The page opens: the captions its controls and fields resolved on the last run are gone.

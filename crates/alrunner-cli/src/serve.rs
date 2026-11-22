@@ -60,6 +60,7 @@ const ENTRY_FIELDS: &[&str] = &[
     "excludeTests",
     "excludeTestsExact",
     "testTimeoutSecs",
+    "stopGroup",
 ];
 /// The request fields of `execute`.
 const EXECUTE_FIELDS: &[&str] = &[
@@ -531,10 +532,8 @@ fn entries_of(fields: &Map<String, Value>) -> Result<(Vec<run::Entry>, Vec<Value
             Some(id @ (Value::String(_) | Value::Number(_))) => id.clone(),
             Some(_) => return Err("the `id` of an entry is a text or a number".into()),
         };
-        // Al-runner issue 5703: the answers of two entries with one id cannot be told apart. A text and a number that
-        // read alike count as one id, as a client may key its answers by text.
-        let key = |id: &Value| id.as_str().map_or_else(|| id.to_string(), String::from);
-        if ids.iter().any(|seen| key(seen) == key(&id)) {
+        // Al-runner issue 5703: the answers of two entries with one id cannot be told apart.
+        if ids.iter().any(|seen| id_key(seen) == id_key(&id)) {
             return Err(format!(
                 "more than one entry has the `id` {id}: each entry needs its own id (the default id is the entry's index)"
             ));
@@ -558,9 +557,41 @@ fn entries_of(fields: &Map<String, Value>) -> Result<(Vec<run::Entry>, Vec<Value
             excludes_exact: string_list(e, "excludeTestsExact")?,
             resources,
             test_timeout_secs: test_timeout_secs(e)?,
+            stop_group: stop_group(e)?,
         });
     }
     Ok((entries, ids))
+}
+
+/// The key of an entry's `id` or `stopGroup`: a text and a number that read alike are one key, as a client may key its
+/// answers by text (al-runner issue 5703).
+fn id_key(v: &Value) -> String {
+    v.as_str().map_or_else(|| v.to_string(), String::from)
+}
+
+/// The `stopGroup` of an entry (issue 8210): a text or a number, keyed as `id_key`; absent or `null`: none.
+fn stop_group(e: &Map<String, Value>) -> Result<Option<String>, String> {
+    match e.get("stopGroup") {
+        None | Some(Value::Null) => Ok(None),
+        Some(g @ (Value::String(_) | Value::Number(_))) => Ok(Some(id_key(g))),
+        Some(_) => Err("the `stopGroup` of an entry is a text or a number".into()),
+    }
+}
+
+/// The `stopGroup`s of `entries` are all or none (issue 8210): a mix is refused, as an entry without a group has more
+/// than one plausible reading there, and a refusal can be lifted later. Groups need the stop after a failure (`stop`:
+/// the request's field, or the server's `--stop-after-first-failure` when it is absent): without the stop a group
+/// changes nothing, so it is refused as a likely client mistake. The mix is checked first: it is wrong whatever the
+/// stop.
+fn stop_groups_checked(entries: &[run::Entry], stop: bool) -> Result<(), String> {
+    let grouped = entries.iter().filter(|e| e.stop_group.is_some()).count();
+    if grouped > 0 && grouped < entries.len() {
+        return Err("some entries have a `stopGroup` and some do not: give every entry one (an entry that stops alone gets a group of its own), or none (a failure then stops the whole request)".into());
+    }
+    if !stop && grouped > 0 {
+        return Err("`stopGroup` needs `stopAfterFirstFailure` (or a server started with `--stop-after-first-failure`): without the stop a group changes nothing".into());
+    }
+    Ok(())
 }
 
 fn run_tests(base: &TestArgs, fields: &Map<String, Value>, ctx: &mut WarmCtx, flags: &Flags) {
@@ -572,6 +603,9 @@ fn run_tests(base: &TestArgs, fields: &Map<String, Value>, ctx: &mut WarmCtx, fl
         Ok(x) => x,
         Err(e) => return error(e),
     };
+    if let Err(e) = stop_groups_checked(&entries, args.stop_after_first_failure) {
+        return error(e);
+    }
     if let Ok(mut v) = flags.entry_ids.lock() {
         v.clone_from(&ids);
     }
@@ -1379,5 +1413,52 @@ mod tests {
         assert_eq!(l["name"], "Codeunit1.X");
         assert_eq!(l["stackFrames"], json!(["a", "b"]));
         assert_eq!(l["durationMs"], 3);
+    }
+
+    /// Issue 8210: the `stopGroup` of an entry is a text or a number; a number and the text that reads alike are one
+    /// group.
+    #[test]
+    fn an_entry_may_name_its_stop_group() {
+        let group = |v: Value| {
+            entries_of(&fields(json!({"entries": [{"test": "X", "stopGroup": v}]})))
+                .map(|(e, _)| e[0].stop_group.clone())
+        };
+        assert_eq!(group(json!(7)), Ok(Some("7".to_string())));
+        assert_eq!(group(json!("7")), Ok(Some("7".to_string())));
+        assert_eq!(group(json!("m1")), Ok(Some("m1".to_string())));
+        assert_eq!(group(Value::Null), Ok(None));
+        for bad in [json!(true), json!([]), json!({})] {
+            assert_eq!(
+                group(bad.clone()),
+                Err("the `stopGroup` of an entry is a text or a number".to_string()),
+                "{bad}"
+            );
+        }
+        let (e, _) = entries_of(&fields(json!({"entries": [{"test": "X"}]}))).unwrap();
+        assert_eq!(e[0].stop_group, None);
+    }
+
+    /// Issue 8210: groups are all or none, and need the stop.
+    #[test]
+    fn stop_groups_are_all_or_none_and_need_the_stop() {
+        let entry = |g: Option<&str>| run::Entry {
+            stop_group: g.map(String::from),
+            ..run::Entry::default()
+        };
+        let none = [entry(None), entry(None)];
+        let all = [entry(Some("m1")), entry(Some("m2"))];
+        let mixed = [entry(None), entry(Some("m1"))];
+        let needs_the_stop = "`stopGroup` needs `stopAfterFirstFailure` (or a server started with `--stop-after-first-failure`): without the stop a group changes nothing";
+        let mix = "some entries have a `stopGroup` and some do not: give every entry one (an entry that stops alone gets a group of its own), or none (a failure then stops the whole request)";
+        for stop in [false, true] {
+            assert_eq!(stop_groups_checked(&none, stop), Ok(()), "no groups, stop {stop}");
+        }
+        assert_eq!(stop_groups_checked(&all, true), Ok(()));
+        assert_eq!(
+            stop_groups_checked(&mixed, true),
+            Err(mix.to_string()),
+            "a mix is refused"
+        );
+        assert_eq!(stop_groups_checked(&all, false), Err(needs_the_stop.to_string()));
     }
 }
