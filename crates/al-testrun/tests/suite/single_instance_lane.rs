@@ -1754,3 +1754,156 @@ fn a_lane_reader_with_handlers_after_a_hub_member_stays_refused() {
     let lane = &rt.phases.chain.single_lane;
     assert!(lane.rerun >= 1, "{:?}", lane);
 }
+
+/// A chain member (`Lane Storage Writer`) changes isolated storage and sets the flag; a later member reads the flag and
+/// the storage.
+const MEMBER_AFTER_STORAGE: &str = r#"
+codeunit 60840 "Lane Storage Writer"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    [Test] procedure SetsStorageAndFlag() var S: Codeunit "Lane State";
+    begin IsolatedStorage.Set('lane-key', 'kept', DataScope::Module); S.SetFlag('left'); end;
+}
+codeunit 60841 "Lane Storage Member Reader"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    [Test] procedure MemberReadsStorage() var S: Codeunit "Lane State"; V: Text;
+    begin
+        if S.GetFlag() = '' then;
+        if not IsolatedStorage.Get('lane-key', DataScope::Module, V) then V := '';
+        Error('storage=%1 flag=%2', V, S.GetFlag());
+    end;
+}
+"#;
+
+/// A chain member whose reach touches the isolated storage an earlier member changed is refused in the lane as in the
+/// walk (`carry_after.rs` `After::refusal`, `Carried::storage_why`), not run from what that member left.
+#[test]
+fn a_lane_member_after_a_storage_carry_that_reaches_the_storage_is_refused() {
+    let opts = RunOptions {
+        required_isolation: true,
+        strict_order: true,
+        test_suites: Some(std::sync::Arc::new(
+            al_testrun::test_suites::TestSuites::parse("S: 60840 60841").expect("a valid suites file"),
+        )),
+        ..Default::default()
+    };
+    let rt = runtime_opts(MEMBER_AFTER_STORAGE, STATE, &opts);
+    let o = rt
+        .results()
+        .iter()
+        .find(|r| r.test == "MemberReadsStorage")
+        .map(|r| r.outcome.clone());
+    assert!(
+        matches!(&o, Some(Outcome::NotRun(why)) if why.contains("changed isolated storage or a number sequence")),
+        "{o:?}"
+    );
+    let lane = &rt.phases.chain.single_lane;
+    assert!(lane.rerun >= 1, "{:?}", lane);
+}
+
+/// A chain member (`Lane Storage Row Writer`) changes isolated storage and writes a row; outside the chain a codeunit
+/// sets the flag and one, whose reach does not touch the storage, counts the rows and reads the flag.
+const OUTSIDE_AFTER_STORAGE: &str = r#"
+table 60850 "Lane Storage Row" { fields { field(1; Name; Text[30]) { } } keys { key(PK; Name) { } } }
+codeunit 60850 "Lane Storage Row Writer"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    [Test] procedure SetsStorageAndRow() var R: Record "Lane Storage Row";
+    begin IsolatedStorage.Set('lane-key', 'kept', DataScope::Module); R.Name := 'Alpha'; R.Insert(); end;
+}
+codeunit 60851 "Lane Storage Setter"
+{
+    Subtype = Test;
+    [Test] procedure SetsStorageFlag() var S: Codeunit "Lane State"; begin S.SetFlag('left'); end;
+}
+codeunit 60852 "Lane Storage Row Reader"
+{
+    Subtype = Test;
+    [Test] procedure CountsRowsNotStorage() var S: Codeunit "Lane State"; R: Record "Lane Storage Row";
+    begin
+        if S.GetFlag() = '' then;
+        Error('count=%1 flag=%2', R.Count(), S.GetFlag());
+    end;
+}
+"#;
+
+/// A codeunit outside the chain whose reach does not touch the isolated storage a member changed, and that reads the
+/// member's rows, runs again in the lane from what the member left (QuCommitIsolation.al:711-760
+/// QU_D11_NextCodeunitSees), as after the parallel part (`carry_after.rs` `run_in_session`).
+#[test]
+fn a_lane_reader_outside_the_chain_after_a_storage_carry_runs_again_from_it() {
+    let opts = RunOptions {
+        required_isolation: true,
+        strict_order: true,
+        ..Default::default()
+    };
+    let rt = runtime_opts(OUTSIDE_AFTER_STORAGE, STATE, &opts);
+    let o = rt
+        .results()
+        .iter()
+        .find(|r| r.test == "CountsRowsNotStorage")
+        .map(|r| r.outcome.clone());
+    assert!(
+        matches!(&o, Some(Outcome::Fail(m)) if m == "count=1 flag=left"),
+        "{o:?}"
+    );
+}
+
+/// A codeunit whose OnRun writes rows (a member on the leg of runner 130450, not the hub), then, outside the chain, a
+/// codeunit that sets the flag and one with handlers that counts the rows and reads the flag.
+const HANDLERS_OTHER_LEG: &str = r#"
+table 60860 "Lane Leg Row" { fields { field(1; Name; Text[30]) { } } keys { key(PK; Name) { } } }
+codeunit 60860 "Lane Leg Writer"
+{
+    Subtype = Test;
+    trigger OnRun() var R: Record "Lane Leg Row";
+    begin R.Name := 'Alpha'; R.Insert(); R.Name := 'Bravo'; R.Insert(); end;
+    [Test] procedure LegWriterTest() begin end;
+}
+codeunit 60861 "Lane Leg Setter"
+{
+    Subtype = Test;
+    [Test] procedure SetsLegFlag() var S: Codeunit "Lane State"; begin S.SetFlag('left'); end;
+}
+codeunit 60862 "Lane Leg Handler Reader"
+{
+    Subtype = Test;
+    [Test]
+    [HandlerFunctions('LaneLegMessage')]
+    procedure CountsLegRowsWithHandler() var S: Codeunit "Lane State"; R: Record "Lane Leg Row";
+    begin
+        Message('counting');
+        if S.GetFlag() = '' then;
+        Error('count=%1 flag=%2', R.Count(), S.GetFlag());
+    end;
+    [MessageHandler] procedure LaneLegMessage(Msg: Text[1024]) begin end;
+}
+"#;
+
+/// The refusal of a codeunit with handlers holds only after a member on the TestRunnerHub (`carry_after.rs`
+/// `handlers_unpinned`): after a member on the other leg the lane still runs it again from what the member left.
+#[test]
+fn a_lane_reader_with_handlers_on_the_other_leg_runs_again() {
+    let opts = RunOptions {
+        required_isolation: true,
+        strict_order: true,
+        replay_every_dependent: true,
+        ..Default::default()
+    };
+    let rt = runtime_opts(HANDLERS_OTHER_LEG, STATE, &opts);
+    let o = rt
+        .results()
+        .iter()
+        .find(|r| r.test == "CountsLegRowsWithHandler")
+        .map(|r| r.outcome.clone());
+    assert!(
+        matches!(&o, Some(Outcome::Fail(m)) if m == "count=2 flag=left"),
+        "{o:?}"
+    );
+    let lane = &rt.phases.chain.single_lane;
+    assert!(lane.rerun >= 1, "{:?}", lane);
+}
