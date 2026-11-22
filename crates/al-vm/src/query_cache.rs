@@ -898,8 +898,10 @@ impl Session {
     }
 
     /// What AL code's `CalcFields` of `positions` on `rec`, which calculated `fresh`, answers: through the cache when
-    /// `calc_key` keys it. A worker's repeated call answers its first answer (:6147-:6189, :6219, :6249, :6255), also after
-    /// SetLoadFields and Get (:7255); the test session's call fills the entry before it writes (:6237, :6243).
+    /// `calc_key` keys it and no table its formulas read is virtual (its entry ends only with commits of stored tables; the
+    /// neighbor app 8677-bg-cache-calcfields, Platform.al). A worker's repeated call answers its first answer (:6147-:6189,
+    /// :6219, :6249, :6255), also after SetLoadFields and Get (:7255); the test session's call fills the entry before it
+    /// writes (:6237, :6243).
     pub(crate) fn cached_calc_fields(
         &mut self,
         rec: &Rec,
@@ -919,6 +921,10 @@ impl Session {
         let Some((values, sources)) = self.calc_key(rec, &t, positions) else {
             return Ok(fresh);
         };
+        let store = self.store_for(rec)?;
+        if sources.iter().any(|s| store.is_virtual(s)) {
+            return Ok(fresh);
+        }
         let cx = self.cx_for(rec, &t)?;
         match self.cached_group(rec, &cx, &t, values, &sources, GroupAnswer::Values(fresh.clone()))? {
             GroupAnswer::Values(v) => Ok(v),

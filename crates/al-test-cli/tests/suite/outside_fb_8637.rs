@@ -281,7 +281,8 @@ fn issue_8677_repro() {
 /// Neighbors of al-runner issue 8677 past what the cells measure (the neighbor app's header). BC answers each from the cache;
 /// the runner keeps main's answer, the values as the rows are, with no flag. A `field(filter())` of a stored field of the row
 /// set to A and then to B in one worker run computes both (the key holds the field's value, or B would answer A's sum).
-/// SetLoadFields, Get and CalcFields answer the first read as BC does (the cell :7255 measures it), flagged.
+/// SetLoadFields, Get and CalcFields answer the first read as BC does (the cell :7255 measures it), flagged. (The exist
+/// over Tenant Media, Platform.al, needs the platform tables: the neighbor check runs it.)
 #[test]
 fn issue_8677_neighbors() {
     let o = outcomes(CALC_NEIGHBORS, "BQN Tests");

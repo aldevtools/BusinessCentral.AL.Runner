@@ -5,7 +5,7 @@
 // no FlowFilter, a CalcSums with a range, a count whose field() is a sum FlowField of the row, a temporary record, and a sum
 // whose field(filter()) reads a stored field of the row, set to A and then to B in one worker run. From the review of al-runner
 // PR 8682: SetLoadFields, Get and CalcFields (the cell BgCalcFields_AfterSetLoadFields_FirstAnswer, :7255, measures it on
-// table 97597; BC answers the first read).
+// table 97597; BC answers the first read). The exist over Tenant Media is in Platform.al.
 
 table 50120 "BQN Parent"
 {
