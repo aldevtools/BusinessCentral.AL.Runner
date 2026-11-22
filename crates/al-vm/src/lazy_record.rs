@@ -122,13 +122,13 @@ pub(crate) fn watched_local(r: &ir::Routine, i: usize) -> bool {
 /// The locals among `watched` that statement `s` names when it starts, in slot order: the whole of a simple statement, the
 /// header of a compound one (its bodies are statements of their own). A loop also names what the statements of its body
 /// name when they start: they run in every round, so building those locals once before the loop keeps `Op::BuildLocal` out
-/// of the rounds (a loop that runs no round builds them for nothing, which is not observable).
+/// of the rounds (a loop that runs no round builds them for nothing, which is not observable). The condition of a `repeat`
+/// runs after the body, but naming it at the start only builds the record earlier. The walk reads the statement in place
+/// (`al_ir::types::child_nodes`): it clones nothing.
 pub(crate) fn statement_locals(s: &ir::Stmt, watched: &[bool]) -> Vec<u16> {
-    let Some(mut head) = header(s) else { return Vec::new() };
-    let mut names = Names(Vec::new());
-    ir::walk::walk_body(std::slice::from_mut(&mut head), &mut names);
+    let mut names = Vec::new();
+    header_locals(s, &mut names);
     let mut out: Vec<u16> = names
-        .0
         .into_iter()
         .filter(|&i| watched.get(i).copied().unwrap_or(false))
         .filter_map(|i| u16::try_from(i).ok())
@@ -138,56 +138,67 @@ pub(crate) fn statement_locals(s: &ir::Stmt, watched: &[bool]) -> Vec<u16> {
     out
 }
 
-/// The part of `s` that names the locals built when it starts (see [`statement_locals`]). The condition of a `repeat` runs
-/// after the body, but naming it at the start only builds the record earlier.
-fn header(s: &ir::Stmt) -> Option<ir::Stmt> {
+/// Pushes the locals the header of `s` names (see [`statement_locals`]) onto `out`.
+fn header_locals(s: &ir::Stmt, out: &mut Vec<usize>) {
     use ir::Stmt as S;
-    let rounds = |body: &[ir::Stmt]| body.iter().filter_map(header).collect::<Vec<_>>();
-    Some(match s {
-        S::Assign(..) | S::Expr(_) | S::Exit(_) => s.clone(),
-        S::If(c, _, _) => S::If(c.clone(), Vec::new(), Vec::new()),
-        S::While(c, body) => S::While(c.clone(), rounds(body)),
-        S::Repeat(body, c) => S::Repeat(rounds(body), c.clone()),
+    let rounds = |body: &[ir::Stmt], out: &mut Vec<usize>| body.iter().for_each(|s| header_locals(s, out));
+    match s {
+        S::Assign(p, e) => {
+            place_locals(p, out);
+            expr_locals(e, out);
+        }
+        S::Expr(e) | S::If(e, _, _) => expr_locals(e, out),
+        S::Exit(e) => e.iter().for_each(|e| expr_locals(e, out)),
+        S::While(c, body) | S::Repeat(body, c) => {
+            expr_locals(c, out);
+            rounds(body, out);
+        }
         S::For {
             var,
             from,
             to,
-            down,
+            down: _,
             body,
-        } => S::For {
-            var: var.clone(),
-            from: from.clone(),
-            to: to.clone(),
-            down: *down,
-            body: rounds(body),
-        },
-        S::Foreach { var, collection, body } => S::Foreach {
-            var: var.clone(),
-            collection: collection.clone(),
-            body: rounds(body),
-        },
+        } => {
+            place_locals(var, out);
+            expr_locals(from, out);
+            expr_locals(to, out);
+            rounds(body, out);
+        }
+        S::Foreach { var, collection, body } => {
+            place_locals(var, out);
+            expr_locals(collection, out);
+            rounds(body, out);
+        }
         S::Case {
             scrutinee, branches, ..
-        } => S::Case {
-            scrutinee: scrutinee.clone(),
-            branches: branches.iter().map(|(e, _)| (e.clone(), Vec::new())).collect(),
-            otherwise: Vec::new(),
-        },
-        S::AssertError(_) | S::Break | S::Continue | S::Pos(_) | S::Assume(_) | S::TddMark(_) => return None,
-    })
+        } => {
+            expr_locals(scrutinee, out);
+            for (labels, _) in branches {
+                for l in labels {
+                    ir::types::set_elem_children(l, &mut |e| expr_locals(e, out));
+                }
+            }
+        }
+        S::AssertError(_) | S::Break | S::Continue | S::Pos(_) | S::Assume(_) | S::TddMark(_) => {}
+    }
 }
 
-/// Collects the locals a walk meets; every other reference is left as it is.
-struct Names(Vec<usize>);
+/// Pushes the locals expression `e` names, at any depth, onto `out`.
+fn expr_locals(e: &ir::Expr, out: &mut Vec<usize>) {
+    ir::types::child_nodes(e, &mut |n| node_locals(n, out));
+}
 
-impl ir::walk::RefVisitor for Names {
-    fn object(&mut self, _r: &mut usize) {}
-    fn routine(&mut self, _r: &mut usize, _object: usize) {}
-    fn field(&mut self, _r: &mut usize, _table: ir::walk::TableOf) {}
-    fn expansion(&mut self, _index: usize, _site: ir::walk::ExpansionSite<'_>) {}
-    fn control(&mut self, _r: &mut usize) {}
-    fn local(&mut self, slot: usize) {
-        self.0.push(slot);
+/// Pushes the locals place `p` names (its base, and its index expressions) onto `out`.
+fn place_locals(p: &ir::Place, out: &mut Vec<usize>) {
+    ir::types::place_nodes(p, &mut |n| node_locals(n, out));
+}
+
+fn node_locals(n: ir::types::Node<'_>, out: &mut Vec<usize>) {
+    match n {
+        ir::types::Node::Place(ir::Place::Local(i)) => out.push(*i),
+        ir::types::Node::Place(_) => {}
+        ir::types::Node::Expr(e) => expr_locals(e, out),
     }
 }
 
@@ -297,5 +308,146 @@ mod tests {
         assert!(statement_locals(&looped, &watched).is_empty());
         let looped = Stmt::While(Expr::Load(Place::Local(0)), body.clone());
         assert_eq!(statement_locals(&looped, &watched), vec![2, 3]);
+    }
+
+    /// The oracle of the read-only walk: the header of `s` (see [`statement_locals`]) as a statement of its own, which the
+    /// exhaustive mutable walk (`al_ir::walk`, the `local` hook) reads.
+    fn header(s: &ir::Stmt) -> Option<ir::Stmt> {
+        use ir::Stmt as S;
+        let rounds = |body: &[ir::Stmt]| body.iter().filter_map(header).collect::<Vec<_>>();
+        Some(match s {
+            S::Assign(..) | S::Expr(_) | S::Exit(_) => s.clone(),
+            S::If(c, _, _) => S::If(c.clone(), Vec::new(), Vec::new()),
+            S::While(c, body) => S::While(c.clone(), rounds(body)),
+            S::Repeat(body, c) => S::Repeat(rounds(body), c.clone()),
+            S::For {
+                var,
+                from,
+                to,
+                down,
+                body,
+            } => S::For {
+                var: var.clone(),
+                from: from.clone(),
+                to: to.clone(),
+                down: *down,
+                body: rounds(body),
+            },
+            S::Foreach { var, collection, body } => S::Foreach {
+                var: var.clone(),
+                collection: collection.clone(),
+                body: rounds(body),
+            },
+            S::Case {
+                scrutinee, branches, ..
+            } => S::Case {
+                scrutinee: scrutinee.clone(),
+                branches: branches.iter().map(|(e, _)| (e.clone(), Vec::new())).collect(),
+                otherwise: Vec::new(),
+            },
+            S::AssertError(_) | S::Break | S::Continue | S::Pos(_) | S::Assume(_) | S::TddMark(_) => return None,
+        })
+    }
+
+    /// Collects the locals a walk meets; every other reference is left as it is.
+    struct Names(Vec<usize>);
+
+    impl ir::walk::RefVisitor for Names {
+        fn object(&mut self, _r: &mut usize) {}
+        fn routine(&mut self, _r: &mut usize, _object: usize) {}
+        fn field(&mut self, _r: &mut usize, _table: ir::walk::TableOf) {}
+        fn expansion(&mut self, _index: usize, _site: ir::walk::ExpansionSite<'_>) {}
+        fn control(&mut self, _r: &mut usize) {}
+        fn local(&mut self, slot: usize) {
+            self.0.push(slot);
+        }
+    }
+
+    /// The locals the oracle finds in the header of `s`, as [`statement_locals`] lists them with every slot watched.
+    fn oracle_locals(s: &Stmt) -> Vec<u16> {
+        let Some(mut head) = header(s) else { return Vec::new() };
+        let mut names = Names(Vec::new());
+        ir::walk::walk_body(std::slice::from_mut(&mut head), &mut names);
+        let mut out: Vec<u16> = names.0.into_iter().filter_map(|i| u16::try_from(i).ok()).collect();
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    fn each_stmt(body: &[Stmt], f: &mut dyn FnMut(&Stmt)) {
+        for s in body {
+            f(s);
+            match s {
+                Stmt::If(_, a, b) => {
+                    each_stmt(a, f);
+                    each_stmt(b, f);
+                }
+                Stmt::While(_, b) | Stmt::Repeat(b, _) | Stmt::AssertError(b) => each_stmt(b, f),
+                Stmt::For { body, .. } | Stmt::Foreach { body, .. } => each_stmt(body, f),
+                Stmt::Case {
+                    branches, otherwise, ..
+                } => {
+                    for (_, b) in branches {
+                        each_stmt(b, f);
+                    }
+                    each_stmt(otherwise, f);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// The read-only walk names the same locals as the exhaustive mutable walk on a header it clones, for every statement
+    /// of routines that use locals in each place an expression, a place or an argument can hold one.
+    #[test]
+    fn the_read_only_walk_names_what_the_cloned_header_names() {
+        const SRC: &str = "table 50100 Row { fields { field(1; Id; Integer) { } field(2; Name; Text[30]) { } } }
+            codeunit 50101 C {
+                procedure Run(P: Integer; var V: Record Row): Integer
+                var R: Record Row; S: Record Row; A: array[3] of Record Row; N: array[4] of Integer; L: List of [Integer];
+                    I: Integer; J: Integer; T: Text; RR: RecordRef;
+                begin
+                    R.Id := P;
+                    A[I + 1].Name := S.Name;
+                    N[R.Id mod 4 + 1] := A[2].Id;
+                    if R.Get(N[1]) and S.IsEmpty() then begin R.Name := 'x'; S.Name := 'y'; end else A[1].Init();
+                    case S.Id of 1, 2: R.Id := 1; 3 .. 5: S.Id := 2; else A[3].Id := 3; end;
+                    case true of R.Id = 1: I := 1; N[J] > 2: J := 2; end;
+                    while I < R.Id do begin I += 1; if S.Id = I then A[1].Id := I; end;
+                    repeat J += 1; S.Name := Format(J); until (J > 3) or R.IsEmpty();
+                    for I := R.Id to S.Id + N[2] do begin A[2].Id := I; while J > A[3].Id do J -= 1; end;
+                    foreach I in L do T += Format(I) + R.Name;
+                    asserterror R.Get(S.Id);
+                    Fill(R);
+                    Fill(A[2]);
+                    RR.GetTable(S);
+                    T := CopyStr(R.Name + S.Name, 1, StrLen(A[1].Name) + 1);
+                    if Twice(R.Id) > Twice(S.Id) then exit(V.Id);
+                    exit(R.Id + S.Id + A[3].Id);
+                end;
+                local procedure Fill(var X: Record Row) begin X.Id := 9; end;
+                local procedure Twice(K: Integer): Integer begin exit(K * 2); end;
+            }";
+        let (ws, l) = al_sema::lower::compile(
+            vec![al_sema::workspace::AppSource {
+                id: "a".into(),
+                name: "a".into(),
+                dependencies: vec![],
+                files: vec![("f.al".into(), SRC.into())],
+            }],
+            &Default::default(),
+        );
+        assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
+        let mut statements = 0;
+        for o in &l.program.objects {
+            for r in &o.routines {
+                let watched = vec![true; r.locals.len()];
+                each_stmt(&r.body, &mut |s| {
+                    statements += 1;
+                    assert_eq!(statement_locals(s, &watched), oracle_locals(s), "{s:?}");
+                });
+            }
+        }
+        assert!(statements > 30, "{statements}");
     }
 }

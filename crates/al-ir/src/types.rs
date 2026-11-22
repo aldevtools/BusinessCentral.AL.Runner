@@ -206,7 +206,8 @@ pub fn stmt_roots_nested(s: &Stmt, f: &mut dyn FnMut(&Expr, bool)) {
     }
 }
 
-fn set_elem_children(e: &SetElem, f: &mut dyn FnMut(&Expr)) {
+/// Calls `f` on the expressions of a set element: its value, or the ends of its range.
+pub fn set_elem_children(e: &SetElem, f: &mut dyn FnMut(&Expr)) {
     match e {
         SetElem::One(x) => f(x),
         SetElem::Range(a, b) => {
@@ -220,34 +221,62 @@ fn set_elem_children(e: &SetElem, f: &mut dyn FnMut(&Expr)) {
     }
 }
 
-fn place_children(p: &Place, f: &mut dyn FnMut(&Expr)) {
+/// A node of the read-only walk: an expression, or a place (each level of a place, its base included).
+#[derive(Clone, Copy)]
+pub enum Node<'a> {
+    Expr(&'a Expr),
+    Place(&'a Place),
+}
+
+/// Calls `f` on `p`, then on each level of its base and the index expressions of each level, in the order of the
+/// table.
+pub fn place_nodes<F: FnMut(Node)>(p: &Place, f: &mut F) {
+    f(Node::Place(p));
     match p {
         Place::Local(_) | Place::Global(_) | Place::BaseGlobal(_) | Place::ExtGlobal(..) => {}
         Place::Index(base, idx) => {
-            place_children(base, f);
+            place_nodes(base, f);
             for e in idx {
-                f(e);
+                f(Node::Expr(e));
             }
         }
-        Place::Field(base, _) | Place::RecGlobal(base, ..) => place_children(base, f),
+        Place::Field(base, _) | Place::RecGlobal(base, ..) => place_nodes(base, f),
     }
 }
 
-fn arg_children(a: &Arg, f: &mut dyn FnMut(&Expr)) {
+fn place_children(p: &Place, f: &mut dyn FnMut(&Expr)) {
+    place_nodes(p, &mut |n| {
+        if let Node::Expr(e) = n {
+            f(e)
+        }
+    });
+}
+
+fn arg_nodes<F: FnMut(Node)>(a: &Arg, f: &mut F) {
     match a {
-        Arg::Value(e) => f(e),
-        Arg::Ref(p) => place_children(p, f),
+        Arg::Value(e) => f(Node::Expr(e)),
+        Arg::Ref(p) => place_nodes(p, f),
     }
 }
 
-fn args_children(a: &[Arg], f: &mut dyn FnMut(&Expr)) {
+fn args_nodes<F: FnMut(Node)>(a: &[Arg], f: &mut F) {
     for x in a {
-        arg_children(x, f);
+        arg_nodes(x, f);
     }
 }
 
 /// Calls `f` on the expressions directly inside `e` (through places, arguments and sets), in the order of the table.
 pub fn children(e: &Expr, f: &mut dyn FnMut(&Expr)) {
+    child_nodes(e, &mut |n| {
+        if let Node::Expr(x) = n {
+            f(x)
+        }
+    });
+}
+
+/// Like [`children`], and also calls `f` on each place directly inside `e` before the expressions of that place
+/// ([`place_nodes`]).
+pub fn child_nodes<F: FnMut(Node)>(e: &Expr, f: &mut F) {
     match e {
         Expr::Const(_)
         | Expr::BaseInstance
@@ -255,22 +284,24 @@ pub fn children(e: &Expr, f: &mut dyn FnMut(&Expr)) {
         | Expr::Refused(_)
         | Expr::Fail { .. }
         | Expr::ControlAddInCall { .. } => {}
-        Expr::Load(p) => place_children(p, f),
-        Expr::Unary(_, x) | Expr::Convert(_, x) | Expr::DotNetCoerce(_, x) | Expr::DotNetOperand(x, _) => f(x),
+        Expr::Load(p) => place_nodes(p, f),
+        Expr::Unary(_, x) | Expr::Convert(_, x) | Expr::DotNetCoerce(_, x) | Expr::DotNetOperand(x, _) => {
+            f(Node::Expr(x))
+        }
         Expr::Binary(_, a, b) | Expr::CharAt(a, b) => {
-            f(a);
-            f(b);
+            f(Node::Expr(a));
+            f(Node::Expr(b));
         }
         Expr::In(x, set) => {
-            f(x);
+            f(Node::Expr(x));
             for s in set {
-                set_elem_children(s, f);
+                set_elem_children(s, &mut |x| f(Node::Expr(x)));
             }
         }
         Expr::Ternary(c, a, b) => {
-            f(c);
-            f(a);
-            f(b);
+            f(Node::Expr(c));
+            f(Node::Expr(a));
+            f(Node::Expr(b));
         }
         Expr::Call {
             object: _,
@@ -280,35 +311,35 @@ pub fn children(e: &Expr, f: &mut dyn FnMut(&Expr)) {
             try_call: _,
         } => {
             if let Some(i) = instance {
-                f(i);
+                f(Node::Expr(i));
             }
-            args_children(args, f);
+            args_nodes(args, f);
         }
         Expr::InterfaceCall {
             receiver,
             targets: _,
             args,
         } => {
-            f(receiver);
-            args_children(args, f);
+            f(Node::Expr(receiver));
+            args_nodes(args, f);
         }
         Expr::InterfaceTest {
             value,
             objects: _,
             cast: _,
-        } => f(value),
+        } => f(Node::Expr(value)),
         Expr::EnumImpl {
             value,
             by_ordinal: _,
             unknown: _,
-        } => f(value),
+        } => f(Node::Expr(value)),
         Expr::Control {
             page,
             control: _,
             runtime: _,
-        } => f(page),
-        Expr::FieldOf(x, _) => f(x),
-        Expr::QueryColumn { query, column: _ } => f(query),
+        } => f(Node::Expr(page)),
+        Expr::FieldOf(x, _) => f(Node::Expr(x)),
+        Expr::QueryColumn { query, column: _ } => f(Node::Expr(query)),
         Expr::DotNet {
             ty: _,
             receiver,
@@ -316,9 +347,9 @@ pub fn children(e: &Expr, f: &mut dyn FnMut(&Expr)) {
             args,
         } => {
             if let Some(r) = receiver {
-                f(r);
+                f(Node::Expr(r));
             }
-            args_children(args, f);
+            args_nodes(args, f);
         }
         Expr::Builtin {
             id: _,
@@ -327,16 +358,18 @@ pub fn children(e: &Expr, f: &mut dyn FnMut(&Expr)) {
             ret_used: _,
         } => {
             if let Some(r) = receiver {
-                arg_children(r, f);
+                arg_nodes(r, f);
             }
-            args_children(args, f);
+            args_nodes(args, f);
         }
         Expr::TddStub { args, .. } => {
             for a in args {
-                f(a);
+                f(Node::Expr(a));
             }
         }
-        Expr::TddFit { inner, .. } | Expr::FitOrRefuse { inner, .. } | Expr::VarSectionValue(inner) => f(inner),
+        Expr::TddFit { inner, .. } | Expr::FitOrRefuse { inner, .. } | Expr::VarSectionValue(inner) => {
+            f(Node::Expr(inner))
+        }
     }
 }
 
