@@ -1,10 +1,12 @@
 //! `@` alone (al-runner issue 8637): what a filter of `@` and nothing else keeps rests on where the rows are read, not on the
 //! field's type (open corpus PR 1495, BgTaskQueryCache.al, BQ Tests 9b). A read of the database keeps the rows whose value is
 //! empty: a Code field (:5654) and a Text one (:5818), a FlowFilter's `@` that CalcFields applies to a source field of either
-//! type, the same or the other (:5791, :5805), and a lookup FlowField of a record in the database (:5847). A temporary record
-//! keeps every row: a Text field (record/filters/WcInvalidFilterExpr.al:66-90, pinned), a Code field (:5818) and a lookup
-//! FlowField of a temporary record (:5847). A reader that knows where its rows are rewrites the filter here; any other keeps
-//! every row of a Text field, as before, and refuses `@` alone on a Code field ([`FilterExpr::AtSignAloneCode`]).
+//! type, the same or the other (:5791, :5805), a lookup FlowField of a record in the database (:5847), and a query's Code and
+//! Text column, by SetFilter and by its DataItemTableFilter (BQ Tests 9c, :6407-:6457). A temporary record keeps every row: a
+//! Text field (record/filters/WcInvalidFilterExpr.al:66-90, pinned), a Code field (:5818) and a lookup FlowField of a
+//! temporary record (:5847). A reader that knows where its rows are rewrites the filter here; any other, and a platform table
+//! its provider serves (no cell measures one), keeps every row of a Text field, as main does, and refuses `@` alone on a Code
+//! field ([`FilterExpr::AtSignAloneCode`]).
 
 use crate::assumptions::{Assumption, assume};
 use crate::filter::{FieldFilter, FilterExpr};

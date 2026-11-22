@@ -702,6 +702,21 @@ fn issue_8637_bq9b_cells() {
     }
 }
 
+/// The cells of BQ Tests 9c (corpus PR 1495, BgTaskQueryCache.al:6329-6471): a query reads the database, so @ alone on a Code
+/// and a Text column, by SetFilter and by a DataItemTableFilter, keeps the empty values. All flagged.
+#[test]
+fn issue_8637_bq9c_cells() {
+    let o = outcomes(PROBE, "BQ Tests 9c");
+    assert_eq!(o.len(), 4);
+    for (name, r, marks) in &o {
+        assert_eq!(*r, Outcome::Pass, "{name}");
+        assert!(
+            marks.contains(&Assumption::AtSignAloneDatabaseBlank),
+            "{name}: {marks:?}"
+        );
+    }
+}
+
 /// The cells of BQ Tests 5 (corpus PR 1495, BgTaskQueryCache.al:2229-2409). A test page's read of a line fills the row cache,
 /// as the test session's Get does, through filters on every key field (:2300, :2322) and through a filter on the group alone
 /// (:2355; the page reads its line by the full key). The test session's four reads first answer the worker's first four reads
