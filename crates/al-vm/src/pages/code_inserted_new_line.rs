@@ -69,6 +69,15 @@ pub(super) enum View {
     AfterRow,
 }
 
+/// How the row Rec is came to be (`inserted_by_table_field`).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Inserted {
+    /// The table field's OnValidate inserted it before the control's OnValidate began.
+    ByTableField,
+    /// The same, then the control's OnValidate wrote it once through another record, and nothing else.
+    Rewritten,
+}
+
 /// The page call that leaves the line, as the control's OnValidate makes it.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Leave {
@@ -226,12 +235,18 @@ impl Session {
             return Ok(false);
         }
         let page_object = st.borrow().object as usize;
-        let view = if self.code_inserted_line(st, opened == Opened::OpenEditOneGroup)
-            && self.inserted_by_table_field(st, coded)?
-        {
-            self.code_inserted_view(st, coded)?
-        } else {
-            None
+        let inserted = match self.code_inserted_line(st, opened == Opened::OpenEditOneGroup) {
+            true => self.inserted_by_table_field(st, coded)?,
+            false => None,
+        };
+        // Only the effect gate takes a row the control's OnValidate wrote once before the save (`code_inserted_extra.rs`).
+        let rewritten = inserted == Some(Inserted::Rewritten);
+        let view = match inserted {
+            Some(Inserted::ByTableField) => self.code_inserted_view(st, coded)?,
+            Some(Inserted::Rewritten) if matches!(triggers, Triggers::Quiet) && leave == Leave::SaveRecord => {
+                self.code_inserted_view(st, coded)?
+            }
+            _ => None,
         };
         let shape = view.is_some() && (!coded || self.no_active_subscriber(page_object));
         if shape && coded {
@@ -247,14 +262,18 @@ impl Session {
         // The SaveRecord and Update(true) cells run only the code that was measured (`code_inserted_pinned.rs`).
         if shape && cell && matches!(leave, Leave::UpdateTrue | Leave::SaveRecord) {
             match self.code_inserted_code(st)? {
-                Some(PinnedCode::Probe) if opened != Opened::OpenEditOneGroup => {}
+                Some(PinnedCode::Probe) if opened != Opened::OpenEditOneGroup && !rewritten => {}
                 // The repro is measured only when Page.RunModal opens it on one group with one row before the new line
                 // (Issue8285.al:146-211); OpenEdit and an empty group are not (review of #8305, round 4).
-                Some(PinnedCode::Repro) if opened == Opened::RunModalOneGroup && view == Some(View::AfterRow) => {
+                Some(PinnedCode::Repro)
+                    if opened == Opened::RunModalOneGroup && view == Some(View::AfterRow) && !rewritten =>
+                {
                     al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ListNewLineSaveRecordRepro)
                 }
                 // Other code on the page without triggers: the effect gate of the cells of al-runner issues 8712 and 8713.
-                None if matches!(triggers, Triggers::Quiet) => self.extra_code_cell(st, opened, view, leave)?,
+                None if matches!(triggers, Triggers::Quiet) => {
+                    self.extra_code_cell(st, opened, view, leave, rewritten)?
+                }
                 Some(PinnedCode::Probe | PinnedCode::Repro) | None => return Err(Signal::unsupported(UNMEASURED_CODE)),
             }
         }
@@ -476,27 +495,25 @@ impl Session {
     /// before the control's own OnValidate began (its SystemRowVersion above the store's mark when the line started,
     /// `new_line_writes`, and not above the mark when the control's OnValidate began, `control_onvalidate`). The table has
     /// no table extension and no event subscriber; with `manual_unbound` (the page with code), manual subscribers nobody binds
-    /// are allowed (ListNewLineFactboxesCode.al:255-275).
-    fn inserted_by_table_field(&mut self, st: &St, manual_unbound: bool) -> Result<bool, Signal> {
-        let (Some(start), Some((line_mark, _)), Some((control_mark, _))) = ({
+    /// are allowed (ListNewLineFactboxesCode.al:255-275). `Inserted::Rewritten` for that row when the control's OnValidate then
+    /// wrote it once, and nothing else (`code_inserted_extra.rs`, ListNewLineExtraCode.al:443).
+    fn inserted_by_table_field(&mut self, st: &St, manual_unbound: bool) -> Result<Option<Inserted>, Signal> {
+        let (Some(start), Some((line_mark, _)), Some(control)) = ({
             let s = st.borrow();
-            (
-                s.draft_start.clone(),
-                s.new_line_writes,
-                s.control_onvalidate.as_ref().map(|v| v.writes),
-            )
+            (s.draft_start.clone(), s.new_line_writes, s.control_onvalidate.clone())
         }) else {
-            return Ok(false);
+            return Ok(None);
         };
+        let (control_mark, control_deletes) = control.writes;
         let rec = self.page_rec(st);
         let table = self.table(&rec)?;
         let engine = self.engine();
         let object = table.object as usize;
         let Some(schema) = engine.program.objects[object].table.as_ref() else {
-            return Ok(false);
+            return Ok(None);
         };
         let [code, auto] = table.keys[0][..] else {
-            return Ok(false);
+            return Ok(None);
         };
         let key_shape = matches!(schema.fields[code].ty, al_builtins::value::RtType::Code(_))
             && matches!(schema.fields[auto].ty, al_builtins::value::RtType::Integer)
@@ -510,13 +527,23 @@ impl Session {
         let from_line = matches!(start.get(auto), Some(Value::Integer(0)))
             && Self::same_values(&rec.borrow().fields[code..=code], &start[code..=code]);
         if !(key_shape && plain_table && from_line) {
-            return Ok(false);
+            return Ok(None);
         }
         let Some(stored) = self.stored_row(&rec)? else {
-            return Ok(false);
+            return Ok(None);
         };
-        Ok(crate::stale_rename::row_version(&table, &stored)
-            .is_some_and(|v| (line_mark + 1..=control_mark).contains(&v)))
+        let by_table_field = |v: i64| (line_mark + 1..=control_mark).contains(&v);
+        let Some(version) = crate::stale_rename::row_version(&table, &stored) else {
+            return Ok(None);
+        };
+        if by_table_field(version) {
+            return Ok(Some(Inserted::ByTableField));
+        }
+        // The row the table field inserted when the control's OnValidate began, written once since, and nothing else written.
+        let rewritten = control.row_version.is_some_and(by_table_field)
+            && version == control_mark + 1
+            && self.write_mark() == (control_mark + 1, control_deletes);
+        Ok(rewritten.then_some(Inserted::Rewritten))
     }
 
     /// Which measured view holds the inserted row last: alone, or after one row with the same value in the key's first field
@@ -547,10 +574,9 @@ impl Session {
     /// The page control's own OnValidate trigger `r` of control `idx`, recorded in `PageState::control_onvalidate` while it runs
     /// (`inserted_by_table_field` and `refresh_new_line.rs` `found_row_cell` read it).
     pub(super) fn run_control_onvalidate(&mut self, st: &St, idx: usize, r: usize) -> Result<Value, Signal> {
-        let start = Some(crate::pages::state::ControlOnValidate::new(
-            self.write_mark(),
-            self.store.change_counter(),
-        ));
+        let mut begun = crate::pages::state::ControlOnValidate::new(self.write_mark(), self.store.change_counter());
+        begun.row_version = self.new_line_row_version(st);
+        let start = Some(begun);
         let outer = std::mem::replace(&mut st.borrow_mut().control_onvalidate, start);
         self.pages.onvalidate_pages.push(st.clone());
         let result = self.control_routine(st, idx, r);

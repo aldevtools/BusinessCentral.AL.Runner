@@ -18,7 +18,9 @@
 //! - `CurrPage.Update(true)` after the save writes Rec again, over what another record wrote since (:476), then refreshes as
 //!   `Update(false)` does (`extra_code_update_true`).
 //!
-//! Measured but refused: a modify of the row through another record before the save (:443, the save writes Rec over it).
+//! - a modify of the row through another record before the save, its only write since the control's OnValidate began, is
+//!   written over by the save (:443 `A//`, `Inserted::Rewritten`, measured under Page.RunModal on an empty group).
+//!
 //! Every other open, view and page keeps main's refusal (`UNMEASURED_CODE`).
 
 use super::code_inserted_new_line::{Leave, Opened, UNMEASURED_CODE, View};
@@ -36,14 +38,15 @@ impl Session {
     /// code that is not a pinned page's. It runs under the effect gate when the open and the view are measured (Page.RunModal on
     /// one group, empty or with one row before the line, each effect measured both ways, :342, :355, :401, :414, :454, :512,
     /// :487, :524, :498, :536; Update(true) on an empty group, :465), its table declares no
-    /// record trigger (`no_record_trigger`), and nothing but the table field's insert wrote the store since the line began;
-    /// otherwise refused.
+    /// record trigger (`no_record_trigger`), and nothing but the table field's insert wrote the store since the line began (or,
+    /// `rewritten`, that row once more inside the control's OnValidate, :443); otherwise refused.
     pub(super) fn extra_code_cell(
         &mut self,
         st: &St,
         opened: Opened,
         view: Option<View>,
         leave: Leave,
+        rewritten: bool,
     ) -> Result<(), Signal> {
         let measured = matches!(
             (leave, opened, view),
@@ -56,8 +59,22 @@ impl Session {
         );
         let line = st.borrow().new_line_writes;
         let only_the_insert = line.is_some_and(|(mark, deletes)| self.write_mark() == (mark + 1, deletes));
-        if !(measured && only_the_insert && self.no_record_trigger(st)) {
+        // The row the control's OnValidate wrote once through another record before the save (`Inserted::Rewritten`): measured
+        // under Page.RunModal on an empty group (:443).
+        let rewritten_measured = rewritten && opened == Opened::RunModalOneGroup && view == Some(View::Alone);
+        if !(measured && (only_the_insert || rewritten_measured) && self.no_record_trigger(st)) {
             return Err(Signal::unsupported(UNMEASURED_CODE));
+        }
+        if rewritten {
+            // The save writes Rec over what the other record wrote (:443 `A//`); the table has no OnModify, so the write is the
+            // page's whole save, and the save after it finds Rec as stored.
+            let rec = self.page_rec(st);
+            if self
+                .stored_row(&rec)?
+                .is_some_and(|stored| !Self::same_values(&rec.borrow().fields, &stored))
+            {
+                self.record_op(al_builtins::record_op::RecordOp::Modify, &rec, &mut [])?;
+            }
         }
         extra_code_assume();
         st.borrow_mut().code_inserted_extra = true;
@@ -105,6 +122,23 @@ impl Session {
             s.code_inserted_extra = true;
         }
         self.ask_code_inserted_refresh(st)
+    }
+
+    /// On the page's new line, the SystemRowVersion of the stored row Rec is, if any: what a control's OnValidate begins with
+    /// (`ControlOnValidate::row_version`, read by `inserted_by_table_field`). `None` off the new line and where the row cannot
+    /// be read.
+    pub(super) fn new_line_row_version(&mut self, st: &St) -> Option<i64> {
+        let on_line = {
+            let s = st.borrow();
+            s.cursor == Cursor::NewLine && s.draft
+        };
+        if !on_line || !self.has_source(st) {
+            return None;
+        }
+        let rec = self.page_rec(st);
+        let table = self.table(&rec).ok()?;
+        let stored = self.stored_row(&rec).ok()??;
+        crate::stale_rename::row_version(&table, &stored)
     }
 
     /// Every stored row of the page's table after the save, which the code before `CurrPage.Update(false)` must leave as it is

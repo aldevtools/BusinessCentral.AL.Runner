@@ -71,15 +71,11 @@ fn issue_8712_probe_cells() {
         "NewLine_SaveRecordThenWriteAnotherTable_RowBefore_ShowsAndSavesTheRow",
         "NewLine_SaveRecordModifyThroughAnotherRecordThenUpdateTrue_SaveWritesRecOverIt",
         "NewLine_SaveRecordThenModifyThroughAnotherRecord_OpenEdit_ShowsAndSavesIt",
+        "NewLine_ModifyThroughAnotherRecordBeforeSaveRecord_SaveWritesRecOverIt",
     ] {
         let (_, r, marks) = o.iter().find(|(n, _, _)| n == name).expect("the test");
         assert_eq!(*r, Outcome::Pass, "{name}");
         assert!(marks.contains(&ListNewLineExtraCode), "{name}: {marks:?}");
-    }
-    // A write of the row through another record before the save is measured (the save writes Rec over it) but not run: refused.
-    for name in ["NewLine_ModifyThroughAnotherRecordBeforeSaveRecord_SaveWritesRecOverIt"] {
-        let (_, r, _) = o.iter().find(|(n, _, _)| n == name).expect("the test");
-        assert!(matches!(r, Outcome::NotRun(_)), "{name}: {r:?}");
     }
 }
 
