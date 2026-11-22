@@ -162,6 +162,7 @@ mod open_new_temp_navigate_page;
 mod openview_no_row_part_curr_record;
 mod option_enum_bigtext;
 mod or_group_page_rec;
+mod outside_fb_8697;
 mod outside_fb_repros;
 mod outside_id_repros;
 mod outside_rt_pages;
