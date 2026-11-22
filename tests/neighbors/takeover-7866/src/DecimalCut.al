@@ -1,7 +1,7 @@
 // The shapes next to the Decimal storage cells of open corpus pull request 1427 (record/crud/RcAGetFind.al:749-842):
 // a Decimal field with one secondary key of its own, written by Record.Insert() and Record.Modify(), filtered by
 // Record.SetRange and Record.SetFilter('<%1' / '>%1') and read by Record.Count(). Measured_ tests run through
-// decimal-column-cuts-20-places; Refused_ tests refuse on purpose; Main_ tests keep main's result.
+// decimal-column-cuts-twenty-places; Refused_ tests refuse on purpose; Main_ tests keep main's result.
 table 50760 "DC Row"
 {
     fields

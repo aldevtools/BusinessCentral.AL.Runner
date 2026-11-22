@@ -1,6 +1,6 @@
 //! What the SQL `decimal(38,20)` column behind a Decimal field of a database table does to its values: it holds 20
 //! decimals and cuts the rest toward zero. Not pinned yet: every cut runs through the assumption entry
-//! `decimal-column-cuts-20-places` (open corpus pull request 1427, record/crud/RcAGetFind.al:749-842), and only for the field
+//! `decimal-column-cuts-twenty-places` (open corpus pull request 1427, record/crud/RcAGetFind.al:749-842), and only for the field
 //! shape, writers and readers that probe measures. A temporary table, and every other field shape, keep the values as they are.
 
 use al_builtins::assumptions::{Assumption, assume};
@@ -86,7 +86,7 @@ pub(crate) fn store(
                 t.fields[i].name, t.name
             )));
         }
-        assume(Assumption::DecimalColumnCuts20Places);
+        assume(Assumption::DecimalColumnCutsTwentyPlaces);
         row[i] = Value::Decimal(c);
     }
     Ok(())
@@ -162,7 +162,7 @@ pub(crate) fn read_filters(
             .any(|m| m.field == f.field && m.group == f.group && m.expr.identical(&f.expr));
         match cut_expr(&f.expr) {
             Some(cut) if count_by_al && marked => {
-                assume(Assumption::DecimalColumnCuts20Places);
+                assume(Assumption::DecimalColumnCutsTwentyPlaces);
                 f.expr = cut;
             }
             _ => {
