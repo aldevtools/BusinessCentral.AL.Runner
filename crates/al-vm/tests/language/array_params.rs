@@ -102,6 +102,9 @@ fn unmeasured_one_character_literal_for_loop_bounds_are_refused() {
         ("var c: Char; s: Text;", "for c := 52 to '0' do"),
         ("var c: Char; s: Text;", "for c := 48 downto '0' do"),
         ("var c: Char; s: Text;", "for c := '4' downto 52 do"),
+        // A literal next to a local Char variable was measured only with `to` (Char_LiteralStart_CharVariableEnd, Char_CharVariableStart_LiteralEnd).
+        ("var c: Char; l: Char; s: Text;", "for c := 'c' downto l do"),
+        ("var c: Char; l: Char; s: Text;", "for c := l downto 'a' do"),
     ] {
         let src = format!(
             "codeunit 69862 FC\n{{\n    procedure F(): Text\n    {decl}\n    begin\n        {head} s += Format(c);\n        exit(s);\n    end;\n}}\n"

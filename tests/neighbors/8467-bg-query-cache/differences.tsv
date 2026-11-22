@@ -1,4 +1,11 @@
 # key	entry
-# Against main with #8490 merged, only one test differs: its worker reads the table while the test session's insert queue holds a
-# row of it (al-runner PR 8498), so the read runs on the view without the queued rows and is flagged; the outcome is main's.
-BQ Neighbor Tests::RowGoneAgain_AfterCommits	ASSUMED bg-task-insert-queue (corpus PR 1459, merged, not pinned yet, and open PR 1489: BgTaskInsertQueue.al)
+# Against main with the query cache of al-runner PR 8490: the cells and neighbors whose answer this pull request changes (al-runner
+# issue 8637). BQ Tests 3 (corpus PR 1495 at 37bffb8a): FindLast, IsEmpty and FindFirst after a SetFilter (:1238, :1255, :1274) fail
+# on main and answer from the cache on the head.
+BQ Tests 3::BgQueryCache_Run_FindLast_ChangedRow_FirstAnswer	ASSUMED background-task-query-cache (corpus PR 1495, open: BgTaskQueryCache.al)
+BQ Tests 3::BgQueryCache_Run_IsEmpty_Insert_FirstAnswer	ASSUMED background-task-query-cache (corpus PR 1495, open: BgTaskQueryCache.al)
+BQ Tests 3::BgQueryCache_Run_SetFilterFindFirst_ChangedRow_FirstAnswer	ASSUMED background-task-query-cache (corpus PR 1495, open: BgTaskQueryCache.al)
+# BQ Tests 3b: main refuses the test session's Count first (:6498); the head answers it from the cache.
+BQ Tests 3b::BgQueryCache_Run_GroupCount_TestCountThenInsert_FirstRead	ASSUMED background-task-query-cache (corpus PR 1495, open: BgTaskQueryCache.al)
+# Neighbors: a group read after the test session's read and write, refused on main, answers from the cache.
+BQ Neighbor Tests::GroupRead_AfterTestReadAndWrite	ASSUMED background-task-query-cache (corpus PR 1495, open: BgTaskQueryCache.al)

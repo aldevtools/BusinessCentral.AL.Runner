@@ -1298,7 +1298,8 @@ pub(crate) fn one_char_literal(node: &SyntaxNode) -> bool {
 
 /// The `for` loops over a Char or an Integer variable whose bounds are one-character literals, the shapes language/ForCharBounds.al
 /// measured (open corpus PR 1525, assumption `for-char-literal-bounds`): a local Char loop variable with bounds (literal, literal)
-/// or (literal, local Char variable) or (local Char variable, literal), `to` and `downto`; with `to` only (literal, 52)
+/// `to` and `downto`; with `to` only (literal, local Char variable), (local Char variable, literal) (Char_LiteralStart_CharVariableEnd,
+/// Char_CharVariableStart_LiteralEnd), (literal, 52)
 /// (Char_LiteralStart_IntegerEnd, `'0' to 52`) and (48, literal) (Char_IntegerStart_LiteralEnd, `48 to '4'`); a local Integer
 /// loop variable with (literal, literal). `kids` are the loop variable, the start and the end. Every other loop variable, bound
 /// kind, integer value, position and pair is not measured and keeps its refusal.
@@ -1327,8 +1328,9 @@ pub(crate) fn for_one_char_literal_bounds(
     let char_var = |n: &SyntaxNode| n.kind() == SyntaxKind::NameRef && matches!(ty(n), Ty::Char) && local_variable(n);
     match ty(var) {
         Ty::Char => {
-            (lit_from && (lit_to || char_var(to)))
-                || (char_var(from) && lit_to)
+            (lit_from && lit_to)
+                || (!down && lit_from && char_var(to))
+                || (!down && char_var(from) && lit_to)
                 || (!down && lit_from && int_literal(to, "52"))
                 || (!down && int_literal(from, "48") && lit_to)
         }

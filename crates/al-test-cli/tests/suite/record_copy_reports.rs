@@ -670,9 +670,10 @@ fn issue_8189_neighbors_refuse_a_read_of_xrec_or_keep_main() {
         // Run: a record read by Get or inserted by itself, both stored (XRecTableProcThroughCodeunit.al:337-352).
         ("MeasuredChain_ReadByFindFirst_Refused", XREC_REFUSED, false),
         ("MeasuredChain_Temporary_Refused", XREC_REFUSED, false),
-        // The pinned chain hands the trigger's xRec on whether the procedure reads it or not.
-        ("MeasuredChain_NoXRecRead_Runs", PASS, false),
-        ("NoRunningCall_PlainCall_BlankXRec", PASS, false),
+        // The pinned chain hands the trigger's xRec on whether the procedure reads it or not. Each writes after refused
+        // tests whose reach is not fully known, so the type they left is not known: the write is marked.
+        ("MeasuredChain_NoXRecRead_Runs", PASS, true),
+        ("NoRunningCall_PlainCall_BlankXRec", PASS, true),
     ];
     check(&o, &want);
 }

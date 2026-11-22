@@ -369,4 +369,30 @@ codeunit 50100 "NB Char Loop"
             n += 1;
         Expect(Format(n), '0');
     end;
+
+    [Test]
+    procedure CharVar_LiteralFrom_CharVarTo_DownTo()
+    var
+        c: Char;
+        f: Char;
+        s: Text;
+    begin
+        f := 'a';
+        for c := 'c' downto f do
+            s += Format(c);
+        Expect(s, 'cba');
+    end;
+
+    [Test]
+    procedure CharVar_CharVarFrom_LiteralTo_DownTo()
+    var
+        c: Char;
+        l: Char;
+        s: Text;
+    begin
+        l := 'c';
+        for c := l downto 'a' do
+            s += Format(c);
+        Expect(s, 'cba');
+    end;
 }

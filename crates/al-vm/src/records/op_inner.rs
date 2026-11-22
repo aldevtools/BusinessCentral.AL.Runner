@@ -244,6 +244,8 @@ impl Session {
         ) && !rec.borrow().temporary
         {
             self.bg_refuse_write(t.object as usize, method.name())?;
+            // At a type that does not write (Snapshot, Browse, Report) the write raises.
+            self.gate_read_only_type(method, &t, rec, args, &cx)?;
             self.gate_write(method)?;
             if matches!(method, RecordOp::Insert | RecordOp::DeleteAll)
                 && let Some(e) = self.read_only_platform_table(&t, rec, method)
@@ -1202,7 +1204,7 @@ impl Session {
                     other => return unsupported(format!("Find('{other}')")),
                 };
                 crate::platform::unmeasured_find(&self.engine, &t, &mut found, method, &which, args);
-                found = self.cached_find_first(rec, &cx, &t, method, found)?;
+                found = self.cached_find(rec, &cx, &t, method, found)?;
                 match found {
                     Some(row) => {
                         // Every form of Find gives the origin FindFirst gives (record/stale-find/Y89StaleFind.al:256-480,
