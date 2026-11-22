@@ -1,0 +1,7 @@
+# key	entry
+# The reporter's repro: main computes the second CalcFields from the rows as they are; the head answers the first value.
+Repro Calc Worker Tests::WorkerCalcFieldsAgain_AfterAnUncommittedInsert_AnswersTheFirstValue	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:6147; the reporter's repro)
+# Neighbors (BQN Tests: a negated sum, FieldRef.CalcField, a FlowFilter range, a filter on a field that is no FlowFilter, a
+# CalcSums with a range, a count whose field() is a sum FlowField of the row, a temporary record, a field(filter()) of a
+# stored field of the row set to A and then to B): BC answers each from the
+# cache; past what the cells measure, the head keeps main's answer, so they fail on both alike.

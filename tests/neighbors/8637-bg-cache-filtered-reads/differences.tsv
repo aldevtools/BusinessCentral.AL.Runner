@@ -135,6 +135,24 @@ BQ Tests 9::BgQueryCache_Run_FlowFieldKeyTwice_FindsFirstAnswer	ASSUMED backgrou
 BQ Tests 9::BgQueryCache_Run_AllForms_KeyTwice_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:5581)
 BQ Tests 9::BgQueryCache_Run_FlowFieldOpenRangesAndAndInsideOr_FindsFirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:5588)
 BQ Tests 9::BgQueryCache_Run_FlowFieldCaseSensitiveWildcards_FindsFirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:5599)
+# The cells of BQ Tests 10 (corpus PR 1495, al-runner issue 8677) whose answer the cache changes: main computed a worker's
+# second CalcFields and CalcSums from the rows as they are; the head answers the first answer. The cells that read the table
+# pass on both.
+BQ Tests 10::BgCalcFields_Count_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:6147)
+BQ Tests 10::BgCalcFields_Sum_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:6153)
+BQ Tests 10::BgCalcFields_Min_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:6159)
+BQ Tests 10::BgCalcFields_Max_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:6165)
+BQ Tests 10::BgCalcFields_Average_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:6171)
+BQ Tests 10::BgCalcFields_Exist_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:6177)
+BQ Tests 10::BgCalcFields_Lookup_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:6183)
+BQ Tests 10::BgCalcFields_Several_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:6189)
+BQ Tests 10::BgCalcFields_FlowFilter_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:6219)
+BQ Tests 10::BgCalcFields_TestCalcFieldsFirst_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:6237)
+BQ Tests 10::BgCalcFields_CountOfNotes_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:6249)
+BQ Tests 10::BgCalcFields_SumAtAFlowFieldOfTheRow_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:6255)
+BQ Tests 10::BgCalcSums_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:6273)
+BQ Tests 10::BgCalcSums_TwoFields_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:6279)
+BQ Tests 10::BgCalcSums_FilterOutsideTheKey_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:6285)
 # Neighbors (BQ Gate Tests: 100001 filters on a table of 503 fields, a FlowField filter next to the key set to its value in
 # three filter groups, the FlowField filters @k, <>K* and K*|X, a sum whose field() is a FlowField of the row after an
 # uncommitted note, a worker's fresh Record and RecordRef Count while the test session holds a filter in filter group 1):

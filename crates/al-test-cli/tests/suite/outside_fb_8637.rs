@@ -1,7 +1,8 @@
-//! The cells of corpus pull request 1495 for al-runner issue 8637 (tests/al-language/pages/background-tasks/BgTaskQueryCache.al,
-//! BQ Tests 4 to 9), the reporter's repro and the neighbors, run here until a bump pins the probe: the group reads of page
-//! background tasks through the query cache (`al-vm` query_cache.rs). The AL is the neighbor app's
-//! (tests/neighbors/8637-bg-cache-filtered-reads), one copy. Delete this file when the pin is in the corpus.
+//! The cells of corpus pull request 1495 for al-runner issues 8637 and 8677 (tests/al-language/pages/background-tasks/
+//! BgTaskQueryCache.al, BQ Tests 4 to 10), the reporters' repros and the neighbors, run here until a bump pins the probe: the
+//! group reads and calculations of page background tasks through the query cache (`al-vm` query_cache.rs). The AL is the
+//! neighbor apps' (tests/neighbors/8637-bg-cache-filtered-reads and 8677-bg-cache-calcfields), one copy. Delete this file
+//! when the pin is in the corpus.
 
 use al_builtins::assumptions::Assumption::{self, BackgroundTaskQueryCache};
 use al_test_cli::report::Outcome;
@@ -9,6 +10,8 @@ use al_test_cli::report::Outcome;
 const PROBE: &str = include_str!("../../../../tests/neighbors/8637-bg-cache-filtered-reads/src/Probe.al");
 const NEIGHBORS: &str = include_str!("../../../../tests/neighbors/8637-bg-cache-filtered-reads/src/Neighbors.al");
 const REPRO: &str = include_str!("../../../../tests/neighbors/8637-bg-cache-filtered-reads/src/Repro.al");
+const CALC_NEIGHBORS: &str = include_str!("../../../../tests/neighbors/8677-bg-cache-calcfields/src/Neighbors.al");
+const CALC_REPRO: &str = include_str!("../../../../tests/neighbors/8677-bg-cache-calcfields/src/Repro.al");
 
 fn outcomes(src: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<Assumption>)> {
     let src = format!("{src}\n{}", include_str!("../fixtures/outside-sc/Assert.al"));
@@ -245,5 +248,55 @@ fn issue_8637_review_cells() {
     for (name, r, marks) in &o {
         assert_eq!(*r, Outcome::Pass, "{name}");
         assert!(marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
+    }
+}
+
+/// The reporter's repro of al-runner issue 8677 (green on real BC 3/3): a worker's CalcFields again after the test session's
+/// uncommitted insert answers its first value, flagged.
+#[test]
+fn issue_8677_repro() {
+    let o = outcomes(CALC_REPRO, "Repro Calc Worker Tests");
+    assert_eq!(o.len(), 1);
+    for (name, r, marks) in &o {
+        assert_eq!(*r, Outcome::Pass, "{name}");
+        assert!(marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
+    }
+}
+
+/// Neighbors of al-runner issue 8677 past what the cells measure (the neighbor app's header). BC answers each from the cache;
+/// the runner keeps main's answer, the values as the rows are, with no flag. A `field(filter())` of a stored field of the row
+/// set to A and then to B in one worker run computes both (the key holds the field's value, or B would answer A's sum).
+#[test]
+fn issue_8677_neighbors() {
+    let o = outcomes(CALC_NEIGHBORS, "BQN Tests");
+    assert_eq!(o.len(), 8);
+    for (name, r, marks) in &o {
+        assert!(!marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
+        assert!(matches!(r, Outcome::Fail(_)), "{name}: {r:?}");
+        if name.starts_with("FieldFilterOfAStoredField") {
+            assert!(
+                matches!(r, Outcome::Fail(m) if m.contains("Actual:<5,0 / 5,11>")),
+                "{name}: {r:?}"
+            );
+        }
+    }
+}
+
+/// The cells of BQ Tests 10 (corpus PR 1495, BgTaskQueryCache.al:5833-6290, al-runner issue 8677): a worker's CalcFields of
+/// one FlowField of every method or of several, with a FlowFilter or a sum whose field() is a FlowField of the row, and its
+/// CalcSums answer the first answer, flagged; the test session's CalcFields before its insert answers the worker's first
+/// one, flagged. Another set or order of fields, another FlowFilter value, a commit, SetAutoCalcFields and a count over a
+/// FlowField of its source read the table, clean.
+#[test]
+fn issue_8677_bq10_cells() {
+    let o = outcomes(PROBE, "BQ Tests 10");
+    assert_eq!(o.len(), 24);
+    for (name, r, marks) in &o {
+        assert_eq!(*r, Outcome::Pass, "{name}");
+        assert_eq!(
+            marks.contains(&BackgroundTaskQueryCache),
+            name.ends_with("_FirstAnswer"),
+            "{name}: {marks:?}"
+        );
     }
 }

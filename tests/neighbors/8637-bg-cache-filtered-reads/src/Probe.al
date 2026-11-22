@@ -1,6 +1,6 @@
 // An excerpt of the corpus probe BgTaskQueryCache.al of corpus pull requests 1457 and 1495 at 37bffb8a (al-runner issues 8467
-// and 8637): the file up to BQ Tests 9, then BQ Tests 3b, BQ Tests 11, BQ Media Row and BQ Reader 12. Left out: BQ Tests 9b and
-// 9c (the "@ alone" pull request's), BQ Tests 10 (al-runner issue 8677's), and BQ Tests 12 and BQ Version, which need Base
+// and 8637): the file up to BQ Tests 9, BQ Tests 10 (al-runner issue 8677), BQ Tests 3b, BQ Tests 11, BQ Media Row and BQ
+// Reader 12. Left out: BQ Tests 9b and 9c (the "@ alone" pull request's), and BQ Tests 12 and BQ Version, which need Base
 // Application.
 // BC Documentation:
 //   https://learn.microsoft.com/en-us/dynamics365/business-central/dev-itpro/developer/methods-auto/page/page-enqueuebackgroundtask-method
@@ -5638,6 +5638,464 @@ codeunit 97539 "BQ Tests 9"
     end;
 }
 
+
+// BQ Tests 10 (al-runner issue 8677, a page background task's CalcFields and CalcSums; measured on a local BC 29.1 OnPrem w1
+// container). Each Mode commits a parent of tables 97597 and 97557 with line 1 of table 97594 (Kind A, Amount 5; none for
+// 'exist') and opens a page; the worker reads; the test session inserts line 0 (Kind K, Amount 2) and line 2 (Kind B, Amount
+// 11), or a note of table 97595 for the FlowFields over the notes, without a commit; the worker reads again: 'first / again'.
+// A worker's CalcFields answers its first answer for a FlowField of every method (count, sum, min, max, average, exist,
+// lookup), for several FlowFields at once, for a FlowFilter, and for a sum whose field() is a FlowField of the row; a commit
+// of the lines, or of the notes the inner FlowField counts, ends it. The entry is the call: the same FlowFields in another
+// order, one then several, several then one, another FlowFilter value, SetAutoCalcFields with FindFirst, and a count whose
+// condition is a FlowField of its source read the table. The test session's CalcFields before its insert answers the
+// worker's first one; without it the worker reads the insert. CalcSums answers its first answer, of one field or two, with a
+// filter outside the key too.
+// Fixtures (the header's Fixtures used lines have no room): table 97557, worker codeunit 97552, test codeunit 97553.
+
+table 97557 "BQ Calc Filtered"
+{
+    DataClassification = SystemMetadata;
+    ReplicateData = false;
+
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(2; "Kind Filter"; Code[10]) { FieldClass = FlowFilter; }
+        field(3; "Kind Sum"; Decimal)
+        {
+            FieldClass = FlowField;
+            CalcFormula = sum("BQ Child".Amount where(Parent = field("No."), Kind = field("Kind Filter")));
+        }
+        field(4; "Note Count"; Integer)
+        {
+            FieldClass = FlowField;
+            CalcFormula = count("BQ Note" where(Parent = field("No.")));
+        }
+        field(5; "Amount At Note Count"; Decimal)
+        {
+            FieldClass = FlowField;
+            CalcFormula = sum("BQ Child".Amount where(Parent = field("No."), "Line No." = field("Note Count")));
+        }
+        field(6; "Lone Lines"; Integer)
+        {
+            FieldClass = FlowField;
+            CalcFormula = count("BQ Child" where(Parent = field("No."), "Sibling Count" = const(1)));
+        }
+    }
+
+    keys
+    {
+        key(PK; "No.") { Clustered = true; }
+    }
+}
+
+codeunit 97552 "BQ Reader 10"
+{
+    trigger OnRun()
+    var
+        Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
+        Group: Text;
+        Mode: Text;
+        Round: Text;
+    begin
+        Parameters := Page.GetBackgroundParameters();
+        Parameters.Get('Group', Group);
+        Parameters.Get('Mode', Mode);
+        Parameters.Get('Round', Round);
+        Results.Add('Seen', Calc(Mode, Group, Round = '2'));
+        Page.SetBackgroundTaskResult(Results);
+    end;
+
+    local procedure D(Value: Decimal): Text
+    begin
+        exit(Format(Value, 0, 9));
+    end;
+
+    procedure Calc(Mode: Text; Group: Text; Again: Boolean): Text
+    var
+        Parent: Record "BQ Calc";
+        Filtered: Record "BQ Calc Filtered";
+        Child: Record "BQ Child";
+    begin
+        case Mode of
+            'count', 'commit', 'testfirst', 'testinsertfirst':
+                begin
+                    Parent.Get(Group);
+                    Parent.CalcFields("Line Count");
+                    exit(Format(Parent."Line Count"));
+                end;
+            'sum':
+                begin
+                    Parent.Get(Group);
+                    Parent.CalcFields("Amount Sum");
+                    exit(D(Parent."Amount Sum"));
+                end;
+            'min':
+                begin
+                    Parent.Get(Group);
+                    Parent.CalcFields("Amount Min");
+                    exit(D(Parent."Amount Min"));
+                end;
+            'max':
+                begin
+                    Parent.Get(Group);
+                    Parent.CalcFields("Amount Max");
+                    exit(D(Parent."Amount Max"));
+                end;
+            'average':
+                begin
+                    Parent.Get(Group);
+                    Parent.CalcFields("Amount Average");
+                    exit(D(Parent."Amount Average"));
+                end;
+            'exist':
+                begin
+                    Parent.Get(Group);
+                    Parent.CalcFields("Has Lines");
+                    exit(Format(Parent."Has Lines"));
+                end;
+            'lookup':
+                begin
+                    Parent.Get(Group);
+                    Parent.CalcFields("Line Kind");
+                    exit(Parent."Line Kind");
+                end;
+            'several':
+                begin
+                    Parent.Get(Group);
+                    Parent.CalcFields("Line Count", "Amount Sum", "Amount Min", "Amount Max", "Line Kind");
+                    exit(Format(Parent."Line Count") + ',' + D(Parent."Amount Sum") + ',' + D(Parent."Amount Min") + ',' +
+                        D(Parent."Amount Max") + ',' + Parent."Line Kind");
+                end;
+            'onethenseveral':
+                begin
+                    Parent.Get(Group);
+                    if Again then begin
+                        Parent.CalcFields("Amount Sum", "Line Count");
+                        exit(D(Parent."Amount Sum") + ',' + Format(Parent."Line Count"));
+                    end;
+                    Parent.CalcFields("Amount Sum");
+                    exit(D(Parent."Amount Sum"));
+                end;
+            'severalthenone':
+                begin
+                    Parent.Get(Group);
+                    if Again then begin
+                        Parent.CalcFields("Amount Sum");
+                        exit(D(Parent."Amount Sum"));
+                    end;
+                    Parent.CalcFields("Amount Sum", "Line Count");
+                    exit(D(Parent."Amount Sum") + ',' + Format(Parent."Line Count"));
+                end;
+            'severalswapped':
+                begin
+                    Parent.Get(Group);
+                    if Again then
+                        Parent.CalcFields("Line Count", "Amount Sum")
+                    else
+                        Parent.CalcFields("Amount Sum", "Line Count");
+                    exit(D(Parent."Amount Sum") + ',' + Format(Parent."Line Count"));
+                end;
+            'auto':
+                begin
+                    Parent.SetAutoCalcFields("Line Count", "Amount Sum");
+                    Parent.SetRange("No.", Group);
+                    Parent.FindFirst();
+                    exit(Format(Parent."Line Count") + ',' + D(Parent."Amount Sum"));
+                end;
+            'flowfilter':
+                begin
+                    Filtered.Get(Group);
+                    Filtered.SetFilter("Kind Filter", 'A|K');
+                    Filtered.CalcFields("Kind Sum");
+                    exit(D(Filtered."Kind Sum"));
+                end;
+            'flowfilterother':
+                begin
+                    Filtered.Get(Group);
+                    if Again then
+                        Filtered.SetFilter("Kind Filter", 'K')
+                    else
+                        Filtered.SetFilter("Kind Filter", 'A|K');
+                    Filtered.CalcFields("Kind Sum");
+                    exit(D(Filtered."Kind Sum"));
+                end;
+            'notecount':
+                begin
+                    Filtered.Get(Group);
+                    Filtered.CalcFields("Note Count");
+                    exit(Format(Filtered."Note Count"));
+                end;
+            'atnotecount', 'atnotecountcommit':
+                begin
+                    Filtered.Get(Group);
+                    Filtered.CalcFields("Amount At Note Count");
+                    exit(D(Filtered."Amount At Note Count"));
+                end;
+            'lonelines':
+                begin
+                    Filtered.Get(Group);
+                    Filtered.CalcFields("Lone Lines");
+                    exit(Format(Filtered."Lone Lines"));
+                end;
+            'calcsums':
+                begin
+                    Child.SetRange(Parent, Group);
+                    Child.CalcSums(Amount);
+                    exit(D(Child.Amount));
+                end;
+            'calcsumstwo':
+                begin
+                    Child.SetRange(Parent, Group);
+                    Child.CalcSums(Amount, "Line No.");
+                    exit(D(Child.Amount) + ',' + Format(Child."Line No."));
+                end;
+            'calcsumsfilter':
+                begin
+                    Child.SetRange(Parent, Group);
+                    Child.SetFilter(Kind, 'A|K');
+                    Child.CalcSums(Amount);
+                    exit(D(Child.Amount));
+                end;
+        end;
+        Error('Mode %1', Mode);
+    end;
+}
+
+codeunit 97553 "BQ Tests 10"
+{
+    Subtype = Test;
+
+    var
+        Assert: Codeunit Assert;
+
+    local procedure NewGroup(): Code[20]
+    begin
+        exit(CopyStr(DelChr(Format(CreateGuid()), '=', '{}-'), 1, 18));
+    end;
+
+    local procedure Run(var Rows: TestPage "BQ Plain Rows"; Mode: Text; Group: Code[20]; Round: Text): Text
+    var
+        Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
+        Seen: Text;
+    begin
+        Parameters.Add('Group', Group);
+        Parameters.Add('Mode', Mode);
+        Parameters.Add('Round', Round);
+        Results := Rows.RunPageBackgroundTask(Codeunit::"BQ Reader 10", Parameters, false);
+        Results.Get('Seen', Seen);
+        exit(Seen);
+    end;
+
+    // Inserts a line of table 97594, then reads the parent's lines.
+    local procedure AddChild(Parent: Code[20]; LineNo: Integer; Kind: Code[10]; Amount: Decimal)
+    var
+        Child: Record "BQ Child";
+    begin
+        Child.Parent := Parent;
+        Child."Line No." := LineNo;
+        Child.Kind := Kind;
+        Child.Amount := Amount;
+        Child.Insert();
+        Child.SetRange(Parent, Parent);
+        if Child.FindFirst() then;
+    end;
+
+    // The worker's read before and after the test session's change, as 'first / again'.
+    local procedure Reads(Mode: Text): Text
+    var
+        Rows: TestPage "BQ Plain Rows";
+        Parent: Record "BQ Calc";
+        Filtered: Record "BQ Calc Filtered";
+        Note: Record "BQ Note";
+        G: Code[20];
+        Seen: Text;
+    begin
+        G := NewGroup();
+        Parent."No." := G;
+        Parent.Insert();
+        Filtered."No." := G;
+        Filtered.Insert();
+        if Mode <> 'exist' then
+            AddChild(G, 1, 'A', 5);
+        Commit();
+        Rows.OpenView();
+        if Mode in ['testfirst', 'testinsertfirst'] then begin
+            if Mode = 'testfirst' then
+                Parent.CalcFields("Line Count");
+            AddChild(G, 0, 'K', 2);
+            AddChild(G, 2, 'B', 11);
+        end;
+        Seen := Run(Rows, Mode, G, '1');
+        case Mode of
+            'testfirst', 'testinsertfirst':
+                ;
+            'notecount', 'atnotecount', 'atnotecountcommit':
+                begin
+                    Note.Parent := G;
+                    Note."Line No." := 1;
+                    Note.Insert();
+                    Note.SetRange(Parent, G);
+                    if Note.FindFirst() then;
+                end;
+            else begin
+                AddChild(G, 0, 'K', 2);
+                AddChild(G, 2, 'B', 11);
+            end;
+        end;
+        if Mode in ['commit', 'atnotecountcommit'] then
+            Commit();
+        Seen += ' / ' + Run(Rows, Mode, G, '2');
+        Rows.Close();
+        exit(Seen);
+    end;
+
+    [Test]
+    procedure BgCalcFields_Count_FirstAnswer()
+    begin
+        Assert.AreEqual('1 / 1', Reads('count'), 'count');
+    end;
+
+    [Test]
+    procedure BgCalcFields_Sum_FirstAnswer()
+    begin
+        Assert.AreEqual('5 / 5', Reads('sum'), 'sum');
+    end;
+
+    [Test]
+    procedure BgCalcFields_Min_FirstAnswer()
+    begin
+        Assert.AreEqual('5 / 5', Reads('min'), 'min');
+    end;
+
+    [Test]
+    procedure BgCalcFields_Max_FirstAnswer()
+    begin
+        Assert.AreEqual('5 / 5', Reads('max'), 'max');
+    end;
+
+    [Test]
+    procedure BgCalcFields_Average_FirstAnswer()
+    begin
+        Assert.AreEqual('5 / 5', Reads('average'), 'average');
+    end;
+
+    [Test]
+    procedure BgCalcFields_Exist_FirstAnswer()
+    begin
+        Assert.AreEqual('No / No', Reads('exist'), 'exist');
+    end;
+
+    [Test]
+    procedure BgCalcFields_Lookup_FirstAnswer()
+    begin
+        Assert.AreEqual('A / A', Reads('lookup'), 'lookup');
+    end;
+
+    [Test]
+    procedure BgCalcFields_Several_FirstAnswer()
+    begin
+        Assert.AreEqual('1,5,5,5,A / 1,5,5,5,A', Reads('several'), 'several');
+    end;
+
+    [Test]
+    procedure BgCalcFields_OneThenSeveral_SeesTheChange()
+    begin
+        Assert.AreEqual('5 / 18,3', Reads('onethenseveral'), 'one, then several');
+    end;
+
+    [Test]
+    procedure BgCalcFields_SeveralThenOne_SeesTheChange()
+    begin
+        Assert.AreEqual('5,1 / 18', Reads('severalthenone'), 'several, then one');
+    end;
+
+    [Test]
+    procedure BgCalcFields_SeveralSwapped_SeesTheChange()
+    begin
+        Assert.AreEqual('5,1 / 18,3', Reads('severalswapped'), 'the same fields in another order');
+    end;
+
+    [Test]
+    procedure BgCalcFields_SetAutoCalcFields_SeesTheChange()
+    begin
+        Assert.AreEqual('1,5 / 3,18', Reads('auto'), 'SetAutoCalcFields');
+    end;
+
+    [Test]
+    procedure BgCalcFields_FlowFilter_FirstAnswer()
+    begin
+        Assert.AreEqual('5 / 5', Reads('flowfilter'), 'a FlowFilter');
+    end;
+
+    [Test]
+    procedure BgCalcFields_OtherFlowFilter_SeesTheChange()
+    begin
+        Assert.AreEqual('5 / 2', Reads('flowfilterother'), 'another FlowFilter');
+    end;
+
+    [Test]
+    procedure BgCalcFields_CommitOfTheLines_SeesTheChange()
+    begin
+        Assert.AreEqual('1 / 3', Reads('commit'), 'after the commit');
+    end;
+
+    [Test]
+    procedure BgCalcFields_TestCalcFieldsFirst_FirstAnswer()
+    begin
+        Assert.AreEqual('1 / 1', Reads('testfirst'), 'the test session first');
+    end;
+
+    [Test]
+    procedure BgCalcFields_TestInsertFirst_SeesTheChange()
+    begin
+        Assert.AreEqual('3 / 3', Reads('testinsertfirst'), 'the test session inserts first');
+    end;
+
+    [Test]
+    procedure BgCalcFields_CountOfNotes_FirstAnswer()
+    begin
+        Assert.AreEqual('0 / 0', Reads('notecount'), 'the notes');
+    end;
+
+    [Test]
+    procedure BgCalcFields_SumAtAFlowFieldOfTheRow_FirstAnswer()
+    begin
+        Assert.AreEqual('0 / 0', Reads('atnotecount'), 'field() of a FlowField of the row');
+    end;
+
+    [Test]
+    procedure BgCalcFields_SumAtAFlowFieldOfTheRow_CommitOfTheNote_SeesTheChange()
+    begin
+        Assert.AreEqual('0 / 5', Reads('atnotecountcommit'), 'after the commit of the note');
+    end;
+
+    [Test]
+    procedure BgCalcFields_CountOverAFlowFieldOfTheSource_SeesTheChange()
+    begin
+        Assert.AreEqual('1 / 0', Reads('lonelines'), 'a condition on a FlowField of the source');
+    end;
+
+    [Test]
+    procedure BgCalcSums_FirstAnswer()
+    begin
+        Assert.AreEqual('5 / 5', Reads('calcsums'), 'CalcSums');
+    end;
+
+    [Test]
+    procedure BgCalcSums_TwoFields_FirstAnswer()
+    begin
+        Assert.AreEqual('5,1 / 5,1', Reads('calcsumstwo'), 'CalcSums of two fields');
+    end;
+
+    [Test]
+    procedure BgCalcSums_FilterOutsideTheKey_FirstAnswer()
+    begin
+        Assert.AreEqual('5 / 5', Reads('calcsumsfilter'), 'CalcSums with a filter outside the key');
+    end;
+}
 
 // Two cells of BQ Tests 3 in a test codeunit of their own (review of al-runner PR 8490, LOW 9): the runner refuses both, and a
 // refused test stops the trust in the later failures of its codeunit, so the FindLast, IsEmpty and SetFilter cells of BQ Tests 3

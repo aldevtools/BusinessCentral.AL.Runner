@@ -6,9 +6,9 @@
 // without regard to case), <>K* (a pattern not matched) and K*|X (a | of patterns) (the cells measure the case-sensitive
 // patterns, :5599; @k reads the rows as they are, as @k* does at :4756). Past :3391 (the worker's own record sets filter
 // group 1 while the test session holds none): the test session holds a filter in filter group 1 and the worker counts a
-// fresh Record and a RecordRef of the table. And a sum whose field() is a FlowField of the row after an uncommitted note (a
-// page background task's repeated CalcFields, drafted as an issue of its own). The neighbors of "@ alone" (BQ Tests 9b and 9c)
-// are in the "@ alone" pull request's folder, tests/neighbors/at-sign-alone-database.
+// fresh Record and a RecordRef of the table. And a filter on a sum whose field() is a FlowField of the row after an
+// uncommitted note (a worker's repeated CalcFields of such a sum is al-runner issue 8677, BQ Tests 10). The neighbors of
+// "@ alone" (BQ Tests 9b and 9c) are in the "@ alone" pull request's folder, tests/neighbors/at-sign-alone-database.
 
 table 97532 "BQ Gate Widest"
 {
