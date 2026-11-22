@@ -14,6 +14,8 @@ use crate::native::{Signal, unsupported};
 pub(crate) enum Yaml {
     Null,
     Text(String),
+    /// A JSON number or Boolean written as is (a tagged scalar, corpus PR 1530 `tg2`-`tg4`).
+    Raw(String),
     Map(Vec<(String, Yaml)>),
     Seq(Vec<Yaml>),
 }
@@ -23,6 +25,7 @@ impl Yaml {
         match self {
             Yaml::Null => out.push_str("null"),
             Yaml::Text(t) => write_string(out, t),
+            Yaml::Raw(t) => out.push_str(t),
             Yaml::Map(members) => {
                 out.push('{');
                 for (i, (k, v)) in members.iter().enumerate() {

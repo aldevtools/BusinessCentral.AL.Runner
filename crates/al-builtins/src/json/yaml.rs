@@ -6,6 +6,7 @@ use crate::assumptions::{Assumption, assume};
 use crate::native::{Ctx, Signal, unsupported};
 use crate::value::Value;
 
+mod general;
 mod measured;
 mod read;
 use read::{Yaml, document, keyword};
@@ -188,6 +189,12 @@ pub(super) fn write_to_yaml(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Val
 /// object and fail with ReadFrom's InvalidJsonType error, the receiver left as it was (P88:225, 228-229;
 /// PnA:173-176).
 pub(super) fn read_from_yaml(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
+    // An InStream is read as its UTF-8 text without a byte order mark (corpus PR 1530 BomTabsSpaces bt1, bt4); only the
+    // third reader (`general`) answers it.
+    if matches!(&a[0], Value::Library(..)) {
+        let text = crate::stream::read_serialised_text(&mut a[0])?;
+        return read_general(c, r, text.strip_prefix('\u{feff}').unwrap_or(&text));
+    }
     let Some(text) = crate::native::text_of(&a[0]) else {
         return unsupported("ReadFromYaml with an argument that is not text");
     };
@@ -197,6 +204,9 @@ pub(super) fn read_from_yaml(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
         Err(Signal::Unsupported(_)) => (read_measured(&text), true),
         doc => (doc, false),
     };
+    if measured && matches!(doc, Err(Signal::Unsupported(_))) {
+        return read_general(c, r, &text);
+    }
     // A raw U+0085, U+2028 or U+2029 at a measured place, or a value the punctuation matrix answers with the YAML error
     // (`measured::document`): with the result used, into an empty object, false and the YAML error left as the last
     // error, the object as it was (corpus PR 1515, JsonYamlUtf8.al :735-798, read through the Boolean form of `TryRead`
@@ -239,6 +249,52 @@ pub(super) fn read_from_yaml(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
     }
     doc?.write_json(&mut json);
     read_from(c, r, &mut [Value::Text(json.into())], Some("object"))
+}
+
+/// The third reader (`general::document`), marked `read-from-yaml-remaining-shapes`. A document that is a mapping reads
+/// like `ReadFrom`. Any other document, and the YAML error, answer as the cells of corpus PR 1530 do: false with the
+/// error as the last error, with the result used and into an empty object (the cells `Clear` the object first); a
+/// statement raises the error (P88:238 for the YAML error; `ReadFrom`'s InvalidJsonType for a document that is no object).
+fn read_general(c: &mut dyn Ctx, r: Option<&mut Value>, text: &str) -> Result<Value, Signal> {
+    use general::Fail;
+    let mut r = r;
+    let doc = match general::document(text) {
+        Err(Fail::Refuse(why)) => return unsupported(why),
+        Err(Fail::Bad) => {
+            assume(Assumption::ReadFromYamlRemainingShapes);
+            let h = recv(r.as_deref_mut())?;
+            let empty = with_node(&h, |n| matches!(n, JsonNode::Object(k) if k.is_empty()));
+            if !c.ret_used() {
+                return Err(read::bad_yaml());
+            }
+            if !empty {
+                return unsupported("ReadFromYaml of a text that is not valid YAML into an object with members (not measured)");
+            }
+            let Signal::Error(e) = read::bad_yaml() else { unreachable!() };
+            c.set_last_error(*e);
+            return Ok(Value::Boolean(false));
+        }
+        Ok(doc) => doc,
+    };
+    assume(Assumption::ReadFromYamlRemainingShapes);
+    let mut json = String::new();
+    doc.write_json(&mut json);
+    if matches!(doc, Yaml::Map(_)) {
+        return read_from(c, r, &mut [Value::Text(json.into())], Some("object"));
+    }
+    if matches!(doc, Yaml::Raw(_)) {
+        return unsupported("ReadFromYaml of a document that is a tagged number or Boolean (not measured)");
+    }
+    let h = recv(r.as_deref_mut())?;
+    let empty = with_node(&h, |n| matches!(n, JsonNode::Object(k) if k.is_empty()));
+    match read_text_into(false, r, &json, Some("object"), Reader::ReadFromText) {
+        Err(Signal::Error(e)) if c.ret_used() && empty => {
+            c.set_last_error(*e);
+            Ok(Value::Boolean(false))
+        }
+        Err(Signal::Error(e)) if !c.ret_used() => Err(Signal::Error(e)),
+        _ => unsupported("the result of ReadFromYaml of a document that is no mapping, into an object with members (not measured)"),
+    }
 }
 
 /// A measured read (`measured::document`), marked: every read it answers runs through
