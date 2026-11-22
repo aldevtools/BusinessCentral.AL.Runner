@@ -181,9 +181,9 @@ impl Session {
     /// what the worker reads and may not write is pinned by testpage/TestPageBgTaskTx_Tests.al and TestPageBgTask_Tests.al.
     ///
     /// Its last error and its error collection are its own (corpus PR 1516, pages/background-tasks/BgTaskWorkerLastError.al,
-    /// assumption `bg-task-worker-last-error`): it starts with no last error (:216, :230, :242, :376) and outside any
-    /// collecting scope (:359, :401, :422, :431, :460); what it catches or clears stays in it (:253, :270, :283, :344); the test
-    /// session reads its own again after the task (:253, :283, :387), in the completion and error triggers too (:309, :326).
+    /// assumption `bg-task-worker-last-error`): it starts with no last error (:266, :280, :292, :426) and outside any
+    /// collecting scope (:409, :451, :472, :481, :510); what it catches or clears stays in it (:303, :320, :333, :394); the test
+    /// session reads its own again after the task (:303, :333, :437), in the completion and error triggers too (:359, :376).
     /// The count of caught errors stays shared: no cell measures it.
     fn bg_enter_child_session(&mut self) -> ChildParked {
         self.sessions_started += 1;
@@ -236,6 +236,24 @@ impl Session {
         }
     }
 
+    /// An error left a routine: a failing worker's error that `RunPageBackgroundTask` raised is the test session's last error
+    /// from here on, as any error is when caught (BgTaskWorkerLastError.al:347, an asserterror around a procedure of the test;
+    /// :551-:611 by kind; a TryFunction around the call, tests/neighbors/8697-bg-worker-last-error).
+    pub(crate) fn bg_error_left_routine(&mut self) {
+        self.pages.bg_task_error_unrecorded = false;
+    }
+
+    /// An asserterror catches a failing worker's error right at the `RunPageBackgroundTask` call, before it left a routine of
+    /// the test session: the test session keeps its last error, text, code and call stack (BgTaskWorkerLastError.al:640), an
+    /// empty one too (:660), whatever the worker's error (:674). It runs through the assumption.
+    pub(crate) fn bg_catch_keeps_last_error(&mut self) -> bool {
+        if !std::mem::take(&mut self.pages.bg_task_error_unrecorded) {
+            return false;
+        }
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::BgTaskWorkerLastError);
+        true
+    }
+
     /// `TestPage.RunPageBackgroundTask(CodeunitId; [var Parameters]; [RunCompletionTriggers])`: runs the
     /// worker now and returns its result dictionary; the worker's error reaches the caller as it is
     /// (corpus testpage/TestPageBgTask_Tests.al:RunPageBackgroundTask_ReturnsWorkerResult;
@@ -270,7 +288,12 @@ impl Session {
                 }
                 return Ok(V::Dictionary(Default::default()));
             }
-            Err(e) => return Err(Signal::Error(Box::new(e))),
+            Err(e) => {
+                // The error is recorded as the test session's last error once it leaves a routine of the test session
+                // (`bg_error_left_routine`), not at an asserterror around this call (`bg_catch_keeps_last_error`).
+                self.pages.bg_task_error_unrecorded = true;
+                return Err(Signal::Error(Box::new(e)));
+            }
         };
         if completion {
             // The task id the completion trigger receives is not pinned: a fresh one (docs/probes-needed.md).

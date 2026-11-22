@@ -2728,6 +2728,7 @@ impl Session {
                 self.error_raised_in = Some(object);
             }
             self.add_frame(e, object, top);
+            self.bg_error_left_routine();
         }
         self.profile_leave();
         self.call_stack.pop();

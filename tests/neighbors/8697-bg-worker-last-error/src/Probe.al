@@ -4,26 +4,30 @@
 // Scope: in-scope
 // local object: what a page background task's worker reads of the test session's last error and of its error collection, and
 //   what the test session reads after the task, are what is under test
-// Fixtures used: Assert (60021); tables 97390, 97391; page 97392; codeunit 97393; test codeunit 97394
+// Fixtures used: Assert (60021); tables 97390, 97391, 97395; page 97392; codeunit 97393; test codeunit 97394
 // Probe (al-runner issue 8697): the test session sets its last error with asserterror (a Get of a row that does not exist, so its
 //   code is DB:RecordNotFound) and runs a page background task. The worker runs in a session of its own: it starts with no last
 //   error, what it catches stays in it, and the test session reads its own last error after the task.
 // Readings: what the worker read (the result of RunPageBackgroundTask, or the row a completion or error trigger stores); the test
 //   session's GetLastErrorText, GetLastErrorCode, GetLastErrorCallStack and collected errors after the task.
 // Cells:
-//   - the test session holds a last error: the worker's GetLastErrorText (:216), GetLastErrorCode (:230),
-//     GetLastErrorCallStack (:242) and GetLastErrorText(true) (:376);
+//   - the test session holds a last error: the worker's GetLastErrorText (:266), GetLastErrorCode (:280),
+//     GetLastErrorCallStack (:292) and GetLastErrorText(true) (:426);
 //   - the worker catches its own error with a TryFunction: what it reads before and after, and the test session's last error
-//     after the task, with one of its own (:253) and with none (:270); the test session's GetLastErrorCallStack (:387);
-//   - the worker's ClearLastError while the test session holds a last error (:283);
-//   - a worker error no TryFunction catches: the error the test session catches (:297);
-//   - the completion trigger, which runs in the test session, after a worker that caught its own error (:309);
-//   - the error trigger, after a worker error no TryFunction catches (:326);
-//   - two tasks in a row: the second worker after a first that caught its own error (:344);
-//   - a test session that collects errors ([ErrorBehavior(ErrorBehavior::Collect)]): the worker's IsCollectingErrors (:359);
-//     with an error collected, the worker's HasCollectedErrors (:401, true as outside any scope, TestErrorInfoType.al finding
-//     D), GetCollectedErrors (:422) and ClearCollectedErrors (:431); a collectible error the worker raises fails the task
-//     and reaches the test session as an error (:460).
+//     after the task, with one of its own (:303) and with none (:320); the test session's GetLastErrorCallStack (:437);
+//   - the worker's ClearLastError while the test session holds a last error (:333);
+//   - a worker error no TryFunction catches, under an asserterror around a procedure of the test that runs the task: the test
+//     session reads the worker's error, for Error() (:347), a Modify (:551) and an Insert (:563) the read-only session
+//     refuses, a TableRelation check (:575), a Get without a row (:587), a TestField (:599) and an ErrorInfo (:611);
+//   - the same under an asserterror around the RunPageBackgroundTask statement itself: the test session keeps its own last
+//     error, text, code and call stack (:640), an empty one when it held none (:660), also for a refused Modify (:674);
+//   - the completion trigger, which runs in the test session, after a worker that caught its own error (:359);
+//   - the error trigger, after a worker error no TryFunction catches (:376);
+//   - two tasks in a row: the second worker after a first that caught its own error (:394);
+//   - a test session that collects errors ([ErrorBehavior(ErrorBehavior::Collect)]): the worker's IsCollectingErrors (:409);
+//     with an error collected, the worker's HasCollectedErrors (:451, true as outside any scope, TestErrorInfoType.al finding
+//     D), GetCollectedErrors (:472) and ClearCollectedErrors (:481); a collectible error the worker raises fails the task
+//     and reaches the test session as an error (:510).
 // BC versions: 29.1 (local W1 container).
 
 table 97390 "LEW Host"
@@ -59,6 +63,24 @@ table 97391 "LEW Result"
     keys
     {
         key(PK; "Key") { Clustered = true; }
+    }
+}
+
+// A table whose field relates to LEW Host: the worker validates a value no row of LEW Host has.
+table 97395 "LEW Line"
+{
+    DataClassification = SystemMetadata;
+    ReplicateData = false;
+
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(2; "Host No."; Code[20]) { TableRelation = "LEW Host"; }
+    }
+
+    keys
+    {
+        key(PK; "No.") { Clustered = true; }
     }
 }
 
@@ -109,6 +131,8 @@ codeunit 97393 "LEW Reader"
 {
     trigger OnRun()
     var
+        Host: Record "LEW Host";
+        Line: Record "LEW Line";
         Parameters: Dictionary of [Text, Text];
         Results: Dictionary of [Text, Text];
         WorkerError: ErrorInfo;
@@ -136,6 +160,30 @@ codeunit 97393 "LEW Reader"
                 end;
             'fail':
                 Error('The worker''s unhandled error');
+            'modify':
+                begin
+                    Host.FindFirst();
+                    Host.Modify();
+                end;
+            'insert':
+                begin
+                    Host."No." := 'NEW';
+                    Host.Insert();
+                end;
+            'relation':
+                Line.Validate("Host No.", 'MISSING');
+            'getmissing':
+                Host.Get('ABSENT');
+            'testfield':
+                begin
+                    Host.FindFirst();
+                    Host.TestField("No.", 'OTHER');
+                end;
+            'errorinfo':
+                begin
+                    WorkerError.Message('The worker''s ErrorInfo');
+                    Error(WorkerError);
+                end;
             'collecting':
                 Results.Add('Collecting', Format(IsCollectingErrors()));
             'hascollected':
@@ -172,14 +220,16 @@ codeunit 97394 "LEW Tests"
         TestCount: Text;
         Reached: Boolean;
 
-    // One row of LEW Host, committed, and no rows of LEW Result.
+    // One row of LEW Host, committed, and no rows of LEW Result and LEW Line.
     local procedure Initialize()
     var
         Host: Record "LEW Host";
         Result: Record "LEW Result";
+        Line: Record "LEW Line";
     begin
         Host.DeleteAll();
         Result.DeleteAll();
+        Line.DeleteAll();
         Host."No." := 'H';
         Host.Insert();
         Commit();
@@ -483,5 +533,156 @@ codeunit 97394 "LEW Tests"
         Reached := true;
         TestHasCollected := Format(HasCollectedErrors());
         ClearCollectedErrors();
+    end;
+
+    // A worker error no TryFunction catches, under an asserterror around a procedure of the test that runs the task: the test
+    // session's GetLastErrorText and GetLastErrorCode read the worker's error, by kind.
+    local procedure FailingWorker(Mode: Text; var LastText: Text; var LastCode: Text)
+    var
+        Results: Dictionary of [Text, Text];
+    begin
+        SetTestSessionError();
+        asserterror Run(Mode, false, Results);
+        LastText := GetLastErrorText();
+        LastCode := GetLastErrorCode();
+    end;
+
+    [Test]
+    procedure WorkerModifyRefused_AssertErrorOnAProcedure_TheWorkersError()
+    var
+        LastText: Text;
+        LastCode: Text;
+    begin
+        Initialize();
+        FailingWorker('modify', LastText, LastCode);
+        Assert.IsTrue(StrPos(LastText, 'Sorry, the current permissions prevented the action. (TableData 97390 LEW Host Modify') = 1, LastText);
+        Assert.AreEqual('DB:ReadOnlySession', LastCode, 'the test session''s GetLastErrorCode');
+    end;
+
+    [Test]
+    procedure WorkerInsertRefused_AssertErrorOnAProcedure_TheWorkersError()
+    var
+        LastText: Text;
+        LastCode: Text;
+    begin
+        Initialize();
+        FailingWorker('insert', LastText, LastCode);
+        Assert.IsTrue(StrPos(LastText, 'Sorry, the current permissions prevented the action. (TableData 97390 LEW Host Insert') = 1, LastText);
+        Assert.AreEqual('DB:ReadOnlySession', LastCode, 'the test session''s GetLastErrorCode');
+    end;
+
+    [Test]
+    procedure WorkerTableRelationValidate_AssertErrorOnAProcedure_TheWorkersError()
+    var
+        LastText: Text;
+        LastCode: Text;
+    begin
+        Initialize();
+        FailingWorker('relation', LastText, LastCode);
+        Assert.AreEqual('The field Host No. of table LEW Line contains a value (MISSING) that cannot be found in the related table (LEW Host).', LastText, 'the test session''s GetLastErrorText');
+        Assert.AreEqual('DB:PrimRecordNotFound', LastCode, 'the test session''s GetLastErrorCode');
+    end;
+
+    [Test]
+    procedure WorkerGetMissingRow_AssertErrorOnAProcedure_TheWorkersError()
+    var
+        LastText: Text;
+        LastCode: Text;
+    begin
+        Initialize();
+        FailingWorker('getmissing', LastText, LastCode);
+        Assert.AreEqual('The LEW Host does not exist. Identification fields and values: No.=''ABSENT''', LastText, 'the test session''s GetLastErrorText');
+        Assert.AreEqual('DB:RecordNotFound', LastCode, 'the test session''s GetLastErrorCode');
+    end;
+
+    [Test]
+    procedure WorkerTestField_AssertErrorOnAProcedure_TheWorkersError()
+    var
+        LastText: Text;
+        LastCode: Text;
+    begin
+        Initialize();
+        FailingWorker('testfield', LastText, LastCode);
+        Assert.AreEqual('No. must be equal to ''OTHER''  in LEW Host: No.=H. Current value is ''H''.', LastText, 'the test session''s GetLastErrorText');
+        Assert.AreEqual('TestField', LastCode, 'the test session''s GetLastErrorCode');
+    end;
+
+    [Test]
+    procedure WorkerErrorInfo_AssertErrorOnAProcedure_TheWorkersError()
+    var
+        LastText: Text;
+        LastCode: Text;
+    begin
+        Initialize();
+        FailingWorker('errorinfo', LastText, LastCode);
+        Assert.AreEqual('The worker''s ErrorInfo', LastText, 'the test session''s GetLastErrorText');
+        Assert.AreEqual('Dialog', LastCode, 'the test session''s GetLastErrorCode');
+    end;
+
+    // The asserterror around the RunPageBackgroundTask statement itself: what the test session reads right after it, before
+    // the page closes.
+    local procedure FailingWorkerOnTheCall(Mode: Text; var LastText: Text; var LastCode: Text; var LastStack: Text)
+    var
+        Hosts: TestPage "LEW Hosts";
+        Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
+    begin
+        Parameters.Add('Mode', Mode);
+        Hosts.OpenView();
+        asserterror Results := Hosts.RunPageBackgroundTask(Codeunit::"LEW Reader", Parameters, false);
+        LastText := GetLastErrorText();
+        LastCode := GetLastErrorCode();
+        LastStack := GetLastErrorCallStack();
+        Hosts.Close();
+    end;
+
+    [Test]
+    procedure WorkerUnhandledError_AssertErrorOnTheCall_TestSessionKeepsItsLastError()
+    var
+        LastText: Text;
+        LastCode: Text;
+        LastStack: Text;
+        Before: Text;
+        BeforeStack: Text;
+    begin
+        Initialize();
+        SetTestSessionError();
+        Before := GetLastErrorText();
+        BeforeStack := GetLastErrorCallStack();
+        FailingWorkerOnTheCall('fail', LastText, LastCode, LastStack);
+        Assert.AreEqual(Before, LastText, 'the test session''s GetLastErrorText');
+        Assert.AreEqual('DB:RecordNotFound', LastCode, 'the test session''s GetLastErrorCode');
+        Assert.AreEqual(BeforeStack, LastStack, 'the test session''s GetLastErrorCallStack');
+        Assert.AreEqual(Before, GetLastErrorText(), 'the test session''s GetLastErrorText after the page closed');
+    end;
+
+    [Test]
+    procedure WorkerUnhandledError_AssertErrorOnTheCall_TestSessionHoldsNone_Empty()
+    var
+        LastText: Text;
+        LastCode: Text;
+        LastStack: Text;
+    begin
+        Initialize();
+        ClearLastError();
+        FailingWorkerOnTheCall('fail', LastText, LastCode, LastStack);
+        Assert.AreEqual('', LastText, 'the test session''s GetLastErrorText');
+        Assert.AreEqual('', LastCode, 'the test session''s GetLastErrorCode');
+    end;
+
+    [Test]
+    procedure WorkerModifyRefused_AssertErrorOnTheCall_TestSessionKeepsItsLastError()
+    var
+        LastText: Text;
+        LastCode: Text;
+        LastStack: Text;
+        Before: Text;
+    begin
+        Initialize();
+        SetTestSessionError();
+        Before := GetLastErrorText();
+        FailingWorkerOnTheCall('modify', LastText, LastCode, LastStack);
+        Assert.AreEqual(Before, LastText, 'the test session''s GetLastErrorText');
+        Assert.AreEqual('DB:RecordNotFound', LastCode, 'the test session''s GetLastErrorCode');
     end;
 }

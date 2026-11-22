@@ -6,4 +6,10 @@ codeunit 130000 Assert
         if Format(Expected) <> Format(Actual) then
             Error('Assert.AreEqual failed. Expected:<%1>. Actual:<%2>. %3.', Expected, Actual, Msg);
     end;
+
+    procedure IsTrue(Condition: Boolean; Msg: Text)
+    begin
+        if not Condition then
+            Error('Assert.IsTrue failed. %1', Msg);
+    end;
 }

@@ -48,31 +48,30 @@ fn outcomes(codeunit: &str) -> Vec<(String, Outcome, Vec<Assumption>)> {
         .collect()
 }
 
-/// Every cell of the probe passes. The two whose worker raises an error it does not catch, and whose test session then reads
-/// what main read too, pass clean; every other cell runs through the assumption.
+/// Every cell of the probe passes. The cells whose worker raises an error it does not catch, caught by the test session through
+/// a procedure of its own (as on main), pass clean; every other cell runs through the assumption.
 #[test]
 fn issue_8697_probe_cells() {
     let o = outcomes("LEW Tests");
-    assert_eq!(o.len(), 17);
+    assert_eq!(o.len(), 26);
     for (name, r, marks) in &o {
         assert_eq!(*r, Outcome::Pass, "{name}");
-        let clean = matches!(
-            name.as_str(),
-            "WorkerUnhandledError_TestSessionCatchesIt"
-                | "ErrorTrigger_AfterAnUnhandledWorkerError_ReadsTheTestSessionsLastError"
-        );
+        let clean = name == "WorkerUnhandledError_TestSessionCatchesIt"
+            || name == "ErrorTrigger_AfterAnUnhandledWorkerError_ReadsTheTestSessionsLastError"
+            || name.ends_with("_AssertErrorOnAProcedure_TheWorkersError");
         assert_eq!(marks.contains(&BgTaskWorkerLastError), !clean, "{name}: {marks:?}");
     }
 }
 
 /// The shapes next to the cells (an enqueued task, a test session error from a TryFunction, a worker's guarded Codeunit.Run)
-/// pass through the assumption.
+/// pass through the assumption; a TryFunction around the call records the worker's error, as on main, clean.
 #[test]
 fn issue_8697_neighbors() {
     let o = outcomes("LEN Tests");
-    assert_eq!(o.len(), 3);
+    assert_eq!(o.len(), 4);
     for (name, r, marks) in &o {
         assert_eq!(*r, Outcome::Pass, "{name}");
-        assert!(marks.contains(&BgTaskWorkerLastError), "{name}: {marks:?}");
+        let clean = name == "WorkerUnhandledError_TryFunctionAroundTheCall_TheWorkersError";
+        assert_eq!(marks.contains(&BgTaskWorkerLastError), !clean, "{name}: {marks:?}");
     }
 }

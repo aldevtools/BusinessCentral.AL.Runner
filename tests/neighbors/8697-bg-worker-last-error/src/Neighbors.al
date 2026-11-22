@@ -161,4 +161,27 @@ codeunit 97398 "LEN Tests"
         Assert.AreEqual('The worker''s guarded error', Seen, 'the worker''s GetLastErrorText');
         Assert.AreEqual(Before, GetLastErrorText(), 'the test session''s GetLastErrorText after the task');
     end;
+
+    // A TryFunction whose body is the RunPageBackgroundTask call; its worker raises an error no TryFunction of its own catches.
+    // BC: the worker's error, as through any procedure of the test.
+    [Test]
+    procedure WorkerUnhandledError_TryFunctionAroundTheCall_TheWorkersError()
+    begin
+        Initialize();
+        SetTestSessionError();
+        if not TryRunFailing() then;
+        Assert.AreEqual('The worker''s unhandled error|Dialog', GetLastErrorText() + '|' + GetLastErrorCode(), 'the test session''s GetLastErrorText and GetLastErrorCode');
+    end;
+
+    [TryFunction]
+    local procedure TryRunFailing()
+    var
+        Hosts: TestPage "LEW Hosts";
+        Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
+    begin
+        Parameters.Add('Mode', 'fail');
+        Hosts.OpenView();
+        Results := Hosts.RunPageBackgroundTask(Codeunit::"LEW Reader", Parameters, false);
+    end;
 }

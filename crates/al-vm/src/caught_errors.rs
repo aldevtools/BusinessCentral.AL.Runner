@@ -16,6 +16,10 @@ impl Session {
     /// holds then is not measured (record/filters/SqlDateFloor1753.al:2468-2600 reads only the stored row), so that is refused.
     pub(crate) fn catch_error(&mut self, e: AlError) -> Result<(), Signal> {
         self.refuse_live_failed_rename()?;
+        if self.bg_catch_keeps_last_error() {
+            self.caught_errors += 1;
+            return Ok(());
+        }
         self.note_caught(e);
         Ok(())
     }
