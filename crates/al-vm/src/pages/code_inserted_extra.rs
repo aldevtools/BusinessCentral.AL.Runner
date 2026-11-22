@@ -7,7 +7,8 @@
 //!   no table code;
 //! - before the save nothing but the table field's insert wrote the store; the save then writes Rec with every field it holds,
 //!   set by the control (:401, :414) or by the table field (:454, :512), also through `CurrPage.Update(true)` (:465);
-//! - between the save and `CurrPage.Update(false)` the code modified the row through another record (:342, :355), or set a
+//! - between the save and `CurrPage.Update(false)` the code modified the row through another record (:342, :355; :372 under
+//!   TestPage.OpenEdit with a filter on the group, `Opened::OpenEditOneGroup`), or set a
 //!   field of Rec (:487, :524), or wrote another table (:498, :536), and `Update(false)` reads the row as stored: the page
 //!   shows the other record's write and drops Rec's (`extra_code_kept`). Every other row of the page's table is as the save
 //!   left it, and so is Rec's view (`view_kept`);
@@ -17,9 +18,8 @@
 //! - `CurrPage.Update(true)` after the save writes Rec again, over what another record wrote since (:476), then refreshes as
 //!   `Update(false)` does (`extra_code_update_true`).
 //!
-//! Measured but refused: a modify of the row through another record before the save (:443, the save writes Rec over it) and
-//! the cell under TestPage.OpenEdit with a filter (:372), which keeps main's way: no pinned open has a filter
-//! (`code_inserted_open`). Every other open, view and page keeps main's refusal (`UNMEASURED_CODE`).
+//! Measured but refused: a modify of the row through another record before the save (:443, the save writes Rec over it).
+//! Every other open, view and page keeps main's refusal (`UNMEASURED_CODE`).
 
 use super::code_inserted_new_line::{Leave, Opened, UNMEASURED_CODE, View};
 use super::state::{CodeInsertedSave, SavedView};
@@ -51,7 +51,8 @@ impl Session {
                 Leave::SaveRecord,
                 Opened::RunModalOneGroup,
                 Some(View::Alone | View::AfterRow)
-            ) | (Leave::UpdateTrue, Opened::RunModalOneGroup, Some(View::Alone))
+            ) | (Leave::SaveRecord, Opened::OpenEditOneGroup, Some(View::Alone))
+                | (Leave::UpdateTrue, Opened::RunModalOneGroup, Some(View::Alone))
         );
         let line = st.borrow().new_line_writes;
         let only_the_insert = line.is_some_and(|(mark, deletes)| self.write_mark() == (mark + 1, deletes));

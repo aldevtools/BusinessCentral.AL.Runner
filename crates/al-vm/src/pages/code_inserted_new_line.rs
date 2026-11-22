@@ -49,6 +49,9 @@ pub(super) enum Opened {
     /// (the opener) with a row of another group outside the view. The repro of al-runner issue 8186 (`CurrPage.Update()` on the
     /// page without triggers opened so) is refused (`code_inserted_cell`).
     RunModalOneGroup,
+    /// The test's `TestPage.OpenEdit()`, then a filter of the test on the key's first field to the line's value (`TestPage.Filter.
+    /// SetFilter`): measured only for code that is not a pinned page's (ListNewLineExtraCode.al:372, `code_inserted_extra.rs`).
+    OpenEditOneGroup,
 }
 
 /// The refusal of a SaveRecord or Update(true) cell whose code is not the measured code (`code_inserted_pinned.rs`), and not
@@ -201,6 +204,8 @@ impl Session {
                 )
                 // ListNewLineSaveRecordUpdate.al, page 97474: :677-737, :784-874.
                 | (Triggers::FactboxHost, true, Opened::OpenEdit | Opened::RunModalOneGroup, Leave::SaveRecord)
+                // ListNewLineExtraCode.al:372, for code that is not a pinned page's only (`code_inserted_extra.rs`).
+                | (Triggers::Quiet, true, Opened::OpenEditOneGroup, Leave::SaveRecord)
         );
         // The repro of issue 8186: page 97039's shape opened by a RunModal filtered to one group. The corpus opens that page
         // with OpenEdit only for Update() (ListNewLineCodeInsertUpdate.al:783-810), and main's way is the result the issue
@@ -221,7 +226,9 @@ impl Session {
             return Ok(false);
         }
         let page_object = st.borrow().object as usize;
-        let view = if self.code_inserted_line(st) && self.inserted_by_table_field(st, coded)? {
+        let view = if self.code_inserted_line(st, opened == Opened::OpenEditOneGroup)
+            && self.inserted_by_table_field(st, coded)?
+        {
             self.code_inserted_view(st, coded)?
         } else {
             None
@@ -240,7 +247,7 @@ impl Session {
         // The SaveRecord and Update(true) cells run only the code that was measured (`code_inserted_pinned.rs`).
         if shape && cell && matches!(leave, Leave::UpdateTrue | Leave::SaveRecord) {
             match self.code_inserted_code(st)? {
-                Some(PinnedCode::Probe) => {}
+                Some(PinnedCode::Probe) if opened != Opened::OpenEditOneGroup => {}
                 // The repro is measured only when Page.RunModal opens it on one group with one row before the new line
                 // (Issue8285.al:146-211); OpenEdit and an empty group are not (review of #8305, round 4).
                 Some(PinnedCode::Repro) if opened == Opened::RunModalOneGroup && view == Some(View::AfterRow) => {
@@ -248,7 +255,7 @@ impl Session {
                 }
                 // Other code on the page without triggers: the effect gate of the cells of al-runner issues 8712 and 8713.
                 None if matches!(triggers, Triggers::Quiet) => self.extra_code_cell(st, opened, view, leave)?,
-                Some(PinnedCode::Repro) | None => return Err(Signal::unsupported(UNMEASURED_CODE)),
+                Some(PinnedCode::Probe | PinnedCode::Repro) | None => return Err(Signal::unsupported(UNMEASURED_CODE)),
             }
         }
         Ok(shape)
@@ -392,8 +399,16 @@ impl Session {
                 && matches!(&f.expr, FilterExpr::Range(Some(a), Some(b))
                     if Self::same_values(std::slice::from_ref(a), line) && Self::same_values(std::slice::from_ref(b), line))
         };
+        // The test's `Filter.SetFilter(Field, Value)` on the key's first field to the line's value (ListNewLineExtraCode.al:376).
+        let test_one_group = |f: &al_builtins::filter::FieldFilter| {
+            let line = &r.fields[f.field..=f.field];
+            f.group == 0
+                && table.keys[0].first() == Some(&f.field)
+                && matches!(&f.expr, FilterExpr::Eq(v) if Self::same_values(std::slice::from_ref(v), line))
+        };
         let opened = match (open_edit, run_modal, r.filters.as_slice()) {
             (true, false, []) => Opened::OpenEdit,
+            (true, false, [f]) if test_one_group(f) => Opened::OpenEditOneGroup,
             (false, true, []) => Opened::RunModal,
             (false, true, [f]) if one_group(f) => Opened::RunModalOneGroup,
             _ => return Ok(None),
@@ -418,8 +433,9 @@ impl Session {
 
     /// The page stands on the line `New()` started, editable, inside a control's validation, and the test made exactly the
     /// measured calls on it since the open: `New()`, then the SetValue that runs now (:477-479, :697-698;
-    /// ListNewLineSaveRecordUpdate.al:354-356, :397-399).
-    fn code_inserted_line(&self, st: &St) -> bool {
+    /// ListNewLineSaveRecordUpdate.al:354-356, :397-399); `filtered` (`Opened::OpenEditOneGroup`), first the test's
+    /// `Filter`, then `SetFilter` (ListNewLineExtraCode.al:375-376).
+    fn code_inserted_line(&self, st: &St, filtered: bool) -> bool {
         let line = {
             let s = st.borrow();
             s.open
@@ -438,11 +454,20 @@ impl Session {
             let s = st.borrow();
             !s.tree_calls_unknown && s.tree_calls.iter().all(|c| c.part.is_none())
         };
-        line && no_part_calls
-            && matches!(
-                Self::test_calls(st).as_deref(),
-                Some([TestCall::Page(PageMethod::New), TestCall::Write(_)])
-            )
+        let calls = Self::test_calls(st);
+        let measured = match calls.as_deref() {
+            Some([TestCall::Page(PageMethod::New), TestCall::Write(_)]) => !filtered,
+            Some(
+                [
+                    TestCall::Page(PageMethod::Filter),
+                    TestCall::Other(PageMethod::SetFilter),
+                    TestCall::Page(PageMethod::New),
+                    TestCall::Write(_),
+                ],
+            ) => filtered,
+            _ => false,
+        };
+        line && no_part_calls && measured
     }
 
     /// Whether Rec is the row the table field's OnValidate inserted from the line before the control's OnValidate began (:30-37):
