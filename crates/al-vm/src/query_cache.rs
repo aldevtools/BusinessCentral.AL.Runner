@@ -472,14 +472,15 @@ fn calc_formulas<'a>(
     source: impl Fn(usize) -> Option<&'a al_ir::Table>,
 ) -> Option<Vec<&'a al_ir::CalcFormula>> {
     let src = source(calc.table)?;
-    if calc.negate || calc.field.is_some_and(|f| flow_field(src, f)) {
+    // A negated sum (BgTaskCalcCache.al:385, corpus PR 1533); no other negated formula is measured.
+    if (calc.negate && calc.method != al_ir::CalcMethod::Sum) || calc.field.is_some_and(|f| flow_field(src, f)) {
         return None;
     }
-    let flow_filter = |x: usize| row.fields.get(x).is_some_and(|d| d.flow_filter);
+    // `field(filter())` of a FlowFilter (:6219) or of a stored field, keyed by its value (BgTaskCalcCache.al:440).
     let plain = |v: &al_ir::CalcValue| match *v {
         al_ir::CalcValue::Const(_) | al_ir::CalcValue::Filter(_) => true,
         al_ir::CalcValue::Field(x) => !flow_field(row, x),
-        al_ir::CalcValue::FieldFilter(x) => flow_filter(x),
+        al_ir::CalcValue::FieldFilter(x) => !flow_field(row, x),
         al_ir::CalcValue::UpperLimit(_) => false,
     };
     let mut formulas = vec![calc];
@@ -491,7 +492,11 @@ fn calc_formulas<'a>(
             ref v if plain(v) => {}
             al_ir::CalcValue::Field(x) => {
                 let inner = row.fields.get(x)?.calc.as_ref()?;
-                let one = inner.method == al_ir::CalcMethod::Count && !inner.negate;
+                // An inner count under any outer method (:6255, BgTaskCalcCache.al:458-:476), an inner sum under a count
+                // (BgTaskCalcCache.al:428).
+                let one = !inner.negate
+                    && (inner.method == al_ir::CalcMethod::Count
+                        || (inner.method == al_ir::CalcMethod::Sum && calc.method == al_ir::CalcMethod::Count));
                 if !one
                     || !calc_reads_one_table(row, source(inner.table), inner)
                     || !inner.conds.iter().all(|c| plain(&c.value))
@@ -620,6 +625,12 @@ impl Session {
         std::mem::replace(&mut self.pages.query_cache.al_record_read, read)
     }
 
+    /// A FieldRef's CalcField of a RecordRef marks the read as AL code's CalcFields (BgTaskCalcCache.al:391); returns the mark to
+    /// set back when the call returns.
+    pub(crate) fn mark_al_calc_fields(&mut self) -> Option<RecordOp> {
+        self.pages.query_cache.al_record_read.replace(RecordOp::CalcFields)
+    }
+
     fn bulk_ends(&self) -> [Option<bool>; 3] {
         let target = self.engine.target.as_ref();
         [BulkWrite::ModifyAll, BulkWrite::DeleteAll, BulkWrite::Truncate]
@@ -640,19 +651,24 @@ impl Session {
     /// SecurityFiltering, no SetAutoCalcFields, no LockTable of its table, and (with `all_fields`) no `SetLoadFields` (:2047,
     /// :2083); and whether the program runs page background tasks at all (`query_cache_on`). A row read also sorts ascending.
     fn cached_form(&mut self, rec: &Rec, t: &TableDef, all_fields: bool) -> Result<bool, Signal> {
+        self.cached_form_of(rec, t, all_fields, false)
+    }
+
+    /// [`Self::cached_form`] for a calculation (`calc`): the fields of its sort may be descending (BgTaskCalcCache.al:482,
+    /// :488), and the record may be temporary, whose FlowFields read the tables in the database (:434; the caller keys it).
+    fn cached_form_of(&mut self, rec: &Rec, t: &TableDef, all_fields: bool, calc: bool) -> Result<bool, Signal> {
         if !self.query_cache_on() {
             return Ok(false);
         }
         let plain = {
             let r = rec.borrow();
-            !r.temporary
-                && r.temp_id.is_none()
+            (calc || (!r.temporary && r.temp_id.is_none()))
                 && !r.crm
                 && r.company.is_none()
                 && !r.change_company_called
                 && r.key == 0
                 && r.adhoc.is_none()
-                && r.field_descending == 0
+                && (calc || r.field_descending == 0)
                 && !r.marked_only
                 && r.read_isolation == 0
                 && r.security_filtering == r.declared_security_filtering
@@ -888,12 +904,17 @@ impl Session {
         let Some(mut values) = self.group_key(rec, t, Form::Sums) else {
             return Ok(fresh);
         };
-        let measured = rec
-            .borrow()
-            .filters
-            .iter()
-            .all(|f| f.group == 0 && t.fields[f.field].stored && values_only(&f.expr));
-        if !measured || !self.cached_form(rec, t, true)? {
+        // `>` on a stored field too (BgTaskCalcCache.al:409); a temporary record's sum is not measured.
+        let measured = {
+            let r = rec.borrow();
+            !r.temporary
+                && r.filters.iter().all(|f| {
+                    f.group == 0
+                        && t.fields[f.field].stored
+                        && (values_only(&f.expr) || matches!(f.expr, FilterExpr::Gt(_)))
+                })
+        };
+        if !measured || !self.cached_form_of(rec, t, true, true)? {
             return Ok(fresh);
         }
         values.extend(positions.iter().map(|&p| Value::Integer(p as i32)));
@@ -921,11 +942,21 @@ impl Session {
         let Some(t) = self.engine.tables[table].clone() else {
             return Ok(fresh);
         };
-        if !self.cached_form(rec, &t, false)? {
+        if !self.cached_form_of(rec, &t, false, true)? {
             return Ok(fresh);
         }
-        let Some((values, sources)) = self.calc_key(rec, &t, positions) else {
+        let Some((mut values, sources)) = self.calc_key(rec, &t, positions) else {
             return Ok(fresh);
+        };
+        // A temporary record's CalcFields reads the database (BgTaskCalcCache.al:434): its entry is its own, stamped there.
+        let rec = &if rec.borrow().temporary {
+            values.push(Value::Text("temporary".into()));
+            let mut p = rec.borrow().clone();
+            p.temporary = false;
+            p.temp_id = None;
+            std::rc::Rc::new(std::cell::RefCell::new(p))
+        } else {
+            rec.clone()
         };
         let store = self.store_for(rec)?;
         if sources.iter().any(|s| store.is_virtual(s)) {
@@ -952,7 +983,11 @@ impl Session {
         let mut filters: Vec<_> = r.filters.iter().collect();
         filters.sort_by_key(|f| (f.group, f.field));
         for f in filters {
-            if f.group != 0 || !schema.fields.get(f.field)?.flow_filter || !values_only(&f.expr) {
+            // A FlowFilter's one value, `|` of values or range (:6219, BgTaskCalcCache.al:397), a stored field's one value (:403).
+            let field = schema.fields.get(f.field)?;
+            let kind =
+                values_only(&f.expr) || (field.flow_filter && matches!(f.expr, FilterExpr::Range(Some(_), Some(_))));
+            if f.group != 0 || !(field.flow_filter || field.stored) || !kind {
                 return None;
             }
             values.push(Value::Integer(f.field as i32));
@@ -963,7 +998,7 @@ impl Session {
             for calc in calc_formulas(schema, schema.fields.get(p)?.calc.as_ref()?, source)? {
                 sources.push(self.engine.tables[calc.table].clone()?);
                 for c in &calc.conds {
-                    if let al_ir::CalcValue::Field(x) = c.value
+                    if let al_ir::CalcValue::Field(x) | al_ir::CalcValue::FieldFilter(x) = c.value
                         && schema.fields.get(x)?.stored
                     {
                         values.push(r.fields[x].clone());
