@@ -1,8 +1,10 @@
 //! A subscriber that names a platform codeunit by its id instead of its name (al-runner issue 7644). The runtime raises the
 //! events of `Filter Helper Triggers`, `UI Helper Triggers` and `Reporting Triggers` to the subscribers that name the
-//! codeunit; whether BC treats the id form the same is not pinned, so raising the event such a subscriber names refuses, for a
-//! manual subscriber only while an instance is bound. A subscriber written with the id of an app's own codeunit, even one
-//! with a platform codeunit's name, keeps main's result.
+//! codeunit. A static subscriber of the app under test to the one event of each that corpus PR 1466 measured by id
+//! (MakeDateFilter, CaptionClassTranslate, SubstituteReport; SbiSubscriberByIdTests.al:245, :171, :231) is handled as the
+//! name form is and flags the run (`subscriber-publisher-by-id`). Every other by-id subscriber to these codeunits refuses the
+//! raise of the event it names, a manual one only while an instance is bound. A subscriber written with the id of an app's
+//! own codeunit, even one with a platform codeunit's name, keeps main's result.
 
 use al_builtins::native::Signal;
 use al_testkit::{error_message, run_in, text};
@@ -108,10 +110,21 @@ codeunit 50469 T
 }
 "#;
 
+/// SbiSubscriberByIdTests.al:171: the by-id subscriber is called as the name form is, so the run gives the name form's
+/// result (here its refusal of a changed Translation, the same text) and is flagged.
 #[test]
-fn a_caption_class_translate_subscriber_written_with_the_codeunit_id_refuses_the_raise() {
-    let m = refused(run_in(UI_HELPER, "T", "F"));
-    assert!(m.contains("by its id"), "{m}");
+fn a_caption_class_translate_subscriber_written_with_the_codeunit_id_gets_the_name_forms_result() {
+    use al_builtins::assumptions::{Assumption, take_hits};
+    let _ = take_hits();
+    let by_id = refused(run_in(UI_HELPER, "T", "F"));
+    assert!(take_hits().contains(&Assumption::SubscriberPublisherById));
+    let by_name = refused(run_in(
+        &UI_HELPER.replace("2000000004", "Codeunit::\"UI Helper Triggers\""),
+        "T",
+        "F",
+    ));
+    assert_eq!(by_id, by_name);
+    assert!(take_hits().is_empty());
 }
 
 const REPORTING: &str = r#"
@@ -133,10 +146,128 @@ codeunit 50503 U
 }
 "#;
 
+/// SbiSubscriberByIdTests.al:231: the by-id subscriber is called as the name form is (its NewReportId is the substitute) and
+/// the run is flagged.
 #[test]
-fn a_substitute_report_subscriber_written_with_the_codeunit_id_refuses_the_raise() {
-    let m = refused(run_in(REPORTING, "U", "Id"));
-    assert!(m.contains("by its id"), "{m}");
+fn a_substitute_report_subscriber_written_with_the_codeunit_id_runs_flagged() {
+    use al_builtins::assumptions::{Assumption, take_hits};
+    let _ = take_hits();
+    assert_eq!(text(run_in(REPORTING, "U", "Id")), "50509");
+    assert!(take_hits().contains(&Assumption::SubscriberPublisherById));
+    let by_name = REPORTING.replace("2000000005", "Codeunit::\"Reporting Triggers\"");
+    assert_eq!(text(run_in(&by_name, "U", "Id")), "50509");
+    assert!(take_hits().is_empty());
+}
+
+/// A Date filter text with a word no filter reads, handed to `MakeDateFilter` (events/platform-triggers/PtObserve.al:157).
+const DATE_FILTER: &str = r#"
+table 50220 DRow
+{
+    fields { field(1; Id; Integer) { } field(2; D; Date) { } }
+    keys { key(PK; Id) { Clustered = true; } }
+}
+codeunit 50221 DC
+{
+    procedure Word(): Text
+    var R: Record DRow;
+    begin
+        R.SetFilter(D, 'abc');
+        exit(R.GetFilter(D));
+    end;
+}
+"#;
+
+const BY_ID_DATE_SUB: &str = r#"
+codeunit 50222 DSub
+{
+    [EventSubscriber(ObjectType::Codeunit, 2000000007, 'MakeDateFilter', '', false, false)]
+    local procedure MakeDateFilter(var DateFilterText: Text)
+    begin
+        if DateFilterText = 'abc' then
+            DateFilterText := '2020-12-31';
+    end;
+}
+"#;
+
+/// SbiSubscriberByIdTests.al:245: the by-id subscriber repairs the text as the name form does, and the run is flagged.
+#[test]
+fn a_make_date_filter_subscriber_written_with_the_codeunit_id_runs_flagged() {
+    use al_builtins::assumptions::{Assumption, take_hits};
+    let _ = take_hits();
+    let by_id = text(run_in(&format!("{DATE_FILTER}{BY_ID_DATE_SUB}"), "DC", "Word"));
+    assert!(take_hits().contains(&Assumption::SubscriberPublisherById));
+    let by_name = BY_ID_DATE_SUB.replace("2000000007", "Codeunit::\"Filter Helper Triggers\"");
+    assert_eq!(by_id, text(run_in(&format!("{DATE_FILTER}{by_name}"), "DC", "Word")));
+    assert!(take_hits().is_empty());
+}
+
+/// `Codeunit::2000000007` does not compile in BC (must-not-compile 3216), so it keeps main's refusal, not a flagged pass.
+#[test]
+fn a_make_date_filter_subscriber_written_codeunit_colon_colon_id_refuses_the_raise() {
+    let sub = BY_ID_DATE_SUB.replace("2000000007", "Codeunit::2000000007");
+    let m = refused(run_in(&format!("{DATE_FILTER}{sub}"), "DC", "Word"));
+    assert!(m.contains("by its id 2000000007"), "{m}");
+}
+
+/// The same subscriber in a dependency app: a dependency app's by-id subscriber is not measured, so the raise refuses.
+#[test]
+fn a_dependency_make_date_filter_subscriber_written_with_the_codeunit_id_refuses_the_raise() {
+    let m = refused(run_with_dependency(BY_ID_DATE_SUB, DATE_FILTER, "DC", "Word"));
+    assert!(m.contains("\"DSub\""), "{m}");
+}
+
+/// The same subscriber in a manual codeunit: not measured, so the raise refuses while an instance is bound, and an unbound
+/// one receives nothing (the filter error stands, main's result).
+#[test]
+fn a_manual_make_date_filter_subscriber_written_with_the_codeunit_id_refuses_only_while_bound() {
+    let manual = BY_ID_DATE_SUB.replace(
+        "codeunit 50222 DSub\n{",
+        "codeunit 50222 DSub\n{\n    EventSubscriberInstance = Manual;",
+    );
+    assert!(manual.contains("Manual"));
+    let binder = r#"
+codeunit 50223 DBinder
+{
+    procedure Bound(): Text
+    var S: Codeunit DSub; C: Codeunit DC;
+    begin
+        BindSubscription(S);
+        exit(C.Word());
+    end;
+}
+"#;
+    let src = format!("{DATE_FILTER}{manual}{binder}");
+    let m = refused(run_in(&src, "DBinder", "Bound"));
+    assert!(m.contains("by its id 2000000007"), "{m}");
+    let m = error_message(run_in(&src, "DC", "Word"));
+    assert!(m.contains("abc"), "{m}");
+}
+
+/// A dependency app's by-id SubstituteReport subscriber is not measured: the raise refuses as on main.
+#[test]
+fn a_substitute_report_subscriber_of_a_dependency_written_with_the_codeunit_id_refuses_the_raise() {
+    let dep = r#"
+codeunit 50502 S
+{
+    [EventSubscriber(ObjectType::Codeunit, 2000000005, 'SubstituteReport', '', false, false)]
+    local procedure OnSubstitute(ReportId: Integer; RunMode: Option Normal,ParametersOnly,Execute,Print,SaveAs,RunModal; RequestPageXml: Text; RecordRef: RecordRef; var NewReportId: Integer)
+    begin
+        NewReportId := 50509;
+    end;
+}
+"#;
+    let ws = r#"
+report 50500 R { ProcessingOnly = true; UseRequestPage = false; dataset { dataitem(I; Integer) { } } }
+codeunit 50503 U
+{
+    procedure Id(): Text
+    begin
+        exit(Format(Report.GetSubstituteReportId(Report::R)));
+    end;
+}
+"#;
+    let m = refused(run_with_dependency(dep, ws, "U", "Id"));
+    assert!(m.contains("by its id 2000000005"), "{m}");
 }
 
 /// Main's result: a subscriber written with the id of an app's own publisher runs (the raise reaches it).
