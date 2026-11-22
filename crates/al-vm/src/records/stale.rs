@@ -71,6 +71,14 @@ impl Session {
                 }
             }
             TxWriteKind::Modify if new_versions => {
+                // A row the ModifyAll that sent the inserted rows modifies: its row versions count as a Modify's.
+                if rv
+                    .write_sends
+                    .as_ref()
+                    .is_some_and(|(o, c, k)| *o == table && c == company && *k == TxWriteKind::ModifyAll)
+                {
+                    rv.write_sends = None;
+                }
                 rv.accounted = rv.handed_out;
                 rv.sent = rv.sent.max(rv.last);
                 rv.sent_by_insert = false;
@@ -88,28 +96,22 @@ impl Session {
             // session-system/TestSystemExtended.al:635-659, TestBCDatabaseContracts.al and PnBRecordMisc.al:205-235 read it after a
             // DeleteAll). A Rename or ModifyAll hands out row versions no Insert or Modify accounts for
             // (`last_used_row_version` refuses those).
-            // A Delete, DeleteAll or Truncate of the one table whose inserted rows nothing sent yet sends them first: the value grows
-            // to their row version (`row_version_after_write`). A Rename (`Other` until it turns out a plain one) or a ModifyAll of
-            // that table, or of a table the transaction inserted into and sent, grows it to the row versions it hands out
-            // (`end_row_version_write`).
-            TxWriteKind::Delete | TxWriteKind::DeleteAll | TxWriteKind::Truncate
+            // A Delete or ModifyAll of the one table whose inserted rows nothing sent yet sends them first: the value grows to their
+            // row version, and the Modify of each row a ModifyAll modifies grows it on; a ModifyAll that modifies no row is not
+            // measured, so it stays in `write_sends` (`row_version_after_write`). A Rename (`Other` until it
+            // turns out a plain one) of that table, or of a table the transaction inserted into and sent, grows it to the row
+            // version it hands out (`end_row_version_write`).
+            TxWriteKind::Delete | TxWriteKind::ModifyAll | TxWriteKind::Other
                 if Self::row_version_after_write(rv, &self.tx.open.writes, table, company, kind) =>
             {
-                assume(Assumption::RowVersionWriteAfterInsert);
+                rv.assumed_write = true;
                 if let Some((_, _, v)) = rv.pending_inserts.pop() {
                     rv.sent = rv.sent.max(v);
                     rv.sent_by_insert = true;
                 }
-            }
-            TxWriteKind::Other | TxWriteKind::ModifyAll
-                if Self::row_version_after_write(rv, &self.tx.open.writes, table, company, kind) =>
-            {
-                assume(Assumption::RowVersionWriteAfterInsert);
-                if let Some((_, _, v)) = rv.pending_inserts.pop() {
-                    rv.sent = rv.sent.max(v);
-                    rv.sent_by_insert = true;
+                if matches!(kind, TxWriteKind::ModifyAll | TxWriteKind::Other) {
+                    rv.write_sends = Some((table, company.clone(), kind));
                 }
-                rv.write_sends = Some((table, company.clone()));
             }
             TxWriteKind::Delete
             | TxWriteKind::Rename
@@ -128,9 +130,10 @@ impl Session {
 
     /// Whether a write of `kind` to `table` after an Insert in the open transaction moves `Database.LastUsedRowVersion` as corpus
     /// PR 1509 (merged, not pinned: session-system/row-version-writes/RowVersionWrites.al) measured it, through the assumption
-    /// `row-version-write-after-insert`. Delete (:147), DeleteAll (:242) and Truncate (:267): the inserted rows nothing sent yet
-    /// are exactly those of `table`. Rename (:192, `Other` when noted) and ModifyAll (:218): the same, or (:517, :544) none are
-    /// unsent and the open transaction inserted into `table`. Every other shape keeps the refusal of `note_row_versions`.
+    /// `row-version-write-after-insert`. Delete (:147) and ModifyAll (:218): the inserted rows nothing sent yet are exactly those
+    /// of `table`. Rename (:192, `Other` when noted): the same, or (:517) none are unsent and the last write of `table` in the open
+    /// transaction is an Insert a read sent. Every other shape keeps the refusal of `note_row_versions`: a DeleteAll (:242) or Truncate (:267) is a store
+    /// write `writes_all_noted` does not count, and a ModifyAll of a table whose rows were sent (:544) is main's Modify rule.
     fn row_version_after_write(
         rv: &crate::state::RowVersionTx,
         writes: &[crate::state::TxWrite],
@@ -140,25 +143,33 @@ impl Session {
     ) -> bool {
         use crate::state::TxWriteKind;
         let own_unsent = matches!(rv.pending_inserts.as_slice(), [(o, c, _)] if *o == table && c == company);
+        // The last write of `table` is an Insert and no inserted row is unsent: a read of `table` sent it (only a read or a
+        // write of `table` takes its rows out of `pending_inserts`).
         let sent_insert = rv.pending_inserts.is_empty()
             && writes
                 .iter()
-                .any(|w| w.kind == TxWriteKind::Insert && w.table == table && w.company == *company);
+                .rev()
+                .find(|w| w.table == table && w.company == *company)
+                .is_some_and(|w| w.kind == TxWriteKind::Insert);
+        let none_running = rv.write_sends.is_none() && rv.handed_out == rv.accounted;
         match kind {
-            TxWriteKind::Delete | TxWriteKind::DeleteAll | TxWriteKind::Truncate => own_unsent,
-            TxWriteKind::Other | TxWriteKind::ModifyAll => {
-                rv.write_sends.is_none() && rv.handed_out == rv.accounted && (own_unsent || sent_insert)
-            }
+            TxWriteKind::Delete => own_unsent,
+            TxWriteKind::ModifyAll => none_running && own_unsent,
+            TxWriteKind::Other => none_running && (own_unsent || sent_insert),
             _ => false,
         }
     }
 
-    /// The end of a Rename or ModifyAll of `table` that `note_row_versions` let send (`RowVersionTx::write_sends`): the row
-    /// versions it handed out count, and the value grows to the last one (RowVersionWrites.al of corpus PR 1509: :192 and :517,
-    /// the renamed row's SystemRowVersion equals the value; :218 and :544 greater).
+    /// The end of a plain Rename of `table` that `note_row_versions` let send (`RowVersionTx::write_sends`): the row version it
+    /// handed out counts, and the value grows to it (RowVersionWrites.al of corpus PR 1509: :192 and :517, the renamed row's
+    /// SystemRowVersion equals the value).
     pub(crate) fn end_row_version_write(&mut self, table: u32, company: &Option<String>) {
         let rv = &mut self.tx.open.row_versions;
-        if rv.write_sends.as_ref().is_some_and(|(o, c)| *o == table && c == company) {
+        if rv
+            .write_sends
+            .as_ref()
+            .is_some_and(|(o, c, k)| *o == table && c == company && *k == crate::state::TxWriteKind::Other)
+        {
             rv.write_sends = None;
             rv.accounted = rv.handed_out;
             rv.sent = rv.sent.max(rv.last);
@@ -234,13 +245,16 @@ impl Session {
             return Err(why);
         }
         if rv.write_sends.is_some() {
-            return Err("a Rename that rewrote related rows or did not end after an Insert");
+            return Err("a Rename that rewrote related rows, or a ModifyAll that modified no row, after an Insert");
         }
         if rv.handed_out != rv.accounted {
             return Err("row versions handed out by a write other than an Insert or a Modify");
         }
         if !self.writes_all_noted() {
             return Err("a write of the open transaction the runtime does not track");
+        }
+        if rv.assumed_write {
+            assume(Assumption::RowVersionWriteAfterInsert);
         }
         Ok(self.tx.committed_row_version.max(rv.sent).max(1))
     }

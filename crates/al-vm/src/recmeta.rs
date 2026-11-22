@@ -2119,10 +2119,6 @@ impl Session {
         let at = self.note_bulk_write(rec, t, crate::state::TxWriteKind::ModifyAll);
         let r = self.modify_all_noted(rec, t, args, of_al);
         self.note_bulk_end(at);
-        if r.is_ok() {
-            let company = rec.borrow().company.clone();
-            self.end_row_version_write(t.object, &company);
-        }
         r
     }
 

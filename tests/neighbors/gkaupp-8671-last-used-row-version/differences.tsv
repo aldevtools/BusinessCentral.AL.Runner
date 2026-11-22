@@ -1,0 +1,8 @@
+# key	entry
+RVW Writes::LastUsedRowVersion_DeleteAfterInsert	ASSUMED row-version-write-after-insert (corpus PR 1509, merged, not pinned)
+RVW Writes::LastUsedRowVersion_ModifyAllAfterInsert	ASSUMED row-version-write-after-insert (corpus PR 1509, merged, not pinned)
+RVW Writes::LastUsedRowVersion_RenameAfterInsert	ASSUMED row-version-write-after-insert (corpus PR 1509, merged, not pinned)
+RVW Writes::LastUsedRowVersion_RenameAfterFlushedInsert	ASSUMED row-version-write-after-insert (corpus PR 1509, merged, not pinned)
+RVW N 76615::DeleteAfterRenameOfInsert	ASSUMED row-version-write-after-insert (the first read after the Rename; the Delete keeps main's rule)
+RVW N 76613::RenameTwiceAfterInsert	REFUSED Database.LastUsedRowVersion after row versions handed out by a write other than an Insert or a Modify
+RVW N 76606::ReadAfterOtherTableSent	REFUSED a read that sends inserted rows after a later Insert of another table was sent
