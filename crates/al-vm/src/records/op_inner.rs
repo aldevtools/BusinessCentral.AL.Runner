@@ -1453,12 +1453,8 @@ impl Session {
                 let date_ctx = self.date_filter_context_for(&text);
                 let parse = |text: &str| {
                     al_builtins::filter::with_date_context(date_ctx, || {
-                        // `<>@` alone on a Code field is measured from Record.SetFilter only (`filter_at_sign`).
-                        if from_al {
-                            al_builtins::filter::parse_filter_record_set_filter(text, &args[2..], &ty, &enums)
-                        } else {
-                            al_builtins::filter::parse_filter_at_sign_measured(text, &args[2..], &ty, &enums)
-                        }
+                        // Record.SetFilter and FieldRef.SetFilter measure `<>@` alone on a Code field too (`filter_at_sign`).
+                        al_builtins::filter::parse_filter_both_at_signs_measured(text, &args[2..], &ty, &enums)
                     })
                 };
                 // A RecordId text (`Format(RecordId)`, alone or after `<>`): see `record_id_filter_text`.

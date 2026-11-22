@@ -1045,19 +1045,25 @@ impl Lowerer<'_> {
                 }
                 CondValue::Filter(raw) => {
                     let raw = &unqualified(raw);
+                    // Without quotes, `filter(@)` does not compile (AL0870; alcodes/calc_filter_at_sign.rs reports it on a table
+                    // field): never run it.
+                    if crate::alcodes::calc_filter_at_sign::unquoted_at_sign(raw) {
+                        return Err("CalcFormula filter(@) without quotes, which BC does not compile (AL0870)".into());
+                    }
                     // One quoted literal is read as the filter its content spells (record/flowfields/W4CalcFields.al:396
                     // QZ_CalcFormula_QuotedLiteralFilters, fixtures QzCalcFormulaQuotedFilter.al): `'<>'''''` is `<>''`,
                     // `''''''` is `''`, `'''x|y'''` the literal x|y, `'x|y'` the union, `'<>''x'''` is `<>'x'`, and `*` stays a
                     // wildcard. Ranges (`200..299`, `..199`, `400..`), `&`, `>=` and blanks around `|` read the same way, as the
                     // unquoted form does: on a Code or Text field the ranges compare as text (W4CalcFields.al:455
                     // RO_CalcFormula_QuotedRangesAndUnions, :508 RO_CalcFormula_QuotedUnion_Repro; al-runner issues 5575, 5745).
-                    // A content with `<=`, a lone `=`, `<` or `>`, `@` or parentheses stays refused, but `'@'`: `@` alone, which
-                    // CalcFields reads as the filter `@` alone on a Code and a Text field (AtSignAloneReads.al:579, al-builtins
-                    // `filter_at_sign`).
+                    // A content with `<=`, a lone `=`, `<` or `>`, `@` or parentheses stays refused, but `'@'` and `'<>@'`: `@` alone
+                    // and `<>@` alone, which CalcFields reads as those filters on a Code and a Text field (AtSignAloneReads.al:579,
+                    // :752; al-builtins `filter_at_sign`).
                     if let Some(inner) = crate::queries::whole_literal(raw)
                         .filter(|inner| inner.contains(['|', '&', '.', '<', '>', '=', '*', '@', '(', ')', '\'']))
                     {
                         if inner != "@"
+                            && inner != "<>@"
                             && inner
                                 .replace("<>", "")
                                 .replace(">=", "")

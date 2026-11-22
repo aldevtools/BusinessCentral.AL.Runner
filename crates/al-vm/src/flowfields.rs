@@ -8,7 +8,9 @@
 
 use crate::Session;
 use al_builtins::describe::Describe;
-use al_builtins::filter::{FieldFilter, FilterExpr, parse_filter_at_sign_measured};
+use al_builtins::filter::{
+    FieldFilter, FilterExpr, parse_filter_at_sign_measured, parse_filter_both_at_signs_measured,
+};
 use al_builtins::native::{AlError, Signal, text_of, unsupported};
 use al_builtins::ops;
 use al_builtins::record_op::RecordOp;
@@ -1012,19 +1014,29 @@ impl Session {
         let src = &engine.program.objects[calc.table].table.as_ref().expect("table").fields;
         let language = al_builtins::format::FormatCtx::language(self);
         let enums = |id: u32| crate::views::enum_filter_members(&engine.program.objects[id as usize], language);
-        // `@` alone on a Code field is measured in a CalcFormula's field(filter()) of a normal field and in its filter('@')
-        // (`filter_at_sign`, AtSignAloneReads.al:558, :579).
-        let parse = |text: &str, ty: &RtType| {
-            parse_filter_at_sign_measured(text, &[], ty, &enums)
-                .map_err(|e| Signal::unsupported(format!("CalcFormula filter: {e}")))
+        // `@` alone on a Code field is measured in a CalcFormula's field(filter()) of a normal field and in its filter('@'), and `<>@`
+        // alone in its filter('<>@') (`filter_at_sign`, AtSignAloneReads.al:558, :579, :752).
+        let parse = |text: &str, ty: &RtType, negated_measured: bool| {
+            let parsed = if negated_measured {
+                parse_filter_both_at_signs_measured(text, &[], ty, &enums)
+            } else {
+                parse_filter_at_sign_measured(text, &[], ty, &enums)
+            };
+            parsed.map_err(|e| Signal::unsupported(format!("CalcFormula filter: {e}")))
         };
-        // The flow filter the caller set on field `q`, if any.
+        // The flow filter the caller set on field `q`, if any. No cell measures a FlowFilter's `<>@` alone on a Code field.
         let flow = |q: usize| {
             rec.borrow()
                 .filters
                 .iter()
                 .find(|x| x.field == q)
                 .map(|x| x.expr.clone())
+        };
+        let measured_flow = |e: &FilterExpr| match e {
+            FilterExpr::AtSignAloneCode(true) => {
+                unsupported("a FlowFilter of `<>@` alone on a Code field (not measured)")
+            }
+            _ => Ok(()),
         };
         // (source field, filter, replaces other conditions on that field)
         let mut parts: Vec<(usize, FilterExpr, bool)> = Vec::new();
@@ -1034,7 +1046,7 @@ impl Session {
                 ir::CalcValue::Const(k) => {
                     parts.push((c.field, FilterExpr::Eq(ops::convert(crate::constant(k), sty)?), false));
                 }
-                ir::CalcValue::Filter(text) => parts.push((c.field, parse(text, sty)?, false)),
+                ir::CalcValue::Filter(text) => parts.push((c.field, parse(text, sty, true)?, false)),
                 ir::CalcValue::Field(q) => {
                     let pf = &own[*q];
                     if pf.flow_filter {
@@ -1044,6 +1056,7 @@ impl Session {
                             if !same_kind(&pf.ty, sty) {
                                 return unsupported("a flow filter of another type than the source field");
                             }
+                            measured_flow(&e)?;
                             parts.push((c.field, e, false));
                         }
                     } else if !pf.stored {
@@ -1133,6 +1146,7 @@ impl Session {
                                     "field(filter()) of a FlowFilter beside another condition on the same field (not pinned)",
                                 );
                             }
+                            measured_flow(&e)?;
                             parts.push((c.field, e, false));
                         }
                         (other, Some(_)) => {
@@ -1168,11 +1182,11 @@ impl Session {
                         let expr = match sty {
                             // A Text field over a Date source field: the earlier reading, then the pinned forms it refused
                             // (`calc_text_date_filter`). A Code field keeps the earlier reading only.
-                            RtType::Date if matches!(own[*q].ty, RtType::Text(_)) => match parse(&text, sty) {
+                            RtType::Date if matches!(own[*q].ty, RtType::Text(_)) => match parse(&text, sty, false) {
                                 Ok(e) => e,
                                 Err(refusal) => self.calc_text_date_filter(&text, &enums, refusal)?,
                             },
-                            _ => parse(&text, sty)?,
+                            _ => parse(&text, sty, false)?,
                         };
                         parts.push((c.field, expr, true));
                     }

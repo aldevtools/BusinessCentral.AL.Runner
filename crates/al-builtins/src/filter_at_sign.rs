@@ -35,8 +35,8 @@ pub enum AtSignRows {
 /// BgTaskQueryCache.al:5753, :5809), SetView and RecordRef.SetView (AtSignAloneReads.al:497, :538), a CalcFormula's
 /// `field(filter())` of a normal field (:558) and its `filter('@')` (:579), a query's SetFilter and its DataItemTableFilter
 /// (BgTaskQueryCache.al:6369, :6403). Every other place ([`crate::filter::parse_filter_with`]) refuses it, as before this module
-/// answered it. `<>@` alone on a Code field is measured from Record.SetFilter only ([`parse_filter_record_set_filter`]); here it
-/// refuses.
+/// answered it. Here `<>@` alone on a Code field refuses: the places that measure it too take
+/// [`parse_filter_both_at_signs_measured`].
 pub fn parse_filter_at_sign_measured(
     text: &str,
     args: &[Value],
@@ -46,9 +46,10 @@ pub fn parse_filter_at_sign_measured(
     refused_where_not_measured(crate::filter::parse_filter_any(text, args, ty, enums)?, true)
 }
 
-/// [`parse_filter_at_sign_measured`] for Record.SetFilter of AL code, where the cells also measure `<>@` alone on a Code field: on
-/// stored fields (AtSignAloneReads.al:698) and on a lookup FlowField (:730).
-pub fn parse_filter_record_set_filter(
+/// [`parse_filter_at_sign_measured`] at the places where the cells also measure `<>@` alone on a Code field: Record.SetFilter on
+/// stored fields (AtSignAloneReads.al:698) and on a lookup FlowField (:730), FieldRef.SetFilter, SetView and RecordRef.SetView
+/// (:792), and a CalcFormula's `filter('<>@')` (:752).
+pub fn parse_filter_both_at_signs_measured(
     text: &str,
     args: &[Value],
     ty: &crate::value::RtType,

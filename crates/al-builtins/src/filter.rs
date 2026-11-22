@@ -1945,7 +1945,7 @@ pub fn all_match(filters: &[FieldFilter], row: &[Value]) -> Result<bool, Signal>
 }
 
 pub use crate::filter_at_sign::{
-    AtSignRows, at_sign_alone_read, parse_filter_at_sign_measured, parse_filter_record_set_filter,
+    AtSignRows, at_sign_alone_read, parse_filter_at_sign_measured, parse_filter_both_at_signs_measured,
 };
 pub use crate::filter_collation::{all_match_on, row_passes_collation};
 
