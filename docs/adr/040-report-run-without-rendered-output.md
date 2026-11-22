@@ -355,6 +355,8 @@ selection code, a temporary selection of a Word layout no longer refused) yes; t
 built only after the Windows probe is merged; `Contains` only (no `StrPos`/`IndexOf`); `Message` with a marked text stays refused.
 Part A is built (al-builtins `rendered_text.rs`; A7 in al-vm `report_placeholder/selection.rs`, for a user-defined Word layout selected
 by name without an app id); Part B waits for the probe.
+Changed 2026-11-22 (accepted by the owner, al-runner issue 8458): in A1, two renders with equal entries share a number,
+and loss mode L15 names a later serve request too.
 Part A is the opaque value. Part B ("known static text of the chosen layout") is part of the amendment by owner decision
 of 2026-11-12; Part A is written so that it works without Part B.
 
@@ -425,9 +427,12 @@ Alternatives considered and not chosen:
 
 Shape of a marked text: known characters and marks in the order BC has them. `Signature + Body` is the signature's
 characters followed by the mark. The mark is followed by one character that numbers the render (read only directly after
-the mark). The number is unique in the process, never per session: a SingleInstance global or a stored row can carry a
-marked text from one test session into the next, and a number that started again at 0 would then name another render.
-The number points to an entry of a process-wide list: the report, the format and the layout. An entry is never reused.
+the mark). The number names an entry of a process-wide list: the report, the format, the layout and the rgba column of
+the save's row (B2 adds what it records). Two renders with equal entries share a number; an entry is never removed or
+reused, so a number names the same entry for the life of the process, never per session or per serve request: a
+SingleInstance global, a stored row, the kept install baseline or a file under `--files-dir` can carry a marked text
+from one session or request into the next, and a number that started again at 0 would then name another render
+(al-runner issue 8458).
 
 The mark has two forms (review finding 3):
 
@@ -643,7 +648,7 @@ A lost mark is a silent wrong result: AL would read made-up or missing character
 | L11 | The runner prints the mark or the placeholder in a report | `Describe` test for the mark; a test that a JUnit file and `--explain` of a refused test hold neither U+FDD4 nor the placeholder markup. |
 | L13 | An ordered comparison answers by code point | `compare_order` refuses a marked operand (A5). Test: `<`, `>`, `<=`, `>=`, `in` range and `case` range, with the mark at the start and after a differing known prefix, for each of the four marks. |
 | L14 | A length leaves as a number (Blob, Temp Blob, file, return value of `Write`, `WriteText`, `GetSubText`, `Read`) | Sign-only length (A4); the rows P3 and P7 require an unused return value. Test per call, with the value used and unused. |
-| L15 | A marked text from an earlier session is read with another session's render list, or with the guard off | Process-wide render numbers and flag (A1, A5). Test: strict order, a SingleInstance codeunit keeps the body of render A, the next test codeunit renders B and asks about the kept body. |
+| L15 | A marked text from an earlier session or a later serve request is read with another session's render list, or with the guard off | Process-wide render numbers and flag (A1, A5). Test: strict order, a SingleInstance codeunit keeps the body of render A, the next test codeunit renders B and asks about the kept body. |
 | L16 | An allowed step changes the content and Part B still answers from the layout | The whole and changed forms (A1). Test: after P12 `Contains` refuses; a `#n` field refuses. The catalog test fails when a row of A3 does not declare its form. |
 | L12 | A later change adds an allowed use by widening a rule | Table A3 is data in one file with one row per builtin id and position, each with its citation. A test fails when a row has no citation or when the table and this ADR section differ in count. |
 

@@ -1,4 +1,5 @@
 //! `CorpusRuntime`: compiling suites of apps and running them.
+use super::carry_after::After;
 use super::narrowing::{Met, Narrowing};
 use super::*;
 
@@ -1628,28 +1629,10 @@ impl CorpusRuntime {
                     .iter()
                     .rev()
                     .find(|(si, id, leg, _)| sees(*si, *id, *leg, &units[k]));
-                let storage = before
-                    .is_some_and(|(_, _, _, c)| c.everything && reaches_session_storage(&engine, lowered, units[k].oi));
-                let hit = r.result.as_ref().is_ok_and(|done| done.5.leak_hit) || storage;
-                if let (true, Some((_, _, leg, c))) = (hit, before) {
-                    let o = &lowered.program.objects[units[k].oi];
-                    let handlers = o.routines.iter().any(|r| {
-                        r.attributes
-                            .iter()
-                            .any(|a| a.name.eq_ignore_ascii_case("HandlerFunctions"))
-                    });
-                    let unfinished = if storage { c.storage_why.as_ref() } else { None }.or(c.unfinished.as_ref());
-                    let refused = match unfinished {
-                        Some(why) => Some(why.clone()),
-                        // BC's CI runs a codeunit with handlers through another runner than the TestRunnerHub
-                        // (QuCommitIsolation.al:11-13): whether it runs before or after the Disabled codeunit is not pinned.
-                        None if handlers && *leg == 0 => Some(
-                            "an earlier codeunit with RequiredTestIsolation = Disabled wrote a table this test reads, and \
-                             whether BC runs this codeunit, which has handlers, before or after it is not pinned"
-                                .to_string(),
-                        ),
-                        None => None,
-                    };
+                let after = before.map(|(_, _, leg, c)| (After::new(&engine, lowered, c, units[k].oi, *leg), c));
+                if let Some((after, c)) = after.filter(|(a, _)| a.read(&r)) {
+                    let storage = after.reaches_storage();
+                    let refused = after.outside_refusal(&r).cloned();
                     match refused {
                         Some(why) => {
                             if let Ok(done) = &mut r.result {
@@ -1657,7 +1640,6 @@ impl CorpusRuntime {
                             }
                         }
                         None => {
-                            units[k].leak = None;
                             // The run again is the one reported, so `--explain` names its site.
                             let (si, id) = (units[k].si, units[k].id);
                             let mut observe = |name: &str, _: &Outcome, seen: &Observed| {
@@ -1833,6 +1815,7 @@ impl CorpusRuntime {
             });
         }
         let install_runs = super::install_once::end_run(&engine, &installs);
+        let login_replay = crate::login_replay::report(&engine);
         let tests_time = tests_started.elapsed();
         memory.pool().unwatch();
         if let (Some((key, _)), Some(cc), Some((origin, read))) = (
@@ -1903,30 +1886,9 @@ impl CorpusRuntime {
                 passes: pass_times,
                 install_snapshot: snapshot_once.line(&lowered.program),
                 engine_kept,
+                login_replay,
                 decoded_on_touch: lowered.cached_objects.as_ref().map(|c| c.decoded()),
-                work: RunWork {
-                    compiles: *compiles,
-                    lower: lowered.work,
-                    dependency_apps: ws.kinds.iter().filter(|k| **k == al_sema::AppKind::Dependency).count(),
-                    // The dependency apps a compile cache supplied (objects a kept compile supplied are counted apart,
-                    // `LowerWork::objects_from_kept`).
-                    dependency_apps_from_cache: {
-                        let mut apps: Vec<usize> = (0..lowered.provided.len())
-                            .filter(|&oi| lowered.provided[oi] && lowered.work.objects_from_kept == 0)
-                            .map(|oi| ws.objects[oi].app)
-                            .collect();
-                        apps.dedup();
-                        apps.len()
-                    },
-                    cache_layers_hit: cache_report
-                        .as_ref()
-                        .map_or(0, |c| c.layers.iter().filter(|l| l.hit).count()),
-                    cache_layers_built: cache_report
-                        .as_ref()
-                        .map_or(0, |c| c.layers.iter().filter(|l| l.built).count()),
-                    baseline_rows,
-                    tests_run: list.iter().filter(|r| !matches!(r.outcome, Outcome::NotRun(_))).count(),
-                },
+                work: run_work(*compiles, lowered, ws, cache_report.as_ref(), baseline_rows, &list),
                 // Not redone, not warm: the caller sets them.
                 ..Default::default()
             },
@@ -1954,6 +1916,36 @@ fn set_run_options(e: &mut Engine, opts: &RunOptions) {
     e.write_in_try_allowed = opts.allow_write_in_try_functions;
     e.dependencies_published_global = opts.dependencies_published_global;
     e.skipped_apps = opts.skipped_dependencies.clone();
+}
+
+/// What the run did, counted (`Phases::work`, the work ratchet of `al-test-cli`).
+fn run_work(
+    compiles: usize,
+    lowered: &Lowered,
+    ws: &al_sema::Workspace,
+    cache_report: Option<&crate::compile_cache::CacheReport>,
+    baseline_rows: Option<usize>,
+    list: &[TestResult],
+) -> RunWork {
+    RunWork {
+        compiles,
+        lower: lowered.work,
+        dependency_apps: ws.kinds.iter().filter(|k| **k == al_sema::AppKind::Dependency).count(),
+        // The dependency apps a compile cache supplied (objects a kept compile supplied are counted apart,
+        // `LowerWork::objects_from_kept`).
+        dependency_apps_from_cache: {
+            let mut apps: Vec<usize> = (0..lowered.provided.len())
+                .filter(|&oi| lowered.provided[oi] && lowered.work.objects_from_kept == 0)
+                .map(|oi| ws.objects[oi].app)
+                .collect();
+            apps.dedup();
+            apps.len()
+        },
+        cache_layers_hit: cache_report.map_or(0, |c| c.layers.iter().filter(|l| l.hit).count()),
+        cache_layers_built: cache_report.map_or(0, |c| c.layers.iter().filter(|l| l.built).count()),
+        baseline_rows,
+        tests_run: list.iter().filter(|r| !matches!(r.outcome, Outcome::NotRun(_))).count(),
+    }
 }
 
 /// The tests' engine (with several test threads): it shares what `make_engine` worked out from the program with the
@@ -2577,7 +2569,7 @@ fn note_leaks(units: &mut [Unit], carried: &[super::chain_walk::Carry], sees: &d
     for u in units.iter_mut() {
         if let Some((_, _, _, c)) = carried.iter().rev().find(|(si, id, leg, _)| sees(*si, *id, *leg, u)) {
             if u.leak.is_none() {
-                u.leak = Some(Arc::new(c.tables.clone()));
+                u.leak = super::carry_after::leak(Some(c));
             }
         }
     }

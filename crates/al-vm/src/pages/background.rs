@@ -13,6 +13,9 @@ use al_builtins::value::Value as V;
 pub(crate) struct BgWorker {
     params: V,
     result: Option<V>,
+    /// The worker runs for a part of the page with code (`code_inserted_coded.rs`), whose worker is the probe's line for line: a
+    /// read of a table the test session changed and has not committed is refused (`bg_watched_read`).
+    watch: bool,
 }
 
 /// The test session's state a worker's child session does not have, kept aside while it runs.
@@ -108,7 +111,7 @@ impl Session {
     /// outside the caller's write transaction (testpage/TestPageBgTaskTx_Tests.al): see
     /// `in_write_transaction` and `codeunit_run`. A direct `Commit` and an unguarded `Codeunit.Run`
     /// are not pinned and end the run as unsupported.
-    fn bg_run_worker(&mut self, codeunit: i32, params: V) -> Result<Result<V, AlError>, Signal> {
+    fn bg_run_worker(&mut self, codeunit: i32, params: V, watch: bool) -> Result<Result<V, AlError>, Signal> {
         let engine = self.engine();
         let Some(object) = engine
             .program
@@ -143,7 +146,11 @@ impl Session {
         if self.pages.bg_worker.is_some() {
             return unsupported("a background task started from a background task");
         }
-        self.pages.bg_worker = Some(BgWorker { params, result: None });
+        self.pages.bg_worker = Some(BgWorker {
+            params,
+            result: None,
+            watch,
+        });
         self.sync_no_client_test_session();
         let parked = self.bg_enter_child_session();
         let inst = self.instance(object);
@@ -198,7 +205,7 @@ impl Session {
             _ => V::Dictionary(Default::default()),
         };
         let completion = matches!(args.get(2), Some(V::Boolean(true)));
-        let results = match self.bg_run_worker(codeunit, params)? {
+        let results = match self.bg_run_worker(codeunit, params, false)? {
             Ok(r) => r,
             // With the completion triggers, a failing worker runs OnPageBackgroundTaskError, and when that marks the error as
             // handled the call returns without an error (pages/background-tasks/W2BackgroundTasks.al:508-537
@@ -283,7 +290,12 @@ impl Session {
             if !st.borrow().open {
                 return unsupported("a background task queued on a page that closed before it ran (not pinned)");
             }
-            match self.bg_run_worker(codeunit, params)? {
+            let watch = {
+                let (root, _) = Self::tree_root(st);
+                let r = root.borrow();
+                r.coded_line != super::state::CodedLine::Off
+            };
+            match self.bg_run_worker(codeunit, params, watch)? {
                 Ok(results) => {
                     let r = self.bg_completed(st, id, &results);
                     self.torn_down_on_error(st, r)?;
@@ -423,6 +435,47 @@ impl Session {
             return unsupported(format!(
                 "{what} in a page background task (not pinned: testpage/TestPageBgTaskTx_Tests.al pins only the guarded Codeunit.Run)"
             ));
+        }
+        Ok(())
+    }
+
+    /// A read of a page background task's worker on the page with code (`BgWorker::watch`), before it runs. BC answers a worker's
+    /// read from a query cache its background sessions share: the same read after the test session changed the table without
+    /// committing gets the earlier answer (pages/background-tasks/BgTaskQueryCache.al:367 Get, :641 and :658 FindFirst, :675
+    /// Count), also when only the test session read it before its change (:500); with no change of the table since the last
+    /// commit it reads the rows as they are, since a commit of a change ends the entry (:430, :823, :845). Corpus pull request
+    /// 1457, merged, not pinned yet. The runtime reads the rows as they are, so a read of a table that changed in the open
+    /// transaction is refused (also a first read, which BC answers as it is, :411); every other read runs.
+    pub(crate) fn bg_watched_read(&self, method: al_builtins::record_op::RecordOp, rec: &Rec) -> Result<(), Signal> {
+        use al_builtins::record_op::RecordOp as R;
+        if !self.pages.bg_worker.as_ref().is_some_and(|w| w.watch) || rec.borrow().temporary {
+            return Ok(());
+        }
+        let reads = matches!(
+            method,
+            R::Next
+                | R::Find
+                | R::CalcFields
+                | R::Get
+                | R::GetBySystemId
+                | R::CalcSums
+                | R::Count
+                | R::CountApprox
+                | R::FindFirst
+                | R::FindLast
+                | R::FindSet
+                | R::IsEmpty
+        );
+        if !reads {
+            return Ok(());
+        }
+        let table = self.table(rec)?;
+        let cx = self.cx_for(rec, &table)?;
+        if self.store.table_changed(&cx, &table) {
+            return unsupported(
+                "a page background task of a List page with code and FactBoxes read a table the test session changed and has not \
+                 committed: BC may answer it from the query cache its background sessions share (not pinned)",
+            );
         }
         Ok(())
     }

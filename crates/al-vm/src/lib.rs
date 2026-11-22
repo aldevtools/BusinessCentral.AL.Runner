@@ -56,7 +56,7 @@ pub use profile::{
     DbStat, PosStat, ProfFrame, ProfNode, ProfileMode, ProfileTree, reaches_database,
     routine_label as profile_routine_label,
 };
-pub use state_stamp::{LeftChange, LeftStamp, StateStamp};
+pub use state_stamp::{LeftChange, LeftStamp, StateLines, StateStamp};
 pub use test_runner_host::TestCodeunitHost;
 mod auto_format_writer;
 mod callstack;
@@ -158,6 +158,8 @@ mod sqltime;
 mod stale_buffer_origin;
 mod stale_own_modify;
 mod stale_rename;
+mod state_facts;
+mod state_render;
 mod state_stamp;
 mod table_facts;
 mod tasks;
@@ -722,9 +724,11 @@ impl Engine {
         self.codeunits.get(&id).and_then(|c| c.any)
     }
 
-    /// The value of type `T` made from this engine's program, made by `make` the first time it is asked for and shared
-    /// by every session and thread of the engine after that: for data that depends on the program alone (al-testrun's
-    /// index of the static reach). `make` must not ask the engine for derived data itself.
+    /// The value of type `T` made by `make` the first time it is asked for and shared by every session and thread of the
+    /// engine after that: for data that depends on the program alone (al-testrun's index of the static reach), and for
+    /// state that lives as long as the engine and that every session adds to, as one value (al-testrun's login replay
+    /// check, `login_replay.rs`: its tally behind a lock, across the engine's requests). `make` must not ask the engine
+    /// for derived data itself.
     pub fn derived<T: std::any::Any + Send + Sync>(&self, make: impl FnOnce() -> T) -> Arc<T> {
         let mut slots = self.derived.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let slot = slots
@@ -1196,6 +1200,8 @@ pub struct Session {
     /// the session company's rows as they were, so the rows install code wrote there are known
     /// (`Session::copy_company`, `Session::cx_for`).
     pub(crate) full_copies: std::collections::BTreeSet<String>,
+    /// Rows whose SystemRowVersion is the Insert's, not BC's (`crate::state::RestampedRows`).
+    pub(crate) restamped_rows: Vec<crate::state::RestampedRows>,
     /// While `Database.CopyCompany` inserts the Company row: why the `RunTrigger` of the Company's insert events is not
     /// known. The subscribers get it as an unknown value (`Session::table_event`).
     pub(crate) run_trigger_unknown: Option<&'static str>,
@@ -1386,6 +1392,7 @@ impl Session {
             backed_companies,
             company_unknown: Default::default(),
             full_copies: Default::default(),
+            restamped_rows: Vec::new(),
             run_trigger_unknown: None,
             package_load: false,
             sleep_budget: None,
@@ -1598,6 +1605,7 @@ impl Session {
     pub fn commit_transaction(&mut self) {
         self.note_row_locks_commit();
         self.guarded_body_commit();
+        self.send_pending_inserts();
         al_data::Store::commit(&mut self.store);
         self.crm_committed();
         self.commits += 1;

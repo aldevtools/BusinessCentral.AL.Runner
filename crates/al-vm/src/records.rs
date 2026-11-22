@@ -46,6 +46,7 @@ pub(crate) use by_value_view::{ByValueCall, EventArg, by_value_mark, primary_vie
 mod op_inner;
 mod own_rolled_back_modify;
 mod platform_rows;
+mod restamped;
 mod stale;
 mod stale_rule;
 mod tenant_media_rows;
@@ -2472,6 +2473,7 @@ impl Session {
         self.probed_source_before(method, rec, args);
         Self::rolled_read_before(method, rec);
         let inserted = self.own_read_before(method, rec, args);
+        self.bg_watched_read(method, rec)?;
         let r = if self.coverage.profiler.is_some() {
             self.record_op_profiled(method, rec, args)
         } else {
