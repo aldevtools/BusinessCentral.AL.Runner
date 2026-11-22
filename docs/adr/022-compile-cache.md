@@ -1319,6 +1319,60 @@ fixed in the compile first; the build is already required to be deterministic (d
    daemon 2's `compileMs` is expected at a small part of today's 858 ms (the read of the entry and the scan); the result
    is recorded here, and the issue gets the numbers.
 
+### Built (2026-11-22, al-runner PR 8446)
+
+- **The entry.** `<tag>-ws-<identity>-<key>.alcw` (`al-cache/src/workspace.rs`): an outer header (the key digest, the
+  lengths, a checksum of the extra section) around an unchanged `al_cache` layer file, then the extra section
+  (`WorkspaceExtra`). `al_cache::FORMAT` is unchanged, so the extra section needs a frame of its own; decision 10's
+  checks still run at open.
+- **Two key fields beyond decision 2's list.** `path`: whether the compile weighed the install baseline on a compile of
+  the selected tests first, whether it was lean, whether a baseline was wanted, how many apps the dependency layers hold,
+  and the suites. Without it a weighed compile or a lean selection could share a key with another compile (decision 5).
+  `granted`: the app ids granted the internals of others, which change what the check accepts.
+- **No parse and no scan on a hit.** The key hashes the decoded text of every file, so the stored index equals a scan of
+  the same text; the equality test compares the workspaces.
+- **When the entry is written (decision 6).** `Layer::finish` takes the parts of a fresh compile into a `Store`, and
+  `Store::go_on` writes or defers the entry only once the run goes on with the compile. A compile the memory limit stops
+  after its last check drops its store: the next run of the same inputs compiles fresh (al-testrun suite test
+  `a_compile_the_memory_limit_stops_after_its_last_check_stores_no_entry`).
+- **Measured.** On the reporter's real app (43,511 mutants, 18 dependency layers), medians of 6: a warm daemon restart
+  compiles in 407 ms instead of 30,919 ms, and a warm one-shot `--codeunit X` in 0.50 s instead of 47.70 s (wall 3.09 s
+  instead of 50.62 s); a cold run that builds the entry costs no more than before (serve cold compile 59,284 ms against
+  59,037 ms). On the corpus apps over the Microsoft apps (the equality test), a read takes 0.74, 0.95 and 1.20 s on BC
+  27, 28 and 29, against 30.4, 18.3 and 24.2 s for a fresh compile.
+
+### Test plan as built (2026-11-22)
+
+- **Corpus equality:** `al-test-cli` test `workspace_cache_equality` (fresh, built, read, read on one thread, fresh on
+  one thread; equal canonical dumps), a step of the corpus job on BC 27, 28 and 29. As planned.
+- **Modes and incremental after a hit:** the al-testrun suite `workspace_cache`. As planned.
+- **Outcomes:** `tools/cache_vs_uncached.sh workspace`, run on BC 27, 28 and 29: the built run and the read run give the
+  outcomes and reasons of the run without the layer, 0 differences, for the main app and every suite (OnPrem,
+  OnPrem-DotNet, TestLibraries, TryWrite-allowed, and on BC 28 isolation-function and isolation-codeunit): 30,707,
+  30,922 and 31,089 tests, every pass of the read run read. Deviations, for the owner:
+  1. The leg's runs compile every pass from source (`AL_FRESH_PASS_COMPILE=1`). A pass that grows the main pass's
+     compile (ADR-063) does not use the layer (decision 7), so a default corpus run never reads it; the leg tests the
+     layer where a corpus run can use it.
+  2. The reference is the run with the dependency layers and without the workspace layer, compared with `--reasons` and
+     no allow list. The uncached run against the dependency layers is the existing `run` leg.
+  3. Run here without `--require-dotnet` (`LEG_DOTNET=`): the machine has the .NET 8 runtime only, so on BC 29 (whose
+     service tier runs on .NET 10) 249 tests were not run (`dotnet-unavailable`) in all three runs. BC 27 and 28 ran
+     their DotNet tests. The leg's default keeps `--require-dotnet`.
+  4. Not in CI: the nightly step "Corpus with the compile cache, against the uncached run" does not run the leg. It
+     would add three corpus runs per version to the nightly; that is the owner's call.
+- **Serve suite:** alrunner-cli `serve` test `each_request_shape_answers_the_same_on_a_fresh_and_on_a_reading_daemon`:
+  twelve request shapes of the suite (a plain run, a test filter, `excludeTests`, `testIsolation`, `testRunner`,
+  `stopAfterFirstFailure`, coverage, `entries`, two `sourcePaths`, `tdd`, an app that does not compile, `execute`), each
+  sent to a fresh daemon and then to a new daemon over the same cache folder. The second daemon reads the entry the
+  first built, and the answers are equal without the timings. Deviations, for the owner:
+  1. The suite does not run every serve test twice. Many of its tests check one daemon's own state (`built`, `cached`,
+     stderr lines, edits on the kept compile), which a reading daemon changes on purpose; the shapes above are the request
+     options that reach the compile.
+  2. The dumps are not compared across daemons: a daemon is another process. The dumps of serve's shape (two
+     `sourcePaths`, no dependency apps) and of an incremental compile after a read are compared in process by the
+     al-testrun suite (`a_read_compile_of_two_workspace_apps_without_dependencies_equals_a_fresh_one`,
+     `an_incremental_compile_after_a_read_equals_one_after_a_fresh_compile`).
+
 ### Alternatives considered
 
 - **Keep the daemon alive and never restart it.** The daemon already keeps its compile across requests. The restarts come

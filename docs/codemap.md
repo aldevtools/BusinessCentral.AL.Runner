@@ -308,6 +308,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `pin.rs` (169): The per-version corpus pin check (ADR-007, "Decided without owner review (2026-10-13/14)"). Entry: `check` 13.
 - `report.rs` (496): Joins the oracle with the runtime's outcomes into the pass-rate report. Entry: `Outcome`, `build`, `build_with`.
 - `runner.rs` (18): The seam between the harness and the runtime. Entry: `Runner` 6, `NoRuntime` 11.
+- `workspace_leg.rs` (~110 with tests): The outcomes leg of the workspace layer (ADR-022 amendment 2026-11-15, `tools/cache_vs_uncached.sh workspace`): under `AL_CORPUS_WORKSPACE_CACHE=1` with `--compile-cache`, a corpus run compiles each pass with the workspace layer, keyed by its whole command line but the report files (`options`), and prints what the layer did per pass (`say`). Entry: `options`, `say`.
 - `select.rs` (143): Test selection: --codeunit, --test, --area, --file (union). Entry: `Selection` 16, `matches` 34, `filter` 57.
 
 ### al-testrun
