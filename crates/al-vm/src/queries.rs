@@ -1169,6 +1169,7 @@ impl Session {
 
     /// Sorts every filter of the query to the place it applies.
     fn query_plan(&mut self, def: &ir::Query, runtime: &[(usize, FilterExpr)]) -> Result<Plan, Signal> {
+        self.restamped_query(def)?;
         let engine = self.engine.clone();
         let mut plan = Plan {
             scan: vec![Vec::new(); def.items.len()],

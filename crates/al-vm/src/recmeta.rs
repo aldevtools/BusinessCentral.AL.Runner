@@ -2118,7 +2118,7 @@ impl Session {
     /// (corpus record/TestRecordModify.al:87-170, TestTriggerContracts.al:123-146).
     fn modify_all(&mut self, rec: &Rec, t: &TableDef, args: &[Value]) -> Result<Value, Signal> {
         let of_al = self.take_write_of_al(crate::state::WriteOfAl::ModifyAll);
-        let at = self.note_bulk_write(rec, t, crate::state::TxWriteKind::ModifyAll);
+        let at = self.note_bulk_write(rec, t, crate::state::TxWriteKind::ModifyAll, &[]);
         let r = self.modify_all_noted(rec, t, args, of_al);
         self.note_bulk_end(at);
         r
