@@ -629,8 +629,7 @@ impl Session {
                             .position(|f| f.id == 2_000_000_005)
                             .map(|i| rec.borrow().fields[i].clone());
                         if let Some(Value::BigInteger(v)) = version {
-                            let origin = self.own_insert_origin(&t, rec, v);
-                            rec.borrow_mut().row_origin = Some(origin);
+                            self.set_own_insert_origin(&t, rec, v);
                         }
                         // The Blob content an Insert of a temporary record stored is persisted, as one a Modify stored (see Rename).
                         if rec.borrow().temp_id.is_some() {

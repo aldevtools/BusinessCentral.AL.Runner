@@ -43,18 +43,18 @@ pub(crate) fn renamed_origin(o: RowOrigin, now: i64) -> RowOrigin {
 }
 
 impl Session {
-    /// The origin of the version `v` the variable's own Insert into `t` gave `rec`. The Insert itself wrote the table
-    /// (corpus PR 1523, record/crud/TestRecordFailedInsertMovedKey.al:283 P6, :528 Q6); after another kind of write of
-    /// the table, or through a RecordRef, it is not measured.
-    pub(crate) fn own_insert_origin(&self, t: &TableDef, rec: &Rec, v: i64) -> RowOrigin {
+    /// Gives `rec` the origin of the version `v` the variable's own Insert into `t` gave it. The Insert itself wrote
+    /// the table (corpus PR 1523, record/crud/TestRecordFailedInsertMovedKey.al:283 P6, :528 Q6); after another kind of
+    /// write of the table, or through a RecordRef, it is not measured.
+    pub(crate) fn set_own_insert_origin(&self, t: &TableDef, rec: &Rec, v: i64) {
         let table_written = match self.table_written(t.object, &rec.borrow().company) {
             TableWritten::ByRecord if !self.through_recordref => TableWritten::ByRecord,
             _ => TableWritten::Otherwise,
         };
-        RowOrigin {
+        rec.borrow_mut().row_origin = Some(RowOrigin {
             table_written,
             ..RowOrigin::new(true, v, self.commits)
-        }
+        });
     }
 
     /// The origin of a row version a load just read. `how` is [Get, GetBySystemId, a Find].
