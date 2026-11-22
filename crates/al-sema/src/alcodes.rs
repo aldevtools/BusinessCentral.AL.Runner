@@ -44,7 +44,7 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ),
     (
         "AL0107",
-        "a parameter named by one of 24 keywords after `var` (the first diagnostic, at the name); alc's full list for the two-codeunit keyword-parameter file (cases 2016-2039); two commas after the text of a Label declaration (case 2332); the keyword `in`, unquoted, after `::` in code (issue 7803; the first diagnostic only); a variable named by one of the same 24 keywords after a comma, or named `event` (alcodes/keyword_variable_names.rs; the first diagnostic; issue 8539); one of 32 keywords, unquoted, after `.` or `::` in the code of a procedure or trigger and in the property and source expressions alcodes/keyword_member_names.rs lists (`EXPRESSIONS`; issues 8635, 8649, 8650 and, for `::In`, 7803; the first diagnostic, at the word)",
+        "a parameter named by one of 24 keywords after `var` (the first diagnostic, at the name); alc's full list for the two-codeunit keyword-parameter file (cases 2016-2039); two commas after the text of a Label declaration (case 2332); a variable named by one of the same 24 keywords after a comma, or named `event` (alcodes/keyword_variable_names.rs; the first diagnostic; issue 8539); one of 32 keywords, unquoted, after `.` or `::` in the code of a procedure or trigger and in the property and source expressions alcodes/keyword_member_names.rs lists (`EXPRESSIONS`; issues 8635, 8649, 8650 and, for `::In`, 7803; the first diagnostic, at the word)",
     ),
     (
         "AL0301",
