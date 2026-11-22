@@ -177,6 +177,7 @@ mod transferfields_removed_field_neighbors;
 mod transferfields_size;
 mod truncate_database_delete;
 mod unpinned_record_paths;
+mod unseeded_install_delete_all;
 mod user_account_keys;
 mod user_gaps_filters;
 mod userpersonalization;

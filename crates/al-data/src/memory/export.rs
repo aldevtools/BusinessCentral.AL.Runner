@@ -3,8 +3,8 @@
 //! `baseline/row_delta.rs`). The rows and the tables a DeleteAll without filters emptied ([`MemStore::emptied`]) both
 //! travel: a store made from the export holds what the exported one held, marks included.
 
-use super::{Key, MemStore, PkStorage, Row, Slot, Table, next_stamp, table_storage};
-use crate::{Store, Value};
+use super::{Key, MemStore, PkStorage, Row, Slot, Table, next_stamp, slot, table_storage};
+use crate::{AccessContext, Store, TableDef, Value};
 
 /// One table of an exported store ([`MemStore::export_committed`]): its company (empty for a table that is not per
 /// company), its object, and its rows with their primary keys, in key order.
@@ -59,6 +59,12 @@ impl MemStore {
         let mut emptied: Vec<(String, u32)> = self.committed_emptied.keys().map(|s| (s.0.to_string(), s.1)).collect();
         emptied.sort();
         emptied
+    }
+
+    /// Table `t` no longer counts as emptied by a DeleteAll without filters ([`MemStore::emptied`]); its rows stay as they
+    /// are. The mark then travels no further: not to the commit, the export or a frozen copy.
+    pub fn forget_emptied(&mut self, cx: &AccessContext, t: &TableDef) {
+        self.emptied.remove(&slot(cx, t));
     }
 
     /// A store whose committed (and current) data is `tables`, with `emptied` the tables a DeleteAll without filters
