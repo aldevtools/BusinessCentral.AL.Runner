@@ -100,7 +100,7 @@ fn expr_cuts(e: &FilterExpr) -> bool {
         F::Eq(v) | F::RangeSame(v) | F::Ne(v) | F::Lt(v) | F::Le(v) | F::Gt(v) | F::Ge(v) => cuts(v),
         F::Or(es) | F::And(es) => es.iter().any(expr_cuts),
         F::UnpinnedText(inner) | F::NumCode(inner) | F::UnpinnedMatch(inner, _) => expr_cuts(inner),
-        F::Like(..) | F::NotLike(..) | F::AtSignAlone(_) | F::EmptyViewValue => false,
+        F::Like(..) | F::NotLike(..) | F::AtSignAlone(_) | F::AtSignAloneCode | F::EmptyViewValue => false,
     }
 }
 

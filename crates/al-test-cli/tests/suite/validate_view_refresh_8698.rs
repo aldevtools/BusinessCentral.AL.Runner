@@ -4,7 +4,7 @@
 //! repros, the cells of corpus pull request 1518 (pages/currpage/ListValidateFilterRefresh.al) and the neighbors past them, as
 //! the neighbor app tests/neighbors/8698-refresh-filter-update-false holds them.
 
-use super::outside_fb_repros::issue_8186_outcomes as outcomes;
+use super::outside_fb_repros::assert_stub_outcomes as outcomes;
 use al_builtins::assumptions::Assumption::{ListValidateViewRefresh, ValidateUpdateFalseRereadsRow};
 use al_test_cli::report::Outcome;
 
@@ -57,7 +57,7 @@ fn issue_8717_repro_passes() {
 #[test]
 fn probe_cells_pass_on_the_measured_pages() {
     let o = outcomes(PROBE, "LT RFU Tests");
-    assert_eq!(o.len(), 38);
+    assert_eq!(o.len(), 86);
     let mark = |n: &str| match n {
         "List_ResetAfterTestFilterUpdateFalse" => None,
         _ if n.starts_with("IssueList_") || n.starts_with("List_") => Some(ListValidateViewRefresh),
@@ -77,21 +77,25 @@ fn probe_cells_pass_on_the_measured_pages() {
     let count = |m| o.iter().filter(|(n, ..)| mark(n) == Some(m)).count();
     assert_eq!(
         (count(ListValidateViewRefresh), count(ValidateUpdateFalseRereadsRow)),
-        (24, 11)
+        (42, 41)
     );
     let edit = outcomes(PROBE, "LT RFU Edit Tests");
     assert!(
-        edit.len() == 1 && edit[0].1 == Outcome::Pass && edit[0].2 == [ValidateUpdateFalseRereadsRow],
+        edit.len() == 5
+            && edit
+                .iter()
+                .all(|(_, r, marks)| *r == Outcome::Pass && *marks == [ValidateUpdateFalseRereadsRow]),
         "{edit:#?}"
     );
 }
 
 /// Past the cells: four or two rows, on the List and on the Card, and a page whose OnValidate calls Update(true), keep main's
-/// path; Next or the action after the cell's steps, and a second SetValue on the Card of issue 8717, refuse.
+/// path; Next or the action after the cell's steps, and a second SetValue on the Card of issue 8717, refuse; AssertEquals and
+/// Editable() after the cell's steps only read, and the cell's First and walk follow.
 #[test]
 fn neighbors_keep_main_or_refuse() {
     let o = outcomes(&format!("{PROBE}\n{NEIGHBORS}"), "LT RFU Neighbor Tests");
-    assert_eq!(o.len(), 8);
+    assert_eq!(o.len(), 9);
     for (n, r, marks) in &o {
         match n.as_str() {
             "Lines_NextAfterSetValues"
@@ -103,7 +107,55 @@ fn neighbors_keep_main_or_refuse() {
                     "{n}: {r:?}"
                 )
             }
+            "Lines_ReadOnlyCallsAfterSetValues" => {
+                assert!(*r == Outcome::Pass && *marks == [ListValidateViewRefresh], "{n}: {r:?}")
+            }
             _ => assert!(marks.is_empty() && *r != Outcome::Pass, "{n}: {r:?}"),
         }
+    }
+}
+
+/// The read-only calls pass at the points the read cells of corpus pull request 1529 measure (Visible() on Name after the
+/// cell's two SetValues, before First); after First, in a cell the read cells do not measure (the row dropped), and at two
+/// points of one cell they refuse.
+#[test]
+fn read_only_calls_pass_only_where_measured() {
+    let outcome = |from: &str, to: &str| {
+        assert!(NEIGHBORS.contains(from));
+        let o = outcomes(
+            &format!("{PROBE}\n{}", NEIGHBORS.replacen(from, to, 1)),
+            "LT RFU Neighbor Tests",
+        );
+        o.into_iter()
+            .find(|(n, ..)| n == "Lines_ReadOnlyCallsAfterSetValues")
+            .unwrap()
+    };
+    let at = "                    Lines.Name.AssertEquals('C');\n";
+    let (_, r, marks) = outcome(at, "                    if Lines.Name.Visible() then;\n");
+    assert!(
+        r == Outcome::Pass && marks == [ListValidateViewRefresh],
+        "{r:?} {marks:?}"
+    );
+    let first = "                    Lines.First();\n";
+    let open = "        Lines.Last();\n        Note('open', Log.Take());\n        Lines.Name.SetValue(Lines.Name.Value() + '2');\n";
+    for (from, to) in [
+        (
+            first,
+            "                    Lines.First();\n                    if Lines.Name.Visible() then;\n",
+        ),
+        (
+            "        Initialize(1, 1, 3);\n        RunLines(3);\n",
+            "        Initialize(4, 1, 3);\n        RunLines(3);\n",
+        ),
+        (
+            open,
+            "        Lines.Last();\n        Lines.Name.AssertEquals('C');\n        Note('open', Log.Take());\n        Lines.Name.SetValue(Lines.Name.Value() + '2');\n",
+        ),
+    ] {
+        let (_, r, _) = outcome(from, to);
+        assert!(
+            matches!(&r, Outcome::NotRun(why) if why.starts_with(UNMEASURED)),
+            "{to}: {r:?}"
+        );
     }
 }
