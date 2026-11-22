@@ -213,6 +213,38 @@ reportextension 61100 "SAI Word Ext" extends "SAI Word Ext Base"
     }
 }
 
+report 61111 "SAI Word Labels"
+{
+    UsageCategory = None;
+    UseRequestPage = false;
+    DefaultRenderingLayout = L;
+    dataset
+    {
+        dataitem(A; "SAI A") { column(AId; Id) { } }
+        dataitem(B; "SAI B") { column(BId; Id) { } }
+    }
+    rendering { layout(L) { Type = Word; LayoutFile = './src/SaiWordLabels.docx'; } }
+    labels { TitleLbl = 'Title'; BodyLbl = 'Body'; }
+}
+
+report 61112 "SAI Word ReqPage"
+{
+    UsageCategory = None;
+    DefaultRenderingLayout = L;
+    dataset
+    {
+        dataitem(A; "SAI A") { column(AId; Id) { } }
+        dataitem(B; "SAI B") { column(BId; Id) { } }
+    }
+    requestpage
+    {
+        layout { area(Content) { field(ShowDetails; ShowDetails) { ApplicationArea = All; } } }
+    }
+    rendering { layout(L) { Type = Word; LayoutFile = './src/SaiWordReqPage.docx'; } }
+    var
+        ShowDetails: Boolean;
+}
+
 codeunit 61100 "SAI Helper"
 {
     procedure Fill(ACount: Integer; BCount: Integer; CCount: Integer)

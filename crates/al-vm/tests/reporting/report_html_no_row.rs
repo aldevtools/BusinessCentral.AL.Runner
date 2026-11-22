@@ -309,8 +309,14 @@ fn the_shapes_with_no_dataset_row_the_probe_did_not_measure_refuse() {
 /// report-save-top-level-items-no-row, corpus PR 1508): false, nothing written, in Html and Pdf.
 #[test]
 fn two_top_level_word_items_with_no_row_answer_empty() {
-    assert_eq!(text("NoRowTwoItems"), "No|No");
-    assert_eq!(text("TwoItemsPdf"), "No|No|ReportResultEmpty");
+    for (p, want) in [("NoRowTwoItems", "No|No"), ("TwoItemsPdf", "No|No|ReportResultEmpty")] {
+        assumptions::clear_hits();
+        assert_eq!(text(p), want, "{p}");
+        assert!(
+            assumptions::take_hits().contains(&Assumption::ReportSaveTopLevelItemsNoRow),
+            "{p}"
+        );
+    }
 }
 
 #[test]

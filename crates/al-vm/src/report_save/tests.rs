@@ -386,22 +386,21 @@ fn report_save_top_level_items_with_no_row_answer_as_the_probe_measured() {
     let marks = Some(Assumption::ReportSaveTopLevelItemsNoRow);
     for items in [DataItems::TwoTopLevel, DataItems::ThreeTopLevel] {
         for format in [Format::Pdf, Format::Word, Format::Html] {
-            let f = after(format, Kind::Word, items, AnswerForm::Used);
-            assert!(matches!(lookup::before_run(&CELLS, &f), Before::Run(_)), "{f:?}");
-            assert_eq!(answer(&f).ok(), Some((Answer::Empty, marks)), "{f:?}");
+            for form in [AnswerForm::Used, AnswerForm::Statement] {
+                let f = after(format, Kind::Word, items, form);
+                assert!(matches!(lookup::before_run(&CELLS, &f), Before::Run(_)), "{f:?}");
+                assert_eq!(answer(&f).ok(), Some((Answer::Empty, marks)), "{f:?}");
+            }
         }
     }
-    let statement = after(Format::Pdf, Kind::Word, DataItems::TwoTopLevel, AnswerForm::Statement);
-    assert_eq!(answer(&statement).ok(), Some((Answer::Empty, marks)));
     for format in [Format::Pdf, Format::Word] {
         let f = after(format, Kind::Rdlc, DataItems::TwoTopLevel, AnswerForm::Used);
         assert_eq!(answer(&f).ok(), Some((Answer::TrueNothing, marks)), "{f:?}");
     }
     // Neighbors: each misses (a refusal) or keeps main's row, never the new rows.
     for f in [
-        after(Format::Word, Kind::Word, DataItems::TwoTopLevel, AnswerForm::Statement),
-        after(Format::Html, Kind::Word, DataItems::TwoTopLevel, AnswerForm::Statement),
-        after(Format::Pdf, Kind::Word, DataItems::ThreeTopLevel, AnswerForm::Statement),
+        after(Format::Excel, Kind::Word, DataItems::TwoTopLevel, AnswerForm::Statement),
+        after(Format::Pdf, Kind::Excel, DataItems::TwoTopLevel, AnswerForm::Statement),
         after(Format::Pdf, Kind::Word, DataItems::Other, AnswerForm::Used),
         Facts {
             triggers: Triggers::WithoutOnPost,

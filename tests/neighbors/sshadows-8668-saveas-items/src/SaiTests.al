@@ -86,9 +86,8 @@ codeunit 61101 "SAI Tests"
         Assert.Equal('ok=No len=0 code=ReportResultEmpty', H.SaveUsed(Report::"SAI Word Skip", ReportFormat::Pdf), 'pdf');
     end;
 
-    // Neighbors the new rows do not take.
     [Test]
-    procedure Refused_WordTwo_Empty_WordStatement()
+    procedure Measured_WordTwo_Empty_WordStatement()
     begin
         H.Fill(0, 0, 0);
         asserterror H.SaveStatement(Report::"SAI Word Two", ReportFormat::Word);
@@ -96,7 +95,7 @@ codeunit 61101 "SAI Tests"
     end;
 
     [Test]
-    procedure Refused_WordTwo_Empty_HtmlStatement()
+    procedure Measured_WordTwo_Empty_HtmlStatement()
     begin
         H.Fill(0, 0, 0);
         asserterror H.SaveStatement(Report::"SAI Word Two", ReportFormat::Html);
@@ -104,13 +103,87 @@ codeunit 61101 "SAI Tests"
     end;
 
     [Test]
-    procedure Refused_WordThree_Empty_PdfStatement()
+    procedure Measured_WordThree_Empty_PdfStatement()
     begin
         H.Fill(0, 0, 0);
         asserterror H.SaveStatement(Report::"SAI Word Three", ReportFormat::Pdf);
         Assert.Equal('ReportResultEmpty', GetLastErrorCode(), 'code');
     end;
 
+    // The statement form (corpus pull request 1513, SaeStatementTests.al): raises at the statement, nothing written.
+    [Test]
+    procedure Measured_WordTwo_Empty_PdfStatement()
+    begin
+        H.Fill(0, 0, 0);
+        asserterror H.SaveStatement(Report::"SAI Word Two", ReportFormat::Pdf);
+        Assert.Equal(EmptyErr, GetLastErrorText(), 'text');
+        Assert.Equal('ReportResultEmpty', GetLastErrorCode(), 'code');
+    end;
+
+    [Test]
+    procedure Measured_WordThree_Empty_WordStatement()
+    begin
+        H.Fill(0, 0, 0);
+        asserterror H.SaveStatement(Report::"SAI Word Three", ReportFormat::Word);
+        Assert.Equal('ReportResultEmpty', GetLastErrorCode(), 'code');
+    end;
+
+    [Test]
+    procedure Measured_WordThree_Empty_HtmlStatement()
+    begin
+        H.Fill(0, 0, 0);
+        asserterror H.SaveStatement(Report::"SAI Word Three", ReportFormat::Html);
+        Assert.Equal('ReportResultEmpty', GetLastErrorCode(), 'code');
+    end;
+
+    // Labels and request page: measured as Pdf, two items, used and statement (SaeStatementTests.al:185-244).
+    [Test]
+    procedure Measured_Labels_Pdf_Used()
+    begin
+        H.Fill(0, 0, 0);
+        Assert.Equal('ok=No len=0 code=ReportResultEmpty', H.SaveUsed(Report::"SAI Word Labels", ReportFormat::Pdf), 'pdf');
+    end;
+
+    [Test]
+    procedure Measured_Labels_Pdf_Statement()
+    begin
+        H.Fill(0, 0, 0);
+        asserterror H.SaveStatement(Report::"SAI Word Labels", ReportFormat::Pdf);
+        Assert.Equal('ReportResultEmpty', GetLastErrorCode(), 'code');
+    end;
+
+    [Test]
+    procedure Measured_ReqPage_Pdf_Used()
+    begin
+        H.Fill(0, 0, 0);
+        Assert.Equal('ok=No len=0 code=ReportResultEmpty', H.SaveUsed(Report::"SAI Word ReqPage", ReportFormat::Pdf), 'pdf');
+    end;
+
+    [Test]
+    procedure Measured_ReqPage_Pdf_Statement()
+    begin
+        H.Fill(0, 0, 0);
+        asserterror H.SaveStatement(Report::"SAI Word ReqPage", ReportFormat::Pdf);
+        Assert.Equal('ReportResultEmpty', GetLastErrorCode(), 'code');
+    end;
+
+    // Not checked by the entry: labels and a request page in other formats than the measured Pdf.
+    [Test]
+    procedure NotChecked_Labels_Word_Used()
+    begin
+        H.Fill(0, 0, 0);
+        Assert.Equal('ok=No len=0 code=ReportResultEmpty', H.SaveUsed(Report::"SAI Word Labels", ReportFormat::Word), 'word');
+    end;
+
+    [Test]
+    procedure NotChecked_ReqPage_Html_Statement()
+    begin
+        H.Fill(0, 0, 0);
+        asserterror H.SaveStatement(Report::"SAI Word ReqPage", ReportFormat::Html);
+        Assert.Equal('ReportResultEmpty', GetLastErrorCode(), 'code');
+    end;
+
+    // Neighbors the new rows do not take.
     [Test]
     procedure Refused_WordFour_Empty_Pdf()
     begin
