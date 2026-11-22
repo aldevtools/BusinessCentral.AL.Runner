@@ -110,3 +110,21 @@ fn issue_8697_worker_caught_errors_in_a_page_handler() {
     }
     assert_eq!(seen, 5);
 }
+
+/// A worker's GetLastErrorObject before an error of its own is null, as after ClearLastError, where the test session's refuses
+/// (corpus PR 1516, BgTaskWorkerLastErrorObject.al:91, :103, :114, :126; two tasks in a row, NeighborsMore.al).
+#[test]
+fn issue_8697_worker_last_error_object() {
+    let cells = outcomes("LWO Tests");
+    assert_eq!(cells.len(), 4);
+    let neighbors = outcomes("LEN More Tests");
+    let two = neighbors
+        .iter()
+        .filter(|(n, ..)| n.ends_with("_GetLastErrorObjectNull"));
+    for (name, r, marks) in cells.iter().chain(two) {
+        assert_eq!(*r, Outcome::Pass, "{name}");
+        // The worker's own exception after it caught its error is main's answer.
+        let clean = name == "WorkerCaughtItsError_WorkerGetLastErrorObject_DialogException";
+        assert_eq!(marks.contains(&BgTaskWorkerLastError), !clean, "{name}: {marks:?}");
+    }
+}

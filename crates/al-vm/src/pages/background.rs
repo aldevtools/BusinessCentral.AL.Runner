@@ -248,6 +248,17 @@ impl Session {
         }
     }
 
+    /// The code runs in a page background task's worker that has had no error of its own: `GetLastErrorObject` answers null,
+    /// as after ClearLastError (BgTaskWorkerLastErrorObject.al:91, :103), where the test session's would refuse. It runs
+    /// through the assumption.
+    pub(crate) fn bg_worker_without_error(&self) -> bool {
+        let fresh = self.pages.bg_worker.is_some() && self.last_error == AlError::default();
+        if fresh {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::BgTaskWorkerLastError);
+        }
+        fresh
+    }
+
     /// An error-collection call of the worker, or a collectible error it raises, while the test session collects: the worker
     /// is outside any collecting scope, where main shared the test session's. It runs through the assumption.
     pub(crate) fn bg_note_worker_collection(&self) {
