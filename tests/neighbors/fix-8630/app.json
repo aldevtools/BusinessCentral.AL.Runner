@@ -1,0 +1,11 @@
+{
+  "id": "6c1a2f3b-8630-4d7e-8a9b-1c2d3e8630a1",
+  "name": "Neighbors fix-8630 keyword field names",
+  "publisher": "al-runner neighbors",
+  "version": "1.0.0.0",
+  "platform": "29.0.0.0",
+  "runtime": "18.0",
+  "target": "Cloud",
+  "idRanges": [{ "from": 50000, "to": 50009 }],
+  "dependencies": []
+}

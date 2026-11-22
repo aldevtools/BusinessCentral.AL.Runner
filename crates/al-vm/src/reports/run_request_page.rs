@@ -53,7 +53,7 @@ impl Session {
         };
         // RunRequestPage always shows the page, so it always enters a transaction world
         // (record/TestTxModelReportExec.al:77-102, Test02 and Test03).
-        let enters = self.report_enter_world(&schema, true)?;
+        let enters = self.report_enter_world(&schema, true, false)?;
         self.report_in_world(enters, |s| s.report_request_only(&inst, &schema, seed.as_deref()))
             .map(|s| Value::Text(s.into()))
     }
