@@ -18,9 +18,9 @@ pub struct AppInput {
     pub versions: AppVersions,
     /// `preprocessorSymbols` of the app's app.json (an app folder only).
     pub symbols: Vec<String>,
-    /// The files and folders outside an app folder that its load read or looked for (resource folders, the logo, layout
-    /// files; `al_testrun::runtime::load_manifest_reading`): a warm server reads the app again when one changes
-    /// (`kept_apps.rs`).
+    /// The files and folders outside an app folder that its load read or looked for (resource folders and the logo,
+    /// `al_testrun::runtime::load_manifest_reading`; a layout file outside the folder is never read): a warm server reads
+    /// the app again when one changes (`kept_apps.rs`).
     pub outside_reads: Vec<PathBuf>,
     /// [`AppInput::test_codeunits`], found once per read.
     test_codeunits: std::sync::OnceLock<Vec<(u32, Vec<String>)>>,
