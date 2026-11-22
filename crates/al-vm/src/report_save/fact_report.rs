@@ -28,6 +28,8 @@ pub(super) fn report_facts(program: &al_ir::Program, schema: &Schema) -> ReportF
     let data_items = match report.items.as_slice() {
         [_] => DataItems::One,
         [top, inner] if top.parent.is_none() && inner.parent == Some(0) => DataItems::ParentAndChild,
+        [a, b] if a.parent.is_none() && b.parent.is_none() => DataItems::TwoTopLevel,
+        [a, b, c] if a.parent.is_none() && b.parent.is_none() && c.parent.is_none() => DataItems::ThreeTopLevel,
         _ => DataItems::Other,
     };
     let extensions = match report.extensions.as_slice() {

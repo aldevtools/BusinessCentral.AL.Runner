@@ -307,7 +307,11 @@ impl Session {
                 });
                 self.test_call_ended(&page, &result);
                 Self::factbox_line_after_set_value(method, &page, &result);
-                self.refuse_error_after_found_row_save(&page, result)
+                let result = self.refuse_error_after_found_row_save(&page, result);
+                if method == PageOp::TestFieldSetValue {
+                    return self.coded_after_set_value(&page, result);
+                }
+                result
             }
             other => unsupported(format!("{method} on {}", other.describe())),
         }
@@ -676,6 +680,7 @@ impl Session {
     fn save_from_update(&mut self, method: PageOp, st: &St) -> Result<Value, Signal> {
         if method == PageOp::PageSaveRecord {
             st.borrow_mut().save_record_called = true;
+            self.save_record_on_code_inserted_line(st)?;
         }
         // CurrPage.SaveRecord() in the OnValidate of a part's control changes neither Rec nor xRec of the stored row; a new
         // row gets its inserted key in Rec while xRec stays the blank new row
@@ -705,6 +710,7 @@ impl Session {
         }
         // What `CurrPage.Update(true)` saved (al-vm pages/leave_new_line.rs, testpage/NewRowThenMove.al:73).
         st.borrow_mut().saved_by_update = method != PageOp::PageSaveRecord;
+        self.code_inserted_saved(st)?;
         Ok(Value::Null)
     }
 

@@ -44,7 +44,7 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ),
     (
         "AL0107",
-        "a parameter named by one of 24 keywords after `var` (the first diagnostic, at the name); alc's full list for the two-codeunit keyword-parameter file (cases 2016-2039); two commas after the text of a Label declaration (case 2332); the keyword `in`, unquoted, after `::` in code (issue 7803; the first diagnostic only, not in a property expression); a variable named by one of the same 24 keywords after a comma, or named `event` (alcodes/keyword_variable_names.rs; the first diagnostic; issue 8539)",
+        "a parameter named by one of 24 keywords after `var` (the first diagnostic, at the name); alc's full list for the two-codeunit keyword-parameter file (cases 2016-2039); two commas after the text of a Label declaration (case 2332); the keyword `in`, unquoted, after `::` in code (issue 7803; the first diagnostic only, not in a property expression); a variable named by one of the same 24 keywords after a comma, or named `event` (alcodes/keyword_variable_names.rs; the first diagnostic; issue 8539); a section named, unquoted, by one of the same 24 keywords: a table or table extension field (issue 8630), and the page, page extension, enum, enum extension, report, report extension, query, xmlport, table and table extension sections alcodes/keyword_section_names.rs lists (issue 8634; the first diagnostic, at the name)",
     ),
     (
         "AL0301",
@@ -582,6 +582,7 @@ pub fn check_workspace_parts(ws: &Workspace, first: usize) -> (Vec<Diagnostic>, 
         if parsed && !whole.contains(&o.file) {
             parameter_names(ws, o.file, obj.syntax(), &mut out);
         }
+        keyword_section_names::check(ws, oi, &obj, &mut out);
         if parsed {
             keyword_variable_names::check(ws, oi, &decls, &mut out);
         }
@@ -1486,6 +1487,17 @@ fn object_triggers(ws: &Workspace, oi: usize, obj: &ast::Object, out: &mut Vec<D
 /// measured 2026-10-22 with one probe file per word of the compiler's keyword table (`procedure P1(<word>: Integer)`
 /// and `procedure P1(var <word>: Integer)`). Every other keyword compiles as a parameter name (`local`, `if`, `fields`,
 /// `keys`, `layout`, ...), and so does any quoted name. Test: `check::tests::keywords_alc_rejects_as_parameter_names`.
+///
+/// Rules that read this list, each with the measurement it rests on:
+/// - parameter names (`parameter_names`): the probe above, must-not-compile 2016-2039;
+/// - variable names (`alcodes/keyword_variable_names.rs`, al-runner issue 8539): every word as a variable name in each
+///   section, corpus PR 1476;
+/// - table and table extension field names (`alcodes/keyword_section_names.rs`, al-runner issue 8630): every word as a
+///   table field name, corpus PR 1496;
+/// - the names of the other sections of its `NAMED` table (`alcodes/keyword_section_names.rs`, al-runner issue 8634):
+///   every word as the name of each section, corpus PR 1497.
+///
+/// A change to the list must be measured again for each rule that reads it.
 const PARAM_NAME_KEYWORDS: &[&str] = &[
     "actions",
     "area",
@@ -2556,6 +2568,7 @@ mod control_visible;
 mod count_flowfield;
 mod enum_variables;
 mod field_types;
+mod keyword_section_names;
 mod keyword_variable_names;
 mod permissions_property;
 mod subscriber_var_param;

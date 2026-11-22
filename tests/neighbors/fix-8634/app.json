@@ -1,0 +1,11 @@
+{
+  "id": "7d2b3c4e-8634-4e8f-9a0b-2c3d4e8634b2",
+  "name": "Neighbors fix-8634 keyword section names",
+  "publisher": "al-runner neighbors",
+  "version": "1.0.0.0",
+  "platform": "29.0.0.0",
+  "runtime": "18.0",
+  "target": "Cloud",
+  "idRanges": [{ "from": 50000, "to": 50019 }],
+  "dependencies": []
+}

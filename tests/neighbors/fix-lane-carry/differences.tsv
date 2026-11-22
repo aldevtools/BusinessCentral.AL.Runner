@@ -1,0 +1,6 @@
+# key	entry
+# No test differs at the neighbor check's flags (--seed 1, runner 130450, no --strict-order): there
+# RequiredTestIsolation has no effect and the SingleInstance lane re-runs nothing (order_hint.rs, ADR-066
+# amendment 12), so the app checks that the move of the rule into carry_after.rs keeps the walk and the re-run
+# after the parallel part (the members whose OnRun writes, 62040-62073). The fixed lane runs under
+# --isolation required --strict-order; the pull request body has that run.

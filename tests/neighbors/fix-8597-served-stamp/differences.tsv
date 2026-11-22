@@ -1,0 +1,6 @@
+# key	entry
+# No test differs. The change re-keys the caches of a table nobody wrote to in a company copy on a stamp that moves when
+# the copy's source changes; that table reads a backing (--test-data), and an app without test data has none. Here
+# copy_company stamps each slot it copies, on main and on head, so every re-copy, rollback and modify below reads the
+# new rows on both. The copy and rollback results rest on session-system/company/Y22CopyCompany.al:65 and :262-288.
+# Company.Rename is not here: the runner refuses it on main and on head (a read of media rows it makes is not pinned).

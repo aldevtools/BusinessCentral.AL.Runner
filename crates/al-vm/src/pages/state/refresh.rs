@@ -136,6 +136,12 @@ impl RefreshRequest {
         self.next.reads_done = true;
     }
 
+    /// The refresh that runs now made the reads `note_reads_done` noted itself: the note is spent and does not end the next
+    /// refresh (`code_inserted_coded.rs` `coded_refresh`, the page with code only).
+    pub fn spend_reads_done(&mut self) {
+        self.next.reads_done = false;
+    }
+
     /// The page left a new line for the row the table code inserted inside the validation.
     pub fn land_on_code_inserted_line(&mut self) {
         self.next.from_code_inserted_line = true;

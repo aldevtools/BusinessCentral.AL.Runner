@@ -1,0 +1,3 @@
+{ "id": "5e1d0c00-0000-4000-8000-000000008517", "name": "HN Held Columns", "publisher": "HN Neighbors", "version": "1.0.0.0",
+  "platform": "27.0.0.0", "runtime": "15.0", "idRanges": [ { "from": 61720, "to": 61739 } ],
+  "dependencies": [ { "id": "5e1d0c00-0000-4000-8000-000000018517", "name": "HN Rows", "publisher": "HN Neighbors", "version": "1.0.0.0" } ] }
