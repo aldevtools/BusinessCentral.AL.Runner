@@ -51,6 +51,7 @@ impl Session {
         st.borrow_mut().ws_trigger_order = None;
         st.borrow_mut().factbox_line = Default::default();
         st.borrow_mut().factbox_blank_landing = false;
+        st.borrow_mut().left_view_test_filter = Default::default();
         st.borrow_mut().forget_code_inserted_line();
         self.prune_page_held();
         let parts = std::mem::take(&mut st.borrow_mut().parts);
@@ -2364,7 +2365,7 @@ impl Session {
         target: Option<&ControlTarget>,
         field_read: bool,
     ) -> Result<(), Signal> {
-        self.refuse_row_access_on_part_left_by_its_view(child, m, target)?;
+        self.refuse_row_access_on_part_left_by_its_view(child, m, target, field_read)?;
         let Some(host) = child.borrow().host.as_ref().and_then(|(h, _)| h.upgrade()) else {
             return Ok(());
         };

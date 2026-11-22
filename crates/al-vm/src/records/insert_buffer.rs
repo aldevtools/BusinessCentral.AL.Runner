@@ -238,15 +238,6 @@ impl Session {
         Ok(())
     }
 
-    /// Whether the test session's insert queue of `table` (object id) holds rows.
-    pub(super) fn queue_holds_rows(&self, table: u32) -> bool {
-        self.tx
-            .open
-            .insert_buffer
-            .iter()
-            .any(|q| q.table == table && !q.keys.is_empty())
-    }
-
     pub(crate) fn refuse_read_while_deferred(&self, table: usize, read: &str) -> Result<(), Signal> {
         match &self.tx.open.deferred_insert {
             Some(d) if d.table == table => unsupported(format!(
@@ -255,6 +246,26 @@ impl Session {
             )),
             _ => Ok(()),
         }
+    }
+
+    /// The keys of the rows the test session's insert queue of `table` (object index) and `company` holds that reached the store
+    /// (`InsertQueue::hidden`): not in the database yet, so they hold no lock (`bg_readisolation_lock.rs`).
+    pub(crate) fn queued_in_store(&self, table: u32, company: &Option<String>) -> &[Vec<Value>] {
+        self.tx
+            .open
+            .insert_buffer
+            .iter()
+            .find(|q| q.table == table && q.company == *company)
+            .map_or(&[], |q| q.hidden.as_slice())
+    }
+
+    /// Whether the test session's insert queue of `table` (object index) holds rows: Inserts it counts since it was last sent.
+    pub(crate) fn queue_holds_rows(&self, table: u32) -> bool {
+        self.tx
+            .open
+            .insert_buffer
+            .iter()
+            .any(|q| q.table == table && !q.keys.is_empty())
     }
 
     /// Whether an unguarded Insert of AL code into `rec`'s table is queued by the platform: a database table without a Blob or

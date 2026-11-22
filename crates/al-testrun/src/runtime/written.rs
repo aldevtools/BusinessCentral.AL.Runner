@@ -46,6 +46,9 @@ pub(crate) mod state {
     /// `NavTenantSettingsHelper.IsSandbox()`), or a variable of a class that has one. It leaves nothing behind, but
     /// every reader of [`OTHER`] except the watched login (`login::watched_state`) still reads it as [`OTHER`]: [`MAY_LEAVE`].
     pub const SERVER_ANSWER: u16 = 1 << 10;
+    /// `CurrentTransactionType`: the type a test method leaves is the type the next one starts with
+    /// (session-system/TxTypeNextTestMethod.al, al-runner issue 8606).
+    pub const TRANSACTION_TYPE: u16 = 1 << 11;
     /// [`OTHER`] as every reader of it but the watched login takes it: with [`SERVER_ANSWER`].
     pub const MAY_LEAVE: u16 = OTHER | SERVER_ANSWER;
     /// State every test is taken to read: what AL code reads without naming it (the posting date defaults to
@@ -63,6 +66,7 @@ pub(crate) mod state {
             FILES => "files",
             HTTP => "what an HTTP server received",
             RANDOM_SEED => "the Random seed",
+            TRANSACTION_TYPE => "the transaction type",
             _ => "session state the analysis does not follow",
         }
     }
@@ -1768,6 +1772,12 @@ impl Rec<'_> {
                 ) || method == "LockTimeout" && has_args
                 {
                     self.out.state_writes |= OTHER;
+                } else if method == "CurrentTransactionType" {
+                    if has_args {
+                        self.out.state_writes |= TRANSACTION_TYPE;
+                    } else {
+                        self.out.state_reads |= TRANSACTION_TYPE;
+                    }
                 }
             }
             "TaskScheduler" => self.out.state_writes |= OTHER,

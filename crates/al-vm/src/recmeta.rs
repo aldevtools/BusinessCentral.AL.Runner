@@ -773,6 +773,7 @@ impl Session {
                     self.tx.open.locks.lock_tx = true;
                     let table = rec.borrow().table;
                     self.tx.open.locked_tables.push(table);
+                    self.note_row_lock_table(table);
                 }
                 Ok(Value::Null)
             }
@@ -1113,6 +1114,9 @@ impl Session {
         // The SetAutoCalcFields set comes over (record/crud/RcBFlowFields.al:SetAutoCalcFields_AfterInsertRead
         // `copy keeps autocalc`).
         d.auto_calc = s.auto_calc;
+        // So does the by-value copy's lack of its caller's set (record/filters/ByValueAutoCalcFields.al
+        // `ByValueAutoCalc_Codeunit_CopyOfCopy`), which marks a read of the target.
+        d.auto_calc_dropped = s.auto_calc_dropped;
         // SetLoadFields comes over with Copy (record/crud/RcAMisc.al:SetLoadFields_Copy_And_Assignment).
         d.load.request = s.load.request;
         d.load.buffer = s.load.buffer;

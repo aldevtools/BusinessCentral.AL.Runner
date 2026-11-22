@@ -1,0 +1,11 @@
+{
+  "id": "dcc15c4c-75d1-47b8-a04e-5ea008ff2cda",
+  "name": "Neighbors 8324 Update report and transaction type",
+  "publisher": "al-runner neighbors",
+  "version": "1.0.0.0",
+  "platform": "29.0.0.0",
+  "runtime": "18.0",
+  "target": "Cloud",
+  "idRanges": [{ "from": 50000, "to": 50049 }],
+  "dependencies": []
+}

@@ -18,4 +18,10 @@ codeunit 130000 Assert
         if Condition then
             Error('Assert.IsFalse failed. %1', Msg);
     end;
+
+    procedure ExpectedError(Expected: Text)
+    begin
+        if StrPos(GetLastErrorText(), Expected) = 0 then
+            Error('Assert.ExpectedError failed. Expected: %1. Actual: %2.', Expected, GetLastErrorText());
+    end;
 }
