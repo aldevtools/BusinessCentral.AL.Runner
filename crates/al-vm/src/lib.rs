@@ -990,14 +990,19 @@ pub struct Session {
     /// The records (by handle) whose `validating` entry a part's link stamp pushed (`stamp_from_filters_seen_as`): the
     /// platform validates the link value, so the entry holds whatever code runs at that moment.
     pub(crate) stamp_validating: Vec<usize>,
+    /// The OnBeforeValidateEvent or OnAfterValidateEvent being raised now, innermost last (`records/validate_event_xrec.rs`).
+    pub(crate) validate_events: Vec<crate::records::ValidateEvent>,
     /// The call site named for the Validate about to start, with its record's handle (`Session::validate_at`).
     pub(crate) validate_site: Option<(usize, crate::records::ValidateSite)>,
-    /// The Validates running now, innermost last: the record's handle and the call site (`Session::take_validate_site`).
-    pub(crate) validate_sites: Vec<(usize, Option<crate::records::ValidateSite>)>,
+    /// The Validates running now, innermost last (`Session::while_validating`).
+    pub(crate) validate_sites: Vec<crate::records::ValidateRun>,
     /// The table procedures that run on a record by a plain call (no operation of the record called them), innermost
     /// last: the record's handle, the depth of `call_stack` inside the procedure and its blank xRec. A Validate of that
     /// record in the procedure's own body passes this xRec (`RecordOp::Validate`).
     pub(crate) plain_proc_xrec: Vec<(usize, usize, crate::records::Rec)>,
+    /// The xRecs of the table procedures that run on a record with an xRec they share with their caller or a running call
+    /// (`ProcXrec::Shared` and `ProcXrec::SharedReadOnly`), innermost last.
+    pub(crate) shared_proc_xrec: Vec<crate::records::Rec>,
     pub(crate) cx: al_data::AccessContext,
     /// The tables that held a row when the install baseline was captured (none without one).
     pub(crate) baseline_rows: std::collections::BTreeSet<u32>,
@@ -1157,6 +1162,9 @@ pub struct Session {
     /// The host move whose parts are reading again: Next and Previous, a GoToKey or GoToRecord that stayed on the row, and the
     /// moves `pageops.rs` syncs in its last branch (GoToRecord, GoToKey and the others) (`pages/empty_part_rec.rs`).
     pub(crate) host_move_running: Option<pages::HostMove>,
+    /// The part whose calls after the test's own filter take the steps of `pages/part_update_left_view.rs`
+    /// (`TestFilterReread`): a test call on any other page ends them.
+    pub(crate) test_filter_steps: Option<std::rc::Weak<std::cell::RefCell<pages::PageState>>>,
     /// A host move syncs a part that serves its rows from OnFindRecord or OnNextRecord: the part keeps its rows when its link
     /// values did not change (`pages/parts.rs` `sync_parts_with`).
     /// `Some(true)`: a part that shows no row or only its blank line stays as it is too (a part linked through a Provider that
@@ -1428,9 +1436,11 @@ impl Session {
             truncate_undo: Default::default(),
             validating: Vec::new(),
             stamp_validating: Vec::new(),
+            validate_events: Vec::new(),
             validate_site: None,
             validate_sites: Vec::new(),
             plain_proc_xrec: Vec::new(),
+            shared_proc_xrec: Vec::new(),
             cx: al_data::AccessContext {
                 company: company.into(),
                 user: user.into(),
@@ -1525,6 +1535,7 @@ impl Session {
             host_new_running: None,
             part_open_running: false,
             host_move_running: None,
+            test_filter_steps: None,
             part_sync_keeps_same_link: None,
             dotnet: Default::default(),
             application_areas: String::new(),
@@ -1730,6 +1741,7 @@ impl Session {
                     globals: Default::default(),
                     unpinned_buffer: None,
                     view_assumption: None,
+                    auto_calc_dropped: false,
                     run_page_link: None,
                 })))
             }

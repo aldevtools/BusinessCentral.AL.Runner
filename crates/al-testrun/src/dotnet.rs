@@ -199,6 +199,12 @@ pub fn take_start_time() -> Duration {
     START_ON_THIS_THREAD.with(|c| c.replace(Duration::ZERO))
 }
 
+/// Adds `d` to the start-up time of this thread's codeunit ([`take_start_time`]): the time it waited for a .NET helper
+/// process to start (a session sidecar, or the report render process, `report_render`).
+pub(crate) fn charge_start(d: Duration) {
+    START_ON_THIS_THREAD.with(|c| c.set(c.get() + d));
+}
+
 /// What the host, its sessions and its background starts share.
 struct Shared {
     cfg: SidecarConfig,
@@ -252,7 +258,7 @@ impl Shared {
 
     fn waited(&self, w: Duration) {
         lock(&self.stats).waited_total += w;
-        START_ON_THIS_THREAD.with(|c| c.set(c.get() + w));
+        charge_start(w);
     }
 }
 
