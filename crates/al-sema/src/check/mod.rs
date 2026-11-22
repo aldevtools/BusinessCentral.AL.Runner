@@ -1312,10 +1312,19 @@ pub(crate) fn for_one_char_literal_bounds(
     if var.kind() != SyntaxKind::NameRef || !local_variable(var) {
         return false;
     }
-    let (lit_from, lit_to) = (one_char_literal(from), one_char_literal(to));
+    // A literal is measured only inside the Basic Multilingual Plane (BC counts UTF-16 units; a non-BMP literal is a
+    // two-character text, AL0122) and an integer literal only at the values the probe ran: 0, 1, 48, 52, 65534 and 65535.
+    let bmp_char =
+        |n: &SyntaxNode| one_char_literal(n) && literal_text(n).is_some_and(|t| t.chars().all(|c| c as u32 <= 0xFFFF));
+    let measured_int = |n: &SyntaxNode| {
+        n.kind() == SyntaxKind::Literal
+            && matches!(literal_ty(n), Ty::Integer)
+            && literal_text(n).is_some_and(|t| matches!(t.as_str(), "0" | "1" | "48" | "52" | "65534" | "65535"))
+    };
+    let (lit_from, lit_to) = (bmp_char(from), bmp_char(to));
     let measured_other = |n: &SyntaxNode| {
-        one_char_literal(n)
-            || (n.kind() == SyntaxKind::Literal && matches!(literal_ty(n), Ty::Integer))
+        bmp_char(n)
+            || measured_int(n)
             || (n.kind() == SyntaxKind::NameRef && matches!(ty(n), Ty::Char) && local_variable(n))
     };
     match ty(var) {
@@ -1402,6 +1411,13 @@ fn member_name(node: &SyntaxNode) -> String {
         }
         _ => name_of(node),
     }
+}
+
+/// The source text of a literal's first token.
+fn literal_text(node: &SyntaxNode) -> Option<String> {
+    al_syntax::ast::significant_green_tokens(node)
+        .find(|t| !t.kind().is_trivia())
+        .map(|t| t.text().to_string())
 }
 
 fn literal_ty(node: &SyntaxNode) -> Ty {

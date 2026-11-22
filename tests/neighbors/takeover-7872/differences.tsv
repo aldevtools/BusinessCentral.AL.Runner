@@ -8,3 +8,4 @@ NB Char Loop::CharVar_LiteralFrom_CharVarTo	ASSUMED for-char-literal-bounds (cor
 NB Char Loop::CharVar_LiteralFrom_IntegerLiteralTo	ASSUMED for-char-literal-bounds (corpus PR 1525)
 NB Char Loop::CharVar_NonAscii	ASSUMED for-char-literal-bounds (corpus PR 1525)
 NB Char Loop::IntegerVar_OneCharLiteralBounds	ASSUMED for-char-literal-bounds (corpus PR 1525)
+NB Char Loop::IntegerVar_OneCharLiteralBounds_DownTo	ASSUMED for-char-literal-bounds (corpus PR 1525)

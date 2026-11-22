@@ -242,4 +242,54 @@ codeunit 50100 "NB Char Loop"
             n += 1;
         Expect(Format(n), '2');
     end;
+
+    [Test]
+    procedure CharVar_NonBmp_LiteralBounds()
+    var
+        c: Char;
+        n: Integer;
+    begin
+        for c := '😀' to '😁' do
+            n += 1;
+        Expect(Format(n), '0');
+    end;
+
+    [Test]
+    procedure CharVar_IntegerLiteral_OutOfCharRange()
+    var
+        c: Char;
+        n: Integer;
+    begin
+        for c := '0' to 70000 do
+            n += 1;
+        Expect(Format(n), '0');
+    end;
+
+    [Test]
+    procedure IntegerVar_OneCharLiteralBounds_DownTo()
+    var
+        i: Integer;
+        n: Integer;
+    begin
+        for i := '4' downto '0' do
+            n += 1;
+        Expect(Format(n), '5');
+    end;
+
+    local procedure CountVarParam(var c: Char): Integer
+    var
+        n: Integer;
+    begin
+        for c := '0' to '4' do
+            n += 1;
+        exit(n);
+    end;
+
+    [Test]
+    procedure CharVarParameter_LiteralBounds()
+    var
+        c: Char;
+    begin
+        Expect(Format(CountVarParam(c)), '5');
+    end;
 }

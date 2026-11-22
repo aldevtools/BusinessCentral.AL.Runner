@@ -409,7 +409,7 @@ impl<'a> Lowerer<'a> {
     pub(crate) fn for_bounds(&mut self, kids: &[SyntaxNode]) -> (L<ir::Expr>, L<ir::Expr>) {
         let mut from = self.operand(&kids[1], ir::OperandUse::Value);
         let mut to = self.operand(&kids[2], ir::OperandUse::Value);
-        let local = |n: &SyntaxNode| matches!(self.res(n), Some(Res::Local(_)));
+        let local = |n: &SyntaxNode| matches!(self.res(n), Some(Res::Local(name)) if self.local_var_section_names.contains(name.as_str()));
         let measured = crate::check::for_one_char_literal_bounds(kids, &|n| self.ty_of(n), &local);
         if measured {
             for (k, b) in [(&kids[1], &mut from), (&kids[2], &mut to)] {
