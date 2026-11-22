@@ -119,10 +119,79 @@ pub(crate) fn with_format_string(v: &Value, length: i32, template: &str, chars: 
     if length == 0 || measured || measured_string_length(v, length, template) {
         return Ok(());
     }
+    if integer_string_cell(v, template, length > 0, fit) {
+        crate::assumptions::assume(crate::assumptions::Assumption::FormatLengthIntegerString);
+        return Ok(());
+    }
     Err(format!(
         "Format of {} with length {length} and a format string (not pinned)",
         v.describe()
     ))
+}
+
+/// Whether a value is an Integer (`false`) or a BigInteger (`true`), for the cells of `INTEGER_STRING_CELLS`.
+fn integer_kind(v: &Value) -> Option<bool> {
+    match v {
+        Value::Integer(_) => Some(false),
+        Value::BigInteger(_) => Some(true),
+        _ => None,
+    }
+}
+
+/// The cells of corpus PR 1505 (open; format-evaluate/format-length/FormatLengthIntegerString.al, assumption
+/// `format-length-integer-string`): BigInteger or not, the exact format string, a positive length or not, and how the text
+/// without a length compares with it. The probe line of each cell follows it. A positive length pads a shorter text on the
+/// left and cuts a longer one; a negative length keeps a shorter text and cuts a longer one (the cut: `formatstr::format_codes`).
+const INTEGER_STRING_CELLS: &[(bool, &str, bool, Ordering)] = {
+    use Ordering::{Equal, Greater, Less};
+    &[
+        (false, "<Integer>", true, Less),           // :26, :28, :38, :41, :68, :71-72, :77, :169
+        (false, "<Integer>", true, Equal),          // :27, :33, :37, :69, :73
+        (false, "<Integer>", true, Greater),        // :34, :36, :42, :76
+        (false, "<Integer>", false, Less),          // :30-31, :40
+        (false, "<Integer>", false, Greater),       // :39
+        (false, "<Sign><Integer>", true, Less),     // :79, :81, :84
+        (false, "<Sign><Integer>", true, Equal),    // :78, :82
+        (false, INTEGER_2_FILLER_0, true, Less),    // :109
+        (false, INTEGER_2_FILLER_0, true, Greater), // :110
+        (false, "<Integer,4>", true, Less),         // :111
+        (false, "<Integer,4>", true, Greater),      // :112
+        (false, "<Integer,5><Filler Character,0>", true, Less), // :115
+        (false, "<Integer,5><Filler Character,0>", true, Equal), // :118
+        (false, "<Integer,5><Filler Character,0>", true, Greater), // :114, :117
+        (false, "N<Integer>", true, Less),          // :139
+        (false, "N<Integer>", true, Equal),         // :140
+        (false, "No. <Integer> of 9", true, Less),  // :142
+        (false, "No. <Integer> of 9", true, Greater), // :143
+        (false, "<Integer>.<Integer>", true, Equal), // :144
+        (false, "abc", true, Less),                 // :145
+        (false, "", true, Less),                    // :146
+        (false, "<Integer Thousand>", true, Less),  // :165, :171, :173
+        (false, "<Integer Thousand>", true, Equal), // :166
+        (false, "<Integer Thousand>", true, Greater), // :167, :174
+        (true, "<Integer>", true, Less),            // :193, :199, :205
+        (true, "<Integer>", true, Equal),           // :197
+        (true, "<Integer>", true, Greater),         // :196, :204
+        (true, INTEGER_2_FILLER_0, true, Equal),    // :201
+        (true, INTEGER_2_FILLER_0, true, Less),     // :202
+        (true, "<Integer Thousand>", true, Greater), // :206
+    ]
+};
+
+/// Whether a result longer than `length` is cut to it, by the value type of `with_format_string`: a Decimal, Date, Time, Integer
+/// or BigInteger in a positive length, and an Integer in a negative one (the `INTEGER_STRING_CELLS` rule). Read by
+/// `formatstr::format_codes`; the gate decides separately whether the call runs.
+pub(crate) fn cuts_to_length(v: &Value, length: i32) -> bool {
+    match v {
+        Value::Decimal(_) | Value::Date(..) | Value::Time(_) | Value::BigInteger(_) => length > 0,
+        Value::Integer(_) => length != 0,
+        _ => false,
+    }
+}
+
+/// Whether `Format(v, length, template)` of an Integer or BigInteger is a cell of `INTEGER_STRING_CELLS`.
+fn integer_string_cell(v: &Value, template: &str, positive: bool, fit: Ordering) -> bool {
+    integer_kind(v).is_some_and(|big| INTEGER_STRING_CELLS.contains(&(big, template, positive, fit)))
 }
 
 /// The pinned cells under a format string where a cited line measures only some lengths of one string.
@@ -328,10 +397,10 @@ mod tests {
             (Value::Duration(1000), 30, "<Standard Format,0>"),
             (Value::Char(97), 3, "<Standard Format,0>"),
             (Value::Boolean(true), -2, "<Standard Format,0>"),
-            (Value::Integer(42), 5, "<Integer>"),
-            (Value::Integer(12345), 3, "<Integer>"),
+            (Value::Integer(42), 5, "<Integer,3>"),
+            (Value::Integer(12345), 3, "<Integer,3>"),
             (dec.clone(), -10, "<Integer>"),
-            (Value::Integer(42), 1, "<Integer>"),
+            (Value::Integer(42), 1, "<Integer,3>"),
             (Value::DateTime(0), -5, "<Second dec.>"),
             (date.clone(), 20, "<Year4>-<Month,2>"),
             (time.clone(), -1, "<Hours24,2>"),
@@ -447,15 +516,69 @@ mod tests {
         );
     }
 
-    /// An Integer as long as the length runs only under the cited string.
+    /// An Integer as long as the length runs unmarked only under the cited string (SgListKeyMovesTests.al:54); under
+    /// `<Integer>` it runs through the assumption of corpus PR 1505 (FormatLengthIntegerString.al:33).
     #[test]
-    fn an_integer_as_long_as_the_length_runs_only_under_the_cited_string() {
-        let r = fmt_string(&Value::Integer(12), 2, "<Integer>");
-        assert!(refused_by_string(&r), "{r:?}");
-        assert_eq!(
-            fmt_string(&Value::Integer(12), 2, "<Integer,2><Filler Character,0>").unwrap(),
-            "12"
-        );
+    fn an_integer_as_long_as_the_length_runs_unmarked_only_under_the_cited_string() {
+        let (r, hits) = fmt_string_hits(&Value::Integer(12), 2, "<Integer,2><Filler Character,0>");
+        assert_eq!((r.unwrap().as_str(), hits.is_empty()), ("12", true));
+        let (r, hits) = fmt_string_hits(&Value::Integer(12), 2, "<Integer>");
+        assert_eq!(r.unwrap(), "12");
+        assert_eq!(hits, [crate::assumptions::Assumption::FormatLengthIntegerString]);
+    }
+
+    /// Issue 8652: the cells of corpus PR 1505 (FormatLengthIntegerString.al) give the probe's text through the assumption.
+    #[test]
+    fn the_integer_string_cells_run_flagged() {
+        let int = Value::Integer;
+        let big = Value::BigInteger;
+        for (v, length, template, want) in [
+            (int(8), 2, "<Integer>", " 8"),                                     // :26, :43
+            (int(123), 2, "<Integer>", "12"),                                   // :36, :51
+            (int(123), -2, "<Integer>", "12"),                                  // :39, :54
+            (int(8), -5, "<Integer>", "8"),                                     // :31, :48
+            (int(-5), 4, "<Integer>", "   5"),                                  // :71, :87
+            (int(-123), 8, "<Sign><Integer>", "    -123"),                      // :79, :94
+            (int(8), 1, "<Integer,2><Filler Character,0>", "0"),                // :110, :121
+            (int(8), 2, "<Integer,4>", "  "),                                   // :112, :123
+            (int(8), 6, "No. <Integer> of 9", "No. 8 "),                        // :143, :151
+            (int(8), 5, "", "     "),                                           // :146, :154
+            (int(-1234), 3, "<Integer Thousand>", "1,2"),                       // :174, :182
+            (big(1234567890123), 8, "<Integer>", "12345678"),                   // :204, :214
+            (big(8), 5, "<Integer,2><Filler Character,0>", "   08"),            // :202, :213
+            (big(1234567890123), 16, "<Integer Thousand>", "1,234,567,890,12"), // :206, :216
+        ] {
+            let (r, hits) = fmt_string_hits(&v, length, template);
+            assert_eq!(r.as_deref(), Ok(want), "{v:?} {length} {template}");
+            assert_eq!(
+                hits,
+                [crate::assumptions::Assumption::FormatLengthIntegerString],
+                "{v:?} {length} {template}"
+            );
+        }
+    }
+
+    /// Issue 8652: the neighbors of those cells refuse: an unmeasured string, an unmeasured fit of a measured string, a negative
+    /// length on a BigInteger or as long as the text, and the other whole-number types.
+    #[test]
+    fn the_neighbors_of_the_integer_string_cells_refuse() {
+        for (v, length, template) in [
+            (Value::Integer(8), 2, "<Integer,3>"),
+            (Value::Integer(8), 2, "M<Integer>"),
+            (Value::Integer(-1234), 3, "<Sign><Integer>"),
+            (Value::Integer(8), 2, "<Integer>.<Integer>"),
+            (Value::Integer(12), -2, "<Integer>"),
+            (Value::Integer(123), -2, "<Integer Thousand>"),
+            (Value::Integer(8), -5, "N<Integer>"),
+            (Value::BigInteger(123), -2, "<Integer>"),
+            (Value::BigInteger(8), 5, "<Integer,4>"),
+            (Value::BigInteger(8), 5, ""),
+            (Value::Byte(8), 2, "<Integer>"),
+        ] {
+            let (r, hits) = fmt_string_hits(&v, length, template);
+            assert!(refused_by_string(&r), "{v:?} {length} {template}: {r:?}");
+            assert!(hits.is_empty(), "{v:?} {length} {template}");
+        }
     }
 
     /// The cells of format-evaluate/format-length/FormatLengthDates.al and FormatLengthTypes.al:888 run, unmarked.
