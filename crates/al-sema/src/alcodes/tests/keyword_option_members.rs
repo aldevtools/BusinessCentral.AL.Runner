@@ -128,116 +128,268 @@ fn a_keyword_member_of_the_option_members_property_is_al0105_at_the_word() {
     }
 }
 
-/// Begin and Var before a comma, which this parser takes: (shape, word, code, message, offset of the diagnostic from the
-/// word), one row per cell the AL compilers of every supported major measured; the return type reports at the comma.
-const BEGIN_VAR_CELLS: [(&str, &str, &str, &str, usize); 11] = [
+/// The places of the cell table below; `M` is the member list.
+const PLACES: [(&str, &str); 5] = [
     (
-        "codeunit 50101 \"U\" { procedure P() var O: Option W,Zero; begin end; }",
-        "Begin",
-        "AL0104",
-        "Syntax error, ';' expected",
-        0,
+        "local",
+        "codeunit 50101 \"U\" { procedure P() var O: Option M; begin end; }",
     ),
     (
-        "codeunit 50101 \"U\" { procedure P() var O: Option Zero,W,One; begin end; }",
-        "Begin",
-        "AL0104",
-        "Syntax error, ';' expected",
-        0,
+        "global",
+        "codeunit 50101 \"U\" { var O: Option M; procedure P() begin end; }",
     ),
     (
-        "codeunit 50101 \"U\" { var O: Option Zero,W,One; procedure P() begin end; }",
-        "Begin",
-        "AL0104",
-        "Syntax error, ';' expected",
-        0,
+        "table global",
+        "table 50102 \"T\" { fields { field(1; \"No.\"; Code[20]) { } } keys { key(PK; \"No.\") { Clustered = true; } } var O: Option M; }",
     ),
     (
-        "codeunit 50101 \"U\" { procedure P(O: Option W,Zero) begin end; }",
+        "parameter",
+        "codeunit 50101 \"U\" { procedure P(O: Option M) begin end; }",
+    ),
+    ("return", "codeunit 50101 \"U\" { procedure P(): Option M begin end; }"),
+];
+/// The positions of the cell table below; `W` is the word.
+const POSITIONS: [(&str, &str); 3] = [("first", "W,Zero"), ("middle", "Zero,W,One"), ("last", "Zero,W")];
+
+/// Every cell of Begin, End and Var in an option type that the AL compilers of every supported major measured the same,
+/// each a must-not-compile case of corpus PR 1502: (word, place, position, first diagnostic as (code, message, at the
+/// comma after the word rather than the word)). `None` is an internal error of the AL compiler (AL0999 at the start of the
+/// file), not judged. Begin and Var as the last member are left out: they stop this parser already.
+const CELLS: [(&str, &str, &str, Option<(&str, &str, bool)>); 35] = [
+    (
         "Begin",
-        "AL0104",
-        "Syntax error, ')' expected",
-        0,
+        "local",
+        "first",
+        Some(("AL0104", "Syntax error, ';' expected", false)),
     ),
     (
-        "codeunit 50101 \"U\" { procedure P(O: Option Zero,W,One) begin end; }",
         "Begin",
-        "AL0104",
-        "Syntax error, ')' expected",
-        0,
+        "local",
+        "middle",
+        Some(("AL0104", "Syntax error, ';' expected", false)),
     ),
     (
-        "codeunit 50101 \"U\" { procedure P(): Option W,Zero begin end; }",
         "Begin",
-        "AL0104",
-        "Syntax error, 'end' expected",
-        5,
+        "global",
+        "first",
+        Some(("AL0104", "Syntax error, ';' expected", false)),
     ),
     (
-        "codeunit 50101 \"U\" { procedure P() var O: Option W,Zero; begin end; }",
+        "Begin",
+        "global",
+        "middle",
+        Some(("AL0104", "Syntax error, ';' expected", false)),
+    ),
+    (
+        "Begin",
+        "table global",
+        "first",
+        Some(("AL0104", "Syntax error, ';' expected", false)),
+    ),
+    (
+        "Begin",
+        "table global",
+        "middle",
+        Some(("AL0104", "Syntax error, ';' expected", false)),
+    ),
+    (
+        "Begin",
+        "parameter",
+        "first",
+        Some(("AL0104", "Syntax error, ')' expected", false)),
+    ),
+    (
+        "Begin",
+        "parameter",
+        "middle",
+        Some(("AL0104", "Syntax error, ')' expected", false)),
+    ),
+    (
+        "Begin",
+        "return",
+        "first",
+        Some(("AL0104", "Syntax error, 'end' expected", true)),
+    ),
+    (
+        "Begin",
+        "return",
+        "middle",
+        Some(("AL0104", "Syntax error, 'end' expected", true)),
+    ),
+    (
+        "End",
+        "local",
+        "first",
+        Some(("AL0104", "Syntax error, ';' expected", false)),
+    ),
+    (
+        "End",
+        "local",
+        "middle",
+        Some(("AL0104", "Syntax error, ';' expected", false)),
+    ),
+    (
+        "End",
+        "local",
+        "last",
+        Some(("AL0104", "Syntax error, ';' expected", false)),
+    ),
+    (
+        "End",
+        "global",
+        "first",
+        Some(("AL0104", "Syntax error, ';' expected", false)),
+    ),
+    (
+        "End",
+        "global",
+        "middle",
+        Some(("AL0104", "Syntax error, ';' expected", false)),
+    ),
+    (
+        "End",
+        "global",
+        "last",
+        Some(("AL0104", "Syntax error, ';' expected", false)),
+    ),
+    (
+        "End",
+        "table global",
+        "first",
+        Some(("AL0104", "Syntax error, ';' expected", false)),
+    ),
+    (
+        "End",
+        "table global",
+        "middle",
+        Some(("AL0104", "Syntax error, ';' expected", false)),
+    ),
+    (
+        "End",
+        "table global",
+        "last",
+        Some(("AL0104", "Syntax error, ';' expected", false)),
+    ),
+    ("End", "parameter", "first", None),
+    (
+        "End",
+        "parameter",
+        "middle",
+        Some(("AL0104", "Syntax error, ';' expected", false)),
+    ),
+    (
+        "End",
+        "parameter",
+        "last",
+        Some(("AL0104", "Syntax error, ';' expected", false)),
+    ),
+    ("End", "return", "first", None),
+    (
+        "End",
+        "return",
+        "middle",
+        Some(("AL0519", "'End' is not valid value in this context.", false)),
+    ),
+    (
+        "End",
+        "return",
+        "last",
+        Some(("AL0519", "'End' is not valid value in this context.", false)),
+    ),
+    (
         "Var",
-        "AL0104",
-        "Syntax error, ';' expected",
-        0,
+        "local",
+        "first",
+        Some(("AL0104", "Syntax error, ';' expected", false)),
     ),
     (
-        "codeunit 50101 \"U\" { var O: Option Zero,W,One; procedure P() begin end; }",
         "Var",
-        "AL0104",
-        "Syntax error, ';' expected",
-        0,
+        "local",
+        "middle",
+        Some(("AL0104", "Syntax error, ';' expected", false)),
     ),
     (
-        "codeunit 50101 \"U\" { procedure P(O: Option Zero,W,One) begin end; }",
         "Var",
-        "AL0104",
-        "Syntax error, ';' expected",
-        0,
+        "global",
+        "first",
+        Some(("AL0104", "Syntax error, ';' expected", false)),
     ),
     (
-        "codeunit 50101 \"U\" { procedure P(): Option W,Zero begin end; }",
         "Var",
-        "AL0519",
-        "',' is not valid value in this context.",
-        3,
+        "global",
+        "middle",
+        Some(("AL0104", "Syntax error, ';' expected", false)),
     ),
     (
-        "codeunit 50101 \"U\" { procedure P(): Option Zero,W,One begin end; }",
         "Var",
-        "AL0519",
-        "',' is not valid value in this context.",
-        3,
+        "table global",
+        "first",
+        Some(("AL0104", "Syntax error, ';' expected", false)),
+    ),
+    (
+        "Var",
+        "table global",
+        "middle",
+        Some(("AL0104", "Syntax error, ';' expected", false)),
+    ),
+    ("Var", "parameter", "first", None),
+    (
+        "Var",
+        "parameter",
+        "middle",
+        Some(("AL0104", "Syntax error, ';' expected", false)),
+    ),
+    (
+        "Var",
+        "return",
+        "first",
+        Some(("AL0519", "',' is not valid value in this context.", true)),
+    ),
+    (
+        "Var",
+        "return",
+        "middle",
+        Some(("AL0519", "',' is not valid value in this context.", true)),
     ),
 ];
 
 #[test]
-fn begin_and_var_before_a_comma_give_the_first_diagnostic_alc_gives() {
-    for (shape, word, code, message, after) in BEGIN_VAR_CELLS {
-        let at = shape.find('W').expect("W");
-        let src = format!("{}{word}{}\n", &shape[..at], &shape[at + 1..]);
+fn begin_end_and_var_give_the_first_diagnostic_alc_gives_in_each_cell() {
+    for (word, place, position, want) in CELLS {
+        let shape = PLACES.iter().find(|(p, _)| *p == place).expect("place").1;
+        let members = POSITIONS.iter().find(|(p, _)| *p == position).expect("position").1;
+        let src = format!("{}\n", shape.replacen('M', &members.replacen('W', word, 1), 1));
+        let at = src.find(&members.replacen('W', word, 1)).expect("members") + members.find('W').expect("W");
         let ws = load(&[&src]);
         let got: Vec<_> = check_workspace(&ws)
             .into_iter()
             .map(|d| (d.code.to_string(), d.message, d.offset))
             .collect();
-        assert_eq!(
-            got,
-            [(code.to_string(), message.to_string(), at + after)],
-            "{word} in {shape}"
-        );
+        let want: Vec<_> = want
+            .map(|(code, message, at_comma)| {
+                (
+                    code.to_string(),
+                    message.to_string(),
+                    at + if at_comma { word.len() } else { 0 },
+                )
+            })
+            .into_iter()
+            .collect();
+        assert_eq!(got, want, "{word}, {place}, {position}");
     }
 }
 
-/// `Var` as the first member of a parameter's option type is an internal error of the AL compiler (AL0999 at 1,1); it is
-/// not judged.
+/// An option type inside an array (`array[2] of Option Zero,Key`) is not measured and keeps main's answer: it compiles.
 #[test]
-fn var_first_in_a_parameter_is_not_judged() {
-    let ws = load(&["codeunit 50101 \"U\" { procedure P(O: Option Var,Zero) begin end; }\n"]);
-    assert!(
-        check_workspace(&ws)
-            .iter()
-            .all(|d| d.code != "AL0104" && d.code != "AL0105")
-    );
+fn an_option_inside_an_array_is_not_judged() {
+    for shape in [
+        "codeunit 50101 \"U\" { procedure P() var A: array[2] of Option Zero,W; begin end; }",
+        "codeunit 50101 \"U\" { procedure P(A: array[2] of Option Zero,W,One) begin end; }",
+    ] {
+        for w in ["Key", "End", "Begin", "Var"] {
+            assert!(at_name(shape, w).is_empty(), "{w} in {shape}");
+        }
+    }
 }
 
 #[test]

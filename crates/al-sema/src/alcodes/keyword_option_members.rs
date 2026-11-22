@@ -41,7 +41,9 @@ pub(super) fn check(ws: &Workspace, oi: usize, obj: &ast::Object, types: &[Synta
         let place = match ty.parent().map(|p| p.kind()) {
             Some(SyntaxKind::ReturnSpec) => Place::Return,
             Some(SyntaxKind::Param) => Place::Parameter,
-            _ => Place::Variable,
+            Some(SyntaxKind::VarDecl) => Place::Variable,
+            // An option inside another type (`array[2] of Option Zero,Key`): not measured, not judged.
+            _ => continue,
         };
         for member in keyword_members(members, PARAM_NAME_KEYWORDS) {
             if let Some((at, code, message)) = type_diagnostic(&member, place) {
@@ -114,9 +116,10 @@ struct Member {
 }
 
 /// The first diagnostic the AL compilers give for `member` of an option type written at `place`, as (offset, code,
-/// message), or `None` where this check does not judge it. `begin` and `var` are measured only before a comma (as the last
-/// member they stop this parser already); `var` as the first member of a parameter's type is an internal error of the AL
-/// compiler (AL0999 at the start of the file) and is not judged.
+/// message), or `None` where this check does not judge it. Each cell is a must-not-compile case of corpus PR 1502
+/// (al-runner issue 8657; the PR body lists them by place and position). `begin` and `var` as the last member stop this
+/// parser already. The AL compiler fails with an internal error (AL0999 at the start of the file) for `var` as the first
+/// member of a parameter's type and `end` as the first member of a parameter's or a return type's, which are not judged.
 fn type_diagnostic(member: &Member, place: Place) -> Option<(usize, &'static str, String)> {
     let word = &member.word;
     let lower = word.text().to_ascii_lowercase();
@@ -128,7 +131,7 @@ fn type_diagnostic(member: &Member, place: Place) -> Option<(usize, &'static str
         ("begin" | "var", _) if comma.is_none() => return None,
         ("begin", Place::Parameter) => (at_word, expected(")")),
         ("begin", Place::Return) => (at_comma?, expected("end")),
-        ("var", Place::Parameter) if member.first => return None,
+        ("var", Place::Parameter) | ("end", Place::Parameter | Place::Return) if member.first => return None,
         ("var", Place::Return) => (
             at_comma?,
             ("AL0519", "',' is not valid value in this context.".to_string()),
