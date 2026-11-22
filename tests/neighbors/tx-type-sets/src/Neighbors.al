@@ -339,6 +339,32 @@ codeunit 50021 "NB TS First Test Rollback"
     end;
 }
 
+codeunit 50028 "NB TS Leaves Browse"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    procedure A_Nothing()
+    begin
+    end;
+
+    // The test ends at Browse: the test runner's steps after it still write its result.
+    [Test]
+    procedure B_EndsAtBrowse()
+    begin
+        Commit();
+        CurrentTransactionType(TransactionType::Browse);
+    end;
+
+    [Test]
+    procedure C_StartsAfterIt()
+    begin
+        Commit();
+        CurrentTransactionType(TransactionType::UpdateNoLocks);
+    end;
+}
+
 codeunit 50022 "NB TS Rename Snapshot"
 {
     Subtype = Test;

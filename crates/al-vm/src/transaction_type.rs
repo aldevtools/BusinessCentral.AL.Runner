@@ -171,6 +171,17 @@ impl Session {
         if !matches!(self.tx.transaction_type, SNAPSHOT | BROWSE | REPORT) {
             return Ok(());
         }
+        // The test runner's own steps around a test method write its results whatever type the test left: on BC the test
+        // methods after one that failed at Snapshot reported their results as usual (the measurement runs of corpus pull
+        // request 1520). Only a write under a test method is measured.
+        if !self
+            .frames
+            .iter()
+            .zip(&self.call_stack)
+            .any(|(&o, f)| self.is_test_method(o, f.routine))
+        {
+            return Ok(());
+        }
         let ty = self.transaction_type_seen()?;
         let plain = self.report.report_running.is_empty()
             && self.tx.tx_world == 0
