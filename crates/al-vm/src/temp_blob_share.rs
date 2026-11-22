@@ -308,7 +308,10 @@ impl Session {
     /// it as the receiver (`measured_write`, [`measured_detached_write`]), while the record is on the key it had at the open.
     /// Everything else refuses: the record moved to another key, or a row under another key holds the buffer, since the open.
     fn check_temp_out_stream(&mut self, measured_write: bool, b: &BlobRef, open: &OutOpen) -> Result<(), Signal> {
-        // Before the table lookup: the open looked the table up for this same record ([`Session::temp_blob_share_guard`]).
+        // Before the table lookup, with main's error order kept: `self.table(&rc)?` fails only on the record's table (no schema, or
+        // an unsupported table) and the engine, both fixed for the life of the record (`Session::table`), and the open of this stream
+        // already ran `self.table(&rc)?` for this same record before it kept an `OutOpen` ([`Session::temp_blob_share_guard`]). A
+        // record whose lookup fails never has a stream here.
         if own_holders_only(b, open) {
             return Ok(());
         }
