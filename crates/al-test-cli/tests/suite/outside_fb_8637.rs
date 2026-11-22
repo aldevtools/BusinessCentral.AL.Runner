@@ -281,11 +281,17 @@ fn issue_8677_repro() {
 /// Neighbors of al-runner issue 8677 past what the cells measure (the neighbor app's header). BC answers each from the cache;
 /// the runner keeps main's answer, the values as the rows are, with no flag. A `field(filter())` of a stored field of the row
 /// set to A and then to B in one worker run computes both (the key holds the field's value, or B would answer A's sum).
+/// SetLoadFields, Get and CalcFields answer the first read as BC does (the cell :7255 measures it), flagged.
 #[test]
 fn issue_8677_neighbors() {
     let o = outcomes(CALC_NEIGHBORS, "BQN Tests");
-    assert_eq!(o.len(), 8);
+    assert_eq!(o.len(), 9);
     for (name, r, marks) in &o {
+        if name.starts_with("LoadFieldsGetCalcFields") {
+            assert_eq!(*r, Outcome::Pass, "{name}");
+            assert!(marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
+            continue;
+        }
         assert!(!marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
         assert!(matches!(r, Outcome::Fail(_)), "{name}: {r:?}");
         if name.starts_with("FieldFilterOfAStoredField") {
@@ -338,5 +344,19 @@ fn issue_8637_heavy() {
             assert_eq!(*r, Outcome::Pass, "{name}");
             assert!(marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
         }
+    }
+}
+
+/// The cells of BQ Tests 13 (corpus PR 1495, BgTaskQueryCache.al:7106-7322, reviews of al-runner PRs 8490 and 8682), each
+/// green 3 of 3 on BC 29.1: a worker's CalcFields after SetLoadFields and Get answers its first answer (:7255); with every
+/// read in one worker codeunit the Get after SelectLatestVersion reads the table and the next Get answers it (:7282); a
+/// table with a MediaSet field answers the first read (:7300). All flagged.
+#[test]
+fn issue_8677_bq13_cells() {
+    let o = outcomes(PROBE, "BQ Tests 13");
+    assert_eq!(o.len(), 3);
+    for (name, r, marks) in &o {
+        assert_eq!(*r, Outcome::Pass, "{name}");
+        assert!(marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
     }
 }

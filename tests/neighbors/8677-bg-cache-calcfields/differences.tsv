@@ -5,3 +5,5 @@ Repro Calc Worker Tests::WorkerCalcFieldsAgain_AfterAnUncommittedInsert_AnswersT
 # CalcSums with a range, a count whose field() is a sum FlowField of the row, a temporary record, a field(filter()) of a
 # stored field of the row set to A and then to B): BC answers each from the
 # cache; past what the cells measure, the head keeps main's answer, so they fail on both alike.
+# SetLoadFields, Get and CalcFields (review of PR 8682): BC answers the first read, as the cell :7255 measures; main computes it again.
+BQN Tests::LoadFieldsGetCalcFields_LinesAfterFirstRead	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:7255)

@@ -3,7 +3,9 @@
 // without a commit. Each test asserts BC's answer (a local BC 29.1 container) as 'first / again'. They are past what the
 // cells measure: a negated sum, a CalcFields through a RecordRef's FieldRef, a FlowFilter range, a filter on a field that is
 // no FlowFilter, a CalcSums with a range, a count whose field() is a sum FlowField of the row, a temporary record, and a sum
-// whose field(filter()) reads a stored field of the row, set to A and then to B in one worker run.
+// whose field(filter()) reads a stored field of the row, set to A and then to B in one worker run. From the review of al-runner
+// PR 8682: SetLoadFields, Get and CalcFields (the cell BgCalcFields_AfterSetLoadFields_FirstAnswer, :7255, measures it on
+// table 97597; BC answers the first read).
 
 table 50120 "BQN Parent"
 {
@@ -174,6 +176,13 @@ codeunit 50123 "BQN Reader"
                     Parent.CalcFields("Kind Text Sum");
                     exit(Seen + ',' + D(Parent."Kind Text Sum"));
                 end;
+            'loadfields':
+                begin
+                    Parent.SetLoadFields(Description);
+                    Parent.Get(Group);
+                    Parent.CalcFields("Line Count");
+                    exit(Format(Parent."Line Count"));
+                end;
             'temporary':
                 begin
                     Parent.Get(Group);
@@ -289,5 +298,11 @@ codeunit 50124 "BQN Tests"
     procedure FieldFilterOfAStoredField_LinesAfterFirstRead()
     begin
         Assert.AreEqual('5,0 / 5,0', Reads('fieldfilter'), 'field(filter()) of Kind Text, A then B');
+    end;
+
+    [Test]
+    procedure LoadFieldsGetCalcFields_LinesAfterFirstRead()
+    begin
+        Assert.AreEqual('1 / 1', Reads('loadfields'), 'SetLoadFields, Get, CalcFields');
     end;
 }

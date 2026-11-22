@@ -898,8 +898,8 @@ impl Session {
     }
 
     /// What AL code's `CalcFields` of `positions` on `rec`, which calculated `fresh`, answers: through the cache when
-    /// `calc_key` keys it. A worker's repeated call answers its first answer (:6147-:6189, :6219, :6249, :6255); the test
-    /// session's call fills the entry before it writes (:6237, :6243).
+    /// `calc_key` keys it. A worker's repeated call answers its first answer (:6147-:6189, :6219, :6249, :6255), also after
+    /// SetLoadFields and Get (:7255); the test session's call fills the entry before it writes (:6237, :6243).
     pub(crate) fn cached_calc_fields(
         &mut self,
         rec: &Rec,

@@ -124,6 +124,9 @@ BQ Tests 10::BgCalcFields_SumAtAFlowFieldOfTheRow_FirstAnswer	ASSUMED background
 BQ Tests 10::BgCalcSums_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:6273)
 BQ Tests 10::BgCalcSums_TwoFields_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:6279)
 BQ Tests 10::BgCalcSums_FilterOutsideTheKey_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:6285)
+# BQ Tests 13 (corpus PR 1495 at 24d48f7a): a worker's CalcFields after SetLoadFields and Get answers its first answer; main
+# computes it again. The cells of SelectLatestVersion in one worker codeunit and of a MediaSet table pass on both.
+BQ Tests 13::BgCalcFields_AfterSetLoadFields_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:7255)
 # Neighbors (BQ Gate Tests: 100001 filters on a table of 503 fields, a FlowField filter next to the key set to its value in
 # three filter groups, the FlowField filters @k, <>K* and K*|X, a sum whose field() is a FlowField of the row after an
 # uncommitted note): BC answers them from the cache but @k, which reads the rows as they are; past what the cells measure,
