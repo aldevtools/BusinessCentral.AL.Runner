@@ -2,7 +2,7 @@
 //! reader, each read as the probe reads it, and their neighbors. `~` is a line feed, `X` each measured character in turn
 //! (`EachChar`, :195-205).
 
-use super::super::super::{JsonNode, new_handle, recv, tagged, write};
+use super::super::super::{recv, tagged, write};
 use super::super::read_from_yaml;
 use crate::assumptions::{Assumption, clear_hits, take_hits};
 use crate::native::tests::TestCtx;

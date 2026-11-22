@@ -245,15 +245,12 @@ pub(super) fn read_from_yaml(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
 /// `read-from-yaml-non-ascii-text`.
 fn read_measured(text: &str) -> Result<Yaml, Signal> {
     let read = measured::document(text);
-    match &read {
-        Ok(m) => {
-            assume(Assumption::ReadFromYamlBlankLinesAndBlocks);
-            if m.utf8 {
-                assume(Assumption::ReadFromYamlNonAsciiText);
-            }
+    // Its YAML error is marked only where `read_from_yaml` answers it.
+    if let Ok(m) = &read {
+        assume(Assumption::ReadFromYamlBlankLinesAndBlocks);
+        if m.utf8 {
+            assume(Assumption::ReadFromYamlNonAsciiText);
         }
-        // Its YAML error is marked only where `read_from_yaml` answers it.
-        Err(_) => {}
     }
     read.map(|m| m.tree)
 }
