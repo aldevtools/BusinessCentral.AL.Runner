@@ -72,8 +72,7 @@ pub(crate) const ITEM_VIEW_GROUP: i32 = 5;
 enum Entry {
     /// `Run` and `RunModal`: the request page opens unless the caller or the report switches it off.
     Run,
-    /// `Execute` never shows the request page
-    /// (record/TestTxModelReportExec.al:195-210, Test09).
+    /// `Execute` never shows the request page (record/TestTxModelReportExec.al:195-210, Test09).
     Execute,
     /// `Report.Print(Id, '')` of a processing-only report with UseSystemPrinter, run as an Execute (reports/
     /// Y13ReportSystemPrinter.al:357-358). Its triggers' `UseRequestPage()` is not pinned and keeps the instance's answer
@@ -1428,6 +1427,7 @@ impl Session {
             answers_getter: entry != Entry::Print,
             depth: self.depth,
             page_triggers: self.pages.trigger_kinds.len(),
+            update_world: enters && schema.report().transaction_type.as_deref() == Some("update"),
         });
         let ran = self.report_in_world(enters, |s| s.report_body(inst, schema, shows_page, None, record_ref));
         self.report.report_running.pop();

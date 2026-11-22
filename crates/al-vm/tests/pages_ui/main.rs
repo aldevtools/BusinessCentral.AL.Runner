@@ -132,6 +132,7 @@ mod qj_part_propagation;
 mod ql_part_counts;
 mod qz_setvalue_shapes;
 mod read_only_repeater_new_line;
+mod rec_count_control_source;
 mod record_trigger_answer;
 mod refill_in_key_one_or_many;
 mod reopen_same_variable;
