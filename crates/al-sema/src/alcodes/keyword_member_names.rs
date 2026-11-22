@@ -6,8 +6,8 @@
 //! reproduced. A quoted member compiles, and so do the other words (`Local`, `Key`, `Area`, `Value`). A namespace segment
 //! that is such a word compiles in `namespace`, `using` and a variable's type, which are not code. An expression property or
 //! a control's source expression (`Visible = Rec.If > 0;`) is rejected the same way by the AL compilers but is not judged
-//! here: this checker sees it only as a synthetic routine. `::` before such a word is `check/infer.rs`
-//! (`al_unquoted_in_after_scope`, the word `in`).
+//! here: this checker sees it only as a synthetic routine (al-runner issue 8650). `::` before such a word is
+//! `check/infer.rs` (`al_unquoted_in_after_scope`, the word `in`); the other words after `::` are al-runner issue 8649.
 
 use super::{IDENTIFIER_EXPECTED, push};
 use crate::workspace::{Diagnostic, Workspace};
