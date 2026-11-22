@@ -22,3 +22,7 @@ YV Yaml Utf8 Tests::Punct_LeadingHyphenInListItem	ASSUMED read-from-yaml-blank-l
 YV Yaml Utf8 Tests::Punct_SpaceHashCommentInNestedValue	ASSUMED read-from-yaml-blank-lines-and-blocks,read-from-yaml-non-ascii-text (corpus PR 1515)
 YV Yaml Utf8 Tests::Punct_SymbolsInNestedListItem	ASSUMED read-from-yaml-blank-lines-and-blocks,read-from-yaml-non-ascii-text (corpus PR 1515)
 YV Yaml Utf8 Tests::SingleQuotedValue	ASSUMED read-from-yaml-blank-lines-and-blocks,read-from-yaml-non-ascii-text (corpus PR 1515)
+YV Yaml Utf8 Tests::Matrix_CommaInListItemMappingValue	ASSUMED read-from-yaml-blank-lines-and-blocks,read-from-yaml-non-ascii-text (corpus PR 1519)
+YV Yaml Utf8 Tests::Matrix_HyphenFirstInFolded	ASSUMED read-from-yaml-blank-lines-and-blocks,read-from-yaml-non-ascii-text (corpus PR 1519)
+YV Yaml Utf8 Tests::Matrix_PunctuationInLiteral	ASSUMED read-from-yaml-blank-lines-and-blocks,read-from-yaml-non-ascii-text (corpus PR 1519)
+YV Yaml Utf8 Tests::Matrix_QuotedColonInNestedValueUsedResult	ASSUMED read-from-yaml-blank-lines-and-blocks,read-from-yaml-non-ascii-text (corpus PR 1519)
