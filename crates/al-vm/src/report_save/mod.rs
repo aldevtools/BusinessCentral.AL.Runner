@@ -13,6 +13,7 @@
 mod cell;
 mod cells;
 mod cells_decl;
+mod cells_items;
 mod errors;
 mod events;
 mod fact_report;

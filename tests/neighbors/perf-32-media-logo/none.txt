@@ -1,0 +1,1 @@
+Speed only, no answer changes: a Media read by id now matches the id before it builds a logo, so only the matching app's Blob is built; the row found, the null id finding nothing and the refusal of an unserved id are as on main (app ids are distinct in a run and the logo id is a function of the app id alone; served_logo is pure).
