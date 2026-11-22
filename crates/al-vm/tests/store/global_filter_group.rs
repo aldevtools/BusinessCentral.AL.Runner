@@ -102,6 +102,13 @@ codeunit 70951 C
         R.FilterGroup(0);
     end;
 
+    procedure RefNumberAndName(): Text
+    var RR: RecordRef;
+    begin
+        RR.Open(70950);
+        exit(Format(RR.Number()) + ' ' + RR.Name());
+    end;
+
     procedure CountTemporary(): Integer
     var R: Record "LT Glob Row" temporary;
     begin
@@ -420,4 +427,19 @@ fn a_setter_and_reader_kind_pair_the_probe_did_not_measure_keeps_main_s_refusal(
 #[test]
 fn next_on_a_reader_whose_find_set_ran_before_the_filter_keeps_main_s_refusal() {
     refused_in_other("SetInsideFindSetLoop");
+}
+
+// aldevtools pull request 7874 let a RecordRef answer Number, Name and other metadata while another record's group 1 filter
+// stands. No corpus case measures a RecordRef call on such a table other than Count and GetFilters
+// (record/filters/FilterGroupOtherVariable.al:859, :896-898), so every other call keeps the refusal until a probe does.
+#[test]
+fn a_record_ref_metadata_call_keeps_main_s_refusal_while_the_global_filter_stands() {
+    let mut b = Built::from_source(SRC);
+    b.run_in("C", "Seed").unwrap();
+    b.run_in("C", "SetGlobal").unwrap();
+    let why = unsupported(b.run_in("C", "RefNumberAndName"));
+    assert!(
+        why.contains("RecordRef.Number") && why.contains("filter group 1"),
+        "{why}"
+    );
 }
