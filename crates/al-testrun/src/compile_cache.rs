@@ -126,15 +126,36 @@ impl Layers {
 /// builtins catalog. It cannot miss a crate, which a hash of source files can.
 pub fn runtime_build() -> [u8; 32] {
     static HASH: OnceLock<[u8; 32]> = OnceLock::new();
-    *HASH.get_or_init(|| {
-        let bytes = std::env::current_exe().and_then(std::fs::read);
-        match bytes {
-            Ok(b) => hash_build_bytes(&b),
-            // Without the executable the key cannot say which compiler made an entry: a hash of
-            // the time would only ever miss. Use a value no file can match.
-            Err(e) => Sha256::digest(format!("no executable: {e}").as_bytes()).into(),
-        }
-    })
+    *HASH.get_or_init(|| build_identity(running_executable(), process_nonce()))
+}
+
+/// The bytes of the running executable. On Linux through `/proc/self/exe`, which opens the file the process runs from even
+/// when its path was deleted or replaced since it started (an upgrade, a rebuild); elsewhere the path it was started from.
+fn running_executable() -> std::io::Result<Vec<u8>> {
+    #[cfg(target_os = "linux")]
+    if let Ok(bytes) = std::fs::read("/proc/self/exe") {
+        return Ok(bytes);
+    }
+    std::env::current_exe().and_then(std::fs::read)
+}
+
+/// A value of this process alone ([`build_identity`] without the executable): the time and the process id.
+fn process_nonce() -> u128 {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    now ^ (u128::from(std::process::id()) << 96)
+}
+
+/// The build hash of `bytes`, the running executable. Without it the key cannot say which build made an entry, and one
+/// value for every such build would let two builds read each other's entries (a program another build lowered): the
+/// value is then this process's own (`nonce`), so its entries are never read by another process. A miss, never a wrong
+/// program.
+fn build_identity(bytes: std::io::Result<Vec<u8>>, nonce: u128) -> [u8; 32] {
+    match bytes {
+        Ok(b) => hash_build_bytes(&b),
+        Err(e) => Sha256::digest(format!("no executable ({e}), process {nonce:032x}").as_bytes()).into(),
+    }
 }
 
 /// The chunk size of [`hash_build_bytes`].
@@ -832,5 +853,39 @@ pub fn write_index(dir: &Path, key: &Key, index: &[Vec<al_sema::FileIndex>]) {
         let _ = std::fs::remove_file(&tmp);
     } else {
         prune(dir, &[path]);
+    }
+}
+
+#[cfg(test)]
+mod build_identity_tests {
+    use super::*;
+
+    fn unreadable() -> std::io::Result<Vec<u8>> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "No such file or directory",
+        ))
+    }
+
+    // Two builds that cannot read their executable never share a value: each process has its own, so neither reads
+    // what the other wrote.
+    #[test]
+    fn without_the_executable_two_processes_never_share_a_build_hash() {
+        assert_ne!(build_identity(unreadable(), 1), build_identity(unreadable(), 2));
+    }
+
+    #[test]
+    fn with_the_executable_the_build_hash_is_the_hash_of_its_bytes() {
+        let bytes = b"an executable".to_vec();
+        assert_eq!(build_identity(Ok(bytes.clone()), 1), hash_build_bytes(&bytes));
+        assert_eq!(build_identity(Ok(bytes.clone()), 2), hash_build_bytes(&bytes));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_running_executable_is_read_through_the_process_itself() {
+        let bytes = running_executable().expect("the test binary reads itself");
+        let path = std::fs::read(std::env::current_exe().unwrap()).unwrap();
+        assert_eq!(bytes, path);
     }
 }

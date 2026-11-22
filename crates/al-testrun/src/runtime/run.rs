@@ -1087,6 +1087,7 @@ fn run_codeunit_inner(
                 al_builtins::assumptions::take_hits();
                 continue;
             }
+            session.test_method_ended();
             // The test failed, taken before the checks below report a failure as not trusted or not run: its transaction was
             // rolled back either way, and the end of the test puts back what that rollback covers (isolation::after_test).
             let failed = matches!(outcome, Outcome::Fail(_));
@@ -1166,23 +1167,8 @@ fn run_codeunit_inner(
                     } else if u.ended == Ended::Failed && !drew {
                         return None;
                     }
-                    let facts = u.facts.get_or_insert_with(|| {
-                        u.rest
-                            .as_ref()
-                            .and_then(|rest| {
-                                remainder_reach_facts(
-                                    &engine.events,
-                                    lowered,
-                                    index,
-                                    object,
-                                    u.routine,
-                                    rest.from,
-                                    &rest.handlers,
-                                    &rest.written,
-                                )
-                            })
-                            .unwrap_or_else(|| unfinished_reach_facts(&engine.events, lowered, index, object, u.routine))
-                    });
+                    u.work_out_facts(&engine.events, lowered, index, object);
+                    let facts = u.facts.as_ref().expect("worked out");
                     // ADR-061: each test restarts `Random` from the run seed, so an earlier test's draws matter only when
                     // the sequence goes on past that restart, after a `Randomize(n)`; an earlier test that can call
                     // `Randomize(n)` may have left that state, so every draw counts.
@@ -1233,6 +1219,7 @@ fn run_codeunit_inner(
                 stopped.get_or_insert_with(|| stopped_after_failure(stop, obj.id.unwrap_or(0), &name));
             }
             note_unfinished(scratch, ended, runner_refused.is_some(), test_no, &name);
+            let ended_from = unfinished.len();
             if let (Some(ended), Outcome::NotRun(why) | Outcome::Fail(why)) = (ended, &outcome) {
                 unfinished.push(Unfinished {
                     routine: r,
@@ -1250,6 +1237,14 @@ fn run_codeunit_inner(
             if let Some(why) = runner_refused {
                 unfinished.push(Unfinished::runner_step(r, &routine.name, &why));
             }
+            type_left_unknown(
+                session,
+                &mut unfinished[ended_from..],
+                engine,
+                lowered,
+                &mut reach_index,
+                object,
+            );
             // A Commit() inside a test under Function isolation is rolled back with the rest of the test: under BC's
             // TestRunnerHub with RequiredTestIsolation = Function (QuCommitIsolation.al:466-488 QU_F04_NextTestSees, :530-551
             // QU_F09_LaterTestSeesCommittedRows), and under a runner codeunit's TestIsolation = Function, the part before the
@@ -1947,6 +1942,31 @@ impl Watchdog {
     }
 }
 
+/// Tests that did not run to their end here and may have on BC (refused before or while they ran, a failure not trusted, a
+/// runner step around them) may have set the transaction type the next test method starts with
+/// (session-system/TxTypeNextTestMethod.al): when the reach of one can set it, or is not known, the type is not known
+/// (`Session::transaction_type_unknown`). A trusted failure stops on BC where it stops here, with the type it had.
+fn type_left_unknown(
+    session: &mut Session,
+    ended: &mut [Unfinished],
+    engine: &Arc<Engine>,
+    lowered: &Lowered,
+    reach_index: &mut Option<Arc<ReachIndex>>,
+    object: usize,
+) {
+    for u in ended.iter_mut().filter(|u| u.ended != Ended::Failed) {
+        if !session.transaction_type_known() {
+            return;
+        }
+        let index = reach_index.get_or_insert_with(|| engine.derived(|| ReachIndex::new(&engine.events, lowered)));
+        u.work_out_facts(&engine.events, lowered, index, object);
+        let facts = u.facts.as_ref().expect("worked out");
+        if facts.unknown.is_some() || facts.state_writes & written::state::TRANSACTION_TYPE != 0 {
+            session.transaction_type_unknown();
+        }
+    }
+}
+
 /// Notes test `test_no` in `Scratch::unfinished_at` when it started and did not run to its end, or a runner step around
 /// it did not (ADR-066 amendment 7, option 1).
 fn note_unfinished(scratch: &mut Scratch, ended: Option<Ended>, runner_refused: bool, test_no: u32, name: &str) {
@@ -1991,6 +2011,34 @@ struct LeftBindings {
 }
 
 impl Unfinished {
+    /// Works out [`Self::facts`] once: for a test a statement of its own body refused, what it did not run
+    /// ([`remainder_reach_facts`]), else its whole reach.
+    fn work_out_facts(
+        &mut self,
+        events: &al_vm::events::Registry,
+        lowered: &Lowered,
+        index: &ReachIndex,
+        object: usize,
+    ) {
+        let (rest, routine) = (&self.rest, self.routine);
+        self.facts.get_or_insert_with(|| {
+            rest.as_ref()
+                .and_then(|rest| {
+                    remainder_reach_facts(
+                        events,
+                        lowered,
+                        index,
+                        object,
+                        routine,
+                        rest.from,
+                        &rest.handlers,
+                        &rest.written,
+                    )
+                })
+                .unwrap_or_else(|| unfinished_reach_facts(events, lowered, index, object, routine))
+        });
+    }
+
     /// A runner step around test `routine` (`name`) that did not run to its end may have left anything (decision
     /// 2026-10-19: a refused construct in an earlier test's reach counts as "may change anything").
     fn runner_step(routine: usize, name: &str, why: &str) -> Unfinished {

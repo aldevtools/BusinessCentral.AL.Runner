@@ -167,6 +167,48 @@ pub fn outcomes_in_app(app: AppSource, codeunit: &str) -> Vec<(String, al_testru
     outcomes_in_set(app, codeunit, |_| {})
 }
 
+/// [`outcomes_in`] with the assumptions each test ran through (`al_builtins::assumptions`), under the default isolation
+/// of Microsoft's test runner.
+#[cfg(feature = "runner")]
+pub fn outcomes_and_marks_in(
+    src: &str,
+    codeunit: &str,
+) -> Vec<(String, al_testrun::Outcome, Vec<al_builtins::assumptions::Assumption>)> {
+    let l = compile_apps(vec![app(src)]);
+    let engine = Engine::new(l.program.clone(), blocked(&l));
+    let oi = l
+        .program
+        .objects
+        .iter()
+        .position(|o| o.name == codeunit)
+        .unwrap_or_else(|| panic!("no object named {codeunit}"));
+    let mut hits = Vec::new();
+    let outcomes = al_testrun::runtime::run_codeunit_full(
+        &engine,
+        &l,
+        oi,
+        None,
+        al_testrun::isolation::TestIsolation::Codeunit,
+        None,
+        &mut Vec::new(),
+        &mut Vec::new(),
+        &mut hits,
+        None,
+        al_testrun::host::RunClock::begin(),
+    );
+    outcomes
+        .into_iter()
+        .map(|(n, o)| {
+            let marks = hits
+                .iter()
+                .find(|(h, _)| *h == n)
+                .map(|(_, m)| m.clone())
+                .unwrap_or_default();
+            (n, o, marks)
+        })
+        .collect()
+}
+
 /// [`outcomes_in`] on an engine `set` sets up as a run would (its emit version, say) before the tests run.
 #[cfg(feature = "runner")]
 pub fn outcomes_in_with(
