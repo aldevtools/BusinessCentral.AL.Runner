@@ -111,3 +111,36 @@ fn neighbors_keep_main_or_refuse() {
         }
     }
 }
+
+/// AssertEquals and Editable() on the Name control pass only where the neighbor measured them: after the cell's two SetValues,
+/// before First. Another read-only call there (Visible() on Name, the page's Caption), AssertEquals on another control, and
+/// AssertEquals before the first SetValue keep main's path or refuse.
+#[test]
+fn read_only_calls_pass_only_where_measured() {
+    const AT: &str = "                    Lines.Name.AssertEquals('C');\n";
+    let outcome = |from: &str, to: &str| {
+        assert!(NEIGHBORS.contains(from));
+        let o = outcomes(
+            &format!("{PROBE}\n{}", NEIGHBORS.replacen(from, to, 1)),
+            "LT RFU Neighbor Tests",
+        );
+        o.into_iter()
+            .find(|(n, ..)| n == "Lines_ReadOnlyCallsAfterSetValues")
+            .unwrap()
+    };
+    for to in [
+        "                    if Lines.Name.Visible() then;\n",
+        "                    if Lines.Caption() = '' then;\n",
+        "                    Lines.Value.AssertEquals('');\n",
+    ] {
+        let (_, r, _) = outcome(AT, to);
+        assert!(
+            matches!(&r, Outcome::NotRun(why) if why.starts_with(UNMEASURED)),
+            "{to}: {r:?}"
+        );
+    }
+    let open = "        Lines.Last();\n        Note('open', Log.Take());\n        Lines.Name.SetValue(Lines.Name.Value() + '2');\n";
+    let early = "        Lines.Last();\n        Lines.Name.AssertEquals('C');\n        Note('open', Log.Take());\n        Lines.Name.SetValue(Lines.Name.Value() + '2');\n";
+    let (_, r, marks) = outcome(open, early);
+    assert!(marks.is_empty() && r != Outcome::Pass, "{r:?} {marks:?}");
+}

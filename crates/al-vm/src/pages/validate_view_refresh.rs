@@ -14,7 +14,7 @@
 
 use super::pinned_body::{Callees, Names, callees_with_calls_are, page_is, table_is};
 use super::pinned_shape::TestCall;
-use super::validate_view_cells::{CellPage, Change, Ctl, Step, Tail, Upd};
+use super::validate_view_cells::{CellPage, Change, Ctl, READ_ONLY_AT, Step, Tail, Upd};
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::filter::{FieldFilter, FilterExpr};
@@ -88,18 +88,23 @@ impl Session {
         })
     }
 
-    /// The test calls `call` on `st` (`test_page_op_held`, `test_control_op_held`). A call that only reads (a value, the filter,
-    /// a property: `read_only_call`) passes as the cells' `Value()` reads do. On the cells' page any other call joins the steps
-    /// (`validate_view_step`); a call the cells do not make turns the rule off, or refuses once the rule ran.
-    pub(super) fn validate_view_call(&mut self, st: &St, call: Option<TestCall>) -> Result<(), Signal> {
+    /// The test calls `call` on `st`, on `target` when it is a control's call (`test_page_op_held`, `test_control_op_held`).
+    /// A control's `Value()` read and the page's filter pass, as do AssertEquals and Editable() on the Name control where they
+    /// were measured (`validate_view_measured_read`). On the cells' page any other call joins the steps (`validate_view_step`);
+    /// a call the cells do not make turns the rule off, or refuses once the rule ran.
+    pub(super) fn validate_view_call(
+        &mut self,
+        st: &St,
+        call: Option<TestCall>,
+        target: Option<&ControlTarget>,
+    ) -> Result<(), Signal> {
         let Some(call) = call else {
             return Ok(());
         };
-        let reads = match call {
-            TestCall::Read | TestCall::Page(PageMethod::Filter) | TestCall::Other(PageMethod::GetFilter) => true,
-            TestCall::Page(m) | TestCall::Other(m) => Self::read_only_call(m),
-            TestCall::Write(_) => false,
-        };
+        let reads = matches!(
+            call,
+            TestCall::Read | TestCall::Page(PageMethod::Filter) | TestCall::Other(PageMethod::GetFilter)
+        ) || self.validate_view_measured_read(st, call, target);
         if reads || st.borrow().validate_view.off {
             return Ok(());
         }
@@ -114,6 +119,23 @@ impl Session {
             return unsupported(UNMEASURED);
         }
         Ok(())
+    }
+
+    /// AssertEquals or Editable() on the Name control at `READ_ONLY_AT`, the only position they were measured in. Elsewhere,
+    /// and every other read-only call (Caption, Enabled, Visible, ...), keeps main's path or refuses (not measured).
+    fn validate_view_measured_read(&self, st: &St, call: TestCall, target: Option<&ControlTarget>) -> bool {
+        let (Some(ControlTarget::Control(idx)), TestCall::Other(PageMethod::AssertEquals | PageMethod::Editable)) =
+            (target, call)
+        else {
+            return false;
+        };
+        let (page, steps) = READ_ONLY_AT;
+        let at = {
+            let s = st.borrow();
+            let v = &s.validate_view;
+            !v.off && v.page == Some(page) && v.steps == steps && v.pending.is_none() && !v.walked
+        };
+        at && self.validate_view_ctl(st, *idx) == Some(Ctl::Name)
     }
 
     /// `validate_view_call` on the taken state: `false` when the call is not one the cells make. A SetValue or the action reads

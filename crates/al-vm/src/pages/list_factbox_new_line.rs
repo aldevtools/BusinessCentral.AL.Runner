@@ -375,12 +375,30 @@ impl Session {
         }
     }
 
-    /// Whether `method` with `args` on a host or one of its controls only reads: `Value()` without an argument, or a
-    /// `read_only_call`. Such a call reads nothing of a part.
+    /// Whether `method` with `args` on a host or one of its controls only reads: a value (`Value()` without an argument, the
+    /// `As*` methods, `GetField`, `AssertEquals`) or a property (Caption, Editable, Enabled, Visible, HideValue, ShowMandatory,
+    /// the options of a control, the validation errors, IsExpanded). Such a call reads nothing of a part.
     fn host_read_call(method: PageOp, args: &[Value]) -> bool {
         match method.method() {
             PageMethod::Value => args.is_empty(),
-            m => Self::read_only_call(m),
+            m => {
+                Self::field_read(m)
+                    || matches!(
+                        m,
+                        PageMethod::AssertEquals
+                            | PageMethod::Caption
+                            | PageMethod::Editable
+                            | PageMethod::Enabled
+                            | PageMethod::Visible
+                            | PageMethod::HideValue
+                            | PageMethod::ShowMandatory
+                            | PageMethod::OptionCount
+                            | PageMethod::GetOption
+                            | PageMethod::ValidationErrorCount
+                            | PageMethod::GetValidationError
+                            | PageMethod::IsExpanded
+                    )
+            }
         }
     }
 

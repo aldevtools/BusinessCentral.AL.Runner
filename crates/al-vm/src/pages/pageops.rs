@@ -332,29 +332,6 @@ impl Session {
         )
     }
 
-    /// A test call other than `Value` that only reads, whatever its arguments: a value (`field_read`, `AssertEquals`) or a
-    /// property (Caption, Editable, Enabled, Visible, HideValue, ShowMandatory, the options of a control, the validation
-    /// errors, IsExpanded). `Value` reads without an argument and writes with one.
-    pub(super) fn read_only_call(name: PageMethod) -> bool {
-        name != PageMethod::Value
-            && (Self::field_read(name)
-                || matches!(
-                    name,
-                    PageMethod::AssertEquals
-                        | PageMethod::Caption
-                        | PageMethod::Editable
-                        | PageMethod::Enabled
-                        | PageMethod::Visible
-                        | PageMethod::HideValue
-                        | PageMethod::ShowMandatory
-                        | PageMethod::OptionCount
-                        | PageMethod::GetOption
-                        | PageMethod::ValidationErrorCount
-                        | PageMethod::GetValidationError
-                        | PageMethod::IsExpanded
-                ))
-    }
-
     /// Only Close, OK and Cancel are pinned on a request page after New() (`request_new_blank_row`), and only Close and a part's
     /// Visible() and Editable() after a swallowed insert of a new host (`refuse_after_swallowed_part_insert`).
     fn refuse_after_request_new(&self, st: &St, name: PageMethod) -> Result<PageMethod, Signal> {
