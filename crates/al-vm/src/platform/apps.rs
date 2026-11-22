@@ -417,8 +417,8 @@ mod tests {
         assert!(matches!(served_logo(&app(vec![1, 2, 3]), None), Logo::Unknown(_)));
     }
 
-    /// A read of Media by one app's logo id writes that app's logo alone, not the logo of every app (PERF-32): of three
-    /// apps with PNG logos, the id of the second finds its row, a 2 x 3 picture, and one Blob is written.
+    /// A read of Media by one app's logo id writes that app's logo alone, not the logo of every app (issue 8608): of
+    /// three apps with PNG logos, the id of the second finds its row, a 2 x 3 picture, and one Blob is written.
     #[test]
     fn a_media_read_by_id_builds_only_that_apps_logo() {
         let png = |w: u8, h: u8| {
