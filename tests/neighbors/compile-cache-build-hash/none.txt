@@ -1,0 +1,1 @@
+Cache key only, no answer changes: an executable that can be read hashes the same bytes as on main (same key, same entries); only a process that cannot read it gets a key of its own, so it misses and compiles what an uncached run compiles instead of reading another build's entry, a state no AL app can reach (pinned by the serve test and build_identity_tests).
