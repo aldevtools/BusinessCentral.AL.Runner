@@ -611,9 +611,10 @@ impl Session {
                 same_row
                     && self.no_active_subscriber(rec.borrow().table as usize)
                     && self.no_active_subscriber(page_object)
-                    && stored.is_some_and(|s| {
-                        Self::same_values(&rec.borrow().fields, &s)
-                            || (view.extra && Self::extra_code_kept(&rec.borrow().fields, &s, &view.rec.fields))
+                    && stored.is_some_and(|s| match view.extra {
+                        // The effect gate: the row or Rec changed since the save, not both (`extra_code_kept`).
+                        true => Self::extra_code_kept(&rec.borrow().fields, &s, &view.rec.fields),
+                        false => Self::same_values(&rec.borrow().fields, &s),
                     })
                     && now.is_some_and(|now| {
                         now.len() == rows.len()
