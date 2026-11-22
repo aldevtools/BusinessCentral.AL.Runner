@@ -114,5 +114,8 @@ codeunit 69863 FE
 }
 "#;
     let v = al_testkit::run_in(src, "FE", "F");
-    assert!(matches!(&v, Ok(al_builtins::value::Value::Text(t)) if t.as_str() == "01234"), "{v:?}");
+    assert!(
+        matches!(&v, Ok(al_builtins::value::Value::Text(t)) if t.as_str() == "01234"),
+        "{v:?}"
+    );
 }
