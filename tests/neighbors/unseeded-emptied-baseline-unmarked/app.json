@@ -1,3 +1,0 @@
-{ "id": "5e1d0c00-0000-4000-8000-000000028526", "name": "UE Unmarked Readers", "publisher": "UE Neighbors", "version": "1.0.0.0",
-  "platform": "27.0.0.0", "runtime": "15.0", "target": "OnPrem", "idRanges": [ { "from": 61970, "to": 61989 } ],
-  "dependencies": [ { "id": "5e1d0c00-0000-4000-8000-000000038526", "name": "UE Unmarked Fill", "publisher": "UE Neighbors", "version": "1.0.0.0" } ] }
