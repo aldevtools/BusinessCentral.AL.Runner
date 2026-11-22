@@ -1,0 +1,10 @@
+# key	entry
+NB Upsert Tests::UncommittedSeed_Get_Written	ASSUMED failed-insert-after-table-write (corpus PR 1523, TestRecordFailedInsertMovedKey.al:393 Q1a)
+NB Upsert Tests::SameTableOtherRowInserted_ThenGet_Written	ASSUMED failed-insert-after-table-write (corpus PR 1523, TestRecordFailedInsertMovedKey.al:432 Q2)
+NB Upsert Tests::UncommittedSeed_Get_CommitAfterRead_Written	ASSUMED failed-insert-after-table-write (corpus PR 1523, TestRecordFailedInsertMovedKey.al:481 Q4)
+NB Upsert Tests::OwnInsertOfAnotherKey_Written	ASSUMED failed-insert-after-table-write (corpus PR 1523, TestRecordFailedInsertMovedKey.al:283 P6)
+NB Upsert Tests::SameTableWritten_ThenFindFirst	REFUSED Modify after a failed Insert of a NB Upsert Row buffer whose row version came after the open transaction
+NB Upsert Tests::SameTableLocked_ThenGet	REFUSED Modify after a failed Insert of a NB Upsert Row buffer whose row version came after the open transaction
+NB Upsert Tests::SameTableRowDeleted_ThenGet	REFUSED Modify after a failed Insert of a NB Upsert Row buffer whose row version came after the open transaction
+NB Upsert Tests::UncommittedSeed_SameKey_ChangedElsewhere	REFUSED Modify after a failed Insert of a NB Upsert Row buffer whose row version came after the open transaction
+NB Upsert Tests::UncommittedSeed_MovedKey_TargetModifiedAfterInsert	REFUSED Modify after a failed Insert of a NB Upsert Row buffer whose row version came after the open transaction
