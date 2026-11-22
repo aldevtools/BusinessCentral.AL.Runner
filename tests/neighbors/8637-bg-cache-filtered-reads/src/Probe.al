@@ -1,5 +1,5 @@
 // An excerpt of the corpus probe BgTaskQueryCache.al of corpus pull requests 1457 and 1495 at 37bffb8a (al-runner issues 8467
-// and 8637) at 24d48f7a: the file up to BQ Tests 9, BQ Tests 10 (al-runner issue 8677), BQ Tests 3b, BQ Tests 11, BQ Media
+// and 8637) at d0497714: the file up to BQ Tests 9, BQ Tests 10 (al-runner issue 8677), BQ Tests 3b, BQ Tests 11, BQ Media
 // Row, BQ Reader 12 and BQ Tests 13. Left out: BQ Tests 9b and 9c (the "@ alone" pull request's), BQ Tests 12 and BQ Version, which need Base
 // Application, and the cell of 100000 filters (:5564), which al-test-cli's Issue8637Heavy.al runs: main's al-runner runs it
 // past the neighbor check's 20 s CPU limit on the CI runners.
@@ -6641,8 +6641,8 @@ codeunit 97580 "BQ Reader 12"
 //     without a commit between the worker's two reads;
 //   - SelectLatestVersion before a Get with every read in one worker codeunit (BQ Reader 13), next to BQ Tests 11's cells, whose
 //     first read is BQ Reader's;
-//   - a table with a MediaSet field (table 97581), as BQ Tests 11 reads the Media one.
-table 97581 "BQ MediaSet Row"
+//   - a table with a MediaSet field (table 97586), as BQ Tests 11 reads the Media one.
+table 97586 "BQ MediaSet Row"
 {
     DataClassification = SystemMetadata;
     ReplicateData = false;
@@ -6660,7 +6660,7 @@ table 97581 "BQ MediaSet Row"
     }
 }
 
-codeunit 97581 "BQ Reader 13"
+codeunit 97586 "BQ Reader 13"
 {
     trigger OnRun()
     var
@@ -6711,7 +6711,7 @@ codeunit 97581 "BQ Reader 13"
     end;
 }
 
-codeunit 97582 "BQ Tests 13"
+codeunit 97587 "BQ Tests 13"
 {
     Subtype = Test;
 
