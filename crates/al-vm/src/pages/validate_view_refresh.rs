@@ -14,7 +14,7 @@
 
 use super::pinned_body::{Callees, Names, callees_with_calls_are, page_is, table_is};
 use super::pinned_shape::TestCall;
-use super::validate_view_cells::{CellPage, Change, Ctl, Step, Tail, Upd};
+use super::validate_view_cells::{CellPage, Change, Ctl, READ_ONLY_AT, Step, Tail, Upd};
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::filter::{FieldFilter, FilterExpr};
@@ -88,17 +88,24 @@ impl Session {
         })
     }
 
-    /// The test calls `call` on `st` (`test_page_op_held`, `test_control_op_held`). On the cells' page the call joins the
-    /// steps (`validate_view_step`); a call the cells do not make turns the rule off, or refuses once the rule ran.
-    pub(super) fn validate_view_call(&mut self, st: &St, call: Option<TestCall>) -> Result<(), Signal> {
+    /// The test calls `call` on `st`, on `target` when it is a control's call (`test_page_op_held`, `test_control_op_held`).
+    /// A control's `Value()` read and the page's filter pass, as do AssertEquals and Editable() on the Name control where they
+    /// were measured (`validate_view_measured_read`). On the cells' page any other call joins the steps (`validate_view_step`);
+    /// a call the cells do not make turns the rule off, or refuses once the rule ran.
+    pub(super) fn validate_view_call(
+        &mut self,
+        st: &St,
+        call: Option<TestCall>,
+        target: Option<&ControlTarget>,
+    ) -> Result<(), Signal> {
         let Some(call) = call else {
             return Ok(());
         };
-        if matches!(
+        let reads = matches!(
             call,
             TestCall::Read | TestCall::Page(PageMethod::Filter) | TestCall::Other(PageMethod::GetFilter)
-        ) || st.borrow().validate_view.off
-        {
+        ) || self.validate_view_measured_read(st, call, target);
+        if reads || st.borrow().validate_view.off {
             return Ok(());
         }
         let mut v = std::mem::take(&mut st.borrow_mut().validate_view);
@@ -112,6 +119,23 @@ impl Session {
             return unsupported(UNMEASURED);
         }
         Ok(())
+    }
+
+    /// AssertEquals or Editable() on the Name control at `READ_ONLY_AT`, the only position they were measured in. Elsewhere,
+    /// and every other read-only call (Caption, Enabled, Visible, ...), keeps main's path or refuses (not measured).
+    fn validate_view_measured_read(&self, st: &St, call: TestCall, target: Option<&ControlTarget>) -> bool {
+        let (Some(ControlTarget::Control(idx)), TestCall::Other(PageMethod::AssertEquals | PageMethod::Editable)) =
+            (target, call)
+        else {
+            return false;
+        };
+        let (page, steps) = READ_ONLY_AT;
+        let at = {
+            let s = st.borrow();
+            let v = &s.validate_view;
+            !v.off && v.page == Some(page) && v.steps == steps && v.pending.is_none() && !v.walked
+        };
+        at && self.validate_view_ctl(st, *idx) == Some(Ctl::Name)
     }
 
     /// `validate_view_call` on the taken state: `false` when the call is not one the cells make. A SetValue or the action reads
@@ -191,7 +215,12 @@ impl Session {
             }
         };
         let rec = self.page_rec(st);
-        if self.validate_view_table_rows(&rec)? != page.table_rows() {
+        // Every cell's first SetValue or action runs with no filter on Rec in any group; the gate checks it here instead of
+        // taking it from the calls alone (a filter that keeps the three rows would otherwise match the no-change cells). No
+        // test reaches this check today: in the runner a TestPage filter before OpenEdit fails (the page is not open), and
+        // one after it turns the rule off at its SetFilter call.
+        let first = !v.steps.iter().any(|s| matches!(s, Set(..) | Fail(_) | Action(..)));
+        if (first && !rec.borrow().filters.is_empty()) || self.validate_view_table_rows(&rec)? != page.table_rows() {
             return Ok(false);
         }
         let table = self.table(&rec)?;
@@ -216,6 +245,8 @@ impl Session {
     /// and after a refresh that read back to the first row; :1003 `P.AGR(B);` on the middle row after the open, and nothing
     /// before its second SetValue, whose refresh ended on B; :1037 nothing on the first row; :1413 nothing before the SetValue
     /// after the failed one, which read C; :1397 and :1413 `close` `P.AGR(C);`, :1381 `close` empty after Previous onto B).
+    /// After the walk Close reads nothing: Next until it answers No ends on the new line, which holds no stored row (:832 `walk`
+    /// `B,C,,`, `close` empty).
     fn validate_view_read_row(&mut self, st: &St, v: &mut ValidateView) -> Result<(), Signal> {
         if !v.page.is_some_and(CellPage::reads_first) {
             return Ok(());

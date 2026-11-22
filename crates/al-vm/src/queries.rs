@@ -326,7 +326,7 @@ impl Session {
                     let date_ctx = self.query_date_context();
                     Some(
                         al_builtins::filter::with_date_context(date_ctx, || {
-                            al_builtins::filter::parse_filter_with(&text, &args[2..], &ty, &enums)
+                            al_builtins::filter::parse_filter_at_sign_measured(&text, &args[2..], &ty, &enums)
                         })
                         .map_err(|e| Signal::unsupported(format!("SetFilter: {e}")))?,
                     )
@@ -1184,7 +1184,7 @@ impl Session {
                 let ty = &fields[c.field].ty;
                 let expr = match &c.value {
                     ir::CalcValue::Const(k) => FilterExpr::Eq(ops::convert(crate::constant(k), ty)?),
-                    ir::CalcValue::Filter(text) => self.parse_query_filter(text, ty)?,
+                    ir::CalcValue::Filter(text) => self.parse_query_filter(text, ty, true)?,
                     _ => return unsupported("a table filter condition of this form"),
                 };
                 plan.scan[i].push(FieldFilter {
@@ -1289,7 +1289,7 @@ impl Session {
     fn static_column_filter(&self, c: &ir::QueryColumn) -> Result<Option<FilterExpr>, Signal> {
         Ok(match &c.static_filter {
             Some(ir::CalcValue::Const(k)) => Some(FilterExpr::Eq(ops::convert(crate::constant(k), &c.ty)?)),
-            Some(ir::CalcValue::Filter(text)) => Some(self.parse_query_filter(text, &c.ty)?),
+            Some(ir::CalcValue::Filter(text)) => Some(self.parse_query_filter(text, &c.ty, false)?),
             Some(_) => return unsupported("a column filter of this form"),
             None => None,
         })
@@ -1335,10 +1335,16 @@ impl Session {
         Ok(out)
     }
 
-    fn parse_query_filter(&self, text: &str, ty: &RtType) -> Result<FilterExpr, Signal> {
+    /// A DataItemTableFilter (`table_filter`) or a ColumnFilter text, parsed. `@` alone on a Code field is measured in a
+    /// DataItemTableFilter only (BgTaskQueryCache.al:6403, BQ Tests 9c).
+    fn parse_query_filter(&self, text: &str, ty: &RtType, table_filter: bool) -> Result<FilterExpr, Signal> {
         let text = crate::query_date_filter::static_text(text, ty)?;
-        self.parse_filter_text(&text, ty)
-            .map_err(|e| Signal::unsupported(format!("query filter: {e}")))
+        let parse = if table_filter {
+            Self::parse_filter_text_at_sign_measured
+        } else {
+            Self::parse_filter_text
+        };
+        parse(self, &text, ty).map_err(|e| Signal::unsupported(format!("query filter: {e}")))
     }
 
     /// Nested-loop join: every row of dataitem `level` that passes its filters and links to the

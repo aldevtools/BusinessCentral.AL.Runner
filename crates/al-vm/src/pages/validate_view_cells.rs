@@ -378,6 +378,12 @@ const ISSUE_CELLS: [Cell; 3] = [
     walk(&[Last, Set(Name, Upd::False, Keep, Some((2, 1)))]),
 ];
 
+/// The one place a read-only call besides a control's `Value()` and the page's filter was measured in the rule's steps:
+/// AssertEquals and Editable() on the Name control of page 97584 after the two SetValues of :832, before First. They read no
+/// row (the neighbor Lines_ReadOnlyCallsAfterSetValues of tests/neighbors/8698-refresh-filter-update-false, a local BC 29.1,
+/// 3 runs: `reads` `Yes:`, then First `B:` and the walk `B,C,,` as the cell's).
+pub(crate) const READ_ONLY_AT: (CellPage, &[Step]) = (CellPage::Lines, &KEEP_F);
+
 /// The cells on page 97585, both row triggers (:1105, :1122, :1139, :1156, :1173).
 const BOTH_CELLS: [Cell; 5] = [
     walk(&KEEP_F),

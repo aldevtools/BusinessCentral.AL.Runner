@@ -4,7 +4,7 @@
 //! repros, the cells of corpus pull request 1518 (pages/currpage/ListValidateFilterRefresh.al) and the neighbors past them, as
 //! the neighbor app tests/neighbors/8698-refresh-filter-update-false holds them.
 
-use super::outside_fb_repros::issue_8186_outcomes as outcomes;
+use super::outside_fb_repros::assert_stub_outcomes as outcomes;
 use al_builtins::assumptions::Assumption::{ListValidateViewRefresh, ValidateUpdateFalseRereadsRow};
 use al_test_cli::report::Outcome;
 
@@ -87,11 +87,12 @@ fn probe_cells_pass_on_the_measured_pages() {
 }
 
 /// Past the cells: four or two rows, on the List and on the Card, and a page whose OnValidate calls Update(true), keep main's
-/// path; Next or the action after the cell's steps, and a second SetValue on the Card of issue 8717, refuse.
+/// path; Next or the action after the cell's steps, and a second SetValue on the Card of issue 8717, refuse; AssertEquals and
+/// Editable() after the cell's steps only read, and the cell's First and walk follow.
 #[test]
 fn neighbors_keep_main_or_refuse() {
     let o = outcomes(&format!("{PROBE}\n{NEIGHBORS}"), "LT RFU Neighbor Tests");
-    assert_eq!(o.len(), 8);
+    assert_eq!(o.len(), 9);
     for (n, r, marks) in &o {
         match n.as_str() {
             "Lines_NextAfterSetValues"
@@ -103,7 +104,43 @@ fn neighbors_keep_main_or_refuse() {
                     "{n}: {r:?}"
                 )
             }
+            "Lines_ReadOnlyCallsAfterSetValues" => {
+                assert!(*r == Outcome::Pass && *marks == [ListValidateViewRefresh], "{n}: {r:?}")
+            }
             _ => assert!(marks.is_empty() && *r != Outcome::Pass, "{n}: {r:?}"),
         }
     }
+}
+
+/// AssertEquals and Editable() on the Name control pass only where the neighbor measured them: after the cell's two SetValues,
+/// before First. Another read-only call there (Visible() on Name, the page's Caption), AssertEquals on another control, and
+/// AssertEquals before the first SetValue keep main's path or refuse.
+#[test]
+fn read_only_calls_pass_only_where_measured() {
+    const AT: &str = "                    Lines.Name.AssertEquals('C');\n";
+    let outcome = |from: &str, to: &str| {
+        assert!(NEIGHBORS.contains(from));
+        let o = outcomes(
+            &format!("{PROBE}\n{}", NEIGHBORS.replacen(from, to, 1)),
+            "LT RFU Neighbor Tests",
+        );
+        o.into_iter()
+            .find(|(n, ..)| n == "Lines_ReadOnlyCallsAfterSetValues")
+            .unwrap()
+    };
+    for to in [
+        "                    if Lines.Name.Visible() then;\n",
+        "                    if Lines.Caption() = '' then;\n",
+        "                    Lines.Value.AssertEquals('');\n",
+    ] {
+        let (_, r, _) = outcome(AT, to);
+        assert!(
+            matches!(&r, Outcome::NotRun(why) if why.starts_with(UNMEASURED)),
+            "{to}: {r:?}"
+        );
+    }
+    let open = "        Lines.Last();\n        Note('open', Log.Take());\n        Lines.Name.SetValue(Lines.Name.Value() + '2');\n";
+    let early = "        Lines.Last();\n        Lines.Name.AssertEquals('C');\n        Note('open', Log.Take());\n        Lines.Name.SetValue(Lines.Name.Value() + '2');\n";
+    let (_, r, marks) = outcome(open, early);
+    assert!(marks.is_empty() && r != Outcome::Pass, "{r:?} {marks:?}");
 }
