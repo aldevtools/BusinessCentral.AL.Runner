@@ -36,7 +36,9 @@ mod sql_range_code;
 pub(crate) use insert_buffer::{InsertKind, InsertQueue};
 use sql_range::InsertShape;
 mod nested_validate;
-pub(crate) use nested_validate::{BeforeImage, ProcXrec, ValidateSite, XREC_OF_RUNNING_CALL};
+mod validate_event_xrec;
+pub(crate) use nested_validate::{BeforeImage, ProcXrec, ValidateRun, ValidateSite, XREC_OF_RUNNING_CALL};
+pub(crate) use validate_event_xrec::ValidateEvent;
 mod by_value_view;
 pub(crate) use by_value_view::{ByValueCall, EventArg, by_value_mark, primary_view};
 mod op_inner;
@@ -1006,7 +1008,7 @@ impl Session {
             }
             e
         };
-        if let Err(e) = self.table_event(t, "onbeforevalidateevent", rec, Some(xrec), false, Some(&field.name)) {
+        if let Err(e) = self.validate_event(t, "onbeforevalidateevent", rec, xrec, field) {
             return Err(restore(rec, e, snapshot));
         }
         // The triggers table extensions attach to the field bracket its own OnValidate
@@ -1040,7 +1042,7 @@ impl Session {
                 return Err(restore(rec, e, snapshot));
             }
         }
-        self.table_event(t, "onaftervalidateevent", rec, Some(xrec), false, Some(&field.name))
+        self.validate_event(t, "onaftervalidateevent", rec, xrec, field)
             .map_err(|e| restore(rec, e, snapshot))
     }
 
@@ -2462,6 +2464,9 @@ impl Session {
     /// A record method: [`Session::record_op_inner`], with what it does to the snapshot `Record.IsDirty` compares with
     /// (isdirty.rs).
     pub(crate) fn record_op(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
+        if !self.validate_sites.is_empty() {
+            self.note_record_op_under_validate(method, rec);
+        }
         self.probed_source_before(method, rec, args);
         Self::rolled_read_before(method, rec);
         let inserted = self.own_read_before(method, rec, args);

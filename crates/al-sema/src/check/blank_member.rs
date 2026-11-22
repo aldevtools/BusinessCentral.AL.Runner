@@ -12,7 +12,7 @@ impl<'a> Checker<'a> {
         rhs: &str,
     ) {
         if !self.al_blank_member_name(sc, node, left, t, rhs) {
-            self.scope_member(sc, node, t, rhs);
+            self.scope_member(sc, node, Some(left), t, rhs);
         }
     }
 

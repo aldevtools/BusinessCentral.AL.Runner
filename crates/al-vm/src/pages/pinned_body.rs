@@ -335,8 +335,8 @@ pub(super) fn routine_text(program: &ir::Program, object: usize, r: usize, calle
 }
 
 /// The names the name slots of pinned lines stand for, once bound: the same slot stands for the same name in every line of
-/// one comparison. Slots: `«V»` a variable name (letters, digits, underscore); any other letter (`«T»`, `«L»`, `«P»`) an object
-/// name (anything but a double quote).
+/// one comparison. Slots: `«V»` a variable name (letters, digits, underscore); any other letter (`«T»`, `«L»`, ...) an object
+/// name or an object id (anything but a double quote).
 #[derive(Debug, Default)]
 pub(super) struct Names(Vec<(char, String)>);
 
@@ -386,6 +386,11 @@ impl Names {
         false
     }
 
+    /// The name slot `slot` stands for, once bound.
+    pub(super) fn bound(&self, slot: char) -> Option<&str> {
+        self.0.iter().find(|(n, _)| *n == slot).map(|(_, name)| name.as_str())
+    }
+
     /// Whether `have` reads, line for line, as `want`; when not, nothing is bound.
     fn lines_are(&mut self, have: &[String], want: &[&str]) -> bool {
         let before = self.0.len();
@@ -394,11 +399,6 @@ impl Names {
             self.0.truncate(before);
         }
         ok
-    }
-
-    /// The name slot `slot` stands for, once bound.
-    pub(super) fn bound(&self, slot: char) -> Option<&str> {
-        self.0.iter().find(|(n, _)| *n == slot).map(|(_, v)| v.as_str())
     }
 }
 
@@ -480,13 +480,14 @@ fn type_text(program: &ir::Program, ty: &RtType) -> Option<String> {
         RtType::Text(None) => "Text".into(),
         RtType::Text(Some(n)) => format!("Text[{n}]"),
         RtType::Code(Some(n)) => format!("Code[{n}]"),
+        RtType::Date => "Date".into(),
+        RtType::Option(members) => format!("Option {}", members.join(",")),
+        RtType::Dictionary(k, v) => format!("Dictionary of [{}, {}]", type_text(program, k)?, type_text(program, v)?),
         RtType::Record(t, false) => format!("Record \"{}\"", program.objects.get(*t as usize)?.name),
         RtType::Record(t, true) => format!("Record \"{}\" temporary", program.objects.get(*t as usize)?.name),
         RtType::Codeunit(c) => format!("Codeunit \"{}\"", program.objects.get(*c as usize)?.name),
-        RtType::Option(members) => format!("Option[{}]", members.join(",")),
         RtType::Variant => "Variant".into(),
         RtType::Library(k) => k.name().to_string(),
-        RtType::Dictionary(k, v) => format!("Dictionary of [{}, {}]", type_text(program, k)?, type_text(program, v)?),
         RtType::Array(dims, t) => {
             let dims: Vec<String> = dims.iter().map(u32::to_string).collect();
             format!("array[{}] of {}", dims.join(", "), type_text(program, t)?)
@@ -521,6 +522,21 @@ impl Writer<'_> {
                         s += &format!(" else begin {}end", self.stmts(other, callees)?);
                     }
                     s += "; ";
+                }
+                ir::Stmt::Foreach { var, collection, body } => {
+                    s += &format!(
+                        "foreach {} in {} do begin {}end; ",
+                        self.place(var)?,
+                        self.expr(collection, callees)?,
+                        self.stmts(body, callees)?
+                    );
+                }
+                ir::Stmt::Repeat(body, until) => {
+                    s += &format!(
+                        "repeat {}until {}; ",
+                        self.stmts(body, callees)?,
+                        self.expr(until, callees)?
+                    );
                 }
                 ir::Stmt::Case {
                     scrutinee,
@@ -602,7 +618,8 @@ impl Writer<'_> {
                 ir::Const::Decimal(d) => d.clone(),
                 ir::Const::Text(t) => format!("'{}'", t.replace('\'', "''")),
                 ir::Const::FieldPos(f) => format!("field#{f}"),
-                ir::Const::Option(n, members) => format!("Option::\"{}\"", members.get(usize::try_from(*n).ok()?)?),
+                ir::Const::Option(i, members) => format!("option#{}", members.get(usize::try_from(*i).ok()?)?),
+                ir::Const::Enum(e, v) => format!("enum#\"{}\"#{v}", self.program.objects.get(*e as usize)?.name),
                 _ => return None,
             },
             ir::Expr::Load(p) => self.place(p)?,
@@ -620,13 +637,13 @@ impl Writer<'_> {
                     ir::BinOp::Ne => "<>",
                     ir::BinOp::Div => "/",
                     ir::BinOp::Mod => "mod",
-                    ir::BinOp::And => "and",
-                    ir::BinOp::Or => "or",
                     ir::BinOp::Xor => "xor",
                     ir::BinOp::Lt => "<",
                     ir::BinOp::Le => "<=",
                     ir::BinOp::Gt => ">",
                     ir::BinOp::Ge => ">=",
+                    ir::BinOp::And => "and",
+                    ir::BinOp::Or => "or",
                     _ => return None,
                 };
                 format!("({} {op} {})", self.expr(a, callees)?, self.expr(b, callees)?)
@@ -639,25 +656,6 @@ impl Writer<'_> {
                 self.expr(a, callees)?,
                 self.expr(b, callees)?
             ),
-            // `CurrPage.<Control>`: the control of the page the receiver's type names.
-            ir::Expr::Control { page, control, .. } => {
-                let ir::Expr::Load(p) = page.as_ref() else {
-                    return None;
-                };
-                let (RtType::TestPage(o) | RtType::Page(o)) = self.slot(p)?.ty else {
-                    return None;
-                };
-                let name = &self
-                    .program
-                    .objects
-                    .get(o as usize)?
-                    .page
-                    .as_ref()?
-                    .controls
-                    .get(*control)?
-                    .name;
-                format!("{}.{name}", self.place(p)?)
-            }
             ir::Expr::Call {
                 object,
                 routine,
@@ -679,6 +677,20 @@ impl Writer<'_> {
                     Some(r) => format!("{}.", self.arg(r, callees)?),
                 };
                 format!("{on}{}({})", id.method(), self.args(args, callees)?)
+            }
+            // `CurrPage.<Control>` in the page's own code.
+            ir::Expr::Control {
+                page,
+                control,
+                runtime: true,
+            } => {
+                let name = &self.program.objects[self.object]
+                    .page
+                    .as_ref()?
+                    .controls
+                    .get(*control)?
+                    .name;
+                format!("{}.{name}", self.expr(page, callees)?)
             }
             _ => return None,
         })
@@ -871,5 +883,92 @@ page 50764 "Case Page"
                  else begin Error('x'); end; end; end",
             ]
         );
+    }
+
+    #[test]
+    fn loops_comparisons_and_variable_controls_render() {
+        let src = r#"
+table 50770 "Render Line"
+{
+    TableType = Temporary;
+    fields
+    {
+        field(1; Kind; Option) { OptionMembers = Day,Week; }
+        field(2; Day; Date) { }
+        field(3; Qty; Decimal) { }
+    }
+    keys
+    {
+        key(PK; Kind, Day) { Clustered = true; }
+    }
+}
+page 50771 "Render Part"
+{
+    PageType = ListPart;
+    SourceTable = "Render Line";
+    layout
+    {
+        area(Content)
+        {
+            repeater(Lines)
+            {
+                field(Qty; Rec.Qty) { StyleExpr = Style; }
+                field(Shown; Shown) { }
+            }
+        }
+    }
+    var
+        Shown: Text;
+        Style: Text;
+        Loaded: Boolean;
+
+    procedure Fill(Values: Dictionary of [Text, Text])
+    var
+        DayKey: Text;
+    begin
+        foreach DayKey in Values.Keys() do begin
+            Rec.Kind := Rec.Kind::Week;
+            Rec.Insert();
+        end;
+        repeat
+            Loaded := Loaded and (Rec.Qty >= 2);
+        until Rec.Next() = 0;
+    end;
+}
+"#;
+        let l = al_testkit::compile(src);
+        let p = &l.program;
+        let at = |name: &str| p.objects.iter().position(|o| o.name == name).unwrap();
+        let part = at("Render Part");
+        let lines = page_lines(p, part, &mut Vec::new()).unwrap();
+        assert_eq!(
+            lines[3..],
+            [
+                "field Qty in Lines = Qty {styleexpr=Style}",
+                "field Shown in Lines = var Shown: Text {}",
+            ]
+        );
+        let fill = p.objects[part].routines.iter().position(|r| r.name == "Fill").unwrap();
+        assert_eq!(
+            routine_text(p, part, fill, &mut Vec::new()).unwrap(),
+            "var DayKey: Text; begin foreach DayKey in Values.Keys() do begin Rec.\"Kind\" := option#Week; Rec.Insert(); end; \
+             repeat Loaded := (Loaded and (Rec.\"Qty\" >= 2)); until (Rec.Next() = 0); end"
+        );
+        assert_eq!(
+            table_lines(p, at("Render Line"), &mut Vec::new()).unwrap(),
+            [
+                "TableType = Temporary",
+                "field 1 \"Kind\": Option Day,Week",
+                "field 2 \"Day\": Date",
+                "field 3 \"Qty\": Decimal",
+                "key \"Kind\", \"Day\" {Clustered=true}"
+            ]
+        );
+        let mut names = Names::default();
+        assert!(names.line_is(
+            "EnqueueBackgroundTask(Id, 97108, P)",
+            "EnqueueBackgroundTask(Id, «K», P)"
+        ));
+        assert_eq!(names.bound('K'), Some("97108"));
     }
 }

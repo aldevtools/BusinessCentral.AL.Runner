@@ -405,14 +405,14 @@ const CODED_TABLE: &[&str] = &[
     "field 9 \"Style\": Text[30]",
     "field 10 \"Quantity\": Decimal",
     "field 11 \"Has Quantity\": Boolean",
-    "field 12 \"Kind Type\": Option[Text,Option]",
+    "field 12 \"Kind Type\": Option Text,Option",
     "field 13 \"Description\": Text[100]",
     "field 14 \"Show Blank\": Boolean",
     "field 15 \"Kind Group\": Text[30]",
     "field 16 \"Billable\": Boolean",
     "field 17 \"Active\": Boolean",
     "field 18 \"Old Flag\": Boolean",
-    "field 19 \"Calc State\": Option[ ,Pending,Processed]",
+    "field 19 \"Calc State\": Option  ,Pending,Processed",
     "key \"Group Code\", \"Entry No.\" {Clustered=true}",
     "key \"Group Code\", \"Sorting\" {}",
     "trigger \"Name\".OnValidate: var Log: Codeunit \"«L»\"; begin Log.Add((('T.VN(' + Rec.\"Name\") + ')')); if \
@@ -421,7 +421,7 @@ const CODED_TABLE: &[&str] = &[
         xRec.\"Value\") + '>') + Rec.\"Value\") + ')')); if (Rec.\"Value\" <> xRec.\"Value\") then begin \
         Rec.\"Variant\" := ''; Change.Init(); Change.\"Group Code\" := Rec.\"Group Code\"; Change.\"Line Entry No.\" \
         := Rec.\"Entry No.\"; Change.\"Old Value\" := xRec.\"Value\"; Change.\"New Value\" := Rec.\"Value\"; \
-        Change.Insert(); end; Rec.\"Calc State\" := Option::\"Pending\"; end",
+        Change.Insert(); end; Rec.\"Calc State\" := option#Pending; end",
     "trigger OnInsert: var Last: Record \"«T»\"; Log: Codeunit \"«L»\"; begin Last.SetCurrentKey(field#5); \
         Last.SetRange(field#0, Rec.\"Group Code\"); Last.SetLoadFields(field#5); if Last.FindLast() then begin \
         Rec.\"Sorting\" := (Last.\"Sorting\" + 10); end; Log.Add((((('T.I(' + Rec.\"Name\") + '/') + \
@@ -431,7 +431,7 @@ const CODED_TABLE: &[&str] = &[
     "trigger OnDelete: var Change: Record \"«G»\"; begin Change.SetRange(field#1, Rec.\"Group Code\"); \
         Change.SetRange(field#2, Rec.\"Entry No.\"); Change.DeleteAll(); end",
     "procedure CopyKind: var Kind: Record \"«K»\"; begin Kind.SetRange(field#1, Rec.\"Name\"); if Kind.FindFirst() \
-        then begin Rec.\"Kind ID\" := Kind.\"ID\"; Rec.\"Kind Type\" := Option::\"Option\"; end; end",
+        then begin Rec.\"Kind ID\" := Kind.\"ID\"; Rec.\"Kind Type\" := option#Option; end; end",
 ];
 
 /// Table 97481 "LT NF Kind" (:153-168).
@@ -487,8 +487,8 @@ const CODED_CALC: &[&str] = &[
     "procedure CalculateAfterChange(var Line: Record \"«T»\"): var Setup: Record \"«S»\"; Log: Codeunit \"«L»\"; \
         begin if Line.GetBySystemId(Line.\"SystemId\") then begin end; Log.Add((((((('S.CALC(' + Line.\"Name\") + \
         '/') + Line.\"Value\") + '/') + Format(Line.\"Calc State\", 0, 2)) + ')')); Setup.Get(); Setup.\"Calc Count\" \
-        := (Setup.\"Calc Count\" + 1); Setup.Modify(); if (Line.\"Calc State\" = Option::\"Pending\") then begin \
-        Line.\"Calc State\" := Option::\"Processed\"; Line.Modify(false); end; if \
+        := (Setup.\"Calc Count\" + 1); Setup.Modify(); if (Line.\"Calc State\" = option#Pending) then begin \
+        Line.\"Calc State\" := option#Processed; Line.Modify(false); end; if \
         Line.GetBySystemId(Line.\"SystemId\") then begin end; end",
 ];
 
@@ -627,7 +627,7 @@ const CODED_HOST: &[&str] = &[
     "field Old Flag in Group = Old Flag {applicationarea=Basic, Suite; visible=false; editable=true; \
         obsoletestate=Pending; obsoletetag='28.0'; obsoletereason='Not shown any more.'}",
     "field Kind Type in Group = Kind Type {applicationarea=Basic, Suite; visible=expr begin exit((Rec.\"Kind Type\" \
-        = Option::\"Option\")); end; editable=true}",
+        = option#Option)); end; editable=true}",
     "  trigger onvalidate: begin SaveChangeAndCalculate(); end",
     "factbox part Rules in - page «R» link Group Code = field(Group Code) link Entry No. = field(Entry No.) \
         {applicationarea=Basic, Suite; subpagelink=\"Group Code\" = field(\"Group Code\"), \"Entry No.\" = \
@@ -654,7 +654,7 @@ const CODED_HOST: &[&str] = &[
     "trigger onopenpage: var EnvironmentInformation: Codeunit \"Environment Information\"; begin Log.Add('P.OPEN'); \
         Setup.Get(); IsSaaS := EnvironmentInformation.IsSaaSInfrastructure(); end",
     "trigger onaftergetrecord: var Kind: Record \"«K»\"; begin Log.Add((((('P.AGR(' + Rec.\"Name\") + '/') + \
-        Rec.\"Value\") + ')')); Setup.Get(); IsOption := (Rec.\"Kind Type\" = Option::\"Option\"); IsGroupKind := \
+        Rec.\"Value\") + ')')); Setup.Get(); IsOption := (Rec.\"Kind Type\" = option#Option); IsGroupKind := \
         false; if Kind.Get(Rec.\"Kind ID\") then begin IsGroupKind := Kind.\"Blocked\"; end; ValueEditable := (not \
         Setup.\"Lock Values\"); VariantEditable := (Rec.\"Kind ID\" <> 0); if (Setup.\"Custom 1 Caption\" <> '') then \
         begin CustomHeader[1] := Setup.\"Custom 1 Caption\"; CustomValue[1] := Format(Rec.\"Kind ID\"); end; end",
