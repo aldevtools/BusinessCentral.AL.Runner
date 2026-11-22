@@ -1,5 +1,5 @@
-//! The corpus probe of al-runner issue 8735 (corpus pull request 1527, open: tests/al-language/pages/currpage/
-//! ListNewLineWritesOtherTable.al, measured on BC 29.1, 11 of 11 green in 3 runs), run here until a bump pins it: writes of
+//! The corpus probe of al-runner issue 8735 (corpus pull request 1527, merged, and 1536, open, the review's cells:
+//! tests/al-language/pages/currpage/ListNewLineWritesOtherTable.al, measured on BC 29.1, 17 of 17 green in 3 runs), run here until a bump pins it: writes of
 //! another table before `CurrPage.SaveRecord()` or `CurrPage.Update(true)` on the new line the table field's OnValidate inserted,
 //! on a List page without triggers (`al-vm` pages/code_inserted_extra.rs, `only_other_tables_written`). The probe is read from
 //! its copy in the neighbor app. Delete this file when the pin is in the corpus.
@@ -16,16 +16,21 @@ const NEIGHBORS: &str = include_str!("../../../../tests/neighbors/8735-new-line-
 /// The measured cells pass, flagged by both assumptions: the repro of 8735 (the table field inserts two rows of another table)
 /// on an empty group and with a row before; the control inserts a row of another table, on both; the table field inserts one
 /// before `Update(true)`; the table field modifies them, on both; the control modifies them; and the table field inserts one
-/// before the control writes the line through another record (the rewritten row). A write before the insert and a delete keep
-/// the refusal: the store does not tell which table they went to.
+/// before the control writes the line through another record (the rewritten row); and the review of #8806's cells: the control
+/// inserts one, then `Update(true)`; the table field modifies them, then `Update(true)`; the table field and the control both
+/// insert one before the save; a FlowField over the written table. A write before the insert and a delete keep the refusal: the
+/// store does not tell which table they went to; so does a control that writes another table and rewrites the line, in either
+/// order: the rewritten row is measured where the rewrite is the control's only write (`Inserted::Rewritten`).
 #[test]
 fn issue_8735_probe_cells() {
     let o = super::outside_fb_8712::outcomes(PROBE, "LT NW Tests");
-    assert_eq!(o.len(), 11);
+    assert_eq!(o.len(), 17);
     for (name, r, marks) in &o {
         let refused = [
             "NewLine_TableFieldWritesAnotherTableBeforeTheInsert_ShowsAndSavesTheRow",
             "NewLine_TableFieldDeletesAnotherTablesRowsBeforeSaveRecord_ShowsAndSavesTheRow",
+            "NewLine_ControlWritesAnotherTableAndTheLineBeforeSaveRecord_SaveWritesRecOverTheLine",
+            "NewLine_ControlWritesTheLineThenAnotherTableBeforeSaveRecord_SaveWritesRecOverTheLine",
         ]
         .contains(&name.as_str());
         match refused {
@@ -42,15 +47,23 @@ fn issue_8735_probe_cells() {
 }
 
 /// Writes of another table just past the cells keep the refusal: under TestPage.OpenEdit with a filter, before `Update(true)` with
-/// a row before, with a second row of the page's table inserted, with the row before modified, and with the
-/// line modified again through Rec.
+/// a row before, with a second row of the page's table inserted, with the row before modified, and with the line modified again
+/// through Rec. The two neighbors of the review of #8806 run as their cells do (:642, :666): the table field and the control both
+/// writing another table before the save, and a FlowField over the written table.
 #[test]
 fn issue_8735_neighbors_are_refused() {
     let o = super::outside_fb_8712::outcomes(NEIGHBORS, "LT NX Tests");
-    assert_eq!(o.len(), 5);
+    assert_eq!(o.len(), 7);
+    let run = [
+        "NewLine_TableFieldAndControlWriteAnotherTable_ShowsAndSavesTheRow",
+        "NewLine_FlowFieldOverTheWrittenTable_ShowsTheCount",
+    ];
     let ran: Vec<_> = o
         .iter()
-        .filter(|(_, r, _)| !matches!(r, Outcome::NotRun(_)))
+        .filter(|(name, r, marks)| match run.contains(&name.as_str()) {
+            true => !(*r == Outcome::Pass && marks.contains(&ListNewLineWritesOtherTable)),
+            false => !matches!(r, Outcome::NotRun(_)),
+        })
         .map(|(name, r, _)| format!("{name}: {r:?}"))
         .collect();
     assert!(ran.is_empty(), "{ran:#?}");
