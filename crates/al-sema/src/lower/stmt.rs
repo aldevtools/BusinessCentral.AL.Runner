@@ -881,8 +881,8 @@ impl Lowerer<'_> {
 
     /// Notes that the lowering of the statement being lowered rests on assumption `a`: the statement is
     /// preceded by `Stmt::Assume(a)`, so a test that runs it is reported as flagged.
-    pub(crate) fn assume(&mut self, a: al_builtins::assumptions::Assumption) {
-        if let Some(frame) = self.assumed.last_mut() {
+    pub(crate) fn assume(&self, a: al_builtins::assumptions::Assumption) {
+        if let Some(frame) = self.assumed.borrow_mut().last_mut() {
             if !frame.contains(&a) {
                 frame.push(a);
             }
@@ -958,7 +958,7 @@ impl Lowerer<'_> {
 
     pub(crate) fn stmt(&mut self, n: &SyntaxNode) -> Vec<ir::Stmt> {
         self.tdd_marked.borrow_mut().push(Vec::new());
-        self.assumed.push(Vec::new());
+        self.assumed.borrow_mut().push(Vec::new());
         let mark = self.tys.len();
         let mut out = self.stmt_plain(n);
         if n.kind() == SyntaxKind::ExprStmt && !self.stream_scope.is_empty() {
@@ -967,7 +967,7 @@ impl Lowerer<'_> {
         if self.tys_on && n.kind() != SyntaxKind::Block {
             self.seal_stmts(mark, &out);
         }
-        let marks = self.assumed.pop().unwrap_or_default();
+        let marks = self.assumed.borrow_mut().pop().unwrap_or_default();
         let tdd = self.tdd_marked.borrow_mut().pop().unwrap_or_default();
         if (!marks.is_empty() || !tdd.is_empty()) && !out.is_empty() {
             // After the position marker, which belongs to the statement that follows it.

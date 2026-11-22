@@ -605,6 +605,13 @@ impl<'a> Compiler<'a> {
                 let receiver_reg = if receiver.is_some() { Some(regs.remove(0)) } else { None };
                 let receiver_arg = if receiver.is_some() { Some(kept.remove(0)) } else { None };
                 let plain = plain_builtin(*id, vm, native.is_some(), receiver_arg.as_ref(), &kept);
+                let stream_local = native.and(stream_local(
+                    *id,
+                    receiver_reg,
+                    receiver_arg.as_ref(),
+                    kept.len(),
+                    |i| self.locals_ty.get(i),
+                ));
                 self.chunk.builtins.push(BuiltinSite {
                     id: *id,
                     vm_class: vm,
@@ -617,6 +624,7 @@ impl<'a> Compiler<'a> {
                     args: kept,
                     ret_used: *ret_used,
                     plain,
+                    stream_local,
                     temp_blob,
                 });
                 let s = (self.chunk.builtins.len() - 1) as u32;
@@ -1550,6 +1558,28 @@ fn place_free_of_global(p: &ir::Place, g: usize, depth: u8) -> bool {
     }
 }
 
+/// [`BuiltinSite::stream_local`]: the local register of the receiver of an `InStream.Read` or `OutStream.Write` with at most
+/// two arguments (`al_builtins::stream::keeps_receiver`), when the receiver is that local in place (`arg_reg`) and its
+/// declared type is the stream type.
+fn stream_local<'t>(
+    id: al_builtins::builtin_id::BuiltinId,
+    receiver_reg: Option<u16>,
+    receiver: Option<&ir::Arg>,
+    n_args: usize,
+    local_ty: impl Fn(usize) -> Option<&'t RtType>,
+) -> Option<u16> {
+    use al_builtins::library_kind::LibraryKind;
+    let Some(ir::Arg::Ref(ir::Place::Local(i))) = receiver else {
+        return None;
+    };
+    let stream = matches!(
+        local_ty(*i),
+        Some(RtType::Library(LibraryKind::InStream | LibraryKind::OutStream))
+    );
+    let r = u16::try_from(*i).ok()?;
+    (stream && receiver_reg == Some(r) && n_args <= 2 && al_builtins::stream::keeps_receiver(id)).then_some(r)
+}
+
 /// A registered native whose receiver and arguments are all values and that `run_builtin` does not handle itself
 /// (`BuiltinSite::plain`).
 fn plain_builtin(
@@ -1566,3 +1596,7 @@ fn plain_builtin(
         && !receiver.is_some_and(by_ref)
         && !args.iter().any(by_ref)
 }
+
+#[cfg(test)]
+#[path = "stream_local_tests.rs"]
+mod stream_local_tests;

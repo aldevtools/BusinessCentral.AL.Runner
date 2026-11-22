@@ -67,8 +67,9 @@ pub struct LeftStamp {
 struct Single {
     /// The fingerprint of each global.
     globals: Vec<crate::single_track::Fp>,
-    /// Every global holds what a fresh instance of the codeunit holds ([`at_declared`]).
-    declared: bool,
+    /// Per global: it holds what a fresh instance of the codeunit holds ([`at_declared`]). Empty when the instance has
+    /// another number of globals than a fresh one.
+    declared: Vec<bool>,
 }
 
 /// What differs between two [`LeftStamp`]s, other than rows and group 1 filters ([`LeftStamp::changed`]).
@@ -80,10 +81,11 @@ pub struct LeftChange {
     pub number_sequences: bool,
     pub isolated_storage: bool,
     pub random: bool,
-    /// The SingleInstance codeunits (object index) whose state changed: an instance that was there before and holds
-    /// another value in a global or went away, or a new instance whose globals do not all hold what a fresh instance
-    /// holds. A global with no comparable form (a .NET object, a stream, a temporary record) counts as changed.
-    pub singles: BTreeSet<usize>,
+    /// The SingleInstance codeunits (object index) whose state changed, each with the globals (index) that changed: of an
+    /// instance that was there before, those that hold another value (all of them when it went away or its number of
+    /// globals differs); of a new instance, those that do not hold what a fresh instance holds. A global with no
+    /// comparable form (a .NET object, a stream, a temporary record) counts as changed.
+    pub singles: BTreeMap<usize, BTreeSet<usize>>,
 }
 
 impl LeftChange {
@@ -106,14 +108,23 @@ impl LeftStamp {
         } else {
             None
         };
-        let objects = self.singles.keys().chain(later.singles.keys());
+        let objects: BTreeSet<usize> = self.singles.keys().chain(later.singles.keys()).copied().collect();
         let singles = objects
-            .filter(|o| match (self.singles.get(o), later.singles.get(o)) {
-                (Some(x), Some(y)) => x.globals != y.globals,
-                (None, Some(y)) => !y.declared,
-                _ => true,
+            .into_iter()
+            .filter_map(|o| {
+                let changed = match (self.singles.get(&o), later.singles.get(&o)) {
+                    (Some(x), Some(y)) if x.globals.len() == y.globals.len() => {
+                        (0..x.globals.len()).filter(|&g| x.globals[g] != y.globals[g]).collect()
+                    }
+                    (None, Some(y)) if y.declared.len() == y.globals.len() => {
+                        (0..y.declared.len()).filter(|&g| !y.declared[g]).collect()
+                    }
+                    (Some(x), _) => (0..x.globals.len()).collect(),
+                    (None, Some(y)) => (0..y.globals.len()).collect(),
+                    (None, None) => BTreeSet::new(),
+                };
+                (!changed.is_empty()).then_some((o, changed))
             })
-            .copied()
             .collect();
         LeftChange {
             session,
@@ -143,8 +154,13 @@ impl Session {
             let engine = self.engine.clone();
             let fresh = self.slot_defaults(&engine.program.objects[o].globals);
             let inst = inst.borrow();
-            let declared = inst.globals.len() == fresh.len()
-                && (inst.globals.iter().zip(&fresh)).all(|(v, f)| at_declared(v, f, &engine, 0));
+            let declared = if inst.globals.len() == fresh.len() {
+                (inst.globals.iter().zip(&fresh))
+                    .map(|(v, f)| at_declared(v, f, &engine, 0))
+                    .collect()
+            } else {
+                Vec::new()
+            };
             let globals = inst
                 .globals
                 .iter()
