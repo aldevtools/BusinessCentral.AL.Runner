@@ -652,3 +652,61 @@ codeunit 97561 "RL NB Kept"
         Assert.AreEqual('second', Lib.Seen(Rows.RunPageBackgroundTask(Codeunit::"RL Neighbor Reader", Parameters, false)), 'ReadUncommitted FindSet');
     end;
 }
+
+// A worker that the test codeunit's OnRun starts, before its first test, when the runner has not begun noting the rows the
+// codeunit writes: a ReadCommitted Get of a table nobody wrote keeps main's answer (not found); after OnRun wrote a row of the
+// table it refuses.
+codeunit 97570 "RL NB OnRun Untouched"
+{
+    Subtype = Test;
+
+    var
+        Assert: Codeunit Assert;
+        Lib: Codeunit "RL NB Lib";
+        Seen: Text;
+
+    trigger OnRun()
+    var
+        Rows: TestPage "RL Rows";
+        Parameters: Dictionary of [Text, Text];
+    begin
+        Rows.OpenView();
+        Parameters := Lib.Parameters('captioned', Lib.NewKey(), 'yes');
+        Seen := Lib.Seen(Rows.RunPageBackgroundTask(Codeunit::"RL Neighbor Reader", Parameters, false));
+    end;
+
+    [Test]
+    procedure ReadCommittedGet_FromOnRun_TableNobodyWrote()
+    begin
+        Assert.AreEqual('-', Seen, 'Get from OnRun of a table nobody wrote');
+    end;
+}
+
+codeunit 97571 "RL NB OnRun Written"
+{
+    Subtype = Test;
+
+    var
+        Assert: Codeunit Assert;
+        Lib: Codeunit "RL NB Lib";
+        Seen: Text;
+
+    trigger OnRun()
+    var
+        Rows: TestPage "RL Rows";
+        A: Code[20];
+        Parameters: Dictionary of [Text, Text];
+    begin
+        A := Lib.NewKey();
+        Lib.Seed(A, '', 'first');
+        Rows.OpenView();
+        Parameters := Lib.Parameters('get', A, 'yes');
+        Seen := Lib.Seen(Rows.RunPageBackgroundTask(Codeunit::"RL Neighbor Reader", Parameters, false));
+    end;
+
+    [Test]
+    procedure ReadCommittedGet_FromOnRun_RowOnRunInserted()
+    begin
+        Assert.AreEqual('error: NDBCS:LockTimeout', Seen, 'Get from OnRun of the row OnRun inserted');
+    end;
+}
